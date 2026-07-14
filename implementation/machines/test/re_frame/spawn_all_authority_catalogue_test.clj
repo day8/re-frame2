@@ -1,57 +1,73 @@
 (ns re-frame.spawn-all-authority-catalogue-test
-  "rf2-p53o47 — the focused catalogue/schema proof for `:spawn-all`
-  exact authority.
+  "The AUTHORITATIVE catalogue/schema proof for `:spawn-all` exact authority
+  (rf2-p53o47, completed rf2-2ai15g).
 
-  This pins the three normative facts the spec/catalogue reconciliation
-  landed, so a regression FAILS here rather than drifting the spec silently:
+  This pins the normative facts the spec/catalogue reconciliation landed so a
+  regression FAILS here rather than drifting the spec silently. Every schema
+  assertion validates runtime-produced records against the EXECUTABLE canonical
+  schema EXTRACTED from `spec/Spec-Schemas.md` (via
+  `re-frame.spawn-all-schema-extract`), and every catalogue assertion is pinned
+  to a NARROW read of the actual `spec/009-Instrumentation.md` row — so
+  weakening the authoritative document is what turns a test red:
 
-    1. SCHEMA — `InvokeAllJoinState` requires `:rf/attempt`
-       (Spec-Schemas §`InvokeAllJoinState`). `spawn-all-init-fx` ALWAYS
-       mints the opaque per-attempt token into a LIVE child-bearing join
-       BEFORE the per-child spawns run, and `join.cljc`'s fold gate
-       requires a non-nil exact match — so a token-less child-bearing
-       join is permanently unable to accept a completion and is NOT a
-       valid live shape. This test mirrors the normative schema slice
-       (token REQUIRED, per Spec-Schemas) and proves a runtime-produced
-       join validates while dissociating the token fails: the proof fails
-       if the token is ever weakened back to `{:optional true}`.
+    1. SCHEMA — the `:spawned` slot union has THREE legal runtime arms
+       (Spec-Schemas §`Machines`): the `:spawn` leaf keyword, the LIVE
+       child-bearing `InvokeAllJoinState` (with `:rf/attempt` REQUIRED — a
+       token-less join is not a valid live shape; `join.cljc`'s fold gate
+       requires a non-nil exact match), and the childless REJECT sentinel
+       `InvokeAllRejectedState` (`{:closed true}`, only `:rf/spawn-all-rejected?
+       true`). A real unregistered-child `:spawn-all` fixture validates the
+       COMPLETE `:rf.runtime/machines` runtime-db against the extracted
+       `Machines` form during the legal pre-parent-exit interval; a sentinel
+       carrying `:children`/authority, and a token-less live join, both fail.
 
-    2. CATALOGUE — the `:rf.machine.spawn-all/child-completed` trace emits
-       `:rf.reply/correlation` (Spec 009 detailed row + `join.cljc`
-       `child-completion-reply-facts`), carrying the fold's
-       parent/invoke/child/spawned identity.
+    2. CATALOGUE — `:rf.machine.spawn-all/child-completed` emits
+       `:rf.reply/correlation` (Spec 009 detailed row + `join.cljc`), carrying
+       the fold's parent/invoke/child/spawned identity.
 
-    3. CATALOGUE — the spawn-all completion ops + their classifier key do
-       not drift: the POST-resolution straggler fires
-       `:rf.machine.spawn-all/late-completion` (Spec 009 quick index +
-       detailed row) classified by `:rf.reply/stale-reason`
-       `:rf.machine.spawn-all/join-resolved`; the PRE-resolution
-       suppression fires `:rf.machine.spawn-all/stale-completion` also
-       classified by `:rf.reply/stale-reason` (NOT the bare `:reason`)."
-  (:require [clojure.test :refer [deftest is testing use-fixtures]]
+    3. CATALOGUE — the spawn-all completion ops + their classifier key do not
+       drift: the POST-resolution straggler fires
+       `:rf.machine.spawn-all/late-completion` (Spec 009 quick index + detailed
+       row) classified by `:rf.reply/stale-reason`
+       `:rf.machine.spawn-all/join-resolved` (a stale-reason VALUE, never an
+       operation); the PRE-resolution suppression fires
+       `:rf.machine.spawn-all/stale-completion` also classified by
+       `:rf.reply/stale-reason` (NOT the bare `:reason`)."
+  (:require [clojure.string :as str]
+            [clojure.test :refer [deftest is testing use-fixtures]]
             [malli.core :as m]
             [re-frame.core :as rf]
+            [re-frame.error-emit :as error-emit]
             ;; load the machines artefact so its fx handlers + late-bind
             ;; hooks are installed when this ns runs in isolation.
             [re-frame.machines]
             [re-frame.machines.test-support :as mtest]
+            [re-frame.spawn-all-schema-extract :as extract]
             [re-frame.substrate.plain-atom :as plain-atom]))
 
 (use-fixtures :each
-  (mtest/make-reset-runtime-fixture {:adapter plain-atom/adapter})
+  (mtest/make-reset-runtime-fixture
+    {:adapter plain-atom/adapter
+     ;; the reject fixture fans an always-on `:rf.error/machine-spawn-
+     ;; unregistered-type` record; clear the always-on listener registry so a
+     ;; leaked listener from an earlier test cannot see it.
+     :init-fn (fn [] (error-emit/clear-error-listeners!))})
   mtest/trace-capture-fixture)
 
-;; The normative `InvokeAllJoinState` slice, mirrored from
-;; Spec-Schemas §`InvokeAllJoinState` with `:rf/attempt` REQUIRED. The
-;; runtime seed shape (`spawn-all-init-fx`) is exactly this map.
-(def ^:private InvokeAllJoinState
-  [:map
-   [:children  [:map-of :keyword :keyword]]
-   [:done      [:set :keyword]]
-   [:failed    [:set :keyword]]
-   [:resolved? :boolean]
-   [:spec      :map]
-   [:rf/attempt :int]])
+;; The canonical `:spawn-all` runtime-db schema forms, EXTRACTED from
+;; spec/Spec-Schemas.md (rf2-2ai15g) — NOT hand-copied. Removing / renaming a
+;; def, or weakening `:rf/attempt` to `{:optional true}`, or dropping the
+;; `InvokeAllRejectedState` arm from the markdown is a test-build / assertion
+;; failure here, so the schema surface and the document cannot drift silently.
+(def ^:private InvokeAllJoinState     (extract/canonical-invoke-all-join-schema))
+(def ^:private InvokeAllRejectedState (extract/canonical-invoke-all-rejected-schema))
+(def ^:private SpawnedSlot            (extract/canonical-spawned-slot-schema))
+(def ^:private Machines               (extract/canonical-machines-schema))
+
+(defn- machines-runtime-db
+  "The frame's live `:rf.runtime/machines` runtime-db partition value."
+  []
+  (get (mtest/runtime-db) :rf.runtime/machines))
 
 (defn- join-state [parent-id invoke-id]
   (get-in (mtest/runtime-db)
@@ -104,20 +120,84 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest live-join-requires-the-attempt-token
-  (testing "rf2-p53o47 — a runtime-produced `:spawn-all` join validates
-            against the normative `InvokeAllJoinState` (token REQUIRED),
-            and dissociating `:rf/attempt` FAILS the schema — the proof a
-            child-bearing join can never be token-less (no optional arm)."
+  (testing "rf2-2ai15g — a runtime-produced `:spawn-all` join validates
+            against the EXTRACTED `InvokeAllJoinState` (token REQUIRED per the
+            authoritative Spec-Schemas document), and dissociating `:rf/attempt`
+            FAILS the schema — the proof a child-bearing join can never be
+            token-less (no optional arm). Guards Spec-009 AC: `:rf/attempt`
+            going `{:optional true}` in the authoritative document turns this
+            red, because the extracted schema would then accept the dissoc."
     (let [j (reg-join-parent! :sac/p1 :sac/p1a :sac/p1b
                               {:join :all :on-all-complete [:all/done]})]
       (is (int? (:rf/attempt j))
           "the live seed always mints an int per-attempt token")
       (is (m/validate InvokeAllJoinState j)
-          (str "the runtime join validates against the required-token schema; "
-               "explain: " (m/explain InvokeAllJoinState j)))
+          (str "the runtime join validates against the extracted required-token "
+               "schema; explain: " (m/explain InvokeAllJoinState j)))
       (is (not (m/validate InvokeAllJoinState (dissoc j :rf/attempt)))
-          "dissociating the token FAILS the schema — the token is required,
-           not optional"))))
+          "dissociating the token FAILS the extracted schema — the token is
+           required in the authoritative document, not optional"))))
+
+;; ---------------------------------------------------------------------------
+;; 1b. SCHEMA — the childless REJECT sentinel is a THIRD legal `:spawned` arm,
+;;     and the COMPLETE Machines runtime-db validates with it present
+;; ---------------------------------------------------------------------------
+
+(deftest reject-sentinel-is-a-legal-spawned-arm
+  (testing "rf2-2ai15g — an UNREGISTERED child TYPE in a `:spawn-all` set seeds
+            the childless `InvokeAllRejectedState` sentinel; the COMPLETE
+            `:rf.runtime/machines` runtime-db validates against the extracted
+            `Machines` form during the legal pre-parent-exit interval, the
+            sentinel validates as the reject arm, and both a sentinel carrying
+            authority keys and a token-less live join FAIL the extracted
+            `:spawned` union."
+    (let [ok-child {:initial :running :data {} :states {:running {}}}
+          ;; :sac/missing is NEVER reg-machine'd — the unregistered child TYPE.
+          parent   {:initial :idle
+                    :states
+                    {:idle    {:on {:start :forking}}
+                     :forking {:spawn-all
+                               {:children        [{:id :ok      :machine-id :sac/rok}
+                                                  {:id :missing :machine-id :sac/missing}]
+                                :join            :all
+                                :on-child-done   :c/done
+                                :on-child-error  :c/failed
+                                :on-all-complete [:all/done]}}
+                     :ready   {}}}]
+      (rf/reg-machine :sac/rok ok-child)
+      (rf/reg-machine :sac/rparent parent)
+      ;; ALSO stand up a genuine LIVE join in the same frame, so the complete
+      ;; runtime-db carries BOTH a reject sentinel and a live child-bearing
+      ;; join at once — the mixed real value the `Machines` form must admit.
+      (reg-join-parent! :sac/live :sac/livea :sac/liveb
+                        {:join :all :on-all-complete [:all/done]})
+      (rf/dispatch-sync [:sac/rparent [:start]])
+      (let [sentinel (join-state :sac/rparent [:forking])]
+        ;; the runtime seeded the childless reject sentinel (pre-parent-exit).
+        (is (= {:rf/spawn-all-rejected? true} sentinel)
+            "the reject sentinel (no :children) is seeded")
+        ;; COMPLETE Machines runtime-db validates WITH the sentinel present.
+        (is (m/validate Machines (machines-runtime-db))
+            (str "the complete :rf.runtime/machines validates against the "
+                 "extracted Machines form; explain: "
+                 (m/explain Machines (machines-runtime-db))))
+        ;; the sentinel is a legal reject arm ...
+        (is (m/validate InvokeAllRejectedState sentinel)
+            "the real sentinel validates against the extracted InvokeAllRejectedState")
+        (is (m/validate SpawnedSlot {:sac/rparent {[:forking] sentinel}})
+            "the sentinel is accepted by the extracted :spawned union")
+        ;; ... but a sentinel that ALSO carries authority is NOT a clean reject:
+        ;; the closed map rejects the extra keys, and it is not a live join.
+        (is (not (m/validate InvokeAllRejectedState (assoc sentinel :children {:a :a#1})))
+            "a sentinel carrying :children FAILS the closed reject schema")
+        (is (not (m/validate SpawnedSlot {:sac/rparent {[:forking] (assoc sentinel :rf/attempt 9)}}))
+            "a sentinel carrying an authority token FAILS the :spawned union")
+        ;; a token-less live join fails BOTH arms → fails the union.
+        (let [live (join-state :sac/live [:racing])]
+          (is (m/validate SpawnedSlot {:sac/live {[:racing] live}})
+              "the real live join is accepted by the :spawned union")
+          (is (not (m/validate SpawnedSlot {:sac/live {[:racing] (dissoc live :rf/attempt)}}))
+              "a token-less live join FAILS the :spawned union — not a valid live shape"))))))
 
 ;; ---------------------------------------------------------------------------
 ;; 2. CATALOGUE — `child-completed` emits `:rf.reply/correlation`
@@ -191,3 +271,57 @@
       (is (= :rf.machine.spawn-all/attempt-unverified
              (:rf.reply/stale-reason (:tags stale)))
           "classified by :rf.reply/stale-reason (pre-resolution)"))))
+
+;; ---------------------------------------------------------------------------
+;; 4. CATALOGUE — the Spec-009 rows themselves carry the facts (narrow reads of
+;;    the AUTHORITATIVE document; each assertion fails independently)
+;; ---------------------------------------------------------------------------
+
+(defn- quick-index-row
+  "The ONE quick-index table row that pipe-lists the spawn-all lifecycle ops —
+  the row containing both `started` and `child-completed`."
+  [text]
+  (->> (str/split-lines text)
+       (filter #(and (str/starts-with? (str/triml %) "|")
+                     (str/includes? % ":rf.machine.spawn-all/started")
+                     (str/includes? % ":rf.machine.spawn-all/child-completed")))
+       first))
+
+(defn- detailed-row
+  "The detailed-catalogue prose bullet that OPENS with `- `<op>`…`."
+  [text op-kw]
+  (->> (str/split-lines text)
+       (filter #(str/starts-with? (str/triml %) (str "- `" op-kw "`")))
+       first))
+
+(defn- line-with [text needle]
+  (->> (str/split-lines text) (filter #(str/includes? % needle)) first))
+
+(deftest spec-009-catalogue-pins-the-spawn-all-ops
+  (testing "rf2-2ai15g — the authoritative Spec-009 rows carry the exact
+            vocabulary the runtime emits; each fact fails independently."
+    (let [text (extract/spec-009-text)
+          qidx (quick-index-row text)
+          cc   (detailed-row text :rf.machine.spawn-all/child-completed)
+          sc   (detailed-row text :rf.machine.spawn-all/stale-completion)]
+      (is (some? qidx) "the spawn-all quick-index row exists")
+      ;; late-completion must stay in the QUICK INDEX (not only the detailed row).
+      (is (str/includes? qidx ":rf.machine.spawn-all/late-completion")
+          "the quick index lists :rf.machine.spawn-all/late-completion")
+      ;; the classifier note stays `:rf.reply/stale-reason`, not bare `:reason`.
+      (is (str/includes? qidx ":rf.reply/stale-reason")
+          "the quick index classifies the stale/late ops by :rf.reply/stale-reason")
+      ;; child-completed correlation must stay documented.
+      (is (some? cc) "the child-completed detailed row exists")
+      (is (str/includes? cc ":rf.reply/correlation")
+          "the child-completed row documents :rf.reply/correlation")
+      ;; stale-completion classifier key stays `:rf.reply/stale-reason`.
+      (is (some? sc) "the stale-completion detailed row exists")
+      (is (str/includes? sc ":rf.reply/stale-reason")
+          "the stale-completion row classifies by :rf.reply/stale-reason")
+      ;; join-resolved is a stale-reason VALUE, never an operation — it appears
+      ;; ONLY as `:rf.reply/stale-reason :rf.machine.spawn-all/join-resolved`.
+      (let [jr (line-with text ":rf.machine.spawn-all/join-resolved")]
+        (is (some? jr) "the join-resolved stale-reason value is documented")
+        (is (str/includes? jr ":rf.reply/stale-reason :rf.machine.spawn-all/join-resolved")
+            "join-resolved is presented as a :rf.reply/stale-reason VALUE, not an op")))))

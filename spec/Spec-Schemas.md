@@ -2579,7 +2579,8 @@ A frame owns two durable partitions held as one physical frame-state container (
    [:spawned       {:optional true} [:map-of :keyword                            ;; parent-machine-id
                                              [:map-of [:vector :keyword]         ;; invoke-id (absolute prefix-path)
                                                       [:or :keyword              ;; :spawn leaf — gensym'd spawned-id
-                                                           InvokeAllJoinState]]]] ;; :spawn-all bookkeeping
+                                                           InvokeAllJoinState     ;; :spawn-all LIVE child-bearing join bookkeeping
+                                                           InvokeAllRejectedState]]]] ;; :spawn-all pre-per-child REJECT sentinel (childless — atomic reject)
    [:spawn-counter {:optional true} [:map-of :keyword :int]]])                   ;; per-machine-id integer counter for hand-emitted :rf.machine/spawn fxs
 
 (def InvokeAllJoinState
@@ -2590,7 +2591,31 @@ A frame owns two durable partitions held as one physical frame-state container (
    [:failed    [:set :keyword]]                                               ;; user-ids that signalled :on-child-error
    [:resolved? :boolean]                                                      ;; latch flips once the join condition resolves
    [:spec      :map]                                                          ;; back-reference for the join intercept
-   [:rf/attempt :int]])                                                       ;; REQUIRED on every live child-bearing join. Opaque monotonic per-attempt token minted at seed by spawn-all-init-fx; stamped into each child's :rf/join-child so the fold gate binds every completion carrier to the exact join attempt (rf2-nvxehu; 005 §Exact-authority fold gate). `spawn-all-init-fx` ALWAYS mints it before the per-child spawns run, and `join.cljc`'s fold gate requires a non-nil exact match, so a token-less join is permanently unable to accept a completion — not a valid live shape. The pre-per-child REJECT sentinel (an unregistered sibling TYPE) is a SEPARATE shape carrying `:rf/spawn-all-rejected?` and NO `:children`, so it never validates as an InvokeAllJoinState; the token is required rather than optional. Treat as opaque — int today, per-session accident-gating.
+   [:rf/attempt :int]])                                                       ;; REQUIRED on every live child-bearing join. Opaque monotonic per-attempt token minted at seed by spawn-all-init-fx; stamped into each child's :rf/join-child so the fold gate binds every completion carrier to the exact join attempt (rf2-nvxehu; 005 §Exact-authority fold gate). `spawn-all-init-fx` ALWAYS mints it before the per-child spawns run, and `join.cljc`'s fold gate requires a non-nil exact match, so a token-less join is permanently unable to accept a completion — not a valid live shape. The pre-per-child REJECT sentinel (an unregistered sibling TYPE) is a SEPARATE shape (`InvokeAllRejectedState`, below) carrying `:rf/spawn-all-rejected?` and NO `:children`, so it never validates as an InvokeAllJoinState; the token is required rather than optional. Treat as opaque — int today, per-session accident-gating.
+
+(def InvokeAllRejectedState
+  ;; The pre-per-child REJECT SENTINEL `spawn-all-init-fx` seeds at the join
+  ;; slot `[:rf.runtime/machines :spawned <parent> <invoke>]` when a `:spawn-all`
+  ;; names an UNREGISTERED child TYPE. The whole invoke rejects ATOMICALLY
+  ;; before any live join-state is seeded (rf2-qb1j5z; 005 §Spawn-and-join via
+  ;; `:spawn-all` §atomic reject): rather than a live `InvokeAllJoinState`, the
+  ;; slot holds this CLOSED single-key marker carrying ONLY
+  ;; `:rf/spawn-all-rejected? true` and — critically — NO `:children` and NO
+  ;; `:rf/attempt`. Because it is childless, `join.cljc`'s interceptor treats
+  ;; the slot as UNSEEDED (a stray completion is a no-op, no deadlock) and
+  ;; `destroy-spawn-all-children!` finds nothing to tear down and clears the
+  ;; slot on parent exit; the registered siblings' per-child `:rf.machine/spawn`
+  ;; fxs read it (`spawn-all-invoke-rejected?`) and suppress themselves, so the
+  ;; malformed invoke spawns NOTHING. This is the THIRD legal runtime shape of
+  ;; the `:spawned` slot's `[:or …]` above — a SEPARATE type from
+  ;; `InvokeAllJoinState`, never a live join with the bookkeeping keys stripped:
+  ;; a live join can never validate as this (it carries `:children` the closed
+  ;; map forbids) and this can never validate as a live join (it lacks the
+  ;; required `:children` / `:rf/attempt`). `{:closed true}` is load-bearing —
+  ;; a sentinel that ALSO carried `:children` or authority keys would be
+  ;; neither a clean reject nor a live join, and must fail closed.
+  [:map {:closed true}
+   [:rf/spawn-all-rejected? [:= true]]])
 
 (def Routing
   ;; The routing runtime's per-frame runtime-db state. :current is the live
