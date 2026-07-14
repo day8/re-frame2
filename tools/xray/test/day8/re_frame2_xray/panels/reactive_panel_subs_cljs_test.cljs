@@ -10,8 +10,11 @@
   The canonical op / projection shapes (Spec 009 §:op-type vocabulary +
   spec/018):
 
-  - `:sub-runs` entry → `{:sub-id _ :query-v _ :recomputed? bool}`;
-    `:recomputed?` splits subs-ran (true) from memo-hit skips (false).
+  - `:sub-runs` entry → `{:sub-id _ :query-v _ :recomputed? true}`; the
+    substrate's `sub-run-row` hardcodes `:recomputed? true` and a
+    `:rf.sub/skip` memo-hit projects NO `:sub-runs` row, so `:subs-ran`
+    IS the run-set — there is no producible memo-hit / `subs-skipped`
+    split (see the `project-record` fabrication note below).
   - `:renders`  entry → `{:render-key [view-id idx] ...}`.
   - flow ops on `:trace-events` → `:rf.flow/computed` / `:rf.flow/skip`.
 
@@ -24,8 +27,13 @@
 
 ;; ---- helpers -----------------------------------------------------------
 
-(defn- sub-run [sub-id recomputed?]
-  {:sub-id sub-id :query-v [sub-id] :recomputed? recomputed?})
+(defn- sub-run
+  "A `:sub-runs` projection row as the substrate actually emits it —
+  `sub-run-row` (capture.cljc) hardcodes `:recomputed? true`, and a
+  `:rf.sub/skip` memo-hit projects no row at all, so there is no
+  `:recomputed? false` shape to fabricate here."
+  [sub-id]
+  {:sub-id sub-id :query-v [sub-id] :recomputed? true})
 
 (defn- render [view-id]
   {:render-key [view-id 0] :triggered-by nil :elapsed-ms nil})
@@ -70,10 +78,8 @@
     (doseq [r [nil {}]]
       (let [p (subs/project-record r)]
         (is (= [] (:subs-ran p)))
-        (is (= [] (:subs-skipped p)))
         (is (= [] (:views-rendered p)))
         (is (= 0 (-> p :counts :subs-ran)))
-        (is (= 0 (-> p :counts :subs-skipped)))
         (is (= 0 (-> p :counts :views-rendered)))
         (is (= 0 (-> p :counts :flows-recomputed)))
         (is (= 0 (-> p :counts :flows-skipped)))))))
@@ -81,38 +87,29 @@
 ;; ---- project-record: subs ran (:recomputed? true) ---------------------
 
 (deftest project-subs-ran
-  (testing ":sub-runs entries with :recomputed? true become :subs-ran rows"
-    (let [record {:sub-runs [(sub-run :cart/state true)
-                             (sub-run :cart/items true)
-                             (sub-run :cart/total true)]}
+  (testing "every :sub-runs entry (:recomputed? true — the only shape the
+            substrate emits) becomes a :subs-ran row; :subs-ran IS the
+            whole run-set"
+    (let [record {:sub-runs [(sub-run :cart/state)
+                             (sub-run :cart/items)
+                             (sub-run :cart/total)]}
           p (subs/project-record record)]
       (is (= 3 (count (:subs-ran p))))
-      (is (= :cart/state (-> p :subs-ran first :sub-id)))
-      (is (= 3 (-> p :counts :subs-ran)))
-      (is (= 0 (-> p :counts :subs-skipped))))))
+      (is (= [:cart/state :cart/items :cart/total]
+             (mapv :sub-id (:subs-ran p)))
+          "order preserved from :sub-runs")
+      (is (= 3 (-> p :counts :subs-ran))))))
 
-;; ---- project-record: subs skipped (memo hits) -------------------------
-
-(deftest project-subs-skipped
-  (testing ":sub-runs entries with :recomputed? false become :subs-skipped rows (§3.4)"
-    (let [record {:sub-runs [(sub-run :user/name false)
-                             (sub-run :cart/eligibility false)]}
-          p (subs/project-record record)]
-      (is (= 2 (count (:subs-skipped p))))
-      (is (= :user/name (-> p :subs-skipped first :sub-id)))
-      (is (= 2 (-> p :counts :subs-skipped)))
-      (is (= 0 (-> p :counts :subs-ran))))))
-
-;; ---- project-record: split a mixed :sub-runs vector -------------------
-
-(deftest project-subs-split-by-recomputed
-  (testing "A mixed :sub-runs vector splits ran vs skipped, order preserved"
-    (let [record {:sub-runs [(sub-run :first true)
-                             (sub-run :second false)
-                             (sub-run :third true)]}
-          p (subs/project-record record)]
-      (is (= [:first :third] (mapv :sub-id (:subs-ran p))))
-      (is (= [:second]       (mapv :sub-id (:subs-skipped p)))))))
+;; NOTE (rf2-vxgfnd.22): the deleted `project-subs-skipped` +
+;; `project-subs-split-by-recomputed` deftests fabricated `:recomputed?
+;; false` `:sub-runs` rows — a shape the SUBSTRATE NEVER EMITS
+;; (`sub-run-row` hardcodes `:recomputed? true`; a `:rf.sub/skip` memo-hit
+;; projects no `:sub-runs` row). The projected `:subs-skipped` slot they
+;; asserted on was doubly-dead — permanently `[]` (unproducible) AND
+;; consumed by no panel (the flow graph reads `:level-1/2-subs` /
+;; `:view-rows` / `:sub-readers`). Surfacing memo-hit subs awaits the real
+;; `:rf.sub/skipped` attribution op (spec/021 §12); it must NOT be
+;; reconstructed by filtering `:sub-runs` on `(complement :recomputed?)`.
 
 ;; ---- project-record: views rendered -----------------------------------
 
@@ -142,12 +139,12 @@
 
 (deftest project-full-record
   (testing "All projections compose from one record"
-    (let [record {:sub-runs     [(sub-run :a true) (sub-run :b false) (sub-run :c true)]
+    (let [record {:sub-runs     [(sub-run :a) (sub-run :b) (sub-run :c)]
                   :renders      [(render :v-x) (render :v-y)]
                   :trace-events [(flow-ev :rf.flow/computed)]}
           p (subs/project-record record)]
-      (is (= 2 (-> p :counts :subs-ran)))
-      (is (= 1 (-> p :counts :subs-skipped)))
+      (is (= 3 (-> p :counts :subs-ran)))
+      (is (= [:a :b :c] (mapv :sub-id (:subs-ran p))))
       (is (= 2 (-> p :counts :views-rendered)))
       (is (= 1 (-> p :counts :flows-recomputed)))
       (is (= [:v-x :v-y] (mapv :view-id (:views-rendered p)))))))
