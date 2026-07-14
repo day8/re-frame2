@@ -1,5 +1,9 @@
 # Invalidate after a mutation
 
+You can [read the cache](../concepts.md). This recipe is one job: after a **write**,
+declare which reads go stale (and optionally patch, populate, or flip the UI
+optimistically) so the UI stays honest without a remembered `invalidateQueries` call.
+
 Your app just wrote to the server. It saved an article, posted a comment, toggled a favorite. The cached reads covering that data are now wrong, and every view still showing them is now showing the past. This guide wires that write to invalidate exactly those reads, so the views refetch automatically and nothing else moves.
 
 Here's the idea underneath, in one sentence: **the write that made the cache stale is the thing that says so.** A timer only guesses, and polling pays for that guess on every interval. The [mutation](../glossary.md#mutation) actually knows — it just changed the data — so it names the reads it broke, once, at registration. That's what we mean by invalidation being *causal*: the cause of the staleness declares it directly.

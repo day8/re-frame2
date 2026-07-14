@@ -1,5 +1,9 @@
 # Paginate a feed
 
+You know how to [register a resource and read five statuses](../concepts.md). This
+recipe is one job: **page a list** — numbered pages in the URL, or a load-more
+infinite feed — without skeletons on every page turn and without hand-rolled cursors.
+
 You have a list with more rows than you want to fetch at once. There are two pagination shapes you actually ship, and they behave differently *on purpose*:
 
 - **Numbered pages** — page 2 *replaces* page 1 on screen. Think search results, an admin table, a "1 2 3 … 29" pager.

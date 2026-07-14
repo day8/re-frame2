@@ -1,5 +1,9 @@
 # Coming from TanStack Query
 
+This page is a **translation**, not a tutorial. For a first resource in re-frame2,
+use the [RealWorld tutorial](tutorial/index.md) (from Part 2) and [the model](concepts.md).
+Here: vocabulary mapping and deliberate divergences.
+
 If you've shipped a React app in the last few years, you've almost certainly reached for TanStack Query (née React Query). You know the move: stop hand-rolling `useEffect` + loading flags, declare a keyed async read, and let a library own the cache, the dedupe, the staleness, and the refetch. SWR and RTK Query are the same instinct wearing different hats.
 
 re-frame2's [resources](concepts.md) capability is that instinct, ported to a data-oriented Clojure world. The core idea transfers almost completely: **a keyed cache of server reads, with staleness, request deduplication, tag-based invalidation, and garbage collection.** If you hold that model, you already understand 80% of resources. This page maps the vocabulary so the remaining 20% lands fast — and then spends most of its words on the handful of places re-frame2 deliberately walked away from the TanStack design, because *that's* the interesting part.

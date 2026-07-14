@@ -1,6 +1,8 @@
 # Part 4: writes — favoriting, posting, invalidation
 
-In [Part 2](02-server-data.md) the app *read* server state through [resources](../glossary.md#resource) — a resource is a cached, declarative read of remote data. In [Part 3](03-auth-and-forms.md) you added login. Reads are only half a real app, though. The moment a user clicks the favorite heart on an article card, or hits **Publish Article** in the editor, the app has to *write* — and a write is harder than a read, because a write makes other reads wrong. Favorite an article and three cached reads go stale at once: the article detail, every list it appears in, and your personal feed.
+In [Part 2](02-server-data.md) the app *read* server state through [resources](../glossary.md#resource). In [Part 3](03-auth-and-forms.md) you added login. Reads are only half a real app: a write makes other reads wrong. The contracts for mutations and tags are in [the model](../concepts.md#writes-invalidate-by-tag--causally); the focused recipe is [Invalidate after a mutation](../how-to/invalidate-after-a-mutation.md).
+
+Favorite an article and three cached reads go stale at once: the article detail, every list it appears in, and your personal feed.
 
 The naive fix is to wire each write to "and now refetch these reads" at the call site. That works right up until you have forty call sites and one of them forgets. re-frame2's answer is a [**mutation**](../glossary.md#mutation): a write registered *once*, with its consequences — which cached reads it breaks — declared on the registration, not at the call site. Click the heart anywhere and the right reads refresh, because the write knows what it breaks.
 

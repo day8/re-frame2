@@ -1,6 +1,13 @@
 # Testing resources
 
-Resources split into three lanes — register, cause, project — and that split is exactly what makes them testable: a test *causes* with an ordinary dispatch, answers the network with the same canned replies a [pipeline-run test](../core/testing/pipeline-runs.md) uses, and *reads* the outcome through the projections. No live server, no waiting, no browser.
+You can [author](concepts.md) and [build](tutorial/index.md) resources. This page is
+how you **prove** the cache.
+
+Resources split into three lanes — register, cause, project — and that split is
+what makes them testable: a test *causes* with an ordinary dispatch, answers the
+network with the same canned replies a [pipeline-run test](../core/testing/pipeline-runs.md)
+uses, and *reads* the outcome through projections. No live server, no waiting, no
+browser.
 
 > **Cause with a dispatch, answer with a canned reply, read the cache projection.**
 

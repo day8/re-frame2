@@ -1,9 +1,12 @@
-# Resources examples
+# Examples
 
-Worked, runnable apps in the repo that exercise the resources surface — read them next to the [Concepts](concepts.md) page to see the ideas in real code.
+Runnable apps next to the docs. Build something yourself first
+([tutorial](tutorial/index.md) or the [model](concepts.md)), then open these in order.
 
-- **resources** — the focused read-resource lifecycle: one articles list + one detail, showing all four ways a read gets *caused* (route entry, an event lease, a manual refresh, a machine-owned ensure) plus the passive `:loading` / `:fetching` / `:refresh-error` status flow. Read-side only — start here. [→](../../examples/capabilities/resources/resources)
-- **realworld_resources** — the full Conduit app rebuilt on resources (reads) + mutations (writes), so you can watch the whole **read → write → invalidate → refetch** loop end to end: scoped invalidation, optimistic favourites with rollback, declarative pagination, and a named session scope. [→](../../examples/real-apps/realworld_resources)
-- **realworld** — the *same* Conduit app, but with reads/writes hand-rolled on raw `:rf.http/managed` and Pattern-RemoteData slices instead of resources. The before-picture: read it beside `realworld_resources` to see exactly what the resource surface buys you. [→](../../examples/real-apps/realworld_http)
-- **infinite_feed** — a load-more / infinite-scroll timeline on the `:infinite true` resource primitive: one growing cache entry, a causal `load-more`, a runtime-owned cursor (the view never threads it), and a `nil` next-page terminal. The accumulate-together counterpart to numbered pagination. [→](../../examples/capabilities/resources/infinite_feed)
-- **managed_http_counter** — the bare `:rf.http/managed` transport that resources lower onto, with no resource layer at all: default reply addressing, real-vs-stubbed traffic, and a genuine in-flight abort. Useful for seeing the substrate resources are built on. [→](../../examples/core/managed_http_counter)
+| Example | What it shows | Read first |
+|---|---|---|
+| [resources](../../examples/capabilities/resources/resources) | Focused read lifecycle: four *causes* (route, event lease, manual refresh, machine ensure); passive statuses | [The model](concepts.md) |
+| [infinite_feed](../../examples/capabilities/resources/infinite_feed) | `:infinite true` load-more; runtime-owned cursor | [Paginate a feed](how-to/paginate-a-feed.md) |
+| [realworld_resources](../../examples/real-apps/realworld_resources) | Full Conduit: scope, mutations, optimistic favorite, session | [Tutorial](tutorial/index.md) |
+| [realworld_http](../../examples/real-apps/realworld_http) | Same Conduit on raw managed HTTP — the *before* picture | [Async HTTP](../async/http.md) |
+| [managed_http_counter](../../examples/core/managed_http_counter) | Bare `:rf.http/managed` substrate resources lower onto | [Async tutorial](../async/tutorial.md) |

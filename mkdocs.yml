@@ -248,8 +248,7 @@ nav:
     - "Coming from XState": machines/coming-from-xstate.md
 
   - Resources:
-    # Tutorial first (build something real), then the model, then task
-    # recipes. The TanStack translation sits last, like XState in Machines.
+    # Landing → tutorial (build) → model → recipes / test → examples → migrate.
     - resources/index.md
     - "Tutorial: Build RealWorld":
       - resources/tutorial/index.md
@@ -258,14 +257,14 @@ nav:
       - "3. Auth and forms": resources/tutorial/03-auth-and-forms.md
       - "4. Mutations and invalidation": resources/tutorial/04-mutations-and-invalidation.md
       - "5. Test and ship": resources/tutorial/05-test-and-ship.md
-    - "Concepts": resources/concepts.md
-    - "How-to":
+    - "The model": resources/concepts.md
+    - "Recipes":
       - "Paginate a feed": resources/how-to/paginate-a-feed.md
       - "Invalidate after a mutation": resources/how-to/invalidate-after-a-mutation.md
-    - "Testing": resources/testing.md
+      - "Testing": resources/testing.md
     - "Examples": resources/examples.md
-    - "Glossary": resources/glossary.md
     - "Coming from TanStack Query": resources/coming-from-tanstack-query.md
+    - "Glossary": resources/glossary.md
 
   - "Async (HTTP)":
     # Tutorial first (get productive), then the reference, then the
