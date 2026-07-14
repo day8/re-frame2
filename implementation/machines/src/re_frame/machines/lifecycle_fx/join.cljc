@@ -49,7 +49,10 @@
   the handler-factory in `re-frame.machines.lifecycle-fx.registration`
   routes every inbound event through it before the machine's normal `:on`
   lookup."
-  (:require [re-frame.machines.parallel :as parallel]
+  (:require [re-frame.frame :as frame]
+            [re-frame.interop :as interop]
+            [re-frame.late-bind :as late-bind]
+            [re-frame.machines.parallel :as parallel]
             [re-frame.machines.path-walk :as path-walk]
             [re-frame.machines.paths :as paths]
             [re-frame.machines.reply :as m-reply]
@@ -64,7 +67,7 @@
 (declare intercept-fold)
 
 ;; ---------------------------------------------------------------------------
-;; Attempt authentication (rf2-nvxehu).
+;; Attempt authentication (rf2-nvxehu) + recordable transport (rf2-t154jx).
 ;;
 ;; A `:spawn-all` child's completion carrier is the PUBLIC event shape
 ;; `[<parent-id> [<done-kw> <child-id> & extra]]` — it carries no actor or
@@ -75,19 +78,33 @@
 ;; `:rf/join-child` membership record (parent/invoke identity, logical child
 ;; id, its own spawned instance address, the join's completion event
 ;; keywords, and the opaque per-attempt token `spawn-all-init-fx` minted into
-;; the join state). When the child's own handler emits a matching completion
-;; dispatch, `stamp-join-completion-fx` (called at the handler-return
-;; boundary in `registration.cljc`) stamps that record onto the INNER event
-;; vector's METADATA under `:rf/join-auth` — the public event value is
-;; untouched, no application-facing surface is added, and only a dispatch
-;; that flowed through the member child's own boundary can carry the stamp.
+;; the join state).
+;;
+;; TRANSPORT (rf2-t154jx). When the child's own handler emits a matching
+;; completion dispatch, `stamp-join-completion-fx` (called at the handler-return
+;; boundary in `registration.cljc`) REWRITES that outbound `:dispatch` /
+;; `:dispatch-later` completion into the framework-internal `:rf.machine/
+;; join-dispatch` fx, which re-dispatches the UNCHANGED public completion event
+;; with the exact-authority tuple attached as the RECORDABLE causal-envelope
+;; fact `:rf.machine/join-auth` on the dispatch's `:rf.cofx`. That channel is
+;; part of the event/coeffect recording + strict-replay contract and is
+;; preserved through delayed dispatch — UNLIKE event-vector metadata, which an
+;; EDN round-trip (strict replay) drops and which the retired `:dispatch-n` /
+;; delayed paths never carried. The parent reads the auth back off its `:rf/cofx`
+;; (`carrier-auth`); metadata is accepted only as a test-forged / immediate
+;; internal handoff fallback. The public event value is untouched, no
+;; application control surface is added (a reserved-`:rf.machine/*` fx that
+;; dispatches ONLY the pre-built carrier it was handed — never traversing
+;; arbitrary effects), and only a dispatch that flowed through the member
+;; child's own boundary carries the stamp.
 ;;
 ;; The interceptor's fold branch then requires the stamp to match
 ;; runtime-owned join state EXACTLY — parent/invoke identity, logical child
 ;; id, exact current actor id, exact attempt token — before a `:done` /
-;; `:failed` fold. Unstamped, superseded (prior attempt / wrong actor), and
-;; duplicate carriers are classified stale and perform ZERO mutation (no
-;; fold, no terminal publication, no resolution, no reap).
+;; `:failed` fold. Unstamped, superseded (prior attempt / wrong actor / old
+;; delayed straggler), and duplicate carriers are classified stale and perform
+;; ZERO mutation (no fold, no terminal publication, no resolution, no reap) —
+;; never a silent replay-success no-op.
 ;; ---------------------------------------------------------------------------
 
 (defn- join-completion-event?
@@ -107,48 +124,96 @@
                   (= error-kw (first inner)))
               (= child-id (second inner))))))
 
-(defn- stamp-completion-event
-  "Stamp the `:rf/join-auth` attempt-authentication metadata onto the INNER
-  event vector of a matching completion carrier. The stamped facts are the
-  exact-authority tuple the interceptor verifies: parent/invoke identity,
-  logical child id, the child's own spawned instance address, and the
-  opaque per-attempt token."
-  [event rec]
-  (let [inner (second event)
-        auth  (select-keys rec [:parent-id :invoke-id :child-id
-                                :spawned-id :attempt])]
-    (assoc event 1 (vary-meta inner assoc :rf/join-auth auth))))
+(defn- join-auth-of
+  "The exact-authority tuple the interceptor verifies, projected from a child's
+  `:rf/join-child` membership record `rec`: parent/invoke identity, logical
+  child id, the child's own spawned instance address, and the opaque per-attempt
+  token."
+  [rec]
+  (select-keys rec [:parent-id :invoke-id :child-id :spawned-id :attempt]))
+
+(defn join-dispatch-fx
+  "fx handler for `:rf.machine/join-dispatch` (rf2-t154jx) — the framework-
+  internal transport that carries a `:spawn-all` child's completion carrier to
+  its parent WITH the exact-authority tuple on the RECORDABLE `:rf.cofx`
+  causal-envelope fact `:rf.machine/join-auth`. `stamp-fx-entry` rewrites a
+  member child's OWN outbound `:dispatch` / `:dispatch-later` completion into
+  this fx at the child's handler-return boundary; the parent's join interceptor
+  reads the auth back off its `:rf/cofx` (`carrier-auth`). The authority thus
+  survives BOTH the event/coeffect recording + strict-replay path AND the
+  delayed-dispatch path (event-vector metadata survives neither).
+
+  Not an application control surface — reserved-`:rf.machine/*` internal, it
+  re-dispatches ONLY the pre-built completion carrier it was handed (never
+  traverses arbitrary / custom effect payloads). The completion event VALUE is
+  unchanged; only the private `:rf.machine/join-auth` cofx fact is added.
+
+  args: `{:event <[parent-id inner-event]> :rf/join-auth <auth-tuple>
+          :ms <ms?>}`. A `:ms` (from a `:dispatch-later` completion) that is
+  positive arms a host timer; nil / non-positive dispatches immediately (the
+  same enqueue a direct `:dispatch` completion takes). The completion inherits
+  the machine-internal front-of-queue ordering + `:source :machine-action` the
+  child's original `:dispatch` carried (the emitter is always a machine child)."
+  [{frame-id :frame} {:keys [event ms] auth :rf/join-auth}]
+  (let [frame-id (frame/require-frame-stamp!
+                   frame-id :rf.machine/join-dispatch
+                   {:where 'rf.machine/join-dispatch :event-id (first event)})
+        opts     {:frame                 frame-id
+                  :source                :machine-action
+                  :rf.machine/internal?  true
+                  ;; The recordable causal-envelope fact. `build-envelope`
+                  ;; preserves a supplied `:rf.cofx` map verbatim (extra
+                  ;; owner-qualified keys kept) and fills `:rf/time-ms`, so the
+                  ;; auth rides `:rf.event/cofx` at record time and is
+                  ;; re-presented on strict replay.
+                  :rf.cofx               {:rf.machine/join-auth auth}}
+        fire!    (fn []
+                   (when-let [dispatch! (late-bind/get-fn :router/dispatch!)]
+                     (dispatch! event opts)))]
+    (if (and (number? ms) (pos? ms))
+      (interop/set-timeout! fire! ms)
+      (fire!)))
+  nil)
 
 (defn- stamp-fx-entry
-  "Stamp one fx-vector entry when it dispatches this child's own completion
-  (`:dispatch` and `:dispatch-n` forms); every other entry rides through
-  untouched."
+  "Rewrite one fx-vector entry that dispatches this child's OWN completion
+  carrier into the `:rf.machine/join-dispatch` transport (rf2-t154jx), carrying
+  the exact-authority tuple on the recordable `:rf.cofx` fact rather than event
+  metadata. Handles the direct `:dispatch` form and the reserved
+  `:dispatch-later` `{:ms n :event event}` form (the delayed path #5839's
+  metadata stamp never covered); the retired top-level `:dispatch-n` arm is
+  gone. Every non-completion entry rides through untouched. The public
+  completion event VALUE is preserved verbatim."
   [fx-entry rec]
   (if (and (vector? fx-entry) (>= (count fx-entry) 2))
     (let [[fx-id arg] fx-entry]
       (cond
         (and (= :dispatch fx-id) (join-completion-event? arg rec))
-        (assoc fx-entry 1 (stamp-completion-event arg rec))
+        [:rf.machine/join-dispatch {:event arg :rf/join-auth (join-auth-of rec)}]
 
-        (and (= :dispatch-n fx-id) (sequential? arg))
-        (assoc fx-entry 1 (mapv #(if (join-completion-event? % rec)
-                                   (stamp-completion-event % rec)
-                                   %)
-                                arg))
+        (and (= :dispatch-later fx-id)
+             (map? arg)
+             (join-completion-event? (:event arg) rec))
+        [:rf.machine/join-dispatch {:event        (:event arg)
+                                    :rf/join-auth (join-auth-of rec)
+                                    :ms           (:ms arg)}]
 
         :else fx-entry))
     fx-entry))
 
 (defn stamp-join-completion-fx
-  "The child-boundary half of the exact-authority contract (rf2-nvxehu).
-  Given the effects map a `:spawn-all` child's handler is about to return
-  and the child's `:rf/join-child` membership record (nil for every
-  non-join-child actor — the common case, a no-op), stamp the
-  `:rf/join-auth` metadata onto each outbound completion carrier in `:fx`
-  targeting this child's own join. Called from the machine-handler return
-  boundary (`registration.cljc/commit-or-finalize`), so it covers action
-  fx, bootstrap-entry fx, and the finalize path uniformly — the existing
-  private lifecycle path, no new application-facing surface."
+  "The child-boundary half of the exact-authority contract (rf2-nvxehu /
+  rf2-t154jx). Given the effects map a `:spawn-all` child's handler is about to
+  return and the child's `:rf/join-child` membership record (nil for every
+  non-join-child actor — the common case, a no-op), REWRITE each outbound
+  completion carrier in `:fx` (direct `:dispatch` and reserved `:dispatch-later`
+  forms) targeting this child's own join into the `:rf.machine/join-dispatch`
+  transport, which re-dispatches the unchanged public event with the exact
+  authority attached on the RECORDABLE `:rf.cofx` fact `:rf.machine/join-auth`.
+  Called from the machine-handler return boundary
+  (`registration.cljc/commit-or-finalize`), so it covers action fx,
+  bootstrap-entry fx, and the finalize path uniformly — the existing private
+  lifecycle path, no new application-facing surface."
   [effects join-child]
   (if (and join-child
            (map? effects)

@@ -47,6 +47,7 @@
             [re-frame.machines.data-validation :as data-validation]
             [re-frame.machines.lifecycle-fx.destroy :as destroy]
             [re-frame.machines.lifecycle-fx.frame-destroy :as frame-destroy]
+            [re-frame.machines.lifecycle-fx.join :as join]
             [re-frame.machines.lifecycle-fx.registration :as registration]
             [re-frame.machines.lifecycle-fx.resolver :as resolver]
             [re-frame.machines.lifecycle-fx.spawn :as spawn]
@@ -295,6 +296,10 @@
   {:doc "Dispatch an event to a spawned actor addressed by `:system-id`. Emit `[:rf.machine/dispatch-to-system [<system-id> <event-vector>]]` from a machine action's `:fx` vector. No-op when the system-id is unbound. The single named-addressing escape (advanced/parity tier); zero in-repo consumers, retained for XState v6 actor-system parity. Per Spec 005 §Cross-machine messaging by name."}
   dispatch-to-system-fx)
 
+(fx/reg-fx :rf.machine/join-dispatch
+  {:doc "Machine-internal (rf2-t154jx): the recordable transport for a `:spawn-all` child's completion carrier. The runtime rewrites a member child's own outbound `:dispatch` / `:dispatch-later` completion into this fx so the exact-authority tuple rides the recordable `:rf.cofx` `:rf.machine/join-auth` fact (surviving strict replay + delayed dispatch), not event metadata. Not for direct application use. Per Spec 005 §Spawn-and-join via :spawn-all."}
+  join/join-dispatch-fx)
+
 ;; ---- framework-shipped subs -----------------------------------------------
 ;;
 ;; Per Spec 005 §Subscribing to machines via the :rf/machine sub: the
@@ -355,6 +360,7 @@
            [:fx  :rf.machine/after-cancel]
            [:fx  :rf.machine/update-snapshot]
            [:fx  :rf.machine/dispatch-to-system]
+           [:fx  :rf.machine/join-dispatch]
            [:sub :rf/machine]
            [:sub :rf.machine/has-tag?]])))
 
