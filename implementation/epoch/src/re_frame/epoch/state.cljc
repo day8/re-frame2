@@ -879,34 +879,56 @@
   ;; cb-id → {frame-id → generation-token}
   (atom {}))
 
-;; ---- delayed predecessor-silencing lineage (rf2-vxgfnd.265) ---------------
+;; ---- delayed predecessor-silencing lineage (rf2-vxgfnd.265 / .285) ---------
 ;;
 ;; A destroyed incarnation A's `:rf.epoch.cb/silenced-on-frame-destroy` fan can
 ;; be DEFERRED past a same-id successor B's whole lifecycle: A's post-dissoc
 ;; publish hook is held while B — constructable only after dissoc — claims,
 ;; settles/re-arms, and even destroys. #5872 gated the WHOLE fan on one coarse
 ;; `cleanup-frame-owner!` result, conflating three DISTINCT events — store claim,
-;; callback delivery/re-arm, and terminal silence. Deciding PER callback-
-;; generation identity needs two kinds of evidence:
+;; callback delivery/re-arm, and terminal silence. .265 decided each silence PER
+;; callback-generation identity; .285 makes that lineage additionally EXACT,
+;; LINEARIZABLE, and BOUNDED. Deciding PER identity needs two kinds of evidence:
 ;;
 ;;   * delivery/re-arm (live): a successor that re-armed a cb and is STILL LIVE
 ;;     leaves that cb in the live observation ledger (`cbs-observing-frame`), so
 ;;     the callback is live on the successor rather than silent.
 ;;   * terminal-silence (survives cleanup): a successor that re-armed then
 ;;     DESTROYED already emitted the one truthful silence AND dropped its live
-;;     observation on cleanup — so the live ledger no longer shows it. This
+;;     observation on cleanup — so the live ledger no longer shows it. A
 ;;     monotonic mark records that a `(frame, cb)` silence fired and is NOT
 ;;     dropped by `cleanup-frame-owner!`; it survives long enough for a paused
 ;;     predecessor to see it and NOT re-emit the identical unqualified signal
 ;;     (the A→B→nil ABA). A fresh delivery to the cb supersedes the mark
 ;;     (`record-observation!` prunes it — a new continuum will owe its own
-;;     silence), which keeps the ledger bounded across incarnation churn.
+;;     silence).
 ;;
 ;; A snapshots a `baseline` seq BEFORE dissoc (a same-id B is constructable only
 ;; AFTER dissoc, so any successor silence is stamped strictly after A's baseline).
 ;; A mark ABOVE that baseline is a successor's → A skips; a mark at/below is a
 ;; superseded earlier continuum, which the live-observation and generation checks
 ;; already resolve.
+;;
+;; The three .285 properties and where each is enforced:
+;;
+;;   EXACT — the owed `{cb-id → generation}` map is derived from ONE consistent
+;;     (listeners, observed) read (`snapshot-terminal-observers`) with the
+;;     generation taken from the OBSERVATION STAMP, never a second registry
+;;     re-read. A replacement landing mid-snapshot can therefore never attribute
+;;     A's observation to a fresh generation H it never observed under.
+;;   LINEARIZABLE — eligibility AND the mark write are ONE atomic operation
+;;     (`claim-delayed-silence!`, under `silence-lock`): it rechecks the current
+;;     generation, the CURRENT live observers (fresh, not a stale pre-loop set),
+;;     and the existing mark, then reserves a fresh monotonic seq BEFORE external
+;;     delivery. The seq is the single total order the observer relies on; two
+;;     overlapping same-id publishers can never both claim. A reservation is
+;;     rolled back only if envelope delivery itself throws.
+;;   BOUNDED — a per-frame outstanding-predecessor counter
+;;     (`open-`/`close-silence-lineage!`) brackets the deferred window. Marks for
+;;     a frame are retained ONLY while a deferred predecessor of THAT frame is
+;;     outstanding; when the last one resolves the frame's marks are reclaimed,
+;;     so a persistent callback destroying unboundedly many unique frame ids does
+;;     not accrete a permanent tombstone per id.
 
 (defonce ^:private terminal-silence-seq (atom 0))
 
@@ -928,14 +950,6 @@
   ;; re-emit a silence a successor already delivered; pruned when a fresh
   ;; delivery re-arms the cb (`record-observation!`) or the cb unregisters.
   (atom {}))
-
-(defn record-terminal-silence!
-  "Stamp that `(frame-id, cb-id)` was terminally silenced now, under a fresh
-  monotonic marker. Overwrites any earlier mark — only the latest matters."
-  [frame-id cb-id]
-  (swap! terminal-silence-marks assoc-in [frame-id cb-id]
-         (next-terminal-silence-seq))
-  nil)
 
 (defn- prune-terminal-silence-mark!
   "Drop the terminal-silence mark for `(frame-id, cb-id)` — a fresh delivery to
@@ -967,39 +981,140 @@
                       m)))
   nil)
 
+;; The silence ledger is read + written across three atoms (`listeners`,
+;; `observed-frames-by-cb`, `terminal-silence-marks`). `silence-lock` makes the
+;; eligibility-recheck + mark-reservation of `claim-delayed-silence!` — and the
+;; bracket bookkeeping — ONE linearizable critical section, mirroring
+;; `frame-owner-lock`. It serialises silence operations against each other; the
+;; registry/observation atoms keep their own lock-free swaps, so an ordinary
+;; fan-out never contends on it.
+#?(:clj
+   (defonce ^:private silence-lock (Object.)))
+
+(defn- with-silence-lock [f]
+  #?(:clj  (locking silence-lock (f))
+     :cljs (f)))
+
+;; frame-id → count of deferred predecessors of THAT frame whose terminal
+;; evidence is currently outstanding (snapshotted but not yet published). A
+;; `(frame, cb)` mark can only ever be consulted by a deferred predecessor OF
+;; THAT SAME frame (`claim-delayed-silence!` reads marks keyed by its own
+;; frame-id), so the frame's marks are needed only while its count is positive.
+;; When the last outstanding predecessor of a frame resolves, the frame's marks
+;; are reclaimed — this is what bounds `terminal-silence-marks` under a persistent
+;; callback that observes and destroys unboundedly many unique frame ids
+;; (rf2-vxgfnd.285). Marks for OTHER frames are untouched, so a held predecessor
+;; keeps only the marks it can still consume.
+(defonce ^:private outstanding-silence-lineages (atom {}))
+
+(defn open-silence-lineage!
+  "Open the deferred-silence window for one destroyed incarnation of `frame-id`.
+  Called by `snapshot-terminal-destroy-evidence!` when it binds A's owed evidence
+  before dissoc, so the frame's terminal-silence marks survive until A publishes.
+  Balanced by exactly one `close-silence-lineage!`."
+  [frame-id]
+  (with-silence-lock
+    (fn []
+      (swap! outstanding-silence-lineages update frame-id (fnil inc 0))
+      nil)))
+
+(defn close-silence-lineage!
+  "Close one deferred-silence window for `frame-id`. When the frame's last
+  outstanding predecessor resolves, no paused predecessor of the frame can
+  consult its marks, so they are reclaimed — the boundedness guarantee. Balances
+  exactly one `open-silence-lineage!`."
+  [frame-id]
+  (with-silence-lock
+    (fn []
+      (let [remaining (swap! outstanding-silence-lineages
+                             (fn [m]
+                               (let [n (dec (get m frame-id 0))]
+                                 (if (pos? n)
+                                   (assoc m frame-id n)
+                                   (dissoc m frame-id)))))]
+        (when-not (contains? remaining frame-id)
+          (swap! terminal-silence-marks dissoc frame-id)))
+      nil)))
+
 (defn reset-frame-silences!
-  "Wipe every terminal-silence mark and reset the monotonic counter for
-  fixture/global reset."
+  "Wipe every terminal-silence mark and every outstanding-predecessor bracket for
+  fixture/global reset.
+
+  The monotonic `terminal-silence-seq` is deliberately NOT reset. Recycling it to
+  0 could make a post-reset successor's mark compare at/below an outstanding
+  predecessor's earlier baseline, letting that predecessor re-emit a silence the
+  successor already fired (rf2-vxgfnd.285). The seq is a plain process-monotonic
+  comparison domain — its absolute value is never observed, only ordering — so
+  letting it climb across resets is free and keeps the domain non-recycling."
   []
   (reset! terminal-silence-marks {})
-  (reset! terminal-silence-seq 0)
+  (reset! outstanding-silence-lineages {})
   nil)
 
-(defn delayed-silence-owed?
-  "Decide, PER callback-generation identity, whether a DEFERRED predecessor A
-  should still emit its `:rf.epoch.cb/silenced-on-frame-destroy` for `cb-id`.
+(defn live-observer?
+  "True when `cb-id`'s CURRENT generation observes `frame-id` right now — the
+  observation stamp for the frame equals the cb's live generation token. Read
+  fresh (both derefs here), so a successor re-arming a cb mid-fan is honoured the
+  instant it lands rather than against a stale pre-loop set (rf2-vxgfnd.285)."
+  [frame-id cb-id]
+  (let [token (get-in @observed-frames-by-cb [cb-id frame-id] ::absent)]
+    (and (not= token ::absent)
+         (= token (:generation (get @listeners cb-id))))))
 
-  A snapshotted `cb-id` observing its frame under `observed-gen`, plus a
-  `baseline` terminal-silence seq, before dissoc. `live-observers` is the set of
-  cbs whose CURRENT generation observes the frame at decision time (read AFTER
-  the compare-owned cleanup). A owes the silence iff ALL hold:
+(defn claim-delayed-silence!
+  "Atomically CLAIM the one `:rf.epoch.cb/silenced-on-frame-destroy` for
+  `(frame-id, cb-id)` on behalf of a deferred predecessor A whose snapshot
+  observed the frame under `observed-gen` with terminal-silence `baseline`.
 
-    1. `cb-id`'s current generation is still the one that observed A — a
-       re-registered / dropped cb is a fresh generation that never observed A, so
-       it receives no stale signal.
-    2. `cb-id` is NOT currently a live observer — a successor that re-armed it
-       and is STILL LIVE owns the silence (the callback is live on the successor,
-       not silent).
-    3. no terminal silence for (frame, cb) was recorded AFTER A's baseline — a
-       successor that re-armed then DESTROYED already emitted the one truthful
-       silence, so re-emitting would be the ABA double-signal. (A mark at/below
-       the baseline is A's own idempotent re-run or a superseded earlier
-       continuum, already resolved by checks 1 and 2.)"
-  [frame-id cb-id observed-gen baseline live-observers]
-  (and (= observed-gen (:generation (get @listeners cb-id)))
-       (not (contains? live-observers cb-id))
-       (let [s (get-in @terminal-silence-marks [frame-id cb-id])]
-         (or (nil? s) (<= s (or baseline 0))))))
+  Under `silence-lock` — the single linearization point for this signal — it
+  rechecks, against the FRESHEST listener and observation state, that:
+
+    1. `cb-id`'s current generation still equals `observed-gen` — a replacement /
+       drop in the deferred window is a fresh generation that never observed A,
+       and a callback swapped between eligibility and delivery cannot inherit A's
+       unqualified silence.
+    2. `cb-id` is NOT a current live observer — a still-live successor that
+       re-armed it owns the live callback, not a silence. Read fresh, so a trace
+       listener that re-arms this identity earlier in the same fan is honoured.
+    3. no terminal-silence mark for `(frame, cb)` stands ABOVE `baseline` — a
+       successor (or an overlapping same-id publisher) already claimed the one
+       signal; re-emitting would be the A→B→nil ABA / concurrent double-signal.
+
+  When all hold it RESERVES a fresh monotonic seq (writing the mark inside the
+  same critical section) and returns it — the caller then delivers the envelope
+  externally and, only if that delivery THROWS, calls `rollback-delayed-silence!`
+  with this seq. When any check fails it writes nothing and returns nil (no
+  silence). Two overlapping publishers cannot both reserve: the first writes the
+  mark, the second sees it above baseline and returns nil."
+  [frame-id cb-id observed-gen baseline]
+  (with-silence-lock
+    (fn []
+      (when (and (= observed-gen (:generation (get @listeners cb-id)))
+                 (not (live-observer? frame-id cb-id))
+                 (let [s (get-in @terminal-silence-marks [frame-id cb-id])]
+                   (or (nil? s) (<= s (or baseline 0)))))
+        (let [seq (next-terminal-silence-seq)]
+          (swap! terminal-silence-marks assoc-in [frame-id cb-id] seq)
+          seq)))))
+
+(defn rollback-delayed-silence!
+  "Undo a `claim-delayed-silence!` reservation `reserved-seq` for `(frame, cb)`
+  when the external envelope delivery threw — but only if OUR reservation still
+  stands (no fresher delivery or claim superseded it). Restores the ledger to
+  as-if-unclaimed so the one signal can be legitimately re-attempted, keeping a
+  failed delivery from leaving a phantom mark that permanently suppresses it."
+  [frame-id cb-id reserved-seq]
+  (with-silence-lock
+    (fn []
+      (when (= reserved-seq (get-in @terminal-silence-marks [frame-id cb-id]))
+        (prune-terminal-silence-mark! frame-id cb-id))
+      nil)))
+
+(defn terminal-silence-marks-snapshot
+  "Read-only view of the `frame-id → {cb-id → seq}` terminal-silence ledger —
+  a boundedness probe for tests."
+  []
+  @terminal-silence-marks)
 
 (defn put-listener!
   "Install or replace `f` under `id` as a fresh listener GENERATION.
@@ -1030,10 +1145,15 @@
   nil)
 
 (defn reset-listeners!
-  "Drop every registered listener and clear all observation bookkeeping."
+  "Drop every registered listener and clear all observation bookkeeping —
+  registry, observation stamps, AND the terminal-silence lineage. Leaving the
+  silence marks behind stranded a tombstone per destroyed frame past a full
+  listener wipe (rf2-vxgfnd.285); with every listener gone no predecessor can owe
+  a silence, so the whole ledger is cleared here too."
   []
   (reset! listeners {})
   (reset! observed-frames-by-cb {})
+  (reset-frame-silences!)
   nil)
 
 (defn listeners-snapshot
@@ -1116,6 +1236,38 @@
                               (= token (:generation (get live cb-id))))
                      cb-id))))
          vec)))
+
+(defn snapshot-terminal-observers
+  "Snapshot the destroyed `frame-id`'s owed observers from ONE consistent read of
+  the listener registry and the observation ledger, returning
+  `{:listeners <live-registry> :observing {cb-id → generation}}`.
+
+  `:observing` carries EACH observing cb's EXACT generation, taken from the
+  OBSERVATION STAMP — never a second registry re-read. This is the exactness
+  guarantee (rf2-vxgfnd.285): the predecessor's old two-step shape validated a
+  generation G through `cbs-observing-frame` and then re-read the registry for
+  the generation, so a replacement landing between the two reads could record a
+  fresh generation H as having observed A. Deriving the generation from the same
+  stamp used to qualify the observer makes that attribution impossible — a cb
+  already replaced by snapshot time simply fails the stamp/live-generation match
+  and is omitted (its stale silence, if any, is the successor's to decide).
+
+  `:listeners` is the SAME registry read used to qualify the observers, so a
+  mid-drain `:halted-destroy` record's listener fan and the owed-observer
+  generations can never disagree across two registry reads."
+  [frame-id]
+  (let [live     @listeners
+        observed @observed-frames-by-cb]
+    {:listeners live
+     :observing (reduce-kv
+                  (fn [acc cb-id frames]
+                    (let [token (get frames frame-id ::absent)]
+                      (if (and (not= token ::absent)
+                               (= token (:generation (get live cb-id))))
+                        (assoc acc cb-id token)
+                        acc)))
+                  {}
+                  observed)}))
 
 (defn drop-frame-observation!
   "Drop `frame-id` from every cb's observation ledger. cbs whose ledger goes
