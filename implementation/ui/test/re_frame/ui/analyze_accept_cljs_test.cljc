@@ -235,6 +235,26 @@
       (is (not (some #{:callee} (:expr-path site)))
           "a symbol head is preserved verbatim — no :callee token is minted"))))
 
+(deftest legitimate-value-flow-still-compiles
+  ;; rf2-vxgfnd.252 — the escape guard rejects ONLY bare reactive authoring
+  ;; vars (sub/lease/frame). Ordinary NON-reactive value flow through a computed
+  ;; callee, a let alias, or an argument stays legal and mints no reactive site,
+  ;; and a DIRECT reactive call passed as a value still lowers to one site.
+  (testing "a non-reactive computed callee is ordinary value flow (no site)"
+    (let [{:keys [ast sites]} (ana-full '[:div {:title ((if p inc dec) 1)}])]
+      (is (empty? (:subs sites)))
+      (is (= '((if p inc dec) 1) (get-in ast [:props :attrs 0 :value]))
+          "the non-reactive callee is preserved verbatim")))
+  (testing "a let-bound non-reactive alias is ordinary value flow (no site)"
+    (let [{:keys [ast sites]} (ana-full '[:div {:title (let [f inc] (f 1))}])]
+      (is (empty? (:subs sites)))
+      (is (= '(let [f inc] (f 1)) (get-in ast [:props :attrs 0 :value])))))
+  (testing "a DIRECT reactive call passed as an argument still lowers to a site"
+    (let [{:keys [sites]} (ana-full '[:div {:title (str (sub [:n]))}])]
+      (is (= 1 (count (:subs sites)))
+          "the direct (sub …) is a compiler-owned call head, not an escaping var")
+      (is (= [[:n]] (map :query (:subs sites)))))))
+
 (deftest lexical-site-id-is-portable-stable-and-query-independent
   (let [template-a [:div (located-sub 102 8 [:item/by-id 'id])]
         template-b [:div (located-sub 202 8 [:item/by-id 'id])]
