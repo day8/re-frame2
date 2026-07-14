@@ -312,7 +312,7 @@
   re-read is value-equal to the snapshot the caller already had. Machine
   snapshots are durable runtime-db state (EP-0001)."
   [frame-id rt-after-alloc spec spawned-id initial-snap
-   {:keys [system-id parent-id invoke-id track? type-ref]}]
+   {:keys [system-id parent-id invoke-id track? type-ref continue?]}]
   (let [existing (when system-id (get-in rt-after-alloc (paths/system-id-path system-id)))
         ;; Stamp the revertible TYPE reference onto the snapshot root so the
         ;; lazy resolver can re-materialise the handler from runtime-db alone. The
@@ -334,21 +334,29 @@
                                                   "; rebinding to " spawned-id
                                                   " (last-write-wins).")
                           :recovery          :warned-and-replaced}))
-    (frame/swap-runtime-db! frame-id
-                            (fn [_rt]
-                              (cond-> rt-after-alloc
-                                spec      (assoc-in (paths/snapshot-path spawned-id) initial-snap)
-                                system-id (assoc-in (paths/system-id-path system-id) spawned-id)
-                                track?    (assoc-in (paths/spawned-path parent-id invoke-id) spawned-id))))
-    (when system-id
-      (trace/emit! :rf.machine :rf.machine/system-id-bound
-                   {:frame      frame-id
-                    :system-id  system-id
-                    ;; The live actor INSTANCE address (the spawned id), not
-                    ;; the registered TYPE; `:machine-id` is reserved for the
-                    ;; type.
-                    :actor-id   spawned-id}))
-    :ok))
+    ;; rf2-3evq0x — the `:rf.error/system-id-collision` trace above is
+    ;; callback-bearing; recheck the exact-incarnation continuation before the
+    ;; runtime-db swap so a listener that destroyed A / published same-id B
+    ;; cannot land the A-derived snapshot / system-id / spawn-slot install (a
+    ;; bare-id `swap-runtime-db!` resolves to the CURRENT incarnation B) or fire
+    ;; the `:rf.machine/system-id-bound` trace for it. `continue?` is nil only
+    ;; for a hypothetical caller that did not thread it — treated as live.
+    (when (or (nil? continue?) (continue?))
+      (frame/swap-runtime-db! frame-id
+                              (fn [_rt]
+                                (cond-> rt-after-alloc
+                                  spec      (assoc-in (paths/snapshot-path spawned-id) initial-snap)
+                                  system-id (assoc-in (paths/system-id-path system-id) spawned-id)
+                                  track?    (assoc-in (paths/spawned-path parent-id invoke-id) spawned-id))))
+      (when system-id
+        (trace/emit! :rf.machine :rf.machine/system-id-bound
+                     {:frame      frame-id
+                      :system-id  system-id
+                      ;; The live actor INSTANCE address (the spawned id), not
+                      ;; the registered TYPE; `:machine-id` is reserved for the
+                      ;; type.
+                      :actor-id   spawned-id}))
+      :ok)))
 
 ;; ---- :rf.machine/spawn -----------------------------------------------------
 
@@ -538,25 +546,39 @@
                     :system-id  system-id
                     :parent-id  parent-id
                     :invoke-id  invoke-id})
-      ;; NO per-instance handler registration. The actor's
-      ;; liveness IS its snapshot's presence in the (revertible) frame
-      ;; value; the snapshot's `:rf/machine-type` (stamped by
-      ;; `install-spawn!`) lets the lazy resolver re-materialise the
-      ;; handler on dispatch. Spawn is a pure runtime-db write.
+      ;; rf2-3evq0x — the `:rf.machine.spawn/spawned` trace above is
+      ;; callback-bearing: a trace LISTENER can synchronously destroy A /
+      ;; publish same-id B before returning. Recheck the exact-incarnation
+      ;; continuation HERE, after the trace fanout and before ANY framework-
+      ;; owned bookkeeping — the install / classification / spawn-order record /
+      ;; `:rf.machine.lifecycle/spawned` trace / `:start` dispatch tail is all
+      ;; A-derived and would otherwise commit into B's name (the bare-id
+      ;; `swap-runtime-db!` resolves to the CURRENT incarnation B). The initial
+      ;; `(continue?)` cascade gate only fenced the SCHEMA-validator callback;
+      ;; this fences the trace-listener callback the earlier gate ran ahead of.
+      ;;
+      ;; NO per-instance handler registration. The actor's liveness IS its
+      ;; snapshot's presence in the (revertible) frame value; the snapshot's
+      ;; `:rf/machine-type` (stamped by `install-spawn!`) lets the lazy resolver
+      ;; re-materialise the handler on dispatch. Spawn is a pure runtime-db
+      ;; write.
       ;;
       ;; (2) Initialise the snapshot + (3) bind :system-id + (4) bind the
       ;; runtime-owned spawn registry (atomically under one runtime-db swap
       ;; so observers see consistent state). When the spawned id was
       ;; allocated from the frame's runtime-db (the hand-emitted-spawn
       ;; fallback path), `rt-after-alloc` already carries the bumped counter —
-      ;; install the snapshot on top of that.
-      (do
+      ;; install the snapshot on top of that. `continue?` is threaded into
+      ;; `install-spawn!` so the callback-bearing `:rf.error/system-id-collision`
+      ;; trace it may emit gets a recheck before the runtime-db swap too.
+      (when (continue?)
         (install-spawn! frame-id rt-after-alloc spec'' spawned-id initial-snap
                         {:system-id system-id
                          :parent-id parent-id
                          :invoke-id invoke-id
                          :track?    track?
-                         :type-ref  type-ref})
+                         :type-ref  type-ref
+                         :continue? continue?})
         ;; Lower the machine spec's projection-relative `:sensitive` / `:large`
         ;; `:data` declarations
         ;; into the per-frame elision registry PER ACTOR INSTANCE — re-rooting
@@ -596,12 +618,17 @@
                       :invoke-id  invoke-id
                       :system-id  system-id
                       :parent-id  parent-id
-                      :state      (:state initial-snap)}))
-      ;; (6) Fire the :start event into the new actor. Spawns that don't
-      ;; supply :start receive a synthetic [:rf.machine.spawn/spawned] so
-      ;; generic child machines can declare their first transition out of an
-      ;; :initial state at spec-write time.
-      (when-let [dispatch! (late-bind/get-fn :router/dispatch!)]
+                      :state      (:state initial-snap)})
+      ;; rf2-3evq0x — the `:rf.machine.lifecycle/spawned` trace above is
+      ;; likewise callback-bearing; recheck ownership once more before the
+      ;; `:start` (or synthetic) actor-bootstrap dispatch so a listener that
+      ;; just replaced A with B cannot kick B's bootstrap under A's authority.
+      (when (continue?)
+        ;; (6) Fire the :start event into the new actor. Spawns that don't
+        ;; supply :start receive a synthetic [:rf.machine.spawn/spawned] so
+        ;; generic child machines can declare their first transition out of an
+        ;; :initial state at spec-write time.
+        (when-let [dispatch! (late-bind/get-fn :router/dispatch!)]
         ;; Stamp `:source :machine-spawn` on the actor-bootstrap dispatch so
         ;; the Epoch panel's DISPATCH step labels it "from machine spawn"
         ;; rather than `:unknown` or `:fx-dispatch` (which would be the value
@@ -615,7 +642,7 @@
                      :source             :machine-spawn}]
           (if (some? start)
             (dispatch! [spawned-id start] opts)
-            (dispatch! [spawned-id [:rf.machine.spawn/spawned]] opts)))))
+            (dispatch! [spawned-id [:rf.machine.spawn/spawned]] opts)))))))
     spawned-id))
 
 ;; ---- :rf.machine/spawn-all-init -------------------------------------------
