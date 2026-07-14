@@ -16,6 +16,8 @@
   epoch evidence), which is the headless contract."
   (:require #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
                :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
+            #?(:clj [clojure.java.io :as io])
+            #?(:clj [clojure.string :as str])
             [re-frame.core                  :as rf]
             [re-frame.error-emit            :as error-emit]
             [re-frame.frame                 :as frame]
@@ -2456,3 +2458,134 @@
            (select-keys (ex-data e) [:expected :actual])))
     (is (some #(= :rf.error/observation-port-version-mismatch (:error %)) records)
         "the boot skew fans the always-on record before throwing")))
+
+;; ===========================================================================
+;; rf2-xakb4p — the catalogue-to-schema / record validation gate.
+;;
+;; The disposal-notify wrapper's record shape is now FROZEN by a canonical
+;; per-category schema ([Spec-Schemas §ObservationOnChangeFailedTags]). This
+;; gate binds that schema to the ACTUAL runtime record fanned at BOTH drain
+;; boundaries, in two directions:
+;;
+;;   1. RECORD → SCHEMA (both hosts): a real :hmr drain and a real :disposed
+;;      drain produce dev-trace `:tags` that satisfy the schema's required-key
+;;      contract, and the always-on record carries the wire fields the 009
+;;      catalogue row lists. Dropping any required key, or drifting the
+;;      channel-discriminating :cause / spoofing :category, fails the gate.
+;;   2. SCHEMA → MARKDOWN (JVM only): Spec-Schemas.md must declare the schema
+;;      enumerating every required key — so removing the row or dropping a key
+;;      from the markdown fails too, and the two surfaces cannot drift silently.
+;;
+;; (The CHANNEL classification — always-on — is already pinned by
+;; error-catalogue-channel-conformance-test + always-on-axis-conformance's
+;; `always-on-categories` literal, which includes this category.)
+;; ===========================================================================
+
+(def ^:private observation-tags-required-keys
+  [:category :rf.sub/id :rf.sub/query-v :where :cause :exception
+   :exception-message :reason])
+
+(defn- valid-observation-on-change-failed-tags?
+  "Structural conformance of a dev-trace `:tags` payload against the canonical
+  [Spec-Schemas §ObservationOnChangeFailedTags] required-key contract. Mirrors
+  the markdown schema; the JVM leg below pins the markdown itself so the two
+  cannot drift silently."
+  [tags]
+  (and (map? tags)
+       (= :rf.error/observation-on-change-failed (:category tags))
+       (keyword? (:rf.sub/id tags))
+       (vector? (:rf.sub/query-v tags))
+       (symbol? (:where tags))
+       (contains? #{:hmr :disposed} (:cause tags))
+       (some? (:exception tags))
+       (string? (:exception-message tags))
+       (string? (:reason tags))))
+
+(deftest hmr-and-disposed-records-validate-against-the-canonical-schema
+  (testing ":hmr boundary — the record validates against the frozen schema"
+    (reg-items!)
+    (seed-items! [:a])
+    (let [boom (ex-info "untyped on-change boom" {::boom true})
+          la   (obs/acquire! (items-target) (fn [_n] (throw boom)))]
+      (let [[_ records traces] (with-both-channels #(reg-items!))
+            tev (first (filterv #(= :rf.error/observation-on-change-failed (:operation %))
+                                traces))
+            rec (first (filterv #(= :rf.error/observation-on-change-failed (:error %))
+                                records))]
+        (is (some? tev) "exactly the one dev-trace event to validate")
+        (is (valid-observation-on-change-failed-tags? (:tags tev))
+            "the :hmr dev-trace tags satisfy the canonical schema")
+        (is (= :hmr (:cause (:tags tev))))
+        (testing "the always-on record carries the wire fields the 009 row lists"
+          (is (some? rec))
+          (is (= [:obs/items] (:event rec)))
+          (is (= :obs/items (:event-id rec)))
+          (is (= fid (:frame rec)))
+          (is (identical? boom (:exception rec)))))
+      (obs/release! la)))
+  (testing ":disposed boundary — the same schema binds the fallback boundary"
+    (reg-items!)
+    (seed-items! [:a])
+    (with-redefs [interop/next-tick (fn [_f] nil)]
+      (let [boom (ex-info "untyped on-change boom" {::boom true})
+            la   (obs/acquire! (items-target) (fn [_n] (throw boom)))]
+        (force-dispose-node! [:obs/items])
+        (let [[_ records traces]
+              (with-both-channels #(obs/drain-pending-disposals! :disposed))
+              tev (first (filterv #(= :rf.error/observation-on-change-failed (:operation %))
+                                  traces))
+              rec (first (filterv #(= :rf.error/observation-on-change-failed (:error %))
+                                  records))]
+          (is (valid-observation-on-change-failed-tags? (:tags tev))
+              "the :disposed dev-trace tags satisfy the canonical schema")
+          (is (= :disposed (:cause (:tags tev))))
+          (is (some? rec))
+          (is (identical? boom (:exception rec))))
+        (obs/release! la)))))
+
+(deftest schema-gate-rejects-required-key-and-value-drift
+  (reg-items!)
+  (seed-items! [:a])
+  (with-redefs [interop/next-tick (fn [_f] nil)]
+    (let [boom (ex-info "untyped on-change boom" {::boom true})
+          la   (obs/acquire! (items-target) (fn [_n] (throw boom)))]
+      (force-dispose-node! [:obs/items])
+      (let [[_ _ traces]
+            (with-both-channels #(obs/drain-pending-disposals! :disposed))
+            tags (:tags (first (filterv #(= :rf.error/observation-on-change-failed
+                                            (:operation %))
+                                        traces)))]
+        (is (valid-observation-on-change-failed-tags? tags)
+            "baseline: the real record validates")
+        (testing "removing any required attribution key fails the gate"
+          (doseq [k observation-tags-required-keys]
+            (is (not (valid-observation-on-change-failed-tags? (dissoc tags k)))
+                (str "removing required key " k " must fail"))))
+        (testing "a :cause off the :hmr/:disposed channel-discriminator fails"
+          (is (not (valid-observation-on-change-failed-tags?
+                     (assoc tags :cause :bogus)))))
+        (testing "a spoofed :category fails"
+          (is (not (valid-observation-on-change-failed-tags?
+                     (assoc tags :category :rf.error/handler-exception))))))
+      (obs/release! la))))
+
+#?(:clj
+   (deftest spec-schemas-declares-the-observation-on-change-failed-schema
+     (let [f     (let [nested (io/file "../../spec/Spec-Schemas.md")
+                       legacy (io/file "../spec/Spec-Schemas.md")]
+                   (if (.exists nested) nested legacy))
+           text  (slurp f)
+           start (str/index-of text "(def ObservationOnChangeFailedTags")
+           block (when start
+                   (let [rest*    (subs text start)
+                         next-def (str/index-of (subs rest* 5) "(def ")]
+                     (subs rest* 0 (if next-def (+ 5 next-def) (count rest*)))))]
+       (is (some? block)
+           "Spec-Schemas.md must declare ObservationOnChangeFailedTags")
+       (when block
+         (is (str/includes? block ":rf.error/observation-on-change-failed")
+             "the schema pins the canonical category")
+         (doseq [k [":category" ":rf.sub/id" ":rf.sub/query-v" ":where"
+                    ":cause" ":exception" ":exception-message" ":reason"]]
+           (is (str/includes? block k)
+               (str "the schema must enumerate the required key " k)))))))

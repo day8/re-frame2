@@ -1026,6 +1026,38 @@ Common keys (`:category`, `:failing-id`, `:reason`, `:frame`) are inherited from
    [:reason     :string]
    [:frame      {:optional true} :keyword]])
 
+(def ObservationOnChangeFailedTags
+  ;; Per Spec 009 §Error catalogue (`:rf.error/observation-on-change-failed`) +
+  ;; the emit site
+  ;; `re-frame.substrate.observation/report-disposal-notify-escape!` (which fans
+  ;; through the two-channel `error-emit/emit-error-both!`, per [006 §Disposal-
+  ;; notification callback failures](006-ReactiveSubstrate.md#disposal-notification-callback-failures--containment-exact-once-surfacing-channel-aware-classification)).
+  ;; A former-owner `on-change` callback threw during the HMR/disposal
+  ;; notification drain (`drain-pending-disposals!`) and the escape's OPAQUE,
+  ;; channel-aware provenance did NOT prove the source already covered the
+  ;; always-on axis (rf2-w55bh0), so the drain wraps it in this stable
+  ;; catalogued category. Subscription-owned attribution: the former owner's
+  ;; entry-sub coordinates ride `:rf.sub/id` (the entry sub id) / `:rf.sub/query-v`
+  ;; (the former owner's query vector). `:cause` discriminates the drain
+  ;; boundary — `:hmr` (the registrar re-registration hook) vs `:disposed` (the
+  ;; next-tick frame-destroy / cache-clear fallback). `:where` is the drain fn
+  ;; symbol. `:exception` is the original throwable (carried as the record's
+  ;; cause); `:exception-message` is its safe message. `:recovery`
+  ;; (`:no-recovery`) hoists to the `:rf/trace-event` envelope's top-level per
+  ;; that shape (NOT a `:tags` key). The category rides the ALWAYS-ON channel:
+  ;; under `:advanced` + `goog.DEBUG=false` the dev-trace leg DCEs while the
+  ;; always-on record survives (one always-on record, zero trace events).
+  [:map
+   [:category          [:= :rf.error/observation-on-change-failed]]
+   [:rf.sub/id         :keyword]
+   [:rf.sub/query-v    [:vector :any]]
+   [:where             :symbol]           ;; 're-frame.substrate.observation/drain-pending-disposals!
+   [:cause             [:enum :hmr :disposed]]
+   [:exception         :any]
+   [:exception-message :string]
+   [:reason            :string]
+   [:frame             {:optional true} :keyword]])
+
 (def NoSuchHandlerTags
   [:map
    [:category          :keyword]

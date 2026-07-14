@@ -1315,6 +1315,81 @@ The port and the public read API split deliberately ⟨09 codex2 F1 — binding�
     semantics unchanged). This is the same probe-recovers / acquire-throws split the
     port already draws for `:rf.error/frame-destroyed`.
 
+### Disposal-notification callback failures — containment, exact-once surfacing, channel-aware classification
+
+The two failure surfaces above (`probe`/`acquire!`/`read` port entry points, and the
+`acquire!` entry-node build) are **synchronous** — the caller is generated commit/render
+machinery and the throw reaches the ViewCell error boundary. One further callback
+surface is **asynchronous and swallowed**: the former-owner `on-change` callbacks the
+port fires while draining queued HMR / disposal notifications
+(`drain-pending-disposals!`, per [§Callback and reentrancy rules](#callback-and-reentrancy-rules)). An `on-change` here is a
+`day8/re-frame2-ui` ViewCell mark-dirty; if it throws, the failure is a re-frame.ui
+consumer defect. This clause is **binding** (rf2-6ui49w + rf2-wbkjk9 + rf2-q3fmqm +
+rf2-w55bh0):
+
+- **Containment (full sibling drain).** Each queued lease's notification runs inside its
+  **own** `try/catch`, so one owner's throwing `on-change` never starves its siblings —
+  every still-live lease in the drain is notified. This mirrors the registrar's per-hook
+  and the sub-cache's per-reaction dispose containment; it closes the one uncontained
+  fan-out (rf2-vxgfnd.28).
+- **Exact-once surfacing past a swallowing boundary.** Both real drain boundaries
+  **discard** the propagated throw: the `:hmr` drain runs inside the registrar's
+  replacement hook, whose per-hook `try/catch` drops it, and the `:disposed` drain rides
+  an `interop/next-tick` Future whose result is never inspected. So every escape is
+  **surfaced exactly once** (Spec 009's one-runtime-error law) *before* the boundary
+  swallows it — correctness never depends on the rethrow being observed. The surfaced
+  record IS the visibility.
+- **First-escape propagation.** After the whole drain completes, the **first** escape is
+  re-thrown for any **direct** caller, with its identity and cause intact — but, per the
+  point above, the framework's observability guarantee never rests on that rethrow
+  reaching anyone.
+- **Channel-aware, opaque provenance classification.** The drain owns **production
+  (always-on) coverage** for the callback failure **unless** the escape's OPAQUE,
+  channel-aware provenance proves the source already fanned an **always-on** record. The
+  decision is by non-forgeable provenance token — never a channel-blind `fanned` Boolean,
+  never `:rf.error/id` truthiness or a reconstructible ex-data shape, never a global
+  seen-error registry (rf2-w55bh0):
+  - **Already covered on the always-on axis** — the port's own emit-then-throw surfaces
+    that fanned through `emit-error-both!` (`read` on a released lease, the fail-loud
+    probe/acquire throws, the ABI guard, the retry-exhausted throw, the acquire-recovery
+    input-fn arms). Their record IS the exactly-once emission and carries the **source's**
+    correct attribution, so the drain adds **nothing** on either channel — no
+    double-report, no attribution overwrite.
+  - **Not covered on the always-on axis** — a source that emitted **only** on the
+    diagnostic trace axis (the production-elided `:rf.error/sub-cycle`), a diagnostic-only
+    thrown category with no fan of its own (`:rf.error/observation-malformed-target` /
+    `…-malformed-lease` / the dev `:rf.error/reentrant-graph-op` assert), a raw untyped
+    consumer bug (`TypeError` / `AssertionError` / host `RuntimeException`), or an
+    application ex-info **spoofing** a framework category — all read FALSE. Production
+    observability is still owed, so the drain adds **exactly one** stable catalogued
+    `:rf.error/observation-on-change-failed` record, carrying the original throwable as
+    the record's `:exception` cause. The escape's own diagnostic category is **never**
+    promoted onto the always-on axis; its detail rides as the wrapper's cause.
+- **Two-channel fan-out.** The drain-owned wrapper rides the shared two-channel fan-out
+  (`emit-error-both!`, rf2-q3fmqm): the always-on record for off-box shippers PLUS the
+  dev diagnostic-trace event Xray's trace tooling consumes (without which a swallowed
+  HMR/disposal callback failure was invisible in the primary debugging surface). The
+  category-specific trace tags carry the disposal `:cause` (`:hmr` / `:disposed`), the
+  former owner's entry-sub coordinates (`:rf.sub/id` / `:rf.sub/query-v`), and the
+  original throwable.
+- **Source attribution.** The record's `:event-id` is the former owner's **entry sub
+  id**, and `error-emit` classifies the wrapper category **subscription-owned**, so its
+  `:source-coord` resolves under `[:sub id]`: a macro-registered sub yields its exact
+  coordinate, a programmatic one omits the slot, and a same-id **event** registration
+  cannot steal the attribution.
+- **HMR / disposed parity.** Containment, exact-once surfacing, provenance classification,
+  and two-channel fan-out are **identical** at both boundaries; only `:cause` differs
+  (`:hmr` vs `:disposed`).
+- **Advanced-production channel behavior.** Under `:advanced` + `goog.DEBUG=false` the
+  dev diagnostic-trace leg is DCE'd inside `trace/emit-error!` while the always-on record
+  survives — **exactly one** always-on record and **zero** diagnostic trace events. The
+  contained sibling drain and the direct-caller first-escape rethrow are unchanged in
+  production.
+
+The category's channel is `always-on` and its per-category `:tags` payload has a
+canonical schema — [Spec-Schemas §`ObservationOnChangeFailedTags`](Spec-Schemas.md#per-category-tags-schemas) — matching the runtime record fanned at both boundaries. See
+[009 §Error event catalogue](009-Instrumentation.md#error-event-catalogue) (`:rf.error/observation-on-change-failed`).
+
 ### The slice-scoped probe memo
 
 Probes are ownership-free, so N sibling sites probing the same query during one render
