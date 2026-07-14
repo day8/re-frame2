@@ -684,17 +684,28 @@
   "Push `event` onto its in-flight frame's run-keyed ring (when the
   run has a `:dispatch-id` and a `:frame`; frameless emits skip the
   ring per the B3 ruling), then fan out to every registered listener.
-  Listener throws are isolated. No-op in production."
-  [event continue?]
-  (push-to-ring! event)
-  (loop [entries (seq @listeners)]
-    (when (and entries (continue?))
-      (let [[_ f] (first entries)]
-        (try
-          (f event)
-          (catch #?(:clj Throwable :cljs :default) _ nil))
-        (when (continue?)
-          (recur (next entries)))))))
+  Listener throws are isolated. No-op in production.
+
+  `retain?` (rf2-vxgfnd.244) gates ONLY the ring push. Under retentionless
+  structural delivery (`re-frame.trace/call-with-structural-delivery`) it is
+  false: an obsolete incarnation's terminal fact still streams live to every
+  listener, but no per-frame ring retains it — the fact carries the bare frame
+  id a same-id successor now shares, so a ring push would leak predecessor
+  evidence into the successor's ring. The default `true` arity preserves the
+  ordinary emit path. Retention is the ONLY thing gated; listener fan-out is
+  unconditional so the required terminal fact reaches live consumers exactly
+  once either way."
+  ([event continue?] (deliver-to-tooling! event continue? true))
+  ([event continue? retain?]
+   (when retain? (push-to-ring! event))
+   (loop [entries (seq @listeners)]
+     (when (and entries (continue?))
+       (let [[_ f] (first entries)]
+         (try
+           (f event)
+           (catch #?(:clj Throwable :cljs :default) _ nil))
+         (when (continue?)
+           (recur (next entries))))))))
 
 (late-bind/set-fn! :trace.tooling/deliver! deliver-to-tooling!)
 

@@ -3493,32 +3493,6 @@
         (safe-call-hook! :fx/on-frame-destroyed! id)
         ;; The shipped subsystems tear down via the named ordered hooks above.
         (emit-frame-destroyed-trace! id)
-        ;; Per Spec 009 §Per-frame trace rings:
-        ;; release the destroyed frame's event-keyed ring so no
-        ;; residual trace events leak across the frame lifecycle. Fired
-        ;; AFTER `:rf.frame/destroyed` emits so the destroyed trace
-        ;; itself (which is frameless and bypasses the ring anyway)
-        ;; still flows through the live stream cleanly. Routed via
-        ;; late-bind so production CLJS bundles (no trace.tooling) no-op.
-        ;; Serialize teardown's two clears with successful upsert publication.
-        ;; The frame is already lifecycle-dead, so a delayed publisher that
-        ;; enters afterwards fails its live-token predicate; a publisher that
-        ;; entered before the flip completes first and these clears win last.
-        ;; No interleaving can repopulate either auxiliary store after cleanup.
-        (serialize-frame-trace-policy!
-         (fn []
-           (safe-call-hook! :trace.tooling/release-frame-ring! id)
-           ;; rf2-zcl055: release the destroyed frame's trace-emission gate
-           ;; flag — the teardown counterpart to construction's
-           ;; `trace/set-frame-no-emit!`. A tool / inspector frame registered
-           ;; with `:rf.trace/frame-no-emit? true` (e.g. `:rf/xray`) otherwise
-           ;; leaves a permanent entry in trace.cljc's process-global
-           ;; `trace-disabled-frames` set (the ring IS freed above; the flag
-           ;; was not — a teardown asymmetry). Called directly (not via a
-           ;; tooling hook) because `trace.cljc` is always loaded — the set +
-           ;; predicate live on the core trace surface, same as construction.
-           ;; Idempotent no-op for application frames (the common case).
-           (trace/clear-frame-no-emit-for! id)))
         ;; EP-0024: there is ONE `frames` registry, and `dissoc-frame!` below IS
         ;; the forget. The frame's resolved generation rides the record's
         ;; `:generation` slot, so dropping the record drops it too — no separate
@@ -3529,8 +3503,42 @@
         ;; and claim (dropping) those stores. The bundle is bound lexically to
         ;; A's exact destroy recipe and published by the post-dissoc epoch hook
         ;; regardless of whether A still owns the stores when it fires.
+        ;; rf2-vxgfnd.244: the snapshot is taken BEFORE the ring release below.
+        ;; The snapshot itself emits no trace on the happy path, but a snapshot-
+        ;; hook FAILURE emits `:rf.warning/teardown-hook-exception` under
+        ;; ordinary (non-structural) delivery — carrying A's bare frame id — so
+        ;; it would push onto A's ring. Ordering it before `release-frame-ring!`
+        ;; means A's normal ring release clears that push instead of the warning
+        ;; recreating an already-released ring. No same-id B can exist yet (this
+        ;; is still pre-dissoc), so ordinary delivery is correct here.
         (let [terminal-evidence (snapshot-epoch-terminal-evidence!
                                   id run-fs-before fs-at-destroy run-time-ms)]
+          ;; Per Spec 009 §Per-frame trace rings:
+          ;; release the destroyed frame's event-keyed ring so no
+          ;; residual trace events leak across the frame lifecycle. Fired
+          ;; AFTER `:rf.frame/destroyed` emits so the destroyed trace
+          ;; itself (which is frameless and bypasses the ring anyway)
+          ;; still flows through the live stream cleanly. Routed via
+          ;; late-bind so production CLJS bundles (no trace.tooling) no-op.
+          ;; Serialize teardown's two clears with successful upsert publication.
+          ;; The frame is already lifecycle-dead, so a delayed publisher that
+          ;; enters afterwards fails its live-token predicate; a publisher that
+          ;; entered before the flip completes first and these clears win last.
+          ;; No interleaving can repopulate either auxiliary store after cleanup.
+          (serialize-frame-trace-policy!
+           (fn []
+             (safe-call-hook! :trace.tooling/release-frame-ring! id)
+             ;; rf2-zcl055: release the destroyed frame's trace-emission gate
+             ;; flag — the teardown counterpart to construction's
+             ;; `trace/set-frame-no-emit!`. A tool / inspector frame registered
+             ;; with `:rf.trace/frame-no-emit? true` (e.g. `:rf/xray`) otherwise
+             ;; leaves a permanent entry in trace.cljc's process-global
+             ;; `trace-disabled-frames` set (the ring IS freed above; the flag
+             ;; was not — a teardown asymmetry). Called directly (not via a
+             ;; tooling hook) because `trace.cljc` is always loaded — the set +
+             ;; predicate live on the core trace surface, same as construction.
+             ;; Idempotent no-op for application frames (the common case).
+             (trace/clear-frame-no-emit-for! id)))
           (dissoc-frame! id)
           (notify-epoch-listeners! id expected-incarnation-token
                                    terminal-evidence))

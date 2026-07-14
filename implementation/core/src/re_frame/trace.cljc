@@ -71,6 +71,13 @@
 (def ^:dynamic ^:private *continuation-predicate* nil)
 (def ^:dynamic ^:private *epoch-capture-enabled?* true)
 (def ^:dynamic ^:private *frame-policy-enabled?* true)
+;; Retentionless structural delivery (rf2-vxgfnd.244). When false, an emitted
+;; event still streams live to every registered trace listener but is NOT
+;; pushed onto any per-frame trace ring. `call-with-structural-delivery` binds
+;; it false so an obsolete incarnation A's terminal facts — which carry A's
+;; inherited dispatch-id and A's bare frame id — cannot be retained by the
+;; ring that id now names (a same-id successor B's ring once B is installed).
+(def ^:dynamic ^:private *ring-retention-enabled?* true)
 
 (defn ^:no-doc call-with-continuation-predicate
   "Run `f` with an internal exact-owner predicate guarding the distinct
@@ -104,14 +111,21 @@
   (continuing?))
 
 (defn ^:no-doc call-with-structural-delivery
-  "Deliver a structural trace without bare-id epoch/policy attribution.
+  "Deliver a structural trace without bare-id epoch/policy attribution and
+  without any per-frame ring retention.
 
   Used when an obsolete incarnation must report a lifecycle fact after its
   registry slot may already belong to a same-id successor. The successor's
-  frame-no-emit policy cannot suppress the predecessor's required fact."
+  frame-no-emit policy cannot suppress the predecessor's required fact, its
+  epoch capture cannot buffer it, and — per rf2-vxgfnd.244 — no per-frame ring
+  (the successor's included, since predecessor and successor share the bare
+  frame id) may retain it. The fact still streams live to every registered
+  trace listener exactly once. This is the whole of `retentionless structural
+  delivery`: global live delivery, zero durable per-frame residue."
   [f]
-  (binding [*epoch-capture-enabled?* false
-            *frame-policy-enabled?* false]
+  (binding [*epoch-capture-enabled?*   false
+            *frame-policy-enabled?*    false
+            *ring-retention-enabled?*  false]
     (f)))
 
 (defn trigger-handler-from-meta
@@ -544,7 +558,10 @@
   (when (continuing?)
     (when-let [deliver-tooling (late-bind/get-fn-cached :trace.tooling/deliver!)]
       (try
-        (deliver-tooling event continuing?)
+        ;; `*ring-retention-enabled?*` rides through so the tooling hook
+        ;; skips the per-frame ring push under retentionless structural
+        ;; delivery while still fanning out to live listeners (rf2-vxgfnd.244).
+        (deliver-tooling event continuing? *ring-retention-enabled?*)
         (catch #?(:clj Throwable :cljs :default) e
           (when (continuing?) (throw e)))))))
 
