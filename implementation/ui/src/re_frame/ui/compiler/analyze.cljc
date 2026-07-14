@@ -339,6 +339,36 @@
                       "a lexical render site. Hoist the read into the view body "
                       "and bind/destructure its value there"))
                {:form binding-form :reactive-kind kind}))
+  ;; Sibling gap (rf2-dzyqis) that PR #5874 (rf2-vxgfnd.252) left open. The call
+  ;; scan above catches an executable `(sub …)`/`(lease …)`/`(frame)` embedded in
+  ;; the pattern, but a BARE reactive authoring var used as a destructuring `:or`
+  ;; DEFAULT is a value, not a call — `{:keys [x] :or {x sub}}`. Binding patterns
+  ;; never pass through expression rewriting, so that bare var flows as a VALUE
+  ;; into the host's destructuring `get` default with no compiler-owned render
+  ;; site: the manifest under-declares and the optimized build elides the read.
+  ;; The `:else` value-flow leaf guard in `rewrite-expr` never sees it (patterns
+  ;; are not rewritten), and a naive value-flow scan of the pattern would
+  ;; false-positive on legitimate lexical shadowing (`{:keys [sub]}` BINDS a local
+  ;; named sub), so this reject is binding-position-AWARE: every symbol the pattern
+  ;; BINDS is added to the ambient locals, so only a bare reactive var reaching a
+  ;; default from OUTSIDE the pattern still resolves to the authoring var. `:or`
+  ;; defaults are the only value-expression slots a binding pattern carries, so
+  ;; scanning the whole shadowed form targets exactly the :or-default path.
+  (let [own-scope (into (:locals e) (env/binding-syms binding-form))]
+    (when-let [kind (bare-reactive-reference-kind e binding-form own-scope)]
+      (env/fail! e :rf.ui.compile/unsupported-form
+                 (str "bare " (name kind) " reference as a destructuring :or "
+                      "default — re-frame.ui/" (name kind) " is a reactive "
+                      "authoring var, sound ONLY as a compiler-owned direct call "
+                      "head ("
+                      (if (= :frame kind) "(frame)"
+                          (str "(" (name kind) " query)"))
+                      "). A binding :or default is never rewritten, so the bare "
+                      "var flows as a VALUE where the compiler cannot own a "
+                      "lexical render site — the manifest under-declares and the "
+                      "optimized build elides the read. Hoist the read into the "
+                      "view body and destructure its committed value there")
+                 {:form binding-form :reactive-kind kind})))
   binding-form)
 
 (defn rewrite-expr

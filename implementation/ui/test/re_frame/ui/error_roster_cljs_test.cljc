@@ -255,6 +255,11 @@
    [:rf.ui.compile/unsupported-form
     '[:div {:title ((if p sub inc) [:q])}]
     ["direct call head" "defview"]]
+   ;; rf2-dzyqis — a bare reactive authoring var used as a destructuring :or
+   ;; DEFAULT (distinct throw site: reject-reactive-binding!'s :or-default guard).
+   [:rf.ui.compile/unsupported-form
+    '[:div {:title (let [{:keys [x] :or {x sub}} m] x)}]
+    ["destructuring :or" "direct call head"]]
    ;; handlers
    [:rf.ui.compile/loop-capturing-handler
     '(for [t ts] [:li {:key (:id t) :on-click [::open (:id t)]} "x"])
