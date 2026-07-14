@@ -62,16 +62,32 @@
   (when-not (.-updating cell)
     (set! (.-published cell) compiled-digest)))
 
+(defn- finalized-digest?
+  "True only for a FINALIZED `bd1-` whole-build digest — never the unpatched
+  fixed-width sentinel a hookless or mis-hooked build leaves in the slot.
+  goog.DEBUG-gated so Closure removes this and its callers' guards from advanced
+  production."
+  [d]
+  (and ^boolean js/goog.DEBUG
+       (string? d)
+       (str/starts-with? d "bd1-")))
+
 (defn current
   "Return the compiler-published, fully-activated whole-build digest in dev, nil
   in production. O(1); no registry traversal or client-side digest computation.
-  Fail-closed (nil) while a hot reload is mid-flight, and after a reloaded source
-  threw before its after-load promotion: a read never advertises a candidate the
-  runtime has not finished activating."
+  Fail-closed (nil) while a hot reload is mid-flight, after a reloaded source
+  threw before its after-load promotion — and, crucially, whenever the published
+  slot is NOT a finalized `bd1-` digest. The namespace-load check below is only
+  an early diagnostic; under Shadow `:loader-mode :script` a top-level throw is
+  reported as a `pageerror` and later scripts still install these accessors, so
+  the raw sentinel a hookless build leaves in the slot must be rejected at EVERY
+  read boundary here — never returned as a false build identity, and therefore
+  never stampable into a complete Root Descriptor (rf2-vxgfnd.205)."
   []
   (when ^boolean js/goog.DEBUG
     (when-not (.-updating cell)
-      (.-published cell))))
+      (let [d (.-published cell)]
+        (when (finalized-digest? d) d)))))
 
 (defn ^:dev/before-load before-load
   "Fence the runtime before Shadow swaps reloaded code: digest/descriptor reads

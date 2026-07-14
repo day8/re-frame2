@@ -226,7 +226,7 @@ function lastPrepareSnapshot() {
   return { version, digest };
 }
 
-async function proveHooklessBuildFailsClosed(shadowRunner, browser, activePage, lkg) {
+async function proveHooklessBuildFailsClosed(shadowRunner, browser) {
   const config = fs.readFileSync(
     path.join(HOOKLESS_CONFIG_ROOT, 'shadow-cljs.edn'), 'utf8',
   );
@@ -284,26 +284,42 @@ async function proveHooklessBuildFailsClosed(shadowRunner, browser, activePage, 
       fail(`hookless runtime produced the wrong diagnostic: ${error.name}: ${error.message}`);
     }
     // Script-loader mode reports the top-level throw as a pageerror, then the
-    // browser may continue loading later independent scripts. If base init ran,
-    // its diagnostic accessor must still expose the unfinalized sentinel —
-    // never a plausible accepted bd1 digest.
-    const unfinalized = await page.evaluate(
+    // browser continues loading later independent scripts and installs the
+    // digest + descriptor accessors. Namespace load is only an EARLY diagnostic;
+    // the enforcement boundary is digest-carrier/current itself, so EVERY later
+    // read must FAIL CLOSED on the unfinalized carrier — the raw sentinel is
+    // never a readable identity (rf2-vxgfnd.205).
+    const laterDigest = await page.evaluate(
       () => typeof globalThis.__rf2ReadDigest === 'function'
         ? globalThis.__rf2ReadDigest()
         : null,
     );
-    if (unfinalized !== DIGEST_SENTINEL) {
-      fail(`hookless runtime exposed a digest after rejection: ${unfinalized}`);
+    if (laterDigest !== null) {
+      fail(`hookless digest read did not fail closed (returned ${JSON.stringify(laterDigest)}); the sentinel must never be a readable identity`);
     }
-
-    const activeDigest = await activePage.evaluate(() => globalThis.__rf2ReadDigest());
-    const stillAccepted = acceptedSnapshot();
-    if (activeDigest !== lkg.digest ||
-        stillAccepted.digest !== lkg.digest ||
-        stillAccepted.version !== lkg.version) {
-      fail('hookless build disturbed the active runtime or accepted JVM snapshot');
+    // Explicit negative assertion over descriptor PUBLICATION: a COMPLETE Root
+    // Descriptor built now stamps :build-digest from current-build-digest, which
+    // is fail-closed — so its :build-digest is null, never the raw sentinel. No
+    // complete descriptor can carry an invalid build identity.
+    const descriptorDigest = await page.evaluate(
+      () => typeof globalThis.__rf2ReadDescriptorDigest === 'function'
+        ? globalThis.__rf2ReadDescriptorDigest()
+        : 'accessor-absent',
+    );
+    if (descriptorDigest !== null) {
+      fail(`hookless complete descriptor published an unfinalized build identity: ${JSON.stringify(descriptorDigest)}`);
     }
-    console.log('ui digest carrier: hookless build rejected before publication (LKG preserved)');
+    // The on-disk carrier still holds only the raw sentinel (asserted above): no
+    // bd1 digest was ever projected, corroborating that nothing published. The
+    // last-known-good of an ACCEPTED build lineage is proven CAUSALLY by the
+    // same-watch-daemon downstream-failure section below; this SEPARATE hookless
+    // config/process is deliberately NOT used as causal LKG proof — its
+    // independent runtime cannot witness an accepted lineage losing its hook
+    // (rf2-vxgfnd.205).
+    console.log(
+      'ui digest carrier: hookless build fails closed at every digest and ' +
+      'descriptor read (no sentinel-stamped identity)',
+    );
   } finally {
     if (page) await page.close();
     tearingDown = true;
@@ -361,11 +377,9 @@ async function main() {
     }
 
     // A separate, real Shadow configuration deliberately omits every build
-    // hook while compiling the same client entry. Its raw sentinel must throw
-    // before base init; the active hooked build remains the LKG witness.
-    await proveHooklessBuildFailsClosed(
-      shadowRunner, browser, page, accepted1,
-    );
+    // hook while compiling the same client entry. Its top-level throw surfaces
+    // as a pageerror, and every later digest/descriptor read must fail closed.
+    await proveHooklessBuildFailsClosed(shadowRunner, browser);
 
     // Warm successful pass: only the unexecuted lazy view changes. The
     // ^:dev/always carrier must be regenerated from its sentinel and reloaded.
