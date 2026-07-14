@@ -1198,13 +1198,6 @@
           ;; floor — mark it inexact (the honest "≥ dropped-cap distinct" signal)
           (and (not known?) at-cap? drop-full?)       (assoc :dropped-exact? false))))))
 
-(defn- record-evidence!
-  "DEBUG plane: fold `payload`'s bounded causal evidence into `cell`'s
-  pending-window accumulator. Elided in production (every caller gates on
-  `interop/debug-enabled?`)."
-  [^ViewCell cell payload]
-  (swap! (state cell) update :evidence fold-evidence payload))
-
 (defonce ^:private evidence-sink
   ;; DEBUG-only consumer seam: `(fn [cell evidence] …)` | nil. Invoked at each
   ;; flush with the coalesced bounded evidence BEFORE it is cleared, so a tool
@@ -1269,17 +1262,37 @@
      :clj nil))
 
 (defn- enrol-dirty!
-  "The PRODUCTION scheduling core: flag `cell` pending, enrol it in the dirty
-  registry once (identity-deduped — a re-mark while already dirty coalesces),
-  and arm one per-drain microtask flush. NO evidence, no compute, no
-  acquire/release (I-5) — this is the WHOLE production invalidation cost, flat
-  in the number of queued events."
-  [^ViewCell cell]
-  (let [st (state cell)]
-    (when-not (:dirty? @st)
-      (swap! st assoc :dirty? true)
-      (swap! dirty-cells conj cell)
-      (schedule-flush!))))
+  "The PRODUCTION scheduling core — ONE linearizable pending-window enrolment
+  transition (rf2-vxgfnd.180). In a SINGLE `swap-vals!` on the cell state,
+  perform the `:dirty?` false→true flip and — in DEV/tool builds only — fold the
+  optional bounded `payload` evidence into the pending window; then, EXACTLY on
+  the false→true transition (read from the swap's OWN prior value, never a
+  separate pre-read), enrol `cell` in the dirty registry once (identity-deduped)
+  and arm one per-drain flush. NO compute, no acquire/release (I-5) — the
+  production cost is one flag flip, flat in the number of queued events (the
+  evidence fold DCEs under goog.DEBUG=false).
+
+  Why one swap (rf2-vxgfnd.180): folding evidence and flipping `:dirty?` in
+  SEPARATE transitions — or reading `:dirty?` to decide enrolment separately from
+  setting it — is not linearizable on the JVM host. A mark racing a
+  `complete-flush!` clear could fold fresh evidence, then read a still-set
+  `:dirty?` and skip enrolment, and completion would then erase that evidence and
+  leave the cell clean and unregistered — a real update lost with no next
+  revision. Folding the flip and the evidence into one swap, and deriving
+  enrolment from that swap's own false→true edge, makes a concurrent mark
+  linearize cleanly EITHER before completion's capture (its evidence joins the
+  captured window) OR after its clear (a fresh next window is enrolled)."
+  ([^ViewCell cell] (enrol-dirty! cell nil))
+  ([^ViewCell cell payload]
+   (let [st (state cell)
+         [old _] (swap-vals! st
+                              (fn [s]
+                                (cond-> (assoc s :dirty? true)
+                                  (and interop/debug-enabled? payload)
+                                  (update :evidence fold-evidence payload))))]
+     (when-not (:dirty? old)
+       (swap! dirty-cells conj cell)
+       (schedule-flush!)))))
 
 (defn mark-dirty!
   "The `on-change` body / test seam: enrol `cell` for a coalesced flush
@@ -1291,19 +1304,44 @@
   render while the debug plane preserves first/latest epoch plus a bounded
   cause/target summary (rf2-vxgfnd.46). `on-change-fn` folds the RICHER port
   payload (cause + target); this arity carries only an epoch, for the JVM/test
-  seam. nil when driven without epoch evidence."
+  seam. nil when driven without epoch evidence. The fold and the dirty flip are
+  ONE linearizable swap (`enrol-dirty!`; rf2-vxgfnd.180)."
   ([^ViewCell cell] (mark-dirty! cell nil))
   ([^ViewCell cell epoch]
-   (when interop/debug-enabled?
-     (record-evidence! cell {:frame-epoch epoch}))
-   (enrol-dirty! cell)))
+   (enrol-dirty! cell {:frame-epoch epoch})))
+
+(def ^:dynamic ^:no-doc *completion-barrier*
+  "JVM linearization TEST SEAM — nil in production (one nil check per completed
+  cell, zero further cost), NEVER bound off a test path (the `*commit-barrier*`
+  idiom). Bound to a `(fn [cell] …)`, `complete-flush!` calls it at the ONE
+  deterministic point BETWEEN reading a cell's pending window and the
+  `compare-and-set!` that clears it, so a fixture can interleave a concurrent
+  `mark-dirty!` INSIDE completion's capture→clear window and prove the transition
+  still linearizes (rf2-vxgfnd.180). Because the clear is a compare-and-set!
+  RETRY loop, a mark landing in the barrier window fails the CAS and completion
+  re-reads — capturing the freshly-folded evidence rather than erasing it."
+  nil)
 
 (defn- complete-flush!
   "PHASE 1 of a batch flush (rf2-vxgfnd.86): complete `cell`'s SCHEDULER STATE
   with NO arbitrary user code — capture the pre-clear DEBUG evidence, clear
-  `:dirty?`/evidence, and advance the revision (WITHOUT notifying listeners yet).
-  No-op / nil when the cell is not dirty. Returns `[cell ev]` for the cell it
-  completed (`ev` nil in production / when the window carried none), else nil.
+  `:dirty?`/evidence, and advance the revision (WITHOUT notifying listeners yet),
+  as ONE linearizable transition (rf2-vxgfnd.180). No-op / nil when the cell is
+  not dirty. Returns `[cell ev]` for the cell it completed (`ev` nil in
+  production / when the window carried none), else nil.
+
+  ONE linearizable capture-and-clear (rf2-vxgfnd.180). The capture (the returned
+  window `ev`), the `:dirty?`/evidence clear, and the revision advance are a
+  SINGLE compare-and-set! transition over the value read at the top of the loop,
+  so the delivered window is EXACTLY the state that was cleared. A `mark-dirty!`
+  racing this on the JVM host either commits BEFORE the CAS — in which case the
+  CAS over the now-stale value fails, the loop re-reads, and the mark's fresh
+  evidence joins the captured window — or AFTER the clear, where it observes a
+  cleared `:dirty?` and enrols a FRESH next window. It can no longer fold
+  evidence into a window this call already captured-by-value yet is about to
+  erase (the pre-fix loss: capture and clear were separate reads/writes, so an
+  interleaved mark's evidence was captured-around then wiped, and its enrolment
+  skipped on a still-set `:dirty?`).
 
   Splitting completion from notification is the order-independence fix. The batch
   core runs this over the WHOLE drained batch BEFORE `deliver-flush!` runs ANY
@@ -1315,11 +1353,16 @@
   in the drained-but-uncompleted batch (→ mark lost) depended on hash order."
   [^ViewCell cell]
   (let [st (state cell)]
-    (when (:dirty? @st)
-      (let [ev (when interop/debug-enabled? (:evidence @st))]
-        (swap! st assoc :dirty? false :evidence nil)
-        (swap! st update :revision inc)
-        [cell ev]))))
+    (loop []
+      (let [s @st]
+        (when (:dirty? s)
+          (let [cleared (-> s
+                            (assoc :dirty? false :evidence nil)
+                            (update :revision inc))]
+            (when-some [barrier *completion-barrier*] (barrier cell))
+            (if (compare-and-set! st s cleared)
+              [cell (when interop/debug-enabled? (:evidence s))]
+              (recur))))))))
 
 (defn- deliver-flush!
   "PHASE 2 of a batch flush (rf2-vxgfnd.86): now that `complete-flush!` has
@@ -1612,12 +1655,11 @@
   rich invalidation payload (`:cause`/`:target`/`:frame-epoch`, plus the
   `:node-*`/`:registry-epoch` axes it carries) into the bounded pending-window
   evidence. Production carries only the enrolment (I-5; the evidence fold DCEs
-  out under goog.DEBUG=false)."
+  out under goog.DEBUG=false). The fold and the dirty flip are ONE linearizable
+  swap (`enrol-dirty!`; rf2-vxgfnd.180)."
   [^ViewCell cell]
   (fn [payload]
-    (when interop/debug-enabled?
-      (record-evidence! cell payload))
-    (enrol-dirty! cell)))
+    (enrol-dirty! cell payload)))
 
 ;; ---- resource ownership family -------------------------------------------
 ;;
