@@ -458,6 +458,64 @@
         "the consumed incarnation is removed from root ownership")))
 
 ;; ===========================================================================
+;; rf2-vxgfnd.182 — the DEFERRED-vs-SYNCHRONOUS host-teardown discriminator
+;;
+;; react-dom 19.2 refuses a SYNCHRONOUS unmount from inside render/commit: the
+;; host `.unmount` returns NORMALLY but runs NONE of the root's effect cleanups,
+;; scheduling the teardown for a later microtask. The ONLY in-process signal is
+;; at this cleanup window — a deferred `.unmount` leaves the root's cells still
+;; `:connected` (the window captured nothing). teardown-root! must then hold the
+;; settlement (which reaps the cells and fires `on-settled` to free the client's
+;; claim) until that boundary, distinguishing it from a synchronous teardown
+;; whose cells the window already captured.
+;; ===========================================================================
+
+(deftest synchronous-teardown-settles-and-fires-on-settled-immediately
+  ;; A host `.unmount` that DID tear down synchronously (the thunk fired the
+  ;; cell's cleanup, as React does inside a normal `.unmount`): the window
+  ;; captured the cell, so settlement is IMMEDIATE — on-settled fires before
+  ;; teardown-root! returns, on every host.
+  (rf/reg-sub :rt/a (fn [db _] (:a db)))
+  (let [fid     (make-frame! :rt/frame {:a 1})
+        inc     (reactive/make-root-incarnation)
+        cell    (mount! ::v inc fid [[:rt/a]])
+        settled (atom false)]
+    (reactive/teardown-root! inc
+                             (fn [] (reactive/disconnect! cell))
+                             (fn [] (reset! settled true)))
+    (is (true? @settled) "a synchronous teardown fires on-settled immediately")
+    (is (= :dead (reactive/lifecycle cell)) "the captured cell is reaped now")))
+
+(deftest deferred-teardown-holds-settlement-past-the-window
+  ;; A host `.unmount` that DEFERRED (the thunk left the connected cell alone,
+  ;; modelling react-dom 19.2's in-render deferral): the window captured nothing
+  ;; and the cell is still connected, so teardown-root! must NOT settle
+  ;; synchronously. On the JVM headless host there is no async React teardown to
+  ;; await, so the settlement runs synchronously; on CLJS it is a real microtask
+  ;; still pending immediately after the call.
+  (rf/reg-sub :rt/a (fn [db _] (:a db)))
+  (let [fid     (make-frame! :rt/frame {:a 1})
+        inc     (reactive/make-root-incarnation)
+        cell    (mount! ::v inc fid [[:rt/a]])
+        settled (atom false)]
+    (is (= :connected (reactive/lifecycle cell)) "precondition: connected")
+    (reactive/teardown-root! inc
+                             (fn [] nil)                    ;; deferred: no cleanup fired
+                             (fn [] (reset! settled true)))
+    #?(:clj
+       (testing "JVM: no async host teardown — settlement runs synchronously"
+         (is (true? @settled) "on-settled fired at the synchronous settlement")
+         (is (= :dead (reactive/lifecycle cell)) "the still-connected cell is reaped")
+         (is (= {:state :unmounted :reason :unmounted :proof :host-teardown}
+                (peek (reactive/intervals cell)))
+             "…proven a host teardown"))
+       :cljs
+       (testing "CLJS: settlement is deferred to a microtask, not run synchronously"
+         (is (false? @settled) "on-settled has NOT fired synchronously")
+         (is (not= :dead (reactive/lifecycle cell))
+             "the connected cell is NOT reaped synchronously — the claim stays fenced")))))
+
+;; ===========================================================================
 ;; Re-entrancy — a nested teardown does not corrupt the outer window
 ;; ===========================================================================
 

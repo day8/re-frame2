@@ -12,7 +12,7 @@
   No DOM — the react-root is a plain JS object with an `unmount` method;
   container ownership is identity-based. The real-React counterpart is the
   browser `re-frame.ui.root-teardown-dom-cljs-test`."
-  (:require [cljs.test :refer [deftest is testing use-fixtures]]
+  (:require [cljs.test :refer [deftest is testing use-fixtures async]]
             [re-frame.core                 :as rf]
             [re-frame.frame                :as frame]
             [re-frame.live-frame           :as live-frame]
@@ -110,3 +110,80 @@
     (is (nil? (client/unmount!* stale)) "stale unmount is an idempotent no-op")
     (is (false? @fired?) "the host `.unmount` was never called")
     (is (= :connected (reactive/lifecycle cell)) "the cell is untouched")))
+
+;; ===========================================================================
+;; rf2-vxgfnd.182 — a DEFERRED host teardown fences the root-id/container claim
+;;
+;; react-dom 19.2 refuses a SYNCHRONOUS unmount from inside render/commit: it
+;; consumes the handle, clears its container marker, and RETURNS NORMALLY while
+;; the teardown work stays scheduled for a later microtask. The ONLY in-process
+;; signal is at `reactive/teardown-root!`'s cleanup window: a deferred `.unmount`
+;; ran NONE of the root's effect cleanups, so the cell is still `:connected`
+;; after the thunk. Here the fake host `.unmount` models exactly that — it
+;; returns without firing the cell's cleanup. `unmount!*` must therefore HOLD the
+;; claim `:tearing-down` (rejecting a reentrant mount/create-root) until the
+;; settlement boundary reaps the cell and frees the claim. These fixtures pin the
+;; SYNCHRONOUS fence; the microtask-settlement completion is graft-checked
+;; synchronously on the JVM (`reactive-root-teardown-cljs-test`) and end-to-end
+;; under real react-dom in `root-mount-dom-cljs-test`.
+;; ===========================================================================
+
+(defn- thrown-id [f]
+  (try (f) nil (catch cljs.core/ExceptionInfo e (:rf.error/id (ex-data e)))))
+
+(deftest deferred-host-teardown-fences-the-claim-not-released-immediately
+  (rf/reg-sub :rtw/a (fn [db _] (:a db)))
+  (live-frame/make-frame {:id :rtw/frame})
+  (frame/replace-app-db! :rtw/frame {:a 1})
+  (let [cell (connected-cell! :rtw/frame [[:rtw/a]])
+        ;; the host `.unmount` DEFERS: it returns normally without firing the
+        ;; cell's effect cleanup (react-dom 19.2's in-render unmount refusal)
+        root (register! :rtw/root (fn [] nil))
+        inc  (:root-incarnation (client/live-root-entry :rtw/root))]
+    (reactive/attach-root! cell inc)
+    (is (= :connected (reactive/lifecycle cell)) "precondition: mounted + connected")
+    (is (nil? (client/unmount!* root)) "unmount!* returns nil (host .unmount did not throw)")
+    (testing "the deferred teardown is FENCED — the claim is held :tearing-down"
+      (is (contains? (client/live-root-ids) :rtw/root)
+          "the root-id/container claim is NOT released while teardown is deferred")
+      (is (= :rf.error/duplicate-root-id
+             (thrown-id #(client/check-root-claim!
+                          'test {:root-id :rtw/root :provenance :authored}
+                          (:container (client/live-root-entry :rtw/root)))))
+          "a reentrant mount on the exact root-id is rejected before any React root")
+      (is (not= :dead (reactive/lifecycle cell))
+          "the cell is not yet reaped — React's deferred teardown has not settled"))))
+
+(deftest deferred-teardown-rejects-a-reentrant-different-id-same-container
+  ;; The container arm: while root A's teardown is deferred, a DIFFERENT root-id
+  ;; targeting A's exact container is rejected `:root-container-in-use`.
+  (rf/reg-sub :rtw/a (fn [db _] (:a db)))
+  (live-frame/make-frame {:id :rtw/frame})
+  (frame/replace-app-db! :rtw/frame {:a 1})
+  (let [cell (connected-cell! :rtw/frame [[:rtw/a]])
+        root (register! :rtw/root (fn [] nil))
+        inc  (:root-incarnation (client/live-root-entry :rtw/root))
+        c    (:container (client/live-root-entry :rtw/root))]
+    (reactive/attach-root! cell inc)
+    (is (nil? (client/unmount!* root)))
+    (is (= :rf.error/root-container-in-use
+           (thrown-id #(client/check-root-claim!
+                        'test {:root-id :rtw/other :provenance :authored} c)))
+        "a different root-id targeting the fenced container is rejected")))
+
+(deftest double-unmount-during-deferred-teardown-is-a-noop
+  ;; A second `unmount!*` while the first teardown is still deferred must NOT
+  ;; re-drive the (consumed) host handle — the :tearing-down guard makes it a
+  ;; no-op, extending idempotency across the deferral window.
+  (rf/reg-sub :rtw/a (fn [db _] (:a db)))
+  (live-frame/make-frame {:id :rtw/frame})
+  (frame/replace-app-db! :rtw/frame {:a 1})
+  (let [cell   (connected-cell! :rtw/frame [[:rtw/a]])
+        calls  (atom 0)
+        root   (register! :rtw/root (fn [] (swap! calls inc)))
+        inc    (:root-incarnation (client/live-root-entry :rtw/root))]
+    (reactive/attach-root! cell inc)
+    (is (nil? (client/unmount!* root)))
+    (is (= 1 @calls) "first unmount drove the host handle once")
+    (is (nil? (client/unmount!* root)) "a second unmount during deferral is a no-op")
+    (is (= 1 @calls) "the consumed host handle was not re-driven")))
