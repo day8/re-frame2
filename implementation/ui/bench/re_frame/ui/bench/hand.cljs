@@ -36,6 +36,17 @@
                       (jsx/jsx "footer" #js {"aria-label" "footer" :tabIndex 0
                                              :children "(c) 2026 <re-frame2> & friends"})]}))
 
+;; `defview` wraps EVERY compiled view in `runtime/memo-view` (= React.memo)
+;; with a generated straight-line `rf=` comparator over its declared slots
+;; (emit-cljs `comparator-form`). The G-1 gate divides compiled/hand, so every
+;; hand DENOMINATOR must carry the SAME React.memo boundary and an equivalent
+;; comparator — otherwise the ratio measures the cost of crossing a memo
+;; boundary rather than the compiler's lowering overhead, and a React.memo cost
+;; change moves the gate with no lowering regression. static-tree declares no
+;; slots, so its compiled comparator is the always-equal `(fn [_ _] true)`.
+(def static-tree*-memo
+  (react/memo static-tree* (fn [_prev _next] true)))
+
 (defn counter* [^js props]
   (let [n       (unchecked-get props "n")
         step    (unchecked-get props "step")
@@ -74,6 +85,16 @@
                         (if (neg? n)
                           (jsx/jsx "p" #js {:className "neg" :children "negative"})
                           (jsx/jsx "p" #js {:className "pos" :children "non-negative"}))]})))
+
+;; counter declares slots n/step/locked? — match the generated straight-line
+;; rf= comparator over exactly those three slots.
+(def counter*-memo
+  (react/memo
+   counter*
+   (fn [^js prev ^js next]
+     (and (eq/rf= (unchecked-get prev "n") (unchecked-get next "n"))
+          (eq/rf= (unchecked-get prev "step") (unchecked-get next "step"))
+          (eq/rf= (unchecked-get prev "locked?") (unchecked-get next "locked?"))))))
 
 (defn todo-row* [^js props]
   (let [todo (unchecked-get props "todo")
@@ -181,3 +202,13 @@
                         (if (= state :error)
                           (jsx/jsx "hr" #js {})
                           nil)]})))
+
+;; status-panel declares slots state/message/retries — match the generated
+;; straight-line rf= comparator over exactly those three slots.
+(def status-panel*-memo
+  (react/memo
+   status-panel*
+   (fn [^js prev ^js next]
+     (and (eq/rf= (unchecked-get prev "state") (unchecked-get next "state"))
+          (eq/rf= (unchecked-get prev "message") (unchecked-get next "message"))
+          (eq/rf= (unchecked-get prev "retries") (unchecked-get next "retries"))))))

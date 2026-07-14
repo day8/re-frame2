@@ -36,7 +36,6 @@
             ["os" :as os]
             [re-frame.ui.bench.hand :as hand]
             [re-frame.ui.bench.views :as v]
-            [re-frame.ui.rules :as rules]
             [re-frame.ui.runtime :as rt]))
 
 ;; ---------------------------------------------------------------------------
@@ -51,14 +50,25 @@
           :priority (case (mod i 4) 0 :low 1 :med 2 :high 3 :low)})))
 
 (def cases
+  "Every gated workload names a memo-matched hand baseline (`:gate-hand`) that
+  carries the SAME React.memo boundary + an equivalent per-slot rf= comparator
+  the compiled `defview` emits (emit-cljs `comparator-form`), so each ratio
+  isolates the compiler's lowering overhead rather than the cost of the
+  always-memo policy. `:hand` is the unwrapped baseline (kept for byte-equality);
+  where `:policy-hand` names it the unwrapped comparison is reported separately
+  as explicit NON-GATING product-policy evidence."
   [{:id "static-tree"  :compiled v/static-tree  :hand hand/static-tree*
+    :gate-hand hand/static-tree*-memo
     :props {}}
    {:id "counter-42"   :compiled v/counter      :hand hand/counter*
+    :gate-hand hand/counter*-memo
     :props {:n 42 :step 10 :locked? false}}
    {:id "todos-20"     :compiled v/todo-list    :hand hand/todo-list*
     :gate-hand hand/todo-list*-memo
+    :policy-hand hand/todo-list*
     :props {:title "Twenty" :todos todos-20}}
    {:id "status-error" :compiled v/status-panel :hand hand/status-panel*
+    :gate-hand hand/status-panel*-memo
     :props {:state :error :message "boom & <bust> \"quoted\"" :retries 2}}])
 
 (def budget
@@ -155,19 +165,31 @@
 ;; ---------------------------------------------------------------------------
 
 (defn- byte-equality! []
-  (let [fails (atom 0)]
+  (let [fails (atom 0)
+        check! (fn [id label c h]
+                 (when (not= c h)
+                   (swap! fails inc)
+                   (println "  BYTE-DIFF" id "against" label)
+                   (println "    compiled:" c)
+                   (println "    hand:    " h)))]
     (doseq [{:keys [id compiled hand gate-hand props]} cases]
       (let [pj (->props props)
             c  (render-html compiled pj)
             baselines (cond-> [["unwrapped hand" hand]]
                         gate-hand (conj ["memo-matched hand" gate-hand]))]
         (doseq [[label baseline] baselines]
-          (let [h (render-html baseline pj)]
-            (when (not= c h)
-              (swap! fails inc)
-              (println "  BYTE-DIFF" id "against" label)
-              (println "    compiled:" c)
-              (println "    hand:    " h))))))
+          (check! id label c (render-html baseline pj)))))
+    ;; The lowering-regression control candidate must render byte-identically to
+    ;; the todos-20 baselines — the mutation is ONLY the class-property lowering,
+    ;; so a byte diff would mean the control measures a different tree.
+    (let [{:keys [gate-hand hand props]}
+          (some #(when (= "todos-20" (:id %)) %) cases)
+          pj (->props props)
+          g  (render-html v/todo-list-generic-class pj)]
+      (check! "todos-20-generic-class-control" "memo-matched hand"
+              g (render-html gate-hand pj))
+      (check! "todos-20-generic-class-control" "unwrapped hand"
+              g (render-html hand pj)))
     (if (zero? @fails)
       (println "precheck: compiled HTML == every measured hand baseline byte-for-byte")
       (do (println "precheck FAILED:" @fails "baseline comparisons differ — ratios would be meaningless")
@@ -177,35 +199,36 @@
   (and (<= p50 (:p50 budget))
        (<= p95 (:p95 budget))))
 
-(defonce ^:private mutation-sink (volatile! nil))
-
-(defn- simulated-flag-map-lowering-regression! []
-  ;; Controlled equivalent of the slow shape caught while building G-1: do
-  ;; the generic classes-str vector/join work once per keyed row instead of
-  ;; the compiler's straight-line static-base + flag append. The separate
-  ;; loop is test-only mutation scaffolding; the volatile keeps Closure from
-  ;; proving the intentionally wasted result dead.
-  (doseq [{:keys [done?]} todos-20]
-    (vreset! mutation-sink
-             (rules/classes-str ["todo-item" (when done? "done")]))))
-
-(defn- lowering-regression-control []
-  (let [{:keys [compiled gate-hand props]}
+(defn- lowering-regression-control
+  "Faithful G-1 red control (rf2-vxgfnd.206): bench the REAL compiled todos-20
+  list whose row class-property is lowered through the generic classes-str path
+  (`v/todo-list-generic-class`) against the SAME memo-matched hand baseline the
+  todos-20 gate uses. The candidate differs from the gated `v/todo-list` at ONE
+  place — the class-property call site (generic `classes-str`/`class-val` join
+  instead of the single-flag straight-line specialization) — with byte-identical
+  output. So the ratio reddens for a genuine class-property lowering regression,
+  not for an injected side workload: there is no second traversal, no duplicate
+  specialized work, and no volatile timing sink. Swapping the candidate back to
+  the specialized `v/todo-list` drops this ratio under budget and fails the
+  `:detected?` assertion in `-main`."
+  []
+  (let [{:keys [gate-hand props]}
         (some #(when (= "todos-20" (:id %)) %) cases)
         pj (->props props)
-        r  (bench-pair #(do (simulated-flag-map-lowering-regression!)
-                            (render-html compiled pj))
+        r  (bench-pair #(render-html v/todo-list-generic-class pj)
                        #(render-html gate-hand pj)
                        opts)
         detected? (not (within-budget? (:ratio r)))]
     (println
      (str (if detected? "  CONTROL PASS " "  CONTROL FAIL ")
-          "todos-20 simulated generic flag-map lowering [must exceed budget]"
+          "todos-20 real generic classes-str class-property lowering [must exceed budget]"
           "  ratio p50=" (fixed4 (get-in r [:ratio :p50]))
           " p95=" (fixed4 (get-in r [:ratio :p95]))
           "  limits p50<=" (fixed4 (:p50 budget))
           " p95<=" (fixed4 (:p95 budget))))
-    {:id "todos-20-generic-flag-map-lowering"
+    {:id "todos-20-generic-classes-str-class-property-lowering"
+     :candidate "compiled todo-list, row class-property lowered via generic classes-str"
+     :baseline "memo-matched hand JSX"
      :expected "budget breach"
      :detected? detected?
      :ratio {:p50 (round4 (get-in r [:ratio :p50]))
@@ -224,17 +247,21 @@
   (byte-equality!)
   (let [results
         (vec
-         (for [{:keys [id compiled hand gate-hand props]} cases]
+         (for [{:keys [id compiled hand gate-hand policy-hand props]} cases]
            (let [pj (->props props)
                  cf #(render-html compiled pj)
-                 hf #(render-html hand pj)
                  gate-hf #(render-html (or gate-hand hand) pj)
                  r  (bench-pair cf gate-hf opts)
                  c  (:compiled r) h (:hand r)
                  r50 (get-in r [:ratio :p50])
                  r95 (get-in r [:ratio :p95])
                  ok? (within-budget? (:ratio r))
-                 policy-r (when gate-hand (bench-pair cf hf opts))
+                 ;; NON-GATING policy evidence: the compiled/UNWRAPPED-hand ratio,
+                 ;; reported only where `:policy-hand` names an unwrapped baseline
+                 ;; (todos-20 — the keyed list where the always-memo policy cost
+                 ;; is meaningful). It never feeds the gate decision.
+                 policy-r (when policy-hand
+                            (bench-pair cf #(render-html policy-hand pj) opts))
                  policy-c (:compiled policy-r)
                  policy-h (:hand policy-r)
                  policy-r50 (get-in policy-r [:ratio :p50])
