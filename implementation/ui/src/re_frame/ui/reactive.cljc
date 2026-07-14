@@ -2597,19 +2597,29 @@
   `:disconnected {:reason :unknown}` and RECONNECTABLE after its root is gone. So
   teardown ALSO consults the `root-cells` ownership registry: after the window
   closes it reaps every still-`:disconnected` cell owned by a torn-down root
-  incarnation. Two incarnation sources, unioned:
+  incarnation. Which incarnation(s) that registry sweep — and the captured set
+  itself — is scoped to depends ON THE ARITY (rf2-vxgfnd.156):
 
-    - `root-incarnation` — the explicit incarnation the caller (the mount/root
-      layer) names for the root being unmounted. This is the deterministic path:
-      it reaps a root's hidden cells even when the window captured NONE (the whole
-      root hidden, or a single already-hidden cell).
-    - the incarnations of every WINDOW-CAPTURED cell — a captured cell names its
-      own root's incarnation, so its still-hidden siblings under the same root are
-      reaped too, even when no explicit incarnation is supplied.
+    - `[root-incarnation unmount-thunk]` — the explicit incarnation is
+      AUTHORITATIVE. It alone derives the hidden-cell victims (the deterministic
+      path: it reaps a root's hidden cells even when the window captured NONE —
+      the whole root hidden, or a single already-hidden cell), AND the
+      window-captured set is FILTERED to cells belonging to that exact identity.
+      A re-entrant cleanup that disconnects a SIBLING root's cell inside the
+      window (a resource-lifecycle / trace listener) therefore neither dies nor
+      expands the sweep onto its root — sibling isolation holds even when the
+      structural host guarantee does not (the cleanup was app-driven, not a
+      React sweep of A's tree).
+    - `[unmount-thunk]` — no explicit generation, so the incarnations of every
+      WINDOW-CAPTURED cell govern: a captured cell names its own root's
+      incarnation, so its still-hidden same-root siblings are reaped too. This is
+      sound because a real host `.unmount` sweeps EXACTLY its own root's tree, so
+      the captured set is precisely that root's cells.
 
-  Only `:disconnected` owned cells are reaped; a still-`:connected` cell of a
-  SIBLING root's incarnation is never in the set, and an incarnation is a fresh
-  per-mount identity, so a replacement root under the same root-id is untouched.
+  Only `:disconnected` owned cells are reaped through the registry; a
+  still-`:connected` cell of a SIBLING root's incarnation is never in the set,
+  and an incarnation is a fresh per-mount identity, so a replacement root under
+  the same root-id is untouched.
 
   Ordering-robust and re-entrancy-safe by save/restore. If `unmount-thunk`
   THROWS, the original host error still propagates, but an EXPLICIT
@@ -2641,10 +2651,28 @@
                           (vreset! captured @teardown-collector)
                           (reset! teardown-collector prev))))
          collected  @captured
-         ;; the incarnations whose hidden cells this teardown owns: the explicit
-         ;; one plus every window-captured cell's own incarnation.
-         incs      (cond-> (into #{} (keep cell-root) collected)
-                     (some? root-incarnation) (conj root-incarnation))
+         explicit?  (some? root-incarnation)
+         ;; When an explicit root incarnation is named it is AUTHORITATIVE: this
+         ;; teardown owns EXACTLY the cells of that generation (rf2-vxgfnd.156). A
+         ;; re-entrant cleanup can disconnect a SIBLING root's cell INSIDE this
+         ;; window — a resource-lifecycle `on-disconnect` or a router trace
+         ;; listener firing during root A's `.unmount` — and such a captured
+         ;; sibling is NOT ours to reap: filter the captured set by identity with
+         ;; each cell's own `cell-root`, leaving a sibling reconnectable. The
+         ;; legacy one-arity path has no explicit generation, so it trusts every
+         ;; window-captured cell (a real host `.unmount` sweeps EXACTLY its own
+         ;; root's tree — sibling roots are structurally isolated, 03 §4).
+         owned     (if explicit?
+                     (into #{} (filter #(identical? root-incarnation (cell-root %)))
+                           collected)
+                     collected)
+         ;; the incarnations whose hidden cells this teardown owns. Explicit:
+         ;; EXACTLY the named token — a captured sibling's token must NOT expand
+         ;; the hidden-cell sweep onto that sibling's root. Legacy: inferred from
+         ;; every captured cell's own root (its still-hidden same-root siblings).
+         incs      (if explicit?
+                     #{root-incarnation}
+                     (into #{} (keep cell-root) collected))
          ;; already-Activity-hidden owned cells the window could NOT capture —
          ;; still `:disconnected`, belonging to a torn-down incarnation. A
          ;; hidden-but-alive cell is pinned by React's retained fiber, so weak
@@ -2654,12 +2682,12 @@
                          (comp (mapcat #(weak-live (get @root-cells %)))
                                (filter #(= :disconnected (lifecycle %))))
                          incs)
-         victims   (if (and @host-error (some? root-incarnation))
+         victims   (if (and @host-error explicit?)
                      ;; The host handle is consumed/released even on this path.
                      ;; Fail closed over the EXACT root generation, including
                      ;; cells still connected because React ran no cleanup.
-                     (into collected (weak-live (get @root-cells root-incarnation)))
-                     (into collected hidden))]
+                     (into owned (weak-live (get @root-cells root-incarnation)))
+                     (into owned hidden))]
      (doseq [cell victims]
        (teardown! cell))
      (if @host-error
