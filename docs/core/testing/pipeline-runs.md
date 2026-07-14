@@ -301,7 +301,7 @@ A `doseq` over `dispatch-sync` runs the rows in order — each drains to fixed p
 
 !!! note "Capturing intermediate state on the way through"
 
-    When the bug is "the count was briefly wrong *between* two events", read state inside the loop, after each event's drain settles:
+    When the bug is "the count was briefly wrong *between* two events", read state after each event's drain settles:
 
     ```clojure
     (let [seen (atom [])]
