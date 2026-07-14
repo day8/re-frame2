@@ -169,37 +169,26 @@ reload reinstalls listeners and renders once.
 For history routing, prefer the routing helper where it fits. It already owns
 this same hot-reload-safe listener pattern.
 
-## Two frame components
+## Two frame components (recipe only)
 
-There are two frame-boundary components — **roots ensure; providers scope** —
-and the difference fits in one question: does the subtree *bring* its frame,
-or *borrow* it?
+**Roots ensure; providers scope.** Full split and edge cases:
+[Frames](../frames.md#frame-provider-and-frame-root).
 
-Use `frame-root {:id ...}` when the rendered subtree should ensure its own
-frame exists — it brings one:
+| Need | Use |
+|---|---|
+| Subtree brings its own frame into being | `frame-root {:id … :initial-events …}` |
+| Frame already exists (boot, test, SSR, tooling) | `make-frame` then `frame-provider {:frame …}` |
 
 ```clojure
-[rf/frame-root {:id             :counter/widget
-                :initial-events [[:counter/initialise]]}
+;; Day-one app root — ensure + scope in one form
+[rf/frame-root {:id app-frame :initial-events [[:counter/initialise]]}
  [counter-app]]
-```
 
-This creates the frame if absent, reuses it if present, and scopes descendants to
-it.
-
-Use `frame-provider {:frame ...}` when the frame was already created somewhere
-else — it borrows:
-
-```clojure
+;; Pre-created frame — scope only
 (rf/make-frame {:id :checkout :initial-events [[:checkout/initialise]]})
-
 [rf/frame-provider {:frame :checkout}
  [checkout-app]]
 ```
-
-This component only scopes an existing frame into the React subtree. It creates
-nothing and destroys nothing. Use it when boot, tests, SSR/request setup, or a
-tooling harness needs to create the frame before rendering.
 
 ## The boot lifecycle
 
@@ -209,7 +198,7 @@ The whole recipe, one moment per row:
 | --- | --- |
 | Namespace load | The entry/boot namespace requires the registration namespaces, so their `reg-*` forms run. |
 | First page load | `run` installs the adapter, installs any host listeners, and mounts the view. |
-| First mount of `{:id ...}` | The provider creates the frame and runs `:initial-events`. |
+| First mount of `frame-root {:id ...}` | Ensure creates the frame (if absent) and runs `:initial-events`. |
 | Hot reload | The reload hook re-renders into the same root and reuses the same frame. |
 | Host listener edit | Reinstall the stored listener so the browser calls the current code. |
 | Fresh setup wanted | Reset the frame or reload the page; remounting does not replay setup. |
@@ -256,7 +245,7 @@ only *scopes* a frame someone else created; it creates nothing. Point
 created (nor ensured by a `frame-root`) and it throws
 `:rf.error/frame-provider-frame-absent`. When the subtree should bring its own
 frame into being, use the **ensure** component `frame-root {:id …}` instead —
-that's the whole difference between [the two components](#two-frame-components).
+that's the whole difference between [the two components](#two-frame-components-recipe-only).
 
 **You forgot to require a registration namespace.** A `reg-event` or `reg-sub`
 runs only when its namespace loads, so a missing `require` means the

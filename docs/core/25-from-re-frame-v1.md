@@ -141,13 +141,22 @@ This is the one mechanical category that earns its own section, because it's the
 
 A [**frame**](glossary.md#frame) is the isolated runtime context an operation runs under — it carries which app-db instance you're talking to. v1 gave you an ambient global `app-db` that every bare `dispatch` and `subscribe` resolved against. v2 does **not**. [Frame identity is carried, not found](glossary.md#frame-identity-is-carried-not-found): an operation reads its frame from the scope it runs under, and the runtime never synthesises one from absence. So a v1 app that calls `(rf/dispatch [:boot])` at top level with no frame established now fails loud with `:rf.error/no-frame-context`.
 
-The fix is one line of ceremony at your root: register a frame and scope your tree to it.
+The fix is ceremony at your root: ensure a frame and scope your tree to it. Day-one
+shape is `frame-root` (ensure + scope). `make-frame` + `frame-provider` is for when
+construction must happen before render (tests, SSR, tooling) — see
+[Frames](frames.md).
 
 ```clojure
-(rf/make-frame {:id :app/main
-                :initial-events [[:rf/set-db {}]   ;; seed app-db (frames always start {})
-                                 [:boot]]})        ;; then your boot event(s), in order
+;; Prefer: named seed event(s) on frame-root (same pipeline as every later change)
+(rdc/render root
+  [rf/frame-root {:id :app/main
+                  :initial-events [[:app/initialise]   ;; your reg-event that returns {:db …}
+                                   [:boot]]}
+   [app-root]])
 
+;; Also fine: pre-create, then scope — e.g. when boot is outside React
+(rf/make-frame {:id :app/main
+                :initial-events [[:app/initialise] [:boot]]})
 (rdc/render root
   [rf/frame-provider {:frame :app/main}
    [app-root]])
@@ -157,7 +166,21 @@ Inside that tree, a bare `dispatch` / `subscribe` resolves the frame ambiently �
 
 !!! note "No `:initial-db` key, and that's deliberate (EP-0027)"
 
-    A v1 reflex is to reach for an `:initial-db` / `:db` config key to seed initial state. v2 doesn't have one. **Every frame starts with `app-db = {}`**, and seeding it is *itself an event*: make `[:rf/set-db {…}]` the first step of `:initial-events` (it's a built-in handler). That vector is dispatched synchronously, in order, right after the frame is created — so a v1 `(reg-event-db :initialise-db (fn [_ _] default-db))` plus a mount becomes one `[:rf/set-db default-db]` step, or your existing initialise event listed after the seed. The payoff: "events are the unit of state change" holds with no exceptions — initial state is built by the same dispatch pipeline that handles every later change, which is exactly why time-travel can rewind *to* the initial state. (v1's `:on-create` callback hook is likewise gone — setup is events, not a callback.)
+    A v1 reflex is to reach for an `:initial-db` / `:db` config key to seed initial
+    state. v2 doesn't have one. **Every frame starts with `app-db = {}`**, and
+    seeding is *itself an event* in `:initial-events`. Prefer a **named** seed
+    handler — the same shape the Core guide uses:
+
+    ```clojure
+    (rf/reg-event :app/initialise
+      (fn [_ _] {:db {:screen :home}}))
+    ```
+
+    For a raw dump with no domain event, `[:rf/set-db {…}]` (built-in) is fine as
+    a first step. A v1 `(reg-event-db :initialise-db (fn [_ _] default-db))` maps
+    either to that named event or to `[:rf/set-db default-db]`. Setup is always
+    events — v1's `:on-create` callback is gone — so time-travel can rewind *to*
+    the initial state on the same pipeline as every later change.
 
 !!! warning "Gotcha"
 

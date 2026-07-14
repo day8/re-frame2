@@ -192,22 +192,25 @@ And yes, flows may read each other's outputs — the runtime orders dependent fl
 
 ## When *not* to: the default is still a subscription
 
-Flows are a convenience for a small number of small use-cases. They are not a new dataflow paradigm, and not where derived values live by default.
+Flows are rare. A typical app has *dozens* of subscriptions and *one to a handful*
+of flows. Tens of flows usually means subs or machines are being misused.
 
-I want that said plainly, because I can hear what the last section started in your head. A derivation that writes itself into app-db, rides the commit, survives time-travel, feeds your handlers *and* your schemas? Materialise everything! The totals! The labels! The filtered, sorted, grouped lists! An app-db so thick with precomputed answers that the views just point at it and coast!
+| Signal | Prefer |
+|---|---|
+| **Only views** consume the derivation | [subscription](subscriptions.md) — no app-db write |
+| **One handler** needs it once | compute inline in that handler |
+| **Named stages / lifecycle** | [machine](../machines/concepts.md) |
+| Not sure | [Where should this value live?](where-state-lives.md) — cheapest home first |
 
-No. Put the keyboard down. That way lies an app-db full of copies, a write on every event, and a registry you carry around in your head. Here's the wrong-tool list:
-
-- **Only views consume it** → a [subscription](subscriptions.md). Lighter, cached per input, no app-db write.
-- **It has discrete states or a lifecycle** (entry/exit, transitions, timers) → a [state machine](../machines/concepts.md).
-- **Only one handler needs it** → compute it inline in that handler. No registration needed.
-- **"I want a reactive value somewhere"** → almost always a sub.
-
-A typical app has *dozens* of subscriptions and *one to a handful* of flows. Tens of flows is a smell that subscriptions or machines are being misused. Each flow pays an app-db write per recomputation and adds a piece of registered runtime. When in doubt, use a sub. (This is the [where state lives](glossary.md#the-four-homes-where-state-lives) decision in miniature: subscription first, flow only when the value must *be* state.)
+Materialise only when a handler, schema, or other write-side path must read the
+answer as plain app-db state. That is the whole bar.
 
 ??? note "Going deeper"
 
-    A subscription and a flow are the *same node* in one [derivation graph](glossary.md#the-derivation-graph) — the same pure function of the same inputs — differing only in *policy*: a sub stores nothing and evaluates on demand; a flow stores into app-db and evaluates after each event (the algebra names that policy `:after-event`). [One graph: derivations and their algebra views](derivations-and-algebra-views.md) draws the whole picture.
+    A subscription and a flow are the *same node* in one
+    [derivation graph](glossary.md#the-derivation-graph) — same pure function,
+    different *policy* (on-demand vs write into app-db after each event).
+    [One graph: derivations and their algebra views](derivations-and-algebra-views.md).
 
 ## Deriving from route or machine state
 

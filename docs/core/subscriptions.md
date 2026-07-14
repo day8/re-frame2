@@ -531,27 +531,20 @@ namespace convention. Keep your subs out of that namespace and the two never col
 
 ## When a Subscription Is the Wrong Tool
 
-Subscriptions are view-facing and pull-based: a node exists only while a view
-watches it. That boundary tells you when to reach for something else.
+Subscriptions are view-facing and pull-based. Local stops only — the full chooser
+is [Where should this value live?](where-state-lives.md):
 
-- **An event handler needs the derived value.** Handlers don't subscribe. That's
-  what [flows](glossary.md#flow) are for — derived values materialised *into*
-  app-db, where a handler reads them as plain state.
-- **The value comes from a server.** Subscriptions never fetch; computation
-  functions are pure, no IO. Server-owned data belongs to
-  [resources](../resources/glossary.md#resource); subscriptions derive *over*
-  the cached resource state.
-- **The value crosses frames.** A subscription must not reach into another
-  [frame](glossary.md#frame)'s state. Frames are isolated worlds; that's the
-  point of them.
-- **Not sure where a value belongs at all?**
-  [Where should this value live?](where-state-lives.md) sorts it into a sub,
-  flow, resource, or machine with four questions.
+| Signal | Prefer |
+|---|---|
+| A **handler** must read the derivation | [flow](flows.md) (materialised into app-db) |
+| Value comes from a **server** (cache/stale/refetch) | [resource](../resources/concepts.md); sub over the cache |
+| Value has **named stages / lifecycle** | [machine](../machines/concepts.md) |
+| Cross-frame read | Don't — frames are isolated ([Frames](frames.md)) |
 
-(TanStack Query folks: `useQuery` is one hook doing two jobs — fetching server
-state *and* deriving over it. re-frame2 splits those. Resources own
-fetch-cache-invalidate; subscriptions are the pure derivation layer over whatever
-is already in app-db, resource state included.)
+??? info "Coming from TanStack Query?"
+
+    `useQuery` both fetches and derives. re-frame2 splits those: resources own
+    fetch-cache-invalidate; subscriptions derive over state already in hand.
 
 ## When Things Go Wrong
 
