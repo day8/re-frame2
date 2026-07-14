@@ -60,6 +60,7 @@ Hold this split and the whole surface stays clear:
 | **Project** | Read state into a view | `@(subscribe [:rf/resource …])` — never fetches |
 
 A subscription that finds no entry stays `:idle` until something **causes** a load.
+The model page ends with a [complete register + route + view skeleton](concepts.md#a-complete-read-loop).
 
 ## When *not* to use resources
 

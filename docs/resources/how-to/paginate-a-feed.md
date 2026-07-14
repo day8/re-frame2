@@ -1,19 +1,26 @@
 # Paginate a feed
 
 You know how to [register a resource and read five statuses](../concepts.md). This
-recipe is one job: **page a list** — numbered pages in the URL, or a load-more
-infinite feed — without skeletons on every page turn and without hand-rolled cursors.
+recipe is one job: **page a list** without skeletons on every turn and without
+hand-rolled cursors in app-db.
 
-You have a list with more rows than you want to fetch at once. There are two pagination shapes you actually ship, and they behave differently *on purpose*:
+Two shapes, on purpose different:
 
-- **Numbered pages** — page 2 *replaces* page 1 on screen. Think search results, an admin table, a "1 2 3 … 29" pager.
-- **Load more** — page 2 *appends* to what's already there, the way a social feed grows.
+| Shape | On screen | Identity |
+|---|---|---|
+| **Numbered pages** | Page 2 *replaces* page 1 (search, admin tables) | Page is part of the resource key |
+| **Load more** | Page 2 *appends* (social feed) | One growing entry (`:infinite true`) |
 
-Both ride on [**resources**](../glossary.md#resource). A resource is a declared, cached server-state read: you register it once with `reg-resource`, and from then on the framework owns the fetching, caching, and freshness — [views](../../core/glossary.md#view) just subscribe to its current state. [Server state: resources](../concepts.md) is the full introduction; this page assumes you've met them. We'll build the numbered shape first, then load-more. By the end you'll have both wired with *no pagination state in [app-db](../../core/glossary.md#app-db) at all* — no page-number slice, no `:loading-more?` flag, no cursor, no append handler. That's the headline: the page cursor and the page cache are all framework-owned [runtime-db](../../core/glossary.md#runtime-db), so pagination adds *nothing* to the state you own. (Remember [the two partitions](../../core/glossary.md#the-two-partitions): app-db is yours, runtime-db is the framework's.)
+The headline: the page cursor and page cache live in framework
+[runtime-db](../../core/glossary.md#runtime-db) — pagination adds nothing to the
+[app-db](../../core/glossary.md#app-db) you own. Numbered first, then load-more.
 
 !!! note "The one idea to hold onto"
 
-    A numbered page is part of the resource's *identity* — page 7 is its own separately-cached value. An infinite feed is *one* identity that *grows* — page 1, then 1+2, then 1+2+3, kept together as a single reactive value. Almost everything below falls out of that one distinction.
+    A numbered page is part of the resource's *identity* — page 7 is its own
+    separately-cached value. An infinite feed is *one* identity that *grows* —
+    page 1, then 1+2, then 1+2+3. Almost everything below falls out of that
+    distinction.
 
 ??? info "Coming from TanStack Query?"
 

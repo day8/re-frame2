@@ -1,5 +1,9 @@
 # Part 5: test it, ship it
 
+You have a working Conduit. This part is **prove and ship** — JVM tests for handlers,
+subs, and views, plus a production build. Resource-specific cache tests also live in
+[Testing resources](../testing.md).
+
 Your Conduit slice works. You watched it run in the browser across [Parts 1–4](index.md): the feed loads, login guards the editor, favoriting [invalidates and refetches](04-mutations-and-invalidation.md). Now prove it. You'll write tests that run on the JVM in milliseconds, with no browser anywhere. Then you'll cut the production bundle and see exactly what ships — and, just as importantly, what *doesn't*.
 
 There's one sentence to carry out of this whole page:

@@ -1,5 +1,8 @@
 # Part 1: pages, state, and the first feed
 
+No server yet — app-db, events, subs, views, and a routing skeleton. Server reads
+arrive in [Part 2](02-server-data.md).
+
 You left [the setup page](index.md) with an empty Conduit shell. By the end of this part it has two real pages — the home feed and the article page — and the URL decides which one you see. Type `/article/welcome-to-conduit` into the address bar and that article renders; press Back and the feed returns. Along the way you'll write your first [event](../../core/glossary.md#event), your first [subscriptions](../../core/glossary.md#subscription), and your first [views](../../core/glossary.md#view).
 
 That trio — events write, subs read, views render — is the loop everything else in re-frame2 builds on. Get comfortable with it here and the rest of the guide is variations on a theme.

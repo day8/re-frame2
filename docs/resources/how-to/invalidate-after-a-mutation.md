@@ -1,20 +1,28 @@
 # Invalidate after a mutation
 
 You can [read the cache](../concepts.md). This recipe is one job: after a **write**,
-declare which reads go stale (and optionally patch, populate, or flip the UI
-optimistically) so the UI stays honest without a remembered `invalidateQueries` call.
+declare which reads go stale — and optionally patch, populate, or flip the UI
+optimistically — so the UI stays honest without a remembered
+`invalidateQueries` call.
 
-Your app just wrote to the server. It saved an article, posted a comment, toggled a favorite. The cached reads covering that data are now wrong, and every view still showing them is now showing the past. This guide wires that write to invalidate exactly those reads, so the views refetch automatically and nothing else moves.
+> **The write that made the cache stale is the thing that says so.**
 
-Here's the idea underneath, in one sentence: **the write that made the cache stale is the thing that says so.** A timer only guesses, and polling pays for that guess on every interval. The [mutation](../glossary.md#mutation) actually knows — it just changed the data — so it names the reads it broke, once, at registration. That's what we mean by invalidation being *causal*: the cause of the staleness declares it directly.
+A timer only guesses. Polling pays for that guess on every interval. A
+[mutation](../glossary.md#mutation) just changed the data, so it names the tags it
+broke **once, at registration**. That is *causal* invalidation.
 
-We'll build that up one step at a time: tag the reads, declare what a write breaks, fire the write and watch it, then — only once the simple path is solid — reach for the optional arms (seed the cache, run side-effects, cross scopes).
+**Path on this page:** tag the reads → declare what the write breaks → fire and
+watch → optional arms (populate, patches, optimistic, cross-scope).
 
 ??? info "Coming from TanStack Query?"
 
-    Your anchor is `queryClient.invalidateQueries({ queryKey: ['articles'] })` inside a mutation's `onSuccess`. Same instinct here, with two deliberate differences. First, in re-frame2 you **declare the invalidation as data on the mutation registration** rather than calling it imperatively in a callback at every call site — so you write it once, not at every place the mutation fires. Second, it matches by tags within a scope, so it refetches only the entries something on screen still owns.
+    Your anchor is `queryClient.invalidateQueries(...)` in `onSuccess`. Here you
+    **declare** invalidation on the mutation registration (once), and it matches by
+    **tags within a scope** — only owned entries refetch immediately.
 
-You need two things in place before any of this works. Boot the resources artefact (`day8/re-frame2-resources`) by putting `re-frame.resources` plus the `re-frame.http.managed` transport on your require list. Then register your reads with `reg-resource` — a [resource](../glossary.md#resource) is a managed server-state read, and registering it is how the framework knows how to fetch and cache it. If you haven't done that yet, start at [Server state: resources](../concepts.md).
+**Prerequisites.** `re-frame.resources` + `re-frame.http.managed` on the require
+list; reads registered with `reg-resource`. If that is unfamiliar, start at
+[the model](../concepts.md).
 
 ## 1. Tag the reads
 
