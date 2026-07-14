@@ -31,6 +31,12 @@ const SENTINELS = [
   'RF2_G13_PROFILER_SENTINEL',
   'RF2_G13_DEBUG_EVIDENCE_SENTINEL',
   'RF2_UI_RESOURCE_LEASE_EVIDENCE_SENTINEL',
+  // rf2-vxgfnd.250 — the production-erased port candidate-inspection witness
+  // (re-frame.substrate.observation). Present in the dev bundle (its owning
+  // branch is reachable under goog.DEBUG=true), DCE'd from the :advanced
+  // companion under goog.DEBUG=false — proving the witness is never production
+  // bookkeeping.
+  'RF2_G13_PORT_CANDIDATE_SENTINEL',
   '__RF2_G13_RESULT_SENTINEL__',
 ];
 const LEASE_FREE_FORBIDDEN = [
@@ -222,6 +228,13 @@ function expectedProjection() {
     // independent of V.
     'port-fan-out': 64,
     'fan-out-cells': 8,
+    // rf2-vxgfnd.250 — the production-erased port candidate-inspection witness.
+    // The compiled-view commit reconciler probes/reads/current?-checks f(C)
+    // candidates per drain (C=8): 8 probes, 8 reads, 16 current?-checks — all
+    // functions of C, provably INDEPENDENT of V (identical at V=100 and V=500).
+    // A source mutant that scans all V mounted cells inflates these; the
+    // V-independence + expected-projection checks turn G-13 red.
+    'port-candidate-inspections': { probe: 8, read: 8, 'current?': 16 },
   };
 }
 
@@ -314,6 +327,21 @@ function assertMutationTeeth(result) {
     ['V-wide port fan-out', (r) => { r.results[0].cold.projection['port-fan-out'] = 6400; }],
     ['fan-out reached a non-affected cell', (r) => {
       r.results[0].cold.projection['fan-out-cells'] = 100;
+    }],
+    // rf2-vxgfnd.250 — the production-side candidate-scan witness teeth. A source
+    // mutant that scans all V mounted cells at invalidation — even one that
+    // DELIVERS to only C, leaving every delivered count (port-fan-out, renders,
+    // commits) identical — routes its extra inspections through the port's
+    // probe / read / current? entries and inflates the witness past f(C). Each
+    // inspection axis is a separate tooth; a V-scaled count must be rejected.
+    ['V-wide port probe scan', (r) => {
+      r.results[0].cold.projection['port-candidate-inspections'].probe = 100;
+    }],
+    ['V-wide port read scan', (r) => {
+      r.results[0].cold.projection['port-candidate-inspections'].read = 100;
+    }],
+    ['V-wide port current? scan', (r) => {
+      r.results[0].cold.projection['port-candidate-inspections']['current?'] = 500;
     }],
     // rf2-vxgfnd.212 — workload-roster teeth. Each must fail validation, proving
     // the exact one-to-one V=100/V=500 roster before projections are compared.
