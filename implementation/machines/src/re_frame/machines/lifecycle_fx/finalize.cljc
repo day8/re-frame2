@@ -604,8 +604,21 @@
           ;; (6) Abort in-flight HTTP (late-bound hook — callback-bearing).
           (abort-actor-in-flight-http! machine-id))
         (when-not (owner-gone?)
-          ;; Cancel armed `:after` timers (`:reason :on-destroy`).
-          (timer/cancel-actor-timers! frame-id machine-id)
+          ;; Cancel armed `:after` timers (`:reason :on-destroy`). rf2-4ipqe4 —
+          ;; each cancellation emits a callback-bearing `:rf.machine.timer/
+          ;; cancelled` trace; a listener can destroy A / publish same-id B on
+          ;; the FIRST cancellation's stack, after which the loop would cancel B's
+          ;; timer under a later snapshotted key. Thread `owner-gone?` so the
+          ;; cancellation loop short-circuits the instant A is lost (it is
+          ;; MONOTONIC), leaving B's re-armed timers untouched.
+          (timer/cancel-actor-timers! frame-id machine-id owner-gone?))
+        ;; rf2-4ipqe4 — RECHECK after the timer-cancellation callbacks before the
+        ;; classification / spawn-order / system-id-release work. #5856/#5873
+        ;; grouped these under the timer cancel with NO recheck, so a
+        ;; `:rf.machine.timer/cancelled` listener that published same-id B let the
+        ;; A-derived classification drop, spawn-order forget, and system-id-released
+        ;; trace resolve their bare frame/actor ids to the CURRENT incarnation B.
+        (when-not (owner-gone?)
           ;; Drop this actor's per-instance classification declarations from the
           ;; per-frame elision registry — the teardown half of
           ;; `classification/lower-at-spawn!` on the final-state AUTO-DESTROY path
@@ -627,7 +640,16 @@
           ;; registrar unregister + `:on-error` dispatch against a B it published.
           (traces/emit-system-id-released! frame-id released-sid machine-id))
         (when-not (owner-gone?)
-          (registrar/unregister! :event machine-id)
+          ;; `registrar/unregister!` emits a synchronous callback-bearing
+          ;; `:rf.registry/handler-cleared` trace.
+          (registrar/unregister! :event machine-id))
+        ;; rf2-4ipqe4 — RECHECK after the registrar unregister before the
+        ;; `:on-error` dispatch. #5856/#5873 grouped the unregister with the
+        ;; dispatch under ONE check, so a `:rf.registry/handler-cleared` listener
+        ;; that published same-id B let the stale A-derived spawn-error dispatch
+        ;; route into B. The unregister is an already-delivered callback (it
+        ;; stands); the dispatch it enables must be fenced.
+        (when-not (owner-gone?)
           ;; (7) Per Spec 005 §Final states §`:on-error`: when the child finished
           ;; via an ERROR leaf AND the spawning parent declares `:spawn :on-error`,
           ;; dispatch the synthetic reserved failure event into the parent. It

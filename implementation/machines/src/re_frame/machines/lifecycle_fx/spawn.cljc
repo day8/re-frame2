@@ -321,7 +321,7 @@
   re-read is value-equal to the snapshot the caller already had. Machine
   snapshots are durable runtime-db state (EP-0001)."
   [frame-id rt-after-alloc spec spawned-id initial-snap
-   {:keys [system-id parent-id invoke-id track? type-ref continue?]}]
+   {:keys [system-id parent-id invoke-id track? type-ref continue? owner-token]}]
   (let [existing (when system-id (get-in rt-after-alloc (paths/system-id-path system-id)))
         ;; Stamp the revertible TYPE reference onto the snapshot root so the
         ;; lazy resolver can re-materialise the handler from runtime-db alone. The
@@ -354,23 +354,40 @@
     ;; `:skipped`) so the caller can fence its own post-install tail on it (the
     ;; earlier `:ok`/nil return was IGNORED, so a `:skipped` install still let
     ;; classification / spawn-order / lifecycle-spawned run against B).
+    ;; rf2-4ipqe4 — the pre-swap `(continue?)` check fences a system-id-collision
+    ;; LISTENER, but the WRITE ITSELF is callback-bearing: a synchronous
+    ;; container watch can destroy A / publish same-id B DURING the physical
+    ;; install. The bare `swap-runtime-db!` would still bump the id-keyed commit
+    ;; epoch (now B's) and let `:rf.machine/system-id-bound` fire for B. With an
+    ;; event owner, route the install through `swap-runtime-db-exact!`: it binds
+    ;; the write to A's own container, and on mid-write loss returns nil WITHOUT
+    ;; bumping B's epoch — so we report `:skipped` and suppress the system-id-bound
+    ;; trace. Without an owner (conformance / pure-fn), fall back to the bare
+    ;; write (its non-nil return marks `:committed`).
     (if (or (nil? continue?) (continue?))
-      (do
-        (frame/swap-runtime-db! frame-id
-                                (fn [_rt]
-                                  (cond-> rt-after-alloc
-                                    spec      (assoc-in (paths/snapshot-path spawned-id) initial-snap)
-                                    system-id (assoc-in (paths/system-id-path system-id) spawned-id)
-                                    track?    (assoc-in (paths/spawned-path parent-id invoke-id) spawned-id))))
-        (when system-id
-          (trace/emit! :rf.machine :rf.machine/system-id-bound
-                       {:frame      frame-id
-                        :system-id  system-id
-                        ;; The live actor INSTANCE address (the spawned id), not
-                        ;; the registered TYPE; `:machine-id` is reserved for the
-                        ;; type.
-                        :actor-id   spawned-id}))
-        :committed)
+      (let [install-fn (fn [_rt]
+                         (cond-> rt-after-alloc
+                           spec      (assoc-in (paths/snapshot-path spawned-id) initial-snap)
+                           system-id (assoc-in (paths/system-id-path system-id) spawned-id)
+                           track?    (assoc-in (paths/spawned-path parent-id invoke-id) spawned-id)))
+            written    (if owner-token
+                         (frame/swap-runtime-db-exact! frame-id owner-token install-fn)
+                         (frame/swap-runtime-db! frame-id install-fn))]
+        (if (some? written)
+          (do
+            (when system-id
+              (trace/emit! :rf.machine :rf.machine/system-id-bound
+                           {:frame      frame-id
+                            :system-id  system-id
+                            ;; The live actor INSTANCE address (the spawned id),
+                            ;; not the registered TYPE; `:machine-id` is reserved
+                            ;; for the type.
+                            :actor-id   spawned-id}))
+            :committed)
+          ;; The exact write reported mid-write owner loss (a container watch
+          ;; published same-id B): no snapshot / system-id / spawn-slot landed on
+          ;; B, no commit epoch bumped for B, and no system-id-bound trace fires.
+          :skipped))
       :skipped)))
 
 ;; ---- :rf.machine/spawn -----------------------------------------------------
@@ -472,6 +489,17 @@
         ;; threaded into `spawn-rejected?` so the callback and the cascade fence
         ;; against the SAME token.
         continue?  (data-validation/owner-continuation frame-id)
+        ;; rf2-4ipqe4 — the RAW exact owner token (`continue?` closes over it),
+        ;; threaded into `install-spawn!` so the snapshot / system-id / spawn-slot
+        ;; install rides `swap-runtime-db-exact!`: a synchronous container watch
+        ;; that destroys A / publishes same-id B DURING the physical write neither
+        ;; redirects the write into B nor bumps B's commit epoch (a bare
+        ;; `swap-runtime-db!` bumps the id-keyed epoch — now B's — and emits
+        ;; `:rf.machine/system-id-bound` before the later owner check). nil for a
+        ;; non-router pure-fn / conformance caller (no event owner) — the install
+        ;; falls back to the historical bare-id write and that path stays
+        ;; unaffected, symmetric with `continue?`'s `(constantly true)`.
+        owner-token (frame/current-event-owner-token)
         ;; Prefer the pre-allocated id (declarative :spawn
         ;; routes through the transition reducer which bumps the parent
         ;; snapshot's `:rf/spawn-counter`). Hand-emitted spawn fxs carry
@@ -588,12 +616,13 @@
       ;; trace it may emit gets a recheck before the runtime-db swap too.
       (when (continue?)
         (let [installed (install-spawn! frame-id rt-after-alloc spec'' spawned-id initial-snap
-                                        {:system-id system-id
-                                         :parent-id parent-id
-                                         :invoke-id invoke-id
-                                         :track?    track?
-                                         :type-ref  type-ref
-                                         :continue? continue?})]
+                                        {:system-id   system-id
+                                         :parent-id   parent-id
+                                         :invoke-id   invoke-id
+                                         :track?      track?
+                                         :type-ref    type-ref
+                                         :continue?   continue?
+                                         :owner-token owner-token})]
         ;; rf2-hloj0g — `install-spawn!`'s `:rf.error/system-id-collision`
         ;; (pre-swap → `:skipped`) and `:rf.machine/system-id-bound` (post-swap)
         ;; traces are callback-bearing: a listener can destroy A / publish
