@@ -1027,6 +1027,37 @@
   ["re-frame.test-helpers" "children"]              {:tier :testing :owner "008" :status "v1"}
 
   ;; =========================================================================
+  ;; re-frame.ui.test — the compiled-view substrate's testing surface
+  ;; (day8/re-frame2-ui; epic rf2-vxgfnd, Spec 004; contract in Spec 008).
+  ;; Unlike its sibling `re-frame.ui` (a curated :cljs-only surface — its
+  ;; runtime targets React), `re-frame.ui.test`'s Tier-1 surface runs
+  ;; HEADLESS on the JVM (`render` builds the structural tree; find /
+  ;; find-all / text / attrs / dispatch! query it), so it is JVM-INTROSPECTED
+  ;; — the generator classpath carries day8/re-frame2-ui BUILD-ONLY
+  ;; (rf2-vxgfnd.200) and `re-frame.ui.test` is in the generator's
+  ;; `jvm-namespaces`, giving the same authoritative `ns-publics` existence +
+  ;; :kind + :facade? derivation re-frame.core gets. The reader-conditional
+  ;; CLJS surface is reconciled by the 2mtte CLJS probe (fully-rowed, BOTH
+  ;; directions), so neither host can silently expose an extra public. The two
+  ;; ^:no-doc runtime halves (`render-view*` / `render-form*`) are dropped by
+  ;; the generator's `public-vars-of` carve-out; the CLJS-only `with-root*`
+  ;; owner + `with-root-outcome` (^:no-doc) are internal by classification.
+  ;; Tier 1 (S1): render / find / find-all / text / attrs / dispatch!.
+  ;; Tier 3 (S2): with-root / native-CSS query / (flush!)/(flush! thunk).
+  ;; S4's `flush-presence!` is NOT defined yet — it stays absent (no row)
+  ;; until its stage lands, then takes an ordinary manifest update.
+  ;; =========================================================================
+  ["re-frame.ui.test" "render"]    {:tier :testing :owner "008" :status "Spec-004 S1"}
+  ["re-frame.ui.test" "find"]      {:tier :testing :owner "008" :status "Spec-004 S1"}
+  ["re-frame.ui.test" "find-all"]  {:tier :testing :owner "008" :status "Spec-004 S1"}
+  ["re-frame.ui.test" "text"]      {:tier :testing :owner "008" :status "Spec-004 S1"}
+  ["re-frame.ui.test" "attrs"]     {:tier :testing :owner "008" :status "Spec-004 S1"}
+  ["re-frame.ui.test" "dispatch!"] {:tier :testing :owner "008" :status "Spec-004 S1"}
+  ["re-frame.ui.test" "with-root"] {:tier :testing :owner "008" :status "Spec-004 S2"}
+  ["re-frame.ui.test" "query"]     {:tier :testing :owner "008" :status "Spec-004 S2"}
+  ["re-frame.ui.test" "flush!"]    {:tier :testing :owner "008" :status "Spec-004 S2"}
+
+  ;; =========================================================================
   ;; re-frame.schemas — optional artefact (day8/re-frame2-schemas), §010.
   ;; Introspection accessors are `tooling`; validator-install seams
   ;; `advanced`; the lower-level lifecycle/cache/validation helpers are

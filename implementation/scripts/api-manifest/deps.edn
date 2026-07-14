@@ -34,6 +34,19 @@
          day8/re-frame2-ssr      {:local/root "../../ssr"}
          day8/re-frame2-ssr-ring {:local/root "../../ssr-ring"}
          day8/re-frame2-epoch    {:local/root "../../epoch"}
+         ;; The compiled-view substrate artefact — BUILD-ONLY here (rf2-vxgfnd.200).
+         ;; Brings `re-frame.ui.test`'s JVM-loadable Tier-1 headless surface onto
+         ;; the generator classpath so `ns-publics` can existence-verify it, the
+         ;; same authoritative introspection re-frame.core gets. This is a
+         ;; build/governance read only — implementation/ui gains NO dependency on
+         ;; the generator, so production dependency graphs + advanced bundles are
+         ;; unchanged (day8/re-frame2-ui already depends on day8/re-frame2 core,
+         ;; already on this classpath). `re-frame.ui` itself stays a curated
+         ;; `:cljs-only` surface (its runtime targets React); only ui.test — whose
+         ;; Tier-1 render/find/find-all/text/attrs/flush! run headless ON the JVM
+         ;; — is JVM-enumerated. The CLJS reader-conditional surface is reconciled
+         ;; by the probe (see the probe test's re-frame.ui.test coverage).
+         day8/re-frame2-ui       {:local/root "../../ui"}
          ;; Tool artefacts with JVM-loadable (.cljc) public namespaces.
          day8/re-frame2-story    {:local/root "../../../tools/story"}
          day8/re-frame2-mcp-base {:local/root "../../../tools/mcp-base"}}

@@ -103,6 +103,29 @@
   []
   (-> (find-sidecar) slurp edn/read-string :cljs-only vec))
 
+(defmacro emit-classification-rows
+  "Expand to a literal vector of `{:namespace :var}` maps for the sidecar's
+   `:classification` entries whose namespace is `ns-str` (read from
+   `spec/api-manifest-metadata.edn` at macro-expansion time).
+
+   The `:cljs-only` rows the probe normally reconciles are the surfaces the
+   JVM generator CANNOT introspect. A `.cljc` namespace the generator DOES
+   own on the JVM (`re-frame.ui.test` — rf2-vxgfnd.200: its Tier-1 surface
+   runs headless on the JVM, so it lives in the generator's `jvm-namespaces`
+   and its rows are curated under `:classification`, not `:cljs-only`) still
+   needs its reader-conditional CLJS surface reconciled, so neither host can
+   silently expose an extra public. This macro projects that namespace's
+   classification rows into the same `{:namespace :var}` shape `reconcile`
+   consumes; the probe treats it exactly like a fully-rowed surface. Only
+   `:namespace`/`:var` are emitted — the probe checks EXISTENCE, not tier
+   (the JVM generator owns tier/kind for these rows)."
+  [ns-str]
+  (->> (-> (find-sidecar) slurp edn/read-string :classification)
+       (keep (fn [[[ns var] _]]
+               (when (= ns ns-str) {:namespace ns :var var})))
+       (sort-by :var)
+       vec))
+
 (defmacro emit-ns-publics
   "Expand to a literal vector of `[var-name kind]` pairs for the public
    vars of `ns-sym` (a quoted symbol), read from the CLJS analyzer's

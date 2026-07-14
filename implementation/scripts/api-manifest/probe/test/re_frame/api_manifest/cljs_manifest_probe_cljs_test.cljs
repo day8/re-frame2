@@ -62,7 +62,8 @@
   the shared `cljs-publics` + `cljs-probe` namespaces are the reusable
   mechanism for it (see rf2-2mtte PR notes)."
   (:require-macros [re-frame.api-manifest.cljs-publics
-                    :refer [emit-ns-publics emit-cljs-only-rows]])
+                    :refer [emit-ns-publics emit-cljs-only-rows
+                            emit-classification-rows]])
   (:require [cljs.test :refer-macros [deftest is testing]]
             [re-frame.api-manifest.cljs-probe :as probe]
             ;; The covered CLJS-only namespaces. The `:require` forces the
@@ -95,7 +96,15 @@
             ;; (ui/src); the require forces its analysis so `emit-ns-publics`
             ;; reads the live CLJS publics. Fully-rowed, BOTH directions
             ;; checked — see the Coverage note and `fully-rowed` below.
-            [re-frame.ui]))
+            [re-frame.ui]
+            ;; rf2-vxgfnd.200 — the compiled-view substrate's testing surface.
+            ;; UNLIKE re-frame.ui (curated :cljs-only), `re-frame.ui.test`'s
+            ;; Tier-1 surface runs headless on the JVM, so it is JVM-INTROSPECTED
+            ;; (generator `jvm-namespaces` + :classification rows). This probe
+            ;; reconciles its reader-conditional CLJS surface against those rows
+            ;; (via `emit-classification-rows` below) so the CLJS host cannot
+            ;; silently expose an extra public. Fully-rowed, BOTH directions.
+            [re-frame.ui.test]))
 
 ;; ---------------------------------------------------------------------------
 ;; The live CLJS public surface, captured at compile time.
@@ -132,7 +141,11 @@
    ;; blessed it — the first-party `adapter` Var rf2-vxgfnd.103, and the `frame`
    ;; ops-bundle body form rf2-vxgfnd.184), so
    ;; re-frame.ui is in `fully-rowed` below (both directions checked).
-   "re-frame.ui"                                     (emit-ns-publics re-frame.ui)})
+   "re-frame.ui"                                     (emit-ns-publics re-frame.ui)
+   ;; rf2-vxgfnd.200 — re-frame.ui.test testing surface. JVM-introspected for
+   ;; its manifest rows (the generator owns tier/kind); the probe reconciles
+   ;; the live CLJS surface so a CLJS-only public addition reddens too.
+   "re-frame.ui.test"                                (emit-ns-publics re-frame.ui.test)})
 
 (def fully-rowed
   "Namespaces whose ENTIRE public surface must be rowed (direction 2).
@@ -147,12 +160,31 @@
   #{"re-frame.adapter.reagent"
     "re-frame.adapter.uix"
     "re-frame.adapter.helix"
-    "re-frame.ui"})
+    "re-frame.ui"
+    ;; rf2-vxgfnd.200 — direction-2 completeness on the CLJS side: a NEW
+    ;; public var added to re-frame.ui.test's CLJS surface without a manifest
+    ;; row → RED. Its rows come from :classification (JVM lane), fed in via
+    ;; `ui-test-rows` below, not :cljs-only.
+    "re-frame.ui.test"})
 
 (def cljs-only-rows
   "The `:cljs-only` rows from spec/api-manifest-metadata.edn, embedded at
    compile time (no runtime filesystem)."
   (emit-cljs-only-rows))
+
+(def ui-test-rows
+  "The `re-frame.ui.test` `:classification` rows (rf2-vxgfnd.200), projected
+   to `{:namespace :var}` so the probe reconciles them exactly like the
+   `:cljs-only` rows. `re-frame.ui.test` is JVM-introspected for its manifest
+   rows (its Tier-1 surface runs headless on the JVM), but its reader-
+   conditional CLJS surface must still be reconciled here so neither host can
+   silently expose an extra public."
+  (emit-classification-rows "re-frame.ui.test"))
+
+(def reconcile-rows
+  "Every row the probe reconciles: the `:cljs-only` surfaces plus the
+   JVM-owned `re-frame.ui.test` rows."
+  (into cljs-only-rows ui-test-rows))
 
 ;; ---------------------------------------------------------------------------
 ;; The probe.
@@ -160,7 +192,7 @@
 
 (deftest cljs-only-surface-in-sync
   (testing "live CLJS public surface reconciles with the :cljs-only rows"
-    (let [result (probe/reconcile live-publics cljs-only-rows fully-rowed)]
+    (let [result (probe/reconcile live-publics reconcile-rows fully-rowed)]
       (is (probe/in-sync? result)
           (probe/report result)))))
 
