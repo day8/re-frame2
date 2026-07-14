@@ -9,6 +9,7 @@
   (:require [cljs.test :refer [async deftest is use-fixtures]]
             [clojure.string :as str]
             ["react" :as React]
+            ["react-dom/client" :as rdc]
             [re-frame.core :as rf]
             [re-frame.frame :as frame]
             [re-frame.test-support :as test-support]
@@ -36,6 +37,34 @@
   [done label e]
   (is false (str label ": " e))
   (done))
+
+(defn- thrown-id
+  "The `:rf.error/id` of the ExceptionInfo `f` throws, or nil if it does not."
+  [f]
+  (try (f) nil (catch cljs.core/ExceptionInfo e (:rf.error/id (ex-data e)))))
+
+(defn- next-macrotask
+  "A promise resolving on the next macrotask — drains the whole microtask queue
+  (React's deferred teardown + `settle-deferred-root!`'s FIFO settlement) so a
+  post-settlement assertion observes the converged state."
+  []
+  (js/Promise. (fn [resolve _] (js/setTimeout resolve 0))))
+
+(defn- destroy-adapter-in-commit-phase!
+  "Invoke `rf/destroy-adapter!` from INSIDE a React layout effect (rf2-vxgfnd.276):
+  render a throwaway plain-React root whose sole layout effect runs `thunk` — so
+  a `.unmount` of any OTHER root reached from it hits react-dom 19.2's in-render
+  deferral (returns normally, teardown scheduled for a later microtask) — then
+  unmount the throwaway. Both act boundaries flush the deferred teardown +
+  settlement microtasks. `thunk` captures the SYNCHRONOUS post-return state
+  before those microtasks run. The throwaway is cell-less plain React, so it
+  never perturbs the observed public-root population."
+  [thunk]
+  (let [c2  (js/document.createElement "div")
+        r   (rdc/createRoot c2)
+        drv (fn [] (React/useLayoutEffect (fn [] (thunk) js/undefined) #js []) nil)]
+    (-> (act-promise #(.render r (React/createElement drv)))
+        (.then (fn [] (act-promise #(.unmount r)))))))
 
 (defview observed-root [{:keys [label renders]}]
   (let [_ (swap! renders inc)]
@@ -259,3 +288,108 @@
             (.then (fn [] (done))
                    (fn [e]
                      (unexpected! done "root-admission lifecycle rejected" e))))))))
+
+;; ===========================================================================
+;; rf2-vxgfnd.276 — adapter destruction from a React layout effect COMPLETES
+;; only after every deferred root settles.
+;;
+;; `adapter-destroy-drains-all-public-compiled-roots` above drives
+;; `destroy-adapter!` through `act`, which flushes any deferral, so it never
+;; observes the commit-phase window. This fixture invokes `rf/destroy-adapter!`
+;; from INSIDE a React layout effect: `drain-live-roots!` then loops
+;; `unmount!*` over roots whose `.unmount` react-dom 19.2 DEFERS. It proves the
+;; retained synchronous `destroy-adapter! → nil` contract is HONEST in commit
+;; phase — completion returns while each exact-root claim is still quarantined
+;; `:tearing-down` (so a fresh mount is fail-closed rejected, never clobbering a
+;; container React is still scheduled to clear), and the exact id/container
+;; becomes reusable only AFTER the deferred settlement releases the claim.
+;; ===========================================================================
+
+(defn- mount-commit-root!
+  "Mount a reactive public root under a LITERAL root-id (the `ui/mount` macro
+  validates :root-id at expansion, so each id must be a literal keyword)."
+  [container which label]
+  (case which
+    :a (ui/mount [observed-root {:label label :renders (atom 0)}]
+                 container {:root-id :adapter-public/commit-a})
+    :b (ui/mount [observed-root {:label label :renders (atom 0)}]
+                 container {:root-id :adapter-public/commit-b})))
+
+(deftest destroy-adapter-from-commit-phase-defers-then-settles
+  (when (browser?)
+    (async done
+      (rf/reg-sub ::adapter-value (fn [db _] (:value db)))
+      (frame/replace-app-db! :rf/default {:value 42})
+      (let [a         (js/document.createElement "div")
+            b         (js/document.createElement "div")
+            cell-base (reactive/root-cell-count)
+            ;; captured SYNCHRONOUSLY inside the layout effect, right after
+            ;; destroy returns and BEFORE the deferred settlement microtasks run.
+            returned          (atom :unset)
+            ids-at-return     (atom :unset)
+            reuse-at-return   (atom :unset)]
+        (-> (act-promise
+             #(do (mount-commit-root! a :a "a")
+                  (mount-commit-root! b :b "b")))
+            (.then
+             (fn []
+               (is (= #{:adapter-public/commit-a :adapter-public/commit-b}
+                      (client/live-root-ids)))
+               (is (= ["a:42" "b:42"] [(.-textContent a) (.-textContent b)]))
+               (is (> (reactive/root-cell-count) cell-base)
+                   "the two reactive roots each seated a ViewCell")
+               ;; Invoke destroy from a layout effect → each public root's
+               ;; `.unmount` is DEFERRED by react-dom.
+               (destroy-adapter-in-commit-phase!
+                (fn []
+                  (reset! returned (rf/destroy-adapter!))
+                  ;; Immediate post-return snapshot: the drain looped every root
+                  ;; but each deferred teardown is still in flight, so the claims
+                  ;; remain registered `:tearing-down` — completion did NOT wait,
+                  ;; yet did NOT release a still-scheduled container either.
+                  (reset! ids-at-return (client/live-root-ids))
+                  ;; Admission is fail-closed while completion is pending: a fresh
+                  ;; mount on the exact container is rejected (the terminal
+                  ;; breadcrumb keeps public creation closed until a fresh
+                  ;; adapter), never clobbering root a's deferred teardown.
+                  (reset! reuse-at-return
+                          (thrown-id #(mount-commit-root! a :a "a")))))))
+            (.then (fn [] (next-macrotask)))
+            (.then
+             (fn []
+               (is (nil? @returned)
+                   "destroy-adapter! kept its synchronous nil completion in commit
+                    phase (AC5 — the frozen contract is retained, not made async)")
+               (is (= #{:adapter-public/commit-a :adapter-public/commit-b}
+                      @ids-at-return)
+                   "at the immediate return every root was still quarantined
+                    :tearing-down — completion is reported without awaiting the
+                    microtask, and a mutation that eagerly released here would
+                    make this set empty (AC6)")
+               (is (= :rf.error/adapter-disposed @reuse-at-return)
+                   "a fresh mount before completion settles is rejected
+                    deterministically — no new root clobbers a deferred teardown
+                    (AC2)")
+               ;; After the settlement boundary every claim/cell/DOM converges.
+               (is (= #{} (client/live-root-ids))
+                   "the deferred settlement released every exact-root claim (AC3)")
+               (is (= ["" ""] [(.-textContent a) (.-textContent b)])
+                   "React cleared both deferred containers")
+               (is (= cell-base (reactive/root-cell-count))
+                   "every ViewCell was reaped — no observation owner survived")
+               ;; A fresh adapter generation, then reuse of the EXACT ids and
+               ;; containers, now succeeds (AC3 — the ratified reuse after settle).
+               (rf/init! ui/adapter)
+               (act-promise
+                #(do (mount-commit-root! a :a "a2")
+                     (mount-commit-root! b :b "b2")))))
+            (.then
+             (fn []
+               (is (= ["a2:42" "b2:42"] [(.-textContent a) (.-textContent b)])
+                   "the exact ids/containers re-mount after the settlement boundary")
+               (is (= #{:adapter-public/commit-a :adapter-public/commit-b}
+                      (client/live-root-ids)))
+               (act-promise rf/destroy-adapter!)))
+            (.then (fn [] (done))
+                   (fn [e]
+                     (unexpected! done "commit-phase adapter disposal rejected" e))))))))
