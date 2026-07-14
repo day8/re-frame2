@@ -114,11 +114,12 @@ checked-in spec claims unimplemented behavior.
 Epic `EPIC: re-frame.ui program` with per-stage children. Sequencing constraints in
 **bold** are hot-zone or ruled.
 
-- **S0 (now, paper)** — drafts (R-1 interim + rewrite, R-2 amendment, selector grammar,
-  plus the two contract drafts named under S1) reviewed via the S0 correctness pass —
-  executed by the codex2 review + its binding disposition (09) + the 2026-07-12 fold-in;
-  the post-fold coverage pass is the remaining §4 checkbox; spike reports folded into
-  03; the §2 table blessed. *Gate: both spike reports feasibility-PASS; drafts reviewed.*
+- **S0 (paper) — complete** — drafts (R-1 interim + rewrite, R-2 amendment, selector
+  grammar, plus the two contract drafts named under S1) reviewed via the S0 correctness
+  pass — executed by the codex2 review + its binding disposition (09) + the 2026-07-12
+  fold-in; the post-fold coverage pass ran 2026-07-12 (SHIP verdict — §4); spike reports
+  folded into 03; the §2 table blessed. *Gate: both spike reports feasibility-PASS;
+  drafts reviewed — MET.*
 - **S1 epic — compiler slice**: (1) **hot-zone build-wiring PR first** (deps/shadow/
   package.json); (2) AST + analyzer + CLJS emitter + JVM emitter (no reactivity;
   includes the `spread` conversion path and `ui/html` + escaping — moved here from S4,
@@ -185,11 +186,21 @@ surface at dispatch time — verify their state then, not from this document.
 - [x] S-1/S-4 spike report — **feasibility PASS** (parity 0.92–1.00 median, byte-identical markup; 11/11 dual-host parity; S-4 scoped to dual-host structural output only, 08 §1) — `spikes/s1-codegen-report.md`
 - [x] S-3/S-2/S-5 spike report — **feasibility PASS ×3** (55/55 ownership fixtures; push 4–6.5× better than pull; sync door 24/24) + R-2 shapes — `spikes/s3-ownership-report.md`
 - [x] drafts/: 004-interim (9 pairs), 004-rewrite, 006-amendment, selector grammar — written
-- [ ] Post-fold coverage pass over drafts + 11/12 — verify every codex2 finding and
-  implementer question (Q1–Q61) resolves to a named artifact or an explicitly-filed
-  S1/S2 contract item. (The S0 correctness-review obligation itself was executed by the
-  codex2 review + its binding disposition in 09 + the 2026-07-12 fold-in; this coverage
-  check is what remains.)
+- [x] Post-fold coverage pass over drafts + 11/12 — **ran 2026-07-12, SHIP verdict**
+  (durable record in the epic `rf2-vxgfnd` NOTES, "S0 COVERAGE PASS (2026-07-12)"): every
+  codex2 finding and implementer question (Q1–Q61) resolves to a named artifact or an
+  explicitly-filed S1/S2 contract item. (The S0 correctness-review obligation itself was
+  executed by the codex2 review + its binding disposition in 09 + the 2026-07-12 fold-in;
+  this coverage check confirmed the residue and dispatched cosmetic cleanup separately.)
+  The still-open implementer questions were the S2 obligations pinned onto named beads
+  when the S2 children were filed at the S1 boundary: Q49 (ENSURE
+  retry-after-preflight-failure) → rf2-vxgfnd.9; Q51 (`flush!` scope + nesting / reentrancy
+  / act semantics) → rf2-vxgfnd.10; the four [S2-CONFIRM] observation-port items →
+  rf2-vxgfnd.7; the static-override-lease Tier-3 fixture → rf2-vxgfnd.8 / .12; the
+  `:activity-hidden` retroactive-annotation evidence schema (name unified 2026-07-12 —
+  03 §4 spelling wins) → the S2 evidence/Xray slice. All have since landed with S2: S1 is
+  complete and S2 core is verified S3-ready under the rf2-vxgfnd.22 boundary review
+  (punch-list landing). S3–S7 not started.
 - [x] Spike outcomes folded into 03 (target=evidence-not-handle; lease=owner-token; slice-scoped memo token; three observable states + retroactive tool labels) and 07 (G-1 estimator + emitted-JS golden test)
 - [x] This §2 table blessed by Mike (it is the API freeze for v1) — **BLESSED as-is 2026-07-12 00:39 AUSEST** (option a). Protocol: any finding from the S0 correctness pass (codex2 disposition + fold-in + coverage pass, executed 2026-07-12) that touches the table returns to Mike as a row-level delta for re-ruling; the freeze itself is not reopened.
 - [ ] Ruled-bead waves touching S1/S2 surfaces: merged or explicitly sequenced against
