@@ -1,8 +1,11 @@
 # Observability: one wire, every tool
 
-You clicked a button and the app is now subtly wrong.
+You know the model. You clicked a button and the app is now subtly wrong.
 
-You want to know one thing: what did that click actually *do*? Which handler ran, what changed in [app-db](glossary.md#app-db), which subscriptions recomputed, which views re-rendered, what effects escaped. In most frontends that question has no clean answer, because causality is smeared across a hundred components, each mutating its own little corner of state. So you end up bisecting `console.log` statements like it's 2009.
+You want one thing: what did that click actually *do*? Which handler ran, what
+changed in [app-db](glossary.md#app-db), which subscriptions recomputed, which views
+re-rendered, what effects escaped. In most frontends that question has no clean
+answer — causality is smeared across components. Here it has a clean one.
 
 re-frame2 has a clean answer, and it isn't bolted on — it falls out of the architecture. Every event traverses the same fixed [event pipeline](glossary.md#event-pipeline) — the ordered run from a dispatched [event](glossary.md#event) through its [event handler](glossary.md#event-handler), the [commit](glossary.md#commit), and the [effects](glossary.md#effect) — so there is a single place to stand and watch the runtime go past. And as it runs, the framework narrates: it emits a small data record at every moment worth noticing. That stream of records is the **trace stream** — the **wire**, from here on — and it's the whole foundation. The fancy panels you'll meet at the end — [Xray](glossary.md#xray) (the dev inspector), Story (a view workbench), the pair MCP (a bridge that lets an AI inspect the running app) — are not the observability system. They are *readers* of it.
 

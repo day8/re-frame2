@@ -1,25 +1,17 @@
 # Subscriptions
 
-
-A UI is just derived data.
+You have [events](events.md) writing one [app-db](app-db.md) map. Views should not
+pluck raw paths out of that map by hand — and they should not store conclusions
+next to facts. This page is the missing middle.
 
 [App-db](glossary.md#app-db) holds your **facts**. Your
-[views](glossary.md#view) want **conclusions** — "the visible articles", "can
-this form submit?", "the current user's initials". A
-[subscription](glossary.md#subscription) is the thing in between: a named,
-cached derivation that turns facts into a conclusion, and re-runs only when it
-must.
+[views](glossary.md#view) want **conclusions** — "the visible articles", "can this
+form submit?", "the current user's initials". A
+[subscription](glossary.md#subscription) is the thing in between: a named, cached
+derivation that turns facts into a conclusion, and re-runs only when it must.
 
-A re-frame2 app is about 75% derived data. I just made that number up, but you get
-the idea: there's quite a bit of it. And the deriving doesn't even stop at the
-views. Hiccup becomes DOM — more derived data. The browser turns DOM into pixels —
-more data. The monitor turns pixels into photons (data; don't fight me here, I'm
-on a roll), your retina turns photons into nerve signals (still data), and
-somewhere behind your eyes a brain derives a conclusion from the lot. Derived data
-all the way down, and you are the last node on the graph.
-
-Too much? Okay, fine. Just the part between app-db and your views, then. That part
-is this page.
+> **A UI is derived data. Subscriptions are how you name and share those
+> derivations.**
 
 ## Don't Store What You Can Derive
 

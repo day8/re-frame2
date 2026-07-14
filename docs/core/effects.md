@@ -1,12 +1,21 @@
 # Effects: the way out
 
-This page shows you how to write pure event handlers that side-effect.
+So far, handlers mostly returned `{:db …}`. Real apps also need HTTP, storage,
+timers, and follow-up events — without turning handlers into impure mush.
+
+This page shows you how to write pure [event handlers](glossary.md#event-handler)
+that **side-effect**.
 
 Yes. A surprising claim.
 
-Say your [event handler](glossary.md#event-handler) needs to fire an HTTP request. It also has to stay a pure function — same inputs, same output, every time — because purity is what makes testing, replay, and time-travel work. Both demands are real. Neither bends.
+A handler must stay pure — same inputs, same output, every time — because purity is
+what makes testing, replay, and time-travel work. It also has to cause work in the
+world. Neither demand bends.
 
-The way out is the move you've been leaning on since the [introduction](introduction.md) and [app-db](app-db.md): a handler never *does* anything. It returns a **to-do list** — a description of what should happen, in plain data — and the runtime does the dirty work. Hold onto that list — the whole page runs on it. What follows is the output story in full: the [effect](glossary.md#effect) grammar, effects you register yourself, and the guarantees you can build on.
+The move you've been leaning on since [events](events.md) and [app-db](app-db.md)
+is the answer: a handler never *does* anything. It returns a **to-do list** — a
+description of what should happen, in plain data — and the runtime does the dirty
+work. Hold onto that list; the whole page runs on it.
 
 ## The counter learns to act
 

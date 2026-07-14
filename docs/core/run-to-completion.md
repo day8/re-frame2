@@ -1,10 +1,19 @@
 # Run to completion
 
-Every dispatch you've made so far queued an event and walked away, and the pipeline caught up moments later. "Moments later" has been doing quiet work all along: hiding inside it is the one guarantee about *when* things run, and the whole rendering story leans on it. This page pins it down.
+You have the full write path now: [events](events.md), [app-db](app-db.md),
+[effects](effects.md), [coeffects](coeffects.md). One guarantee about **when** the
+read side runs has been quiet in the background. This page names it.
 
-Most frameworks let renders interleave with event processing, which is why this rule deserves a hard stop. When the runtime starts processing events, it [**drains the queue to completion**](glossary.md#drain--run-to-completion) before any view re-renders. The dequeued event runs its full write side. Then any events its handler `:fx`-dispatched run theirs. Boom, boom, boom, until the queue is empty. Only then does the read side run — once — and the render boundary arrives: the single point in the cycle where the settled state reaches the screen. The only terminal boundaries are the drain-depth guard and a successful exact-incarnation `destroy-frame!` claim; either stops later ordinary events without inserting a render between the writes that already ran.
+When the runtime starts processing events, it
+[**drains the queue to completion**](glossary.md#drain--run-to-completion) before
+any view re-renders. The dequeued event runs its full write side. Then any events
+its handler `:fx`-dispatched run theirs — until the queue is empty. Only then does
+the read side run, **once**, and the render boundary arrives: the single point where
+settled state reaches the screen.
 
-So the write side runs *per event*; the read side runs *once per drain*, at settle. That's the sentence to keep; the rest of this page is it, illustrated. And it is the dispatch semantics, not a mode; there is no opt-out.
+> **Write side runs per event; read side runs once per drain, at settle.**
+
+That is dispatch semantics, not a mode. There is no opt-out.
 
 Here's the picture to keep: the render boundary is a **theatre curtain**. Every event in a drain is a stagehand shifting scenery behind it, and the curtain does not go up until the last stagehand steps off. What that buys is coherence. If submitting a form dispatches three follow-up events, the view does not glimpse the state after each one. It sees one settled state, once. Either the form is submitting or it's failed, never both in one paint.
 

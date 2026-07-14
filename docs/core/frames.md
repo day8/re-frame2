@@ -1,12 +1,17 @@
 # Frames: isolated worlds
 
-Sooner or later, you want two of your app.
+Every example so far used one [frame](glossary.md#frame) — one app-db, one queue —
+and never said much about it. That is the normal case. This page is for when the
+frame *is* the point.
 
-A split pane showing the same widget against different data. A [Story](glossary.md#story) canvas — the view workbench — rendering one view in three states side by side. A server handling a hundred render requests at once. Or the less cheerful road: a `setTimeout` callback just raised `:rf.error/no-frame-context` and you'd like to know why.
+Sooner or later you want two of your app: a split pane, a [Story](glossary.md#story)
+canvas with three states, many SSR requests, or a `setTimeout` that just raised
+`:rf.error/no-frame-context`.
 
-All those roads lead to one idea: the **[frame](glossary.md#frame)** — re-frame2's isolation boundary. A frame is a **world**: one complete, running copy of your app, sealed off from every other copy.
-
-Now the good news: you can ignore frames almost entirely. Most apps establish exactly one world at boot and never say its name again. So we'll start there — the simplest working thing — and add a second world only once the first one is solid. By the end you'll know the one rule everything else falls out of: *frame identity is carried, not found.*
+A frame is re-frame2's isolation boundary — a **world**: one complete, running copy
+of your app, sealed off from every other copy. Most apps establish exactly one world
+at boot and never say its name again. We start there, then add a second world.
+By the end: *frame identity is carried, not found.*
 
 ## The counter, twice
 

@@ -1,8 +1,14 @@
 # Coeffects: the way in
 
-[Effects](effects.md) covered impurity going *out*: a handler returns descriptions and the runtime performs them. This page is the other direction — the facts a handler *reads*.
+[Effects](effects.md) covered impurity going *out*: a handler returns descriptions
+and the runtime performs them. This page is the other direction — the facts a
+handler *reads* from the world.
 
-The current time. A `localStorage` value. A fresh id. Reaching out and grabbing them would cost the handler its purity, so re-frame2 delivers them instead, as declared, **recorded** inputs called [coeffects](glossary.md#coeffect). A coeffect is the state of the world, as data, as presented to your handler. The recording is the point, and by the end of the page you'll see why it's non-negotiable.
+The current time. A `localStorage` value. A fresh id. Reaching out and grabbing them
+would cost the handler its purity, so re-frame2 delivers them instead, as declared,
+**recorded** inputs called [coeffects](glossary.md#coeffect). A coeffect is the
+state of the world, as data, as presented to your handler. The recording is the
+point — it is what makes replay and time-travel honest.
 
 ## The counter learns the time
 

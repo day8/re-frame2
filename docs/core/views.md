@@ -1,18 +1,24 @@
 # Views: pure functions of data
 
-A [view](glossary.md#view) has one job: turn data — the values [subscriptions](subscriptions.md) spent the last page deriving — into a picture of the screen.
+Write side and derivations are in place
+([events](events.md) → [app-db](app-db.md) → [subscriptions](subscriptions.md)).
+This page is the last step of the basic loop: turn derived values into a screen.
 
-Not "manage local state" — a view stores nothing. Not "fetch what it needs" — a view never touches the world. Not "coordinate a lifecycle" — there's nothing to coordinate. It reads some application state, returns the description of the screen for that state, and it's finished. State changes; the framework re-runs the view; the DOM catches up.
-
-So the entire contract fits in one sentence:
+A [view](glossary.md#view) has one job. Not "manage local state" — a view stores
+nothing. Not "fetch what it needs" — a view never touches the world. Not
+"coordinate a lifecycle" — there's nothing to coordinate. It reads some application
+state, returns the description of the screen for that state, and it's finished.
+State changes; the framework re-runs the view; the DOM catches up.
 
 > **A view is a pure function from subscription values to hiccup.**
 
-Give that line a second read, because every heading below is it being unpacked. That's the whole page, right there.
+**Views are derivative, not causal.** [Events](glossary.md#event) update
+centralised state. [Subscriptions](subscriptions.md) derive values from it. Views
+sit at the end of the flow and render whatever arrives — a **window** onto the
+application, not the room itself.
 
-Behind it sits a conviction, and I'd rather own it out loud than have you discover it sideways: **views are derivative, not causal.** For about ten years the React world has organised itself around one gravitational centre — the component. Components own state. Components fetch data. Components route. Components subscribe to stores through whatever `useFoo` hook this year's library plumbed in. Effects colocate with the view tree because the view tree is what the framework can see, so the view tree is where *everything* ends up living — state, IO, navigation, the lot, bolted onto render functions. Too grumpy? Maybe; those tools ship real products. But re-frame2 makes the opposite bet. [Events](glossary.md#event) update centralised state. [Subscriptions](subscriptions.md) derive values from it. Views sit at the very end of the flow and render whatever arrives. A view is a **window** onto your application's state: it shows you the room. It doesn't get to be the room.
-
-Hold onto the window; we'll be looking through it for the rest of the page. The route: first the output — [*hiccup*](glossary.md#hiccup), the data a view returns — then the two ways a view talks to the rest of the app, then a complete view running live, and finally the one discipline that keeps views fast, plus the handful of escape hatches you'll occasionally reach for.
+The route below: hiccup (the data a view returns), then subscribe-in / dispatch-out,
+then composition, then the discipline that keeps views fast.
 
 ??? info "For JavaScript developers"
 

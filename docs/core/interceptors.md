@@ -1,20 +1,21 @@
 # Interceptors
 
-Say you have three hundred [event handlers](glossary.md#event-handler), and three chores that apply to all of them: log every event, snapshot state for undo, validate input at the boundary.
+You can write pure [event handlers](glossary.md#event-handler),
+[effects](effects.md), and [coeffects](coeffects.md). Cross-cutting chores remain:
+log every event, snapshot state for undo, validate input at the boundary — applied
+to hundreds of handlers.
 
 Where do the chores go?
 
-Not into the handlers. Do that and you have nine hundred copies of code that isn't any handler's job. Nine hundred copies drifting quietly apart. Three hundred edits the day the logging format changes — and it will change — three hundred chances to miss one, and a bug filed weeks later against the one you missed. And the undo chore isn't even stateless: it's a snapshot stack, smeared across every mutating handler you own.
+Not into the handlers. That multiplies the same code, drifts it apart, and smears
+stateful concerns (undo stacks) across every mutator.
 
-Okay. Deep breath. The diagnosis stands, though: these chores *cut across* handlers, so they can't live *inside* handlers.
-
-An **interceptor** is where a cross-cutting chore lives instead. You write the chore *once*, register it under a name, and wrap it around any handler — or around every handler in a [frame](glossary.md#frame) — just by referencing that name. The handler stays focused on its one job: turning [coeffects](glossary.md#coeffect) into an [effect map](glossary.md#effect-map).
-
-This page builds toward one rule, so let's put it up front and earn it as we go:
+An **interceptor** is where a cross-cutting chore lives instead. Write it once,
+register it under a name, and wrap any handler — or every handler in a
+[frame](glossary.md#frame) — by referencing that name. The handler stays focused:
+[coeffects](glossary.md#coeffect) in, [effect map](glossary.md#effect-map) out.
 
 > **Interceptors decide and decorate; effects do.**
-
-We'll start with the simplest interceptor that does something useful, then add one idea at a time.
 
 ## A first interceptor: a logger
 
