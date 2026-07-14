@@ -965,10 +965,18 @@
                     runtime-db (cond-> runtime-db boot? (dissoc :rf.runtime/elision))
                     ctx        (cond-> ctx        boot? (assoc :runtime-db runtime-db))]
                 ;; Value-independent + idempotent, dropped at destroy / finalize.
-                ;; A spec declaring no classification is a no-op.
+                ;; A spec declaring no classification is a no-op. rf2-i4aj9c — the
+                ;; singleton first-boot classification lowering rides the EXACT
+                ;; elision write: `maybe-boot` above fired the initial-entry
+                ;; `:entry` actions (authored callbacks that can destroy A /
+                ;; publish same-id B), so a mid-write container watch must not
+                ;; re-root this singleton's `:sensitive` / `:large` declarations
+                ;; onto B or bump B's commit epoch. nil token (no event owner)
+                ;; falls back to the historical bare write.
                 (when boot?
                   (classification/lower-at-spawn! (:frame-id ctx) (:machine-id ctx)
-                                                  (:machine ctx)))
+                                                  (:machine ctx)
+                                                  (frame/current-event-owner-token)))
               (result/with-ok [post-boot-snap boot-fx] boot-result
                 ;; PURE init-kick: when the routed inner event IS the
                 ;; reserved `:rf.machine/start` marker, `maybe-boot` has

@@ -646,8 +646,14 @@
         ;; (`re-frame.classification/frame-snapshot-classification`, SSR, trace) is unchanged —
         ;; this writes the registry-entry source `:source :machine`, a peer of
         ;; the general commit-plane `:source :effect` route. A spec declaring
-        ;; no classification is a no-op.
-        (classification/lower-at-spawn! frame-id spawned-id spec'')
+        ;; no classification is a no-op. rf2-i4aj9c — thread A's `owner-token`
+        ;; so the per-instance classification lowering rides the EXACT elision
+        ;; write: a container watch that destroys A / publishes same-id B DURING
+        ;; the registry write cannot re-root the lowered `:sensitive` / `:large`
+        ;; declarations onto B's snapshot path or bump B's commit epoch (the
+        ;; install itself is already exact; this closes the sibling classification
+        ;; write the earlier fences ran ahead of).
+        (classification/lower-at-spawn! frame-id spawned-id spec'' owner-token)
         ;; Record the spawned actor in the frame's spawn-order channel so
         ;; frame-destroy can walk in reverse-creation order per Spec 005
         ;; §Cross-Spec Interactions §1.
