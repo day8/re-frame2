@@ -2199,30 +2199,35 @@
 (defn lower-inline-sub
   "Lower an inline `:reg-sub` descriptor's raw computation fn into the runnable
   layer-1 (`:input-kind :db`) sub slots `reg-sub` installs (`:handler-fn` +
-  `:input-kind :db` + empty `:input-signals`). `metadata` is NORMALIZED through
-  the SAME `normalize-sub-metadata` seam public `reg-sub` runs (rf2-vxgfnd.219),
-  so an inline registration accepts, rejects, and elides identical metadata: a
-  retired bare `:spec` hard-errors with `:rf.error/retired-registration-key`, a
-  malformed `:sensitive` / `:large` declaration raises
-  `:rf.error/bad-classification`, and production strips `:doc` — neither looser
-  nor stricter than the public path. The normalized meta is projected onto the
-  runnable descriptor's top level, matching the shape `reg-sub` installs so
-  runtime consumers (return-schema validation, classification projection) read
-  the same slots regardless of registration path. Normalization is side-effect-
-  free with respect to the global registrar; the runtime-owned runnable slots
-  are installed AFTER it, so metadata can never override them. Image assembly
-  still keeps the original nested `:metadata` plus `:impl` and provenance for
-  inspection.
+  `:input-kind :db` + empty `:input-signals`). `metadata` is NORMALIZED ONCE
+  through the SAME `normalize-sub-metadata` seam public `reg-sub` runs
+  (rf2-vxgfnd.219), so an inline registration accepts, rejects, and elides
+  identical metadata: a retired bare `:spec` hard-errors with
+  `:rf.error/retired-registration-key`, a malformed `:sensitive` / `:large`
+  declaration raises `:rf.error/bad-classification`, and production strips
+  `:doc` — neither looser nor stricter than the public path. Normalization is
+  side-effect-free with respect to the global registrar; the runtime-owned
+  runnable slots are installed AFTER it, so metadata can never override them.
 
-  The concrete sub id is not threaded through the image-assembly lowering
-  boundary (`lower` receives only `[metadata impl]`), so a generic
-  `:rf.image/inline-sub` id names the registration in any normalization
-  diagnostic; the error TYPE + named replacement key match the public path."
-  [metadata impl]
-  (assoc (normalize-sub-metadata 'rf/reg-sub :rf.image/inline-sub metadata)
-         :handler-fn    impl
-         :input-kind    :db
-         :input-signals []))
+  `id` is the AUTHORED descriptor id (e.g. `:counter/value`) threaded from the
+  image-assembly lowering boundary (rf2-vxgfnd.257), so a retired/unknown-key or
+  bad-classification diagnostic names the author's subscription — never a
+  synthetic fallback.
+
+  The normalized meta is projected onto the runnable descriptor's top level,
+  matching the shape `reg-sub` installs so runtime consumers (return-schema
+  validation, classification projection) read the same slots regardless of
+  registration path. It is ALSO carried under `:metadata` (when non-empty) — the
+  ONE normalized representation — so image assembly threads the same doc-stripped
+  map into the descriptor's nested `:metadata` for inspection/dedupe rather than
+  retaining a second, raw copy that would leak dev-only `:doc` into production."
+  [id metadata impl]
+  (let [normalized (normalize-sub-metadata 'rf/reg-sub id metadata)]
+    (cond-> (assoc normalized
+                   :handler-fn    impl
+                   :input-kind    :db
+                   :input-signals [])
+      (seq normalized) (assoc :metadata normalized))))
 
 (late-bind/set-fn! :image/lower-inline-sub lower-inline-sub)
 

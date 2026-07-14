@@ -377,19 +377,44 @@
   An inline descriptor (`:rf.provenance/inline`) with an `:impl` fn is merged
   with the runnable slots its kind's late-bound lowering produces (the same
   slots `register!` stores for a `reg-*` of that kind) — preserving `:impl`,
-  provenance, `:kind` / `:id`, and `:metadata`. A non-inline descriptor (a
-  registered or standard one), a metadata-only inline entry (no `:impl`), or a
-  kind with no published lowering hook returns UNCHANGED. Pure modulo the
-  late-bind lookup."
+  provenance, `:kind` / `:id`. A non-inline descriptor (a registered or standard
+  one), a metadata-only inline entry (no `:impl`), or a kind with no published
+  lowering hook returns UNCHANGED. Pure modulo the late-bind lookup.
+
+  The `:sub` kind is the one kind whose lowering runs registrar-contract
+  metadata NORMALIZATION (validate retired/unknown keys + `:sensitive`/`:large`
+  classification, strip dev-only `:doc` in production — rf2-vxgfnd.219). It
+  ALONE therefore (a) needs the AUTHORED descriptor id so a retired/unknown-key
+  diagnostic names the author's subscription (e.g. `:counter/value`), never a
+  synthetic `:rf.image/inline-sub`, and (b) yields a NORMALIZED `:metadata` that
+  must REPLACE the descriptor's RAW nested `:metadata` — otherwise a production
+  image still carries dev-only `:doc` under `[:metadata …]` alongside the
+  doc-stripped top level, a second, divergent representation (rf2-vxgfnd.257).
+  Its return carries the metadata normalized ONCE (spread at top level AND under
+  `:metadata`); we let that normalized `:metadata` win over the descriptor's raw
+  copy. Selection/dedupe already ran (`lower-inline-descriptors` is a post-
+  selection map), so replacing `:metadata` here never decides a collision
+  winner. Other kinds keep the descriptor's own `:metadata` untouched."
   [descriptor]
   (if (and (:rf.provenance/inline descriptor)
            (contains? descriptor :impl))
     (if-let [lower (late-bind/get-fn
                      (keyword "image" (str "lower-inline-" (name (:kind descriptor)))))]
-      ;; Merge runnable slots UNDER the descriptor's own keys (the descriptor
-      ;; wins on any shared key — :impl / provenance / :kind / :id stay put;
-      ;; the lowering only contributes :handler-fn + the per-kind runtime slots).
-      (merge (lower (:metadata descriptor) (:impl descriptor)) descriptor)
+      (if (= :sub (:kind descriptor))
+        ;; Thread the authored id; let the lowering's normalized :metadata win
+        ;; over the descriptor's raw copy (the descriptor otherwise wins every
+        ;; shared key — :impl / provenance / :kind / :id stay put). When the
+        ;; normalized metadata is empty (e.g. a doc-only map in production) the
+        ;; lowering omits :metadata, and the descriptor's raw copy is dropped
+        ;; rather than resurrected.
+        (let [lowered (lower (:id descriptor) (:metadata descriptor) (:impl descriptor))]
+          (-> (merge lowered descriptor)
+              (dissoc :metadata)
+              (merge (select-keys lowered [:metadata]))))
+        ;; Other kinds — merge runnable slots UNDER the descriptor's own keys
+        ;; (the descriptor wins on any shared key; the lowering only contributes
+        ;; :handler-fn + the per-kind runtime slots).
+        (merge (lower (:metadata descriptor) (:impl descriptor)) descriptor))
       descriptor)
     descriptor))
 
