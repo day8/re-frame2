@@ -55,7 +55,7 @@
   (testing "a :sub-overrides HIT that violates the sub's :schema emits
             :where :sub-override and the compiled view surfaces nil"
     (rf/reg-sub :count/value {:schema :int} (fn [db _] (get db :n 0)))
-    (let [f      (uit/frame {:app-db {:n 7}})
+    (let [f      (rf/make-frame {:initial-events [[:rf/set-db {:n 7}]]})
           tree   (atom nil)
           errors (collect-errors
                    (fn []
@@ -76,7 +76,7 @@
 (deftest override-conforming-schema-renders-and-no-failure
   (testing "a :sub-overrides HIT that conforms surfaces unchanged, no failure"
     (rf/reg-sub :count/value {:schema :int} (fn [db _] (get db :n 0)))
-    (let [f      (uit/frame {:app-db {:n 7}})
+    (let [f      (rf/make-frame {:initial-events [[:rf/set-db {:n 7}]]})
           tree   (atom nil)
           errors (collect-errors
                    (fn []
@@ -92,7 +92,7 @@
 (deftest override-on-schemaless-sub-renders-any-value
   (testing "a sub with no :schema → the override renders with no validation"
     (rf/reg-sub :count/value (fn [db _] (get db :n 0)))
-    (let [f      (uit/frame {:app-db {:n 7}})
+    (let [f      (rf/make-frame {:initial-events [[:rf/set-db {:n 7}]]})
           tree   (atom nil)
           errors (collect-errors
                    (fn []

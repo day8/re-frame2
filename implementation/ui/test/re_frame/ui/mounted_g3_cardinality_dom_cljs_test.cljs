@@ -182,7 +182,7 @@
          (< i (dec (count site-ids)))
          (assoc :fx [[:dispatch [::write-next (inc i)]]]))))
     (let [seed       (into {:writes 0} (map (fn [sid] [sid 0])) site-ids)
-          f          (uit/frame {:app-db seed})
+          f          (rf/make-frame {:initial-events [[:rf/set-db seed]]})
           frame-id   (frame/frame-target->id f)
           baseline   (reactive/current-live-cells)
           evidence   (atom (body-evidence))]

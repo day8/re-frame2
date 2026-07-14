@@ -76,7 +76,7 @@
 
 (deftest ui-test-render-view-reference-shares-one-slice-memo
   (reg-slice-subs!)
-  (let [f (uit/frame {:app-db {:n 5}})]
+  (let [f (rf/make-frame {:initial-events [[:rf/set-db {:n 5}]]})]
     (reset! parent-runs 0)
     (uit/render siblings {:frame f})
     (is (= 1 @parent-runs)
@@ -98,7 +98,7 @@
 
 (deftest ui-test-render-literal-form-shares-one-slice-memo
   (reg-slice-subs!)
-  (let [f (uit/frame {:app-db {:n 5}})]
+  (let [f (rf/make-frame {:initial-events [[:rf/set-db {:n 5}]]})]
     (reset! parent-runs 0)
     (uit/render [siblings {}] {:frame f})
     (is (= 1 @parent-runs)
@@ -191,7 +191,7 @@
   ;; pre-fix defect) would give four; a global holder shared across threads
   ;; would corrupt the count below two.
   (reg-slice-subs!)
-  (let [f     (uit/frame {:app-db {:n 5}})
+  (let [f     (rf/make-frame {:initial-events [[:rf/set-db {:n 5}]]})
         _     (reset! parent-runs 0)
         gate  (CyclicBarrier. 2)
         run   (fn [] (future
@@ -212,7 +212,7 @@
   ;; (total two). A global holder with no per-scope discard would let the
   ;; second task reuse the tag-matching table (total one).
   (reg-slice-subs!)
-  (let [f    (uit/frame {:app-db {:n 5}})
+  (let [f    (rf/make-frame {:initial-events [[:rf/set-db {:n 5}]]})
         _    (reset! parent-runs 0)
         exec (Executors/newSingleThreadExecutor)]
     (try
@@ -275,7 +275,7 @@
   ;; clobber) or converges both threads on one identity — either fails an
   ;; assertion here, DETERMINISTICALLY under the forced overlap (AC5).
   (reg-slice-subs!)
-  (let [f    (uit/frame {:app-db {:n 5}})
+  (let [f    (rf/make-frame {:initial-events [[:rf/set-db {:n 5}]]})
         gate (CyclicBarrier. 2)]
     ;; Re-register the shared cold parent so its compute trips the acquisition
     ;; barrier; siblings sharing one slice handle compute it once per render, so

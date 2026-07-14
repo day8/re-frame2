@@ -61,7 +61,7 @@
 
 (deftest mounted-viewcell-provider-carriage-elides-in-production
   (rf/reg-sub ::prod-value (fn [db _] (:prod-value db)))
-  (let [f        (uit/frame {:app-db {:prod-value "ordinary"}})
+  (let [f        (rf/make-frame {:initial-events [[:rf/set-db {:prod-value "ordinary"}]]})
         frame-id (frame/frame-target->id f)
         sub-key  [:sub frame-id [::prod-value]]
         container (js/document.createElement "div")

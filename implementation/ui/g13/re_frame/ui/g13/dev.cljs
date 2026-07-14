@@ -168,7 +168,7 @@
     (nth sorted (js/Math.floor (* p (dec (count sorted)))))))
 
 (defn- run-size! [v]
-  (let [frame (uit/frame {:app-db (fixture/seed v)})
+  (let [frame (rf/make-frame {:initial-events [[:rf/set-db (fixture/seed v)]]})
         cold* (atom nil)]
     (-> (uit/with-root [root [ui/frame-provider {:frame frame}
                               [fixture/app {:v v}]]]

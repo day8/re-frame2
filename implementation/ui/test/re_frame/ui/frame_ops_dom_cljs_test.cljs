@@ -60,7 +60,7 @@
       (reset! captured [])
       (frames/reset-frame-ops-cache!)
       (reg!)
-      (let [f        (uit/frame {:app-db {:n 42}})
+      (let [f        (rf/make-frame {:initial-events [[:rf/set-db {:n 42}]]})
             frame-id (frame/frame-target->id f)
             text     #(.-textContent (uit/query % "[data-role='ops-n']"))]
         (async done

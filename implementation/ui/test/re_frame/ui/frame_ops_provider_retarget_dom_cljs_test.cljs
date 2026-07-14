@@ -66,8 +66,8 @@
       (reset! captured [])
       (frames/reset-frame-ops-cache!)
       (reg!)
-      (let [fa    (uit/frame {:app-db {:n 1}})
-            fb    (uit/frame {:app-db {:n 2}})
+      (let [fa    (rf/make-frame {:initial-events [[:rf/set-db {:n 1}]]})
+            fb    (rf/make-frame {:initial-events [[:rf/set-db {:n 2}]]})
             fa-id (frame/frame-target->id fa)
             fb-id (frame/frame-target->id fb)
             container (js/document.createElement "div")]

@@ -1,6 +1,6 @@
 (ns re-frame.ui.test-render-jvm-test
   "`ui.test/render` — the two accepted root-or-view forms + rejection
-  rules (root-identity-and-mount §9), the frame opts (:frame XOR :app-db,
+  rules (root-identity-and-mount §9), the frame opts (:frame,
   :props, :sub-overrides), the tree-version stamp, and the JVM-only
   selector spellings (defview var; the compiled-view-fn guard)."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
@@ -176,9 +176,6 @@
          (err-id #(uit/render badge {:props {:label "x"} :unknown 1})))
       "the opts map is CLOSED")
   (is (= :rf.error/ui-test-bad-opts
-         (err-id #(uit/render badge {:frame :rf/default :app-db {}})))
-      "{:frame f} XOR {:app-db v}")
-  (is (= :rf.error/ui-test-bad-opts
          (err-id #(uit/render badge {:props [:label "x"]})))
       ":props must be a map — a view is a pure fn of ONE props map")
   (is (= :rf.error/ui-test-bad-opts
@@ -204,21 +201,21 @@
 
 (deftest sub-read-against-a-frame
   (rf/reg-sub :greeting/text (fn [db _] (:greeting db)))
-  (let [f    (uit/frame {:app-db {:greeting "hello"}})
+  (let [f    (rf/make-frame {:initial-events [[:rf/set-db {:greeting "hello"}]]})
         tree (uit/render greeting {:frame f})]
     (is (= "hello" (uit/text (uit/find tree :h1)))
         "the compiled view's (sub …) reads the real cache value on the JVM"))
   (testing "app-db movement is reflected on re-render (headless read points)"
     (rf/reg-event ::set-greeting
       (fn [{:keys [db]} [_ v]] {:db (assoc db :greeting v)}))
-    (let [f (uit/frame {:app-db {:greeting "hi"}})]
+    (let [f (rf/make-frame {:initial-events [[:rf/set-db {:greeting "hi"}]]})]
       (uit/dispatch! f [::set-greeting "bye"])
       (is (= "bye" (uit/text (uit/find (uit/render greeting {:frame f}) :h1)))
           "a re-render reads the moved value"))))
 
 (deftest sub-read-honours-the-override-door
   (rf/reg-sub :greeting/text (fn [db _] (:greeting db)))
-  (let [f    (uit/frame {:app-db {:greeting "real"}})
+  (let [f    (rf/make-frame {:initial-events [[:rf/set-db {:greeting "real"}]]})
         tree (uit/render greeting {:frame f
                                    :sub-overrides {[:greeting/text] "pinned"}})]
     (is (= "pinned" (uit/text (uit/find tree :h1)))
@@ -226,25 +223,17 @@
          JVM spelling — 03 §3)")))
 
 (deftest sub-read-unknown-sub-is-fail-loud
-  (let [f (uit/frame {:app-db {}})]
+  (let [f (rf/make-frame {:initial-events [[:rf/set-db {}]]})]
     (is (= :rf.error/no-such-sub
            (err-id #(uit/render greeting {:frame f})))
         "an unregistered entry sub is fail-loud through the observation port")))
 
 ;; ---------------------------------------------------------------------------
-;; Frame opts — :app-db mints (and destroys) a test frame; :frame targets
-;; a held one
+;; Frame opts — :frame targets a held frame
 ;; ---------------------------------------------------------------------------
 
-(deftest app-db-mints-a-transient-test-frame
-  (let [before (set (keys @frame/frames))
-        tree   (uit/render badge {:props {:label "x"} :app-db {:seed 1}})]
-    (is (= 1 (:rf.ui/tree-version tree)))
-    (is (= before (set (keys @frame/frames)))
-        "the minted frame is destroyed after the render — no leak")))
-
 (deftest frame-opt-targets-a-held-frame
-  (let [f    (uit/frame {:app-db {:cart #{7}}})
+  (let [f    (rf/make-frame {:initial-events [[:rf/set-db {:cart #{7}}]]})
         tree (uit/render [badge {:label "held"}] {:frame f})]
     (is (= "held" (uit/text (uit/find tree :span))))
     (is (= {:cart #{7}} (rf/app-db-value f))
@@ -252,29 +241,16 @@
 
 (deftest frameless-render-proceeds
   (is (= ::badge (:view-id (uit/render badge {:props {:label "x"}})))
-      "with neither :frame nor :app-db, structural rendering proceeds"))
+      "with no :frame, structural rendering proceeds"))
 
 ;; ---------------------------------------------------------------------------
-;; frame + dispatch! (07 §2)
+;; dispatch! (07 §2)
 ;; ---------------------------------------------------------------------------
-
-(deftest frame-mints-with-app-db-seed
-  (let [f (uit/frame {:app-db {:cart #{} :catalog {42 "Hat"}}})]
-    (is (= {:cart #{} :catalog {42 "Hat"}} (rf/app-db-value f))
-        "the :app-db seed drains to fixed point before frame returns"))
-  (is (map? (rf/app-db-value (uit/frame)))
-      "a seed-less test frame is a fresh frame"))
-
-(deftest frame-opts-are-closed
-  (is (= :rf.error/ui-test-bad-opts (err-id #(uit/frame {:images []})))
-      "richer construction is rf/make-frame's vocabulary")
-  (is (= :rf.error/ui-test-bad-opts (err-id #(uit/frame {:app-db [:not-a-map]}))))
-  (is (= :rf.error/ui-test-bad-opts (err-id #(uit/frame :not-a-map)))))
 
 (deftest dispatch!-is-real-dispatch-plus-drain
   (rf/reg-event ::add
     (fn [{:keys [db]} [_ id]] {:db (update db :cart conj id)}))
-  (let [f (uit/frame {:app-db {:cart #{}}})]
+  (let [f (rf/make-frame {:initial-events [[:rf/set-db {:cart #{}}]]})]
     (uit/dispatch! f [::add 42])
     (is (= #{42} (:cart (rf/app-db-value f)))
         "dispatch! drains synchronously into the target frame")))
@@ -308,7 +284,7 @@
 ;; SAME root grammar ui/mount takes: a top-region frame-root contributes a
 ;; static frame plan, ENSURE preflights FRESH test frames before the JVM
 ;; structural render, the mounted view resolves the innermost enclosing
-;; frame-root's frame as ambient scope, {:frame}/{:app-db} is rejected, and
+;; frame-root's frame as ambient scope, {:frame} is rejected, and
 ;; every test-owned frame is torn down.
 ;; ---------------------------------------------------------------------------
 
@@ -375,21 +351,17 @@
 
 (deftest plan-bearing-root-rejects-explicit-frame-opts
   (reg-greeting!)
-  (let [f (uit/frame {:app-db {:greeting "held"}})]
+  (let [f (rf/make-frame {:initial-events [[:rf/set-db {:greeting "held"}]]})]
     (is (= :rf.error/ui-test-bad-opts
            (err-id #(uit/render [ui/frame-root {:id :test/greet} [greeting {}]]
                                 {:frame f})))
         "a plan-bearing root form OWNS its frames — {:frame} is rejected")
-    (is (= :rf.error/ui-test-bad-opts
-           (err-id #(uit/render [ui/frame-root {:id :test/greet} [greeting {}]]
-                                {:app-db {:greeting "x"}})))
-        "...and {:app-db} likewise")
     (is (= {:greeting "held"} (rf/app-db-value f))
         "the rejection is pure — the held frame is untouched")))
 
 (deftest plan-free-form-still-combines-with-frame-opts
   (reg-greeting!)
-  (let [f    (uit/frame {:app-db {:greeting "explicit"}})
+  (let [f    (rf/make-frame {:initial-events [[:rf/set-db {:greeting "explicit"}]]})
         tree (uit/render [greeting {}] {:frame f})]
     (is (= "explicit" (uit/text (uit/find tree :h1)))
         "a plan-free literal root form still targets an explicit :frame")))

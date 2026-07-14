@@ -138,7 +138,7 @@
     (rf/reg-event ::equal-control
                   (fn [{:keys [db]} _]
                     {:db (update db :value inc)}))
-    (let [f        (uit/frame {:app-db {:value 1 :noise 0}})
+    (let [f        (rf/make-frame {:initial-events [[:rf/set-db {:value 1 :noise 0}]]})
           frame-id (frame/frame-target->id f)
           target-k [:sub frame-id [::equal-projection]]
           evidence (atom {:bodies 0 :root-commits 0})]
@@ -283,7 +283,7 @@
                   (fn [{:keys [db]} _] {:db (assoc db :hidden? true)}))
     (rf/reg-event ::show-activity
                   (fn [{:keys [db]} _] {:db (assoc db :hidden? false)}))
-    (let [f              (uit/frame {:app-db {:value 7 :hidden? false}})
+    (let [f              (rf/make-frame {:initial-events [[:rf/set-db {:value 7 :hidden? false}]]})
           frame-id       (frame/frame-target->id f)
           retained-key   [:sub frame-id [::retained-value]]
           hidden-key     [:sub frame-id [::activity-hidden?]]
@@ -352,7 +352,7 @@
 (deftest mounted-override-provider-uses-static-leases-and-restores-lifo
   (when (browser?)
     (rf/reg-sub ::provider-value (fn [db _] (:provider-value db)))
-    (let [f          (uit/frame {:app-db {:provider-value "ordinary"}})
+    (let [f          (rf/make-frame {:initial-events [[:rf/set-db {:provider-value "ordinary"}]]})
           frame-id   (frame/frame-target->id f)
           sub-key    [:sub frame-id [::provider-value]]
           override-k [:override [::provider-value]]

@@ -99,7 +99,7 @@
                     {:db (assoc db :value first-value)
                      :fx [[:dispatch [::set-enabled false]]
                           [:dispatch [::set-value final-value]]]}))
-    (let [f              (uit/frame {:app-db {:enabled? false :value 0}})
+    (let [f              (rf/make-frame {:initial-events [[:rf/set-db {:enabled? false :value 0}]]})
           frame-id       (frame/frame-target->id f)
           evidence       (atom (empty-evidence))
           baseline       {:roots (client/live-root-ids)
