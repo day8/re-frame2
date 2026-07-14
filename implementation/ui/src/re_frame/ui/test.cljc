@@ -868,23 +868,30 @@
   structural rendering proceeds frameless — any frame-scoped read
   raises honestly rather than defaulting."
      [opts thunk]
-     (let [run  (if (contains? opts :sub-overrides)
-                  #(binding [reactive/*sub-overrides* (:sub-overrides opts)] (thunk))
-                  thunk)
-           root (cond
-                  (contains? opts :frame)
-                  (binding [rframe/*current-frame*
-                            (rframe/frame-target->id (:frame opts))]
-                    (run))
+     (let [run   (if (contains? opts :sub-overrides)
+                   #(binding [reactive/*sub-overrides* (:sub-overrides opts)] (thunk))
+                   thunk)
+           ;; Establish the JVM render-slice memo scope around the render thunk
+           ;; (rf2-vxgfnd.267): the two `ui.test/render` compiled routes — a
+           ;; view reference and a plan-free literal root form — converge HERE,
+           ;; so a single render shares ONE slice memo (sibling cold probes of a
+           ;; shared derived parent compute it once) and a later render
+           ;; recomputes. Re-entrant, so a nested `with-capture` reuses it.
+           slice #(reactive/with-slice-memo run)
+           root  (cond
+                   (contains? opts :frame)
+                   (binding [rframe/*current-frame*
+                             (rframe/frame-target->id (:frame opts))]
+                     (slice))
 
-                  (contains? opts :app-db)
-                  (let [id (rframe/frame-target->id
-                            (frame {:app-db (:app-db opts)}))]
-                    (try
-                      (binding [rframe/*current-frame* id] (run))
-                      (finally (rframe/destroy-frame! id))))
+                   (contains? opts :app-db)
+                   (let [id (rframe/frame-target->id
+                             (frame {:app-db (:app-db opts)}))]
+                     (try
+                       (binding [rframe/*current-frame* id] (slice))
+                       (finally (rframe/destroy-frame! id))))
 
-                  :else (run))]
+                   :else (slice))]
        (assoc root :rf.ui/tree-version tree/tree-version))))
 
 #?(:clj
@@ -1044,9 +1051,14 @@
              (live-frame/make-frame (assoc (or config {}) :id frame-id
                                            :rf.frame/must-create? true))
              (vswap! owned conj [frame-id (rframe/frame-incarnation-token frame-id)]))
-           (let [root (if (some? ambient-frame-id)
-                        (binding [rframe/*current-frame* ambient-frame-id] (run))
-                        (run))]
+           ;; Establish the JVM render-slice memo scope around the plan-bearing
+           ;; render thunk (rf2-vxgfnd.267) — the plan-bearing literal route's
+           ;; Tier-1 boundary — so a single render shares ONE slice memo and a
+           ;; later render recomputes. Re-entrant (a nested capture reuses it).
+           (let [slice #(reactive/with-slice-memo run)
+                 root  (if (some? ambient-frame-id)
+                         (binding [rframe/*current-frame* ambient-frame-id] (slice))
+                         (slice))]
              (assoc root :rf.ui/tree-version tree/tree-version))
            (finally
              ;; Incarnation-owned teardown: destroy each frame we installed ONLY

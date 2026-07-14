@@ -26,6 +26,7 @@
   (:require [clojure.string :as str]
             [re-frame.error :as error]
             [re-frame.registrar :as registrar]
+            [re-frame.ui.reactive :as reactive]
             [re-frame.ui.rules :as rules]))
 
 (declare classify-event sanitize-prop)
@@ -348,9 +349,16 @@
 (defn render
   "Invoke a compiled view fn (its JVM realisation) with `props` and stamp
   the root with :rf.ui/tree-version. The root is always the view's
-  boundary node — a map. This is the entry `ui.test/render` (S1d)
-  consumes."
+  boundary node — a map. This is a public Tier-1 JVM render entry (S1d).
+
+  Establish the JVM render-slice memo scope (rf2-vxgfnd.267) around the view
+  thunk so a single render shares ONE slice memo — sibling cold probes of a
+  shared derived parent compute it once, and a later render recomputes — exactly
+  as the browser/Tier-3 path does. Re-entrant: a nested `with-capture` reuses the
+  enclosing slice."
   ([view] (render view {}))
   ([view props]
-   (let [root (view props)]
-     (assoc root :rf.ui/tree-version tree-version))))
+   (reactive/with-slice-memo
+     (fn []
+       (let [root (view props)]
+         (assoc root :rf.ui/tree-version tree-version))))))
