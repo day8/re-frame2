@@ -360,3 +360,102 @@
       (is (= [[50 60]] @notes)
           "the bare reset! drained immediately (no epoch open) and notified
            once with the recomputed value"))))
+
+;; ---- native derived fan-out: rf= movement law ----------------------------
+;; (rf2-vxgfnd.203)
+
+(deftest nan-to-nan-derived-does-not-fan-out-on-no-move
+  (testing "a derived value that stays ##NaN across a source tick reports NO
+            movement under the frozen rf= law and fans out ZERO direct
+            callbacks. Raw `not=` treated `(not= ##NaN ##NaN)` as true and
+            fired a false invalidation — disagreeing with the observation
+            port and ViewCell layer, which are both rf=-gated. An ordinary
+            value movement still notifies exactly once, so the gate is a
+            movement test, not a blanket suppression. (rf2-vxgfnd.203)"
+    (let [{:keys [make-derived replace! root]} (build-graph)
+          nan-d     (make-derived [root] (fn [_db] js/NaN))
+          ord-d     (make-derived [root] (fn [db] (:a db)))
+          nan-notes (atom 0)
+          ord-notes (atom 0)]
+      ;; Lazy baselines (the sub-cache reads on subscribe): establish
+      ;; prev-state = ##NaN / 1 before watching.
+      (is (js/isNaN @nan-d) "NaN baseline establishes prev-state = ##NaN")
+      (is (= 1 @ord-d) "ordinary baseline establishes prev-state = 1")
+      (add-watch nan-d :w (fn [_ _ _ _] (swap! nan-notes inc)))
+      (add-watch ord-d :w (fn [_ _ _ _] (swap! ord-notes inc)))
+      ;; ONE write ticks the shared source: :a moves 1→2 (ordinary derived
+      ;; MOVES) while the NaN derived recomputes ##NaN again (NO move).
+      (replace! root {:a 2 :b 10})
+      (is (= 0 @nan-notes)
+          "##NaN→##NaN is stable under rf= — zero direct callbacks (raw not=
+           would have fired one)")
+      (is (= 1 @ord-notes)
+          "an ordinary value movement produces exactly one direct callback"))))
+
+;; ---- native derived fan-out: throwing-subscriber containment --------------
+;; (rf2-vxgfnd.203)
+
+(deftest throwing-first-subscriber-does-not-suppress-later-sibling
+  (testing "with the throwing subscriber registered FIRST (drained first), a
+            later sibling still receives the same movement. Bare `run!`
+            aborted at the throw and skipped every later subscriber; the fan-
+            out now attempts each independently. The throw is contained — it
+            re-raises through the scheduler's per-thunk drain isolation, so
+            replace-container! returns normally. (rf2-vxgfnd.203)"
+    (let [{:keys [make-derived replace! root]} (build-graph)
+          l1      (make-derived [root] (fn [db] (:a db)))
+          a-fired (atom 0)
+          b-fired (atom 0)]
+      (is (= 1 @l1) "baseline deref establishes prev-state")
+      ;; :a registered FIRST → iterates first → throws; :b registered second.
+      (add-watch l1 :a (fn [_ _ _ _]
+                         (swap! a-fired inc)
+                         (throw (js/Error. "subscriber A boom"))))
+      (add-watch l1 :b (fn [_ _ _ _] (swap! b-fired inc)))
+      (is (nil? (replace! root {:a 2 :b 10}))
+          "the subscriber throw is contained — replace-container! returns nil")
+      (is (= 1 @a-fired) "the throwing subscriber ran")
+      (is (= 1 @b-fired)
+          "the later sibling STILL fired despite A throwing (bare run! would
+           have skipped it)"))))
+
+(deftest throwing-subscriber-delivery-is-order-independent
+  (testing "a throwing subscriber in the MIDDLE of the registration order does
+            not prevent EITHER an earlier or a later sibling from receiving the
+            movement — delivery depends on ownership + movement, not iteration
+            order. Covers the reversed registration order relative to the
+            throwing-first test (a sibling registered BEFORE the thrower).
+            (rf2-vxgfnd.203)"
+    (let [{:keys [make-derived replace! root]} (build-graph)
+          l1    (make-derived [root] (fn [db] (:a db)))
+          fired (atom #{})]
+      (is (= 1 @l1) "baseline deref establishes prev-state")
+      ;; Registration order: :b (before), :a (throws), :c (after).
+      (add-watch l1 :b (fn [_ _ _ _] (swap! fired conj :b)))
+      (add-watch l1 :a (fn [_ _ _ _]
+                         (swap! fired conj :a)
+                         (throw (js/Error. "middle subscriber boom"))))
+      (add-watch l1 :c (fn [_ _ _ _] (swap! fired conj :c)))
+      (is (nil? (replace! root {:a 2 :b 10}))
+          "the middle throw is contained")
+      (is (= #{:a :b :c} @fired)
+          "every subscriber fired — the earlier (:b), the thrower (:a), AND the
+           later (:c) sibling a bare run! would have skipped"))))
+
+(deftest falsey-subscriber-throws-are-contained-by-presence
+  (testing "a subscriber that throws a FALSEY value (`false` / `nil` — both
+            legal CLJS throws) is captured by PRESENCE, so a later sibling
+            still fires and the primary failure is not masked by a truthiness
+            test. (rf2-vxgfnd.203)"
+    (doseq [thrown-val [false nil]]
+      (let [{:keys [make-derived replace! root]} (build-graph)
+            l1      (make-derived [root] (fn [db] (:a db)))
+            b-fired (atom 0)]
+        (is (= 1 @l1) "baseline deref establishes prev-state")
+        (add-watch l1 :a (fn [_ _ _ _] (throw thrown-val)))
+        (add-watch l1 :b (fn [_ _ _ _] (swap! b-fired inc)))
+        (is (nil? (replace! root {:a 2 :b 10}))
+            (str "a `" (pr-str thrown-val) "` throw is contained"))
+        (is (= 1 @b-fired)
+            (str "sibling still fired after a `" (pr-str thrown-val)
+                 "` throw — captured by presence, not truthiness"))))))
