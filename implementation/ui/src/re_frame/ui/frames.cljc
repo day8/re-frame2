@@ -180,7 +180,13 @@
   (`jvm-provider-scope`)."
   (:require [re-frame.core :as rf-core]
             [re-frame.error :as error]
+            ;; The canonical two-channel error fan-out (`emit-error-both!`). ui
+            ;; ships ABOVE core's require graph, so this is a plain static require
+            ;; (no `error-emit` → `elision` → `frame` load cycle to route around
+            ;; via late-bind, unlike the in-cycle core emit sites).
+            [re-frame.error-emit :as error-emit]
             [re-frame.frame :as frame]
+            [re-frame.interop :as interop]
             [re-frame.late-bind :as late-bind]
             [re-frame.live-frame :as live-frame]
             [re-frame.ui.reactive :as reactive]
@@ -754,35 +760,77 @@
   interleaves a second publisher, so only JVM fixtures bind it."
   nil)
 
+(defn- emit-and-throw-frame-destroyed!
+  "The ONE UI-frame emit-and-throw seam every `(frame)` operation-bundle failure
+  routes through (rf2-vxgfnd.230). FAN the canonical `:rf.error/frame-destroyed`
+  record out along BOTH error channels via core's `error-emit/emit-error-both!`
+  seam — the always-on error-emit listener (axis 1; survives `:advanced` +
+  `goog.DEBUG=false`, the off-box-shipper / SSR-projector source of truth) AND
+  the dev-only trace surface (axis 2; DCE'd in production) — THEN throw the same
+  canonical typed error. A bare `throw-error!` here went SILENT under
+  `goog.DEBUG=false`, so a boundary that swallowed the throw (a view error
+  boundary, a swallowing callback) dropped the production failure entirely;
+  fanning first keeps the breadcrumb regardless.
+
+  The record carries the exact `frame-id`, the failing `op`
+  (`:dispatch` / `:dispatch-sync` / `:subscribe`, or `:capture` for a `(frame)`
+  read that resolved a dead incarnation), and the attempted `payload` (the event
+  or query vector, as the record's elided `:event`; its head as `:event-id`) so
+  an off-box shipper attributes the failure. `payload` is nil for the `:capture`
+  arm (the read failed before any op was invoked).
+
+  Emitted EXACTLY ONCE, at this UI source: the incarnation fence emits and throws
+  HERE — before delegating to core's dispatch/subscribe — so the same failure is
+  never ALSO fanned by core's router/subs frame-destroyed path (source-level
+  provenance; no double emission). Centralizing all arms through this one helper
+  keeps their two-channel contract from drifting. Never returns."
+  [frame-id op payload reason]
+  (error-emit/emit-error-both!
+   :rf.error/frame-destroyed
+   payload                         ;; attempted event/query vector (elided as :event); nil for :capture
+   (when payload (first payload))  ;; :event-id / sub-id — the vector head
+   frame-id
+   nil                             ;; no exception — a dead-incarnation op, not a caught throw
+   0                               ;; elapsed-ms — not a timed path
+   (interop/now-ms)                ;; time
+   {:frame frame-id :op op :event payload :reason :frame-destroyed} ;; dev-trace tags (axis 2)
+   {:op op})                       ;; category-specific attribution for the always-on record (axis 1)
+  (error/throw-error!
+   :rf.error/frame-destroyed 're-frame.ui/frame
+   reason
+   {:extra {:frame frame-id :op op}}))
+
 (defn- throw-frame-ops-destroyed!
   "The ambient frame a `(frame)` read resolved has no live incarnation to
   publish against — it is absent, destroyed, closing, or a same-id
   reincarnation overtook the read between resolve and publish. Fail loud
-  through the canonical destroyed-frame path rather than returning (or
+  through the canonical destroyed-frame path (fanning the always-on record
+  first — see `emit-and-throw-frame-destroyed!`) rather than returning (or
   displacing) a dead-incarnation bundle."
   [frame-id]
-  (error/throw-error!
-   :rf.error/frame-destroyed 're-frame.ui/frame
+  (emit-and-throw-frame-destroyed!
+   frame-id :capture nil
    (str "(frame) resolved the ambient frame " (pr-str frame-id)
         " but no live incarnation of it exists — the frame is absent,"
         " destroyed, or closing (a same-id frame may have been destroyed and"
         " re-created since the read began). The scope named a frame that no"
         " longer runs; create/ensure the frame before rendering views scoped"
-        " to it")
-   {:extra {:frame frame-id}}))
+        " to it")))
 
 (defn- throw-frame-ops-stale!
-  [frame-id op]
-  (error/throw-error!
-   :rf.error/frame-destroyed 're-frame.ui/frame
+  "A carried bundle op fired after its captured incarnation was destroyed. Fan
+  the always-on record (carrying the failing `op` + the attempted `payload`)
+  then throw — see `emit-and-throw-frame-destroyed!`."
+  [frame-id op payload]
+  (emit-and-throw-frame-destroyed!
+   frame-id op payload
    (str "a (frame) operation bundle captured for frame " (pr-str frame-id)
         " outlived that frame's incarnation — the frame was destroyed"
         " (or destroyed and re-created under the same id) after capture."
         " Bundle ops are locked to the exact incarnation they captured and"
         " never silently retarget; capture a fresh bundle from a mounted"
         " view, or hold a frame across lifetimes explicitly with"
-        " rf/capture-frame")
-   {:extra {:frame frame-id :op op}}))
+        " rf/capture-frame")))
 
 (defn- fence-op-1
   "Wrap a one-argument bundle op with the incarnation fence."
@@ -790,7 +838,7 @@
   (fn [a]
     (if (frame/frame-incarnation-live? frame-id token)
       (op a)
-      (throw-frame-ops-stale! frame-id op-name))))
+      (throw-frame-ops-stale! frame-id op-name a))))
 
 (defn- fence-op-2
   "Wrap a one-or-two-argument bundle op with the incarnation fence."
@@ -799,11 +847,11 @@
     ([a]
      (if (frame/frame-incarnation-live? frame-id token)
        (op a)
-       (throw-frame-ops-stale! frame-id op-name)))
+       (throw-frame-ops-stale! frame-id op-name a)))
     ([a b]
      (if (frame/frame-incarnation-live? frame-id token)
        (op a b)
-       (throw-frame-ops-stale! frame-id op-name)))))
+       (throw-frame-ops-stale! frame-id op-name a)))))
 
 (defn- mint-frame-ops
   "Build the incarnation-fenced `(frame)` bundle for one live incarnation of
