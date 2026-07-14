@@ -229,14 +229,17 @@ id" gap is closed here:
 | `:identifier-prefix` | rendering | string fed to React's `identifierPrefix` (`use-id`). Default: `"rf2-" + root-id-slug + "-"` (§1) — `:page/shop` → `"rf2-page_Sshop-"`. (06 §2's `"rf2-shop-"` example is an authored value, not the derived default.) |
 | `:on-uncaught-error` `:on-caught-error` `:on-recoverable-error` | host | plain CLJS fns passed to the React root options. Host-tier option maps are **not** template positions — the §02 §3 handler boundary law does not apply here. Invoked by React outside the re-frame2 commit path; to dispatch they must go through a live frame handle. |
 
-Identity opts (`:root-id`, `:disambiguator`, `:identifier-prefix`) must be **compile-time
-literals** at `mount`/`create-root` sites — they feed the descriptor and build-time
-duplicate detection. Host-behaviour opts may be runtime values.
+Identity opts must be **compile-time literals** at `mount`/`create-root` sites — they feed
+the descriptor and build-time duplicate detection; host-behaviour opts may be runtime
+values. `:disambiguator` is a **`mount`-only** derivation opt — it modifies how the root-id
+is derived from the mounted view. `create-root` fixes identity with **no root form to
+derive from**, so its identity set is `:root-id` / `:identifier-prefix` only; supplying
+`:disambiguator` there is a compile error (`:rf.ui.compile/bad-root-opts`).
 
 **The full host-tier signature set:**
 
 ```clojure
-(ui/create-root dom-node opts)        ; ⇒ Root. Identity fixed here, for the Root's lifetime.
+(ui/create-root dom-node opts)        ; ⇒ Root. Identity fixed here for the Root's lifetime; authored :root-id REQUIRED (no root form to derive from).
 (ui/render! root root-form)           ; render/re-render the literal root form into the Root.
 (ui/hydrate-root dom-node root-form)  ; ⇒ Root. Hydrating mount; identity comes FROM the manifest (§4).
 (ui/hydrate-root dom-node root-form opts)  ; opts: host-behaviour tier only (error callbacks).
@@ -257,12 +260,18 @@ duplicate detection. Host-behaviour opts may be runtime values.
 - **Every root-form-accepting entry point requires the literal root form at the call
   site** — `mount`, `render!`, `hydrate-root`, `render-static`, and `ui.test/render`
   (§8) alike; the same compile error rejects runtime-assembled vectors everywhere.
-  The CLJS realisation implements `render!`/`hydrate-root` as macros expanding to
-  underlying host fns over the compiled root template. `[S1-CONFIRM]` — the blessed
-  12 §2 table labels `create-root`/`render!`/`hydrate-root`/`unmount!` "fns"; the
-  physics above make `render!`/`hydrate-root` macros in realisation. This is a
-  **kind-label erratum only** (no name, arity, or surface change); route to Mike as a
-  row-level delta per the 12 §4 protocol.
+- **Verb kinds (ratified, shipped S1).** `mount`, `create-root`, `render!`, and
+  `hydrate-root` are **macros**; `unmount!` is a plain **function**. The four macros must
+  see their argument shape at compile time — `mount`/`render!`/`hydrate-root` keep the
+  literal root form's AST closed and extract the static frame plans, and `create-root`
+  fixes literal identity opts (feeding the descriptor and build-time duplicate detection).
+  `unmount!` takes a live Root value, has no form to compile, and stays a function. This
+  is the shipped surface — `re-frame.ui`'s var metadata and the generated public manifest
+  classify each verb exactly so — and it settles the earlier `[S1-CONFIRM]` kind-label
+  question; the stale "all fns" labelling and its route-to-Mike delta are retired. The
+  compile-time contract is locked by the frozen roster: an unauthored `create-root`
+  identity is `:rf.ui.compile/missing-root-id`, and an out-of-grammar opt (a stray
+  `:disambiguator` among them) is `:rf.ui.compile/bad-root-opts`.
 - Frame preflight (ENSURE + `:initial-events` drain, exactly once, before React) runs
   before the first `render!` on a Root and before `hydrate-root`'s hydration — timing
   and semantics owned by [Spec 002](002-Frames.md); this draft only pins *what is extracted*
@@ -496,11 +505,9 @@ unregisters (a leaked registration failing a later mount is a test-harness bug, 
 
 ## [S1-CONFIRM] register
 
-1. **§3** — `render!`/`hydrate-root` kind label in the blessed 12 §2 table ("fns" vs
-   macro realisation over host fns). Kind-label erratum only; row-level delta to Mike.
-2. **§4** — the manifest script element's concrete attribute/type convention; pin
+1. **§4** — the manifest script element's concrete attribute/type convention; pin
    alongside the Spec 011 payload-encoding rows.
-3. **§7** — entry-point-closure scoping as the build-time projection of "one page" for
+2. **§7** — entry-point-closure scoping as the build-time projection of "one page" for
    duplicate root-id detection (vs. whole-build strictness).
-4. **§9** — rejection of `{:frame …}`/`{:app-db …}` combined with a plan-bearing root
+3. **§9** — rejection of `{:frame …}`/`{:app-db …}` combined with a plan-bearing root
    form in `ui.test/render`.

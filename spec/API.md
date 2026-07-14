@@ -245,7 +245,7 @@ The multi-frame surface is organised by **intent**, not mechanism (a front-porch
 | `error-boundary` | M | `(ui/error-boundary {:fallback … :reset-key … :on-error […]} child)` | S3 | advanced | The explicit error component; `:on-error` dispatches after the failing commit through a captured live frame. |
 | `client-only` | M | `(ui/client-only {:fallback tpl} client-tpl)` | S3 → S5 | advanced | Browser-only subtree; mandatory capability-free fallback; one root phase-flip swaps all sites (per [011](011-SSR.md)). |
 | `mount` | M | `(ui/mount root-form dom-node ?opts)` | S1 | front-porch | Macro over a literal root form; carries root identity in opts (Root Descriptor v1, [Spec 004C](004C-Roots-and-Mount.md)). |
-| `create-root` | M | `(ui/create-root dom-node opts)` → Root | S1 | advanced | Identity fixed for the Root's lifetime. |
+| `create-root` | M | `(ui/create-root dom-node opts)` → Root | S1 | advanced | Identity fixed for the Root's lifetime; authored `:root-id` **required** — no root form to derive from, so a missing id is `:rf.ui.compile/missing-root-id` and `:disambiguator` is invalid ([Spec 004C](004C-Roots-and-Mount.md)). |
 | `render!` | M | `(ui/render! root root-form)` | S1 | advanced | Render/re-render the literal root form into a Root. |
 | `hydrate-root` | M | `(ui/hydrate-root dom-node root-form ?opts)` → Root | S1 → S5 | advanced | Hydrating mount; identity comes FROM the manifest (supplying client identity opts is `:rf.error/root-manifest-invalid`). |
 | `unmount!` | Fn | `(ui/unmount! root)` | S1 | advanced | Total teardown; unregisters the root-id. |
