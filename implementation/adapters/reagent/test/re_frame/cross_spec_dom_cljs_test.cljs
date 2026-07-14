@@ -467,9 +467,19 @@
    `:rf.error/no-frame-context` — superseding the old silent
    fall-through + once-per-pair warning. The sharper no-frame-context
    error IS the diagnostic now: the bare reagent fn fails fast rather than
-   targeting a conventional default. To capture the surrounding frame, a
-   plain fn must use `reg-view` (which wires `:contextType`) or capture a
-   `(rf/capture-frame)` at render time.
+   targeting a conventional default. The recovery is EXPLICIT authority,
+   NOT ambient capture from the unregistered component: use `reg-view`
+   (which wires `:contextType` so the child reads the provider), or hand
+   the plain fn an explicit target — `(rf/capture-frame frame-id)`, an
+   explicit `{:frame …}` opt, or a frame api threaded from a registered
+   ancestor. Ambient no-arg `(rf/capture-frame)` captures ONLY when a
+   genuinely-live scope surrounds the synchronous op (a registered
+   ancestor, or the plain fn itself entering `(rf/with-frame frame-id …)`
+   around the op) — it does NOT work from a plain fn whose only surrounding
+   scope is a provider it cannot read, and a lexical `with-frame` wrapped
+   around the RETURNED subtree unwinds before React invokes the child.
+   These corrected boundaries are pinned by the deftests below
+   (rf2-vxgfnd.236).
 
    Browser-only — requires a real React render so the React-context
    tier actually pushes the Provider's value."
@@ -552,6 +562,239 @@
           (is (= :rf.error/no-frame-context
                  (:rf.error/id (ex-data @render-error)))
               "the raised error is :rf.error/no-frame-context (EP-0002 — no silent :rf/default)")
+          (finally
+            (try (rdc/unmount root) (catch :default _ nil))))))))
+
+;; ---------------------------------------------------------------------------
+;; Interaction 10 (continued) — the CORRECTED plain-fn no-frame boundary
+;; rf2-vxgfnd.236 — pin the boundary #5843 / .22 Lens 5 established.
+;;
+;; A plain (non-`reg-view`) Reagent component under a `frame-provider`
+;; cannot read the provider (no `:contextType`). This block pins the
+;; corrected decision boundary in a REAL React fixture: the two TEMPTING
+;; repairs that are explicitly REJECTED, and the shapes that actually work.
+;;
+;; Rejected repair A — wrap the RETURNED subtree in lexical `with-frame`.
+;;   `with-frame` binds `*current-frame*` only for the synchronous eval of
+;;   its body. That body merely BUILDS the child Hiccup; React invokes the
+;;   child component LATER, after the binding has unwound. A plain child
+;;   carries no `:contextType`, so it reads neither the dynamic var (gone)
+;;   nor the provider → `:rf.error/no-frame-context`.
+;;
+;; Rejected repair B — call no-arg `(rf/capture-frame)` inside the plain fn.
+;;   The no-arg HOLD captures the AMBIENT scope at creation time. Under a
+;;   provider the plain fn cannot read (no `:contextType`) and with no live
+;;   dynamic binding there is no ambient scope to capture →
+;;   `:rf.error/no-frame-context` at the capture call.
+;;
+;; The distinction the PR #5852 note (this bead's NOTES) demands: repair B's
+;; failure is the PROVIDER-ONLY / absent-dynamic-scope case, NOT a general
+;; law that unregistered fns cannot use lexical scope. The positive control
+;; `plain-fn-inner-with-frame-around-ambient-op-succeeds` runs the SAME
+;; no-arg `(rf/capture-frame)` inside a live `with-frame` the plain fn
+;; itself enters around the synchronous op — it succeeds because the binding
+;; is still live. Contrast with repair A (with-frame around RETURNED Hiccup),
+;; which fails because the binding unwinds before React invokes the child.
+;;
+;; What works from an unregistered component — EXPLICIT authority:
+;;   the 1-arity `(rf/capture-frame frame-id)` bundle, an explicit
+;;   `{:frame …}` opt, or a frame api threaded from a registered ancestor
+;;   (`plain-fn-explicit-target-succeeds`). `reg-view` (which wires
+;;   `:contextType`) reading the provider frame is pinned by
+;;   `subscribe-routes-via-react-context-under-non-default-frame` below.
+;; ---------------------------------------------------------------------------
+
+(deftest plain-fn-with-frame-around-returned-subtree-still-raises
+  "Rejected repair A — an unregistered plain fn wraps the RETURNED child
+   subtree in lexical `with-frame`. The binding unwinds when the wrapper
+   fn returns; React invokes the plain child LATER, outside that dynamic
+   extent. The child (no `:contextType`) reads neither the dynamic var nor
+   the provider, so its `subscribe` still raises `:rf.error/no-frame-
+   context`. Lexical scope does NOT leak across React's later invocation.
+   Browser-only — needs a real React render + child scheduling."
+  (if-not (browser?)
+    (is true ":node-test: no DOM — browser-test runner exercises the assertions")
+    (let [target-frame :tenant-with-frame-return-leak]
+      (rf/make-frame {:id target-frame :doc "frame for the with-frame-around-return rejected repair"})
+      (rf/reg-event :seed-wf-return (fn [{:keys [db]} _] {:db {:n 3}}))
+      (rf/dispatch-sync [:seed-wf-return] {:frame target-frame})
+      (rf/reg-sub :wf-return/n (fn [db _] (:n db)))
+      (let [child-error (atom nil)
+            ;; A plain child — NOT reg-view'd — invoked by React AFTER the
+            ;; wrapper's `with-frame` body has returned.
+            inner-child (fn inner-child-impl []
+                          (try
+                            @(rf/subscribe [:wf-return/n])
+                            (catch :default e (reset! child-error e)))
+                          [:div.inner "child"])
+            ;; The tempting (rejected) repair: wrap the RETURNED subtree in
+            ;; with-frame. The binding is live only while this body builds
+            ;; the vector — it unwinds before React renders `inner-child`.
+            outer-wrap  (fn outer-wrap-impl []
+                          (rf/with-frame target-frame
+                            [inner-child]))
+            mount-node  (make-mount-node!)
+            root        (rdc/create-root mount-node)]
+        (try
+          (binding [frame/*current-frame* nil]
+            (react-dom/flushSync
+              (fn []
+                (rdc/render root [rf/frame-provider {:frame target-frame}
+                                  [outer-wrap]]))))
+          (is (some? @child-error)
+              "the plain child raised — with-frame around the returned subtree did not leak scope into React's later invocation")
+          (is (= :rf.error/no-frame-context
+                 (:rf.error/id (ex-data @child-error)))
+              "the raised error is :rf.error/no-frame-context — the same typed boundary as the bare case")
+          (finally
+            (try (rdc/unmount root) (catch :default _ nil))))))))
+
+(deftest plain-fn-no-arg-capture-frame-under-provider-raises
+  "Rejected repair B — no-arg `(rf/capture-frame)` inside an unregistered
+   plain fn under a `frame-provider`. The no-arg HOLD captures the AMBIENT
+   scope at creation time; a plain fn (no `:contextType`) cannot read the
+   provider, and with the ambient dynamic binding cleared there is no scope
+   to capture → `:rf.error/no-frame-context` at the capture call — the same
+   absent-target boundary as the bare subscribe. This is specifically the
+   provider-only / absent-dynamic-scope case (see the positive control
+   below, which runs the SAME call inside a live with-frame and succeeds).
+   Browser-only — needs a real React render under a Provider."
+  (if-not (browser?)
+    (is true ":node-test: no DOM — browser-test runner exercises the assertions")
+    (let [target-frame :tenant-noarg-capture-under-provider]
+      (rf/make-frame {:id target-frame :doc "frame for the no-arg capture-frame rejected repair"})
+      (rf/reg-event :seed-noarg (fn [{:keys [db]} _] {:db {:n 5}}))
+      (rf/dispatch-sync [:seed-noarg] {:frame target-frame})
+      (rf/reg-sub :noarg/n (fn [db _] (:n db)))
+      (let [capture-error (atom nil)
+            plain-fn (fn plain-noarg-impl []
+                       (try
+                         ;; no-arg capture — NOT (capture-frame frame-id).
+                         ;; Fails at the capture call: no ambient scope.
+                         (rf/capture-frame)
+                         (catch :default e (reset! capture-error e)))
+                       [:div "noarg"])
+            mount-node (make-mount-node!)
+            root       (rdc/create-root mount-node)]
+        (try
+          (binding [frame/*current-frame* nil]
+            (react-dom/flushSync
+              (fn []
+                (rdc/render root [rf/frame-provider {:frame target-frame}
+                                  [plain-fn]]))))
+          (is (some? @capture-error)
+              "no-arg capture-frame under a provider-only scope raised rather than capturing :rf/default")
+          (is (= :rf.error/no-frame-context
+                 (:rf.error/id (ex-data @capture-error)))
+              "the raised error is :rf.error/no-frame-context — the same absent-target boundary")
+          (finally
+            (try (rdc/unmount root) (catch :default _ nil))))))))
+
+(deftest plain-fn-inner-with-frame-around-ambient-op-succeeds
+  "Positive control (rf2-vxgfnd.236 NOTES / PR #5852) — the plain fn ITSELF
+   enters `(rf/with-frame frame-id …)` around the SYNCHRONOUS ambient
+   operation. Here the dynamic binding is STILL LIVE at the op call (unlike
+   repair A, where it unwinds before React invokes a descendant), so the
+   very same no-arg `(rf/capture-frame)` that failed in repair B now
+   succeeds and targets the frame. Ambient capture is legal when a genuine
+   live scope surrounds the operation — the failure in repair B is NOT a
+   general law against lexical scope in unregistered fns.
+   Browser-only — needs a real React render."
+  (if-not (browser?)
+    (is true ":node-test: no DOM — browser-test runner exercises the assertions")
+    (let [target-frame :tenant-inner-with-frame]
+      (rf/make-frame {:id target-frame :doc "frame for the inner-with-frame positive control"})
+      (rf/reg-event :seed-inner-wf (fn [{:keys [db]} _] {:db {:n 8}}))
+      (rf/dispatch-sync [:seed-inner-wf] {:frame target-frame})
+      (rf/reg-sub :inner-wf/n (fn [db _] (:n db)))
+      (let [captured-frame (atom nil)
+            captured-value (atom nil)
+            capture-error  (atom nil)
+            plain-fn (fn plain-inner-wf-impl []
+                       (try
+                         ;; The SAME no-arg capture as repair B, but the
+                         ;; plain fn wraps its own SYNCHRONOUS op in a live
+                         ;; with-frame — the binding has NOT unwound.
+                         (rf/with-frame target-frame
+                           (let [handle (rf/capture-frame)]
+                             (reset! captured-frame (:frame handle))
+                             (reset! captured-value @((:subscribe handle) [:inner-wf/n]))))
+                         (catch :default e (reset! capture-error e)))
+                       [:div "inner-wf"])
+            mount-node (make-mount-node!)
+            root       (rdc/create-root mount-node)]
+        (try
+          (binding [frame/*current-frame* nil]
+            (react-dom/flushSync
+              (fn []
+                (rdc/render root [rf/frame-provider {:frame target-frame}
+                                  [plain-fn]]))))
+          (is (nil? @capture-error)
+              (str "no-arg capture inside a live with-frame did NOT raise; got: "
+                   (pr-str (some-> @capture-error ex-data))))
+          (is (= target-frame @captured-frame)
+              "the ambient capture inside with-frame targeted the bound frame")
+          (is (= 8 @captured-value)
+              "the captured bundle's subscribe read the target frame's app-db (:n 8)")
+          (finally
+            (try (rdc/unmount root) (catch :default _ nil))))))))
+
+(deftest plain-fn-explicit-target-succeeds
+  "AC — at least one deliberately UNREGISTERED explicit path succeeds and
+   targets exactly the provider's frame. An unregistered plain fn CAN reach
+   a specific frame by receiving EXPLICIT authority: the 1-arity
+   `(rf/capture-frame frame-id)` bundle, or an explicit `{:frame …}` opt on
+   `subscribe`. Neither needs a surrounding scope — this is the corrected
+   recovery recipe for a plain fn (contrast the rejected ambient repairs A
+   and B). A distractor frame with a different value proves the reads
+   target EXACTLY the named frame, not a leaked default.
+   Browser-only — needs a real React render."
+  (if-not (browser?)
+    (is true ":node-test: no DOM — browser-test runner exercises the assertions")
+    (let [target-frame :tenant-explicit-target
+          other-frame  :tenant-explicit-other]
+      (rf/make-frame {:id target-frame :doc "frame the explicit path must target"})
+      (rf/make-frame {:id other-frame  :doc "distractor frame with a different value"})
+      (rf/reg-event :seed-explicit (fn [{:keys [db]} _] {:db {:n 21}}))
+      (rf/reg-event :seed-other    (fn [{:keys [db]} _] {:db {:n 99}}))
+      (rf/dispatch-sync [:seed-explicit] {:frame target-frame})
+      (rf/dispatch-sync [:seed-other]    {:frame other-frame})
+      (rf/reg-sub :explicit/n (fn [db _] (:n db)))
+      (let [captured-frame (atom nil)
+            captured-value (atom nil)
+            opt-value      (atom nil)
+            render-error   (atom nil)
+            ;; Deliberately UNREGISTERED plain fn — no reg-view, no
+            ;; :contextType. It reaches the target frame ONLY through the
+            ;; explicit authority it is handed.
+            plain-fn (fn plain-explicit-impl []
+                       (try
+                         (let [handle (rf/capture-frame target-frame)]
+                           (reset! captured-frame (:frame handle))
+                           (reset! captured-value @((:subscribe handle) [:explicit/n])))
+                         ;; explicit {:frame …} opt straight on subscribe.
+                         (reset! opt-value @(rf/subscribe [:explicit/n] {:frame target-frame}))
+                         (catch :default e (reset! render-error e)))
+                       [:div "explicit"])
+            mount-node (make-mount-node!)
+            root       (rdc/create-root mount-node)]
+        (try
+          ;; Ambient scope cleared: the ONLY thing that can route these
+          ;; reads is the explicit authority — not any leaked default.
+          (binding [frame/*current-frame* nil]
+            (react-dom/flushSync
+              (fn []
+                (rdc/render root [rf/frame-provider {:frame target-frame}
+                                  [plain-fn]]))))
+          (is (nil? @render-error)
+              (str "explicit-target reads did NOT raise; got: "
+                   (pr-str (some-> @render-error ex-data))))
+          (is (= target-frame @captured-frame)
+              "(capture-frame frame-id) locked the bundle to the named frame")
+          (is (= 21 @captured-value)
+              "the locked bundle's subscribe read the target frame (:n 21), not the distractor (:n 99)")
+          (is (= 21 @opt-value)
+              "the explicit {:frame …} subscribe opt routed to the target frame (:n 21)")
           (finally
             (try (rdc/unmount root) (catch :default _ nil))))))))
 
