@@ -552,12 +552,14 @@ path + generation, released/remounted on ambiguity.
   Every bounded buffer reports loss accounting (`total`/`retained`/`dropped`).
 - **One catalogue.** The evidence schemas, trace ops, and every error/warning id this
   Spec names (`:rf.error/dispatch-disconnected`, `:rf.error/view-not-found`,
-  `:rf.error/frame-payload-invalid`, `:rf.error/flush-in-open-epoch`,
+  `:rf.error/frame-payload-invalid` and its shipped sibling
+  `:rf.error/frame-payload-conflict`, `:rf.error/flush-in-open-epoch`,
   `:rf.error/ui-test-overlapping-act`,
   `:rf.error/jvm-host-op`, `:rf.warning/unregistered-event-id`,
   `:rf.warning/placeholder-in-dynamic-vector`, `:rf.warning/cross-frame-carried-op`,
   `:rf.warning/render-phase-dispatch` / `-set!`, and the compile-error roster) get
-  catalogue rows in [009](009-Instrumentation.md) (the one-catalogue rule, rf2-cs0kd1).
+  (or, per stage, will get) catalogue rows in [009](009-Instrumentation.md) (the
+  one-catalogue rule, rf2-cs0kd1).
 - **Source ↔ DOM navigation.** Compile-time `data-rf2-source-coord` + render-key
   (+ occurrence-path) annotation on compiler-owned host roots — today's attribute
   vocabulary, so existing Xray click-to-source works day one. Dev-gated; production
