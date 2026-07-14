@@ -1606,7 +1606,39 @@
         ;; direct write.
         frame-state (adapter/make-state-container
                       {app-partition-key     {}
-                       runtime-partition-key {}})]
+                       runtime-partition-key {}})
+        ;; Partition projections, constructed into locals under a
+        ;; FAILURE-ATOMIC boundary (rf2-vxgfnd.198). `make-derived-value`
+        ;; returns an opaque value that may install a real host resource (a
+        ;; source watch) and be externally owned by the adapter, so a PARTIAL
+        ;; allocation — the app-db projection returns, then the runtime-db
+        ;; projection throws — must not strand the first projection's watch on
+        ;; a frame that never gets installed. When a LATER projection throws,
+        ;; every EARLIER successfully-returned projection is disposed in
+        ;; REVERSE acquisition order through the existing `interop/dispose!`
+        ;; seam (the same seam `tear-down-partition-projections!` uses at
+        ;; normal teardown), then the original construction error is
+        ;; re-raised so `try-install-new-frame!` installs nothing. The
+        ;; physical `frame-state` container is GC-owned (Spec 006 — no
+        ;; per-container disposal verb), so only the disposable projections
+        ;; are unwound here; a `make-derived-value` that throws BEFORE
+        ;; returning has already unwound its own unreturned partial work
+        ;; (Spec 006 §`make-derived-value` internal failure-atomicity).
+        ;; Bound in `let` rather than inline map values so acquisition order
+        ;; is deterministic (a many-entry map literal evaluates its values in
+        ;; unspecified order) and the reverse-order rollback is exact.
+        app-db      (adapter/make-derived-value [frame-state] app-partition-key)
+        runtime-db  (try
+                      (adapter/make-derived-value [frame-state] runtime-partition-key)
+                      (catch #?(:clj Throwable :cljs :default) e
+                        ;; Reverse acquisition order: dispose the already-
+                        ;; returned app-db projection best-effort — a throwing
+                        ;; dispose must not MASK the original construction
+                        ;; failure (mirrors the best-effort posture of
+                        ;; `tear-down-partition-projections!`) — then re-raise.
+                        (try (interop/dispose! app-db)
+                             (catch #?(:clj Throwable :cljs :default) _ nil))
+                        (throw e)))]
    {:id          id
     ;; EP-0024 — the resolved IMAGE GENERATION slot. ONE unified
     ;; frame value owns its resolved generation directly on the single
@@ -1626,9 +1658,10 @@
     ;; with no dirty flags (decision #7). The compute-fn is the bare keyword
     ;; lookup of the partition slice; `make-derived-value`'s recompute closure
     ;; arity-specialises the 1-source case so the projection costs a single
-    ;; keyword invoke per recompute.
-    :app-db      (adapter/make-derived-value [frame-state] app-partition-key)
-    :runtime-db  (adapter/make-derived-value [frame-state] runtime-partition-key)
+    ;; keyword invoke per recompute. Constructed above under a failure-atomic
+    ;; boundary (rf2-vxgfnd.198).
+    :app-db      app-db
+    :runtime-db  runtime-db
     :router      (atom {:queue interop/empty-queue :scheduled? false})
    ;; Single-drainer invariant: a separate CAS-able cell that admits
    ;; at most one thread into `drain!` at a time. On the JVM the
