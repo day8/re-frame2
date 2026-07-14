@@ -273,32 +273,22 @@ A real init flow mixes work that's fine on the server (fetching over HTTP) with 
   {:doc       "Persist a session token in localStorage."
    :platforms #{:client}}              ;; server-side dispatches skip this
   (fn [_ {:keys [token]}]
-    (.setItem js/localStorage "auth/token" token)))
+    #?(:cljs (.setItem js/localStorage "auth/token" token))))
 ```
 
-The default is universal (`#{:server :client}`). When a server-side drain meets a `#{:client}` effect, the resolver skips it and emits a `:rf.fx/skipped-on-platform` trace, and the handler that returned it never learns which runtime it's on. One single-purpose handler, two platforms, zero `if (typeof window === 'undefined')`.
+The default is universal (`#{:server :client}`). When a server-side drain meets a
+`#{:client}` effect, the resolver skips it and emits a `:rf.fx/skipped-on-platform`
+trace — the handler never learns which runtime it's on. Zero
+`if (typeof window === 'undefined')`.
 
-The same gate runs on the *input* side. A [coeffect](../core/glossary.md#coeffect) can carry `:platforms` too — `:rf.server/request` is `#{:server}` — so on the client (after hydration, when the same handler runs again) the runtime simply doesn't supply it, emitting `:rf.cofx/skipped-on-platform`. That coeffect's key is absent from the coeffects map; the rest of the handler runs as normal. So a setup handler that reads the request server-side doesn't blow up client-side — it just doesn't see a request there, which is exactly right.
+The same gate on inputs: `:rf.server/request` is `#{:server}`, so after hydration
+the client simply doesn't receive that coeffect (`:rf.cofx/skipped-on-platform`).
+A setup handler that reads the request server-side doesn't blow up client-side.
 
 ??? info "For JavaScript developers"
 
-    This is the declarative answer to the `typeof window === 'undefined'` guards scattered through a Next.js codebase. Instead of *branching inside* every component or handler that touches the browser, you tag the *effect* once with the platforms it's allowed on, and the resolver enforces it. There is no `if (isServer)` anywhere in your business logic.
-
-## Production concerns (elsewhere)
-
-<a id="controlling-the-response--rfserver"></a>
-<a id="head-metadata----opengraph-json-ld"></a>
-<a id="streaming-rfsuspense-boundary"></a>
-
-The core model stops at: one request lifecycle, fail-closed payload, hydrate +
-verify, platform gates, and error projection (next). Growth pages:
-
-| Need | Page |
-|---|---|
-| Status, headers, cookies, redirects | [Control the response](response.md) |
-| `<title>` / OpenGraph / JSON-LD | [Head metadata](head.md) |
-| First-byte shell + slow regions | [Streaming](streaming.md) |
-| Prove renders and boot guards | [Testing](testing.md) |
+    Declarative answer to scattered `typeof window` guards: tag the *effect* once,
+    not every import. No `if (isServer)` in business logic.
 
 ## When the server throws
 
@@ -362,9 +352,10 @@ SSR isn't free of rules:
 
 Enforced by the platform gate and caught by the hash.
 
-## A complete Ring loop
+## A complete loop (server + client)
 
-Copy-paste skeleton — adapter owns create / drain / render / payload / teardown:
+Copy-paste shape. The adapter owns create / drain / render / payload / teardown;
+the client installs the payload before the first paint.
 
 ```clojure
 (ns app.ssr
@@ -372,7 +363,9 @@ Copy-paste skeleton — adapter owns create / drain / render / payload / teardow
             [re-frame.ssr :as ssr]
             [re-frame.ssr.ring :as ssr-ring]
             [re-frame.http.managed]
-            [ring.adapter.jetty :as jetty]))
+            #?(:cljs [reagent.dom.client :as rdc])
+            #?(:cljs [re-frame.adapter.reagent :as reagent-adapter])
+            #?(:clj  [ring.adapter.jetty :as jetty])))
 
 (rf/reg-event :rf/server-init
   {:platforms        #{:server}
@@ -385,18 +378,44 @@ Copy-paste skeleton — adapter owns create / drain / render / payload / teardow
             :decode     :json
             :on-success [:articles/loaded]}]]}))
 
-(def handler
-  (ssr-ring/ssr-handler
-    {:initial-events [[:rf/server-init]]
-     :root-view      [:app/root]
-     :payload        [:articles :session-user]}))   ;; required allowlist
+#?(:clj
+   (def handler
+     (ssr-ring/ssr-handler
+       {:initial-events [[:rf/server-init]]
+        :root-view      [:app/root]                 ;; hiccup vector or 0-arity fn
+        :payload        [:articles :session-user]})))  ;; required allowlist
 
-;; (jetty/run-jetty handler {:port 3000 :join? false})
+#?(:cljs (defonce react-root (rdc/create-root (js/document.getElementById "app"))))
+
+#?(:cljs
+   (defn ^:export run []
+     (rf/init! reagent-adapter/adapter)
+     (rf/make-frame {:id :app :platform :client})
+     (let [payload (ssr/hydrate! {:frame          :app
+                                  :render-tree-fn (fn [] ((rf/view :app/root)))})]
+       (when-not payload
+         (rf/dispatch-sync [:app/client-bootstrap] {:frame :app})))
+     (rdc/render react-root
+                 [rf/frame-provider {:frame :app}
+                  [(rf/view :app/root)]])))
 ```
 
-Client boot (symmetric): `ssr/hydrate!` with the same `:frame` as `frame-provider` —
-see [The client side](#the-client-side-hydrate-then-verify) and
-[tutorial Step 4](tutorial.md#step-4--wake-it-up-hydrate-on-the-client).
-
-API surface: [re-frame.ssr](../api/re-frame.ssr.md),
+Same `:frame` on `hydrate!` and `frame-provider`. Full walk-through:
+[tutorial](tutorial.md). APIs: [re-frame.ssr](../api/re-frame.ssr.md),
 [re-frame.ssr.ring](../api/re-frame.ssr.ring.md).
+
+## When the table grows
+
+<a id="controlling-the-response--rfserver"></a>
+<a id="head-metadata----opengraph-json-ld"></a>
+<a id="streaming-rfsuspense-boundary"></a>
+
+Same model, more keys — open a page only when a need appears:
+
+| Need | Page |
+|---|---|
+| Status, headers, cookies, redirects | [Control the response](response.md) |
+| `<title>` / OpenGraph / JSON-LD | [Head metadata](head.md) |
+| First-byte shell + slow regions | [Streaming](streaming.md) |
+| Prove renders and boot guards | [Testing](testing.md) |
+| Runnable trees in the repo | [Examples](examples.md) |
