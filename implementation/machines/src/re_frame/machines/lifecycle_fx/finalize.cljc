@@ -226,7 +226,21 @@
                         ;; shared via `traces/emit-destroy-exit-failure!`.
                         (traces/emit-destroy-exit-failure!
                           machine-id frame-id (result/info exit-result)))]
-  (let [child-data (:data next-snapshot)
+  (let [;; A's exact-frame-incarnation continuation predicate (rf2-3evq0x —
+        ;; the completion-tail half of the incarnation-fencing family
+        ;; established by #5849). The completion-output validator, the
+        ;; `:rf.machine/done` trace fan-out, and the parent `:on-done` callback
+        ;; are all APPLICATION / listener code that can synchronously destroy
+        ;; the frame incarnation A that owns the in-flight event and publish a
+        ;; same-id successor B. Every subsequent framework-owned action —
+        ;; teardown, registrar unregister, HTTP/timer cancellation,
+        ;; classification/spawn-order drop, the `:on-error` dispatch, and the
+        ;; runtime-db / fx publication — is A-derived tail; running it after A
+        ;; is lost erases or mutates B. `owner-continuation` yields
+        ;; `(constantly true)` for a non-router pure-fn / conformance caller
+        ;; (no event owner), so that path stays unaffected.
+        continue?  (data-validation/owner-continuation frame-id)
+        child-data (:data next-snapshot)
         parallel?  (parallel/parallel? machine)
         ;; Resolve the ERROR-classifying leaf. For a PARALLEL
         ;; machine, scan EVERY region's final leaf — a parallel finish is an
@@ -268,7 +282,19 @@
         ;; cascade, so the `[:schemas :output]` schema resolves off it without
         ;; a registrar / snapshot lookup. Production-elided
         ;; (`interop/debug-enabled?`-gated inside the validator).
-        _           (data-validation/validate-completion-output! machine-id machine result)
+        ;; The completion-output validator is APPLICATION code (rf2-3evq0x): a
+        ;; validator that destroys A / publishes same-id B returns
+        ;; `:rf/stale-incarnation` (NOT a schema verdict). Capture it — the
+        ;; original `_` binding dropped the verdict and let the whole finalize
+        ;; tail run against B. A stale return terminally fences every
+        ;; subsequent framework-owned action below (the `owner-gone?` gate).
+        output-validation (data-validation/validate-completion-output! machine-id machine result)
+        stale-output?     (= :rf/stale-incarnation output-validation)
+        ;; Re-checked (live) after each callback-bearing completion trace /
+        ;; fanout and before every framework-owned action: true once the
+        ;; completion-output validator, a `:rf.machine/done` trace listener, or
+        ;; the parent `:on-done` callback has destroyed A / published same-id B.
+        owner-gone?       (fn [] (or stale-output? (not (continue?))))
         ;; Per Spec 005 §Final states §`:on-error` (XState v5 invoke
         ;; `onError`): a `:final?` leaf MAY also declare `:error? true` — a
         ;; designated ERROR terminal. When a `:spawn`-spawned child finishes
@@ -402,7 +428,12 @@
         done-summary (if stale-spawn?
                        (m-reply/stale-spawn-trace reply {:frame frame-id})
                        (m-reply/trace-reply reply {:frame frame-id}))
-        _ (trace/emit! :rf.machine :rf.machine/done
+        ;; The `:rf.machine/done` trace fan-out is callback-bearing
+        ;; (rf2-3evq0x): a listener can destroy A / publish same-id B. Skip it
+        ;; when A is already gone (a stale completion-output validator), and
+        ;; re-check liveness after it before any framework-owned action below.
+        _ (when-not (owner-gone?)
+            (trace/emit! :rf.machine :rf.machine/done
                        ;; `:actor-id` is the finishing actor's
                        ;; live INSTANCE address (singleton: its registration
                        ;; id; spawned: the `<type>#<n>` / fixed instance id).
@@ -434,7 +465,7 @@
                          ;; ADDITIVELY only for a stale late completion, joined
                          ;; to `:rf.reply/work-id` via the shared `:rf.reply/*` facts.
                          stale-spawn? (assoc :rf.reply/stale-reason (:rf.reply/stale-reason done-summary)
-                                             :rf.reply/correlation  (:correlation done-summary))))
+                                             :rf.reply/correlation  (:correlation done-summary)))))
         ;; (3) Apply :on-done to the parent's `:data`. The parent's
         ;; snapshot lives at [:rf.runtime/machines :snapshots <parent-id>]; we read it,
         ;; pass the unified context-map (`{:data :result}`) to
@@ -464,7 +495,11 @@
         ;; the one canonical reply map so the value the trace/ledger see and
         ;; the value the callback receives are the SAME fact.
         db-after-on-done
-        (if (and on-done-fn parent-id (not on-error?) (not stale-spawn?))
+        ;; `:on-done` is an application callback (rf2-3evq0x) — skip it once A
+        ;; is gone (a stale validator or a `:rf.machine/done` listener that
+        ;; destroyed A); its parent-`:data` write must not land under B.
+        (if (and on-done-fn parent-id (not on-error?) (not stale-spawn?)
+                 (not (owner-gone?)))
           (let [parent-data     (:data parent-snap)
                 new-parent-data (try
                                   (on-done-fn {:data parent-data :result (:value reply)})
@@ -514,95 +549,84 @@
             (if (and parent-snap (some? new-parent-data))
               (assoc-in runtime-db (conj parent-path :data) new-parent-data)
               runtime-db))
-          runtime-db)
-        ;; (4) Apply the unified teardown projection:
-        ;; dissoc the child's snapshot, release any `:system-id`
-        ;; reverse-index entry (D8 — after on-done ran), and clear the
-        ;; parent's `[:rf.runtime/machines :spawned <parent-id> <invoke-id>]` slot with
-        ;; the lazy-allocation prune. Returns `[new-db released-sid]`;
-        ;; `released-sid` is resolved against db-after-on-done before
-        ;; the reverse index is mutated.
-        [db-after-destroy released-sid]
-        (teardown/teardown-actor db-after-on-done
-                                 {:actor-id  machine-id
-                                  :parent-id parent-id
-                                  :invoke-id invoke-id})
-        ;; (5) Emit :rf.machine/destroyed with :reason :rf.machine/finished
-        ;; (D6 enrichment) before registrar cleanup.
-        _ (traces/emit-destroyed! {:frame     frame-id
-                                   :actor-id  machine-id
-                                   :system-id released-sid
-                                   :parent-id parent-id
-                                   :invoke-id invoke-id
-                                   :reason    :rf.machine/finished})]
-    ;; (6) Synchronous side effects: abort in-flight HTTP, cancel
-    ;; armed `:after` timers (`:reason :on-destroy`), emit
-    ;; system-id-released trace (when applicable), and clear any registrar entry.
-    (abort-actor-in-flight-http! machine-id)
-    (timer/cancel-actor-timers! frame-id machine-id)
-    ;; Drop this actor's per-instance classification declarations from the
-    ;; per-frame elision registry: the
-    ;; teardown half of `classification/lower-at-spawn!`, on the final-state
-    ;; AUTO-DESTROY path (which does NOT route through
-    ;; `destroy/teardown-live-actor!`). `machine` is the finishing actor's
-    ;; runtime-stamped spec; a spec that declared no classification is a clean
-    ;; no-op, so the registry entry added at spawn dies with the instance (no
-    ;; leak).
-    (classification/drop-at-destroy! frame-id machine-id machine)
-    ;; Forget the finished actor from the per-frame spawn-order channel —
-    ;; the ONE synchronous teardown side-effect the `:final?`-auto-destroy
-    ;; path shares with `destroy/teardown-live-actor!` (destroy.cljc step 7).
-    ;; `spawn-order/frame-order` is `actor-live?`'s "most reliable
-    ;; alive-or-gone bit" (destroy.cljc:83); without this call a finished
-    ;; actor stays recorded → a later stale `[:rf.machine/destroy id]` sees
-    ;; it live → `teardown-live-actor!` RE-RUNS (phantom `:rf.machine/destroyed`
-    ;; trace + re-fired resource release, violating silent-idempotent destroy)
-    ;; and frame-destroy emits a phantom straggler destroy for it. Matches the
-    ;; exact `(frame-id actor-id)` args destroy.cljc uses, so the forget! runs
-    ;; atomically per finalize-machine — the invariant destroy.cljc:306-308
-    ;; already documents.
-    (spawn-order/forget! frame-id machine-id)
-    (traces/emit-system-id-released! frame-id released-sid machine-id)
-    (registrar/unregister! :event machine-id)
-    ;; (7) Per Spec 005 §Final states §`:on-error`: when the child
-    ;; finished via an ERROR leaf AND the spawning parent declares
-    ;; `:spawn :on-error`, dispatch the synthetic reserved failure event into
-    ;; the parent. It resolves natively through the parent's macrostep
-    ;; (`pick-spawn-error-transition`), firing the declarative `:on-error`
-    ;; transition (target / guard / actions) with the error payload on
-    ;; `:event` — the XState `invoke onError` control flow. Dispatched (not
-    ;; raised) because the parent is a SEPARATE actor with its own handler /
-    ;; snapshot — symmetric with how the spawn fx dispatches `:start` into the
-    ;; child. The teardown above already ran (the child auto-destroys on its
-    ;; error leaf, like any `:final?`); this only ROUTES the failure.
-    ;;
-    ;; Per EP-0011 §Machine Completion this is the `:status :error` reply
-    ;; driving the `:on-error` transition. The dispatched payload is the RAW
-    ;; error (`result`) — the PUBLIC contract: the parent transition reads it
-    ;; off `:event` (`(nth ev 2)`). The canonical reply map (`reply`, built
-    ;; above) classifies the completion as `:status :error` for the trace /
-    ;; ledger; the parent transition's observable payload is unchanged. The
-    ;; reply's `:error` slot is `{:kind … :value result}` (the family-`:kind`
-    ;; wrapping the reply-map schema requires) — but that wrapping is
-    ;; internal vocabulary, not what the parent transition sees.
-    (when on-error?
-      (spawn-error/dispatch-spawn-error! frame-id parent-id invoke-id result))
-    ;; Machine snapshots are durable runtime-db state (EP-0001):
-    ;; the finalize teardown is a runtime-db write, returned under
-    ;; `:rf.db/runtime` (the framework-authority partition effect), NOT `:db`.
-    {:rf.db/runtime db-after-destroy
-     ;; Append the destroy-time `:exit` cascade's fx to
-     ;; the transition's fx vector so any `:exit`-emitted dispatches /
-     ;; HTTP / etc. fire as part of the same epoch.
-     ;;
-     ;; Also append the resource-lease release for this actor's
-     ;; `[:machine machine-id]` owner so the `:final?`-state auto-destroy
-     ;; releases its leases too (the explicit-destroy / spawn-cascade /
-     ;; frame-destroy paths release via `teardown-live-actor!`; finalize is the
-     ;; one teardown that returns an `:fx` vector rather than firing fx
-     ;; imperatively, so it appends the entry here). nil + filtered out when
-     ;; resources is absent (the no-resources guard) — see
-     ;; `resource-release/release-fx-entry`.
-     :fx (vec (concat extra-fx exit-fx
-                      (when-let [e (resource-release/release-fx-entry machine-id)]
-                        [e])))})))
+          runtime-db)]
+    ;; rf2-3evq0x — terminal incarnation fence for the completion tail. If a
+    ;; completion-output validator, a `:rf.machine/done` trace listener, or the
+    ;; parent `:on-done` callback destroyed A / published same-id B, EVERY action
+    ;; below is A-derived framework-owned tail that would erase or mutate B: the
+    ;; teardown projection (dissoc B's snapshot / clear its slot), the
+    ;; `:rf.machine/destroyed` trace, the HTTP/timer cancellation, the
+    ;; classification + spawn-order drop, the registrar unregister, the
+    ;; `:on-error` dispatch, and the runtime-db / fx publication. Return the
+    ;; inert outcome — runtime-db untouched, no fx — before ANY of them.
+    ;; Already-delivered callbacks stand (no rollback); the router's own
+    ;; candidate fence drops the inert runtime-db rather than committing it onto
+    ;; B. (`stale-spawn?` — a child finishing after its PARENT was destroyed — is
+    ;; a DIFFERENT staleness and still tears down normally; `owner-gone?` fires
+    ;; only on A→B frame-incarnation loss.)
+    (if (owner-gone?)
+      {:rf.db/runtime runtime-db :fx []}
+      (let [;; (4) Apply the unified teardown projection: dissoc the child's
+            ;; snapshot, release any `:system-id` reverse-index entry (D8 —
+            ;; after on-done ran), and clear the parent's
+            ;; `[:rf.runtime/machines :spawned <parent-id> <invoke-id>]` slot
+            ;; with the lazy-allocation prune. Returns `[new-db released-sid]`;
+            ;; `released-sid` is resolved against db-after-on-done before the
+            ;; reverse index is mutated.
+            [db-after-destroy released-sid]
+            (teardown/teardown-actor db-after-on-done
+                                     {:actor-id  machine-id
+                                      :parent-id parent-id
+                                      :invoke-id invoke-id})
+            ;; (5) Emit :rf.machine/destroyed with :reason :rf.machine/finished
+            ;; (D6 enrichment) before registrar cleanup.
+            _ (traces/emit-destroyed! {:frame     frame-id
+                                       :actor-id  machine-id
+                                       :system-id released-sid
+                                       :parent-id parent-id
+                                       :invoke-id invoke-id
+                                       :reason    :rf.machine/finished})]
+        ;; (6) Synchronous side effects: abort in-flight HTTP, cancel armed
+        ;; `:after` timers (`:reason :on-destroy`), emit system-id-released trace
+        ;; (when applicable), and clear any registrar entry.
+        (abort-actor-in-flight-http! machine-id)
+        (timer/cancel-actor-timers! frame-id machine-id)
+        ;; Drop this actor's per-instance classification declarations from the
+        ;; per-frame elision registry — the teardown half of
+        ;; `classification/lower-at-spawn!` on the final-state AUTO-DESTROY path
+        ;; (which does NOT route through `destroy/teardown-live-actor!`). A spec
+        ;; that declared no classification is a clean no-op, so the registry
+        ;; entry added at spawn dies with the instance (no leak).
+        (classification/drop-at-destroy! frame-id machine-id machine)
+        ;; Forget the finished actor from the per-frame spawn-order channel — the
+        ;; ONE synchronous teardown side-effect the `:final?`-auto-destroy path
+        ;; shares with `destroy/teardown-live-actor!` (destroy.cljc step 7).
+        ;; Without it a finished actor stays recorded → a later stale
+        ;; `[:rf.machine/destroy id]` sees it live → `teardown-live-actor!`
+        ;; RE-RUNS (phantom destroyed trace + re-fired resource release,
+        ;; violating silent-idempotent destroy) and frame-destroy emits a
+        ;; phantom straggler destroy for it.
+        (spawn-order/forget! frame-id machine-id)
+        (traces/emit-system-id-released! frame-id released-sid machine-id)
+        (registrar/unregister! :event machine-id)
+        ;; (7) Per Spec 005 §Final states §`:on-error`: when the child finished
+        ;; via an ERROR leaf AND the spawning parent declares `:spawn :on-error`,
+        ;; dispatch the synthetic reserved failure event into the parent. It
+        ;; resolves natively through the parent's macrostep
+        ;; (`pick-spawn-error-transition`), firing the declarative `:on-error`
+        ;; transition — the XState `invoke onError` control flow. The teardown
+        ;; above already ran (the child auto-destroys on its error leaf, like any
+        ;; `:final?`); this only ROUTES the failure. The dispatched payload is
+        ;; the RAW error (`result`); the parent transition reads it off `:event`.
+        (when on-error?
+          (spawn-error/dispatch-spawn-error! frame-id parent-id invoke-id result))
+        ;; Machine snapshots are durable runtime-db state (EP-0001): the finalize
+        ;; teardown is a runtime-db write, returned under `:rf.db/runtime` (the
+        ;; framework-authority partition effect), NOT `:db`. Append the
+        ;; destroy-time `:exit` cascade's fx + the resource-lease release for
+        ;; this actor's `[:machine machine-id]` owner (nil + filtered out when
+        ;; resources is absent — see `resource-release/release-fx-entry`).
+        {:rf.db/runtime db-after-destroy
+         :fx (vec (concat extra-fx exit-fx
+                          (when-let [e (resource-release/release-fx-entry machine-id)]
+                            [e])))})))))
