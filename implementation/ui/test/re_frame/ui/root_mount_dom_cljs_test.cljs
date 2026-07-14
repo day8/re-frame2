@@ -14,6 +14,7 @@
             ["react" :as react]
             ["react-dom" :as react-dom]
             [re-frame.error :as error]
+            [re-frame.substrate.adapter :as substrate-adapter]
             [re-frame.ui :as ui :refer [defview frame-root]]
             [re-frame.ui.client :as client]))
 
@@ -477,6 +478,102 @@
           (client/set-preflight-hook! nil)
           (some-> @b-root ui/unmount!)
           (set! (.-IS_REACT_ACT_ENVIRONMENT js/globalThis) prior))))))
+
+;; ---------------------------------------------------------------------------
+;; adapter-generation admission across re-entrant preflight (rf2-vxgfnd.199)
+;; ---------------------------------------------------------------------------
+;;
+;; A fresh mount admits under the exact adapter generation live BEFORE its
+;; side-effecting preflight. run-preflight! drains :initial-events (arbitrary
+;; app code) which can destroy — or destroy AND replace — the adapter while this
+;; mount holds no React root yet. The exact-generation receipt must fail the
+;; attempt loud before createRoot, so it never allocates a Root under a disposed
+;; generation or a replacement generation B it was never admitted by.
+
+(def ^:private minimal-adapter-a
+  {:kind :custom :dispose-adapter! (fn [] nil)})
+(def ^:private minimal-adapter-b
+  {:kind :custom :dispose-adapter! (fn [] nil)})
+
+(deftest fresh-mount-adapter-destroyed-in-preflight-fails-before-createroot
+  ;; Terminal disposal from a fresh mount's real preflight: createRoot / register
+  ;; / render must NOT run under the disposed adapter. Pre-fix, the post-preflight
+  ;; re-check covered only root-id/container ownership, so the mount proceeded.
+  (when (browser?)
+    (let [c     (container)
+          info  {:root-id :dom-gen/terminal :provenance :authored}
+          prior @substrate-adapter/adapter-lifecycle-state]
+      ;; The shared browser page seats the real ui adapter; clear then install
+      ;; generation A cleanly, and restore the page's adapter in finally.
+      (substrate-adapter/reset-lifecycle-state-for-tests!)
+      (substrate-adapter/install-adapter! minimal-adapter-a)
+      (client/set-preflight-hook!
+       (fn [_root-id _plans]
+         ;; A's :initial-events boot code terminally destroys the adapter and
+         ;; returns normally; no outer React root exists to be torn down yet.
+         (substrate-adapter/dispose-adapter!)))
+      (try
+        (let [{:keys [id data]}
+              (thrown-error
+               #(flush-without-act!
+                 (fn []
+                   (client/mount* info c
+                                  (fn [] (react/createElement "div" nil "boot"))
+                                  nil
+                                  (fn [] [])))))]
+          (is (= :rf.error/adapter-disposed id)
+              "a fresh mount whose preflight destroyed the adapter fails loud before createRoot")
+          (is (= :install-a-fresh-adapter (:recovery data))))
+        (is (= "" (.-innerHTML c))
+            "no React root or DOM was allocated under the disposed adapter")
+        (is (not (contains? (client/live-root-ids) :dom-gen/terminal))
+            "no live-root id, container claim, ViewCell, or observation owner remains")
+        (finally
+          (client/set-preflight-hook! nil)
+          (reset! substrate-adapter/adapter-lifecycle-state prior))))))
+
+(deftest fresh-mount-adapter-replaced-in-preflight-fails-and-leaves-b-untouched
+  ;; Destroy generation A and install a replacement generation B during preflight.
+  ;; disposed? is cleared, so a boolean recheck sees an open adapter — only the
+  ;; exact-generation receipt distinguishes B from the A that admitted the attempt.
+  (when (browser?)
+    (let [c     (container)
+          info  {:root-id :dom-gen/replace :provenance :authored}
+          prior @substrate-adapter/adapter-lifecycle-state]
+      (substrate-adapter/reset-lifecycle-state-for-tests!)
+      (substrate-adapter/install-adapter! minimal-adapter-a)
+      (client/set-preflight-hook!
+       (fn [_root-id _plans]
+         (substrate-adapter/dispose-adapter!)
+         (substrate-adapter/install-adapter! minimal-adapter-b)))
+      (try
+        (let [{:keys [id]}
+              (thrown-error
+               #(flush-without-act!
+                 (fn []
+                   (client/mount* info c
+                                  (fn [] (react/createElement "div" nil "boot"))
+                                  nil
+                                  (fn [] [])))))]
+          (is (= :rf.error/adapter-disposed id)
+              "an A-admitted mount cannot allocate a Root under replacement generation B"))
+        (is (= "" (.-innerHTML c))
+            "the A attempt created no React root — B and the container are untouched")
+        (is (not (contains? (client/live-root-ids) :dom-gen/replace)))
+        (is (identical? minimal-adapter-b
+                        (substrate-adapter/current-adapter-spec))
+            "generation B remains the installed adapter, unaffected by the failed A attempt")
+        ;; A later fresh mount admitted UNDER B succeeds on the same id/container.
+        (client/set-preflight-hook! nil)
+        (let [root (act! #(client/mount* info c
+                                         (fn [] (react/createElement "div" nil "under B"))
+                                         nil nil))]
+          (is (some? root) "a fresh mount admitted under B succeeds")
+          (is (re-find #"under B" (.-innerHTML c)))
+          (act! #(client/unmount!* root)))
+        (finally
+          (client/set-preflight-hook! nil)
+          (reset! substrate-adapter/adapter-lifecycle-state prior))))))
 
 ;; ---------------------------------------------------------------------------
 ;; frame-root: transparent render + the preflight seam
