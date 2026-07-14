@@ -156,6 +156,23 @@
     (update effects :fx (fn [fxs] (mapv #(stamp-fx-entry % join-child) fxs)))
     effects))
 
+(defn- carrier-auth
+  "The completion carrier's `:rf/join-auth` exact-authority tuple (rf2-nvxehu),
+  read from the recordable transport (rf2-t154jx). The runtime carries it as the
+  framework-owned recordable causal-envelope fact `:rf.machine/join-auth` on the
+  dispatching child's `:rf.cofx` (attached by the `:rf.machine/join-dispatch` fx,
+  threaded onto the machine def's `:rf/cofx` by `prepare-machine-ctx`). That
+  channel survives BOTH the event/coeffect recording + strict-replay path (the
+  event vector's METADATA does NOT — an EDN round-trip drops it) AND the
+  delayed-dispatch path. Event-vector metadata is accepted only as an immediate
+  internal handoff / test-forged fallback. The transport it arrived on is never
+  itself trusted — every clause is validated against runtime-owned join state
+  downstream (`join-auth-current?`), so a forged/tampered/replayed carrier that
+  does not match the live attempt is fail-closed regardless of channel."
+  [machine inner-event]
+  (or (get-in machine [:rf/cofx :rf.machine/join-auth])
+      (:rf/join-auth (meta inner-event))))
+
 (defn- join-auth-current?
   "True iff the carrier's `:rf/join-auth` stamp matches the CURRENT join
   attempt exactly: same parent/invoke identity, same logical child id, the
@@ -628,17 +645,42 @@
   (let [inner-id (first inner-event)
         child-id (second inner-event)
         matches  (find-active-spawn-alls machine snapshot inner-id)
-        ;; When more than one active spawn-all matches the event id (two
-        ;; parallel regions reusing the SAME `:on-child-done`), route to the
-        ;; join whose LIVE join-state `:children` OWNS the arriving child-id —
-        ;; ownership, not declaration order, decides. The owning match is
-        ;; preferred; if none owns the child (genuinely forged), fall back to
-        ;; the first match so the bad-child-id error trace still fires against
-        ;; a real join.
+        ;; The completion carrier's exact-authority tuple, read from the
+        ;; recordable transport (nil for an unstamped / hand-crafted carrier).
+        auth     (carrier-auth machine inner-event)
+        ;; Select the candidate join by EXACT AUTHORITY, BEFORE the fold gate
+        ;; (rf2-wsrtlw). When more than one active `:spawn-all` matches the
+        ;; event id (two parallel regions legitimately reusing the SAME
+        ;; `:on-child-done` AND the SAME logical child id), routing by child-id
+        ;; ownership alone mis-routes an authenticated R2 carrier to R1's join
+        ;; (declaration order), where the fold gate rejects it
+        ;; `:attempt-superseded` and R2 hangs. Instead: for an AUTHENTICATED
+        ;; carrier, select the match whose LIVE join-state IS the exact attempt
+        ;; the auth names — same parent/invoke identity, same `:rf/attempt`
+        ;; token, and child-id mapped to the auth's spawned instance address.
+        ;; This routes the completion to the region whose join actually spawned
+        ;; the child, independent of declaration order or child-id reuse.
+        authoritative?
+        (fn [{invoke-id :invoke-id}]
+          (and (map? auth)
+               (= parent-id (:parent-id auth))
+               (= invoke-id (:invoke-id auth))
+               (some? (:attempt auth))
+               (let [js (get-in runtime-db (paths/spawned-path parent-id invoke-id))]
+                 (and (map? js)
+                      (= (:rf/attempt js) (:attempt auth))
+                      (= (get-in js [:children child-id]) (:spawned-id auth))))))
+        ;; child-id ownership fallback for an UNSTAMPED / malformed / unknown
+        ;; carrier — it routes to a real owning join so the fold gate's
+        ;; fail-closed suppression fires stable typed evidence
+        ;; (`:attempt-unverified`) against it; never guesses an owner. If none
+        ;; owns the child (genuinely forged child-id), fall back to the first
+        ;; match so the bad-child-id error trace still fires against a real join.
         owns?    (fn [{invoke-id :invoke-id}]
                    (let [js (get-in runtime-db (paths/spawned-path parent-id invoke-id))]
                      (and (map? js) (contains? (:children js) child-id))))
-        match    (or (some #(when (owns? %) %) matches)
+        match    (or (some #(when (authoritative? %) %) matches)
+                     (some #(when (owns? %) %) matches)
                      (first matches))
         ;; Resolve the live frame from the runtime-stamped machine
         ;; (registration.cljc/prepare-machine-ctx assoc'd `:rf/frame` before
@@ -750,45 +792,48 @@
           :else
           ;; Exact-authority fold gate (rf2-nvxehu). Before ANY fold, the
           ;; carrier must prove it belongs to THIS join attempt: the
-          ;; `:rf/join-auth` metadata the member child's own handler
-          ;; boundary stamped (`stamp-join-completion-fx`) must match the
-          ;; current join's parent/invoke identity, logical child id, exact
-          ;; current actor id, and exact attempt token. An UNSTAMPED carrier
-          ;; (a hand-crafted dispatch that never flowed through the member
-          ;; child's boundary) and a SUPERSEDED one (a prior attempt's
-          ;; straggler after parent re-entry / child respawn — including a
-          ;; `:fixed-actor-id` respawn where the actor id alone cannot
-          ;; discriminate attempts) are classified stale and fold NOTHING;
-          ;; a DUPLICATE exact completion of an already-folded child is
-          ;; likewise suppressed so one child attempt can never publish two
-          ;; terminals (rf2-ir4t5v). All three suppressions are
+          ;; `:rf/join-auth` tuple the member child's own handler boundary
+          ;; stamped (`stamp-join-completion-fx`) and carried on the recordable
+          ;; `:rf.cofx` transport (rf2-t154jx) — resolved via `carrier-auth`
+          ;; above as `auth` — must match the current join's parent/invoke
+          ;; identity, logical child id, exact current actor id, and exact
+          ;; attempt token. An UNSTAMPED carrier (a hand-crafted dispatch that
+          ;; never flowed through the member child's boundary, OR a strict
+          ;; replay whose recordable authority fact was stripped) and a
+          ;; SUPERSEDED one (a prior attempt's straggler after parent re-entry /
+          ;; child respawn — including a `:fixed-actor-id` respawn where the
+          ;; actor id alone cannot discriminate attempts, and an old-attempt
+          ;; DELAYED completion arriving across re-entry) are classified stale
+          ;; and fold NOTHING; a DUPLICATE exact completion of an already-folded
+          ;; child is likewise suppressed so one child attempt can never publish
+          ;; two terminals (rf2-ir4t5v). All three suppressions are
           ;; zero-mutation fail-closed drops with stable typed evidence
-          ;; (`:rf.reply/stale-reason` on the stale-completion trace).
-          (let [auth (:rf/join-auth (meta inner-event))]
-            (cond
-              (nil? auth)
-              (suppress-stale-completion!
-                frame-id parent-id invoke-id join-state child-id kind
-                completed-at runtime-db
-                :rf.machine.spawn-all/attempt-unverified)
+          ;; (`:rf.reply/stale-reason` on the stale-completion trace) — never a
+          ;; silent replay-success no-op.
+          (cond
+            (nil? auth)
+            (suppress-stale-completion!
+              frame-id parent-id invoke-id join-state child-id kind
+              completed-at runtime-db
+              :rf.machine.spawn-all/attempt-unverified)
 
-              (not (join-auth-current? auth parent-id invoke-id child-id join-state))
-              (suppress-stale-completion!
-                frame-id parent-id invoke-id join-state child-id kind
-                completed-at runtime-db
-                :rf.machine.spawn-all/attempt-superseded)
+            (not (join-auth-current? auth parent-id invoke-id child-id join-state))
+            (suppress-stale-completion!
+              frame-id parent-id invoke-id join-state child-id kind
+              completed-at runtime-db
+              :rf.machine.spawn-all/attempt-superseded)
 
-              (or (contains? (:done   join-state) child-id)
-                  (contains? (:failed join-state) child-id))
-              (suppress-stale-completion!
-                frame-id parent-id invoke-id join-state child-id kind
-                completed-at runtime-db
-                :rf.machine.spawn-all/duplicate-completion)
+            (or (contains? (:done   join-state) child-id)
+                (contains? (:failed join-state) child-id))
+            (suppress-stale-completion!
+              frame-id parent-id invoke-id join-state child-id kind
+              completed-at runtime-db
+              :rf.machine.spawn-all/duplicate-completion)
 
-              :else
-              (intercept-fold frame-id parent-id invoke-id spec join-state
-                              child-id kind child-extra completed-at
-                              runtime-db))))))))
+            :else
+            (intercept-fold frame-id parent-id invoke-id spec join-state
+                            child-id kind child-extra completed-at
+                            runtime-db)))))))
 
 (defn- intercept-fold
   "The verified fold body of `intercept-spawn-all-event` — the carrier has
