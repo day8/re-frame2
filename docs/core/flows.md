@@ -22,6 +22,10 @@ This page builds flows one step at a time: the smallest possible flow, the
 registration map, a value that earns its place in app-db, then toggling, validating,
 and classifying output.
 
+**When *not* a flow.** If only views read the derivation, keep a
+[subscription](subscriptions.md). Reach for a flow when a **handler** (or schema,
+or another write-side path) must read the answer as plain app-db data.
+
 ## Your first flow
 
 The fastest way to *see* a flow is to take a derivation you already understand and move its answer from the view-cache into app-db. [Subscriptions](subscriptions.md) derived the counter's odd/even label as a formula cell over the `:value` fact:

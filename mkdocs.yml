@@ -165,22 +165,22 @@ nav:
     # page remains for operational deep links (not a main-track stop).
     - Introduction: core/introduction.md
     - "The pure loop":
-      - "Events": core/events.md
-      - "app-db": core/app-db.md
-      - "Subscriptions": core/subscriptions.md
-      - "Views": core/views.md
+      - "Events: the vocabulary": core/events.md
+      - "app-db: one map": core/app-db.md
+      - "Subscriptions: derived data": core/subscriptions.md
+      - "Views: pure screens": core/views.md
     - "Impurity":
-      - "Effects": core/effects.md
-      - "Coeffects": core/coeffects.md
+      - "Effects: the way out": core/effects.md
+      - "Coeffects: the way in": core/coeffects.md
     - "Structure":
-      - "Frames": core/frames.md
-      - "Flows": core/flows.md
-      - "Interceptors": core/interceptors.md
+      - "Frames: isolated worlds": core/frames.md
+      - "Flows: write-side derivations": core/flows.md
+      - "Interceptors: cross-cutting": core/interceptors.md
     - "Operations":
-      - "Errors": core/errors.md
-      - "Observability": core/observability.md
+      - "Errors: dossiers": core/errors.md
+      - "Observability: one wire": core/observability.md
     - "Advanced":
-      - "Images": core/images.md
+      - "Images: registration sets": core/images.md
       - "Run to completion (detail)": core/run-to-completion.md
     - "How-to recipes":
       - core/how-to/index.md

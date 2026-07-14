@@ -6,6 +6,10 @@ timers, and follow-up events — without turning handlers into impure mush.
 This page shows you how to write pure [event handlers](glossary.md#event-handler)
 that **side-effect**.
 
+**On this page — two speeds.** Day one: describe effects as data (`:fx`),
+run-to-completion, managed HTTP shape, the effect-map grammar. Going further:
+`reg-fx`, test overrides, platform skips. You can ship after the grammar.
+
 Yes. A surprising claim.
 
 A handler must stay pure — same inputs, same output, every time — because purity is
@@ -49,9 +53,7 @@ One new feature for the counter: every fifth click deserves a little celebration
    (when-let [m @(subscribe [:milestone])]
      [:span " — milestone: " m "!"])])
 
-(rf/make-frame {:id :app :initial-events [[:initialise]]})
-
-[rf/frame-provider {:frame :app}
+[rf/frame-root {:id :app :initial-events [[:initialise]]}
  [acting-counter]]
 ```
 
@@ -111,9 +113,7 @@ press **`Ctrl-Enter`** (**`Cmd-Enter`** on macOS) to evaluate, then click **subm
    [:button {:on-click #(dispatch [:drain.demo/submit])} "submit"]
    [:p "steps: " (pr-str @(subscribe [:drain.demo/steps]))]])
 
-(rf/make-frame {:id :demo :initial-events [[:drain.demo/initialise]]})
-
-[rf/frame-provider {:frame :demo}
+[rf/frame-root {:id :demo :initial-events [[:drain.demo/initialise]]}
  [drain-demo]]
 ```
 
@@ -321,8 +321,28 @@ That `:frame` entry earns its keep the moment an effect needs to dispatch back. 
 
 Periodic and delayed work goes through that same door. An auto-dismissing notification rides a `[:dispatch-later {:ms 5000 :event [:notification/dismiss]}]` row — so there's no `js/setInterval` in app code, and the delayed dispatch is an ordinary recorded event that carries its frame.
 
+## Day-one checklist
+
+You can return `{:db … :fx [[id args] …]}`, chain follow-ups with `[:dispatch …]`,
+trust run-to-completion (one paint per drain), and describe HTTP instead of calling
+`js/fetch` in a handler. Impurity is data until the runtime performs it.
+
+## When things go wrong
+
+| Symptom | Error / behaviour | Fix |
+|---|---|---|
+| Typo'd top-level key (`:dn`) | `:rf.error/effect-map-shape` — bad key dropped; legal keys still apply | Only `:db` and `:fx` (plus classification keys) at the top level |
+| Unknown fx id | `:rf.error/no-such-fx` — that row fails; siblings still run | Register or fix the id |
+| One fx throws | `:rf.error/fx-handler-exception` — later rows still run; `:db` already committed | Independent rows by design; chain via reply events if you need dependency |
+| Bare `dispatch` in a handler | Breaks purity and the ledger | Return `:fx [[:dispatch …]]` |
+| Async callback has no frame | `:rf.error/no-frame-context` | Capture `(:frame m)` in the fx handler (or use managed fx) |
+
 ## Stubbing effects in tests
 
-Because a registered effect is addressable by id, a test can redirect the world without touching the handler under test: pass `:fx-overrides` in the dispatch opts (or pin them per frame at construction). The recipe, with the symmetric fact-supplying move for coeffects, lives in [Testing event handlers](testing/event-handlers.md).
+Because a registered effect is addressable by id, a test can redirect the world
+without touching the handler under test: pass `:fx-overrides` in the dispatch opts
+(or pin them per frame at construction). Recipe:
+[Testing event handlers](testing/event-handlers.md).
 
-Effects are the world crossing the boundary *outward*. The way *in* — the facts a pure handler is allowed to read, and why they're recorded — is the next page: [Coeffects](coeffects.md).
+Effects are the world crossing the boundary *outward*. The way *in* is
+[Coeffects](coeffects.md).

@@ -13,11 +13,12 @@ derivation that turns facts into a conclusion, and re-runs only when it must.
 > **A UI is derived data. Subscriptions are how you name and share those
 > derivations.**
 
-**On this page.** Day-one path first: the derive-don't-store rule, what a
-subscription is, layered graphs, and the equality gate (with a live prune demo).
-Then going further: argument-dependent inputs, metadata, lifecycle, framework
-subs, and when a subscription is the wrong tool. You can ship after the equality
-gate; the rest is there when you need it.
+**On this page — two speeds.**
+
+1. **Day one** (through the prune demo): derive-don't-store, what a subscription is,
+   layered graphs, the equality gate. **Stop there and ship.**
+2. **Going further**: argument-dependent inputs, metadata, lifecycle, framework
+   subs, wrong tool, recovery. Open a section only when a need appears.
 
 ## Don't Store What You Can Derive
 
@@ -58,9 +59,7 @@ and two copies of one truth is two chances to disagree. Derive it, live:
    [:span @(subscribe [:value]) " is " (name @(subscribe [:parity]))]
    [:button {:on-click #(dispatch [:inc])} "+"]])
 
-(rf/make-frame {:id :app :initial-events [[:initialise]]})
-
-[rf/frame-provider {:frame :app}
+[rf/frame-root {:id :app :initial-events [[:initialise]]}
  [parity-counter]]
 ```
 
@@ -293,9 +292,7 @@ few times:
    [:p @(subscribe [:cart/currency-label])]
    [:button {:on-click #(dispatch [:cart/add-item])} "add item"]])
 
-(rf/make-frame {:id :cart :initial-events [[:cart/initialise]]})
-
-[rf/frame-provider {:frame :cart}
+[rf/frame-root {:id :cart :initial-events [[:cart/initialise]]}
  [cart-summary]]
 ```
 
@@ -316,6 +313,22 @@ with [Xray](glossary.md#xray) attached (one-line setup:
 [Debug with Xray](../xray/index.md)), click **add item**, select the newest
 event row, and open the **Views** tab: `:cart/count-label` is marked as the
 re-render's trigger while `:cart/currency-label` sits beside it, unmarked.
+
+## Day-one checklist
+
+You can:
+
+- keep facts in app-db and **derive** conclusions in named subs;
+- build a layered graph with extractors (`(fn [db _] …)`) and `:<-` composers;
+- rely on the `=` gate so unchanged slices stop propagation;
+- avoid cache fragmentation (stable query-vector args);
+- recover from a missing sub (`:rf.error/no-such-sub` → `nil`).
+
+That is enough for real screens. The sections below are optional depth.
+
+---
+
+## Going further
 
 ## When the Inputs Depend on the Arguments
 

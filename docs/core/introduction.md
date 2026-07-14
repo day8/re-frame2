@@ -156,22 +156,24 @@ One formula, applied one event at a time.
 
 ## How the Core track is organised
 
-The left nav is the learning order. It is grouped so you always know *why* a page
-is next:
+The left nav is the learning order. Each concept page opens a **day-one** path and
+marks optional depth so you can stop and ship.
 
-1. **The pure loop** — [Events](events.md), [app-db](app-db.md),
-   [Subscriptions](subscriptions.md), [Views](views.md). After these four, you can
-   build real screens with pure data in and pure data out.
-2. **Impurity** — [Effects](effects.md) (the way out, including run-to-completion)
-   and [Coeffects](coeffects.md) (the way in). How the pure middle touches the world.
-3. **Structure** — [Frames](frames.md), [Flows](flows.md),
-   [Interceptors](interceptors.md). Isolation, materialised derivations, cross-cutting
-   chores.
-4. **Operations** — [Errors](errors.md), [Observability](observability.md). What you
-   see when something breaks.
-5. **Advanced** — [Images](images.md). Only when two frames need different
-   registrations.
+| Stage | Pages | What you can build after |
+|---|---|---|
+| **Pure loop** | [Events](events.md) → [app-db](app-db.md) → [Subscriptions](subscriptions.md) → [Views](views.md) | Real screens: intent in, one map, named conclusions, pure UI |
+| **Impurity** | [Effects](effects.md) → [Coeffects](coeffects.md) | HTTP, storage, timers, recorded world facts — handlers stay pure |
+| **Structure** | [Frames](frames.md) → [Flows](flows.md) → [Interceptors](interceptors.md) | Isolation, write-side derivations, cross-cutting chores |
+| **Operations** | [Errors](errors.md) → [Observability](observability.md) | Named dossiers and the one trace wire when something breaks |
+| **Advanced** | [Images](images.md) | Different registration sets per frame (rare) |
 
-How-to recipes, testing, and the "why it's built this way" essays sit under those
-headings in the nav — use them when you have a task or a design question, not as
-the first read-through.
+How-to recipes, testing, and "why it's built this way" essays sit under those
+headings — use them when you have a task or a design question, not as the first
+read-through.
+
+### Happy path and unhappy path
+
+Every stage teaches the **happy path** first (a working counter grown one idea at
+a time). Each concept page also names the **loud failures** you will meet early —
+missing handler, missing sub, no frame on a callback, effect-map typos — so recovery
+is vocabulary, not archaeology.

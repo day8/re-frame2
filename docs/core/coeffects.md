@@ -10,6 +10,10 @@ would cost the handler its purity, so re-frame2 delivers them instead, as declar
 state of the world, as data, as presented to your handler. The recording is the
 point — it is what makes replay and time-travel honest.
 
+**On this page — two speeds.** Day one: declare `:rf.cofx/requires`, receive
+`:rf/time-ms`, keep the handler pure. Going further: grades, `reg-cofx`, minting
+ladder, the ledger, test supply. Ship after you can stamp time honestly.
+
 ## The counter learns the time
 
 Let's give the [app-db](app-db.md) counter one more feature: show when the button was last clicked. It looks like throwaway decoration. It's quietly one of the most important ideas in the framework, so it's worth slowing down for.
@@ -40,9 +44,7 @@ Here's the constraint. A pure handler must not read the clock — if it did, rep
    (when-let [t @(subscribe [:clicked-at])]
      [:span " — clicked at " t " ms"])])
 
-(rf/make-frame {:id :app :initial-events [[:initialise]]})
-
-[rf/frame-provider {:frame :app}
+[rf/frame-root {:id :app :initial-events [[:initialise]]}
  [stamped-counter]]
 ```
 
@@ -54,7 +56,11 @@ Notes:
 
 That recorded-ness is what the dev tools cash in. Open [Xray](glossary.md#xray) on an app like this and every click is a row — the event, app-db before and after, and the recorded time; restore an older row and the counter returns to that exact moment. It falls out of three rules you're already following: state changes only through events, handlers stay pure, and world facts arrive recorded. Given those three, history *is* a list of `(event, recorded-facts)` pairs, and re-running any prefix reconstructs the exact state — there's nothing else for state to depend on. (The [Xray docs](../xray/index.md) are the tour.)
 
-The rest of this page is everything you can declare — and what the recording buys you.
+## Day-one checklist
+
+You can declare world facts with `:rf.cofx/requires`, read them flat beside `:db`,
+and keep durable timestamps out of the handler body. That is the purity fix. The
+sections below are the full declaration grammar and the ledger argument.
 
 ## The way in: a handler reads only what was recorded
 
