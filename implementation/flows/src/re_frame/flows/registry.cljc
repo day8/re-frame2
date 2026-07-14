@@ -648,78 +648,104 @@
                  (if (frame/in-drain? frame-id)
                    (record-abandoned-output-path! frame-id old-path)
                    (vacate-output-path! frame-id pinned-incarnation old-path)))))
-           ;; rf2-vxgfnd.155: postcheck after the (callback-bearing) vacation
-           ;; before the mark write + the bare-id dirty-cache drop + dedup trace.
-           ;; If a container watch destroyed A, abort so no stale A mark / cache /
-           ;; dedup mutation reaches a same-id B.
+           ;; rf2-rxsldx: the output-mark write below is itself exact-
+           ;; incarnation — it threads `pinned-incarnation` through
+           ;; `swap-elision-slot!` → `swap-runtime-db-exact!`, whose
+           ;; `identical? owner-token` guard makes it a TRUE no-op once A is
+           ;; lost (the transform is never called, no epoch bump). A bare
+           ;; post-vacation liveness pre-check guarding it therefore had NO
+           ;; call-boundary effect the exact-owner postcheck below does not
+           ;; already provide (the merged loss fixtures stay green with it
+           ;; removed — the later exact mark and second check stop every visible
+           ;; write), so the redundant check and its claim are dropped. The
+           ;; downstream exact fences stay explicit: the mark write's internal
+           ;; owner-token guard, and the postcheck below.
+           (when (or (flow-declares-marks? flow)
+                     (some? @prior-on-frame))
+             (write-flow-output-marks! frame-id pinned-incarnation flow))
+           ;; Exact-owner postcheck after the (callback-bearing) output-mark
+           ;; container write: if a synchronous container watch destroyed A and
+           ;; published a same-id B, abort before any bare-id dirty-cache drop,
+           ;; registry mutation, or dedup-and-trace pipeline reaches B.
            (when (frame/event-continuation-live? frame-id pinned-incarnation)
-             ;; Replacements always refresh marks so removing a declaration also
-             ;; clears the previous one. Exact-incarnation write.
-             (when (or (flow-declares-marks? flow)
-                       (some? @prior-on-frame))
-               (write-flow-output-marks! frame-id pinned-incarnation flow))
-             ;; Postcheck after the output-mark container write before the
-             ;; bare-id dirty-cache drop + dedup trace.
-             (when (frame/event-continuation-live? frame-id pinned-incarnation)
-               ;; A replacement invalidates the cache even when inputs are equal.
-               ;; Hot-reload trace dedup uses the derive function as handler
-               ;; identity.
-               (when (some? @prior-on-frame)
-                 (drop-frame-flow-row! frame-id flow-id)
-                 (when interop/debug-enabled?
-                   (let [prior      @prior-on-frame
-                         different? (not= (:derive prior) (:derive flow))
-                         ;; The shared dedup projector expects handler identity
-                         ;; under `:handler-fn`.
-                         shape-meta (assoc flow :handler-fn (:derive flow))
-                         dedup-ok?  (if-let [f (late-bind/get-fn-cached
-                                                 :trace.tooling/dedup-allow?)]
-                                      (f :rf.registry/handler-replaced :flow flow-id shape-meta)
-                                      true)]
-                     (when dedup-ok?
-                       (trace/emit! :rf.registry :rf.registry/handler-replaced
-                                    {:kind          :flow
-                                     :id            flow-id
-                                     :different-fn? different?})))))
-               ;; rf2-ytpeqf: first-registration evidence, kept INSIDE the exact-
-               ;; owner continuation (this postcheck). Registration is first-time
-               ;; per frame; replacements use the hot-reload dedup trace above. A
-               ;; first-time flow with output marks reaches a callback-bearing
-               ;; runtime-db write (`write-flow-output-marks!` above); a
-               ;; synchronous container watch can destroy A there and publish a
-               ;; same-id B. Because the postcheck guarding this block then fails,
-               ;; A's :rf.flow/registered is never delivered against B and B's
-               ;; trace policy is never consulted for A. (`clear-flow` fences its
-               ;; :rf.flow/cleared the same way, via its returned cleared-path.)
-               ;;
-               ;; rf2-pwum1g: the postcheck above only proves A is live at the
-               ;; instant emission STARTS. `trace/emit!` is itself a synchronous,
-               ;; callback-bearing pipeline — classification projection, then
-               ;; epoch capture, then the ordered tooling listeners — and each of
-               ;; those stages rechecks ownership ONLY while a continuation
-               ;; predicate is installed (`trace/continuation-live?` reads the
-               ;; always-true default otherwise). The event router installs its
-               ;; own exact-owner predicate for the reserved-effect `:rf.fx/reg-flow`
-               ;; route, but a DIRECT cold `reg-flow` does not — so absent this
-               ;; wrap, an epoch-capture callback or the first listener could
-               ;; destroy A and publish same-id B, and later listeners would still
-               ;; receive A's incarnation-less :rf.flow/registered after B owns the
-               ;; id (and later policy/capture could observe B). Wrap the emit in
-               ;; the pinned incarnation's exact-owner continuation so every
-               ;; trace-internal stage is fenced: already-entered delivery may
-               ;; stand once, but no later framework-owned trace stage starts after
-               ;; A's exact ownership is lost. This composes with any parent
-               ;; predicate (AND-combined in `call-with-continuation-predicate`),
-               ;; so the reserved-effect route's router predicate is preserved.
-               (when (and interop/debug-enabled? (nil? @prior-on-frame))
+             ;; A replacement invalidates the cache even when inputs are equal.
+             ;; Hot-reload trace dedup uses the derive function as handler
+             ;; identity.
+             (when (some? @prior-on-frame)
+               (drop-frame-flow-row! frame-id flow-id)
+               ;; rf2-rxsldx: the replacement dedup consultation and the
+               ;; :rf.registry/handler-replaced emit form ONE synchronous,
+               ;; callback-bearing pipeline — dedup-by-shape projection, then,
+               ;; inside `emit!`, classification projection → epoch capture →
+               ;; ordered tooling listeners. The postcheck above only proves A is
+               ;; live at the instant the block STARTS; each trace-internal stage
+               ;; rechecks ownership ONLY while a continuation predicate is
+               ;; installed (`trace/continuation-live?` reads the always-true
+               ;; default otherwise). A DIRECT cold `reg-flow` replacement — unlike
+               ;; the reserved-effect `:rf.fx/reg-flow` route, which inherits the
+               ;; router's exact-owner predicate — installs none, so absent this
+               ;; wrap an epoch-capture callback or an already-entered listener
+               ;; could destroy A and publish same-id B, and later listeners would
+               ;; still receive A's incarnation-less :rf.registry/handler-replaced
+               ;; after B owns the id (and later policy/capture could observe B).
+               ;; Wrap the whole dedup+emit in the pinned incarnation's exact-owner
+               ;; continuation, mirroring the first-registration fence (rf2-pwum1g):
+               ;; already-entered delivery may stand once, every later framework-
+               ;; owned trace stage is fenced. AND-composes with any parent (router)
+               ;; predicate.
+               (when interop/debug-enabled?
                  (trace/call-with-continuation-predicate
                    #(frame/event-continuation-live? frame-id pinned-incarnation)
                    (fn []
-                     (trace/emit! :flow :rf.flow/registered
-                                  {:flow-id flow-id
-                                   :inputs  (:inputs flow)
-                                   :path    (:output-path flow)
-                                   :frame   frame-id}))))))))))
+                     (let [prior      @prior-on-frame
+                           different? (not= (:derive prior) (:derive flow))
+                           ;; The shared dedup projector expects handler identity
+                           ;; under `:handler-fn`.
+                           shape-meta (assoc flow :handler-fn (:derive flow))
+                           dedup-ok?  (if-let [f (late-bind/get-fn-cached
+                                                   :trace.tooling/dedup-allow?)]
+                                        (f :rf.registry/handler-replaced :flow flow-id shape-meta)
+                                        true)]
+                       (when dedup-ok?
+                         (trace/emit! :rf.registry :rf.registry/handler-replaced
+                                      {:kind          :flow
+                                       :id            flow-id
+                                       :different-fn? different?})))))))
+             ;; rf2-ytpeqf: first-registration evidence, kept INSIDE the exact-
+             ;; owner postcheck. Registration is first-time per frame; replacements
+             ;; use the hot-reload dedup trace above. A first-time flow with output
+             ;; marks reaches a callback-bearing runtime-db write
+             ;; (`write-flow-output-marks!` above); a synchronous container watch
+             ;; can destroy A there and publish a same-id B. Because the postcheck
+             ;; guarding this block then fails, A's :rf.flow/registered is never
+             ;; delivered against B and B's trace policy is never consulted for A.
+             ;; (`clear-flow` fences its :rf.flow/cleared the same way — rf2-rxsldx.)
+             ;;
+             ;; rf2-pwum1g: the postcheck above only proves A is live at the instant
+             ;; emission STARTS. `trace/emit!` is itself a synchronous, callback-
+             ;; bearing pipeline — classification projection, then epoch capture,
+             ;; then the ordered tooling listeners — and each stage rechecks
+             ;; ownership ONLY while a continuation predicate is installed. The event
+             ;; router installs its own exact-owner predicate for the reserved-effect
+             ;; `:rf.fx/reg-flow` route, but a DIRECT cold `reg-flow` does not — so
+             ;; absent this wrap, an epoch-capture callback or the first listener
+             ;; could destroy A and publish same-id B, and later listeners would
+             ;; still receive A's incarnation-less :rf.flow/registered after B owns
+             ;; the id. Wrap the emit in the pinned incarnation's exact-owner
+             ;; continuation so every trace-internal stage is fenced: already-entered
+             ;; delivery may stand once, but no later framework-owned trace stage
+             ;; starts after A's exact ownership is lost. AND-composes with any parent
+             ;; predicate, so the reserved-effect route's router predicate is
+             ;; preserved.
+             (when (and interop/debug-enabled? (nil? @prior-on-frame))
+               (trace/call-with-continuation-predicate
+                 #(frame/event-continuation-live? frame-id pinned-incarnation)
+                 (fn []
+                   (trace/emit! :flow :rf.flow/registered
+                                {:flow-id flow-id
+                                 :inputs  (:inputs flow)
+                                 :path    (:output-path flow)
+                                 :frame   frame-id})))))))))
      flow-id))))
 
 (defn- dissoc-in-safe
@@ -781,49 +807,75 @@
                       (frame/require-current-frame!
                         :clear-flow
                         {:where    'rf/clear-flow
-                         :event-id id}))
-         ;; Read the path inside the drain lock so a concurrent replacement
-         ;; cannot make us vacate stale metadata while clearing the new row.
-         cleared-path
-         (frame/call-serialized-with-drain!
-           frame-id
-           (fn []
-             (when-let [flow (get-in @flows [frame-id id])]
-               ;; rf2-vxgfnd.155: PIN A's incarnation so the callback-bearing
-               ;; output-mark / path-vacation writes below cannot let a stale A
-               ;; tail dissociate a same-id B's flow row, drop B's dirty-check
-               ;; cache, or bump B's commit epoch. A synchronous container watch
-               ;; may destroy A and publish B mid-write; only A's write that
-               ;; linearized before that loss stands, and every later registry /
-               ;; cache action is fenced by an immediate exact-owner postcheck.
-               (let [pinned (frame/frame-incarnation-token frame-id)
-                     path   (:output-path flow)]
-                 ;; In-drain vacation must modify the pending db, not the live
-                 ;; app-db that the deferred commit will replace.
-                 (if (frame/in-drain? frame-id)
-                   (record-abandoned-output-path! frame-id path)
-                   (vacate-output-path! frame-id pinned path))
-                 ;; Postcheck after the (callback-bearing, direct-path) vacation:
-                 ;; if the watch lost A, abort before the mark write and the
-                 ;; bare-id registry / dirty-cache mutations reach B.
-                 (when (frame/event-continuation-live? frame-id pinned)
-                   (clear-flow-output-marks! frame-id pinned id)
-                   ;; Postcheck after the output-mark container write before the
-                   ;; bare-id flow-row dissoc + dirty-cache drop.
-                   (when (frame/event-continuation-live? frame-id pinned)
-                     ;; Prune an empty frame row rather than expose `{frame-id {}}`.
-                     (swap! flows (fn [m]
-                                    (let [m' (update m frame-id dissoc id)]
-                                      (cond-> m'
-                                        (empty? (get m' frame-id)) (dissoc frame-id)))))
-                     (drop-frame-flow-row! frame-id id)
-                     path))))))]
-     ;; A no-op clear emits nothing.
-     (when (and cleared-path interop/debug-enabled?)
-       (trace/emit! :flow :rf.flow/cleared
-                    {:flow-id id
-                     :path    cleared-path
-                     :frame   frame-id}))
+                         :event-id id}))]
+     ;; Read the path, deregister, and EMIT the :rf.flow/cleared evidence all
+     ;; INSIDE the drain lock: a concurrent replacement cannot make us vacate
+     ;; stale metadata while clearing the new row, and — rf2-rxsldx — the clear
+     ;; trace is initiated while the pinned incarnation is still authoritative
+     ;; (previously it emitted after the serialized section released, carrying no
+     ;; token). A no-op clear (no flow / lost owner) emits nothing.
+     (frame/call-serialized-with-drain!
+       frame-id
+       (fn []
+         (when-let [flow (get-in @flows [frame-id id])]
+           ;; rf2-vxgfnd.155: PIN A's incarnation so the callback-bearing
+           ;; output-mark / path-vacation writes below cannot let a stale A
+           ;; tail dissociate a same-id B's flow row, drop B's dirty-check
+           ;; cache, or bump B's commit epoch. A synchronous container watch
+           ;; may destroy A and publish B mid-write; only A's write that
+           ;; linearized before that loss stands, and every later registry /
+           ;; cache / trace action is fenced by the exact-owner postcheck /
+           ;; continuation below.
+           (let [pinned (frame/frame-incarnation-token frame-id)
+                 path   (:output-path flow)]
+             ;; In-drain vacation must modify the pending db, not the live
+             ;; app-db that the deferred commit will replace.
+             (if (frame/in-drain? frame-id)
+               (record-abandoned-output-path! frame-id path)
+               (vacate-output-path! frame-id pinned path))
+             ;; rf2-rxsldx: the output-mark clear below is itself exact-
+             ;; incarnation (it threads `pinned` through `swap-elision-slot!` →
+             ;; `swap-runtime-db-exact!`, a TRUE no-op once A is lost — the
+             ;; transform is never called, no epoch bump). A bare post-vacation
+             ;; liveness pre-check guarding it added no call-boundary effect the
+             ;; exact-owner postcheck below does not already provide (the merged
+             ;; loss fixtures stay green with it removed), so the redundant check
+             ;; and its claim are dropped; the downstream exact fences (the mark
+             ;; clear's internal owner-token guard, and the postcheck below) stay
+             ;; explicit.
+             (clear-flow-output-marks! frame-id pinned id)
+             ;; Exact-owner postcheck after the (callback-bearing) output-mark
+             ;; container write: if the watch lost A, abort before the bare-id
+             ;; flow-row dissoc, dirty-cache drop, and clear-trace pipeline reach B.
+             (when (frame/event-continuation-live? frame-id pinned)
+               ;; Prune an empty frame row rather than expose `{frame-id {}}`.
+               (swap! flows (fn [m]
+                              (let [m' (update m frame-id dissoc id)]
+                                (cond-> m'
+                                  (empty? (get m' frame-id)) (dissoc frame-id)))))
+               (drop-frame-flow-row! frame-id id)
+               ;; rf2-rxsldx: emit :rf.flow/cleared HERE — inside the exact-owner
+               ;; serialization, while `pinned` is authoritative. `trace/emit!` is
+               ;; a synchronous, callback-bearing pipeline (classification
+               ;; projection → epoch capture → ordered tooling listeners) whose
+               ;; stages recheck ownership ONLY while a continuation predicate is
+               ;; installed (`trace/continuation-live?` reads the always-true
+               ;; default otherwise). Absent the wrap, a mid-emit destroy of A +
+               ;; same-id B lets later listeners receive A's incarnation-less
+               ;; :rf.flow/cleared after B owns the id (and later policy/capture
+               ;; could observe B). Wrap the emit in the pinned incarnation's
+               ;; exact-owner continuation, mirroring the first-registration fence
+               ;; (rf2-pwum1g): already-entered delivery may stand once, every
+               ;; later framework-owned trace stage is fenced. AND-composes with
+               ;; any parent (router) predicate.
+               (when interop/debug-enabled?
+                 (trace/call-with-continuation-predicate
+                   #(frame/event-continuation-live? frame-id pinned)
+                   (fn []
+                     (trace/emit! :flow :rf.flow/cleared
+                                  {:flow-id id
+                                   :path    path
+                                   :frame   frame-id})))))))))
      nil)))
 
 ;; ---- frame-destroy teardown ---------------------------------------------

@@ -1,0 +1,361 @@
+(ns re-frame.flows-replace-clear-trace-incarnation-cljs-test
+  "rf2-rxsldx — exact-incarnation fence for the flow REPLACEMENT and CLEAR
+  lifecycle traces THROUGH the synchronous trace-emit callback pipeline
+  (classification projection → epoch capture → ordered tooling listeners), plus
+  — for replacement — the preceding hot-reload dedup-by-shape consultation.
+
+  The sibling of rf2-pwum1g (first registration) and rf2-ytpeqf. Merged PR #5897
+  made the flow-registry app-db / runtime-db / epoch writes exact, and pwum1g
+  fenced the FIRST-registration `:rf.flow/registered` emit. This bead extends the
+  same fence to the two remaining direct lifecycle traces:
+
+    - REPLACEMENT: re-registering a flow id emits `:rf.registry/handler-replaced`
+      (gated by the hot-reload `:trace.tooling/dedup-allow?` consultation).
+    - CLEAR: `clear-flow` emits `:rf.flow/cleared`.
+
+  Before this fix the replacement dedup+emit ran under the always-true default
+  continuation, and the clear emit ran AFTER the serialized drain section had
+  released — carrying no pinned token at all. `trace/emit!` is itself a
+  synchronous, callback-bearing pipeline whose stages recheck ownership ONLY
+  while a continuation predicate is installed (`trace/continuation-live?` reads
+  the always-true default otherwise). A DIRECT cold `reg-flow` / `clear-flow`
+  (unlike the reserved-effect `:rf.fx/reg-flow` route, which inherits the
+  router's exact-owner predicate) installed none. So an ordered trace LISTENER
+  (or the epoch-capture callback) could destroy incarnation A and publish a
+  same-id B mid-emit, and every SUBSEQUENT listener would still receive A's
+  incarnation-less replacement / clear event after B owns the bare id (and later
+  policy/capture could observe B).
+
+  The fix wraps each emit in `trace/call-with-continuation-predicate` bound to A's
+  pinned incarnation — and, for clear, moves the emit INSIDE the exact-owner
+  serialization so `pinned` is authoritative when emission is initiated — so the
+  trace pipeline is fenced to A: the already-entered delivery (the listener that
+  destroys A) stands once, and every LATER listener / capture / policy stage is
+  suppressed the instant A's exact ownership is lost.
+
+  Each seam here is DELIBERATELY the trace-internal listener boundary, not a
+  container-write watch: A declares NO output marks, so the lifecycle op reaches
+  the emit with A fully live and the ONLY callback seam is the ordered listener
+  fan-out inside emission — the boundary the merged vxgfnd.155 / mybhk3 fixtures
+  (which lose A during a preceding container write, with a passive recorder that
+  records no trace evidence or dedup consultation) cannot reach. Removing the
+  `call-with-continuation-predicate` wrapper — or, for clear, moving the emit
+  back outside the serialization (which strands `pinned`, forcing the always-true
+  default) — makes the subsequent listener receive A's stale event and the
+  focused assertion fail.
+
+  The whole scenario runs SYNCHRONOUSLY on the single host thread: the destroyer
+  listener destroys A and publishes B reentrantly inside emission, so the
+  cross-incarnation ordering is deterministic without threads. Listener fan-out
+  order is insertion order, so the destroyer is registered FIRST (the
+  already-entered delivery that may stand) and the observer SECOND (the
+  subsequent delivery the fence must suppress).
+
+  This file is `*-cljs-test.cljc` so the shadow-cljs `:node-test` build
+  (ns-regexp `cljs-test$`) discovers it under CLJS AND the cognitect JVM runner
+  runs it — both hosts exercise replacement and clear."
+  (:require #?(:clj  [clojure.test :refer [deftest is use-fixtures]]
+               :cljs [cljs.test :refer-macros [deftest is use-fixtures]])
+            [re-frame.core :as rf]
+            [re-frame.flows :as flows]
+            [re-frame.flows.registry :as registry]
+            [re-frame.frame :as frame]
+            [re-frame.late-bind :as late-bind]
+            [re-frame.substrate.plain-atom :as plain-atom]
+            [re-frame.test-support :as test-support]
+            [re-frame.trace :as trace]))
+
+(use-fixtures :each
+  (test-support/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
+
+;; ===========================================================================
+;; REPLACEMENT — `:rf.registry/handler-replaced`
+;;
+;; A's replacement emit reaches the ordered tooling listeners with A live; the
+;; FIRST listener destroys A and publishes same-id B; the SUBSEQUENT listener
+;; must NOT receive A's stale `:rf.registry/handler-replaced` after B owns the
+;; bare id. The dedup consultation is recorded so the fixture proves the
+;; trace/dedup pipeline ran for A (not merely app-db/cache state).
+;; ===========================================================================
+
+(deftest reg-flow-replacement-trace-listener-loss-fences-subsequent-listeners
+  ;; rf2-rxsldx (red before fix). Re-registering A's flow (NO output marks) with a
+  ;; different derive reaches `trace/emit! :rf.registry/handler-replaced` with A
+  ;; live. The destroyer listener — the already-entered delivery — destroys A and
+  ;; publishes same-id B mid-fan-out. Before the fix the dedup+emit ran under the
+  ;; always-true continuation, so the observer (the subsequent listener) still
+  ;; received A's incarnation-less replaced event after B owned the id. After the
+  ;; fix the pinned-A continuation predicate suppresses every listener past the
+  ;; loss.
+  (let [id               :flow.replace.fence/subject
+        flow-id          :flow.replace.fence/a
+        b-flow-id        :flow.replace.fence/b
+        destroyer-hits   (atom 0)
+        observer-a-repl  (atom [])          ;; A's replaced events the observer saw
+        observer-repl    (atom [])          ;; every replaced event the observer saw
+        dedup-calls      (atom [])          ;; recorded [operation kind id] consultations
+        armed?           (atom true)
+        b-token          (atom nil)
+        b-flow-registry  (atom ::unset)
+        b-commit         (atom ::unset)
+        orig-dedup       (late-bind/get-fn :trace.tooling/dedup-allow?)]
+    ;; Recording dedup hook: record every consultation and always allow, so the
+    ;; replacement emit proceeds and the consultation is observable evidence that
+    ;; the trace/dedup pipeline — not just app-db/cache state — ran for A.
+    (late-bind/set-fn! :trace.tooling/dedup-allow?
+                       (fn [operation kind the-id _meta]
+                         (swap! dedup-calls conj [operation kind the-id])
+                         true))
+    (rf/make-frame {:id id})
+    ;; First registration establishes the prior so the next reg-flow is a
+    ;; REPLACEMENT (emits :rf.registry/handler-replaced, not :rf.flow/registered).
+    (rf/reg-flow flow-id
+      {:frame id :inputs [[:an]] :output-path [:aout]}
+      (fn [n] (or n 0)))
+    ;; Listener 1 (registered FIRST → fans out FIRST): the DESTROYER. On A's own
+    ;; :rf.registry/handler-replaced — the already-entered delivery — it destroys
+    ;; A and publishes same-id B exactly once, then snapshots B's stores.
+    (trace/register-listener!
+      ::destroyer
+      (fn [ev]
+        (when (and (= :rf.registry/handler-replaced (:operation ev))
+                   (= flow-id (get-in ev [:tags :id]))
+                   (compare-and-set! armed? true false))
+          (swap! destroyer-hits inc)
+          (frame/destroy-frame! id)
+          (rf/make-frame {:id id})
+          (reset! b-token (frame/frame-incarnation-token id))
+          (reset! b-flow-registry (get (registry/flows-snapshot) id ::none))
+          (reset! b-commit (frame/frame-commit-epoch id)))))
+    ;; Listener 2 (registered SECOND → fans out AFTER the destroyer): the
+    ;; SUBSEQUENT observer. Absent the fence it receives A's stale replaced event
+    ;; after B owns the bare id; the fence suppresses it.
+    (trace/register-listener!
+      ::observer
+      (fn [ev]
+        (when (= :rf.registry/handler-replaced (:operation ev))
+          (swap! observer-repl conj ev)
+          (when (= flow-id (get-in ev [:tags :id]))
+            (swap! observer-a-repl conj ev)))))
+    (try
+      ;; REPLACEMENT: same id, different derive → :rf.registry/handler-replaced.
+      (is (= flow-id
+             (rf/reg-flow flow-id
+               {:frame id :inputs [[:an]] :output-path [:aout]}
+               (fn [n] (* 2 (or n 0)))))
+          "reg-flow returns its flow-id even though A's owner was lost mid-emit")
+      (is (= 1 @destroyer-hits)
+          "the destroyer received A's :rf.registry/handler-replaced once — the
+           already-entered delivery stands")
+      (is (some? @b-token) "the destroyer published a same-id B")
+      (is (identical? @b-token (frame/frame-incarnation-token id))
+          "B remains the live incarnation")
+      ;; The dedup pipeline WAS consulted for A's replacement — this fixture
+      ;; records trace/dedup consultation, not only app-db/cache state.
+      (is (some #(= [:rf.registry/handler-replaced :flow flow-id] %) @dedup-calls)
+          "A's replacement consulted the hot-reload dedup pipeline")
+      ;; THE TOOTH: the subsequent listener never receives A's stale event.
+      (is (empty? @observer-a-repl)
+          "the SUBSEQUENT listener received ZERO A :rf.registry/handler-replaced
+           events — the fence suppresses every trace stage after A's exact
+           ownership is lost (removing the call-with-continuation-predicate
+           wrapper makes this fail)")
+      ;; B is never observed / mutated by A's stale tail.
+      (is (= ::none @b-flow-registry) "B started with an empty flow registry")
+      (is (= ::none (get (registry/flows-snapshot) id ::none))
+          "A's stale replacement tail never wrote a flow row onto B")
+      (is (= @b-commit (frame/frame-commit-epoch id))
+          "A's stale tail never bumped B's commit epoch")
+      ;; The fence does not POISON the successor: B's OWN later replacement emits
+      ;; :rf.registry/handler-replaced exactly once, observed.
+      (reset! observer-repl [])
+      (rf/reg-flow b-flow-id
+        {:frame id :inputs [[:bn]] :output-path [:bout]}
+        (fn [n] (or n 0)))
+      (rf/reg-flow b-flow-id
+        {:frame id :inputs [[:bn]] :output-path [:bout]}
+        (fn [n] (* 3 (or n 0))))
+      (is (= 1 (count @observer-repl))
+          "B's own later replacement emits :rf.registry/handler-replaced exactly
+           once — the fence did not poison the successor")
+      (is (= b-flow-id (get-in (first @observer-repl) [:tags :id]))
+          "the sole post-loss replacement observed is B's own")
+      (finally
+        (trace/unregister-listener! ::destroyer)
+        (trace/unregister-listener! ::observer)
+        (late-bind/set-fn! :trace.tooling/dedup-allow? orig-dedup)))))
+
+;; ---------------------------------------------------------------------------
+;; Green control / over-fence tooth — when A retains ownership through a
+;; NON-destroying listener, the ordinary replacement trace still reaches the
+;; subsequent listener exactly once. A wrongly-over-fencing predicate would
+;; silently swallow the trace.
+;; ---------------------------------------------------------------------------
+
+(deftest reg-flow-replacement-trace-with-live-owner-emits-once
+  ;; rf2-rxsldx mutation tooth. The exact-incarnation fence must NOT suppress the
+  ;; normal replacement trace when A stays live through the fan-out:
+  ;; :rf.registry/handler-replaced reaches BOTH the first and the subsequent
+  ;; listener, carrying A's own id.
+  (let [id       :flow.replace.fence/live
+        flow-id  :flow.replace.fence/h
+        touched  (atom 0)
+        observed (atom [])]
+    (rf/make-frame {:id id})
+    (rf/reg-flow flow-id
+      {:frame id :inputs [[:n]] :output-path [:out]}
+      (fn [n] (or n 0)))
+    (trace/register-listener!
+      ::live-touch
+      (fn [ev]
+        (when (= :rf.registry/handler-replaced (:operation ev))
+          (swap! touched inc))))          ;; observe only — A stays live
+    (trace/register-listener!
+      ::live-observer
+      (fn [ev]
+        (when (= :rf.registry/handler-replaced (:operation ev))
+          (swap! observed conj ev))))
+    (try
+      (rf/reg-flow flow-id
+        {:frame id :inputs [[:n]] :output-path [:out]}
+        (fn [n] (* 2 (or n 0))))
+      (is (= 1 @touched) "the first listener saw A's replaced event")
+      (is (= 1 (count @observed))
+          "the SUBSEQUENT listener also received it — the live-owner replacement
+           is not over-fenced")
+      (is (= flow-id (get-in (first @observed) [:tags :id])) "A's own flow id")
+      (finally
+        (trace/unregister-listener! ::live-touch)
+        (trace/unregister-listener! ::live-observer)))))
+
+;; ===========================================================================
+;; CLEAR — `:rf.flow/cleared`
+;;
+;; A's clear emit reaches the ordered tooling listeners with A live; the FIRST
+;; listener destroys A and publishes same-id B; the SUBSEQUENT listener must NOT
+;; receive A's stale `:rf.flow/cleared` after B owns the bare id. The emit is now
+;; initiated INSIDE the exact-owner serialization, so `pinned` is authoritative.
+;; ===========================================================================
+
+(deftest clear-flow-trace-listener-loss-fences-subsequent-listeners
+  ;; rf2-rxsldx (red before fix). Clearing A's flow reaches
+  ;; `trace/emit! :rf.flow/cleared` with A live. The destroyer listener — the
+  ;; already-entered delivery — destroys A and publishes same-id B mid-fan-out.
+  ;; Before the fix the emit ran AFTER the serialized section released, under the
+  ;; always-true continuation, so the observer still received A's incarnation-less
+  ;; cleared event after B owned the id. After the fix the emit is inside the
+  ;; serialization under the pinned-A continuation predicate, which suppresses
+  ;; every listener past the loss.
+  (let [id               :flow.cleared.fence/subject
+        flow-id          :flow.cleared.fence/a
+        b-flow-id        :flow.cleared.fence/b
+        destroyer-hits   (atom 0)
+        observer-a-clr   (atom [])          ;; A's cleared events the observer saw
+        observer-clr     (atom [])          ;; every cleared event the observer saw
+        armed?           (atom true)
+        b-token          (atom nil)
+        b-flow-registry  (atom ::unset)
+        b-commit         (atom ::unset)]
+    (rf/make-frame {:id id})
+    (rf/reg-flow flow-id
+      {:frame id :inputs [[:an]] :output-path [:aout]}
+      (fn [n] (or n 0)))
+    ;; Listener 1 (registered FIRST): the DESTROYER. On A's own :rf.flow/cleared
+    ;; it destroys A and publishes same-id B exactly once, then snapshots B.
+    (trace/register-listener!
+      ::destroyer
+      (fn [ev]
+        (when (and (= :rf.flow/cleared (:operation ev))
+                   (= flow-id (get-in ev [:tags :flow-id]))
+                   (= id (get-in ev [:tags :frame]))
+                   (compare-and-set! armed? true false))
+          (swap! destroyer-hits inc)
+          (frame/destroy-frame! id)
+          (rf/make-frame {:id id})
+          (reset! b-token (frame/frame-incarnation-token id))
+          (reset! b-flow-registry (get (registry/flows-snapshot) id ::none))
+          (reset! b-commit (frame/frame-commit-epoch id)))))
+    ;; Listener 2 (registered SECOND): the SUBSEQUENT observer.
+    (trace/register-listener!
+      ::observer
+      (fn [ev]
+        (when (= :rf.flow/cleared (:operation ev))
+          (swap! observer-clr conj ev)
+          (when (= flow-id (get-in ev [:tags :flow-id]))
+            (swap! observer-a-clr conj ev)))))
+    (try
+      (is (nil? (flows/clear-flow flow-id {:frame id}))
+          "clear-flow returns nil even though A's owner was lost mid-emit")
+      (is (= 1 @destroyer-hits)
+          "the destroyer received A's :rf.flow/cleared once — the already-entered
+           delivery stands")
+      (is (some? @b-token) "the destroyer published a same-id B")
+      (is (identical? @b-token (frame/frame-incarnation-token id))
+          "B remains the live incarnation")
+      ;; THE TOOTH: the subsequent listener never receives A's stale event.
+      (is (empty? @observer-a-clr)
+          "the SUBSEQUENT listener received ZERO A :rf.flow/cleared events — the
+           fence suppresses every trace stage after A's exact ownership is lost
+           (removing the wrapper, or moving the emit back outside the exact-owner
+           serialization, makes this fail)")
+      ;; B is never observed / mutated by A's stale tail.
+      (is (= ::none @b-flow-registry) "B started with an empty flow registry")
+      (is (= @b-commit (frame/frame-commit-epoch id))
+          "A's stale clear tail never bumped B's commit epoch")
+      ;; The fence does not POISON the successor: B's OWN later clear emits
+      ;; :rf.flow/cleared exactly once, observed.
+      (reset! observer-clr [])
+      (rf/reg-flow b-flow-id
+        {:frame id :inputs [[:bn]] :output-path [:bout]}
+        (fn [n] (or n 0)))
+      (is (nil? (flows/clear-flow b-flow-id {:frame id})))
+      (is (= 1 (count @observer-clr))
+          "B's own later clear emits :rf.flow/cleared exactly once — the fence did
+           not poison the successor")
+      (is (= b-flow-id (get-in (first @observer-clr) [:tags :flow-id]))
+          "the sole post-loss clear observed is B's own")
+      (finally
+        (trace/unregister-listener! ::destroyer)
+        (trace/unregister-listener! ::observer)))))
+
+;; ---------------------------------------------------------------------------
+;; Green control / over-fence tooth — when A retains ownership through a
+;; NON-destroying listener, the ordinary clear trace still reaches the
+;; subsequent listener exactly once, carrying A's own payload.
+;; ---------------------------------------------------------------------------
+
+(deftest clear-flow-trace-with-live-owner-emits-once
+  ;; rf2-rxsldx mutation tooth. The exact-incarnation fence must NOT suppress the
+  ;; normal clear trace when A stays live through the fan-out: :rf.flow/cleared
+  ;; reaches BOTH the first and the subsequent listener.
+  (let [id       :flow.cleared.fence/live
+        flow-id  :flow.cleared.fence/h
+        touched  (atom 0)
+        observed (atom [])]
+    (rf/make-frame {:id id})
+    (rf/reg-flow flow-id
+      {:frame id :inputs [[:n]] :output-path [:out]}
+      (fn [n] (or n 0)))
+    (trace/register-listener!
+      ::live-touch
+      (fn [ev]
+        (when (= :rf.flow/cleared (:operation ev))
+          (swap! touched inc))))          ;; observe only — A stays live
+    (trace/register-listener!
+      ::live-observer
+      (fn [ev]
+        (when (= :rf.flow/cleared (:operation ev))
+          (swap! observed conj ev))))
+    (try
+      (is (nil? (flows/clear-flow flow-id {:frame id})))
+      (is (= 1 @touched) "the first listener saw A's cleared event")
+      (is (= 1 (count @observed))
+          "the SUBSEQUENT listener also received it — the live-owner clear is not
+           over-fenced")
+      (let [tags (:tags (first @observed))]
+        (is (= flow-id (:flow-id tags)) "A's own :flow-id")
+        (is (= [:out]  (:path tags))    "A's own :output-path")
+        (is (= id      (:frame tags))   "A's own frame"))
+      (finally
+        (trace/unregister-listener! ::live-touch)
+        (trace/unregister-listener! ::live-observer)))))
