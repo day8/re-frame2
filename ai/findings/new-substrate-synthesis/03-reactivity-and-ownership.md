@@ -46,7 +46,9 @@ are marked **[S2-CONFIRM]** — conservative rules to confirm in Stage 2, not op
 During render, each executed site resolves a first-class **observation target** via
 `resolve-target` — the **only** resolution point: ambient frame, explicit pins, and the
 Story override context all land there, and no later phase re-resolves context. A target
-is a stable identity carrying **no node handle and no `:value`/`:version`**:
+is a stable identity carrying **no node handle**; the `:subscription` kind carries **no
+`:value`/`:version`**, while the `:story-override` kind carries its pinned value and
+movement token (below):
 
 ```clojure
 {:kind :subscription  :frame-id :app  :query [:cart/total]}
@@ -122,10 +124,16 @@ is a boot error, never undefined behaviour.
   whose node was disposed out from under it is a no-op.
 - **Static override lease.** `acquire!` on a `:story-override` target returns a
   **static lease**: `:owned? false` reported honestly, `read` yields the pinned
-  value/version, `release!` no-ops, no callback is registered; `current?` fails when
-  the site's override id/version moved, which retargets through the normal staged path
-  — one uniform commit path. *(Shape ruled; unprototyped in S-3 — its Tier-3 fixture is
-  a named Stage-2 obligation.)*
+  value/version, `release!` no-ops, no callback is registered; `current?` holds under
+  the **split equality law** — `:override-id` (slot identity) by plain `=`, `:version`
+  (the movement token) by the frozen `rf=` law (core-local `node-value=`), so NaN-to-NaN
+  **retains** — and fails when the override moved or was removed, retargeting through the
+  normal staged path — one uniform commit path. *(Shape ruled and final. S-3 did not
+  exercise this — no Story context in the spike harness — but its Tier-3 mounted
+  Story-context fixture has since **landed** with the ViewCell layer
+  (`implementation/ui/test/re_frame/ui/mounted_story_override_image_schema_dom_cljs_test.cljs`),
+  and the port's own NaN split-equality assertion lives in
+  `implementation/core/test/re_frame/observation_port_cljs_test.cljc`.)*
 - **Internally fail-loud; publicly recover-to-nil.** The port throws typed:
   `:rf.error/no-such-sub` on an unknown sub (the **same** catalogue id the public
   surface records — the spike's `:rf.error/no-sub` spelling is superseded and must not
