@@ -1,7 +1,5 @@
 # 05 — Frames
 
-*Part I, step 5 · [← 02](02-views.md) · [Next: 10 →](10-worked-app.md)*
-
 A frame is a running re-frame2 universe: app-db, subscriptions, event queue, epoch
 history. Views live *inside* one. Two components manage that relationship, and their names
 say which verb they perform.
@@ -108,7 +106,3 @@ Mount one per frame and each reports as itself — no globals, no ambient frame 
   on reveal.
 - Destroying a *frame* (tooling/tests) marks its views' cells dead: still-mounted views
   scoped to it render a loud error rather than silently migrating to another frame.
-
----
-
-**Next:** [10 — A worked app](10-worked-app.md) — Part I synthesis: counter → dashboard.

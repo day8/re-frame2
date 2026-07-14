@@ -1,7 +1,5 @@
 # 10 — A worked app: counter → dashboard
 
-*Part I, step 6 · [← 05](05-frames.md) · [Next: 09 →](09-testing.md)*
-
 [01](01-getting-started.md) ended with a counter. This page grows it into a small
 operations dashboard — tiles, a live feed, a filter — because that's where the model
 proves itself: the counter shows the loop; the dashboard shows the loop *scaling*
@@ -219,7 +217,3 @@ promised *(the causes timeline lands S3)*. Then hand it to your AI pair
 `[:metrics/arrived …]` bursts, or break the filter handler and watch it scrub back
 and fix it. The dashboard makes a good first pairing target precisely because every
 intent on this page is data.
-
----
-
-**Next:** [09 — Testing](09-testing.md) — Part II begins: verify views headlessly at scale.

@@ -9,73 +9,19 @@ one directory up; the dataflow half — events, effects, app-db — is the
 
 ## How to read this guide
 
-Chapters are **numbered for stable filenames**, not reading order. Start with **Part I**
-and follow the steps in sequence — each step assumes the ones before it.
+Chapter **numbers are stable filenames**; the sidebar order follows them. The
+**recommended learning order** groups differently:
 
-### Part I — The reactive loop
+- **The reactive loop** — getting started, then state and events (reads and writes),
+  then views (structure), frames (scoping), and the worked app (synthesis). Views come
+  after state and events so `defview` examples assume `(sub …)` and event vectors are
+  already familiar.
+- **Operate the app** — testing, debugging, performance.
+- **Ship and understand** — server rendering, then how it works (optional; read when you
+  want to trust the claims, not before you can use the library).
 
-Build reads, writes, view structure, frame scoping, then a full app.
-
-| Step | Chapter | You'll learn |
-|---|---|---|
-| 1 | [01 — Getting started](01-getting-started.md) | Install, mount, the counter, your first headless test |
-| 2 | [03 — State](03-state.md) | `(sub …)`, `local`, `effect`, `lease` — the four inputs |
-| 3 | [04 — Events](04-events.md) | Event vectors, placeholders, forms, the callback table |
-| 4 | [02 — Views](02-views.md) | `defview`, templates, styling, props, interop |
-| 5 | [05 — Frames](05-frames.md) | `frame-root`, `frame-provider`, multi-frame pages |
-| 6 | [10 — A worked app](10-worked-app.md) | Counter → dashboard: state shape, tiles, tests |
-
-Chapter 01 shows the whole loop in one screen; chapters 03–05 unpack each face. Chapter
-02 comes *after* state and events so `defview` examples land when `(sub …)` and
-`{:on-click [:event …]}` are already familiar — not as new concepts on top of template
-grammar.
-
-### Part II — Operate the app
-
-Verify, observe, and tune what Part I built.
-
-| Step | Chapter | You'll learn |
-|---|---|---|
-| 7 | [09 — Testing](09-testing.md) | Tier-1 headless tests, selectors, mounted tests, Story |
-| 8 | [06 — Debugging](06-debugging.md) | Render causes, Xray, pairing with an AI |
-| 9 | [07 — Performance](07-performance.md) | What you never write, the little you do |
-
-### Part III — Ship and understand
-
-Deploy to the server; optional deep dive into the machinery.
-
-| Step | Chapter | You'll learn |
-|---|---|---|
-| 10 | [08 — Server rendering](08-ssr.md) | JVM rendering, roots, identity, hydration |
-| 11 | [11 — How it works](11-how-it-works.md) | Compiler, digest, reactive core, two emitters |
-
-Read [11](11-how-it-works.md) when you want to *trust* the claims, not before you can
-use the library. It is deliberately last.
-
-### Short paths
-
-| You are… | Read |
-|---|---|
-| New to re-frame2 UI | Part I, in order |
-| Porting from Reagent | 01 → **04** → 03 → 02 → 05 → 10 (handlers first — biggest habit change) |
-| Adding SSR to an existing app | 01 → 05 → 08 |
-| Evaluating the architecture | Part I, then 11 |
-
-### File index (by number)
-
-| # | Chapter | Part |
-|---|---|---|
-| 01 | [Getting started](01-getting-started.md) | I |
-| 02 | [Views](02-views.md) | I (step 4) |
-| 03 | [State](03-state.md) | I (step 2) |
-| 04 | [Events](04-events.md) | I (step 3) |
-| 05 | [Frames](05-frames.md) | I (step 5) |
-| 06 | [Debugging](06-debugging.md) | II |
-| 07 | [Performance](07-performance.md) | II |
-| 08 | [Server rendering](08-ssr.md) | III |
-| 09 | [Testing](09-testing.md) | II |
-| 10 | [A worked app](10-worked-app.md) | I (step 6) |
-| 11 | [How it works](11-how-it-works.md) | III |
+**Porting from Reagent?** Read events before state — data handlers are the biggest habit
+change. **Adding SSR?** Frames before server rendering.
 
 **Stage honesty.** The library ships in stages (S1–S7). Everything unmarked on these
 pages is shipped on main today. That covers the Stage-1 compiler slice (compiled

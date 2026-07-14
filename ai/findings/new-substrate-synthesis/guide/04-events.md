@@ -1,7 +1,5 @@
 # 04 — Events
 
-*Part I, step 3 · [← 03](03-state.md) · [Next: 02 →](02-views.md)*
-
 The idiomatic handler is not a function. It's the event vector:
 
 ```clojure
@@ -230,7 +228,3 @@ Dev checks every data handler's event id against the registrar at render — a t
 `[:cart/ad id]` warns immediately with the element's file:line. (The registrar is
 process-global; a lazily-loaded module that registers later can false-positive — the
 warning says so.)
-
----
-
-**Next:** [02 — Views](02-views.md) — `defview`, templates, and where handlers sit in markup.
