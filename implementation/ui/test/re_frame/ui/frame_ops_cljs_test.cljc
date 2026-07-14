@@ -260,3 +260,116 @@
       (is (= 1 (count @recs))
           "the always-on record survived the swallowing boundary")
       (is (= :rf.error/frame-destroyed (:error (first @recs)))))))
+
+;; ===========================================================================
+;; rf2-vxgfnd.231 — the cross-frame carried-subscribe HONESTY warning.
+;;
+;; A `(frame)` operation bundle captured under frame A can be CARRIED across a
+;; frame boundary (the HOLD semantics) and its `:subscribe` invoked beneath a
+;; DIFFERENT ambient frame B. Frames are ISOLATED contexts (no cross-frame
+;; reads), and this carry is not claimed impossible — the honesty contract
+;; (03 §8) holds the doctrine with a DEV diagnostic, never a false-impossibility
+;; claim. When a carried subscribe runs under a FOREIGN ambient frame the runtime
+;; emits `:rf.warning/cross-frame-carried-op` and CONTINUES against the CAPTURED
+;; (origin) frame — advisory only, never a retarget or a refusal.
+;;
+;; Same-frame invocation (ambient == origin) and no-ambient / async invocation
+;; (nothing foreign to compare against) stay QUIET. The warning is NARROW to
+;; `:subscribe`: a carried `dispatch` / `dispatch-sync` across a boundary does
+;; not warn. The id carries no `-once` suffix (contrast
+;; `:rf.warning/plain-fn-under-non-default-frame-once`) — it is an advisory
+;; warning emitted on EACH cross-frame invocation, not a warn-once nag.
+;; ===========================================================================
+
+(defn- capture-cross-frame-warnings
+  "Run `thunk`, capturing every `:rf.warning/cross-frame-carried-op` dev trace
+  it emits. Returns `{:warnings [...] :result <thunk return>}`. Freshly-gensym'd
+  listener key, unregistered on the way out, so arms don't cross-contaminate."
+  [thunk]
+  (let [ws   (atom [])
+        tkey (keyword "test" (name (gensym "xfco")))]
+    (trace/register-listener!
+     tkey (fn [ev] (when (= :rf.warning/cross-frame-carried-op (:operation ev))
+                     (swap! ws conj ev))))
+    (try
+      (let [r (thunk)]
+        {:warnings @ws :result r})
+      (finally
+        (trace/unregister-listener! tkey)))))
+
+(deftest carried-subscribe-under-foreign-frame-warns-and-reads-origin
+  (testing "a carried :subscribe invoked beneath a FOREIGN ambient frame emits
+            exactly one :rf.warning/cross-frame-carried-op carrying the exact
+            origin / ambient / query evidence, and STILL reads the captured
+            (origin) frame — advisory, never a retarget"
+    (reg!)
+    (make-frame! :ops/origin {:n 11})
+    (make-frame! :ops/foreign {:n 22})
+    (let [b (rf/with-frame :ops/origin (frames/frame-ops))
+          {:keys [warnings result]}
+          (capture-cross-frame-warnings
+           #(rf/with-frame :ops/foreign (deref ((:subscribe b) [:ops/n]))))]
+      (is (= 1 (count warnings))
+          "exactly one cross-frame-carried-op warning fired")
+      (is (= 11 result)
+          "the carried subscribe read the CAPTURED origin frame (11), not the
+           foreign ambient frame (22) — the op continues against A")
+      (let [tags (:tags (first warnings))]
+        (is (= :ops/origin (:origin-frame tags))   ":origin-frame is the captured frame")
+        (is (= :ops/foreign (:ambient-frame tags))  ":ambient-frame is the foreign frame")
+        (is (= [:ops/n] (:rf.sub/query-v tags))     ":rf.sub/query-v is the attempted query")))))
+
+(deftest carried-subscribe-same-frame-is-quiet
+  (testing "A-under-A: a carried :subscribe invoked under its OWN captured frame
+            (ambient == origin) emits no warning"
+    (reg!)
+    (make-frame! :ops/same {:n 5})
+    (let [b (rf/with-frame :ops/same (frames/frame-ops))
+          {:keys [warnings result]}
+          (capture-cross-frame-warnings
+           #(rf/with-frame :ops/same (deref ((:subscribe b) [:ops/n]))))]
+      (is (empty? warnings) "ambient == origin — nothing foreign to warn about")
+      (is (= 5 result)))))
+
+(deftest carried-subscribe-no-ambient-is-quiet
+  (testing "no-ambient / async: a carried :subscribe invoked with NO ambient
+            frame in effect (a top-of-stack / async-hop caller) emits no warning
+            — there is no foreign frame to compare against"
+    (reg!)
+    (make-frame! :ops/lone {:n 7})
+    (let [b (rf/with-frame :ops/lone (frames/frame-ops))
+          {:keys [warnings result]}
+          (capture-cross-frame-warnings
+           #(deref ((:subscribe b) [:ops/n])))]   ;; NO with-frame — no ambient scope
+      (is (empty? warnings) "no ambient frame — quiet")
+      (is (= 7 result)))))
+
+(deftest carried-subscribe-cross-frame-warns-each-invocation
+  (testing "the id carries no -once suffix: EACH cross-frame invocation surfaces
+            the anti-pattern (advisory, not warn-once)"
+    (reg!)
+    (make-frame! :ops/o {:n 1})
+    (make-frame! :ops/f {:n 2})
+    (let [b (rf/with-frame :ops/o (frames/frame-ops))
+          {:keys [warnings]}
+          (capture-cross-frame-warnings
+           #(rf/with-frame :ops/f
+              (do (deref ((:subscribe b) [:ops/n]))
+                  (deref ((:subscribe b) [:ops/n])))))]
+      (is (= 2 (count warnings))
+          "two cross-frame invocations → two advisory warnings"))))
+
+(deftest carried-dispatch-cross-frame-does-not-warn
+  (testing "the honesty warning is NARROW to :subscribe — a carried dispatch /
+            dispatch-sync driven across a frame boundary does not warn (it drives
+            its locked frame, which is a legitimate imperative use of the hold)"
+    (reg!)
+    (make-frame! :ops/od {:n 0})
+    (make-frame! :ops/fd {:n 0})
+    (let [b (rf/with-frame :ops/od (frames/frame-ops))
+          {:keys [warnings]}
+          (capture-cross-frame-warnings
+           #(rf/with-frame :ops/fd ((:dispatch-sync b) [:ops/set-n 3])))]
+      (is (empty? warnings)
+          "carried dispatch across a boundary is not the subscribe honesty case")
+      (is (= {:n 3} (rf/app-db-value :ops/od)) "the carried dispatch drove its locked frame"))))

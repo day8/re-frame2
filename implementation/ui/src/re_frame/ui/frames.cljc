@@ -189,6 +189,13 @@
             [re-frame.interop :as interop]
             [re-frame.late-bind :as late-bind]
             [re-frame.live-frame :as live-frame]
+            ;; The dev-only warning seam (`trace/emit! :warning …`) the
+            ;; cross-frame carried-subscribe honesty diagnostic rides
+            ;; (rf2-vxgfnd.231). ui ships ABOVE core, so this is a plain static
+            ;; require (no load cycle); the emit body is `interop/debug-enabled?`-
+            ;; gated so it DCEs under `:advanced` + `goog.DEBUG=false`.
+            [re-frame.trace :as trace
+             #?@(:cljs [:include-macros true])]
             [re-frame.ui.reactive :as reactive]
             ;; rf2-vxgfnd.24: loading `re-frame.ui.substrate` publishes the
             ;; `:adapter/current-frame` reader for the pure compiled-view
@@ -681,6 +688,22 @@
 ;; The ambient frame chain
 ;; ---------------------------------------------------------------------------
 
+(defn- ambient-frame-id
+  "The frame id the AMBIENT chain currently names, or nil when no scope is in
+  effect — the middle tiers of `resolve-frame` (dynamic binding > React context
+  on CLJS; dynamic binding on the JVM), WITHOUT the explicit-pin tier and
+  WITHOUT raising `:rf.error/no-frame-context` on absence. A READER: it reports
+  the in-effect scope, it never synthesises `:rf/default` (EP-0002). nil means
+  no ambient frame — a top-of-stack / async-hop caller.
+
+  Reads the shared React context object directly (see the ns docstring for why
+  not the `:adapter/current-frame` late-bind hook), the SAME tier `resolve-frame`
+  and the compiled sub-read path observe."
+  []
+  (frame/frame-value->id
+   #?(:cljs (adapter-context/function-component-current-frame)
+      :clj  (frame/current-frame))))
+
 (defn resolve-frame
   "Resolve the frame a compiled-view frame-scoped `operation` targets —
   THE ambient chain (ns docstring): explicit `pin` > dynamic binding >
@@ -691,7 +714,8 @@
   normalises to the id; any other shape fails loud
   (`:rf.error/bad-frame-provider-arg` — an explicit-but-malformed target
   is never silently coerced). A nil `pin` falls through to the ambient
-  tiers. `where` names the resolving call site for the diagnostics.
+  tiers (`ambient-frame-id`). `where` names the resolving call site for the
+  diagnostics.
 
   Reads the shared React context object directly (see the ns docstring
   for why not the `:adapter/current-frame` late-bind hook)."
@@ -699,9 +723,7 @@
   ([pin operation where]
    (if (some? pin)
      (frame/require-keyword-frame-provider-arg! pin where)
-     (or (frame/frame-value->id
-          #?(:cljs (adapter-context/function-component-current-frame)
-             :clj  (frame/current-frame)))
+     (or (ambient-frame-id)
          (let [payload (frame/no-frame-context-payload
                         operation {:where where})]
            (frame/emit-no-frame-context! payload)
@@ -832,13 +854,71 @@
         " view, or hold a frame across lifetimes explicitly with"
         " rf/capture-frame")))
 
-(defn- fence-op-1
-  "Wrap a one-argument bundle op with the incarnation fence."
-  [frame-id token op-name op]
-  (fn [a]
+(defn- maybe-warn-cross-frame-carried-subscribe!
+  "DEV-ONLY carried-operation honesty warning (03 §8; rf2-vxgfnd.231). A
+  `(frame)` operation bundle captured under `origin-frame` can be CARRIED across
+  a frame boundary (the HOLD semantics) and its `:subscribe` invoked beneath a
+  DIFFERENT ambient frame — cross-frame access via carry exists and is NOT
+  claimed impossible. Frames are ISOLATED contexts (no cross-frame reads), so
+  when a carried subscribe runs under a FOREIGN ambient frame we emit
+  `:rf.warning/cross-frame-carried-op` and CONTINUE against the captured
+  (origin) frame — advisory only, never a retarget and never a refusal. The
+  doctrine (frames are isolated) is thus held by this diagnostic + the absence
+  of any cross-frame read *spelling*, never by a false impossibility claim.
+
+  QUIET when the ambient chain names the SAME frame as the origin (the ordinary
+  in-scope read) or names NO frame at all (`ambient-frame-id` nil — an async hop
+  or a top-of-stack caller: nothing foreign to compare against). NARROW to
+  `:subscribe`: a carried dispatch / dispatch-sync across a boundary drives its
+  locked frame and does not warn.
+
+  Emitted on EACH cross-frame invocation — the id carries no `-once` suffix
+  (contrast the retired `:rf.warning/plain-fn-under-non-default-frame-once`), an
+  advisory surface rather than a warn-once nag — through the canonical dev-only
+  warning seam `trace/emit! :warning`, with `:recovery :warned-and-continued`.
+
+  Wrapped WHOLE in `interop/debug-enabled?` (the OUTERMOST gate) so the ambient
+  read, the frame comparison, the reason string, and the emit machinery DCE
+  together under `:advanced` + `goog.DEBUG=false` (Spec 009 §Production builds)."
+  [origin-frame query-v]
+  (when interop/debug-enabled?
+    (let [ambient (ambient-frame-id)]
+      (when (and (some? ambient) (not= ambient origin-frame))
+        (trace/emit! :warning
+                     :rf.warning/cross-frame-carried-op
+                     {:origin-frame   origin-frame
+                      :ambient-frame  ambient
+                      :rf.sub/query-v query-v
+                      :reason
+                      (str "a (frame) operation bundle captured for frame "
+                           (pr-str origin-frame) " ran its :subscribe "
+                           (pr-str query-v) " beneath a DIFFERENT ambient frame "
+                           (pr-str ambient) ". Frames are ISOLATED contexts — a "
+                           "subscription MUST NOT reach across a frame boundary. "
+                           "The read CONTINUES against the captured frame "
+                           (pr-str origin-frame) " (never the ambient one), so "
+                           "behaviour is unchanged — but a carried subscribe "
+                           "under a foreign frame is almost always an isolation "
+                           "mistake. Scope the subtree with [frame-provider "
+                           "{:frame …} …] and read through the ambient chain, or "
+                           "pass VALUES across the boundary, not the ops bundle.")
+                      :recovery :warned-and-continued})))))
+
+(defn- fence-subscribe
+  "Wrap the carried `:subscribe` op with the incarnation fence AND the dev-only
+  cross-frame carried-subscribe honesty warning (rf2-vxgfnd.231). On the LIVE
+  incarnation the honesty check runs — advisory, never altering the read (see
+  `maybe-warn-cross-frame-carried-subscribe!`) — then the read proceeds against
+  the captured frame. A bundle that outlived its incarnation fails loud with the
+  canonical `:rf.error/frame-destroyed`; the honesty warning never fires for a
+  dead bundle (the stale-op throw is the operative diagnostic there)."
+  [frame-id token op]
+  (fn [query-v]
     (if (frame/frame-incarnation-live? frame-id token)
-      (op a)
-      (throw-frame-ops-stale! frame-id op-name a))))
+      (do
+        (maybe-warn-cross-frame-carried-subscribe! frame-id query-v)
+        (op query-v))
+      (throw-frame-ops-stale! frame-id :subscribe query-v))))
 
 (defn- fence-op-2
   "Wrap a one-or-two-argument bundle op with the incarnation fence."
@@ -864,7 +944,7 @@
     {:frame         frame-id
      :dispatch      (fence-op-2 frame-id token :dispatch (:dispatch base))
      :dispatch-sync (fence-op-2 frame-id token :dispatch-sync (:dispatch-sync base))
-     :subscribe     (fence-op-1 frame-id token :subscribe (:subscribe base))}))
+     :subscribe     (fence-subscribe frame-id token (:subscribe base))}))
 
 (defn- publish-frame-ops!
   "Mint and publish the `(frame)` bundle for the incarnation `token` of
