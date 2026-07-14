@@ -219,3 +219,221 @@
             "the mark write advanced the live owner's commit epoch"))
       (finally
         (restore-plain-adapter!)))))
+
+;; ===========================================================================
+;; rf2-mybhk3 — the APP-DB PATH-VACATION counterpart.
+;;
+;; The three fixtures above drive their loss watch through the runtime-db
+;; output-MARK write: the flow output leaf is never materialized, so
+;; `vacate-output-path!`'s `swap-frame-db-exact!` sees `new-db` identical to
+;; `db` and issues no container write — the FIRST container write while armed is
+;; the mark refresh, and the direct app-db vacation helper (its exact
+;; commit-epoch fence + its post-vacation liveness recheck) was never executed
+;; by a merged fixture. A regression to the bare-id `swap-frame-db!`, an
+;; unfenced id-keyed epoch bump, or a dropped post-vacation recheck could then
+;; corrupt a same-id B while every merged fixture stayed green.
+;;
+;; These fixtures MATERIALIZE A's output leaf first, so clear-flow's / the
+;; reg-flow output-path MOVE's FIRST callback-bearing write IS the app-db path
+;; vacation. That write's synchronous watch destroys A and publishes same-id B.
+;; A's vacating write physically linearized into A's captured (now-detached)
+;; container; the exact helper's fenced commit-epoch bump plus the lifecycle
+;; op's post-vacation liveness recheck keep B's app-db leaf, flow row,
+;; dirty-check cache, commit epoch, and output-mark declaration byte-identical.
+;; ===========================================================================
+
+(defn- a-detached-app-db
+  "Read A's detached physical container's app-db partition. Destroying A leaves
+  the `:frame-state` atom (captured before the loss) holding the last-installed
+  value — only the projection reactions are disposed — so the vacation A wrote
+  before losing ownership is observable HERE, isolated from B's fresh container."
+  [container]
+  (get (adapter/read-container container) frame/app-partition-key))
+
+;; ---------------------------------------------------------------------------
+;; clear-flow — the app-db path-VACATION write's watch loses A; the stale tail
+;; must not touch B's app-db leaf, flow row, dirty-check cache, commit epoch, or
+;; output-mark declaration, and the vacation must land in A's detached container.
+;; ---------------------------------------------------------------------------
+
+(deftest clear-flow-app-db-vacation-watch-loss-does-not-corrupt-successor
+  ;; rf2-mybhk3 (red before fix). A's output leaf is materialized, so clearing A
+  ;; issues a real app-db path vacation via `swap-frame-db-exact!` — the FIRST
+  ;; container write. Its synchronous watch destroys A and publishes same-id B
+  ;; (with B's own app-db leaf + flow row + dirty-check cache + output marks).
+  ;; A's vacation stands only in A's detached container; the fence keeps B's
+  ;; stores byte-identical. Bare-id vacation would bump B's id-keyed commit
+  ;; epoch; a dropped post-vacation recheck would let the stale tail dissociate
+  ;; B's flow row / drop B's dirty cache / rewrite B's marks.
+  (let [id            :flow.incarnation/clear-vacate-loss
+        armed?        (atom false)
+        a-container   (atom nil)
+        b-flow-row    (atom ::unset)
+        b-dirty       (atom ::unset)
+        b-commit      (atom ::unset)
+        b-app-db      (atom ::unset)
+        b-sensitive   (atom ::unset)
+        b-token       (atom nil)]
+    (install-watching-adapter!
+      armed?
+      (fn []
+        ;; The vacation-write watch: destroy A, publish same-id B with its own
+        ;; materialized output leaf + flow state, and snapshot B's stores.
+        (frame/destroy-frame! id)
+        (rf/make-frame {:id id})
+        (frame/swap-frame-db! id assoc :bout ::b-sentinel)
+        (rf/reg-flow :flow.incarnation/f
+          {:frame id :inputs [[:bn]] :output-path [:bout] :sensitive [[:bout]]}
+          (fn [n] (or n 0)))
+        (registry/set-frame-flow-last-inputs! id :flow.incarnation/f [::b-input])
+        (reset! b-token (frame/frame-incarnation-token id))
+        (reset! b-flow-row (get-in (registry/flows-snapshot)
+                                   [id :flow.incarnation/f]))
+        (reset! b-dirty (registry/get-frame-flow-last-inputs id :flow.incarnation/f))
+        (reset! b-commit (frame/frame-commit-epoch id))
+        (reset! b-app-db (frame/frame-app-db-value id))
+        (reset! b-sensitive (elision/sensitive-declarations id))))
+    (try
+      (rf/make-frame {:id id})
+      (rf/reg-flow :flow.incarnation/f
+        {:frame id :inputs [[:n]] :output-path [:out] :sensitive [[:out]]}
+        (fn [n] (or n 0)))
+      ;; Materialize A's output leaf so clearing it is a REAL app-db path
+      ;; vacation (not the no-op the unmaterialized loss fixtures hit) — the
+      ;; watch then fires on `swap-frame-db-exact!`, before the mark write.
+      (frame/swap-frame-db! id assoc :out ::a-output)
+      ;; Capture A's physical container to prove the vacation linearized HERE.
+      (reset! a-container (:frame-state (frame/frame id)))
+      (reset! armed? true)
+      (is (nil? (flows/clear-flow :flow.incarnation/f {:frame id}))
+          "clear-flow returns nil; its stale tail is aborted after the vacation watch")
+      (let [token-b @b-token]
+        (is (some? token-b) "the app-db-vacation watch published a same-id B")
+        (is (identical? token-b (frame/frame-incarnation-token id))
+            "B remains the live incarnation")
+        (is (not (contains? (a-detached-app-db @a-container) :out))
+            "A's vacation physically linearized into A's own detached container")
+        (is (= @b-app-db (frame/frame-app-db-value id))
+            "A's exact-incarnation vacation never touches B's app-db")
+        (is (= ::b-sentinel (get (frame/frame-app-db-value id) :bout))
+            "B's own materialized output leaf stands untouched")
+        (is (= @b-flow-row (get-in (registry/flows-snapshot) [id :flow.incarnation/f]))
+            "A's stale clear-flow tail never dissociates B's flow row")
+        (is (= @b-dirty
+               (registry/get-frame-flow-last-inputs id :flow.incarnation/f))
+            "A's stale clear-flow tail never drops B's dirty-check cache")
+        (is (= @b-commit (frame/frame-commit-epoch id))
+            "A's fenced exact vacation never bumps B's commit epoch")
+        (is (= @b-sensitive (elision/sensitive-declarations id))
+            "A's stale clear-flow tail never rewrites B's output-mark declaration"))
+      (finally
+        (restore-plain-adapter!)))))
+
+;; ---------------------------------------------------------------------------
+;; reg-flow output-path MOVE — vacating the OLD (materialized) path is the
+;; callback-bearing write; its watch loses A. The stale post-vacation tail must
+;; not reach B, and the vacation must land in A's detached container.
+;; ---------------------------------------------------------------------------
+
+(deftest reg-flow-move-app-db-vacation-watch-loss-does-not-corrupt-successor
+  ;; rf2-mybhk3 (red before fix). Re-registering A with a MOVED output-path
+  ;; vacates the old (materialized) leaf via `swap-frame-db-exact!` — the FIRST
+  ;; container write. Its synchronous watch destroys A and publishes same-id B.
+  ;; A's vacation stands only in A's detached container; the fence keeps B's
+  ;; stores byte-identical. Bare-id vacation would bump B's id-keyed commit
+  ;; epoch; a dropped post-vacation recheck would let the stale tail drop B's
+  ;; dirty cache / emit a bare-id dedup trace against B.
+  (let [id            :flow.incarnation/reg-move-loss
+        armed?        (atom false)
+        a-container   (atom nil)
+        b-flow-row    (atom ::unset)
+        b-dirty       (atom ::unset)
+        b-commit      (atom ::unset)
+        b-app-db      (atom ::unset)
+        b-token       (atom nil)]
+    (install-watching-adapter!
+      armed?
+      (fn []
+        (frame/destroy-frame! id)
+        (rf/make-frame {:id id})
+        (frame/swap-frame-db! id assoc :bout ::b-sentinel)
+        (rf/reg-flow :flow.incarnation/g
+          {:frame id :inputs [[:bn]] :output-path [:bout] :sensitive [[:bout]]}
+          (fn [n] (or n 0)))
+        (registry/set-frame-flow-last-inputs! id :flow.incarnation/g [::b-input])
+        (reset! b-token (frame/frame-incarnation-token id))
+        (reset! b-flow-row (get-in (registry/flows-snapshot)
+                                   [id :flow.incarnation/g]))
+        (reset! b-dirty (registry/get-frame-flow-last-inputs id :flow.incarnation/g))
+        (reset! b-commit (frame/frame-commit-epoch id))
+        (reset! b-app-db (frame/frame-app-db-value id))))
+    (try
+      (rf/make-frame {:id id})
+      (rf/reg-flow :flow.incarnation/g
+        {:frame id :inputs [[:n]] :output-path [:out] :sensitive [[:out]]}
+        (fn [n] (or n 0)))
+      ;; Materialize A's OLD output leaf so the path move actually vacates it.
+      (frame/swap-frame-db! id assoc :out ::a-output)
+      (registry/set-frame-flow-last-inputs! id :flow.incarnation/g [::a-input])
+      (reset! a-container (:frame-state (frame/frame id)))
+      (reset! armed? true)
+      ;; Replacement with a MOVED output-path: the old-path vacation is the watch
+      ;; seam, then the post-vacation dirty-cache drop + dedup trace tail.
+      (rf/reg-flow :flow.incarnation/g
+        {:frame id :inputs [[:n2]] :output-path [:out2] :sensitive [[:out2]]}
+        (fn [n] (* 2 (or n 0))))
+      (let [token-b @b-token]
+        (is (some? token-b) "the path-move vacation watch published a same-id B")
+        (is (identical? token-b (frame/frame-incarnation-token id))
+            "B remains the live incarnation")
+        (is (not (contains? (a-detached-app-db @a-container) :out))
+            "A's old-path vacation physically linearized into A's own detached container")
+        (is (= @b-app-db (frame/frame-app-db-value id))
+            "A's exact-incarnation vacation never touches B's app-db")
+        (is (= ::b-sentinel (get (frame/frame-app-db-value id) :bout))
+            "B's own materialized output leaf stands untouched")
+        (is (= @b-flow-row (get-in (registry/flows-snapshot) [id :flow.incarnation/g]))
+            "A's stale reg-flow tail never rewrites B's flow row")
+        (is (= @b-dirty
+               (registry/get-frame-flow-last-inputs id :flow.incarnation/g))
+            "A's stale post-vacation tail never drops B's dirty-check cache")
+        (is (= @b-commit (frame/frame-commit-epoch id))
+            "A's fenced exact vacation never bumps B's commit epoch"))
+      (finally
+        (restore-plain-adapter!)))))
+
+;; ---------------------------------------------------------------------------
+;; Green control — when A retains ownership through a NON-destroying watch, the
+;; exact-incarnation app-db vacation MUST still remove the output leaf and
+;; advance the commit epoch. A wrongly-fencing exact path would silently strand
+;; the derived value.
+;; ---------------------------------------------------------------------------
+
+(deftest clear-flow-app-db-vacation-with-live-owner-still-vacates-leaf-and-bumps-epoch
+  ;; rf2-mybhk3 mutation tooth. The exact-incarnation vacation must NOT suppress
+  ;; the normal leaf removal + commit-epoch advance when A stays live.
+  (let [id          :flow.incarnation/clear-vacate-live
+        armed?      (atom false)
+        watch-runs  (atom 0)]
+    (install-watching-adapter!
+      armed?
+      (fn [] (swap! watch-runs inc)))          ; observe only — A stays live
+    (try
+      (rf/make-frame {:id id})
+      (rf/reg-flow :flow.incarnation/k
+        {:frame id :inputs [[:n]] :output-path [:out] :sensitive [[:out]]}
+        (fn [n] (or n 0)))
+      (frame/swap-frame-db! id assoc :out ::a-output)
+      (let [epoch-before (frame/frame-commit-epoch id)]
+        (reset! armed? true)
+        (is (nil? (flows/clear-flow :flow.incarnation/k {:frame id}))
+            "clear-flow completes normally against the live owner")
+        (is (= 1 @watch-runs) "the container watch fired on the app-db vacation write")
+        (is (not (contains? (frame/frame-app-db-value id) :out))
+            "the materialized output leaf is vacated from the live owner's app-db")
+        (is (> (frame/frame-commit-epoch id) epoch-before)
+            "the exact-incarnation vacation advanced the live owner's commit epoch")
+        (is (nil? (get-in (registry/flows-snapshot) [id :flow.incarnation/k]))
+            "the flow row is removed for the live owner"))
+      (finally
+        (restore-plain-adapter!)))))
