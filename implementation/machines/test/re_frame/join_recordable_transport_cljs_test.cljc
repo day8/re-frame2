@@ -27,6 +27,8 @@
    #?(:clj  [clojure.edn :as edn]
       :cljs [cljs.reader :as edn])
    [re-frame.core :as rf]
+   [re-frame.interop :as interop]
+   [re-frame.late-bind :as late-bind]
    [re-frame.machines]
    [re-frame.machines.test-support :as mtest]
    #?@(:clj  [[re-frame.substrate.plain-atom :as plain-atom]]
@@ -108,6 +110,27 @@
      :spawned-id (get-in j [:children :a])
      :attempt    (:rf/attempt j)}))
 
+(defn- with-dispatch-stub
+  "Run `body-fn` with `:router/dispatch!` replaced by a RECORDING stub that
+  captures each `[event opts]` into `sink` WITHOUT draining — so a deferred
+  completion's re-dispatch is observed deterministically on both platforms (no
+  async router drain to await). Restores the real hook in a `finally`."
+  [sink body-fn]
+  (let [real (late-bind/get-fn :router/dispatch!)]
+    (try
+      (late-bind/set-fn! :router/dispatch! (fn [event opts] (swap! sink conj [event opts])))
+      (body-fn)
+      (finally
+        (late-bind/set-fn! :router/dispatch! real)))))
+
+(defn- completion-opts
+  "The opts of the FIRST recorded re-dispatch whose event is the completion
+  carrier `[parent-id [:child/done child-id]]`, or nil."
+  [sink parent-id child-id]
+  (some (fn [[event opts]]
+          (when (= [parent-id [:child/done child-id]] event) opts))
+        @sink))
+
 ;; ---------------------------------------------------------------------------
 ;; replay-faithful recordable transport
 ;; ---------------------------------------------------------------------------
@@ -165,25 +188,50 @@
 ;; live delayed dispatch
 ;; ---------------------------------------------------------------------------
 
-(deftest zero-delay-dispatch-later-completion-authenticates-and-folds
-  (testing "rf2-t154jx — a real child completing through a zero-delay
-            :dispatch-later authenticates (the delayed path #5839's metadata
-            stamp never covered) and folds + resolves the join exactly once."
+(deftest zero-delay-dispatch-later-completion-defers-then-authenticates-and-folds
+  (testing "rf2-21hsb1 / rf2-t154jx — a real child completing through a
+            zero-delay :dispatch-later is DEFERRED on the host clock (it does NOT
+            fold synchronously — rf2-21hsb1; the canonical child-dispatch! path
+            treats every numeric :ms including zero as host-clock-delayed). Once
+            the controlled host-clock callback fires, the re-dispatched
+            completion retains :source-detail {:ms 0} + the recordable
+            :rf.machine/join-auth, authenticates (the delayed path #5839's
+            metadata stamp never covered), and folds the join exactly once.
+            (This test previously asserted a SYNCHRONOUS fold — the (pos? ms)
+            regression rf2-21hsb1 corrects.)"
     (rf/reg-machine :jt/da (mk-child-delayed :jt/dp))
     (rf/reg-machine :jt/db (mk-child-delayed :jt/dp))
     (reg-parent! :jt/dp :jt/da :jt/db)
     (rf/dispatch-sync [:jt/dp [:start]])
-    (let [j (join-state :jt/dp)
-          a (get-in j [:children :a])
-          b (get-in j [:children :b])]
+    (let [a           (get-in (join-state :jt/dp) [:children :a])
+          captured-cb (atom nil)
+          sink        (atom [])]
       (mtest/reset-captured!)
-      (rf/dispatch-sync [a [:go]])
-      (is (= #{:a} (:done (join-state :jt/dp)))
-          ":a folded via the zero-delay :dispatch-later completion")
-      (is (empty? (stale-reasons)) "no stale suppression for the delayed completion")
-      (rf/dispatch-sync [b [:go]])
-      (is (true? (:resolved? (join-state :jt/dp)))
-          "the second delayed completion resolves the :all join"))))
+      (with-dispatch-stub sink
+        (fn []
+          (with-redefs [interop/set-timeout!   (fn [f _ms] (reset! captured-cb f) ::handle)
+                        interop/clear-timeout! (fn [_] nil)]
+            ;; The zero-delay :dispatch-later completion is DEFERRED — armed on
+            ;; the host clock, NOT folded synchronously (rf2-21hsb1). Restoring
+            ;; the (pos? ms) guard would fold it in THIS drain and fail here.
+            (rf/dispatch-sync [a [:go]])
+            (is (= #{} (:done (join-state :jt/dp)))
+                "the zero-delay :dispatch-later completion did NOT fold synchronously (async boundary)")
+            (is (some? @captured-cb) "the completion was armed on the host clock (deferred)")
+            (is (empty? @sink) "nothing re-dispatched yet — the completion is pending on the host clock")
+            ;; Fire the controlled host-clock callback → the deferred re-dispatch.
+            (@captured-cb))))
+      (let [opts (completion-opts sink :jt/dp :a)]
+        (is (some? opts) "the host-clock callback re-dispatched the completion carrier")
+        (is (= {:ms 0} (:source-detail opts)) "retains :source-detail {:ms 0} (rf2-21hsb1)")
+        (is (some? (get-in opts [:rf.cofx :rf.machine/join-auth]))
+            "the recordable join authority rode the deferred zero-delay completion")
+        ;; Deliver the deferred completion (its recorded event + causal cofx): it
+        ;; authenticates and folds the join exactly once.
+        (rf/dispatch-sync [:jt/dp [:child/done :a]] {:rf.cofx (:rf.cofx opts)})
+        (is (= #{:a} (:done (join-state :jt/dp)))
+            "after the callback fires, the delayed completion authenticates and folds :a exactly once")
+        (is (empty? (stale-reasons)) "no stale suppression for the authenticated delayed completion")))))
 
 (deftest old-attempt-delayed-completion-across-reentry-is-superseded
   (testing "rf2-t154jx — an old-attempt completion arriving across re-entry with

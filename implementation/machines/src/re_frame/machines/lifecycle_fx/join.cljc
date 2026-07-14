@@ -149,11 +149,12 @@
   emitting child's envelope its `:fx-overrides`, `:interceptor-overrides`,
   `:trace-id`, `:origin`, the per-call `:rf.cofx/mint-policy` strict/replay
   discipline, and the `:rf.machine/internal?` front-of-queue ordering (the
-  emitter is always a machine child) — and a POSITIVE-delay completion (a
-  `:dispatch-later` form) rides the frame-owned `:dispatch-later` timer table,
-  cancelled on frame destroy, rather than a raw host timeout. The transport adds
-  ONLY its private recordable `:rf.machine/join-auth` `:rf.cofx` fact and stamps
-  `:source :machine-action`; the public completion event VALUE is unchanged.
+  emitter is always a machine child) — and a DELAYED completion (a
+  `:dispatch-later` form, ANY numeric `:ms` including zero — rf2-21hsb1) rides
+  the frame-owned `:dispatch-later` timer table, cancelled on frame destroy,
+  rather than a raw host timeout. The transport adds ONLY its private recordable
+  `:rf.machine/join-auth` `:rf.cofx` fact and stamps `:source :machine-action`;
+  the public completion event VALUE is unchanged.
 
   CANONICAL DISPATCH OVERRIDES INTERCEPT FIRST (rf2-ulsbgr). #5881 lowered the
   authored `:dispatch` / `:dispatch-later` completion to this PRIVATE id BEFORE
@@ -178,9 +179,9 @@
   ctx carries `:frame`, `:envelope` (the emitting child's dispatch envelope),
   and `:event` (the originating event, threaded by `re-frame.fx/do-fx`). args:
   `{:event <[parent-id inner-event]> :rf/join-auth <auth-tuple> :ms <ms?>}`. A
-  POSITIVE `:ms` (from a `:dispatch-later` completion) arms a frame-owned
-  delayed dispatch; nil / non-positive `:ms` dispatches immediately — the same
-  enqueue a direct `:dispatch` completion takes."
+  NUMERIC `:ms` (from a `:dispatch-later` completion, INCLUDING `:ms 0` —
+  rf2-21hsb1) arms a frame-owned delayed dispatch; a nil `:ms` (a direct
+  `:dispatch` completion) dispatches immediately in the current drain."
   [{:keys [frame envelope] origin-event :event} {:keys [event ms] auth :rf/join-auth}]
   (let [frame-id     (frame/require-frame-stamp!
                        frame :rf.machine/join-dispatch
@@ -215,16 +216,19 @@
       ;; envelope fact rides `:rf.cofx`; `:source :machine-action` matches the
       ;; child's original `:dispatch` stamp; the `:rf.machine/internal?`
       ;; front-of-queue ordering + override / lineage / mint-policy inheritance
-      ;; are lifted from `envelope` by `child-dispatch!`. A POSITIVE-delay
-      ;; `:dispatch-later` completion carries `:ms` + `:source-detail`, so
-      ;; `child-dispatch!` arms the frame-owned delayed dispatch; ms 0 / nil
-      ;; enqueues immediately (a `:dispatch-later {:ms 0}` completion folds
-      ;; synchronously on the in-progress drain, matching a direct `:dispatch`).
+      ;; are lifted from `envelope` by `child-dispatch!`. A `:dispatch-later`
+      ;; completion carries its numeric `:ms` + `:source-detail` for EVERY delay
+      ;; INCLUDING ZERO (rf2-21hsb1) — the canonical `child-dispatch!` path treats
+      ;; every numeric `:ms` as host-clock-delayed, so a `:dispatch-later {:ms 0}`
+      ;; yields through the frame-owned timer (a render/scheduling boundary,
+      ;; Spec 002 §long-running work) rather than folding synchronously. A direct
+      ;; `:dispatch` completion (nil `:ms`) enqueues immediately in the current
+      ;; drain — it alone carries no numeric `:ms` and no synthetic delayed detail.
       (fx/child-dispatch!
         frame-id envelope event
         (cond-> {:source  :machine-action
                  :rf.cofx {:rf.machine/join-auth auth}}
-          (and (number? ms) (pos? ms)) (assoc :ms ms :source-detail {:ms ms})))))
+          (number? ms) (assoc :ms ms :source-detail {:ms ms})))))
   nil)
 
 (defn- stamp-fx-entry
