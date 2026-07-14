@@ -301,7 +301,9 @@ generic React spine. Disposal fences new public Root creation across the complet
 two-phase lifecycle (public-root snapshot drain **and** generic-spine cleanup), snapshots
 one exact generation, and attempts every Root in that snapshot even if a sibling throws.
 It never refreshes the snapshot or chases a same-id replacement it did not acquire. Each exact
-incarnation releases its registry claim, ViewCells, and observation leases; a throwing
+incarnation releases its registry claim, ViewCells, and observation leases at the **settlement
+boundary** — not merely when the host `.unmount` returns (see [§Public Root teardown lifecycle and
+settlement](#public-root-teardown-lifecycle-and-settlement)); a throwing
 host unmount remains observable but cannot strand siblings. If React consumed a
 throwing Root handle before clearing its container, the adapter clears the remaining
 DOM and the pinned React container-ownership marker so a subsequent `rf/init!` can
@@ -312,6 +314,102 @@ The adapter is single-use after disposal; restart requires `(install-adapter!)` 
 
 In CLJS-Reagent: clears Reagent's reaction caches, unmounts any active root.
 In CLJS-headless: no-op (no resources held).
+
+### Public Root teardown lifecycle and settlement
+
+Adapter-wide disposal (above) drains every public compiled Root; a single `unmount!` follows
+the same law for one Root. Both are governed by a three-state per-Root lifecycle. The first-party
+`re-frame.ui` client tracks every public compiled Root in a per-document registry keyed by
+root-id. A Root's registry claim — which occupies its **root-id**, its **container** DOM node, and
+its effective **identifier-prefix** as one unit, and carries a per-mount opaque **incarnation**
+token — moves through three states:
+
+- **`:live`** — registered before the first render, with root-id, container, and prefix all
+  claimed. The steady state of a mounted Root.
+- **`:tearing-down`** — `unmount!` marks the claim tearing-down BEFORE it drives the host React
+  `.unmount`, identity-guarded to this exact Root. The claim keeps occupying id + container +
+  prefix; the incarnation's ViewCells and observation leases are not yet released.
+- **`:released`** — the claim is dropped (identity-guarded, so a stale handle never evicts a newer
+  claim), freeing id/container/prefix for reuse.
+
+The `:tearing-down → :released` transition happens at the **settlement boundary**, which is NOT the
+moment the host `.unmount` returns.
+
+#### Synchronous vs deferred settlement
+
+`unmount!` drives the host `.unmount` through the root-teardown window with an `on-settled`
+callback that releases the claim. There are two outcomes:
+
+- **Synchronous teardown.** React ran this root's effect cleanups during `.unmount`. `on-settled`
+  fires inline: `:tearing-down` is cleared before `unmount!` returns, so the state is never
+  observable to callers, and the ratified same-container immediate re-mount is preserved.
+- **Deferred teardown.** react-dom 19.2 refuses a synchronous `.unmount` from inside render/commit
+  — it consumes the handle, returns normally, and schedules the teardown for a later microtask. The
+  driver holds `on-settled` and schedules a **settlement microtask FIFO-ordered after React's own
+  deferred teardown**; that microtask reaps the root's still-owned ViewCells to `:dead` and only
+  then fires `on-settled`. The claim stays `:tearing-down` across the whole deferred window and
+  reaches `:released` at the microtask.
+
+Which outcome applies is a **root-level settlement law**, independent of ViewCell population. A
+teardown is deferred iff a committed root reporter for this incarnation has not yet torn down AND
+its mount-lifetime cleanup sentinel did not fire during the `.unmount`. Every rendered root —
+cell-bearing, compiled-static/cell-less, or entirely Activity-hidden — commits that reporter, so
+its deferral is observed regardless of whether the root owns any connected ViewCell. An unrendered
+/ pre-commit root committed no reporter, so nothing is pending and it settles synchronously.
+
+#### Settlement independence
+
+Settlement fires in the two cases a cell-connectivity probe would miss:
+
+- **Zero connected ViewCells.** The reporter wraps every render, so the host-teardown signal is
+  present even for a root that owns no connected cell (a compiled-static root, or one whose whole
+  tree is Activity-hidden). Settlement fires and the claim releases on that root-level signal, not
+  on any cell — closing the gap where a cell-connectivity probe mis-read a still-scheduled deferred
+  teardown as synchronous and released the claim early.
+- **A throwing host `.unmount`.** The exact generation is force-dead (every cell of that
+  incarnation reaped, its leases released) and the host error rethrows, but `on-settled` is NOT
+  fired. The container cannot be proven free in-process, so the claim **fails closed** — quarantined
+  `:tearing-down`, never released into a possibly-still-scheduled React teardown. A second
+  `unmount!` is a no-op (the tearing-down guard); recovery is a fresh container. The adapter-wide
+  drain may afterwards prove the container free — clearing its DOM and deleting the pinned React
+  container-ownership marker — and release the quarantine so the exact id/container is reusable
+  after re-init; an isolated public `unmount!` leaves that recovery to its caller.
+
+#### Tearing-down reuse diagnostics
+
+Because a `:tearing-down` claim keeps occupying its id/container/prefix, any attempt to reuse that
+exact identity during the deferred window is rejected fail-closed — never admitted onto a container
+React is still scheduled to clear. **No new error id is introduced**: the three catalogued root
+diagnostics ([Spec 009](009-Instrumentation.md)) each gain a tearing-down cause and emit
+`:tearing-down? true` in their `:existing` evidence.
+
+- **`:rf.error/duplicate-root-id`** — a reentrant `mount` / `create-root` (and `hydrate-root`, once
+  S5 wires it through the same pre-render admission check) claiming the same root-id. The message
+  names the in-flight deferred unmount and directs the caller to re-mount after settlement or use a
+  distinct `:root-id` with a fresh container.
+- **`:rf.error/root-container-in-use`** — a mount whose container is still owned by a tearing-down
+  root. The node frees once teardown settles; recovery is a fresh node or a re-mount after
+  settlement.
+- **`:rf.error/root-not-live`** — a `render!` into a tearing-down Root. A tearing-down root is not
+  live: its React tree is being unmounted, so rendering into it would drive a consumed/unmounting
+  handle. It fails the same loud way as an unmounted or superseded root; recover by recreating the
+  root after settlement.
+
+The effective-prefix arm (`:rf.error/duplicate-identifier-prefix`) is fenced the same way, since
+the prefix is quarantined as part of the one claim.
+
+#### Adapter-destruction completion
+
+Adapter-wide `dispose-adapter!` drains an exact one-generation snapshot of the live-root registry,
+unmounting each Root under the closed root-admission fence. A deferred teardown leaves its claim
+`:tearing-down` when the drain returns — settlement is still scheduled. **`dispose-adapter!` keeps
+its synchronous `nil` completion; no asynchronous Promise boundary is introduced.** Completion is
+honest without awaiting the microtask because the still-`:tearing-down` claims survive the drain (a
+fresh `install-adapter!` / `rf/init!` does not wipe the registry), so the pre-render admission check
+fail-closes reuse of the exact id/container until settlement, and the post-destroy admission
+breadcrumb meanwhile rejects any fresh public-root creation with `:rf.error/adapter-disposed`. The
+exact id/container becomes reusable only once the deferred settlement releases the claim (or the
+adapter's container reclaim proves it free on the throwing path).
 
 ## Revertibility constraints on adapters
 
