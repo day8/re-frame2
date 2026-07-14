@@ -687,31 +687,119 @@
        (seq q)
        (keyword? (first q))))
 
+(defn- query-shape-class
+  "Bounded, leak-safe classification of a MALFORMED query-vector for
+  [[resolve-target]]'s rejection evidence (rf2-vxgfnd.241): which
+  [[valid-query-v?]] clause it violated — `:non-vector`, `:empty-vector`, or
+  `:non-keyword-head`. NEVER the query CONTENTS: a valid query's args can carry
+  app values, so even a malformed query is summarized STRUCTURALLY, never
+  serialized."
+  [q]
+  (cond
+    (not (vector? q)) :non-vector
+    (not (seq q))     :empty-vector
+    :else             :non-keyword-head))
+
+(defn- throw-malformed-query!
+  "Reject a malformed query-vector at [[resolve-target]] — the port's ONLY
+  resolution point (rf2-vxgfnd.241). resolve-target must validate the query
+  SHAPE before any sequence access (`(first query-v)`) and before minting a
+  target: an unvalidated scalar / empty / non-keyword-headed query-v otherwise
+  leaks a raw host `(first …)` error (the ambient-frame path threads
+  `(first query-v)` as the no-frame-context event-id) or DEFERS failure to the
+  downstream target validator at an unrelated probe/acquire call site. A
+  malformed query cannot yield a valid closed-grammar target, so resolve-target
+  throws the SAME typed `:rf.error/observation-malformed-target` its downstream
+  gate raises — closing the boundary at the earliest point rather than deferring.
+  Pure `throw-error!` (diagnostic channel) — a malformed query is a
+  substrate/consumer bug, unreachable in correct generated code, so it does NOT
+  fan the always-on axis. Carries BOUNDED structural evidence only
+  ([[query-shape-class]] plus a vector's element count), never the query
+  CONTENTS. Never returns."
+  [where query]
+  (let [shape (query-shape-class query)]
+    (error/throw-error!
+      :rf.error/observation-malformed-target
+      where
+      (str where " received a malformed query-vector (" shape
+           (when (vector? query) (str ", " (count query) " elements"))
+           "): a query must be a non-empty keyword-headed vector "
+           "[<sub-id> & args]. resolve-target is the port's ONLY resolution "
+           "point; a malformed query cannot yield a valid closed-grammar target "
+           "(rf2-vxgfnd.241).")
+      {:recovery :no-recovery
+       :extra    {:query-class shape
+                  :query-count (when (vector? query) (count query))}})))
+
 (defn- valid-target?
   "True iff `target` is EXACTLY one of the two complete shapes `resolve-target`
   emits (rf2-vxgfnd.183) — the port's CLOSED target grammar. Structural, pure,
-  allocation-light: a STRICT key-set match per `:kind` (so BOTH a missing AND an
-  extra key fail, and a legitimately-nil override value/token stays a VALUE
-  because its KEY is present — presence, never `some?`), plus the field-domain
-  checks. A `:subscription` needs a present keyword `:frame-id` (frame ids are
-  registry-keyed keywords per `re-frame.frame`) and a non-empty keyword-headed
-  `:query`; a `:story-override` needs `:query`/`:value`/`:override-id`/`:version`
-  all present and the same query domain. A non-map, an unknown `:kind`, a
-  supported-kind-but-INCOMPLETE target (a bare `{:kind :story-override}`), a
-  wrong-domain field, or a malformed query all read false."
+  and ALLOCATION-FREE on the hot success path (rf2-vxgfnd.241): a
+  FIXED-VOCABULARY key check — `count` (O(1); never enumerates the map's keys)
+  plus `contains?` of the port's OWN known keys — so BOTH a missing AND an extra
+  key fail WITHOUT allocating a key-set or hashing the target's
+  attacker-controllable extra keys. This replaces the prior
+  `(= #{…} (set (keys target)))`, which allocated a set and HASHED every key on
+  every hot probe/acquire, letting a hostile extra key's `hashCode`/`equals`
+  escape as an untyped host error and scaling with attacker-controlled extras. A
+  legitimately-nil override value/token stays a VALUE because its KEY is present
+  (`contains?`, never `some?`). The `:kind` discriminator compares with the known
+  keyword FIRST (`=` dispatches through the keyword's own equality), so a hostile
+  `:kind` value's own `hashCode`/`equals` is never invoked. A `:subscription`
+  needs EXACTLY `{:kind :frame-id :query}` with a present keyword `:frame-id`
+  (frame ids are registry-keyed keywords per `re-frame.frame`) and a non-empty
+  keyword-headed `:query`; a `:story-override` needs EXACTLY
+  `{:kind :query :value :override-id :version}` with the same query domain. A
+  non-map, an unknown `:kind`, a supported-kind-but-INCOMPLETE target (a bare
+  `{:kind :story-override}`), an EXTRA key, a wrong-domain field, or a malformed
+  query all read false — and a hostile-hash extra key can never escape as a raw
+  error."
   [target]
   (and (map? target)
-       (case (:kind target)
-         :subscription
-         (and (= #{:kind :frame-id :query} (set (keys target)))
+       (cond
+         ;; count is the fixed-vocabulary cardinality gate: the discriminator
+         ;; already proves `:kind` present, and `contains?` proves the remaining
+         ;; named keys, so an exact count pins the key-set to EXACTLY the closed
+         ;; grammar without ever touching (hashing/enumerating) an extra key.
+         (= :subscription (:kind target))
+         (and (= 3 (count target))
+              (contains? target :frame-id)
+              (contains? target :query)
               (keyword? (:frame-id target))
               (valid-query-v? (:query target)))
 
-         :story-override
-         (and (= #{:kind :query :value :override-id :version} (set (keys target)))
+         (= :story-override (:kind target))
+         (and (= 5 (count target))
+              (contains? target :query)
+              (contains? target :value)
+              (contains? target :override-id)
+              (contains? target :version)
               (valid-query-v? (:query target)))
 
-         false)))
+         :else false)))
+
+(def ^:private target-known-keys
+  "The port's CLOSED target grammar vocabulary — the union of the two shapes'
+  keys. Malformed-target rejection evidence names ONLY which of THESE (the
+  port's OWN keys) are present, never the target's raw/attacker keys
+  (rf2-vxgfnd.241)."
+  [:kind :frame-id :query :value :override-id :version])
+
+(defn- target-kind-class
+  "Bounded, leak-safe classification of a target's `:kind` for rejection
+  evidence (rf2-vxgfnd.241): the recognized closed-grammar kind (`:subscription`
+  / `:story-override`) echoed as-is — a known interned constant, bounded and
+  non-sensitive — or `:unrecognized` for anything else (a non-keyword, an unknown
+  keyword, an absent `:kind`, or a non-map target). So a structured or secret
+  `:kind` VALUE is never serialized into the diagnostic. Compares with the known
+  keyword FIRST so dispatch rides the keyword's own equality — a hostile `:kind`
+  value's `hashCode`/`equals` is never invoked."
+  [target]
+  (let [k (when (map? target) (:kind target))]
+    (cond
+      (= :subscription k)   :subscription
+      (= :story-override k) :story-override
+      :else                 :unrecognized)))
 
 (defn- throw-malformed-target!
   "Reject a target that violates the port's CLOSED target grammar
@@ -726,25 +814,45 @@
   ViewCell error boundary cannot classify. Throws the typed
   `:rf.error/observation-malformed-target`. Pure `throw-error!` (diagnostic
   channel) — a corrupted target is a programming defect, unreachable in correct
-  generated code, so it does NOT fan the always-on axis. Carries BOUNDED
-  STRUCTURAL evidence only — the `:kind` and the target's KEY-SET, never the
-  field VALUES (a `:story-override` embeds an app value under `:value`). Never
-  returns."
+  generated code, so it does NOT fan the always-on axis.
+
+  Evidence is BOUNDED + NORMALIZED (rf2-vxgfnd.241) — the prior evidence
+  serialized the raw `:kind` and the FULL key vector (`(vec (keys target))`),
+  which enumerated a 10k-key map into an unbounded message and leaked
+  structured/secret KEYS. It now carries only: the [[target-kind-class]] (a
+  recognized kind or `:unrecognized`, never a raw/secret kind value), the total
+  `:key-count` (an O(1) `count`, never the keys themselves), and
+  `:known-keys-present` — which of the port's OWN [[target-known-keys]] the map
+  carries (a `contains?` probe of fixed vocabulary, so an attacker's extra key is
+  never named, hashed, or enumerated). Never the field VALUES (a
+  `:story-override` embeds an app value under `:value`). Never returns."
   [where target]
-  (error/throw-error!
-    :rf.error/observation-malformed-target
-    where
-    (str where " received a malformed observation target (kind "
-         (pr-str (when (map? target) (:kind target))) ", keys "
-         (pr-str (when (map? target) (vec (keys target)))) "): it is not one of "
-         "the two closed shapes resolve-target emits — a :subscription with a "
-         "keyword :frame-id and a non-empty keyword-headed :query, or a "
-         ":story-override carrying :query/:value/:override-id/:version. A target "
-         "must come from resolve-target (the port's ONLY resolution point); a "
-         "hand-constructed, incomplete, or corrupted target is a substrate bug.")
-    {:recovery :no-recovery
-     :extra    {:kind        (when (map? target) (:kind target))
-                :target-keys (when (map? target) (vec (keys target)))}}))
+  (let [is-map     (map? target)
+        kind-class (target-kind-class target)
+        key-count  (when is-map (count target))
+        known      (when is-map
+                     (into #{}
+                           (filter #(contains? target %))
+                           target-known-keys))]
+    (error/throw-error!
+      :rf.error/observation-malformed-target
+      where
+      (str where " received a malformed observation target (kind-class "
+           kind-class
+           (when key-count (str ", " key-count " keys"))
+           "): it is not one of the two closed shapes resolve-target emits — a "
+           ":subscription with a keyword :frame-id and a non-empty keyword-headed "
+           ":query, or a :story-override carrying "
+           ":query/:value/:override-id/:version. A target must come from "
+           "resolve-target (the port's ONLY resolution point); a hand-constructed, "
+           "incomplete, or corrupted target is a substrate bug. Diagnostic "
+           "evidence is bounded + normalized — kind-class, total key count, and "
+           "known-key presence only, never raw key/value material "
+           "(rf2-vxgfnd.241).")
+      {:recovery :no-recovery
+       :extra    {:kind-class         kind-class
+                  :key-count          key-count
+                  :known-keys-present known}})))
 
 (defn- validate-target!
   "Grammar gate for the target-taking ops (`probe` / `acquire!`): throw the typed
@@ -858,10 +966,16 @@
 
 (defn owned?
   "True when `lease` owns a real sub-cache node (`acquire!` on a
-  `:subscription` target). The static override lease reports `false`
-  honestly — a pinned value owns nothing."
+  `:subscription` target). TOTAL and no-throw (rf2-vxgfnd.241): a non-lease reads
+  `false` rather than field-accessing [[lease-state]] and leaking a raw host
+  error (a JVM NPE / a CLJS TypeError) — the same ruled malformed-value contract
+  `current?` follows, since a value that is not a live node lease simply owns no
+  node. `lease?` short-circuits the `and` before `@(lease-state lease)`, so no
+  raw host error escapes. The static override lease reports `false` honestly — a
+  pinned value owns nothing."
   [lease]
-  (= :node (:lease-kind @(lease-state lease))))
+  (and (lease? lease)
+       (= :node (:lease-kind @(lease-state lease)))))
 
 (defn- throw-malformed-lease!
   "Reject a value that is not a real [[ObservationLease]] at the shared lease
@@ -1279,6 +1393,16 @@
   :query q}` — the node named by identity, re-resolved at acquire."
   [site-ctx]
   (let [{:keys [query-v override]} site-ctx]
+    ;; Grammar gate FIRST (rf2-vxgfnd.241): validate the query SHAPE before any
+    ;; sequence access (`(first query-v)`) and before minting a target. An
+    ;; unvalidated scalar / empty / non-keyword-headed query-v otherwise leaks a
+    ;; raw host `(first …)` error (the ambient-frame path threads
+    ;; `(first query-v)` as the no-frame-context event-id) or DEFERS failure to
+    ;; the downstream target validator at an unrelated probe/acquire call site.
+    ;; resolve-target is the port's ONLY resolution point, so it rejects here.
+    (when-not (valid-query-v? query-v)
+      (throw-malformed-query! 're-frame.substrate.observation/resolve-target
+                              query-v))
     (if (some? override)
       {:kind        :story-override
        :query       query-v

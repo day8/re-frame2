@@ -477,7 +477,9 @@
     (let [e (try (obs/probe {:kind :bogus :query [:obs/items]})
                  (catch #?(:clj Throwable :cljs :default) e e))]
       (is (= :rf.error/observation-malformed-target (error-id e)))
-      (is (= :bogus (:kind (ex-data e))) "the throw carries the malformed :kind")))
+      (is (= :unrecognized (:kind-class (ex-data e)))
+          "the throw carries the bounded kind-class (:unrecognized), never the
+           raw :kind value (rf2-vxgfnd.241)")))
   (testing "acquire! on a malformed :kind throws the same typed error"
     (let [e (try (obs/acquire! {:kind :bogus :query [:obs/items]} (fn [_]))
                  (catch #?(:clj Throwable :cljs :default) e e))]
@@ -627,6 +629,192 @@
     (doseq [bad [nil {} {:lease-kind :node} "lease" 42]]
       (is (false? (obs/current? bad target))
           (str "current? on a non-lease " (pr-str bad) " is false, never throws")))))
+
+;; ===========================================================================
+;; rf2-vxgfnd.241 — finish the CLOSED grammar at every REAL boundary
+;;
+;; #5847 typed the target/lease REJECTS but left four boundaries half-hardened:
+;;   1. resolve-target inspected `(first query-v)` before validating the query
+;;      and could MINT an empty/non-keyword target the downstream validator only
+;;      later rejected (a scalar query-v even leaked a raw host `(first …)`).
+;;   2. owned? was not covered by the lease validator and raw-errored on a
+;;      non-lease.
+;;   3. valid-target? built `(set (keys target))` on every hot probe/acquire —
+;;      allocating + hashing every attacker-controllable key, letting a hostile
+;;      key's hashing escape as an untyped error and scaling with extras.
+;;   4. throw-malformed-target! serialized the raw `:kind` + the FULL key vector
+;;      — a 10k-key map produced an unbounded message and structured/secret keys
+;;      leaked.
+;; These fixtures are RED-before-fix witnesses that each boundary now emits the
+;; canonical closed grammar and rejects an open shape.
+;; ===========================================================================
+
+(defn- includes-substr?
+  "Portable substring test (the test ns's clojure.string is CLJ-only)."
+  [haystack needle]
+  #?(:clj  (.contains (str haystack) (str needle))
+     :cljs (not= -1 (.indexOf (str haystack) (str needle)))))
+
+;; A key that is INSERTABLE into a small map (a PersistentArrayMap linear-scans
+;; by equality, never hashing on insert) but whose HASHING throws — the exact
+;; pre-fix escape `(set (keys target))` triggered. Identity-only equality keeps
+;; array-map insertion from ever touching its hash.
+#?(:cljs
+   (deftype HostileHashKey []
+     Object
+     (toString [_] "<hostile-hash-key>")
+     IHash
+     (-hash [_] (throw (js/Error. "hostile -hash invoked")))
+     IEquiv
+     (-equiv [this o] (identical? this o))))
+
+(defn- make-hostile-hash-key []
+  #?(:clj  (reify Object
+             (hashCode [_] (throw (ex-info "hostile hashCode invoked" {})))
+             (equals [this o] (identical? this o))
+             (toString [_] "<hostile-hash-key>"))
+     :cljs (HostileHashKey.)))
+
+;; ---- gap 1: resolve-target validates the query BEFORE sequence access -------
+
+(deftest resolve-target-rejects-a-malformed-query-before-sequence-access
+  ;; resolve-target is the port's ONLY resolution point. A malformed query-v
+  ;; must throw the typed :rf.error/observation-malformed-target at resolve-target
+  ;; — never mint an open target for the downstream gate, never `(first query-v)`
+  ;; a scalar. Both hosts (this .cljc rides node CLJS + JVM).
+  (reg-items!)
+  (doseq [[label q] [[:non-vector  42]
+                     [:nil         nil]
+                     [:empty       []]
+                     [:non-kw-head [42]]
+                     [:string      "not-a-query"]
+                     [:list        '(:obs/items)]]]
+    (testing (str "explicit-pin resolve-target on a malformed :query-v ("
+                  (name label) ") rejects here, never mints an open target")
+      (is (= :rf.error/observation-malformed-target
+             (error-id (caught #(obs/resolve-target {:frame fid :query-v q}))))))
+    (testing (str "ambient resolve-target on a malformed :query-v (" (name label)
+                  ") rejects BEFORE require-current-frame! reads (first query-v)")
+      (is (= :rf.error/observation-malformed-target
+             (error-id (caught #(obs/resolve-target {:query-v q}))))))
+    (testing (str "override resolve-target on a malformed :query-v ("
+                  (name label) ") rejects before minting a :story-override")
+      (is (= :rf.error/observation-malformed-target
+             (error-id (caught #(obs/resolve-target
+                                  {:query-v q
+                                   :override {:value 1 :override-id :o :version 0}}))))))))
+
+(deftest resolve-target-malformed-query-does-not-fan-the-always-on-axis
+  ;; The malformed-query rejection is DIAGNOSTIC (a substrate/consumer bug,
+  ;; unreachable in correct generated code) — like malformed-target it must NOT
+  ;; fan the always-on axis, and its evidence is bounded (query-class, never the
+  ;; query contents, which for a valid query can carry app values).
+  (reg-items!)
+  (let [[[outcome e] records]
+        (with-error-records #(obs/resolve-target {:frame fid :query-v [42]}))]
+    (is (= :threw outcome))
+    (is (= :rf.error/observation-malformed-target (error-id e)))
+    (is (= :non-keyword-head (:query-class (ex-data e)))
+        "bounded query-class evidence — not the raw query")
+    (is (empty? records)
+        "diagnostic malformed-query does NOT fan the always-on axis")))
+
+;; ---- gap 2: owned? is total (false/no-throw for a non-lease) -----------------
+
+(deftest owned?-on-a-non-lease-is-false-no-throw
+  ;; owned? was not covered by the lease validator and raw-errored on a
+  ;; non-lease. Its ruled total contract mirrors current?: a non-lease is simply
+  ;; "owns nothing" → false, never a raw host throw. Both hosts.
+  (doseq [bad [nil {} {:lease-kind :node} "lease" 42 [:not :a :lease]]]
+    (is (false? (obs/owned? bad))
+        (str "owned? on a non-lease " (pr-str bad) " is false, never throws"))))
+
+;; ---- gap 3 + 4: fixed-vocabulary validation + bounded, leak-free evidence ----
+
+(deftest exact-key-validation-rejects-extra-keys-typed-with-bounded-evidence
+  ;; valid-target? now checks the key-set by fixed vocabulary (count + contains?
+  ;; of the port's OWN keys) — an EXTRA key fails the count without a set being
+  ;; built. The rejection evidence is bounded + normalized.
+  (reg-items!)
+  (let [t {:kind :subscription :frame-id fid :query [:obs/items] :surplus true}]
+    (testing "an extra key is rejected typed on both target-taking ops"
+      (is (= :rf.error/observation-malformed-target (error-id (caught #(obs/probe t)))))
+      (is (= :rf.error/observation-malformed-target
+             (error-id (caught #(obs/acquire! t (fn [_])))))))
+    (testing "evidence is BOUNDED + normalized — kind-class, key-count, known-key
+              presence; never the raw key vector"
+      (let [d (ex-data (caught #(obs/probe t)))]
+        (is (= :subscription (:kind-class d)) "kind-class is the recognized kind")
+        (is (= 4 (:key-count d)) "total key count is reported")
+        (is (= #{:kind :frame-id :query} (:known-keys-present d))
+            "only the port's OWN known keys are named — the :surplus extra is absent")
+        (is (nil? (:target-keys d)) "the raw key vector is GONE from evidence")))))
+
+(deftest malformed-target-evidence-never-leaks-secret-keys-or-values
+  ;; A target carrying a secret KEY and secret VALUE must reject with the secret
+  ;; nowhere in the message or the ex-data (rf2-vxgfnd.241 gap 4).
+  (reg-items!)
+  (let [secret-key   :app.secret/api-token
+        secret-value "sk-live-DEADBEEF-do-not-log"
+        t            {:kind :subscription :frame-id fid :query [:obs/items]
+                      secret-key secret-value}
+        e            (caught #(obs/probe t))
+        d            (ex-data e)
+        msg          (ex-message e)]
+    (is (= :rf.error/observation-malformed-target (error-id e)))
+    (is (= :subscription (:kind-class d)))
+    (is (= 4 (:key-count d)))
+    (is (= #{:kind :frame-id :query} (:known-keys-present d))
+        "the secret extra key is NOT named in evidence")
+    (is (not (includes-substr? msg (name secret-key)))
+        "the secret KEY does not appear in the human message")
+    (is (not (includes-substr? msg secret-value))
+        "the secret VALUE does not appear in the human message")
+    (is (not (includes-substr? (pr-str d) secret-value))
+        "the secret VALUE does not appear anywhere in the ex-data")
+    (is (not (includes-substr? (pr-str d) (name secret-key)))
+        "the secret KEY does not appear anywhere in the ex-data")))
+
+(deftest ten-thousand-extra-keys-reject-typed-with-bounded-evidence
+  ;; A 10k-key target rejects by count alone — no set allocated, no key
+  ;; enumerated into evidence, message bounded (rf2-vxgfnd.241 gap 3 + 4).
+  (reg-items!)
+  (let [t   (into {:kind :subscription :frame-id fid :query [:obs/items]}
+                  (map (fn [i] [(keyword (str "extra" i)) i]))
+                  (range 10000))
+        e   (caught #(obs/probe t))
+        d   (ex-data e)
+        msg (ex-message e)]
+    (is (= :rf.error/observation-malformed-target (error-id e)))
+    (is (= :subscription (:kind-class d)))
+    (is (= 10003 (:key-count d)) "the total count is reported, not the keys")
+    (is (= #{:kind :frame-id :query} (:known-keys-present d)))
+    (is (nil? (:target-keys d)) "the 10k-key vector is GONE from evidence")
+    (is (< (count msg) 1200) "the message is bounded — no 10k keys serialized")
+    (is (not (includes-substr? (pr-str d) "extra5000"))
+        "no attacker key leaks into the ex-data")))
+
+(deftest hostile-hash-extra-key-cannot-escape-as-a-raw-error
+  ;; The (set (keys target)) path HASHED every key; a small map can carry an
+  ;; extra key whose hashing THROWS (array-map insert never hashes). Pre-fix the
+  ;; untyped host error ESCAPED on the JVM; the fixed-vocabulary count+contains?
+  ;; check never hashes the attacker's extra key, so the port rejects TYPED
+  ;; (rf2-vxgfnd.241 gap 3). The typed-reject property holds on BOTH hosts; the
+  ;; JVM additionally witnesses the exact pre-fix escape (a JVM WeakHashMap-style
+  ;; set-build invokes the throwing hashCode where CLJS's set tolerated it).
+  (reg-items!)
+  (let [hostile (make-hostile-hash-key)
+        t       (assoc {:kind :subscription :frame-id fid :query [:obs/items]}
+                       hostile true)]
+    #?(:clj
+       (testing "the pre-fix JVM escape vector is real — hashing the target's
+                 keys into a set invokes the hostile hashCode and throws untyped"
+         (is (thrown? clojure.lang.ExceptionInfo (set (keys t)))
+             "building a key-set over the target DOES invoke the hostile hashCode")))
+    (testing "the port rejects TYPED — count+contains? never hashes the extra key"
+      (is (= :rf.error/observation-malformed-target (error-id (caught #(obs/probe t)))))
+      (is (= :rf.error/observation-malformed-target
+             (error-id (caught #(obs/acquire! t (fn [_])))))))))
 
 ;; ===========================================================================
 ;; rf2-vxgfnd.32 — first-owner disposal-hook install races node disposal
