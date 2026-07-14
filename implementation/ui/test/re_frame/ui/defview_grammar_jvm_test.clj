@@ -87,6 +87,34 @@
              '(re-frame.ui/defview shadowing-header [{:keys [sub]}] [:div sub])))
       "the header local shadows re-frame.ui/sub only in the body"))
 
+(deftest reactive-verb-in-component-head-is-reserved-through-real-host-resolution
+  ;; rf2-vxgfnd.266 — the pure-analyzer fixtures inject resolution; this pins the
+  ;; same reservation through ACTUAL CLJ var resolution during defview
+  ;; macroexpansion (the macro JVM expands for the CLJS path too). A Hiccup head
+  ;; resolving to a public reactive authoring var (sub/lease/frame) must be
+  ;; reserved BEFORE env/classify-head can classify it as a plain :foreign
+  ;; component with an empty reactive manifest, letting the public authoring var
+  ;; survive to runtime unindexed.
+  (is (= :rf.ui.compile/unsupported-form
+         (expand-error '(re-frame.ui/defview v [] [:div [re-frame.ui/sub {}]])))
+      "a fully-qualified sub head is reserved through real resolution")
+  (is (= :rf.ui.compile/unsupported-form
+         (expand-error '(re-frame.ui/defview v [] [:div [re-frame.ui/lease {}]])))
+      "a fully-qualified lease head is reserved")
+  (is (= :rf.ui.compile/unsupported-form
+         (expand-error '(re-frame.ui/defview v [] [:div [re-frame.ui/frame]])))
+      "a fully-qualified frame head is reserved")
+  ;; (aliased/unqualified spellings are covered by the pure-analyzer reject
+  ;; fixture, whose injected resolver models the analyzer resolution contract;
+  ;; this file follows the established convention of fully-qualified spellings
+  ;; under raw macroexpand-1, where namespace-alias resolution is not available.)
+  ;; the reservation is NARROW: a direct (sub …) CALL is still the compiler-owned
+  ;; form and expands to exactly one manifest site — only the head form is reserved
+  (is (nil? (expand-error '(re-frame.ui/defview v [] [:div (re-frame.ui/sub [:q])])))
+      "sub is still legal as its compiler-owned direct call — only the head is reserved")
+  (is (nil? (expand-error '(re-frame.ui/defview v [] [:div (:frame (re-frame.ui/frame))])))
+      "a direct (frame) read still expands — only the head form is reserved"))
+
 (deftest an-opaque-macro-cannot-inject-an-unmanifested-template-site
   (is (= :rf.ui.compile/unsupported-form
          (expand-error
