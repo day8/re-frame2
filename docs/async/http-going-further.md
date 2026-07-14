@@ -1,10 +1,20 @@
 # Interceptors and secrets
 
-Two cross-cutting production concerns, in one place: stamping something onto *every* request (auth headers, telemetry), and keeping secrets (tokens, passwords, PII) off the trace. Neither is required to be productive — reach for this page when your app grows into them.
+You know [managed HTTP](http.md). This page is two production jobs:
+
+1. **Stamp every request once** (auth headers, telemetry) via the HTTP interceptor chain.
+2. **Keep secrets off the trace** (tokens, passwords, PII).
+
+Neither is required to be productive — open this when the app grows into them.
+
+**Prerequisites.** [Managed HTTP](http.md) and the [tutorial](tutorial.md).
 
 ## Interceptors: stamp every request once
 
-Threading `"Authorization"` into every call site is the kind of cross-cutting concern that belongs in one place. re-frame2 ships a **per-frame HTTP interceptor chain** for exactly this — the same `{:before :after}` onion you know from [event interceptors](../core/interceptors.md), but wrapping the transport instead of the event handler. A `:before` transforms the request on its way out; an `:after` transforms the reply on its way back.
+Threading `"Authorization"` into every call site is a cross-cutting concern. re-frame2
+ships a **per-frame HTTP interceptor chain** — the same `{:before :after}` onion as
+[event interceptors](../core/interceptors.md), wrapping the *transport*. `:before`
+transforms the request on the way out; `:after` transforms the reply on the way back.
 
 `rf/reg-http-interceptor` takes a positional id and an interceptor map. Here's Bearer auth as a single registration — note it reads the token *fresh on every request*, so rotation is picked up with zero re-registration:
 

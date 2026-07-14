@@ -1,7 +1,10 @@
-# Async (HTTP) examples
+# Examples
 
-Worked apps that run on managed HTTP, readable end to end in the repo's example tree.
+Runnable apps on managed HTTP. Build something yourself first
+([tutorial](tutorial.md) or [Managed HTTP](http.md)), then open these in order.
 
-- **managed-http-counter** — the smallest end-to-end demo: a counter whose value is fetched and updated over `:rf.http/managed`, with the loading/error states wired from the reply, plus the manual-abort path. Start here. [→ source](../../examples/core/managed_http_counter)
-- **realworld** — a full Conduit clone (auth, articles, comments, profiles, favorites, settings) where **every endpoint goes out via `:rf.http/managed`** — no resources cache, just the transport. See the request-builder + retry policy in `http.cljs`, the auth/session flow, and the lifecycles held in state machines. This is managed HTTP under real load. [→ source](../../examples/real-apps/realworld_http)
-- **login** — hand-rolls a non-HTTP async `fx` (the [Your own async effect](custom-effects.md) pattern) and drives its reply into a state machine. [→ source](../../examples/core/login)
+| Example | What it shows | Read first |
+|---|---|---|
+| [managed_http_counter](../../examples/core/managed_http_counter) | Smallest end-to-end: fetch + update over `:rf.http/managed`, loading/error, manual abort | [Tutorial](tutorial.md) |
+| [realworld_http](../../examples/real-apps/realworld_http) | Full Conduit on managed HTTP only (no resources cache): request builders, retry, auth, machines | [Managed HTTP](http.md) |
+| [login](../../examples/core/login) | Custom non-HTTP async `fx` + reply into a state machine | [Your own async effect](custom-effects.md) |

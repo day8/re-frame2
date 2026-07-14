@@ -1,33 +1,56 @@
 # Async (HTTP)
 
-Sooner or later your app must talk to a server, and the moment it does you inherit a family of problems: errors, timeouts, retries, loading states, stale replies racing each other.
+Sooner or later the app talks to a server — and inherits errors, timeouts, retries,
+loading states, and stale replies racing each other.
 
-re-frame2's answer is the **managed request**. You describe the request as data, return it from a pure [event handler](../core/effects.md), and finish. The runtime performs it. The reply arrives later as an **ordinary [event](../core/events.md)** — success and failure each named:
+re-frame2's answer is the **managed request**. Describe it as data, return it from a
+pure [event handler](../core/effects.md), and finish. The runtime performs it. The
+reply arrives later as an **ordinary [event](../core/events.md)**:
 
 ```clojure
-{:fx [[:rf.http/managed {:request    {:url "/api/articles/intro"}
-                         :on-success [:article/loaded]
-                         :on-failure [:article/load-error]}]]}
+(:require [re-frame.core :as rf]
+          [re-frame.http.managed])   ;; day8/re-frame2-http — forget this → :rf.error/no-such-fx
+
+{:fx [[:rf.http/managed
+       {:request    {:url "/api/articles/intro"}
+        :on-success [:article/loaded]
+        :on-failure [:article/load-error]}]]}
 ```
 
-No `await`, no callback nesting, no resumed stack frame. The answer comes back on the same wire as everything else in your app.
+No `await`, no callback nesting, no resumed stack frame. Success and failure each
+have a name on the same wire as everything else.
 
-## In this section
+## Start here
 
-- **[Tutorial: talk to a server](tutorial.md)** — build up from the smallest request that works to schema validation, retries, a cured search-box race, and a network-free test. Start here.
-- **[Managed HTTP reference](http.md)** — every key of `:rf.http/managed`: the request envelope, the reply contract, the closed set of failure categories, retry, cancellation, testing.
-- **[Interceptors and secrets](http-going-further.md)** — production cross-cutting concerns: stamp auth on every request once; keep tokens and passwords out of traces.
-- **[Your own async effect](custom-effects.md)** — wrap a promise-returning SDK, a callback API, or a worker message in the same pattern.
-- **[Why no await](continuations-are-data.md)** — the idea underneath it all: a continuation is data, not a closure. Read it once and every async surface in re-frame2 looks the same.
-- **[Examples](examples.md)** — complete apps built on managed HTTP.
+1. **[Tutorial](tutorial.md)** — smallest request → failures → view → schema → retry →
+   race cure → network-free test. Best first hour.
+2. **[Managed HTTP](http.md)** — the full model/reference: args map, reply envelope,
+   closed failure kinds, retry, cancel, testing.
+3. Production when you need it: [interceptors and secrets](http-going-further.md).
+
+**Prerequisites.** [Effects](../core/effects.md) — returning an effect map from a
+handler. Managed HTTP plugs into that pipeline; it does not replace events or app-db.
+
+Optional later: [your own async fx](custom-effects.md),
+[why no await](continuations-are-data.md), [Promises mapping](coming-from-promises.md),
+[examples](examples.md).
 
 ## Scope
 
-Two boundaries worth knowing before you dive in:
+| This section | Elsewhere |
+|---|---|
+| One request → one reply event (transport) | [Resources](../resources/index.md) — cache, stale, invalidate over this transport |
+| Continuations as **named events** | [Effects](../core/effects.md) — `dispatch-later`, drain / run-to-completion |
+| Custom promise/callback SDKs | [Your own async effect](custom-effects.md) |
 
-- This section covers *managed* async — effects whose completion returns as a reply event. That's narrower than "async" in general: the event loop, `dispatch-later`, and the event pipeline are async too, and they live in [Effects](../core/effects.md) (including [run to completion](../core/effects.md#run-to-completion)).
-- For the *cache* over server reads — staleness, invalidation, scope — see [Resources](../resources/index.md), which rides on managed HTTP underneath. This section is the transport.
+## When *not* to use managed HTTP alone
 
-!!! note "Setup"
+| Situation | Prefer |
+|---|---|
+| Same read on many screens, cache, invalidate | [Resources](../resources/concepts.md) |
+| Multi-step lifecycle (login, websocket) | [Machines](../machines/index.md) |
+| Non-HTTP async (Stripe, IndexedDB, worker) | [Your own fx](custom-effects.md) |
+| No server yet | app-db + events |
 
-    Managed HTTP ships as its own artefact, `day8/re-frame2-http`, so apps that never issue a request build clean of it. Add the dep and require `re-frame.http.managed` once at boot — that registers `:rf.http/managed` and family. The [tutorial](tutorial.md) walks it.
+Reach for managed HTTP when **one wire call needs a typed, testable reply** — not when
+the load-bearing concept is a cache or a named stage machine.

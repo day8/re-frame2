@@ -1,12 +1,19 @@
-# Managed HTTP reference
+# Managed HTTP
 
-`:rf.http/managed` is the one [effect](../core/glossary.md#effect) for talking to a server. You describe the request as data, the runtime performs it — decoding, failure classification, retry, cancellation — and the reply arrives as an ordinary [event](../core/glossary.md#event).
+`:rf.http/managed` is the one [effect](../core/glossary.md#effect) for talking to a
+server. Describe the request as data; the runtime decodes, classifies failures,
+retries, and cancels; the reply arrives as an ordinary [event](../core/glossary.md#event).
 
-This page is the reference: every key, every contract. If you're new, do the [tutorial](tutorial.md) first. For the idea underneath, read [Why no await](continuations-are-data.md). For API-level detail — interceptor fn signatures, test-stub surfaces, trace events — see [re-frame.http](../api/re-frame.http.md).
+This page is the **model and reference** — every key, every contract. Build first with
+the [tutorial](tutorial.md). Idea underneath: [Why no await](continuations-are-data.md).
+API surfaces (interceptors, stubs, traces): [re-frame.http](../api/re-frame.http.md).
 
-## Setup
+!!! note "Optional artefact"
 
-Managed HTTP ships in its own artefact, `day8/re-frame2-http`, so apps that never issue a request build a bundle clean of it. Add the dep and require `re-frame.http.managed` once at app boot — that registers `:rf.http/managed` and family. Call a managed fx without the artefact loaded and the `re-frame.core` re-exports fail loud with a named "HTTP artefact missing" error rather than a silent miss.
+    Require `re-frame.http.managed` once at boot — Maven `day8/re-frame2-http`. Without
+    it, `[:rf.http/managed …]` raises `:rf.error/no-such-fx`. Late-bound helpers on
+    `re-frame.core` (e.g. test stubs, interceptor registration) raise
+    `:rf.error/http-artefact-missing`.
 
 ## The args map
 
@@ -340,10 +347,45 @@ Two notes. `rf.http/get` shadows `clojure.core/get`, so the namespace is meant t
 
 Tests need no network: the canned-stub fxs (`:rf.http/managed-canned-success` / `:rf.http/managed-canned-failure`) and the `with-managed-request-stubs` route-stubbing macro — all registered by requiring the sibling `re-frame.http.test-support` namespace — synthesize replies with the exact envelope a live request produces. The [tutorial's test step](tutorial.md) shows the pattern; [Test a pipeline run](../core/testing/pipeline-runs.md) is the full recipe; [re-frame.http](../api/re-frame.http.md) documents every stub surface.
 
+## A complete request loop
+
+Send + receive + view status (stubs for schema/retry):
+
+```clojure
+(ns app.article
+  (:require [re-frame.core :as rf]
+            [re-frame.http.managed]))
+
+(rf/reg-event :article/load
+  (fn [{:keys [db]} [_ slug]]
+    {:db (assoc-in db [:article :status] :loading)
+     :fx [[:rf.http/managed
+           {:request    {:method :get :url (str "/api/articles/" slug)}
+            :decode     :json
+            :on-success [:article/loaded]
+            :on-failure [:article/load-error]}]]}))
+
+(rf/reg-event :article/loaded
+  (fn [{:keys [db]} [_ {:keys [value]}]]
+    {:db (-> db
+             (assoc-in [:article :status] :loaded)
+             (assoc-in [:article :data] value))}))
+
+(rf/reg-event :article/load-error
+  (fn [{:keys [db]} [_ {:keys [error]}]]
+    {:db (-> db
+             (assoc-in [:article :status] :error)
+             (assoc-in [:article :error] error))}))
+```
+
+Tutorial expands failures, schema decode, retry, and `:request-id`.
+
 ## When not to reach for it
 
-Managed HTTP is the right tool for a single request that gets a single reply. Where it isn't, reach for:
+Managed HTTP is right for a **single request → single reply**. Elsewhere:
 
-- **[Resources](../resources/concepts.md)** — the same server data read on several screens, with caching and invalidation. Declare it once; it rides this transport underneath. Hand-rolling `:loaded-at` freshness checks across features means you've outgrown raw requests.
-- **A [state machine](../machines/concepts.md)** — a long-lived connection (WebSocket, SSE) or any multi-step flow where retry decisions depend on state. There is no managed streaming surface yet; that's an honest gap, not a hidden feature.
-- **[Your own fx](custom-effects.md)** — wire-level weirdness: custom transports, exotic binary protocols, non-HTTP async APIs. The escape hatch is always there.
+| Need | Prefer |
+|---|---|
+| Same read, many screens, cache / invalidate | [Resources](../resources/concepts.md) (rides this transport) |
+| Long-lived connection or multi-step lifecycle | [Machines](../machines/concepts.md) — no managed streaming surface yet |
+| Non-HTTP async (SDK, IDB, worker) | [Your own fx](custom-effects.md) |

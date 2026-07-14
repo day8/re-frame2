@@ -268,15 +268,15 @@ nav:
     - "Coming from TanStack Query": resources/coming-from-tanstack-query.md
 
   - "Async (HTTP)":
-    # Tutorial first (get productive), then the reference, then the
-    # cross-cutting production page, then the explanation shelf. The "why"
-    # essay reads best after you've issued a request, so it sits late.
+    # Tutorial first, then the model/reference, production, advanced essays.
     - async/index.md
     - "Tutorial: talk to a server": async/tutorial.md
-    - "Managed HTTP reference": async/http.md
-    - "Interceptors and secrets": async/http-going-further.md
-    - "Your own async effect": async/custom-effects.md
-    - "Why no await": async/continuations-are-data.md
+    - "Managed HTTP": async/http.md
+    - "Production":
+      - "Interceptors and secrets": async/http-going-further.md
+    - "Advanced":
+      - "Your own async effect": async/custom-effects.md
+      - "Why no await": async/continuations-are-data.md
     - "Coming from Promises": async/coming-from-promises.md
     - "Examples": async/examples.md
 
