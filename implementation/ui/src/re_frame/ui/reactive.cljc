@@ -2657,17 +2657,23 @@
          collected  @captured
          explicit?  (some? root-incarnation)
          ;; When an explicit root incarnation is named it is AUTHORITATIVE: this
-         ;; teardown owns EXACTLY the cells of that generation (rf2-vxgfnd.156). A
+         ;; teardown owns the cells of that generation (rf2-vxgfnd.156). A
          ;; re-entrant cleanup can disconnect a SIBLING root's cell INSIDE this
          ;; window — a resource-lifecycle `on-disconnect` or a router trace
          ;; listener firing during root A's `.unmount` — and such a captured
-         ;; sibling is NOT ours to reap: filter the captured set by identity with
-         ;; each cell's own `cell-root`, leaving a sibling reconnectable. The
-         ;; legacy one-arity path has no explicit generation, so it trusts every
-         ;; window-captured cell (a real host `.unmount` sweeps EXACTLY its own
-         ;; root's tree — sibling roots are structurally isolated, 03 §4).
+         ;; sibling, owned by a DIFFERENT incarnation, is NOT ours to reap: drop
+         ;; only cells whose `cell-root` is a KNOWN-DIFFERENT incarnation, leaving
+         ;; the sibling reconnectable. A captured cell with NO root ownership
+         ;; (`cell-root` nil — a bare/test mount that never went through a
+         ;; root-incarnation provider) is KEPT: the host `.unmount` sweep is
+         ;; structural (it fires EXACTLY this root's tree, 03 §4), so an
+         ;; unattached captured cell is this root's own. The legacy one-arity
+         ;; path has no explicit generation, so it trusts every captured cell.
          owned     (if explicit?
-                     (into #{} (filter #(identical? root-incarnation (cell-root %)))
+                     (into #{}
+                           (remove (fn [c]
+                                     (when-some [r (cell-root c)]
+                                       (not (identical? root-incarnation r)))))
                            collected)
                      collected)
          ;; the incarnations whose hidden cells this teardown owns. Explicit:
