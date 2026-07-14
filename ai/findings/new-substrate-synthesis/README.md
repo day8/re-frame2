@@ -48,8 +48,11 @@ benchmark hope.
 
 ## Standing-ruling conformance
 
-Follows rf2-nyea0r (frame-root/frame-provider split — landed in the shipping adapters
-(#5691); the compiled substrate moves ENSURE to host preflight per gate R-7), rf2-y6dz8t
+Follows rf2-nyea0r (the frame-root/frame-provider split and the compiled substrate's
+host-preflight ENSURE both landed — the split in the shipping adapters (#5691) and
+ENSURE-at-host-preflight in `re-frame.ui` (#5711); the frozen legacy adapters keep
+commit-owned two-pass ENSURE for their lifetime, and R-7 now carries only the spec
+promotion of that already-live contract), rf2-y6dz8t
 (capture-frame hold), frames-isolated doctrine (no
 cross-frame spelling; carried-op misuse gets a dev diagnostic), rf2-5sjbg local-state
 doctrine, Story-as-CLJS-unit-tests, and the one-catalogue rule (rf2-cs0kd1) for all new
