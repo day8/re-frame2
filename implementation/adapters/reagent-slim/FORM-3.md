@@ -340,11 +340,21 @@ Three variations worth knowing:
   (deferred-loaded API), wrap the `:component-did-mount` body in an
   async-load callback. The atoms are still the right state container — the
   callback just runs later.
-- **Render in response to subs.** Combine Form-3 with subscription: the inner
-  `:reagent-render` can `@(subscribe [...])` to trigger re-renders, which
-  causes `:component-did-update` to fire, which lets the imperative library
-  see new data. Don't `subscribe` in the lifecycle callbacks themselves
-  (reactive context is undefined there) — `subscribe` only in the render.
+- **Render in response to subs — route it through `reg-view*` + a captured
+  frame.** The architecture is sound: let the inner `:reagent-render` deref a
+  subscription so the view re-renders when the data changes, which fires
+  `:component-did-update`, which lets the imperative library see the new data.
+  But a **bare `@(subscribe [...])` in a plain-`defn` Form-3 throws
+  `:rf.error/no-frame-context` at first render** under any `frame-provider`
+  (EP-0002 — frame identity is carried, not found). The 7-key cap (§1) forbids
+  `:context-type`, and a plain-`defn` `create-class` carries none, so the class
+  can't read its provider's frame from React context and the ambient
+  `subscribe` resolves no scope. Register the class through
+  `re-frame.core/reg-view*` and capture the frame **once in the outer callable**
+  (`(rf/capture-frame)` — the one live-resolver site in a Form-3); deref the
+  captured `:subscribe` inside `:reagent-render`, never in a lifecycle callback
+  (reactive reads have no owner there, and the scope has already unwound). See
+  `guided-handlers-state.md` §M-11 Form-3 route 2 for the full recipe.
 - **DOM measurement during commit.** If you need to capture a measurement
   *before* React commits a re-render (typical for scroll preservation),
   use `:get-snapshot-before-update`. See §5 below.
@@ -480,7 +490,9 @@ dispatches events, etc.), put it on the surrounding frame, not in a Form-3
 `:component-did-mount`:
 
 ```clojure
-;; Wrong — Form-3 for app-state init
+;; Wrong — and it doesn't merely read worse: a bare (rf/dispatch …) in a
+;; plain-defn Form-3's :component-did-mount THROWS :rf.error/no-frame-context
+;; under any frame-provider (EP-0002 — the class carries no frame context).
 (r/create-class
   {:component-did-mount (fn [_] (rf/dispatch [:counter/initialise]))
    :reagent-render      ...})
@@ -490,9 +502,17 @@ dispatches events, etc.), put it on the surrounding frame, not in a Form-3
 ```
 
 The frame event is named, registered, queryable, traceable in re-frame-10x,
-and runs deterministically once per frame mount. The Form-3 version hides the
-dispatch behind a lifecycle callback and couples the side effect to a
-particular view.
+and runs deterministically once per frame mount — and it is the pattern to
+reach for regardless. The Form-3 version isn't just a worse idiom: under
+EP-0002 that bare `(rf/dispatch …)` **throws `:rf.error/no-frame-context`**,
+because a plain-`defn` `create-class` carries no `:contextType` (the 7-key cap
+forbids `:context-type`) and so can't resolve its provider's frame. A Form-3
+that genuinely must dispatch from a lifecycle hook has to go through
+`re-frame.core/reg-view*`, capturing the frame's `:dispatch` **once in the
+outer callable** and closing that handle over the hook — never a fresh
+`(rf/capture-frame)` inside the hook, which fires after the scope unwinds and
+re-throws. See `guided-handlers-state.md` §M-11 Form-3 route 2. For plain
+mount-time app-state init, prefer `:initial-events`.
 
 ### Use `:ref` callbacks, not Form-3, for DOM access
 
@@ -565,3 +585,11 @@ idioms.
 - **[Views spec](../../../spec/004-Views.md)** §"Form-3 (class — out of scope for the
   macro)" — Form-3 is intentionally not supported by the `reg-view` macro; use
   `re-frame.core/reg-view*` (the plain-fn surface) for Form-3 components.
+- **[Migration recipe](../../../skills/re-frame-migration/references/guided-handlers-state.md)**
+  §M-11 Form-3 routes 1 & 2 — the full recipe for a **frame-scoped** Form-3 (one
+  that subscribes or dispatches app state): extract the subscribing part into a
+  `reg-view` child, or register the outer fn through `reg-view*` and capture the
+  frame once in the outer callable. A bare `@(subscribe)` / `(rf/dispatch)` in a
+  plain-`defn` Form-3 under a `frame-provider` throws `:rf.error/no-frame-context`
+  (EP-0002). The worked examples in §4–§5 above are frame-independent and need
+  none of this.
