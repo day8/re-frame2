@@ -76,7 +76,7 @@ Two cross-feature bare keys are also accepted:
 - `:head` — SSR's head-metadata contract. It is always in the accepted set.
 - `:resources` — the Resources artefact's route integration, late-bound via the `:routing/extra-route-keys` hook. In an app without the Resources artefact, `:resources` is rejected like any other unknown bare key.
 
-Canonical detail in [The metadata map, in full](../routing/concepts.md#the-metadata-map-in-full).
+Guide overview of the key groups: [Metadata map](../routing/concepts.md#the-metadata-map-in-full) (per-key catalogue is this table and the API rows below).
 
 ### `clear-route`
 
