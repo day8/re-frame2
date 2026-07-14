@@ -624,7 +624,7 @@ deletion wave.
 | **Tier 3 — mounted** | a mounted root (`with-root`) | browser/jsdom CI | a native CSS selector string, verbatim | host interop (real listeners, `(.-value el)`) |
 
 **S1 core surface (Tier-1, `.cljc`):** `render` / `find` / `find-all` / `query` / `text`
-/ `attrs` / `frame`. `render` accepts a view reference or a literal root form (the same
+/ `attrs`. `render` accepts a view reference or a literal root form (the same
 grammar `mount` takes), per [004C-Roots-and-Mount.md](004C-Roots-and-Mount.md) §9.
 `find`/`find-all` run the closed selector grammar over Tier-1 trees; `query` is the
 Tier-3 live-DOM counterpart (CSS). **Node reading is the ruled projection** — `attrs`
