@@ -34,7 +34,8 @@
   The actor-teardown runtime-db projection lives in
   `re-frame.machines.lifecycle-fx.teardown` — one helper, three
   call-sites."
-  (:require [re-frame.interop :as interop]
+  (:require [re-frame.frame :as frame]
+            [re-frame.interop :as interop]
             [re-frame.late-bind :as late-bind]
             [re-frame.machines.error-emit :as machine-error-emit]
             [re-frame.machines.classification :as classification]
@@ -240,6 +241,13 @@
         ;; `(constantly true)` for a non-router pure-fn / conformance caller
         ;; (no event owner), so that path stays unaffected.
         continue?  (data-validation/owner-continuation frame-id)
+        ;; rf2-i4aj9c — the RAW exact owner token (`continue?` closes over it),
+        ;; threaded into the teardown classification drop so it rides the EXACT
+        ;; elision write: a container watch that destroys A / publishes same-id B
+        ;; DURING the drop cannot re-root the removal onto B's registry or bump
+        ;; B's commit epoch. nil for a non-router pure-fn / conformance caller
+        ;; (no event owner) — the drop falls back to the historical bare write.
+        owner-token (frame/current-event-owner-token)
         child-data (:data next-snapshot)
         parallel?  (parallel/parallel? machine)
         ;; Resolve the ERROR-classifying leaf. For a PARALLEL
@@ -624,8 +632,10 @@
           ;; `classification/lower-at-spawn!` on the final-state AUTO-DESTROY path
           ;; (which does NOT route through `destroy/teardown-live-actor!`). A spec
           ;; that declared no classification is a clean no-op, so the registry
-          ;; entry added at spawn dies with the instance (no leak).
-          (classification/drop-at-destroy! frame-id machine-id machine)
+          ;; entry added at spawn dies with the instance (no leak). rf2-i4aj9c —
+          ;; thread `owner-token` so the drop rides the EXACT elision write (a
+          ;; mid-write watch cannot re-root the removal onto same-id B).
+          (classification/drop-at-destroy! frame-id machine-id machine owner-token)
           ;; Forget the finished actor from the per-frame spawn-order channel — the
           ;; ONE synchronous teardown side-effect the `:final?`-auto-destroy path
           ;; shares with `destroy/teardown-live-actor!` (destroy.cljc step 7).

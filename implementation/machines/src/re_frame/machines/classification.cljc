@@ -164,13 +164,24 @@
   write surface the four commit-plane effects and the marks API share — so
   the lowered declaration unions with every other source at egress-lookup
   time and the existing readers (`frame-snapshot-classification`, the SSR / trace
-  boundaries) redact with no change. Returns nil."
-  [frame-id actor-id spec]
-  (when actor-id
-    (when-let [decls (machine-declarations spec)]
-      (elision/swap-elision-slot! frame-id
-                                  (fn [reg] (apply-decls reg actor-id decls true)))))
-  nil)
+  boundaries) redact with no change. Returns nil.
+
+  rf2-i4aj9c — the 4-arity threads A's exact-incarnation `owner-token` through
+  `swap-elision-slot!`'s EXACT arity (the same exact-write the flow lifecycle
+  ops issue, rf2-vxgfnd.155): a synchronous container watch that destroys A and
+  publishes same-id B DURING this durable-registry write neither redirects the
+  write into B nor bumps B's commit epoch — on mid-write loss it writes nothing.
+  The 3-arity is the historical bare-id write (no event owner — conformance /
+  pure-fn callers)."
+  ([frame-id actor-id spec] (lower-at-spawn! frame-id actor-id spec nil))
+  ([frame-id actor-id spec owner-token]
+   (when actor-id
+     (when-let [decls (machine-declarations spec)]
+       (let [xf (fn [reg] (apply-decls reg actor-id decls true))]
+         (if owner-token
+           (elision/swap-elision-slot! frame-id owner-token xf)
+           (elision/swap-elision-slot! frame-id xf)))))
+   nil))
 
 (defn drop-at-destroy!
   "DROP the machine `spec`'s per-instance classification declarations for
@@ -180,10 +191,19 @@
   for the same path survive); an emptied axis slot is pruned so a frame that
   destroys its last classified actor is left without a stray registry
   sub-tree (no leak). A no-op when the spec declared no classification or
-  `actor-id` is nil. Returns nil."
-  [frame-id actor-id spec]
-  (when actor-id
-    (when-let [decls (machine-declarations spec)]
-      (elision/swap-elision-slot! frame-id
-                                  (fn [reg] (apply-decls reg actor-id decls false)))))
-  nil)
+  `actor-id` is nil. Returns nil.
+
+  rf2-i4aj9c — the 4-arity threads A's exact-incarnation `owner-token` through
+  `swap-elision-slot!`'s EXACT arity so a container watch that destroys A and
+  publishes same-id B mid-write cannot re-root the drop onto B's registry or
+  bump B's commit epoch (the drop tail of the incarnation-fence family). The
+  3-arity is the historical bare-id write (no event owner)."
+  ([frame-id actor-id spec] (drop-at-destroy! frame-id actor-id spec nil))
+  ([frame-id actor-id spec owner-token]
+   (when actor-id
+     (when-let [decls (machine-declarations spec)]
+       (let [xf (fn [reg] (apply-decls reg actor-id decls false))]
+         (if owner-token
+           (elision/swap-elision-slot! frame-id owner-token xf)
+           (elision/swap-elision-slot! frame-id xf)))))
+   nil))

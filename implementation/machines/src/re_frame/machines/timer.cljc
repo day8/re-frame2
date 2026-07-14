@@ -161,18 +161,31 @@
   subscription registration belonging to a single timer-table entry. Pure
   side-effect; the caller owns the swap that removes the entry from the
   outer atom. Tolerates partial-state entries (the watcher / reaction
-  slots are nil for literal- and fn-form delays)."
-  [frame-id entry delay-key]
-  ;; Shared best-effort host-clock cancel — swallows throws and no-ops a nil
-  ;; handle, tolerating the partial-state entries (literal- / fn-form delays
-  ;; whose watcher / reaction slots are nil).
-  (managed-timer/cancel! (:handle entry))
-  (when (and (:reaction entry) (:sub-watcher-key entry))
-    (try (remove-watch (:reaction entry) (:sub-watcher-key entry))
-         (catch #?(:clj Throwable :cljs :default) _ nil))
-    (when (and (vector? delay-key) frame-id)
-      (try (subs/unsubscribe frame-id delay-key)
-           (catch #?(:clj Throwable :cljs :default) _ nil)))))
+  slots are nil for literal- and fn-form delays).
+
+  rf2-i4aj9c — the host-clock cancel and `remove-watch` release THIS entry's
+  own captured handle / reaction (A's own host work), so they always run. The
+  `subs/unsubscribe frame-id delay-key` is the ONE shared release: the
+  subscription cache is ref-counted by `(frame-id, query-v)`, so once the
+  cancellation trace has destroyed A and re-armed the SAME query in same-id
+  B (bumping the shared count), A's decrement would dispose B's fresh
+  reaction. The optional `owner-gone?` predicate (threaded from the destroy
+  tail's exact-incarnation gate) skips ONLY that shared decrement once A is
+  lost — B's reaction / dependency refs stay intact. `owner-gone?` is MONOTONIC.
+  The 3-arity is the historical unconditional release (fixture-reset,
+  frame-destroy — no event owner)."
+  ([frame-id entry delay-key] (release-entry-resources! frame-id entry delay-key (constantly false)))
+  ([frame-id entry delay-key owner-gone?]
+   ;; Shared best-effort host-clock cancel — swallows throws and no-ops a nil
+   ;; handle, tolerating the partial-state entries (literal- / fn-form delays
+   ;; whose watcher / reaction slots are nil).
+   (managed-timer/cancel! (:handle entry))
+   (when (and (:reaction entry) (:sub-watcher-key entry))
+     (try (remove-watch (:reaction entry) (:sub-watcher-key entry))
+          (catch #?(:clj Throwable :cljs :default) _ nil))
+     (when (and (vector? delay-key) frame-id (not (owner-gone?)))
+       (try (subs/unsubscribe frame-id delay-key)
+            (catch #?(:clj Throwable :cljs :default) _ nil))))))
 
 (defonce ^:private after-attempt-counter
   ;; Monotonic per-arm attempt-token source (mirrors core's
@@ -311,12 +324,23 @@
   that claims an ARMING sentinel (`:handle nil`, host clock not yet armed)
   still emits the owed trace and releases the held subscription; the arming
   thread's publish phase then finds its token gone and cancels the returned
-  host handle."
-  [frame-id k reason]
-  (when-let [entry (get-in @after-timers [frame-id k])]
-    (when-let [claimed (claim-entry! frame-id k (:token entry))]
-      (emit-cancelled! frame-id k claimed reason)
-      (release-entry-resources! frame-id claimed (:delay k)))))
+  host handle.
+
+  rf2-i4aj9c — `emit-cancelled!` is CALLBACK-BEARING (the synchronous
+  `:rf.machine.timer/cancelled` trace). A listener can destroy the owning frame
+  incarnation A and re-arm the SAME subscription-vector query in same-id B on
+  that trace's own stack. The optional `owner-gone?` predicate is threaded into
+  `release-entry-resources!` so the shared `subs/unsubscribe` decrement is
+  skipped once A is lost — A's release cannot dispose B's fresh reaction. The
+  2-arity keeps the historical unfenced release for the non-destroy cancellation
+  reasons (`:on-exit` / `:on-resolution` / `:on-supersede` / `:on-frame-destroy`
+  / `:on-restore`)."
+  ([frame-id k reason] (cancel-after-timer-entry! frame-id k reason (constantly false)))
+  ([frame-id k reason owner-gone?]
+   (when-let [entry (get-in @after-timers [frame-id k])]
+     (when-let [claimed (claim-entry! frame-id k (:token entry))]
+       (emit-cancelled! frame-id k claimed reason)
+       (release-entry-resources! frame-id claimed (:delay k) owner-gone?)))))
 
 (defn- on-sub-changed!
   "Watch callback invoked when a subscription-vector delay's value
@@ -684,7 +708,12 @@
                     (into [] (comp (filter (fn [[k _]] (= parent-id (:parent k))))
                                    (map first))))]
        (when (and (seq ks) (not (owner-gone?)))
-         (cancel-after-timer-entry! frame-id (first ks) :on-destroy)
+         ;; rf2-i4aj9c — thread `owner-gone?` into the single-entry cancel so
+         ;; the WITHIN-entry `emit-cancelled!` → subscription-release step is
+         ;; fenced too: a `:rf.machine.timer/cancelled` listener that re-arms the
+         ;; same query in same-id B cannot have A's release decrement B's ref.
+         ;; The loop-level guard short-circuits the REMAINING keys after the loss.
+         (cancel-after-timer-entry! frame-id (first ks) :on-destroy owner-gone?)
          (recur (subvec ks 1)))))))
 
 (defn cancel-all-timers!
