@@ -308,6 +308,20 @@
       (coll? x) (some #(bare-reactive-reference-kind e % locals) x)
       :else nil)))
 
+(defn- reactive-authoring-var-kind
+  "Return :sub/:lease/:frame when `sym` is an unquoted, unshadowed reference to
+  a public reactive authoring var. Such a var is sound ONLY as a compiler-owned
+  DIRECT CALL HEAD — the rewriter consumes those heads (and lowers them to an
+  indexed runtime site) before this leaf check runs — so a bare reference that
+  reaches any other, value-flow, position has escaped the manifest. `env` must
+  already carry the ambient lexical locals so a local shadow resolves to nil."
+  [env sym]
+  (let [{:keys [fqn]} (env/resolve-sym env sym)]
+    (cond
+      (contains? sub-fqns fqn)   :sub
+      (contains? lease-fqns fqn) :lease
+      (contains? frame-fqns fqn) :frame)))
+
 (defn reject-reactive-binding!
   "Reject executable sub/lease calls embedded in a binding pattern/default.
   Destructuring forms are consumed by the host compiler, not expression
@@ -613,7 +627,38 @@
                  (into (empty f)
                        (map #(rw % locals (conj p :set (map-path-token %))))
                        f))
-               :else f))]
+
+               ;; A BARE reactive authoring var reaching this leaf is a
+               ;; value-flow escape. Every SOUND reactive site is consumed above
+               ;; as a direct call head (`(sub q)`/`(lease d)`/`(frame)` → an
+               ;; indexed runtime site) or rejected pre-expansion under a macro.
+               ;; A bare `sub`/`lease`/`frame` symbol here instead flows as a
+               ;; VALUE — into a computed callee `((if p sub inc) q)`, a let
+               ;; alias `(let [f sub] (f q))`, an argument, or a collection —
+               ;; where the analyzer cannot own a lexical render site, so the
+               ;; manifest under-declares and the optimized build elides the
+               ;; ViewCell, leaving the read to go stale / escape ownership.
+               ;; Reject it loudly. Lexical shadows resolve to nil here and pass
+               ;; through; quoted data was returned by the `quote` branch above.
+               :else
+               (if-let [kind (and (symbol? f) (not (contains? locals f))
+                                  (reactive-authoring-var-kind
+                                   (update e :locals into locals) f))]
+                 (env/fail! e :rf.ui.compile/unsupported-form
+                            (str "bare " (name kind) " reference — re-frame.ui/"
+                                 (name kind) " is a reactive authoring var, sound "
+                                 "ONLY as a compiler-owned direct call head ("
+                                 (if (= :frame kind) "(frame)"
+                                     (str "(" (name kind) " query)"))
+                                 "). Here it flows as a VALUE (into a computed "
+                                 "callee, let-binding, argument, or collection) "
+                                 "where the compiler cannot own a lexical render "
+                                 "site, so the manifest would under-declare and "
+                                 "the optimized build would elide the read. Keep "
+                                 "the read at a visible " (name kind)
+                                 " call site, or make the boundary its own defview")
+                            {:form f :reactive-kind kind})
+                 f)))]
      (rw form (cond-> #{}
                 (deferred-expr-root? expr-root) (conj deferred-scope))
          (vec expr-root)))))

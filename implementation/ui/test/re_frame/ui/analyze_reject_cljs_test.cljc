@@ -110,6 +110,42 @@
   (is (= :rf.ui.compile/unsupported-form
          (reject-id '[:div {:title (lease {:a 1} {:b 2})}]))))
 
+(deftest computed-callee-value-escape
+  ;; rf2-vxgfnd.252 — a reactive authoring var (sub/lease/frame) is sound ONLY
+  ;; as a compiler-owned DIRECT CALL HEAD, which the rewriter lowers to an
+  ;; indexed runtime site. A BARE reactive var that instead flows as a VALUE —
+  ;; into a computed callee, a let alias, an argument, or a collection — leaves
+  ;; the manifest under-declaring while a public authoring var survives; the
+  ;; optimized build then elides the ViewCell and the read escapes ownership.
+  ;; This is the escape #5855/.217 (direct calls in computed callees) did not
+  ;; close. Removing the leaf guard makes every reject row below fail (they
+  ;; silently re-accept), so this deftest is the mutation fixture too.
+  (is (= :rf.ui.compile/unsupported-form
+         (reject-id '[:div {:title ((if p sub inc) [:q])}]))
+      "bare sub in a computed (if …) callee — the .252 counterexample")
+  (is (= :rf.ui.compile/unsupported-form
+         (reject-id '[:div {:title ((identity sub) [:q])}]))
+      "bare sub through a computed-callee wrapper escapes identically")
+  (is (= :rf.ui.compile/unsupported-form
+         (reject-id '[:div {:title (let [f sub] (f [:q]))}]))
+      "a let-bound sub alias becomes an unindexed invocation target")
+  (is (= :rf.ui.compile/unsupported-form
+         (reject-id '[:div {:title (str sub)}]))
+      "a bare sub passed as an argument is value flow, not a render site")
+  (is (= :rf.ui.compile/unsupported-form
+         (reject-id '[:div {:title ((if p lease inc) {:resource :r})}]))
+      "bare lease escapes into a computed callee identically")
+  (is (= :rf.ui.compile/unsupported-form
+         (reject-id '[:div {:title (let [g frame] (g))}]))
+      "bare frame escapes through a let alias identically")
+  ;; The soundness rule does not touch the legal forms:
+  (is (nil? (reject-id '[:div {:title ((if (sub [:op]) inc dec) 1)}]))
+      "a DIRECT (sub …) in the computed callee is still one indexed site (.217)")
+  (is (nil? (reject-id '[:div {:title (let [sub identity] (sub query))}]))
+      "a local shadowing sub is an ordinary call, never a reactive site")
+  (is (nil? (reject-id '[:div {:title '((if p sub inc) [:q])}]))
+      "quoted data is inert — never an invocation target"))
+
 (deftest frame-finite-sites
   (is (= :rf.ui.compile/frame-in-loop
          (reject-id '(for [x xs] [:li {:key x} (:frame (frame))])))

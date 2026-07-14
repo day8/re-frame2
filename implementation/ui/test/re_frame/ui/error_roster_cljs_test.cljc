@@ -250,6 +250,11 @@
    [:rf.ui.compile/frame-in-loop
     '[:button {:on-click (fn [_] (do-send! (:dispatch (frame))))} "x"]
     ["finite render-time site"]]
+   ;; rf2-vxgfnd.252 — a bare reactive authoring var escaping into computed
+   ;; callee / value flow (distinct throw site: the leaf value-flow guard).
+   [:rf.ui.compile/unsupported-form
+    '[:div {:title ((if p sub inc) [:q])}]
+    ["direct call head" "defview"]]
    ;; handlers
    [:rf.ui.compile/loop-capturing-handler
     '(for [t ts] [:li {:key (:id t) :on-click [::open (:id t)]} "x"])
