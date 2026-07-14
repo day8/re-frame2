@@ -391,10 +391,12 @@
                    (fn [] (throw (js/Error. "host teardown boom"))))
     (client/->Root rr container root-id)))
 
-(deftest unmount-releases-claim-even-when-host-teardown-throws
-  ;; rf2-vxgfnd.18 — TOTAL teardown: a throwing host `.unmount` must not
-  ;; strand the framework claim. The registry release rides a `finally`,
-  ;; the host error still propagates, and a second unmount!* is a no-op.
+(deftest unmount-quarantines-claim-when-host-teardown-throws
+  ;; rf2-vxgfnd.275 — a throwing host `.unmount` cannot PROVE the container free,
+  ;; so the framework FAILS CLOSED: the exact claim is left QUARANTINED
+  ;; `:tearing-down` (NOT released — reversing the earlier .18 AC4 immediate
+  ;; release, which could be clobbered by React self-completing the aborted
+  ;; teardown). The host error still propagates and a second unmount!* is a no-op.
   (let [c    (js-obj)
         root (root-with-throwing-unmount :reg/boom c)]
     (client/register-live-root! {:root-id :reg/boom :provenance :authored} c root)
@@ -402,10 +404,12 @@
     (is (thrown-with-msg? js/Error #"host teardown boom"
                           (client/unmount!* root))
         "the host teardown error propagates to the caller")
-    (is (= #{} (client/live-root-ids))
-        "the exact claim is released despite the throw (finally-shaped)")
+    (is (= #{:reg/boom} (client/live-root-ids))
+        "the exact claim is QUARANTINED :tearing-down, not released")
+    (is (:tearing-down? (client/live-root-entry :reg/boom))
+        "…the entry is marked tearing-down (reuse fails loud; recover via a fresh container)")
     (is (nil? (client/unmount!* root))
-        "a second unmount!* is a no-op — the claim is already gone")))
+        "a second unmount!* is a no-op — the tearing-down guard short-circuits")))
 
 (deftest unmount-throw-release-is-identity-guarded
   ;; a STALE handle whose root-id now maps to a NEWER root must not evict
@@ -513,17 +517,15 @@
     (client/->Root rr container root-id)))
 
 (deftest unmount-throw-aftermath-warns-honestly-there-is-no-manual-escape
-  ;; rf2-vxgfnd.53 + rf2-vxgfnd.84 — the aftermath of .18 AC4's release-on-throw.
-  ;; RULING (b), UNCHANGED: KEEP AC4 (release the claim on a throwing host
-  ;; .unmount; a second unmount!* is a no-op; the host error propagates).
-  ;; rf2-vxgfnd.84 corrects the DIAGNOSTIC to the truth verified against pinned
-  ;; react-dom 19.2.0: ReactDOMRoot.unmount() nulls its internal root BEFORE the
-  ;; flush that throws, so after a throwing unmount the handle is CONSUMED and
-  ;; (.unmount (.-react-root root)) again is a SILENT NO-OP — there is NO manual
-  ;; escape through it. React defers + usually self-completes the teardown work
-  ;; scheduled pre-throw; a genuinely stuck container needs innerHTML clearing or
-  ;; a fresh container. The .53 release-on-throw CONTRACT is untouched — only the
-  ;; diagnostic's guidance and this test's fake fidelity change.
+  ;; rf2-vxgfnd.53/.84 diagnostic honesty, now FAIL-CLOSED per rf2-vxgfnd.275.
+  ;; The handle is CONSUMED — ReactDOMRoot.unmount() nulls its internal root
+  ;; BEFORE the flush that throws (pinned react-dom 19.2.0), so (.unmount
+  ;; (.-react-root root)) again is a SILENT NO-OP: no manual escape. rf2-vxgfnd.275
+  ;; REVERSES the .18 AC4 release-on-throw: because the container cannot be proven
+  ;; free, the claim is QUARANTINED `:tearing-down` (not released), so a reused id
+  ;; or container fails loud instead of racing React's aborted teardown; recovery
+  ;; is a FRESH container. The host error still propagates and a second unmount!*
+  ;; is a no-op (the tearing-down guard).
   (let [c        (js-obj)
         calls    (atom 0)
         root     (root-with-consuming-unmount-throws-once :reg/orphan c calls)
@@ -542,16 +544,19 @@
       (finally
         (set! (.-warn js/console) orig)))
     (is (= 1 @calls) "React's .unmount was reached exactly once (and it threw)")
-    (is (= #{} (client/live-root-ids))
-        "the exact claim is released despite the throw (.18 AC4, finally-shaped)")
+    (is (= #{:reg/orphan} (client/live-root-ids))
+        "the exact claim is QUARANTINED :tearing-down, not released (rf2-vxgfnd.275)")
+    (is (:tearing-down? (client/live-root-entry :reg/orphan))
+        "…the entry is marked tearing-down — reuse fails loud, recover via a fresh container")
     (is (nil? (client/unmount!* root))
-        "a second unmount!* is a no-op — the framework cannot retry the host unmount")
+        "a second unmount!* is a no-op — the tearing-down guard short-circuits")
     (is (= 1 @calls)
         "the no-op second unmount!* never reaches React's .unmount again")
-    ;; (2) rf2-vxgfnd.84: the aftermath is NON-SILENT AND HONEST — the diagnostic
-    ;; states the handle is consumed (no manual escape) and names the real
-    ;; recovery, and does NOT recommend the (no-op) (.unmount (.-react-root root)).
-    (let [msg (str/join "\n" @captured)]
+    ;; (2) the aftermath is NON-SILENT AND HONEST — the diagnostic states the
+    ;; handle is consumed (no manual escape), that the claim is quarantined rather
+    ;; than released, and names the real recovery (a fresh container); it does NOT
+    ;; recommend the (no-op) (.unmount (.-react-root root)).
+    (let [msg (str/lower-case (str/join "\n" @captured))]
       (is (seq @captured) "a dev diagnostic fired on the throwing unmount")
       (is (not (str/includes? msg "(.unmount (.-react-root root))"))
           "the diagnostic NO LONGER recommends the consumed-handle no-op escape")
@@ -559,8 +564,10 @@
           "the diagnostic states re-calling the consumed handle is a no-op")
       (is (str/includes? msg "consumed")
           "the diagnostic names the CONSUMED handle as the reason there is no escape")
-      (is (str/includes? msg "innerHTML")
-          "the diagnostic names the real recovery — clear the container directly"))
+      (is (str/includes? msg "quarantin")
+          "the diagnostic states the claim is quarantined, not released (fail closed)")
+      (is (str/includes? msg "fresh container")
+          "the diagnostic names the real recovery — mount into a fresh container"))
     ;; (3) FIDELITY: the handle is CONSUMED — calling .unmount on the SAME handle
     ;; again is a SILENT NO-OP (this._internalRoot was nulled BEFORE the throw),
     ;; NOT a successful teardown. The pre-.84 fake modelled a second-call SUCCESS,

@@ -121,6 +121,11 @@
 ;; One sub-bearing view → one ViewCell under the mounted root.
 (defview leaf [_] [:span.leaf (str (sub [:rt.dom/n]))])
 
+;; A compiled STATIC (subless) view → NO ViewCell under the mounted root
+;; (rf2-vxgfnd.275): the CLJS emitter wraps only a sub-bearing body in
+;; `viewcell/render`, so this root owns nothing residual cell-connectivity can see.
+(defview static-leaf [_] [:span.static "static"])
+
 (defn- register-app! []
   (rf/make-frame {:id frame-kw :doc "root-teardown DOM probe frame"})
   (rf/reg-sub :rt.dom/n (fn [db _] (:n db)))
@@ -274,3 +279,62 @@
             (is (some? M2))
             (is (= "7" (.-textContent (.querySelector c ".leaf"))))
             (act! #(ui/unmount! M2))))))))
+
+;; ===========================================================================
+;; rf2-vxgfnd.275 — a DEFERRED render-phase teardown FENCES a CELL-LESS root
+;;
+;; The real-React proof that settlement is INDEPENDENT of ViewCell presence. A
+;; compiled static (subless) view mounts NO ViewCell, so residual cell-
+;; connectivity (the retired `weak-connected`) cannot see a deferred teardown and
+;; the claim was released immediately — into a container React was still scheduled
+;; to clear. The root-commit-reporter's mount-lifetime sentinel is a ROOT-LEVEL
+;; signal present even here, so the deferred teardown is recognised and the
+;; id/container claim held until React settles.
+;; ===========================================================================
+
+(deftest deferred-render-phase-unmount-fences-a-cell-less-root
+  (if-not (browser?)
+    (is true ":node — no DOM; the :browser-test runner exercises the DOM body")
+    (async
+     done
+     (register-app!)
+     (let [c    (container)
+           M    (act! #(ui/mount [frame-provider {:frame frame-kw} [static-leaf {}]]
+                                 c {:root-id :rt.dom/cell-less}))
+           same-id-error (atom :unset)
+           diff-id-error (atom :unset)]
+       (is (= "static" (.-textContent (.querySelector c ".static"))) "precondition: rendered")
+       (is (zero? (count (reactive/current-live-cells)))
+           "precondition: the static view owns NO ViewCell — a cell-less root")
+       (in-commit-phase!
+        (fn []
+          ;; `.unmount` during a React commit → react-dom 19.2 DEFERS it. With no
+          ;; cell to observe, ONLY the reporter's root-level sentinel can fence it.
+          (client/unmount!* M)
+          (reset! same-id-error
+                  (thrown-id #(client/mount*
+                               {:root-id :rt.dom/cell-less :provenance :authored}
+                               c (fn [] (React/createElement "div" nil "reentrant"))
+                               nil nil)))
+          (reset! diff-id-error
+                  (thrown-id #(client/check-root-claim!
+                               'test {:root-id :rt.dom/other :provenance :authored} c)))))
+       (testing "while the cell-less teardown is deferred, BOTH id arms are fenced (AC1)"
+         (is (contains? #{:rf.error/duplicate-root-id :rf.error/root-container-in-use}
+                        @same-id-error)
+             "a same-id/same-container reentrant mount is rejected before React allocation")
+         (is (= :rf.error/root-container-in-use @diff-id-error)
+             "a different-id/same-container claim is rejected too"))
+       (js/queueMicrotask
+        (fn []
+          (testing "after settlement the claim frees and a fresh mount succeeds (AC1)"
+            (is (not (contains? (client/live-root-ids) :rt.dom/cell-less))
+                "the claim is freed only at the settlement boundary — no predecessor clobber")
+            (is (= "" (.-innerHTML c)) "React cleared the container")
+            (let [M2 (act! #(ui/mount [frame-provider {:frame frame-kw} [static-leaf {}]]
+                                      c {:root-id :rt.dom/cell-less}))]
+              (is (some? M2))
+              (is (= "static" (.-textContent (.querySelector c ".static")))
+                  "the replacement renders on the settled container")
+              (act! #(ui/unmount! M2))))
+          (done)))))))

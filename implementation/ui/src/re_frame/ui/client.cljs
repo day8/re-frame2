@@ -711,7 +711,25 @@
      (fn commit-report []
        (settle-committed-attempt! root-id receipt incarnation)
        js/undefined)
-     #js [receipt]))
+     #js [receipt])
+    ;; rf2-vxgfnd.275 — the ROOT-LEVEL host-teardown sentinel. A mount-lifetime
+    ;; layout effect (empty deps → setup once, cleanup once) whose CLEANUP fires
+    ;; exactly when React tears this reporter — and thus the whole root tree —
+    ;; down: SYNCHRONOUSLY inside a synchronous `.unmount`, or in the deferred
+    ;; microtask when react-dom 19.2 refuses an in-render unmount. Because the
+    ;; reporter wraps EVERY root render, this signal exists even for a compiled
+    ;; static/cell-less or entirely Activity-hidden root that owns no connected
+    ;; ViewCell — the population `reactive/teardown-root!` cannot otherwise
+    ;; observe. It lets an in-flight teardown recognise a SYNCHRONOUS host
+    ;; teardown (release the claim now) from a DEFERRED one (hold `:tearing-down`
+    ;; until settlement). Keyed to `incarnation` so a fired-later cleanup names
+    ;; the exact root generation.
+    (react/useLayoutEffect
+     (fn root-teardown-sentinel []
+       (fn cleanup []
+         (reactive/report-root-teardown! incarnation)
+         js/undefined))
+     #js []))
   (.-children props))
 
 (defn- render-attempt-element
@@ -1048,10 +1066,10 @@
   host teardown in flight — rf2-vxgfnd.182) is a no-op. The claim is released at
   the SETTLEMENT BOUNDARY through `teardown-root!`'s `on-settled` callback:
   synchronously for a synchronous host teardown, or in the settlement microtask
-  after a DEFERRED one clears the DOM. A THROWING host `.unmount` still frees the
-  exact root-id/container claim immediately in the `catch` (identity-guarded —
-  never evicts a newer claim), a second `unmount!*` is then a no-op, and the host
-  teardown error still propagates to the caller (rf2-vxgfnd.18 AC4, untouched).
+  after a DEFERRED one clears the DOM. A THROWING host `.unmount` QUARANTINES the
+  exact root-id/container/prefix claim `:tearing-down` (rf2-vxgfnd.275 — fail
+  closed: the container cannot be proven free), a second `unmount!*` is then a
+  no-op, and the host teardown error still propagates to the caller.
 
   OWNERSHIP FENCE through DEFERRED teardown (rf2-vxgfnd.182). react-dom 19.2
   refuses a synchronous `.unmount` from inside render/commit: it consumes the
@@ -1080,15 +1098,16 @@
   generation and releases its observation owners before the error escapes;
   a later same-id incarnation is a distinct token and remains untouched.
 
-  AFTERMATH of a THROWING host `.unmount` (rf2-vxgfnd.53, diagnostic
-  corrected by rf2-vxgfnd.84). The concrete case is React 18/19 refusing to
-  `.unmount` synchronously from inside a render pass (\"attempted to
-  synchronously unmount a root while React was already rendering\"): the
-  SYNCHRONOUS unmount did not complete, yet the `finally` releases the claim
-  (the AC4 total-teardown contract, KEPT — the root-id/container must not
-  strand), and a second `unmount!*` is a no-op (the membership guard). Two
-  facts, verified against the pinned react-dom 19.2.0 source, shape what that
-  aftermath actually IS:
+  AFTERMATH of a THROWING host `.unmount` (rf2-vxgfnd.53/.84; fail-closed by
+  rf2-vxgfnd.275). The concrete case is React 18/19 refusing to `.unmount`
+  synchronously from inside a render pass (\"attempted to synchronously unmount a
+  root while React was already rendering\"): the synchronous unmount did not
+  complete, so the claim is FAILED CLOSED — left QUARANTINED `:tearing-down`
+  (marked before the `.unmount`), NOT released, because the container cannot be
+  proven free and a released claim could be clobbered by React self-completing
+  the aborted teardown onto a container a successor now owns. A second `unmount!*`
+  is a no-op (the membership guard). Two facts, verified against the pinned
+  react-dom 19.2.0 source, shape what that aftermath actually IS:
 
     - the root handle is CONSUMED: `ReactDOMRoot.unmount()` nulls its
       `_internalRoot` BEFORE the flush that throws, so re-calling `.unmount`
@@ -1100,12 +1119,13 @@
       \"stuck host root\" is mostly moot, not the common outcome.
 
   So this is NOT silent, and now HONEST: in a dev build a throwing `.unmount`
-  emits a console diagnostic stating the handle is consumed (no manual escape)
-  and names direct container clearing as the host fallback. The adapter-wide
-  destroy path performs that fallback itself (including the pinned React root
-  marker) so the same container can be reused after re-init; an isolated public
-  `unmount!` still leaves host recovery to its caller. The diagnostic is
-  goog.DEBUG-gated (Closure-DCE'd from production — I-12). Returns nil."
+  emits a console diagnostic stating the handle is consumed (no manual escape),
+  that the id/container/prefix claim is quarantined rather than released, and
+  that recovery is a FRESH container. The adapter-wide destroy path performs a
+  container-clearing fallback itself (including the pinned React root marker) so
+  the same container can be reused after re-init; an isolated public `unmount!`
+  leaves host recovery to its caller. The diagnostic is goog.DEBUG-gated
+  (Closure-DCE'd from production — I-12). Returns nil."
   [^Root root]
   (when (and (some? root)
              (let [entry (get @live-roots (.-root-id root))]
@@ -1140,38 +1160,32 @@
                                (fn [] (.unmount (.-react-root root)))
                                (fn [] (release-root! (.-root-id root) root)))
       (catch :default e
-        ;; rf2-vxgfnd.53 / rf2-vxgfnd.84 / rf2-vxgfnd.18 AC4 — the SYNCHRONOUS host
-        ;; `.unmount` threw; release the claim IMMEDIATELY (untouched by .182: the
-        ;; throwing path keeps its immediate release — the fence is only for the
-        ;; NON-throwing deferred path).
-        (release-root! (.-root-id root) root)
-        ;; rf2-vxgfnd.53 / rf2-vxgfnd.84 — the synchronous host .unmount did NOT
-        ;; complete, yet the claim is released just above (AC4) and a second
-        ;; `unmount!*` is a no-op (the membership guard). Make the aftermath
-        ;; non-silent AND honest: verified against pinned react-dom 19.2.0,
-        ;; ReactDOMRoot.unmount nulls its internal root BEFORE the flush that
-        ;; threw, so the handle is CONSUMED — re-calling .unmount on it is a
-        ;; silent no-op, NOT a manual escape (the pre-.84 diagnostic recommended
-        ;; that no-op). React usually defers + self-completes the teardown work
-        ;; scheduled pre-throw, so a stuck tree is the exception; when one does
-        ;; strand, the only real recovery is clearing the container (innerHTML) or
-        ;; a fresh container. Dev-only (goog.DEBUG-stripped in production). Then
-        ;; rethrow the ORIGINAL host error so it still propagates (AC4).
+        ;; rf2-vxgfnd.275 — the host `.unmount` THREW: React consumed the Root
+        ;; handle but its teardown flush aborted, and whether the container is
+        ;; actually settled is UNKNOWABLE in-process. FAIL CLOSED — do NOT
+        ;; release. The claim stays QUARANTINED `:tearing-down` (marked above,
+        ;; before the `.unmount`), so a same-id / same-container / same-prefix
+        ;; reuse is rejected (`check-root-claim!`) and the honest recovery is a
+        ;; FRESH container. This REVERSES the earlier immediate-release
+        ;; (rf2-vxgfnd.18/.84): a claim released here could be clobbered by React
+        ;; self-completing the aborted teardown onto a container a successor now
+        ;; owns. The exact generation is already force-dead by `teardown-root!`.
+        ;; A second `unmount!*` is a no-op (the :tearing-down guard); the primary
+        ;; host error still propagates. Dev-only diagnostic (goog.DEBUG-stripped).
         (when (and ^boolean js/goog.DEBUG (exists? js/console))
           (.warn js/console
                  (str "[re-frame.ui] host .unmount threw while tearing down root "
                       (pr-str (.-root-id root)) " — React did NOT complete the "
-                      "synchronous unmount, but the root handle is now CONSUMED: "
+                      "synchronous unmount, and the root handle is now CONSUMED: "
                       "ReactDOMRoot.unmount nulls its internal root BEFORE the "
                       "flush that threw, so re-calling .unmount on this handle is "
                       "a silent no-op — there is no manual escape through it. "
-                      "React usually defers and self-completes the teardown work "
-                      "scheduled before the throw, so the tree is typically "
-                      "removed regardless; the claim is released per the "
-                      "total-teardown contract (a second unmount! is a no-op). If "
-                      "a container is genuinely left with a stuck tree, clear it "
-                      "directly (set its innerHTML to \"\") or mount into a FRESH "
-                      "container — never reuse the consumed handle.")))
+                      "Because the container cannot be proven free, this root's "
+                      "id/container/identifierPrefix claim is QUARANTINED "
+                      "(tearing-down) rather than released, so a reused id or "
+                      "container fails loud instead of racing React's aborted "
+                      "teardown. Mount into a FRESH container to recover; a "
+                      "second unmount! is a no-op.")))
         (throw e))))
   nil)
 

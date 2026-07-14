@@ -49,6 +49,9 @@
                                 container root)
     root))
 
+(defn- thrown-id [f]
+  (try (f) nil (catch cljs.core/ExceptionInfo e (:rf.error/id (ex-data e)))))
+
 (deftest unmount-drives-the-cell-to-dead-and-releases-the-claim
   (rf/reg-sub :rtw/a (fn [db _] (:a db)))
   (live-frame/make-frame {:id :rtw/frame})
@@ -73,10 +76,14 @@
     (testing "the live-root claim is released (contract §7)"
       (is (= #{} (client/live-root-ids))))))
 
-(deftest a-throwing-host-unmount-still-releases-the-claim-and-rethrows
-  ;; React can consume its Root handle before a synchronous unmount flush
-  ;; throws. The public claim is released and the exact incarnation's framework
-  ;; ownership is force-dead before the original host error propagates.
+(deftest a-throwing-host-unmount-quarantines-the-claim-and-rethrows
+  ;; rf2-vxgfnd.275 — the host-throws settlement fixture. React can consume its
+  ;; Root handle before a synchronous unmount flush throws; whether the container
+  ;; is actually free is then UNKNOWABLE in-process. FAIL CLOSED: the exact
+  ;; id/container/prefix claim is QUARANTINED `:tearing-down` (NOT released — the
+  ;; pre-.275 behaviour), so a reused id or container fails loud instead of racing
+  ;; React self-completing the aborted teardown. The primary host error still
+  ;; propagates and the exact generation is force-dead.
   (rf/reg-sub :rtw/a (fn [db _] (:a db)))
   (live-frame/make-frame {:id :rtw/frame})
   (frame/replace-app-db! :rtw/frame {:a 1})
@@ -89,8 +96,15 @@
                     (try (client/unmount!* root) nil
                          (catch :default e e)))
         "the original host error propagates, never masked")
-    (testing "the claim is released despite the throw (AC4)"
-      (is (= #{} (client/live-root-ids))))
+    (testing "the claim is QUARANTINED despite the throw — fail closed (rf2-vxgfnd.275)"
+      (is (contains? (client/live-root-ids) :rtw/root)
+          "the id/container claim is NOT released — the container is not proven free")
+      (is (= :rf.error/duplicate-root-id
+             (thrown-id #(client/check-root-claim!
+                          'test {:root-id :rtw/root :provenance :authored}
+                          (:container (client/live-root-entry :rtw/root)))))
+          "a reused root-id fails loud — the honest recovery is a fresh container")
+      (is (nil? (client/unmount!* root)) "a second unmount! is a no-op (tearing-down guard)"))
     (testing "the consumed root generation retains no framework owner"
       (is (= :dead (reactive/lifecycle cell)))
       (is (zero? (reactive/root-cell-count inc))))))
@@ -127,9 +141,6 @@
 ;; synchronously on the JVM (`reactive-root-teardown-cljs-test`) and end-to-end
 ;; under real react-dom in `root-mount-dom-cljs-test`.
 ;; ===========================================================================
-
-(defn- thrown-id [f]
-  (try (f) nil (catch cljs.core/ExceptionInfo e (:rf.error/id (ex-data e)))))
 
 (deftest deferred-host-teardown-fences-the-claim-not-released-immediately
   (rf/reg-sub :rtw/a (fn [db _] (:a db)))
@@ -187,3 +198,38 @@
     (is (= 1 @calls) "first unmount drove the host handle once")
     (is (nil? (client/unmount!* root)) "a second unmount during deferral is a no-op")
     (is (= 1 @calls) "the consumed host handle was not re-driven")))
+
+;; ===========================================================================
+;; rf2-vxgfnd.275 — a DEFERRED teardown of a CELL-LESS root still fences
+;;
+;; A compiled static/cell-less root owns NO ViewCell. Pre-fix, `unmount!*` drove
+;; teardown-root! whose only deferral signal was residual cell-connectivity, so a
+;; cell-less root — nothing to observe — was always classified SYNCHRONOUS and the
+;; claim released immediately, even when react-dom deferred the actual teardown.
+;; The root-level settlement law fences it: the fake host `.unmount` here DEFERS
+;; (returns without firing the reporter sentinel), and no cell exists, so the
+;; claim must be held `:tearing-down` past the window.
+;; ===========================================================================
+
+(deftest deferred-cell-less-teardown-fences-the-claim-not-released-immediately
+  (live-frame/make-frame {:id :rtw/frame})
+  (frame/replace-app-db! :rtw/frame {:a 1})
+  ;; NO cell is attached to this root — it is cell-less. The fake host `.unmount`
+  ;; DEFERS: it returns normally, firing no cleanup and no reporter sentinel.
+  (let [root (register! :rtw/root (fn [] nil))
+        c    (:container (client/live-root-entry :rtw/root))]
+    (is (zero? (reactive/root-cell-count
+                (:root-incarnation (client/live-root-entry :rtw/root))))
+        "precondition: a cell-less root — no ViewCell to observe")
+    (is (nil? (client/unmount!* root)) "unmount!* returns nil (host .unmount did not throw)")
+    (testing "the cell-less deferral is FENCED — the claim is held :tearing-down"
+      (is (contains? (client/live-root-ids) :rtw/root)
+          "the claim is NOT released immediately though the root owns no cell")
+      (is (= :rf.error/duplicate-root-id
+             (thrown-id #(client/check-root-claim!
+                          'test {:root-id :rtw/root :provenance :authored} c)))
+          "a reentrant mount on the exact root-id is rejected while teardown is deferred")
+      (is (= :rf.error/root-container-in-use
+             (thrown-id #(client/check-root-claim!
+                          'test {:root-id :rtw/other :provenance :authored} c)))
+          "a different root-id targeting the fenced container is rejected too"))))
