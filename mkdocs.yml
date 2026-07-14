@@ -216,6 +216,7 @@ nav:
   - API:
     - api/README.md
     - "re-frame.core": api/re-frame.core.md
+    - "re-frame.ui": api/re-frame.ui.md
     - "re-frame.schemas": api/re-frame.schemas.md
     - "re-frame.flows": api/re-frame.flows.md
     - "re-frame.http": api/re-frame.http.md

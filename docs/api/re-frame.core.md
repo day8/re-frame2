@@ -481,28 +481,41 @@ The view layer is **substrate-agnostic**. The shared dataflow — frames, subscr
   ```
 - **Description**: **Not an app-facing surface** — the internal constructor behind `capture-frame` and the `reg-view` injection sugar. It is a public Var only so the `reg-view` macro's emitted body can reference it fully-qualified. Call `capture-frame` instead.
 
-### `with-frame` / `with-new-frame`
+### `with-frame`
 
-- **Kind**: macros (a sibling pair)
-- **Signatures**:
+- **Kind**: macro
+- **Signature**:
   ```clojure
-  (with-frame :keyword body)        ;; pin *current-frame* to an existing frame-id
-  (with-new-frame [sym expr] body)  ;; eval expr, bind id to sym, run, destroy on exit
+  (with-frame :keyword body)
   ```
-- **Description**: The two **lexical** (non-React) frame-scoping macros — for regions that aren't a view tree (tests, the REPL, SSR). Each rejects the other's argument shape at compile time.
-  - `with-frame` pins `*current-frame*` to an **existing** frame-id for the dynamic extent of `body`, creating and destroying nothing. The lexical counterpart to the `rf/frame-provider` `{:frame …}` SCOPE shape.
-  - `with-new-frame` evaluates `expr` and binds the resulting frame target to `sym` — typically the live frame value from `make-frame` (a frame value or a keyword id is accepted downstream). It runs `body` in that frame's dynamic context, then **destroys the frame on exit**. The throwaway-frame form for one-off harnesses.
+- **Description**: Lexical (non-React) frame scoping for regions that are not a view
+  tree (tests, the REPL, SSR). Pins `*current-frame*` to an **existing** frame-id
+  for the dynamic extent of `body`, creating and destroying nothing. The lexical
+  counterpart to `rf/frame-provider` `{:frame …}` SCOPE. Rejects the
+  `with-new-frame` argument shape at compile time.
 - **Example**:
   ```clojure
-  ;; Pin form — bind *current-frame* to an existing id for the body (most common)
   (rf/with-frame :todo
     (rf/dispatch-sync [:todo/add {:text "milk"}]))
+  ```
 
-  ;; Eval-bind-run-destroy — a throwaway frame for one test, torn down on exit.
+### `with-new-frame`
+
+- **Kind**: macro
+- **Signature**:
+  ```clojure
+  (with-new-frame [sym expr] body)
+  ```
+- **Description**: Evaluates `expr` and binds the resulting frame target to `sym`
+  (typically the live frame from `make-frame`). Runs `body` in that frame's dynamic
+  context, then **destroys the frame on exit**. Throwaway-frame form for one-off
+  harnesses. Rejects the `with-frame` argument shape at compile time.
+- **Example**:
+  ```clojure
   (rf/with-new-frame [f (rf/make-frame {:images [todo-image]})]
-    (rf/dispatch-sync [:rf/set-db {:todos []}])         ;; seed via a setup dispatch
+    (rf/dispatch-sync [:rf/set-db {:todos []}])
     (rf/dispatch-sync [:todo/add {:text "milk"}])
-    (is (= 1 (count (:todos (rf/app-db-value f))))))    ;; frame destroyed on exit
+    (is (= 1 (count (:todos (rf/app-db-value f))))))
   ```
 
 ## Effects and interceptors

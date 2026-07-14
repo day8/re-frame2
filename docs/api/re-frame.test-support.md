@@ -82,6 +82,90 @@ The fixture primitives follow one pattern: snapshot the registrar before the tes
     (ts/make-reset-runtime-fixture {:adapter plain-atom/adapter :async? true}))
   ```
 
+## Bundle co-load hygiene
+
+CLJS node runners often load **every** test namespace into one bundle before any
+test runs. Two example apps that both register the same per-app id (for example
+`:rf.route/not-found`, or shared event vocabulary) leave duplicate provenance rows
+in the shared source store; default-image assembly then fails loud with
+`:rf.error/image-duplicate-id`. The sequester / reinstate pair removes a suite's
+sibling registrations for the duration of its tests.
+
+Call sequester at **namespace load** (right after requiring the app ns), and
+reinstate from a per-test `:init-fn` (or equivalent) when the suite must see its
+own registrations again.
+
+### `sequester-app-registration!`
+
+- **Kind**: function
+- **Signature**:
+  ```clojure
+  (sequester-app-registration! kind id provenance-ns) → descriptor | nil
+  ```
+- **Description**: Remove **one** app namespace's registration row for
+  `(kind, id)` from the live registrar **and** the provenance source store.
+  Returns the captured source-store descriptor, or `nil` when absent. Reinstate
+  with `reinstate-app-registration!`.
+- **Example**:
+  ```clojure
+  ;; At ns load, after requiring the app under test:
+  (defonce !not-found
+    (ts/sequester-app-registration! :event :rf.route/not-found
+                                    "my.app.routes"))
+  ```
+
+### `reinstate-app-registration!`
+
+- **Kind**: function
+- **Signature**:
+  ```clojure
+  (reinstate-app-registration! descriptor) → nil
+  ```
+- **Description**: Reinstate a descriptor captured by
+  `sequester-app-registration!` through `registrar/register!` (registrar and
+  source store in lockstep). No-op on `nil`.
+- **Example**:
+  ```clojure
+  (ts/reinstate-app-registration! !not-found)
+  ```
+
+### `sequester-app-namespaces!`
+
+- **Kind**: function
+- **Signature**:
+  ```clojure
+  (sequester-app-namespaces! ns-prefix) → captured-row-count
+  ```
+- **Description**: Namespace-tree form: remove **every** source-store row whose
+  provenance namespace starts with `ns-prefix` (and the matching registrar ids when
+  the current registrar row belongs to that prefix). Capture is **memoized** per
+  prefix; scrubbing runs on every call so merge-form restores cannot reintroduce
+  sibling rows. Returns the captured row count. Reinstate with
+  `reinstate-app-namespaces!`.
+- **Example**:
+  ```clojure
+  ;; At ns load — drop the co-loaded sibling app's registrations:
+  (ts/sequester-app-namespaces! "realworld.uix")
+  ```
+
+### `reinstate-app-namespaces!`
+
+- **Kind**: function
+- **Signature**:
+  ```clojure
+  (reinstate-app-namespaces! ns-prefix) → nil
+  ```
+- **Description**: Reinstate every row `sequester-app-namespaces!` captured for
+  `ns-prefix` through `registrar/register!`. Call from a suite's per-test
+  `init-fn` when that suite owns the prefix.
+- **Example**:
+  ```clojure
+  (use-fixtures :each
+    (ts/make-reset-runtime-fixture
+     {:adapter plain-atom/adapter
+      :init-fn #(ts/reinstate-app-namespaces! "realworld.reagent")}))
+  ```
+
 ## Test-flavoured helpers
 
 To fire several events in order, call `rf/dispatch-sync` per event — each drains to fixed point before the next, so observable state between calls reflects committed effects:
