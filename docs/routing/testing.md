@@ -1,6 +1,12 @@
 # Testing routes
 
-Routing is a registration, an event, and a subscription — so it tests the way each of those tests: pure functions where the logic is pure, a dispatch into a test [frame](../core/glossary.md#frame) where the wiring matters. No browser anywhere. A test frame never declares `:url-bound? true`, so nothing here touches an address bar or calls `pushState` — the route slice is just state you assert on.
+You can [author](tutorial.md) and [understand](concepts.md) routing. This page is how
+you **prove** it.
+
+Routing is a registration, an event, and a subscription — pure codec where the logic
+is pure, dispatch into a test [frame](../core/glossary.md#frame) where the wiring
+matters. No browser. A test frame never sets `:url-bound? true`, so nothing here
+touches the address bar — the route slice is state you assert on.
 
 > **The URL codec is a pure function you call; a navigation is a dispatch you drive; the slice is state you read.**
 
@@ -91,13 +97,18 @@ The `:can-leave` flow is deliberately testable without a browser: the guard is a
     (is (some? @(rf/subscribe [:rf/pending-navigation])))
     (is (= :app/article-editor @(rf/subscribe [:rf.route/id])))
 
-    ;; the user chooses: continue releases the parked navigation
-    (rf/dispatch-sync [:rf.route/continue])
+    ;; the user chooses: continue takes the pending-nav id
+    (rf/dispatch-sync [:rf.route/continue
+                       (:id @(rf/subscribe [:rf/pending-navigation]))])
     (is (nil? @(rf/subscribe [:rf/pending-navigation])))
     (is (= :app/home @(rf/subscribe [:rf.route/id])))))
 ```
 
-Dispatch `:rf.route/cancel` instead and the pending slot clears with the slice unmoved — one more test, same shape. A `{:bypass-guards? #{:leave}}` navigate opt skips the park entirely; if a "save then leave" button relies on it, pin that too. The `:can-enter` mirror tests the same way — a guarded target, a signed-out sub, assert the pending slot fills with `:direction :enter`, then flip the sub and `:rf.route/continue` (which re-runs `:can-enter`).
+Dispatch `[:rf.route/cancel <id>]` instead and the pending slot clears with the slice
+unmoved — one more test, same shape. A `{:bypass-guards? #{:leave}}` navigate opt
+skips the park entirely. The `:can-enter` mirror tests the same way — guarded target,
+signed-out sub, assert pending fills with `:direction :enter`, then flip the sub and
+`[:rf.route/continue <id>]` (re-runs `:can-enter`).
 
 ## What lives elsewhere
 

@@ -287,18 +287,18 @@ nav:
     - "Examples": async/examples.md
 
   - Routing:
-    # Tutorial first, then the model, then task recipes; the React Router
-    # translation sits last, like XState in Machines and TanStack in Resources.
+    # Tutorial first, then the model, then task recipes; React Router last.
     - routing/index.md
     - "Tutorial: build a routed app": routing/tutorial.md
-    - "Concepts": routing/concepts.md
+    - "The model": routing/concepts.md
     - "How-to":
       - "Guard against unsaved changes": routing/how-to/guard-unsaved-changes.md
       - "Require sign-in on a route": routing/how-to/require-sign-in-on-a-route.md
-    - "Testing": routing/testing.md
-    - "Examples": routing/examples.md
-    - "Glossary": routing/glossary.md
+    - "Operating":
+      - "Testing": routing/testing.md
+      - "Examples": routing/examples.md
     - "Coming from React Router": routing/coming-from-react-router.md
+    - "Glossary": routing/glossary.md
 
   - SSR:
     # Tutorial first, then the model, then production growth pages;

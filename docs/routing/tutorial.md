@@ -1,10 +1,12 @@
 # Tutorial: build a routed app
 
-The fastest way to understand re-frame2 routing is to build something small and watch each piece arrive on its own. We'll make a three-page app — a **home** page, a **list of articles**, and a **detail** page for one article — then add the touches that make it real: page data, a 404, the Back button, and a shared layout.
+Build a three-page app — **home**, **articles list**, **article detail** — then add
+loaders, a 404, the Back button, and a shared layout. One idea the whole way: the
+URL is application state (read via a sub, change via dispatch).
 
-You'll meet every part of routing you reach for daily, one at a time. This page assumes you've done the [introduction](../core/introduction.md), [events](../core/events.md), and [app-db](../core/app-db.md) — you know what an [event](../core/events.md), a [subscription](../core/subscriptions.md), and a [view](../core/views.md) are. If you'd rather see the whole model at once, read [Concepts](concepts.md); if you're arriving from React Router, [the mapping](coming-from-react-router.md) may be the faster door.
-
-> **One idea to carry through.** The URL is just application state. You *read* the active route through a subscription and *change* it by dispatching an event. There's no router object to hold and no route context to thread down your tree. Keep that in mind and every step below is a small variation on something you already know.
+**Prerequisites.** [Core introduction](../core/introduction.md) (events, app-db, views).
+Vocabulary after this walk-through: [The model](concepts.md). From React Router:
+[the mapping](coming-from-react-router.md).
 
 ## Step 0 — turn routing on
 
@@ -106,7 +108,7 @@ Link to it by passing `:params`:
 
 **What you see:** clicking the link lands on `/articles/intro`, and the page reads **Article intro**. (Add `:app/article [article-page]` to the root view's `case` — each new page gets its row.)
 
-> **Path params vs query params.** `:params` are the `/segments/` of the path. Query-string values (`?page=2`) are a *separate* map you declare with `:query` and read with `@(subscribe [:rf.route/query])` — the two never merge into one bag. [Concepts → Move 1](concepts.md#move-1-a-route-is-a-registry-entry) covers `:query`, defaults, and carrying global state like `?theme=dark` across pages.
+> **Path params vs query params.** `:params` are the `/segments/` of the path. Query-string values (`?page=2`) are a *separate* map you declare with `:query` and read with `@(subscribe [:rf.route/query])` — the two never merge into one bag. [The model → Move 1](concepts.md#move-1-a-route-is-a-registry-entry) covers `:query`, defaults, and carrying global state like `?theme=dark` across pages.
 
 ## Step 4 — give a page its data
 
@@ -148,14 +150,14 @@ There's no special "loader data" hook, because the loader just wrote to [app-db]
 
 **What you see:** click through to `/articles/intro` and the title appears. Navigate to another article and the loader fires again with the new id; re-navigate to the *same* one and it doesn't. Open [Xray](../xray/index.md) and you'll see exactly those dispatches on the wire.
 
-> **This is the loader — as data.** Because `:on-match` is a vector of event vectors rather than a function, you can read it, test it, and draw a route's data-dependency graph from it without running it: `(rf/handler-meta :route :app/article)` hands you the list. The same events run on the server during [SSR](../ssr/concepts.md) — there's no separate server loader to keep in sync. For server *state* (cached, deduplicated fetches with a built-in click-away race fix), declare `:resources` instead — see [Concepts → Loaders](concepts.md#loaders-declaring-a-pages-data).
+> **This is the loader — as data.** Because `:on-match` is a vector of event vectors rather than a function, you can read it, test it, and draw a route's data-dependency graph from it without running it: `(rf/handler-meta :route :app/article)` hands you the list. The same events run on the server during [SSR](../ssr/concepts.md) — there's no separate server loader to keep in sync. For server *state* (cached, deduplicated fetches with a built-in click-away race fix), declare `:resources` instead — see [The model → Loaders](concepts.md#loaders-declaring-a-pages-data).
 
 ## Step 5 — when nothing matches: the 404
 
 When no route matches a URL, the runtime activates a reserved id, `:rf.route/not-found`, with the missed URL dropped into its params. You register it like any other route — you own the design:
 
 ```clojure
-(rf/reg-route :rf.route/not-found {} "/404")
+(rf/reg-route :rf.route/not-found {} "/_404")
 
 (rf/reg-view not-found-page []
   (let [url (:url @(subscribe [:rf.route/params]))]
@@ -176,7 +178,7 @@ The "Nothing here yet" placeholder arm is gone — and that's the point. Now tha
 
 **What you see:** visit `/nonsense` and your own 404 renders, with `/nonsense` shown back to the reader.
 
-> Register it. Skip it and unmatched URLs fall to a bare built-in placeholder (plus a warning) — something renders, but not your design. The not-found params also carry a `:reason` so you can tell a plain miss from a malformed URL from a failed schema; see [Concepts → Not found](concepts.md#not-found-is-a-route-you-register).
+> Register it. Skip it and unmatched URLs fall to a bare built-in placeholder (plus a warning) — something renders, but not your design. The not-found params also carry a `:reason` so you can tell a plain miss from a malformed URL from a failed schema; see [The model → Not found](concepts.md#not-found-is-a-route-you-register).
 
 ## Step 6 — the Back button and deep links
 
@@ -199,7 +201,7 @@ Declaring it also does two jobs automatically, the moment the frame is created �
 
 > **One mount shape, two spellings.** `frame-root {:id …}` *creates* the frame if it doesn't exist — handy for a small app that boots everything in one spot. Elsewhere you'll see the two-step spelling: `make-frame` first, then `frame-provider {:frame …}` to scope it. Same frame, same result; the second form just makes the construction explicit.
 
-> **The inversion.** In most routers the URL is the source of truth and your app reacts to it. Here your frame's state is the truth and the URL is a *print-out* of it — which is why [time-travel](../xray/index.md) rewinds the URL for free. [Concepts → The browser is just another event source](concepts.md#the-browser-is-just-another-event-source) goes deeper.
+> **The inversion.** In most routers the URL is the source of truth and your app reacts to it. Here your frame's state is the truth and the URL is a *print-out* of it — which is why [time-travel](../xray/index.md) rewinds the URL for free. [The model → The browser is just another event source](concepts.md#the-browser-is-just-another-event-source) goes deeper.
 
 ## Step 7 — a shared layout
 
@@ -252,4 +254,19 @@ One wrap, from the inside out. A deeper chain just wraps more times.
 
 **What you see:** on `/articles/intro`, the article renders inside the `← All articles` section nav, under the site header — and every article detail page shares that frame with no copy-paste. Plain `/articles` (no parent above it) shows the bare list; `/` shows the home page. Note the split: truly *global* chrome (the `My Site` header) is just rendered in the root view — you only reach for the chain when a shell wraps a *subtree*.
 
-> **Coming from React Router?** This is the job `<Outlet/>` does there. The trade is deliberate: instead of a routing-specific render slot, you compose plain Clojure with the `case`/`reduce` you'd write for any conditional view. It's the one place routing asks a little more of you — and the only routing-specific piece is the one `:rf.route/chain` read. [Concepts → Nested layouts](concepts.md#nested-layouts) has the reference version.
+> **Coming from React Router?** This is the job `<Outlet/>` does there. The trade is deliberate: instead of a routing-specific render slot, you compose plain Clojure with the `case`/`reduce` you'd write for any conditional view. It's the one place routing asks a little more of you — and the only routing-specific piece is the one `:rf.route/chain` read. [The model → Nested layouts](concepts.md#nested-layouts) has the reference version.
+
+## The complete shape
+
+| Piece | Surface | You supply |
+|---|---|---|
+| Artefact | `(:require [re-frame.routing])` | Once at boot |
+| Table | `reg-route` id / metadata / **path** | Including `:rf.route/not-found` |
+| Change | `[:rf.route/navigate …]` or `route-link` | Params 2nd, opts 3rd |
+| Read | `[:rf.route/id]` / `params` / `query` / … | Ordinary subs |
+| Browser | `:url-bound? true` on the frame | One owner of the address bar |
+| Data | `:on-match` or `:resources` | Loaders as data |
+
+Full copy-paste table + mount: [The model → A complete table + root](concepts.md#a-complete-table--root).
+Growth: [unsaved changes](how-to/guard-unsaved-changes.md),
+[sign-in](how-to/require-sign-in-on-a-route.md), [testing](testing.md).

@@ -1,14 +1,27 @@
 # Require sign-in on a route
 
-Some pages — a settings screen, an admin dashboard — should open only for signed-in users. In re-frame2 there's no special "protected route" primitive: a route is [queryable data](../concepts.md#routes-are-queryable-data), so you *tag* the routes that need a session and let an ordinary [interceptor](../../core/interceptors.md) read the tag and redirect. Data plus a step that reads it — no router machinery.
+You know routes are [queryable data](../concepts.md#routes-are-queryable-data). This
+page is one job: **one interceptor that bounces logged-out readers** off every
+route tagged `:requires-auth`.
 
-This page is the **routing half** of auth: tag a route, gate it, bounce the reader to login. The surrounding system — the login form, the token that requests carry, logout — is [Add authentication](../../core/how-to/add-auth.md), which embeds this same guard in the full picture. Start here for the route mechanics; go there for the whole flow.
+**Prefer `:can-enter` first.** A single protected page should declare
+`{:can-enter [:auth/signed-in?]}` and handle `:rf.route/entry-blocked` — that is
+what [realworld_http](../../../examples/real-apps/realworld_http) does, and it covers
+all three entry doors without an interceptor. Use **this recipe** when one policy
+must span *many* routes uniformly (a whole admin section, a maintenance lockout).
 
-> **The one mistake to avoid.** There are *three* ways into a route, and a guard that gates only one fails **open** on the most common path — a logged-out reader who types the URL or reloads the page walks straight in. Steps 2–3 are about gating all three.
+Full auth system (form, token, logout): [Add authentication](../../core/how-to/add-auth.md).
+
+!!! warning "Three doors — gate all of them"
+
+    Navigate, `route-link`, and URL-bar/reload/Back are three events. Guard only
+    `:rf.route/navigate` and a logged-out paste of `/settings` walks in. Steps 2–3
+    normalise all three. (`:can-enter` already does that for free.)
 
 ## 1. Tag the protected routes
 
-Mark the routes that need a session with a `:tag`. Tags are free-form data — the framework attaches no meaning to `:requires-auth`; *you* do, in the guard:
+Mark routes that need a session with **`:tags`**. Free-form — the framework attaches
+no meaning to `:requires-auth`; *you* do, in the guard:
 
 ```clojure
 (rf/reg-route :app/login    {} "/login")
@@ -16,7 +29,8 @@ Mark the routes that need a session with a `:tag`. Tags are free-form data — t
 (rf/reg-route :app/admin    {:tags #{:requires-auth}} "/admin")
 ```
 
-The tag is now readable off the route table from anywhere: `(rf/handler-meta :route :app/settings)` returns the metadata, `:tags` and all. That's the whole "which routes are protected?" query — no registry to hand-maintain.
+Readable anywhere: `(rf/handler-meta :route :app/settings)` → metadata including
+`:tags`.
 
 ## 2. Know the three navigation entry points
 
@@ -31,24 +45,31 @@ A reader reaches a route three different ways, each a different event:
 Guard `:rf.route/navigate` alone and the third row defeats you: a logged-out reader pasting `/settings` into the address bar, or reloading a protected page, never goes through `navigate`. So the guard normalises **all three** to one "where are we headed?" target, then decides once:
 
 ```clojure
-;; Adapted from examples/real-apps/realworld_http/routing.cljs
+(:require [re-frame.routing :as routing])   ;; match-url lives here, not on rf/
+
 (defn- nav-target
-  "Normalise any navigation event to {:id <route-id> :params <map>}, or nil for
-   a non-navigation event (the guard then short-circuits)."
+  "Normalise any navigation event to {:id <route-id> :params <map>}, or nil."
   [[ev-id a b]]
   (case ev-id
-    :rf.route/navigate          {:id a :params (or b {})}
-    :rf.route/url-requested           (let [{:keys [to params url]} a]
-                                  (cond
-                                    to  {:id to :params (or params {})}
-                                    url (when-let [{:keys [route-id params]} (routing/match-url url)]
-                                          {:id route-id :params (or params {})})))
-    :rf.route/handle-url-change (when-let [{:keys [route-id params]} (routing/match-url a)]
-                                  {:id route-id :params (or params {})})
+    :rf.route/navigate
+    {:id a :params (or b {})}
+
+    :rf.route/url-requested
+    (let [{:keys [to params url]} a]
+      (cond
+        to  {:id to :params (or params {})}
+        url (when-let [{:keys [route-id params]} (routing/match-url url)]
+              {:id route-id :params (or params {})})))
+
+    :rf.route/handle-url-change
+    (when-let [{:keys [route-id params]} (routing/match-url a)]
+      {:id route-id :params (or params {})})
+
     nil))
 ```
 
-`routing/match-url` is pure (it lives in `re-frame.routing`, not on the `rf/` facade — add `[re-frame.routing :as routing]` to your ns) — it turns a URL string into a match map, or `nil` when nothing resolves, so a garbage URL short-circuits the guard rather than crashing it.
+`match-url` is pure: URL string → match map, or `nil` when nothing resolves (garbage
+URLs short-circuit the guard rather than crash it).
 
 ## 3. Redirect with skip-and-dispatch
 
