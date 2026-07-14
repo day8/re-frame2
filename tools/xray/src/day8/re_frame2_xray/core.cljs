@@ -51,7 +51,13 @@
             [day8.re-frame2-xray.mount :as mount]
             [day8.re-frame2-xray.registry :as registry]
             [day8.re-frame2-xray.settings.effects :as settings-effects]
-            [day8.re-frame2-xray.theme.global-styles :as global-styles]))
+            [day8.re-frame2-xray.theme.global-styles :as global-styles]
+            ;; The native ViewCell invalidation-evidence consumer
+            ;; (rf2-vxgfnd.146). `init!` claims the projection under Xray's
+            ;; stable owner identity, exactly as the preload boot block does —
+            ;; load-inert (this require runs no side-effects; only `init!`
+            ;; invokes `install!`), keeping manual startup inert until `init!`.
+            [day8.re-frame2-xray.viewcell-evidence :as viewcell-evidence]))
 
 ;; ---- mount entry points (re-exports from mount.cljs) --------------------
 ;;
@@ -154,6 +160,15 @@
    (registry/register-xray-handlers!)
    (install/register-trace-collector!)
    (install/register-epoch-collector!)
+   ;; Claim the re-frame.ui ViewCell invalidation-evidence projection under
+   ;; Xray's stable owner identity (rf2-vxgfnd.146/.238). The manual `init!`
+   ;; path MUST wire this exactly as the preload boot block does — otherwise
+   ;; a clean process that requires core and calls `init!` (the supported
+   ;; alternative to `:devtools/preloads`) enables Xray WITHOUT ViewCell
+   ;; evidence. Idempotent: a second `init!` / shadow `:after-load` is the
+   ;; evidence tier's same-owner re-arm (accumulated evidence survives); a
+   ;; foreign owner is never clobbered (install rejected, Xray reads nothing).
+   (viewcell-evidence/install!)
    ;; The palette and Settings effects resolve mount operations through
    ;; these globals to avoid a mount/shell require cycle. Manual and
    ;; preload startup therefore install the same exports.

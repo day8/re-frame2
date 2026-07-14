@@ -678,23 +678,33 @@ invalidation-evidence accumulators the reactive scheduler's evidence-sink
 seam was built for). The Views panel renders it as the **VIEWCELL
 INVALIDATION EVIDENCE** section below the teardown lists.
 
-**Ownership + lifecycle.** The preload boot block claims the projection
-under the stable owner identity `:rf.xray/viewcell-evidence`
-(`day8.re-frame2-xray.viewcell-evidence/install!`). A shadow-cljs
-`:after-load` re-runs the same call as the evidence tier's idempotent
+**Ownership + lifecycle.** Two supported paths claim the projection under
+the stable owner identity `:rf.xray/viewcell-evidence`
+(`day8.re-frame2-xray.viewcell-evidence/install!`): the preload boot block,
+and the manual `day8.re-frame2-xray.core/init!` path (the alternative to
+`:devtools/preloads`). Both wire the identical install (rf2-vxgfnd.238), so
+a host that requires `core` and calls `init!` is never left with Xray
+enabled but evidence-blind. A shadow-cljs `:after-load` (or a second
+`init!`) re-runs the same call as the evidence tier's idempotent
 same-owner re-arm — accumulated evidence survives (the HMR path). A
 foreign owner already holding the projection is NEVER clobbered: Xray's
-install is rejected and the section simply projects zero rows.
-`viewcell-evidence/uninstall!` releases exactly Xray's registration —
-generation-fenced downstream (rf2-vxgfnd.147), so an in-flight delivery
-cannot repopulate the released projection and a stale release cannot
-touch a successor owner. A successful install mirrors onto the
-`__day8_re_frame2_xray_viewcell_evidence` global sentinel (the browser
+install is rejected. `viewcell-evidence/uninstall!` releases exactly
+Xray's registration — generation-fenced downstream (rf2-vxgfnd.147), so an
+in-flight delivery cannot repopulate the released projection and a stale
+release cannot touch a successor owner. A successful install mirrors onto
+the `__day8_re_frame2_xray_viewcell_evidence` global sentinel (the browser
 feature-gate's wiring probe; withdrawn on uninstall).
 
-**Query path.** `:rf.xray/viewcell-evidence` (registered by
-`reactive-panel-subs/install!`) → `viewcell-evidence/rows`: one row per
-live ViewCell instance in stable `:cell-id` order —
+**Query path — ownership-fenced.** `:rf.xray/viewcell-evidence` (registered
+by `reactive-panel-subs/install!`) → `viewcell-evidence/rows`. Every read
+is gated on the exact ownership token (rf2-vxgfnd.238): rows — and
+therefore the sub, the panel section, and any derived Xray query — observe
+evidence ONLY while Xray is the installed owner. The evidence tier's
+`projection` read exposes the shared slot's entries REGARDLESS of owner, so
+an ownership rejection (a foreign tool installed first) must — and does —
+mean zero observation through Xray, never the foreign owner's rows. When
+Xray owns the projection, one row per live ViewCell instance in stable
+`:cell-id` order —
 
     {:cell-id ord :view-id vid :root-id rid|nil
      :first-epoch e0 :latest-epoch eN :count n :batches b
