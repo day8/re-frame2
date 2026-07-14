@@ -294,23 +294,41 @@
   settled record's `:frame-state-after`; the router's live value is only the
   fallback when no record has settled. The snapshots are equal because the
   halted event made no write. Residual capture is cleared before commit, and
-  `committed-at` comes from the halted event's already-stamped envelope."
-  [frame-id frame-state-before frame-state-after committed-at outcome halt-reason trigger-event]
+  `committed-at` comes from the halted event's already-stamped envelope.
+
+  rf2-vxgfnd.154 — EXACT-INCARNATION halt commit. `exact-owner-token` is A's
+  event-owner token (its `:drain-lock`); the router threads it so a depth-error
+  listener that destroyed A and published a same-id B cannot have this terminal
+  commit steal B's stores. The buffer harvest AND the record build/commit are
+  gated on A's live continuation, and `commit-record!` claims A's exact token
+  rather than resolving the current bare-id owner. Once A is lost the commit
+  neither harvests B's capture buffer nor commits into B's history; when A
+  retains ownership (the ordinary depth halt) behaviour is unchanged. A nil
+  token preserves the historical bare-id contract for any non-exact caller.
+  Kept single-arity (not multi-arity) with the `(when interop/debug-enabled? …)`
+  outermost so the epoch's trace-event-projection keyword references stay DCE-
+  able in production (multi-arity perturbed Closure's `:advanced` reachability —
+  the rf2-cprm0q elision trap)."
+  [frame-id frame-state-before frame-state-after committed-at outcome halt-reason
+   trigger-event exact-owner-token]
   (when interop/debug-enabled?
-    (let [events (state/harvest-buffer! frame-id)
-          ;; Source the durable value from the same snapshot restore uses,
-          ;; rather than trusting the router's live re-read. Fall back to
-          ;; the router-passed value when no `:ok` epoch has landed yet
-          ;; (depth-exceed on the first cascade).
-          last-id     (state/last-settled-epoch-id frame-id)
-          last-record (when last-id
-                        (->> (state/history-for frame-id)
-                             (some (fn [r] (when (= last-id (:epoch-id r)) r)))))
-          fs          (if last-record
-                        (:frame-state-after last-record)
-                        frame-state-after)]
-      (commit-record! frame-id fs fs events
-                      committed-at outcome halt-reason trigger-event nil))))
+    (when (or (nil? exact-owner-token)
+              (frame/event-continuation-live? frame-id exact-owner-token))
+      (let [events (state/harvest-buffer! frame-id)
+            ;; Source the durable value from the same snapshot restore uses,
+            ;; rather than trusting the router's live re-read. Fall back to
+            ;; the router-passed value when no `:ok` epoch has landed yet
+            ;; (depth-exceed on the first cascade).
+            last-id     (state/last-settled-epoch-id frame-id)
+            last-record (when last-id
+                          (->> (state/history-for frame-id)
+                               (some (fn [r] (when (= last-id (:epoch-id r)) r)))))
+            fs          (if last-record
+                          (:frame-state-after last-record)
+                          frame-state-after)]
+        (commit-record! frame-id fs fs events
+                        committed-at outcome halt-reason trigger-event
+                        exact-owner-token)))))
 
 ;; ---- restore --------------------------------------------------------------
 ;;
