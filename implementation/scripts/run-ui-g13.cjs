@@ -243,6 +243,16 @@ function assertDevResult(result) {
   if (result['timing-posture'] !== 'evidence-only; no threshold') {
     fail('timing evidence grew a threshold posture');
   }
+  // rf2-vxgfnd.212 — prove the workload roster is EXACTLY one independently
+  // executed V=100 then one V=500 (each row's V stamped by the mounted fixture,
+  // not synthesized here) BEFORE any projection is compared. A duplicate,
+  // missing, extra, or reordered size — e.g. a V=500 row silently replaced by a
+  // deep copy of the V=100 row — is rejected here; equal-count checks alone
+  // accept it because both rows are individually in the allowed set.
+  const roster = (result.results || []).map((row) => row.v);
+  if (!sameJson(roster, [100, 500])) {
+    fail(`workload roster is not exactly one V=100 then one V=500: ${JSON.stringify(roster)}`);
+  }
   const expected = expectedProjection();
   const projections = [];
   for (const size of result.results || []) {
@@ -305,6 +315,21 @@ function assertMutationTeeth(result) {
     ['fan-out reached a non-affected cell', (r) => {
       r.results[0].cold.projection['fan-out-cells'] = 100;
     }],
+    // rf2-vxgfnd.212 — workload-roster teeth. Each must fail validation, proving
+    // the exact one-to-one V=100/V=500 roster before projections are compared.
+    // 'duplicate V=100' is the bead's exact false-green: the V=500 row silently
+    // replaced by a deep copy of the V=100 row.
+    ['duplicate V=100 (V=500 row copied from V=100)', (r) => { r.results[1].v = 100; }],
+    ['duplicate V=500', (r) => { r.results[0].v = 500; }],
+    ['missing V=500', (r) => { r.results = [r.results[0]]; }],
+    ['missing V=100', (r) => { r.results = [r.results[1]]; }],
+    ['extra size', (r) => {
+      const extra = JSON.parse(JSON.stringify(r.results[0]));
+      extra.v = 250;
+      r.results.push(extra);
+    }],
+    ['swapped roster order', (r) => { r.results.reverse(); }],
+    ['forged metadata-only V=500 row', (r) => { r.results[1] = { v: 500 }; }],
   ];
   const red = mutations.map(([label, mutate]) => {
     const changed = JSON.parse(JSON.stringify(result));

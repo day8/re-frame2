@@ -177,8 +177,18 @@
                          (range recorded-samples))))
               (.then
                (fn [samples]
-                 (let [raw (mapv :elapsed-ms samples)]
-                   {:v v
+                 (let [raw (mapv :elapsed-ms samples)
+                       ;; rf2-vxgfnd.212 — stamp the ACTUAL mounted graph size
+                       ;; the fixture rendered (`data-g13-v`), never the runner's
+                       ;; expected metadata. A harness bug that mounts one size
+                       ;; twice then reports it as two therefore stamps the same
+                       ;; V twice, and the runner's exact-roster check rejects it
+                       ;; before any projection comparison.
+                       mounted-v (js/parseInt
+                                  (.getAttribute
+                                   (uit/query root "[data-g13-v]") "data-g13-v")
+                                  10)]
+                   {:v mounted-v
                     :cold @cold*
                     :warm {:raw-ms raw
                            :p50-ms (percentile raw 0.50)
