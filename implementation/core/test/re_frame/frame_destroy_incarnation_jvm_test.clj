@@ -1110,3 +1110,120 @@
         (late-bind/set-fn! :observability/route-error-record original-route)))
     (is (zero? @sibling-runs) "later union listeners stop on owner loss")
     (is (zero? @route-runs) "the later frame-owned union route is inert")))
+
+;; ---- rf2-vxgfnd.154 — depth-halt fanout + commit exact-incarnation fence ----
+
+(deftest depth-halt-fanout-and-commit-fenced-when-first-listener-loses-a
+  ;; rf2-vxgfnd.154 (red before fix). A runaway cascade trips A's drain-depth
+  ;; limit. `handle-depth-exceeded!` fans the always-on
+  ;; `:rf.error/drain-depth-exceeded` record out through the corpus error-emit
+  ;; registry + the frame-owned error route, THEN commits A's terminal
+  ;; `:halted-depth` epoch record. The FIRST error listener destroys A and
+  ;; publishes a same-id B (with a sentinel in B's capture buffer). Because the
+  ;; depth-halt seam runs OUTSIDE the event pipeline's continuation predicate,
+  ;; before the fix `trace/continuation-live?` was always-true here: later
+  ;; fanout siblings and the frame-owned route ran against B, and the bare-id
+  ;; `commit-halt-record!` harvested B's buffer and committed A's halted-depth
+  ;; trigger into B's history.
+  ;;
+  ;; After the fix the depth-halt binds A's EXACT-owner continuation predicate
+  ;; and threads A's token into the commit: once the first listener loses A, no
+  ;; later sibling, frame route, or halt commit touches B; B's stores stay
+  ;; byte-identical; the evidence the first listener received stands exactly
+  ;; once.
+  (let [id             :drain.incarnation/depth-loss
+        depth-records  (atom [])
+        sibling-runs   (atom 0)
+        frame-routes   (atom 0)
+        b-token        (atom nil)
+        b-sentinel     {:operation :drain.incarnation/b-buffer :tags {:frame id}}
+        original-route (late-bind/get-fn :observability/route-error-record)]
+    (error-emit/clear-error-listeners!)
+    (rf/reg-event :drain.incarnation/loop
+      (fn [_ _] {:fx [[:dispatch [:drain.incarnation/loop]]]}))
+    (rf/make-frame {:id id :drain-depth 4})
+    (try
+      (late-bind/set-fn! :observability/route-error-record
+        (fn [record]
+          (when (= :rf.error/drain-depth-exceeded (:error record))
+            (swap! frame-routes inc))
+          (when original-route (original-route record))))
+      ;; Listener #1 (destroyer) is registered FIRST so the small array-map
+      ;; corpus registry fans it before the sibling: it destroys A, publishes
+      ;; same-id B, and installs a sentinel into B's capture buffer.
+      (rf/register-listener! :errors ::depth-destroyer
+        (fn [record]
+          (when (= :rf.error/drain-depth-exceeded (:error record))
+            (swap! depth-records conj record)
+            (frame/destroy-frame! id)
+            (rf/make-frame {:id id})
+            (reset! b-token (frame/frame-incarnation-token id))
+            (epoch-state/buffer-event! id b-sentinel))))
+      (rf/register-listener! :errors ::depth-sibling
+        (fn [record]
+          (when (= :rf.error/drain-depth-exceeded (:error record))
+            (swap! sibling-runs inc))))
+      (rf/dispatch-sync [:drain.incarnation/loop] {:frame id})
+      (executor-barrier!)
+      (let [token-b @b-token]
+        (is (= 1 (count @depth-records))
+            "the first error listener received the depth record exactly once")
+        (is (some? token-b) "the destroyer published a same-id B")
+        (is (zero? @sibling-runs)
+            "no later corpus error listener runs once the first listener loses A")
+        (is (zero? @frame-routes)
+            "A's depth record never resolves through B's frame-owned error route")
+        (is (identical? token-b (frame/frame-incarnation-token id))
+            "B remains the live incarnation")
+        (is (= {} (frame/frame-app-db-value id))
+            "A's halted-depth commit never mutates B's app-db")
+        (is (empty? (rf/epoch-history id))
+            "no A halted-depth record is committed into B's history")
+        (is (nil? (epoch-state/last-settled-epoch-id id))
+            "A's halt commit never claims B's last-settled anchor")
+        (is (= [b-sentinel] (epoch-state/buffer-for id))
+            "A's halt commit never harvests B's capture buffer"))
+      (finally
+        (rf/unregister-listener! :errors ::depth-destroyer)
+        (rf/unregister-listener! :errors ::depth-sibling)
+        (error-emit/clear-error-listeners!)
+        (late-bind/set-fn! :observability/route-error-record original-route)
+        (when (frame/frame id) (frame/destroy-frame! id))))))
+
+(deftest depth-halt-fans-and-commits-normally-when-a-retains-ownership
+  ;; rf2-vxgfnd.154 mutation tooth. When A stays live through the depth halt the
+  ;; exact-owner continuation predicate must NOT suppress the ordinary
+  ;; behaviour: every corpus error listener still receives the depth record, and
+  ;; A's terminal `:halted-depth` epoch record is still committed into A's own
+  ;; history. A wrongly always-false predicate would silence both.
+  (let [id            :drain.incarnation/depth-live
+        depth-records (atom [])
+        sibling-runs  (atom 0)]
+    (error-emit/clear-error-listeners!)
+    (rf/reg-event :drain.incarnation/live-loop
+      (fn [_ _] {:fx [[:dispatch [:drain.incarnation/live-loop]]]}))
+    (rf/make-frame {:id id :drain-depth 4})
+    (try
+      (rf/register-listener! :errors ::live-a
+        (fn [record]
+          (when (= :rf.error/drain-depth-exceeded (:error record))
+            (swap! depth-records conj record))))
+      (rf/register-listener! :errors ::live-b
+        (fn [record]
+          (when (= :rf.error/drain-depth-exceeded (:error record))
+            (swap! sibling-runs inc))))
+      (rf/dispatch-sync [:drain.incarnation/live-loop] {:frame id})
+      (executor-barrier!)
+      (is (= 1 (count @depth-records))
+          "the always-on depth record fans out when A stays live")
+      (is (= id (:frame (first @depth-records)))
+          "the depth record names the overflowing frame")
+      (is (= 1 @sibling-runs)
+          "every corpus error listener runs when A retains ownership")
+      (is (some #(= :halted-depth (:outcome %)) (rf/epoch-history id))
+          "A's terminal halted-depth record is committed into A's own history")
+      (finally
+        (rf/unregister-listener! :errors ::live-a)
+        (rf/unregister-listener! :errors ::live-b)
+        (error-emit/clear-error-listeners!)
+        (when (frame/frame id) (frame/destroy-frame! id))))))

@@ -2859,8 +2859,20 @@
   K settled event-ids, the `run-one-pass!` ring) is the CYCLE EVIDENCE — the
   repeating suffix names the runaway cycle. The record carries ids / counts
   ONLY; the human `:reason` prose stays on the dev-only `trace/emit-error!`
-  path (elided in production), per the elision discipline."
-  [frame-id router depth last-event tail-event-ids]
+  path (elided in production), per the elision discipline.
+
+  rf2-vxgfnd.154 — EXACT-INCARNATION halt fence. `owner-token` is A's captured
+  event-owner token (the frame record's `:drain-lock`). The depth-halt seam runs
+  OUTSIDE the event pipeline's `trace/call-with-continuation-predicate`, so
+  before this fix `trace/continuation-live?` read an always-true predicate: the
+  first `:rf.error/drain-depth-exceeded` listener could destroy A and publish a
+  same-id B, and every later fanout sibling, the frame-owned error route, the
+  dev trace, and the bare-id halt commit then leaked into B. Binding A's exact-
+  owner predicate around all callback-bearing halt work — and threading A's exact
+  token into `commit-halt-record!` — fences B: once the first listener loses A,
+  no later listener, frame route, trace, queue trailer, or halt commit targets B,
+  while evidence already delivered before the loss stands exactly once."
+  [frame-id owner-token router depth last-event tail-event-ids]
   (let [{:keys [queue]} @router
         queue-size      (count queue)
         ;; The halting event — the next one that would have been dequeued.
@@ -2907,6 +2919,17 @@
                          :depth      depth
                          :queue-size queue-size
                          :last-event last-event}]
+    ;; The evidence assembly above is a pure read; A still owns the frame at the
+    ;; halt seam (a halt is a depth trip, not a destroy). Bind A's EXACT-owner
+    ;; continuation predicate around EVERY callback-bearing halt action below
+    ;; (rf2-vxgfnd.154). `trace/continuation-live?` — which the always-on fanout,
+    ;; the frame-owned route, and the dev trace all consult — now reflects A's
+    ;; exact liveness, so the instant the first depth-error listener destroys A
+    ;; and publishes same-id B, every later sibling / route / trace / commit is
+    ;; fenced from B.
+    (trace/call-with-continuation-predicate
+      #(frame/event-continuation-live? frame-id owner-token)
+      (fn []
     ;; Axis 1 — ALWAYS-ON (rf2-fcbrjo). Fan a STRUCTURAL-ONLY non-event union
     ;; record out through the corpus-wide error-emit listener + the frame-owned
     ;; observability sink, so a drain-depth halt surfaces under `goog.DEBUG=
@@ -2958,16 +2981,24 @@
                           ;; are durable. `:rollback? false` reflects that.
                           :rollback?         false
                           :recovery          :no-recovery}))
+    ;; Drop A's runaway queue. The `router` atom is A's incarnation-private drain
+    ;; FSM (`make-frame` builds a fresh one per incarnation), so clearing it never
+    ;; reaches a same-id successor B; it runs unconditionally so A's abandoned
+    ;; queue never lingers even after a listener above lost A.
     (swap! router assoc :queue interop/empty-queue :scheduled? false)
-    (when-let [commit-halt! (late-bind/get-fn-cached :epoch/commit-halt-record!)]
-      ;; The halting event never ran, so the capture buffer is empty and
-      ;; `settle!` would skip; `commit-halt-record!` commits regardless,
-      ;; pinning the halting event's trigger. :frame-state-before equals
-      ;; :frame-state-after — the halting event made no write. rf2-bh56rc:
-      ;; `:committed-at` is the halting event's causal `:rf/time-ms`, not an
-      ;; ambient read.
-      (commit-halt! frame-id fs-now fs-now halting-time-ms :halted-depth halt-reason
-                    halting-event))))
+    ;; The halt commit is A's terminal `:halted-depth` epoch record. Gate it on
+    ;; A's live continuation AND thread A's EXACT owner token: once A is lost the
+    ;; commit neither harvests B's capture buffer nor claims/commits into B's
+    ;; history (rf2-vxgfnd.154). The halting event never ran, so the capture
+    ;; buffer is empty and `settle!` would skip; `commit-halt-record!` commits
+    ;; regardless, pinning the halting event's trigger. :frame-state-before
+    ;; equals :frame-state-after — the halting event made no write. rf2-bh56rc:
+    ;; `:committed-at` is the halting event's causal `:rf/time-ms`, not an
+    ;; ambient read.
+    (when (trace/continuation-live?)
+      (when-let [commit-halt! (late-bind/get-fn-cached :epoch/commit-halt-record!)]
+        (commit-halt! frame-id fs-now fs-now halting-time-ms :halted-depth
+                      halt-reason halting-event owner-token)))))))
 
 (defn- settle-event-epoch!
   "Commit the just-completed event's epoch (Tool-Pair §Time-travel). Per
@@ -3175,7 +3206,12 @@
          tail-ring  []]
     (cond
       (>= depth drain-depth)
-      (do (handle-depth-exceeded! frame-id router depth last-event tail-ring)
+      ;; rf2-vxgfnd.154: thread A's EXACT owner token (`:drain-lock`) so the halt
+      ;; fanout, frame route, dev trace, and terminal commit all bind to A's
+      ;; incarnation and are fenced from a same-id B a depth-error listener may
+      ;; publish.
+      (do (handle-depth-exceeded! frame-id (:drain-lock frame-record) router
+                                  depth last-event tail-ring)
           ::halt)
 
       ;; Per rf2-68kok: destruction-ownership check fires BEFORE the next
