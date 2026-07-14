@@ -46,12 +46,24 @@
 # not an omission. The publishing wiring (a jvm-ui pre-deploy step + a
 # deploy leaf after deploy-core + a verify-version-lockstep.sh inventory
 # entry + a release-notes line) lands in the SAME change that first gives
-# ui a :clein/build. That coupling is enforced, not merely documented:
-# verify-version-lockstep.sh's inventory guard (rf2-qmhysc) FAILS the
-# build the instant any implementation/*/deps.edn gains a :clein/build
-# without a matching lockstep-inventory + release-matrix entry — so ui
-# can neither be published nor silently omitted-once-publishable behind
-# the release train's back.
+# ui a :clein/build. That coupling is enforced, not merely documented —
+# verify-version-lockstep.sh runs TWO guards over every
+# implementation/*/deps.edn that carries a :clein/build alias:
+#   (1) the lockstep-inventory guard (rf2-qmhysc): the artefact must
+#       appear in the script's ARTEFACTS / ARTEFACT_PATHS inventory; and
+#   (2) the release-inventory cross-check (rf2-vxgfnd.173): the artefact
+#       must ALSO be present in ALL THREE required release.yml
+#       inventories — a pre-deploy `clojure -M:test` step in the `test`
+#       job, a deploy (the deploy-core job for core / a `directory:`
+#       deploy-leaf matrix row for a leaf), and a `- `<coordinate>``
+#       github-release body line.
+# Before rf2-vxgfnd.173 only guard (1) was executable and this comment
+# overclaimed; guard (2) now reads release.yml so the release-matrix half
+# is genuinely enforced, not merely asserted in an error string. Both
+# guards run in ordinary PR CI (test.yml invokes this script) AND in the
+# tag/release path before any Clojars upload, so ui can neither be
+# published nor silently omitted-once-publishable behind the release
+# train's back.
 #
 # # Lockstep versioning policy through 1.0
 #

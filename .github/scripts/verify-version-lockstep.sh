@@ -258,6 +258,107 @@ while IFS= read -r deps_file; do
   fi
 done < <(find "${REPO_ROOT}/implementation" -mindepth 2 -maxdepth 3 -name deps.edn)
 
+# ─────────────────────────────────────────────────────────────────────
+# rf2-vxgfnd.173 — release-inventory cross-check (executable coupling).
+#
+# The inventory-drift guard ABOVE proves every publishable
+# implementation/*/deps.edn appears in THIS script's ARTEFACTS list. That
+# is necessary but NOT sufficient: an artefact can sit in the lockstep
+# inventory and still be silently absent from the release TRAIN — no
+# pre-deploy JVM test, no deploy-leaf matrix row, no GitHub-release
+# artefact line. PR #5792's release.yml comment claimed this guard also
+# enforced the release-matrix half; it did not — the guard never read
+# release.yml (its only release.yml mention was advice in an error
+# string). This section makes that coupling executable: every discovered
+# publishable artefact must be present in ALL THREE required release.yml
+# inventories or the build fails — in ordinary PR CI (test.yml invokes
+# this script) and in the tag/release path before any Clojars upload.
+#
+# The three required surfaces, per the release DAG in release.yml:
+#   1. Pre-deploy test — a `working-directory: implementation/<sub>` step
+#      running `clojure -M:test` in the `test` job.
+#   2. Deploy topology — core deploys via the deploy-core job; every leaf
+#      via a `directory: implementation/<sub>` deploy-leaf matrix row.
+#   3. GitHub-release  — a `- `<coordinate>`` row in the release body.
+#
+# The published coordinate is read from each artefact's :clein/build :lib
+# (so day8/reagent-slim's non-uniform coordinate is cross-checked as-is,
+# not guessed from the directory name). That :lib is the canonical
+# manifest the bead permits: one source consumed by both the lockstep
+# arrays above and this cross-check.
+RELEASE_YML="${REPO_ROOT}/.github/workflows/release.yml"
+if [[ ! -f "${RELEASE_YML}" ]]; then
+  echo "::error file=.github/workflows/release.yml::release workflow missing — cannot cross-check the publishable-artefact release inventory (rf2-vxgfnd.173)"
+  errors=$((errors + 1))
+else
+  # Build the three required release inventories once, as newline-set
+  # strings. Step boundaries (`- name:`) reset the tracked
+  # working-directory so a `run:` line only picks up its own step's
+  # directory. Trailing whitespace (incl. a CRLF \r on Windows checkouts)
+  # is stripped — [:space:] covers \r.
+
+  # (1) pre-deploy test subpaths: `working-directory: implementation/<sub>`
+  #     steps whose command is `clojure -M:test` (the `test` job).
+  release_test_subpaths="$(awk '
+    /^[[:space:]]*-[[:space:]]+name:/ { wd="" }
+    /^[[:space:]]*working-directory:[[:space:]]*implementation\// { line=$0; sub(/^.*working-directory:[[:space:]]*/,"",line); gsub(/[[:space:]]+$/,"",line); wd=line }
+    /^[[:space:]]*run:[[:space:]]*clojure -M:test/ { if (wd!="") print wd }
+  ' "${RELEASE_YML}" | sort -u)"
+
+  # (2) deploy-topology subpaths: the deploy-core job (working-directory +
+  #     `clojure -M:clein deploy`) for core, plus every `directory:`
+  #     deploy-leaf matrix row for the leaves.
+  release_deploy_subpaths="$(awk '
+    /^[[:space:]]*-[[:space:]]+name:/ { wd="" }
+    /^[[:space:]]*working-directory:[[:space:]]*implementation\// { line=$0; sub(/^.*working-directory:[[:space:]]*/,"",line); gsub(/[[:space:]]+$/,"",line); wd=line }
+    /^[[:space:]]*run:[[:space:]]*clojure -M:clein deploy/ { if (wd!="") print wd }
+    /^[[:space:]]*directory:[[:space:]]*implementation\// { line=$0; sub(/^.*directory:[[:space:]]*/,"",line); gsub(/[[:space:]]+$/,"",line); print line }
+  ' "${RELEASE_YML}" | sort -u)"
+
+  # (3) github-release body coordinates: backtick-wrapped `day8/…` tokens
+  #     on release-notes list rows (`- `day8/…``). Anchored to list-item
+  #     lines so a prose/comment mention of a backticked coordinate is
+  #     NOT miscounted as a release-notes row.
+  release_body_coords="$(awk '
+    /^[[:space:]]*-[[:space:]]+`day8\// { s=$0; while (match(s, /`day8\/[^`]+`/)) { print substr(s, RSTART+1, RLENGTH-2); s=substr(s, RSTART+RLENGTH) } }
+  ' "${RELEASE_YML}" | sort -u)"
+
+  in_release_set() { grep -qxF -- "$1" <<< "$2"; }
+
+  while IFS= read -r deps_file; do
+    [[ -f "${deps_file}" ]] || continue
+    stripped="$(sed 's/;;.*$//' "${deps_file}")"
+    grep -qF ':clein/build' <<< "${stripped}" || continue
+
+    subpath="${deps_file#"${REPO_ROOT}/implementation/"}"
+    subpath="${subpath%/deps.edn}"
+    impl_sub="implementation/${subpath}"
+
+    # Published coordinate from :clein/build :lib (canonical manifest).
+    lib="$(grep -oE ':lib[[:space:]]+day8/[^[:space:]]+' <<< "${stripped}" | head -n1 | sed -E 's/^:lib[[:space:]]+//')"
+    if [[ -z "${lib}" ]]; then
+      echo "::error file=${impl_sub}/deps.edn::${impl_sub} declares a :clein/build alias but no :lib coordinate could be read — cannot cross-check the release inventory (rf2-vxgfnd.173)"
+      errors=$((errors + 1))
+      continue
+    fi
+
+    if ! in_release_set "${impl_sub}" "${release_test_subpaths}"; then
+      echo "::error file=.github/workflows/release.yml::publishable artefact '${lib}' (${impl_sub}) has NO pre-deploy JVM test step ('working-directory: ${impl_sub}' + 'clojure -M:test') in the release 'test' job — a declared-publishable artefact must be gated before deploy (rf2-vxgfnd.173)"
+      errors=$((errors + 1))
+    fi
+
+    if ! in_release_set "${impl_sub}" "${release_deploy_subpaths}"; then
+      echo "::error file=.github/workflows/release.yml::publishable artefact '${lib}' (${impl_sub}) has NO deploy step — expected the deploy-core job (core) or a 'directory: ${impl_sub}' deploy-leaf matrix row — so it would never ship in the release train (rf2-vxgfnd.173)"
+      errors=$((errors + 1))
+    fi
+
+    if ! in_release_set "${lib}" "${release_body_coords}"; then
+      echo "::error file=.github/workflows/release.yml::publishable artefact '${lib}' (${impl_sub}) has NO GitHub-release artefact row (a '- \`${lib}\`' line in the github-release body) — the release notes would omit it (rf2-vxgfnd.173)"
+      errors=$((errors + 1))
+    fi
+  done < <(find "${REPO_ROOT}/implementation" -mindepth 2 -maxdepth 3 -name deps.edn)
+fi
+
 # Tools/* deployable jars (rf2-lwtke). Each tools/<name>/deps.edn that
 # carries a :clein/build alias publishes to Clojars at the same lockstep
 # version as the framework artefacts above — every consumer that pins
@@ -349,4 +450,5 @@ fi
 
 total_count=$((${#ARTEFACTS[@]} + ${#TOOLS[@]}))
 echo "lockstep version verification PASSED — all ${total_count} artefacts (${#ARTEFACTS[@]} implementation/ + ${#TOOLS[@]} tools/) pinned to repo-root VERSION ${VERSION}"
+echo "release-inventory cross-check PASSED — every publishable implementation artefact is present in release.yml's pre-deploy test, deploy-leaf topology, and github-release inventories (rf2-vxgfnd.173)"
 exit 0
