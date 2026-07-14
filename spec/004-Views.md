@@ -39,8 +39,8 @@ pattern-level commitments:
 
 These are pattern-level commitments across the eight in-scope JS-cross-compile hosts
 (per [000 §The pattern](000-Vision.md#the-pattern-js-cross-compile-language-agnostic)).
-The CLJS reference realisation is `re-frame.ui`; its forms (`defview`, `sub`, `local`,
-`effect`, `lease`, and the `ui/*` interop surface) are ordinary namespace vars —
+The CLJS reference realisation is `re-frame.ui`; its forms (`defview`, `sub`, `frame`,
+`local`, `effect`, `lease`, and the `ui/*` interop surface) are ordinary namespace vars —
 `(:require [re-frame.ui :as ui :refer [defview sub]])` — referred bare in examples below
 for readability.
 
@@ -368,6 +368,75 @@ unmount are qualified retroactive annotations, never distinct runtime states) �
 owned by [006](006-ReactiveSubstrate.md) (the R-2 observation port; shapes **final**
 per the merged amendment — the observation-port amendment landed with the S2 slice);
 this Spec owns only the call-site surface. `sub` never fetches (I-11).
+
+## The committed-frame ops bundle — `frame`
+
+`(frame)` returns the committed frame's **operation bundle** — the standard
+`{:frame :dispatch :dispatch-sync :subscribe}` map, exactly the shape `rf/capture-frame`
+carries (per [002 §`capture-frame`](002-Frames.md#capture-frame--the-keystone-affordance-cljs-reference)) — for the rare in-view imperative need: a callback that must
+`dispatch` / `dispatch-sync` / `subscribe` against *this* view's frame after the render
+scope has unwound. It is the whole-bundle sibling of the one-verb `(dispatch-fn)`
+(§Effects and leases), and — like `sub` — a compile-indexed render-time site that this
+Spec's call-site surface owns; the ops themselves are core's ([002](002-Frames.md) /
+[006](006-ReactiveSubstrate.md)). Tiered **advanced** alongside its HOLD siblings
+(`lease`, `dispatch-fn`): the rare-imperative-need affordance, not a day-one porch form —
+most views need only `sub` and bare event vectors.
+
+- **Zero-arity, finite, render-time.** `(frame)` takes no arguments — it binds to the
+  ambiently-resolved frame, and to target a different frame you scope the subtree with
+  `[frame-provider {:frame f} …]`, never an argument. Any argument is a compile error
+  (`:rf.ui.compile/unsupported-form`). Like `sub`, the site must be finite and evaluated
+  during render: a `(frame)` in a loop, a deferred callback, a `raw-fn`/ref body, or a
+  root expression is a compile error (`:rf.ui.compile/frame-in-loop`) — hoist the read
+  into the view body and let the callback close over the bundle it returns. The
+  bare-reference fences that protect `sub` protect `frame` too — a threaded `(-> … frame)`
+  or a reference hidden below an unaudited macro fails loud (§Template grammar, expression
+  positions).
+
+- **Ambient resolution — carried, never guessed.** `(frame)` resolves the committed frame
+  through the ONE chain every frame-scoped UI form uses: explicit pin → dynamic binding →
+  React context → loud `:rf.error/no-frame-context` (I-2). There is no default frame and
+  no cross-frame spelling. The `frame-provider` / `frame-root` above the site *is* what the
+  bundle binds to; retarget the subtree's provider and the next render's bundle targets the
+  new frame.
+
+- **The bundle and its lock.** The four keys are the committed frame-id under `:frame` plus
+  the three frame-locked ops. The ops are minted from core's own bundle constructor with
+  the frame assoc'd **last**, so a per-call `{:frame …}` opt can never override the lock —
+  the captured frame always wins (the `capture-frame` handle-lock invariant,
+  [002](002-Frames.md)). Read the frame's `app-db` with `(app-db-value (:frame (frame)))`,
+  not off the bundle.
+
+- **Exact-incarnation stable identity.** The bundle is cached per live frame incarnation,
+  so repeated `(frame)` reads across re-renders return the **identical** map — it is
+  `rf=`-stable and safe to thread through the memo comparator and effect deps, and a render
+  performs a single map lookup, not a bundle construction (see production cost below). A
+  destroyed-then-recreated frame — even under the **same id** — is a new incarnation and
+  mints a fresh bundle.
+
+- **Destroyed/replaced fencing — no silent retarget.** Each op is fenced to the exact
+  incarnation it captured. A bundle that outlives its frame fails loud with the canonical
+  `:rf.error/frame-destroyed` rather than acting, and a same-id *replacement* frame never
+  silently receives a stale bundle's ops — id-locking alone cannot tell a replacement from
+  the original, incarnation-fencing can. Outside a view, hold a frame across lifetimes
+  explicitly with `rf/capture-frame`.
+
+- **JVM behaviour — host-shared, not a stub.** `(frame)` returns a working bundle during a
+  Tier-1 structural render on the JVM: `dispatch` / `dispatch-sync` / `subscribe` are
+  host-neutral (the `ui.test` harness itself dispatches on the JVM), so the form is **not** a
+  host-only op and never raises `:rf.error/jvm-host-op` (§The JVM structural subset).
+
+- **Diagnostics.** `:rf.error/no-frame-context` (no scope anywhere); `:rf.error/frame-destroyed`
+  (the scope names an absent/destroyed/closing frame, or a carried op outlived its
+  incarnation); the two compile errors above; and — for a direct call of the
+  `re-frame.ui/frame` var outside compiler lowering — `:rf.error/ui-tree-malformed` (the var
+  exists for symbol resolution only, not as a callable helper). Every runtime `frame`-bundle
+  failure fans one always-on observability record **plus** one dev trace *before* it throws,
+  so a production error boundary that swallows the throw still leaves the failure visible
+  under `goog.DEBUG=false` (the §View identity error-emit axis).
+
+- **Production cost.** The hot path is one map lookup per render; the incarnation cache is
+  pruned when the frame is destroyed, so a bundle's closures never outlive the frame's id.
 
 ## Local state — `local` — and the placement rule (this Spec owns the rule)
 
@@ -748,6 +817,7 @@ order and is a defect in this table.
 | §Handlers — event vectors as structural data (manifest flags; JVM-tree `:events`) | **S1** | vectors/options-maps retained as data in tree + manifest; placeholder keywords retained as keywords |
 | §Handlers — committed behaviour (decision table, bare-fn law + lint, dynamic classification, loops, refs, the synchrony door) | **S3** | decision-table fixtures; sync-door fixture (input-door predicate; G-8 real-browser matrix is the residual named gate); loop/ref diagnostics |
 | §Reactive reads — `sub` | **S2** | one-ViewCell binding; stabilization; conditional reads (the loop *rejection* is a compile error from S1) |
+| §The committed-frame ops bundle — `frame` | **S2** | the mounted committed-frame bind (dispatch-through-the-bundle repaints the mounted `sub`; cross-render bundle-identity stability); ambient `frame-provider` retarget; the same-id reincarnation race (the stale bundle fails loud, the replacement frame is untouched, a fresh read re-mints a new identity); stale-op `:rf.error/frame-destroyed` fencing; JVM live-ops (a real bundle during Tier-1 render, not a `jvm-host-op` stub); the always-on observability fan-out on every bundle failure (one record + one dev trace before the throw). The zero-arity, loop, deferred-callback, and root-expression *rejections* are compile-time — asserted with the form at S2 through the accept/reject analyzer fixtures (the form rides the S2 closed-macro expression grammar) |
 | §Process substrate — `ui/adapter` | **S2** | exact closed adapter map; canonical `:rf.adapter/ui` discriminator; copied-kind routing; dispose/re-init; watch re-arm; real provider/render/flush/dispose browser proof |
 | §Local state + the placement rule | **S3** | `local` semantics; narrow-law fixtures (same-view handler read conforming; forbidden-tier diagnostics) |
 | §Effects and `ui/dispatch-fn` | **S3** | `rf=` deps + cleanup + StrictMode replay; `:connect` semantics; loud non-connected failure |
