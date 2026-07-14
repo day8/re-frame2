@@ -285,14 +285,40 @@
 ;; before any render reads the reaction, an observable cross-adapter
 ;; divergence (extra body invocations, different trace timing) that
 ;; contradicts Spec 006 §No-op via value equality's "body runs on demand"
-;; intent. The sentinel `not=` any real value, so the first post-
+;; intent. The sentinel is never `rf=` any real value, so the first post-
 ;; construction change always notifies — the same first-change-notifies
 ;; semantics Reagent gives.
 
 (def ^:private unset
   "Sentinel for a derived value whose baseline has not yet been computed.
-  Distinct object identity so it can never `=` a real derived value (incl.
+  Distinct object identity so it can never `rf=` a real derived value (incl.
   `nil`/`false`), making the first flush after construction always notify."
+  (js-obj))
+
+(defn- rf=
+  "The compiled-view substrate's frozen per-slot MOVEMENT law, spelled
+  spine-local for the React-hook derived-value fan-out gate: `Object.is(a,b)
+  OR (= a b)` — the CLJS branch of `re-frame.ui.eq/rf=`. Kept core-local (a
+  transcription, NOT a `:require`) so core does not depend on the UI artefact,
+  exactly as the observation port keeps its own `node-value=` spelling (Spec
+  006). The load-bearing consequence for rf2-vxgfnd.203: `##NaN` is STABLE
+  (`Object.is(##NaN, ##NaN)` is true), so a derived value that stays NaN across
+  a source tick reports NO movement and does not fan out — unlike raw `=`/`not=`,
+  under which `(= ##NaN ##NaN)` is false so every NaN reads as fresh and fans
+  out on a no-move. (`-0.0`/`+0.0` still compare EQUAL via the `=` branch, as
+  the ruled law and the prior `not=` gate both give — no behaviour change
+  there; NaN→NaN is the sole pair this gate now treats differently.) One frozen
+  relation across the direct adapter, the observation port, and the ViewCell
+  layer, so the three fan-out boundaries agree on cardinality."
+  [a b]
+  (or ^boolean (js/Object.is a b)
+      (= a b)))
+
+(def ^:private capture-none
+  "Presence sentinel for the derived fan-out's first-thrown capture: a distinct
+  object identity so a subscriber that throws `nil`/`false` (both legal CLJS
+  throws) is still recorded and re-raised by PRESENCE — never masked by a
+  truthiness test (rf2-vxgfnd.203)."
   (js-obj))
 
 (defn build-recompute-fn
@@ -369,12 +395,48 @@
           ;; loop, never escapes this closure — `volatile!` is the right
           ;; primitive (matches `prev-state` / `dirty?` above).
           disposed?      (volatile! false)
-          ;; Iterate via `run!` over `vals` rather than `doseq` over
-          ;; map-entries — skips one map-entry seq allocation per
-          ;; source-change notification.
+          ;; Movement-gated, failure-contained fan-out (rf2-vxgfnd.203).
+          ;; Two disciplines at this one boundary:
+          ;;
+          ;;   1. Gate on the frozen `rf=` MOVEMENT law, not raw `not=`. Raw
+          ;;      `(not= ##NaN ##NaN)` is true, so a derived value that stays
+          ;;      NaN across a source tick would fan out on a NO-move — a false
+          ;;      direct invalidation the observation port and ViewCell layer
+          ;;      (both `rf=`-gated) do not raise. `rf=` treats NaN→NaN as
+          ;;      stable, so all three fan-out boundaries agree on cardinality.
+          ;;      The `unset` baseline is never `rf=` a real value, so the first
+          ;;      post-construction change still notifies (unchanged).
+          ;;
+          ;;   2. CONTAIN a throwing subscriber. Bare `run!` aborted at the
+          ;;      first throw, skipping every later sibling, and the scheduler's
+          ;;      per-thunk drain guard silently swallowed the escape — so ONE
+          ;;      subscriber could permanently suppress another's invalidation,
+          ;;      order-dependently. Instead: snapshot the callbacks (an
+          ;;      add/remove-watch during fan-out is an immutable-map swap, so
+          ;;      this seq is stable and the change lands on the NEXT wave),
+          ;;      attempt EVERY subscriber independently, capture the FIRST
+          ;;      thrown value by PRESENCE (`capture-none`, not truthiness —
+          ;;      `nil`/`false` are legal CLJS throws), then re-raise it AFTER
+          ;;      delivery so the primary failure still surfaces through the
+          ;;      established scheduler error channel (the drain's per-thunk
+          ;;      isolation, rf2-l3lelt) rather than disappearing inside the
+          ;;      fan-out. `vals` over the map (rather than `doseq` over
+          ;;      map-entries) skips a map-entry seq allocation; the zero-
+          ;;      subscriber and no-move paths allocate nothing extra.
           notify         (fn [prev nu]
-                           (when (not= prev nu)
-                             (run! (fn [w] (w prev nu)) (vals @watchers))))
+                           (when-not (rf= prev nu)
+                             (let [ws (vals @watchers)]
+                               (when (seq ws)
+                                 (let [captured (volatile! capture-none)]
+                                   (run! (fn [w]
+                                           (try
+                                             (w prev nu)
+                                             (catch :default e
+                                               (when (identical? capture-none @captured)
+                                                 (vreset! captured e)))))
+                                         ws)
+                                   (when-not (identical? capture-none @captured)
+                                     (throw @captured)))))))
           ;; Baseline derived value. LAZY (rf2-ee38b.1 P2): seeded with the
           ;; `unset` sentinel rather than `(recompute)`, so `compute-fn`
           ;; (the memo wrapper running the user sub body) is NOT invoked at
@@ -385,8 +447,8 @@
           ;; the baseline, and a `replace-container!` change after that
           ;; notifies `[prev-derived new-derived]` exactly as before. If a
           ;; change flushes before any deref ever happened (no reader),
-          ;; `prev-state` is still `unset`; `unset` `not=` any real value
-          ;; (incl. nil/false) so the first flush still notifies — the same
+          ;; `prev-state` is still `unset`; `unset` is never `rf=` any real
+          ;; value (incl. nil/false) so the first flush still notifies — the same
           ;; first-change-notifies semantics Reagent gives. (Seeding from
           ;; the *derived* value, never the raw source, still holds: the
           ;; flush thunk compares the recomputed derived value against the
