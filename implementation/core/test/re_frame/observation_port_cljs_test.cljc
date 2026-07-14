@@ -1012,9 +1012,12 @@
 ;; drain runs inside the registrar replacement hook, whose per-hook catch DROPS
 ;; the throw (no log/trace/record), swallowing even the dev
 ;; :rf.error/reentrant-graph-op assert exactly where it matters. The fix wraps
-;; each lease's notify in its own try/catch (siblings never starve), fans a
-;; TYPED escape onto the always-on axis (SEEN through the registrar's swallow),
-;; and re-throws after the whole drain (never silent).
+;; each lease's notify in its own try/catch (siblings never starve), surfaces the
+;; callback failure on the always-on axis (SEEN through the registrar's swallow)
+;; via the stable :rf.error/observation-on-change-failed wrapper — the
+;; diagnostic-only reentrant-graph-op is NEVER promoted onto the always-on axis
+;; under its own id (rf2-w55bh0), it rides as the wrapper's cause — and re-throws
+;; after the whole drain (never silent).
 ;; ===========================================================================
 
 (deftest disposal-drain-contains-a-throwing-owner-and-surfaces-the-escape
@@ -1042,9 +1045,19 @@
         (is (= 1 (count @notes-b)))
         (is (= :hmr (:cause (first @notes-b)))))
       (testing "the escape is SEEN on the always-on axis despite the registrar's
-                per-hook swallow (rf2-vxgfnd.28 — reentrant-graph-op exists to be seen)"
-        (is (some #(= :rf.error/reentrant-graph-op (:error %)) records)
-            "the swallowed reentrant-graph-op reached the always-on error surface"))
+                per-hook swallow — the diagnostic-only reentrant-graph-op is
+                wrapped in the stable :rf.error/observation-on-change-failed
+                (never promoted onto the always-on axis under its own diagnostic
+                id — rf2-w55bh0), carrying the reentrant assert as its cause"
+        (let [wrapped (filterv #(= :rf.error/observation-on-change-failed (:error %))
+                               records)]
+          (is (= 1 (count wrapped))
+              "the swallowed callback failure reached the always-on error surface")
+          (is (= :rf.error/reentrant-graph-op
+                 (error-id (:exception (first wrapped))))
+              "the diagnostic reentrant-graph-op rides as the wrapper's cause"))
+        (is (empty? (filterv #(= :rf.error/reentrant-graph-op (:error %)) records))
+            "the diagnostic category is NOT promoted onto the always-on axis"))
       (testing "reg-items! returned normally — the registrar isolates the hook"
         (is (= :ok outcome))))
     ;; Owner A's release! never completed (it threw); both are cleanly releasable
@@ -1895,17 +1908,21 @@
 ;;      bare imitation of a canonical id) was re-dispatched as though it
 ;;      were a catalogued framework category.
 ;;
-;; The fix is explicit FIRST-EMISSION PROVENANCE on the throwable (the
-;; port's emit-then-throw sites stamp `error-emit/fanned-at-source-key`
-;; into the thrown ex-data) plus the canonical thrown-error SHAPE check
-;; (`error-emit/canonical-typed-error?`) — never :rf.error/id truthiness,
-;; never a global seen-error registry:
+;; The fix is OPAQUE, CHANNEL-AWARE emission PROVENANCE on the throwable
+;; (rf2-w55bh0 supersedes the reconstructible `error-emit/fanned-at-source-key`
+;; + `:rf.error/id`-shape scheme): the port's emit-then-throw sites stamp an
+;; unforgeable `EmissionProvenance` token recording WHICH channel(s) the source
+;; covered, and the drain consults `source-covered-always-on?` — never
+;; :rf.error/id truthiness, never a reconstructible ex-data shape, never a global
+;; seen-error registry. Two buckets:
 ;;
-;;   - already-fanned typed  → nothing more (the source's record IS the
-;;     exactly-once record, attribution intact);
-;;   - unfanned canonical typed → exactly once under its ORIGINAL id;
-;;   - untyped / malformed-id / non-catalogued id → exactly one stable
-;;     :rf.error/observation-on-change-failed wrapper.
+;;   - source already covered the ALWAYS-ON axis → nothing more (the source's
+;;     record IS the exactly-once record, attribution intact);
+;;   - NOT covered on the always-on axis (trace-only coverage, a diagnostic-only
+;;     thrown category, an untyped bug, a malformed/imitated id, a spoofed
+;;     public marker) → exactly one stable :rf.error/observation-on-change-failed
+;;     wrapper, the escape riding as its cause — never promoting the escape's own
+;;     category onto the always-on axis.
 ;;
 ;; Red-before-fix: with the provenance/choke-point repair reverted, the
 ;; released-lease fixtures below observe TWO read-after-release records
@@ -1992,30 +2009,38 @@
       (obs/release! lb)
       (obs/release! lc))))
 
-(deftest disposed-drain-surfaces-an-unfanned-typed-escape-exactly-once-under-its-own-id
+(deftest disposed-drain-wraps-a-diagnostic-only-typed-escape-without-promoting-it
   (reg-items!)
   (seed-items! [:a])
   (with-redefs [interop/next-tick (fn [_f] nil)]
     (let [bad (atom nil)
-          ;; The motivating unfanned canonical typed case: a forbidden
-          ;; reentrant release! from inside the fan-out throws the dev
-          ;; :rf.error/reentrant-graph-op assert — a plain typed throw with
-          ;; NO always-on fan of its own; the drain owns its first (and
-          ;; only) emission.
+          ;; A DIAGNOSTIC-ONLY typed escape: a forbidden reentrant release! from
+          ;; inside the fan-out throws the dev :rf.error/reentrant-graph-op assert
+          ;; (Spec 009: diagnostic channel — a plain typed throw with NO always-on
+          ;; fan of its own). rf2-w55bh0: the drain owns the callback failure's
+          ;; always-on coverage and must NOT promote the diagnostic category onto
+          ;; the always-on axis under its own id — it wraps it in the stable
+          ;; :rf.error/observation-on-change-failed, the reentrant assert riding as
+          ;; the cause.
           la  (obs/acquire! (items-target) (fn [_n] (obs/release! @bad)))]
       (reset! bad la)
       (force-dispose-node! [:obs/items])
       (let [[[outcome thrown] records]
             (with-error-records #(obs/drain-pending-disposals! :disposed))]
-        (let [rg (filterv #(= :rf.error/reentrant-graph-op (:error %)) records)]
-          (testing "visible EXACTLY once under its ORIGINAL id"
-            (is (= 1 (count rg))))
-          (testing "attributed to the notifying former owner's entry sub and
-                    carrying the escape as the record's cause"
-            (is (= :obs/items (:event-id (first rg))))
-            (is (identical? thrown (:exception (first rg))))))
-        (testing "a canonical typed escape is never wrapped"
-          (is (empty? (filterv #(= :rf.error/observation-on-change-failed (:error %))
+        (testing "the callback failure surfaces EXACTLY once, wrapped in the
+                  stable always-on :rf.error/observation-on-change-failed"
+          (let [wrapped (filterv #(= :rf.error/observation-on-change-failed (:error %))
+                                 records)]
+            (is (= 1 (count wrapped)))
+            (testing "attributed to the notifying former owner's entry sub, with
+                      the diagnostic reentrant assert riding as the record's cause"
+              (is (= :obs/items (:event-id (first wrapped))))
+              (is (identical? thrown (:exception (first wrapped))))
+              (is (= :rf.error/reentrant-graph-op
+                     (error-id (:exception (first wrapped))))))))
+        (testing "the diagnostic-only category is NEVER promoted onto the
+                  always-on axis under its own id (rf2-w55bh0)"
+          (is (empty? (filterv #(= :rf.error/reentrant-graph-op (:error %))
                                records))))
         (is (= :threw outcome))
         (is (= :rf.error/reentrant-graph-op (error-id thrown)))))))
@@ -2186,10 +2211,12 @@
             "no wrapper trace event for a typed escape"))
       (obs/release! live))))
 
-(deftest disposed-drain-fans-an-unfanned-typed-escape-on-both-channels
-  ;; When the drain owns the first emission of a CANONICAL TYPED escape (the
-  ;; dev reentrant assert), the same two-channel fan-out applies: one
-  ;; always-on record AND one trace event under the ORIGINAL id.
+(deftest disposed-drain-wraps-a-diagnostic-only-typed-escape-on-both-channels
+  ;; When the drain owns the callback failure's coverage for a DIAGNOSTIC-ONLY
+  ;; typed escape (the dev reentrant assert), the two-channel fan-out applies to
+  ;; the stable WRAPPER: one always-on record AND one trace event under
+  ;; :rf.error/observation-on-change-failed — the diagnostic category is never
+  ;; promoted onto the always-on axis under its own id (rf2-w55bh0).
   (reg-items!)
   (seed-items! [:a])
   (with-redefs [interop/next-tick (fn [_f] nil)]
@@ -2200,10 +2227,15 @@
       (let [[[outcome _] records traces]
             (with-both-channels #(obs/drain-pending-disposals! :disposed))]
         (is (= :threw outcome))
-        (is (= 1 (count (filterv #(= :rf.error/reentrant-graph-op (:error %)) records))))
-        (let [tev (filterv #(= :rf.error/reentrant-graph-op (:operation %)) traces)]
+        (is (= 1 (count (filterv #(= :rf.error/observation-on-change-failed (:error %))
+                                 records)))
+            "exactly one always-on wrapper record")
+        (is (empty? (filterv #(= :rf.error/reentrant-graph-op (:error %)) records))
+            "the diagnostic category is NOT promoted onto the always-on axis")
+        (let [tev (filterv #(= :rf.error/observation-on-change-failed (:operation %))
+                           traces)]
           (is (= 1 (count tev))
-              "the drain-owned first emission reaches the trace channel too")
+              "the drain-owned wrapper reaches the trace channel too")
           (is (= :disposed (:cause (:tags (first tev))))))))))
 
 (deftest collision-event-registration-cannot-steal-sub-attribution
@@ -2231,6 +2263,183 @@
               "a programmatic sub omits the slot; the same-id EVENT
                registration's coordinate is NOT stolen")))
       (obs/release! la))))
+
+;; ===========================================================================
+;; rf2-w55bh0 — the drain's emission provenance is OPAQUE and CHANNEL-AWARE
+;;
+;; The rf2-wbkjk9 scheme (a public `error-emit/fanned-at-source-key` truthy
+;; marker + a `:rf.error/id`-plus-`:reason` SHAPE test) was both CHANNEL-BLIND
+;; and RECONSTRUCTIBLE. Three defects the fixtures below pin:
+;;
+;;   1. CHANNEL-BLIND SUPPRESSION — a source that fanned ONLY the diagnostic
+;;      trace axis (the production-elided :rf.error/sub-cycle) was stamped with
+;;      the same Boolean "fanned" marker as a source that covered the always-on
+;;      axis, so the drain mistook trace coverage for full coverage and emitted
+;;      NOTHING. An HMR/disposed callback reaching a cyclic acquire went silent
+;;      in production.
+;;   2. DIAGNOSTIC-CATEGORY PROMOTION — an unfanned diagnostic-only thrown
+;;      category (:rf.error/observation-malformed-target, the dev
+;;      :rf.error/reentrant-graph-op assert) was dynamically re-fanned through
+;;      emit-error-both! under its OWN id, promoting a category Spec 009
+;;      EXCLUDES from the always-on axis.
+;;   3. FORGEABLE PROVENANCE — an application ex-info could copy the public
+;;      marker (to SUPPRESS reporting) or carry a reserved / imitated
+;;      `:rf.error/id` + `:reason` (to INJECT a framework category).
+;;
+;; The fix: observation stamps an OPAQUE, unforgeable `EmissionProvenance` token
+;; recording WHICH channel(s) the source covered, and the drain asks
+;; `source-covered-always-on?`. A source that did not cover the always-on axis
+;; (trace-only, a diagnostic-only thrown category, an untyped bug, or a spoof)
+;; gets exactly one stable :rf.error/observation-on-change-failed wrapper — the
+;; escape riding as its cause — never promoting its own category. Red-before-fix
+;; is noted per fixture; the fixtures ALSO fail if channel coverage is collapsed
+;; back to a Boolean or the opaque token is replaced with a reconstructible map
+;; shape.
+;; ===========================================================================
+
+(deftest disposed-drain-adds-always-on-callback-failure-when-source-covered-only-trace
+  ;; CHANNEL-BLIND SUPPRESSION. A former-owner on-change callback that reaches a
+  ;; CYCLIC acquire throws the diagnostic-only :rf.error/sub-cycle, whose only
+  ;; emission is the sub build's production-elided TRACE event. In advanced
+  ;; production, where the dev reentrancy guard is DCE'd, the on-change's own
+  ;; synchronous cyclic acquire throws exactly this; we model that in this debug
+  ;; test by acquiring the cyclic target to obtain the REAL observation sub-cycle
+  ;; throw (trace-only provenance) and re-raising it from the on-change. Pre-fix
+  ;; the port stamped it with a channel-BLIND Boolean, so the drain suppressed
+  ;; everything — production got no record. The channel-AWARE fix adds exactly one
+  ;; always-on callback-failure record WITHOUT promoting sub-cycle.
+  ;; Red-before-fix / channel-collapse-to-Boolean: wrapped count 0.
+  (reg-items!)
+  (rf/reg-sub :obs/wcyc1 :<- [:obs/wcyc2] (fn [v _] v))
+  (rf/reg-sub :obs/wcyc2 :<- [:obs/wcyc1] (fn [v _] v))
+  (seed-items! [:a])
+  (with-redefs [interop/next-tick (fn [_f] nil)]
+    (let [cyclic       (obs/resolve-target {:frame fid :query-v [:obs/wcyc1]})
+          sub-cycle-ex (try (obs/acquire! cyclic (fn [_]))
+                            (catch #?(:clj Throwable :cljs :default) e e))
+          notes        (atom [])
+          la (obs/acquire! (items-target) (fn [_n] (throw sub-cycle-ex)))
+          lb (obs/acquire! (items-target) (fn [n] (swap! notes conj n)))]
+      (is (= :rf.error/sub-cycle (error-id sub-cycle-ex))
+          "the fixture carries a REAL observation sub-cycle throw")
+      (force-dispose-node! [:obs/items])
+      (let [[[outcome thrown] records]
+            (with-error-records #(obs/drain-pending-disposals! :disposed))]
+        (testing "the healthy sibling still drained"
+          (is (= 1 (count @notes))))
+        (testing "exactly one production-survivable callback-failure record —
+                  trace coverage of the diagnostic sub-cycle is NOT full coverage
+                  (pre-fix / channel-collapse-to-Boolean: zero)"
+          (let [wrapped (filterv #(= :rf.error/observation-on-change-failed (:error %))
+                                 records)]
+            (is (= 1 (count wrapped)))
+            (is (identical? sub-cycle-ex (:exception (first wrapped)))
+                "the diagnostic sub-cycle throw rides as the wrapper's cause")
+            (is (= :obs/items (:event-id (first wrapped))))))
+        (testing "the diagnostic-only sub-cycle category is NEVER promoted onto
+                  the always-on axis"
+          (is (empty? (filterv #(= :rf.error/sub-cycle (:error %)) records))))
+        (testing "the first escape is rethrown to the direct caller with the
+                  sub-cycle identity intact"
+          (is (= :threw outcome))
+          (is (identical? sub-cycle-ex thrown))
+          (is (= :rf.error/sub-cycle (error-id thrown)))))
+      (obs/release! la)
+      (obs/release! lb))))
+
+(deftest disposed-drain-wraps-a-diagnostic-only-malformed-target-escape-without-promoting-it
+  ;; DIAGNOSTIC-CATEGORY PROMOTION. A former-owner on-change that probes a
+  ;; malformed target throws the diagnostic-only
+  ;; :rf.error/observation-malformed-target (probe carries no reentrancy guard, so
+  ;; it reaches the closed-target grammar gate). Pre-fix the drain trusted the
+  ;; canonical thrown-error SHAPE and dynamically re-fanned malformed-target
+  ;; through emit-error-both!, promoting a category Spec 009 EXCLUDES from the
+  ;; always-on axis. Red-before-fix: :rf.error/observation-malformed-target
+  ;; appears among the always-on records (and the wrapper is absent).
+  (reg-items!)
+  (seed-items! [:a])
+  (with-redefs [interop/next-tick (fn [_f] nil)]
+    (let [notes (atom [])
+          la (obs/acquire! (items-target) (fn [_n] (obs/probe {:kind :bogus})))
+          lb (obs/acquire! (items-target) (fn [n] (swap! notes conj n)))]
+      (force-dispose-node! [:obs/items])
+      (let [[[outcome thrown] records]
+            (with-error-records #(obs/drain-pending-disposals! :disposed))]
+        (is (= 1 (count @notes)) "the healthy sibling still drained")
+        (testing "the callback failure is wrapped exactly once on the always-on
+                  axis, carrying the malformed-target throw as its cause"
+          (let [wrapped (filterv #(= :rf.error/observation-on-change-failed (:error %))
+                                 records)]
+            (is (= 1 (count wrapped)))
+            (is (= :rf.error/observation-malformed-target
+                   (error-id (:exception (first wrapped)))))))
+        (testing "the diagnostic-only malformed-target category is NEVER promoted
+                  onto the always-on axis"
+          (is (empty? (filterv #(= :rf.error/observation-malformed-target (:error %))
+                               records))))
+        (is (= :threw outcome))
+        (is (= :rf.error/observation-malformed-target (error-id thrown))))
+      (obs/release! la)
+      (obs/release! lb))))
+
+(deftest disposed-drain-cannot-be-suppressed-or-spoofed-by-forged-provenance
+  ;; FORGEABLE PROVENANCE. An application on-change can copy any keyword or
+  ;; literal into its thrown ex-data, but it cannot construct the
+  ;; framework-internal EmissionProvenance token — so no forgery can SUPPRESS the
+  ;; always-on callback-failure record or INJECT a category. Red-before-fix: the
+  ;; public marker suppressed the drain (wrapped absent) and the reserved /
+  ;; imitated ids were fanned as framework categories.
+  (reg-items!)
+  (seed-items! [:a])
+  (with-redefs [interop/next-tick (fn [_f] nil)]
+    (let [;; (1) a copy of the OLD public "already-fanned" marker — pre-fix this
+          ;;     suppressed the drain entirely (fanned-at-source? true).
+          public-marker (ex-info "forged public marker"
+                                 {error-emit/fanned-at-source-key true})
+          ;; (2) a RECONSTRUCTED provenance-shaped map under the (guessable)
+          ;;     framework key — fails the instance? gate; this ALSO fails if the
+          ;;     opaque token is replaced with a reconstructible map shape.
+          shape-forgery (ex-info "forged provenance shape"
+                                 {:re-frame.substrate.observation/emission-provenance
+                                  {:channels #{:always-on :trace}}})
+          ;; (3) a reserved-but-UNCATALOGUED id + plausible :reason — pre-fix
+          ;;     canonical-typed-error? trusted the shape and INJECTED it.
+          reserved-boom (ex-info "reserved uncatalogued"
+                                 {:rf.error/id :rf.error/not-in-catalogue
+                                  :reason      "a plausible framework sentence"})
+          ;; (4) an IMITATED existing catalogued id + plausible :reason — pre-fix
+          ;;     this SPOOFED :rf.error/frame-destroyed onto the axis.
+          imitation     (ex-info "imitated existing id"
+                                 {:rf.error/id :rf.error/frame-destroyed
+                                  :reason      "a plausible framework sentence"})
+          notes (atom [])
+          la (obs/acquire! (items-target) (fn [_n] (throw public-marker)))
+          lb (obs/acquire! (items-target) (fn [_n] (throw shape-forgery)))
+          lc (obs/acquire! (items-target) (fn [_n] (throw reserved-boom)))
+          ld (obs/acquire! (items-target) (fn [_n] (throw imitation)))
+          le (obs/acquire! (items-target) (fn [n] (swap! notes conj n)))]
+      (force-dispose-node! [:obs/items])
+      (let [[[_ _] records]
+            (with-error-records #(obs/drain-pending-disposals! :disposed))]
+        (testing "the healthy sibling was still notified"
+          (is (= 1 (count @notes))))
+        (testing "no forged marker can SUPPRESS the always-on callback-failure —
+                  each forgery yields exactly one stable wrapper carrying its
+                  original throwable as the cause"
+          (let [wrapped (filterv #(= :rf.error/observation-on-change-failed (:error %))
+                                 records)
+                causes  (set (map :exception wrapped))]
+            (is (= 4 (count wrapped)))
+            (is (contains? causes public-marker))
+            (is (contains? causes shape-forgery))
+            (is (contains? causes reserved-boom))
+            (is (contains? causes imitation))
+            (is (every? #(= :obs/items (:event-id %)) wrapped))))
+        (testing "no forged id is INJECTED onto the always-on axis"
+          (is (empty? (filterv #(= :rf.error/not-in-catalogue (:error %)) records)))
+          (is (empty? (filterv #(= :rf.error/frame-destroyed (:error %)) records)))))
+      (obs/release! la) (obs/release! lb) (obs/release! lc)
+      (obs/release! ld) (obs/release! le))))
 
 ;; ===========================================================================
 ;; ABI guard
