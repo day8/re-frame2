@@ -19,6 +19,7 @@
             [re-frame.core                  :as rf]
             [re-frame.error-emit            :as error-emit]
             [re-frame.frame                 :as frame]
+            [re-frame.live-frame            :as live-frame]
             [re-frame.interop               :as interop]
             [re-frame.source-coords         :as source-coords]
             [re-frame.subs                  :as subs]
@@ -1607,6 +1608,44 @@
           (let [ev (obs/probe (obs/resolve-target {:frame fid :query-v [:obs/a]}) memo)]
             (is (= [:a 6] (:value ev)) "no stale memoized value served")
             (is (> @parent-runs runs-before) "the parent recomputed")))))))
+
+(deftest slice-memo-tag-includes-the-exact-frame-incarnation
+  ;; rf2-vxgfnd.160 — the shared cold-probe memo must NOT serve a DESTROYED
+  ;; incarnation's value to a COMMIT-FREE consumer. The
+  ;; (frame, frame-epoch, registry-epoch) triple TIES across a same-id
+  ;; destroy+recreate (frame/dissoc-frame! restarts the commit epoch, and no new
+  ;; :sub registration bumps the registry epoch), so without the exact
+  ;; incarnation token in the tag a Tier-1 probe outside any ViewCell reuses A's
+  ;; memoized parent for B — and there is NO commit step 5 to correct a
+  ;; commit-free read.
+  (let [mfid   :memo/frame]
+    (rf/reg-sub :memo/parent (fn [db _] (:value db)))
+    (rf/reg-sub :memo/value :<- [:memo/parent] (fn [v _] v))
+    (let [target (fn [] (obs/resolve-target {:frame mfid :query-v [:memo/value]}))]
+      ;; incarnation A — seed {:value :A}, ONE state commit
+      (live-frame/make-frame {:id mfid})
+      (frame/replace-app-db! mfid {:value :A})
+      (let [memo    (obs/make-slice-memo)              ;; the shared module handle
+            token-a (frame/frame-incarnation-token mfid)
+            fe-a    (frame/frame-commit-epoch mfid)
+            ev-a    (obs/probe (target) memo)]         ;; seeds A's parent into the memo
+        (is (= :A (:value ev-a)) "A's value seeds the memo")
+        ;; destroy A; recreate same-id B with an EQUAL-epoch commit
+        (frame/destroy-frame! mfid)
+        (live-frame/make-frame {:id mfid})
+        (frame/replace-app-db! mfid {:value :B})
+        (let [token-b (frame/frame-incarnation-token mfid)]
+          (testing "precondition — B ties A on the (frame, frame-epoch, registry-epoch) tag"
+            (is (not (identical? token-a token-b)) "B is a DISTINCT incarnation")
+            (is (= fe-a (frame/frame-commit-epoch mfid))
+                "frame-commit-epoch ties across the reincarnation (epoch restarted)"))
+          ;; the SECOND probe reuses the SAME memo handle — no reset-scheduler!
+          (let [ev-b (obs/probe (target) memo)]
+            (is (= (:registry-epoch ev-a) (:registry-epoch ev-b))
+                "registry-epoch ties too — the whole pre-token tag is identical")
+            (is (= :B (:value ev-b))
+                "the commit-free re-probe returns B's value — the incarnation token
+                 in the memo tag prevents A's stale parent from being reused")))))))
 
 ;; ===========================================================================
 ;; the leak fixture — 10k cold probes retain zero

@@ -349,10 +349,14 @@
   synchronous render pass; GC hygiene only, not a before-paint boundary).
   On the JVM `next-tick` is a concurrent executor, not a microtask, so a
   timer-driven clear would race a synchronous render; there the handle is
-  invalidated by the memo's own `(frame, frame-epoch, registry-epoch)` tag
-  on the next epoch (`slice-memo-table!`) and cleared between fixtures by
-  `reset-scheduler!`. The memo is an ECONOMY — commit step 5 corrects any
-  staleness before paint — so the coarser JVM lifetime is harmless."
+  invalidated by the memo's own `(frame, frame-epoch, registry-epoch)` tag —
+  PLUS the exact frame-incarnation token, which distinguishes a same-id
+  destroy+recreate whose epochs tie (rf2-vxgfnd.160) — on the next
+  slice (`slice-memo-table!`) and cleared between fixtures by
+  `reset-scheduler!`. The memo is an ECONOMY — for a committing reader commit
+  step 5 corrects any staleness before paint, and the incarnation-complete tag
+  keeps a commit-free reader correct on its own — so the coarser JVM lifetime
+  is harmless."
   []
   (or @slice-memo*
       (let [h (obs/make-slice-memo)]

@@ -897,12 +897,16 @@
   Within one synchronous execution slice, cold probes threading the same
   handle share computed derivation parents (N sibling rows probing
   `[:orders/by-id id]` compute shared parents once per slice, not once per
-  row). The table inside is created lazily on first cold probe,
-  belt-and-braces tagged with `(frame, frame-epoch, registry-epoch)` and
-  invalidated on any mismatch, and (CLJS) cleared by `queueMicrotask` so an
-  abandoned slice's table is released. The memo is an ECONOMY, never an
-  authority — the commit evidence comparison (invariant 5) already corrects
-  any staleness before paint. Per Spec 006 §The slice-scoped probe memo."
+  row). The table inside is created lazily on first cold probe, tagged with
+  `(frame, frame-epoch, registry-epoch)` PLUS the exact frame-incarnation
+  token, and invalidated on any mismatch — the token by identity, because the
+  epoch triple can tie across a same-id destroy+recreate (rf2-vxgfnd.160). On
+  CLJS the table is cleared by `queueMicrotask` so an abandoned slice's table
+  is released. The memo is an ECONOMY, never an authority — for a COMMITTING
+  reader the commit evidence comparison (invariant 5) corrects any staleness
+  before paint; the incarnation-complete tag additionally keeps a COMMIT-FREE
+  reader (a Tier-1 probe outside a ViewCell, which has no commit step 5)
+  correct on its own. Per Spec 006 §The slice-scoped probe memo."
   []
   (atom {:tag nil :memo nil}))
 
@@ -913,21 +917,34 @@
 
 (defn- slice-memo-table!
   "Resolve the compute memo atom for a cold probe against `frame-id`:
-  validate the handle's `(frame, frame-epoch, registry-epoch)` tag, reuse
-  the table on a match, else install a fresh one (arming the CLJS microtask
-  clear). A nil handle means no cross-probe sharing — a fresh per-call
-  table."
+  validate the handle's `(frame, frame-epoch, registry-epoch)` tag AND the
+  exact frame-incarnation token (by IDENTITY), reuse the table on a full
+  match, else install a fresh one (arming the CLJS microtask clear). A nil
+  handle means no cross-probe sharing — a fresh per-call table.
+
+  The incarnation token is part of the identity because the
+  (frame, frame-epoch, registry-epoch) triple can TIE across a same-id
+  destroy+recreate: `frame/dissoc-frame!` restarts the commit epoch, so a
+  fresh incarnation B can present the EXACT epochs a destroyed incarnation A
+  did. Without the token, a COMMIT-FREE consumer (a Tier-1 `ui.test/render`
+  outside any ViewCell) would receive A's memoized parent for B — and there is
+  no commit step 5 to correct a commit-free read. The memo remains an ECONOMY
+  for a COMMITTING reader, but its tag is itself incarnation-complete so the
+  commit-free path is correct on its own (rf2-vxgfnd.160)."
   [handle frame-id]
   (if (nil? handle)
     (seed-observation-opts! (atom {}) frame-id)
-    (let [tag [frame-id
-               (frame/frame-commit-epoch frame-id)
-               @registry-epoch*]
-          {existing-tag :tag existing :memo} @handle]
-      (if (and existing (= existing-tag tag))
+    (let [token (frame/frame-incarnation-token frame-id)
+          tag   [frame-id
+                 (frame/frame-commit-epoch frame-id)
+                 @registry-epoch*]
+          {existing-tag :tag existing-token :token existing :memo} @handle]
+      (if (and existing
+               (= existing-tag tag)
+               (identical? existing-token token))
         existing
         (let [fresh (seed-observation-opts! (atom {}) frame-id)]
-          (reset! handle {:tag tag :memo fresh})
+          (reset! handle {:tag tag :token token :memo fresh})
           #?(:cljs
              (when (exists? js/queueMicrotask)
                (js/queueMicrotask
@@ -935,7 +952,7 @@
                    ;; Release only OUR table — a later slice may have
                    ;; installed a fresh one already.
                    (when (identical? fresh (:memo @handle))
-                     (reset! handle {:tag nil :memo nil}))))))
+                     (reset! handle {:tag nil :token nil :memo nil}))))))
           fresh)))))
 
 ;; ---- resolve-target -----------------------------------------------------------

@@ -123,11 +123,12 @@
       (is (empty? (reactive/committed-target-keys cell))
           "A's stale lease is released — no old ownership survives on the replacement id"))
     (testing "the replacement incarnation B is wholly untouched and commits cleanly"
-      ;; Clear the slice PROBE MEMO first: a cold probe caches its computed value
-      ;; under a `(frame, frame-epoch, registry-epoch)` tag, and those tie across
-      ;; the reincarnation by construction — so a stale A-tagged entry would be
-      ;; reused. The memo is an economy (commit corrects before paint); resetting
-      ;; it isolates B's OWN read. The dead cell already left every registry.
+      ;; Reset the slice PROBE MEMO for clean isolation. A cold probe caches its
+      ;; computed value under a `(frame, frame-epoch, registry-epoch)` tag whose
+      ;; epochs tie across this reincarnation by construction — but the tag ALSO
+      ;; carries the exact frame-incarnation token (rf2-vxgfnd.160), so B's probe
+      ;; would already miss A's stale entry by identity. The reset simply pins B's
+      ;; OWN read unambiguously. The dead cell already left every registry.
       (reactive/reset-scheduler!)
       (let [cell-b (reactive/make-cell ::b)]
         (let [[_ capture] (rf/with-frame fid
