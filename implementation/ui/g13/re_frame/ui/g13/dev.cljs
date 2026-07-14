@@ -69,6 +69,20 @@
                       :revision-delta (reduce + (deltas all before))
                       :evidence-counts
                       (mapv #(get (reactive/pending-evidence %) :count) hot)
+                      ;; rf2-vxgfnd.210 — the NAMED candidate-work axis.
+                      ;; Summed over EVERY live cell (all V), `:port-fan-out` is
+                      ;; the observation port's total DELIVERED fan-out for the
+                      ;; drain: one fold per (queued write × affected owner). Its
+                      ;; value is C*Q, and — critically — the V−C non-affected
+                      ;; cells contribute ZERO (`:fan-out-cells` counts the cells
+                      ;; that received ANY fold, and it is exactly C). The number
+                      ;; is therefore causally independent of V: it is not merely
+                      ;; numerically equal across the two runs, it is summed over
+                      ;; all V and provably sourced from only C of them.
+                      :port-fan-out
+                      (reduce + 0 (keep #(:count (reactive/pending-evidence %)) all))
+                      :fan-out-cells
+                      (count (filter #(some? (reactive/pending-evidence %)) all))
                       :counters (fixture/counter-snapshot)})))
           (.then
            (fn []
@@ -85,15 +99,19 @@
                               :root-commits (:commits counters)
                               :hot-base (:hot-base counters)
                               :stable-parent (:stable-parent counters)
-                              :cold-leaf (:cold-leaf counters)}
+                              :cold-leaf (:cold-leaf counters)
+                              :port-fan-out (:port-fan-out @pre)
+                              :fan-out-cells (:fan-out-cells @pre)}
                  expected    {:enrolled 8 :advances 8 :revision-delta 8
                               :hot-renders 8
                               :hot-renders-by-index (vec (repeat 8 1))
                               :cold-renders 0 :root-commits 1
-                              :hot-base 8 :stable-parent 8 :cold-leaf 0}]
+                              :hot-base 8 :stable-parent 8 :cold-leaf 0
+                              :port-fan-out 64 :fan-out-cells 8}]
              (ensure! (= {:pending 8 :hot-dirty 8 :cold-dirty 0 :idle-dirty 0
                           :revision-delta 0
                           :evidence-counts (vec (repeat 8 8))
+                          :port-fan-out 64 :fan-out-cells 8
                           :counters {:writes 8 :hot-base 8 :stable-parent 8
                                      :cold-leaf 0 :hot-body 0 :cold-body 0
                                      :hot-body-by-index (vec (repeat 8 0))
@@ -185,7 +203,7 @@
        (fn [results]
          (let [projections (mapv #(get-in % [:cold :projection]) results)]
            (ensure! (apply = projections)
-                    "count projection depends on V"
+                    "candidate-work projection depends on V"
                     {:projections projections})
            {:gate "G-13"
             :status "pass"
@@ -194,6 +212,20 @@
             :affected-viewcells fixture/hot-count
             :fixed-shell-idle-cells fixture/idle-shell-count
             :timing-posture "evidence-only; no threshold"
+            ;; rf2-vxgfnd.210 — the explicit candidate-work axis plus the HONEST
+            ;; scope of what the counts prove. `port-fan-out` (C*Q, summed over
+            ;; all V live cells with the V−C non-affected cells contributing
+            ;; zero) is the named V-independent candidate-work projection. The
+            ;; counts prove V-independent DELIVERED push work (fan-out
+            ;; occurrences + sub recomputes + renders + one commit). A pure
+            ;; membership SCAN that inspects V candidates but delivers to only C
+            ;; is observable only by a production-side counter at the port's
+            ;; candidate-iteration choke point — out of this gate's reach — and
+            ;; is tracked by timing evidence alone, never asserted by a count
+            ;; nor by a wall-clock threshold.
+            :candidate-work-projection "port-fan-out"
+            :proof-scope
+            "v-independent delivered push work; pure candidate scan is timing-evidence-only"
             :results results})))))
 
 (defn -main []
