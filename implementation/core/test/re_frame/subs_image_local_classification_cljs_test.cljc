@@ -18,12 +18,28 @@
   sensitive sub and proves the subscriber reads RAW while the projected trace
   redacts, across an ongoing recompute.
 
+  rf2-vxgfnd.258 — the chokepoint fixtures HAND a `:rf.sub/classification` map
+  to the projector, so they stay green even if REAL image-local resolution fell
+  back to the global/nil. The `image-local-*` deftests below close that gap:
+  they ASSEMBLE a real inline `:reg-sub` (`image/image` → `lf/make-frame` →
+  `image-assembly/lower-inline-descriptors`, the rf2-vxgfnd.219/.257 path),
+  install it on a LIVE frame carrying a resolved image GENERATION, and observe
+  the Xray-facing `:trace` listener stream. They prove the image-local
+  `:sensitive` declaration is the one that redacts even against a conflicting
+  same-id GLOBAL, a SECOND frame with the same id resolves its OWN declaration,
+  and REPLACING frame A's generation reflects the NEW declaration without leaking
+  the old generation or the global. Mutating image-local sub-meta resolution to
+  nil/global (the projector re-resolving through the ambient registrar) makes
+  these fail on CLJ and CLJS.
+
   `.cljc` — runs under both `clojure -M:test` (JVM) and `npm run test:cljs`."
   (:require #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
                :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
             [re-frame.core :as rf]
             [re-frame.classification :as classification]
             [re-frame.elision :as elision]
+            [re-frame.image :as image]
+            [re-frame.live-frame :as lf]
             [re-frame.privacy :as privacy]
             [re-frame.substrate.plain-atom :as plain-atom]
             [re-frame.test-support :as ts]))
@@ -144,3 +160,141 @@
               "the internal carrier never reaches a listener")))
       (finally
         (rf/unregister-listener! :trace :sec-e2e)))))
+
+;; ===========================================================================
+;; rf2-vxgfnd.258 — REAL image-local assembly + generation replacement
+;;
+;; Not `project-trace-event` fed a fabricated classification: an inline
+;; `:reg-sub` ASSEMBLED by `image/image` → `lf/make-frame` → image-assembly's
+;; `lower-inline-descriptors`, installed on a live frame's resolved GENERATION,
+;; observed through the Xray-facing `:trace` listener. If image-local sub-meta
+;; resolution fell back to the global/nil, the projected value would ride RAW and
+;; these fail.
+;; ===========================================================================
+
+(defn- inline-sub-image
+  "An image whose ONLY registration is an inline layer-1 `:reg-sub` under `id`
+  carrying `classification` metadata and returning the constant `value`. The
+  inline descriptor is NORMALIZED + lowered by image assembly when the frame's
+  generation is sealed (the REAL path — not a hand-built descriptor). The
+  `image/image` inline `:reg-sub` path stamps `:input-kind :db` for us."
+  [image-id id classification value]
+  (image/image {:id            image-id
+                :registrations {:reg-sub [[id classification (fn [_db _q] value)]]}}))
+
+(defn- install-image-frame!
+  "Create/update a runnable frame under `frame-id` and seal its generation from
+  `image` — the REAL image-assembly path (`asm/assemble` → lower-inline-
+  descriptors). The empty descriptor pool keeps the generation to the image's
+  OWN inline registrations (no live source-store contamination). Returns the
+  frame value."
+  [frame-id image]
+  (lf/make-frame {:id frame-id :images [image]} []))
+
+(defn- image-local-sub-runs
+  "The projected `:tags` of every `:rf.sub/run` the `:trace` listener saw for
+  `sub-id` in `frame-id` — the Xray-facing evidence, post-projection."
+  [recorded sub-id frame-id]
+  (into []
+        (comp (filter (fn [ev] (and (= :rf.sub/run (:operation ev))
+                                    (= sub-id  (get-in ev [:tags :rf.sub/id]))
+                                    (= frame-id (get-in ev [:tags :frame])))))
+              (map :tags))
+        @recorded))
+
+(defn- with-trace-listener
+  "Register a `:trace` listener that accumulates into a fresh atom, run `(f
+  recorded)`, and unregister in a finally."
+  [f]
+  (let [recorded (atom [])
+        lid      ::image-local-e2e]
+    (rf/register-listener! :trace lid (fn [ev] (swap! recorded conj ev)))
+    (try (f recorded)
+         (finally (rf/unregister-listener! :trace lid)))))
+
+(deftest image-local-sensitive-redacts-over-conflicting-global-through-real-assembly
+  (testing "an ASSEMBLED inline sub's :sensitive declaration redacts its
+            :rf.sub/run evidence in the frame that owns it — even though a same-id
+            GLOBAL registration declares NO classification (a fallback to the
+            global/nil would leak the value RAW)"
+    ;; Conflicting global: SAME id, NO classification.
+    (rf/reg-sub :img/read (fn [_db _q] {:token "GLOBAL" :public 0}))
+    (install-image-frame! :img/frame-a
+      (inline-sub-image :img/a :img/read {:sensitive [[:token]]}
+                        {:token "SECRET" :public 1}))
+    (with-trace-listener
+      (fn [recorded]
+        (is (= {:token "SECRET" :public 1}
+               @(rf/subscribe [:img/read] {:frame :img/frame-a}))
+            "the subscriber derefs the RAW image-local value")
+        (let [runs (image-local-sub-runs recorded :img/read :img/frame-a)]
+          (is (seq runs) "the :trace listener saw the image-local sub run")
+          (doseq [tags runs]
+            (is (= privacy/redacted-sentinel (get-in tags [:rf.sub/value :token]))
+                "image-local :sensitive redacted the value, NOT the unclassified global")
+            (is (= 1 (get-in tags [:rf.sub/value :public]))
+                "the unclassified sibling rides raw")
+            (is (not (contains? tags :rf.sub/classification))
+                "the internal carrier never reaches the listener")))))))
+
+(deftest second-frame-same-id-resolves-its-own-image-local-classification
+  (testing "two frames install the SAME inline id with DIFFERENT classifications;
+            each frame's evidence redacts per its OWN image-local declaration —
+            no cross-frame classification bleed, no shared global"
+    (install-image-frame! :img/frame-a
+      (inline-sub-image :img/a :img/read {:sensitive [[:token]]}
+                        {:token "A-SECRET" :public "A-pub"}))
+    (install-image-frame! :img/frame-b
+      (inline-sub-image :img/b :img/read {:sensitive [[:public]]}
+                        {:token "B-tok" :public "B-SECRET"}))
+    (with-trace-listener
+      (fn [recorded]
+        @(rf/subscribe [:img/read] {:frame :img/frame-a})
+        @(rf/subscribe [:img/read] {:frame :img/frame-b})
+        (let [a (last (image-local-sub-runs recorded :img/read :img/frame-a))
+              b (last (image-local-sub-runs recorded :img/read :img/frame-b))]
+          (is (some? a) "frame A's sub ran")
+          (is (some? b) "frame B's sub ran")
+          (is (= privacy/redacted-sentinel (get-in a [:rf.sub/value :token]))
+              "frame A redacts :token (its own declaration)")
+          (is (= "A-pub" (get-in a [:rf.sub/value :public]))
+              "frame A leaves :public raw")
+          (is (= privacy/redacted-sentinel (get-in b [:rf.sub/value :public]))
+              "frame B redacts :public (ITS declaration), independently")
+          (is (= "B-tok" (get-in b [:rf.sub/value :token]))
+              "frame B leaves :token raw — no bleed from A's :token declaration"))))))
+
+(deftest replacing-frame-a-generation-updates-evidence-without-old-or-global-leak
+  (testing "replacing frame A's image generation with a NEW :sensitive
+            declaration makes subsequent evidence redact per the NEW generation —
+            not the OLD generation's path, not the conflicting global"
+    ;; Conflicting global: SAME id, NO classification.
+    (rf/reg-sub :img/read (fn [_db _q] {:token "GLOBAL" :public "GLOBAL"}))
+    ;; Generation 1 — classifies :token.
+    (install-image-frame! :img/frame-a
+      (inline-sub-image :img/g1 :img/read {:sensitive [[:token]]}
+                        {:token "SECRET" :public "pub"}))
+    (with-trace-listener
+      (fn [recorded]
+        (let [g1 (last (do @(rf/subscribe [:img/read] {:frame :img/frame-a})
+                          (image-local-sub-runs recorded :img/read :img/frame-a)))]
+          (is (= privacy/redacted-sentinel (get-in g1 [:rf.sub/value :token]))
+              "generation 1 redacts :token"))
+        ;; Swap to generation 2 — classifies :public instead. Frame memory
+        ;; (sub-cache) is preserved across the swap, so clear it to force a fresh
+        ;; reaction resolved against the NEW generation (an HMR sub reload).
+        (install-image-frame! :img/frame-a
+          (inline-sub-image :img/g2 :img/read {:sensitive [[:public]]}
+                            {:token "tok2" :public "SECRET2"}))
+        (rf/clear-sub-cache! :img/frame-a)
+        (reset! recorded [])
+        @(rf/subscribe [:img/read] {:frame :img/frame-a})
+        (let [g2 (last (image-local-sub-runs recorded :img/read :img/frame-a))]
+          (is (some? g2) "the new generation's sub ran")
+          (is (= privacy/redacted-sentinel (get-in g2 [:rf.sub/value :public]))
+              "the NEW generation redacts :public")
+          (is (= "tok2" (get-in g2 [:rf.sub/value :token]))
+              "the OLD generation's :token classification did NOT persist, and the
+               unclassified global did not supply one")
+          (is (not (contains? g2 :rf.sub/classification))
+              "the internal carrier never reaches the listener"))))))
