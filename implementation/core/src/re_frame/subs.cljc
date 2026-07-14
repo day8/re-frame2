@@ -169,6 +169,34 @@
                    "must be the required function(s).")
               (vec remaining))))))
 
+(defn normalize-sub-metadata
+  "The ONE side-effect-free (with respect to the global registrar) subscription-
+  metadata normalization seam, shared by public `reg-sub` and inline-image
+  `lower-inline-sub` (EP-0026 — inline registration follows the SAME registrar
+  contract, neither looser nor stricter). Given the user `meta` map it:
+
+    - validates retired / unknown registration KEYS under the dev/prod policy
+      (`reg-meta/validate-registration-metadata!` — a retired bare `:spec` HARD-
+      errors in dev AND prod naming `:schema`; an unknown bare key warns in dev;
+      namespaced extension keys pass);
+    - validates the `:sensitive` / `:large` CLASSIFICATION declarations fail-loud
+      (`classification/validate-classification!` — a malformed declaration raises
+      `:rf.error/bad-classification`);
+    - strips the production-only pure-documentation fields (`:doc`) exactly as the
+      public registrar does (`registrar/strip-pure-documentation` — a no-op in dev).
+
+  Throws on a retired key or malformed classification; otherwise returns the
+  normalized meta (doc-stripped in production, omitted-vs-explicit-nil and
+  namespaced extension keys preserved). It NEVER writes the global registrar —
+  the runtime-owned runnable slots (`:handler-fn`, `:input-kind`,
+  `:input-signals`) are installed by the caller AFTER normalization, so metadata
+  can never override them. `where-sym` / `id` name the registration in the
+  diagnostics."
+  [where-sym id meta]
+  (reg-meta/validate-registration-metadata! :sub where-sym id meta)
+  (classification/validate-classification! :sub meta)
+  (registrar/strip-pure-documentation meta))
+
 (defn reg-sub
   "Register a subscription under `id`. The sole sub-registration form
   (per Spec 002 §Subscriptions composing).
@@ -241,20 +269,17 @@
                                          :recovery  :no-recovery}))
                    (throw e)))
         {:keys [meta handler-fn input-kind input-signals input-fn]} parsed]
-    ;; rf2-x68lzo — no-silent-swallow on the registration metadata KEYS: a retired
-    ;; bare key (`:spec`) hard-errors, an unknown bare key warns, namespaced/known
-    ;; keys pass. Runs on the user meta before the registrar write.
-    (reg-meta/validate-registration-metadata! :sub 'rf/reg-sub id meta)
-    ;; EP-0025 — VALIDATE the sub's `:sensitive` / `:large` / `:large?`
-    ;; classification declarations fail-loud BEFORE the registrar write. The
-    ;; classification is DERIVED from the registrar meta at read time (no
-    ;; imperative stash). EP-0025 removed sub-output PROPAGATION (no
-    ;; derived-output sensitivity enum, no input→output inheritance), so there
-    ;; is no propagation table to update. The always-on, same-artefact
-    ;; `validate-classification!` is called directly (no late-bind hop).
-    (classification/validate-classification! :sub meta)
+    ;; rf2-vxgfnd.219 — one shared normalization seam validates the retired /
+    ;; unknown registration KEYS (rf2-x68lzo — a retired `:spec` hard-errors,
+    ;; unknown bare keys warn) AND the EP-0025 `:sensitive` / `:large`
+    ;; classification declarations (fail-loud) AND strips production-only `:doc`,
+    ;; so public `reg-sub` and inline-image `lower-inline-sub` accept, reject,
+    ;; and elide identical metadata. Classification is DERIVED from the registrar
+    ;; meta at read time (no imperative stash); the runtime-owned slots below are
+    ;; installed AFTER normalization so metadata cannot override them.
     (registrar/register! :sub id
-      (cond-> (assoc (source-coords/merge-coords meta)
+      (cond-> (assoc (source-coords/merge-coords
+                       (normalize-sub-metadata 'rf/reg-sub id meta))
                      :handler-fn    handler-fn
                      :input-kind    input-kind
                      :input-signals (or input-signals []))
@@ -2174,14 +2199,27 @@
 (defn lower-inline-sub
   "Lower an inline `:reg-sub` descriptor's raw computation fn into the runnable
   layer-1 (`:input-kind :db`) sub slots `reg-sub` installs (`:handler-fn` +
-  `:input-kind :db` + empty `:input-signals`). `metadata` is also projected
-  onto the runnable descriptor's top level, matching the shape `reg-sub`
-  installs and making runtime consumers such as return-schema validation read
-  the same slots regardless of registration path. Image assembly still keeps
-  the original nested `:metadata` plus `:impl` and provenance for inspection.
-  Runtime-owned runnable slots win over metadata."
+  `:input-kind :db` + empty `:input-signals`). `metadata` is NORMALIZED through
+  the SAME `normalize-sub-metadata` seam public `reg-sub` runs (rf2-vxgfnd.219),
+  so an inline registration accepts, rejects, and elides identical metadata: a
+  retired bare `:spec` hard-errors with `:rf.error/retired-registration-key`, a
+  malformed `:sensitive` / `:large` declaration raises
+  `:rf.error/bad-classification`, and production strips `:doc` — neither looser
+  nor stricter than the public path. The normalized meta is projected onto the
+  runnable descriptor's top level, matching the shape `reg-sub` installs so
+  runtime consumers (return-schema validation, classification projection) read
+  the same slots regardless of registration path. Normalization is side-effect-
+  free with respect to the global registrar; the runtime-owned runnable slots
+  are installed AFTER it, so metadata can never override them. Image assembly
+  still keeps the original nested `:metadata` plus `:impl` and provenance for
+  inspection.
+
+  The concrete sub id is not threaded through the image-assembly lowering
+  boundary (`lower` receives only `[metadata impl]`), so a generic
+  `:rf.image/inline-sub` id names the registration in any normalization
+  diagnostic; the error TYPE + named replacement key match the public path."
   [metadata impl]
-  (assoc metadata
+  (assoc (normalize-sub-metadata 'rf/reg-sub :rf.image/inline-sub metadata)
          :handler-fn    impl
          :input-kind    :db
          :input-signals []))
