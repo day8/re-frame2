@@ -112,34 +112,59 @@ function forbiddenCoordinates(treeText) {
   );
 }
 
-// Hardened, shell-free spawn of the system `clojure` binary — the rf2-wn4o1 /
-// rf2-33vvc posture, mirroring scripts/test-mcp-conformance.cjs. Resolve the
-// bare name to a single TRUSTED absolute path OUTSIDE the workspace, then
-// dispatch it via cross-spawn with an args ARRAY and NO shell. This gates the
-// Windows command-hijack accident class (a workspace-local `clojure.cmd` in a
-// repo-controlled `cwd` shadowing PATH under a shell-enabled spawn) and avoids
-// the DEP0190 args-concatenation warning. Both helpers are lazy-required so the
-// hermetic `--self-test` needs neither cross-spawn nor a resolved toolchain.
-// A missing dependency or an untrusted/absent `clojure` returns an `{ error }`
-// object, which main() reports as a hard failure (exit 2) — never a silent
-// pass.
-function resolveDependencyTree(cwd) {
-  let crossSpawn;
-  try {
-    crossSpawn = require('cross-spawn');
-  } catch (err) {
-    if (err && err.code === 'MODULE_NOT_FOUND') {
-      return {
-        error: new Error(
-          "cross-spawn is not installed — run `npm install`/`npm ci` in " +
-            'implementation/ first (it is the devDependency used for the ' +
-            'shell-free clojure spawn).'
-        ),
-      };
+// Pure existence probe: does a `clojure` executable file exist ANYWHERE on
+// PATH (regardless of trust)? Mirrors the PATH + PATHEXT walk that
+// resolveTrustedExe uses, but only stats candidates — it never executes, so it
+// carries no hijack risk itself. This is the authoritative discriminator
+// between the two failure modes of a `clojure` resolution: a candidate that
+// exists but resolves untrusted (hijack — must hard-fail) versus no candidate
+// at all (the CLI is genuinely absent from this environment — Arm 2 cannot
+// apply here).
+function clojureOnPath() {
+  const pathStr = process.env.PATH || process.env.Path || process.env.path || '';
+  const dirs = pathStr.split(path.delimiter).filter(Boolean);
+  const isWin = process.platform === 'win32';
+  const exts = isWin
+    ? [
+        '',
+        ...(process.env.PATHEXT || '.COM;.EXE;.BAT;.CMD')
+          .split(';')
+          .map((s) => s.trim())
+          .filter(Boolean),
+      ]
+    : [''];
+  for (const dir of dirs) {
+    for (const ext of exts) {
+      try {
+        if (fs.statSync(path.join(dir, `clojure${ext}`)).isFile()) return true;
+      } catch {
+        /* not this candidate; keep scanning */
+      }
     }
-    throw err;
   }
+  return false;
+}
 
+// Resolve the re-frame.ui artefact's dependency graph via `clojure -Stree`,
+// returning one of three shapes for main() to interpret:
+//
+//   { skipped: true, reason }  — `clojure` is genuinely absent from this
+//     environment (e.g. the node-test CI job sets up JDK + Node but no
+//     setup-clojure). Arm 2 cannot apply; main() emits a LOUD notice and lets
+//     Arm 1 (module closure) still pass/fail the gate. NOT a silent pass.
+//   { error }                  — a hard failure that must exit 2: a `clojure`
+//     candidate exists but resolves only to an untrusted/workspace path (the
+//     rf2-33vvc hijack accident class), or cross-spawn is not installed.
+//   a cross-spawn result        — Arm 2 ran; `status`/`stdout` carry the graph.
+//
+// Hardened, shell-free spawn posture (rf2-wn4o1 / rf2-33vvc, mirroring
+// scripts/test-mcp-conformance.cjs): resolve the bare name to a single TRUSTED
+// absolute path OUTSIDE the workspace, then dispatch it via cross-spawn with an
+// args ARRAY and NO shell — gating the Windows command-hijack accident class
+// and avoiding the DEP0190 args-concatenation warning. cross-spawn is lazily
+// required only when we will actually spawn, so the absent-clojure path (and
+// the hermetic `--self-test`) needs neither cross-spawn nor a toolchain.
+function resolveDependencyTree(cwd) {
   const { resolveTrustedExe } = require(
     path.join(repoRoot, 'tools', 'mcp-conformance', 'lib', 'exec-safety.cjs')
   );
@@ -148,7 +173,30 @@ function resolveDependencyTree(cwd) {
   try {
     clojureExe = resolveTrustedExe('clojure', { workspaceRoot: repoRoot });
   } catch (err) {
+    // A trusted `clojure` could not be resolved. Distinguish the two cases:
+    //   - genuinely absent  -> Arm 2 is N/A here; degrade to Arm-1-only.
+    //   - present-but-untrusted (a workspace-relative candidate existed) ->
+    //     the hijack accident the trust check exists to catch; hard-fail.
+    if (!clojureOnPath()) {
+      return { skipped: true, reason: err.message };
+    }
     return { error: err };
+  }
+
+  let crossSpawn;
+  try {
+    crossSpawn = require('cross-spawn');
+  } catch (err) {
+    if (err && err.code === 'MODULE_NOT_FOUND') {
+      return {
+        error: new Error(
+          'cross-spawn is not installed — run `npm install`/`npm ci` in ' +
+            'implementation/ first (it is the devDependency used for the ' +
+            'shell-free clojure spawn).'
+        ),
+      };
+    }
+    throw err;
   }
 
   return crossSpawn.sync(clojureExe, ['-Stree'], {
@@ -258,16 +306,38 @@ function main(argv) {
   }
   const moduleLeaks = forbiddenModules(imports);
 
-  // Arm 2 — resolved dependency graph. An inability to resolve is a hard error
-  // (exit 2), never a silent pass — an unverified arm is a vacuous gate.
+  // Arm 2 — resolved dependency graph. Three outcomes:
+  //   - skipped: `clojure` genuinely absent from this environment (e.g. the
+  //     node-test CI job has JDK + Node but no setup-clojure). Arm 2 cannot
+  //     apply; emit a LOUD, auditable notice and let Arm 1 decide the gate.
+  //     This is NOT a silent pass — Arm 1 still enforces isolation, and the
+  //     resolved-graph arm runs wherever `clojure` IS present (local + any
+  //     clojure-provisioned job).
+  //   - error / non-zero: a hard failure (exit 2) — a workspace-relative
+  //     `clojure` hijack candidate, a missing cross-spawn, or a `clojure`
+  //     invocation error. An unverifiable-but-present toolchain is never a
+  //     silent pass.
+  //   - ran: inspect the resolved coordinates against the denylist.
   const tree = resolveDependencyTree(uiArtefactDir);
-  if (tree.error || tree.status !== 0 || typeof tree.stdout !== 'string') {
+  let coordinateLeaks = [];
+  let arm2Ran = false;
+  if (tree.skipped) {
+    console.warn(
+      '[ui-adapter-isolation] G-12 Arm 2 skipped: clojure CLI not available in ' +
+        'this environment; module-closure Arm 1 enforced'
+    );
+    if (tree.reason) {
+      console.warn(`  (${String(tree.reason).split('\n')[0]})`);
+    }
+  } else if (tree.error || tree.status !== 0 || typeof tree.stdout !== 'string') {
     console.error(`[ui-adapter-isolation] could not resolve ${uiArtefactDir} dependency graph (clojure -Stree)`);
     if (tree.stderr) console.error(String(tree.stderr).trim());
     if (tree.error) console.error(String(tree.error.message || tree.error));
     return 2;
+  } else {
+    coordinateLeaks = forbiddenCoordinates(tree.stdout);
+    arm2Ran = true;
   }
-  const coordinateLeaks = forbiddenCoordinates(tree.stdout);
 
   if (moduleLeaks.length > 0) {
     console.error('[ui-adapter-isolation] retiring adapter/wrapper code entered the focused UI module closure:');
@@ -281,10 +351,17 @@ function main(argv) {
   }
   if (failed) return 1;
 
-  const graphSize = coordinatesFrom(tree.stdout).length;
-  console.log(
-    `[ui-adapter-isolation] PASS (${imports.length} compiler-selected imports, ${graphSize} resolved coordinates; wrapper-free)`
-  );
+  if (arm2Ran) {
+    const graphSize = coordinatesFrom(tree.stdout).length;
+    console.log(
+      `[ui-adapter-isolation] PASS (${imports.length} compiler-selected imports, ${graphSize} resolved coordinates; wrapper-free)`
+    );
+  } else {
+    console.log(
+      `[ui-adapter-isolation] PASS (${imports.length} compiler-selected imports; ` +
+        'module-closure Arm 1 enforced, resolved-graph Arm 2 skipped — clojure CLI absent)'
+    );
+  }
   return 0;
 }
 
@@ -298,6 +375,7 @@ module.exports = {
   forbiddenModules,
   coordinatesFrom,
   forbiddenCoordinates,
+  clojureOnPath,
   resolveDependencyTree,
   forbiddenModuleRoots,
   forbiddenCoordinatePatterns,
