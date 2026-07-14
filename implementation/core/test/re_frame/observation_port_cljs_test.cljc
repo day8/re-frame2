@@ -2444,6 +2444,104 @@
       (obs/release! ld) (obs/release! le))))
 
 ;; ===========================================================================
+;; rf2-9m4oy7 — emission provenance is bound to the EXACT throwable
+;;
+;; The interim rf2-w55bh0 token carried provenance in the thrown ex-data under a
+;; framework-internal key and trusted `(instance? EmissionProvenance …)`. Two
+;; spoof vectors defeated it and restored production silence:
+;;
+;;   1. GENERATED-CONSTRUCTOR FORGE — `EmissionProvenance` is a deftype, so CLJ
+;;      and CLJS generate a callable cross-namespace `->EmissionProvenance`
+;;      factory. An application on-change can construct a PASSING token and stuff
+;;      it into its OWN ex-data under the (known) key, suppressing the always-on
+;;      callback-failure record — the merged rf2-w55bh0 spoof fixture only tried a
+;;      Boolean and a plain map, never the real constructor.
+;;   2. AUTHENTIC-TOKEN TRANSPLANT — even hiding the constructor is insufficient:
+;;      an app can copy an AUTHENTIC token out of a caught framework throwable's
+;;      ex-data into an unrelated exception, again suppressing the record.
+;;
+;; The fix binds provenance to the EXACT throwable through a PRIVATE weak
+;; association (obs/attest-provenance! → obs/source-covered-always-on?), never
+;; public ex-data. Only the exact throwable this port minted-and-bound reads
+;; covered; a forged token, a transplanted token, and any fresh unrelated
+;; throwable read uncovered. Re-throwing the EXACT bound throwable stays
+;; exact-once (its source emission stands, no wrapper). This fixture uses DISTINCT
+;; throwables so each drain record provably carries ITS throwable's provenance —
+;; never a shared/last-write-wins one. Red-before-fix (ex-data + instance?
+;; verifier): the forged and transplanted tokens SUPPRESS, so the wrapper count is
+;; 0 (criterion 5 — swapping exact-throwable authentication for instance? /
+;; channel-membership fails this test).
+;; ===========================================================================
+
+(deftest disposed-drain-binds-emission-provenance-to-the-exact-throwable
+  (reg-items!)
+  (seed-items! [:a])
+  ;; An AUTHENTIC port-minted throwable, bound `#{:always-on :trace}` at its
+  ;; source: reading a lease AFTER release! throws :rf.error/read-after-release,
+  ;; which the port fans on the always-on axis and binds to THAT exact throwable.
+  (let [setup-lease (obs/acquire! (items-target) (fn [_]))
+        _           (obs/release! setup-lease)
+        auth-ex     (try (obs/read setup-lease)
+                         (catch #?(:clj Throwable :cljs :default) e e))
+        ;; The token an attacker could scrape from the authentic throwable's
+        ;; ex-data. Pre-fix it was present there (and transplantable); post-fix it
+        ;; is nil — authentic provenance lives ONLY in the private throwable-keyed
+        ;; association, never public ex-data.
+        scraped     (get (ex-data auth-ex)
+                         :re-frame.substrate.observation/emission-provenance)]
+    (is (= :rf.error/read-after-release (error-id auth-ex))
+        "the fixture carries a REAL port-minted always-on throwable")
+    (is (nil? scraped)
+        "authentic provenance is NOT carried in public ex-data (rf2-9m4oy7)")
+    (with-redefs [interop/next-tick (fn [_f] nil)]
+      (let [;; (1) FORGE via the generated constructor: a fresh, REAL
+            ;;     EmissionProvenance covering the always-on axis, stuffed into an
+            ;;     unrelated exception's ex-data under the guessable framework key.
+            ;;     Pre-fix (instance? on ex-data): SUPPRESSED. Post-fix: uncovered.
+            forged-ex     (ex-info "forged generated-constructor token"
+                                   {:re-frame.substrate.observation/emission-provenance
+                                    (obs/->EmissionProvenance #{:always-on :trace})})
+            ;; (2) TRANSPLANT: whatever the app scraped from the authentic
+            ;;     throwable, copied onto an unrelated exception. Pre-fix (with the
+            ;;     token in ex-data): SUPPRESSED. Post-fix: uncovered (a DIFFERENT
+            ;;     throwable is absent from the throwable-keyed association).
+            transplant-ex (ex-info "transplanted authentic token"
+                                   {:re-frame.substrate.observation/emission-provenance
+                                    scraped})
+            notes (atom [])
+            ;; (3) RE-THROW the EXACT bound throwable — its source emission stands,
+            ;;     so the drain must add NO wrapper for it (exact-once).
+            la (obs/acquire! (items-target) (fn [_n] (throw auth-ex)))
+            lb (obs/acquire! (items-target) (fn [_n] (throw forged-ex)))
+            lc (obs/acquire! (items-target) (fn [_n] (throw transplant-ex)))
+            ld (obs/acquire! (items-target) (fn [n] (swap! notes conj n)))]
+        (force-dispose-node! [:obs/items])
+        (let [[[_ _] records]
+              (with-error-records #(obs/drain-pending-disposals! :disposed))
+              wrapped (filterv #(= :rf.error/observation-on-change-failed (:error %))
+                               records)
+              causes  (set (map :exception wrapped))]
+          (testing "the healthy sibling was still notified"
+            (is (= 1 (count @notes))))
+          (testing "the forged and transplanted tokens CANNOT suppress the
+                    always-on callback-failure — each yields exactly one stable
+                    wrapper carrying its OWN throwable (pre-fix / ex-data+instance?
+                    verifier: zero wrappers)"
+            (is (= 2 (count wrapped)))
+            (is (contains? causes forged-ex))
+            (is (contains? causes transplant-ex))
+            (is (every? #(= :obs/items (:event-id %)) wrapped)))
+          (testing "the EXACT bound throwable is covered — its source emission
+                    stands, so the drain adds NO wrapper for it (exact-once, its
+                    provenance is NOT confused with a sibling's)"
+            (is (not (contains? causes auth-ex))))
+          (testing "no framework category is injected onto the always-on axis by
+                    the drain"
+            (is (empty? (filterv #(= :rf.error/read-after-release (:error %))
+                                 records)))))
+        (obs/release! la) (obs/release! lb) (obs/release! lc) (obs/release! ld)))))
+
+;; ===========================================================================
 ;; ABI guard
 ;; ===========================================================================
 
