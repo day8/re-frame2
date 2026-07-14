@@ -27,15 +27,27 @@ const LOADED_SOURCE = path.join(
   IMPL, 'ui', 'test', 're_frame', 'ui', 'digest_probe', 'loaded.cljs',
 );
 const OUT = path.join(IMPL, 'out', 'ui-digest-probe-lazy');
-const LAZY_JS = path.join(OUT, 'lazy.js');
+// rf2-vxgfnd.237 — artifact generation/activation separation. Shadow flushes
+// the CANDIDATE generation to OUT/candidate (its :output-dir); the browser is
+// served the STABLE generation from OUT/stable (the dev-http :http-root). The
+// re-frame.ui promote hook publishes candidate -> stable only on a fully
+// successful flush, so a downstream failure leaves the served bytes on the
+// prior accepted generation.
+const CANDIDATE = path.join(OUT, 'candidate');
+const STABLE = path.join(OUT, 'stable');
+// The SERVED (stable) module bytes — what a fresh page load / first lazy-module
+// request actually receives.
+const LAZY_JS = path.join(STABLE, 'lazy.js');
 const CARRIER_JS = path.join(
-  OUT, 'cljs-runtime', 're_frame.ui.digest_carrier.js',
+  STABLE, 'cljs-runtime', 're_frame.ui.digest_carrier.js',
 );
-// Opt-in adversarial assertion of the still-open downstream-output invariant
-// (counterexample 1). Off by default so the gate stays green while the fix —
-// artifact generation/activation separation — is a hot-zone follow-up; set to
-// "1" to assert the fixed behaviour (red-before-fix).
-const ASSERT_DOWNSTREAM_OUTPUT = process.env.RF2_PROBE_ACTIVATION_TXN === '1';
+// The CANDIDATE module bytes Shadow speculatively flushed — after a downstream
+// failure these hold the REJECTED generation, which the separation must keep
+// off the served URLs.
+const CANDIDATE_LAZY_JS = path.join(CANDIDATE, 'lazy.js');
+const CANDIDATE_CARRIER_JS = path.join(
+  CANDIDATE, 'cljs-runtime', 're_frame.ui.digest_carrier.js',
+);
 const TARGET = path.join(IMPL, 'target', 'ui-digest-probe');
 const FAIL_MARKER = path.join(TARGET, 'fail-after-compile');
 const ACCEPTED_FILE = path.join(TARGET, 'accepted-digest.txt');
@@ -339,6 +351,9 @@ async function main() {
   fs.rmSync(FAIL_MARKER, { force: true });
   fs.rmSync(ACCEPTED_FILE, { force: true });
   fs.rmSync(PREPARE_FILE, { force: true });
+  // Fresh candidate/stable slate so a prior run's promoted bytes or served
+  // shell cannot mask a regression in the generation/activation separation.
+  fs.rmSync(OUT, { recursive: true, force: true });
 
   let shadow;
   let browser;
@@ -349,9 +364,12 @@ async function main() {
     shadow = watchShadow(shadowRunner);
     await shadow.waitSuccess(0);
 
-    fs.mkdirSync(OUT, { recursive: true });
+    // The served shell lives in the STABLE directory (the dev-http :http-root),
+    // which the first successful build's promote hook has just created. It is
+    // not a build artifact, so the promote hook never overwrites or deletes it.
+    fs.mkdirSync(STABLE, { recursive: true });
     fs.writeFileSync(
-      path.join(OUT, 'index.html'),
+      path.join(STABLE, 'index.html'),
       '<!doctype html><meta charset="utf-8"><script src="/base.js"></script>',
     );
 
@@ -424,41 +442,91 @@ async function main() {
       fail('late failed pass changed active runtime or accepted JVM witness');
     }
 
-    // Counterexample 1 — the downstream-OUTPUT invariant the active-runtime
-    // witness above does NOT cover. Shadow's browser target flushed candidate
-    // d3 to the stable module URLs BEFORE the intentional :flush failure, then
-    // rolled its functional build-state back to accepted d2. So `/base.js`'s
-    // carrier and `/lazy.js` on disk hold rejected candidate d3 while compiler
-    // authority is d2: a hard reload or a first lazy import would execute /
-    // advertise d3. The fix is artifact generation/activation separation —
-    // stable URLs/manifests must keep resolving to the accepted generation
-    // until the whole pipeline succeeds. That is a Shadow output/flush surface
-    // beyond this carrier's fence (hot-zone shadow-cljs.edn), so this probe
-    // DOCUMENTS the gap by default and only ASSERTS the fixed behaviour under
-    // RF2_PROBE_ACTIVATION_TXN=1 (red-before-fix).
+    // Counterexample 1 — the downstream-OUTPUT invariant, CLOSED by the
+    // generation/activation separation (rf2-vxgfnd.237). Shadow's browser
+    // target flushed candidate d3 to its :output-dir (CANDIDATE) before the
+    // intentional :flush failure, then rolled its functional build-state back
+    // to accepted d2. The re-frame.ui promote hook — the LAST :flush hook —
+    // never ran (the earlier failure aborted the build), so the SERVED stable
+    // directory still holds accepted d2. First prove Shadow really did flush the
+    // rejected candidate (else the invariant would be vacuous), then assert the
+    // served generation stayed accepted. Asserted BY DEFAULT now the fix landed.
+    const candidateLazy = fs.existsSync(CANDIDATE_LAZY_JS)
+      ? fs.readFileSync(CANDIDATE_LAZY_JS, 'utf8') : '';
+    if (!candidateLazy.includes('digest-probe-v3')) {
+      fail('candidate output did not receive the rejected d3 generation; the ' +
+           'downstream-output separation would be vacuously satisfied');
+    }
     const servedLazy = fs.existsSync(LAZY_JS)
       ? fs.readFileSync(LAZY_JS, 'utf8') : '';
     const servedCarrier = fs.existsSync(CARRIER_JS)
       ? fs.readFileSync(CARRIER_JS, 'utf8') : '';
     const lazyServesRejected = servedLazy.includes('digest-probe-v3');
-    // The accepted digest is d2; a stable carrier that no longer contains d2
+    // The accepted digest is d2; a served carrier that no longer contains d2
     // (its bytes moved to the rejected candidate d3) is servable-rejected.
     const carrierServesRejected =
-      servedCarrier.length > 0 && !servedCarrier.includes(digest2);
+      servedCarrier.length === 0 || !servedCarrier.includes(digest2);
     if (lazyServesRejected || carrierServesRejected) {
-      const note =
-        `downstream-output gap: stable URLs serve rejected candidate d3 ` +
-        `after the failed :flush (lazy=${lazyServesRejected}, ` +
-        `carrier-not-d2=${carrierServesRejected}); accepted authority is d2 ` +
-        `(${digest2}). A hard reload / first lazy import would activate d3.`;
-      if (ASSERT_DOWNSTREAM_OUTPUT) {
-        fail(note);
+      fail(
+        `downstream-output gap: served stable URLs no longer resolve to the ` +
+        `accepted generation after the failed :flush (lazy-serves-v3=` +
+        `${lazyServesRejected}, carrier-not-d2=${carrierServesRejected}); ` +
+        `accepted authority is d2 (${digest2}). A hard reload / first lazy ` +
+        `import would activate the rejected candidate d3.`);
+    }
+    console.log(
+      'ui digest carrier: served (stable) generation stayed on accepted d2 ' +
+      'while the candidate output-dir held the rejected d3',
+    );
+
+    // rf2-vxgfnd.237 — the post-:flush-failure LAZY-MODULE-REQUEST fixture the
+    // existing fixtures deliberately do NOT exercise (they assert the ACTIVE
+    // runtime never lazy-loads). A brand-new page (a hard reload) and a genuine
+    // first `/lazy.js` request, both against the served origin while the failed
+    // d3 candidate is the latest build, must receive the prior accepted d2 — or
+    // a fail-closed response — never the rejected candidate.
+    const freshPage = await browser.newPage();
+    try {
+      await freshPage.goto(URL, { waitUntil: 'load', timeout: TIMEOUT });
+      // Hard reload: the served base carrier must read the accepted d2 (or, if
+      // ever fail-closed, null) — never the rejected candidate d3.
+      const freshDigest = await freshPage.evaluate(async () => {
+        for (let i = 0; i < 200; i += 1) {
+          if (typeof globalThis.__rf2ReadDigest === 'function') {
+            const d = globalThis.__rf2ReadDigest();
+            if (d === null || (typeof d === 'string' && d.startsWith('bd1-'))) return d;
+          }
+          await new Promise((r) => setTimeout(r, 50));
+        }
+        return typeof globalThis.__rf2ReadDigest === 'function'
+          ? globalThis.__rf2ReadDigest() : 'accessor-absent';
+      });
+      if (freshDigest !== digest2 && freshDigest !== null) {
+        fail(`hard reload after the failed :flush advertised ${JSON.stringify(freshDigest)}; ` +
+             `expected the accepted d2 (${digest2}) or a fail-closed null`);
       }
-      console.log(`ui digest carrier: KNOWN GAP (rf2-vxgfnd.193 followup) — ${note}`);
-    } else {
+      // First lazy import: a genuine request for the served /lazy.js from the
+      // fresh origin must return the accepted d2 generation, never rejected d3.
+      const lazyBody = await freshPage.evaluate(async () => {
+        const res = await fetch('/lazy.js', { cache: 'no-store' });
+        return { ok: res.ok, status: res.status, text: await res.text() };
+      });
+      if (!lazyBody.ok) {
+        fail(`served first /lazy.js request failed (status ${lazyBody.status})`);
+      }
+      if (lazyBody.text.includes('digest-probe-v3')) {
+        fail('first lazy-module request served the rejected candidate d3 (digest-probe-v3)');
+      }
+      if (!lazyBody.text.includes('digest-probe-v2')) {
+        fail('first lazy-module request did not serve the accepted d2 generation (digest-probe-v2)');
+      }
       console.log(
-        'ui digest carrier: downstream output stayed on the accepted generation',
+        `ui digest carrier: post-failure hard reload + first lazy import both ` +
+        `resolved to the accepted generation ` +
+        `(reload=${freshDigest === null ? 'fail-closed' : freshDigest}, lazy=d2)`,
       );
+    } finally {
+      await freshPage.close();
     }
 
     // Recovery success starts from Shadow's retained d2 state, not the failed

@@ -45,8 +45,12 @@
 
   Transaction boundary: the accepted build-state and active HMR runtime are
   last-known-good. Shadow may have partially rewritten its raw output directory
-  before a late failure; re-frame.ui does not claim filesystem rollback."
-  (:require [clojure.string :as str]
+  before a late failure; re-frame.ui does not claim filesystem rollback for that
+  raw directory. `promote-served-generation` below closes exactly that gap for
+  the SERVED bytes by publishing the candidate output-dir onto a separate stable
+  served directory only when the whole pipeline succeeds (rf2-vxgfnd.237)."
+  (:require [clojure.java.io :as io]
+            [clojure.string :as str]
             [re-frame.ui.compiler.build :as build]))
 
 (def digest-sentinel
@@ -258,6 +262,82 @@
            {:carrier-resource-id rid :sentinel-count n :js-string? (string? js)}))
         (assoc-in build-state [:output rid :js]
                   (str/replace js digest-sentinel digest))))))
+
+;; ---------------------------------------------------------------------------
+;; Artifact generation/activation separation (rf2-vxgfnd.237)
+;;
+;; Shadow's browser target flushes the candidate module bytes to its raw
+;; `:output-dir` at `:flush`, BEFORE any later `:flush` step can fail; on a
+;; downstream failure Shadow discards the returned build-state (reverting the
+;; accepted compiler snapshot) but does NOT roll back that raw directory. So a
+;; fresh page load or a first lazy-module request served straight from
+;; `:output-dir` would execute/advertise the rejected candidate generation.
+;;
+;; The fix separates GENERATION from ACTIVATION at the served-bytes boundary:
+;; Shadow writes the candidate to `:output-dir`; the browser is served from a
+;; SEPARATE stable directory (the dev-http `:http-root`); and this hook — the
+;; LAST configured `:flush` hook — publishes the candidate onto the stable
+;; directory only once every earlier flush step succeeded. Because Shadow runs
+;; a stage's target flush first and then its `:build-hooks` in configured order
+;; (defaults before build-local), placing this hook last makes the publish the
+;; terminal action of a fully-successful build: any earlier downstream failure
+;; aborts before it, leaving the served generation on the prior accepted bytes.
+;; ---------------------------------------------------------------------------
+
+(defn- stale-copy?
+  "Cheap freshness check: copy `src` onto `dest` only when the destination is
+  missing or differs in length / is older. Keeps warm publishes O(changed)."
+  [^java.io.File src ^java.io.File dest]
+  (or (not (.exists dest))
+      (not= (.length src) (.length dest))
+      (> (.lastModified src) (.lastModified dest))))
+
+(defn- publish-tree!
+  "Recursively copy every regular file under `from` onto `to`, creating parent
+  directories and overwriting stale destinations. Deliberately does NOT delete
+  destination files absent from `from`: the served shell (a hand-written
+  index.html) lives in the stable directory and is not a build artifact."
+  [^java.io.File from ^java.io.File to]
+  (when (.isDirectory from)
+    (let [from-path (.toPath from)]
+      (doseq [^java.io.File src (file-seq from)
+              :when (.isFile src)]
+        (let [dest (io/file to (.toString (.relativize from-path (.toPath src))))]
+          (when (stale-copy? src dest)
+            (io/make-parents dest)
+            (io/copy src dest)))))))
+
+(defn promote-served-generation
+  "A `:flush`-stage build hook that PUBLISHES the just-flushed candidate output
+  onto the stable served directory, atomically w.r.t. the configured pipeline.
+
+  Configure it as the LAST entry in a dev `:browser` build's `:build-hooks`,
+  with the build's `:output-dir` pointing at a CANDIDATE directory and the
+  dev-http `:http-root` pointing at a separate STABLE served directory:
+
+    :output-dir \"out/<build>/candidate\"
+    :devtools   {:http-root \"out/<build>/stable\" ...}
+    :build-hooks [... (re-frame.ui.compiler.build-hook/promote-served-generation)]
+
+  Being the terminal `:flush` hook, it runs only after Shadow's target flush and
+  every other downstream flush step have succeeded, so the served generation
+  advances iff the whole pipeline succeeds; a downstream failure aborts before
+  the publish and leaves the served directory on the prior accepted generation.
+
+  When no separation is configured (`:http-root` absent, or the same path as
+  `:output-dir`) it is a no-op — the served directory IS the output directory,
+  the un-separated legacy behaviour. Dev-only JVM build tooling; never part of
+  any CLJS bundle."
+  {:shadow.build/stages #{:flush}}
+  [build-state]
+  (let [candidate (get-in build-state [:build-options :output-dir])
+        stable    (get-in build-state [:shadow.build/config :devtools :http-root])]
+    (when (and candidate (seq (str stable)))
+      (let [candidate (io/file candidate)
+            stable    (io/file stable)]
+        (when-not (= (.getCanonicalPath candidate) (.getCanonicalPath stable))
+          (publish-tree! candidate stable)))))
+  build-state)
 
 (defn hook
   "Shadow build hook. Configure once in `:build-defaults` as
