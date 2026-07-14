@@ -23,8 +23,11 @@
   Per-plan disposition (document order; conflicts validated FIRST):
 
     - NO live frame         -> INSTALL: `make-frame` creates it
-      (create-if-absent), then — only while that incarnation remains live —
-      record `{:config-fingerprint :installed-by}` (root-OWNED authority).
+      (create-if-absent), then — only while that created incarnation is still
+      live — record `{:config-fingerprint :installed-by}` (root-OWNED
+      authority). A setup that self-destroys the frame it is seating fails the
+      preflight CLOSED (`:rf.error/frame-preflight-lifecycle-loss`, rf2-5svfa1)
+      rather than returning over an absent frame.
     - LIVE frame, NO install
       record (a boot `rf/make-frame`
       the plan registry never saw):
@@ -293,8 +296,22 @@
   nil)
 
 (defn- publish-plan-for-live-incarnation!
-  "Publish `record` for `frame-id` only while the currently-live incarnation
-  stays current. Returns true when published, nil otherwise.
+  "Publish `record` for `frame-id` only while the pinned incarnation stays
+  current. Returns true when published, nil otherwise.
+
+  `expected-incarnation` is the EXACT frame authority this write is bound to
+  (rf2-5svfa1). When non-nil (a `:refresh` carrying its decision-time
+  incarnation token), the write is admitted ONLY while THAT incarnation is still
+  live — never against a same-id replacement that overtook it after the plan
+  decision. When nil (a fresh `:install` / boot-`:adopt`, which have no
+  decision-time incarnation), the currently-live incarnation is captured and
+  pinned as before; an absent frame yields no token and the write is rejected.
+  A nil return is the caller's rejection signal: the executor FAILS CLOSED with
+  `:rf.error/frame-preflight-lifecycle-loss` when the frame is now ABSENT (a
+  self-destroying setup — rf2-5svfa1 part A) instead of silently skipping over an
+  absent frame; a rejection against a still-PRESENT incarnation is a concurrent
+  CLOSING race and keeps the pre-existing no-dead-record skip (parent .191 part
+  C owns that coordination).
 
   The incarnation pin rejects a destroy/recreate that overtakes publication.
   The incarnation-scoped closing check also covers `destroy-frame!`'s earlier
@@ -307,8 +324,9 @@
   later destroy is pruned by its UI hook, while an already-started or overtaking
   destroy leaves no dead-lifetime record. The incarnation-scoped predicate (not
   bare `frame-closing?`) permits a fresh B while A is only finishing teardown."
-  [frame-id record]
-  (when-let [incarnation (frame/frame-incarnation-token frame-id)]
+  [frame-id record expected-incarnation]
+  (when-let [incarnation (or expected-incarnation
+                             (frame/frame-incarnation-token frame-id))]
     (frame/call-serialized-with-drain!
      frame-id
      (fn []
@@ -397,6 +415,69 @@
             :arriving  {:config-fingerprint config-fingerprint
                         :root-id root-id}}}))
 
+(defn- throw-preflight-lifecycle-loss!
+  "Fail preflight CLOSED (rf2-5svfa1): the exact frame authority a plan was
+  bound to stopped being the live incarnation mid-preflight, so ENSURE cannot
+  honour it. Raised on two arms of the SAME failure class — the plan's frame
+  authority was lost — under one id `:rf.error/frame-preflight-lifecycle-loss`:
+
+    :ensured-frame-lost      — publication was rejected AND the frame this
+                               `:install` / `:refresh` / `:adopt` had to leave
+                               live is now ABSENT. The usual cause is a
+                               self-destroying setup: an `:initial-events`
+                               handler destroyed the very frame it was seating.
+                               Previously the executor SILENTLY skipped the
+                               write and returned a normal receipt, so the
+                               client mounted a live host root scoped to an
+                               ABSENT frame (there is no frame-liveness guard
+                               between preflight and `createRoot`). A rejection
+                               against a still-PRESENT incarnation is instead a
+                               concurrent-destroy CLOSING race whose full
+                               coordination is parent .191 part C, not this arm.
+    :refresh-target-replaced — a `:refresh` decided against the incarnation live
+                               at decision time, but that incarnation was
+                               destroyed or replaced by a different same-id
+                               incarnation before the surgical `make-frame`
+                               could apply. Applying this root's config to an
+                               unrelated replacement would silently overwrite the
+                               replacement's own authority; fail BEFORE mutating.
+
+  Fails loud like the payload/boot-authority conflicts — thrown out of preflight,
+  so the mount fails before any `createRoot`, live-root registration, DOM
+  mutation, or committed plan record (Q49). Siblings this run already wrote are
+  marked by the executor's own abort on the way out."
+  [root-id frame-id kind]
+  (error/throw-error!
+   :rf.error/frame-preflight-lifecycle-loss 're-frame.ui/preflight
+   (str "root " (pr-str root-id) "'s frame preflight for " (pr-str frame-id)
+        (case kind
+          :ensured-frame-lost
+          (str " could not ENSURE the frame: the incarnation it was seating was "
+               "destroyed or replaced DURING preflight — before its plan record "
+               "could be published. The usual cause is a self-destroying setup — "
+               "an :initial-events handler that destroys the very frame it is "
+               "initialising — or a concurrent teardown of the same id. ENSURE "
+               "must not leave a live host root scoped to an absent frame, so the "
+               "mount fails closed: no createRoot, no live-root registration, no "
+               "plan record. Remove the self-destroying setup (an :initial-events "
+               "handler must not destroy its own frame), or mount after the "
+               "teardown settles")
+          :refresh-target-replaced
+          (str " decided a :refresh against the frame incarnation live at "
+               "decision time, but that incarnation was destroyed or replaced by "
+               "a different same-id incarnation before the refresh could apply "
+               "(an earlier plan's :initial-events, or a concurrent "
+               "teardown+recreate, swapped the live frame). A refresh must apply "
+               "to the EXACT incarnation whose install record justified it — "
+               "applying this root's config to an unrelated replacement would "
+               "silently overwrite the replacement's authority. The mount fails "
+               "closed before any mutation; re-mount so preflight re-decides "
+               "against the live incarnation")))
+   {:recovery :keep-the-preflight-frame-live
+    :extra {:frame-id frame-id
+            :root-id  root-id
+            :kind     kind}}))
+
 ;; `written` (and a preflight receipt's `:writes`) is a vector of
 ;; `{:frame-id :rev :provenance}` entries — one per record this attempt wrote or
 ;; found-live, in document order. `:rev` binds the entry to the EXACT record
@@ -478,7 +559,14 @@
                         (assoc plan ::action :found-live ::prior installed)
 
                         (= (:installed-by installed) root-id)
-                        (assoc plan ::action :refresh ::prior installed)
+                        ;; Capture the EXACT incarnation the :refresh decision was
+                        ;; made against (rf2-5svfa1 part B). `installed-record`
+                        ;; guards on liveness, so this token is the currently-live
+                        ;; incarnation. Phase 2 revalidates it BEFORE the surgical
+                        ;; make-frame, so a same-id replacement that overtakes
+                        ;; between decide and mutate cannot inherit this refresh.
+                        (assoc plan ::action :refresh ::prior installed
+                               ::incarnation (frame/frame-incarnation-token frame-id))
 
                         :else
                         (throw-plan-conflict! root-id plan installed)))
@@ -526,35 +614,70 @@
           ;; committed until the host boundary succeeds.
           :adopt
           (let [rev (next-plan-rev!)]
-            (when (publish-plan-for-live-incarnation!
-                   frame-id
-                   {:config-fingerprint config-fingerprint
-                    :adopted-by root-id
-                    :adopted true
-                    :rev rev})
-              (vswap! written conj {:frame-id frame-id :rev rev :provenance :live})))
+            (if (publish-plan-for-live-incarnation!
+                 frame-id
+                 {:config-fingerprint config-fingerprint
+                  :adopted-by root-id
+                  :adopted true
+                  :rev rev}
+                 nil)
+              (vswap! written conj {:frame-id frame-id :rev rev :provenance :live})
+              ;; Publication was rejected. If the boot frame this scope ensured is
+              ;; now ABSENT, it vanished mid-preflight (an earlier plan's
+              ;; :initial-events destroyed it): ENSURE cannot scope an absent
+              ;; frame — fail closed (rf2-5svfa1 part A). A still-PRESENT rejection
+              ;; is a concurrent-destroy CLOSING race (a paused cross-thread
+              ;; teardown), whose full coordination is parent .191 part C — leave
+              ;; the pre-existing no-dead-record skip untouched here.
+              (when (nil? (frame/frame frame-id))
+                (throw-preflight-lifecycle-loss! root-id frame-id :ensured-frame-lost))))
 
           ;; :install / :refresh — create-if-absent / surgical refresh;
           ;; :initial-events drain synchronously inside the engine, in
           ;; document order across plans. The record lands only AFTER a
-          ;; successful install AND only while that incarnation is still live,
-          ;; so a throwing or self-destroying setup leaves no install record.
+          ;; successful install AND only while the EXPECTED incarnation is still
+          ;; live; a throwing setup propagates, and a self-destroying setup (or a
+          ;; refresh whose decided incarnation was replaced) now fails CLOSED with
+          ;; `:rf.error/frame-preflight-lifecycle-loss` rather than silently
+          ;; skipping the write (rf2-5svfa1) — the mount can never proceed over an
+          ;; absent frame or bind a stale refresh to a replacement.
           ;; PROVENANCE is a COMMITTED-scope fact, NOT the action: a refresh of
           ;; an already-`:committed` record is :live (its prior render persists,
           ;; and the record carries `:committed` FORWARD); a fresh install, or a
           ;; refresh of a never-committed record (a retry of an incomplete
           ;; mount), is :fresh — no root has committed a scope (rf2-vxgfnd.139).
-          (let [committed? (boolean (:committed (::prior plan)))
+          (let [refresh?   (= :refresh (::action plan))
+                expected   (::incarnation plan)    ; nil for a fresh :install
+                committed? (boolean (:committed (::prior plan)))
                 rev        (next-plan-rev!)
                 record     (cond-> {:config-fingerprint config-fingerprint
                                     :installed-by root-id
                                     :rev rev}
                              committed? (assoc :committed true))]
+            ;; part B: a :refresh must apply to the EXACT incarnation its
+            ;; decision was made against. Revalidate BEFORE the surgical
+            ;; make-frame mutates — if a same-id replacement (or a destroy +
+            ;; create-if-absent) overtook that incarnation since decide, fail
+            ;; closed rather than refresh an unrelated frame (rf2-5svfa1).
+            (when (and refresh?
+                       (not (identical? expected
+                                        (frame/frame-incarnation-token frame-id))))
+              (throw-preflight-lifecycle-loss! root-id frame-id :refresh-target-replaced))
             (live-frame/make-frame (assoc (or config {}) :id frame-id))
-            (when (publish-plan-for-live-incarnation! frame-id record)
+            ;; part A: publish against the EXPECTED authority (the :refresh's
+            ;; decision-time incarnation; captured-current for a fresh :install).
+            ;; A rejected write over an ABSENT frame means the ensured incarnation
+            ;; was lost mid-preflight (a self-destroying :initial-events setup) —
+            ;; fail closed instead of silently returning a receipt over an absent
+            ;; frame (rf2-5svfa1 part A). A still-PRESENT rejection is a concurrent
+            ;; CLOSING race (a paused cross-thread teardown), whose coordination is
+            ;; parent .191 part C — leave the pre-existing no-dead-record skip.
+            (if (publish-plan-for-live-incarnation! frame-id record expected)
               (vswap! written conj
                       {:frame-id frame-id :rev rev
-                       :provenance (if committed? :live :fresh)})))))
+                       :provenance (if committed? :live :fresh)})
+              (when (nil? (frame/frame frame-id))
+                (throw-preflight-lifecycle-loss! root-id frame-id :ensured-frame-lost))))))
       ;; The whole plan run completed. Do NOT finalize here — evidence is bound
       ;; to the host commit boundary (rf2-vxgfnd.139): the client calls
       ;; `finalize-preflight-attempt!` only AFTER its post-preflight ownership
@@ -593,8 +716,14 @@
   `:rf.error/frame-payload-conflict` before ANY install). Phase 2
   installs/adopts/refreshes in document order: `make-frame` creates the
   frame if absent and drains `:initial-events` synchronously before
-  returning (EP-0027); its install record is published only if that
-  incarnation remains live; a found-live same-fingerprint plan is a pure no-op
+  returning (EP-0027); its install record is published against the EXACT frame
+  authority the decision was bound to (a `:refresh`'s decision-time incarnation,
+  or a fresh install's created incarnation), and if that authority was lost
+  mid-preflight — a self-destroying setup, or a same-id replacement overtaking a
+  refresh — the run fails CLOSED with
+  `:rf.error/frame-preflight-lifecycle-loss` (rf2-5svfa1) rather than mounting
+  over an absent frame or binding a stale refresh to a replacement; a found-live
+  same-fingerprint plan is a pure no-op
   (no re-seed — the HMR guarantee); a live plan-less (boot-created) frame
   met by a CONFIG-LESS plan is ADOPTED under a non-owning record — its
   config/generation untouched, only the fingerprint recorded
