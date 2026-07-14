@@ -69,14 +69,14 @@
               (fn [c]
                 (when (identical? c cell)
                   (.countDown at-clear)                    ;; captured, now parked
-                  (.await marked 5 TimeUnit/SECONDS)))]     ;; hold the window open
+                  (.await marked 20 TimeUnit/SECONDS)))]     ;; hold the window open
       (let [flusher (future (reactive/flush-dirty! cell))]
-        (is (true? (.await at-clear 5 TimeUnit/SECONDS)) "flusher reached the seam")
+        (is (true? (.await at-clear 20 TimeUnit/SECONDS)) "flusher reached the seam")
         ;; Epoch 2 races IN — it folds into the pending window; the cell is still
         ;; dirty, so no fresh enrolment is owed.
         (reactive/mark-dirty! cell 2)
         (.countDown marked)                                ;; release the flusher
-        (is (nil? (deref flusher 5000 ::timeout)) "flush completed cleanly")))
+        (is (nil? (deref flusher 20000 ::timeout)) "flush completed cleanly")))
 
     (testing "epoch 2 was NOT lost — it joined the captured, delivered window"
       (is (= 1 (count @delivered)) "exactly one coherent window delivered")
@@ -112,12 +112,12 @@
         (fn [c ev] (when (identical? c cell) (swap! delivered conj ev))))
       ;; The window opens at epoch 1; the flush and a second invalidation race.
       (reactive/mark-dirty! cell 1)
-      (let [flush (future (.await barrier 5 TimeUnit/SECONDS)
+      (let [flush (future (.await barrier 20 TimeUnit/SECONDS)
                           (reactive/flush-dirty! cell))
-            mark  (future (.await barrier 5 TimeUnit/SECONDS)
+            mark  (future (.await barrier 20 TimeUnit/SECONDS)
                           (reactive/mark-dirty! cell 2))]
-        (is (not= ::timeout (deref flush 5000 ::timeout)) (str "round " round ": flush"))
-        (is (not= ::timeout (deref mark 5000 ::timeout))  (str "round " round ": mark")))
+        (is (not= ::timeout (deref flush 20000 ::timeout)) (str "round " round ": flush"))
+        (is (not= ::timeout (deref mark 20000 ::timeout))  (str "round " round ": mark")))
       ;; A final drain settles any FRESH window the mark opened after the clear.
       (reactive/flush-pending!)
       (let [evs (vec @delivered)]

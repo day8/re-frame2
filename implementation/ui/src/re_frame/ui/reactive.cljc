@@ -1284,12 +1284,19 @@
   captured window) OR after its clear (a fresh next window is enrolled)."
   ([^ViewCell cell] (enrol-dirty! cell nil))
   ([^ViewCell cell payload]
+   ;; `interop/debug-enabled?` is a STANDALONE top-level gate (not folded into the
+   ;; swap-fn body as `(and interop/debug-enabled? payload)`) so Closure DCEs the
+   ;; evidence-folding swap-fn — and every reference it carries into `fold-evidence`
+   ;; (`:dropped-exact?`, `:first-epoch`, …) — out of the advanced production
+   ;; bundle, exactly as the prod-elision gate proves. Both arms are ONE
+   ;; `swap-vals!`, so the evidence fold and the `:dirty?` false→true flip stay a
+   ;; single atomic transition on each host (rf2-vxgfnd.180).
    (let [st (state cell)
-         [old _] (swap-vals! st
-                              (fn [s]
-                                (cond-> (assoc s :dirty? true)
-                                  (and interop/debug-enabled? payload)
-                                  (update :evidence fold-evidence payload))))]
+         [old _] (if interop/debug-enabled?
+                   (swap-vals! st (fn [s]
+                                    (cond-> (assoc s :dirty? true)
+                                      payload (update :evidence fold-evidence payload))))
+                   (swap-vals! st (fn [s] (assoc s :dirty? true))))]
      (when-not (:dirty? old)
        (swap! dirty-cells conj cell)
        (schedule-flush!)))))
