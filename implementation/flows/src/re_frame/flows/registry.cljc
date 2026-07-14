@@ -680,15 +680,23 @@
                        (trace/emit! :rf.registry :rf.registry/handler-replaced
                                     {:kind          :flow
                                      :id            flow-id
-                                     :different-fn? different?})))))))))
-       ;; Registration is first-time per frame; replacements use the hot-reload
-       ;; trace above.
-       (when (and interop/debug-enabled? (nil? @prior-on-frame))
-         (trace/emit! :flow :rf.flow/registered
-                      {:flow-id flow-id
-                       :inputs  (:inputs flow)
-                       :path    (:output-path flow)
-                       :frame   frame-id}))))
+                                     :different-fn? different?})))))
+               ;; rf2-ytpeqf: first-registration evidence, kept INSIDE the exact-
+               ;; owner continuation (this postcheck). Registration is first-time
+               ;; per frame; replacements use the hot-reload dedup trace above. A
+               ;; first-time flow with output marks reaches a callback-bearing
+               ;; runtime-db write (`write-flow-output-marks!` above); a
+               ;; synchronous container watch can destroy A there and publish a
+               ;; same-id B. Because the postcheck guarding this block then fails,
+               ;; A's :rf.flow/registered is never delivered against B and B's
+               ;; trace policy is never consulted for A. (`clear-flow` fences its
+               ;; :rf.flow/cleared the same way, via its returned cleared-path.)
+               (when (and interop/debug-enabled? (nil? @prior-on-frame))
+                 (trace/emit! :flow :rf.flow/registered
+                              {:flow-id flow-id
+                               :inputs  (:inputs flow)
+                               :path    (:output-path flow)
+                               :frame   frame-id}))))))))
      flow-id))))
 
 (defn- dissoc-in-safe
