@@ -170,7 +170,7 @@
 
 #?(:clj (set! *warn-on-reflection* true))
 
-;; ---- opaque, channel-aware emission provenance (rf2-w55bh0) ------------------
+;; ---- channel-aware, throwable-bound emission provenance (rf2-w55bh0 + rf2-9m4oy7)
 ;;
 ;; Several fail-loud port surfaces EMIT their category's canonical record and
 ;; THEN throw the matching typed error (the emit-then-throw idiom): the ABI
@@ -183,7 +183,7 @@
 ;; already-fanned failure (Spec 009's one-runtime-error law) nor lets a
 ;; production-elided failure go silent.
 ;;
-;; The attestation is CHANNEL-AWARE and OPAQUE:
+;; The attestation is CHANNEL-AWARE and THROWABLE-BOUND:
 ;;
 ;;   - CHANNEL-AWARE — it records WHICH error channel(s) the source actually
 ;;     emitted on, never a single "fanned" Boolean. A source that fanned through
@@ -193,40 +193,43 @@
 ;;     NOT covered. Collapsing the two to one Boolean is exactly the bug that made
 ;;     a cyclic-acquire callback failure vanish under `goog.DEBUG=false`: the
 ;;     drain mistook trace coverage for full coverage and emitted nothing.
-;;   - OPAQUE / NON-FORGEABLE — the token is an [[EmissionProvenance]] host
-;;     object (an opaque deftype identity token, like `ObservationLease`), minted
-;;     ONLY here and never exported. An application `on-change` callback that
-;;     throws an ex-info can copy any keyword or literal into ex-data, but it
-;;     cannot construct this type, so a public-looking marker, a reconstructed
-;;     `{:channels …}` map, or a spoofed / imitated `:rf.error/id` all fail the
-;;     `instance?` gate and can neither inject a category nor suppress reporting.
-;;     This REPLACES the reconstructible `error-emit/fanned-at-source-key`
-;;     (a public namespaced key whose literal value was `true`) and the
-;;     `:rf.error/id`-plus-`:reason` shape test the drain used to trust.
+;;   - THROWABLE-BOUND / NON-FORGEABLE (rf2-9m4oy7) — the [[EmissionProvenance]]
+;;     token is bound to the EXACT throwable it attests through a PRIVATE weak
+;;     identity association ([[provenance-by-throwable]]), keyed by the throwable
+;;     OBJECT and written ONLY by [[attest-provenance!]] here. It is NOT carried
+;;     in the thrown ex-data. This closes two spoof vectors an ex-data token
+;;     could not: (a) an application `on-change` can call the cross-namespace
+;;     `->EmissionProvenance` constructor (a deftype generates a callable
+;;     factory) and stuff a passing token into its OWN ex-data — but the drain
+;;     never reads ex-data, and the app cannot write the private weak map, so the
+;;     forged token attests nothing; (b) an application can copy an AUTHENTIC
+;;     token out of a caught framework throwable's ex-data into an unrelated
+;;     exception — but provenance lives keyed by the EXACT original throwable, so
+;;     a DIFFERENT throwable is simply absent from the association. Only the
+;;     throwable observation itself minted-and-bound reads covered. Token opacity
+;;     is no longer the defense (it is belt-and-braces); the private,
+;;     throwable-keyed seam is. This REPLACES the reconstructible
+;;     `error-emit/fanned-at-source-key` (a public namespaced key whose literal
+;;     value was `true`) and the `:rf.error/id`-plus-`:reason` shape test the
+;;     drain used to trust, AND the forgeable/transplantable ex-data carriage the
+;;     interim rf2-w55bh0 token used.
 ;;
-;; Carried in the thrown ex-data under a framework-internal key (the KEY may be
-;; known, but the VALUE is unforgeable). The drain reads it through
-;; [[source-covered-always-on?]]; a throwable with NO token — a diagnostic-only
-;; thrown category (`:rf.error/observation-malformed-target` / `…-malformed-lease`
-;; / `:rf.error/reentrant-graph-op`), a raw untyped consumer bug, or an
-;; application spoof — reads FALSE, so the drain owns always-on coverage and
-;; wraps it in the stable `:rf.error/observation-on-change-failed`, NEVER
-;; promoting a diagnostic-only category onto the always-on axis.
+;; The drain reads coverage through [[source-covered-always-on?]], which looks
+;; the caught throwable up in the private weak association; a throwable with NO
+;; binding — a diagnostic-only thrown category
+;; (`:rf.error/observation-malformed-target` / `…-malformed-lease` /
+;; `:rf.error/reentrant-graph-op`), a raw untyped consumer bug, a forged or
+;; transplanted token, or any application spoof — reads FALSE, so the drain owns
+;; always-on coverage and wraps it in the stable
+;; `:rf.error/observation-on-change-failed`, NEVER promoting a diagnostic-only
+;; category onto the always-on axis.
 
-;; The opaque channel-aware attestation token. A host object compared by
-;; `instance?` and read only through a private accessor — an application ex-data
-;; map cannot construct one (mirrors the `ObservationLease` opaque-identity
-;; idiom). `channels` is the set of axes the source already covered
-;; (`#{:always-on :trace}` / `#{:trace}`).
+;; The channel-aware attestation token — a host object whose `channels` field is
+;; the set of axes the source already covered (`#{:always-on :trace}` /
+;; `#{:trace}`). Bound to the EXACT throwable it attests through the private weak
+;; association below (rf2-9m4oy7), NEVER carried in the thrown ex-data. Its
+;; opacity is belt-and-braces; the throwable-keyed private seam is the defense.
 (deftype EmissionProvenance [channels])
-
-(def ^:private emission-provenance-key
-  "Framework-internal ex-data slot carrying an [[EmissionProvenance]] token — the
-  opaque, channel-aware attestation of which error channel(s) an emit-then-throw
-  site already fanned this failure's canonical record on (rf2-w55bh0). Consulted
-  only through [[source-covered-always-on?]]; never part of the public
-  thrown-error shape."
-  ::emission-provenance)
 
 (def ^:private provenance-both-channels
   "Provenance for a source that fanned through `error-emit/emit-error-both!` —
@@ -239,18 +242,61 @@
   axis is NOT covered and a containment drain still owes production a record."
   (->EmissionProvenance #{:trace}))
 
+;; The PRIVATE weak throwable→provenance association (rf2-9m4oy7). Provenance is
+;; bound to the EXACT throwable it attests — keyed by the throwable OBJECT
+;; IDENTITY (the JVM `WeakHashMap` keys by `.equals`/`.hashCode`, which
+;; `Throwable` inherits from `Object` as identity; `js/WeakMap` keys by object
+;; identity with ephemeron semantics). It is WEAK and self-pruning: an entry
+;; lives exactly as long as its throwable, so a caught-and-processed throwable's
+;; binding is collectable the moment the throwable is — never a growing global
+;; registry (the bead's explicit non-goal). Written ONLY by [[attest-provenance!]]
+;; from this ns's own emit-then-throw sites; an application cannot reach it, so a
+;; forged `->EmissionProvenance` token in an app's ex-data, or an authentic token
+;; transplanted onto a DIFFERENT throwable, is never associated here and reads
+;; uncovered.
+#?(:clj
+   (defonce ^:private ^java.util.Map provenance-by-throwable
+     (java.util.Collections/synchronizedMap (java.util.WeakHashMap.)))
+   :cljs
+   (defonce ^:private provenance-by-throwable (js/WeakMap.)))
+
+(defn- attest-provenance!
+  "Bind `provenance` to the EXACT throwable `t` in the private weak association,
+  then return `t` so an emit-then-throw site reads
+  `(throw (attest-provenance! (error/thrown-ex-info …) provenance-both-channels))`
+  (rf2-9m4oy7). The binding — never public ex-data — is what
+  [[source-covered-always-on?]] reads: only the throwable observation itself
+  minted-and-bound is covered. A no-op-safe identity write; the entry dies with
+  the throwable."
+  [t provenance]
+  #?(:clj  (.put ^java.util.Map provenance-by-throwable t provenance)
+     :cljs (.set provenance-by-throwable t provenance))
+  t)
+
 (defn- source-covered-always-on?
-  "True when caught throwable `t` carries observation's opaque, channel-aware
-  [[EmissionProvenance]] token attesting its canonical record was ALREADY fanned
-  on the ALWAYS-ON axis at the source (with the source's own attribution), so a
-  containment drain must add nothing there. Non-forgeable — an application ex-data
-  map cannot construct an [[EmissionProvenance]], so a public-looking marker, a
-  reconstructed map shape, or a spoofed `:rf.error/id` all read false.
+  "True when caught throwable `t` was minted-and-bound by THIS port with a
+  channel-aware [[EmissionProvenance]] attesting its canonical record was ALREADY
+  fanned on the ALWAYS-ON axis at the source (with the source's own attribution),
+  so a containment drain must add nothing there. NON-FORGEABLE by binding to the
+  EXACT throwable identity through the PRIVATE weak [[provenance-by-throwable]]
+  association (rf2-9m4oy7): an application cannot write that association, so a
+  forged `->EmissionProvenance` token in its ex-data reads false; and provenance
+  is keyed by the exact original throwable, so an authentic token TRANSPLANTED
+  onto a different exception reads false (that different throwable has no binding).
   Channel-aware — a source that emitted ONLY on the diagnostic trace axis reads
   false, so trace coverage is never mistaken for always-on coverage
   (rf2-w55bh0)."
   [t]
-  (let [prov (get (ex-data t) emission-provenance-key)]
+  (let [prov #?(:clj  (.get ^java.util.Map provenance-by-throwable t)
+                ;; `WeakMap.prototype.get` returns undefined (never throws) for a
+                ;; non-object key, so a raw thrown value (CLJS permits
+                ;; `(throw :kw)` / `(throw "x")`) simply reads uncovered — NO guard
+                ;; is needed here. In particular do NOT guard with cljs `object?`:
+                ;; it is `(identical? (.-constructor x) js/Object)`, which is FALSE
+                ;; for an `ExceptionInfo` (its constructor is not `js/Object`), so
+                ;; it would wrongly exclude every real framework throwable and make
+                ;; the covered path never fire on CLJS.
+                :cljs (.get provenance-by-throwable t))]
     (and (instance? EmissionProvenance prov)
          (contains? (.-channels ^EmissionProvenance prov) :always-on))))
 
@@ -290,16 +336,19 @@
          :actual   port-abi-version
          :reason   reason
          :recovery :no-recovery})
-      (error/throw-error!
-        :rf.error/observation-port-version-mismatch
-        're-frame.substrate.observation/assert-port-abi-version!
-        reason
-        {:extra {:expected expected
-                 :actual   port-abi-version
-                 ;; Opaque, channel-aware emission provenance (rf2-w55bh0): the
-                 ;; emit-error-both! record above covered BOTH axes, so a
-                 ;; containment drain sees always-on coverage and re-fans nothing.
-                 emission-provenance-key provenance-both-channels}})))
+      (throw
+        (attest-provenance!
+          (error/thrown-ex-info
+            :rf.error/observation-port-version-mismatch
+            're-frame.substrate.observation/assert-port-abi-version!
+            reason
+            {:extra {:expected expected
+                     :actual   port-abi-version}})
+          ;; Throwable-bound emission provenance (rf2-9m4oy7): the
+          ;; emit-error-both! record above covered BOTH axes, so a containment
+          ;; drain that catches THIS exact throwable sees always-on coverage and
+          ;; re-fans nothing.
+          provenance-both-channels))))
   nil)
 
 ;; ---- registry epoch ---------------------------------------------------------
@@ -515,19 +564,19 @@
            (when query-v {:rf.sub/id      (first query-v)
                           :rf.sub/query-v query-v})
            extra))
-  (error/throw-error! error-id where reason
-                      {:extra (merge {:frame          frame-id
-                                      :rf.sub/query-v query-v
-                                      ;; Opaque, channel-aware emission
-                                      ;; provenance (rf2-w55bh0): the
-                                      ;; emit-error-both! record above IS this
-                                      ;; failure's exactly-once emission on BOTH
-                                      ;; axes — a containment drain catching this
-                                      ;; throw (an on-change that called a port
-                                      ;; op) sees always-on coverage and re-fans
-                                      ;; it on neither channel.
-                                      emission-provenance-key provenance-both-channels}
-                                     extra)}))
+  ;; Throwable-bound emission provenance (rf2-9m4oy7): the emit-error-both! record
+  ;; above IS this failure's exactly-once emission on BOTH axes. Binding it to
+  ;; THIS exact throwable — not carrying a forgeable token in ex-data — lets a
+  ;; containment drain catching this throw (an on-change that called a port op)
+  ;; see always-on coverage and re-fan it on neither channel, while a forged or
+  ;; transplanted token on any OTHER throwable reads uncovered.
+  (throw
+    (attest-provenance!
+      (error/thrown-ex-info error-id where reason
+                            {:extra (merge {:frame          frame-id
+                                            :rf.sub/query-v query-v}
+                                           extra)})
+      provenance-both-channels)))
 
 (defn- throw-frame-destroyed!
   [where frame-id query-v]
@@ -656,49 +705,50 @@
   [frame-id query-v result]
   (case (:recovery result)
     :cycle
-    (error/throw-error!
-      :rf.error/sub-cycle
-      're-frame.substrate.observation/acquire!
-      (str "acquire! targeted subscription " (pr-str (first query-v))
-           " which sits on a :<- dependency cycle " (pr-str (:cycle result))
-           "; a cyclic sub has no cacheable node, so the observation port is "
-           "fail-loud (the public subscribe surface keeps its recover-to-nil "
-           "semantics). Break the cycle so no sub transitively lists itself "
-           "among its inputs.")
-      {:recovery :no-recovery
-       :extra    {:frame          frame-id
-                  :rf.sub/query-v query-v
-                  :cycle          (:cycle result)
-                  ;; Opaque, channel-aware emission provenance (rf2-w55bh0): the
-                  ;; build surfaced :rf.error/sub-cycle on the DIAGNOSTIC TRACE
-                  ;; axis ONLY (it is production-elided) — so this attests
-                  ;; `#{:trace}`, NOT full coverage. A containment drain must not
-                  ;; re-emit the diagnostic sub-cycle (nor promote it onto the
-                  ;; always-on axis), but production observability is NOT yet
-                  ;; covered, so the drain still adds the stable always-on
-                  ;; callback-failure record. Stamping a channel-blind Boolean
-                  ;; here is the bug that silenced a cyclic-acquire callback
-                  ;; failure under goog.DEBUG=false.
-                  emission-provenance-key provenance-trace-only}})
+    (throw
+      (attest-provenance!
+        (error/thrown-ex-info
+          :rf.error/sub-cycle
+          're-frame.substrate.observation/acquire!
+          (str "acquire! targeted subscription " (pr-str (first query-v))
+               " which sits on a :<- dependency cycle " (pr-str (:cycle result))
+               "; a cyclic sub has no cacheable node, so the observation port is "
+               "fail-loud (the public subscribe surface keeps its recover-to-nil "
+               "semantics). Break the cycle so no sub transitively lists itself "
+               "among its inputs.")
+          {:recovery :no-recovery
+           :extra    {:frame          frame-id
+                      :rf.sub/query-v query-v
+                      :cycle          (:cycle result)}})
+        ;; Throwable-bound emission provenance (rf2-9m4oy7): the build surfaced
+        ;; :rf.error/sub-cycle on the DIAGNOSTIC TRACE axis ONLY (production-
+        ;; elided) — so this attests `#{:trace}`, NOT full coverage. A containment
+        ;; drain catching THIS throwable must not re-emit the diagnostic sub-cycle
+        ;; (nor promote it onto the always-on axis), but production observability
+        ;; is NOT yet covered, so the drain still adds the stable always-on
+        ;; callback-failure record. A channel-blind Boolean here is the bug that
+        ;; silenced a cyclic-acquire callback failure under goog.DEBUG=false.
+        provenance-trace-only))
 
     (:input-fn-exception :input-fn-bad-return)
-    (error/throw-error!
-      (:error-kw result)
-      're-frame.substrate.observation/acquire!
-      (str "acquire! targeted parametric subscription " (pr-str (first query-v))
-           " whose input-fn failed at materialization, so there is no cacheable "
-           "node to own; the observation port is fail-loud (the public "
-           "subscribe surface keeps its recover-to-nil semantics). "
-           (:reason result))
-      {:recovery :no-recovery
-       :extra    {:frame          frame-id
-                  :rf.sub/query-v query-v
-                  ;; Opaque, channel-aware emission provenance (rf2-w55bh0): the
-                  ;; build ALREADY fanned the always-on :rf.error/sub-input-fn-*
-                  ;; record on both axes (one record, one throw), so this attests
-                  ;; `#{:always-on :trace}` and a containment drain re-fans
-                  ;; nothing.
-                  emission-provenance-key provenance-both-channels}})
+    (throw
+      (attest-provenance!
+        (error/thrown-ex-info
+          (:error-kw result)
+          're-frame.substrate.observation/acquire!
+          (str "acquire! targeted parametric subscription " (pr-str (first query-v))
+               " whose input-fn failed at materialization, so there is no cacheable "
+               "node to own; the observation port is fail-loud (the public "
+               "subscribe surface keeps its recover-to-nil semantics). "
+               (:reason result))
+          {:recovery :no-recovery
+           :extra    {:frame          frame-id
+                      :rf.sub/query-v query-v}})
+        ;; Throwable-bound emission provenance (rf2-9m4oy7): the build ALREADY
+        ;; fanned the always-on :rf.error/sub-input-fn-* record on both axes (one
+        ;; record, one throw), so this attests `#{:always-on :trace}` and a
+        ;; containment drain catching THIS throwable re-fans nothing.
+        provenance-both-channels))
 
     ;; :frame-destroyed and any unexpected classification — fan + throw typed.
     (throw-frame-destroyed! 're-frame.substrate.observation/acquire!
@@ -870,23 +920,24 @@
   invisible exactly where it matters — so no `on-change` failure may depend on
   the rethrow being observed.
 
-  Classification is CHANNEL-AWARE and by OPAQUE PROVENANCE (rf2-w55bh0) —
-  never by a channel-blind `fanned` Boolean, never by `:rf.error/id`
-  truthiness / reconstructible ex-data shape, and never a global seen-error
-  registry. The drain owns PRODUCTION (always-on) coverage for this one
-  callback failure UNLESS [[source-covered-always-on?]] proves the source
-  already fanned an always-on record:
+  Classification is CHANNEL-AWARE and by THROWABLE-BOUND PROVENANCE (rf2-w55bh0 +
+  rf2-9m4oy7) — never by a channel-blind `fanned` Boolean, never by `:rf.error/id`
+  truthiness / reconstructible ex-data shape, never by a forgeable ex-data token,
+  and never a global seen-error registry. The drain owns PRODUCTION (always-on)
+  coverage for this one callback failure UNLESS [[source-covered-always-on?]]
+  proves the EXACT caught throwable was minted-and-bound by this port with an
+  always-on-covering provenance:
 
     - ALREADY COVERED ON THE ALWAYS-ON AXIS — the port's own emit-then-throw
       surfaces that fanned through `error-emit/emit-error-both!` (`read` on a
       released lease, the probe/acquire fail-loud throws, the ABI guard, the
       retry-exhausted throw, and the acquire-recovery input-fn arms whose
-      always-on record the sub BUILD fanned) stamp the opaque
-      `#{:always-on :trace}` provenance. Their record IS the exactly-once
-      emission, carrying the SOURCE's correct frame/query attribution. Adding
-      anything here would double-report the one runtime error and overwrite
-      that attribution with the NOTIFYING owner's context, so nothing more is
-      emitted on either channel.
+      always-on record the sub BUILD fanned) bind the `#{:always-on :trace}`
+      provenance to THAT exact throwable in the private weak association. Their
+      record IS the exactly-once emission, carrying the SOURCE's correct
+      frame/query attribution. Adding anything here would double-report the one
+      runtime error and overwrite that attribution with the NOTIFYING owner's
+      context, so nothing more is emitted on either channel.
     - NOT COVERED ON THE ALWAYS-ON AXIS — a source that emitted ONLY on the
       diagnostic trace axis (the build's production-elided `:rf.error/sub-cycle`,
       provenance `#{:trace}`), a DIAGNOSTIC-ONLY thrown category with no fan
@@ -895,8 +946,10 @@
       consumer-callback bug (a `TypeError` / `AssertionError` / host
       `RuntimeException`), or an application ex-info trying to SPOOF a framework
       category (a reserved-but-uncatalogued or imitated `:rf.error/id`, a
-      reconstructed provenance shape, or a copy of a public marker) — all read
-      FALSE. Production observability is still owed, so the drain adds EXACTLY
+      forged `->EmissionProvenance` token in its own ex-data, or an authentic
+      token TRANSPLANTED onto a different exception) — all read FALSE, because
+      only the exact throwable this port minted-and-bound is associated.
+      Production observability is still owed, so the drain adds EXACTLY
       ONE stable catalogued `:rf.error/observation-on-change-failed` record,
       carrying the original throwable as the record's `:exception` cause. The
       escape's own diagnostic category is NEVER promoted onto the always-on
@@ -964,11 +1017,13 @@
   one uncontained fan-out; it mirrors registrar's per-hook and subs.cache's
   per-reaction dispose containment). Every sibling is notified; EVERY escape is
   surfaced EXACTLY ONCE so it survives a swallowing boundary without violating
-  Spec 009's one-runtime-error law (rf2-6ui49w + rf2-wbkjk9 + rf2-w55bh0: the
-  drain owns PRODUCTION coverage unless the escape's OPAQUE, channel-aware
-  provenance proves the source already fanned an always-on record; an escape
-  whose source covered only the diagnostic trace axis, a diagnostic-only thrown
-  category, a raw untyped consumer bug, or an application spoof is wrapped once
+  Spec 009's one-runtime-error law (rf2-6ui49w + rf2-wbkjk9 + rf2-w55bh0 +
+  rf2-9m4oy7: the drain owns PRODUCTION coverage unless the escape's
+  THROWABLE-BOUND, channel-aware provenance proves the source already fanned an
+  always-on record for THIS exact throwable; an escape whose source covered only
+  the diagnostic trace axis, a diagnostic-only thrown category, a raw untyped
+  consumer bug, a forged or transplanted token, or an application spoof is wrapped
+  once
   in `:rf.error/observation-on-change-failed` WITHOUT promoting its own category
   onto the always-on axis — see [[report-disposal-notify-escape!]]); then the
   first escape is re-thrown AFTER the whole drain for any DIRECT caller, with its
@@ -991,9 +1046,10 @@
                          (catch #?(:clj Throwable :cljs :default) t
                            ;; Surface EVERY escape EXACTLY ONCE before the
                            ;; boundary swallows the rethrow (rf2-6ui49w +
-                           ;; rf2-wbkjk9 + rf2-w55bh0): channel-aware, opaque
-                           ;; provenance decides. An escape whose source already
-                           ;; covered the always-on axis keeps its source's
+                           ;; rf2-wbkjk9 + rf2-w55bh0 + rf2-9m4oy7): channel-aware,
+                           ;; throwable-bound provenance decides. An escape whose
+                           ;; source already covered the always-on axis for THIS
+                           ;; exact throwable keeps its source's
                            ;; emission; everything else (trace-only coverage, a
                            ;; diagnostic-only thrown category, an untyped bug, a
                            ;; spoof) is wrapped once in the always-on
@@ -1802,20 +1858,23 @@
                :rf.sub/query-v (:query-v st)
                :reason   reason
                :recovery :no-recovery})
-            (error/throw-error!
-              :rf.error/read-after-release
-              're-frame.substrate.observation/read
-              reason
-              {:extra {:frame          (:frame-id st)
-                       :rf.sub/query-v (:query-v st)
-                       ;; Opaque, channel-aware emission provenance (rf2-w55bh0):
-                       ;; the emit-error-both! record above is the exactly-once
-                       ;; emission on BOTH axes, attributed to THIS released
-                       ;; lease's own frame/query — a containment drain catching
-                       ;; this throw (an on-change reading a released lease) sees
-                       ;; always-on coverage and must not re-fan it under the
-                       ;; notifying owner's context.
-                       emission-provenance-key provenance-both-channels}})))
+            (throw
+              (attest-provenance!
+                (error/thrown-ex-info
+                  :rf.error/read-after-release
+                  're-frame.substrate.observation/read
+                  reason
+                  {:extra {:frame          (:frame-id st)
+                           :rf.sub/query-v (:query-v st)}})
+                ;; Throwable-bound emission provenance (rf2-9m4oy7): the
+                ;; emit-error-both! record above is the exactly-once emission on
+                ;; BOTH axes, attributed to THIS released lease's own frame/query.
+                ;; Binding it to THIS exact throwable lets a containment drain
+                ;; catching this throw (an on-change reading a released lease) see
+                ;; always-on coverage and not re-fan it under the notifying owner's
+                ;; context — while the SAME token transplanted onto a different
+                ;; exception reads uncovered.
+                provenance-both-channels))))
         ;; Resolve the JVM WeakReference ONCE and hold the result strongly across
         ;; the canonicality check + deref. A GC between two lookups could clear
         ;; the second lookup even after the first proved the node canonical.
