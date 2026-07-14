@@ -598,6 +598,60 @@
       (update :fx-overrides #(apply dissoc % rejected-reserved-fx-ids)))
     {:frame frame-id}))
 
+(defn child-dispatch!
+  "The single reserved-dispatch seam (rf2-lud4af). The `:dispatch` and
+  `:dispatch-later` reserved-fx bodies — AND the machines artefact's reserved
+  `:rf.machine/join-dispatch` transport (rf2-t154jx) — queue a child dispatch
+  through HERE, so all three share ONE implementation of the reserved-dispatch
+  contract rather than duplicating override / lineage / ordering / timer /
+  replay semantics in a second effect:
+
+    - parent-envelope inheritance (`child-dispatch-opts`): `:fx-overrides`,
+      `:interceptor-overrides`, `:trace-id`, `:origin`, the per-call
+      `:rf.cofx/mint-policy` strict/replay discipline, and the
+      `:rf.machine/internal?` front-of-queue ordering flag — per Spec 002
+      §Cascade propagation + EP-0017 §6;
+    - the frame-owned `:dispatch-later` timer table (`arm-dispatch-later!`),
+      cancelled on frame destroy (`release-frame!`) — so a delayed child never
+      fires dead-on-arrival into a torn-down frame (rf2-uxz52g);
+    - immediate vs delayed routing keyed off a numeric `:ms`.
+
+  `event` is the child event vector. `parent-envelope` is the dispatch envelope
+  of the event that produced the fx (nil falls back to `{:frame frame-id}` —
+  legacy routing callers / test fixtures). `extras`:
+
+    :source        the child's immediate-trigger `:source` stamp
+                   (`:fx-dispatch` / `:fx-dispatch-later` / `:machine-action`);
+                   `:source` is NEVER inherited (rf2-ejtpd) — the call site
+                   stamps the immediate trigger.
+    :ms            a NUMBER arms the frame-owned timer (delayed dispatch);
+                   absent / non-number dispatches immediately to the router
+                   queue. A `:dispatch-later` always supplies a number; a plain
+                   `:dispatch` never does.
+    :source-detail optional; rides onto the `:rf.event/dispatched` trace (e.g.
+                   `{:ms n}` for the delayed path — rf2-5qp4g).
+    :rf.cofx       optional recordable causal-envelope coeffect map merged
+                   verbatim onto the child dispatch. `build-envelope` preserves
+                   a supplied `:rf.cofx` (extra owner-qualified keys kept) and
+                   fills `:rf/time-ms`, so an owner-qualified fact — the
+                   machines join-authority tuple `:rf.machine/join-auth` — is
+                   recorded and re-presented on strict replay (rf2-t154jx).
+
+  Public so the machines `:rf.machine/join-dispatch` fx routes a `:spawn-all`
+  child's completion carrier through the SAME seam that preserves every
+  reserved-dispatch guarantee, adding ONLY its private `:rf.cofx` authority
+  fact — never a second effect duplicating the semantics."
+  [frame-id parent-envelope event {:keys [source ms source-detail] rf-cofx :rf.cofx}]
+  (let [opts (cond-> (assoc (child-dispatch-opts frame-id parent-envelope) :source source)
+               (some? source-detail) (assoc :source-detail source-detail)
+               (some? rf-cofx)       (assoc :rf.cofx rf-cofx))]
+    (if (number? ms)
+      (arm-dispatch-later! frame-id ms event opts)
+      ;; Sticky hook (rf2-f72pd) — `:router/dispatch!` is published once at
+      ;; re-frame.router load and never withdrawn.
+      (when-let [f (late-bind/get-fn-cached :router/dispatch!)]
+        (f event opts)))))
+
 (def ^:private reserved-fx-handlers
   "Reserved fx-id → body-fn `(fn [frame-id parent-envelope args])`.
   Driven by `handle-one-fx`; emit of `:rf.fx/handled` lives in the
@@ -629,15 +683,15 @@
    ;; plain `:dispatch` fx cascades. The `:rf.machine/internal? true`
    ;; flag still rides on the envelope (via `child-dispatch-opts`) so
    ;; the router can front-of-queue insert per Spec 005 §Level 4.
+   ;; Routes through the shared `child-dispatch!` seam (rf2-lud4af) — the
+   ;; same implementation the machines `:rf.machine/join-dispatch` transport
+   ;; uses — so envelope inheritance / ordering / timer semantics live in one
+   ;; place. The immediate (no-`:ms`) path enqueues to the router queue.
    (fn [frame-id parent-envelope args]
-     ;; Sticky hook (rf2-f72pd) — `:router/dispatch!` is published once
-     ;; at re-frame.router load and never withdrawn; this fires per
-     ;; `:dispatch` fx invocation.
-     (when-let [f (late-bind/get-fn-cached :router/dispatch!)]
-       (f args (assoc (child-dispatch-opts frame-id parent-envelope)
-                      :source (if (:rf.machine/internal? parent-envelope)
-                                :machine-action
-                                :fx-dispatch)))))
+     (child-dispatch! frame-id parent-envelope args
+                      {:source (if (:rf.machine/internal? parent-envelope)
+                                 :machine-action
+                                 :fx-dispatch)}))
 
    :dispatch-later
    ;; Delayed dispatch — wraps the same router hook in `set-timeout!`.
@@ -668,12 +722,17 @@
    ;; retain, the armed timer + its captured closure leak until the delay
    ;; elapses, and the deferred dispatch is dead-on-arrival in the
    ;; destroyed frame.
+   ;; Same shared seam (rf2-lud4af): a numeric `:ms` routes through the
+   ;; frame-owned `dispatch-later-timers` table inside `child-dispatch!`
+   ;; (retain + cancel-on-destroy, rf2-uxz52g), carrying the `:source` /
+   ;; `:source-detail {:ms n}` stamps.
    (fn [frame-id parent-envelope {:keys [ms event]}]
-     (let [machine? (:rf.machine/internal? parent-envelope)
-           opts (assoc (child-dispatch-opts frame-id parent-envelope)
-                       :source        (if machine? :machine-action :fx-dispatch-later)
-                       :source-detail {:ms ms})]
-       (arm-dispatch-later! frame-id ms event opts)))
+     (child-dispatch! frame-id parent-envelope event
+                      {:source        (if (:rf.machine/internal? parent-envelope)
+                                        :machine-action
+                                        :fx-dispatch-later)
+                       :ms            ms
+                       :source-detail {:ms ms}}))
 
    ;; Per Spec 013 — flows are frame-scoped. The flow registers against
    ;; the dispatching frame.
