@@ -1,5 +1,10 @@
 # Automatic transitions
 
+Not every move is a user click. This page is the grammar for transitions the
+**table** takes on its own: eventless `:always`, choice nodes, delayed `:after`,
+and named timeouts. Works on flat machines ([the model](concepts.md)) and inside
+[hierarchical](hierarchical-states.md) / [parallel](parallel-states.md) states.
+
 Most [transitions](glossary.md#transition) wait for the world: a user clicks, an HTTP reply lands, a timer you wired by hand goes off. An **automatic transition** is one the [machine](glossary.md#machine) takes *on its own*, with no external event — the instant a condition becomes true, or a deadline passes, the [snapshot](glossary.md#snapshot) moves.
 
 These are the statechart features that let a machine *drive itself*: a form that routes the moment it's validated, a splash screen that dismisses after three seconds, a reconnect that backs off and retries, a request that gives up after ten. Without them you reach for the same fragile pattern every time — a `setTimeout` paired with a cancel flag, or a synthetic event you `dispatch` by hand from every place that could enable the next step. re-frame2 turns each of those into one declarative key on a state node.
@@ -17,7 +22,7 @@ There are four authoring grammars, and underneath them just **two engines**:
 
     `:type :choice` is sugar that **desugars to `:always`**; `:timeout` / `:on-timeout` is sugar that **desugars to `:after`**. So everything on this page runs on one of two mechanisms: the **guard-driven microstep loop** (`:always`, `:choice`) and the **wall-clock timer** (`:after`, `:timeout`). One fact, one mechanism — the extra grammars exist only to *name the author's intent* so tools and diagrams can read it.
 
-Everything below assumes the core loop from the [concepts guide](concepts.md#registering-and-running-it): a machine is registered with `reg-machine`, its transition table is data, a [guard](glossary.md#guard) returns a boolean, an [action](glossary.md#action) returns the data-shaped effect map `{:data … :fx …}` (the `:data` is *merged* into the snapshot, key by key), and the live value is a snapshot `{:state … :data … :tags …}`. New to all that? Read [Concepts → Guards and actions](concepts.md#guards-and-actions) first.
+Everything below assumes the core loop from [the model](concepts.md#register-and-drive): a machine is registered with `reg-machine`, its transition table is data, a [guard](glossary.md#guard) returns a boolean, an [action](glossary.md#action) returns the data-shaped effect map `{:data … :fx …}` (the `:data` is *merged* into the snapshot, key by key), and the live value is a snapshot `{:state … :data … :tags …}`. New to all that? Read [The model → Guards and actions](concepts.md#guards-and-actions) first.
 
 ## Eventless `:always` — fire the instant a condition holds
 
@@ -55,7 +60,7 @@ This is classic statechart **macrostep** semantics: the externally-observable tr
 
 !!! note "It runs at birth, too"
 
-    The same settle loop runs when the machine first starts. If the [`:initial`](concepts.md#registering-and-running-it) state cascades into a leaf whose `:always` guard already holds, that transition is taken *before* the birth commit — so a transient initial state is settled past, unobserved, on start. (This is also why `:always` lives on a state node, never on the root: the root's cascade entry-point is `:initial`.)
+    The same settle loop runs when the machine first starts. If the [`:initial`](concepts.md#register-and-drive) state cascades into a leaf whose `:always` guard already holds, that transition is taken *before* the birth commit — so a transient initial state is settled past, unobserved, on start. (This is also why `:always` lives on a state node, never on the root: the root's cascade entry-point is `:initial`.)
 
 ### Ordering, depth, and self-loops
 

@@ -1,29 +1,33 @@
 # Tutorial: build a login machine
 
-Let's build a machine to model a **login flow** — idle, then submitting, then either signed-in or showing an error, and locked out after too many tries — adding one idea at a time: a guard, an action, a real server call, a view, and a test.
+Build one machine end to end — idle → submitting → authed / error / locked-out —
+adding one idea at a time: a guard, an action, a server call, a view, and a pure
+test.
 
+You need the [Core loop](../core/introduction.md) (events, app-db, effects). Machine
+theory beyond this walk-through is [The model](concepts.md).
 
 ## Step 0 — turn machines on
 
-To reduce bundle size, re-frame2 doesn't include the machines capability by default, so if you want to use it, you have to explicitly require it into your boot/root namespace. Like this:
+Machines are an optional artefact. Require them once in a boot or feature namespace:
 
 ```clojure
 (ns app.login
   (:require [re-frame.core :as rf]
-            [re-frame.machines]))   ;; ← requiring it is what turns machines on
+            [re-frame.machines]))   ;; loads the capability
 ```
 
-If you forget to do this, your first `reg-machine` will loudly throw `:rf.error/machines-artefact-missing`.  
+Forget this and the first `reg-machine` throws
+`:rf.error/machines-artefact-missing`.
 
+## Step 1 — a table and a registration
 
-## Step 1 — your first machine
-
-A machine is a data structure which defines a set of named states, and for each one, which triggers move it where. Here's a login as that data structure — four states, and the triggers that connect them.
+A machine is data: named states and which triggers move where.
 
 ```clojure
 (rf/defmachine login-flow
   {:initial :idle
-   :data    {:attempts 0 :error nil}     ;; the machine's private state; Step 3 puts it to work
+   :data    {:attempts 0 :error nil}
 
    :states
    {:idle        {:on {:auth.login/submit  {:target :submitting}}}
@@ -31,46 +35,39 @@ A machine is a data structure which defines a set of named states, and for each 
                        :auth.login/failure {:target :error-shown}}}
     :error-shown {:on {:auth.login/dismiss {:target :idle}
                        :auth.login/submit  {:target :submitting}}}
-    :authed      {}}})                    ;; a resting state — no outgoing transitions
+    :authed      {}}})   ;; resting — no outgoing transitions
 ```
 
-Those triggers — the `:on` keys, `:auth.login/submit` and friends — are ordinary event ids. You'll see how one reaches the machine in a moment.
-
-Register it — one line to create a singleton machine:
+Register a **singleton** under an event id (`reg-machine` ≈ specialised `reg-event`):
 
 ```clojure
 (rf/reg-machine :auth.login/flow login-flow)
 ```
 
-This singleton machine is identifiable via `:auth.login/flow` because the code above literally wrapped it in an event handler. `reg-machine` is pretty much syntactic sugar over `reg-event`.
-
-And that means, to drive this machine, we dispatch events. The event id is that of the machine, and the trigger rides *inside* an event wrapper, like this:
+Drive it by dispatching to that id; the **inner** vector is the machine event:
 
 ```clojure
 (rf/dispatch [:auth.login/flow [:auth.login/submit]])
 ```
 
-And when a view needs to know what state the machine is in, it reads the machine's [snapshot](glossary.md#snapshot) — its live `{:state … :data …}` value — through the framework subscription `[:rf/machine machine-id]`:
+Read the live [snapshot](glossary.md#snapshot):
 
 ```clojure
 @(rf/subscribe [:rf/machine :auth.login/flow])
 ;; => {:state :submitting :data {:attempts 0 :error nil}}
-;;    (nil before the very first event — the machine starts itself on its first dispatch)
+;;    nil before the first event — the machine boots on first dispatch
 ```
 
+## Step 2 — a guard
 
-**Why it works:** `reg-machine` is sugar over `reg-event`, so the snapshot rides the [frame](../core/frames.md) and you read it with an ordinary subscription — same `dispatch`, same `subscribe`. [Concepts → Registering and running it](concepts.md#registering-and-running-it) walks the machinery.
-
-## Step 2 — a guard: refuse an invalid submit
-
-Right now *any* `:auth.login/submit` trigger moves you from `:idle` to `:submitting`, even with an empty form. A **guard** is a yes/no test that gates a transition. Below we add one named guard `:form-valid?`, and reference it from the arrow:
+Refuse empty credentials. Name the guard once; reference it from every arrow that
+needs it:
 
 ```clojure
 (rf/defmachine login-flow
   {:initial :idle
    :data    {:attempts 0 :error nil}
 
-   ;; guards defined here
    :guards
    {:form-valid?
     (fn [{[_ creds] :event}]
@@ -78,7 +75,7 @@ Right now *any* `:auth.login/submit` trigger moves you from `:idle` to `:submitt
 
    :states
    {:idle        {:on {:auth.login/submit  {:target :submitting
-                                            :guard  :form-valid?}}}   ;; <- use here.
+                                            :guard  :form-valid?}}}
     :submitting  {:on {:auth.login/success {:target :authed}
                        :auth.login/failure {:target :error-shown}}}
     :error-shown {:on {:auth.login/dismiss {:target :idle}
@@ -86,25 +83,23 @@ Right now *any* `:auth.login/submit` trigger moves you from `:idle` to `:submitt
     :authed      {}}})
 ```
 
-You name the guard once in `:guards`, then point at it by id — `:guard :form-valid?` — from every arrow that needs it.
-
-**What you see:** submit empty credentials and the machine stays put; submit real ones and it moves.
-
 ```clojure
 (rf/dispatch [:auth.login/flow [:auth.login/submit {:email "" :password ""}]])
-@(rf/subscribe [:rf/machine :auth.login/flow])     ;; => {:state :idle …}        (guard said no)
+@(rf/subscribe [:rf/machine :auth.login/flow])
+;; => still :idle
 
 (rf/dispatch [:auth.login/flow [:auth.login/submit {:email "a@b.com" :password "secret"}]])
-@(rf/subscribe [:rf/machine :auth.login/flow])     ;; => {:state :submitting …}
+;; => :submitting
 ```
 
-**Notice:** the guard read the credentials from `:event`, not [app-db](../core/app-db.md) — a machine callback sees only its own `:data` and the event that woke it. [Concepts → Strict encapsulation](concepts.md#strict-encapsulation--a-machine-sees-only-its-own-data) explains why that boundary matters.
+The guard reads credentials from **`:event`**, not app-db — machines are
+[encapsulated](concepts.md#strict-encapsulation).
 
-## Step 3 — an action, and the `{:data :fx}` it returns
+## Step 3 — actions and candidate lists
 
-A guard decides *whether*; an **action** computes change. But it never performs a side-effect itself — it **returns** the same `{:data :fx}` map a `reg-event` does: `:data` is merged into the machine's own data, `:fx` is the ordinary effects vector. [Concepts → The action effect map](concepts.md#the-action-effect-map--data-fx) has the full shape.
-
-Below, we add three actions and a second guard, and wire them in. `:clear-error` wipes the last error on submit; `:record-error` counts a failure into `:data`; `:store-session` fires an effect on success:
+An **action** returns `{:data … :fx …}` like a pure event handler — it never calls
+HTTP itself. Below: clear error on submit, record failures, store session on success,
+and **lock out** after three failures via a candidate list:
 
 ```clojure
 (rf/defmachine login-flow
@@ -115,71 +110,63 @@ Below, we add three actions and a second guard, and wire them in. `:clear-error`
    {:form-valid?
     (fn [{[_ creds] :event}]
       (and (seq (:email creds)) (seq (:password creds))))
-
     :under-retry-limit
-    (fn [{data :data}] (< (:attempts data) 3))}        ;; reads its own :data
+    (fn [{data :data}] (< (:attempts data) 3))}
 
    :actions
    {:clear-error
     (fn [_] {:data {:error nil}})
-
     :record-error
-    (fn [{data :data [_ {:keys [error]}] :event}]        ;; failure map rides under :error
+    (fn [{data :data [_ {:keys [error]}] :event}]
       {:data (-> data
                  (update :attempts inc)
                  (assoc  :error (or (:message error) "Login failed.")))})
-
     :store-session
     (fn [{[_ {:keys [value]}] :event}]
-      {:fx [[:auth.session/store {:token (:token value)}]]})}   ;; an fx, not a side-effect
+      {:fx [[:auth.session/store {:token (:token value)}]]})}
 
    :states
    {:idle
     {:on {:auth.login/submit {:target :submitting
                               :guard  :form-valid?
                               :action :clear-error}}}
-
     :submitting
     {:on {:auth.login/success {:target :authed :action :store-session}
           :auth.login/failure [{:target :error-shown
                                 :guard  :under-retry-limit
                                 :action :record-error}
                                {:target :locked-out}]}}
-
     :error-shown
     {:on {:auth.login/dismiss {:target :idle}
           :auth.login/submit  {:target :submitting :guard :form-valid?}}}
-
-    :authed     {:meta {:terminal? true}}      ;; resting states — :meta is a tooling hint,
-    :locked-out {:meta {:terminal? true}}}})   ;; NOT :final? (which would auto-destroy the machine)
+    :authed     {:meta {:terminal? true}}
+    :locked-out {:meta {:terminal? true}}}})
 ```
 
-The `:auth.login/failure` arrow is now a **list of candidates** — the runtime takes the first whose guard passes. Under the retry limit, a failure records the error and shows it; past it, the unguarded candidate wins and the machine locks out.
+`:auth.login/failure` is a **vector of candidates** — first guard that passes wins.
+After three failures, `:under-retry-limit` fails and the unguarded candidate locks
+out.
 
-**What you see:** drive a failure and watch `:data` change.
+!!! note "`:data` merges"
+
+    `{:data {:error nil}}` changes only `:error`. It does not replace the whole map.
+    Details: [The model → effect map](concepts.md#the-effect-map-data-fx).
 
 ```clojure
 (rf/dispatch [:auth.login/flow [:auth.login/submit {:email "a@b.com" :password "x"}]])
-(rf/dispatch [:auth.login/flow [:auth.login/failure {:failure {:message "nope"}}]])
+(rf/dispatch [:auth.login/flow [:auth.login/failure {:error {:message "nope"}}]])
 @(rf/subscribe [:rf/machine :auth.login/flow])
 ;; => {:state :error-shown :data {:attempts 1 :error "nope"}}
 ```
 
-Keep submitting and failing. The first three failures each land in `:error-shown` with `:attempts` climbing `1 → 2 → 3`. On the fourth, `:under-retry-limit` returns false, the guarded candidate is skipped, and the machine settles in `:locked-out`.
-
-!!! note "`:data` is a merge, not a replace"
-
-    — `:clear-error` changes only `:error`, leaving `:attempts` alone. [Concepts → The action effect map](concepts.md#the-action-effect-map--data-fx) has the sharp edges.
-
 ## Step 4 — talk to a real server
 
-So far you've moved the machine by hand-dispatching `:auth.login/success` / `:auth.login/failure`. Now make `:submitting` actually call the server and let the reply drive the machine.
-
-Give `:submitting` an `:entry` action — it runs the moment the state is entered — that fires [managed HTTP](../async/http.md). Name the reply events as *machine-wrapped* events, and the reply loops straight back in. Add a `:record-timeout` action for the deadline case:
+Add an **`:entry`** action on `:submitting` that fires [managed HTTP](../async/http.md),
+and an **`:after`** deadline if the server stalls:
 
 ```clojure
 :actions
-{;; …clear-error, record-error, store-session as in Step 3…
+{;; … clear-error, record-error, store-session …
 
  :issue-request
  (fn [{[_ creds] :event}]
@@ -198,27 +185,28 @@ Give `:submitting` an `:entry` action — it runs the moment the state is entere
 ```clojure
 :submitting
 {:tags  #{:auth/busy}
- :entry :issue-request                                          ;; fire the request on entry
- :after {8000 {:target :error-shown :action :record-timeout}}  ;; …or give up after 8s
+ :entry :issue-request
+ :after {8000 {:target :error-shown :action :record-timeout}}
  :on    {:auth.login/success {:target :authed :action :store-session}
-         :auth.login/failure [{:target :error-shown :guard :under-retry-limit :action :record-error}
+         :auth.login/failure [{:target :error-shown
+                               :guard  :under-retry-limit
+                               :action :record-error}
                               {:target :locked-out}]}}
 ```
 
-Look at `:on-success [:auth.login/flow [:auth.login/success]]` — the machine id outside, the inner event inside, written one element short on purpose. When the request returns, managed HTTP *appends* its reply to that inner event, so what actually arrives is `[:auth.login/success {:value {:token "…"}}]` — exactly what `:store-session` destructures. A machine and an async effect compose with no glue code in between.
+`:on-success [:auth.login/flow [:auth.login/success]]` is written one element short
+on purpose — managed HTTP **appends** the reply map onto the inner event, so
+`:store-session` sees `[:auth.login/success {:value {:token "…"}}]`.
 
-The `:after` is a declarative timer: it arms when you enter `:submitting` and cancels the moment you leave. If the reply lands first, the timer is cancelled; if 8 seconds pass first, the machine records a timeout and shows the error. No `setTimeout`, no cancel flag.
-
-!!! note "Do, then observe"
-
-    Dispatch a submit with [Xray](../xray/index.md) open. The request leaves; when the reply returns, the transition shows up as an ordinary event row — snapshot before and after — riding the same trace stream as everything else.
+`:after` arms on entry and cancels on exit. No `setTimeout`, no cancel flag.
+Deeper timer grammar: [Automatic transitions](automatic-transitions.md).
 
 ## Step 5 — render every state
 
-A view reads the snapshot and shows the right thing for each state. Inside `reg-view` you call `subscribe` unprefixed — the macro binds it to this view's frame for you. (Outside a view, reach through the facade: `rf/subscribe`, `rf/dispatch`.) Read small projections off the snapshot, and ask the machine a *question* rather than naming a state:
+Project the snapshot; ask **tags** for shared intent ("busy?") instead of listing
+state names:
 
 ```clojure
-;; Two small projections off the snapshot — ordinary subscriptions.
 (rf/reg-sub :auth.login/state
   :<- [:rf/machine :auth.login/flow]
   (fn [m _] (:state m)))
@@ -237,26 +225,15 @@ A view reads the snapshot and shows the right thing for each state. Inside `reg-
       :error-shown [:div [:p error] [:button "Try again"]]
       :authed      [:h1 "Welcome back"]
       :locked-out  [:h1 "Account locked"]
-      [:p "…"])))                          ;; nil state — before the first event
+      [:p "…"])))   ;; nil before first event
 ```
 
-For that `busy?` read to work, tag the busy state. A **tag** is a label on a state node; the view asks "is this tag set?" rather than hard-coding which states count as busy:
+The `:auth/busy` tag on `:submitting` is why `busy?` works — add another in-flight
+state later and the view keeps working. Pattern: [Tags](tags.md).
 
-```clojure
-:submitting {:tags  #{:auth/busy}
-             :entry :issue-request
-             ;; …the rest as in Step 4…}
-```
+## Step 6 — test a transition as a pure function
 
-**What you see:** the page shows **Sign in**; a valid submit moves it to **Signing in…**; the reply lands you on **Welcome back** or the error; and a fourth failure swaps in **Account locked**.
-
-!!! note "Why a tag, not a state name?"
-
-    Add a sixth state that's also "busy" later — `:retrying`, say — and a view that branches on the `:auth/busy` tag picks it up with zero changes. Asking *what's true* scales; enumerating state names doesn't. [Tags](tags.md) is the whole pattern.
-
-## Step 6 — test it: a transition is a pure function
-
-Here's the payoff. A transition is a pure function of *(table, snapshot, event)* — no frame, no browser, no network. `machine-transition` runs exactly one, and hands back a result you destructure:
+No frame, no browser, no network:
 
 ```clojure
 (ns app.login-test
@@ -266,20 +243,26 @@ Here's the payoff. A transition is a pure function of *(table, snapshot, event)*
             [app.login :refer [login-flow]]))
 
 (deftest login-flow-test
-  ;; a valid submit enters :submitting and fires the request fx
   (let [{snap ::result/snap fx ::result/fx}
         (machines/machine-transition login-flow
-                                     {:state :idle :data {:attempts 0 :error nil}}
-                                     [:auth.login/submit {:email "a@b.com" :password "secret"}])]
+          {:state :idle :data {:attempts 0 :error nil}}
+          [:auth.login/submit {:email "a@b.com" :password "secret"}])]
     (is (= :submitting (:state snap)))
-    (is (= :rf.http/managed (ffirst fx))))         ;; :entry ran :issue-request
+    (is (= :rf.http/managed (ffirst fx))))   ;; :entry ran :issue-request
 
-  ;; at the retry limit, a failure routes to :locked-out instead of :error-shown
   (let [{snap ::result/snap}
         (machines/machine-transition login-flow
-                                     {:state :submitting :data {:attempts 3 :error nil}}
-                                     [:auth.login/failure {:failure {:message "bad creds"}}])]
+          {:state :submitting :data {:attempts 3 :error nil}}
+          [:auth.login/failure {:error {:message "bad creds"}}])]
     (is (= :locked-out (:state snap)))))
 ```
 
-Feed in a snapshot and an event; assert on what comes back. The result is a value — `::result/snap` / `::result/fx`, or `result/ok?` / `result/fail?` (a throwing action is a *failure value*, not an exception out of your test). It runs on the JVM in microseconds — exactly the testing experience you want for the flows where testing usually gets hard. [Inspecting and testing machines](inspecting-machines.md) goes deeper: the Result accessors, asserting effects as data, and the three test levels.
+More on Result accessors and Xray: [Inspecting and testing](inspecting-machines.md).
+
+## What you built
+
+A single data value that owns login lifecycle, pure enough to unit-test, wired to
+HTTP and views through ordinary re-frame2 events and subscriptions. The rest of this
+section deepens the grammar when a flat table is no longer enough — start with
+[The model](concepts.md) if you want vocabulary, or [Hierarchical states](hierarchical-states.md)
+when a state needs sub-states.

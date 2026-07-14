@@ -1,6 +1,12 @@
 # Inspecting and testing machines
 
-A machine in re-frame2 is [just an event handler](concepts.md#registering-and-running-it) whose body interprets a transition table, and whose whole state is a plain value sitting in the frame's runtime-db. That one fact is the theme of this page: there is **no parallel machine runtime** to attach a special debugger to, and **no second store** to mock in a test. You inspect a machine the way you inspect any re-frame2 state — you `subscribe` to it. You watch it the way you watch any event — through Xray and the trace bus. And you test it the way you'd test a pure function — because a transition literally *is* one.
+You can [author](tutorial.md) and [understand](concepts.md) machines. This page is
+how you **watch** one and **prove** the table.
+
+A machine is [just an event handler](concepts.md#register-and-drive) whose body
+interprets a transition table; its whole state is a plain value in runtime-db.
+There is **no parallel machine runtime** and **no second store**. Subscribe like
+any re-frame2 state; watch events in Xray; unit-test with a pure function call.
 
 You reach for the tools here in two situations:
 

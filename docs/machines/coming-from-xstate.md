@@ -1,5 +1,9 @@
 # Coming from XState
 
+This page is a **translation**, not a tutorial. For a first machine in re-frame2,
+use the [login tutorial](tutorial.md) and [the model](concepts.md). Here: how
+XState v5/v6 concepts map, and where re-frame2 deliberately diverges.
+
 If you've built statecharts with [XState](https://stately.ai/docs) — v5, or the v6 alpha — most of your mental model ports straight across. re-frame2's [machines](concepts.md) borrow XState's grammar on purpose: transition tables as data, guards, actions, tags, delayed transitions, final states, run-to-completion, internal-by-default self-transitions. You can read a re-frame2 machine spec on day one and a re-frame2 author can read yours. The *behaviour* is the contract re-frame2 tracks; what changes is the *expression* and one piece of *plumbing*.
 
 Two things transfer almost untouched:
@@ -23,7 +27,7 @@ Skim this, then read the worked build-up in [The grammar, concept by concept](#t
 
 | XState (v6 direction) | re-frame2 | Notes |
 |---|---|---|
-| `createMachine({ ... })` / `setup().createMachine()` | a transition-table map passed to [`reg-machine`](concepts.md#registering-and-running-it) | Plain Clojure data. No builder, no fluent API. |
+| `createMachine({ ... })` / `setup().createMachine()` | a transition-table map passed to [`reg-machine`](concepts.md#register-and-drive) | Plain Clojure data. No builder, no fluent API. |
 | `context` (extended state) | [`:data`](#context-becomes-data) | Same idea. "Context" was already taken (interceptor context, React context); `:data` tracks FSM / `gen_statem` "state data". |
 | `state.value` | the snapshot's `:state` | Flat → keyword; compound → vector path; parallel → region-name→state map (each region's value is itself a keyword or path). |
 | `states: { idle: { on: { ... } } }` | `:states {:idle {:on {...}}}` | Near-identical shape. `on` → `:on`, target strings → state keywords. |
@@ -74,7 +78,7 @@ const loginMachine = setup({
 });
 ```
 
-In re-frame2 the definition is *just data* — one map, with its `:guards` and `:actions` tables carried inline, registered with [`reg-machine`](concepts.md#registering-and-running-it):
+In re-frame2 the definition is *just data* — one map, with its `:guards` and `:actions` tables carried inline, registered with [`reg-machine`](concepts.md#register-and-drive):
 
 ```clojure
 (rf/reg-machine :auth.login/flow

@@ -1,5 +1,9 @@
 # Parallel regions
 
+One machine, several **orthogonal** axes active at once — form validity × load
+state × mode — without exploding a cross-product of flat states. Assumes the
+[flat model](concepts.md); pairs naturally with [tags](tags.md).
+
 Some lifecycles aren't *one* question — they're several, all live at once. A todos screen is *somewhere in its fetch* (nothing / loading / empty / some / too-many), *somewhere in its form* (neutral / valid / invalid), and *somewhere in its page mode* (active / archived). Those three axes are **orthogonal**: each moves on its own, and any combination is legal.
 
 Model that as one flat machine and the states multiply — three axes of three states each is `3 × 3 × 3 = 27` cross-product states, most of them named things like `:loading-and-invalid-and-active`. **Parallel regions** keep the axes apart. One machine declares `:type :parallel` and a `:regions` map; each region is a full little state-tree minding one axis; all regions are active simultaneously. Three axes of three states becomes **nine states across three regions**, not twenty-seven flat ones.

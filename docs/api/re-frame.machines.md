@@ -227,7 +227,7 @@ The framework-registered subscription vectors and reserved effect tuples that ad
   ```clojure
   [:rf/machine machine-id]
   ```
-- **Description**: The canonical machine read. Returns a reaction whose value is the snapshot `{:state :data}` (plus framework-managed `:tags`), or `nil` if the machine is not yet initialised. The [machines concept guide](../machines/concepts.md#registering-and-running-it) walks through subscribing to a snapshot and chaining named projections off it.
+- **Description**: The canonical machine read. Returns a reaction whose value is the snapshot `{:state :data}` (plus framework-managed `:tags`), or `nil` if the machine is not yet initialised. The [machines model](../machines/concepts.md#register-and-drive) walks through subscribing to a snapshot and chaining named projections off it.
 - **Example**:
   ```clojure
   (let [{:keys [state data]} @(rf/subscribe [:rf/machine :auth.login/flow])]
@@ -306,7 +306,7 @@ The framework-registered subscription vectors and reserved effect tuples that ad
 | `:output-key` | Requires `:final?`. Designates the child's `:data` slot reported back via the parent's `:on-done`. |
 | `:on-done` (spawn-spec key) | `(fn [{:keys [data result]}] new-data)` on the parent's `:spawn` map. Fires synchronously when the spawned child enters a `:final?` state. `result` is the child's `:data` slot named by the final state's `:output-key` (or `nil`). |
 
-See [Final states: when a machine is done](../machines/concepts.md#final-states-when-a-machine-is-done) in the machines concept guide.
+See [Final states](../machines/concepts.md#final-states) in the machines model guide.
 
 ### `[:rf.machine/dispatch-to-system [system-id event]]`
 

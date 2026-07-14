@@ -1,5 +1,8 @@
 # History states
 
+Re-enter a [compound](hierarchical-states.md) at the substate you left — a media
+player resumes mid-track. History is a transition *target*, not a state you occupy.
+
 Some compound states have a memory. A media player you stop and restart should resume *mid-track*, not jump back to the first second. A wizard you step away from and return to should land on the step you left, not step one. A tabbed settings panel should remember which tab — and how far down each tab was scrolled — across a close/reopen. That "resume where I last was" behaviour is what a **history state** gives you, declaratively, for any [compound state](hierarchical-states.md).
 
 Without it you reach for the obvious workaround — stash the last substate in `:data` on the way out, read it back on the way in, and write the wiring to restore it. History states make that pattern a single node in the transition table — a first-class `:type :history` node — and (because the record/restore lives *inside the snapshot*) they ride undo, time-travel, persistence, and SSR for free.

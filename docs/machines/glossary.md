@@ -31,7 +31,7 @@ The data a machine *is*: a map with `:initial`, the starting [`:data`](#data), t
            :submitting {...}}}
 ```
 
-See [The same flow as a transition table](concepts.md#the-same-flow-as-a-transition-table).
+See [The idea](concepts.md#the-idea) / [The same flow as a transition table](concepts.md#the-same-flow-as-a-transition-table).
 
 ### **snapshot**
 
@@ -49,7 +49,7 @@ Related: [Machines](concepts.md); the [`[:rf/machine machine-id]` sub](../api/re
 
 A machine's private working memory — the *extended state* that rides alongside the named [state](#state) in every [snapshot](#snapshot). Counters, the in-flight error string, captured credentials: anything that isn't itself a named mode. [Guards](#guard) and [actions](#action) read it from their context map (`{:data …}`); an action *updates* it by returning `{:data …}` (see [action effect map](#action-effect-map)). It must be a printable value so the snapshot round-trips through persistence and time-travel, and a machine sees **only its own** `:data` — never [app-db](../core/glossary.md#app-db).
 
-Taught in [The same flow as a transition table](concepts.md#the-same-flow-as-a-transition-table).
+Taught in [The idea](concepts.md#the-idea).
 
 ### **state**
 
@@ -78,7 +78,7 @@ What an [action](#action) returns: the same `{:data … :fx …}` map a [`reg-ev
                   (assoc :error (:message error)))})
 ```
 
-See [The action effect map](concepts.md#the-action-effect-map--data-fx).
+See [The effect map](concepts.md#the-effect-map-data-fx).
 
 ## State structure
 
@@ -120,7 +120,7 @@ A [transition](#transition) back into the state you're already in. re-frame2 fol
 - **Explicit self-target, no `:reenter?`** — your own `:exit` / `:entry` still don't fire, but a compound **re-resolves its descendants** to `:initial`.
 - **External (`:reenter? true`)** — genuinely exits and re-enters: `:exit` → `:action` → `:entry`, and on a compound the whole subtree restarts (`:after` timers reset, `:spawn` children respawn).
 
-See [Self-transitions](concepts.md#self-transitions-internal-by-default-external-on-demand).
+See [Self-transitions and wildcards](concepts.md#self-transitions-and-wildcards).
 
 ### **wildcard transition**
 
@@ -132,13 +132,13 @@ An `:on` entry that matches a *class* of events instead of one id. `:on` resolve
                 :*          {:action :log-unknown}}}  ;; anything else
 ```
 
-See [Wildcard transitions](concepts.md#wildcard-transitions-handle-a-whole-class-of-events).
+See [Self-transitions and wildcards](concepts.md#self-transitions-and-wildcards).
 
 ### **forbidden transition**
 
 A present `:on` key whose value is the **empty map** (`{:on {:E {}}}`) or **`nil`** — a handler that *consumes* an event and stops the deepest-wins search without changing state. It's how a child [compound state](#compound-state) **opts out** of a transition its parent would otherwise inherit to it. Distinct from an *unhandled* event (which falls through to coarser tiers and up to ancestors): a forbidden block is itself a match, so the search stops there.
 
-Covered with [wildcards](concepts.md#wildcard-transitions-handle-a-whole-class-of-events).
+Covered with [wildcards](concepts.md#self-transitions-and-wildcards).
 
 ### **eventless transition (`:always`)**
 
