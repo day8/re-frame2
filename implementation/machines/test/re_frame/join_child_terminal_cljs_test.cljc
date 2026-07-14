@@ -224,10 +224,17 @@
                                    :attempt    (:rf/attempt (join-state :jct/p5))}})])
       (is (= [:completed] (terminals-for a))
           "the duplicate added NO second terminal (suppressed, not re-published)")
-      ;; Resolve, then a post-resolution straggler for :a.
+      ;; Resolve, then :a's EXACT-CURRENT completion re-arrives post-resolution
+      ;; (the late-completion path is gated on exact authority — rf2-ixjd48).
       (rf/dispatch-sync [b [:go]])
       (is (true? (:resolved? (join-state :jct/p5))))
-      (rf/dispatch-sync [:jct/p5 [:child/done :a]])
+      (rf/dispatch-sync
+        [:jct/p5 (with-meta [:child/done :a]
+                   {:rf/join-auth {:parent-id  :jct/p5
+                                   :invoke-id  [:racing]
+                                   :child-id   :a
+                                   :spawned-id a
+                                   :attempt    (:rf/attempt (join-state :jct/p5))}})])
       (is (= [:completed] (terminals-for a))
           "the post-resolution straggler stayed :stale — still one terminal")
       (is (some #(= :stale (:rf.reply/status (:tags %)))
