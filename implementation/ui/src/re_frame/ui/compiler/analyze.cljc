@@ -647,6 +647,41 @@
                      (apply list (first f) specs*
                             (map-indexed #(rw %2 scope (conj p :body %1))
                                          (drop 2 f))))))))
+           (rw-letfn* [f locals p]
+             ;; The HOST special form `letfn*` (what the `letfn` macro expands
+             ;; to) has FLAT name/initializer bindings `[n0 init0 n1 init1 …]`,
+             ;; NOT source `letfn`'s paired fnspec-LIST grammar. Its lexical
+             ;; grammar: every name is in scope for every initializer AND the
+             ;; body (mutual recursion), and each initializer is a `fn*` whose
+             ;; body is deferred — so routing an initializer through `rw`
+             ;; (→ `rw-fn`) makes a render-time `sub`/`lease` inside it illegal,
+             ;; while a visible `sub` in the OUTER body still lowers to a site.
+             (let [bindings (second f)]
+               (if-not (and (vector? bindings) (even? (count bindings)))
+                 (env/fail! e :rf.ui.compile/bad-let
+                            (str "letfn* needs a vector of an even number of flat "
+                                 "name/initializer bindings [name init …]")
+                            {:form f})
+                 (let [pairs (partition 2 bindings)
+                       names (map first pairs)]
+                   (when-not (every? symbol? names)
+                     (env/fail! e :rf.ui.compile/bad-let
+                                "letfn* binding names must be symbols"
+                                {:form f}))
+                   (let [scope     (into locals names)
+                         bindings* (with-same-meta
+                                     bindings
+                                     (into []
+                                           (comp (map-indexed
+                                                  (fn [i [nm init]]
+                                                    [nm (rw init scope (conj p :binding i))]))
+                                                 cat)
+                                           pairs))]
+                     (with-same-meta
+                       f
+                       (apply list (first f) bindings*
+                              (map-indexed #(rw %2 scope (conj p :body %1))
+                                           (drop 2 f)))))))))
            (rw-try [f locals p]
              ;; `catch` introduces a local, so it cannot go through generic
              ;; traversal. `finally` does not. Preserve the marker/type slots
@@ -776,7 +811,8 @@
 
                    (fn-form? f) (rw-fn f locals p)
                    (contains? #{'let 'let* 'loop 'loop*} head) (rw-let f locals p)
-                   (contains? #{'letfn 'letfn*} head) (rw-letfn f locals p)
+                   (= 'letfn head)  (rw-letfn f locals p)
+                   (= 'letfn* head) (rw-letfn* f locals p)
                    (= 'try head) (rw-try f locals p)
 
                    (and (macro-info e* head locals)

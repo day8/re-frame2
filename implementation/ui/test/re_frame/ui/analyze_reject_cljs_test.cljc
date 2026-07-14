@@ -356,6 +356,21 @@
     (is (= :view (:op (ana/analyze e '[sub {}])))
         "control: without a shadow the same self head IS the internal view")))
 
+(deftest letfn*-malformed-flat-bindings
+  ;; rf2-vxgfnd.221 — letfn* has FLAT name/initializer bindings; a malformed
+  ;; flat vector fails through the typed :rf.ui.compile/* surface, never a raw
+  ;; host exception (before the split, an odd/mis-shaped letfn* threw a bare
+  ;; IllegalArgumentException from the source-letfn parser).
+  (is (= :rf.ui.compile/bad-let
+         (reject-id '[:div {:title (letfn* [f (fn* f ([x] x)) g] (f 7))}]))
+      "odd-length flat bindings -> typed bad-let (never IllegalArgumentException)")
+  (is (= :rf.ui.compile/bad-let
+         (reject-id '[:div {:title (letfn* [42 (fn* _ ([x] x))] 1)}]))
+      "non-symbol binding name -> typed bad-let")
+  (is (= :rf.ui.compile/sub-in-loop
+         (reject-id '[:div {:title (letfn* [f (fn* f ([x] (sub [:q])))] (f 7))}]))
+      "a reactive read inside a deferred local fn body is not a finite render site"))
+
 (deftest frame-finite-sites
   (is (= :rf.ui.compile/frame-in-loop
          (reject-id '(for [x xs] [:li {:key x} (:frame (frame))])))

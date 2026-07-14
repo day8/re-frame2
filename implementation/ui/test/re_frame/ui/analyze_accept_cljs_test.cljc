@@ -308,6 +308,42 @@
       (is (not (some #{:callee} (:expr-path site)))
           "a symbol head is preserved verbatim — no :callee token is minted"))))
 
+(deftest letfn*-flat-bindings-parse-with-their-real-lexical-grammar
+  ;; rf2-vxgfnd.221 — the HOST special form letfn* has FLAT name/initializer
+  ;; bindings [name init …], NOT source letfn's paired fnspec-LIST grammar. The
+  ;; opaque-expression rewriter parses the flat shape directly; a mutation that
+  ;; routes letfn* back through the source-letfn parser crashes / mis-scopes
+  ;; these fixtures, so they double as the anti-regression guard. Runs on both
+  ;; hosts (the analyzer is pure), so this IS the CLJ/CLJS parity fixture.
+  (testing "a legal flat letfn* compiles and preserves its flat binding shape"
+    (let [{:keys [ast sites]}
+          (ana-full '[:div {:title (letfn* [f (fn* f ([x] x))] (f 7))}])]
+      (is (empty? (:subs sites)))
+      (is (= '(letfn* [f (fn* f ([x] x))] (f 7))
+             (get-in ast [:props :attrs 0 :value]))
+          "the flat [name init …] vector is preserved verbatim")))
+  (testing "a visible sub in the OUTER letfn* body lowers to exactly one site"
+    (let [{:keys [sites]}
+          (ana-full '[:div {:title (letfn* [f (fn* f ([x] x))] (sub [:q]))}])]
+      (is (= 1 (count (:subs sites))))
+      (is (= [[:q]] (map :query (:subs sites))))))
+  (testing "mutually recursive flat bindings each see every declared name"
+    (let [{:keys [ast]}
+          (ana-full '[:div {:title (letfn* [evn (fn* evn ([x] (odd* x)))
+                                            odd* (fn* odd* ([x] (evn x)))]
+                                     (evn 4))}])]
+      (is (= '(letfn* [evn (fn* evn ([x] (odd* x)))
+                       odd* (fn* odd* ([x] (evn x)))]
+                (evn 4))
+             (get-in ast [:props :attrs 0 :value]))
+          "each initializer resolves its sibling name; the flat shape is kept")))
+  (testing "a local flat binding named sub shadows the public authoring var"
+    (let [{:keys [ast sites]}
+          (ana-full '[:div {:title (letfn* [sub (fn* sub ([x] x))] (sub 3))}])]
+      (is (empty? (:subs sites)) "the shadowed sub mints no reactive site")
+      (is (= '(letfn* [sub (fn* sub ([x] x))] (sub 3))
+             (get-in ast [:props :attrs 0 :value]))))))
+
 (deftest legitimate-value-flow-still-compiles
   ;; rf2-vxgfnd.252 — the escape guard rejects ONLY bare reactive authoring
   ;; vars (sub/lease/frame). Ordinary NON-reactive value flow through a computed
