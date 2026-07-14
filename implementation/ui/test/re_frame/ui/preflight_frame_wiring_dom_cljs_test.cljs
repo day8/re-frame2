@@ -242,6 +242,60 @@
         (is (nil? (:mount-incomplete entry)) "no incomplete-mount evidence")
         (is (nil? (:preflight-attempt-failed entry)) "no failed-attempt evidence")))))
 
+;; ---------------------------------------------------------------------------
+;; rf2-vxgfnd.248 — evidence finalizes only after a REAL React commit. The
+;; element thunk SUCCEEDS (React receives an element), then the component THROWS
+;; during React's initial render; React routes it to `onUncaughtError` and ABORTS
+;; the commit AFTER `.render` returned normally. The RED-BEFORE-FIX shape: the
+;; pre-fix runtime finalized immediately after `.render` returned, recording a
+;; committed root scope for a render that never committed. The commit reporter
+;; (rf2-vxgfnd.248) binds finalization to a real commit, so the aborted render
+;; publishes NO committed evidence. A mutation moving finalization back to
+;; immediately after `.render` deterministically fails this fixture.
+;; ---------------------------------------------------------------------------
+
+(defn- throwing-during-render
+  "A React function component that succeeds construction but THROWS while React
+  renders it — the exact shape `.render` cannot report through its return value."
+  [_props]
+  (throw (ex-info "render-phase boom (rf2-vxgfnd.248)" {:tag :render248})))
+
+(deftest render-abort-after-render-returns-does-not-finalize-committed
+  (when (browser?)
+    (reg-events!)
+    (let [c        (container)
+          captured (atom nil)
+          info     {:root-id :dom248/fresh :provenance :authored}
+          ;; element thunk RETURNS successfully — React receives a real element —
+          ;; whose component then throws during React's render.
+          element-thunk (fn [] (React/createElement throwing-during-render #js {}))
+          plans    (fn [] [{:frame-id :frame/commit248
+                            :config {:initial-events [[:test/set-db {:n 1}]]}
+                            :config-fingerprint "cf1-commit248aaaa"}])
+          ;; our own onUncaughtError REPLACES React's default (reportError), so
+          ;; the deliberate render throw is captured, not surfaced as an uncaught
+          ;; window error the browser runner rejects (rf2-mwx08).
+          opts     (client/root-options
+                    nil (fn [error _info] (reset! captured error)) nil nil)
+          ;; flushSync + act env OFF: React commits synchronously, and the
+          ;; render-phase throw is owned by onUncaughtError (act would surface it).
+          _        (flush-without-act!
+                    #(client/mount* info c element-thunk opts plans))]
+      (is (some? @captured)
+          (str "onUncaughtError fired — the component threw during React's render; "
+               "`.render` returned normally (mount* did not throw)"))
+      (is (some? (frame/frame :frame/commit248))
+          "preflight installed the frame, so an attempt receipt exists to finalize")
+      (let [entry (frames/installed-plan-entry :frame/commit248)]
+        (is (not (:committed entry))
+            (str "the ABORTED render must NOT be recorded as a committed root "
+                 "scope — finalization binds to a real React commit, not the "
+                 "`.render` return (rf2-vxgfnd.248)")))
+      ;; the root stays registered after an aborted commit (rf2-vxgfnd.87) — own
+      ;; and release its claim so no live-root leaks into the next test.
+      (act! #(some-> (:root (client/live-root-entry :dom248/fresh))
+                     client/unmount!*)))))
+
 (deftest committed-root-failed-refresh-preserves-committed-and-marks-attempt-failed
   ;; A genuinely committed root's failed REFRESH/re-render: the prior Root + its
   ;; last committed DOM are preserved (Q49), and only the failed attempt is
