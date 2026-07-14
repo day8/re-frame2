@@ -577,56 +577,83 @@
             (teardown/teardown-actor db-after-on-done
                                      {:actor-id  machine-id
                                       :parent-id parent-id
-                                      :invoke-id invoke-id})
-            ;; (5) Emit :rf.machine/destroyed with :reason :rf.machine/finished
-            ;; (D6 enrichment) before registrar cleanup.
-            _ (traces/emit-destroyed! {:frame     frame-id
-                                       :actor-id  machine-id
-                                       :system-id released-sid
-                                       :parent-id parent-id
-                                       :invoke-id invoke-id
-                                       :reason    :rf.machine/finished})]
-        ;; (6) Synchronous side effects: abort in-flight HTTP, cancel armed
-        ;; `:after` timers (`:reason :on-destroy`), emit system-id-released trace
-        ;; (when applicable), and clear any registrar entry.
-        (abort-actor-in-flight-http! machine-id)
-        (timer/cancel-actor-timers! frame-id machine-id)
-        ;; Drop this actor's per-instance classification declarations from the
-        ;; per-frame elision registry — the teardown half of
-        ;; `classification/lower-at-spawn!` on the final-state AUTO-DESTROY path
-        ;; (which does NOT route through `destroy/teardown-live-actor!`). A spec
-        ;; that declared no classification is a clean no-op, so the registry
-        ;; entry added at spawn dies with the instance (no leak).
-        (classification/drop-at-destroy! frame-id machine-id machine)
-        ;; Forget the finished actor from the per-frame spawn-order channel — the
-        ;; ONE synchronous teardown side-effect the `:final?`-auto-destroy path
-        ;; shares with `destroy/teardown-live-actor!` (destroy.cljc step 7).
-        ;; Without it a finished actor stays recorded → a later stale
-        ;; `[:rf.machine/destroy id]` sees it live → `teardown-live-actor!`
-        ;; RE-RUNS (phantom destroyed trace + re-fired resource release,
-        ;; violating silent-idempotent destroy) and frame-destroy emits a
-        ;; phantom straggler destroy for it.
-        (spawn-order/forget! frame-id machine-id)
-        (traces/emit-system-id-released! frame-id released-sid machine-id)
-        (registrar/unregister! :event machine-id)
-        ;; (7) Per Spec 005 §Final states §`:on-error`: when the child finished
-        ;; via an ERROR leaf AND the spawning parent declares `:spawn :on-error`,
-        ;; dispatch the synthetic reserved failure event into the parent. It
-        ;; resolves natively through the parent's macrostep
-        ;; (`pick-spawn-error-transition`), firing the declarative `:on-error`
-        ;; transition — the XState `invoke onError` control flow. The teardown
-        ;; above already ran (the child auto-destroys on its error leaf, like any
-        ;; `:final?`); this only ROUTES the failure. The dispatched payload is
-        ;; the RAW error (`result`); the parent transition reads it off `:event`.
-        (when on-error?
-          (spawn-error/dispatch-spawn-error! frame-id parent-id invoke-id result))
+                                      :invoke-id invoke-id})]
+        ;; (5) Emit :rf.machine/destroyed with :reason :rf.machine/finished
+        ;; (D6 enrichment) before registrar cleanup.
+        (traces/emit-destroyed! {:frame     frame-id
+                                 :actor-id  machine-id
+                                 :system-id released-sid
+                                 :parent-id parent-id
+                                 :invoke-id invoke-id
+                                 :reason    :rf.machine/finished})
+        ;; rf2-hloj0g — the teardown tail's callback-bearing hooks — the
+        ;; `:rf.machine/destroyed` trace above, the late-bound HTTP abort hook,
+        ;; and the `:rf.machine/system-id-released` trace — can EACH destroy A /
+        ;; publish same-id B on their own stack. #5856 fenced the earlier
+        ;; completion callbacks (validator / done trace / `:on-done`) with the
+        ;; top-level `owner-gone?` gate, but NOTHING rechecked ownership between
+        ;; these LATER teardown callbacks and the framework-owned actions that
+        ;; follow — so the HTTP/timer cancellation, classification/spawn-order
+        ;; drop, registrar unregister, and `:on-error` dispatch could all run
+        ;; against B (a bare frame-id / machine-id resolves to the CURRENT
+        ;; incarnation). Recheck `owner-gone?` before each next framework action;
+        ;; it is MONOTONIC (once A→B it stays gone), so a per-action guard
+        ;; short-circuits the whole tail. Already-delivered traces/hooks stand —
+        ;; the ruled unwind posture, no rollback.
+        (when-not (owner-gone?)
+          ;; (6) Abort in-flight HTTP (late-bound hook — callback-bearing).
+          (abort-actor-in-flight-http! machine-id))
+        (when-not (owner-gone?)
+          ;; Cancel armed `:after` timers (`:reason :on-destroy`).
+          (timer/cancel-actor-timers! frame-id machine-id)
+          ;; Drop this actor's per-instance classification declarations from the
+          ;; per-frame elision registry — the teardown half of
+          ;; `classification/lower-at-spawn!` on the final-state AUTO-DESTROY path
+          ;; (which does NOT route through `destroy/teardown-live-actor!`). A spec
+          ;; that declared no classification is a clean no-op, so the registry
+          ;; entry added at spawn dies with the instance (no leak).
+          (classification/drop-at-destroy! frame-id machine-id machine)
+          ;; Forget the finished actor from the per-frame spawn-order channel — the
+          ;; ONE synchronous teardown side-effect the `:final?`-auto-destroy path
+          ;; shares with `destroy/teardown-live-actor!` (destroy.cljc step 7).
+          ;; Without it a finished actor stays recorded → a later stale
+          ;; `[:rf.machine/destroy id]` sees it live → `teardown-live-actor!`
+          ;; RE-RUNS (phantom destroyed trace + re-fired resource release,
+          ;; violating silent-idempotent destroy) and frame-destroy emits a
+          ;; phantom straggler destroy for it.
+          (spawn-order/forget! frame-id machine-id)
+          ;; The `:rf.machine/system-id-released` trace is callback-bearing and is
+          ;; the LAST action in this group, so the recheck below fences the
+          ;; registrar unregister + `:on-error` dispatch against a B it published.
+          (traces/emit-system-id-released! frame-id released-sid machine-id))
+        (when-not (owner-gone?)
+          (registrar/unregister! :event machine-id)
+          ;; (7) Per Spec 005 §Final states §`:on-error`: when the child finished
+          ;; via an ERROR leaf AND the spawning parent declares `:spawn :on-error`,
+          ;; dispatch the synthetic reserved failure event into the parent. It
+          ;; resolves natively through the parent's macrostep
+          ;; (`pick-spawn-error-transition`), firing the declarative `:on-error`
+          ;; transition — the XState `invoke onError` control flow. The teardown
+          ;; above already ran (the child auto-destroys on its error leaf, like any
+          ;; `:final?`); this only ROUTES the failure. The dispatched payload is
+          ;; the RAW error (`result`); the parent transition reads it off `:event`.
+          (when on-error?
+            (spawn-error/dispatch-spawn-error! frame-id parent-id invoke-id result)))
+        ;; Publish the teardown runtime-db + fx ONLY if the exact owner survived
+        ;; the WHOLE tail (rf2-hloj0g). If any post-`emit-destroyed!` callback
+        ;; published same-id B, return the inert outcome — the A-derived
+        ;; `db-after-destroy` is DROPPED rather than committed onto B (the
+        ;; router's candidate fence would drop it too; returning inert is the
+        ;; explicit contract, matching the top-level `owner-gone?` branch).
         ;; Machine snapshots are durable runtime-db state (EP-0001): the finalize
         ;; teardown is a runtime-db write, returned under `:rf.db/runtime` (the
         ;; framework-authority partition effect), NOT `:db`. Append the
         ;; destroy-time `:exit` cascade's fx + the resource-lease release for
         ;; this actor's `[:machine machine-id]` owner (nil + filtered out when
         ;; resources is absent — see `resource-release/release-fx-entry`).
-        {:rf.db/runtime db-after-destroy
-         :fx (vec (concat extra-fx exit-fx
-                          (when-let [e (resource-release/release-fx-entry machine-id)]
-                            [e])))})))))
+        (if (owner-gone?)
+          {:rf.db/runtime runtime-db :fx []}
+          {:rf.db/runtime db-after-destroy
+           :fx (vec (concat extra-fx exit-fx
+                            (when-let [e (resource-release/release-fx-entry machine-id)]
+                              [e])))}))))))

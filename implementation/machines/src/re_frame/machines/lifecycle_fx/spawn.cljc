@@ -290,8 +290,17 @@
   "Atomically install the spawned actor's `initial-snap` (with its
   revertible `:rf/machine-type` TYPE reference stamped at the root),
   system-id binding, and runtime-owned spawn registry slot
-  into the frame's runtime-db. Returns `:ok`. Emits the collision and
-  system-id-bound traces when applicable.
+  into the frame's runtime-db. Emits the collision and system-id-bound
+  traces when applicable.
+
+  Returns an EXPLICIT committed/live result (rf2-hloj0g): `:committed`
+  when the runtime-db swap landed, `:skipped` when the exact-owner recheck
+  fenced the swap (a `:rf.error/system-id-collision` listener destroyed A /
+  published same-id B on the trace's own stack). The caller (`spawn-fx*`)
+  runs NO post-install tail (classification / spawn-order /
+  `:rf.machine.lifecycle/spawned` / `:start`) unless install COMMITTED and
+  the exact owner is STILL current — a bare-id `swap-runtime-db!` /
+  `spawn-order/record!` otherwise resolves to the CURRENT incarnation B.
 
   There is NO per-instance handler registration — the
   actor's liveness IS the presence of this snapshot in the (revertible)
@@ -341,22 +350,28 @@
     ;; bare-id `swap-runtime-db!` resolves to the CURRENT incarnation B) or fire
     ;; the `:rf.machine/system-id-bound` trace for it. `continue?` is nil only
     ;; for a hypothetical caller that did not thread it — treated as live.
-    (when (or (nil? continue?) (continue?))
-      (frame/swap-runtime-db! frame-id
-                              (fn [_rt]
-                                (cond-> rt-after-alloc
-                                  spec      (assoc-in (paths/snapshot-path spawned-id) initial-snap)
-                                  system-id (assoc-in (paths/system-id-path system-id) spawned-id)
-                                  track?    (assoc-in (paths/spawned-path parent-id invoke-id) spawned-id))))
-      (when system-id
-        (trace/emit! :rf.machine :rf.machine/system-id-bound
-                     {:frame      frame-id
-                      :system-id  system-id
-                      ;; The live actor INSTANCE address (the spawned id), not
-                      ;; the registered TYPE; `:machine-id` is reserved for the
-                      ;; type.
-                      :actor-id   spawned-id}))
-      :ok)))
+    ;; rf2-hloj0g — return the swap outcome EXPLICITLY (`:committed` /
+    ;; `:skipped`) so the caller can fence its own post-install tail on it (the
+    ;; earlier `:ok`/nil return was IGNORED, so a `:skipped` install still let
+    ;; classification / spawn-order / lifecycle-spawned run against B).
+    (if (or (nil? continue?) (continue?))
+      (do
+        (frame/swap-runtime-db! frame-id
+                                (fn [_rt]
+                                  (cond-> rt-after-alloc
+                                    spec      (assoc-in (paths/snapshot-path spawned-id) initial-snap)
+                                    system-id (assoc-in (paths/system-id-path system-id) spawned-id)
+                                    track?    (assoc-in (paths/spawned-path parent-id invoke-id) spawned-id))))
+        (when system-id
+          (trace/emit! :rf.machine :rf.machine/system-id-bound
+                       {:frame      frame-id
+                        :system-id  system-id
+                        ;; The live actor INSTANCE address (the spawned id), not
+                        ;; the registered TYPE; `:machine-id` is reserved for the
+                        ;; type.
+                        :actor-id   spawned-id}))
+        :committed)
+      :skipped)))
 
 ;; ---- :rf.machine/spawn -----------------------------------------------------
 
@@ -572,13 +587,26 @@
       ;; `install-spawn!` so the callback-bearing `:rf.error/system-id-collision`
       ;; trace it may emit gets a recheck before the runtime-db swap too.
       (when (continue?)
-        (install-spawn! frame-id rt-after-alloc spec'' spawned-id initial-snap
-                        {:system-id system-id
-                         :parent-id parent-id
-                         :invoke-id invoke-id
-                         :track?    track?
-                         :type-ref  type-ref
-                         :continue? continue?})
+        (let [installed (install-spawn! frame-id rt-after-alloc spec'' spawned-id initial-snap
+                                        {:system-id system-id
+                                         :parent-id parent-id
+                                         :invoke-id invoke-id
+                                         :track?    track?
+                                         :type-ref  type-ref
+                                         :continue? continue?})]
+        ;; rf2-hloj0g — `install-spawn!`'s `:rf.error/system-id-collision`
+        ;; (pre-swap → `:skipped`) and `:rf.machine/system-id-bound` (post-swap)
+        ;; traces are callback-bearing: a listener can destroy A / publish
+        ;; same-id B on the trace's own stack. Run the framework-owned tail —
+        ;; per-instance classification, the spawn-order record, and the
+        ;; `:rf.machine.lifecycle/spawned` trace — ONLY when install COMMITTED
+        ;; AND the exact owner is STILL current after those callbacks. Otherwise
+        ;; the bare-id `spawn-order/record!` / classification writes + the
+        ;; lifecycle-spawned trace would commit into B's name. The initial
+        ;; `(continue?)` gate at the cascade top fenced only the earlier
+        ;; `:rf.machine.spawn/spawned` trace-listener callback; this fences the
+        ;; install's own two callbacks that gate ran ahead of.
+        (when (and (= :committed installed) (continue?))
         ;; Lower the machine spec's projection-relative `:sensitive` / `:large`
         ;; `:data` declarations
         ;; into the per-frame elision registry PER ACTOR INSTANCE — re-rooting
@@ -642,7 +670,7 @@
                      :source             :machine-spawn}]
           (if (some? start)
             (dispatch! [spawned-id start] opts)
-            (dispatch! [spawned-id [:rf.machine.spawn/spawned]] opts)))))))
+            (dispatch! [spawned-id [:rf.machine.spawn/spawned]] opts)))))))))
     spawned-id))
 
 ;; ---- :rf.machine/spawn-all-init -------------------------------------------
