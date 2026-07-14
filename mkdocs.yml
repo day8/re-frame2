@@ -160,11 +160,11 @@ nav:
   - Core:
     # Introduction is an explicit titled row (not navigation.indexes): the
     # LHS should read "Introduction", not repeat the section label "Core".
-    # Nested groups mark the learning arc: pure loop → impurity → structure
+    # Nested groups mark the learning arc: pure pipeline → impurity → structure
     # → operations → advanced. Run-to-completion is taught on Effects; its
     # page remains for operational deep links (not a main-track stop).
     - Introduction: core/introduction.md
-    - "The pure loop":
+    - "The pure pipeline":
       - "Events: the vocabulary": core/events.md
       - "app-db: one map": core/app-db.md
       - "Subscriptions: derived data": core/subscriptions.md

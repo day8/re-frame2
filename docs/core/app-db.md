@@ -1,8 +1,8 @@
 # app-db: one map, one write path
 
-The [introduction](introduction.md) closed the loop; [events](events.md) named the
-vocabulary. This page follows **application data**: where it lives, and how it
-changes.
+The [introduction](introduction.md) walked the [event pipeline](glossary.md#event-pipeline);
+[events](events.md) named the vocabulary. This page follows **application data**:
+where it lives, and how it changes.
 
 **[app-db](glossary.md#app-db)** is the application state for one
 [frame](glossary.md#frame): one immutable Clojure map. Handlers return a

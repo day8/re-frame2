@@ -58,9 +58,11 @@ Two more registration kinds appear later, when you need them:
 
 Counter needs neither. Built-in `:db` is enough.
 
-## The loop in one pass
+## The event pipeline in one pass
 
-Click **+**. What actually happens:
+Click **+**. What actually happens is one trip through the
+[**event pipeline**](glossary.md#event-pipeline) — a fixed sequence of stages, not
+a free-form cycle of callbacks:
 
 1. **Dispatch.** `#(dispatch [:inc])` puts the event vector `[:inc]` on a FIFO
    queue and returns immediately. Dispatch does not run the handler.
@@ -79,14 +81,14 @@ Click **+**. What actually happens:
 click → dispatch → queue → handler → {:db …} → commit → subs → views → DOM
 ```
 
-Every re-frame2 app is that loop, over and over. Nothing "happens" without an
-event. The app moves through time as:
+Every re-frame2 app is that **pipeline**, run once per event. Nothing "happens"
+without an event. The app moves through time as:
 
 ```text
 event₁ → event₂ → event₃ → …
 ```
 
-and computation is one full **event pipeline** run per event:
+and each event is one full pipeline **run**:
 
 ```text
 pipeline → pipeline → pipeline → …
@@ -135,10 +137,11 @@ event queue, and subscription cache. `frame-root` ensures that frame exists (onc
 runs `:initial-events` once, and scopes the subtree so `dispatch` / `subscribe`
 inside the view resolve to it.
 
-Until the pure loop is closed, treat that form as the whole boot story. Isolation
-and carry live on [Frames](frames.md). Packaging a real app (`init!`, hot reload,
-listeners) lives on [Boot and mount an app](how-to/boot-and-mount-an-app.md).
-Different registration sets per frame are rare — [Images](images.md).
+Until the pure pipeline stages are in place (events through views), treat that form
+as the whole boot story. Isolation and carry live on [Frames](frames.md). Packaging
+a real app (`init!`, hot reload, listeners) lives on
+[Boot and mount an app](how-to/boot-and-mount-an-app.md). Different registration sets
+per frame are rare — [Images](images.md).
 
 ## In summary
 
@@ -162,7 +165,7 @@ marks optional depth so you can stop and ship.
 
 | Stage | Pages | What you can build after |
 |---|---|---|
-| **Pure loop** | [Events](events.md) → [app-db](app-db.md) → [Subscriptions](subscriptions.md) → [Views](views.md) | Real screens: intent in, one map, named conclusions, pure UI |
+| **Pure pipeline** | [Events](events.md) → [app-db](app-db.md) → [Subscriptions](subscriptions.md) → [Views](views.md) | Real screens: intent in, one map, named conclusions, pure UI — same event pipeline, without impurity yet |
 | **Impurity** | [Effects](effects.md) → [Coeffects](coeffects.md) | HTTP, storage, timers, recorded world facts — handlers stay pure |
 | **Structure** | [Frames](frames.md) → [Flows](flows.md) → [Interceptors](interceptors.md) (rare) | Isolation, write-side derivations; interceptors only when a chore is truly shared |
 | **Operations** | [Errors](errors.md) → [Observability](observability.md) | Named dossiers and the one trace wire when something breaks |

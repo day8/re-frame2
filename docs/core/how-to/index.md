@@ -4,13 +4,13 @@ You've got a working app and one task in front of you. Each page here is a recip
 
 > **Find the task, follow the recipe.**
 
-These recipes assume you've already built something — the [introduction](../introduction.md) and the pure-loop pages ([events](../events.md) through [views](../views.md)) get you there — and that the loop is familiar. Every dispatch sets off one traversal of the [**event pipeline**](../glossary.md#event-pipeline): [handler](../glossary.md#event-handler) → [effect map](../glossary.md#effect-map) → effects → derivations → view → DOM. Every recipe below fills one stage of that pipeline for a real feature, and links to the concept page that owns the *why*.
+These recipes assume you've already built something — the [introduction](../introduction.md) and the pure-pipeline pages ([events](../events.md) through [views](../views.md)) get you there — and that the [event pipeline](../glossary.md#event-pipeline) is familiar. Every dispatch sets off one traversal of that pipeline: [handler](../glossary.md#event-handler) → [effect map](../glossary.md#effect-map) → effects → derivations → view → DOM. Every recipe below fills one stage of that pipeline for a real feature, and links to the concept page that owns the *why*.
 
 The recipes are grouped by where they sit in the life of an app — **build it**, then, when something's off, **debug it**, and finally **ship it**. (Testing has grown into [its own section](../testing/index.md) — handlers, subscriptions, views, and whole pipeline runs, one page each.) You don't read the recipes in order; drop into the group that matches what's in front of you. Each is self-contained, so jumping straight to "Report errors in production" without having read "Build a form" costs you nothing.
 
 ## Build it
 
-This is where most of your time goes: turning a feature request into stages of the loop. Each recipe takes one common feature — a form, a paginated feed, a write that has to refresh the right reads — and shows the complete slice: the [events](../glossary.md#event), the [subscriptions](../glossary.md#subscription), the [effects](../glossary.md#effect), and the [view](../glossary.md#view), with nothing left as an exercise.
+This is where most of your time goes: turning a feature request into stages of the event pipeline. Each recipe takes one common feature — a form, a paginated feed, a write that has to refresh the right reads — and shows the complete slice: the [events](../glossary.md#event), the [subscriptions](../glossary.md#subscription), the [effects](../glossary.md#effect), and the [view](../glossary.md#view), with nothing left as an exercise.
 
 | I want to… | Recipe |
 |---|---|
@@ -41,7 +41,7 @@ When the app does something you didn't ask for, you don't reach for `println` �
 | keep tokens, passwords, and large blobs out of traces | [Keep secrets and large things out of traces](keep-secrets-out-of-traces.md) |
 | hear about production errors with their full context | [Report errors in production](report-errors-in-production.md) |
 | set up dev and production builds — tools in, tools out | [Configure dev and production builds](configure-dev-and-prod.md) |
-| swap the substrate (the React-family rendering layer) — the loop is identical on all of them | [Use UIx, Helix, or reagent-slim](use-uix-helix-or-slim.md) |
+| swap the substrate (the React-family rendering layer) — the event pipeline is identical on all of them | [Use UIx, Helix, or reagent-slim](use-uix-helix-or-slim.md) |
 
 ??? info "For JavaScript developers"
 

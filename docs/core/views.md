@@ -2,7 +2,8 @@
 
 Write side and derivations are in place
 ([events](events.md) → [app-db](app-db.md) → [subscriptions](subscriptions.md)).
-This page is the last step of the basic loop: turn derived values into a screen.
+This page is the last pure stage of the [event pipeline](glossary.md#event-pipeline):
+turn derived values into a screen.
 
 A [view](glossary.md#view) has one job. Not "manage local state" — a view stores
 nothing. Not "fetch what it needs" — a view never touches the world. Not
@@ -20,7 +21,7 @@ application, not the room itself.
 **On this page — two speeds.**
 
 1. **Day one:** composition, hiccup, subscribe-in / dispatch-out, `reg-view`,
-   compute-in-subs. After the live qty cell the **pure loop is complete**.
+   compute-in-subs. After the live qty cell the **pure pipeline is complete**.
 2. **Going further:** Form-2/3, multi-frame targeting, substrate seam. Open only
    when a need appears.
 
@@ -125,7 +126,10 @@ Notice the shape of the round trip, because it's the whole idea. A click never m
 
 ??? info "Coming from Redux?"
 
-    `subscribe` is `useSelector` and `dispatch` is `dispatch` — the same unidirectional loop. The difference is that the "selector" is a named, cached node in a derivation graph (see [subscriptions](subscriptions.md)) rather than a function you pass inline, and the event is dispatched as data rather than through a thunk.
+    `subscribe` is `useSelector` and `dispatch` is `dispatch` — the same unidirectional
+    dataflow. The difference is that the "selector" is a named, cached node in a
+    derivation graph (see [subscriptions](subscriptions.md)) rather than a function
+    you pass inline, and the event is dispatched as data rather than through a thunk.
 
 ## A view, live
 
@@ -158,10 +162,11 @@ Change the last form to `[:div [qty-stepper] [qty-stepper]]` and re-evaluate.
 Click either stepper: both move. Neither owns the number — each is a window onto
 the same app-db value. There is no local copy to fall out of sync.
 
-### The pure loop is complete
+### The pure pipeline is complete
 
 With [events](events.md), [app-db](app-db.md), [subscriptions](subscriptions.md), and
-views, you have a full pure application loop:
+views, you have the pure stages of the [event pipeline](glossary.md#event-pipeline)
+end to end — no impurity yet:
 
 ```text
 intent (event) → one map (app-db) → named conclusions (subs) → screen (view)
@@ -329,7 +334,7 @@ most common way re-frame2 apps get accidentally slow; the hunt and the fix are i
 ## Day-one checklist
 
 You can compose registered views, subscribe in / dispatch out, keep computation in
-subs, and seed setup via `:initial-events`. That closes the pure loop.
+subs, and seed setup via `:initial-events`. That closes the pure pipeline stages.
 
 ## When things go wrong
 

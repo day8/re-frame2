@@ -370,7 +370,7 @@ Read it through the two-key lens. `:before` reads the *inputs* (`:coeffects`, wh
                (assoc-in [:drawer :dialog] nil))})))
 ```
 
-The drag handler mutates only the dialog's draft, so a hundred slider moves never touch `:circles` — and the continuous event opts out of undo simply by *omitting* the reference. When `:drawer/close-dialog` commits, the snapshot `undoable` took is exactly the pre-dialog state, and the whole edit collapses into one undo step, for free. Closing the loop, undo itself is an ordinary event — no interceptor needed, just state moving between stacks (redo mirrors it with the stacks swapped):
+The drag handler mutates only the dialog's draft, so a hundred slider moves never touch `:circles` — and the continuous event opts out of undo simply by *omitting* the reference. When `:drawer/close-dialog` commits, the snapshot `undoable` took is exactly the pre-dialog state, and the whole edit collapses into one undo step, for free. Undo itself is an ordinary event — no interceptor needed, just state moving between stacks (redo mirrors it with the stacks swapped):
 
 ```clojure
 (rf/reg-event :drawer/undo

@@ -116,12 +116,18 @@ each add one capability; operate pages own production failure modes.
 
 Diátaxis with reference first-class.
 
-**Core track** (nav nested by arc): introduction (the loop) → **pure loop**
-(events → app-db → subscriptions → views) → **impurity** (effects, including
-run-to-completion teaching; coeffects) → **structure** (frames → flows →
-interceptors) → **operations** (errors → observability) → **advanced** (images;
-run-to-completion operational detail) → how-to → testing → explanation → migration →
-glossary.
+**Core track** (nav nested by arc): introduction (the **event pipeline**) →
+**pure pipeline** (events → app-db → subscriptions → views) → **impurity**
+(effects, including run-to-completion teaching; coeffects) → **structure**
+(frames → flows → interceptors) → **operations** (errors → observability) →
+**advanced** (images; run-to-completion operational detail) → how-to → testing →
+explanation → migration → glossary.
+
+Prefer **event pipeline** (and *pipeline run*) for the fixed stage sequence. Do
+not call that structure "the loop" — a pipeline is linear per event; apps advance
+as a *sequence of pipeline runs*, not a free-form cycle. "Pure pipeline" names the
+first four pages (no impurity yet). Legitimate "loop" uses remain: drain loop,
+dispatch cycle, `for`/loop index, "loop the render" as a bug.
 
 ### Technique owners (do not invent a second home)
 
@@ -184,7 +190,7 @@ why → cell → optional `!!! tip "Try it"`.
 
 | Context | Prefer | Avoid as "the way" |
 |---|---|---|
-| Pure-loop Core demos | `frame-root` + named initialise event + `reg-view` | Bare `defn` that `subscribe`s under a provider (raises `:rf.error/no-frame-context`) |
+| Pure-pipeline Core demos | `frame-root` + named initialise event + `reg-view` | Bare `defn` that `subscribe`s under a provider (raises `:rf.error/no-frame-context`) |
 | Multi-frame / frames *are* the topic | `make-frame` + `frame-provider`, or two `frame-root`s | Inventing a second boot story earlier than Frames |
 | Seed state | Named `reg-event` in `:initial-events` | Implying a `:db` config key exists; leading with `:rf/set-db` before the named-event pattern |
 | Anti-patterns | Labeled `;; Don't` / before-after | Working cells that silently teach the anti-pattern |
@@ -245,6 +251,6 @@ examples compile gate covers them.
 - [ ] Unhappy-path table (or equivalent) with verified `:rf.error/*` / recovery ids
 - [ ] "When not" stated where a feature can be misapplied
 - [ ] Callouts not a wall of boxes; catalogue weight pushed to API if the page bloats
-- [ ] Pure-loop cells: `frame-root` + `reg-view` + named initialise (unless Frames is the topic)
+- [ ] Pure-pipeline cells: `frame-root` + `reg-view` + named initialise (unless Frames is the topic)
 - [ ] New/changed live cells clicked in a browser
 - [ ] Nav row if the page is new; descriptive nav label; `mkdocs build --strict` and `python scripts/check_doc_slugs.py` green
