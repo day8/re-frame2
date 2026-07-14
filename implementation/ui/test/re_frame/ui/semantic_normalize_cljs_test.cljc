@@ -267,3 +267,53 @@
             (v1 {:rf.ui/presence {:phase :present}
                  :rf.ui/boundary :client-only
                  :children [{:tag :p :children ["a"]}]}))))))
+
+;; ---------------------------------------------------------------------------
+;; Reserved-key CLASSIFICATION (rf2-vxgfnd.190) — `:rf.ui/property-props` is
+;; SEMANTIC CONVERSION INPUT, not an optional diagnostic. N consumes it at
+;; step 5 (property-classified custom-element props are omitted from markup)
+;; and only THEN removes the marker from its output. Its presence is
+;; load-bearing: strip it and the property leaks into the attribute space,
+;; changing N's output and therefore the fingerprint. This is the exact
+;; distinction the `presence`/`boundary` diagnostics (above) do NOT have —
+;; those are droppable without semantic effect.
+;; ---------------------------------------------------------------------------
+
+(deftest property-props-is-semantic-conversion-input
+  (testing "the marker keeps a property-only custom-element prop OUT of markup"
+    (let [tree (v1 {:tag :my-widget
+                    :attrs {:model "v" :data-x "d"}
+                    :rf.ui/property-props #{:model}})
+          [node] (semantic/normalize tree)]
+      (is (= {:tag :my-widget :attrs {"data-x" "d"}} node)
+          "`:model` is a property (omitted); the plain attr survives")
+      (is (not (contains? (:attrs node) "model"))
+          "the property-only name never reaches the attribute space")
+      (is (not (contains? node :rf.ui/property-props))
+          "the marker key itself never appears in the semantic output")))
+
+  (testing "REMOVING the marker CHANGES semantics — it is not safe to strip
+            (falsifies any 'optional diagnostic' classification for it)"
+    (let [with-marker    (v1 {:tag :my-widget
+                              :attrs {:model "v"}
+                              :rf.ui/property-props #{:model}})
+          without-marker (v1 {:tag :my-widget
+                              :attrs {:model "v"}})
+          out-with       (semantic/normalize with-marker)
+          out-without    (semantic/normalize without-marker)]
+      (is (= [{:tag :my-widget}] out-with)
+          "with the marker, `:model` is a property and produces no attr")
+      (is (= [{:tag :my-widget :attrs {"model" "v"}}] out-without)
+          "without the marker, `:model` is serialised as an ordinary attribute")
+      (is (not= out-with out-without)
+          "stripping the reserved key changed N's output — the fingerprint
+           boundary moved; a consumer that treated it as a safe-to-strip
+           diagnostic would corrupt the semantic result")))
+
+  (testing "the marker only applies to custom-element (hyphenated) tags —
+            a plain HTML tag ignores it (no property classification exists)"
+    (is (= [{:tag :div :attrs {"model" "v"}}]
+           (semantic/normalize
+            (v1 {:tag :div :attrs {:model "v"}
+                 :rf.ui/property-props #{:model}})))
+        "on a plain element there is no property channel; the marker is inert")))
