@@ -2710,23 +2710,23 @@
          collected  @captured
          explicit?  (some? root-incarnation)
          ;; When an explicit root incarnation is named it is AUTHORITATIVE: this
-         ;; teardown owns the cells of that generation (rf2-vxgfnd.156). A
-         ;; re-entrant cleanup can disconnect a SIBLING root's cell INSIDE this
+         ;; teardown owns EXACTLY the cells of that generation (rf2-vxgfnd.156).
+         ;; A re-entrant cleanup can disconnect an UNRELATED cell INSIDE this
          ;; window — a resource-lifecycle `on-disconnect` or a router trace
-         ;; listener firing during root A's `.unmount` — and such a captured
-         ;; sibling, owned by a DIFFERENT incarnation, is NOT ours to reap: drop
-         ;; only cells whose `cell-root` is a KNOWN-DIFFERENT incarnation, leaving
-         ;; the sibling reconnectable. A captured cell with NO root ownership
-         ;; (`cell-root` nil — a bare/test mount that never went through a
-         ;; root-incarnation provider) is KEPT: the host `.unmount` sweep is
-         ;; structural (it fires EXACTLY this root's tree, 03 §4), so an
-         ;; unattached captured cell is this root's own. The legacy one-arity
-         ;; path has no explicit generation, so it trusts every captured cell.
+         ;; listener firing during root A's `.unmount` may disconnect a sibling
+         ;; root's cell OR a bare/unattached cell — and such a captured cell is
+         ;; NOT ours to reap. Reap ONLY cells whose `cell-root` is IDENTICAL to
+         ;; the named incarnation: POSITIVE ownership evidence, never absence of
+         ;; it (rf2-vxgfnd.251). A captured cell with a different non-nil root, OR
+         ;; with NO root ownership (`cell-root` nil — never attached to this
+         ;; provider), lacks that evidence and is dropped, leaving it
+         ;; reconnectable. The legacy one-arity path has no explicit generation,
+         ;; so it trusts every captured cell (a real host `.unmount` sweeps
+         ;; exactly its own root's tree, 03 §4).
          owned     (if explicit?
                      (into #{}
-                           (remove (fn [c]
-                                     (when-some [r (cell-root c)]
-                                       (not (identical? root-incarnation r)))))
+                           (filter (fn [c]
+                                     (identical? root-incarnation (cell-root c))))
                            collected)
                      collected)
          ;; the incarnations whose hidden cells this teardown owns. Explicit:
