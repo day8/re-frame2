@@ -1035,6 +1035,22 @@
   ;; clears it between fixtures.
   (atom nil))
 
+(defonce ^:private teardown-settle-signal
+  ;; rf2-vxgfnd.275 — the ROOT-LEVEL host-teardown SETTLEMENT signal of an
+  ;; in-flight `teardown-root!`, or nil at rest. Holds `{:incarnation <inc>
+  ;; :fired <volatile>}` while a teardown-root! thunk (the host React `.unmount`)
+  ;; runs. The client's `root-commit-reporter` carries a mount-lifetime cleanup
+  ;; sentinel that calls `report-root-teardown!` when React tears the reporter
+  ;; (and thus the whole root tree) down; if that fires DURING the thunk it sets
+  ;; the volatile — POSITIVE evidence the host ran this root's teardown
+  ;; SYNCHRONOUSLY, independent of ViewCell population. Because the reporter wraps
+  ;; EVERY root render, a compiled static/cell-less or entirely Activity-hidden
+  ;; root (no connected cell to observe) still emits this signal — the gap
+  ;; cell-connectivity (`weak-connected`) alone could not see (rf2-vxgfnd.182).
+  ;; Save/restored around a teardown so a re-entrant one nests. `defonce`
+  ;; (module-lived); `reset-scheduler!` clears it between fixtures.
+  (atom nil))
+
 (declare flush-pending!)
 
 #?(:cljs
@@ -1564,6 +1580,7 @@
   (reset! live-cells #{})
   (reset! root-cells {})
   (reset! teardown-collector nil)
+  (reset! teardown-settle-signal nil)
   (reset! evidence-sink nil)
   (reset! last-sink-escape nil)
   ;; Do NOT clear `view-generations`: it now owns the stable component shells
@@ -2660,18 +2677,27 @@
       (teardown! cell))
     (count victims)))
 
-(defn- weak-connected
-  "The still-CONNECTED (`:connected`/`:fresh`) cells of `incarnation`'s weak
-  membership — the residual live cells a host `.unmount` did NOT tear down
-  synchronously. A DEFERRED host teardown (react-dom 19.2 refusing a synchronous
-  unmount from inside render/commit: it returns normally but schedules the
-  teardown for a later microtask) runs NONE of the root's effect cleanups during
-  `.unmount`, so the collection window captures nothing AND these cells stay
-  connected. That residual connected membership is the ONLY in-process signal
-  distinguishing a deferred host teardown from a synchronous one (rf2-vxgfnd.182)."
+(defn report-root-teardown!
+  "The client `root-commit-reporter`'s mount-lifetime CLEANUP sentinel
+  (rf2-vxgfnd.275), or a graft fixture's synchronous host model: React has torn
+  `incarnation`'s root tree down. This is the ROOT-LEVEL host-teardown signal —
+  present for EVERY rendered root because the reporter wraps every render, so a
+  compiled static/cell-less or entirely Activity-hidden root that owns no
+  connected ViewCell still emits it (the population `teardown-root!` could not
+  otherwise observe).
+
+  When a `teardown-root!` thunk for this exact incarnation is IN FLIGHT (the host
+  `.unmount` ran the reporter cleanup SYNCHRONOUSLY, as React does for a normal
+  unmount), this marks that teardown settled-synchronously, so the driver
+  releases the client's claim now. Fired LATER — react-dom 19.2 refusing an
+  in-render unmount defers the teardown to its own microtask — there is no
+  in-flight signal to match, so this is a harmless no-op: the deferred settlement
+  is driven by `settle-deferred-root!` (the FIFO-ordered microtask). Returns nil."
   [incarnation]
-  (filterv #(contains? #{:connected :fresh} (lifecycle %))
-           (weak-live (get @root-cells incarnation))))
+  (let [sig @teardown-settle-signal]
+    (when (and sig (some? incarnation) (identical? incarnation (:incarnation sig)))
+      (vreset! (:fired sig) true)))
+  nil)
 
 (defn- settle-deferred-root!
   "Settle a DEFERRED host teardown (rf2-vxgfnd.182). The host `.unmount` returned
@@ -2760,22 +2786,32 @@
   reap only cells actually captured by the teardown window. Returns the count of
   cells torn down on success; a host failure rethrows after the targeted reap.
 
-  ## DEFERRED host teardown + settlement (rf2-vxgfnd.182)
+  ## DEFERRED host teardown + settlement (rf2-vxgfnd.182/.275)
 
   react-dom 19.2 refuses a SYNCHRONOUS `.unmount` from inside render/commit: it
   returns NORMALLY but runs none of this root's effect cleanups, scheduling the
-  teardown for a later microtask. On the EXPLICIT non-throwing path this window
-  therefore captures nothing while the root's cells stay `:connected` — the one
-  in-process signal of a deferral (`weak-connected`). When detected, this driver
-  does NOT reap or fire `on-settled` synchronously: it schedules the SETTLEMENT
-  (`settle-deferred-root!`) FIFO-ordered after React's own deferred teardown, so
-  the client can hold its root-id/container claim `:tearing-down` until React has
-  actually cleared the container — the claim frees, and the cells converge to
-  `:dead`, only at that proven boundary. A SYNCHRONOUS teardown (cells captured,
-  or none owned) fires `on-settled` immediately, preserving the ratified
-  same-container immediate-remount. A THROWING `.unmount` keeps its immediate,
-  fail-closed reap and rethrow — `on-settled` is NOT fired here; the client
-  releases in its own catch (rf2-vxgfnd.18 AC4, untouched).
+  teardown for a later microtask. Whether the host tore down SYNCHRONOUSLY is
+  decided by a ROOT-LEVEL settlement law, independent of ViewCell population
+  (rf2-vxgfnd.275): POSITIVE evidence is the client `root-commit-reporter`'s
+  mount-lifetime cleanup sentinel firing DURING the thunk (`report-root-teardown!`
+  → the `teardown-settle-signal` volatile), OR the window capturing a
+  disconnecting cell (`collected`). Both observe the SAME synchronous cleanup
+  sweep; the reporter sentinel is present even for a compiled static/cell-less or
+  entirely Activity-hidden root that owns no connected cell — the case a
+  cell-connectivity probe (the retired `weak-connected`) could not discriminate
+  and so mis-classified as synchronous, releasing the claim into a still-scheduled
+  teardown. Neither signal ⇒ a DEFERRED teardown: this driver does NOT fire
+  `on-settled` synchronously — it schedules the SETTLEMENT (`settle-deferred-root!`)
+  FIFO-ordered after React's own deferred teardown, so the client holds its
+  root-id/container/prefix claim `:tearing-down` until React has actually cleared
+  the container. A SYNCHRONOUS teardown fires `on-settled` immediately, preserving
+  the ratified same-container immediate-remount.
+
+  A THROWING `.unmount` keeps its immediate, fail-closed reap of the exact
+  generation and rethrows; `on-settled` is NOT fired (rf2-vxgfnd.275): the host
+  cannot prove the container free, so the client FAILS CLOSED, leaving the exact
+  id/container/prefix claim QUARANTINED `:tearing-down` (reuse requires a fresh
+  container), never released into a possibly-still-scheduled teardown.
 
   Three arities: `[unmount-thunk]` (no explicit incarnation — window +
   captured-cell incarnations only), `[root-incarnation unmount-thunk]` (the
@@ -2786,17 +2822,27 @@
   ([root-incarnation unmount-thunk] (teardown-root! root-incarnation unmount-thunk nil))
   ([root-incarnation unmount-thunk on-settled]
    (let [prev       @teardown-collector
+         prev-sig   @teardown-settle-signal
+         fired      (volatile! false)
          host-error (volatile! nil)
          captured   (volatile! #{})
          _          (do
                       (reset! teardown-collector #{})
+                      ;; rf2-vxgfnd.275 — publish the root-level settlement signal
+                      ;; so the reporter's teardown sentinel (fired synchronously
+                      ;; by React during a normal `.unmount`) marks this teardown
+                      ;; settled. Only armed for the explicit-incarnation path.
+                      (reset! teardown-settle-signal
+                              (when root-incarnation
+                                {:incarnation root-incarnation :fired fired}))
                       (try
                         (unmount-thunk)
                         (catch #?(:clj Throwable :cljs :default) e
                           (vreset! host-error e))
                         (finally
                           (vreset! captured @teardown-collector)
-                          (reset! teardown-collector prev))))
+                          (reset! teardown-collector prev)
+                          (reset! teardown-settle-signal prev-sig))))
          collected  @captured
          explicit?  (some? root-incarnation)
          ;; When an explicit root incarnation is named it is AUTHORITATIVE: this
@@ -2841,19 +2887,28 @@
                      ;; cells still connected because React ran no cleanup.
                      (into owned (weak-live (get @root-cells root-incarnation)))
                      (into owned hidden))
-         ;; rf2-vxgfnd.182 — DEFERRED host teardown: the explicit non-throwing
-         ;; unmount ran none of this root's cleanups, so the window captured
-         ;; nothing yet the incarnation still owns CONNECTED cells. That residual
-         ;; connected membership is the discriminator; a synchronous teardown (or
-         ;; an empty root) has none. Computed BEFORE the reap — the captured
-         ;; victims are `:disconnected`, never in this connected set.
-         deferred? (and explicit? (not @host-error)
-                        (seq (weak-connected root-incarnation)))]
+         ;; rf2-vxgfnd.275 — the ROOT-LEVEL settlement law. POSITIVE evidence the
+         ;; host ran this root's teardown SYNCHRONOUSLY during the thunk is either
+         ;; the reporter's mount-lifetime cleanup sentinel firing (`@fired`,
+         ;; emitted even by a cell-less/hidden root) OR the window capturing a
+         ;; disconnecting cell (`collected`) — two observations of the one
+         ;; synchronous cleanup sweep. Neither ⇒ a DEFERRED teardown (react-dom
+         ;; refusing an in-render unmount): hold the claim `:tearing-down` and
+         ;; settle past React's own microtask. Unlike the retired cell-connectivity
+         ;; probe, this sees a compiled static/cell-less or entirely-hidden root's
+         ;; deferral — its whole point (rf2-vxgfnd.275). An empty/unrendered root
+         ;; with no reporter and no cells has neither signal, so it too holds one
+         ;; settlement microtask (safe: released only past React's teardown).
+         synchronous? (or @fired (seq collected))
+         deferred?    (and explicit? (not @host-error) (not synchronous?))]
      (doseq [cell victims]
        (teardown! cell))
      (cond
        @host-error
-       ;; on-settled is NOT fired — the client releases in its own catch (AC4).
+       ;; rf2-vxgfnd.275 — the exact generation is force-dead (victims) above;
+       ;; on-settled is NOT fired. The host teardown threw, so the container is
+       ;; NOT proven free: the client FAILS CLOSED in its own catch, leaving the
+       ;; id/container/prefix claim quarantined `:tearing-down` (never released).
        (throw @host-error)
 
        deferred?

@@ -516,6 +516,55 @@
              "the connected cell is NOT reaped synchronously — the claim stays fenced")))))
 
 ;; ===========================================================================
+;; rf2-vxgfnd.275 — settlement is INDEPENDENT of ViewCell presence
+;;
+;; A compiled static/cell-less root — and an entirely Activity-hidden one — owns
+;; NO connected ViewCell, so residual cell-connectivity (the retired
+;; `weak-connected`) cannot tell a DEFERRED host teardown from a synchronous one.
+;; The ROOT-LEVEL settlement law uses the reporter's teardown sentinel
+;; (`report-root-teardown!`) instead: it fires even for a cell-less root, so a
+;; deferred cell-less teardown HOLDS the claim (never released into a
+;; still-scheduled teardown) and a synchronous one settles at once.
+;; ===========================================================================
+
+(deftest cell-less-root-synchronous-teardown-via-reporter-settles-immediately
+  ;; The reporter sentinel IS the root-level law: a host `.unmount` that runs the
+  ;; reporter cleanup SYNCHRONOUSLY (as React does for a normal unmount) settles
+  ;; immediately even though the incarnation owns NO ViewCell — no cell need be
+  ;; observed. Reverting to a cell-connectivity probe would hold this needlessly.
+  (let [inc     (reactive/make-root-incarnation)
+        settled (atom false)]
+    (is (zero? (reactive/root-cell-count inc)) "precondition: a cell-less root")
+    (reactive/teardown-root! inc
+                             ;; the host `.unmount` runs the reporter's cleanup
+                             ;; sentinel synchronously — the root-level signal
+                             (fn [] (reactive/report-root-teardown! inc))
+                             (fn [] (reset! settled true)))
+    (is (true? @settled)
+        "a synchronous cell-less teardown settles immediately, on every host")))
+
+(deftest cell-less-root-deferred-teardown-holds-settlement-past-the-window
+  ;; The red-before-fix core: a DEFERRED host teardown of a cell-less root (the
+  ;; thunk fires NEITHER a cell cleanup NOR the reporter sentinel, modelling
+  ;; react-dom 19.2's in-render deferral of an empty/static root). Pre-fix,
+  ;; `weak-connected` saw no connected cell and mis-classified this SYNCHRONOUS,
+  ;; firing `on-settled` immediately (releasing the claim into React's still-
+  ;; scheduled teardown). Now it is recognised DEFERRED and the settlement is held.
+  (let [inc     (reactive/make-root-incarnation)
+        settled (atom false)]
+    (is (zero? (reactive/root-cell-count inc)) "precondition: a cell-less root")
+    (reactive/teardown-root! inc
+                             (fn [] nil)          ;; deferred: no cleanup, no sentinel
+                             (fn [] (reset! settled true)))
+    #?(:clj
+       (testing "JVM: no async host teardown — the deferred settlement runs synchronously"
+         (is (true? @settled) "on-settled fired at the synchronous settlement"))
+       :cljs
+       (testing "CLJS: a cell-less DEFERRAL holds — on-settled did NOT fire synchronously"
+         (is (false? @settled)
+             "the claim is held past the window — never released while teardown is deferred")))))
+
+;; ===========================================================================
 ;; Re-entrancy — a nested teardown does not corrupt the outer window
 ;; ===========================================================================
 

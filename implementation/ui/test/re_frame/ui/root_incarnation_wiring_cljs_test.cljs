@@ -40,13 +40,22 @@
   (:root-incarnation (client/live-root-entry root-id)))
 
 (defn- register!
-  "Register a fake Root whose host `.unmount` runs `on-unmount`."
+  "Register a fake Root whose host `.unmount` runs `on-unmount`, then fires the
+  root-commit-reporter's teardown sentinel — modelling a SYNCHRONOUS React
+  teardown that runs the reporter cleanup during `.unmount` (rf2-vxgfnd.275: the
+  ROOT-LEVEL host-teardown signal, emitted even when the root's cells are all
+  already Activity-hidden and the window captures nothing)."
   [root-id on-unmount]
-  (let [react-root #js {:unmount (fn [] (when on-unmount (on-unmount)))}
+  (let [react-root #js {}
         container  (js-obj)
         root       (client/->Root react-root container root-id)]
     (client/register-live-root! {:root-id root-id :provenance :authored}
                                 container root)
+    (let [inc (root-incarnation root-id)]
+      (unchecked-set react-root "unmount"
+                     (fn []
+                       (when on-unmount (on-unmount))
+                       (reactive/report-root-teardown! inc))))
     root))
 
 (defn- owned-cell!
