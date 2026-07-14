@@ -69,21 +69,18 @@ How the union is computed depends on the machine's shape:
 
 `:tags` is **read-only** for you. It's a pure projection of `:state` — set the state, the tags follow — so an action can't return `:tags` in its `{:data :fx}` effect map; the runtime owns the slot. And when the union is **empty** (no active state declares any tag), the runtime **elides** the key entirely: a tag-free machine carries no `:tags` slot at all, so `(contains? snap :tags)` can be `false` even after the machine has settled. Don't declare an empty `:tags #{}` to "have the slot" — just omit it.
 
-## Querying with `machine-has-tag?`
+## Querying with `[:rf.machine/has-tag? …]`
 
-The framework ships one **derived subscription** for the containment question — *does this machine's snapshot carry this tag?*
+The framework ships one **derived subscription** for the containment question — *does this machine's snapshot carry this tag?* There is no separate function sugar; every runtime-db read is a subscription vector:
 
 ```clojure
-;; The query vector …
 @(rf/subscribe [:rf.machine/has-tag? :todos/loader :data/in-flight])   ;; => true | false
-;; … and its sugar, re-exported on the re-frame.core facade:
-@(rf/subscribe [:rf.machine/has-tag? :todos/loader :data/in-flight])                   ;; => true | false
 ```
 
 In a view that's all you need to render on intent:
 
 ```clojure
-(reg-view spinner-or-list []
+(rf/reg-view spinner-or-list []
   (if @(rf/subscribe [:rf.machine/has-tag? :todos/loader :data/in-flight])
     [spinner]
     [todo-list]))
@@ -143,8 +140,8 @@ Three axes run at once, so several tags are live simultaneously — `:data/loadi
 The root view's entire branching logic is then one `case` — the only place the UI ever forks:
 
 ```clojure
-(reg-view root-view []
-  (case @(subscribe [:ui/render])
+(rf/reg-view root-view []
+  (case @(rf/subscribe [:ui/render])
     :done      [view-done]
     :correct   [view-correct]
     :incorrect [view-incorrect]
@@ -160,7 +157,7 @@ Nine states, three regions, one branch site. The priority order is a *product de
 And the controls disable themselves the same ask-don't-tell way — they ask for the *intent*, not the state:
 
 ```clojure
-(reg-view new-todo-form []
+(rf/reg-view new-todo-form []
   (let [read-only? @(rf/subscribe [:rf.machine/has-tag? :ui/nine-states :mode/read-only])]
     [:button {:disabled read-only?} "Add"]))
 ```

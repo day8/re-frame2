@@ -317,7 +317,7 @@ Starting a child actor on state entry and tearing it down on exit is XState's `i
 :authenticating
 {:spawn {:machine-id :http/post
          :data       (fn [{snap :snapshot}] {:url "/api/login" :body (-> snap :data :credentials)})
-         :system-id  :auth-actor                ;; address the child by role, not gensym'd id
+         :system-id  :auth-actor                ;; address the child by role, not allocated id
          :on-done    (fn [{:keys [data result]}] (assoc data :result result))
          :on-error   :idle}
  :on    {:auth/cancelled :idle}}
@@ -364,7 +364,7 @@ Once a machine has several "loading-ish" states, views should ask a predicate (*
   [spinner])
 ```
 
-At every transition the runtime stamps the union of active states' tags onto the snapshot's `:tags`. The framework ships `[:rf.machine/has-tag? <id> <tag>]` — a derived predicate sub that re-renders only when *this* tag's bit flips — and the `rf/machine-has-tag?` sugar over it. Add a fifth busy state later and it's one `:tags` entry, zero view changes (*ask, don't tell*).
+At every transition the runtime stamps the union of active states' tags onto the snapshot's `:tags`. The framework ships `[:rf.machine/has-tag? <id> <tag>]` — a derived predicate sub that re-renders only when *this* tag's bit flips. Add a fifth busy state later and it's one `:tags` entry, zero view changes (*ask, don't tell*).
 
 ### Schemas: types that actually run
 

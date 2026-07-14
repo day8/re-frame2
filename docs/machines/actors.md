@@ -53,13 +53,13 @@ The map under `:spawn` accepts:
 |---|---|
 | `:machine-id` **or** `:definition` | which machine to spawn — a registered machine id, or an inline transition table. Supply **exactly one** (both, or neither, is a registration error). |
 | `:data` | initial `:data` for the child — a literal map, or `(fn [{:keys [snapshot event]}] data)` evaluated at entry against the **post-action** snapshot (the transition's own `:action` has already run, so its writes are visible). |
-| `:id-prefix` | base for the gensym'd actor id (`:websocket/socket#0`); defaults to `:machine-id`. |
+| `:id-prefix` | base for the allocated actor id (`:websocket/socket#0`); defaults to `:machine-id`. Ids are deterministic counters, never `gensym`. |
 | `:start` | an event vector dispatched to the newborn as its first event (see [the synthetic kick-off](#the-synthetic-spawned-event-and-start) below). |
-| `:system-id` | bind the actor to a per-frame **name** so other code can address it without knowing the gensym'd id (see [Messaging](#cross-machine-messaging)). |
+| `:system-id` | bind the actor to a per-frame **name** so other code can address it without knowing the allocated id (see [Messaging](#cross-machine-messaging)). |
 | `:on-spawn` | `(fn [{:keys [data id]}] _)` — an **advisory** observation hook; **its return is dropped** (see [Recording the id](#recording-the-spawned-id)). |
 | `:on-done` | `(fn [{:keys [data result]}] new-data)` — success notification when the child reaches a non-error `:final?` leaf. |
 | `:on-error` | an `:on`-shaped **transition** — fires when the child fails (an `:error?` final leaf, or a thrown action). The parent changes state. |
-| `:fixed-actor-id` | an explicit actor id instead of a gensym, for a per-state singleton actor. |
+| `:fixed-actor-id` | an explicit actor id instead of counter allocation, for a per-state singleton actor. |
 
 `:on-done` / `:on-error` are the completion story — they pair with the child declaring a `:final?` leaf, and they get [their own section below](#when-a-child-finishes). The [API reference](../api/re-frame.machines.md) lists the exact shapes.
 
@@ -153,7 +153,7 @@ This is re-frame2's spelling of XState v5's `spawn(...)`-into-`context` capture,
 
 ### 2. `:system-id` (address the actor by a stable name)
 
-Give the spawn a `:system-id` and message it by that *role name* instead of the gensym'd id — best when you want a stable correspondent rather than to hold the id yourself. See [Addressing by name with `:system-id`](#addressing-by-name-with-system-id) below.
+Give the spawn a `:system-id` and message it by that *role name* instead of the allocated id — best when you want a stable correspondent rather than to hold the id yourself. See [Addressing by name with `:system-id`](#addressing-by-name-with-system-id) below.
 
 !!! note "The runtime registry, for outside-the-machine reads"
 
@@ -174,7 +174,7 @@ You get the id where the actor was created and carry it as an ordinary value: re
 
 ### Addressing by name with `:system-id`
 
-When you don't want to thread the gensym'd id around, name the actor at spawn with `:system-id`, then message it by that name. The canonical action-side surface is the reserved `:rf.machine/dispatch-to-system` fx (a machine action can't read app-db, so it can't look the id up itself):
+When you don't want to thread the allocated id around, name the actor at spawn with `:system-id`, then message it by that name. The canonical action-side surface is the reserved `:rf.machine/dispatch-to-system` fx (a machine action can't read app-db, so it can't look the id up itself):
 
 ```clojure
 ;; spawn under a role-name:

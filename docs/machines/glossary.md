@@ -190,7 +190,7 @@ See [Actors](actors.md).
 
 ### **actor**
 
-A *live machine instance* — a [snapshot](#snapshot) sitting at `[:rf.runtime/machines :snapshots <id>]` in [runtime-db](../core/glossary.md#runtime-db). Two kinds: a long-lived **singleton** (one per `reg-machine` id) and a dynamically **[spawned](#spawn)** child (a per-request protocol machine, a wizard's per-step subprocess). An actor's *liveness IS its snapshot's presence* — there's no parallel registry; destroying it removes the snapshot. Address a spawned actor by its gensym'd id, or by role via a [system-id](#system-id).
+A *live machine instance* — a [snapshot](#snapshot) sitting at `[:rf.runtime/machines :snapshots <id>]` in [runtime-db](../core/glossary.md#runtime-db). Two kinds: a long-lived **singleton** (one per `reg-machine` id) and a dynamically **[spawned](#spawn)** child (a per-request protocol machine, a wizard's per-step subprocess). An actor's *liveness IS its snapshot's presence* — there's no parallel registry; destroying it removes the snapshot. Address a spawned actor by its allocated id (`<prefix>#<n>`, never `gensym`), or by role via a [system-id](#system-id).
 
 The live instance is just a value in the frame, so time-travel and SSR extend to it for free.
 
@@ -216,7 +216,7 @@ See [Actors → When a child finishes](actors.md#when-a-child-finishes).
 
 ### **system-id**
 
-A stable **role name** (`:logger`, `:websocket`, `:retry-coordinator`) bound to a spawned [actor](#actor), so a parent can address its child by *role* instead of by gensym'd id. The action-side surface is the reserved `[:rf.machine/dispatch-to-system [system-id event]]` [effect](../core/glossary.md#effect) — a machine [action](#action) can't read app-db, so the fx tuple is how it messages a named child.
+A stable **role name** (`:logger`, `:websocket`, `:retry-coordinator`) bound to a spawned [actor](#actor), so a parent can address its child by *role* instead of by allocated id. The action-side surface is the reserved `[:rf.machine/dispatch-to-system [system-id event]]` [effect](../core/glossary.md#effect) — a machine [action](#action) can't read app-db, so the fx tuple is how it messages a named child.
 
 ```clojure
 {:fx [[:rf.machine/dispatch-to-system [:logger [:logger/flush]]]]}

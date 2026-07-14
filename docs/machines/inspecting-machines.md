@@ -136,7 +136,7 @@ Because a machine is an event handler, every guard evaluation, action run, and t
 
 A few things to read off these:
 
-- **`:actor-id` is the live instance; `:machine-id` is reserved for the registered *type*.** For a singleton the two coincide; for a [spawned](glossary.md#spawn) actor `:actor-id` is the gensym'd instance id.
+- **`:actor-id` is the live instance; `:machine-id` is reserved for the registered *type*.** For a singleton the two coincide; for a [spawned](glossary.md#spawn) actor `:actor-id` is the allocated instance id (`<prefix>#<n>`).
 - **`:state` on the guard trace is the source discriminator.** Two states declaring the same event with the same guard are otherwise indistinguishable; the active `:state` tag attributes a block to the right edge.
 - **`:phase` on the action trace** tells cascade actions apart from transition actions — `:exit` / `:entry` for the LCA cascade, `:transition` for an `:on`-driven action, `:always` for an eventless step, and so on.
 
