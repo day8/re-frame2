@@ -2796,6 +2796,28 @@
                      replacement id (rf2-vxgfnd.88)."
   nil)
 
+(defn- stale-body-authority?
+  "DEV/HMR body-authority check (rf2-vxgfnd.214): true when `cap`'s captured
+  body generation no longer matches the cell's CURRENT authority — either the
+  cell-local revision `state-gen` (a FRESH read) or the authoritative registered
+  slot revision for `view-id`. A direct/headless caller with no registered slot
+  falls back to the cell-local contract (`registered-view-revision` nil ⇒ that
+  half no-ops).
+
+  The commit's step-1 gate samples this authority ONCE, before the callback-
+  capable staging window; `commit*` re-consults it at the final publication
+  boundary so a re-registration landing mid-commit cannot publish under a stale
+  body. Callers gate the ENTIRE consult behind `interop/debug-enabled?`, so
+  production — where `use-cell` mints every cell at body revision 0 and never
+  advances it (the whole HMR slot is dev-only) — performs no registry lookup and
+  this predicate constant-folds away under goog.DEBUG=false."
+  [cap state-gen view-id]
+  (let [cap-gen (:generation cap)]
+    (or (not= cap-gen state-gen)
+        (boolean
+          (when-some [current (registered-view-revision view-id)]
+            (not= cap-gen current))))))
+
 (defn- commit*
   "Run the 8-step layout commit for `cell` against the exact immutable
   `capture` returned beside the committed host element by `with-capture`.
@@ -2967,76 +2989,99 @@
           ;; joins this commit to the acquired incarnation's teardown, not the
           ;; replacement id (rf2-vxgfnd.88).
           (when-some [barrier *commit-barrier*] (barrier :post-acquire cell))
-          ;; step 6 — publish exact per-site query/value + dependency set
-          (swap! st
-                 (fn [m]
-                   (let [m* (assoc m :committed new-committed)]
-                     (if accept-capture
-                       (accept-capture m* cap)
-                       m*))))
-          ;; step 7 — release dropped + retargeted prior leases
-          (doseq [[_ record] to-release]
-            (obs/release! (:lease record)))
-          ;; lifecycle: connect (reconnect annotation when re-committing a
-          ;; hidden cell). This ENROLS the cell into the live-cell registry —
-          ;; the discoverability publish a frame-destroy sweep consults.
-          (connect! cell)
-          ;; INCARNATION-SAFE frame-close revalidation (rf2-vxgfnd.88, extending
-          ;; rf2-vxgfnd.61). Two reasons this commit must JOIN a teardown instead
-          ;; of publishing `:connected`, checked against the ACQUIRE-time
-          ;; incarnation snapshot rather than the bare frame-id:
-          ;;
-          ;;   (a) `incarnation-superseded?` — a frame this commit acquired from
-          ;;       is no longer live under the SAME incarnation token: it was
-          ;;       destroyed, OR a fresh same-id incarnation replaced it in the
-          ;;       render→commit gap. The bare-id `frame-closing?` MISSES this once
-          ;;       the old incarnation's teardown completed and cleared its marker
-          ;;       while a replacement went live under the id — so an old lease
-          ;;       would otherwise survive on the replacement id (rf2-vxgfnd.88).
-          ;;       Token identity (`frame/frame-incarnation-token`, the record's
-          ;;       `:drain-lock`, distinct per incarnation) resolves the commit to
-          ;;       exactly the incarnation it targeted.
-          ;;
-          ;;   (b) `frame-incarnation-closing?` — the ACQUIRED incarnation is
-          ;;       IN-FLIGHT closing (rf2-vxgfnd.61, scoped to the incarnation by
-          ;;       rf2-vxgfnd.94). #5731 wires destroy to a SNAPSHOT sweep of the
-          ;;       live cells that runs while the frame is still LIVE (pre-flip),
-          ;;       then flips liveness. A commit that acquires + enrols between the
-          ;;       sweep snapshot and the flip is MISSED by the sweep, and its
-          ;;       incarnation token is UNCHANGED (the frame is still live pre-flip)
-          ;;       — so `incarnation-superseded?` alone would not catch it. But
-          ;;       `destroying-frames` is populated at the TOP of `destroy-frame!`,
-          ;;       so the marker is continuously present across the whole teardown
-          ;;       window: the enrolled cell observes the close and joins the
-          ;;       teardown against the still-releasable cache. Scoping to the
-          ;;       ACQUIRE-time token (not the bare id) is what closes .88's
-          ;;       reciprocal Failure-2: in the JVM window where an OLD incarnation
-          ;;       A's marker is still set (post-`dissoc-frame!`, pre-`finally`)
-          ;;       while a fresh same-id incarnation B is already live, a commit
-          ;;       that acquired B reads FALSE here (B's token ≠ A's marker token),
-          ;;       so A's stale close authority cannot tear down a cell that owns B
-          ;;       (rf2-vxgfnd.94). The bare-id `frame/frame-closing?` would read
-          ;;       true for the reused id and wrongly reap B's cell.
-          ;;
-          ;; A live, not-closing frame under an unchanged incarnation (incl. a
-          ;; committed fresh same-id incarnation this commit legitimately acquired)
-          ;; makes both checks false — disjoint frames commit/destroy concurrently,
-          ;; and the single-threaded CLJS host (destroy runs to completion without
-          ;; yielding to a commit) never sees either true.
-          (if (or (incarnation-superseded? incarnations)
-                  (some (fn [[fid token]]
-                          (frame/frame-incarnation-closing? fid token))
-                        incarnations))
-            (teardown! cell)
-            ;; step 8 — moved evidence corrects before paint. The staged catch
-            ;; always advances synchronously; a RETAINED catch advances only when
-            ;; no live watch already caught the move — a pending (`dirty?`) cell is
-            ;; a watchable host whose scheduled flush already corrects before paint,
-            ;; so advancing here too would add a redundant render (rf2-vxgfnd.39).
-            (when (or staged-moved?
-                      (and retained-moved? (not (dirty? cell))))
-              (advance-revision! cell)))
-              cell)))))))
+          ;; FINAL HMR-authority fence (rf2-vxgfnd.214). Step 1 samples the body
+          ;; authority ONCE — before the :pre-acquire barrier, the acquire/cache
+          ;; callbacks, and the :post-acquire barrier, EVERY one of which can
+          ;; synchronously advance the authoritative body revision (a same-shell
+          ;; re-registration landing in the render→commit gap). Re-read the
+          ;; authority at the narrowest publication boundary — after all
+          ;; callback-capable work, with nothing callback-capable between here and
+          ;; the step-6 publish — and refuse to publish a stale-authority capture:
+          ;; release ONLY the newly staged leases in reverse acquisition order,
+          ;; leave the prior committed set / values / lifecycle untouched, and
+          ;; return :stale exactly as step 1 does (the re-registration already
+          ;; notified the shell, so a fresh render at the new body is inbound;
+          ;; unlike the candidate-current? incarnation path this needs no
+          ;; advance-revision!). DEV/HMR-only: production mints every cell at body
+          ;; revision 0 and never advances it, so the whole fence DCEs under
+          ;; goog.DEBUG=false — no registry lookup, no hot-path bookkeeping.
+          (if (and interop/debug-enabled?
+                   (stale-body-authority? cap (:generation @st) (:view-id st0)))
+            (do
+              (doseq [[_ record] (rseq staged)]
+                (obs/release! (:lease record)))
+              :stale)
+            (do
+              ;; step 6 — publish exact per-site query/value + dependency set
+              (swap! st
+                     (fn [m]
+                       (let [m* (assoc m :committed new-committed)]
+                         (if accept-capture
+                           (accept-capture m* cap)
+                           m*))))
+              ;; step 7 — release dropped + retargeted prior leases
+              (doseq [[_ record] to-release]
+                (obs/release! (:lease record)))
+              ;; lifecycle: connect (reconnect annotation when re-committing a
+              ;; hidden cell). This ENROLS the cell into the live-cell registry —
+              ;; the discoverability publish a frame-destroy sweep consults.
+              (connect! cell)
+              ;; INCARNATION-SAFE frame-close revalidation (rf2-vxgfnd.88, extending
+              ;; rf2-vxgfnd.61). Two reasons this commit must JOIN a teardown instead
+              ;; of publishing `:connected`, checked against the ACQUIRE-time
+              ;; incarnation snapshot rather than the bare frame-id:
+              ;;
+              ;;   (a) `incarnation-superseded?` — a frame this commit acquired from
+              ;;       is no longer live under the SAME incarnation token: it was
+              ;;       destroyed, OR a fresh same-id incarnation replaced it in the
+              ;;       render→commit gap. The bare-id `frame-closing?` MISSES this once
+              ;;       the old incarnation's teardown completed and cleared its marker
+              ;;       while a replacement went live under the id — so an old lease
+              ;;       would otherwise survive on the replacement id (rf2-vxgfnd.88).
+              ;;       Token identity (`frame/frame-incarnation-token`, the record's
+              ;;       `:drain-lock`, distinct per incarnation) resolves the commit to
+              ;;       exactly the incarnation it targeted.
+              ;;
+              ;;   (b) `frame-incarnation-closing?` — the ACQUIRED incarnation is
+              ;;       IN-FLIGHT closing (rf2-vxgfnd.61, scoped to the incarnation by
+              ;;       rf2-vxgfnd.94). #5731 wires destroy to a SNAPSHOT sweep of the
+              ;;       live cells that runs while the frame is still LIVE (pre-flip),
+              ;;       then flips liveness. A commit that acquires + enrols between the
+              ;;       sweep snapshot and the flip is MISSED by the sweep, and its
+              ;;       incarnation token is UNCHANGED (the frame is still live pre-flip)
+              ;;       — so `incarnation-superseded?` alone would not catch it. But
+              ;;       `destroying-frames` is populated at the TOP of `destroy-frame!`,
+              ;;       so the marker is continuously present across the whole teardown
+              ;;       window: the enrolled cell observes the close and joins the
+              ;;       teardown against the still-releasable cache. Scoping to the
+              ;;       ACQUIRE-time token (not the bare id) is what closes .88's
+              ;;       reciprocal Failure-2: in the JVM window where an OLD incarnation
+              ;;       A's marker is still set (post-`dissoc-frame!`, pre-`finally`)
+              ;;       while a fresh same-id incarnation B is already live, a commit
+              ;;       that acquired B reads FALSE here (B's token ≠ A's marker token),
+              ;;       so A's stale close authority cannot tear down a cell that owns B
+              ;;       (rf2-vxgfnd.94). The bare-id `frame/frame-closing?` would read
+              ;;       true for the reused id and wrongly reap B's cell.
+              ;;
+              ;; A live, not-closing frame under an unchanged incarnation (incl. a
+              ;; committed fresh same-id incarnation this commit legitimately acquired)
+              ;; makes both checks false — disjoint frames commit/destroy concurrently,
+              ;; and the single-threaded CLJS host (destroy runs to completion without
+              ;; yielding to a commit) never sees either true.
+              (if (or (incarnation-superseded? incarnations)
+                      (some (fn [[fid token]]
+                              (frame/frame-incarnation-closing? fid token))
+                            incarnations))
+                (teardown! cell)
+                ;; step 8 — moved evidence corrects before paint. The staged catch
+                ;; always advances synchronously; a RETAINED catch advances only when
+                ;; no live watch already caught the move — a pending (`dirty?`) cell is
+                ;; a watchable host whose scheduled flush already corrects before paint,
+                ;; so advancing here too would add a redundant render (rf2-vxgfnd.39).
+                (when (or staged-moved?
+                          (and retained-moved? (not (dirty? cell))))
+                  (advance-revision! cell)))
+              cell)))))))))
 
 (defn commit!
   "Commit an observation-only capture without installing or copying resource
