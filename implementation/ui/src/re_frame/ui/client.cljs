@@ -119,6 +119,46 @@
           "destroy-adapter! finishes and a fresh adapter is installed")
      {:recovery :install-a-fresh-adapter})))
 
+(defn- current-adapter-generation
+  "The opaque token identifying the EXACT installed adapter generation, read
+  from the substrate lifecycle state (nil when none is installed). Minted afresh
+  on every install, so a destroy — or a destroy+reinstall of the SAME adapter
+  spec — yields a different (or nil) token. A fresh public-root mount captures
+  this BEFORE its side-effecting frame preflight and revalidates it AFTER, so a
+  re-entrant preflight that swaps generation A for generation B is distinguished
+  from the generation that admitted the attempt (rf2-vxgfnd.199). Compared only
+  by `identical?`; `adapter-lifecycle-state` is the documented public lifecycle
+  cell owned by the install/dispose pair."
+  []
+  (get-in @substrate-adapter/adapter-lifecycle-state [:installed :generation]))
+
+(defn- require-adapter-generation-open!
+  "Re-assert — AFTER a fresh mount's side-effecting frame preflight and BEFORE
+  any React allocation — that public root creation is still open AND the exact
+  adapter generation that admitted this attempt (`receipt`) is still installed.
+  `run-preflight!` drains `:initial-events` synchronously (arbitrary app /
+  override code) which may terminally destroy the adapter, or destroy generation
+  A and install a replacement generation B. Either fails LOUD with
+  `:rf.error/adapter-disposed` here — before `createRoot`, live-root
+  registration, DOM mutation, ViewCell creation, or observation acquisition — so
+  an attempt admitted under A can never allocate a Root under a disposed A or a B
+  that never admitted it (rf2-vxgfnd.199, the re-entrant-preflight companion to
+  rf2-vxgfnd.104's separate-thread teardown fence). A terminal disposal is caught
+  by `require-root-creation-open!`; a same-breadcrumb replacement (B installed,
+  the disposed breadcrumb already cleared) is caught by the exact-generation
+  compare a boolean recheck cannot see."
+  [where receipt]
+  (require-root-creation-open! where)
+  (when-not (identical? receipt (current-adapter-generation))
+    (error/throw-error!
+     :rf.error/adapter-disposed where
+     (str "the re-frame.ui adapter generation that admitted this mount was "
+          "destroyed or replaced during frame preflight (:initial-events drain) "
+          "— a Root admitted under one adapter generation must not be allocated "
+          "under another. No React root, live-root registration, or DOM was "
+          "created; install a fresh adapter and re-mount")
+     {:recovery :install-a-fresh-adapter})))
+
 ;; ---------------------------------------------------------------------------
 ;; The COMPLETE Root Descriptor v1 — the client read-time projection (dev only)
 ;; ---------------------------------------------------------------------------
@@ -446,10 +486,16 @@
   root is `:rf.error/root-container-in-use`.
 
   ORDER (the Q49 ruling — ns docstring): claim checks, then preflight,
-  then a RE-CHECK of the claim, then `createRoot` + registration + render.
+  then a REVALIDATION of adapter admission (rf2-vxgfnd.199) and a RE-CHECK
+  of the claim, then `createRoot` + registration + render.
   A preflight failure therefore fails the mount loudly with the container
   untouched — no React root, no live-root registration, no render; retry =
-  re-call `mount`. The re-check (rf2-vxgfnd.52) closes the re-entrancy
+  re-call `mount`. Preflight also drains `:initial-events` (arbitrary app
+  code) that may DESTROY or destroy-and-replace the adapter; the exact
+  adapter-generation receipt captured before preflight is revalidated after
+  it (rf2-vxgfnd.199), so an attempt admitted under generation A never
+  allocates a Root under a disposed A or a replacement generation B. The
+  re-check (rf2-vxgfnd.52) closes the re-entrancy
   window that preflight opens: `run-preflight!` drains `:initial-events`
   synchronously (arbitrary app code) and a re-entrant mount can claim this
   root-id / container / identifier-prefix while this mount is still
@@ -511,8 +557,20 @@
         ;; preflight BEFORE any React work (Q49: container untouched on
         ;; failure) — and before registration, so a failed mount leaves
         ;; no registry entry either.
-        (let [receipt (run-preflight! root-id plans-thunk)]
+        ;; rf2-vxgfnd.199: capture the EXACT adapter generation admitting this
+        ;; fresh mount BEFORE the side-effecting preflight, so re-entrant
+        ;; preflight code that destroys (or destroys and replaces) the adapter
+        ;; cannot let this attempt allocate a Root under a generation that never
+        ;; admitted it.
+        (let [adapter-receipt (current-adapter-generation)
+              receipt (run-preflight! root-id plans-thunk)]
           (try
+            ;; REVALIDATE adapter admission FIRST — before the root-claim
+            ;; re-check and any React work (rf2-vxgfnd.199). A terminal disposal
+            ;; or a destroy+reinstall during preflight fails loud before
+            ;; createRoot / registration / DOM; a boolean recheck alone cannot
+            ;; see a same-breadcrumb replacement generation.
+            (require-adapter-generation-open! 're-frame.ui/mount adapter-receipt)
             ;; RE-CHECK the claim AFTER preflight (rf2-vxgfnd.52). run-preflight!
             ;; drains :initial-events SYNCHRONOUSLY — arbitrary app code that may
             ;; itself mount a root for this id or into this container (re-entrancy),
