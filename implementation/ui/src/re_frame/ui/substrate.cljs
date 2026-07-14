@@ -59,6 +59,7 @@
             [re-frame.substrate.adapter :as substrate-adapter]
             [re-frame.substrate.plain-atom :as plain-atom]
             [re-frame.substrate.spine :as spine]
+            [re-frame.ui.reactive :as reactive]
             [re-frame.views.frame-boundary :as boundary]))
 
 ;; The React-context-tier frame-id reader for the pure compiled-view runtime.
@@ -141,12 +142,70 @@
          @spine-error (throw @spine-error)
          :else nil)))))
 
+(defn- ui-flush-render!
+  "The first-party adapter's `:flush-render!` — the ViewCell-settling override of
+  the generic spine verb (rf2-vxgfnd.207).
+
+  The inherited spine `flush-render!` only runs `react-dom/flushSync`, which
+  commits React work SCHEDULED inside its callback. But a compiled ViewCell
+  invalidation does NOT notify React synchronously: `reactive/enrol-dirty!` marks
+  the cell and arms a LATER microtask. So a caller that flushes a thunk which
+  dispatches — changing a subscribed value — would see `flushSync` return while
+  the ViewCell is still pending and the DOM still stale (the .207 defect).
+
+  The fix runs the supplied thunk AND the pending ViewCell registry publication
+  (`reactive/flush-pending!`) INSIDE the spine's synchronous commit boundary, so
+  the dirty cells' revision bumps + `useSyncExternalStore` notifications fire and
+  React commits them before the call returns. It then continues to a bounded
+  fixed point: a legitimate commit-triggered re-dirty (a layout effect that
+  dispatches) is drained by re-flushing until the registry is quiescent.
+
+  Write-all-queued-events THEN one read/render is preserved: the thunk's
+  `dispatch-sync!` runs its whole run-to-completion drain (every queued event,
+  each committing its own epoch) BEFORE `flush-pending!` performs the single
+  coalesced read/render — this is NOT a per-epoch renderer. Any redundant
+  microtask armed during the drain later finds the registry already drained and
+  renders nothing.
+
+  Runaway convergence is NOT this loop's to bound: commit-triggered re-dirty is
+  always write-driven, so a genuinely non-quiescent cascade trips the EXISTING
+  diagnostics loudly — the router's `:rf.error/drain-depth-exceeded` for a
+  dispatch cascade, React's own maximum-update-depth guard for an update-in-effect
+  loop — each propagating out of `flushSync` and breaking this loop non-silently
+  (the same reliance `ui.test/flush!`'s loop-to-quiescence rests on).
+
+  An open router drain fails loud through the SHARED guard rather than publishing
+  a partial read side. Exceptions from the thunk propagate unchanged (the pending
+  publication does not run when the thunk throws). The 0-arity flushes
+  already-pending work with an empty thunk; a no-op flush stays a no-op. This
+  override is installed ONLY on the first-party adapter — the generic spine
+  contract for stacks that do not use ViewCells is untouched."
+  ([] (ui-flush-render! (fn [] nil)))
+  ([f]
+   (reactive/guard-open-drain! 're-frame.ui.substrate/flush-render!)
+   (let [spine-flush (:flush-render! spine-adapter)]
+     ;; One React sync-commit boundary: run the write side, then publish the
+     ;; pending ViewCell notifications so React commits them before returning.
+     (spine-flush (fn [] (f) (reactive/flush-pending!)))
+     ;; Drain any commit-triggered re-dirty to a fixed point — each pass is its
+     ;; own sync-commit boundary; loud ambient diagnostics break a runaway.
+     (loop []
+       (when (pos? (reactive/pending-cell-count))
+         (spine-flush reactive/flush-pending!)
+         (recur))))
+   nil))
+
 (defn adapter-with-client-roots
   "Build the retained first-party adapter around the client kernel's
   all-public-roots admission fence + exact-snapshot drain. The injections keep
   this namespace below the client/frames layer and avoid a substrate → client →
-  frames → substrate dependency cycle."
+  frames → substrate dependency cycle.
+
+  Also overrides the generic spine `:flush-render!` with the ViewCell-settling
+  `ui-flush-render!` (rf2-vxgfnd.207), so a synchronous `flush-render!` settles
+  every pending compiled ViewCell — and its React commit — before returning."
   [with-root-admission-closed! drain-live-roots!]
   (assoc spine-adapter
          :dispose-adapter!
-         #(dispose-adapter! with-root-admission-closed! drain-live-roots!)))
+         #(dispose-adapter! with-root-admission-closed! drain-live-roots!)
+         :flush-render! ui-flush-render!))

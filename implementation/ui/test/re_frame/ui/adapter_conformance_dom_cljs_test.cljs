@@ -8,11 +8,27 @@
             ["react" :as react]
             [re-frame.adapter.context :as adapter-context]
             [re-frame.core :as rf]
+            [re-frame.router :as router]
             [re-frame.substrate.adapter :as substrate-adapter]
-            [re-frame.ui :as ui]))
+            [re-frame.ui :as ui :refer [defview frame-root]]
+            [re-frame.ui.reactive :as reactive]))
 
 (defn- browser? []
   (and (exists? js/document) (some? (.-createElement js/document))))
+
+;; React's act() — the canonical committing-mount helper (mirrors the shared
+;; suite / root_mount pattern). Used to COMMIT the initial compiled mount; the
+;; rf2-vxgfnd.207 proof itself drives the production `flush-render!` (a real
+;; flushSync commit, act env OFF) on the already-mounted view.
+(defn- get-act []
+  (or (when (exists? (.-act react)) (.-act react))
+      (try (.-act (js/require "react-dom/test-utils")) (catch :default _ nil))))
+
+(defn- act! [thunk]
+  (let [ret    (volatile! nil)
+        act-fn (get-act)]
+    (act-fn (fn [] (vreset! ret (thunk))))
+    @ret))
 
 (use-fixtures
   :each
@@ -84,3 +100,69 @@
       (render-label! container "second")
       (is (= "second" (.-textContent container))
           "re-init re-arms render ownership after disposal"))))
+
+;; ---------------------------------------------------------------------------
+;; flush-render! settles pending compiled ViewCells before returning
+;; (rf2-vxgfnd.207)
+;;
+;; The existing conformance fixtures exercise flush-render! with STATIC react
+;; elements, where a bare `react-dom/flushSync` suffices. This arm proves the
+;; first-party adapter's flush-render! against a REACTIVE compiled view: a
+;; `dispatch-sync!` inside the flush changes a subscribed value, which marks the
+;; ViewCell dirty and arms a LATER microtask — so the inherited spine verb would
+;; return with the DOM still stale. The override must settle the pending ViewCell
+;; (and its React commit) before returning.
+;; ---------------------------------------------------------------------------
+
+(defview greeter []
+  [:span.greet (str (ui/sub [::greeting]))])
+
+(deftest flush-render-settles-pending-viewcells-before-returning
+  (if-not (browser?)
+    (is true ":node — browser-test exercises the mounted flush-render! contract")
+    (let [container (js/document.createElement "div")
+          flush!    (:flush-render! ui/adapter)
+          root      (atom nil)
+          prior-act (.-IS_REACT_ACT_ENVIRONMENT js/globalThis)]
+      (js/document.body.appendChild container)
+      (is (nil? (rf/init! ui/adapter)))
+      ;; Register the sub/event PER-TEST (after the fixture reset), like the other
+      ;; mounted suites — the fixture clears the registrar between tests.
+      (rf/reg-sub ::greeting (fn [db _] (:greeting db)))
+      (rf/reg-event ::set-greeting (fn [{:keys [db]} [_ v]] {:db (assoc db :greeting v)}))
+      (try
+        ;; COMMIT the initial compiled mount under React act: frame-root creates +
+        ;; seeds the frame ("old") at preflight, so the mounted sub-bearing view
+        ;; reads the seeded value. (The rf2-vxgfnd.207 proof is the DISPATCH below,
+        ;; on this already-mounted view — the bead's "a mounted view CHANGED by
+        ;; dispatch-sync! inside flush-render!".)
+        (set! (.-IS_REACT_ACT_ENVIRONMENT js/globalThis) true)
+        (act!
+         #(reset! root
+                  (ui/mount [frame-root {:id :rf.ui-adapter-test/flush-render-frame
+                                         :initial-events [[::set-greeting "old"]]}
+                             [greeter]]
+                            container
+                            {:root-id :rf.ui-adapter-test/flush-render})))
+        (is (= "old" (.-textContent container))
+            "the mounted compiled view reads the frame-root-seeded value")
+
+        ;; THE PROOF (RED pre-fix): a dispatch-sync! INSIDE flush-render! must
+        ;; expose the new DOM before the call returns. The dispatch changes the
+        ;; subscribed value → `reactive/enrol-dirty!` marks the ViewCell and arms
+        ;; a LATER microtask WITHOUT notifying React; the inherited spine
+        ;; flush-render! (bare flushSync) therefore returns with the DOM still
+        ;; "old" and the cell still pending. Drive the PRODUCTION flush-render!
+        ;; with the act env OFF — a real flushSync commit path.
+        (set! (.-IS_REACT_ACT_ENVIRONMENT js/globalThis) false)
+        (flush! #(router/dispatch-sync! [::set-greeting "new"]
+                                        {:frame :rf.ui-adapter-test/flush-render-frame}))
+        (is (= "new" (.-textContent container))
+            "flush-render! settled the pending ViewCell + React commit before returning (rf2-vxgfnd.207)")
+        (is (zero? (reactive/pending-cell-count))
+            "the dirty registry is empty on return — no redundant later microtask render")
+        (finally
+          (set! (.-IS_REACT_ACT_ENVIRONMENT js/globalThis) true)
+          (when @root (act! #(ui/unmount! @root)))
+          (set! (.-IS_REACT_ACT_ENVIRONMENT js/globalThis) prior-act)
+          (.remove container))))))
