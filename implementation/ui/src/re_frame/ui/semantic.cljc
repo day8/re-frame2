@@ -9,8 +9,11 @@
   SEMANTIC-NODE space — the exact input to normalized structural
   equivalence and the render fingerprint. Pinned, in order:
 
-    1. strip every `:rf.ui/*` reserved key (diagnostics never reach a
-       fingerprint);
+    1. remove every `:rf.ui/*` reserved key from the OUTPUT (no reserved
+       key reaches a fingerprint) — but `:rf.ui/property-props` is
+       SEMANTIC conversion input, not a diagnostic: step 5 consumes it
+       (property-classified custom-element props omitted) BEFORE the
+       marker is dropped, so removing it up front changes the result;
     2. splice view-boundary nodes (HTML has no view boundaries);
     3. splice fragment nodes;
     4. drop `:events` entirely and drop `:key` values (neither has HTML

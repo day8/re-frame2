@@ -119,18 +119,38 @@ above) and in view-boundary `:props` (a fn-valued or foreign prop). The `:rf.ui/
 namespace is reserved (Conventions ripple in the rewrite), so author data can never
 collide with the marker.
 
-### Reserved diagnostic keys (`:rf.ui/*`)
+### Reserved `:rf.ui/*` keys — semantic vs diagnostic
 
-A closed v1 set of optional, reserved-namespace keys; **consumers MUST ignore unknown
-`:rf.ui/*` keys** and **normalization strips them all** (a broken/absent diagnostic
-never changes app semantics or a fingerprint — the 06 §2 posture, applied here):
+A closed v1 set of reserved-namespace keys. **Consumers MUST ignore *unknown*
+`:rf.ui/*` keys**, and **normalization removes every `:rf.ui/*` key from its output** —
+no reserved key survives into a semantic node or a fingerprint. But *absent from the
+output* is **not** *safe to strip from the input*: these keys fall into three roles,
+and only one is a droppable diagnostic.
 
-| Key | Where | Meaning |
-|---|---|---|
-| `:rf.ui/tree-version` | root node only | the schema-version integer; **1** for this document |
-| `:rf.ui/presence` | the fragment node a presence boundary renders as | `{:phase :present :timeout-ms n}` — the "presence metadata exposed structurally" of 06 §1; phase is always `:present` on the JVM |
-| `:rf.ui/boundary` | the fragment node wrapping a deterministic fallback | `:client-only` (the structural "fallbacks" evidence; `:portal` reserved for the wave-2 row) |
-| `:rf.ui/property-props` | custom-element element nodes | the set of `:attrs` keys classified as **properties** per the RULED `ui/custom-element` declaration; the serialiser omits them, normalization omits them |
+- **Semantic — consumers MUST honor.** Load-bearing **conversion input**: `N` and the
+  serialiser READ it *during* conversion and only then drop the marker. Its absence
+  **changes the semantic output and the fingerprint**, so it is not optional and a
+  consumer that strips it before conversion corrupts the result. `:rf.ui/property-props`
+  is the v1 member — the property classification it carries decides which `:attrs` keys
+  are omitted from markup (§Property-only and form-control special forms, §Custom
+  elements, and `N` step 5). It is **required whenever a property-only classification
+  exists** and must be consumed *before* the marker is removed from the output.
+- **Required gate.** `:rf.ui/tree-version` is neither droppable nor conversion input: it
+  is the root schema-version gate every consumer validates **first** (fail-loud on
+  missing / non-integer / unsupported — §Versioning, §The SSR consumption boundary). It
+  is stripped from the semantic output, but a tree without it is *malformed*, not "a
+  broken diagnostic".
+- **Diagnostic — genuinely optional.** Evidence-only keys a consumer may find absent,
+  broken, or stripped **without any semantic effect** (the 06 §2 posture: a broken or
+  absent diagnostic never changes app semantics or a fingerprint). `:rf.ui/presence` and
+  `:rf.ui/boundary` are the v1 members.
+
+| Key | Role | Where | Meaning |
+|---|---|---|---|
+| `:rf.ui/tree-version` | required gate | root node only | the schema-version integer (**1** for this document); validated first, then removed from `N`'s output |
+| `:rf.ui/property-props` | **semantic** | custom-element element nodes | the set of `:attrs` keys classified as **properties** per the RULED `ui/custom-element` declaration; **consumed** at conversion (the serialiser and `N` omit those props from markup — step 5) and only then removed from the output. Required whenever a property-only classification exists; **removing it changes semantics** — the props would leak back into the attribute space |
+| `:rf.ui/presence` | diagnostic | the fragment node a presence boundary renders as | `{:phase :present :timeout-ms n}` — the "presence metadata exposed structurally" of 06 §1; phase is always `:present` on the JVM |
+| `:rf.ui/boundary` | diagnostic | the fragment node wrapping a deterministic fallback | `:client-only` (the structural "fallbacks" evidence; `:portal` reserved for the wave-2 row) |
 
 ### Child normalization (canonical form)
 
@@ -157,9 +177,11 @@ map node — carrying `:rf.ui/tree-version 1`. Interior nodes carry no version (
 handed to `find` inherit their tree's). **Bump rules:** any change to the variant set,
 discrimination order, required/optional fields, canonical-form rules, normalization
 `N`, projection behaviour, the opaque marker, or a conversion-table row's *semantics*
-bumps the integer. Adding a new optional `:rf.ui/*` diagnostic key does **not** bump
-(consumers must-ignore). Consumers seeing an unsupported version fail loud (§SSR
-boundary names the error).
+bumps the integer. Adding a new optional **diagnostic** `:rf.ui/*` key does **not** bump
+(consumers must-ignore); adding or changing a **semantic** reserved key
+(§Reserved `:rf.ui/*` keys — e.g. `:rf.ui/property-props`) *does* bump, since it changes
+conversion. Consumers seeing an unsupported version fail loud (§SSR boundary names the
+error).
 
 ## Projections — how nodes are read
 
@@ -190,8 +212,12 @@ Intent assertion, respelled to this contract:
 `N(tree)` produces the **semantic-node tree** — the exact input to normalized
 structural equivalence (06 §1) and to the render fingerprint. Pinned, in order:
 
-1. **Strip** every `:rf.ui/*` reserved key (version, presence, boundary markers,
-   property-props *marker*) — diagnostics never reach a fingerprint.
+1. **Remove** every `:rf.ui/*` reserved key from the output (version, presence,
+   boundary, and the property-props *marker*) — no reserved key reaches a fingerprint.
+   The property-props marker is **semantic conversion input**, not a diagnostic: step 5
+   consumes it (property-classified props are omitted from markup) and only *then* is the
+   marker itself dropped. Stripping it *before* conversion is unsafe — it moves the
+   fingerprint boundary (§Reserved `:rf.ui/*` keys).
 2. **Splice** view-boundary nodes (children replace the node — HTML has no view
    boundaries; dev `data-rf2-*` annotation is excluded by the same rule).
 3. **Splice** fragment nodes.
@@ -381,7 +407,7 @@ shapes.
 ## Coverage — the implementer questions this contract answers
 
 - **Q10** (node schema incl. fragments, trusted HTML, events, keys, view boundaries,
-  presence metadata, fallbacks, text) — §Node schema + §Reserved diagnostic keys
+  presence metadata, fallbacks, text) — §Node schema + §Reserved `:rf.ui/*` keys
   (presence and fallback markers).
 - **Q11** (keyword lookup vs opaque; where event vectors live) — §Projections: plain
   maps, field reads public, attribute reads via `ui.test/attrs`, events under
