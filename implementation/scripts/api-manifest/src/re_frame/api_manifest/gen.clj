@@ -94,6 +94,13 @@
     re-frame.core
     re-frame.test-support
     re-frame.test-helpers
+    ;; The compiled-view substrate's testing surface (rf2-vxgfnd.200). Its
+    ;; sibling `re-frame.ui` is a curated :cljs-only surface (React runtime),
+    ;; but `re-frame.ui.test`'s Tier-1 render/find/find-all/text/attrs/dispatch!
+    ;; run HEADLESS on the JVM, so it is introspected here like re-frame.core —
+    ;; day8/re-frame2-ui rides the generator's BUILD-ONLY classpath (deps.edn).
+    ;; The reader-conditional CLJS surface is reconciled by the 2mtte probe.
+    re-frame.ui.test
     ;; Optional feature artefacts (public home namespaces).
     re-frame.schemas
     re-frame.machines
