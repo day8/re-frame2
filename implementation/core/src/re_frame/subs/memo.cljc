@@ -340,7 +340,26 @@
                                   ;; `:rf.sub/query-v` / `:rf.sub/cause-sub`
                                   ;; (only computed values are redacted).
                                   :rf.sub/inputs         (vec input-signals)
-                                  :rf.sub/cause-sub      cause-sub}
+                                  :rf.sub/cause-sub      cause-sub
+                                  ;; rf2-vxgfnd.220 — carry the EXACT classification
+                                  ;; declaration captured for THIS reaction (the
+                                  ;; authoritative image-local / global `sub-meta`
+                                  ;; the schema validator above also reads) so the
+                                  ;; `:rf.sub/run` trace chokepoint
+                                  ;; (`re-frame.classification/project-sub-tags`)
+                                  ;; redacts `:rf.sub/value` / `:rf.sub/prev-value`
+                                  ;; from it, INSTEAD of re-resolving classification
+                                  ;; through the ambient registrar by sub-id — which
+                                  ;; is wrong after the frame-generation binding
+                                  ;; unwinds and across HMR/incarnation replacement
+                                  ;; (the trace would see no image metadata, or a
+                                  ;; conflicting same-id global registration). An
+                                  ;; internal carrier: the projector consumes it and
+                                  ;; strips it before egress. `select-keys` on a nil
+                                  ;; `sub-meta` yields `{}` — a captured "no
+                                  ;; classification" that still wins over any global.
+                                  :rf.sub/classification
+                                  (select-keys sub-meta [:sensitive :large :large?])}
                            (some? elapsed-ms)
                            (assoc :rf.sub/elapsed-ms elapsed-ms)
                            reader-rk (assoc :rf.sub/reader-render-key reader-rk)
