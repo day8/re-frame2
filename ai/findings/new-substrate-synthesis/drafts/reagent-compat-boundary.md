@@ -158,9 +158,9 @@ foreign-boundary work; both doors exist before the repo migration needs them.
 - **Frame acquisition.** The exported view resolves its frame by the compiled
   substrate's ordinary chain: explicit pin → dynamic binding → React context → loud
   `:rf.error/no-frame-context`. Under the §2 shared-context-object rule, a frozen-tier
-  `[rf/frame-provider {:frame …}]` (or `{:id …}` ENSURE shape) above the exported
-  component in the legacy tree scopes it with **zero extra spelling**. With no provider
-  above it, the exported view fails loud — never a silent default. **[S6-CONFIRM]**
+  `[rf/frame-provider {:frame …}]` (SCOPE) or `[rf/frame-root {:id …}]` (ENSURE) above the
+  exported component in the legacy tree scopes it with **zero extra spelling**. With no
+  frame boundary above it, the exported view fails loud — never a silent default. **[S6-CONFIRM]**
   rides the same shared-object confirmation as §2. ⟨rewrite Abstract pt 2, checked-in
   spec/006 §Frame-provider via React context⟩
 - **Ownership and scheduling.** The exported subtree participates fully in the `ui`
@@ -308,9 +308,10 @@ the freeze, then maintenance-only (bugs fixed when they block migration):
 - `reg-view`/`reg-view*` registration + frame-context resolution fixtures, **including
   the plain-fn footgun fixture** (`:rf.error/no-frame-context` raised, no silent
   default);
-- `frame-provider` SCOPE + ENSURE shape fixtures; `with-resource-lease`; the
-  sub-override subscribe seam (Story's `:sub-overrides` rung keeps working on the
-  frozen tier);
+- distinct `frame-provider` SCOPE fixtures and `frame-root` ENSURE fixtures (each
+  rejecting the other's key — `frame-provider` given `:id`, `frame-root` given `:frame`);
+  `with-resource-lease`; the sub-override subscribe seam (Story's `:sub-overrides` rung
+  keeps working on the frozen tier);
 - **new boundary fixtures, both directions** (the 12 §2 `->react` row's named
   fixtures): inward raw-embedding with frame scoping + teardown/leak check; outward
   export under a legacy provider with frame acquisition, teardown/leak check, and the
@@ -350,7 +351,8 @@ ripple instructions to *remove* them — they relocate):
 | `re-frame.core/reg-view` | M · front-porch · 004 | the tier's registration surface; the step-1 prescribed rewrite depends on it |
 | `re-frame.core/reg-view*` | Fn · advanced · 004 | computed ids, Form-3, library-generated views |
 | `re-frame.core/view` | Fn · advanced · 001/004 | legacy runtime lookup of registered render-fns (distinct from wave-2 `ui/view`) |
-| `re-frame.core/frame-provider` | Component (Reagent) · front-porch · 002 | frame scoping for the tier AND both boundary directions (§2/§3) |
+| `re-frame.core/frame-provider` | Component (Reagent) · front-porch · 002 | SCOPE-only frame scoping for the tier AND both boundary directions (§2/§3); rejects `:id` (names `frame-root`) |
+| `re-frame.core/frame-root` | Component (Reagent) · front-porch · 002 | ENSURE the tier's named frame — create-if-absent / reuse-no-reseed / no destroy-on-unmount; rejects `:frame` (names `frame-provider`); rf2-nyea0r split |
 | `reagent-adapter/adapter` | Var · adapter · 006 | the tier's 11-key adapter map |
 | `reagent-adapter/flush-views!` | Fn · adapter · 006/008 | the tier's test flush |
 | `reagent-adapter/set-hiccup-emitter!` | Fn · adapter · 006/011 | the tier's SSR seam |
