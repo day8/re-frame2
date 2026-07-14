@@ -96,9 +96,22 @@ On entry the runtime **ensures** the resource with the route as **owner**; on le
 releases. `:blocking? true` holds the transition until the read settles (also an SSR
 wait point).
 
-Other causes: `(dispatch [:rf.resource/ensure {…}])`, a machine-owned ensure, a manual
-refresh (`:rf.resource/refetch`). Same entry, different **cause** recorded for the
-trace.
+Other causes use the same entry with a different **cause** recorded for the trace:
+
+```clojure
+;; Explicit ensure from a handler (app-minted owner lease — release on leave)
+(rf/dispatch [:rf.resource/ensure
+              {:resource :realworld/article
+               :params   {:slug "hello"}
+               :owner    [:lease :article-page]
+               :cause    [:event :article/opened]}])
+
+;; Pull-to-refresh — new generation, no owner
+(rf/dispatch [:rf.resource/refetch
+              {:resource :realworld/article
+               :params   {:slug "hello"}
+               :cause    [:manual :article/refresh]}])
+```
 
 ??? info "Coming from TanStack Query?"
 
@@ -219,9 +232,29 @@ Resolve the old scope **before** stripping auth from `db`.
 | Explicit refetch | New generation; supersedes in-flight |
 | Cancel vs stale reply | Abort if possible; generation check always suppresses stale replies |
 
-Focus revalidation is opt-in: `(rf/install-revalidation-listeners! frame-id)`.
-Polling is `:poll-interval-ms` on the resource — owner-driven, pauses when the tab
-is hidden.
+Focus revalidation is opt-in: `(rf/install-revalidation-listeners! frame-id)` —
+refetches only entries that are **stale and still owned**.
+
+Polling is a registration key — owner-driven, pauses when the tab is hidden:
+
+```clojure
+(rf/reg-resource :dashboard/build-status
+  {:scope            :rf.scope/global
+   :params-schema    [:map [:repo :string]]
+   :poll-interval-ms 5000
+   :tags             (fn [_ _] #{[:build]})}
+  (fn [{:keys [repo]} _ctx]
+    {:request {:method :get :url (str "/repos/" repo "/build")}
+     :decode  :json}))
+```
+
+Three freshness tools, three questions:
+
+| Tool | Question |
+|---|---|
+| `:poll-interval-ms` | Changes on its own — keep fresh on a clock |
+| Focus revalidation | User came back — refresh stale owned data |
+| Mutation `:invalidates` | *This* write made *that* read wrong |
 
 ## Routes with several resources
 
@@ -258,12 +291,24 @@ remembered in `onSuccess`:
 ```
 
 Success plan arms (fixed order): `:populates` → `:patches` → `:removes` →
-`:invalidates`. Execute with `[:rf.mutation/execute …]`; watch with
-`[:rf/mutation …]` / `mutation-state`.
+`:invalidates`.
+
+Execute and watch (instance id is app-chosen — reuse it for the sub):
+
+```clojure
+(rf/dispatch [:rf.mutation/execute
+              {:mutation :realworld/favorite
+               :params   {:slug "hello"}
+               :instance [:ui :favorite "hello"]
+               :cause    [:click :article/favorite]}])
+
+@(rf/subscribe [:rf/mutation {:instance [:ui :favorite "hello"]}])
+;; => {:status :pending …} then :success / :error
+```
 
 **Scope footgun.** Invalidation matches only entries **in the scopes you name**.
-Wrong scope ⇒ silent miss (dev warning). Recipe and optimistic writes:
-[Invalidate after a mutation](how-to/invalidate-after-a-mutation.md).
+Wrong scope ⇒ silent miss (dev warning). Recipe, populate/patch arms, and optimistic
+writes: [Invalidate after a mutation](how-to/invalidate-after-a-mutation.md).
 
 ??? info "Coming from TanStack Query?"
 
@@ -280,6 +325,43 @@ the viewer" to "served another user's cache." Named ids live in the
 [API](../api/re-frame.resources.md) and error catalogue; [testing](testing.md)
 turns the same failures into assertions.
 
+## A complete read loop
+
+Register → route causes → view projects. Copy-paste skeleton:
+
+```clojure
+(ns app.articles
+  (:require [re-frame.core :as rf]
+            [re-frame.resources]
+            [re-frame.http.managed]
+            [re-frame.routing]))
+
+(rf/reg-resource :app/article
+  {:params-schema [:map [:slug :string]]
+   :scope         :rf.scope/global
+   :stale-after-ms 60000
+   :tags          (fn [{:keys [slug]} _] #{[:article slug] [:article-list]})}
+  (fn [{:keys [slug]} _ctx]
+    {:request {:method :get :url (str "/api/articles/" slug)}
+     :decode  :json}))
+
+(rf/reg-route :app/article
+  {:params    [:map [:slug :string]]
+   :resources [{:resource  :app/article
+                :params    (fn [route] {:slug (get-in route [:params :slug])})
+                :blocking? true}]}
+  "/articles/:slug")
+
+(rf/reg-view article-page []
+  (let [slug  (get @(rf/subscribe [:rf.route/params]) :slug)  ;; or your route projection
+        state @(rf/subscribe [:rf/resource {:resource :app/article
+                                            :params   {:slug slug}}])]
+    (cond
+      (:loading? state) [skeleton]
+      (:error state)    [error-panel (:error state)]
+      :else             [article-body (:data state)])))
+```
+
 ## Advanced (elsewhere)
 
 | Topic | Where |
@@ -288,6 +370,7 @@ turns the same failures into assertions.
 | Optimistic UI, patches, populate | [Invalidate after a mutation](how-to/invalidate-after-a-mutation.md) |
 | SSR / hydration of the cache | [SSR concepts](../ssr/concepts.md) + tutorial Part 2 |
 | Full RealWorld build | [Tutorial](tutorial/index.md) |
+| Prove the cache in tests | [Testing](testing.md) |
 
 <a id="infinite-feeds-accumulate-pages-with-infinite"></a>
 <a id="ssr-and-hydration"></a>
@@ -295,6 +378,7 @@ turns the same failures into assertions.
 <a id="the-full-read-and-command-surface"></a>
 <a id="polling-keep-this-fresh-every-n-ms"></a>
 <a id="logout-is-one-causal-event"></a>
+<a id="running-a-mutation-and-reading-its-state"></a>
 
 ## When resources are the wrong tool
 

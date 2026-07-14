@@ -45,7 +45,8 @@ Ensure is the cause; the stub answers; the projection settles — all inside one
         (is (= "Welcome" (get-in state [:data :article :title])))))))
 ```
 
-Three properties worth pinning while you're here, because each is a contract, not an accident:
+The registration under test is the same shape as [the model](concepts.md#register-a-resource)
+and [tutorial Part 2](tutorial/02-server-data.md). Three contracts worth pinning:
 
 - **A subscription never fetches.** Read the state *before* any cause fires and it's `:idle` — a test that asserts that is the honest check for "my view was a permanent skeleton because I forgot the cause."
 - **A first-load failure is `:error` with no data.** Stub `{:reply {:failure {:kind :rf.http/http-5xx :status 503}}}` and assert `:status :error`, `:has-data? false`, and the failure's `:kind` — [branch on the category, never the prose](../core/errors.md#test-the-structure-not-the-string).

@@ -1,6 +1,13 @@
 # Part 3: auth — login, register, and the guard
 
-In [Part 2](02-server-data.md) Conduit learned to read server data. Now it learns *who you are*. You'll add a sign-in page, a sign-up page, a session that survives reload, routes that refuse to open while signed out, and a clean sign-out. Most of it lands in one new namespace, `conduit/auth.cljs`.
+In [Part 2](02-server-data.md) Conduit learned to read server data. Now it learns
+*who you are* — forms, JWT, route guards — still mostly app-db and managed HTTP.
+Session-scoped resources and mutations return in
+[Part 4](04-mutations-and-invalidation.md).
+
+You'll add a sign-in page, a sign-up page, a session that survives reload, routes
+that refuse to open while signed out, and a clean sign-out. Most of it lands in one
+new namespace, `conduit/auth.cljs`.
 
 Here's the idea the whole part rests on. **A form is a tiny state machine wearing a trenchcoat.** Strip away the inputs and login is `idle → submitting → submitted | error`, plus a draft and an error map. Build that *once*, and every later form is a fill-in-the-blanks job.
 
