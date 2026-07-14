@@ -116,6 +116,7 @@ HTTP itself.
               (update :attempts inc)
               (assoc  :error (or (:message error) "Login failed.")))})
  :store-session
+ ;; HTTP appends {:status :ok :value …}; pull the decoded body from :value.
  (fn [{[_ {:keys [value]}] :event}]
    {:fx [[:auth.session/store {:token (:token value)}]]})}
 
@@ -169,8 +170,9 @@ and an **`:after`** deadline if the server stalls. Tag the state so views can as
 ```
 
 `:on-success [:auth.login/flow [:auth.login/success]]` is written one element short
-on purpose — managed HTTP **appends** the reply map onto the inner event, so
-`:store-session` sees `[:auth.login/success {:value {:token "…"}}]`.
+on purpose — managed HTTP **appends** the [canonical reply envelope](../async/http.md)
+onto the inner event, so `:store-session` sees
+`[:auth.login/success {:status :ok :value {:token "…"} …}]`.
 
 `:after` arms on entry and cancels on exit. Deeper timer grammar:
 [Automatic transitions](automatic-transitions.md).
@@ -220,18 +222,22 @@ No frame, no browser, no network:
             [app.login :refer [login-flow]]))
 
 (deftest login-flow-test
-  (let [{snap ::result/snap fx ::result/fx}
-        (machines/machine-transition login-flow
-          {:state :idle :data {:attempts 0 :error nil}}
-          [:auth.login/submit {:email "a@b.com" :password "secret"}])]
-    (is (= :submitting (:state snap)))
-    (is (= :rf.http/managed (ffirst fx))))   ;; :entry ran :issue-request
+  (let [r (machines/machine-transition
+            login-flow
+            {:state :idle :data {:attempts 0 :error nil}}
+            [:auth.login/submit {:email "a@b.com" :password "secret"}])]
+    (is (result/ok? r))
+    (is (= :submitting (:state (result/snap r))))
+    (is (= :rf.http/managed (ffirst (result/fx r)))))   ;; :entry ran :issue-request
 
-  (let [{snap ::result/snap}
-        (machines/machine-transition login-flow
-          {:state :submitting :data {:attempts 3 :error nil}}
-          [:auth.login/failure {:error {:message "bad creds"}}])]
-    (is (= :locked-out (:state snap)))))
+  (let [r (machines/machine-transition
+            login-flow
+            {:state :submitting :data {:attempts 3 :error nil}}
+            ;; Pure-table test: invent the failure shape the action expects.
+            ;; Live HTTP would append {:status :error :error …} instead.
+            [:auth.login/failure {:error {:message "bad creds"}}])]
+    (is (result/ok? r))
+    (is (= :locked-out (:state (result/snap r))))))
 ```
 
 More on Result accessors and Xray: [Inspecting and testing](inspecting-machines.md).
@@ -267,6 +273,7 @@ Everything above in one registration — the form you copy into a real app:
                  (assoc  :error (or (:message error) "Login failed.")))})
 
     :store-session
+    ;; Managed HTTP appends {:status :ok :value <decoded> …}; :value is the body.
     (fn [{[_ {:keys [value]}] :event}]
       {:fx [[:auth.session/store {:token (:token value)}]]})
 
