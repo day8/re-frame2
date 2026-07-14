@@ -59,6 +59,93 @@ One new feature for the counter: every fifth click deserves a little celebration
 
 Click to five. Now look hard at the `:inc` handler: it didn't *dispatch* anything. It returned one more key, `:fx`, holding a row that *describes* a dispatch — one item on the list — and the runtime performed it after committing `:db`. That's the entire idea of an effect, at counter scale.
 
+## Run to completion
+
+The milestone click raises a natural question: when the handler returns *two* things
+— a new `:db` *and* a follow-up event — when does the screen update?
+
+When the runtime starts processing events, it
+[**drains the queue to completion**](glossary.md#drain--run-to-completion) before
+any view re-renders. The dequeued event runs its full write side. Then any events
+its handler `:fx`-dispatched run theirs — until the queue is empty. Only then does
+the read side run, **once**.
+
+> **Write side runs per event; read side runs once per drain, at settle.**
+
+That is dispatch semantics, not a mode. There is no opt-out.
+
+Picture the render boundary as a **theatre curtain**. Every event in a drain is a
+stagehand shifting scenery behind it; the curtain does not rise until the last
+stagehand steps off. If submitting a form fans out three follow-ups, the view never
+glimpses the intermediate states — it sees one settled state, once.
+
+Watch a form-shaped fan-out. One click dispatches `:drain.demo/submit`, which
+enqueues three follow-ups — four pipeline runs, one paint. Click into the cell and
+press **`Ctrl-Enter`** (**`Cmd-Enter`** on macOS) to evaluate, then click **submit**:
+
+```cljs-rf2
+(require '[re-frame.core :as rf])
+
+(rf/reg-event :drain.demo/initialise
+  (fn [_cofx _event] {:db {:drain.demo/steps []}}))
+
+(rf/reg-event :drain.demo/submit
+  (fn [{:keys [db]} _event]
+    {:db (update db :drain.demo/steps conj :submitted)
+     :fx [[:dispatch [:drain.demo/validate]]
+          [:dispatch [:drain.demo/save]]
+          [:dispatch [:drain.demo/notify]]]}))
+
+(rf/reg-event :drain.demo/validate
+  (fn [{:keys [db]} _event] {:db (update db :drain.demo/steps conj :validated)}))
+(rf/reg-event :drain.demo/save
+  (fn [{:keys [db]} _event] {:db (update db :drain.demo/steps conj :saved)}))
+(rf/reg-event :drain.demo/notify
+  (fn [{:keys [db]} _event] {:db (update db :drain.demo/steps conj :notified)}))
+
+(rf/reg-sub :drain.demo/steps
+  (fn [db _query] (:drain.demo/steps db)))
+
+(rf/reg-view drain-demo []
+  [:div
+   [:button {:on-click #(dispatch [:drain.demo/submit])} "submit"]
+   [:p "steps: " (pr-str @(subscribe [:drain.demo/steps]))]])
+
+(rf/make-frame {:id :demo :initial-events [[:drain.demo/initialise]]})
+
+[rf/frame-provider {:frame :demo}
+ [drain-demo]]
+```
+
+All four steps appear **together**. The view never shows `[:submitted]` alone.
+
+!!! tip "Try it"
+
+    Make `:drain.demo/validate` fan out its own follow-up — add
+    `:fx [[:dispatch [:drain.demo/notify]]]` to its handler — re-evaluate, then
+    click **submit** again. However deep the chain goes, the screen only ever sees
+    the end of it.
+
+Three notes that keep the mental model honest:
+
+1. **Each dequeued event is its own [epoch](glossary.md#epoch).** Parent and child
+   are two rows in the record, even though they settled in one drain and one paint.
+2. **Async effects are not drained.** An HTTP request fired during the drain does
+   not hold the curtain open; its reply arrives later as a fresh event and a fresh
+   drain.
+3. **The drain is per [frame](glossary.md#frame).** With one frame (the normal case),
+   "per frame" and "per app" say the same thing.
+
+Operational detail — drain-depth limits, `dispatch-sync`, destroy cutoffs — lives on
+[Run to completion](run-to-completion.md). You do not need it to use `:fx`.
+
+??? info "For JavaScript developers"
+
+    React batches state updates within an event handler and paints once at the end —
+    run-to-completion is that idea taken all the way: the batch boundary is the
+    *entire* settled drain, not one handler. You never need `flushSync` for ordinary
+    app work, and you never catch the UI mid-update between synchronous follow-ups.
+
 ## The temptation to do it inline
 
 Real apps reach outside themselves: servers, storage, timers. The counter never needs a server, so take an article loader — `[:article/load {:slug "how-it-works"}]` — as the working example. The obvious move is to just do the fetch right there in the handler:

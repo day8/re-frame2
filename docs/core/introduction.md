@@ -135,18 +135,9 @@ event queue, and subscription cache. `frame-root` ensures that frame exists (onc
 runs `:initial-events` once, and scopes the subtree so `dispatch` / `subscribe`
 inside the view resolve to it.
 
-Most apps need exactly one frame for their lifetime. When you want two counters
-that do not share state, or a Story canvas with three variants, read
-[Frames](frames.md). Until then, one `frame-root` is the whole boot story.
-
-## Programs and images
-
-A set of registrations *is* the program. Taken as a value you can name and pass
-around, that set is an [**image**](glossary.md#image). Most apps use the default
-image: "everything already registered." You only name an image when different
-frames need different behaviour (a test with fake effects, for example).
-
-Rule of thumb: **the image supplies behaviour; the frame supplies state.**
+Most apps need exactly one frame for their lifetime. Multi-frame and "which
+handlers does this frame see?" are [Frames](frames.md) (and, rarely,
+[Images](images.md)). Until then, one `frame-root` is the whole boot story.
 
 ## In summary
 
@@ -161,6 +152,26 @@ Rule of thumb: **the image supplies behaviour; the frame supplies state.**
 app-state = reduce(event-pipeline, initial-state, events)
 ```
 
-One formula, applied one event at a time. The Core track now builds outward from
-this loop: events and app-db on the write side, subscriptions and views on the
-read side, then effects, coeffects, scheduling, and isolation.
+One formula, applied one event at a time.
+
+## How the Core track is organised
+
+The left nav is the learning order. It is grouped so you always know *why* a page
+is next:
+
+1. **The pure loop** — [Events](events.md), [app-db](app-db.md),
+   [Subscriptions](subscriptions.md), [Views](views.md). After these four, you can
+   build real screens with pure data in and pure data out.
+2. **Impurity** — [Effects](effects.md) (the way out, including run-to-completion)
+   and [Coeffects](coeffects.md) (the way in). How the pure middle touches the world.
+3. **Structure** — [Frames](frames.md), [Flows](flows.md),
+   [Interceptors](interceptors.md). Isolation, materialised derivations, cross-cutting
+   chores.
+4. **Operations** — [Errors](errors.md), [Observability](observability.md). What you
+   see when something breaks.
+5. **Advanced** — [Images](images.md). Only when two frames need different
+   registrations.
+
+How-to recipes, testing, and the "why it's built this way" essays sit under those
+headings in the nav — use them when you have a task or a design question, not as
+the first read-through.

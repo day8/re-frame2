@@ -158,29 +158,30 @@ nav:
     - "ClojureScript for non-Clojurians": cljs/index.md
 
   - Core:
-    # The Introduction is an explicit titled row rather than a
-    # navigation.indexes section index: the LHS should read "Introduction",
-    # not repeat the section label "Core".
+    # Introduction is an explicit titled row (not navigation.indexes): the
+    # LHS should read "Introduction", not repeat the section label "Core".
+    # Nested groups mark the learning arc: pure loop → impurity → structure
+    # → operations → advanced. Run-to-completion is taught on Effects; its
+    # page remains for operational deep links (not a main-track stop).
     - Introduction: core/introduction.md
-    # Growth-order track: Introduction (the loop) -> Events (vocabulary) ->
-    # app-db (one map) -> read side (subs -> views) -> write-side depth
-    # (effects -> coeffects) -> scheduling (run-to-completion) -> isolation
-    # (frames) -> flows, interceptors, errors, images, observability.
-    # Each concept page grows the same counter where it helps; live cell
-    # first. Labels are the bare concept name; nav order is the track.
-    - "Events": core/events.md
-    - "app-db": core/app-db.md
-    - "Subscriptions": core/subscriptions.md
-    - "Views": core/views.md
-    - "Effects": core/effects.md
-    - "Coeffects": core/coeffects.md
-    - "Run to completion": core/run-to-completion.md
-    - "Frames": core/frames.md
-    - "Flows": core/flows.md
-    - "Interceptors": core/interceptors.md
-    - "Errors": core/errors.md
-    - "Images": core/images.md
-    - "Observability": core/observability.md
+    - "The pure loop":
+      - "Events": core/events.md
+      - "app-db": core/app-db.md
+      - "Subscriptions": core/subscriptions.md
+      - "Views": core/views.md
+    - "Impurity":
+      - "Effects": core/effects.md
+      - "Coeffects": core/coeffects.md
+    - "Structure":
+      - "Frames": core/frames.md
+      - "Flows": core/flows.md
+      - "Interceptors": core/interceptors.md
+    - "Operations":
+      - "Errors": core/errors.md
+      - "Observability": core/observability.md
+    - "Advanced":
+      - "Images": core/images.md
+      - "Run to completion (detail)": core/run-to-completion.md
     - "How-to recipes":
       - core/how-to/index.md
       - "Boot and mount an app": core/how-to/boot-and-mount-an-app.md

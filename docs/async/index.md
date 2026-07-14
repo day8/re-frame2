@@ -25,7 +25,7 @@ No `await`, no callback nesting, no resumed stack frame. The answer comes back o
 
 Two boundaries worth knowing before you dive in:
 
-- This section covers *managed* async — effects whose completion returns as a reply event. That's narrower than "async" in general: the event loop, `dispatch-later`, and the event pipeline are async too, and they live in [Effects](../core/effects.md) and [Run to completion](../core/run-to-completion.md).
+- This section covers *managed* async — effects whose completion returns as a reply event. That's narrower than "async" in general: the event loop, `dispatch-later`, and the event pipeline are async too, and they live in [Effects](../core/effects.md) (including [run to completion](../core/effects.md#run-to-completion)).
 - For the *cache* over server reads — staleness, invalidation, scope — see [Resources](../resources/index.md), which rides on managed HTTP underneath. This section is the transport.
 
 !!! note "Setup"

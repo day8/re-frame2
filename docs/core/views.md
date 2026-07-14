@@ -158,6 +158,16 @@ That's a complete view. You use it by referencing it inside other hiccup — `[q
 
 Now try something. Change the last form to `[:div [qty-stepper] [qty-stepper]]` and re-evaluate. Click either stepper: both move, because neither owns the number — each is a window onto the same `app-db` value, and two windows onto one room show the same furniture. There is no local copy to fall out of sync. There is no local copy at all.
 
+### The pure loop is complete
+
+With [events](events.md), [app-db](app-db.md), [subscriptions](subscriptions.md), and
+views, you have a full pure application loop: intent in as data, state as one map,
+conclusions derived, screens as pure functions of those conclusions. Many features
+never need more.
+
+The rest of this page is how views compose and stay fast. When the app must touch the
+world (HTTP, storage, timers), open [Effects](effects.md).
+
 ## `reg-view`: registering a view for project code
 
 The cell above writes the view as a plain `defn`, and that genuinely *is* a view. But in real project code you'll write the [registered](glossary.md#registration) form instead:
