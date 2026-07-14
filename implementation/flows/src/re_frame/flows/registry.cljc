@@ -691,12 +691,35 @@
                ;; A's :rf.flow/registered is never delivered against B and B's
                ;; trace policy is never consulted for A. (`clear-flow` fences its
                ;; :rf.flow/cleared the same way, via its returned cleared-path.)
+               ;;
+               ;; rf2-pwum1g: the postcheck above only proves A is live at the
+               ;; instant emission STARTS. `trace/emit!` is itself a synchronous,
+               ;; callback-bearing pipeline — classification projection, then
+               ;; epoch capture, then the ordered tooling listeners — and each of
+               ;; those stages rechecks ownership ONLY while a continuation
+               ;; predicate is installed (`trace/continuation-live?` reads the
+               ;; always-true default otherwise). The event router installs its
+               ;; own exact-owner predicate for the reserved-effect `:rf.fx/reg-flow`
+               ;; route, but a DIRECT cold `reg-flow` does not — so absent this
+               ;; wrap, an epoch-capture callback or the first listener could
+               ;; destroy A and publish same-id B, and later listeners would still
+               ;; receive A's incarnation-less :rf.flow/registered after B owns the
+               ;; id (and later policy/capture could observe B). Wrap the emit in
+               ;; the pinned incarnation's exact-owner continuation so every
+               ;; trace-internal stage is fenced: already-entered delivery may
+               ;; stand once, but no later framework-owned trace stage starts after
+               ;; A's exact ownership is lost. This composes with any parent
+               ;; predicate (AND-combined in `call-with-continuation-predicate`),
+               ;; so the reserved-effect route's router predicate is preserved.
                (when (and interop/debug-enabled? (nil? @prior-on-frame))
-                 (trace/emit! :flow :rf.flow/registered
-                              {:flow-id flow-id
-                               :inputs  (:inputs flow)
-                               :path    (:output-path flow)
-                               :frame   frame-id}))))))))
+                 (trace/call-with-continuation-predicate
+                   #(frame/event-continuation-live? frame-id pinned-incarnation)
+                   (fn []
+                     (trace/emit! :flow :rf.flow/registered
+                                  {:flow-id flow-id
+                                   :inputs  (:inputs flow)
+                                   :path    (:output-path flow)
+                                   :frame   frame-id}))))))))))
      flow-id))))
 
 (defn- dissoc-in-safe
