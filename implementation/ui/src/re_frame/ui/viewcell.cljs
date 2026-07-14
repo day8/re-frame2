@@ -2,11 +2,15 @@
   "React glue for the S2b reactive core — the thin `useRef` /
   `useSyncExternalStore` / `useLayoutEffect` layer that drives
   `re-frame.ui.reactive`'s host-agnostic ViewCell + commit reconciler.
-  The compiled CLJS emitter selects one exact PRODUCTION wrapper:
-  `render-subs`, `render-leases`, or `render-subs-and-leases`; a view with
-  neither capability is not wrapped. In DEV the stable Fast Refresh Inner
-  always calls `render-dev`, providing the fixed superset hook skeleton before
-  a view gains or loses either capability without charging production for it.
+  The compiled CLJS emitter selects one exact PRODUCTION wrapper by capability:
+  `render-subs`, `render-leases`, or `render-subs-and-leases` for a reactive
+  view (all three ALSO consume the frame context — every sub/lease site is an
+  ambient-frame reader, rf2-vxgfnd.253), `render-frame` for a frame-only view
+  (a `(frame)` site but no sub/lease — a context consumer with no ViewCell), and
+  no wrapper at all for a genuinely inert view (no sub, no lease, no `(frame)`).
+  In DEV the stable Fast Refresh Inner always calls `render-dev`, providing the
+  fixed superset hook skeleton before a view gains or loses any capability
+  without charging production for it.
 
   The contract, per 03 §3:
 
@@ -182,17 +186,21 @@
 
 (defn- use-frame-context!
   "Register the calling component as a real React CONSUMER of the shared frame
-  context (rf2-vxgfnd.228).
+  context (rf2-vxgfnd.228/.253).
 
-  A compiled view whose body resolves the AMBIENT frame — any `(frame)` /
-  `frame-ops` site — MUST re-render when an ancestor `frame-provider` RETARGETS
-  its frame (A→B), even when the view's own props stay `rf=`-equal. `frame-ops`
-  reads the context value through `function-component-current-frame`
-  (`_currentValue`), which does NOT subscribe the component to context changes;
-  only `useContext` does. So without this hook React correctly memo-bails the
-  non-consumer child on a pure provider retarget, its body never reruns, and its
-  held ops stay locked to the OLD frame (Spec 004-Views §context-change repaint;
-  the same discipline `re-frame.adapter.use-frame/use-frame` uses).
+  A compiled view whose body resolves the AMBIENT frame MUST re-render when an
+  ancestor `frame-provider` RETARGETS its frame (A→B), even when the view's own
+  props stay `rf=`-equal. That is EVERY reactive view, not only `(frame)` /
+  `frame-ops` sites: a `sub` target resolves against the ambient frame, and a
+  lease site captures the ambient frame/incarnation as its resource owner
+  (rf2-vxgfnd.253) — so `render-subs`, `render-leases`, and
+  `render-subs-and-leases` all consume this context too. These sites read the
+  context value through the carried-invariant chain / `_currentValue`, which does
+  NOT subscribe the component to context changes; only `useContext` does. So
+  without this hook React correctly memo-bails the non-consumer child on a pure
+  provider retarget, its body never reruns, and its held ops / subscriptions /
+  lease owners stay locked to the OLD frame (Spec 004-Views §context-change
+  repaint; the same discipline `re-frame.adapter.use-frame/use-frame` uses).
 
   The read VALUE is discarded — resolution runs through the carried-invariant
   chain in `frame-ops`; the SUBSCRIPTION is the entire point. Called as a
@@ -213,57 +221,53 @@
   (thunk))
 
 (defn render-subs
-  "Production wrapper for a view with sub sites and no resource leases."
+  "Production wrapper for a view with sub sites and no resource leases.
+
+  Consumes the shared frame context (leading `use-frame-context!`): every sub
+  target resolves against the AMBIENT frame, so an ancestor `frame-provider`
+  RETARGET (A→B) must re-render this view even when its own props stay
+  `rf=`-equal, or `React.memo` bails the non-consumer and the ViewCell stays
+  subscribed to A (rf2-vxgfnd.253, extending .228 from frame-only views to every
+  ambient-frame reader). Any `(frame)` site the body also carries rides the same
+  single subscription — there is no separate `-frame` wrapper."
   [view-id thunk]
+  (use-frame-context!)
   (let [[cell root-incarnation] (use-cell view-id)
         overrides              (use-sub-revision! cell)
         [element capture]      (capture-with-overrides cell overrides thunk)]
     (use-commit-and-lifecycle! cell root-incarnation capture)
     element))
 
-(defn render-subs-frame
-  "`render-subs` for a view that ALSO has a `(frame)` site: same ViewCell +
-  sub wiring, plus frame-context consumption so a provider retarget re-renders
-  it (rf2-vxgfnd.228). The leading `use-frame-context!` keeps hook order stable."
-  [view-id thunk]
-  (use-frame-context!)
-  (render-subs view-id thunk))
-
 (defn render-leases
   "Production wrapper for a view with resource leases and no sub sites.
 
-  Structurally contains zero `useSyncExternalStore` calls."
+  Consumes the shared frame context (leading `use-frame-context!`): every lease
+  site implicitly captures the AMBIENT frame/incarnation as its resource owner,
+  so a provider retarget (A→B) with `rf=`-equal props must re-render it to ensure
+  B and release A — otherwise `React.memo` bails and the lease stays bound to A's
+  owner (rf2-vxgfnd.253). Structurally contains zero `useSyncExternalStore`
+  calls."
   [view-id thunk]
+  (use-frame-context!)
   (let [[cell root-incarnation] (use-cell view-id)
         [element capture]      (capture-plain cell thunk)]
     (use-resource-commit-and-lifecycle! cell root-incarnation capture)
     (use-resource-reconcile! cell capture)
     element))
 
-(defn render-leases-frame
-  "`render-leases` for a view that ALSO has a `(frame)` site: same ViewCell +
-  lease wiring, plus frame-context consumption (rf2-vxgfnd.228)."
+(defn render-subs-and-leases
+  "Production wrapper for a view containing both sub and resource sites. Consumes
+  the shared frame context (leading `use-frame-context!`) because both its sub
+  targets and its lease owners resolve against the ambient frame — a provider
+  retarget must re-render it (rf2-vxgfnd.253)."
   [view-id thunk]
   (use-frame-context!)
-  (render-leases view-id thunk))
-
-(defn render-subs-and-leases
-  "Production wrapper for a view containing both sub and resource sites."
-  [view-id thunk]
   (let [[cell root-incarnation] (use-cell view-id)
         overrides              (use-sub-revision! cell)
         [element capture]      (capture-with-overrides cell overrides thunk)]
     (use-resource-commit-and-lifecycle! cell root-incarnation capture)
     (use-resource-reconcile! cell capture)
     element))
-
-(defn render-subs-and-leases-frame
-  "`render-subs-and-leases` for a view that ALSO has a `(frame)` site: same
-  ViewCell + sub + lease wiring, plus frame-context consumption
-  (rf2-vxgfnd.228)."
-  [view-id thunk]
-  (use-frame-context!)
-  (render-subs-and-leases view-id thunk))
 
 (defn render-dev
   "Stable Fast Refresh wrapper: the full hook superset regardless of the

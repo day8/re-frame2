@@ -14,9 +14,11 @@
   DEV build (this `-dom-cljs-test`): the frame-only view runs through
   `viewcell/render-dev`, whose stable hook superset now consumes the frame
   context. The PROD wrapper-selection twin — where the emitter routes a
-  frame-only view to `render-frame` and a `(frame)`+`sub` view to
-  `render-subs-frame`, and dropping `:frame-ops` from the selection falls back to
-  the inert direct React.memo path — is `frame-ops-provider-retarget-elision-prod-test`.
+  frame-only view to `render-frame` and every sub/lease view to a wrapper that
+  consumes the frame context unconditionally (rf2-vxgfnd.253), while a genuinely
+  inert view falls back to the direct React.memo path — is
+  `frame-ops-provider-retarget-elision-prod-test` (sub wrappers) and
+  `ambient-lease-provider-retarget-elision-prod-test` (lease wrappers).
 
   Browser-only bodies — `-dom-cljs-test$` opts this file into `:browser-test`;
   under `:node-test` the DOM body gates on `(browser?)` and exits early."
