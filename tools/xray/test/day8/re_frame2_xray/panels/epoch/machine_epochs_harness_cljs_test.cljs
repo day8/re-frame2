@@ -354,6 +354,58 @@
           "(c) >1 machine in play → EACH no-op row names its machine (rf2-iu3no)"))))
 
 ;; ============================================================================
+;; PARALLEL ROUND (rf2-bvwv4q) — parent-owned cross-region :always rounds
+;; ============================================================================
+;;
+;; REAL runtime: a parallel macrostep can move a region on the EVENT and then
+;; again on a parent-owned cross-region `:always` round. The runtime commits
+;; ONE aggregate `:rf.machine/transition` (settled region-map) but emits one
+;; standalone `:rf.machine.microstep/transition` per SELECTED regional round
+;; (`machines/parallel.cljc`). Since rf2-akvfe retired the transition row's
+;; nested structured-cascade body, the per-emit cascade pipeline is the sole
+;; canonical display — so each such round must be harvested as a first-class
+;; `[ALWAYS]` row. This machine is ACTIONLESS (no `:rf.machine/action-ran`
+;; fires for the round), so the round trace is its ONLY first-class evidence.
+
+(def ^:private parallel-round-machine
+  {:type         :parallel
+   :region-order [:a :b]
+   :regions {:a {:initial :idle
+                 :states  {:idle   {:on {:go :staged}}
+                           :staged {:always :done}
+                           :done   {}}}
+             :b {:initial :idle
+                 :states  {:idle   {:on {:go :staged}}
+                           :staged {:always :done}
+                           :done   {}}}}})
+
+(deftest parallel-always-round-projects-first-class-microstep-rows
+  (testing "rf2-bvwv4q — driving the REAL runtime, :go moves both regions
+            :idle→:staged then a parent round co-selects both :staged→:done;
+            the standalone :rf.machine.microstep/transition traces are
+            harvested as first-class [ALWAYS] round rows (regions [:a :b],
+            round-index 0), NOT collapsed into the aggregate transition"
+    (setup!)
+    (rf/reg-machine :xray-test.round/par parallel-round-machine)
+    (rf/dispatch-sync [:xray-test.round/par [:rf.machine/start]])
+    (let [record (drive! :xray-test.round/par [:go])
+          rows   (cascade record)
+          micros (rows-of-kind rows :microstep)]
+      (is (= 1 (count (rows-of-kind rows :transition)))
+          "the macrostep still commits ONE aggregate transition row")
+      (is (= [:a :b] (mapv :region micros))
+          "one first-class round row per co-selected region, in region order")
+      (is (= [0 0] (mapv :round-index micros))
+          "co-selected regions share round-index 0 — ONE parent-owned round")
+      (is (= [[:staged :done] [:staged :done]]
+             (mapv (juxt :from-state :to-state) micros))
+          "each round row carries its region-relative :always hop")
+      (is (empty? (rows-of-kind rows :action))
+          "the round is ACTIONLESS — the round trace is its only evidence")
+      (is (= {:a :done :b :done} (:state (snapshot :xray-test.round/par)))
+          "the macrostep settled both regions to :done"))))
+
+;; ============================================================================
 ;; QUIZ (MICROSTEP) — :always EVENTLESS microsteps (gap 1, THE biggest)
 ;; ============================================================================
 

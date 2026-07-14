@@ -236,6 +236,11 @@
   {:guard       :text-tertiary
    :action      :accent
    :transition  :magenta
+   ;; rf2-bvwv4q — a parent-owned parallel `:always` ROUND's regional
+   ;; transition. It IS a state change, so it shares the magenta transition
+   ;; hue; the `[ALWAYS]` label + `for <region> · round <n>` clause
+   ;; distinguish it from the outer aggregate `[TRANSITION]`.
+   :microstep   :magenta
    :timer       :warning
    ;; rf2-ugdas — the benign unhandled-event no-op. Muted/tertiary tone:
    ;; benign, low-signal — explicitly NOT an error/warning hue.
@@ -252,6 +257,10 @@
   {:guard       "GUARD"
    :action      "ACTION"
    :transition  "TRANSITION"
+   ;; rf2-bvwv4q — the parent-owned `:always` ROUND regional transition. The
+   ;; eventless `:always` source names the round; the region + round-index
+   ;; ride the row's `for <region> · round <n>` clause.
+   :microstep   "ALWAYS"
    :timer       "TIMER"
    ;; rf2-iu3no — "NO OP" (space, not hyphen) is the SOLE marker for the
    ;; benign unhandled-user-event no-op. The row collapsed to
@@ -290,8 +299,10 @@
   "Closed set of cascade row kinds the view paints chrome for
   (rf2-u69j7). New kinds extend the projection's
   `machine-cascade-trace-ops` AND this set in lockstep.
-  rf2-it4vt — `:start` (the machine's birth `[START]` badge)."
-  #{:guard :action :transition :timer :no-op :start})
+  rf2-it4vt — `:start` (the machine's birth `[START]` badge).
+  rf2-bvwv4q — `:microstep` (a parent-owned parallel `:always` round's
+  regional transition, the `[ALWAYS]` badge)."
+  #{:guard :action :transition :microstep :timer :no-op :start})
 
 (defn cascade-kind?
   "Predicate — `kind` keyword is a member of `cascade-kind-set`."

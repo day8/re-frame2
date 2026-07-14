@@ -782,8 +782,10 @@ Additionally, each `:always` microstep's own hop is matched with `event*`
 `:always` (the eventless-edge marker `chart.layout/project-definition`
 mints for every `:always` candidate — rf2-oy49f1), so a multi-hop
 `:always` cascade highlights the FULL path the macrostep walked, not just
-its entry edge. Scoped to single-active (flat/compound) machines; parallel
-`:always` microsteps are a separate, not-yet-covered case.
+its entry edge. Scoped to single-active (flat/compound) machines; the
+parallel analog — parent-owned cross-region `:always` rounds — rides
+[§Parallel parent-owned `:always` round fired-edge highlight
+(rf2-bvwv4q)](#parallel-parent-owned-always-round-fired-edge-highlight-rf2-bvwv4q).
 
 ### Parallel multi-region fired-edge highlight (rf2-8ncxrf)
 
@@ -872,6 +874,45 @@ derivation returning empty for the region-map shape.
 DOM pin: the chart root surfaces the sorted multi-id set on
 `data-fired-edge-ids` (space-joined), so a parallel multi-region event
 pins **all** fired region-edge ids, not one.
+
+### Parallel parent-owned `:always` round fired-edge highlight (rf2-bvwv4q)
+
+A `:type :parallel` macrostep can move a region on the EVENT and then again
+on one or more **parent-owned cross-region `:always` rounds** (Spec 005
+§Parallel regions — the rounds stabilize as one frozen select-then-apply
+loop). The runtime commits ONE aggregate `:rf.machine/transition` whose
+`:after` is the **FINAL settled** region-map, PLUS one standalone
+`:rf.machine.microstep/transition` per SELECTED regional round — each
+carrying `:actor-id`, the shared `:microstep-index`, the `:region`, and the
+regional `:from` / `:to` (`machines/parallel.cljc`). The motivating shape:
+two regions each `:idle --:go--> :staged` then a single frozen parent round
+co-selects both `:staged --:always--> :done`.
+
+**The bug.** The per-region derivation above diffed only the aggregate
+before/after region-map, so it searched for an `:idle → :done` edge on
+`:go` — a **phantom aggregate** that no region declares — and lit nothing;
+the two real event edges (`:idle → :staged`) and two real round edges
+(`:staged → :done`) were all invisible, and the standalone round traces were
+filtered out entirely (`machine-transition?` accepts only
+`:rf.machine/transition`).
+
+**Fix — round evidence as first-class fired-edge evidence.**
+`extract-fired-edge-ids` gathers the machine's REGION-tagged
+`:rf.machine.microstep/transition` traces into `region → [round …]`
+(`microstep-region-rounds`, ordered by `:microstep-index`). For a region
+WITH rounds, `parallel-transition-fired-ids` derives the **direct event
+target** as the FIRST round's `:from` (the state the event committed, before
+the round loop advanced — the parallel analog of `direct-event-target`), so
+the event edge matches `:idle → :staged` (never the phantom `:idle → :done`);
+and each round's own regional hop is matched with `event*` `:always`
+(region-scoped, `region-local-fired-ids`), so an **ACTIONLESS** round still
+lights. A region that **DECLINED** the external event but later took an
+`:always` round has its first round's `:from` equal to its pre-event state,
+so it gains **no phantom event-labelled edge** — only its round edges light.
+Region-tagging keeps this scoped to parallel: single-active `:always`
+microsteps carry no `:region` and continue to ride the transition's
+structured `:cascade` (above). The returned ids are the EXACT canonical
+machines-viz edge-ids the live chart mints (agreement by construction).
 
 ### Guard-blocked edge highlight on the topology chart (rf2-fzrzlw)
 

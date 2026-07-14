@@ -991,11 +991,120 @@
       (is (every? projected-ids fired)
           "each parallel fired id is one the live chart actually rendered"))))
 
-;; ---- extract-fired-edge-ids: ROOT parallel `:on` (rf2-3v3gv1) ------------
+;; ---- extract-fired-edge-ids: parent-owned parallel `:always` ROUNDS ------
+;; (rf2-bvwv4q)
 ;;
-;; A `:type :parallel` machine's OWN top-level `:on` is the ANCESTOR FALLBACK
-;; for its regions (Spec 005 §Root parallel `:on`). When no region-LOCAL
-;; transition handles the event the root `:on` fires, moving one or more
+;; A parallel macrostep can move a region on the EVENT and then again on one
+;; or more cross-region `:always` ROUNDS. The runtime commits ONE aggregate
+;; `:rf.machine/transition` (settled before/after region-map) PLUS one
+;; standalone `:rf.machine.microstep/transition` per SELECTED regional round
+;; (`machines/parallel.cljc`). Diffing only the aggregate region-map searches
+;; for a PHANTOM `idle → done` edge on the event; the real edges are the
+;; event's `idle → staged` and the round's `staged → done` on `:always`.
+
+(defn- co-selected-round-definition
+  "Two orthogonal regions, each `:idle --:go--> :staged` then a parent-owned
+  round co-selects both `:staged --:always--> :done`. The shipped shape from
+  the runtime fixture `re-frame.parallel-always-round-cljs-test/
+  co-selected-machine`."
+  []
+  {:type :parallel
+   :regions {:a {:initial :idle
+                 :states  {:idle   {:on {:go :staged}}
+                           :staged {:always :done}
+                           :done   {}}}
+             :b {:initial :idle
+                 :states  {:idle   {:on {:go :staged}}
+                           :staged {:always :done}
+                           :done   {}}}}})
+
+(defn- region-edge-id
+  "Region-scoped canonical edge id for `region`'s `from → to` on `event`,
+  disambiguated by the region-scoped `:source` (so two regions sharing a
+  state name never cross-match)."
+  [projected region from to event]
+  (->> projected
+       (some (fn [e]
+               (when (and (= from  (:from-path e))
+                          (= to    (:to-path e))
+                          (= event (:event e))
+                          (= (chart-layout/region-scoped-id region from) (:source e)))
+                 (:id e))))))
+
+(deftest extract-fired-edge-ids-parallel-round-lights-four-real-edges
+  (testing "rf2-bvwv4q — :go moves both regions :idle→:staged, then a parent
+            round co-selects both :staged→:done; EXACTLY four real edges light
+            (two :go event edges + two :always round edges), NOT the phantom
+            aggregate :idle→:done"
+    (let [def       (co-selected-round-definition)
+          projected (:edges (chart-layout/project-definition def))
+          a-go      (region-edge-id projected :a [:idle]   [:staged] :go)
+          b-go      (region-edge-id projected :b [:idle]   [:staged] :go)
+          a-always  (region-edge-id projected :a [:staged] [:done]   :always)
+          b-always  (region-edge-id projected :b [:staged] [:done]   :always)
+          ;; LIVE runtime shape: ONE aggregate transition (settled region-map)
+          ;; + one `:rf.machine.microstep/transition` per co-selected round.
+          events    [{:operation :rf.machine/transition
+                      :tags {:actor-id :par/round
+                             :before {:state {:a :idle :b :idle}}
+                             :after  {:state {:a :done :b :done}}
+                             :event  [:go]}}
+                     {:operation :rf.machine.microstep/transition
+                      :source    :always
+                      :tags {:actor-id :par/round :region :a
+                             :from :staged :to :done :microstep-index 0}}
+                     {:operation :rf.machine.microstep/transition
+                      :source    :always
+                      :tags {:actor-id :par/round :region :b
+                             :from :staged :to :done :microstep-index 0}}]
+          fired     (trace-state/extract-fired-edge-ids def events :par/round)]
+      (is (every? string? [a-go b-go a-always b-always])
+          "all four real edges exist in the projection")
+      ;; the phantom aggregate the buggy derivation searched for does not exist
+      (is (nil? (region-edge-id projected :a [:idle] [:done] :go))
+          "no :idle→:done :go edge is declared — the aggregate diff was a phantom")
+      (is (= #{a-go b-go a-always b-always} fired)
+          "exactly the four real edges light; the parent round is first-class"))))
+
+(deftest extract-fired-edge-ids-parallel-round-declined-region-no-phantom
+  (testing "rf2-bvwv4q — a region that DECLINED the external event but later
+            took an :always round gains NO phantom event-labelled edge — only
+            its round edge lights"
+    ;; :a handles :go (:idle→:staged) then rounds :staged→:done.
+    ;; :b DECLINES :go (no :go handler) and a parent round moves it
+    ;; :idle→:ready via :always.
+    (let [def       {:type :parallel
+                     :regions {:a {:initial :idle
+                                   :states  {:idle   {:on {:go :staged}}
+                                             :staged {:always :done}
+                                             :done   {}}}
+                               :b {:initial :idle
+                                   :states  {:idle  {:always :ready}
+                                             :ready {}}}}}
+          projected (:edges (chart-layout/project-definition def))
+          a-go      (region-edge-id projected :a [:idle]   [:staged] :go)
+          a-always  (region-edge-id projected :a [:staged] [:done]   :always)
+          b-always  (region-edge-id projected :b [:idle]   [:ready]  :always)
+          events    [{:operation :rf.machine/transition
+                      :tags {:actor-id :par/mix
+                             :before {:state {:a :idle :b :idle}}
+                             :after  {:state {:a :done :b :ready}}
+                             :event  [:go]}}
+                     {:operation :rf.machine.microstep/transition
+                      :source    :always
+                      :tags {:actor-id :par/mix :region :a
+                             :from :staged :to :done :microstep-index 0}}
+                     {:operation :rf.machine.microstep/transition
+                      :source    :always
+                      :tags {:actor-id :par/mix :region :b
+                             :from :idle :to :ready :microstep-index 0}}]
+          fired     (trace-state/extract-fired-edge-ids def events :par/mix)]
+      (is (every? string? [a-go a-always b-always]))
+      ;; :b declared no :go handler, so the projection has no :b :go edge to
+      ;; phantom-light — the fired set is EXACTLY {a-go a-always b-always}.
+      (is (= #{a-go a-always b-always} fired)
+          "b lights ONLY its :always round edge — no phantom :go edge for the
+           region that declined the event"))))
 ;; REGION-QUALIFIED targets. The before/after region-map shows the move, but
 ;; the moved region's edge is sourced from the synthetic MACHINE-ROOT chip
 ;; (region-qualified :to-path), NOT a region-local edge — so the region-local

@@ -299,6 +299,13 @@
     :transition  (str (if from-state (pr-str from-state) "?")
                       " → "
                       (if to-state (pr-str to-state) "?"))
+    ;; rf2-bvwv4q — a parent-owned parallel `:always` ROUND's regional
+    ;; transition. The verb is the region-relative state change `<from> →
+    ;; <to>`; the `[ALWAYS]` pill + the `for <region> · round <n>` clause
+    ;; (rendered in the view) carry the region + round index.
+    :microstep   (str (if from-state (pr-str from-state) "?")
+                      " → "
+                      (if to-state (pr-str to-state) "?"))
     :timer       (str "timer " (when state (pr-str state))
                       (when reason (str " · " (name reason))))
     ;; rf2-iu3no — the benign unhandled-user-event no-op. The verb is the
