@@ -172,6 +172,20 @@ else
         template_expensive=true
         mcp_conformance=true
         mcp_live=true
+        # rf2-vxgfnd.209 — G-13 (cljs-ui-g13) is the end-to-end MOUNTED
+        # falsifier for re-frame.ui push economics (05 §3), and it traverses
+        # core dispatch/drain, the router, frame scheduling, the observation
+        # port, ViewCell enrolment, uSES, compiled bodies, and the React
+        # commit. A change to any implementation/core/* runtime source (the
+        # observation port, router drain, the frame scheduler, …) can introduce
+        # V-wide fan-out or split the write/read batching G-13 exists to catch,
+        # yet the gate ran only under ui_gates — false for a core-only PR — so
+        # the required-check aggregator accepted the skipped job. Arm ui_gates
+        # for the whole core surface (a conservative superset; a narrower
+        # explicit dependency list would be brittle as core evolves) so
+        # cljs-ui-g13 runs for any core runtime change. Docs/spec/tool-only PRs
+        # never reach this case and keep their existing skip.
+        ui_gates=true
         ;;
       implementation/adapters/reagent-slim/*|examples/substrates/reagent_slim/counter/*|implementation/scripts/check-reagent-slim-bundle-isolation.cjs)
         # rf2-8cevm — the examples/ tree is test-free. counter_slim_and_fast

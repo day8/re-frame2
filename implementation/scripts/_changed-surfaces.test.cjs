@@ -160,6 +160,42 @@ test('Core change runs jvm-core + cljs (implementation_jvm + cljs_node_test true
   assert.equal(result.cljs_node_test, 'true');
 });
 
+// rf2-vxgfnd.209 — G-13 (cljs-ui-g13, gated on ui_gates) is the end-to-end
+// MOUNTED falsifier for re-frame.ui push economics; it traverses core
+// dispatch/drain, the router, frame scheduling, and the observation port. Any
+// core runtime change must schedule it, or a V-wide fan-out / split-batching
+// regression reachable only through core merges with the one gate that catches
+// it skipped. Docs/spec/tool-only changes keep their existing skip.
+test('Core observation-port change schedules G-13 (ui_gates true) (rf2-vxgfnd.209)', () => {
+  const result = classify('implementation/core/src/re_frame/substrate/observation.cljc');
+  assert.equal(result.ui_gates, 'true');
+});
+
+test('Core router/drain change schedules G-13 (ui_gates true) (rf2-vxgfnd.209)', () => {
+  const result = classify('implementation/core/src/re_frame/router.cljc');
+  assert.equal(result.ui_gates, 'true');
+});
+
+test('Core frame/scheduler change schedules G-13 (ui_gates true) (rf2-vxgfnd.209)', () => {
+  const result = classify('implementation/core/src/re_frame/frame.cljc');
+  assert.equal(result.ui_gates, 'true');
+});
+
+test('Core facade change schedules G-13 (ui_gates true) (rf2-vxgfnd.209)', () => {
+  const result = classify('implementation/core/src/re_frame/core.cljc');
+  assert.equal(result.ui_gates, 'true');
+});
+
+test('Docs-only change does NOT schedule G-13 (ui_gates false) (rf2-vxgfnd.209)', () => {
+  const result = classify('docs/core/intro.md');
+  assert.equal(result.ui_gates, 'false');
+});
+
+test('Spec-only .md change does NOT schedule G-13 (ui_gates false) (rf2-vxgfnd.209)', () => {
+  const result = classify('spec/006-ReactiveSubstrate.md');
+  assert.equal(result.ui_gates, 'false');
+});
+
 test('Conformance fixture change runs cljs (CLJS corpus runner is in node-test) (rf2-f79t8)', () => {
   const result = classify('spec/conformance/fixtures/dispatch.edn');
   assert.equal(result.implementation_jvm, 'true');
