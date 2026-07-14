@@ -9,34 +9,21 @@ A **machine** makes that shape first-class: one data table of states and
 transitions, driven by ordinary `dispatch`, read by ordinary `subscribe`, living in
 the same [frame](../core/frames.md) as the rest of re-frame2. No second runtime.
 
-## What you get
+## Start here
 
-- **Hierarchical** states (nested flows), **parallel** regions, **history**,
-  **spawned** child machines, guards, delayed transitions — near the power of
-  [XState](coming-from-xstate.md), expressed as Clojure data.
-- **Deep integration** — `reg-machine` is sugar over `reg-event`. Snapshots ride
-  runtime-db; undo, Xray, SSR, and tests share the same pipeline.
+1. **[Tutorial](tutorial.md)** — build a login machine in six steps (guard, action,
+   HTTP, view, pure test). Best first hour.
+2. **[The model](concepts.md)** — the flat grammar those steps rely on: register,
+   snapshot, encapsulation, self-transitions, finals.
+3. Then open a growth page only when a need appears (tags for views, hierarchy for
+   nested flows, actors for workers, …). The left nav lists them in a sensible
+   order; MkDocs prev/next walks them.
 
-## How to read this section
+**Prerequisites.** The [Core introduction](../core/introduction.md) — events, app-db,
+subscriptions, effects. Machines plug into those; they do not replace them.
 
-| Job | Page |
-|---|---|
-| Build a real machine once | [Tutorial: login flow](tutorial.md) |
-| The flat model in full | [The model](concepts.md) |
-| Labels for views ("busy?") | [Tags](tags.md) |
-| Nested states | [Hierarchical states](hierarchical-states.md) |
-| Orthogonal axes in one machine | [Parallel regions](parallel-states.md) |
-| `:always`, `:after`, choice, timeout | [Automatic transitions](automatic-transitions.md) |
-| Resume where you left off | [History](history.md) |
-| Child machines / workers | [Actors](actors.md) |
-| Xray + pure tests | [Inspecting and testing](inspecting-machines.md) |
-| Runnable apps | [Examples](examples.md) |
-| XState mapping | [Coming from XState](coming-from-xstate.md) |
-| Term definitions | [Glossary](glossary.md) |
-
-**Prerequisites.** The [Core introduction](../core/introduction.md) — events,
-app-db, subscriptions, and effects. Machines plug into those; they do not replace
-them.
+Optional later: [examples](examples.md), [XState mapping](coming-from-xstate.md),
+[glossary](glossary.md).
 
 ## A machine in four lines
 
@@ -56,8 +43,8 @@ them.
 ;; => {:state :open :data {}}
 ```
 
-The tutorial turns that idea into a login with guards, actions, HTTP, a view, and a
-test. The model page explains every slot.
+`reg-machine` is sugar over `reg-event`. The snapshot rides runtime-db — undo, Xray,
+SSR, and tests share the same pipeline as the rest of the app.
 
 ## When *not* to use a machine
 

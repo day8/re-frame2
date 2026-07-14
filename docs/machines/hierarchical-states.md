@@ -36,7 +36,8 @@ The canonical worked example is the connection machine in
 [`../../examples/patterns/websocket/`](../../examples/patterns/websocket) — its
 `:active` state parents the three happy-path leaves. The snippets on this page
 are simplified from it. For the flat grammar this builds on, read
-[Concepts](concepts.md) first.
+[The model](concepts.md) first. Spawned sockets on a parent state are covered in
+[Actors](actors.md).
 
 ---
 
@@ -67,7 +68,7 @@ thing they can't do without: the live socket, spawned on the parent.
     {:initial :connecting                     ;; required — every compound declares it
 
      ;; One socket actor, spawned on the PARENT, so it spans all three leaves
-     ;; below without re-spawning on each leaf transition. (See Concepts > :spawn.)
+     ;; below without re-spawning on each leaf transition. (See Actors.)
      :spawn {:machine-id :websocket/socket}
 
      ;; Transitions every leaf inherits. A leaf may override any of them; what

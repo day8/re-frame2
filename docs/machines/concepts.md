@@ -199,16 +199,27 @@ Unresolved `:guard` / `:action` / `:target` names throw at `reg-machine` time
 
 ## Strict encapsulation
 
-A guard or action gets only `{:data :event :state :meta}` — never app-db.
+A guard or action gets only `{:data :event :state :meta}` — never app-db. That is
+what keeps a machine's whole state inside one snapshot for time-travel and SSR.
 
 | Need | How |
 |---|---|
 | Fact from outside | Put it on the **event** when you dispatch |
 | Write outside the machine | Return `:fx [[:dispatch […]]]` — a real, named event |
+| Clock / random / host fact | Declare a [coeffect](../core/coeffects.md) on the guard or action — do **not** call `(js/Date.now)` |
 
-Facts from the world (clock, random) must be declared coeffects on the guard/action
-entry (`:rf.cofx/requires`), not grabbed with `(js/Date.now)`. See
-[Coeffects](../core/coeffects.md).
+```clojure
+:guards
+{:within-retry-window?
+ {:rf.cofx/requires [:rf/time-ms]
+  :fn (fn [{:keys [data rf/time-ms]}]
+        (< (- time-ms (:first-attempt-at data)) 60000))}}
+```
+
+Returning `:db` from an action is a hard error
+(`:rf.error/machine-action-wrote-db`) — the key is dropped and the failure is
+loud. Actions also never choose the next state; only the transition's `:target`
+moves the machine.
 
 ## The snapshot
 
@@ -240,17 +251,43 @@ Full rules: see schemas section of
 <a id="self-transitions-internal-by-default-external-on-demand"></a>
 <a id="wildcard-transitions-handle-a-whole-class-of-events"></a>
 
-**Internal by default** for self-moves:
+Self-moves are **internal by default** — the turnstile's push-while-locked counts a
+push without leaving `:locked`. Three shapes:
 
 | Shape | Effect |
 |---|---|
-| No `:target` | Action only — no exit/entry, timers and spawns undisturbed |
-| `:target` same state, no `:reenter?` | Action; compounds re-resolve descendants to `:initial` |
+| No `:target` | Action only — no exit/entry; timers and spawns undisturbed |
+| `:target` same state, no `:reenter?` | Action; **compounds** re-resolve descendants to `:initial` |
 | `:reenter? true` | Full exit → action → entry (timers reset, spawns restart) |
 
-**Wildcards** on `:on` keys, most-specific first: exact id → `:ns/*` → `:*`. A
-deliberate empty handler `{:on {:E {}}}` **consumes** the event (blocks fallthrough);
-a missing key is a no-op.
+A self-rescheduling poll uses the external form so `:entry` re-fires:
+
+```clojure
+:polling
+{:entry :start-fetch
+ :after {30000 {:target :polling :reenter? true}}   ;; every 30s: re-enter → fetch again
+ :on    {:got-data {:action :merge}                  ;; internal: merge without resetting the clock
+         :stop     :idle}}
+```
+
+!!! note "Targeted self ≠ re-enter"
+
+    A self-target without `:reenter? true` does **not** re-run `:entry`. If you meant
+    to re-arm a timer or re-spawn a child, say so explicitly.
+
+**Wildcards** on `:on` keys, most-specific first: exact id → `:ns/*` → `:*`.
+
+```clojure
+:tracking
+{:on {:mouse/down {:action :begin-drag}   ;; exact wins for :mouse/down
+      :mouse/*    {:action :note-move}     ;; any other :mouse/…
+      :*          {:action :log-unknown}}} ;; anything else
+```
+
+A **forbidden** handler — `{:on {:E {}}}` or `{:on {:E nil}}` — **consumes** the
+event and stops the search (how a child opts out of a parent transition). A
+**missing** key is a silent no-op. A bare id like `:go` has no `:ns/*` tier — only
+exact or `:*`.
 
 ## Final states
 
