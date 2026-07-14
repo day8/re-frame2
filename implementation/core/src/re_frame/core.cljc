@@ -1119,7 +1119,8 @@
   "Return the active frame id the in-effect scope carries — a keyword.
   Resolution is the carried-invariant scope/hold chain via
   `frame/require-current-frame!` (EP-0002): the dynamic `*current-frame*`
-  stamp or a React-context frame-provider scope (CLJS only, via the
+  stamp or the closest React-context frame boundary, a `frame-provider`
+  (SCOPE) or `frame-root` (ENSURE) (CLJS only, via the
   `:adapter/current-frame` late-bind hook). There is NO `:rf/default`
   floor — called under no established scope it raises
   `:rf.error/no-frame-context` rather than reporting an invented default.
@@ -1150,7 +1151,8 @@
   The captured `frame` is closed over by every op — no dynamic-var read
   at op-call time — so the frame api dispatches / subscribes into `frame`
   even when an op fires after the surrounding `with-frame` /
-  `frame-provider` scope has unwound (the async-boundary case).
+  `frame-provider` / `frame-root` scope has unwound (the async-boundary
+  case).
 
   Per the frame-affordance redesign (rf2-kkut0) the captured frame is
   AUTHORITATIVE: `:frame` is assoc'd LAST in the dispatch opts, so a
@@ -2549,7 +2551,8 @@
   is an ordinary id (EP-0002), the runtime never synthesises a default
   frame — frame identity is carried, not found. Declare your app's root
   frame explicitly (`(rf/make-frame {:id :app …})` / `with-frame` / a
-  frame-provider) and dispatch / subscribe within that scope. A small app
+  `frame-root` (ENSURE — creates it if absent) or `frame-provider` (SCOPE —
+  scopes an already-created one)) and dispatch / subscribe within that scope. A small app
   or test may still choose `:rf/default` as its explicit frame id; the
   runtime will not infer it."
   [adapter-map]
