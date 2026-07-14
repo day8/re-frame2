@@ -1,6 +1,12 @@
 # Inside out: why views come last
 
-This page is the argument, not the instructions. The working mental model lives in [The model: the event pipeline](../introduction.md), and you can ship without ever reading this essay. But re-frame2 asks something of you up front — it costs ceremony a `useState` user never pays, and it forbids things React happily allows — and I'd rather make the case for that trade once, in full, than have you take it on faith. Every concepts page that touches it links back here rather than re-arguing it.
+This page is the argument, not the instructions. The working mental model lives in
+the [Introduction](../introduction.md) and the pure-loop pages that follow it
+([Events](../events.md) → [Views](../views.md)), and you can ship without ever
+reading this essay. But re-frame2 asks something of you up front — it costs
+ceremony a `useState` user never pays, and it forbids things React happily allows —
+and I'd rather make the case for that trade once, in full, than have you take it on
+faith.
 
 The whole essay compresses to one sentence:
 

@@ -13,6 +13,12 @@ derivation that turns facts into a conclusion, and re-runs only when it must.
 > **A UI is derived data. Subscriptions are how you name and share those
 > derivations.**
 
+**On this page.** Day-one path first: the derive-don't-store rule, what a
+subscription is, layered graphs, and the equality gate (with a live prune demo).
+Then going further: argument-dependent inputs, metadata, lifecycle, framework
+subs, and when a subscription is the wrong tool. You can ship after the equality
+gate; the rest is there when you need it.
+
 ## Don't Store What You Can Derive
 
 Here's the discipline the whole page hangs off.

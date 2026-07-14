@@ -555,7 +555,9 @@ The runtime normally drains the *whole* event queue to a fixed point — running
 ;; every queued event's write side runs, THEN — once — subs recompute and views render
 ```
 
-Related: [Run to completion](run-to-completion.md). Hyphenate **run-to-completion** consistently.
+Related: [Effects — run to completion](effects.md#run-to-completion) (idea + demo);
+[Run to completion (detail)](run-to-completion.md) (drain-depth, `dispatch-sync`).
+Hyphenate **run-to-completion** consistently.
 
 ### **elide**
 
