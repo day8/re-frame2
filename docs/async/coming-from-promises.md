@@ -1,8 +1,14 @@
 # Coming from Promises
 
-You arrive with the Promise triad — `.then`, `.catch`, `.finally`. re-frame2 has all three jobs covered, but the shapes moved, because a settlement here is a **value delivered to a handler**, not a pair of callbacks. A managed effect — [HTTP](http.md), a [resource](../resources/concepts.md), a [machine](../machines/concepts.md) — never hands you a promise object to chain. It dispatches the outcome back into your app as an ordinary [event](../core/glossary.md#event), carrying a canonical reply map you branch on. So the question stops being "what do I chain onto the promise?" and becomes "which handler receives the settlement, and how does it read it?"
+You know `.then` / `.catch` / `.finally`. re-frame2 covers all three jobs, but a
+settlement is a **value delivered to a handler**, not a promise you chain.
 
-This page is the translation. For the *why* underneath — why a continuation is data and not a closure — read [Why no await](continuations-are-data.md) once the mapping has landed.
+A managed effect — [HTTP](http.md), a [resource](../resources/concepts.md), a
+[machine](../machines/concepts.md) — never hands you a promise. It dispatches an
+ordinary [event](../core/glossary.md#event) with a canonical reply map. Question:
+*which handler receives the settlement, and how does it read it?*
+
+This page is the translation. The *why*: [Why no await](continuations-are-data.md).
 
 ## The mapping
 
@@ -57,4 +63,4 @@ And `finally` promises to **always run** — a guarantee re-frame2 deliberately 
 ## Where to go next
 
 - [Why no await: continuations are data](continuations-are-data.md) — the deeper *why*: named continuations, and the stale-world trap the data model closes by construction.
-- [Managed HTTP reference](http.md) — the surface reference: every reply key, the closed `:status` set, and both addressing spellings side by side.
+- [Managed HTTP](http.md) — the surface reference: every reply key, the closed `:status` set, and both addressing spellings side by side.

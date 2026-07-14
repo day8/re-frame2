@@ -1,12 +1,18 @@
 # Why no await: continuations are data
 
-You've met `:on-success` on [HTTP requests](http.md), `:reply-to` on mutations, `:on-done` on [machines](../machines/concepts.md). At some point you asked the obvious question: *why am I naming a second event instead of just `await`ing the result?* This page is the answer. It's one idea — and once it clicks, every async surface in re-frame2 reads the same way.
+You know `:on-success` on [HTTP](http.md), `:reply-to` on mutations, `:on-done` on
+[machines](../machines/concepts.md). Why name a second event instead of `await`?
 
-**The takeaway, up front: in re-frame2 a continuation is data, not a closure.** The rest of the page earns that sentence. We'll first see the one move that makes it true, then see — concretely — what `await` was quietly costing you, and finally what you get to do once the continuation is a value you can hold in your hand.
+**Takeaway: in re-frame2 a continuation is data, not a closure.** This page earns
+that sentence — the one move, what `await` costs, what you gain when the continuation
+is a value.
 
-!!! tip "Just want the `.then`/`.catch`/`.finally` translation?"
+**Prerequisites.** Issue at least one managed request ([tutorial](tutorial.md)).
 
-    [Coming from Promises](coming-from-promises.md) is the quick mapping table — this page is the *why* it points back to.
+!!! tip "Just want the `.then` / `.catch` / `.finally` map?"
+
+    [Coming from Promises](coming-from-promises.md) is the quick table; this page is
+    the *why*.
 
 ## Start with the one move
 

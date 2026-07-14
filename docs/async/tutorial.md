@@ -1,24 +1,27 @@
 # Tutorial: talk to a server
 
-Let's make an app load an article from a server — adding one idea at a time: the request, the failure path, a view, schema validation, a retry policy, a cured race, and a test.
+Load an article from a server one idea at a time: request → failure path → view →
+schema → retry → race cure → network-free test. By the end you have every piece of
+`:rf.http/managed` everyday work needs.
 
-By the end you'll have used every part of `:rf.http/managed` that everyday work needs. The [reference](http.md) has the rest.
-
-!!! note "Before you start"
-
-    You've read [Effects](../core/effects.md) and can return an effect map from a handler. That's the only prerequisite.
+**Prerequisites.** [Effects](../core/effects.md) — return an effect map from a handler.
+Full key catalogue after this walk-through: [Managed HTTP](http.md).
 
 ## Step 0 — turn managed HTTP on
 
-Managed HTTP ships in its own artefact, `day8/re-frame2-http`, so apps that never issue a request don't carry it. Add the dependency, then require `re-frame.http.managed` once in your boot namespace:
+Managed HTTP ships in its own artefact, `day8/re-frame2-http`. Add the dep, then
+require `re-frame.http.managed` once at boot:
 
 ```clojure
 (ns app.boot
   (:require [re-frame.core :as rf]
-            [re-frame.http.managed]))   ;; ← registers :rf.http/managed and family
+            [re-frame.http.managed]))   ;; registers :rf.http/managed and family
 ```
 
-Forget the require and your first `:rf.http/managed` fails loud with a named "HTTP artefact missing" error — not a silent miss.
+Forget the require and the first `[:rf.http/managed …]` fails loud with
+`:rf.error/no-such-fx` (the fx was never registered). Test helpers re-exported on
+`re-frame.core` throw `:rf.error/http-artefact-missing` until the artefact (and
+`re-frame.http.test-support` for stubs) is loaded.
 
 ## Step 1 — the smallest request that works
 
@@ -213,4 +216,17 @@ The stubbed reply has the exact envelope a live request produces, so both tests 
 
     Run the app with [Xray](../xray/index.md) open. Dispatch `[:article/load "intro"]`: you'll see the issuing event row, the request going out on the [trace stream](../core/glossary.md#trace-stream), and the reply arriving as an ordinary event row of its own — two ledger entries, one round trip. Then re-fire a `:request-id` request before its reply lands and watch the superseded completion get recorded as stale, never dispatched.
 
-That's the everyday surface. The [Managed HTTP reference](http.md) has the rest — the full request envelope, `:accept`, timeouts, verb helpers, manual abort — and [Interceptors and secrets](http-going-further.md) covers stamping auth on every request once and keeping credentials out of traces.
+## The complete shape
+
+| Piece | Surface | You supply |
+|---|---|---|
+| Artefact | `(:require [re-frame.http.managed])` | Once at boot |
+| Send | `:fx [[:rf.http/managed {…}]]` | `:request` + reply target(s) |
+| Receive | `:on-success` / `:on-failure` (or `:reply-to`) | Ordinary events; reply map **appended** |
+| Failures | `(:kind error)` closed set | Branch with `case`, never message strings |
+| Race | `:request-id` | Same id supersedes / suppresses stale |
+| Test | `with-managed-request-stubs` | `re-frame.http.test-support` + canned envelope |
+
+Full catalogue (`:decode`, `:accept`, `:retry`, abort, verb helpers):
+[Managed HTTP](http.md). Production auth + secrets:
+[Interceptors and secrets](http-going-further.md).
