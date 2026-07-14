@@ -769,6 +769,106 @@
         (when (frame/frame id) (frame/destroy-frame! id))
         (late-bind/set-fn! :epoch/snapshot-frame-destroyed original-snap)))))
 
+(deftest snapshot-hook-failure-still-publishes-reports-and-spares-successor
+  ;; rf2-vxgfnd.289 — the integrated full-destroy peer to the epoch-seam unit
+  ;; `epoch-test/terminal-publish-noops-on-nil-bundle-no-fabrication` and the
+  ;; ring-residue pin `snapshot-hook-failure-leaves-no-residual-ring` above. A
+  ;; throwing PRE-dissoc `:epoch/snapshot-frame-destroyed` (step 8a) MUST NOT
+  ;; abort teardown. The recipe walks straight on:
+  ;;
+  ;;   (1) the POST-dissoc publish hook (`:epoch/on-frame-destroyed`, step 11)
+  ;;       STILL RUNS — the snapshot/publish split (rf2-vxgfnd.151/.246) threads
+  ;;       the (now nil) bundle through to the publish regardless of outcome;
+  ;;   (2) exactly ONE bounded always-on `:rf.error/frame-teardown-failed`
+  ;;       report ships (EP-0008 R1 finally-flush) and its :hook-failures NAMES
+  ;;       the failing `:epoch/snapshot-frame-destroyed` hook;
+  ;;   (3) a same-id successor B installed in the post-dissoc window is left
+  ;;       PRISTINE — the nil bundle makes the publish fabricate nothing, so it
+  ;;       cannot silence the observing cb, and B is a FRESH incarnation, live
+  ;;       after the destroy returns, not A's.
+  ;;
+  ;; An epoch cb OBSERVES A before the destroy, so a SUCCESSFUL snapshot WOULD
+  ;; have owed it a terminal silence (per `terminal-publish-noops-on-nil-bundle-
+  ;; no-fabrication`); the throwing snapshot must owe — and fire — none. A is
+  ;; destroyed via a DIRECT `destroy-frame!` (not mid-drain) so the proven
+  ;; make-frame-B-in-publish-window pattern (see
+  ;; `run-terminal-teardown-hook-exception-scenario`) is safe.
+  (let [id             :destroy/snap-fail-integrated
+        cb             ::snap-fail-observer
+        reports        (atom [])                       ; :rf.error/frame-teardown-failed
+        silencings     (atom [])                       ; :rf.epoch.cb/silenced-on-frame-destroy
+        publish-calls  (atom 0)
+        a-token        (atom nil)
+        b-token        (atom nil)
+        original-snap  (late-bind/get-fn :epoch/snapshot-frame-destroyed)
+        original-epoch (late-bind/get-fn :epoch/on-frame-destroyed)]
+    (rf/reg-event :snap-fail/seed (fn [_ _] {:db {:n 0}}))
+    (rf/make-frame {:id id})
+    ;; An epoch cb OBSERVES A: delivery of the settled :seed record stamps its
+    ;; observation of the frame, so a live snapshot would owe it a silence.
+    (rf/register-listener! :epoch cb (fn [_] nil))
+    (rf/dispatch-sync [:snap-fail/seed] {:frame id})
+    (reset! a-token (frame/frame-incarnation-token id))
+    (rf/register-listener! :errors cb
+      (fn [r] (when (= :rf.error/frame-teardown-failed (:error r))
+                (swap! reports conj r))))
+    (rf/register-listener! :trace cb
+      (fn [ev] (when (= :rf.epoch.cb/silenced-on-frame-destroy (:operation ev))
+                 (swap! silencings conj ev))))
+    (try
+      ;; Fail the PRE-dissoc snapshot for this id (delegate every other id).
+      (late-bind/set-fn! :epoch/snapshot-frame-destroyed
+        (fn [& args]
+          (if (= id (first args))
+            (throw (ex-info "snapshot blew" {}))
+            (when original-snap (apply original-snap args)))))
+      ;; Spy the POST-dissoc publish: prove it ran, install same-id B inside its
+      ;; window, then delegate to the real (nil-bundle → no-op) publish.
+      (late-bind/set-fn! :epoch/on-frame-destroyed
+        (fn [& args]
+          (when (= id (first args))
+            (swap! publish-calls inc)
+            (rf/make-frame {:id id})
+            (reset! b-token (frame/frame-incarnation-token id)))
+          (when original-epoch (apply original-epoch args))))
+      (frame/destroy-frame! id)
+      (executor-barrier!)
+
+      ;; (1) The post-dissoc publish still ran despite the failed snapshot.
+      (is (= 1 @publish-calls)
+          "the post-dissoc :epoch/on-frame-destroyed publish (step 11) still
+           fires after the pre-dissoc snapshot (step 8a) threw")
+
+      ;; (2) Exactly one bounded always-on report, naming the snapshot hook.
+      (is (= 1 (count @reports))
+          "exactly one bounded :rf.error/frame-teardown-failed ships (finally-flush)")
+      (let [r (first @reports)]
+        (is (= id (:frame r)) "the report names the destroyed frame")
+        (is (= 1 (count (:hook-failures r)))
+            "one :hook-failures entry — only the snapshot hook failed")
+        (is (= :epoch/snapshot-frame-destroyed (:hook (first (:hook-failures r))))
+            "the report names the failing pre-dissoc snapshot hook")
+        (is (= :ignored (:recovery r))
+            ":recovery :ignored — teardown is best-effort"))
+
+      ;; (3) The same-id successor B is pristine.
+      (is (some? @b-token)
+          "same-id B was installed in the post-dissoc window")
+      (is (= @b-token (frame/frame-incarnation-token id))
+          "B is the live incarnation after the destroy returns")
+      (is (not= @a-token @b-token)
+          "B is a FRESH incarnation, not A's token")
+      (is (empty? @silencings)
+          "the nil-bundle publish owes no silence — the observing cb is untouched")
+      (finally
+        ;; Restore the real hooks BEFORE destroying B so B's teardown runs clean.
+        (late-bind/set-fn! :epoch/snapshot-frame-destroyed original-snap)
+        (late-bind/set-fn! :epoch/on-frame-destroyed original-epoch)
+        (rf/unregister-listener! :epoch cb)
+        (rf/unregister-listener! :errors cb)
+        (rf/unregister-listener! :trace cb)
+        (when (frame/frame id) (frame/destroy-frame! id))))))
+
 ;; ---- rf2-vxgfnd.245 — honest delayed epoch fan-out after same-id rearm -------
 ;;
 ;; #5850 snapshots predecessor A's `silenced-cbs` before dissoc and later
