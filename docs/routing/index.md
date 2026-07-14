@@ -1,30 +1,50 @@
 # Routing
 
-A URL is just another input. In most frameworks the router is a parallel system — its own components, its own lifecycle, its own place to hold state — bolted onto the side of your app. re-frame2 folds it into the event pipeline you already have: the **URL is an input**, the active route is ordinary state you read through a subscription, and **navigation is just an event**. So routing is traceable, time-travels, and tests like everything else.
-
-You register routes (`reg-route`) as a table mapping URL patterns to what they need — param/query schemas, a [loader](glossary.md#loader) for the page's data, a [`:can-leave`](glossary.md#route-guard) guard — and read the active route as state.
+A URL is just another input. Most stacks bolt on a parallel router — its own
+components, lifecycle, and store. re-frame2 folds routing into the pipeline you
+already have: the **URL is an input**, the active route is ordinary state via a
+subscription, and **navigation is an event**. Traceable, time-travelling, and
+testable like everything else.
 
 ```clojure
-;; A route is data: an id, a metadata map, and a path (the third slot).
+(:require [re-frame.core :as rf]
+          [re-frame.routing])   ;; day8/re-frame2-routing — forget this → :rf.error/routing-artefact-missing
+
 (rf/reg-route :app/article
   {:params [:map [:id :string]]}
-  "/articles/:id")
+  "/articles/:id")                    ;; path is the third slot, not a metadata key
 
-;; Read the active route as state; change it by dispatching an event.
-@(rf/subscribe [:rf.route/params])                  ;; => {:id "hello"}
+@(rf/subscribe [:rf.route/params])    ;; => {:id "hello"}
 (rf/dispatch [:rf.route/navigate :app/article {:id "hello"}])
 ```
 
-Because a route's [loader](glossary.md#loader) runs on the server too, routing and [SSR](../ssr/index.md) share one data-fetch story — there's no separate server fetch to keep in sync.
+Route [loaders](glossary.md#loader) run on the server too — one data-fetch story
+with [SSR](../ssr/index.md), no separate server router.
 
-## In this section
+## Start here
 
-- **[Tutorial: build a routed app](tutorial.md)** — a three-page app grown one step at a time: routes, links, dynamic segments, loaders, the 404, the Back button, and a shared layout. Start here.
-- **[Concepts](concepts.md)** — the whole model in three moves, then the refinements: query strings, loaders and resources, blocking a navigation, not-found, classification, and running the same handler on the server.
-- **How-to** — [Guard against unsaved changes](how-to/guard-unsaved-changes.md) and [Require sign-in on a route](how-to/require-sign-in-on-a-route.md): one task each, complete code.
-- **[Testing](testing.md)** — the URL codec as pure function calls, navigation through a test frame, deep links and the 404, and the leave guard — all with zero DOM.
-- **[Examples](examples.md)** — runnable routing apps, small and under real load.
-- **[Glossary](glossary.md)** — the section's vocabulary, one definition each.
-- **[Coming from React Router](coming-from-react-router.md)** — the mapping table and the deliberate divergences.
+1. **[Tutorial](tutorial.md)** — three-page app grown step by step (routes, links,
+   params, loaders, 404, Back button, layout). Best first hour.
+2. **[The model](concepts.md)** — three moves (registry row, navigate event, route
+   sub), then loaders, guards, not-found, URL binding.
+3. **Task recipes** when you have one job:
+   [unsaved changes](how-to/guard-unsaved-changes.md) (leave guard),
+   [require sign-in](how-to/require-sign-in-on-a-route.md) (multi-route interceptor —
+   prefer [`:can-enter`](concepts.md#guarding-entry--can-enter) for one page).
 
-The routing docs are a **guide** — read top to bottom to learn routing, or dip in to understand one part. Every signature, event, subscription, and keyword has its canonical home in the separate **[API reference](../api/re-frame.routing.md)**: the guide teaches, the reference is where you look things up.
+**Prerequisites.** [Core introduction](../core/introduction.md) — events, app-db,
+subscriptions, views. Routing plugs into those; it does not replace them.
+
+Optional later: [testing](testing.md), [examples](examples.md),
+[React Router mapping](coming-from-react-router.md), [glossary](glossary.md).
+
+## When *not* to use routing
+
+| Situation | Prefer |
+|---|---|
+| Single-screen app, no shareable URLs | No routing artefact (zero cost) |
+| In-memory UI steps with no URL | app-db flags / a [machine](../machines/index.md) |
+| Server-only redirects | Host middleware or [SSR](../ssr/concepts.md) response effects |
+
+Reach for routing when **the address bar is part of the product** — deep links,
+shareable state, Back/Forward, SEO/SSR entry.

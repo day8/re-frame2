@@ -1,16 +1,16 @@
 # Routing glossary
 
-re-frame2's optional routing capability — the URL is an *input* to your app, the active route is ordinary state you read through subscriptions, and navigation is just an [event](../core/glossary.md#event). See [Routing](concepts.md).
+re-frame2's optional routing capability — the URL is an *input* to your app, the active route is ordinary state you read through subscriptions, and navigation is just an [event](../core/glossary.md#event). See [The model](concepts.md).
 
 ### **navigate**
 
 Change the route by dispatching navigation — the URL is an input, the active [route](#route) a [subscription](../core/glossary.md#subscription) you read like any other. Because it's an event, navigation is traceable, interceptable, and rewound by time-travel.
 
 ```clojure
-(rf/dispatch [:rf.route/navigate :article {:id "abc"}])
+(rf/dispatch [:rf.route/navigate :app/article {:id "abc"}])
 ```
 
-Related: [Routing](concepts.md).
+Related: [The model](concepts.md).
 
 ### **route**
 
@@ -38,7 +38,7 @@ The counter that identifies one navigation. Route-declared resources are owned b
 
 ### **route guard**
 
-A `:can-leave` guard subscription (strict boolean: `true` means leaving is fine) consulted before leaving a [route](#route); a `false` parks the navigation as *pending* so your [view](../core/glossary.md#view) can render a "discard changes?" prompt, resolved by dispatching `:rf.route/continue` or `:rf.route/cancel`. The idiomatic home for unsaved-changes prompts — gating *entry* (an auth redirect) is an ordinary interceptor over the navigation events instead ([Require sign-in on a route](how-to/require-sign-in-on-a-route.md)).
+A boolean subscription on a [route](#route): **`:can-leave`** (`true` = leave is fine) or **`:can-enter`** (`true` = enter is fine). A `false` parks the attempt in `[:rf/pending-navigation]`; your [view](../core/glossary.md#view) resolves it with `[:rf.route/continue <id>]` or `[:rf.route/cancel <id>]` (the pending-nav id). Unsaved-changes → leave guard ([recipe](how-to/guard-unsaved-changes.md)); per-route auth → enter guard; multi-route policy → optional interceptor ([recipe](how-to/require-sign-in-on-a-route.md)).
 
 ### **not-found**
 

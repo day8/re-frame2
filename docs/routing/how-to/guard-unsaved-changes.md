@@ -1,10 +1,13 @@
 # Guard against unsaved changes
 
-A reader is half-way through editing an article, clicks a link, and loses the lot. The fix is an "are you sure? you have unsaved changes" prompt — the one navigation interaction every editor needs.
+You know [the route model](../concepts.md). This page is one job: **"are you sure?
+unsaved changes"** before leaving an editor.
 
-In re-frame2 this is a [route guard](../glossary.md#route-guard): a route declares `:can-leave`, the runtime *blocks* the navigation when the guard says no, and the blocked navigation parks in state your prompt renders from. The whole flow is data — a subscription and two events — so it tests with zero DOM. We'll build it in four steps, then make it pass.
+Shape: `:can-leave` boolean sub (`true` = leave is fine) → `false` parks the attempt
+in `[:rf/pending-navigation]` → dialog dispatches `:rf.route/continue` or
+`:rf.route/cancel`. Data all the way; tests with zero DOM.
 
-> **The shape in one line.** `:can-leave` is a boolean sub (`true` = leaving is fine); a `false` parks the attempt in `:rf/pending-navigation`; your dialog renders from that slot and resolves it with `:rf.route/continue` or `:rf.route/cancel`.
+**Prerequisites.** [The model → Blocking](../concepts.md#blocking-a-navigation).
 
 ## 1. Write the "is it safe to leave?" sub
 
@@ -41,16 +44,20 @@ The blocked navigation lands in `:rf/pending-navigation`. Subscribe to it: when 
   (when-let [pending @(rf/subscribe [:rf/pending-navigation])]
     [:div.modal
      [:p "You have unsaved changes. Leave anyway?"]
-     [:button {:on-click #(dispatch [:rf.route/cancel])}   "Stay"]
-     [:button {:on-click #(dispatch [:rf.route/continue])} "Discard & leave"]]))
+     ;; Both events take the pending-nav *id* — not a bare keyword.
+     [:button {:on-click #(dispatch [:rf.route/cancel (:id pending)])}   "Stay"]
+     [:button {:on-click #(dispatch [:rf.route/continue (:id pending)])} "Discard & leave"]]))
 ```
 
-(`@(subscribe [:rf/pending-navigation])` reads the pending-nav slot — an ordinary framework subscription, no extra require needed.)
+(`@(subscribe [:rf/pending-navigation])` is an ordinary framework sub.) The reader's
+choice is a dispatch carrying **`(:id pending)`**:
 
-The reader's choice is itself a dispatch:
+- `[:rf.route/continue <id>]` — proceed with the parked navigation (re-runs
+  `:can-enter` on the target if any).
+- `[:rf.route/cancel <id>]` — drop it; stay put.
 
-- `:rf.route/continue` — proceed with the parked navigation (it commits now).
-- `:rf.route/cancel` — drop it; stay put.
+A bare `[:rf.route/continue]` / `[:rf.route/cancel]` without the id is wrong — the
+runtime keys the pending slot by that id (stale ids are safe no-ops).
 
 Mount `leave-guard-dialog` once near your root view and it covers every guarded route — it renders nothing until something is pending.
 
@@ -83,12 +90,14 @@ Because the whole flow is events and a subscription, the test needs no browser, 
 (is (= :app/article-editor @(rf/subscribe [:rf.route/id])))     ;; still here
 (is (some?                  @(rf/subscribe [:rf/pending-navigation])))  ;; parked
 
-;; The reader confirms — now it goes through.
-(rf/dispatch-sync [:rf.route/continue])
+;; The reader confirms — continue takes the pending id.
+(rf/dispatch-sync [:rf.route/continue
+                   (:id @(rf/subscribe [:rf/pending-navigation]))])
 (is (= :app/home @(rf/subscribe [:rf.route/id])))
 (is (nil?        @(rf/subscribe [:rf/pending-navigation])))
 ```
 
-That's the payoff of a guard that's *state*, not a side effect: every branch — blocked, confirmed, cancelled, bypassed — is a dispatch and an assertion.
+That's the payoff of a guard that's *state*, not a side effect: every branch —
+blocked, confirmed, cancelled, bypassed — is a dispatch and an assertion.
 
-> **For JavaScript developers.** This replaces React Router's `useBlocker` / `usePrompt` and the old `beforeunload` hack, with two upgrades: the guard is a *subscription* (declarative, derived from state), and the pending navigation is *state you render from*, so your confirm dialog is a normal view rather than an imperative blocker object you drive by hand.
+Also covered under [Testing routes](../testing.md).
