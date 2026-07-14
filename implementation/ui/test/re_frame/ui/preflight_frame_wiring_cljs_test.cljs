@@ -185,19 +185,26 @@
     (is (= 1 (:n (rf/app-db-value :frame/session)))
         "new lifetime re-seeds from :initial-events")))
 
-(deftest self-destroying-initial-events-do-not-publish-a-dead-lifetime
+(deftest self-destroying-initial-events-fail-closed-and-leave-no-dead-record
   ;; `make-frame` runs :initial-events synchronously before the plan executor
   ;; publishes its install record. A handler may destroy its own frame and still
-  ;; return normally (run-to-completion), so publication must be conditional on
-  ;; that just-created lifetime still being live.
+  ;; return normally (run-to-completion), leaving the frame ABSENT. Publication
+  ;; is rejected — and rf2-5svfa1 now FAILS THE PREFLIGHT CLOSED with the typed
+  ;; `:rf.error/frame-preflight-lifecycle-loss` rather than silently returning a
+  ;; receipt: ENSURE must not leave a live host root scoped to an absent frame.
+  ;; The dead lifetime still leaves NO install record (rf2-m1dsuw preserved).
   (rf/reg-event :test/destroy-self
     (fn [_ _]
       (frame/destroy-frame! :frame/self-destroy)
       {}))
-  (frames/execute-frame-plans!
-   :root/a [(plan :frame/self-destroy
-                  {:initial-events [[:test/destroy-self]]}
-                  "cf1-dead111111111111")])
+  (let [ed (err-data
+            #(frames/execute-frame-plans!
+              :root/a [(plan :frame/self-destroy
+                             {:initial-events [[:test/destroy-self]]}
+                             "cf1-dead111111111111")]))]
+    (is (= :rf.error/frame-preflight-lifecycle-loss (:rf.error/id ed))
+        "the self-destroying setup fails the preflight closed")
+    (is (= :ensured-frame-lost (:kind ed))))
   (is (nil? (frame/frame :frame/self-destroy))
       "sanity: the setup handler destroyed the frame under construction")
   (is (nil? (frames/installed-plan-entry :frame/self-destroy))
