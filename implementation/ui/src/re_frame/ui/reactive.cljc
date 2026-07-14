@@ -336,8 +336,11 @@
 ;; slice's table never survives into the next (rf2-vxgfnd.174):
 ;;
 ;;   - JVM: a THREAD-LOCAL render-slice scope (`*slice*`, opened by
-;;     `with-slice-memo` — the reactive render entry `with-capture` opens one
-;;     around each render, and a Tier-1 render entry may too). The box holds
+;;     `with-slice-memo`). EVERY public Tier-1 JVM render entry opens one around
+;;     the render thunk — `re-frame.ui.tree/render` and `ui.test/render`'s
+;;     view-reference / literal / plan-bearing routes (all three converge on
+;;     `render-with-opts` / `render-plan-bearing`) — and the reactive host entry
+;;     `with-capture` opens one around each ViewCell render. The box holds
 ;;     this slice's handle; the `binding` discards it on scope exit, so the
 ;;     prior table is unreachable with NO `reset-scheduler!`/tag-change
 ;;     dependency, two sequential executor tasks never share a table, and
@@ -373,14 +376,21 @@
   Released at the microtask checkpoint by `current-slice-memo`."
   (atom nil))
 
-(defn- with-slice-memo
-  "Open a render/execution slice for `thunk`: every `sub-read`/probe run under
-  it shares ONE slice-memo handle, discarded when `thunk` returns. Re-entrant —
+(defn ^:no-doc with-slice-memo
+  "THE Tier-1 JVM render-slice runner. Open a render/execution slice for
+  `thunk`: every `sub-read`/probe run under it shares ONE slice-memo handle,
+  discarded when `thunk` returns, so N sibling probes of one cold derived parent
+  compute it once per render (the first-mount fan-out mitigation) yet a LATER
+  render recomputes it. Established at every real public Tier-1 render boundary —
+  `re-frame.ui.tree/render` and `ui.test/render`'s view/literal/plan-bearing
+  routes — plus the reactive host entry `with-capture`, so the public headless
+  path shares one memo exactly as the browser/Tier-3 path does. Re-entrant —
   a nested call reuses the enclosing slice rather than opening a second one, so a
-  Tier-1 render entry and the `with-capture` inside it share ONE slice. On CLJS
-  this is a passthrough: the single-threaded host shares a synchronous render
-  pass through the module holder (`slice-memo*`), microtask-released, and needs
-  no per-scope binding."
+  Tier-1 render entry and the `with-capture` inside it share ONE slice, and a
+  bare `sub-read` OUTSIDE any scope gets a fresh per-call handle. On CLJS this is
+  a passthrough: the single-threaded host shares a synchronous render pass
+  through the module holder (`slice-memo*`), microtask-released, and needs no
+  per-scope binding."
   [thunk]
   #?(:clj  (if (thread-bound? #'*slice*)
              (thunk)
