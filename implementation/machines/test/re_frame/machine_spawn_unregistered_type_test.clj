@@ -33,7 +33,7 @@
       `(= n-done n-total)` forever) AND it does not orphan the registered
       siblings (rf2-qb1j5z). `spawn-all-init-fx` seeds a reject SENTINEL
       (`{:rf/spawn-all-rejected? true}`, no `:children`): the join interceptor
-      treats it as unseeded so a stray sibling completion is the documented
+      treats it as no live child-bearing join so a stray sibling completion is the documented
       no-op (no hang), and the registered siblings' per-child spawns detect
       the sentinel and SUPPRESS themselves (no live orphan actor with no
       seeded join to ever tear it down).
@@ -227,8 +227,8 @@
         (is (every? #(= :gc/missing (:machine-id %)) records)
             "every reject names the unregistered child TYPE :gc/missing")
         ;; A reject SENTINEL was seeded (no :children) — the join cannot hang
-        ;; because the interceptor treats a childless slot as unseeded, so a
-        ;; sibling completion drives nothing toward (= n-done n-total).
+        ;; because the interceptor treats a childless slot as no live child-bearing
+        ;; join, so a sibling completion drives nothing toward (= n-done n-total).
         (is (= {:rf/spawn-all-rejected? true}
                (get-in (frame-db) [:rf.runtime/machines :spawned :sup/join [:forking]]))
             "the reject sentinel (no :children) is seeded for a :spawn-all with an unregistered child")
@@ -273,11 +273,11 @@
           "(precondition) the childless reject sentinel is seeded")
       ;; Hand-drive a child-done event into the parent. The registered sibling
       ;; :gc/ok2 was suppressed, so this stands in for any stray completion:
-      ;; the interceptor sees the childless sentinel, treats it as unseeded,
-      ;; and it is a documented no-op — it does NOT throw and does NOT hang.
+      ;; the interceptor sees the childless sentinel, treats it as no live
+      ;; child-bearing join, and it is a documented no-op — it does NOT throw and does NOT hang.
       (rf/dispatch-sync [:sup/join2 [:gc/done :ok]])
       (is (= :forking (mtest/machine-state :sup/join2))
-          "a child-done with no seeded join-state is a no-op — never resolves, never hangs"))))
+          "a child-done against a childless reject sentinel (no live join) is a no-op — never resolves, never hangs"))))
 
 ;; ===========================================================================
 ;; (5) No false reject — registered TYPE + inline :definition still spawn.
