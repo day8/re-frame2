@@ -348,22 +348,35 @@
                          frame-id fs-before fs-after committed-at)))
   ([frame-id owner-token terminal-evidence]
    (when interop/debug-enabled?
-     (let [{:keys [record listener-snapshot silenced-cbs]} terminal-evidence]
-       ;; Compare-owned store drop: A erases ONLY its own id-keyed stores. If a
-       ;; same-id B has already claimed them, this no-ops and leaves B untouched.
-       (state/cleanup-frame-owner!
-         frame-id owner-token
-         (fn []
-           ;; Data-only exact-owner transaction: no external callback runs
-           ;; between owner comparison and the complete drop.
-           (state/drop-frame-observation! frame-id)
-           (state/drop-frame-history! frame-id)
-           (state/drop-frame-buffer! frame-id)
-           (state/drop-last-settled-epoch! frame-id)
-           (state/drop-frame-mount-attribution! frame-id)
-           true))
-       ;; Publish A's terminal facts regardless of the cleanup comparison — the
-       ;; evidence was snapshotted before dissoc and belongs to A's incarnation.
+     (let [{:keys [record listener-snapshot silenced-cbs]} terminal-evidence
+           ;; Compare-owned store drop: A erases ONLY its own id-keyed stores. If
+           ;; a same-id B has already claimed them, this no-ops and leaves B
+           ;; untouched. The return value records whether A STILL WON its
+           ;; compare-owned cleanup: `cleanup-fn` returns true when A owned the
+           ;; stores (or no epoch state was ever claimed), nil when a successor B
+           ;; has already claimed them. That truth is exactly "no successor has
+           ;; re-armed the id-keyed observation state" (a successor claims by
+           ;; SETTLING, which fans its record to — and thereby re-arms — every
+           ;; live-generation observer of the reused id), so it gates A's
+           ;; silencing fan below (rf2-vxgfnd.245).
+           a-won-cleanup?
+           (state/cleanup-frame-owner!
+             frame-id owner-token
+             (fn []
+               ;; Data-only exact-owner transaction: no external callback runs
+               ;; between owner comparison and the complete drop.
+               (state/drop-frame-observation! frame-id)
+               (state/drop-frame-history! frame-id)
+               (state/drop-frame-buffer! frame-id)
+               (state/drop-last-settled-epoch! frame-id)
+               (state/drop-frame-mount-attribution! frame-id)
+               true))]
+       ;; Publish A's terminal RECORD + trailers regardless of the cleanup
+       ;; comparison — the evidence was snapshotted before dissoc and belongs to
+       ;; A's incarnation (rf2-vxgfnd.151). A late predecessor terminal record may
+       ;; arrive after a newer same-id epoch; it is HISTORICAL and consumers must
+       ;; not treat it as the successor's current ring/focus (Spec 009 / Tool-Pair
+       ;; late-record consumer rule).
        (when record
          ;; Same detailed/coarse trailer pair as normal commits, delivered
          ;; structurally: excluded from capture ownership and immune to a same-id
@@ -372,9 +385,19 @@
            #(assembly/emit-snapshotted+outcome! frame-id (:epoch-id record)
                                                 (:event-id record) :halted-destroy))
          (deliver-listener-snapshot! record listener-snapshot))
-       (doseq [cb-id silenced-cbs]
-         ;; The silencing fact belongs to destroyed A too; never let a same-id
-         ;; successor's trace policy suppress or capture it.
-         (trace/call-with-structural-delivery
-           #(trace/emit! :rf.epoch.cb :rf.epoch.cb/silenced-on-frame-destroy
-                         {:frame frame-id :cb-id cb-id})))))))
+       ;; The SILENCING fan is HONEST only when A still wins its compare-owned
+       ;; cleanup. If a same-id successor B has claimed the id-keyed stores, the
+       ;; same current listener generation already received B's newer record and
+       ;; is re-armed — so a bare A `:silenced-on-frame-destroy` would falsely
+       ;; claim a callback that is LIVE on B went silent (and B's own later
+       ;; destroy re-emits the identical unqualified signal). Gating on
+       ;; `a-won-cleanup?` republishes A's silencing ONLY when no successor
+       ;; re-armed the observation state; B silences those callbacks itself when B
+       ;; is destroyed (rf2-vxgfnd.245).
+       (when a-won-cleanup?
+         (doseq [cb-id silenced-cbs]
+           ;; The silencing fact belongs to destroyed A too; never let a same-id
+           ;; successor's trace policy suppress or capture it.
+           (trace/call-with-structural-delivery
+             #(trace/emit! :rf.epoch.cb :rf.epoch.cb/silenced-on-frame-destroy
+                           {:frame frame-id :cb-id cb-id}))))))))

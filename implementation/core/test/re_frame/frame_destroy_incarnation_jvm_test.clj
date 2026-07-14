@@ -617,8 +617,13 @@
     (rf/reg-event :destroy/ring-b-settle
       (fn [{:keys [db]} _] {:db (assoc db :owner :b)}))
     (rf/make-frame {:id id})
-    ;; A accrues an observer by settling one ordinary event, so its destroy
-    ;; fans a :rf.epoch.cb/silenced-on-frame-destroy terminal fact too.
+    ;; A accrues an observer by settling one ordinary event. Because same-id B
+    ;; then SETTLES (claiming the id-keyed stores and re-arming this observer with
+    ;; B's record), A's silencing fan for the observer is honestly SUPPRESSED
+    ;; under rf2-vxgfnd.245 — the observer is live on B, so B silences it on B's
+    ;; own destroy, not A. A's :rf.epoch/snapshotted / :rf.epoch/outcome trailers
+    ;; still fire (they are A's unconditional terminal evidence) and pin the RING
+    ;; boundary this #5865 fixture exists for.
     (rf/register-listener! :epoch a-observer (fn [_] nil))
     (rf/dispatch-sync [:destroy/ring-a-settle] {:frame id})
     ;; Global live trace listener — captures A's frame-tagged terminal facts.
@@ -689,11 +694,17 @@
                                         (= :blocked (get-in % [:tags :outcome])))
                                   @global-facts)))
               "A's :blocked outcome reaches the global listener once")
-          (is (= 1 (count (filter #(and (= :rf.epoch.cb/silenced-on-frame-destroy
-                                           (:operation %))
-                                        (= a-observer (get-in % [:tags :cb-id])))
-                                  @global-facts)))
-              "A's silencing fact for its observer reaches the global listener once")
+          ;; rf2-vxgfnd.245: A's silencing fan for its observer is SUPPRESSED —
+          ;; same-id B claimed the id and re-armed the observer with B's record,
+          ;; so the observer is live on B (B silences it on B's own destroy). A
+          ;; publishing a bare silencing here would falsely claim the observer
+          ;; went silent. A's other terminal facts (snapshotted / outcome) still
+          ;; fire above and demonstrate the retentionless-vs-global boundary.
+          (is (empty? (filter #(and (= :rf.epoch.cb/silenced-on-frame-destroy
+                                        (:operation %))
+                                    (= a-observer (get-in % [:tags :cb-id])))
+                              @global-facts))
+              "A's silencing for its observer is suppressed after B re-armed it (rf2-vxgfnd.245)")
 
           ;; B stays live and keeps settling normally.
           (is (identical? token-b (frame/frame-incarnation-token id))
@@ -757,6 +768,171 @@
         (rf/unregister-listener! :trace ::ring-snap-warn)
         (when (frame/frame id) (frame/destroy-frame! id))
         (late-bind/set-fn! :epoch/snapshot-frame-destroyed original-snap)))))
+
+;; ---- rf2-vxgfnd.245 — honest delayed epoch fan-out after same-id rearm -------
+;;
+;; #5850 snapshots predecessor A's `silenced-cbs` before dissoc and later
+;; PUBLISHES that saved set UNCONDITIONALLY — even when a same-id B has claimed
+;; the epoch stores and the same current listener generation has already received
+;; B's newer record and been re-armed. That makes A emit a bare
+;; :rf.epoch.cb/silenced-on-frame-destroy claiming a callback went silent when it
+;; is in fact live on B (and B re-emits the identical unqualified signal on its
+;; own later destroy). The fix gates A's silencing fan on A still winning its
+;; compare-owned cleanup — equivalently, on no successor having re-armed the
+;; id-keyed observation state. A's required halted record/trailers stay
+;; unconditional (rf2-vxgfnd.151); only the silencing fan is gated.
+
+(deftest predecessor-silencing-fan-suppressed-after-successor-rearm
+  ;; rf2-vxgfnd.245 (red before fix). A settles (cb observes A + A claims the
+  ;; id-keyed stores), A self-destroys mid-drain and pauses at its POST-DISSOC
+  ;; epoch hook (silenced-cbs — including cb — already snapshotted before dissoc).
+  ;; Same-id B is created and SETTLES an ordinary event: B claims the stores and
+  ;; the unchanged cb generation receives B's :ok record, re-arming it for the
+  ;; reused id. When A resumes, its silencing fan for cb must be SUPPRESSED (B
+  ;; owns the id; cb is live on B). The listener keeps receiving B's records, and
+  ;; when B later destroys, exactly ONE truthful silencing for cb fires.
+  ;;
+  ;; Before the fix A published its stale snapshot unconditionally: a bare A
+  ;; silencing for cb fired even though cb is live on B (and B's later destroy
+  ;; fired a second identical one).
+  (let [id             :vxgfnd245/rearm
+        cb             ::vxgfnd245-cb
+        a-after-dissoc (CountDownLatch. 1)
+        release-a      (CountDownLatch. 1)
+        first-epoch?   (atom true)
+        received       (atom [])
+        silencings     (atom [])
+        original-epoch (late-bind/get-fn :epoch/on-frame-destroyed)]
+    (rf/reg-event :vxgfnd245/a-settle
+      (fn [{:keys [db]} _] {:db (assoc db :a true)}))
+    (rf/reg-event :vxgfnd245/a-destroy
+      (fn [_ _] (frame/destroy-frame! id) {:db {:owner :a-tail}}))
+    (rf/reg-event :vxgfnd245/b-settle
+      (fn [{:keys [db]} _] {:db (assoc db :owner :b)}))
+    (rf/make-frame {:id id})
+    ;; cb observes A by settling one ordinary event; A claims the id-keyed stores.
+    (rf/register-listener! :epoch cb (fn [r] (swap! received conj r)))
+    (rf/dispatch-sync [:vxgfnd245/a-settle] {:frame id})
+    (rf/register-listener! :trace ::vxgfnd245-silencing
+      (fn [ev]
+        (when (= :rf.epoch.cb/silenced-on-frame-destroy (:operation ev))
+          (swap! silencings conj ev))))
+    (try
+      (late-bind/set-fn! :epoch/on-frame-destroyed
+        (fn [& args]
+          (when (and (= id (first args))
+                     (compare-and-set! first-epoch? true false))
+            (.countDown a-after-dissoc)
+            (.await release-a 10 TimeUnit/SECONDS))
+          (when original-epoch (apply original-epoch args))))
+      (let [dispatch-a (future
+                         (rf/dispatch-sync [:vxgfnd245/a-destroy] {:frame id}))]
+        (is (.await a-after-dissoc 10 TimeUnit/SECONDS)
+            "A is paused at its post-dissoc epoch hook (silenced-cbs already
+             snapshotted incl cb)")
+        ;; Same-id B settles: claims stores + re-arms cb for the reused id.
+        (rf/make-frame {:id id})
+        (rf/dispatch-sync [:vxgfnd245/b-settle] {:frame id})
+        (is (= 2 (count @received))
+            "cb received A's settle and B's settle — re-armed for the reused id")
+        ;; A resumes and reaches its terminal publish while B owns the stores.
+        (.countDown release-a)
+        (is (not= ::timeout (deref dispatch-a 5000 ::timeout))
+            "A's terminal recipe completes")
+        (executor-barrier!)
+        ;; THE FIX: A's silencing fan for cb is suppressed — cb is live on B.
+        (is (empty? (filter #(= cb (:cb-id (:tags %))) @silencings))
+            "no bare A silencing for cb after B claimed the id and re-armed it")
+        ;; A's HISTORICAL halted-destroy record is still delivered to cb — the
+        ;; .151 record-delivery contract is unchanged by .245 (only the silencing
+        ;; fan is gated). cb remains live on B: an extra B settle reaches it.
+        (let [before-extra (count @received)]
+          (rf/dispatch-sync [:vxgfnd245/b-settle] {:frame id})
+          (is (= (inc before-extra) (count @received))
+              "cb continues to receive B's records after A resumed — it is live on B"))
+        ;; When B (where cb IS live) destroys, exactly one truthful silencing.
+        (rf/destroy-frame! id)
+        (is (= 1 (count (filter #(= cb (:cb-id (:tags %))) @silencings)))
+            "exactly one truthful silencing for cb — fired by B's own destroy"))
+      (finally
+        (.countDown release-a)
+        (rf/unregister-listener! :epoch cb)
+        (rf/unregister-listener! :trace ::vxgfnd245-silencing)
+        (when (frame/frame id) (frame/destroy-frame! id))
+        (late-bind/set-fn! :epoch/on-frame-destroyed original-epoch)))))
+
+(deftest predecessor-silencing-honours-new-generation-registered-in-gap
+  ;; rf2-vxgfnd.245 (red before fix). The re-register-in-the-gap case: cb observes
+  ;; A, A self-destroys mid-drain and pauses; during the pause cb is REPLACED by a
+  ;; NEW generation and same-id B settles (the new cb generation receives B's
+  ;; record and is re-armed). A's stale snapshot silencing must not fire against
+  ;; the reused id: cb is live (new generation) on B. B's later destroy emits
+  ;; exactly one truthful silencing for the new generation.
+  (let [id             :vxgfnd245/regen
+        cb             ::vxgfnd245-regen-cb
+        a-after-dissoc (CountDownLatch. 1)
+        release-a      (CountDownLatch. 1)
+        first-epoch?   (atom true)
+        old-received   (atom 0)
+        new-received   (atom 0)
+        silencings     (atom [])
+        original-epoch (late-bind/get-fn :epoch/on-frame-destroyed)]
+    (rf/reg-event :vxgfnd245/regen-a-settle
+      (fn [{:keys [db]} _] {:db (assoc db :a true)}))
+    (rf/reg-event :vxgfnd245/regen-a-destroy
+      (fn [_ _] (frame/destroy-frame! id) {:db {:owner :a-tail}}))
+    (rf/reg-event :vxgfnd245/regen-b-settle
+      (fn [{:keys [db]} _] {:db (assoc db :owner :b)}))
+    (rf/make-frame {:id id})
+    (rf/register-listener! :epoch cb (fn [_] (swap! old-received inc)))
+    (rf/dispatch-sync [:vxgfnd245/regen-a-settle] {:frame id})
+    (rf/register-listener! :trace ::vxgfnd245-regen-silencing
+      (fn [ev]
+        (when (= :rf.epoch.cb/silenced-on-frame-destroy (:operation ev))
+          (swap! silencings conj ev))))
+    (try
+      (late-bind/set-fn! :epoch/on-frame-destroyed
+        (fn [& args]
+          (when (and (= id (first args))
+                     (compare-and-set! first-epoch? true false))
+            (.countDown a-after-dissoc)
+            (.await release-a 10 TimeUnit/SECONDS))
+          (when original-epoch (apply original-epoch args))))
+      (let [dispatch-a (future
+                         (rf/dispatch-sync [:vxgfnd245/regen-a-destroy] {:frame id}))]
+        (is (.await a-after-dissoc 10 TimeUnit/SECONDS)
+            "A paused post-dissoc")
+        ;; Replace cb with a NEW generation in the gap, then B settles.
+        (rf/register-listener! :epoch cb (fn [_] (swap! new-received inc)))
+        (rf/make-frame {:id id})
+        (rf/dispatch-sync [:vxgfnd245/regen-b-settle] {:frame id})
+        (is (= 1 @new-received)
+            "the NEW cb generation received B's settled record")
+        (.countDown release-a)
+        (is (not= ::timeout (deref dispatch-a 5000 ::timeout))
+            "A's terminal recipe completes")
+        (executor-barrier!)
+        (is (empty? (filter #(= cb (:cb-id (:tags %))) @silencings))
+            "A's stale snapshot never silences the reused id after a gap re-register")
+        ;; A delivers its HISTORICAL halted record to its OWN snapshot generation
+        ;; (the old callback captured pre-dissoc), NOT the new one. So the old
+        ;; callback saw A-settle + A's halted record; the new generation was
+        ;; invoked only by B — A never invokes the new generation (rf2-vxgfnd.245
+        ;; pins old/new behaviour).
+        (is (= 2 @old-received)
+            "the old cb generation received A's settle + A's historical halted record")
+        (is (= 1 @new-received)
+            "A never invoked the new cb generation — only B's settle reached it")
+        ;; B destroys → exactly one truthful silencing for the live new generation.
+        (rf/destroy-frame! id)
+        (is (= 1 (count (filter #(= cb (:cb-id (:tags %))) @silencings)))
+            "exactly one truthful silencing for the new generation on B's destroy"))
+      (finally
+        (.countDown release-a)
+        (rf/unregister-listener! :epoch cb)
+        (rf/unregister-listener! :trace ::vxgfnd245-regen-silencing)
+        (when (frame/frame id) (frame/destroy-frame! id))
+        (late-bind/set-fn! :epoch/on-frame-destroyed original-epoch)))))
 
 ;; ---- rf2-vf2qke — structural scope must not taint listener-triggered work ----
 ;;

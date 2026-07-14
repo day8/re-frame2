@@ -45,6 +45,10 @@
             [re-frame.epoch.listeners :as epoch.listeners]
             [re-frame.epoch.state :as state]
             [re-frame.interop :as interop]
+            ;; rf2-vxgfnd.245 — the reentrant CLJS fail-before fixture wraps the
+            ;; `:epoch/on-frame-destroyed` late-bind hook to install + settle a
+            ;; same-id successor synchronously inside A's terminal publish.
+            [re-frame.late-bind :as late-bind]
             ;; rf2-lo28u — schemas + the Malli adapter so a `:schema`-bearing
             ;; reg-event's `:where :event` violation actually fires (without
             ;; the adapter the default validator soft-passes).
@@ -424,3 +428,60 @@
               "exactly one silencing trace for the live generation")))
       (trace-tooling/unregister-listener! ::rec)
       (rf/unregister-listener! :epoch ::probe))))
+
+;; ---- 8. rf2-vxgfnd.245 — honest delayed silencing after same-id rearm ------
+
+(deftest predecessor-silencing-suppressed-after-reentrant-successor-rearm-cljs
+  (testing "rf2-vxgfnd.245 (synchronous/reentrant CLJS, red before fix) — A's
+            post-dissoc epoch hook re-entrantly installs a same-id successor B and
+            settles it, claiming the id-keyed stores and re-arming the unchanged
+            cb generation with B's record. A must NOT then republish its stale
+            snapshot silencing for cb (cb is live on B); B silences cb on B's own
+            destroy exactly once. Before the fix A published its silencing
+            unconditionally, so cb was falsely silenced and B re-emitted an
+            identical unqualified signal."
+    (let [id         :rf2-245/frame
+          cb         ::rf2-245-cljs-cb
+          received   (atom [])
+          silencings (atom [])
+          armed?     (atom true)
+          original   (late-bind/get-fn :epoch/on-frame-destroyed)]
+      (rf/reg-event :rf2-245/seed     (fn [{:keys [db]} _] {:db {:n 0}}))
+      (rf/reg-event :rf2-245/b-settle (fn [{:keys [db]} _] {:db {:owner :b}}))
+      (rf/make-frame {:id id})
+      ;; cb observes A by settling one ordinary event; A claims the id-keyed stores.
+      (rf/register-listener! :epoch cb (fn [r] (swap! received conj r)))
+      (rf/dispatch-sync [:rf2-245/seed] {:frame id})
+      (rf/register-listener! :trace ::rf2-245-cljs-silencing
+        (fn [ev]
+          (when (= :rf.epoch.cb/silenced-on-frame-destroy (:operation ev))
+            (swap! silencings conj ev))))
+      (try
+        (late-bind/set-fn! :epoch/on-frame-destroyed
+          (fn [& args]
+            ;; On A's FIRST post-dissoc hook, re-entrantly install same-id B and
+            ;; settle it: B claims the id-keyed stores and re-arms cb with B's
+            ;; record — synchronously, no threads. The idle top-level destroy runs
+            ;; this hook with no drain on the stack (continuing? true), so the
+            ;; reentrant settle commits normally.
+            (when (and (= id (first args)) (compare-and-set! armed? true false))
+              (rf/make-frame {:id id})
+              (rf/dispatch-sync [:rf2-245/b-settle] {:frame id}))
+            (when original (apply original args))))
+        (rf/destroy-frame! id)
+        ;; THE FIX: A's silencing fan for cb is suppressed — cb is live on B.
+        (is (empty? (filter #(= cb (:cb-id (:tags %))) @silencings))
+            "no bare A silencing for cb after reentrant B claimed + re-armed it")
+        ;; cb is live on B: another B settle reaches it.
+        (let [before (count @received)]
+          (rf/dispatch-sync [:rf2-245/b-settle] {:frame id})
+          (is (= (inc before) (count @received))
+              "cb continues to receive B's records — it is live on B"))
+        ;; B destroy → exactly one truthful silencing for cb.
+        (rf/destroy-frame! id)
+        (is (= 1 (count (filter #(= cb (:cb-id (:tags %))) @silencings)))
+            "exactly one truthful silencing for cb — fired by B's own destroy")
+        (finally
+          (late-bind/set-fn! :epoch/on-frame-destroyed original)
+          (rf/unregister-listener! :epoch cb)
+          (rf/unregister-listener! :trace ::rf2-245-cljs-silencing))))))
