@@ -98,16 +98,26 @@
   (testing "rf2-u69j7 — the cascade-kind inventory matches the
             substrate trace ops the projection harvests (rf2-ugdas adds
             :no-op for the benign unhandled-event no-op; rf2-it4vt adds
-            :start for the machine's birth [START] badge)"
-    (is (= #{:guard :action :transition :timer :no-op :start}
+            :start for the machine's birth [START] badge; rf2-bvwv4q adds
+            :microstep for a parent-owned parallel :always round)"
+    (is (= #{:guard :action :transition :microstep :timer :no-op :start}
            badge/cascade-kind-set))
     (is (badge/cascade-kind? :guard))
     (is (badge/cascade-kind? :action))
     (is (badge/cascade-kind? :transition))
+    (is (badge/cascade-kind? :microstep))
     (is (badge/cascade-kind? :timer))
     (is (badge/cascade-kind? :no-op))
     (is (badge/cascade-kind? :start))
     (is (not (badge/cascade-kind? :NOT-A-KIND))))
+
+  (testing "rf2-bvwv4q — the :microstep kind resolves to the magenta
+            transition-family colour + an ALWAYS label"
+    (is (= "ALWAYS" (badge/cascade-kind-label :microstep)))
+    (is (string? (badge/cascade-kind-colour :microstep)))
+    (is (= (badge/cascade-kind-colour :transition)
+           (badge/cascade-kind-colour :microstep))
+        "an :always round is a state change — shares the transition hue"))
 
   (testing "rf2-it4vt — the :start kind resolves to a green/success label +
             colour (a clean birth is a GOOD event), distinct from the muted

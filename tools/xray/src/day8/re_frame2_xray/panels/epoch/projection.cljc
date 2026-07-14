@@ -764,6 +764,20 @@
     :rf.machine/action-ran
     :rf.machine/transition
     :rf.machine.timer/cancelled
+    ;; rf2-bvwv4q — a parent-owned parallel `:always` ROUND's regional
+    ;; transition. A parallel macrostep commits ONE aggregate
+    ;; `:rf.machine/transition` (settled before/after region-map) but emits
+    ;; one standalone `:rf.machine.microstep/transition` per SELECTED regional
+    ;; round (`machines/parallel.cljc`), sharing an `:actor-id` +
+    ;; `:microstep-index`. Since rf2-akvfe retired the transition row's nested
+    ;; structured-cascade body, this per-emit pipeline is the sole canonical
+    ;; cascade display — so without harvesting these the parent-owned round is
+    ;; INVISIBLE (an ACTIONLESS regional `:always` emits no `:action-ran`, so
+    ;; the round trace is its only first-class evidence). `microstep-cascade-
+    ;; row` keys on the REGION tag: single-active `:always` microsteps carry
+    ;; no `:region` (they ride the transition row's `cascade-microsteps`) and
+    ;; produce no row, so single-active behaviour is unchanged.
+    :rf.machine.microstep/transition
     ;; rf2-ugdas — the benign unhandled-event no-op. A machine received an
     ;; event with no matching transition; the snapshot is unchanged. Op-type
     ;; :rf.machine (NOT an error), so it surfaces in the EVENT HANDLER machine
@@ -783,6 +797,7 @@
   {:rf.machine/guard-evaluated      :guard
    :rf.machine/action-ran           :action
    :rf.machine/transition           :transition
+   :rf.machine.microstep/transition :microstep
    :rf.machine.timer/cancelled      :timer
    :rf.machine.event/unhandled-no-op :no-op
    :rf.machine/started              :start})
@@ -831,6 +846,12 @@
    [:action :initial-entry]  3
    ;; always — intra-macrostep follow-ups after entry settled
    [:action :always]         4
+   ;; rf2-bvwv4q — a parent-owned parallel `:always` ROUND's regional
+   ;; transition ranks with the `:always` follow-ups (the round runs after
+   ;; the event settled). The stable `:trace-index` tiebreak preserves the
+   ;; substrate emit order — rounds ascend by index, regions within a round
+   ;; hold declaration order.
+   [:microstep nil]          4
    ;; after-action — `:after` timer continuations
    [:action :after-action]   5
    ;; timer cancellations — post-commit housekeeping
@@ -954,6 +975,34 @@
      :cascade      (common/tag-of ev :cascade)
      :duration-ms  (common/tag-of ev :duration-ms)}))
 
+(defn- microstep-cascade-row
+  "Build a cascade row from a `:rf.machine.microstep/transition` trace event
+  (rf2-bvwv4q) — a parent-owned parallel `:always` ROUND's regional
+  transition. Carries the owning actor (`:actor-id`), the REGION, the shared
+  round index (`:microstep-index`), and the regional `:from`/`:to` states so
+  the view renders `[ALWAYS] for <region> · round <n>  <from> → <to>` and the
+  round grouping (rows sharing `(machine-id, round-index)` are one round) is
+  derivable.
+
+  Keys on the `:region` tag: a SINGLE-ACTIVE machine's `:always` microstep
+  carries no `:region` (it rides the transition row's `cascade-microsteps`),
+  so this returns nil — `keep ev->cascade-row` drops it and single-active
+  behaviour is unchanged. Only region-tagged (parallel) rounds become
+  first-class rows."
+  [ev]
+  (when-let [region (common/tag-of ev :region)]
+    {:kind        :microstep
+     ;; rf2-ws5thu — addressed by the live actor INSTANCE (`:actor-id`); the
+     ;; parent owns the round, so every co-selected region shares it.
+     :machine-id  (or (common/tag-of ev :actor-id) (common/tag-of ev :machine-id))
+     :region      region
+     :round-index (common/tag-of ev :microstep-index)
+     :from-state  (common/tag-of ev :from)
+     :to-state    (common/tag-of ev :to)
+     ;; the round is eventless (`:always`); the runtime hoists `:source` to
+     ;; the envelope top level, so read it there before the constant fallback.
+     :source      (or (:source ev) (common/tag-of ev :source) :always)}))
+
 (defn- timer-cascade-row
   "Build a cascade row from a `:rf.machine.timer/cancelled` trace event
   (rf2-u69j7). Carries the cancelled state, the original delay, and
@@ -1027,6 +1076,7 @@
     :rf.machine/guard-evaluated       (guard-cascade-row ev)
     :rf.machine/action-ran            (action-cascade-row ev)
     :rf.machine/transition            (transition-cascade-row ev)
+    :rf.machine.microstep/transition  (microstep-cascade-row ev)
     :rf.machine.timer/cancelled       (timer-cascade-row ev)
     :rf.machine.event/unhandled-no-op (no-op-cascade-row ev)
     :rf.machine/started               (started-cascade-row ev)

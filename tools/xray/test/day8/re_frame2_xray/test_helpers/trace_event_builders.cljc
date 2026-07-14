@@ -56,6 +56,7 @@
   | `view-rendered-ev`             | `:rf.view/rendered`                    | VIEWS step                          |
   | `view-unmounted-ev`            | `:rf.view/unmounted`                   | VIEWS UNMOUNTED sub-section         |
   | `machine-transition-ev`        | `:rf.machine/transition`               | HANDLER machine cascade             |
+  | `machine-microstep-ev`         | `:rf.machine.microstep/transition`     | HANDLER machine cascade (parallel `:always` round — rf2-bvwv4q) |
   | `machine-guard-ev`             | `:rf.machine/guard-evaluated`          | HANDLER GUARDS                      |
   | `machine-action-ev`            | `:rf.machine/action-ran`               | HANDLER LIFECYCLE                   |
   | `machine-timer-cancel-ev`      | `:rf.machine.timer/cancelled`          | HANDLER AFTER-TIMERS                |
@@ -386,6 +387,24 @@
          event       (assoc :event event)
          microsteps  (assoc :microsteps microsteps)
          (some? cascade) (assoc :cascade cascade)))))
+
+(defn machine-microstep-ev
+  "`:rf.machine.microstep/transition` trace — a parent-owned parallel
+  `:always` ROUND's regional transition (rf2-bvwv4q · `machines/
+  parallel.cljc`). Mirrors the real emit shape: `:actor-id` / `:region` /
+  `:from` / `:to` / `:microstep-index` ride `:tags`, while `:source :always`
+  is HOISTED to the envelope top level (`re-frame.trace/build-event` hoists
+  the reserved `:source` slot off `:tags` on the success path). Co-selected
+  regions of ONE round share `actor-id` + `microstep-index`."
+  [actor-id region from to microstep-index]
+  (assoc
+    (ev :rf.machine :rf.machine.microstep/transition
+        {:actor-id        actor-id
+         :region          region
+         :from            from
+         :to              to
+         :microstep-index microstep-index})
+    :source :always))
 
 (defn machine-guard-ev
   "`:rf.machine/guard-evaluated` trace — drives the HANDLER step's

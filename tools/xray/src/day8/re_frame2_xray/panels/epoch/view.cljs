@@ -3071,6 +3071,26 @@
      [:span {:style cascade-action-for-state-value-style}
       (pr-str state)]]))
 
+(defn- cascade-microstep-round-clause
+  "Render the ` for <region> · round <n> ` clause that fronts a `:microstep`
+  cascade row's verb (rf2-bvwv4q). Names the REGION the parent-owned
+  `:always` round moved and the shared 0-based round index, so co-selected
+  regional rows (same `round <n>`, distinct region) read as ONE parent-owned
+  round. Mirrors the `cascade-for-state-clause` grammar. `step` keys the
+  testid; a nil region degrades to just the round chip."
+  [step region round-index]
+  [:span {:data-testid (str "rf-xray-epoch-machine-cascade-microstep-round-" step)
+          :data-cascade-region (when (keyword? region) (name region))
+          :data-cascade-round-index (when (some? round-index) (str round-index))
+          :style cascade-action-for-state-style}
+   (when (some? region)
+     [:<>
+      [:span {:style orientation-connective-style} "for"]
+      [:span {:style cascade-action-for-state-value-style} (pr-str region)]])
+   (when (some? round-index)
+     [:span {:style orientation-connective-style}
+      (str " · round " round-index)])])
+
 (defn- cascade-start-cause-chip
   "Render the `[START]` row's CAUSE tag (rf2-it4vt) — `explicit` / `lazy` /
   `spawned`, off the `:rf.machine/started` trace's `:cause`. Tells the
@@ -3649,6 +3669,11 @@
         (cascade-for-state-clause step (fmt/cascade-action-for-state row)))
       (when (= :guard kind)
         (cascade-for-state-clause step (fmt/cascade-guard-for-state row)))
+      ;; rf2-bvwv4q — a parent-owned `:always` ROUND row fronts its verb with
+      ;; ` for <region> · round <n> `, so co-selected regional rows read as one
+      ;; parent-owned round.
+      (when (= :microstep kind)
+        (cascade-microstep-round-clause step (:region row) (:round-index row)))
       (cascade-row-verb-link row coord verb)
       ;; rf2-h710p item C — the GUARD outcome (pass/fail/threw) renders
       ;; INLINE, straight after the guard name + its click-to-source glyph

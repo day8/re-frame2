@@ -75,6 +75,7 @@
 (def ^:private view-unmounted-ev    teb/view-unmounted-ev)
 (def ^:private sub-dispose-ev       teb/sub-dispose-ev)
 (def ^:private machine-transition-ev   teb/machine-transition-ev)
+(def ^:private machine-microstep-ev    teb/machine-microstep-ev)
 (def ^:private machine-guard-ev        teb/machine-guard-ev)
 (def ^:private machine-action-ev       teb/machine-action-ev)
 (def ^:private machine-timer-cancel-ev teb/machine-timer-cancel-ev)
@@ -1036,6 +1037,94 @@
         (is (= [:idle] (:state r)))
         (is (= 250 (:delay r)))
         (is (= :on-supersede (:reason r)))))))
+
+;; ---- rf2-bvwv4q — parent-owned parallel `:always` ROUND rows -------------
+;;
+;; A `:type :parallel` macrostep commits ONE aggregate `:rf.machine/transition`
+;; (settled before/after region-map) but emits one standalone
+;; `:rf.machine.microstep/transition` per SELECTED regional round, sharing an
+;; `:actor-id` + `:microstep-index`. Since rf2-akvfe retired the transition
+;; row's nested structured-cascade body, this per-emit pipeline is the sole
+;; canonical cascade display — so each such round is harvested as a first-class
+;; `:microstep` row. Region-tagging keeps this scoped to parallel: a single-
+;; active `:always` microstep carries no `:region` and produces no row.
+
+(deftest machine-cascade-rows-parallel-always-round-projects-microstep-rows-test
+  (testing "rf2-bvwv4q — a parallel macrostep whose :go moves both regions
+            :idle→:staged then a parent round co-selects both :staged→:done
+            projects ONE parent-owned round: two :microstep rows for regions
+            [:a :b], both at round-index 0, in deterministic region order"
+    (let [tx      (machine-transition-ev :par/round
+                                         {:state {:a :idle :b :idle} :data {}}
+                                         {:state {:a :done :b :done} :data {}}
+                                         [:go] 1)
+          micro-a (machine-microstep-ev :par/round :a :staged :done 0)
+          micro-b (machine-microstep-ev :par/round :b :staged :done 0)
+          rows    (proj/machine-cascade-rows [tx micro-a micro-b])
+          micros  (filterv #(= :microstep (:kind %)) rows)]
+      (is (= 1 (count (filterv #(= :transition (:kind %)) rows)))
+          "one aggregate transition row")
+      (is (= 2 (count micros)) "one :microstep row per co-selected region")
+      (is (= [:a :b] (mapv :region micros))
+          "deterministic region-declaration order (a before b)")
+      (is (= [0 0] (mapv :round-index micros))
+          "co-selected regions share round-index 0 — ONE parent-owned round")
+      (is (= #{:par/round} (set (map :machine-id micros)))
+          "the parent actor owns the round — every regional row shares :actor-id")
+      (is (= [[:staged :done] [:staged :done]]
+             (mapv (juxt :from-state :to-state) micros))
+          "each row carries its region-relative :always hop")
+      (is (every? #(= :always (:source %)) micros)
+          "the round is eventless — :source :always (hoisted off the envelope)"))))
+
+(deftest machine-cascade-rows-actionless-parallel-round-visible-test
+  (testing "rf2-bvwv4q — an ACTIONLESS regional :always round emits no
+            :rf.machine/action-ran, so its :rf.machine.microstep/transition
+            trace is its ONLY first-class evidence; it must still render a row"
+    (let [tx     (machine-transition-ev :par/quiet
+                                        {:state {:a :idle} :data {}}
+                                        {:state {:a :ready} :data {}}
+                                        [:go] 1)
+          ;; no action-ran for this round — a targetless/plain :always hop
+          micro  (machine-microstep-ev :par/quiet :a :staged :ready 0)
+          rows   (proj/machine-cascade-rows [tx micro])
+          micros (filterv #(= :microstep (:kind %)) rows)]
+      (is (= 1 (count micros))
+          "the actionless round is visible — its round trace is harvested")
+      (is (= :a (:region (first micros))))
+      (is (= [:staged :ready]
+             ((juxt :from-state :to-state) (first micros)))))))
+
+(deftest machine-cascade-rows-single-active-microstep-produces-no-row-test
+  (testing "rf2-bvwv4q — a SINGLE-ACTIVE :always microstep carries NO :region
+            (it rides the transition row's structured `cascade-microsteps`),
+            so it is NOT harvested as a first-class row — single-active
+            behaviour is unchanged"
+    (let [tx     (machine-transition-ev :flat/quiz
+                                        {:state [:asking]  :data {}}
+                                        {:state [:winner] :data {}}
+                                        [:answer] 1)
+          ;; region-LESS microstep (single-active shape — no :region tag)
+          micro  (ev :rf.machine :rf.machine.microstep/transition
+                     {:actor-id :flat/quiz :from :asking :to :winner
+                      :microstep-index 0})
+          rows   (proj/machine-cascade-rows [tx micro])]
+      (is (empty? (filterv #(= :microstep (:kind %)) rows))
+          "no first-class :microstep row for a region-less (single-active) event"))))
+
+(deftest machine-cascade-microstep-op-is-first-class-test
+  (testing "rf2-bvwv4q — the microstep op is a member of the harvested closed
+            set + maps to the :microstep kind, and the :microstep kind is a
+            painted cascade kind. This gate FAILS if
+            `:rf.machine.microstep/transition` is filtered out of the epoch
+            projection."
+    (is (contains? proj/machine-cascade-trace-ops :rf.machine.microstep/transition)
+        "the op joins the harvested closed set (machine-cascade-trace-ops)")
+    ;; end-to-end: a real-shaped round trace must yield a :microstep row
+    (let [micro (machine-microstep-ev :par/gate :a :staged :done 0)
+          rows  (proj/machine-cascade-rows [micro])]
+      (is (= [:microstep] (mapv :kind rows))
+          "the harvested op projects a :microstep-kind row"))))
 
 (deftest machine-cascade-rows-action-threw-test
   (testing "rf2-u69j7 — an action that threw stamps `:threw? true`

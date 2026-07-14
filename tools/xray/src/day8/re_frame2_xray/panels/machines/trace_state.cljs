@@ -101,6 +101,20 @@
   [trace-events machine-id]
   (filter #(machine-transition? % machine-id) (or trace-events [])))
 
+(defn- machine-microstep?
+  "True when `ev` is a `:rf.machine.microstep/transition` trace event for
+  `machine-id` (or for ANY machine when `machine-id` is nil) — the parent-
+  owned regional `:always` ROUND evidence a parallel macrostep emits
+  (rf2-bvwv4q · `machines/parallel.cljc`). The addressed live actor lives
+  under `:tags :actor-id` (`:tags :machine-id` / top-level fallbacks for
+  legacy fixtures), mirroring `machine-transition?`."
+  [ev machine-id]
+  (and (= :rf.machine.microstep/transition (:operation ev))
+       (or (nil? machine-id)
+           (= machine-id (or (get-in ev [:tags :actor-id])
+                             (get-in ev [:tags :machine-id])
+                             (:machine-id ev))))))
+
 (defn- to-path-from-trace
   "Pull the `:to` (target) state path off a `:rf.machine/transition`
   trace event. Tolerant of three shapes:
@@ -500,6 +514,42 @@
               (:id e)))
           edges)))
 
+(defn- microstep-region-rounds
+  "rf2-bvwv4q — group the machine's parent-owned parallel `:always` ROUND
+  evidence (`:rf.machine.microstep/transition` traces) into
+  `region -> [round …]`, each round `{:from :to :index}` ordered by
+  `:microstep-index`. Only REGION-tagged microsteps (parallel rounds)
+  participate — a single-active machine's `:always` microsteps carry NO
+  `:region` and are matched off the enclosing transition's structured
+  `:cascade` (`microstep-cascade-steps`), not here. Reads each slot from
+  `:tags` first, tolerating a flat test fixture (top-level slots).
+
+  A parallel macrostep emits ONE such trace per SELECTED regional
+  transition per round; the runtime's `:after` region-map collapses the
+  whole `event → round₀ → round₁ …` walk into one before/after pair, so
+  these standalone round traces are the only first-class evidence of the
+  intermediate hops. Returns `{}` when the buffer carries no parallel
+  rounds."
+  [trace-events machine-id]
+  (let [region-of #(or (get-in % [:tags :region]) (:region %))
+        from-of   #(or (get-in % [:tags :from]) (:from %))
+        to-of     #(or (get-in % [:tags :to]) (:to %))
+        index-of  #(or (get-in % [:tags :microstep-index]) (:microstep-index %))]
+    (->> (or trace-events [])
+         (filter #(machine-microstep? % machine-id))
+         (filter region-of)
+         (group-by region-of)
+         (reduce-kv
+           (fn [acc region rows]
+             (assoc acc region
+                    (->> rows
+                         (mapv (fn [ev] {:from  (from-of ev)
+                                         :to    (to-of ev)
+                                         :index (index-of ev)}))
+                         (sort-by :index)
+                         vec)))
+           {}))))
+
 (defn- parallel-transition-fired-ids
   "Fired-edge ids for ONE PARALLEL multi-region transition.
 
@@ -546,41 +596,74 @@
   `handled-regions` is the set of region names the cascade recorded (from
   `handled-regions-from-cascade`). Per-region `from` / `to` are coerced
   through `normalise-path` (a region value is a keyword or in-region vector).
-  Returns a seq of ids."
-  [edges before-map after-map event* handled-regions]
+
+  rf2-bvwv4q — PARENT-OWNED `:always` ROUNDS. A parallel macrostep can move a
+  region on the EVENT and then again on one or more cross-region `:always`
+  rounds; the runtime commits ONE `:rf.machine/transition` whose `:after` is
+  the FINAL settled state, PLUS one standalone `:rf.machine.microstep/
+  transition` per selected regional round (`region->rounds`). So the settled
+  before/after diff alone would match an aggregate `idle → done` edge that
+  does not exist. When a region has rounds, this lights the DIRECT event edge
+  against the FIRST round's `:from` (the state the event committed, not the
+  settled state — the parallel analog of the single-active `direct-event-
+  target`), PLUS each round's own regional `:always` edge. A region that
+  DECLINED the event but later took an `:always` round (its first round's
+  `:from` equals its pre-event state) gains NO phantom event edge — only its
+  round edges light. Returns a seq of ids."
+  [edges before-map after-map event* handled-regions region->rounds]
   (when event*
     (mapcat
       (fn [[region region-before]]
         (let [region-after (get after-map region)
+              rounds       (get region->rounds region)
+              ;; rf2-bvwv4q — with parent-owned rounds the macrostep `:after`
+              ;; is the FINAL settled state; the state the EVENT committed is
+              ;; the FIRST round's `:from`. With no rounds it IS `:after`.
+              event-target (if (seq rounds) (:from (first rounds)) region-after)
               from*        (normalise-path region-before)
-              to*          (normalise-path region-after)]
-          (cond
-            ;; CHANGED: region-local match wins; else the region's OWN
-            ;; top-level `:on` fallback (rf2-85a9do); else the parallel
-            ;; ROOT `:on` ancestor fallback. The three edge shapes are
-            ;; mutually exclusive per region (a region-scoped in-region
-            ;; source, vs a region-container source, vs a `:parallel-root-
-            ;; on?` region-qualified target), so the first that matches is
-            ;; the traversed arm.
-            (and from* to* (not= region-before region-after))
-            (or (seq (region-local-fired-ids edges region from* to* event*))
-                (seq (region-machine-on-fired-ids edges region to* event*))
-                (region-root-on-fired-ids edges region to* event*))
+              ev-to*       (normalise-path event-target)
+              ;; rf2-bvwv4q — each parent-owned round's OWN regional edge
+              ;; (`:event :always`, region-scoped). Lit directly off the round
+              ;; evidence so an ACTIONLESS `:always` round still highlights.
+              always-ids   (mapcat
+                             (fn [{:keys [from to]}]
+                               (region-local-fired-ids
+                                 edges region
+                                 (normalise-path from) (normalise-path to)
+                                 :always))
+                             rounds)]
+          (concat
+            (cond
+              ;; CHANGED on the EVENT: `before ≠ event-target`. With rounds this
+              ;; matches the DIRECT event target (e.g. idle→staged), never the
+              ;; settled state (idle→done — a phantom aggregate edge). region-
+              ;; local match wins; else the region's OWN top-level `:on`
+              ;; fallback (rf2-85a9do); else the parallel ROOT `:on` ancestor
+              ;; fallback. The three edge shapes are mutually exclusive per
+              ;; region (a region-scoped in-region source, vs a region-container
+              ;; source, vs a `:parallel-root-on?` region-qualified target).
+              (and from* ev-to* (not= region-before event-target))
+              (or (seq (region-local-fired-ids edges region from* ev-to* event*))
+                  (seq (region-machine-on-fired-ids edges region ev-to* event*))
+                  (region-root-on-fired-ids edges region ev-to* event*))
 
-            ;; HANDLED-but-UNCHANGED: a real self/internal transition with
-            ;; before == after + a non-empty cascade for this region. A LEAF
-            ;; self/internal edge wins; else a region-ROOT targetless/action-
-            ;; only `:on` fallback (rf2-pdvtxt — `:machine-level?` `:internal?`
-            ;; sourced from the region container, which `region-self-internal-
-            ;; fired-ids` cannot reach). A RESTING region (= but absent from
-            ;; the cascade) lights nothing.
-            (and from*
-                 (= region-before region-after)
-                 (contains? handled-regions region))
-            (or (seq (region-self-internal-fired-ids edges region from* event*))
-                (region-machine-internal-fired-ids edges region event*))
+              ;; HANDLED-but-UNCHANGED with NO round: a real self/internal
+              ;; transition (before == after + a non-empty cascade). A LEAF
+              ;; self/internal edge wins; else a region-ROOT targetless/action-
+              ;; only `:on` fallback (rf2-pdvtxt). A RESTING region (= but
+              ;; absent from the cascade) lights nothing. A region that DECLINED
+              ;; the event but later took a round has `rounds`, so it never
+              ;; reaches here (rf2-bvwv4q — no phantom event edge); only its
+              ;; `always-ids` light.
+              (and from*
+                   (empty? rounds)
+                   (= region-before region-after)
+                   (contains? handled-regions region))
+              (or (seq (region-self-internal-fired-ids edges region from* event*))
+                  (region-machine-internal-fired-ids edges region event*))
 
-            :else nil)))
+              :else nil)
+            always-ids)))
       before-map)))
 
 (defn extract-fired-edge-ids
@@ -629,8 +712,8 @@
   HANDLED-unchanged region (lights its self/internal edge) from a RESTING
   region that simply declined the event (lights nothing).
 
-  rf2-8i1tg3 — `:always`-MICROSTEP macrosteps (single-active machines only;
-  parallel `:always` microsteps are out of scope here). `commit-or-finalize`
+  rf2-8i1tg3 — `:always`-MICROSTEP macrosteps (single-active machines; the
+  parallel analog rides the rf2-bvwv4q round path below). `commit-or-finalize`
   emits ONE `:rf.machine/transition` per macrostep whose `:after` is the
   FINAL settled state once every `:always` iteration has ALSO run — not the
   state the dispatched event's own transition landed in. Matching
@@ -646,9 +729,19 @@
   with `:event :always` — rf2-oy49f1), so a multi-hop `:always` cascade
   highlights the FULL path the macrostep walked, not just its entry edge.
 
+  rf2-bvwv4q — PARENT-OWNED `:always` ROUNDS. A parallel macrostep may move
+  a region on the EVENT and again on cross-region `:always` rounds; each
+  selected regional round emits a standalone `:rf.machine.microstep/
+  transition` trace (`machines/parallel.cljc`). `microstep-region-rounds`
+  gathers these per region so `parallel-transition-fired-ids` lights the
+  DIRECT event edges (against the round's pre-state, not the settled state)
+  AND each round's own `:always` edge — instead of a phantom aggregate
+  `from → settled` edge that matches nothing.
+
   Returns `#{}` for a nil/empty definition or no matching transitions."
   [definition trace-events machine-id]
-  (let [edges (:edges (chart-layout/project-definition definition))]
+  (let [edges          (:edges (chart-layout/project-definition definition))
+        region->rounds (microstep-region-rounds trace-events machine-id)]
     (->> (machine-transitions trace-events machine-id)
          (mapcat
            (fn [ev]
@@ -657,15 +750,17 @@
                    after-raw   (after-state-from-trace ev)]
                (if (or (map? before-raw) (map? after-raw))
                  ;; PARALLEL multi-region: derive from the region-maps + the
-                 ;; structured cascade so every region that moved (region-local
-                 ;; or via the root `:on`) OR was handled-unchanged lights its
-                 ;; edge.
+                 ;; structured cascade + the parent-owned `:always` round
+                 ;; evidence (rf2-bvwv4q) so every region that moved (on the
+                 ;; event, via the root `:on`, or on an `:always` round) OR was
+                 ;; handled-unchanged lights its edge.
                  (parallel-transition-fired-ids
                    edges
                    (if (map? before-raw) before-raw {})
                    (if (map? after-raw) after-raw {})
                    event*
-                   (handled-regions-from-cascade (cascade-from-trace ev)))
+                   (handled-regions-from-cascade (cascade-from-trace ev))
+                   region->rounds)
                  ;; Single-active (flat / compound): the existing
                  ;; (from, to, event) match + machine-level fallback —
                  ;; PLUS (rf2-8i1tg3) the direct event-driven target
