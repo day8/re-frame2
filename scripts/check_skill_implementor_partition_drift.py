@@ -68,6 +68,25 @@ user-facing implementor docs and asserts:
      the reply map) can turn a conforming new port non-conforming. This rule is
      context-sensitive: legitimate INTERNAL `:rf/reply-to` descriptor mentions
      still pass.
+  7. **Frame-root lifecycle — two realizations kept present and distinct**
+     (rf2-vxgfnd.278). The merged frame-root/frame-provider split corrected the
+     synthesis but left the implementor guide universalizing the *legacy*
+     adapters' commit-owned two-pass `useLayoutEffect` ENSURE as THE frame-root
+     lifecycle. The compiled `re-frame.ui` substrate runs ENSURE at **host
+     preflight** — before React/JVM render (#5711) — a DIFFERENT lifecycle:
+     scope-only emitted component, evidence-only commit reporting,
+     `:mount-incomplete` on an aborted host attempt, a surgical `:refresh` (not
+     the legacy reconfigured error) on a same-owner config change. This rule is a
+     positive-PRESENCE scan (not the per-line denylist above): it fails if either
+     realization disappears or collapses into the other, if a Spec-002 frame-root
+     / frame-provider heading link goes missing, if a boundary drops out of the
+     Conventions inventory, or if the synthesis §8 reverts preflight to future
+     work. It also holds a small source-backed assertion that the compiled client
+     invokes its frame preflight (`(run-preflight! …)` → `execute-frame-plans!`)
+     BEFORE it renders the host root (`(.render …)`) — no general Markdown parser
+     is added. (The Reagent-frozen / UIx+Helix-retiring *status* arm over
+     `spec/Conventions.md` is a deliberate follow-up, not scanned here — see the
+     rf2-vxgfnd.278 PR body.)
 
 Exit code:
     0  no drift detected
@@ -348,6 +367,169 @@ def find_beadid_drift(files: list[Path]) -> tuple[list[str], int]:
     return problems, lines_checked
 
 
+# ---------------------------------------------------------------------------
+# Rule 7 — frame-root lifecycle realization guard (rf2-vxgfnd.278). A
+# positive-PRESENCE scan (distinct from the per-line denylist above): the two
+# frame-root lifecycles must stay present and distinct, their Spec-002 heading
+# links resolvable, and a small source-backed assertion holds that the compiled
+# client preflights BEFORE it renders the host root.
+# ---------------------------------------------------------------------------
+
+PHASE2_FILE = SKILL_DIR / "references" / "phase-2-impl-order.md"
+UI_CLIENT_FILE = (
+    REPO_ROOT / "implementation" / "ui" / "src" / "re_frame" / "ui" / "client.cljs"
+)
+UI_FRAMES_FILE = (
+    REPO_ROOT / "implementation" / "ui" / "src" / "re_frame" / "ui" / "frames.cljc"
+)
+CONVENTIONS_FILE = REPO_ROOT / "spec" / "Conventions.md"
+SYNTH_03_FILE = (
+    REPO_ROOT
+    / "ai"
+    / "findings"
+    / "new-substrate-synthesis"
+    / "03-reactivity-and-ownership.md"
+)
+
+FRAME_ROOT_ANCHOR = "#frame-root--the-ensure-component-cljs-reference"
+FRAME_PROVIDER_ANCHOR = "#frame-provider--the-scope-only-component-cljs-reference"
+
+
+def _preflight_before_render(client_text: str) -> bool:
+    """Source-backed: the compiled client invokes its frame preflight
+    (`(run-preflight! …)`, which routes to `execute-frame-plans!`) BEFORE it
+    renders the host root (`(.render …)`). Keys on the CALL forms (leading paren)
+    so docstring / backtick mentions never match. True iff the first preflight
+    call precedes the first host render call."""
+    pi = client_text.find("(run-preflight!")
+    ri = client_text.find("(.render ")
+    return pi != -1 and ri != -1 and pi < ri
+
+
+def lifecycle_realization_problems(
+    *,
+    phase2: str | None,
+    client: str | None,
+    frames: str | None,
+    conventions: str | None,
+    synth03: str | None,
+) -> list[str]:
+    """Positive-presence assertions for the two frame-root lifecycles. Each arg
+    is the file's text (or None to skip — the caller reports a missing required
+    file as a SETUP error). Returns drift labels (empty when all present)."""
+    problems: list[str] = []
+
+    if phase2 is not None:
+        # L1 — compiled `re-frame.ui` realization present + timing distinct.
+        for token, label in (
+            ("execute-frame-plans!", "the compiled preflight call `execute-frame-plans!`"),
+            (
+                "host preflight, never render",
+                'the compiled ENSURE-timing statement ("host preflight, never render")',
+            ),
+            (":mount-incomplete", "the compiled aborted-attempt evidence `:mount-incomplete`"),
+        ):
+            if token not in phase2:
+                problems.append(
+                    "LIFECYCLE-COMPILED-COLLAPSED: phase-2-impl-order.md is missing "
+                    f"{label} — the compiled `re-frame.ui` frame-root realization "
+                    "must not disappear or collapse into the legacy one (ENSURE at "
+                    "host preflight, scope-only emit, evidence-only commit, "
+                    "`:mount-incomplete` on abort, `:refresh` on same-owner reconfig)."
+                )
+        # L2 — legacy `[TRANSITION]` React-adapter realization present + distinct.
+        for token, label in (
+            ("[TRANSITION]", "the `[TRANSITION]` legacy-adapter label"),
+            ("useLayoutEffect", "the legacy commit-owned `useLayoutEffect` two-pass timing"),
+            (":rf.error/frame-root-reconfigured", "the legacy reconfiguration error"),
+        ):
+            if token not in phase2:
+                problems.append(
+                    "LIFECYCLE-LEGACY-COLLAPSED: phase-2-impl-order.md is missing "
+                    f"{label} — the `[TRANSITION]` frozen-Reagent / retiring-UIx+Helix "
+                    "realization must not disappear or collapse into the compiled one "
+                    "(commit-owned two-pass layout-effect ENSURE, discarded-render zero "
+                    "writes, `:rf.error/frame-root-reconfigured` on mounted reconfig)."
+                )
+        # L4 — Spec-002 frame-root / frame-provider heading links resolvable.
+        for anchor in (FRAME_ROOT_ANCHOR, FRAME_PROVIDER_ANCHOR):
+            if anchor not in phase2:
+                problems.append(
+                    "LIFECYCLE-SPEC002-LINK: phase-2-impl-order.md is missing the "
+                    f"Spec-002 heading anchor `{anchor}` — the frame-root / frame-"
+                    "provider component-contract links must stay resolvable."
+                )
+
+    # L5 — source-backed: compiled client preflights before it renders.
+    if client is not None and not _preflight_before_render(client):
+        problems.append(
+            "LIFECYCLE-SOURCE-ORDER: implementation/ui/src/re_frame/ui/client.cljs "
+            "must invoke its frame preflight (`(run-preflight! …)` → "
+            "`execute-frame-plans!`) BEFORE it renders the host root (`(.render …)`) "
+            "— the compiled ENSURE-at-preflight contract (#5711). The first "
+            "preflight call no longer precedes the first host render call."
+        )
+    if frames is not None:
+        for token in (
+            "execute-frame-plans!",
+            "finalize-preflight-attempt!",
+            ":mount-incomplete",
+        ):
+            if token not in frames:
+                problems.append(
+                    "LIFECYCLE-SOURCE-FRAMES: implementation/ui/src/re_frame/ui/"
+                    f"frames.cljc is missing `{token}` — the compiled preflight "
+                    "executor + its commit-bound evidence surface must stay present."
+                )
+
+    # L6 — Conventions inventory keeps BOTH frame boundaries.
+    if conventions is not None:
+        for token in ("frame-root", "frame-provider"):
+            if token not in conventions:
+                problems.append(
+                    "LIFECYCLE-INVENTORY: spec/Conventions.md no longer names "
+                    f"`{token}` — neither frame boundary may disappear from the "
+                    "artifact inventory."
+                )
+
+    # L7 — synthesis §8 keeps compiled preflight LANDED (not future work).
+    if synth03 is not None and "ENSURE is host preflight" not in synth03:
+        problems.append(
+            "LIFECYCLE-SYNTHESIS-PREFLIGHT: ai/findings/new-substrate-synthesis/"
+            '03-reactivity-and-ownership.md §8 no longer states "ENSURE is host '
+            'preflight" — the compiled preflight must not be reverted to future work.'
+        )
+
+    return problems
+
+
+def find_lifecycle_drift() -> list[str]:
+    """Read the Rule-7 source-of-truth files and run the presence assertions,
+    reporting a missing REQUIRED file as a SETUP error (the synthesis + spec + ui
+    sources are all repo-tracked, so a miss means the guard's paths drifted)."""
+    problems: list[str] = []
+    texts: dict[str, str | None] = {}
+    required = {
+        "phase2": PHASE2_FILE,
+        "client": UI_CLIENT_FILE,
+        "frames": UI_FRAMES_FILE,
+        "conventions": CONVENTIONS_FILE,
+        "synth03": SYNTH_03_FILE,
+    }
+    for key, path in required.items():
+        if path.is_file():
+            texts[key] = _slurp(path)
+        else:
+            texts[key] = None
+            problems.append(
+                "SETUP: expected Rule-7 source file missing: "
+                f"{path.relative_to(REPO_ROOT)} — the lifecycle guard's path list "
+                "drifted; update the *_FILE constants."
+            )
+    problems.extend(lifecycle_realization_problems(**texts))
+    return problems
+
+
 def run(*, verbose: bool, ci: bool) -> int:
     if not SKILL_DIR.is_dir():
         sys.stderr.write(
@@ -361,6 +543,8 @@ def run(*, verbose: bool, ci: bool) -> int:
     beadid_problems, beadid_lines = find_beadid_drift(beadid_files)
     problems.extend(beadid_problems)
 
+    problems.extend(find_lifecycle_drift())
+
     if verbose:
         print(
             f"implementor partition/HTTP/API-name guard: scanned "
@@ -369,6 +553,11 @@ def run(*, verbose: bool, ci: bool) -> int:
         print(
             f"implementor no-bead-ids guard: scanned {len(beadid_files)} "
             f"user-facing leaves ({beadid_lines} lines)."
+        )
+        print(
+            "implementor frame-root lifecycle guard: two realizations present + "
+            "distinct, Spec-002 links resolvable, compiled preflight-before-render "
+            "source assertion held."
         )
 
     if not problems:
@@ -551,6 +740,82 @@ def _self_test() -> int:
     expect_beadid(
         "a fully-qualified public PR link day8/re-frame2#2863 is fine for an external reader.",
         leaked=False, label="D4 public PR ref is not a bead id",
+    )
+
+    # Rule 7 — frame-root lifecycle realization presence. lifecycle_realization_
+    # problems() reads whole-file text (not per-line), so exercise it with in-
+    # memory good/bad content variants.
+    good_phase2 = (
+        "runs them through `re-frame.ui.frames/execute-frame-plans!` before "
+        "`createRoot`. ENSURE is host preflight, never render (#5711). An aborted "
+        "host attempt may leave `:mount-incomplete`. **`[TRANSITION]` frozen "
+        "Reagent** — ENSURE runs only from a client `useLayoutEffect`, and a "
+        "mounted reconfiguration fails loud with `:rf.error/frame-root-reconfigured`. "
+        "See [§frame-root](https://day8.github.io/re-frame2/spec/002-Frames/"
+        "#frame-root--the-ensure-component-cljs-reference) and "
+        "[§frame-provider](https://day8.github.io/re-frame2/spec/002-Frames/"
+        "#frame-provider--the-scope-only-component-cljs-reference)."
+    )
+    good_client = "  (let [receipt (run-preflight! root-id plans)]\n    (.render (.-react-root root) el))"
+    good_frames = "(defn execute-frame-plans! [root-id plans]\n  ;; finalize-preflight-attempt! ... :mount-incomplete\n  nil)"
+    good_conv = "The `frame-root` (ENSURE) and `frame-provider` (SCOPE) inventory rows."
+    good_synth = "**ENSURE is host preflight, never render (I-1).**"
+
+    base = dict(
+        phase2=good_phase2,
+        client=good_client,
+        frames=good_frames,
+        conventions=good_conv,
+        synth03=good_synth,
+    )
+
+    def expect_lifecycle(overrides: dict, *, dirty: bool, label: str) -> None:
+        nonlocal failures
+        kwargs = {**base, **overrides}
+        got = bool(lifecycle_realization_problems(**kwargs))
+        if got != dirty:
+            print(
+                f"SELF-TEST FAIL ({label}): expected lifecycle dirty={dirty}, "
+                f"got {got}."
+            )
+            failures += 1
+
+    expect_lifecycle({}, dirty=False, label="G0 both realizations + links + source present")
+    expect_lifecycle(
+        {"phase2": good_phase2.replace("execute-frame-plans!", "some-other-fn")},
+        dirty=True, label="G1 compiled preflight call removed",
+    )
+    expect_lifecycle(
+        {"phase2": good_phase2.replace("host preflight, never render", "runs in a layout effect")},
+        dirty=True, label="G2 compiled timing collapsed into legacy",
+    )
+    expect_lifecycle(
+        {"phase2": good_phase2.replace(":rf.error/frame-root-reconfigured", "some refresh")},
+        dirty=True, label="G3 legacy reconfiguration error removed",
+    )
+    expect_lifecycle(
+        {"phase2": good_phase2.replace("[TRANSITION]", "current")},
+        dirty=True, label="G4 [TRANSITION] label removed",
+    )
+    expect_lifecycle(
+        {"phase2": good_phase2.replace("#frame-root--the-ensure-component-cljs-reference", "#gone")},
+        dirty=True, label="G5 Spec-002 frame-root anchor missing",
+    )
+    expect_lifecycle(
+        {"client": "(.render (.-react-root root) el)\n  (run-preflight! root-id plans)"},
+        dirty=True, label="G6 host render before preflight",
+    )
+    expect_lifecycle(
+        {"frames": "(defn something-else [] nil)"},
+        dirty=True, label="G7 compiled executor/evidence surface gone",
+    )
+    expect_lifecycle(
+        {"conventions": "Only the `frame-provider` (SCOPE) row survives."},
+        dirty=True, label="G8 frame-root dropped from inventory",
+    )
+    expect_lifecycle(
+        {"synth03": "Frame ENSURE preflight remains future R-7 work."},
+        dirty=True, label="G9 synthesis preflight reverted to future work",
     )
 
     if failures:
