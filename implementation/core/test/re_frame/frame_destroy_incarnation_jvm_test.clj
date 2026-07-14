@@ -758,6 +758,125 @@
         (when (frame/frame id) (frame/destroy-frame! id))
         (late-bind/set-fn! :epoch/snapshot-frame-destroyed original-snap)))))
 
+;; ---- rf2-vf2qke — structural scope must not taint listener-triggered work ----
+;;
+;; #5865 binds the structural-delivery flags (epoch-capture / frame-policy /
+;; ring-retention all false) around the WHOLE synchronous outer emit, and the
+;; public tooling listener fan-out runs INSIDE that scope. A listener reacting to
+;; A's real structural terminal fact that dispatches its OWN legitimate work into
+;; unrelated frame C (or a same-id successor B) had that nested cascade INHERIT
+;; A's retentionless/no-capture/no-policy scope: it streamed live but bypassed
+;; C's epoch capture, C's own ring retention, and C's frame-no-emit policy. The
+;; fix restores ordinary delivery defaults around the fan-out while the outer
+;; ring push keeps the captured structural retention decision. Merged fixtures
+;; used PASSIVE atom listeners and missed this; these use DISPATCHING listeners.
+
+(deftest listener-dispatch-during-structural-terminal-fact-runs-under-normal-scope
+  ;; rf2-vf2qke (red before fix). Idle frame A (observed by an epoch listener) is
+  ;; destroyed at TOP LEVEL — emitting its terminal
+  ;; :rf.epoch.cb/silenced-on-frame-destroy fact under retentionless structural
+  ;; delivery, with no drain on the stack so the fan-out is live (continuing?
+  ;; true). A public trace listener reacts to that fact by dispatching a
+  ;; legitimate ordinary event into UNRELATED frame C. Before the fix C's cascade
+  ;; ran under A's inherited structural scope: C's epoch capture was disabled (no
+  ;; record) and C's ring retention was off (empty ring), even though C's db
+  ;; still committed and its events streamed live. After the fix C's nested work
+  ;; is captured and retained normally.
+  ;;
+  ;; Mutation tooth: NOT restoring ordinary defaults around the fan-out (leaving
+  ;; the ambient structural bindings in force for the callbacks) empties C's epoch
+  ;; history and trace ring and fails this fixture.
+  (let [a-id   :vf2qke/terminal-a
+        c-id   :vf2qke/nested-c
+        fired? (atom false)
+        c-live (atom [])]
+    (rf/make-frame {:id c-id})
+    (rf/reg-event :vf2qke/c-event
+      (fn [{:keys [db]} _] {:db (assoc db :c :ran)}))
+    (rf/make-frame {:id a-id})
+    (rf/reg-event :vf2qke/seed (fn [_ _] {:db {:n 0}}))
+    ;; An epoch observer so A's destroy fans a real structural terminal fact.
+    (rf/register-listener! :epoch ::vf2qke-a-obs (fn [_] nil))
+    (rf/dispatch-sync [:vf2qke/seed] {:frame a-id})
+    ;; The dispatching public listener: on A's structural terminal fact, run
+    ;; ordinary nested work into unrelated C exactly once.
+    (rf/register-listener! :trace ::vf2qke-dispatcher
+      (fn [ev]
+        (when (and (= a-id (get-in ev [:tags :frame]))
+                   (= :rf.epoch.cb/silenced-on-frame-destroy (:operation ev))
+                   (compare-and-set! fired? false true))
+          (rf/dispatch-sync [:vf2qke/c-event] {:frame c-id}))))
+    ;; A raw trace listener capturing C's own run events (proves live delivery).
+    (rf/register-listener! :trace ::vf2qke-c-live
+      (fn [ev]
+        (when (= c-id (get-in ev [:tags :frame]))
+          (swap! c-live conj ev))))
+    (try
+      (rf/destroy-frame! a-id)
+      (executor-barrier!)
+      (is (true? @fired?)
+          "the listener saw A's structural terminal fact and dispatched")
+      ;; UNRELATED C: nested work captured into C's epoch history + retained in
+      ;; C's ring, and it actually ran and streamed live.
+      (is (= 1 (count (rf/epoch-history c-id)))
+          "C's listener-triggered cascade is captured into C's epoch history")
+      (is (= {:c :ran} (frame/frame-app-db-value c-id))
+          "C's nested event actually ran and committed")
+      (is (seq (rf/trace-buffer c-id {:flat true}))
+          "C's listener-triggered cascade is retained in C's per-frame ring")
+      (is (seq @c-live) "C's nested events streamed live to listeners")
+      (finally
+        (rf/unregister-listener! :epoch ::vf2qke-a-obs)
+        (rf/unregister-listener! :trace ::vf2qke-dispatcher)
+        (rf/unregister-listener! :trace ::vf2qke-c-live)
+        (when (frame/frame a-id) (frame/destroy-frame! a-id))
+        (when (frame/frame c-id) (frame/destroy-frame! c-id))))))
+
+(deftest listener-triggered-work-obeys-nested-frame-no-emit-policy
+  ;; rf2-vf2qke (red before fix). A listener reacting to A's structural terminal
+  ;; fact dispatches into a nested frame D that declared its OWN
+  ;; :rf.trace/frame-no-emit? policy. That policy must apply to D's nested work:
+  ;; before the fix the ambient structural scope disabled frame-policy for the
+  ;; callback, so D's events leaked to listeners despite D's no-emit policy.
+  (let [a-id   :vf2qke/policy-a
+        d-id   :vf2qke/nested-noemit-d
+        fired? (atom false)
+        d-live (atom [])]
+    (rf/make-frame {:id d-id :rf.trace/frame-no-emit? true})
+    (rf/reg-event :vf2qke/d-event
+      (fn [{:keys [db]} _] {:db (assoc db :d :ran)}))
+    (rf/make-frame {:id a-id})
+    (rf/reg-event :vf2qke/policy-seed (fn [_ _] {:db {:n 0}}))
+    (rf/register-listener! :epoch ::vf2qke-policy-obs (fn [_] nil))
+    (rf/dispatch-sync [:vf2qke/policy-seed] {:frame a-id})
+    (rf/register-listener! :trace ::vf2qke-policy-dispatcher
+      (fn [ev]
+        (when (and (= a-id (get-in ev [:tags :frame]))
+                   (= :rf.epoch.cb/silenced-on-frame-destroy (:operation ev))
+                   (compare-and-set! fired? false true))
+          (rf/dispatch-sync [:vf2qke/d-event] {:frame d-id}))))
+    (rf/register-listener! :trace ::vf2qke-d-live
+      (fn [ev]
+        (when (= d-id (get-in ev [:tags :frame]))
+          (swap! d-live conj ev))))
+    (try
+      (rf/destroy-frame! a-id)
+      (executor-barrier!)
+      (is (true? @fired?) "the listener dispatched into the no-emit frame D")
+      (is (= {:d :ran} (frame/frame-app-db-value d-id))
+          "D's nested event ran and committed (no-emit suppresses TRACE, not work)")
+      ;; D's own no-emit policy applies to the nested work: no D traces leak.
+      (is (empty? @d-live)
+          "D's frame-no-emit policy suppresses its nested trace — no leak to listeners")
+      (is (empty? (rf/trace-buffer d-id {:flat true}))
+          "no D trace is retained under D's own no-emit policy")
+      (finally
+        (rf/unregister-listener! :epoch ::vf2qke-policy-obs)
+        (rf/unregister-listener! :trace ::vf2qke-policy-dispatcher)
+        (rf/unregister-listener! :trace ::vf2qke-d-live)
+        (when (frame/frame a-id) (frame/destroy-frame! a-id))
+        (when (frame/frame d-id) (frame/destroy-frame! d-id))))))
+
 (deftest owner-loss-unwinds-only-entered-authored-afters
   ;; Mutation tooth: removing execute-chain's continuation predicate would run
   ;; :never/before and the handler after :killer/before destroys A. Removing

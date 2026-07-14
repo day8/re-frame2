@@ -549,7 +549,23 @@
   `:trace.tooling/deliver!` hook published by `re-frame.trace.tooling`.
   The tooling hook is unregistered in production (the tooling sibling
   ns is not loaded) — the lookup returns nil and the fan-out is
-  skipped. Per Spec 009 §Listener invocation rules and rf2-qwm0a."
+  skipped. Per Spec 009 §Listener invocation rules and rf2-qwm0a.
+
+  Structural-delivery scope is a property of the CURRENT outer envelope,
+  NOT ambient authority for the external callbacks it fans out to
+  (rf2-vf2qke). By the time the public tooling listener fan-out runs, every
+  structural decision has already been consumed against THIS envelope:
+  epoch capture was gated above, frame-no-emit was gated in `emit!` /
+  `emit-error!`, and the outer ring-retention decision is captured here into
+  `retain?` and passed explicitly to the tooling hook for the outer ring
+  push. So the fan-out restores ordinary delivery defaults: a listener that
+  reacts to A's structural terminal fact by dispatching or emitting its OWN
+  legitimate nested work into a same-id successor B or an unrelated frame C
+  must run that work under NORMAL scope — normal epoch capture, its own
+  frame-no-emit policy, and normal per-frame ring retention — rather than
+  inheriting A's retentionless/no-capture/no-policy scope. A listener that
+  explicitly re-requests structural semantics via
+  `call-with-structural-delivery` re-binds the flags false and is honoured."
   [event]
   (when (and *epoch-capture-enabled?* (continuing?))
     (deliver-to-epoch-capture! event))
@@ -557,13 +573,21 @@
   ;; A, do not deliver the same stale event into tooling/rings/listeners.
   (when (continuing?)
     (when-let [deliver-tooling (late-bind/get-fn-cached :trace.tooling/deliver!)]
-      (try
-        ;; `*ring-retention-enabled?*` rides through so the tooling hook
-        ;; skips the per-frame ring push under retentionless structural
-        ;; delivery while still fanning out to live listeners (rf2-vxgfnd.244).
-        (deliver-tooling event continuing? *ring-retention-enabled?*)
-        (catch #?(:clj Throwable :cljs :default) e
-          (when (continuing?) (throw e)))))))
+      ;; Capture the outer envelope's ring-retention decision BEFORE restoring
+      ;; ordinary defaults, then pass it explicitly for the outer ring push. The
+      ;; tooling hook (in the sibling ns, which cannot see these vars) reads
+      ;; `retain?` from the argument, not the dynamic var — so restoring the
+      ;; flags to their ordinary defaults around the whole call leaves the outer
+      ;; ring push governed by the captured structural decision while any
+      ;; listener-triggered nested emit runs under normal scope (rf2-vf2qke).
+      (let [retain? *ring-retention-enabled?*]
+        (binding [*epoch-capture-enabled?*  true
+                  *frame-policy-enabled?*   true
+                  *ring-retention-enabled?* true]
+          (try
+            (deliver-tooling event continuing? retain?)
+            (catch #?(:clj Throwable :cljs :default) e
+              (when (continuing?) (throw e)))))))))
 
 (defn- hoist-projected-sensitive
   "Hoist a classification-projection-stamped `[:tags :sensitive?]` up to

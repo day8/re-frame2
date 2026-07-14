@@ -90,6 +90,112 @@
           (trace-tooling/clear-trace-rings!)
           (trace/clear-listeners!))))))
 
+;; ---- rf2-vf2qke — structural scope must not taint listener-triggered work ----
+;;
+;; #5865 binds the structural-delivery flags (epoch-capture / frame-policy /
+;; ring-retention all false) around the ENTIRE synchronous outer emit — but the
+;; public tooling listener fan-out runs INSIDE that dynamic scope. A listener
+;; reacting to A's structural terminal fact that performs its own legitimate
+;; nested emission (a direct `emit!` or a `dispatch`) into another frame C or
+;; same-id successor B had that nested work INHERIT A's retentionless scope: it
+;; streamed live but was never retained in C's own ring, never captured, and
+;; bypassed C's own frame-no-emit policy. The merged fixtures above use PASSIVE
+;; atom listeners and miss this — the taint only manifests when a listener EMITS.
+;;
+;; The fix captures the outer envelope's structural decisions BEFORE the listener
+;; fan-out (the outer ring push already received the captured retain?), then
+;; restores ordinary delivery defaults while invoking the public tooling
+;; listeners, so a listener's own emitted work runs under normal scope. An
+;; explicitly nested `call-with-structural-delivery` can still re-request
+;; structural semantics.
+
+(deftest listener-triggered-nested-emit-runs-under-normal-scope
+  (testing "a public listener reacting to A's structural terminal fact that emits
+            legitimate nested work into unrelated frame C: the nested emit gets
+            NORMAL ring retention, not A's outer retentionless scope (rf2-vf2qke)"
+    ;; Mutation tooth: restoring the ambient structural bindings during the
+    ;; listener fan-out (i.e. NOT restoring ordinary defaults) leaves C's nested
+    ;; emit retentionless and this fixture fails — C's ring stays empty.
+    (let [a-fid :rf2-vf2qke/a-frame
+          a-did :rf2-vf2qke/a-run
+          c-fid :rf2-vf2qke/c-frame
+          c-did :rf2-vf2qke/c-run
+          live  (atom [])
+          fired? (atom false)]
+      (trace/clear-listeners!)
+      (trace-tooling/clear-trace-rings!)
+      ;; A public tooling listener that, on seeing A's structural terminal fact,
+      ;; performs legitimate nested work: a direct public emit! into UNRELATED
+      ;; frame C carrying C's own dispatch-id. That nested emit is ordinary work,
+      ;; not part of A's structural delivery, so it must land in C's ring.
+      (trace/register-listener! ::vf2qke-dispatcher
+        (fn [ev]
+          (swap! live conj ev)
+          (when (and (= :rf2-vf2qke/a-structural (:operation ev))
+                     (compare-and-set! fired? false true))
+            (trace/emit! :test :rf2-vf2qke/c-nested
+                         {:frame c-fid :rf.trace/dispatch-id c-did}))))
+      (try
+        (is (empty? (flat c-fid)) "C has no ring before A's terminal fact")
+        ;; A emits its terminal fact under retentionless structural delivery.
+        (trace/call-with-structural-delivery
+          #(trace/emit! :test :rf2-vf2qke/a-structural
+                        {:frame a-fid :rf.trace/dispatch-id a-did}))
+        ;; A's structural fact reached listeners once and is never retained.
+        (is (= 1 (count (filter #(= :rf2-vf2qke/a-structural (:operation %)) @live)))
+            "A's structural fact reached the listener exactly once")
+        (is (empty? (filter #(= :rf2-vf2qke/a-structural (:operation %)) (flat a-fid)))
+            "A's structural fact is NOT retained in A's ring")
+        ;; THE FIX: C's listener-triggered nested emit IS retained in C's ring —
+        ;; legitimate nested work runs under normal (non-structural) scope.
+        (is (= 1 (count (flat c-fid)))
+            "C's listener-triggered nested emit is retained in C's ring")
+        (is (= :rf2-vf2qke/c-nested (:operation (first (flat c-fid))))
+            "C's ring holds exactly the nested emit")
+        ;; And the nested emit reached the live stream too.
+        (is (some #(= :rf2-vf2qke/c-nested (:operation %)) @live)
+            "the nested emit also streamed live")
+        (finally
+          (trace/unregister-listener! ::vf2qke-dispatcher)
+          (trace-tooling/clear-trace-rings!)
+          (trace/clear-listeners!))))))
+
+(deftest explicitly-nested-structural-delivery-stays-retentionless
+  (testing "a listener that itself re-requests structural delivery for its nested
+            emit keeps retentionless semantics — restoring ordinary defaults for
+            the fan-out does not defeat an explicit nested request (rf2-vf2qke)"
+    (let [a-fid :rf2-vf2qke/a2-frame
+          a-did :rf2-vf2qke/a2-run
+          c-fid :rf2-vf2qke/c2-frame
+          c-did :rf2-vf2qke/c2-run
+          live  (atom [])
+          fired? (atom false)]
+      (trace/clear-listeners!)
+      (trace-tooling/clear-trace-rings!)
+      (trace/register-listener! ::vf2qke-structural-dispatcher
+        (fn [ev]
+          (swap! live conj ev)
+          (when (and (= :rf2-vf2qke/a2-structural (:operation ev))
+                     (compare-and-set! fired? false true))
+            ;; The listener EXPLICITLY requests structural delivery for its own
+            ;; nested emit — which must stay retentionless despite the fan-out
+            ;; running under restored ordinary defaults.
+            (trace/call-with-structural-delivery
+              #(trace/emit! :test :rf2-vf2qke/c2-nested
+                            {:frame c-fid :rf.trace/dispatch-id c-did})))))
+      (try
+        (trace/call-with-structural-delivery
+          #(trace/emit! :test :rf2-vf2qke/a2-structural
+                        {:frame a-fid :rf.trace/dispatch-id a-did}))
+        (is (some #(= :rf2-vf2qke/c2-nested (:operation %)) @live)
+            "the explicitly-structural nested emit still streamed live")
+        (is (empty? (flat c-fid))
+            "the explicitly-nested structural emit is NOT retained in C's ring")
+        (finally
+          (trace/unregister-listener! ::vf2qke-structural-dispatcher)
+          (trace-tooling/clear-trace-rings!)
+          (trace/clear-listeners!))))))
+
 (deftest error-emit-under-structural-delivery-is-also-retentionless
   (testing "emit-error! honours the retentionless boundary too (terminal diagnostics)"
     ;; A's terminal diagnostics (`:rf.epoch.cb/listener-exception`,
