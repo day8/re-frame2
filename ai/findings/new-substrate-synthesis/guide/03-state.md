@@ -1,6 +1,6 @@
 # 03 — State
 
-A view has four inputs, each with one spelling:
+A view has **four inputs**, each with one spelling:
 
 | Question | Answer |
 |---|---|
@@ -9,9 +9,9 @@ A view has four inputs, each with one spelling:
 | Ephemeral, mine, gone on unmount? | `(local initial)` |
 | Keep a resource alive while I'm visible? | `(lease descriptor)` |
 
-There is no fifth — and that's the feature. No ratoms, cursors, reactions, or external
-stores: state that matters lives in app-db, where events, time-travel, Story, and Xray
-can all see it.
+There is no fifth — and that is the feature. No ratoms, cursors, reactions, or
+external stores. State that matters lives in app-db, where events, time-travel,
+Story, and Xray can all see it.
 
 ## Subscriptions: `sub`
 
@@ -22,9 +22,9 @@ can all see it.
     [:div [:h3 (:title order)] [:strong (money total)]]))
 ```
 
-- Returns the **current value**; re-renders this view when it changes.
-- Parametric queries just work — when `order-id` changes, the old target releases and the
-  new one acquires, atomically. You will never see order A's data against order B's id,
+- Returns the **current value**. Re-renders this view when it changes.
+- Parametric queries just work: when `order-id` changes, the old target releases and
+  the new one acquires, atomically. You never see order A's data against order B's id,
   even for one frame.
 - **Conditional reads are legal.** `sub` is not a hook:
 
@@ -33,9 +33,9 @@ can all see it.
 (let [details (when expanded? (sub [:orders/details id]))] …)   ; ✓
 ```
 
-  A collapsed row genuinely subscribes to nothing. The *one* restriction is loops —
-  a `(sub …)` inside `(for …)` is a compile error, because a view's read sites must be
-  finite. The fix is the natural factoring anyway:
+A collapsed row genuinely subscribes to nothing. The *one* restriction is loops: a
+`(sub …)` inside `(for …)` is a compile error, because a view's read sites must be
+finite. The fix is the natural factoring:
 
 ```clojure
 (ui/defview order-row [{:keys [id]}]
@@ -46,12 +46,13 @@ can all see it.
          [order-row {:key id :id id}])])                          ; ✓
 ```
 
-- Keep real computation in `reg-sub` (shared, cached, Xray-visible, JVM-testable); views
-  do presentation math only.
+Keep real computation in `reg-sub` (shared, cached, Xray-visible, JVM-testable).
+Views do presentation math only.
 
-> **See it live.** Mount any view from this page and open Xray's inspector on it: the
-> Dependencies panel's static column is exactly the `sub` sites you just wrote,
-> readable before a single event fires. *(The inspector's causal surfaces land S3.)*
+!!! tip "See it live"
+    Mount any view from this page and open Xray's inspector: the Dependencies panel's
+    static column is exactly the `sub` sites you wrote, readable before a single event
+    fires. *(Causal inspector surfaces land S3.)*
 
 ## Local state: `local` *(lands S3)*
 
@@ -63,19 +64,18 @@ can all see it.
      [:button {:on-click [:search/run text]} "Search"]]))
 ```
 
-`(local initial)` returns the current value and a setter. Setting it re-renders this
-view only. The value lives in host state underneath — deliberately outside app-db, so
-it is never time-travelled.
+`(local initial)` returns the current value and a setter. Setting it re-renders
+**this view only**. The value lives in host state underneath — deliberately outside
+app-db, so it is never time-travelled.
 
-**The doctrine (read twice):** `local` is for keystroke-latency ephemera — uncommitted
-input text, an open/closed disclosure, hover. Handlers in the same view may read it —
-`[:search/run text]` above is the canonical, conforming seam (handlers read committed
-slots, local ephemera included; ruled 2026-07-12). The boundary: the moment a value needs
-cross-view observation, replay or persistence, schema or tool inspection, durable
-navigation semantics, or subscription-derived computation, it belongs in app-db behind an
-event. Note the seam above: the *keystroke* is a fn + `local`; the *intent*
-(`[:search/run text]`) is data. When the field's text **is** product state, skip `local`
-entirely:
+> **Doctrine:** `local` is for keystroke-latency ephemera — uncommitted input text, an
+> open/closed disclosure, hover. The moment a value needs cross-view observation,
+> replay, persistence, schema, tool inspection, navigation semantics, or
+> subscription-derived computation, it belongs in app-db behind an event.
+
+Note the seam above: the *keystroke* is a fn + `local`; the *intent*
+(`[:search/run text]`) is data. When the field's text **is** product state, skip
+`local` entirely:
 
 ```clojure
 [:input {:value (sub [:form/email]) :on-input [:form/typed :email :rf.ui/value]}]
@@ -83,8 +83,8 @@ entirely:
 
 ## Effects: `effect` *(lands S3)*
 
-For synchronizing with the world outside the tree — DOM measurement, chart libraries,
-focus. Never for app logic (that's events and fx).
+For synchronising with the world outside the tree — DOM measurement, chart libraries,
+focus. Never for app logic (that is events and fx).
 
 ```clojure
 (ui/defview chart [{:keys [series]}]
@@ -96,19 +96,17 @@ focus. Never for app logic (that's events and fx).
     [:canvas {:ref (ui/raw-fn set-node)}]))  ; refs are explicit — never bare fns
 ```
 
-(Why `ui/raw-fn` on the ref: `:ref` is not an event property — React calls it during
-commit, so the bare-fn shorthand doesn't apply; the explicit form marks that. Object refs
-work too.)
-
 Deps are values — a rebuilt-but-equal vector is the same dep. No identity traps, no
-`useCallback`, no stale closures. `(effect :connect …)` runs at each connect (mount, or
-reveal after an Activity hide) with cleanup at each disconnect — there is deliberately no
-"once" in a lifecycle React can replay. Dispatching
-from an effect uses `(ui/dispatch-fn)` — stable, bound to the committed frame, and loud if
-called after the view disconnects (it catches leaked listeners for you). Dispatching
-*during render* gets a dev warning pointing here.
+`useCallback`, no stale closures.
 
-## Resource liveness: `lease` *(lands S2; view-level lease semantics confirm at S3)*
+- `(effect :connect …)` runs at each connect (mount, or reveal after an Activity hide)
+  with cleanup at each disconnect. There is deliberately no "once" in a lifecycle
+  React can replay.
+- Dispatch from an effect with `(ui/dispatch-fn)` — stable, bound to the committed
+  frame, loud if called after disconnect (it catches leaked listeners).
+- Dispatch *during render* gets a dev warning pointing here.
+
+## Resource liveness: `lease`
 
 ```clojure
 (ui/defview article-page [{:keys [slug]}]
@@ -118,22 +116,22 @@ called after the view disconnects (it catches leaked listeners for you). Dispatc
     (case status
       :loading [spinner]
       :error   [load-failed]
-      [article-body {:article data}])))   ; :loaded — and :fetching, which keeps prior data visible
+      [article-body {:article data}])))   ; :loaded — and :fetching keeps prior data visible
 ```
 
 `lease` declares *interest*: while this view is mounted and visible, keep the resource
-alive. First lease in → the resource is ensured (fetch starts, or an in-flight one is
-joined); last lease out → it can wind down. **Lease never returns data and never fetches
-during render**; reading is always the passive `(sub [:rf/resource …])`. Conditional
-leases follow the same rule as conditional reads: `(when live? (lease …))` is legal —
-a hidden tile holds nothing alive — while a `lease` inside a loop is a compile error,
-with the same fix (extract a keyed child view). Rule of thumb:
-loading that belongs to navigation or workflow rides route/event resource plans; `lease`
-is for liveness that genuinely follows visible UI — dashboard tiles, hover cards, modals.
+alive. First lease in → the resource is ensured; last lease out → it can wind down.
 
-Two pointers to keep this section honest. The status vocabulary shown is the common
-subset — the full enum (`:idle` included) and the query map's `:scope` key are
-Spec 016's. And nothing on this page *fetches*: the resource system does. Leases only
-declare that somebody is watching; how data actually arrives — effects, transports,
-the events they dispatch — is core re-frame2 dataflow ([core effects](../../../../docs/core/effects.md), [resources](../../../../docs/core/where-state-lives.md)),
-and [10](10-worked-app.md) shows the seam from the view side.
+**Lease never returns data and never fetches during render.** Reading is always the
+passive `(sub [:rf/resource …])`. Conditional leases follow the same rule as
+conditional reads: `(when live? (lease …))` is legal; a `lease` inside a loop is a
+compile error (extract a keyed child view).
+
+Rule of thumb: loading that belongs to navigation or workflow rides route/event
+resource plans; `lease` is for liveness that genuinely follows visible UI — dashboard
+tiles, hover cards, modals.
+
+!!! note
+    Nothing on this page *fetches*. The resource system does. How data actually
+    arrives — effects, transports, the events they dispatch — is core re-frame2
+    dataflow, walked end-to-end in [07](07-servers.md).

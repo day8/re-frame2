@@ -1,12 +1,8 @@
 # 05 — Frames
 
 A frame is a running re-frame2 universe: app-db, subscriptions, event queue, epoch
-history. Views live *inside* one. Two components manage that relationship, and their names
-say which verb they perform.
-
-*(Stage note: the mount grammar and frame-plan extraction are Stage 1; runtime ENSURE
-preflight, provider scoping, and the `(frame)` ops map shipped with the S2 reactive
-core — all on main today. `ui/dispatch-fn` and `effect` land S3.)*
+history. Views live *inside* one. Two components manage that relationship — their
+names say which verb they perform.
 
 ## `frame-root` — ensure
 
@@ -16,9 +12,10 @@ core — all on main today. `ui/dispatch-fn` and `effect` land S3.)*
           root-el)
 ```
 
-Creates the frame if absent, seeds `:initial-events` exactly once, and **never destroys it
-on unmount** — mount again under the same `:id` (which is what a hot reload does) and the
-live frame is reused without re-seeding. Your day-1 mount and your only boot ceremony.
+Creates the frame if absent, seeds `:initial-events` exactly once, and **never
+destroys it on unmount**. Mount again under the same `:id` (which is what a hot
+reload does) and the live frame is reused without re-seeding. Your day-1 mount and
+your only boot ceremony.
 
 ## `frame-provider` — scope
 
@@ -27,11 +24,10 @@ live frame is reused without re-seeding. Your day-1 mount and your only boot cer
  [document-view {:id doc-id}]]
 ```
 
-Pure context over an **already-live** frame — it creates nothing, seeds nothing, destroys
-nothing. This is what Story, Xray, SSR hydration, and multi-frame demos use to point a
-subtree at a frame that something else owns. The `:frame` value is a live frame
-*handle* — minted by whatever owns the frame: your boot/event infrastructure, a test
-harness, Story.
+Pure context over an **already-live** frame — it creates nothing, seeds nothing,
+destroys nothing. Story, Xray, SSR hydration, and multi-frame demos use it to point a
+subtree at a frame something else owns. The `:frame` value is a live handle, minted
+by whatever owns the frame: boot code, a test harness, Story.
 
 Mixing them up fails loudly with a did-you-mean: `frame-root` given `:frame`, or
 `frame-provider` given `:id`, names the sibling you meant.
@@ -48,25 +44,29 @@ Frames are **isolated**. A page can mount several:
           {:root-id :page/home})
 ```
 
-Each subtree's `sub` and handlers bind to *its* frame and only its frame — there is no
-spelling for a cross-frame read in application code. Events in `:shop` cannot re-render
-`:assist`. (One detail worth knowing: a root form that mounts two views, as this one
-does, must author its `:root-id` — the derived default only exists when there is
-exactly one mounted view, which is why the mount above spells out `:page/home`.
-[08](08-ssr.md) has the full identity story.) Frames also pair naturally with server rendering — a page is N hydration
-*roots* referencing whichever frames they need, several roots can share one frame, and
-each root fails or hydrates independently ([08](08-ssr.md)). And you can mount one app N
-times side-by-side (each instance its own frame universe) for comparison demos and tests.
+Each subtree's `sub` and handlers bind to *its* frame and only its frame — there is
+no spelling for a cross-frame read in application code. Events in `:shop` cannot
+re-render `:assist`.
 
-> **See it live.** Mount the two-frame page, open Xray, and dispatch into `:shop` —
-> its epoch counter advances while `:assist` sits still. Frame isolation isn't a
-> promise to trust; it's something you can watch.
+!!! note "Root identity"
+    A root form that mounts two views must author its `:root-id` — the derived
+    default only exists when there is exactly one mounted view. Full identity story:
+    [11](11-ssr.md).
 
-## Holding a frame: `(frame)`
+Frames also pair naturally with server rendering: a page is N hydration roots
+referencing whichever frames they need; several roots can share one frame; each root
+fails or hydrates independently ([11](11-ssr.md)).
 
-Data handlers and `sub` mean typical views never touch the frame directly. For the rare
-imperative need — an effect that dispatches later, an interop callback that must carry the
-frame out of the tree:
+!!! tip "See it live"
+    Mount the two-frame page, open Xray, and dispatch into `:shop` — its epoch
+    counter advances while `:assist` sits still. Frame isolation is something you can
+    watch.
+
+## Holding a frame: `(frame)` and `dispatch-fn`
+
+Data handlers and `sub` mean typical views never touch the frame directly. For the
+rare imperative need — an effect that dispatches later, an interop callback that must
+carry the frame out of the tree:
 
 ```clojure
 ;; guide:no-fixture — illustrative fragment, elided body
@@ -78,12 +78,12 @@ frame out of the tree:
     …))
 ```
 
-`(ui/dispatch-fn)` is one stable function per view instance, bound to the committed frame.
-It fails loudly if called after the view disconnects — which turns a leaked foreign
-listener into an error you see, instead of a dispatch into the void. The fuller ops map is
-`(frame)` (`:frame`, `:dispatch`, `:dispatch-sync`, `:subscribe` — the standard
-`capture-frame` bundle) when you need more than dispatch — say, a bridge that must
-*name* its frame in the payload it sends out of the tree:
+`(ui/dispatch-fn)` is one stable function per view instance, bound to the committed
+frame. It fails loudly if called after the view disconnects — a leaked foreign
+listener becomes an error you see, not a dispatch into the void.
+
+The fuller ops map is `(frame)` (`:frame`, `:dispatch`, `:dispatch-sync`,
+`:subscribe` — the standard `capture-frame` bundle) when you need more than dispatch:
 
 ```clojure
 (ui/defview error-reporter []
@@ -95,14 +95,15 @@ listener into an error you see, instead of a dispatch into the void. The fuller 
     nil))
 ```
 
-Mount one per frame and each reports as itself — no globals, no ambient frame guessing.
+Mount one per frame and each reports as itself — no globals, no ambient frame
+guessing.
 
-## Lifecycle facts worth knowing
+## Lifecycle facts
 
-- A view mounted with no provider anywhere above it → `:rf.error/no-frame-context` at the
-  first `sub`/handler. The runtime never invents a frame.
-- Unmount releases the subtree's subscriptions and leases. So does hiding it inside a
-  React `Activity` — with local state preserved and everything reacquired (and corrected)
+- A view with no provider above it → `:rf.error/no-frame-context` at the first
+  `sub`/handler. The runtime never invents a frame.
+- Unmount releases the subtree's subscriptions and leases. So does hiding it inside
+  a React `Activity` — local state preserved; everything reacquired (and corrected)
   on reveal.
-- Destroying a *frame* (tooling/tests) marks its views' cells dead: still-mounted views
-  scoped to it render a loud error rather than silently migrating to another frame.
+- Destroying a *frame* (tooling/tests) marks its views' cells dead: still-mounted
+  views render a loud error rather than silently migrating to another frame.

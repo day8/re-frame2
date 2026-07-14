@@ -1,20 +1,13 @@
-# 10 — A worked app: counter → dashboard
+# 06 — A worked app: counter → dashboard
 
 [01](01-getting-started.md) ended with a counter. This page grows it into a small
-operations dashboard — tiles, a live feed, a filter — because that's where the model
+operations dashboard — tiles, a live feed, a filter — because that is where the model
 proves itself: the counter shows the loop; the dashboard shows the loop *scaling*
-without new concepts. Nothing here is repo-specific; it's the shape of any consumer
-app.
-
-*(Stage note: everything on this page compiles, Tier-1-renders — `sub` reads
-included — and test-drives with `dispatch!` on main today; the live loop (`sub`-driven
-repaints, the `ui/adapter` reactive wiring) shipped with the S2 core. Committed
-dispatch from compiled handler sites, the error boundary, and `lease` liveness are
-still to land — markers below flag each.)*
+without new concepts.
 
 ## The state shape first
 
-One namespace, `.cljc` (the JVM tests will thank you), dataflow before views:
+One namespace, `.cljc` (JVM tests will thank you), dataflow before views:
 
 ```clojure
 (ns dash.app
@@ -69,10 +62,10 @@ shared, cached, Xray-visible, JVM-testable. Views below do presentation only.
       "Watch"]]))
 ```
 
-The tile reads *its own* metric — the classic re-frame layering advice, unchanged
-([07](07-performance.md)): a tick that changes one metric repaints one tile, and the
-grid never hears about it. The checkbox is a data handler with a placeholder — the
-whole [04](04-events.md) story in one attribute. *(Dispatch behaviour lands S3.)*
+The tile reads *its own* metric — classic re-frame layering ([10](10-performance.md)):
+a tick that changes one metric repaints one tile, and the grid never hears about it.
+The checkbox is a data handler with a placeholder — the whole [04](04-events.md)
+story in one attribute.
 
 ## The grid and the filter
 
@@ -92,16 +85,16 @@ whole [04](04-events.md) story in one attribute. *(Dispatch behaviour lands S3.)
 
 Two decisions worth naming:
 
-- **The filter text is app-db, not `local`** — the grid observes every keystroke, so
-  the keystroke *is* product state ([03](03-state.md)'s doctrine). And because
-  `:value` is literal next to a vector handler, this is a controlled-input site: the
-  sync door applies and the caret behaves ([04](04-events.md)). *(lands S3)*
-- **The list is keyed or it doesn't build.** `{:key id}` on each tile is required —
-  a missing key is a build failure with the file:line, not a console warning.
+1. **The filter text is app-db, not `local`** — the grid observes every keystroke, so
+   the keystroke *is* product state ([03](03-state.md)). And because `:value` is
+   literal next to a vector handler, this is a controlled-input site: the sync door
+   applies and the caret behaves ([04](04-events.md)).
+2. **The list is keyed or it does not build.** `{:key id}` on each tile is required —
+   a missing key is a build failure with the file:line.
 
-## A live tile: `lease` *(lands S2; view-level lease confirms S3)*
+## A live tile: `lease`
 
-A tile whose data must be *kept alive* while it's visible declares interest and reads
+A tile whose data must be kept alive while it is visible declares interest and reads
 passively — the view never fetches:
 
 ```clojure
@@ -111,16 +104,17 @@ passively — the view never fetches:
     (case status
       :loading [:div.tile.skeleton "…"]
       :error   [:div.tile.error "Feed unavailable"]
-      ;; :loaded — and :fetching, which keeps the prior data visible mid-refresh
+      ;; :loaded — and :fetching, which keeps prior data visible mid-refresh
       [:div.tile [:h3 "p95 latency"] [:strong (str (:p95 data) "ms")]])))
 ```
 
-First visible tile in → the feed is ensured; last one out → it can wind down. Loading
-and error are just values you branch on — no Suspense, nothing hidden from the tools.
+First visible tile in → the feed is ensured; last one out → it can wind down.
+Loading and error are just values you branch on. How the feed is actually fetched is
+the next chapter ([07](07-servers.md)).
 
 ## Contain the risky part *(lands S3)*
 
-Third-party chart inside a tile? Give it a boundary so one crash doesn't take the
+Third-party chart inside a tile? Give it a boundary so one crash does not take the
 dashboard:
 
 ```clojure
@@ -150,15 +144,14 @@ dashboard:
 ```
 
 Identical shape to [01](01-getting-started.md) — a dashboard earns no extra boot
-ceremony. Wire your transport (polling, websocket, SSE) as ordinary re-frame2 fx that
+ceremony. Wire transport (polling, websocket, SSE) as ordinary re-frame2 fx that
 dispatch `[:metrics/arrived …]`; the view layer never fetches. Hot reload works from
-day one: edit a tile, save, and it repaints against live app-db — the frame is reused,
-nothing re-seeds.
+day one: edit a tile, save, and it repaints against live app-db.
 
 ## Tests, headless
 
 The tile's whole contract — what it shows, what it dispatches — asserts on the JVM
-tree, no browser; both tests run on main today (`sub` reads and `dispatch!` alike):
+tree, no browser:
 
 ```clojure
 (ns dash.app-test
@@ -189,31 +182,25 @@ tree, no browser; both tests run on main today (`sub` reads and `dispatch!` alik
       (is (= 1 (count (ui.test/find-all tree :dash.app/metric-tile)))))))
 ```
 
-Notice how the fixture is built: `rf/make-frame` — the one frame constructor — and
-the app's *own* events (`[:dash/init]`, `[:metrics/arrived …]`), so the test state can
-never drift from a state the real app can reach.
-The second test drives state with a real event and counts tiles by **view id** — the
-qualified-keyword selector matches `metric-tile`'s boundary marker in the tree
-([09](09-testing.md)). Business logic (the filtering itself) belongs in a plain
-Tier-2 sub test; these two assert the *view* contract only.
+The fixture uses `rf/make-frame` and the app's *own* events, so test state cannot
+drift from a state the real app can reach. The second test drives state with a real
+event and counts tiles by **view id**. Business logic (the filtering itself) belongs
+in a plain dataflow sub test; these two assert the *view* contract only. Full tiers:
+[08](08-testing.md).
 
-## What you just didn't write
+## What you just did not write
 
-No `useCallback` on the checkbox, no `React.memo` on the tile, no store wiring for the
-feed, no loading-state component library, no test IDs threaded through the DOM for a
-click simulator. The dashboard is the counter, more times.
+No `useCallback` on the checkbox, no `React.memo` on the tile, no store wiring for
+the feed, no loading-state component library, no test IDs threaded through the DOM
+for a click simulator. The dashboard is the counter, more times.
 
-## Two codas
+## Codas
 
-**Serve it.** The dashboard is one mount away from [08](08-ssr.md)'s world: the same
-root form renders on the JVM, the same event vectors sit in the server tree, and
-hydration picks up where the server left off *(hydration lands S5)*. Nothing about
-the app changes shape.
+**Serve it.** The dashboard is one mount away from [11](11-ssr.md): the same root form
+renders on the JVM; the same event vectors sit in the server tree.
 
-**Drive it.** Mount it, open Xray, and type into the filter: one epoch per keystroke,
-one tile repaint per changed metric — exactly the model [07](07-performance.md)
-promised *(the causes timeline lands S3)*. Then hand it to your AI pair
-([06](06-debugging.md)): ask why a tile repainted, have it dispatch
+**Drive it.** Mount it, open Xray, type into the filter: one epoch per keystroke, one
+tile repaint per changed metric — the model [10](10-performance.md) promised. Hand it
+to your AI pair ([09](09-debugging.md)): ask why a tile repainted, have it dispatch
 `[:metrics/arrived …]` bursts, or break the filter handler and watch it scrub back
-and fix it. The dashboard makes a good first pairing target precisely because every
-intent on this page is data.
+and fix it.
