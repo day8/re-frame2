@@ -13,6 +13,10 @@ of your app, sealed off from every other copy. Most apps establish exactly one w
 at boot and never say its name again. We start there, then add a second world.
 By the end: *frame identity is carried, not found.*
 
+**On this page — two speeds.** Day one: one `frame-root`, seed with
+`:initial-events`, two frames side by side. Going further: config keys, destroy,
+capture-frame from callbacks, images. Ship on one frame until you need a second.
+
 ## The counter, twice
 
 Before any theory, the whole point of frames, running. One set of registrations — the same events, the same sub, the same view — mounted into **two** frames:
@@ -108,14 +112,21 @@ Notice there's no place to hand the frame config an initial app-db. That's on pu
 
 !!! note "A frame's app-db always starts as `{}` — there is no `:db` config key"
 
-    State arrives the only way state ever arrives: through an [event pipeline](glossary.md#event-pipeline). To seed initial data, make `[:rf/set-db {…}]` the first `:initial-events` step (`:rf/set-db` is the framework's "replace app-db with this map" event):
+    State arrives the only way state ever arrives: through an
+    [event pipeline](glossary.md#event-pipeline). Prefer a **named seed event** —
+    the same pattern the pure-loop pages used:
 
     ```clojure
-    [rf/frame-root {:id :cart :initial-events [[:rf/set-db {:items []}]]}
+    (rf/reg-event :cart/initialise
+      (fn [_ _] {:db {:items []}}))
+
+    [rf/frame-root {:id :cart :initial-events [[:cart/initialise]]}
      [cart-view]]
     ```
 
-    Keeping initialisation on the dispatch path means the same pipeline that handles every later state change also builds the first one — one mechanism, no special "initial state" channel that drifts from the rest of your app.
+    For a raw dump with no domain event, the built-in `[:rf/set-db {…}]` is fine as
+    the first step. Either way, initialisation rides the same pipeline as every later
+    change — no special "initial state" channel that drifts from the rest of the app.
 
 `:initial-events` is an *ordered vector of setup steps*. Each step is a bare event vector (`[:cart/restore-session]`) or, when it needs dispatch opts, a map (`{:event [:cart/add "milk"] :opts {…}}`). Each step is dispatched synchronously and run to completion before the next one starts — and "to completion" means all the way down: if a setup event dispatches further events, those finish too. By the time construction returns, the entire setup drain is done and the world is fully booted.
 

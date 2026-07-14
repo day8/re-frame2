@@ -9,6 +9,9 @@ answer — causality is smeared across components. Here it has a clean one.
 
 re-frame2 has a clean answer, and it isn't bolted on — it falls out of the architecture. Every event traverses the same fixed [event pipeline](glossary.md#event-pipeline) — the ordered run from a dispatched [event](glossary.md#event) through its [event handler](glossary.md#event-handler), the [commit](glossary.md#commit), and the [effects](glossary.md#effect) — so there is a single place to stand and watch the runtime go past. And as it runs, the framework narrates: it emits a small data record at every moment worth noticing. That stream of records is the **trace stream** — the **wire**, from here on — and it's the whole foundation. The fancy panels you'll meet at the end — [Xray](glossary.md#xray) (the dev inspector), Story (a view workbench), the pair MCP (a bridge that lets an AI inspect the running app) — are not the observability system. They are *readers* of it.
 
+**Day one on this page:** one wire (the trace stream), correlated by
+`:rf.trace/dispatch-id`, and the ring buffer of recent history. Tools are thin
+readers of those facts — not a second truth.
 This page builds up from the smallest piece. First the shape of a single trace event. Then the buffer that remembers recent ones. Then a listener you can write in eight lines. Then what survives into production. Then the tools sitting on top.
 
 If you take one idea away, take this one: **every tool is a thin presentation over the same runtime facts.** Xray, Story, the pair MCP, machines-viz, and any listener you write all read one trace stream and one [epoch](glossary.md#epoch) history. If two of them ever disagree about a run, one of them is broken — there is no second truth.

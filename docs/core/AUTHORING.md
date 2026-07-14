@@ -46,6 +46,13 @@ interceptors) → **operations** (errors → observability) → **advanced** (im
 run-to-completion operational detail) → how-to → testing → explanation → migration →
 glossary.
 
+**Progressive pacing on concept pages.** Open with the reader's problem and a working
+counter step. Teach the happy path first. Put a **day-one checklist** (or hard
+"going further" break) where the reader may stop and ship. Unhappy paths are short
+tables of named `:rf.error/*` / recovery — not buried essays. Prefer `frame-root` +
+named initialise events in pure-loop live cells; introduce `make-frame` /
+`frame-provider` when frames *are* the topic.
+
 **Canon apps.** Counter for the model pages (no server). RealWorld once server data enters. Domain corpora keep their own anchors (XState / login+websocket; TanStack Query + RealWorld nouns; same nouns for async, routing, SSR). No throwaway narrative apps.
 
 **Nav.** Order pages so each leans only on what came before. Descriptive labels help (`"Frames: isolated worlds"` beats `"Frames"`); numbered sequential tracks help when the track is long. Open each page by placing it in the thread.

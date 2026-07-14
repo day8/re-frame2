@@ -212,3 +212,18 @@ frame also holds [**runtime-db**](glossary.md#runtime-db) — framework bookkeep
 framework's (read it via its subscriptions; influence it by dispatching its events —
 never forge it by hand in app-db). An ordinary `:db` effect cannot wipe a machine
 snapshot. [Frames](frames.md) goes deeper.
+
+## When things go wrong
+
+| Symptom | Likely cause | Fix |
+|---|---|---|
+| State "vanished" after a handler | Accidental `{:db nil}` | Write `{:db {}}` to clear; watch for `:rf.warning/db-nil-coerced` |
+| Two facts disagree | A conclusion was stored next to its facts | Derive in a [subscription](subscriptions.md) (or a [flow](flows.md) if handlers must read it) |
+| Initial UI shows empty before first paint | No seed event | List an initialise event in `:initial-events` |
+| Framework snapshot gone after your `:db` | You tried to own runtime keys in app-db | Leave runtime-db alone; dispatch the subsystem's events |
+
+## Day-one checklist
+
+With this page you can seed a frame, keep facts in one map, write only through
+events, and leave conclusions out of app-db. The left nav continues into how those
+conclusions are named and cached.

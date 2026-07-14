@@ -8,6 +8,11 @@ You've caught a hundred errors with `console.error("something broke", e)`. It ke
 
 re-frame2's rule is one sentence: **if the runtime knows it, the [error record](glossary.md#error-record) carries it.**
 
+**Day one on this page:** read a dossier (`:op-type`, `:operation`, `:recovery`),
+learn the four degradation defaults (handler throw, missing event, missing fx,
+missing cofx). The catalogue is consult-not-memorise; production shipping is the
+how-to [Report errors in production](how-to/report-errors-in-production.md).
+
 That one sentence is the whole model; the rest of this page is it, unpacked. Every error the framework detects becomes a structured map — fat on purpose — with the causal context already attached. This page teaches you to read that map, predict how your app degrades after each kind of failure, fix the error you'll hit first, and test the structure instead of the string.
 
 ## The dossier

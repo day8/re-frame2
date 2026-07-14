@@ -95,6 +95,24 @@ schemas, required coeffects, interceptors. Until you need that, the two-argument
 form is enough. The first useful metadata form is on
 [Coeffects](coeffects.md).
 
+## Day-one checklist
+
+You can design an event set, dispatch from a view, and write pure handlers that
+return `{:db …}`. Everything else on this page is recovery vocabulary — keep it
+nearby, don't memorise it.
+
+## When things go wrong
+
+Three failures you will meet early — each is **loud**, named, and recoverable:
+
+| Symptom | What happened | Error / recovery |
+|---|---|---|
+| Button "does nothing" | You dispatched an id nobody registered | `:rf.error/no-such-handler` — traced no-op; the id is in the dossier |
+| Callback throws from a timer / fetch | Bare `dispatch` outside a frame | `:rf.error/no-frame-context` — carry the frame ([Frames](frames.md)) |
+| Handler can't be unit-tested | You called `js/fetch` / read the clock inside the body | Wrong place for impurity — describe it ([Effects](effects.md), [Coeffects](coeffects.md)) |
+
+Unregistered-id is intentional degrade: a botched feature load must not crash the whole app. The fix is still to register the handler (or fix the typo); the trace names the exact id so you never guess.
+
 ## What events are not
 
 | Not this | Why |
