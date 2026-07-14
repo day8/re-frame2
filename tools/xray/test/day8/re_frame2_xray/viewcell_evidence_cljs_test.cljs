@@ -26,6 +26,7 @@
             [re-frame.frame :as frame]
             [re-frame.ui.reactive :as reactive]
             [re-frame.ui.tool.evidence :as evidence]
+            [day8.re-frame2-xray.core :as core]
             [day8.re-frame2-xray.mount :as mount]
             ;; The REAL preload — its debug-gated boot block runs at load,
             ;; installing the evidence projection under Xray's identity.
@@ -189,3 +190,84 @@
     (is (false? (viewcell-evidence/uninstall!))
         "…and Xray's uninstall cannot release what it does not own")
     (is (= ::another-tool (evidence/installed-owner)))))
+
+;; ===========================================================================
+;; Ownership fence on the READ path (rf2-vxgfnd.238) — a foreign owner's
+;; accumulated evidence is NEVER observable through Xray
+;; ===========================================================================
+
+(deftest foreign-owner-evidence-never-surfaces-through-any-xray-read
+  ;; A foreign tool owns the shared projection AND has accumulated evidence
+  ;; in it — the case the earlier never-clobber test omitted (it installed a
+  ;; foreign owner but delivered nothing, so `rows` was empty for the wrong
+  ;; reason). Drive a real flush so `evidence/projection` is non-empty.
+  (is (true? (evidence/install! ::another-tool)))
+  (let [cell (reactive/make-cell ::foreign-v)]
+    (reactive/mark-dirty! cell 1)
+    (reactive/flush-pending!)
+    (is (= 1 (count (evidence/projection)))
+        "the FOREIGN owner accumulated a row in the shared projection")
+    ;; Xray's own claim is rejected — Xray does not own the projection.
+    (is (false? (viewcell-evidence/install!)))
+    (is (false? (viewcell-evidence/installed?)))
+    ;; AC: rows + every derived Xray query return NO evidence unless Xray
+    ;; owns the installed projection. Fail-before: pre-fix `rows` read the
+    ;; shared projection regardless of ownership and surfaced this row.
+    (is (= [] (viewcell-evidence/rows))
+        "ownership rejection ⇒ zero observation through Xray's rows")
+    (boot-xray!)
+    (is (= [] (xray-query))
+        "…and zero through the :rf.xray/viewcell-evidence query path")
+    ;; Xray neither released nor read the foreign owner's projection.
+    (is (= ::another-tool (evidence/installed-owner))
+        "the foreign registration is untouched")
+    (is (= 1 (count (evidence/projection)))
+        "…and its evidence still lives in the shared projection")))
+
+;; ===========================================================================
+;; core/init! is a full evidence-projection install path (rf2-vxgfnd.238)
+;; ===========================================================================
+
+(deftest core-init-claims-the-projection-under-xrays-identity
+  ;; A clean process that requires `core` and calls `init!` (the supported
+  ;; manual alternative to the preload) must claim the evidence projection,
+  ;; or Xray is enabled WITHOUT ViewCell evidence. Fail-before: pre-fix
+  ;; `init!` never installed, so this owner stayed nil.
+  (is (nil? (evidence/installed-owner)) "clean slate — nobody owns it")
+  (core/init!)
+  (is (= viewcell-evidence/owner-id (evidence/installed-owner))
+      "core/init! claims the projection under Xray's stable owner id")
+  (is (true? (viewcell-evidence/installed?)))
+  (is (some? (aget js/globalThis sentinel-key))
+      "…and mirrors the install on the browser-probe sentinel")
+  (testing "idempotent — a second init! is the same-owner re-arm, not a reject"
+    (core/init!)
+    (is (= viewcell-evidence/owner-id (evidence/installed-owner)))
+    (is (true? (viewcell-evidence/installed?)))))
+
+(deftest core-init-does-not-clobber-a-foreign-owner
+  ;; The manual path honours the same never-clobber contract as the preload.
+  (is (true? (evidence/install! ::another-tool)))
+  (core/init!)
+  (is (= ::another-tool (evidence/installed-owner))
+      "core/init! did not clobber the foreign registration")
+  (is (false? (viewcell-evidence/installed?)))
+  (is (= [] (viewcell-evidence/rows))
+      "…and exposes no evidence while another owner holds the projection"))
+
+(deftest uninstall-then-core-init-reclaims-a-fresh-projection
+  ;; dispose (uninstall) then re-init: the ordinary tool-shutdown / test
+  ;; door, and a re-init that reclaims a fresh, empty ownership span.
+  (is (true? (viewcell-evidence/install!)))
+  (let [cell (reactive/make-cell ::v)]
+    (reactive/mark-dirty! cell 1)
+    (reactive/flush-pending!)
+    (is (= 1 (:count (first (viewcell-evidence/rows))))))
+  (is (true? (viewcell-evidence/uninstall!)))
+  (is (nil? (evidence/installed-owner)))
+  (is (= [] (viewcell-evidence/rows)) "closed retains zero")
+  ;; re-init through the manual path reclaims the projection, empty
+  (core/init!)
+  (is (true? (viewcell-evidence/installed?)))
+  (is (= [] (viewcell-evidence/rows))
+      "re-init starts from a fresh, empty projection"))

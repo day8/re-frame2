@@ -108,20 +108,30 @@
      :dropped-count  d        ; distinct omitted targets (honest loss)
      :dropped-exact? bool}    ; false ⇒ d is a lower bound (saturated)
 
-  `[]` when uninstalled, empty, or in a production build (where the
-  debug evidence plane is elided)."
+  `[]` when Xray does NOT own the installed projection (never installed,
+  uninstalled, or a FOREIGN owner holds it — ownership rejection must mean
+  no observation through Xray), when empty, or in a production build (where
+  the debug evidence plane is elided)."
   []
-  (into []
-        (map (fn [{:keys [cell-id view-id root-id evidence]}]
-               {:cell-id        cell-id
-                :view-id        view-id
-                :root-id        root-id
-                :first-epoch    (:first-epoch evidence)
-                :latest-epoch   (:latest-epoch evidence)
-                :count          (:count evidence)
-                :batches        (:batches evidence)
-                :causes         (:causes evidence)
-                :targets        (:targets evidence)
-                :dropped-count  (count (:dropped evidence))
-                :dropped-exact? (:dropped-exact? evidence)}))
-        (or (evidence/projection) [])))
+  ;; Ownership fence (rf2-vxgfnd.238). The evidence tier's `projection`
+  ;; read returns the shared slot's entries REGARDLESS of owner, so a bare
+  ;; read here would expose a foreign owner's evidence whenever Xray's
+  ;; install was rejected (`installed?` false). Gate EVERY read — rows and
+  ;; the `:rf.xray/viewcell-evidence` sub/UI that derive from it — on the
+  ;; exact ownership token: Xray observes iff Xray is the installed owner.
+  (if-not (installed?)
+    []
+    (into []
+          (map (fn [{:keys [cell-id view-id root-id evidence]}]
+                 {:cell-id        cell-id
+                  :view-id        view-id
+                  :root-id        root-id
+                  :first-epoch    (:first-epoch evidence)
+                  :latest-epoch   (:latest-epoch evidence)
+                  :count          (:count evidence)
+                  :batches        (:batches evidence)
+                  :causes         (:causes evidence)
+                  :targets        (:targets evidence)
+                  :dropped-count  (count (:dropped evidence))
+                  :dropped-exact? (:dropped-exact? evidence)}))
+          (or (evidence/projection) []))))
