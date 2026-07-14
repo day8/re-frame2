@@ -1,3 +1,96 @@
 # The re-frame2 API
 
-This is the complete API reference for the ClojureScript implementation of re-frame2. On the left, there is one document per namespace.
+This is the **complete public API reference** for the ClojureScript implementation of
+re-frame2. One page per public namespace. Entries use a fixed shape: **Kind**,
+**Signature**, **Description** (contract, including error ids where they are part of
+the surface), **Example**.
+
+For the mental model, start with the [Core guide](../core/introduction.md). This
+corpus is deliberately terse: it states *what* you may call, not *why* the design
+chose it.
+
+## How to read these pages
+
+| Audience need | Where |
+|---|---|
+| Day-to-day app API | [`re-frame.core`](re-frame.core.md) (the facade) |
+| Compiled views (`defview`, `mount`, `sub`) | [`re-frame.ui`](re-frame.ui.md) |
+| Optional capabilities | machines, routing, resources, flows, schemas, HTTP, SSR |
+| Substrate adapters | `re-frame.adapter.{reagent,uix,helix}` — or `re-frame.ui/adapter` |
+| Tests | [`re-frame.test-support`](re-frame.test-support.md), [`re-frame.test-helpers`](re-frame.test-helpers.md) |
+| Production timing | [`re-frame.performance`](re-frame.performance.md) |
+
+**Facade vs owning namespace.** Many optional features re-export registration verbs
+through `re-frame.core` (for example `reg-machine`, `reg-flow`, `reg-resource`). The
+core page carries a short entry and points at the owning namespace for the full
+contract. Prefer requiring the feature namespace when you need depth; `rf/` remains
+valid for the re-export.
+
+**Keyword surfaces.** Events, fx, subs, and similar *keyword-addressed*
+registrations (`:rf.http/managed`, `:rf/machine`, …) appear as tables or sections on
+the owning page. They are not vars; the [api-manifest](../../spec/api-manifest.edn)
+tracks vars.
+
+**Completeness.** Public vars in the manifest with tiers `:front-porch`,
+`:advanced`, `:adapter`, or `:testing` under `re-frame.*` are expected to appear on
+these pages (or as an explicit facade pointer). Tooling and implementation tiers are
+out of scope here.
+
+## Namespaces
+
+### Facade and core dataflow
+
+| Page | Role |
+|---|---|
+| [re-frame.core](re-frame.core.md) | Registration, dispatch, subscribe, views (`reg-view`), frames, boot, interceptors, feature re-exports |
+| [re-frame.ui](re-frame.ui.md) | Compiled-view substrate: `defview`, `sub`, `mount`, `frame-root`, interop forms |
+
+### Optional capabilities
+
+| Page | Role |
+|---|---|
+| [re-frame.schemas](re-frame.schemas.md) | App / event / effect schemas |
+| [re-frame.flows](re-frame.flows.md) | Materialised derivations into app-db |
+| [re-frame.http](re-frame.http.md) | Managed HTTP fx and interceptors |
+| [re-frame.machines](re-frame.machines.md) | State machines |
+| [re-frame.routing](re-frame.routing.md) | Router, routes, route link |
+| [re-frame.resources](re-frame.resources.md) | Resource cache, leases, mutations |
+| [re-frame.ssr](re-frame.ssr.md) | Server render, head, payloads |
+| [re-frame.ssr.ring](re-frame.ssr.ring.md) | Ring adapter for SSR |
+| [re-frame.epoch](re-frame.epoch.md) | Epoch history / time-travel surface |
+
+### Adapters, tests, tooling
+
+| Page | Role |
+|---|---|
+| [re-frame.adapter.reagent](re-frame.adapter.reagent.md) | Stock / slim Reagent substrate |
+| [re-frame.adapter.uix](re-frame.adapter.uix.md) | UIx substrate |
+| [re-frame.adapter.helix](re-frame.adapter.helix.md) | Helix substrate |
+| [re-frame.test-support](re-frame.test-support.md) | Fixtures, registrar snapshot, poll, sequester |
+| [re-frame.test-helpers](re-frame.test-helpers.md) | Hiccup walkers, testids |
+| [re-frame.performance](re-frame.performance.md) | Compile-time User-Timing flags |
+
+## Require patterns
+
+```clojure
+;; Typical app (Reagent or ui substrate)
+(:require [re-frame.core :as rf]
+          [re-frame.adapter.reagent :as reagent-adapter]
+          ;; or: [re-frame.ui :as ui :refer [defview sub]]
+          )
+
+(rf/init! reagent-adapter/adapter)
+;; (rf/init! ui/adapter)
+
+;; Tests
+(:require [re-frame.core :as rf]
+          [re-frame.test-support :as ts]
+          [re-frame.test-helpers :as th])
+```
+
+## Related corpora
+
+- [Core guide](../core/introduction.md) — progressive teaching
+- [spec/API.md](../../spec/API.md) — normative var catalogue with tiers (projection of
+  the api-manifest)
+- Feature guides under Machines, Resources, Routing, SSR, Async tabs

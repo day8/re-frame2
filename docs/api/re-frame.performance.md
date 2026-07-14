@@ -36,9 +36,9 @@ See [Find and fix a slow view](../core/how-to/fix-a-slow-view.md) for turning th
 
 ### `retain-entries?`
 
-- **Kind**: Var (`^boolean`)
-- **Signature**: `goog-define`d (CLJS) / `^:const false` (JVM). Set via `:closure-defines {re-frame.performance/retain-entries? true}`.
-- **Description**: Skips the per-emit `performance.clearMeasures(name)` so measure entries persist in the host's retained User-Timing buffer.
+- **Kind**: Compile-time flag (`goog.define` / Closure define)
+- **Signature**: Set via `:closure-defines {re-frame.performance/retain-entries? true}` (CLJS). JVM is a no-op constant.
+- **Description**: Skips the per-emit `performance.clearMeasures(name)` so measure entries persist in the host's retained User-Timing buffer. Not listed as a separate runtime-exported Var in the public api-manifest (it is consumed only by compile-time elision); document it here because it is part of the build contract for this namespace.
     - Enables one-shot `performance.getEntriesByType("measure")` readers (DevTools / console workflows).
     - Default `false`: each entry is delivered to any live `PerformanceObserver` at `measure()` time, then cleared. The buffer therefore does not grow across a long-running (RUM) session, and `getEntriesByType` returns no `rf:*` entries.
     - No effect unless `enabled?` is also on.
