@@ -881,7 +881,7 @@ The canonical category vocabulary is fixed-and-additive (Spec-ulation): existing
 | Namespace | Severity | Used for |
 |---|---|---|
 | `:rf.error/*` | `:error` | Runtime failures (handler/sub/fx exceptions, missing handlers, schema failures, drain depth, override fallthrough, adapter misuse) |
-| `:rf.warning/*` | `:warning` | Authoring-time advisories the runtime can detect but does not abort on (e.g. plain Reagent fn under non-default frame) |
+| `:rf.warning/*` | `:warning` | Authoring-time advisories the runtime can detect but does not abort on (e.g. a handler registered without a `:doc`, `:rf.warning/missing-doc`) |
 | `:rf.fx/*` | `:warning` | Effect-resolution advisories (e.g. fx skipped because of `:platforms`) |
 | `:rf.ssr/*` | `:warning` | SSR-specific advisories (hydration mismatch and similar) |
 | `:rf.epoch/*` | `:error` | Epoch-history restore failures (per [Tool-Pair §Time-travel](Tool-Pair.md#time-travel)) |
