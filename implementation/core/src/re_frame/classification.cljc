@@ -590,10 +590,25 @@
 
   EP-0002 (rf2-gjq3ow) — FAIL CLOSED on a nil `frame-id`: subs are frame-scoped,
   so a sub trace with no carried frame is malformed; `:rf.sub/value` (and
-  `:rf.sub/prev-value` when present) are conservatively redacted."
+  `:rf.sub/prev-value` when present) are conservatively redacted.
+
+  rf2-vxgfnd.220 — IMAGE-LOCAL classification: the reactive recompute carries the
+  EXACT classification declaration captured for its reaction under an internal
+  `:rf.sub/classification` slot (the same `sub-meta` the schema validator read).
+  When present it is AUTHORITATIVE — we project from it rather than re-resolving
+  `classification-when :sub sub-id` through the ambient registrar, which after the
+  frame-generation binding unwinds (one-shot deref) or across HMR/incarnation
+  replacement (an ongoing reaction) may see no image metadata or a CONFLICTING
+  same-id global registration. Presence (even an empty captured declaration) wins
+  over any global; the carrier is stripped here so it never egresses. Absence (a
+  trace not stamped by the memo path) falls back to the registrar resolution."
   [tags frame-id]
   (let [sub-id    (:rf.sub/id tags)
-        class     (classification-when :sub sub-id)
+        captured? (contains? tags :rf.sub/classification)
+        class     (if captured?
+                    (normalise-classification (:rf.sub/classification tags))
+                    (classification-when :sub sub-id))
+        tags      (dissoc tags :rf.sub/classification)
         has-prev? (contains? tags :rf.sub/prev-value)]
     (cond
       (nil? frame-id)
