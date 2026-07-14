@@ -156,9 +156,17 @@ Probes are ownership-free: no ref-count, no watch, no zero-owner cache node.
 **First-mount fan-out mitigation:** probes share a **slice-scoped pure memo table** —
 the `?slice-memo` argument — so N sibling rows probing `[:orders/by-id id]` compute
 shared derivation parents once per slice, not once per row. There is no public React
-render-pass token; the table is scoped to the **current synchronous execution slice**:
-created lazily on first probe, cleared by `queueMicrotask`, belt-and-braces tagged with
-`(frame, frame-epoch, registry-epoch)` and invalidated on any mismatch. A time-sliced
+render-pass token; the table is scoped to the **current synchronous execution slice**,
+created lazily on first probe and bounded **per-host**. On the **JVM** the slice is a
+thread-local render scope (`*slice*` / `with-slice-memo`, opened around every public
+Tier-1 render entry — `re-frame.ui.tree/render`, the `ui.test/render` routes, and each
+ViewCell capture) whose table is **discarded synchronously when the render thunk
+returns** — there is no microtask on the JVM. On **CLJS** a single-threaded module holder
+shares the pass and is **released at the host microtask checkpoint** (`queueMicrotask`,
+under a CAS guard, aligned with the port's own table clear). Both hosts belt-and-braces
+tag the table with `(frame, frame-epoch, registry-epoch)`, invalidate on any mismatch,
+and enforce the one law: sharing is allowed within a slice, but no table or handle
+survives into a later render slice. A time-sliced
 pass spanning k slices builds k tables (fixture 1b: 3 tables across an interrupted
 3,000-row transition) — the economy is **once-per-slice, not once-per-pass**; bounded,
 allocation-trivial, zero React internals. An interrupted or abandoned slice's table
