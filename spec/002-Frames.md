@@ -661,13 +661,32 @@ exact-token teardown cascade described below is the sole executable exception.
     have no second registrar row to unregister.
 11. **Notify epoch listeners** — fire `:rf.epoch.cb/silenced-on-frame-destroy` after the
     live frame has vanished so tools silence their per-frame event buffers in one pass.
-    The internal hook carries the destroyed incarnation token and compare-cleans only
-    that owner: if a fresh same-id incarnation has already published epoch state, stale
-    cleanup is a no-op for the replacement.
+    This is the PUBLISH half of the epoch destroy contract: it ships the terminal
+    evidence the pre-dissoc snapshot (below) bound. The internal hook carries the
+    destroyed incarnation token and compare-cleans only that owner: if a fresh same-id
+    incarnation has already published epoch state, stale cleanup is a no-op for the
+    replacement.
 
 Steps 3, 4, 7, 9, and 11's optional/per-artefact calls are **best-effort**: an unbound
 hook silently no-ops and the rest of the recipe continues. The relative order between
 registered hooks does not change.
+
+**The epoch layer's terminal evidence is snapshotted before the dissoc — a step in its
+own right.** Between step 8 and step 9 — before the trace-ring release, and before the
+step-10 registry dissoc — `destroy-frame!` invokes `snapshot-terminal-destroy-evidence!`
+(the `:epoch/snapshot-frame-destroyed` hook). It binds the dying incarnation's terminal
+`:halted-destroy` evidence (the partial epoch record plus the listener/silencing snapshot)
+while that incarnation still **solely** owns its id-keyed epoch stores. A same-id successor
+is constructable only *after* the dissoc, so it can never claim — and thereby drop — those
+stores out from under the snapshot; step 11 then publishes the bound evidence whether or
+not the incarnation still owns the stores when it fires, and that split is exactly what
+keeps a paused predecessor's terminal facts intact once a replacement claims the id. The
+snapshot is best-effort like the numbered hooks above: a throw is caught, recorded on both
+Spec 009 channels, and teardown continues; a nil bundle (no epoch layer, or debug disabled)
+publishes nothing — step 11 fabricates no evidence the snapshot did not bind. It runs before
+the trace-ring release so a snapshot-hook failure's ordinary-delivery warning rides the
+incarnation's ring and is cleared by that release rather than recreating an already-freed
+one.
 
 **The claim-to-dead dispatch window is distinct from dispatch after death.** A racing
 ordinary dispatch that linearizes after the claim but before lifecycle-dead may still

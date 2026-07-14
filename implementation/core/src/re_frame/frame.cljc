@@ -3287,6 +3287,27 @@
                                               pending :dispatch-later timers.
     8. emit-frame-destroyed-trace!  — emit :frame/destroyed AFTER every
                                       feature cleanup hook has completed.
+    8a. snapshot-epoch-terminal-    — bind A's terminal :halted-destroy
+        evidence!                     evidence (its epoch record + the
+                                      listener/silencing snapshot) via the
+                                      :epoch/snapshot-frame-destroyed hook
+                                      while A still SOLELY owns its id-keyed
+                                      epoch stores — i.e. BEFORE the step-10
+                                      dissoc, after which a same-id successor
+                                      B can be constructed and claim (drop)
+                                      those stores. The bundle is bound
+                                      lexically here and published by step 11
+                                      regardless of whether A still owns the
+                                      stores when it fires (rf2-vxgfnd.151).
+                                      Taken BEFORE the step-9 ring release so a
+                                      snapshot-hook failure's ordinary-delivery
+                                      warning rides A's ring and is cleared by
+                                      that release instead of recreating an
+                                      already-freed one (rf2-vxgfnd.244).
+                                      Best-effort: a throw is recorded on both
+                                      Spec 009 channels and swallowed; a nil
+                                      bundle (no epoch layer / debug disabled)
+                                      publishes nothing.
     9. trace-policy release         — clear the per-frame trace ring and the
                                       frame-no-emit flag after the destroyed
                                       trace has flowed.
@@ -3295,8 +3316,13 @@
                                       is the ONE store a seated frame lives in
                                       (rf2-h1vqa4 — no registrar row exists).
     11. notify-epoch-listeners!     — fire the epoch hook so tools see
-                                      :rf.epoch.cb/silenced-on-frame-destroy,
-                                      threading the pre-run
+                                      :rf.epoch.cb/silenced-on-frame-destroy.
+                                      This is the PUBLISH half of the epoch
+                                      destroy contract: it ships the terminal
+                                      evidence step 8a bound pre-dissoc,
+                                      whether or not a same-id successor now
+                                      owns the id-keyed stores. It threads the
+                                      pre-run
                                       (`*run-frame-state-before*`) and
                                       destroy-time (live frame-state value
                                       captured at the TOP of this fn, before
