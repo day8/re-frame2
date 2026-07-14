@@ -1769,12 +1769,22 @@
 (defn- make-watch-handler
   "Per-lease change watch: constant-work — advance the node record with the
   DELIVERED new value (no recompute, per I-5) and fan the mark-dirty payload
-  to this lease's own `on-change`."
+  to this lease's own `on-change`.
+
+  The fan-out is gated on the SAME movement law that governs node-version
+  advancement — the core-local `node-value=` `rf=` spelling, NOT raw `not=`
+  (rf2-vxgfnd.185). A watchable host notifies its watches on EVERY write,
+  value-blind, so a NaN→NaN recompute fires this callback with `prev`/`nu`
+  both NaN; raw `not=` treats NaN≠NaN and would fan a `:cause :value`
+  notification for NO value movement, while `advance-node-record!` (also
+  `node-value=`) leaves the version unchanged — a value-movement notification
+  without value movement that dirties a downstream ViewCell against a stable
+  node. Sharing `node-value=` here keeps the two decisions from drifting."
   [state]
   (fn observation-watch [_key _ref prev nu]
     (let [st @state]
       (when (and (= :live (:status st))
-                 (not= prev nu))
+                 (not (node-value= prev nu)))
         ;; The watch only fires while its reaction is live, so `lease-reaction`
         ;; resolves; the `when-some` is belt-and-braces for a JVM weak reaction.
         (when-some [rx (lease-reaction st)]

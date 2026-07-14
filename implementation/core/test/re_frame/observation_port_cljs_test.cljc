@@ -397,6 +397,77 @@
       (is (= 1 (:version (obs/read lease)))))
     (obs/release! lease)))
 
+;; ===========================================================================
+;; rf2-vxgfnd.185 — the watchable change-watch fan-out obeys the SAME movement
+;; law (`node-value=`, NaN-inclusive) that governs node-version advancement, so
+;; the two cannot drift. A watchable host whose derived value recomputes NaN→NaN
+;; fires its `add-watch` UNCONDITIONALLY (clojure/cljs atoms notify on every
+;; reset!, value-blind), but NaN=NaN under the movement law: there is no value
+;; movement, so the port must emit NO `:cause :value` notification. Raw `not=`
+;; treated NaN≠NaN and spuriously fanned out — a value-movement notification
+;; without value movement, dirtying a downstream ViewCell while the node version
+;; (governed by the same `node-value=`) stayed put.
+;;
+;; The plain-atom adapter's derived values are NOT watchable, so the port's real
+;; acquire path never installs this watch; the value-movement fan-out is a
+;; reactive/watchable-host surface. This fixture wires the PRODUCTION
+;; make-watch-handler onto a raw watchable atom EXACTLY as build-node-lease!
+;; does (weak-ref'd reaction in the state + add-watch + baseline observe), so it
+;; exercises the real callback on both hosts.
+;; ===========================================================================
+
+(defn- wire-node-watch!
+  "Install a node lease's change watch onto watchable `host`, mirroring
+  build-node-lease!'s wiring: the PRODUCTION make-watch-handler over the host, a
+  weak-ref'd reaction in the state map, and a baseline observation seeding the
+  node record at the host's current value. Notifications flow to `on-change`.
+  Returns the lease `state` atom (its `:last` holds the observed version)."
+  [host frame-id target on-change]
+  (let [state (atom {:lease-kind :node
+                     :target     target
+                     :frame-id   frame-id
+                     :query-v    (:query target)
+                     :reaction   (#'obs/weak-reaction-ref host)
+                     :on-change  on-change
+                     :status     :live})]
+    (add-watch host (gensym "rf-obs-lease")
+               (#'obs/make-watch-handler state))
+    (let [[rec v] (#'obs/observe-node! host)]
+      (swap! state assoc :last {:value    v
+                                :version  (:version rec)
+                                :node-key (:node-key rec)}))
+    state))
+
+(deftest watchable-nan-to-nan-recompute-does-not-fan-out-value-movement
+  (let [target (items-target)
+        notes  (atom [])
+        host   (atom ##NaN)
+        state  (wire-node-watch! host fid target
+                                 (fn [n] (swap! notes conj n)))
+        base-v (:version (:last @state))]
+    (is (= 0 base-v) "the baseline observation minted the node at version 0")
+    (testing "a NaN→NaN host recompute fires the watch but is NO movement"
+      ;; clojure/cljs atoms notify watches on EVERY reset!, value-blind — so the
+      ;; watch DOES fire with prev=NaN, nu=NaN, exercising the fan-out gate.
+      (reset! host ##NaN)
+      (is (empty? @notes)
+          "no :cause :value notification for a NaN→NaN no-movement recompute
+           (raw not= would spuriously fan out — NaN≠NaN natively)")
+      (is (= base-v (:version (:last @state)))
+          "the node version did not advance — NaN=NaN under the movement law"))
+    (testing "a REAL value movement fans out exactly once + advances the version"
+      (let [n-before (count @notes)]
+        (reset! host 5)
+        (is (= 1 (- (count @notes) n-before))
+            "exactly one :cause :value notification for real movement")
+        (let [note (last @notes)]
+          (is (= :value (:cause note)))
+          (is (= target (:target note)))
+          (is (= (inc base-v) (:node-version note))
+              "the notification carries the once-advanced node version")
+          (is (= (inc base-v) (:version (:last @state)))
+              "the lease's last-observed version advanced exactly once"))))))
+
 (deftest registry-epoch-advances-on-sub-registration
   (reg-items!)
   (seed-items! [:a])
