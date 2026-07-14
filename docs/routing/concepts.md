@@ -102,6 +102,9 @@ doors are covered).
 
 ### Metadata map (map of the territory)
 
+<a id="the-metadata-map-in-full"></a>
+<a id="metadata-map-map-of-the-territory"></a>
+
 | Group | Keys | Controls |
 |---|---|---|
 | **Shape** | `:params`, `:query`, `:query-defaults`, `:query-retain` | URL ↔ maps |
