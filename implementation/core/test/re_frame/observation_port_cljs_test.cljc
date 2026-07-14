@@ -2542,6 +2542,136 @@
         (obs/release! la) (obs/release! lb) (obs/release! lc) (obs/release! ld)))))
 
 ;; ===========================================================================
+;; rf2-fs99nq — provenance is keyed by genuine WEAK OBJECT IDENTITY on the JVM,
+;; never by the throwable's own `.equals`/`.hashCode`.
+;;
+;; rf2-9m4oy7's JVM map was a `java.util.WeakHashMap` keyed by the throwable
+;; directly. `WeakHashMap` keys by `.equals`/`.hashCode`, and `Throwable` leaves
+;; both VIRTUAL — so an APPLICATION throwable that OVERRIDES them defeats the
+;; exact-identity contract two ways:
+;;
+;;   1. COLLISION — a distinct throwable whose `hashCode` equals a bound throwable's
+;;      and whose `equals` accepts it reads that bound throwable's `#{:always-on}`
+;;      provenance, so the drain treats a raw application exception as already
+;;      covered and SUPPRESSES its required :rf.error/observation-on-change-failed
+;;      record (production silence).
+;;   2. THROWING CLASSIFICATION — a throwable whose `hashCode`/`equals` THROWS makes
+;;      `provenance-by-throwable.get` itself escape `source-covered-always-on?`,
+;;      propagating out of the drain's per-lease catch, aborting the reduce before
+;;      healthy siblings drain and replacing the first-original rethrow — breaking
+;;      the full-drain / first-original-identity law.
+;;
+;; The fix keys the JVM association by a WEAK IDENTITY key (a ReferenceQueue-backed
+;; `WeakReference` subclass hashing by `System/identityHashCode`, comparing by
+;; referent `identical?`), so provenance classification NEVER invokes an application
+;; throwable's `hashCode`/`equals`. Red-before-fix (revert to `WeakHashMap<Throwable>`
+;; lookup): the collision fixture SUPPRESSES B (zero wrappers), and the throwing-
+;; method fixture aborts the drain before the trailing siblings.
+;;
+;; CLJS is inherently identity-keyed — `js/WeakMap` uses reference keys with no
+;; `.equals`/`.hashCode` seam — and its exact-throwable binding is already pinned
+;; cross-host by `disposed-drain-binds-emission-provenance-to-the-exact-throwable`
+;; (the transplanted-token leg reads uncovered on CLJS too). So this leg is JVM-only.
+;; ===========================================================================
+
+#?(:clj
+   (deftest jvm-forged-equality-throwable-does-not-read-covered
+     ;; A DISTINCT custom RuntimeException B whose hash collides with an authentic
+     ;; bound throwable A and whose equality accepts A must NOT read covered: it is a
+     ;; different object, so the drain owns its production record (rf2-fs99nq).
+     (reg-items!)
+     (seed-items! [:a])
+     ;; A = an AUTHENTIC port-minted throwable bound `#{:always-on :trace}` at its
+     ;; source (read-after-release! fans always-on and binds THAT exact throwable).
+     (let [setup (obs/acquire! (items-target) (fn [_]))
+           _     (obs/release! setup)
+           A     (try (obs/read setup)
+                      (catch Throwable e e))
+           ;; B forges A's identity hash and reports equality with A — exactly the
+           ;; keys a WeakHashMap<Throwable> would collide on. `System/identityHashCode`
+           ;; discrimination + `identical?` ignore both, so B stays uncovered.
+           B     (proxy [RuntimeException] ["forged-equality boom"]
+                   (hashCode [] (System/identityHashCode A))
+                   (equals [o] (identical? o A)))]
+       (is (= :rf.error/read-after-release (error-id A))
+           "the fixture carries a REAL port-minted always-on throwable")
+       (with-redefs [interop/next-tick (fn [_f] nil)]
+         (let [notes (atom [])
+               ;; la RE-THROWS the exact bound A (covered → no wrapper);
+               ;; lb throws the forged-equality B (uncovered → exactly one wrapper).
+               la (obs/acquire! (items-target) (fn [_n] (throw A)))
+               lb (obs/acquire! (items-target) (fn [_n] (throw B)))
+               lc (obs/acquire! (items-target) (fn [n] (swap! notes conj n)))]
+           (force-dispose-node! [:obs/items])
+           (let [[_ records]
+                 (with-error-records #(obs/drain-pending-disposals! :disposed))
+                 wrapped (filterv #(= :rf.error/observation-on-change-failed (:error %))
+                                  records)
+                 causes  (mapv :exception wrapped)]
+             (testing "the healthy sibling was still notified"
+               (is (= 1 (count @notes))))
+             (testing "the forged-equality throwable CANNOT read covered — it gets
+                       exactly one stable wrapper carrying B (pre-fix / WeakHashMap:
+                       B collides onto A and is suppressed, zero wrappers)"
+               (is (= 1 (count wrapped)))
+               (is (some #(identical? % B) causes))
+               (is (every? #(= :obs/items (:event-id %)) wrapped)))
+             (testing "the EXACT bound A is covered — its source emission stands, so
+                       the drain adds NO wrapper for it (exact-once)"
+               (is (not (some #(identical? % A) causes)))))
+           (obs/release! la) (obs/release! lb) (obs/release! lc))))))
+
+#?(:clj
+   (deftest jvm-throwing-hashcode-or-equals-throwable-is-classified-by-identity
+     ;; Provenance classification must call NEITHER `hashCode` NOR `equals` on an
+     ;; application throwable (rf2-fs99nq): a throwable whose method throws must not
+     ;; make the lookup escape the drain's catch. Every healthy sibling — including
+     ;; ones queued AFTER the throwing throwables — is notified; each throwing
+     ;; throwable is wrapped exactly once carrying itself; and the DIRECT drain
+     ;; rethrows the FIRST original only after the COMPLETE drain.
+     (reg-items!)
+     (seed-items! [:a])
+     (with-redefs [interop/next-tick (fn [_f] nil)]
+       (let [notes    (atom [])
+             hc-boom  (proxy [RuntimeException] ["hashCode-must-not-be-called"]
+                        (hashCode [] (throw (IllegalStateException.
+                                              "application hashCode was invoked during provenance classification"))))
+             eq-boom  (proxy [RuntimeException] ["equals-must-not-be-called"]
+                        (equals [_o] (throw (IllegalStateException.
+                                              "application equals was invoked during provenance classification"))))
+             ;; Queue order: sibling, hc-boom (FIRST escape), eq-boom, sibling. The
+             ;; trailing sibling proves the drain did not abort mid-reduce.
+             s1 (obs/acquire! (items-target) (fn [n] (swap! notes conj n)))
+             lb (obs/acquire! (items-target) (fn [_n] (throw hc-boom)))
+             lc (obs/acquire! (items-target) (fn [_n] (throw eq-boom)))
+             s2 (obs/acquire! (items-target) (fn [n] (swap! notes conj n)))]
+         (force-dispose-node! [:obs/items])
+         (let [[[outcome thrown] records]
+               (with-error-records #(obs/drain-pending-disposals! :disposed))
+               wrapped (filterv #(= :rf.error/observation-on-change-failed (:error %))
+                                records)
+               causes  (mapv :exception wrapped)]
+           (testing "every healthy sibling is notified — including the one queued
+                     AFTER the throwing throwables (pre-fix: the throwing hashCode
+                     escapes classification and aborts the reduce before s2)"
+             (is (= 2 (count @notes))))
+           (testing "each throwing-method throwable is wrapped exactly once carrying
+                     its OWN original throwable"
+             (is (= 2 (count wrapped)))
+             (is (some #(identical? % hc-boom) causes))
+             (is (some #(identical? % eq-boom) causes)))
+           (testing "the direct drain rethrows the first ORIGINAL throwable only
+                     after the complete drain (identity/cause intact — never a
+                     classification-derived exception; drain order rides the
+                     :owners set so either original may be first)"
+             (is (= :threw outcome))
+             (is (or (identical? hc-boom thrown)
+                     (identical? eq-boom thrown))
+                 "the rethrow is one of the two ORIGINAL throwables, not a
+                  hashCode/equals-classification escape")))
+         (obs/release! s1) (obs/release! lb) (obs/release! lc) (obs/release! s2)))))
+
+;; ===========================================================================
 ;; ABI guard
 ;; ===========================================================================
 
