@@ -743,6 +743,34 @@
   []
   (reset! frame-ops-cache {}))
 
+(def ^:dynamic ^:no-doc *frame-ops-publish-barrier*
+  "JVM linearization TEST SEAM — nil in production (one nil check on the SLOW
+  publish path only, zero cost on the fast cache-hit path), NEVER bound off a
+  test path (the `reactive/*commit-barrier*` idiom). Bound to a
+  `(fn [frame-id token] …)`, `frame-ops` calls it AFTER its initial liveness
+  check and BEFORE the drain-serialized publish, so a fixture can interleave a
+  same-id destroy + reincarnation between a stale reader's liveness check and
+  its cache publication (rf2-vxgfnd.229). Nil-safe on both hosts; CLJS never
+  interleaves a second publisher, so only JVM fixtures bind it."
+  nil)
+
+(defn- throw-frame-ops-destroyed!
+  "The ambient frame a `(frame)` read resolved has no live incarnation to
+  publish against — it is absent, destroyed, closing, or a same-id
+  reincarnation overtook the read between resolve and publish. Fail loud
+  through the canonical destroyed-frame path rather than returning (or
+  displacing) a dead-incarnation bundle."
+  [frame-id]
+  (error/throw-error!
+   :rf.error/frame-destroyed 're-frame.ui/frame
+   (str "(frame) resolved the ambient frame " (pr-str frame-id)
+        " but no live incarnation of it exists — the frame is absent,"
+        " destroyed, or closing (a same-id frame may have been destroyed and"
+        " re-created since the read began). The scope named a frame that no"
+        " longer runs; create/ensure the frame before rendering views scoped"
+        " to it")
+   {:extra {:frame frame-id}}))
+
 (defn- throw-frame-ops-stale!
   [frame-id op]
   (error/throw-error!
@@ -790,6 +818,45 @@
      :dispatch-sync (fence-op-2 frame-id token :dispatch-sync (:dispatch-sync base))
      :subscribe     (fence-op-1 frame-id token :subscribe (:subscribe base))}))
 
+(defn- publish-frame-ops!
+  "Mint and publish the `(frame)` bundle for the incarnation `token` of
+  `frame-id`, LINEARIZED against a same-id destroy/reincarnation through the
+  frame's drain serialization — the SAME seam `publish-plan-for-live-
+  incarnation!` uses (rf2-vxgfnd.229). Returns the published (or the
+  concurrently-published) bundle.
+
+  The captured `token` is REVALIDATED as the still-live incarnation INSIDE the
+  critical section, so publication and `destroy-frame!`'s liveness flip (which
+  runs under the same `:drain-lock`) linearize. The incarnation-scoped closing
+  check also covers `destroy-frame!`'s pre-liveness-flip window (its close
+  marker is set — and the destroy hook has already PRUNED this cache entry —
+  while `frame/frame` still returns the dying record). If a destroy/recreate
+  overtook the read, the captured token is no longer live: we neither publish a
+  dead-incarnation bundle nor displace the live incarnation's (a newer B's)
+  cache entry — we fail loud through the canonical destroyed-frame path. Under
+  the lock only ONE reader mints per incarnation, so a concurrent same-token
+  first read observes the published entry and shares its identity.
+
+  The publishing `swap!` is an unconditional `assoc`: the drain-serialized
+  revalidation is what prevents an older-token reader from overwriting a newer
+  entry, NOT a check-then-swap over the cache atom (which is exactly the torn
+  check-then-independent-publish this fix removes)."
+  [frame-id token]
+  (or
+   (frame/call-serialized-with-drain!
+    frame-id
+    (fn []
+      (when (and (identical? token (frame/frame-incarnation-token frame-id))
+                 (not (frame/frame-incarnation-closing? frame-id token)))
+        (let [entry (get @frame-ops-cache frame-id)]
+          (if (and entry (identical? token (:token entry)))
+            (:bundle entry)
+            (-> (swap! frame-ops-cache assoc frame-id
+                       {:token token :bundle (mint-frame-ops frame-id token)})
+                (get frame-id)
+                :bundle))))))
+   (throw-frame-ops-destroyed! frame-id)))
+
 (defn frame-ops
   "The runtime bridge `(frame)` lowers to (compiler-owned; the public
   authoring form is `re-frame.ui/frame`). Resolve the committed frame via
@@ -805,30 +872,27 @@
 
   Identity is STABLE for one live frame incarnation (cached by incarnation
   token); ops are incarnation-fenced so a stale bundle fails loud instead
-  of retargeting a same-id replacement frame."
+  of retargeting a same-id replacement frame. A cache MISS mints + publishes
+  through `publish-frame-ops!`, which linearizes the write against a same-id
+  destroy/reincarnation (rf2-vxgfnd.229) so a stale reader can neither displace
+  a newer incarnation's entry nor return a dead-incarnation bundle."
   []
   (let [frame-id (resolve-frame :frame 're-frame.ui/frame)
         token    (frame/frame-incarnation-token frame-id)]
     (when (or (nil? token)
               (frame/frame-incarnation-closing? frame-id token))
-      (error/throw-error!
-       :rf.error/frame-destroyed 're-frame.ui/frame
-       (str "(frame) resolved the ambient frame " (pr-str frame-id)
-            " but no live incarnation of it exists — the frame is absent,"
-            " destroyed, or closing. The scope named a frame that no longer"
-            " runs; create/ensure the frame before rendering views scoped"
-            " to it")
-       {:extra {:frame frame-id}}))
+      (throw-frame-ops-destroyed! frame-id))
     (let [entry (get @frame-ops-cache frame-id)]
       (if (and entry (identical? token (:token entry)))
+        ;; FAST PATH — a pure read of an entry already keyed to the live
+        ;; incarnation token; it publishes nothing and displaces nothing, so it
+        ;; is race-free and needs no serialization (the common per-render read).
         (:bundle entry)
-        (-> (swap! frame-ops-cache update frame-id
-                   (fn [e]
-                     (if (and e (identical? token (:token e)))
-                       e
-                       {:token token :bundle (mint-frame-ops frame-id token)})))
-            (get frame-id)
-            :bundle)))))
+        (do
+          ;; SLOW PATH (cache miss / stale-token entry) — the only writer.
+          (when-some [barrier *frame-ops-publish-barrier*]
+            (barrier frame-id token))
+          (publish-frame-ops! frame-id token))))))
 
 ;; ---------------------------------------------------------------------------
 ;; Scope element builders — the emitted halves
