@@ -260,6 +260,13 @@
    [:rf.ui.compile/unsupported-form
     '[:div {:title (let [{:keys [x] :or {x sub}} m] x)}]
     ["destructuring :or" "direct call head"]]
+   ;; rf2-vxgfnd.266 — a reactive authoring verb in Hiccup component-head
+   ;; position (distinct throw site: the reserved-head guard, ahead of
+   ;; env/classify-head's :foreign classification). Recovery is kind-correct:
+   ;; (sub query), the leading (lease descriptor) — never (lease query) — and (frame).
+   [:rf.ui.compile/unsupported-form '[sub {}] ["component-head" "(sub query)"]]
+   [:rf.ui.compile/unsupported-form '[lease {}] ["component-head" "(lease descriptor)"]]
+   [:rf.ui.compile/unsupported-form '[frame] ["component-head" "(frame)"]]
    ;; handlers
    [:rf.ui.compile/loop-capturing-handler
     '(for [t ts] [:li {:key (:id t) :on-click [::open (:id t)]} "x"])

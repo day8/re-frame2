@@ -18,6 +18,14 @@
       sub         {:fqn 're-frame.ui/sub :meta {}}
       lease       {:fqn 're-frame.ui/lease :meta {}}
       frame       {:fqn 're-frame.ui/frame :meta {}}
+      ;; aliased + fully-qualified spellings resolve to the same vars
+      ;; (rf2-vxgfnd.266 head reservation must key on the fqn, not the spelling)
+      ui/sub            {:fqn 're-frame.ui/sub :meta {}}
+      ui/lease          {:fqn 're-frame.ui/lease :meta {}}
+      ui/frame          {:fqn 're-frame.ui/frame :meta {}}
+      re-frame.ui/sub   {:fqn 're-frame.ui/sub :meta {}}
+      re-frame.ui/lease {:fqn 're-frame.ui/lease :meta {}}
+      re-frame.ui/frame {:fqn 're-frame.ui/frame :meta {}}
       raw         {:fqn 're-frame.ui/raw :meta {}}
       html        {:fqn 're-frame.ui/html :meta {}}
       raw-fn      {:fqn 're-frame.ui/raw-fn :meta {}}
@@ -154,6 +162,26 @@
   (is (= :foreign (:op (ana* '[ForeignComp {:anything (quote x)}]))))
   (is (= :foreign (:op (ana* '[var-copy {}])))
       "var copies do not carry view-ness (def does not copy var meta) — foreign"))
+
+(deftest reactive-verb-head-reservation-is-narrow
+  ;; rf2-vxgfnd.266 — reserving sub/lease/frame heads BEFORE generic component
+  ;; classification must not disturb genuine foreign components or ordinary view
+  ;; heads: only a head resolving to one of the three public reactive authoring
+  ;; vars is reserved. A DIRECT (sub …)/(frame) CALL in child position is still
+  ;; the compiler-owned form and mints exactly one manifest site.
+  (is (= :foreign (:op (ana* '[ForeignComp {}])))
+      "a genuine foreign component head still classifies as :foreign")
+  (is (= :view (:op (ana* '[child-view {}])))
+      "an ordinary view head is untouched")
+  (is (= :foreign (:op (ana* '[var-copy {}])))
+      "a non-reactive var copy still classifies as :foreign (unchanged)")
+  (testing "the reservation touches ONLY the head form — direct calls still index"
+    (let [{:keys [sites]} (ana-full '[:div (sub [:q])])]
+      (is (= 1 (count (:subs sites)))
+          "a direct (sub …) child is one indexed site, not a reserved head"))
+    (let [{:keys [sites]} (ana-full '[:div (:frame (frame))])]
+      (is (= 1 (count (:frame-ops sites)))
+          "a direct (frame) read is one indexed frame-ops site"))))
 
 ;; ---------------------------------------------------------------------------
 ;; Handlers

@@ -183,6 +183,41 @@
   (is (nil? (reject-id '[:div {:title (let [{:keys [x] :or {x 'sub}} m] x)}]))
       "quoted data in an :or default is inert — never a reactive read"))
 
+(deftest reactive-verb-head-reserved-before-foreign-classification
+  ;; rf2-vxgfnd.266 — the next escape in the .252/dzyqis family. sub/lease/frame
+  ;; are reactive authoring verbs, sound ONLY as their compiler-owned DIRECT
+  ;; forms. A distinct analyzer route reaches a Hiccup component HEAD directly:
+  ;; env/classify-head resolves any non-:rf.ui/view var to a plain :foreign
+  ;; React component, so [sub {…}]/[lease {…}]/[frame] would compile as a foreign
+  ;; component with an EMPTY reactive manifest — the public authoring var
+  ;; survives to runtime unindexed, bypassing reactive-site indexing entirely.
+  ;; The verbs are RESERVED before generic classification. Removing the
+  ;; reserved-head check re-accepts every reject row below as :foreign, so this
+  ;; deftest is the mutation fixture too.
+  (is (= :rf.ui.compile/unsupported-form (reject-id '[sub {}]))
+      "bare sub in component-head position — the rf2-vxgfnd.266 counterexample")
+  (is (= :rf.ui.compile/unsupported-form (reject-id '[lease {}]))
+      "bare lease in component-head position escapes identically")
+  (is (= :rf.ui.compile/unsupported-form (reject-id '[frame]))
+      "bare frame in component-head position (no props) escapes identically")
+  (is (= :rf.ui.compile/unsupported-form (reject-id '[sub {} [:p "child"]]))
+      "children do not change the reserved-head classification")
+  ;; qualified + aliased spellings resolve to the exact vars — reserved too
+  (is (= :rf.ui.compile/unsupported-form (reject-id '[ui/sub {}]))
+      "an aliased spelling resolving to re-frame.ui/sub is reserved")
+  (is (= :rf.ui.compile/unsupported-form (reject-id '[re-frame.ui/lease {}]))
+      "a fully-qualified spelling resolving to re-frame.ui/lease is reserved")
+  (is (= :rf.ui.compile/unsupported-form (reject-id '[re-frame.ui/frame]))
+      "a fully-qualified frame head is reserved")
+  ;; a lexical shadow is NOT the reactive var: it falls through to the ordinary
+  ;; local-head rule (a local binding can never be a literal head → dynamic-head)
+  (is (= :rf.ui.compile/dynamic-head
+         (reject-id '(let [sub child-view] [sub {}])))
+      "a local shadowing sub is an ordinary local head, never a reserved verb")
+  ;; a genuine foreign component head still classifies (accepts)
+  (is (nil? (reject-id '[ForeignComp {}]))
+      "a genuine foreign component head still classifies as :foreign"))
+
 (deftest frame-finite-sites
   (is (= :rf.ui.compile/frame-in-loop
          (reject-id '(for [x xs] [:li {:key x} (:frame (frame))])))

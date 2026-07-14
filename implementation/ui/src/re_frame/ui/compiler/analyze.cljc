@@ -308,6 +308,19 @@
       (coll? x) (some #(bare-reactive-reference-kind e % locals) x)
       :else nil)))
 
+(defn- reactive-direct-form
+  "The kind-correct compiler-owned direct form a reactive authoring verb must
+  take in evaluated code — the ONLY shape in which the public var is legal, and
+  what every escape diagnostic must recommend. `sub` reads a query, `lease`
+  DECLARES a descriptor (the leading prefix, never a second-form read), `frame`
+  takes no argument. Kept as one function so no diagnostic can drift into
+  recommending an invalid form (e.g. a lease `query` second element)."
+  [kind]
+  (case kind
+    :sub   "(sub query)"
+    :lease "(lease descriptor)"
+    :frame "(frame)"))
+
 (defn- reactive-authoring-var-kind
   "Return :sub/:lease/:frame when `sym` is an unquoted, unshadowed reference to
   a public reactive authoring var. Such a var is sound ONLY as a compiler-owned
@@ -360,10 +373,8 @@
                  (str "bare " (name kind) " reference as a destructuring :or "
                       "default — re-frame.ui/" (name kind) " is a reactive "
                       "authoring var, sound ONLY as a compiler-owned direct call "
-                      "head ("
-                      (if (= :frame kind) "(frame)"
-                          (str "(" (name kind) " query)"))
-                      "). A binding :or default is never rewritten, so the bare "
+                      "head " (reactive-direct-form kind)
+                      ". A binding :or default is never rewritten, so the bare "
                       "var flows as a VALUE where the compiler cannot own a "
                       "lexical render site — the manifest under-declares and the "
                       "optimized build elides the read. Hoist the read into the "
@@ -677,10 +688,9 @@
                  (env/fail! e :rf.ui.compile/unsupported-form
                             (str "bare " (name kind) " reference — re-frame.ui/"
                                  (name kind) " is a reactive authoring var, sound "
-                                 "ONLY as a compiler-owned direct call head ("
-                                 (if (= :frame kind) "(frame)"
-                                     (str "(" (name kind) " query)"))
-                                 "). Here it flows as a VALUE (into a computed "
+                                 "ONLY as a compiler-owned direct call head "
+                                 (reactive-direct-form kind)
+                                 ". Here it flows as a VALUE (into a computed "
                                  "callee, let-binding, argument, or collection) "
                                  "where the compiler cannot own a lexical render "
                                  "site, so the manifest would under-declare and "
@@ -1287,6 +1297,48 @@
      :path (:path e)}))
 
 ;; ---------------------------------------------------------------------------
+;; Reactive authoring verbs in head position (rf2-vxgfnd.266)
+;; ---------------------------------------------------------------------------
+;;
+;; sub/lease/frame are reactive authoring verbs, sound in evaluated code ONLY as
+;; their compiler-owned DIRECT forms — (sub query), the leading (lease
+;; descriptor) declaration, (frame) — which the expression rewriter lowers to
+;; indexed runtime sites. A Hiccup component HEAD is not such a form:
+;; env/classify-head resolves any resolved non-:rf.ui/view var to a plain
+;; :foreign React component, so [sub {…}] / [lease {…}] / [frame] would
+;; otherwise compile as a foreign component with an EMPTY reactive manifest,
+;; leaving the public authoring var to survive to runtime unindexed and
+;; bypassing reactive-site indexing entirely. These verbs are therefore
+;; RESERVED BEFORE generic component classification — `analyze`'s dispatch
+;; checks this head predicate ahead of `analyze-component`/`env/classify-head`
+;; — so a reactive verb can never be reclassified as foreign. A lexical shadow
+;; resolves to nil (`resolve-sym` skips locals) and falls through to the
+;; ordinary local-head (`:dynamic-head`) rule; a genuine foreign component still
+;; classifies as :foreign.
+
+(defn- reactive-authoring-head-kind
+  "Return :sub/:lease/:frame when `head` is an unshadowed symbol resolving to a
+  public reactive authoring var — the reserved-head discriminator, mirroring
+  frame-root-head?/frame-provider-head?."
+  [e head]
+  (when (and (symbol? head) (not (contains? (:locals e) head)))
+    (reactive-authoring-var-kind e head)))
+
+(defn- analyze-reactive-authoring-head! [e form head]
+  (let [kind (reactive-authoring-head-kind e head)]
+    (env/fail! e :rf.ui.compile/unsupported-form
+               (str "reactive authoring verb " (name kind) " in component-head "
+                    "position [" (name kind) " …] — re-frame.ui/" (name kind)
+                    " is sound ONLY as its compiler-owned direct call head "
+                    (reactive-direct-form kind)
+                    ", which the compiler lowers to an indexed render site. As a "
+                    "Hiccup head it would classify as a plain foreign React "
+                    "component with an empty reactive manifest, leaving the "
+                    "public authoring var to survive to runtime unindexed. Keep "
+                    "the read at a visible " (reactive-direct-form kind) " site")
+               {:form form :reactive-kind kind})))
+
+;; ---------------------------------------------------------------------------
 ;; frame-root (S1c, rf2-vxgfnd.3) — the static ENSURE-plan position
 ;; ---------------------------------------------------------------------------
 ;;
@@ -1714,6 +1766,11 @@
         (keyword? head)  (analyze-element e form)
         (frame-root-head? e head) (analyze-frame-root e form)
         (frame-provider-head? e head) (analyze-frame-provider e form)
+        ;; Reserve sub/lease/frame BEFORE generic component classification
+        ;; (rf2-vxgfnd.266): a reactive authoring verb can never be
+        ;; reclassified as a :foreign component with an empty manifest.
+        (reactive-authoring-head-kind e head)
+        (analyze-reactive-authoring-head! e form head)
         (symbol? head)   (analyze-component e form)
         :else
         (env/fail! e :rf.ui.compile/dynamic-head
