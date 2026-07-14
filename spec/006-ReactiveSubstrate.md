@@ -1400,10 +1400,31 @@ share computed derivation parents; the table dies with the slice. No entry survi
 into cache state, ownership state, or a later slice.
 
 **Lifetime (S-3-settled).** There is no public React render-pass token; the table is
-scoped to the **current synchronous execution slice**: created lazily on first probe,
-cleared by `queueMicrotask`, and belt-and-braces tagged with
-`(frame, frame-epoch, registry-epoch)` — invalidated on any mismatch. A time-sliced
-pass spanning k slices builds k tables, so the economy is **once-per-slice, not
+scoped to the **current synchronous execution slice** and created lazily on first probe.
+How the slice is bounded — and how the table dies with it — is **per-host**, because the
+two runtimes reach the same law by different means:
+
+- **JVM — a thread-local render scope.** A private dynamic binding (`*slice*`, opened by
+  `with-slice-memo`) wraps every public Tier-1 render entry: `re-frame.ui.tree/render`,
+  the `ui.test/render` routes (view-reference / literal / plan-bearing, all converging on
+  `render-with-opts` / `render-plan-bearing`), and the reactive host entry (one scope per
+  ViewCell render). The binding **discards the table synchronously when the render thunk
+  returns** — there is no microtask on the JVM, and no scheduler- or tag-change
+  dependency. The scope is re-entrant, so a Tier-1 render and the ViewCell capture nested
+  inside it share one table, while a bare probe outside any render scope gets a fresh
+  per-call handle; two sequential executor tasks and two concurrent renders on distinct
+  threads never share a table.
+- **CLJS — a module holder cleared at the microtask checkpoint.** The single-threaded
+  host needs no thread-local scope: one module holder shares the handle across every probe
+  of a synchronous render pass, then is **released at the host microtask checkpoint**
+  (`queueMicrotask`, under a CAS guard so a stale clear cannot erase a newer holder,
+  aligned with the port's own table clear — deliberately not the macrotask `next-tick`
+  path, which would leave a dead slice's holder live for one more host turn).
+
+Both hosts belt-and-braces tag the table with `(frame, frame-epoch, registry-epoch)` and
+invalidate on any mismatch, and both enforce the same law: probes may share within one
+slice, but **no table or handle survives into a later render slice**. A time-sliced pass
+spanning k slices builds k tables, so the economy is **once-per-slice, not
 once-per-pass** — bounded, allocation-trivial, and requiring zero React internals; an
 interrupted or abandoned slice's table becomes unreachable garbage. ⟨S-3 §5, fixtures
 1b/6⟩
