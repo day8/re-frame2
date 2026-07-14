@@ -5,7 +5,11 @@
   these pins hold for the CLJS expansion path too."
   (:require [clojure.string :as str]
             [clojure.test :refer [deftest is testing]]
-            [re-frame.ui :as ui :refer [defview]]
+            ;; `sub` is referred so a BARE `sub` in a header default resolves to
+            ;; re-frame.ui/sub through REAL CLJ macroexpansion — the rf2-vxgfnd.268
+            ;; ordered-scope proofs need the bare (non-qualified) spelling that the
+            ;; dzyqis flat scope over-accepted.
+            [re-frame.ui :as ui :refer [defview sub]]
             [re-frame.ui.compiler :as compiler]
             [re-frame.ui.compiler.build :as build]
             [re-frame.ui.compiler.emit-cljs :as emit-cljs]
@@ -86,6 +90,37 @@
   (is (nil? (expand-error
              '(re-frame.ui/defview shadowing-header [{:keys [sub]}] [:div sub])))
       "the header local shadows re-frame.ui/sub only in the body"))
+
+(deftest header-destructuring-scope-follows-host-evaluation-order
+  ;; rf2-vxgfnd.268 — the ordered-scope correction, proved through ACTUAL CLJ
+  ;; defview macroexpansion (the macro JVM expands the CLJS path too). A defview
+  ;; header destructures SEQUENTIALLY, so a bare `sub` default is shadowed only
+  ;; by a same-pattern local bound EARLIER. The dzyqis flat scope treated every
+  ;; header-bound symbol as in-scope before scanning, so a LATER-bound / SELF
+  ;; `sub` falsely shadowed the escape and the header compiled with an empty
+  ;; manifest, leaving public re-frame.ui/sub to survive to runtime unindexed.
+  ;; *ns* is bound to THIS ns (which refers `sub`) so the bare, non-qualified
+  ;; spelling resolves to re-frame.ui/sub through real macroexpansion — the test
+  ;; runner otherwise leaves *ns* at `user`, where only qualified names resolve.
+  (binding [*ns* (find-ns 're-frame.ui.defview-grammar-jvm-test)]
+    (is (= :rf.ui.compile/unsupported-form
+           (expand-error
+            '(re-frame.ui/defview self-default-header
+               [{:keys [sub] :or {sub sub}}] [:div sub])))
+        "a self-referential bare sub default is the outer var, not the local")
+    (is (= :rf.ui.compile/unsupported-form
+           (expand-error
+            '(re-frame.ui/defview later-shadow-header
+               [{:keys [f sub] :or {f sub}}] [:div f])))
+        "a bare sub default shadowed only by a LATER header binding escapes")
+    (is (nil? (expand-error
+               '(re-frame.ui/defview earlier-shadow-header
+                  [{:keys [sub f] :or {f sub}}] [:div f])))
+        "a default referencing an EARLIER-bound header local is the shadow — legal")
+    (is (nil? (expand-error
+               '(re-frame.ui/defview earlier-call-header
+                  [{:keys [sub f] :or {f (sub :fallback)}}] [:div f])))
+        "a call on an earlier-bound local shadow is an ordinary local call — legal")))
 
 (deftest reactive-verb-in-component-head-is-reserved-through-real-host-resolution
   ;; rf2-vxgfnd.266 — the pure-analyzer fixtures inject resolution; this pins the

@@ -335,51 +335,138 @@
       (contains? lease-fqns fqn) :lease
       (contains? frame-fqns fqn) :frame)))
 
-(defn reject-reactive-binding!
-  "Reject executable sub/lease calls embedded in a binding pattern/default.
-  Destructuring forms are consumed by the host compiler, not expression
-  rewriting; allowing a call there would bypass lexical site ownership."
-  [e binding-form]
-  (when-let [kind (reactive-call-kind e binding-form #{})]
+(defn- key-group-kw?
+  "True for a `:keys`/`:strs`/`:syms` map-destructuring group directive (any
+  namespace: `:person/keys` too). Its map-entry VALUE is a vector of symbols;
+  its keys are keyword/string/symbol LITERALS, never evaluated expressions."
+  [k]
+  (and (keyword? k) (contains? #{"keys" "strs" "syms"} (name k))))
+
+(defn- binding-map-units
+  "The associative-destructuring binding units of `pattern`, in the host's
+  `bes` evaluation order: explicit `{local-pattern key-expr}` entries in source
+  order FIRST, then `:keys`/`:strs`/`:syms` expansions (that host order — the
+  `:or`/`:as` markers dissoc out and the group forms assoc their entries at the
+  tail). Each unit is `{:local-pattern p :key-expr e|nil}`; `key-expr` is the
+  EVALUATED lookup-key expression of an explicit entry (nil for the group
+  forms, whose keys are literals). The units are consumed in order so each
+  binding's default/lookup-key is judged against the scope established BEFORE
+  it — never against a symbol the same pattern binds later."
+  [pattern]
+  (let [explicit (for [[k v] pattern
+                       :when (not (or (= k :or) (= k :as) (key-group-kw? k)))]
+                   {:local-pattern k :key-expr v})
+        rank     {"keys" 0 "strs" 1 "syms" 2}
+        grouped  (->> pattern
+                      (filter (fn [[k _]] (key-group-kw? k)))
+                      (sort-by (fn [[k _]] (rank (name k))))
+                      (mapcat (fn [[_ syms]]
+                                (map (fn [s] {:local-pattern (symbol (name s))
+                                              :key-expr nil})
+                                     syms))))]
+    (concat explicit grouped)))
+
+(defn- reject-binding-escape!
+  "Reject a reactive authoring escape reaching ONE evaluated destructuring
+  expression `expr`, judged against `scope` — the locals live at this
+  expression's host evaluation point (ambient lexical locals PLUS the
+  same-pattern bindings established before it). Both the executable-call scan
+  and the bare-authoring-var scan use this one point-in-time scope, so an
+  earlier-bound local shadows the authoring var while a later-bound or self
+  binding does not. `slot` names the slot for the diagnostic."
+  [e scope slot pattern expr]
+  (when-let [kind (reactive-call-kind e expr scope)]
     (env/fail! e :rf.ui.compile/unsupported-form
                (if (= :opaque-macro kind)
                  (str "an unaudited macro cannot appear in a binding pattern "
-                      "or destructuring :or default — macro expansion could "
-                      "inject a reactive call after lexical site analysis. "
-                      "Compute the default in the view body instead")
+                      "or " slot " — macro expansion could inject a reactive "
+                      "call after lexical site analysis. Compute it in the view "
+                      "body instead")
                  (str "(" (name kind) " ...) cannot appear in a binding pattern "
-                      "or destructuring :or default — that position cannot own "
-                      "a lexical render site. Hoist the read into the view body "
-                      "and bind/destructure its value there"))
-               {:form binding-form :reactive-kind kind}))
-  ;; Sibling gap (rf2-dzyqis) that PR #5874 (rf2-vxgfnd.252) left open. The call
-  ;; scan above catches an executable `(sub …)`/`(lease …)`/`(frame)` embedded in
-  ;; the pattern, but a BARE reactive authoring var used as a destructuring `:or`
-  ;; DEFAULT is a value, not a call — `{:keys [x] :or {x sub}}`. Binding patterns
-  ;; never pass through expression rewriting, so that bare var flows as a VALUE
-  ;; into the host's destructuring `get` default with no compiler-owned render
-  ;; site: the manifest under-declares and the optimized build elides the read.
-  ;; The `:else` value-flow leaf guard in `rewrite-expr` never sees it (patterns
-  ;; are not rewritten), and a naive value-flow scan of the pattern would
-  ;; false-positive on legitimate lexical shadowing (`{:keys [sub]}` BINDS a local
-  ;; named sub), so this reject is binding-position-AWARE: every symbol the pattern
-  ;; BINDS is added to the ambient locals, so only a bare reactive var reaching a
-  ;; default from OUTSIDE the pattern still resolves to the authoring var. `:or`
-  ;; defaults are the only value-expression slots a binding pattern carries, so
-  ;; scanning the whole shadowed form targets exactly the :or-default path.
-  (let [own-scope (into (:locals e) (env/binding-syms binding-form))]
-    (when-let [kind (bare-reactive-reference-kind e binding-form own-scope)]
-      (env/fail! e :rf.ui.compile/unsupported-form
-                 (str "bare " (name kind) " reference as a destructuring :or "
-                      "default — re-frame.ui/" (name kind) " is a reactive "
-                      "authoring var, sound ONLY as a compiler-owned direct call "
-                      "head " (reactive-direct-form kind)
-                      ". A binding :or default is never rewritten, so the bare "
-                      "var flows as a VALUE where the compiler cannot own a "
-                      "lexical render site — the manifest under-declares and the "
-                      "optimized build elides the read. Hoist the read into the "
-                      "view body and destructure its committed value there")
-                 {:form binding-form :reactive-kind kind})))
+                      "or " slot " — that position cannot own a lexical render "
+                      "site. Hoist the read into the view body and bind/"
+                      "destructure its value there"))
+               {:form pattern :reactive-kind kind}))
+  (when-let [kind (bare-reactive-reference-kind e expr scope)]
+    (env/fail! e :rf.ui.compile/unsupported-form
+               (str "bare " (name kind) " reference as a " slot
+                    " — re-frame.ui/" (name kind) " is a reactive authoring "
+                    "var, sound ONLY as a compiler-owned direct call head "
+                    (reactive-direct-form kind)
+                    ". A " slot " is never rewritten, so the bare var flows as "
+                    "a VALUE where the compiler cannot own a lexical render "
+                    "site — the manifest under-declares and the optimized build "
+                    "elides the read. Hoist the read into the view body and "
+                    "destructure its committed value there")
+               {:form pattern :reactive-kind kind})))
+
+(defn- check-binding-scope!
+  "Thread the incremental local scope through binding `pattern` in host
+  evaluation order, rejecting a reactive authoring escape in every EVALUATED
+  binding expression against the scope live at THAT point. Returns `scope`
+  extended with every symbol `pattern` binds, so a caller can carry the roster
+  across sibling patterns. `scope` already carries the ambient locals."
+  [e scope pattern]
+  (cond
+    (symbol? pattern) (conj scope pattern)
+
+    (vector? pattern)
+    ;; Sequential destructuring `[p0 p1 … & prest :as asym]` carries no
+    ;; evaluated expression of its own; its element/rest/`:as` sub-patterns
+    ;; establish bindings left-to-right, so a later nested default sees an
+    ;; earlier sibling's local.
+    (loop [scope scope, xs (seq pattern)]
+      (if (nil? xs)
+        scope
+        (let [x (first xs)]
+          (cond
+            (= '& x)  (recur scope (next xs))
+            (= :as x) (recur (check-binding-scope! e scope (second xs)) (nnext xs))
+            :else     (recur (check-binding-scope! e scope x) (next xs))))))
+
+    (map? pattern)
+    ;; Associative destructuring. `:as` binds the whole map FIRST (host order),
+    ;; so it is in scope for every key default. Then the key bindings are
+    ;; established sequentially (`binding-map-units` order): each key's default
+    ;; AND each explicit lookup-key expression is evaluated against the scope
+    ;; BEFORE that key's own local is bound — the local is added only after.
+    (let [defaults (:or pattern)
+          scope    (cond-> scope (:as pattern) (conj (:as pattern)))]
+      (reduce
+       (fn [scope {:keys [local-pattern key-expr]}]
+         (when key-expr
+           (reject-binding-escape! e scope "destructuring lookup-key expression"
+                                   pattern key-expr))
+         (when (and (symbol? local-pattern) (contains? defaults local-pattern))
+           (reject-binding-escape! e scope "destructuring :or default"
+                                   pattern (get defaults local-pattern)))
+         (check-binding-scope! e scope local-pattern))
+       scope
+       (binding-map-units pattern)))
+
+    :else scope))
+
+(defn reject-reactive-binding!
+  "Reject a reactive authoring escape reaching an EVALUATED destructuring
+  expression — an executable `(sub …)`/`(lease …)`/`(frame)` call OR a bare
+  reactive authoring var — anywhere in a binding pattern. Binding patterns are
+  consumed by the host compiler, not expression rewriting, so such a position
+  can never own a lexical render site: the manifest would under-declare and the
+  optimized build elide the read.
+
+  CLJ/CLJS destructuring binds SEQUENTIALLY, so scope is modelled in host
+  evaluation order (`check-binding-scope!`): each `:or` default and each
+  explicit map lookup-key expression is judged against the locals live at ITS
+  binding point — ambient lexical locals plus the same-pattern bindings
+  established BEFORE it. A bare var reaching a default from OUTSIDE those locals
+  (a later-bound or self shadow — `{:keys [f sub] :or {f sub}}`,
+  `{:keys [sub] :or {sub sub}}`) still resolves to the public authoring var and
+  escapes; a genuine EARLIER-bound local shadows it and is legal
+  (`{:keys [sub a] :or {a sub}}`, `{:keys [sub f] :or {f (sub :fallback)}}`).
+  The call scan and the bare-reference scan share this one point-in-time scope,
+  so neither over-shadows (whole-pattern) nor under-shadows (ambient-only)."
+  [e binding-form]
+  (check-binding-scope! e (:locals e) binding-form)
   binding-form)
 
 (defn rewrite-expr
