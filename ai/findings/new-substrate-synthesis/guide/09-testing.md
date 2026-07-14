@@ -11,7 +11,7 @@ real registrations, no React:
 
 ```clojure
 (deftest add-button-carries-intent
-  (let [frame (ui.test/frame {:app-db {:cart #{} :catalog fixture-catalog}})
+  (let [frame (rf/make-frame {:initial-events [[:rf/set-db {:cart #{} :catalog fixture-catalog}]]})
         tree  (ui.test/render [product-card {:product (product 42)}] {:frame frame})]
     (is (= [:cart/add 42] (-> tree (ui.test/find :button) ui.test/attrs :on-click)))
     (is (= "Add to cart"  (-> tree (ui.test/find :button) ui.test/text)))))
@@ -46,6 +46,13 @@ real registrations, no React:
   states are just app-db values you install or events you dispatch. Stubbing a sub is
   the explicit option:
   `(ui.test/render [view] {:frame frame :sub-overrides {[:cart/locked?] true}})`.
+- **One constructor, one grammar.** There is no test-only way to make a frame:
+  `rf/make-frame` is it, initialised through `:initial-events` exactly like every
+  frame (frames always start `{}`; initial state rides the same dispatch pipeline as
+  every later change, per Spec 002). Seed a specific starting state with the
+  framework's `[:rf/set-db {…}]` event — or better, run your app's own init events,
+  so fixtures can't drift from what the app actually boots. Images and fx overrides
+  are the same constructor's vocabulary (Spec 008).
 - `render` also takes a **literal root form** — the same literal top-region grammar
   `mount` accepts, deliberately tightened in one way: a test root mounts exactly *one*
   view, because root identity is that view's id. `mount` will take a multi-view form
@@ -54,8 +61,8 @@ real registrations, no React:
   test? Wrap it in one `defview` and render that.
   `(ui.test/render [ui/frame-root {:id :shop :initial-events [[:shop/boot]]} [app]] {})`
   runs the form's frame plans as preflight ENSURE against the test registrar, minting
-  the frames it declares. With a plan-bearing root form, `{:frame …}`/`{:app-db …}` are
-  rejected (the root form owns its frames — pass a bare view to control the frame), and
+  the frames it declares. With a plan-bearing root form, `{:frame …}` is rejected (the
+  root form owns its frames — pass a bare view to control the frame), and
   `{:props …}` belongs to the bare-view form only.
 - **Two Tier-1 ground rules.** The events/subs your view touches must be `.cljc` (they run
   on the JVM here — the standard re-frame discipline anyway). And Tier 1 renders the
@@ -65,10 +72,12 @@ real registrations, no React:
   themselves land S3; the subset rule here is their ruled Tier-1 contract.)*
 - These run in your JVM watch loop in milliseconds and never flake on timing. They're
   also exactly how the library tests itself, so the shapes are first-class.
-- *(Stage note: the Tier-1 core — `render`, `find`, `find-all`, `text`, `attrs`,
-  `frame` — shipped at Stage 1. `dispatch!`, Tier-1 `sub` snapshots, and the mounted
+- *(Stage note: the Tier-1 core — `render`, `find`, `find-all`, `text`, `attrs` —
+  shipped at Stage 1. `dispatch!`, Tier-1 `sub` snapshots, and the mounted
   Tier-3 `with-root` / native-CSS `query` / Promise-backed `flush!` surface shipped at
-  Stage 2. `flush-presence!` lands at Stage 4.)*
+  Stage 2. `flush-presence!` lands at Stage 4. An early `ui.test/frame {:app-db …}`
+  constructor was removed by ruling 2026-07-14 — one frame grammar everywhere; its
+  deletion from the shipped test namespace rides the respell bead.)*
 
 ## Tier 2 — dataflow tests (unchanged re-frame2)
 
@@ -78,12 +87,27 @@ The view tier above assumes this tier exists — don't test business logic throu
 ## Tier 3 — mounted tests, when the DOM is the point
 
 For focus, IME, foreign widgets — the things only a real mount exercises — use the
-Stage-2 mounted surface, `with-root`, `query`, and `flush!`:
+Stage-2 mounted surface: `with-root`, `query`, and `flush!`. A read-only mounted test
+is small — mount, query, done:
+
+```clojure
+(deftest search-box-really-mounts
+  (async done
+    (let [frame (rf/make-frame {:initial-events [[:rf/set-db {:query ""}]]})]
+      (-> (ui.test/with-root [root [ui/frame-provider {:frame frame} [search-box]]]
+            (is (some? (ui.test/query root "input"))))
+          (.then (fn [_] (done))
+                 (fn [e] (is false (str e)) (done)))))))
+```
+
+When the test *writes*, the ceremony grows deliberately: the write needs an act
+boundary, and every Promise needs awaiting. Here is the complete shape you'll copy
+for real suites:
 
 ```clojure
 (deftest search-commits-the-latest-query
   (async done
-    (let [frame (ui.test/frame {:app-db {:query ""}})]
+    (let [frame (rf/make-frame {:initial-events [[:rf/set-db {:query ""}]]})]
       (-> (ui.test/with-root
             [root [ui/frame-provider {:frame frame} [search-box]]]
             ;; with-root already awaited the initial mount. Put the write

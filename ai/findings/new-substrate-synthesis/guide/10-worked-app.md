@@ -163,29 +163,35 @@ tree, no browser; both tests run on main today (`sub` reads and `dispatch!` alik
 ```clojure
 (ns dash.app-test
   (:require [clojure.test :refer [deftest is]]
+            [re-frame.core :as rf]
             [re-frame.ui.test :as ui.test]
             [dash.app :as app]))
 
-(def fixture-db
-  {:metrics {:cpu {:label "CPU" :value 41 :unit "%"}
-             :mem {:label "Memory" :value 62 :unit "%"}}
-   :watchlist #{}
-   :filter ""})
+(def fixture-metrics
+  {:cpu {:label "CPU" :value 41 :unit "%"}
+   :mem {:label "Memory" :value 62 :unit "%"}})
+
+(defn fixture-frame []
+  (rf/make-frame {:initial-events [[:dash/init]
+                                   [:metrics/arrived fixture-metrics]]}))
 
 (deftest tile-shows-metric-and-intent
-  (let [frame (ui.test/frame {:app-db fixture-db})
+  (let [frame (fixture-frame)
         tree  (ui.test/render [app/metric-tile {:id :cpu}] {:frame frame})]
     (is (= "CPU" (-> tree (ui.test/find :h3) ui.test/text)))
     (is (= [:watch/toggled :cpu :rf.ui/checked]
            (-> tree (ui.test/find :input) ui.test/attrs :on-change)))))
 
 (deftest filter-narrows-the-grid
-  (let [frame (ui.test/frame {:app-db fixture-db})]
+  (let [frame (fixture-frame)]
     (ui.test/dispatch! frame [:filter/typed "cp"])
     (let [tree (ui.test/render [app/dashboard] {:frame frame})]
       (is (= 1 (count (ui.test/find-all tree :dash.app/metric-tile)))))))
 ```
 
+Notice how the fixture is built: `rf/make-frame` — the one frame constructor — and
+the app's *own* events (`[:dash/init]`, `[:metrics/arrived …]`), so the test state can
+never drift from a state the real app can reach.
 The second test drives state with a real event and counts tiles by **view id** — the
 qualified-keyword selector matches `metric-tile`'s boundary marker in the tree
 ([09](09-testing.md)). Business logic (the filtering itself) belongs in a plain
@@ -196,3 +202,18 @@ Tier-2 sub test; these two assert the *view* contract only.
 No `useCallback` on the checkbox, no `React.memo` on the tile, no store wiring for the
 feed, no loading-state component library, no test IDs threaded through the DOM for a
 click simulator. The dashboard is the counter, more times.
+
+## Two codas
+
+**Serve it.** The dashboard is one mount away from [08](08-ssr.md)'s world: the same
+root form renders on the JVM, the same event vectors sit in the server tree, and
+hydration picks up where the server left off *(hydration lands S5)*. Nothing about
+the app changes shape.
+
+**Drive it.** Mount it, open Xray, and type into the filter: one epoch per keystroke,
+one tile repaint per changed metric — exactly the model [07](07-performance.md)
+promised *(the causes timeline lands S3)*. Then hand it to your AI pair
+([06](06-debugging.md)): ask why a tile repainted, have it dispatch
+`[:metrics/arrived …]` bursts, or break the filter handler and watch it scrub back
+and fix it. The dashboard makes a good first pairing target precisely because every
+intent on this page is data.

@@ -5,10 +5,11 @@ meticulous React engineer writes by hand — every view, every time.
 
 *(Stage note: the compiled output and memo comparators are Stage 1, and the reactive
 economics below ride the S2 core — both on main today, with the push-economics gate
-(G-13) already wired. Three surfaces named below land S3 — `effect` dependency
-semantics, the Xray heatmap, and the causes timeline — each marked where it appears.
-The CI gates that prove the production claims — bundle absence, size budget, output
-shape — wire in across S3–S6.)*
+(G-13) already wired. Two surfaces named below land S3 — `effect` dependency
+semantics and the causes timeline — and the Xray heatmap is staged behind its
+integration review; each is marked where it appears. The CI gates that prove the
+production claims — bundle absence, size budget, output shape — wire in across
+S3–S6.)*
 
 ## What you never write
 
@@ -46,7 +47,7 @@ exists to confirm this, not to negotiate with it.
    identity, and a parent that rebuilds child elements each render defeats the child's
    memo the same way (inherent to React; hand-written code pays it too). In hot lists,
    prefer data handlers, hoist fns, narrow what the parent rebuilds. The heatmap
-   *(lands S3)* makes offenders visible.
+   *(staged behind its Xray integration review)* makes offenders visible.
 4. **Broad values walk.** `rf=` short-circuits identity, so structurally-shared values are
    cheap — but a subscription that *rebuilds* a large equal collection forces walks
    downstream. Fix the producing sub (stabilize it); don't sprinkle comparators. Dev flags
@@ -65,8 +66,16 @@ diff — not intentions.
 
 ## Measuring
 
-Dev: the Xray heatmap and causes timeline *(lands S3)* beat flame graphs for "why is
-this slow" — counts, causes, and epochs, per view. Production: the React Profiler works
-normally (real component names, real memo boundaries), and renders should look like the
-model above — sparse, shallow, value-justified. If they don't, the timeline's cause
-column *(lands S3)* names the culprit before you reach for the profiler.
+Dev: the causes timeline *(lands S3)* — and, once staged, the Xray heatmap — beats
+flame graphs for "why is this slow": counts, causes, and epochs, per view. Production:
+the React Profiler works normally (real component names, real memo boundaries), and
+renders should look like the model above — sparse, shallow, value-justified. If they
+don't, the timeline's cause column *(lands S3)* names the culprit before you reach for
+the profiler.
+
+And measure your own build the way the library measures itself:
+`npx shadow-cljs run shadow.cljs.build-report <build-id> report.html` attributes every
+byte of an advanced build — the library's contribution should read as the kernel plus
+your compiled views and nothing else. The claims above are CI gates in the library's
+own pipeline; the report is how you check nothing in *your* app dragged the dev tier
+in.

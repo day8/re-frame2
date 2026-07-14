@@ -21,15 +21,20 @@ suite + one smoke** (08 §5 Adapters) — two named suites, not one.
 
 | Fn | Contract |
 |---|---|
-| `(render root-or-view opts)` | run the real view against a real frame on the JVM → structural tree. `opts`: `{:frame f}` or `{:app-db v}` (test frame minted), `{:props p}`, **`{:sub-overrides {query value}}`** (the explicit JVM override door — 03 §3; not "the same mechanism" as the CLJS context, and not pretended to be) |
+| `(render root-or-view opts)` | run the real view against a real frame on the JVM → structural tree. `opts`: `{:frame f}` (a frame minted with `rf/make-frame`), `{:props p}`, **`{:sub-overrides {query value}}`** (the explicit JVM override door — 03 §3; not "the same mechanism" as the CLJS context, and not pretended to be) |
 | `(find tree selector)` / `(find-all …)` | structural queries over Tier-1 trees (tag, view id, attr predicates) |
 | `(query root css-selector)` | **Tier-3 DOM query** on a mounted root (the live-DOM counterpart of `find`) |
 | `(text node)` / `(attrs node)` | projections |
-| `(frame opts)` | mint a test frame (app-db seed, registrations from the loaded namespaces) |
 | `(dispatch! frame event)` | real dispatch + drain |
 | `(with-root [r root-form] …)` | CLJS Tier-3: return a Promise; await the initial real-React mount, the body value/Promise, and total teardown of the connected test-owned root/container on every exit. The Promise resolves to the awaited body value |
 | `(flush!)` / `(flush! thunk)` | CLJS: return a Promise; run the optional thunk inside React 19 `act`, let its queued write side reach drain quiescence, then alternate framework drains and React commits to a fixed point — the sole public test flush. JVM: synchronously drain the headless ViewCell registry and return nil. It is global across test roots; there is no public production `ui/flush!`. The open-drain guard throws `:rf.error/flush-in-open-epoch` synchronously before Promise construction; the boundary is the open drain, not an epoch/render bijection |
 | `(flush-presence!)` | advance presence transitions without wall-clock (02 §7) |
+
+There is deliberately **no frame constructor in `ui.test`** (ruled 2026-07-14): one
+way to create and initialise frames — `rf/make-frame` + `:initial-events`, with
+`[:rf/set-db {…}]` as the standard seeding step. An earlier `(frame {:app-db …})`
+helper and `render`'s `{:app-db v}` frame-minting option were removed as a second
+initialisation grammar.
 
 At S2, Tier-3 tests drive framework state with `dispatch!`. DOM mechanics already owned
 by the host or a foreign component use platform properties and native events directly;
@@ -100,7 +105,7 @@ before any conformance claim.
 
 Props schemas generate **props**; they cannot generate an app-db satisfying arbitrary
 subs — apps supply state generators/fixtures for sub-reading views (the harness makes
-this a one-liner around `ui.test/frame`). With inputs supplied: JVM tree vs CLJS
+this a one-liner around `rf/make-frame`). With inputs supplied: JVM tree vs CLJS
 `react-dom/server`-equivalent compare as normalized semantic nodes over the structural
 subset; memo invariants (`rf=` props ⇒ no **prop-driven** re-render and identical
 output); value-stabilization invariants (equal results ⇒ identical references).
