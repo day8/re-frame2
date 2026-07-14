@@ -465,6 +465,14 @@
         ;; React.memo to the raw body with zero ViewCell hooks.
         has-subs?  (boolean (seq (:subs (:sites manifest))))
         has-leases? (boolean (seq leases))
+        ;; rf2-vxgfnd.228: a `(frame)` site resolves the AMBIENT committed frame
+        ;; (the form takes no arguments — always ambient, never an explicit pin),
+        ;; so a frame-ops-bearing view MUST become a real React frame-context
+        ;; CONSUMER or a provider retarget (A→B) memo-bails the non-consumer
+        ;; child and its held ops stay locked to the old frame. Frame-ops joins
+        ;; subs + leases in the wrapper-selection taxonomy; a view with NONE of
+        ;; the three stays on the inert direct React.memo path.
+        has-frame-ops? (boolean (seq (:frame-ops (:sites manifest))))
         lease-binds (vec
                      (mapcat (fn [{:keys [sid descriptor]}]
                                [(gensym "lease")
@@ -476,10 +484,17 @@
                      body)
         inner      (if (seq binds) `(let [~@binds] ~rendered) rendered)
         host-render (cond
+                      (and has-subs? has-leases? has-frame-ops?)
+                      're-frame.ui.viewcell/render-subs-and-leases-frame
                       (and has-subs? has-leases?)
                       're-frame.ui.viewcell/render-subs-and-leases
+                      (and has-subs? has-frame-ops?)
+                      're-frame.ui.viewcell/render-subs-frame
                       has-subs? 're-frame.ui.viewcell/render-subs
-                      has-leases? 're-frame.ui.viewcell/render-leases)
+                      (and has-leases? has-frame-ops?)
+                      're-frame.ui.viewcell/render-leases-frame
+                      has-leases? 're-frame.ui.viewcell/render-leases
+                      has-frame-ops? 're-frame.ui.viewcell/render-frame)
         var-meta   (cond-> {:rf.ui/view true
                             :rf.ui/view-id view-id
                             :rf.ui/children? children?}

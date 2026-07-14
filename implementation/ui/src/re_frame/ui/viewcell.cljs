@@ -47,6 +47,7 @@
   this layout effect (React's commit phase), correcting moved evidence
   before paint without any flush call."
   (:require ["react" :as react]
+            [re-frame.adapter.context :as adapter-context]
             [re-frame.interop :as interop]
             [re-frame.ui.reactive :as reactive]
             [re-frame.ui.sub-overrides :as sub-overrides]))
@@ -179,6 +180,38 @@
       (reactive/reconcile-resource-leases! cell capture)
       js/undefined)))
 
+(defn- use-frame-context!
+  "Register the calling component as a real React CONSUMER of the shared frame
+  context (rf2-vxgfnd.228).
+
+  A compiled view whose body resolves the AMBIENT frame — any `(frame)` /
+  `frame-ops` site — MUST re-render when an ancestor `frame-provider` RETARGETS
+  its frame (A→B), even when the view's own props stay `rf=`-equal. `frame-ops`
+  reads the context value through `function-component-current-frame`
+  (`_currentValue`), which does NOT subscribe the component to context changes;
+  only `useContext` does. So without this hook React correctly memo-bails the
+  non-consumer child on a pure provider retarget, its body never reruns, and its
+  held ops stay locked to the OLD frame (Spec 004-Views §context-change repaint;
+  the same discipline `re-frame.adapter.use-frame/use-frame` uses).
+
+  The read VALUE is discarded — resolution runs through the carried-invariant
+  chain in `frame-ops`; the SUBSCRIPTION is the entire point. Called as a
+  compile-time-selected LEADING hook, so it is stable in hook order for every
+  render of a given compiled view's component (never conditional at runtime)."
+  []
+  (react/useContext adapter-context/frame-context)
+  nil)
+
+(defn render-frame
+  "Production wrapper for a FRAME-ONLY view: a `(frame)` site but no sub sites
+  and no resource leases (rf2-vxgfnd.228). It observes no reactive source and
+  holds no lease, so it needs no ViewCell — only frame-context CONSUMPTION so a
+  provider retarget re-renders it. Structurally zero `useSyncExternalStore` /
+  passive hooks; one `useContext`."
+  [_view-id thunk]
+  (use-frame-context!)
+  (thunk))
+
 (defn render-subs
   "Production wrapper for a view with sub sites and no resource leases."
   [view-id thunk]
@@ -187,6 +220,14 @@
         [element capture]      (capture-with-overrides cell overrides thunk)]
     (use-commit-and-lifecycle! cell root-incarnation capture)
     element))
+
+(defn render-subs-frame
+  "`render-subs` for a view that ALSO has a `(frame)` site: same ViewCell +
+  sub wiring, plus frame-context consumption so a provider retarget re-renders
+  it (rf2-vxgfnd.228). The leading `use-frame-context!` keeps hook order stable."
+  [view-id thunk]
+  (use-frame-context!)
+  (render-subs view-id thunk))
 
 (defn render-leases
   "Production wrapper for a view with resource leases and no sub sites.
@@ -199,6 +240,13 @@
     (use-resource-reconcile! cell capture)
     element))
 
+(defn render-leases-frame
+  "`render-leases` for a view that ALSO has a `(frame)` site: same ViewCell +
+  lease wiring, plus frame-context consumption (rf2-vxgfnd.228)."
+  [view-id thunk]
+  (use-frame-context!)
+  (render-leases view-id thunk))
+
 (defn render-subs-and-leases
   "Production wrapper for a view containing both sub and resource sites."
   [view-id thunk]
@@ -209,10 +257,22 @@
     (use-resource-reconcile! cell capture)
     element))
 
+(defn render-subs-and-leases-frame
+  "`render-subs-and-leases` for a view that ALSO has a `(frame)` site: same
+  ViewCell + sub + lease wiring, plus frame-context consumption
+  (rf2-vxgfnd.228)."
+  [view-id thunk]
+  (use-frame-context!)
+  (render-subs-and-leases view-id thunk))
+
 (defn render-dev
   "Stable Fast Refresh wrapper: the full hook superset regardless of the
-  currently-compiled body capabilities."
+  currently-compiled body capabilities — including frame-context consumption
+  (rf2-vxgfnd.228), so a body that gains or loses its `(frame)` site across an
+  HMR edit keeps ONE stable hook signature and a dev view always repaints on a
+  provider retarget."
   [view-id thunk]
+  (use-frame-context!)
   (let [[cell root-incarnation] (use-cell view-id)
         overrides              (use-sub-revision! cell)
         [element capture]      (capture-with-overrides cell overrides thunk)]
