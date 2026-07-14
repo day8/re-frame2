@@ -377,7 +377,7 @@ The pattern contract was id-based while the CLJS reference also accepted functio
 
 ### G-D. The plain-Reagent-fn footgun — RESOLVED (EP-0002)
 
-Plain Reagent fns rendered inside a `frame-provider` used to silently route to `:rf/default` (a P8 hidden-context violation). **EP-0002 closes this**: there is no ambient `:rf/default`, so a plain fn that can't read the provider's frame raises `:rf.error/no-frame-context` — the footgun is now loud at runtime (the "make it loud" resolution, taken to its strongest form: a structured error, not a warning). Fix at the call site is `reg-view`, `with-frame`, or a captured `capture-frame`.
+Plain Reagent fns rendered inside a `frame-provider` used to silently route to `:rf/default` (a P8 hidden-context violation). **EP-0002 closes this**: there is no ambient `:rf/default`, so a plain fn that can't read the provider's frame raises `:rf.error/no-frame-context` — the footgun is now loud at runtime (the "make it loud" resolution, taken to its strongest form: a structured error, not a warning). The **canonical fix** is `reg-view` registration — it installs the `^{:contextType frame-context}` wiring so `dispatch` / `subscribe` read the provider's frame from React context. Code left deliberately unregistered must carry the target **explicitly**: `(rf/capture-frame frame-id)`, a `{:frame …}` opt, or a frame-locked ops bundle captured in a frame-aware ancestor and threaded down. A no-arg `(rf/capture-frame)` and a wrapping `with-frame` both **re-raise** the same error — the former repeats the ambient lookup that already returned nil, the latter a render-time binding that unwinds before React invokes the descendant.
 
 ### G-E. View invocation has two forms — Var canonical, `(view :id)` for late-binding
 
