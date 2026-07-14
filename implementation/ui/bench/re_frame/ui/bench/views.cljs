@@ -59,6 +59,43 @@
       [todo-row {:key (:id t) :todo t}])]
    [:p.count (count todos) " items"]])
 
+;; ---------------------------------------------------------------------------
+;; G-1 lowering-regression control fixture (rf2-vxgfnd.206)
+;;
+;; A REAL compiled emit of the todo row whose ONLY difference from `todo-row`
+;; is the `:class` lowering: writing the class as a dynamic expression over the
+;; static base drives the compiler down the GENERIC `classes-str`/`class-val`
+;; vector-join path (emit-cljs `class-form` `:else`) instead of the single-flag
+;; straight-line specialization (`(if done? "todo-item done" "todo-item")`).
+;; Output is byte-identical, so byte-equality still holds; the extra generic
+;; join work per keyed row is the exact regression the specialization comment
+;; (emit-cljs `class-form`) says it avoids. The G-1 mutation control benches
+;; `todo-list-generic-class` against the SAME memo-matched hand baseline the
+;; todos-20 gate uses, so it reddens for a genuine class-property lowering
+;; regression — no side loop, no volatile sink, no second traversal.
+(defview todo-row-generic-class
+  "todo-row with the class-property lowered through the generic classes-str
+  path (dynamic `:class` expr over the `.todo-item` static base) rather than
+  the single-flag straight-line specialization. Byte-identical output."
+  [{:keys [todo]}]
+  (let [{:keys [id label done? priority]} todo]
+    [:li.todo-item {:class (when done? "done") :data-priority priority :aria-hidden false}
+     [:input {:type :checkbox :checked done? :on-change [:todo/toggle id :rf.ui/checked]}]
+     [:span.label label]
+     (when (= priority :high) [:span.flag "HIGH"])]))
+
+(defview todo-list-generic-class
+  "todos-20 list built from generic-class rows — the G-1 lowering-regression
+  control candidate. Byte-identical to `todo-list`; only the row class-property
+  lowering differs."
+  [{:keys [title todos]}]
+  [:section.todos
+   [:h2 title]
+   [:ul.todo-ul
+    (for [t todos]
+      [todo-row-generic-class {:key (:id t) :todo t}])]
+   [:p.count (count todos) " items"]])
+
 (defview status-panel
   "Conditional multi-branch view (cond + when + if)."
   [{:keys [state message retries]}]

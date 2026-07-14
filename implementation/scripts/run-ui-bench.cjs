@@ -112,13 +112,35 @@ function emittedJsGolden() {
     /function\(\)\{return\{className:[^,]+,"data-priority":/g,
   );
 
+  // rf2-vxgfnd.206 — the two todo-row class-property lowerings must be present
+  // AND distinct, so the G-1 mutation control mutates the REAL lowering site.
+  //   NORMAL  (`v/todo-row`):               className is the single-flag
+  //           straight-line specialization — a comma-free string/ternary value
+  //           (`n(d)?"todo-item done":"todo-item"`). Counted by `todoLiteralProps`
+  //           above (its `className:[^,]+,"data-priority"` cannot match the
+  //           generic form, whose value carries commas).
+  //   GENERIC (`v/todo-row-generic-class`): className is the generic
+  //           `classes-str` vector/join over the `["todo-item", class-val(...)]`
+  //           vector (`(0,X.jsxs)("li",{className:CLASSES_STR(new VEC(...,
+  //           ["todo-item",CLASS_VAL(...)]...))`). The `["todo-item",` array
+  //           literal head survives Closure renaming; a specialized view can
+  //           never emit it. The mutation control benches THIS emit, so a
+  //           class-property specialization regressing to generic lowering (or
+  //           the control view being swapped back to the specialized shape)
+  //           moves this count and the runtime red control together.
+  const todoGenericClassLowering = countMatches(
+    src,
+    /\(0,[$\w]+(?:\.[$\w]+)*\.jsxs\)\("li",\{className:[$\w]+\(new [$\w.]+\([\w,.$]*\["todo-item",/g,
+  );
+
   const MIN_DIRECT = 10;
   const MIN_COMPILER_DIRECT = 20;
   console.log(
     `emitted-JS golden: ${direct} direct literal-tag jsx calls, ` +
       `${compilerDirect} compiler-direct module-property calls, ` +
       `${trap} IFn-fallback call sites, ` +
-      `${todoLiteralProps} direct todo literal / ${todoPropsIife} todo props IIFEs`,
+      `${todoLiteralProps} direct todo literal / ${todoPropsIife} todo props IIFEs, ` +
+      `${todoGenericClassLowering} generic classes-str class-property sites`,
   );
   if (direct < MIN_DIRECT) {
     console.error(
@@ -147,6 +169,17 @@ function emittedJsGolden() {
     console.error(
       'FAIL: the compiled todo row is not passing its compile-known props as ' +
         'one ordered object literal directly to jsxs.',
+    );
+    process.exit(1);
+  }
+  if (todoGenericClassLowering < 1) {
+    console.error(
+      'FAIL: the G-1 lowering-regression control candidate ' +
+        '(v/todo-list-generic-class) does not emit the generic classes-str ' +
+        'class-property lowering at the todo-row `li` site. The mutation must ' +
+        'exercise the REAL generic lowering (`className:classes-str(["todo-item"' +
+        ',...])`), not a proxy — otherwise the red control proves nothing about ' +
+        'the class-property specialization.',
     );
     process.exit(1);
   }
