@@ -120,13 +120,14 @@
 
   `sub-read` threads a SLICE-SCOPED pure memo (`obs/make-slice-memo`)
   into every `probe`, so N sibling rows probing one query compute shared
-  derivation parents once per synchronous execution slice, not once per
-  row (the first-mount fan-out mitigation). The handle is created lazily
-  on the first probe of a slice and cleared on the next event-loop tick
-  (`interop/next-tick` — a MACROTASK, GC hygiene only, not a
-  correctness-before-paint boundary), so an abandoned slice's table is
-  unreachable garbage. The memo is an ECONOMY, never an authority — the commit
-  evidence comparison (step 5) corrects any staleness before paint."
+  derivation parents once per top-level render/execution slice, not once per
+  row (the first-mount fan-out mitigation). The handle is created lazily on the
+  first probe of a slice and DIES WITH ITS SLICE (rf2-vxgfnd.174): the JVM opens
+  a thread-local per-render scope (`with-slice-memo`, discarded on return); CLJS
+  shares the synchronous render pass through a module holder released at the
+  MICROTASK checkpoint (`queue-microtask!`, aligned with the port's own table
+  clear). The memo is an ECONOMY, never an authority — the commit evidence
+  comparison (step 5) corrects any staleness before paint."
   (:require [re-frame.error :as error]
             [re-frame.features :as features]
             [re-frame.frame :as frame]
@@ -326,46 +327,92 @@
   (:by-site cap))
 
 ;; ---------------------------------------------------------------------------
-;; The slice-scoped probe memo (S2d item 3; 03 §3)
+;; The slice-scoped probe memo (S2d item 3; 03 §3; Spec 006 §The slice-scoped
+;; probe memo)
 ;;
-;; ONE memo handle per synchronous execution slice, shared by every probe
-;; in the slice so sibling rows compute shared derivation parents once
-;; (the first-mount fan-out mitigation). Created lazily on the first probe
-;; of a slice; released on the next event-loop tick (`interop/next-tick` —
-;; a macrotask, which is fine here: this is GC hygiene, not a
-;; correctness-before-paint boundary) so an abandoned slice's table is
-;; unreachable garbage. The memo is an ECONOMY only — commit step 5
-;; corrects any staleness before paint — so a single module holder (probes
-;; never nest across slices synchronously) is sufficient.
+;; ONE memo handle per top-level render/execution slice, shared by every probe
+;; in the slice so sibling rows compute shared derivation parents once (the
+;; first-mount fan-out mitigation). The handle DIES WITH ITS SLICE — the prior
+;; slice's table never survives into the next (rf2-vxgfnd.174):
+;;
+;;   - JVM: a THREAD-LOCAL render-slice scope (`*slice*`, opened by
+;;     `with-slice-memo` — the reactive render entry `with-capture` opens one
+;;     around each render, and a Tier-1 render entry may too). The box holds
+;;     this slice's handle; the `binding` discards it on scope exit, so the
+;;     prior table is unreachable with NO `reset-scheduler!`/tag-change
+;;     dependency, two sequential executor tasks never share a table, and
+;;     concurrent renders on distinct threads stay isolated. A bare probe
+;;     outside any render slice gets a fresh per-call handle (no cross-call
+;;     retention).
+;;   - CLJS: a single module holder shares one handle across every probe of a
+;;     synchronous render pass (single-threaded, so no thread-local scope is
+;;     needed), released at the MICROTASK checkpoint (`queue-microtask!`,
+;;     aligned with the port's own table clear — NOT the `interop/next-tick`
+;;     macrotask, which would leave a dead slice's holder live for one more
+;;     host turn) under a CAS guard so a stale clear cannot erase a newer holder.
+;;
+;; The memo is an ECONOMY only — commit step 5 corrects any staleness before
+;; paint, and the incarnation-complete tag (rf2-vxgfnd.160) keeps a commit-free
+;; reader correct on its own — so a single per-slice handle is sufficient.
 ;; ---------------------------------------------------------------------------
 
-(def ^:private slice-memo* (atom nil))
+#?(:cljs (declare queue-microtask!))
+
+(def ^:dynamic ^:private *slice*
+  "When thread-bound (inside a render slice opened by `with-slice-memo`), a
+  volatile box holding THIS slice's probe-memo handle — created lazily, shared
+  by every probe of the slice, and discarded with the `binding` when the scope
+  returns. nil outside a render slice. Effective on the JVM only: the CLJS host
+  shares a synchronous render pass through the module holder below and never
+  binds this var."
+  nil)
+
+(def ^:private slice-memo*
+  "CLJS module holder for the current synchronous render pass's probe-memo
+  handle (the JVM per-render scope is the thread-local `*slice*` above).
+  Released at the microtask checkpoint by `current-slice-memo`."
+  (atom nil))
+
+(defn- with-slice-memo
+  "Open a render/execution slice for `thunk`: every `sub-read`/probe run under
+  it shares ONE slice-memo handle, discarded when `thunk` returns. Re-entrant —
+  a nested call reuses the enclosing slice rather than opening a second one, so a
+  Tier-1 render entry and the `with-capture` inside it share ONE slice. On CLJS
+  this is a passthrough: the single-threaded host shares a synchronous render
+  pass through the module holder (`slice-memo*`), microtask-released, and needs
+  no per-scope binding."
+  [thunk]
+  #?(:clj  (if (thread-bound? #'*slice*)
+             (thunk)
+             (binding [*slice* (volatile! nil)] (thunk)))
+     :cljs (thunk)))
 
 (defn- current-slice-memo
-  "The current slice's probe memo handle — reused across every probe of
-  this synchronous slice, created lazily. On CLJS a fresh slice mints a
-  fresh handle and the old one is released on the next event-loop tick
-  (`interop/next-tick` — `goog.async.nextTick`, a macrotask firing after the
-  synchronous render pass; GC hygiene only, not a before-paint boundary).
-  On the JVM `next-tick` is a concurrent executor, not a microtask, so a
-  timer-driven clear would race a synchronous render; there the handle is
-  invalidated by the memo's own `(frame, frame-epoch, registry-epoch)` tag —
-  PLUS the exact frame-incarnation token, which distinguishes a same-id
-  destroy+recreate whose epochs tie (rf2-vxgfnd.160) — on the next
-  slice (`slice-memo-table!`) and cleared between fixtures by
-  `reset-scheduler!`. The memo is an ECONOMY — for a committing reader commit
-  step 5 corrects any staleness before paint, and the incarnation-complete tag
-  keeps a commit-free reader correct on its own — so the coarser JVM lifetime
-  is harmless."
+  "The current slice's probe-memo handle, reused across every probe of the slice
+  and created lazily. Inside a `with-slice-memo` scope the handle lives in the
+  thread-local `*slice*` box and is discarded when the scope returns
+  (rf2-vxgfnd.174) — so the prior JVM table is unreachable with no reset/tag
+  dependency. Outside any scope: on CLJS the module holder shares the synchronous
+  render pass and a MICROTASK releases it; on the JVM a bare probe gets a fresh
+  per-call handle (no cross-call/cross-render retention). The handle's own
+  `(frame, frame-epoch, registry-epoch)` tag PLUS the exact frame-incarnation
+  token (rf2-vxgfnd.160) still invalidate a stale table within a slice. The memo
+  is an ECONOMY — commit step 5 corrects staleness before paint, and the
+  incarnation-complete tag keeps a commit-free reader correct on its own."
   []
-  (or @slice-memo*
-      (let [h (obs/make-slice-memo)]
-        (reset! slice-memo* h)
-        ;; Release OUR handle at slice end; a later slice may already have
-        ;; installed a newer one, so clear only while ours is still current.
-        #?(:cljs
-           (interop/next-tick (fn [] (compare-and-set! slice-memo* h nil))))
-        h)))
+  (if-some [box *slice*]
+    (or @box (let [h (obs/make-slice-memo)] (vreset! box h) h))
+    #?(:cljs
+       (or @slice-memo*
+           (let [h (obs/make-slice-memo)]
+             (reset! slice-memo* h)
+             ;; Release OUR handle at the microtask checkpoint (aligned with the
+             ;; port's table clear); a later slice may already have installed a
+             ;; newer one, so clear only while ours is still current.
+             (queue-microtask! (fn [] (compare-and-set! slice-memo* h nil)))
+             h))
+       :clj
+       (obs/make-slice-memo))))
 
 ;; ---------------------------------------------------------------------------
 ;; The ViewCell
@@ -814,12 +861,18 @@
 
   The ambient slot is a dynamic var: `binding` gives the save/restore for
   free on single-threaded CLJS and THREAD-LOCAL isolation on the JVM, so two
-  concurrent Tier-1 renders own disjoint captures (rf2-1llvoh)."
+  concurrent Tier-1 renders own disjoint captures (rf2-1llvoh).
+
+  Each render is ALSO a slice-memo scope: on the JVM `with-slice-memo` opens a
+  thread-local per-render slice (discarded on return) so sibling probes share a
+  derivation parent within the render yet a later render recomputes it
+  (rf2-vxgfnd.174); on CLJS this is a passthrough (the module holder owns the
+  synchronous pass), so the hot path allocates nothing extra."
   [^ViewCell cell thunk]
   (let [cap (volatile! (fresh-capture (:generation @(state cell))))]
     (binding [*ambient* {:cell cell :capture cap}]
-      (let [el (thunk)]
-        [el @cap]))))
+      #?(:clj  (with-slice-memo (fn [] (let [el (thunk)] [el @cap])))
+         :cljs (let [el (thunk)] [el @cap])))))
 
 ;; ---- useSyncExternalStore contract ------------------------------------------
 

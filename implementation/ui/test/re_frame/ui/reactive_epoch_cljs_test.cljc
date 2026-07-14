@@ -397,33 +397,103 @@
            via the slice-scoped memo threaded through sub-read")
       (is (nil? (entry [:s/parent])) "probes stayed ownership-free — no cache node"))))
 
-(deftest slice-memo-dies-with-slice
-  ;; make-slice-memo scopes derivation sharing to ONE handle = ONE render slice.
-  ;; The reactive layer mints a FRESH handle per slice (and releases it on the
-  ;; next tick / microtask), so a DEAD slice's memo is never retained into the
-  ;; next slice. Proven at the port primitive the reactive layer consumes:
-  ;; sharing holds WITHIN a slice, and a fresh slice recomputes.
-  (let [parent-runs (atom 0)]
-    (rf/reg-sub :s/parent (fn [db _] (swap! parent-runs inc) (:n db)))
-    (rf/reg-sub :s/a :<- [:s/parent] (fn [n _] [:a n]))
-    (rf/reg-sub :s/b :<- [:s/parent] (fn [n _] [:b n]))
-    (seed! fid {:n 5})
-    (rf/with-frame fid
-      (let [h1 (obs/make-slice-memo)]
-        (is (= {:tag nil :memo nil} @h1) "a fresh slice handle retains no table")
-        (obs/probe (obs/resolve-target {:query-v [:s/a]}) h1)
-        (obs/probe (obs/resolve-target {:query-v [:s/b]}) h1)
-        (is (= 1 @parent-runs)
-            "WITHIN one slice the shared parent computes ONCE (memo hit)")
-        (is (some? (:memo @h1)) "the live slice retains its table")
-        ;; a NEW slice = a FRESH handle; the dead slice's memo is not reused
-        (let [h2 (obs/make-slice-memo)]
-          (obs/probe (obs/resolve-target {:query-v [:s/a]}) h2)
-          (obs/probe (obs/resolve-target {:query-v [:s/b]}) h2)
-          (is (= 2 @parent-runs)
-              "a FRESH slice recomputes the parent — the prior slice's memo did
-               NOT survive (dies with the slice; no retained memo)")
-          (is (not (identical? h1 h2)) "each slice owns a DISTINCT memo handle"))))))
+#?(:clj
+   (deftest slice-memo-dies-with-slice
+     ;; rf2-vxgfnd.174 — the slice memo dies with its slice, exercised through
+     ;; the REAL runtime path (`with-capture` → `sub-read` → `current-slice-memo`),
+     ;; NOT a proxy that hand-constructs two `obs/make-slice-memo` handles. On the
+     ;; JVM each top-level render (`with-capture`) opens a thread-local slice: the
+     ;; sibling sites share their derivation parent ONCE, and a LATER render
+     ;; recomputes because the prior slice's table did NOT survive — proven with
+     ;; the frame/incarnation/registry tag UNCHANGED and WITHOUT `reset-scheduler!`,
+     ;; so only the per-slice scope (not a tag flip or a reset) explains the
+     ;; recompute. On current main the JVM module holder persisted across slices
+     ;; and the second render MEMO-HIT the prior table (parent-runs stays 1). The
+     ;; CLJS boundary is the MICROTASK, not the synchronous with-capture — that
+     ;; host's counterpart is `cljs-slice-memo-holder-dies-at-the-microtask-checkpoint`.
+     (let [parent-runs (atom 0)]
+       (rf/reg-sub :s/parent (fn [db _] (swap! parent-runs inc) (:n db)))
+       (rf/reg-sub :s/a :<- [:s/parent] (fn [n _] [:a n]))
+       (rf/reg-sub :s/b :<- [:s/parent] (fn [n _] [:b n]))
+       (seed! fid {:n 5})
+       (let [render! (fn []
+                       (rf/with-frame fid
+                         (reactive/with-capture (reactive/make-cell ::v)
+                           (fn [] [(reactive/sub-read ::site-a [:s/a])
+                                   (reactive/sub-read ::site-b [:s/b])]))))]
+         (testing "WITHIN one slice sibling cold probes share the parent ONCE"
+           (let [[out _] (render!)]
+             (is (= [[:a 5] [:b 5]] out))
+             (is (= 1 @parent-runs)
+                 "the slice-scoped memo threaded through sub-read computes the
+                  shared parent once for the two sibling sites")
+             (is (nil? (entry [:s/parent])) "cold probes stayed ownership-free")))
+         (testing "a LATER slice recomputes — the prior slice's memo did NOT survive"
+           ;; Tag is IDENTICAL (same frame, commit epoch, registry epoch,
+           ;; incarnation) and NO reset-scheduler! ran between renders, so a
+           ;; recompute can only come from the slice dying — not a tag/reset.
+           (render!)
+           (is (= 2 @parent-runs)
+               "the fresh render slice recomputes the shared parent — the prior
+                slice's table is unreachable (dies with the slice)"))))))
+
+(deftest slice-memo-across-sequential-executor-tasks-never-reuses-a-table
+  ;; rf2-vxgfnd.174 AC — two SEQUENTIAL top-level renders on a background
+  ;; executor task cannot reuse the same memo table (the JVM concurrent-render
+  ;; case). Same tag, no reset-scheduler!; each render is its own slice, so the
+  ;; parent recomputes per render. JVM-only: it drives a real executor future.
+  #?(:clj
+     (let [parent-runs (atom 0)]
+       (rf/reg-sub :sx/parent (fn [db _] (swap! parent-runs inc) (:n db)))
+       (rf/reg-sub :sx/a :<- [:sx/parent] (fn [n _] [:a n]))
+       (rf/reg-sub :sx/b :<- [:sx/parent] (fn [n _] [:b n]))
+       (seed! fid {:n 9})
+       (let [render! (fn []
+                       (rf/with-frame fid
+                         (reactive/with-capture (reactive/make-cell ::v)
+                           (fn [] [(reactive/sub-read ::a [:sx/a])
+                                   (reactive/sub-read ::b [:sx/b])]))))
+             task    (fn [] (let [[out _] (render!)] out))]
+         (is (= [[:a 9] [:b 9]] @(future (task))) "task 1 renders on its own thread")
+         (is (= [[:a 9] [:b 9]] @(future (task))) "task 2 renders on its own thread")
+         (is (= 2 @parent-runs)
+             "two sequential executor tasks each got a FRESH slice — the table
+              is never reused across renders (no cross-task retention)")))
+     :cljs (is true "executor-task isolation is a JVM concern")))
+
+#?(:cljs
+   (deftest cljs-slice-memo-holder-dies-at-the-microtask-checkpoint
+     ;; rf2-vxgfnd.174 CLJS AC — the module holder shares one handle across a
+     ;; SYNCHRONOUS render pass and is released at the MICROTASK checkpoint (NOT
+     ;; the `next-tick` macrotask). Two headless probes in ONE synchronous task
+     ;; share the parent once; a probe scheduled on a later MICROTASK sees the
+     ;; holder already released and recomputes — proof the holder dies with the
+     ;; synchronous slice at the microtask boundary, aligned with the port's
+     ;; table clear. Reverting the holder clear to `interop/next-tick` (a
+     ;; macrotask) leaves the holder live through this microtask and the probe
+     ;; MEMO-HITS instead — this fixture goes red.
+     (async done
+       (let [parent-runs (atom 0)]
+         (rf/reg-sub :sm/parent (fn [db _] (swap! parent-runs inc) (:n db)))
+         (rf/reg-sub :sm/a :<- [:sm/parent] (fn [n _] [:a n]))
+         (rf/reg-sub :sm/b :<- [:sm/parent] (fn [n _] [:b n]))
+         (seed! fid {:n 3})
+         ;; ONE synchronous slice: two headless sibling probes share the module
+         ;; holder, so the parent computes once.
+         (rf/with-frame fid
+           (reactive/sub-read ::a [:sm/a])
+           (reactive/sub-read ::b [:sm/b]))
+         (is (= 1 @parent-runs) "the synchronous slice shared the parent ONCE")
+         ;; A later MICROTASK: the holder-clear microtask (armed by the first
+         ;; probe) runs first (FIFO), so this probe finds a released holder and
+         ;; recomputes.
+         (js/queueMicrotask
+           (fn []
+             (rf/with-frame fid (reactive/sub-read ::a [:sm/a]))
+             (is (= 2 @parent-runs)
+                 "the microtask probe recomputed — the holder died at the
+                  microtask checkpoint (macrotask next-tick would still memo-hit)")
+             (done)))))))
 
 ;; ===========================================================================
 ;; Bounded invalidation evidence across a coalesced batch (rf2-vxgfnd.46)
