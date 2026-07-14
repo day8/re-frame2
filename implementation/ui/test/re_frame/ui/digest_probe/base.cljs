@@ -37,4 +37,30 @@
   ;; waits on this before its first edit so no HMR update can race registration.
   (set! (.-__rf2HmrReady js/globalThis)
         (fn [] @shadow-browser/ws-was-welcome-ref))
+  ;; rf2-vxgfnd.242 — a REAL mounted root, so the runtime-activation fence can be
+  ;; observed on a live rendered program AND its complete Root Descriptor, not
+  ;; just the global carrier scalar. The base runtime lives in the base module;
+  ;; the mounted root renders `loaded-view` (loaded.cljs), whose body the
+  ;; runtime-activation counterexample edits. On a compile-valid reload that
+  ;; throws before `loaded-view` re-registers, the fence holds: the mounted root
+  ;; stays on the last accepted program (`loaded-probe-v1`) and its descriptor's
+  ;; `:build-digest` fails closed (nil, NEVER the staged candidate); a successful
+  ;; recovery advances the program exactly once to `loaded-probe-v2` and restamps
+  ;; the descriptor with the exact accepted digest. The hookless fixture shares
+  ;; this init but serves no mount container, so the mount is container-guarded.
+  (when-let [container (.getElementById js/document "rf2-mounted")]
+    (ui/mount [base-view] container {:root-id :digest-probe/mounted}))
+  ;; The mounted root's COMPLETE Root Descriptor `:build-digest` (Spec 004C §2):
+  ;; the client read-time projection stamped from `current-build-digest`. nil
+  ;; while the fence holds; the exact accepted digest once activated. nil when no
+  ;; root is mounted (the hookless share).
+  (set! (.-__rf2MountedDescriptorDigest js/globalThis)
+        (fn [] (:build-digest (client/descriptor :digest-probe/mounted))))
+  ;; The last-accepted rendered program the mounted root shows — the DOM text of
+  ;; `loaded-view`. It stays on v1 through the failed reload and advances to v2
+  ;; exactly on recovery.
+  (set! (.-__rf2MountedProgram js/globalThis)
+        (fn []
+          (when-let [el (.querySelector js/document "[data-probe=\"loaded\"]")]
+            (.-textContent el))))
   (set! (.-__rf2BaseLoaded js/globalThis) true))

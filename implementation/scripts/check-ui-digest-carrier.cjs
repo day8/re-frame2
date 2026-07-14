@@ -218,6 +218,22 @@ async function waitForDigestChange(page, prior, timeout = TIMEOUT) {
   return page.evaluate(() => globalThis.__rf2ReadDigest());
 }
 
+async function readMountedProgram(page) {
+  // The rendered program the mounted root currently shows — the DOM text of
+  // loaded-view. nil until the first render commits or if no root is mounted.
+  return page.evaluate(() => typeof globalThis.__rf2MountedProgram === 'function'
+    ? globalThis.__rf2MountedProgram()
+    : 'accessor-absent');
+}
+
+async function readMountedDescriptorDigest(page) {
+  // The mounted root's COMPLETE Root Descriptor :build-digest (Spec 004C §2):
+  // the read-time projection stamped from the carrier. nil while fenced.
+  return page.evaluate(() => typeof globalThis.__rf2MountedDescriptorDigest === 'function'
+    ? globalThis.__rf2MountedDescriptorDigest()
+    : 'accessor-absent');
+}
+
 function acceptedSnapshot() {
   const value = fs.readFileSync(ACCEPTED_FILE, 'utf8').trim();
   const [versionText, digest] = value.split('\t');
@@ -370,7 +386,12 @@ async function main() {
     fs.mkdirSync(STABLE, { recursive: true });
     fs.writeFileSync(
       path.join(STABLE, 'index.html'),
-      '<!doctype html><meta charset="utf-8"><script src="/base.js"></script>',
+      '<!doctype html><meta charset="utf-8">' +
+      // rf2-vxgfnd.242 — a mount container so base.cljs mounts a REAL root whose
+      // rendered program (loaded-view text) and complete Root Descriptor are
+      // observed across the runtime-activation fence.
+      '<div id="rf2-mounted"></div>' +
+      '<script src="/base.js"></script>',
     );
 
     browser = await chromium.launch({ headless: true });
@@ -393,6 +414,23 @@ async function main() {
     if (await page.evaluate(() => globalThis.__rf2LazyExecuted === true)) {
       fail('lazy module executed during initial base load');
     }
+
+    // rf2-vxgfnd.242 — the REAL mounted root renders the accepted v1 program and
+    // its COMPLETE descriptor stamps the SAME accepted digest as the global
+    // carrier. This is the mounted-root/descriptor pair the runtime-activation
+    // counterexample then drives through the fence.
+    await page.waitForFunction(
+      () => typeof globalThis.__rf2MountedProgram === 'function' &&
+            globalThis.__rf2MountedProgram() === 'loaded-probe-v1',
+      null,
+      { timeout: TIMEOUT },
+    );
+    await page.waitForFunction(
+      (want) => typeof globalThis.__rf2MountedDescriptorDigest === 'function' &&
+                globalThis.__rf2MountedDescriptorDigest() === want,
+      digest1,
+      { timeout: TIMEOUT },
+    );
 
     // A separate, real Shadow configuration deliberately omits every build
     // hook while compiling the same client entry. Its top-level throw surfaces
@@ -592,12 +630,30 @@ async function main() {
     page.on('console', onConsole);
 
     const successC2 = shadow.successCount();
+    // The last accepted identity + program before the failed reload.
+    const digestBeforeC2 = await page.evaluate(() => globalThis.__rf2ReadDigest());
+    if (!/^bd1-[0-9a-f]{16}$/.test(digestBeforeC2)) {
+      fail(`counterexample 2 did not start from an activated digest: ${digestBeforeC2}`);
+    }
+    if ((await readMountedProgram(page)) !== 'loaded-probe-v1') {
+      fail('mounted root was not on the accepted v1 program before the failed reload');
+    }
+    // Edit loaded.cljs to a DISTINCT v2 body (moves the whole-build digest) that
+    // ALSO throws at top-level before it re-registers: a compile-VALID build
+    // whose RUNTIME activation fails.
     const throwing = replaceExactly(
       replaceExactly(loadedV1, 'loaded-probe-v1', 'loaded-probe-v2'),
       '(when false', '(when true',
     );
     fs.writeFileSync(LOADED_SOURCE, throwing);
     await shadow.waitSuccess(successC2);   // compile-valid: the build completes
+    // The build ACCEPTED the distinct v2 candidate (compile-finish computed and
+    // carried its digest); only runtime activation failed. This exact digest is
+    // what a forward recovery must converge on — NOT the prior v1 identity.
+    const acceptedC2 = acceptedSnapshot();
+    if (acceptedC2.digest === digestBeforeC2) {
+      fail('the v2 candidate did not move the whole-build digest; the forward-recovery oracle would be vacuous');
+    }
     // The hot reload fences reads (before-load), the carrier stages the
     // candidate, then loaded.cljs throws before registration — so after-load
     // never promotes. A read fail-closing to null can ONLY happen when a hot
@@ -614,33 +670,72 @@ async function main() {
     if (stampedC2 !== null) {
       fail(`runtime advertised an unactivated digest after a loaded throw: ${stampedC2}`);
     }
+    // rf2-vxgfnd.242 — the mounted root and its COMPLETE descriptor fail closed
+    // TOGETHER with the carrier while the failed candidate is rejected: the
+    // rendered program stays on the last accepted v1, and the descriptor's
+    // :build-digest is nil — never the staged v2 candidate, never the stale
+    // prior digest. (Deleting the digest-carrier before/after-load fence branch
+    // republishes a non-nil digest, flipping BOTH the null carrier read above
+    // and the null descriptor read here red.)
+    if ((await readMountedProgram(page)) !== 'loaded-probe-v1') {
+      fail('mounted root left the accepted v1 program while the failed candidate was rejected');
+    }
+    const fencedDescriptorDigest = await readMountedDescriptorDigest(page);
+    if (fencedDescriptorDigest !== null) {
+      fail(`mounted root descriptor leaked a digest during the fence: ` +
+           `${JSON.stringify(fencedDescriptorDigest)} (must be null — never the ` +
+           `staged candidate ${acceptedC2.digest} nor the prior ${digestBeforeC2})`);
+    }
     console.log(
-      `ui digest carrier: loaded-source throw left reads fail-closed` +
+      `ui digest carrier: loaded-source throw left carrier + mounted descriptor fail-closed` +
       (sawThrow ? ` (witnessed: ${String(sawThrow).slice(0, 80)})` : ''),
     );
     page.off('pageerror', onPageError);
     page.off('console', onConsole);
 
-    // A successful retry re-activates: restore the clean loaded source, the
-    // reload runs after-load, and reads recover to a real bd1 digest.
+    // Forward recovery: remove ONLY the runtime-failure condition, KEEPING the
+    // distinct v2 body. The reload runs after-load and the runtime must converge
+    // on the EXACT compiler-accepted v2 digest/bytes (acceptedC2) — never fall
+    // back to the prior v1 identity — advancing the mounted program exactly once.
     const successC2b = shadow.successCount();
-    fs.writeFileSync(LOADED_SOURCE, loadedV1);
+    const recovered = replaceExactly(throwing, '(when true', '(when false');
+    if (!recovered.includes('loaded-probe-v2') || recovered.includes('(when true')) {
+      fail('recovery source must keep the distinct v2 body and only drop the throw');
+    }
+    fs.writeFileSync(LOADED_SOURCE, recovered);
     await shadow.waitSuccess(successC2b);
+    // Re-activation must land the EXACT accepted v2 digest, not merely any bd1.
     await page.waitForFunction(
-      () => typeof globalThis.__rf2ReadDigest === 'function' &&
-            typeof globalThis.__rf2ReadDigest() === 'string' &&
-            globalThis.__rf2ReadDigest().startsWith('bd1-'),
-      null,
+      (want) => typeof globalThis.__rf2ReadDigest === 'function' &&
+                globalThis.__rf2ReadDigest() === want,
+      acceptedC2.digest,
       { timeout: TIMEOUT },
     );
     const recoveredC2 = await page.evaluate(() => globalThis.__rf2ReadDigest());
-    if (!/^bd1-[0-9a-f]{16}$/.test(recoveredC2)) {
-      fail(`successful retry did not re-activate a real digest: ${recoveredC2}`);
+    if (recoveredC2 !== acceptedC2.digest) {
+      fail(`recovery did not converge on the accepted v2 digest: runtime ${recoveredC2}, accepted ${acceptedC2.digest}`);
+    }
+    if (recoveredC2 === digestBeforeC2) {
+      fail(`recovery returned to the prior v1 identity ${digestBeforeC2}; it did not ` +
+           `prove forward convergence to the accepted v2 candidate`);
+    }
+    if (acceptedSnapshot().digest !== recoveredC2) {
+      fail('recovery runtime and JVM accepted witness disagree on the active digest');
+    }
+    // The mounted program advanced exactly once (v1 through the fence -> v2 now),
+    // and the complete descriptor now carries the exact active v2 digest.
+    if ((await readMountedProgram(page)) !== 'loaded-probe-v2') {
+      fail('mounted root did not advance to the recovered v2 program');
+    }
+    const recoveredDescriptorDigest = await readMountedDescriptorDigest(page);
+    if (recoveredDescriptorDigest !== recoveredC2) {
+      fail(`mounted root descriptor did not restamp the exact active digest: ` +
+           `descriptor ${JSON.stringify(recoveredDescriptorDigest)}, active ${recoveredC2}`);
     }
 
     console.log(
       `ui digest carrier: PASS (${digest1} -> ${digest2} -> failed/LKG -> ${digest3}` +
-      ` -> loaded-throw/fail-closed -> ${recoveredC2})`,
+      ` -> v2-loaded-throw/fail-closed -> forward-recovery ${recoveredC2})`,
     );
   } finally {
     fs.writeFileSync(LAZY_SOURCE, original);
