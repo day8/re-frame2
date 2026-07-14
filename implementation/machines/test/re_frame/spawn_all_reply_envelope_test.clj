@@ -200,9 +200,19 @@
           ;; First child resolves the :any join.
           (rf/dispatch-sync [(:a ids) [:go]])
           ;; The decisive child :a re-completes LATE (the join already
-          ;; latched :resolved?). Its :on-child-done lands as a
-          ;; post-resolution late-completion.
-          (rf/dispatch-sync [:sup/relp3 [:asset/loaded :a]]))
+          ;; latched :resolved?). Its EXACT-CURRENT :on-child-done lands as a
+          ;; post-resolution late-completion — the fix gates that path on exact
+          ;; authority, so the carrier is stamped for the current attempt
+          ;; (rf2-ixjd48).
+          (let [j (get-in (mtest/runtime-db)
+                          [:rf.runtime/machines :spawned :sup/relp3 [:hydrating]])]
+            (rf/dispatch-sync
+              [:sup/relp3 (with-meta [:asset/loaded :a]
+                            {:rf/join-auth {:parent-id  :sup/relp3
+                                            :invoke-id  [:hydrating]
+                                            :child-id   :a
+                                            :spawned-id (:a ids)
+                                            :attempt    (:rf/attempt j)}})])))
         (let [late (->> @captured
                         (filter #(= :rf.machine.spawn-all/late-completion (:operation %)))
                         first)]

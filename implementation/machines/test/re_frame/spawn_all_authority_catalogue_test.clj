@@ -243,8 +243,16 @@
       (rf/dispatch-sync [a [:go]])
       (is (true? (:resolved? (join-state :sac/p3 [:racing]))) "the :any join resolved")
       (mtest/reset-captured!)
-      ;; A known child-id re-completes AFTER the :resolved? latch flipped.
-      (rf/dispatch-sync [:sac/p3 [:child/done :a]])
+      ;; :a's EXACT-CURRENT completion re-completes AFTER the :resolved? latch
+      ;; flipped — the late-completion path is gated on exact authority
+      ;; (rf2-ixjd48), so the carrier is stamped for the current attempt.
+      (rf/dispatch-sync
+        [:sac/p3 (with-meta [:child/done :a]
+                   {:rf/join-auth {:parent-id  :sac/p3
+                                   :invoke-id  [:racing]
+                                   :child-id   :a
+                                   :spawned-id a
+                                   :attempt    (:rf/attempt (join-state :sac/p3 [:racing]))}})])
       (let [late (first (mtest/events-of :rf.machine.spawn-all/late-completion))]
         (is (some? late) "the late-completion op fired")
         (is (= :stale (:rf.reply/status (:tags late))))

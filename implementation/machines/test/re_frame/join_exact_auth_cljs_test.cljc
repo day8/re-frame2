@@ -331,3 +331,134 @@
         (rf/dispatch-sync [(get-in j2 [:children :a]) [:go]])
         (rf/dispatch-sync [(get-in j2 [:children :b]) [:go]])
         (is (true? (:resolved? (join-state :jea/p9))) "attempt 2 resolved")))))
+
+;; ---------------------------------------------------------------------------
+;; rf2-ixjd48 — validate ownership + exact authority BEFORE the
+;; resolved-vs-unresolved classification. Pre-fix the `:resolved?` branch ran
+;; FIRST, so ANY matching event shape against a resolved join was attributed
+;; to the CURRENT attempt: an old-attempt straggler, an unstamped carrier, or
+;; even an unknown child forged a `:late-completion` record built from the
+;; CURRENT join's `[:children child-id]`, borrowing the current attempt's
+;; spawned/work identity. The fix gates the post-resolution late-completion
+;; path on an EXACT-CURRENT carrier; every stale/forged carrier is classified
+;; the same way it is on the pre-resolution path, with ZERO db mutation.
+;; ---------------------------------------------------------------------------
+
+(defn- late-completions []
+  (mtest/events-of :rf.machine.spawn-all/late-completion))
+
+(defn- bad-child-errors []
+  (mtest/events-of :rf.error/machine-spawn-all-bad-child-id))
+
+(defn- resolve-all-join!
+  "Resolve a fresh `reg-join-parent!` `:all` join by completing BOTH children
+  through their own handler boundaries (so they fold with valid attempt
+  authority). The parent has no `:on` for `:all/done`, so it stays on
+  `:racing` and the resolved join slot survives for post-resolution probes.
+  Returns the resolved join state."
+  [parent-kw]
+  (let [j (join-state parent-kw)]
+    (rf/dispatch-sync [(get-in j [:children :a]) [:go]])
+    (rf/dispatch-sync [(get-in j [:children :b]) [:go]])
+    (join-state parent-kw)))
+
+(deftest old-attempt-straggler-against-resolved-successor-is-superseded
+  (testing "rf2-ixjd48 — THE COUNTEREXAMPLE. Attempt A's completion is queued;
+            the parent re-enters, installs attempt B, and B RESOLVES; then A
+            drains. Pre-fix the `:resolved?` branch ran first and forged a
+            join-resolved `:late-completion` carrying B's CURRENT spawned/work
+            identity for A's straggler. The fix validates authority first: A is
+            classified `:attempt-superseded` carrying ITS OWN (attempt-A)
+            identity, NO late-completion fires, and B's resolved join is
+            untouched (zero db mutation)."
+    (let [j1     (reg-join-parent! :jea/pr1 :jea/pr1a :jea/pr1b)
+          token1 (:rf/attempt j1)
+          a1     (get-in j1 [:children :a])]
+      ;; Tear attempt 1 down (its completion is still 'in flight'), re-enter
+      ;; (attempt 2 = B), and RESOLVE B.
+      (rf/dispatch-sync [:jea/pr1 [:abort]])
+      (rf/dispatch-sync [:jea/pr1 [:start]])
+      (let [j2 (resolve-all-join! :jea/pr1)
+            a2 (get-in j2 [:children :a])]
+        (is (true? (:resolved? j2)) "attempt B resolved")
+        (is (not= a1 a2) "attempt B respawned :a as a fresh instance")
+        (mtest/reset-captured!)
+        ;; Attempt A's exact carrier drains AFTER B resolved.
+        (dispatch-forged! :jea/pr1 [:child/done :a]
+                          {:parent-id  :jea/pr1
+                           :invoke-id  [:racing]
+                           :child-id   :a
+                           :spawned-id a1
+                           :attempt    token1})
+        ;; (1) exactly :attempt-superseded evidence; NO late-completion.
+        (is (= [:rf.machine.spawn-all/attempt-superseded] (stale-reasons))
+            "the old-attempt straggler is superseded, not late-completed")
+        (is (empty? (late-completions))
+            "no late-completion record for a superseded straggler")
+        ;; (2) the evidence carries ATTEMPT A's own identity, never B's.
+        (let [wid (:rf.reply/work-id (:tags (first (stale-completions))))]
+          (is (= a1 (nth wid 1))
+              "the superseded evidence carries the CARRIER's own (attempt-A) actor")
+          (is (not= a2 (nth wid 1))
+              "the superseded evidence does NOT borrow attempt B's current identity"))
+        ;; (3) zero db mutation — B's resolved join is untouched.
+        (let [j2' (join-state :jea/pr1)]
+          (is (= #{:a :b} (:done j2')) "B's :done set unchanged")
+          (is (true? (:resolved? j2')) "B stays resolved")
+          (is (= (:children j2) (:children j2')) "B's children mapping unchanged"))))))
+
+(deftest exact-current-carrier-after-resolution-is-late-completion
+  (testing "rf2-ixjd48 — THE PRESERVED PATH. An EXACT-CURRENT authenticated
+            carrier arriving after its OWN join resolved (a genuine current
+            survivor draining post-latch) still takes the join-resolved
+            `:late-completion` path — the fix gates late-completion on exact
+            authority, it does not remove it."
+    (reg-join-parent! :jea/pr2 :jea/pr2a :jea/pr2b)
+    (let [j (resolve-all-join! :jea/pr2)
+          a (get-in j [:children :a])]
+      (is (true? (:resolved? j)))
+      (mtest/reset-captured!)
+      (dispatch-forged! :jea/pr2 [:child/done :a]
+                        {:parent-id  :jea/pr2
+                         :invoke-id  [:racing]
+                         :child-id   :a
+                         :spawned-id a
+                         :attempt    (:rf/attempt j)})
+      (is (= 1 (count (late-completions)))
+          "the exact-current carrier still fires the late-completion op")
+      (is (empty? (stale-completions))
+          "no pre-resolution stale-completion class fired")
+      (let [tags (:tags (first (late-completions)))]
+        (is (= :stale (:rf.reply/status tags)))
+        (is (= :rf.machine.spawn-all/join-resolved
+               (:rf.reply/stale-reason tags))))
+      (is (= #{:a :b} (:done (join-state :jea/pr2))) "record frozen — no re-fold"))))
+
+(deftest unstamped-carrier-against-resolved-join-is-unverified
+  (testing "rf2-ixjd48 — acceptance: an UNSTAMPED carrier against a RESOLVED
+            join is `:attempt-unverified`, NOT late-completion. Pre-fix the
+            `:resolved?` branch attributed it before checking authority."
+    (reg-join-parent! :jea/pr3 :jea/pr3a :jea/pr3b)
+    (resolve-all-join! :jea/pr3)
+    (mtest/reset-captured!)
+    (dispatch-forged! :jea/pr3 [:child/done :a] nil)
+    (is (empty? (late-completions))
+        "no late-completion for an unauthenticated carrier")
+    (is (= [:rf.machine.spawn-all/attempt-unverified] (stale-reasons))
+        "an unstamped post-resolution carrier is attempt-unverified")
+    (is (= #{:a :b} (:done (join-state :jea/pr3))) "record frozen")))
+
+(deftest unknown-child-against-resolved-join-is-bad-child
+  (testing "rf2-ixjd48 — acceptance: an UNKNOWN child-id against a RESOLVED
+            join takes the canonical bad-child-id error path, NOT the resolved
+            late-completion path (pre-fix it forged a late-completion built
+            from a nil `[:children child-id]`)."
+    (reg-join-parent! :jea/pr4 :jea/pr4a :jea/pr4b)
+    (resolve-all-join! :jea/pr4)
+    (mtest/reset-captured!)
+    (dispatch-forged! :jea/pr4 [:child/done :zzz] nil)
+    (is (empty? (late-completions))
+        "no late-completion for an unknown child")
+    (is (= 1 (count (bad-child-errors)))
+        "the canonical bad-child-id error fires against the resolved join")
+    (is (= #{:a :b} (:done (join-state :jea/pr4))) "record frozen")))
