@@ -2463,6 +2463,70 @@
       (obs/release! la))))
 
 ;; ===========================================================================
+;; rf2-gsxe1z — a DRAIN-OWNED TYPED escape resolves the SUBSCRIPTION source
+;; realm even when a same-id EVENT registration collides
+;;
+;; RE-VERIFY of the bead's premise against current main. PR #5836's authored
+;; head (554cfc52c) forwarded an UNFANNED typed escape's OWN category
+;; dynamically (`error-id (if typed? (:rf.error/id (ex-data exception)) …)`),
+;; e.g. `:rf.error/reentrant-graph-op`, with the former owner's SUB id in
+;; `:event-id`. That category is NOT among error_emit's sub-error-categories,
+;; so its source-coord would have resolved under `[:event sub-id]` — a same-id
+;; EVENT registration could steal attribution, and a macro sub with no colliding
+;; event got no coordinate at all. rf2-w55bh0's always-wrap refactor SUPERSEDED
+;; that arm: the drain now ALWAYS wraps an uncovered escape — typed OR untyped —
+;; in the stable `:rf.error/observation-on-change-failed`, which error_emit
+;; classifies subscription-owned, so `[:sub id]` is the ONLY lookup realm and the
+;; dynamic-category mis-routing cannot arise (the drain never emits a non-sub
+;; category carrying a sub-id). This fixture PINS the bead's exact combined
+;; counterexample the rf2-q3fmqm suites split apart: a MACRO sub PLUS a colliding
+;; MACRO event under one keyword AND a drain-owned DIAGNOSTIC-TYPED escape — the
+;; wrapper resolves the SUB coordinate, never the unrelated EVENT one. Removing
+;; `:rf.error/observation-on-change-failed` from error_emit's sub-error-categories
+;; flips the lookup to `[:event id]` and reddens this on BOTH hosts.
+;; ===========================================================================
+
+(deftest drain-owned-typed-escape-resolves-the-sub-realm-over-a-colliding-event
+  ;; MACRO sub AND colliding MACRO event under one keyword — BOTH capture coords,
+  ;; on DISTINCT source lines, so `[:sub id]` and `[:event id]` are discriminable
+  ;; (the coord is `{:ns :file :line}`; same-line registrations would collide).
+  (rf/reg-sub :obs/collide-typed (fn [db _] (:items db)))
+  (rf/reg-event :obs/collide-typed (fn [_cofx _event] {}))
+  (seed-items! [:a])
+  (let [sub-coord   (source-coords/error-coords-for :sub :obs/collide-typed)
+        event-coord (source-coords/error-coords-for :event :obs/collide-typed)]
+    (is (some? sub-coord)   "the macro sub registration captured [:sub id] coords")
+    (is (some? event-coord) "the colliding macro event captured [:event id] coords")
+    (is (not= sub-coord event-coord)
+        "the two registrations sit on distinct lines → discriminable coords")
+    (with-redefs [interop/next-tick (fn [_f] nil)]
+      (let [bad    (atom nil)
+            target (obs/resolve-target {:frame fid :query-v [:obs/collide-typed]})
+            ;; Owner A's on-change does a FORBIDDEN reentrant release! from inside
+            ;; the fan-out → throws the dev :rf.error/reentrant-graph-op assert:
+            ;; a DIAGNOSTIC-ONLY typed escape the drain owns coverage for (no
+            ;; source emit, so source-covered-always-on? reads FALSE → wrapped).
+            la     (obs/acquire! target (fn [_n] (obs/release! @bad)))]
+        (reset! bad la)
+        (force-dispose-node! [:obs/collide-typed])
+        (let [[[outcome _] records]
+              (with-error-records #(obs/drain-pending-disposals! :disposed))]
+          (is (= :threw outcome)
+              "the drain re-throws the first escape after draining every sibling")
+          (let [wrapped (filterv #(= :rf.error/observation-on-change-failed (:error %))
+                                 records)]
+            (is (= 1 (count wrapped)) "exactly one drain-owned wrapper record")
+            (is (empty? (filterv #(= :rf.error/reentrant-graph-op (:error %)) records))
+                "the diagnostic TYPED category is NEVER promoted onto the always-on axis")
+            (is (= :obs/collide-typed (:event-id (first wrapped)))
+                "the wrapper is attributed to the former owner's ENTRY sub id")
+            (is (= sub-coord (:source-coord (first wrapped)))
+                "the drain-owned TYPED escape resolves the [:sub id] coordinate")
+            (is (not= event-coord (:source-coord (first wrapped)))
+                "the unrelated same-id EVENT coordinate is never selected")))
+        (obs/release! la)))))
+
+;; ===========================================================================
 ;; rf2-w55bh0 — the drain's emission provenance is OPAQUE and CHANNEL-AWARE
 ;;
 ;; The rf2-wbkjk9 scheme (a public `error-emit/fanned-at-source-key` truthy
