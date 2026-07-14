@@ -34,6 +34,7 @@
             [re-frame.core :as rf]
             [re-frame.frame :as frame]
             [re-frame.live-frame :as live-frame]
+            [re-frame.substrate.observation :as obs]
             [re-frame.substrate.plain-atom :as plain-atom]
             [re-frame.test-support :as test-support]
             [re-frame.ui :as ui :refer [defview]]
@@ -224,3 +225,84 @@
              render is its own slice, discarded on return"))
       (finally
         (.shutdownNow exec)))))
+
+;; ---------------------------------------------------------------------------
+;; Causal identity witness (rf2-vxgfnd.284, AC4/AC5) — observe distinct
+;; slice-memo HANDLE IDENTITY per independent top-level render, forcing overlap
+;; AT MEMO ACQUISITION rather than inferring isolation from an aggregate
+;; recompute count.
+;;
+;; `concurrent-tier1-renders-do-not-share-a-memo` above synchronises only
+;; BEFORE `uit/render` and asserts `parent-runs=2`. That is FALSE-GREEN against
+;; a faulty single shared/reset global handle: with only a start barrier the two
+;; renders can still run end-to-end sequentially, and a per-render-entry
+;; global reset then yields two isolated computes (2) — the exact count a
+;; thread-local scope gives. The witness below closes that gap by (1) tripping
+;; the barrier INSIDE the shared cold parent's compute, so both renders provably
+;; hold an ALREADY-ACQUIRED handle simultaneously, and (2) recording the IDENTITY
+;; of every slice-memo handle each thread's probes actually thread — a direct
+;; per-render-slice identity proof, internal-only (no public memo token).
+;; ---------------------------------------------------------------------------
+
+(defn- with-probe-handle-witness
+  "Run `thunk` with `obs/probe` wrapped to record, keyed by the calling thread,
+  the IDENTITY of every non-nil slice-memo handle threaded through a probe.
+  Returns `{thread-id #{handle …}}`. Internal-only: it observes the handle a
+  slice already threads, adding no public token and leaving the runtime design
+  untouched. Restores the original `probe` on exit (var-root redef)."
+  [thunk]
+  (let [seen (atom {})
+        orig obs/probe]
+    (with-redefs [obs/probe
+                  (fn
+                    ([target] (orig target))
+                    ([target slice-memo]
+                     (when (some? slice-memo)
+                       (swap! seen update (.getId (Thread/currentThread))
+                              (fnil conj #{}) slice-memo))
+                     (orig target slice-memo)))]
+      (thunk))
+    @seen))
+
+(deftest concurrent-tier1-renders-thread-distinct-memo-handle-identity
+  ;; Two `uit/render`s on the SAME frame, forced to OVERLAP at memo acquisition:
+  ;; the barrier trips inside the shared cold parent's compute, so when it
+  ;; releases BOTH renders are mid-slice with a handle already threaded. The
+  ;; witness proves each render threaded EXACTLY ONE handle (within-render
+  ;; sharing) and the two are DISTINCT identities (thread-local render scope,
+  ;; never a shared global holder). A single reset global handle either hands a
+  ;; thread two handles across the overlap (its own, then the other thread's
+  ;; clobber) or converges both threads on one identity — either fails an
+  ;; assertion here, DETERMINISTICALLY under the forced overlap (AC5).
+  (reg-slice-subs!)
+  (let [f    (uit/frame {:app-db {:n 5}})
+        gate (CyclicBarrier. 2)]
+    ;; Re-register the shared cold parent so its compute trips the acquisition
+    ;; barrier; siblings sharing one slice handle compute it once per render, so
+    ;; each render trips the barrier exactly once → the 2-party barrier releases
+    ;; only when both renders are simultaneously mid-slice.
+    (rf/reg-sub :slice/parent
+                (fn [db _]
+                  (swap! parent-runs inc)
+                  (.await gate 10 TimeUnit/SECONDS)
+                  (:n db)))
+    (reset! parent-runs 0)
+    (let [seen (with-probe-handle-witness
+                 (fn []
+                   (let [run (fn [] (future (uit/render siblings {:frame f})))
+                         r1  (run)
+                         r2  (run)]
+                     @r1 @r2)))
+          thread-handle-sets (vals seen)]
+      (is (= 2 (count seen))
+          "two distinct render threads each threaded slice-memo handles")
+      (is (every? #(= 1 (count %)) thread-handle-sets)
+          "each render threaded EXACTLY ONE handle across both sibling probes —
+           within-render sharing held even under the forced acquisition overlap")
+      (let [[ha hb] (map first thread-handle-sets)]
+        (is (not (identical? ha hb))
+            "the two OVERLAPPING renders threaded DISTINCT handle identities — a
+             thread-local render scope, not a shared/reset global holder"))
+      (is (= 2 @parent-runs)
+          "each render computed the shared cold parent exactly once (2 total) —
+           the aggregate count companion, now backed by the identity witness"))))
