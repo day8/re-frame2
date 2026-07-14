@@ -516,9 +516,24 @@
          (reset! cleanup-tail tail)
          task))
 
+     ;; A failure slot holds this unique private sentinel until a failure is
+     ;; recorded. PRESENCE — not JS truthiness — decides "did a failure occur?",
+     ;; so a legitimately falsy caught/rejected reason (nil, false, 0) is a real,
+     ;; preserved failure rather than being silently reclassified as success.
+     (defonce ^:private absent #js {})
+
+     (defn- recorded?
+       "Has a failure been recorded into `slot`? Presence, not truthiness."
+       [slot]
+       (not (identical? @slot absent)))
+
      (defn- remember-first-error!
+       "Record the FIRST failure in `slot` BY PRESENCE: once the slot holds a
+       reason — even a falsy one (nil, false) — a later failure never overwrites
+       it, so first-failure ordering is stable regardless of payload truthiness.
+       The slot starts at the private `absent` sentinel."
        [slot e]
-       (when-not @slot (vreset! slot e))
+       (when (identical? @slot absent) (vreset! slot e))
        nil)
 
      (defn- cleanup-step!
@@ -529,16 +544,46 @@
                     (remember-first-error! slot e)))))
 
      (defn- attach-cleanup-diagnostic!
-       "Preserve the primary throwable while retaining a cleanup failure on
-       the ordinary JS Error/ExceptionInfo object for diagnostics."
-       [primary cleanup]
-       (when (and primary cleanup)
-         (try
-           (js/Object.defineProperty
-            primary "rfUiTestCleanupError"
-            #js {:value cleanup :configurable true})
-           (catch :default _ nil)))
-       primary)))
+       "Preserve the primary throwable AS THE THROWN VALUE while, when a secondary
+       cleanup failure is PRESENT, retaining it on the primary as
+       `rfUiTestCleanupError` for diagnostics. Presence — not truthiness — gates
+       the attach, so a falsy secondary is real. A primitive primary (nil, false,
+       a number) cannot receive `defineProperty`; the secondary then rides the
+       always-on console diagnostic instead, so it stays observable. The primary
+       reason is returned UNCHANGED either way — never coerced or replaced."
+       [primary secondary-present? secondary]
+       (when secondary-present?
+         (let [attached?
+               (try
+                 (js/Object.defineProperty
+                  primary "rfUiTestCleanupError"
+                  #js {:value secondary :configurable true})
+                 true
+                 (catch :default _ false))]
+           (when (and (not attached?) (exists? js/console))
+             (.warn js/console
+                    (str "[re-frame.ui.test] a with-root cleanup failure could "
+                         "not ride the primary rejection (a primitive reason "
+                         "cannot carry a diagnostic property); the primary is "
+                         "rethrown unchanged. Secondary cleanup error:")
+                    secondary))))
+       primary)
+
+     (defn ^:no-doc with-root-outcome
+       "The outcome policy of a `with-root` run, decided by failure PRESENCE
+       (never JS truthiness): a first mount/render/body/flush failure wins as the
+       rejection (a present secondary cleanup failure rides it as a diagnostic),
+       else a cleanup-only failure is the rejection, else the awaited body value
+       — which may itself be a legitimate nil/false — resolves. Returns
+       `[:reject reason]` or `[:resolve value]`. Extracted as the ONE place the
+       presence decision lives, so it is unit-checkable off the DOM."
+       [primary-present? primary secondary-present? secondary result]
+       (cond
+         primary-present?
+         [:reject (attach-cleanup-diagnostic! primary secondary-present? secondary)]
+
+         secondary-present? [:reject secondary]
+         :else              [:resolve result]))))
 
 #?(:cljs
    (defn- with-root*
@@ -557,8 +602,8 @@
            host-root     (volatile! nil)
            mounted-root  (volatile! nil)
            result        (volatile! nil)
-           primary-error (volatile! nil)
-           cleanup-error (volatile! nil)]
+           primary-error (volatile! absent)
+           cleanup-error (volatile! absent)]
        (.setAttribute container "data-rf-ui-test-root" "")
        (.appendChild js/document.body container)
        (->
@@ -601,12 +646,11 @@
                         (cleanup-step! cleanup-error #(.remove container)))))))
         (.then
          (fn []
-           (cond
-             @primary-error
-             (throw (attach-cleanup-diagnostic! @primary-error @cleanup-error))
-
-             @cleanup-error (throw @cleanup-error)
-             :else @result)))))))
+           (let [[outcome v] (with-root-outcome
+                              (recorded? primary-error) @primary-error
+                              (recorded? cleanup-error) @cleanup-error
+                              @result)]
+             (if (= :reject outcome) (throw v) v))))))))
 
 #?(:clj
    (defmacro with-root
