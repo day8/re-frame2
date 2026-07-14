@@ -71,7 +71,7 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest add-button-carries-intent
-  (let [frame (uit/frame {:app-db {:cart #{} :catalog fixture-catalog}})
+  (let [frame (rf/make-frame {:initial-events [[:rf/set-db {:cart #{} :catalog fixture-catalog}]]})
         tree  (uit/render [product-card {:product (product 42)}]
                           {:frame frame})]
     (is (= [:cart/add 42] (-> tree (uit/find :button) uit/attrs :on-click)))
@@ -90,7 +90,7 @@
 ;; included, runs on main today."
 (deftest drive-state-through-the-real-sub
   (reg-cart!)
-  (let [frame (uit/frame {:app-db {:cart #{} :catalog fixture-catalog}})]
+  (let [frame (rf/make-frame {:initial-events [[:rf/set-db {:cart #{} :catalog fixture-catalog}]]})]
     ;; before: the sub reads an empty cart → the button offers Add
     (is (= "Add to cart"
            (-> (uit/render [toggle-card {:product (product 42)}] {:frame frame})
@@ -110,7 +110,7 @@
 ;; membership directly (no dispatch); the sub-reading view renders against it.
 (deftest seeded-membership-renders-without-a-dispatch
   (reg-cart!)
-  (let [frame (uit/frame {:app-db {:cart #{42} :catalog fixture-catalog}})
+  (let [frame (rf/make-frame {:initial-events [[:rf/set-db {:cart #{42} :catalog fixture-catalog}]]})
         tree  (uit/render [toggle-card {:product (product 42)}] {:frame frame})]
     (is (= "Remove" (-> tree (uit/find :button) uit/text))
         "install a state, render against it — the (sub …) reads the seeded
@@ -120,7 +120,7 @@
 ;;  (ui.test/render [view] {:frame frame :sub-overrides {[:cart/locked?] true}})."
 (deftest stubbing-a-sub-is-the-explicit-option
   (reg-cart!)
-  (let [frame (uit/frame {:app-db {:cart #{} :catalog fixture-catalog}})
+  (let [frame (rf/make-frame {:initial-events [[:rf/set-db {:cart #{} :catalog fixture-catalog}]]})
         tree  (uit/render [toggle-card {:product (product 42)}]
                           {:frame frame
                            :sub-overrides {[:cart/contains? 42] true}})]

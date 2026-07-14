@@ -10,7 +10,7 @@
   data, so 'what does this button do' is an equality check — no click
   simulation, no DOM, no flake:
 
-      (let [frame (ui.test/frame {:app-db {:cart #{}}})
+      (let [frame (rf/make-frame {:initial-events [[:rf/set-db {:cart #{}}]]})
             tree  (ui.test/render [product-card {:product p}]
                                   {:frame frame})]
         (is (= [:cart/add 42]
@@ -687,46 +687,10 @@
          (.querySelector (.-container root) css-selector)))))
 
 ;; ---------------------------------------------------------------------------
-;; Frames (07 §2 — `frame`, `dispatch!`)
+;; Frames (07 §2 — `dispatch!`). A test frame is minted with the canonical
+;; `rf/make-frame` + `:initial-events` (seed via `[:rf/set-db {…}]`) — one
+;; frame-init grammar, shared with production.
 ;; ---------------------------------------------------------------------------
-
-(defn frame
-  "Mint a TEST frame — registrations come from the loaded namespaces (the
-  default image over the active source store + framework standards), the
-  app-db seed from `:app-db` (dispatched as `[:rf/set-db seed]`, drained
-  to fixed point before this returns).
-
-  `opts` is CLOSED: `{:app-db <map>}` (or `{}`). Anything richer —
-  images, ids, fx-overrides — is `rf/make-frame`'s vocabulary; use it
-  directly.
-
-  Returns the live frame VALUE — pass it (or hold it) wherever a frame
-  target is accepted: `(render … {:frame f})`, `(dispatch! f event)`,
-  `rf/app-db-value`. Prerequisite: an installed substrate adapter (JVM
-  tests: the plain-atom adapter via `re-frame.test-support/`
-  `make-reset-runtime-fixture` or `rf/init!`)."
-  ([] (frame {}))
-  ([opts]
-   (when-not (map? opts)
-     (bad-opts! 'rf.ui.test/frame
-                (str "frame opts must be a map; got " (pr-str opts))
-                {:got opts}))
-   (when-let [unknown (seq (remove #{:app-db} (keys opts)))]
-     (bad-opts! 'rf.ui.test/frame
-                (str "unknown frame opt" (when (next unknown) "s") " "
-                     (pr-str (vec unknown)) " — ui.test/frame's opts are "
-                     "CLOSED: {:app-db <map>}. Richer construction (images, "
-                     "ids, fx-overrides) is rf/make-frame's vocabulary")
-                {:unknown (vec unknown)}))
-   (when (and (contains? opts :app-db) (not (map? (:app-db opts))))
-     (bad-opts! 'rf.ui.test/frame
-                (str ":app-db must be a map (the app-db seed); got "
-                     (pr-str (:app-db opts)))
-                {:app-db (:app-db opts)}))
-   (live-frame/make-frame
-    (cond-> {}
-      (contains? opts :app-db)
-      (assoc :initial-events [[:rf/set-db (:app-db opts)]])))))
 
 (defn dispatch!
   "Real dispatch + drain into `frame-target` (a frame value or id):
@@ -813,31 +777,27 @@
          (bad-opts! 'rf.ui.test/render
                     (str "render opts must be a map; got " (pr-str opts))
                     {:got opts}))
-       (when-let [unknown (seq (remove #{:frame :app-db :props :sub-overrides}
+       (when-let [unknown (seq (remove #{:frame :props :sub-overrides}
                                        (keys opts)))]
          (bad-opts! 'rf.ui.test/render
                     (str "unknown render opt" (when (next unknown) "s") " "
                          (pr-str (vec unknown)) " — the opts are CLOSED: "
-                         ":frame XOR :app-db, :props (bare-view form only), "
+                         ":frame, :props (bare-view form only), "
                          ":sub-overrides")
                     {:unknown (vec unknown)}))
        (when (and (contains? opts :props) (not allow-props?))
          (bad-opts! 'rf.ui.test/render
                     "a literal root form carries its props IN the form — {:props …} combines only with a bare view reference"
                     {:props (:props opts)}))
-       (when (and plan-bearing? (or (contains? opts :frame) (contains? opts :app-db)))
+       (when (and plan-bearing? (contains? opts :frame))
          (bad-opts! 'rf.ui.test/render
                     (str "a PLAN-BEARING root form OWNS its frames — its "
                          "top-region frame-root(s) preflight fresh test frames "
-                         "before the render. Drop {:frame …}/{:app-db …}; a "
+                         "before the render. Drop {:frame …}; a "
                          "frame plan and an explicit frame are two ways to say "
                          "one thing. Explicit frame opts stay valid for "
                          "plan-free root/view forms")
-                    (select-keys opts [:frame :app-db])))
-       (when (and (contains? opts :frame) (contains? opts :app-db))
-         (bad-opts! 'rf.ui.test/render
-                    "{:frame f} XOR {:app-db v} — :app-db mints a fresh test frame, :frame targets one you hold; pass one"
-                    {:frame (:frame opts) :app-db (:app-db opts)}))
+                    (select-keys opts [:frame])))
        (when (and (contains? opts :props) (not (map? (:props opts))))
          (bad-opts! 'rf.ui.test/render
                     (str ":props must be a map — a view is a pure function of "
@@ -855,9 +815,9 @@
    (defn- render-with-opts
      "Establish the frame scope + override door, run the compiled render
   thunk, stamp the root with the tree version (the root is always the
-  view's boundary node — a map). With NEITHER :frame nor :app-db,
-  structural rendering proceeds frameless — any frame-scoped read
-  raises honestly rather than defaulting."
+  view's boundary node — a map). Without :frame, structural rendering
+  proceeds frameless — any frame-scoped read raises honestly rather
+  than defaulting."
      [opts thunk]
      (let [run   (if (contains? opts :sub-overrides)
                    #(binding [reactive/*sub-overrides* (:sub-overrides opts)] (thunk))
@@ -874,13 +834,6 @@
                    (binding [rframe/*current-frame*
                              (rframe/frame-target->id (:frame opts))]
                      (slice))
-
-                   (contains? opts :app-db)
-                   (let [id (rframe/frame-target->id
-                             (frame {:app-db (:app-db opts)}))]
-                     (try
-                       (binding [rframe/*current-frame* id] (slice))
-                       (finally (rframe/destroy-frame! id))))
 
                    :else (slice))]
        (assoc root :rf.ui/tree-version tree/tree-version))))
@@ -1071,7 +1024,7 @@
    (defn ^:no-doc render-form*
      "Runtime half of `render` form 2 (literal root form — the compiled
   template thunk). `plans-thunk` is nil for a plan-free form (frames combine
-  with :frame/:app-db, today's behaviour) and the evaluate-at-preflight
+  with :frame, today's behaviour) and the evaluate-at-preflight
   thunk when the root owns frames (a top-region frame-root); `root-id` and
   `ambient-frame-id` are the compile-resolved identity + innermost ambient
   frame the plan-bearing path binds."
@@ -1151,7 +1104,7 @@
   compile error there). One mounted view per root form is the invariant
   (root identity is the view's id). A plan-bearing form preflights fresh
   test frames and binds the ambient frame; a plan-free form combines with
-  the explicit :frame/:app-db opts as before."
+  the explicit :frame opt as before."
      [menv form opts]
      (let [e   (-> (env/make-env {:host :clj :ns-sym (ns-name *ns*)})
                    (env/with-locals (keys menv)))
@@ -1189,10 +1142,10 @@
 
     1. A VIEW REFERENCE — the compile-resolved defview var/symbol:
        `(render product-card {:props {:product p} :frame f})`.
-       Props ride `{:props p}`; frames ride `{:frame f}` XOR
-       `{:app-db v}` (a test frame is minted around the render and
-       destroyed after). With neither, structural rendering proceeds
-       frameless and any frame-scoped read raises honestly.
+       Props ride `{:props p}`; a frame rides `{:frame f}` (mint it
+       with `rf/make-frame` + `:initial-events`). With no frame,
+       structural rendering proceeds frameless and any frame-scoped
+       read raises honestly.
 
     2. A LITERAL ROOT FORM — the SAME root grammar `mount` takes
        (`root/analyze-root`): the top-region wrappers (element / fragment /
@@ -1205,9 +1158,9 @@
        plans preflight FRESH test frames (the S2c ENSURE executor) before
        the structural render, the mounted view resolves the innermost
        enclosing `frame-root`'s frame as its ambient scope, and every
-       test-owned frame is torn down after. `{:frame …}`/`{:app-db …}`
+       test-owned frame is torn down after. `{:frame …}`
        alongside a plan-bearing form is rejected ('the root form owns its
-       frames' — §9 [S1-CONFIRM]); with plan-free forms they combine.
+       frames' — §9 [S1-CONFIRM]); with plan-free forms it combines.
 
   A runtime-assembled vector is the same compile error as at `mount` —
   hiccup is compiled, not interpreted. `{:sub-overrides {query value}}`

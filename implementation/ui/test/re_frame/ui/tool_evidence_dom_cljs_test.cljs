@@ -41,7 +41,7 @@
     (rf/reg-sub ::value (fn [db _] (:value db)))
     (rf/reg-event ::set-value
                   (fn [{:keys [db]} [_ v]] {:db (assoc db :value v)}))
-    (let [f (uit/frame {:app-db {:value 0}})]
+    (let [f (rf/make-frame {:initial-events [[:rf/set-db {:value 0}]]})]
       (is (true? (evidence/install! ::xray-panel)))
       (async done
         (-> (uit/with-root [root [ui/frame-provider {:frame f}

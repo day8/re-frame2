@@ -317,7 +317,7 @@
 (deftest with-root-strictmode-teardown-releases-cells-and-observation-owners
   (when (browser?)
     (rf/reg-sub ::observed-value (fn [db _] (:value db)))
-    (let [f            (uit/frame {:app-db {:value "owned"}})
+    (let [f            (rf/make-frame {:initial-events [[:rf/set-db {:value "owned"}]]})
           frame-id     (frame/frame-target->id f)
           cell-baseline (reactive/root-cell-count)]
       (async done
@@ -430,7 +430,7 @@
                   (fn [{:keys [db]} _]
                     {:db (assoc db :flush-error
                                 (error-id uit/flush!))}))
-    (let [f (uit/frame {:app-db {}})]
+    (let [f (rf/make-frame {:initial-events [[:rf/set-db {}]]})]
       (try
         (uit/dispatch! f [::flush-during-handler])
         (is (= :rf.error/flush-in-open-epoch
@@ -447,7 +447,7 @@
                       (rf/destroy-frame! @target)
                       (vreset! seen (error-id uit/flush!))
                       nil))
-      (let [f (uit/frame {:app-db {}})]
+      (let [f (rf/make-frame {:initial-events [[:rf/set-db {}]]})]
         (vreset! target f)
         (uit/dispatch! f [::destroy-self-then-flush])
         (is (= :rf.error/flush-in-open-epoch @seen)
@@ -462,7 +462,7 @@
                       (pos? remaining)
                       (assoc :fx [[:dispatch [::fixed-point-step
                                               (dec remaining)]]]))))
-    (let [f        (uit/frame {:app-db {:n 0}})
+    (let [f        (rf/make-frame {:initial-events [[:rf/set-db {:n 0}]]})
           evidence (atom {:reads 0 :renders 0 :commits 0})]
       (async done
         (-> (uit/with-root [root [ui/frame-provider {:frame f}
@@ -501,7 +501,7 @@
     (rf/reg-event ::cascade-step
                   (fn [{:keys [db]} _]
                     {:db (update db :n inc)}))
-    (let [f        (uit/frame {:app-db {:n 0}})
+    (let [f        (rf/make-frame {:initial-events [[:rf/set-db {:n 0}]]})
           evidence (atom {:renders 0 :commits 0 :cascaded? false})]
       (async done
         (-> (uit/with-root [root [ui/frame-provider {:frame f}

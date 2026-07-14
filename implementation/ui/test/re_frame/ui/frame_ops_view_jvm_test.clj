@@ -80,7 +80,7 @@
 
 (deftest explicit-frame-render-returns-the-locked-bundle
   (reg!)
-  (let [f  (uit/frame {:app-db {:n 5}})
+  (let [f  (rf/make-frame {:initial-events [[:rf/set-db {:n 5}]]})
         id (rframe/frame-target->id f)
         [tree [bundle :as all]] (render-capturing #(uit/render ops-probe {:frame f}))]
     (is (= 1 (count all)) "one site, one bundle")
@@ -102,7 +102,7 @@
 
 (deftest ambient-provider-scope-binds-the-bundle
   (reg!)
-  (let [f  (uit/frame {:app-db {:n 1}})
+  (let [f  (rf/make-frame {:initial-events [[:rf/set-db {:n 1}]]})
         id (rframe/frame-target->id f)
         [_ [bundle]] (render-capturing #(uit/render [provider-host {:target f}]))]
     (is (= id (:frame bundle))
@@ -126,7 +126,7 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest bundle-is-stable-across-renders-within-one-incarnation
-  (let [f (uit/frame {:app-db {}})
+  (let [f (rf/make-frame {:initial-events [[:rf/set-db {}]]})
         [_ [b1]] (render-capturing #(uit/render ops-probe {:frame f}))
         [_ [b2]] (render-capturing #(uit/render ops-probe {:frame f}))]
     (is (identical? b1 b2)
