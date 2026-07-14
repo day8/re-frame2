@@ -104,6 +104,84 @@
       (is (nil? (:ref-count (get @(:sub-cache (frame/frame fid)) [:sl/a])))
           "B's replacement cache is untouched — the rejected staging released cleanly"))))
 
+;; ---- THE MIXED-INCARNATION STAGED ATTEMPT (rf2-vxgfnd.256) --------------------
+;; The two-site test above acquires BOTH leases from A, then swaps A→B at the
+;; :post-stage-acquire barrier — so at the gate BOTH candidates are non-current,
+;; and a regression that rejected only when NO candidate is current would still
+;; pass. The bead's required barrier is stronger: acquire lease 1 from A, DESTROY
+;; A + publish a same-id B in the acquire→acquire window, then acquire lease 2
+;; from the LIVE B — a genuinely MIXED candidate set {lease1@A (NON-current),
+;; lease2@B (current)}. `candidate-current?` is `every?`, so the single
+;; non-current A lease rejects the whole commit. `incarnation-superseded?`
+;; cannot help here: both sites share the reused id, whose CURRENT token is B's,
+;; so the post-acquire `committed-frame-incarnations` snapshot reads B's token
+;; and the check is false — exactly the pre-#5821 blind spot .161 documents.
+;; This pins `candidate-current?` as the SOLE fence: weakening it to `some`, or
+;; dropping lease 1's exact check, connects a stale A lease and flips this red.
+;;
+;; The interleave is injected through a TEST-ONLY wrapper around the observation
+;; port (no production seam): the same `with-redefs` idiom the resource-owner
+;; wiring proof uses. The commit sees the ordinary staged `obs/acquire!`; the
+;; wrapper merely destroys/recreates the frame strictly BETWEEN the two calls.
+(deftest a-mixed-incarnation-staged-attempt-cannot-connect
+  (rf/reg-sub :sl/a (fn [db _] (:a db)))
+  (rf/reg-sub :sl/b (fn [db _] (:b db)))
+  (let [fid     :sl/mixed
+        _       (make-frame! fid {:a 1 :b 2})
+        token-a (frame/frame-incarnation-token fid)
+        cell    (reactive/make-cell ::mixed)
+        [_ capture] (rf/with-frame fid
+                      (reactive/with-capture
+                       cell (fn []
+                              (reactive/sub-read ::s1 [:sl/a])
+                              (reactive/sub-read ::s2 [:sl/b]))))
+        acq          (atom [])           ;; [lease query token-at-acquire]
+        rel          (atom [])           ;; query in release order
+        real-acquire obs/acquire!
+        real-release obs/release!
+        lease->query (fn [lease]
+                       (some (fn [[l q _]] (when (identical? l lease) q)) @acq))]
+    ;; ONE staged attempt: the A→B swap lands strictly BETWEEN the two acquires.
+    (with-redefs [obs/acquire!
+                  (fn [target on-change]
+                    (when (= 1 (count @acq))
+                      ;; lease 1 (from A) is in hand — destroy A and publish a
+                      ;; same-id B BEFORE lease 2 is acquired, so lease 2 binds B
+                      (frame/destroy-frame! fid)
+                      (make-frame! fid {:a 99 :b 88}))
+                    (let [lease (real-acquire target on-change)]
+                      (swap! acq conj [lease (:query target)
+                                       (frame/frame-incarnation-token fid)])
+                      lease))
+                  obs/release!
+                  (fn [lease]
+                    (swap! rel conj (lease->query lease))
+                    (real-release lease))]
+      (reactive/commit! cell capture))
+    (let [token-b (frame/frame-incarnation-token fid)]
+      (is (not (identical? token-a token-b))
+          "B is a distinct incarnation under the reused id")
+      (testing "the interleave was genuinely MIXED — lease 1 from A, lease 2 from B"
+        (is (= [[:sl/a] [:sl/b]] (mapv second @acq))
+            "both sites acquired, in render order")
+        (is (identical? token-a (nth (first @acq) 2))
+            "lease 1 was acquired while incarnation A was live")
+        (is (identical? token-b (nth (second @acq) 2))
+            "lease 2 was acquired against the fresh incarnation B"))
+      (testing "the mixed candidate set is rejected — no connect, no retained lease"
+        (is (not= :connected (reactive/lifecycle cell))
+            "a commit holding a superseded-incarnation lease never connects")
+        (is (empty? (reactive/committed-sites cell)) "nothing retained"))
+      (testing "the newly staged leases release exactly once, in reverse order"
+        (is (= [[:sl/b] [:sl/a]] @rel)
+            "reverse-order rollback: lease 2 (B) then lease 1 (A)")
+        (is (= 2 (count @rel)) "each staged lease released exactly once"))
+      (testing "B's replacement cache is untouched — the rejected staging released cleanly"
+        (is (nil? (:ref-count (get @(:sub-cache (frame/frame fid)) [:sl/a])))
+            "B's :sl/a node has no owner (it was never acquired from B)")
+        (is (nil? (:ref-count (get @(:sub-cache (frame/frame fid)) [:sl/b])))
+            "B's :sl/b node's lease was released — zero owners")))))
+
 ;; ---- ordinary same-incarnation multi-site commit is unaffected ---------------
 (deftest ordinary-same-incarnation-multi-site-commit-connects
   (rf/reg-sub :sl/a (fn [db _] (:a db)))
