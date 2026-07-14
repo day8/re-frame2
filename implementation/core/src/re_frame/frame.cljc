@@ -1233,17 +1233,56 @@
   `swap-runtime-db!` (runtime-db partition); both differ ONLY by `pk`. Under
   the single-drainer invariant (Spec 002 §Single drainer per frame) the
   read-then-replace is effectively atomic — `commit-frame-transition!` is the
-  only writer during fx drain. INTERNAL."
-  [id pk f args]
-  (when-let [container (frame-state-container id)]
-    (let [current   (adapter/read-container container)
-          new-slice (apply f (get current pk) args)]
-      (adapter/replace-container! container (assoc current pk new-slice))
-      ;; Observation-port evidence counter (Spec 006 §The internal
-      ;; observation port): one bump per physical frame-state install —
-      ;; this is the second (and last) frame-state write chokepoint.
-      (bump-commit-epoch! id)
-      new-slice)))
+  only writer during fx drain. INTERNAL.
+
+  rf2-vxgfnd.155 — the 6-arity is the EXACT-INCARNATION variant used by the
+  callback-bearing flow-registry lifecycle writes (`clear-flow` / `reg-flow`
+  output-mark refresh and path vacation). It resolves the write through
+  `owner-token`'s own frame record (a same-id successor can never redirect it),
+  and — `replace-container!` is a host-adapter callback boundary whose
+  synchronous watch may destroy A and publish same-id B mid-install — rechecks
+  ownership after the callback. A's write that physically linearized in A's
+  captured container before the loss stands (it may legitimately appear in A's
+  halted-destroy snapshot), but the id-keyed commit-epoch bump is FENCED so it
+  never lands on B. Returns the new slice, or nil on owner loss (the caller
+  treats a nil as a no-op and rechecks liveness before its own later actions)."
+  ([id pk f args] (swap-partition! id pk f args nil false))
+  ([id pk f args owner-token exact-owner?]
+   (if-not exact-owner?
+     (when-let [container (frame-state-container id)]
+       (let [current   (adapter/read-container container)
+             new-slice (apply f (get current pk) args)]
+         (adapter/replace-container! container (assoc current pk new-slice))
+         ;; Observation-port evidence counter (Spec 006 §The internal
+         ;; observation port): one bump per physical frame-state install —
+         ;; this is the second (and last) frame-state write chokepoint.
+         (bump-commit-epoch! id)
+         new-slice))
+     ;; Exact-incarnation write (rf2-vxgfnd.155). Resolve the record so the
+     ;; write binds to A's own container; a same-id B cannot redirect it.
+     (when-let [frame-record (frame id)]
+       (when (identical? owner-token (:drain-lock frame-record))
+         (let [container   (:frame-state frame-record)
+               read-result (call-exact-frame-callback
+                             id owner-token true
+                             #(adapter/read-container container))]
+           (when-not (= stale-exact-callback read-result)
+             (let [current   (second read-result)
+                   new-slice (apply f (get current pk) args)]
+               ;; A synchronous watch inside `read-container` may already have
+               ;; lost A; recheck before the physical install.
+               (when (event-continuation-live? id owner-token)
+                 (let [replace-result
+                       (call-exact-frame-callback
+                         id owner-token true
+                         #(adapter/replace-container!
+                            container (assoc current pk new-slice)))]
+                   ;; The install callback's own watch may destroy A. A's write
+                   ;; linearized in A's captured container, but the id-keyed
+                   ;; commit-epoch bump must not attribute to same-id B.
+                   (when-not (= stale-exact-callback replace-result)
+                     (bump-commit-epoch! id)
+                     new-slice)))))))))))
 
 (defn swap-frame-db!
   "Mutate the frame's app-db PARTITION: read the current app-db value,
@@ -1284,6 +1323,24 @@
   is the framework-authority write surface."
   [id f & args]
   (swap-partition! id runtime-partition-key f args))
+
+(defn ^:no-doc swap-frame-db-exact!
+  "Exact-incarnation `swap-frame-db!` (rf2-vxgfnd.155): threads `owner-token`
+  so a synchronous container watch that destroys A and publishes a same-id B
+  during the physical install neither redirects the write into B nor bumps B's
+  commit epoch. A's write that linearized before the loss stands in A's
+  captured container. Used by the callback-bearing flow-registry lifecycle
+  writes. Returns the new app-db slice, or nil on owner loss."
+  [id owner-token f & args]
+  (swap-partition! id app-partition-key f args owner-token true))
+
+(defn ^:no-doc swap-runtime-db-exact!
+  "Exact-incarnation `swap-runtime-db!` (rf2-vxgfnd.155) — the runtime-db
+  sibling of `swap-frame-db-exact!`, used by the exact-aware elision-registry
+  writes the flow lifecycle ops issue. Returns the new runtime-db slice, or
+  nil on owner loss."
+  [id owner-token f & args]
+  (swap-partition! id runtime-partition-key f args owner-token true))
 
 ;; ---- lifecycle-vs-drain serialization -------------------------------------
 ;;

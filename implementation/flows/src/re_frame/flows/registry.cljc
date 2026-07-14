@@ -467,10 +467,17 @@
         (elision/replace-owner-claims :declarations owner explicit-l))))
 
 (defn- write-flow-output-marks!
-  "Install or refresh one flow's output declarations in its frame."
-  [frame-id flow]
-  (elision/swap-elision-slot! frame-id
-    (fn [reg] (fold-flow-declarations reg flow))))
+  "Install or refresh one flow's output declarations in its frame.
+
+  rf2-vxgfnd.155 — the 3-arity threads A's `owner-token` through the exact-
+  incarnation elision write so a synchronous container watch that destroys A
+  mid-write cannot bump same-id B's commit epoch or write B's runtime-db."
+  ([frame-id flow] (write-flow-output-marks! frame-id nil flow))
+  ([frame-id owner-token flow]
+   (let [xf (fn [reg] (fold-flow-declarations reg flow))]
+     (if owner-token
+       (elision/swap-elision-slot! frame-id owner-token xf)
+       (elision/swap-elision-slot! frame-id xf)))))
 
 (defn- clear-flow-output-marks!
   "Remove one flow's declarations while preserving every other declaration
@@ -478,14 +485,21 @@
   axis.
 
   Frame teardown needs no per-flow scrub because the elision registry belongs
-  to the frame-state container that destruction removes."
-  [frame-id flow-id]
-  (let [owner (flow-owner flow-id)]
-    (elision/swap-elision-slot! frame-id
-      (fn [reg]
-        (-> (or reg {})
-            (elision/remove-owner :sensitive-declarations owner)
-            (elision/remove-owner :declarations owner))))))
+  to the frame-state container that destruction removes.
+
+  rf2-vxgfnd.155 — the 3-arity threads A's `owner-token` through the exact-
+  incarnation elision write so a synchronous container watch that destroys A
+  mid-write cannot bump same-id B's commit epoch or write B's runtime-db."
+  ([frame-id flow-id] (clear-flow-output-marks! frame-id nil flow-id))
+  ([frame-id owner-token flow-id]
+   (let [owner (flow-owner flow-id)
+         xf    (fn [reg]
+                 (-> (or reg {})
+                     (elision/remove-owner :sensitive-declarations owner)
+                     (elision/remove-owner :declarations owner)))]
+     (if owner-token
+       (elision/swap-elision-slot! frame-id owner-token xf)
+       (elision/swap-elision-slot! frame-id xf)))))
 
 ;; ---- registration --------------------------------------------------------
 
@@ -625,36 +639,48 @@
                         (assoc m frame-id prospective)))))
            ;; A moved output must vacate the old path. Queue the vacation during
            ;; a drain so it is applied to the pending db; otherwise write now.
+           ;; rf2-vxgfnd.155: the direct-path vacation is a callback-bearing
+           ;; app-db write — thread A's pinned incarnation so a watch that loses
+           ;; A cannot bump same-id B's commit epoch or write B's app-db.
            (when-let [prior @prior-on-frame]
              (let [old-path (:output-path prior)]
                (when (not= old-path (:output-path flow))
                  (if (frame/in-drain? frame-id)
                    (record-abandoned-output-path! frame-id old-path)
-                   (vacate-output-path! frame-id old-path)))))
-           ;; Replacements always refresh marks so removing a declaration also
-           ;; clears the previous one.
-           (when (or (flow-declares-marks? flow)
-                     (some? @prior-on-frame))
-             (write-flow-output-marks! frame-id flow))
-           ;; A replacement invalidates the cache even when inputs are equal.
-           ;; Hot-reload trace dedup uses the derive function as handler identity.
-           (when (some? @prior-on-frame)
-             (drop-frame-flow-row! frame-id flow-id)
-             (when interop/debug-enabled?
-               (let [prior      @prior-on-frame
-                     different? (not= (:derive prior) (:derive flow))
-                     ;; The shared dedup projector expects handler identity under
-                     ;; `:handler-fn`.
-                     shape-meta (assoc flow :handler-fn (:derive flow))
-                     dedup-ok?  (if-let [f (late-bind/get-fn-cached
-                                             :trace.tooling/dedup-allow?)]
-                                  (f :rf.registry/handler-replaced :flow flow-id shape-meta)
-                                  true)]
-                 (when dedup-ok?
-                   (trace/emit! :rf.registry :rf.registry/handler-replaced
-                                {:kind          :flow
-                                 :id            flow-id
-                                 :different-fn? different?})))))))
+                   (vacate-output-path! frame-id pinned-incarnation old-path)))))
+           ;; rf2-vxgfnd.155: postcheck after the (callback-bearing) vacation
+           ;; before the mark write + the bare-id dirty-cache drop + dedup trace.
+           ;; If a container watch destroyed A, abort so no stale A mark / cache /
+           ;; dedup mutation reaches a same-id B.
+           (when (frame/event-continuation-live? frame-id pinned-incarnation)
+             ;; Replacements always refresh marks so removing a declaration also
+             ;; clears the previous one. Exact-incarnation write.
+             (when (or (flow-declares-marks? flow)
+                       (some? @prior-on-frame))
+               (write-flow-output-marks! frame-id pinned-incarnation flow))
+             ;; Postcheck after the output-mark container write before the
+             ;; bare-id dirty-cache drop + dedup trace.
+             (when (frame/event-continuation-live? frame-id pinned-incarnation)
+               ;; A replacement invalidates the cache even when inputs are equal.
+               ;; Hot-reload trace dedup uses the derive function as handler
+               ;; identity.
+               (when (some? @prior-on-frame)
+                 (drop-frame-flow-row! frame-id flow-id)
+                 (when interop/debug-enabled?
+                   (let [prior      @prior-on-frame
+                         different? (not= (:derive prior) (:derive flow))
+                         ;; The shared dedup projector expects handler identity
+                         ;; under `:handler-fn`.
+                         shape-meta (assoc flow :handler-fn (:derive flow))
+                         dedup-ok?  (if-let [f (late-bind/get-fn-cached
+                                                 :trace.tooling/dedup-allow?)]
+                                      (f :rf.registry/handler-replaced :flow flow-id shape-meta)
+                                      true)]
+                     (when dedup-ok?
+                       (trace/emit! :rf.registry :rf.registry/handler-replaced
+                                    {:kind          :flow
+                                     :id            flow-id
+                                     :different-fn? different?})))))))))
        ;; Registration is first-time per frame; replacements use the hot-reload
        ;; trace above.
        (when (and interop/debug-enabled? (nil? @prior-on-frame))
@@ -698,12 +724,19 @@
     (dissoc-in-safe db path)))
 
 (defn- vacate-output-path!
-  "Remove an output path from a frame's app-db, skipping no-op writes."
-  [frame-id path]
-  (when-let [db (frame/frame-app-db-value frame-id)]
-    (let [new-db (vacate-path-in-db db path)]
-      (when-not (identical? new-db db)
-        (frame/swap-frame-db! frame-id (constantly new-db))))))
+  "Remove an output path from a frame's app-db, skipping no-op writes.
+
+  rf2-vxgfnd.155 — the 3-arity threads A's `owner-token` through the exact-
+  incarnation app-db write so a synchronous container watch that destroys A
+  mid-vacation cannot bump same-id B's commit epoch or write B's app-db."
+  ([frame-id path] (vacate-output-path! frame-id nil path))
+  ([frame-id owner-token path]
+   (when-let [db (frame/frame-app-db-value frame-id)]
+     (let [new-db (vacate-path-in-db db path)]
+       (when-not (identical? new-db db)
+         (if owner-token
+           (frame/swap-frame-db-exact! frame-id owner-token (constantly new-db))
+           (frame/swap-frame-db! frame-id (constantly new-db))))))))
 
 (defn clear-flow
   "Deregister a flow and remove its output leaf from the selected frame.
@@ -725,20 +758,35 @@
            frame-id
            (fn []
              (when-let [flow (get-in @flows [frame-id id])]
-               (let [path (:output-path flow)]
+               ;; rf2-vxgfnd.155: PIN A's incarnation so the callback-bearing
+               ;; output-mark / path-vacation writes below cannot let a stale A
+               ;; tail dissociate a same-id B's flow row, drop B's dirty-check
+               ;; cache, or bump B's commit epoch. A synchronous container watch
+               ;; may destroy A and publish B mid-write; only A's write that
+               ;; linearized before that loss stands, and every later registry /
+               ;; cache action is fenced by an immediate exact-owner postcheck.
+               (let [pinned (frame/frame-incarnation-token frame-id)
+                     path   (:output-path flow)]
                  ;; In-drain vacation must modify the pending db, not the live
                  ;; app-db that the deferred commit will replace.
                  (if (frame/in-drain? frame-id)
                    (record-abandoned-output-path! frame-id path)
-                   (vacate-output-path! frame-id path))
-                 (clear-flow-output-marks! frame-id id)
-                 ;; Prune an empty frame row rather than expose `{frame-id {}}`.
-                 (swap! flows (fn [m]
-                                (let [m' (update m frame-id dissoc id)]
-                                  (cond-> m'
-                                    (empty? (get m' frame-id)) (dissoc frame-id)))))
-                 (drop-frame-flow-row! frame-id id)
-                 path))))]
+                   (vacate-output-path! frame-id pinned path))
+                 ;; Postcheck after the (callback-bearing, direct-path) vacation:
+                 ;; if the watch lost A, abort before the mark write and the
+                 ;; bare-id registry / dirty-cache mutations reach B.
+                 (when (frame/event-continuation-live? frame-id pinned)
+                   (clear-flow-output-marks! frame-id pinned id)
+                   ;; Postcheck after the output-mark container write before the
+                   ;; bare-id flow-row dissoc + dirty-cache drop.
+                   (when (frame/event-continuation-live? frame-id pinned)
+                     ;; Prune an empty frame row rather than expose `{frame-id {}}`.
+                     (swap! flows (fn [m]
+                                    (let [m' (update m frame-id dissoc id)]
+                                      (cond-> m'
+                                        (empty? (get m' frame-id)) (dissoc frame-id)))))
+                     (drop-frame-flow-row! frame-id id)
+                     path))))))]
      ;; A no-op clear emits nothing.
      (when (and cleared-path interop/debug-enabled?)
        (trace/emit! :flow :rf.flow/cleared

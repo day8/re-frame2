@@ -293,6 +293,17 @@
       (write-elision-slot new-runtime-db
                           (get prev-runtime-db :rf.runtime/elision)))))
 
+(defn- apply-elision-transform
+  "Apply the caller's registry transform `f` to the `:rf.runtime/elision` slice
+  of `old-runtime-db`, writing the result back through `write-elision-slot`
+  (which prunes a stranded `:rf.runtime/elision` when the slot clears). The
+  shared read-transform-write body behind both `swap-elision-slot!` arities."
+  [f old-runtime-db]
+  (let [old-runtime-db (or old-runtime-db {})]
+    (write-elision-slot
+      old-runtime-db
+      (f (get-in old-runtime-db [:rf.runtime/elision])))))
+
 (defn ^:no-doc swap-elision-slot!
   "Read-transform-write helper for the per-frame elision registry.
 
@@ -308,15 +319,22 @@
 
   EP-0001: writes through `frame/swap-runtime-db!` (the
   runtime-db partition of the one physical frame-state container) — the
-  elision registry is durable framework state and lives in runtime-db."
-  [frame-id f]
-  (frame/swap-runtime-db! frame-id
-                          (fn [old-runtime-db]
-                            (let [old-runtime-db (or old-runtime-db {})]
-                              (write-elision-slot
-                                old-runtime-db
-                                (f (get-in old-runtime-db [:rf.runtime/elision]))))))
-  nil)
+  elision registry is durable framework state and lives in runtime-db.
+
+  rf2-vxgfnd.155 — the 3-arity is the EXACT-INCARNATION variant the flow
+  lifecycle ops (`clear-flow` / `reg-flow`) issue while an event owns the
+  frame: it routes through `frame/swap-runtime-db-exact!` so a synchronous
+  container watch that destroys A and publishes same-id B during this durable-
+  registry write cannot bump B's commit epoch or write B's runtime-db. The
+  2-arity is the historical bare-id write (EP-0025 classification effects,
+  machine / routing subsystem claims)."
+  ([frame-id f]
+   (frame/swap-runtime-db! frame-id #(apply-elision-transform f %))
+   nil)
+  ([frame-id owner-token f]
+   (frame/swap-runtime-db-exact! frame-id owner-token
+                                 #(apply-elision-transform f %))
+   nil))
 
 ;; ---- EP-0025 commit-plane classification effects -------------------------
 ;;
