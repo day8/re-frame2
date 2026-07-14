@@ -88,3 +88,28 @@
           (is (= 1 (count (:subs @(:sites e*)))) (pr-str form))
           (is (re-find #"re-frame.ui.reactive/sub-read" (pr-str ast))
               (pr-str form)))))))
+
+(deftest real-cljs-destructuring-scope-follows-host-evaluation-order
+  ;; rf2-vxgfnd.268 — the ordered-scope correction under REAL CLJS analyzer
+  ;; resolution (bare sub/lease resolve to the reactive vars; core macro
+  ;; authority is genuine, not an injected :macro flag). Destructuring binds
+  ;; SEQUENTIALLY, so a bare reactive var in a default is shadowed ONLY by a
+  ;; same-pattern local bound EARLIER. Reverting the ordered scope re-accepts
+  ;; the escape rows (the dzyqis over-accept) and re-rejects the earlier-shadow
+  ;; rows (the older whole-pattern-blind call scan's under-shadow).
+  (with-real-cljs-env
+    (fn [_ e]
+      (testing "a self / later-bound shadow does not cover an earlier default"
+        (doseq [argv ['[{:keys [sub] :or {sub sub}}]
+                      '[{:keys [f sub] :or {f sub}}]
+                      '[{:keys [lease] :or {lease lease}}]
+                      '[{:keys [f lease] :or {f lease}}]]]
+          (is (= :rf.ui.compile/unsupported-form
+                 (compile-error-id #(analyze/reject-reactive-binding! e argv)))
+              (pr-str argv))))
+      (testing "an EARLIER-bound local genuinely shadows the reactive var"
+        (doseq [argv ['[{:keys [sub f] :or {f sub}}]
+                      '[{:keys [sub f] :or {f (sub :fallback)}}]
+                      '[{sub :s x sub}]]]
+          (is (nil? (compile-error-id #(analyze/reject-reactive-binding! e argv)))
+              (pr-str argv)))))))

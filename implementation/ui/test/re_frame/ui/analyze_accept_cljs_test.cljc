@@ -300,6 +300,29 @@
     (let [{:keys [sites]} (ana-full '[:div {:title (let [{:keys [x] :or {x 0}} m] x)}])]
       (is (empty? (:subs sites))))))
 
+(deftest destructuring-earlier-bound-shadow-compiles
+  ;; rf2-vxgfnd.268 — the reverse of the reject rows: a same-pattern local bound
+  ;; EARLIER in host evaluation order genuinely shadows the reactive authoring
+  ;; var, so its later use in a default is an ordinary local reference, mints no
+  ;; reactive site, and compiles. The pre-fix `reactive-call-kind` scan used no
+  ;; same-pattern scope (`#{}`), so the earlier-local function-call row was
+  ;; UNDER-shadowed and wrongly rejected; the ordered scope restores it.
+  (testing "a bare default referencing an EARLIER-bound local shadow (no site)"
+    (let [{:keys [sites]}
+          (ana-full '[:div {:title (let [{:keys [sub f] :or {f sub}} m] f)}])]
+      (is (empty? (:subs sites))
+          "sub binds before f, so f's default is the local, not the reactive var")))
+  (testing "a function CALL on an earlier-bound local shadow (no site)"
+    (let [{:keys [sites]}
+          (ana-full '[:div {:title (let [{:keys [sub f] :or {f (sub :fallback)}} m] f)}])]
+      (is (empty? (:subs sites))
+          "(sub :fallback) calls the earlier local sub, never re-frame.ui/sub")))
+  (testing "an explicit lookup key referencing an earlier-bound local (no site)"
+    (let [{:keys [sites]}
+          (ana-full '[:div {:title (let [{sub :s x sub} m] x)}])]
+      (is (empty? (:subs sites))
+          "x's lookup key `sub` is the local bound by the earlier {sub :s} entry"))))
+
 (deftest lexical-site-id-is-portable-stable-and-query-independent
   (let [template-a [:div (located-sub 102 8 [:item/by-id 'id])]
         template-b [:div (located-sub 202 8 [:item/by-id 'id])]

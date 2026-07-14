@@ -2,7 +2,7 @@
   "Template-grammar REJECT table: every rejected form throws a compile
   error carrying {:rf.ui.compile/error <id>} — the S1e didactic-message
   roster keys off these ids. Runs on both hosts (injected resolution)."
-  (:require [clojure.test :refer [deftest is]]
+  (:require [clojure.test :refer [deftest is testing]]
             [re-frame.ui.compiler.analyze :as ana]
             [re-frame.ui.analyze-accept-cljs-test :refer [mk-env]]))
 
@@ -182,6 +182,57 @@
       "an ordinary literal :or default is untouched")
   (is (nil? (reject-id '[:div {:title (let [{:keys [x] :or {x 'sub}} m] x)}]))
       "quoted data in an :or default is inert — never a reactive read"))
+
+(deftest destructuring-scope-follows-host-evaluation-order
+  ;; rf2-vxgfnd.268 — the ordered-scope correction to rf2-dzyqis. CLJ/CLJS
+  ;; destructuring binds SEQUENTIALLY, so a bare reactive var in a default is
+  ;; shadowed ONLY by a same-pattern local bound EARLIER in evaluation order.
+  ;; The dzyqis guard put every symbol the pattern binds into one flat scope
+  ;; BEFORE scanning, so a LATER-bound local named sub/lease/frame (and a SELF
+  ;; default) falsely shadowed the escape and the pre-fix head compiled these
+  ;; with an EMPTY manifest, leaving the public authoring var to survive to
+  ;; runtime unindexed. Each row below reads the outer public var; reverting the
+  ;; ordered scope re-accepts them all, so this deftest is the mutation fixture.
+  (testing "a LATER-bound local does not shadow an earlier default (over-accept)"
+    ;; `f` binds first; its :or default `sub` evaluates before local `sub` — it
+    ;; is the outer re-frame.ui/sub, not the later local.
+    (is (= :rf.ui.compile/unsupported-form
+           (reject-id '[:div {:title (let [{:keys [f sub] :or {f sub}} m] f)}]))
+        "bare sub default shadowed only by a LATER binding escapes")
+    (is (= :rf.ui.compile/unsupported-form
+           (reject-id '[:div {:title (let [{:keys [f lease] :or {f lease}} m] f)}]))
+        "bare lease escapes identically under a later shadow")
+    (is (= :rf.ui.compile/unsupported-form
+           (reject-id '[:div {:title (let [{:keys [f frame] :or {f frame}} m] f)}]))
+        "bare frame escapes identically under a later shadow"))
+  (testing "a SELF default is not its own shadow (over-accept)"
+    ;; `sub`'s :or default `sub` evaluates while local `sub` is still being
+    ;; bound — the default is the outer public var.
+    (is (= :rf.ui.compile/unsupported-form
+           (reject-id '[:div {:title (let [{:keys [sub] :or {sub sub}} m] sub)}]))
+        "a self-referential sub default is the outer var, not the local")
+    (is (= :rf.ui.compile/unsupported-form
+           (reject-id '[:div {:title (let [{:keys [lease] :or {lease lease}} m] lease)}]))
+        "a self-referential lease default escapes identically")
+    (is (= :rf.ui.compile/unsupported-form
+           (reject-id '[:div {:title (let [{:keys [frame] :or {frame frame}} m] frame)}]))
+        "a self-referential frame default escapes identically"))
+  (testing "an explicit map lookup-key expression is an evaluated slot too"
+    ;; `{x sub}` binds x to (get m sub) — the lookup key `sub` is evaluated, so
+    ;; the bare reactive var escapes there just like a default.
+    (is (= :rf.ui.compile/unsupported-form
+           (reject-id '[:div {:title (let [{x sub} m] x)}]))
+        "a bare reactive var as an explicit lookup key escapes")
+    (let [msg (try (ana/analyze (mk-env)
+                                '[:div {:title (let [{x sub} m] x)}])
+                   nil
+                   (catch #?(:clj clojure.lang.ExceptionInfo
+                             :cljs cljs.core/ExceptionInfo) ex
+                     (ex-message ex)))]
+      (is (re-find #"lookup-key" msg)
+          "the lookup-key diagnostic identifies the slot, not an :or default")
+      (is (not (re-find #":or default" msg))
+          "and does not misreport it as an :or default"))))
 
 (deftest reactive-verb-head-reserved-before-foreign-classification
   ;; rf2-vxgfnd.266 — the next escape in the .252/dzyqis family. sub/lease/frame
