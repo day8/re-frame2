@@ -744,21 +744,12 @@
 
 (defn- guard-open-drain!
   []
-  ;; `*run-frame-state-before*` is bound around the current event-pipeline
-  ;; run and survives a handler destroying its own frame. A live-registry scan
-  ;; cannot: destroy removes the active frame before the handler returns, which
-  ;; used to let a destroy-self-then-flush call cross this guard and deliver
-  ;; read-side work inside the still-open run.
-  (when (some? rframe/*run-frame-state-before*)
-    (let [frame-id (rframe/frame-target->id rframe/*current-frame*)]
-      (error/throw-error!
-       :rf.error/flush-in-open-epoch 'rf.ui.test/flush!
-       (str "ui.test/flush! was called while frame " (pr-str frame-id)
-            " is still inside its event drain — let the queued write side "
-            "settle to drain quiescence before forcing the one read/render batch")
-       {:recovery :no-recovery
-        :extra {:frame frame-id
-                :frame-epoch (rframe/frame-commit-epoch frame-id)}}))))
+  ;; The open-event-drain ruling is owned by `re-frame.ui.reactive` and shared
+  ;; with the first-party adapter's `flush-render!` — ONE guard, not two copies.
+  ;; It survives a handler destroying its own frame (`*run-frame-state-before*`
+  ;; outlives a live-registry scan), so a destroy-self-then-flush call still
+  ;; fails before delivering read-side work inside the still-open run.
+  (reactive/guard-open-drain! 'rf.ui.test/flush!))
 
 #?(:clj
    (defn flush!

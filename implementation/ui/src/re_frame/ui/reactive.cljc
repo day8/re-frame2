@@ -1406,6 +1406,34 @@
   []
   (flush-scope! (constantly true)))
 
+(defn guard-open-drain!
+  "The SHARED open-event-drain guard — the DEV-tier `:rf.error/flush-in-open-epoch`
+  signal (03 §11; Spec 006 §Epoch finalization). Reject a synchronous
+  registry-flush forced from `where` while a frame's run-to-completion event
+  drain is STILL OPEN: flushing there could publish a partially-settled queued
+  write side (a torn read/render). The single owner of the ruling — reused by
+  BOTH `ui.test/flush!` (the test all-roots spelling) and the first-party
+  adapter's `flush-render!` (the production synchronous render-commit), so there
+  is ONE guard, not two copies drifting apart.
+
+  `re-frame.frame/*run-frame-state-before*` is bound around the current
+  event-pipeline run and SURVIVES a handler destroying its own frame — a live
+  registry scan cannot, since destroy removes the active frame before the handler
+  returns, which used to let a destroy-self-then-flush call cross the guard and
+  deliver read-side work inside the still-open run. Throws BEFORE the registry is
+  touched (no partial flush); a no-op outside any drain."
+  [where]
+  (when (some? frame/*run-frame-state-before*)
+    (let [frame-id (frame/frame-target->id frame/*current-frame*)]
+      (error/throw-error!
+       :rf.error/flush-in-open-epoch where
+       (str where " was called while frame " (pr-str frame-id)
+            " is still inside its event drain — let the queued write side "
+            "settle to drain quiescence before forcing the one read/render batch")
+       {:recovery :no-recovery
+        :extra {:frame frame-id
+                :frame-epoch (frame/frame-commit-epoch frame-id)}}))))
+
 (defn- cell-frames
   "The set of frame-ids `cell`'s committed subscription sites observe.
 
