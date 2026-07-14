@@ -242,23 +242,82 @@
   axis is NOT covered and a containment drain still owes production a record."
   (->EmissionProvenance #{:trace}))
 
-;; The PRIVATE weak throwable→provenance association (rf2-9m4oy7). Provenance is
-;; bound to the EXACT throwable it attests — keyed by the throwable OBJECT
-;; IDENTITY (the JVM `WeakHashMap` keys by `.equals`/`.hashCode`, which
-;; `Throwable` inherits from `Object` as identity; `js/WeakMap` keys by object
-;; identity with ephemeron semantics). It is WEAK and self-pruning: an entry
-;; lives exactly as long as its throwable, so a caught-and-processed throwable's
-;; binding is collectable the moment the throwable is — never a growing global
-;; registry (the bead's explicit non-goal). Written ONLY by [[attest-provenance!]]
-;; from this ns's own emit-then-throw sites; an application cannot reach it, so a
-;; forged `->EmissionProvenance` token in an app's ex-data, or an authentic token
-;; transplanted onto a DIFFERENT throwable, is never associated here and reads
-;; uncovered.
+;; The PRIVATE weak throwable→provenance association (rf2-9m4oy7 + rf2-fs99nq).
+;; Provenance is bound to the EXACT throwable it attests — keyed by the throwable
+;; OBJECT IDENTITY, WEAK and self-pruning so an entry lives exactly as long as its
+;; throwable (a caught-and-processed throwable's binding is reclaimed the moment the
+;; throwable is — never a growing global registry, the bead's explicit non-goal).
+;; Written ONLY by [[attest-provenance!]] from this ns's own emit-then-throw sites;
+;; an application cannot reach it, so a forged `->EmissionProvenance` token in an
+;; app's ex-data, or an authentic token transplanted onto a DIFFERENT throwable, is
+;; never associated here and reads uncovered.
+;;
+;; GENUINE IDENTITY, NOT `.equals`/`.hashCode` (rf2-fs99nq): `Throwable` leaves
+;; `hashCode` and `equals` VIRTUAL — a throwable is identity-keyed ONLY while it
+;; inherits Object's defaults, which an APPLICATION throwable is free to OVERRIDE. So
+;; a raw `java.util.WeakHashMap` keyed by the throwable is NOT genuine identity: it
+;; keys by `.equals`/`.hashCode`, so two distinct application throwables that are
+;; `.equals` (or one with a forged `hashCode`) COLLIDE, and its `.get` returns the
+;; bound throwable's provenance for a DIFFERENT one — the drain then reads a raw
+;; application exception as already-covered and SUPPRESSES its required
+;; `:rf.error/observation-on-change-failed` record; worse, an application
+;; `hashCode`/`equals` that THROWS makes provenance lookup itself escape the drain's
+;; catch and abort the reduce before healthy siblings drain (breaking the full-drain
+;; / first-original-identity law). On the JVM the association is therefore a small
+;; ReferenceQueue-backed weak map whose keys hash by `System/identityHashCode` and
+;; compare by referent `identical?` — NEVER invoking the throwable's own
+;; `hashCode`/`equals` — with cleared entries reclaimed on each access. `js/WeakMap`
+;; is genuinely identity-keyed (reference keys, ephemeron semantics) with no such
+;; hazard, so CLJS keeps it unchanged.
+#?(:clj
+   (defonce ^:private ^java.lang.ref.ReferenceQueue provenance-queue
+     (java.lang.ref.ReferenceQueue.)))
+
 #?(:clj
    (defonce ^:private ^java.util.Map provenance-by-throwable
-     (java.util.Collections/synchronizedMap (java.util.WeakHashMap.)))
+     ;; identity-key (a `WeakReference` subclass, [[weak-identity-key]]) →
+     ;; `EmissionProvenance`. A plain `HashMap` guarded by `locking
+     ;; provenance-by-throwable` (the node-records lock discipline). NOT a
+     ;; `WeakHashMap`: weakness comes from the `WeakReference` KEYS + ReferenceQueue
+     ;; expunge, IDENTITY from the keys' own `hashCode`/`equals`.
+     (java.util.HashMap.))
    :cljs
    (defonce ^:private provenance-by-throwable (js/WeakMap.)))
+
+#?(:clj
+   (defn- weak-identity-key
+     "Wrap throwable `t` as a map key with genuine IDENTITY hash/equality that NEVER
+     touches `t`'s own `hashCode`/`equals` (rf2-fs99nq): a `WeakReference` subclass
+     whose `hashCode` is the captured `System/identityHashCode` and whose `equals` is
+     referent `identical?`. A non-nil `queue` registers the key for reclamation (the
+     STORED key); a nil `queue` makes a transient LOOKUP key. `equals` short-circuits
+     on `identical? this o` (so expunging a cleared key never dereferences it) and
+     otherwise compares referents by identity, treating a cleared referent as no
+     match."
+     ^java.lang.ref.WeakReference [t ^java.lang.ref.ReferenceQueue queue]
+     (let [h (System/identityHashCode t)]
+       (proxy [java.lang.ref.WeakReference] [t queue]
+         (hashCode [] h)
+         (equals [o]
+           (or (identical? this o)
+               (and (instance? java.lang.ref.WeakReference o)
+                    (let [r (.get ^java.lang.ref.WeakReference this)]
+                      (and (some? r)
+                           (identical? r (.get ^java.lang.ref.WeakReference o)))))))))))
+
+#?(:clj
+   (defn- expunge-stale-provenance!
+     "Reclaim entries whose throwable has been collected (rf2-fs99nq): poll the
+     ReferenceQueue for cleared keys and drop each from the map. Removal matches the
+     EXACT enqueued key by identity (`equals` short-circuits on `identical? this o`),
+     so a cleared referent is never dereferenced and the throwable's own
+     `hashCode`/`equals` are never invoked. Call under `locking
+     provenance-by-throwable`."
+     []
+     (loop []
+       (when-some [k (.poll ^java.lang.ref.ReferenceQueue provenance-queue)]
+         (.remove ^java.util.Map provenance-by-throwable k)
+         (recur)))))
 
 (defn- attest-provenance!
   "Bind `provenance` to the EXACT throwable `t` in the private weak association,
@@ -269,7 +328,13 @@
   minted-and-bound is covered. A no-op-safe identity write; the entry dies with
   the throwable."
   [t provenance]
-  #?(:clj  (.put ^java.util.Map provenance-by-throwable t provenance)
+  #?(:clj  (locking provenance-by-throwable
+             (expunge-stale-provenance!)
+             ;; Store under a WEAK IDENTITY key (rf2-fs99nq): keyed by t's object
+             ;; identity, never its own hashCode/equals; the key is registered on the
+             ;; ReferenceQueue so the entry is reclaimed once t is collected.
+             (.put ^java.util.Map provenance-by-throwable
+                   (weak-identity-key t provenance-queue) provenance))
      :cljs (.set provenance-by-throwable t provenance))
   t)
 
@@ -287,15 +352,27 @@
   false, so trace coverage is never mistaken for always-on coverage
   (rf2-w55bh0)."
   [t]
-  (let [prov #?(:clj  (.get ^java.util.Map provenance-by-throwable t)
+  (let [prov #?(:clj  (locking provenance-by-throwable
+                        (expunge-stale-provenance!)
+                        ;; A transient IDENTITY LOOKUP key (nil queue) — HashMap.get
+                        ;; discriminates by our key's `System/identityHashCode` +
+                        ;; referent `identical?`, NEVER t's own hashCode/equals
+                        ;; (rf2-fs99nq). So a distinct application throwable that is
+                        ;; `.equals`/hash-collides with a bound one reads uncovered,
+                        ;; and a throwable whose hashCode/equals THROWS cannot make
+                        ;; this lookup escape the drain's catch.
+                        (.get ^java.util.Map provenance-by-throwable
+                              (weak-identity-key t nil)))
                 ;; `WeakMap.prototype.get` returns undefined (never throws) for a
                 ;; non-object key, so a raw thrown value (CLJS permits
                 ;; `(throw :kw)` / `(throw "x")`) simply reads uncovered — NO guard
-                ;; is needed here. In particular do NOT guard with cljs `object?`:
-                ;; it is `(identical? (.-constructor x) js/Object)`, which is FALSE
-                ;; for an `ExceptionInfo` (its constructor is not `js/Object`), so
-                ;; it would wrongly exclude every real framework throwable and make
-                ;; the covered path never fire on CLJS.
+                ;; is needed here. `js/WeakMap` is genuinely identity-keyed (reference
+                ;; keys), so CLJS carries none of the JVM `.equals`/`.hashCode`
+                ;; collision hazard (rf2-fs99nq). In particular do NOT guard with cljs
+                ;; `object?`: it is `(identical? (.-constructor x) js/Object)`, which
+                ;; is FALSE for an `ExceptionInfo` (its constructor is not
+                ;; `js/Object`), so it would wrongly exclude every real framework
+                ;; throwable and make the covered path never fire on CLJS.
                 :cljs (.get provenance-by-throwable t))]
     (and (instance? EmissionProvenance prov)
          (contains? (.-channels ^EmissionProvenance prov) :always-on))))
