@@ -180,7 +180,7 @@ A mutation is the causal-WRITE counterpart of a resource: a named write to remot
 
 > **Mutation `:scope` is not fail-closed.** A resource read's `:scope` is required and fails closed. A mutation's `:scope` is optional: it resolves payload `:scope` → spec `:scope` → `:rf.scope/global`. The scope decides which cache scope the success-time invalidate / patch / populate targets, so it MUST match the scope of the resources the write changes. A write against user/tenant/locale-scoped entries that omits `:scope` invalidates the `[:rf.scope/global]` cache instead. It silently misses the scoped entries — stale reads, no error. Pass `:scope` on `[:rf.mutation/execute …]` when the principal is known only at the call site. The `:rf.scope/from-caller` *policy* is a resource-read concept, not a mutation one.
 
-**Optimistic keys** (see [EP-0019](../EP/EP-0019-optimistic-mutation-rollback.md) and [Guide ch.27 §Optimistic writes](../resources/concepts.md#optimistic-writes-commit-roll-back-or-reconcile)):
+**Optimistic keys** (see [EP-0019](../EP/EP-0019-optimistic-mutation-rollback.md) and [Invalidate after a mutation](../resources/how-to/invalidate-after-a-mutation.md) / [model § mutations](../resources/concepts.md#writes-invalidate-by-tag--causally)):
 
 - `:optimistic` — a registration-level forward plan applied **before** the server confirms. It is the twin of `:patches`, with signature `(fn [params] → {target patch-fn})`. There is no `result` arg; the reply does not exist yet.
 - `:optimistic-tags` — its tag-addressed twin for cross-view consistency.
@@ -344,7 +344,7 @@ A resource may declare an optional `:poll-interval-ms` policy. While an entry ha
   (fn [_ _ctx] {:request {:method :get :url "/notifications/unread"} :decode :json}))
 ```
 
-Semantics (per [Guide ch.27 §Polling](../resources/concepts.md#polling-keep-this-fresh-every-n-ms)):
+Semantics (per [The model — owners and refetch](../resources/concepts.md#owners-and-causes-and-the-refetch-rules)):
 
 - **Positive integer ms; non-positive / absent = no polling.** The poll timer is the third member of the freshness-timer family (beside `:stale-after-ms` / `:gc-after-ms`).
 - **Unconditional active-owner tick.** A tick refetches by the interval, not gated on `:stale?`. `:stale-after-ms` stays the orthogonal focus/route-entry knob. (Structural sharing keeps views quiet when an unchanged response comes back.)
@@ -357,7 +357,7 @@ A "just polling" view with no natural route/machine owner needs an app-minted `[
 
 ## Infinite resources
 
-An infinite resource is the load-more / infinite-scroll feed kind (see [EP-0021](../EP/EP-0021-infinite-resources.md); the tutorial is [Guide ch.27 §Infinite feeds](../resources/concepts.md#infinite-feeds-accumulate-pages-with-infinite)). It is a resource registered with `:infinite true` plus a pure `:next-page-param`. The user accumulates pages — 1, then 1+2, then 1+2+3 — rendered as one growing list. The *next* page param is derived from the last page's data. Numbered / cursor pagination (`:keep-previous?` + per-page entries) is untouched and orthogonal; an app picks per feed.
+An infinite resource is the load-more / infinite-scroll feed kind (see [EP-0021](../EP/EP-0021-infinite-resources.md); the recipe is [Paginate a feed](../resources/how-to/paginate-a-feed.md)). It is a resource registered with `:infinite true` plus a pure `:next-page-param`. The user accumulates pages — 1, then 1+2, then 1+2+3 — rendered as one growing list. The *next* page param is derived from the last page's data. Numbered / cursor pagination (`:keep-previous?` + per-page entries) is untouched and orthogonal; an app picks per feed.
 
 ```clojure
 (rf/reg-resource :feed/timeline
@@ -409,7 +409,7 @@ These direct functions are the tool/test projection lane, not an app-read API:
 - `resource-meta` / `mutation-meta` project the **registration** (the registered spec).
 - `resource-state` / `resources` / `mutation-state` / `mutations` project **runtime state** (the live entries) as a one-shot, non-reactive snapshot at an explicit frame.
 
-They serve Xray, unit tests, and SSR serialization — contexts with no reactive subscription. App views read runtime state through the passive [`:rf.resource/*` / `:rf.mutation/*` subscriptions](#resource-subscriptions-passive), never through these functions — they do not re-render on change. Registering a handler, dispatching a cause, projecting a snapshot, and subscribing are four distinct jobs; see [Guide ch.27 §Three lanes](../resources/concepts.md#three-lanes--registering-causing-projecting).
+They serve Xray, unit tests, and SSR serialization — contexts with no reactive subscription. App views read runtime state through the passive [`:rf.resource/*` / `:rf.mutation/*` subscriptions](#resource-subscriptions-passive), never through these functions — they do not re-render on change. Registering a handler, dispatching a cause, projecting a snapshot, and subscribing are four distinct jobs; see [The model — three lanes](../resources/concepts.md#three-lanes--registering-causing-projecting).
 
 `:frame` is an explicit, app-registered frame id ([EP-0002](../EP/EP-0002-frame-target-resolution.md)). There is no ambient `:rf/default` fallback; a frameless call with no resolvable context fails closed.
 
