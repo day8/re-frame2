@@ -269,6 +269,92 @@
       (is (= 1 (reactive/root-cell-count inc-2))))))
 
 ;; ===========================================================================
+;; rf2-vxgfnd.156 — an EXPLICIT root incarnation is authoritative: a re-entrant
+;; cleanup that disconnects a SIBLING root's cell inside the window neither dies
+;; nor expands the hidden-cell sweep onto that sibling's root
+;; ===========================================================================
+
+(deftest explicit-teardown-does-not-reap-a-captured-sibling-cell
+  ;; The A/B graft: root A's explicit teardown window is armed; a re-entrant
+  ;; cleanup (a resource-lifecycle / trace listener, modelled here by the thunk)
+  ;; disconnects sibling root B's cell too. Pre-fix, `teardown-root!` trusted
+  ;; EVERY captured cell, so B's cell was force-dead and B's token expanded the
+  ;; sweep. The explicit incarnation A must be authoritative: only A's captured
+  ;; cell is reaped; B's captured cell stays reconnectable and retains B ownership.
+  (rf/reg-sub :rt/a (fn [db _] (:a db)))
+  (let [fid    (make-frame! :rt/frame {:a 1})
+        inc-a  (reactive/make-root-incarnation)
+        inc-b  (reactive/make-root-incarnation)
+        cell-a (mount! ::a inc-a fid [[:rt/a]])
+        cell-b (mount! ::b inc-b fid [[:rt/a]])]
+    (is (= :connected (reactive/lifecycle cell-a)))
+    (is (= :connected (reactive/lifecycle cell-b)))
+    (is (= 1 (reactive/teardown-root!
+              inc-a
+              (fn []
+                (reactive/disconnect! cell-a)
+                ;; re-entrant: a sibling root B cell disconnects inside A's window
+                (reactive/disconnect! cell-b))))
+        "exactly ONE cell reaped — A's — not the captured sibling B cell")
+    (is (= :dead (reactive/lifecycle cell-a)) "root A's cell dies")
+    (testing "B's captured cell is NOT force-dead — reconnectable, B ownership retained"
+      (is (not= :dead (reactive/lifecycle cell-b))
+          "the explicit A teardown must not kill a captured sibling B cell")
+      (is (= :disconnected (reactive/lifecycle cell-b)) "left a plain reconnectable hide")
+      (is (identical? inc-b (reactive/cell-root cell-b)) "B ownership retained")
+      (is (= 1 (reactive/root-cell-count inc-b)) "…still owned by B"))
+    (testing "a reveal reconnects B's cell cleanly through the real observation port"
+      (reactive/settle-disconnect! cell-b)
+      (render+commit! cell-b fid [[:rt/a]])
+      (is (= :connected (reactive/lifecycle cell-b)))
+      (let [v (first (rf/with-frame fid
+                       (reactive/with-capture cell-b
+                         (fn [] (reactive/sub-read ::site [:rt/a])))))]
+        (is (= 1 v) "B's reconnected cell reads live")))))
+
+(deftest explicit-teardown-does-not-sweep-a-hidden-B-sibling-via-a-captured-B-token
+  ;; rf2-vxgfnd.156 step 4 — a captured B cell's token must NOT expand the
+  ;; hidden-cell reap. Only the explicit A token derives hidden victims; a B
+  ;; sibling hidden BEFORE the window stays reconnectable even though a B cell
+  ;; was captured inside A's window.
+  (rf/reg-sub :rt/a (fn [db _] (:a db)))
+  (let [fid      (make-frame! :rt/frame {:a 1})
+        inc-a    (reactive/make-root-incarnation)
+        inc-b    (reactive/make-root-incarnation)
+        cell-a   (mount! ::a inc-a fid [[:rt/a]])
+        cell-b   (mount! ::b inc-b fid [[:rt/a]])
+        hidden-b (mount! ::hb inc-b fid [[:rt/a]])]
+    (reactive/disconnect! hidden-b)                     ;; B sibling hidden BEFORE the window
+    (is (= :disconnected (reactive/lifecycle hidden-b)))
+    (reactive/teardown-root!
+     inc-a
+     (fn []
+       (reactive/disconnect! cell-a)
+       (reactive/disconnect! cell-b)))                  ;; re-entrant B capture
+    (is (= :dead (reactive/lifecycle cell-a)) "root A's cell dies")
+    (testing "neither the captured B cell nor the pre-hidden B sibling is reaped"
+      (is (not= :dead (reactive/lifecycle cell-b)) "captured B cell survives")
+      (is (= :disconnected (reactive/lifecycle hidden-b))
+          "B's pre-hidden sibling is NOT swept by A's explicit teardown")
+      (is (= 2 (reactive/root-cell-count inc-b))
+          "both B cells still owned by B — A's teardown claimed neither"))))
+
+(deftest legacy-one-arity-still-reaps-siblings-via-captured-incarnation
+  ;; The one-arity path is UNCHANGED (rf2-vxgfnd.85): with no explicit
+  ;; incarnation, a window-captured cell's own incarnation still reaps its
+  ;; still-hidden same-root siblings. (Regression guard on the arity split.)
+  (rf/reg-sub :rt/a (fn [db _] (:a db)))
+  (let [fid    (make-frame! :rt/frame {:a 1})
+        inc    (reactive/make-root-incarnation)
+        shown  (mount! ::shown inc fid [[:rt/a]])
+        hidden (mount! ::hidden inc fid [[:rt/a]])]
+    (reactive/disconnect! hidden)
+    (is (= 2 (reactive/teardown-root! (fn [] (reactive/disconnect! shown))))
+        "one-arity still reaps the captured cell + its same-root hidden sibling")
+    (is (= :dead (reactive/lifecycle shown)))
+    (is (= :dead (reactive/lifecycle hidden)))))
+
+;; ===========================================================================
 ;; Root isolation — a teardown only claims the cells its own unmount disconnects
 ;; ===========================================================================
 
