@@ -106,11 +106,14 @@
       ;; via the var-quote (which reads private vars) and restore in finally.
       (alter-var-root vacate-var
                       (constantly
-                        (fn [frame-id path]
+                        ;; Variadic so the patch tolerates both the bare 2-arity
+                        ;; and the rf2-vxgfnd.155 exact-incarnation 3-arity
+                        ;; (`[frame-id owner-token path]`) clear-flow now calls.
+                        (fn [frame-id & args]
                           ;; Real work first (vacate, THEN the registry removal
                           ;; clear-flow does next), then park in the window
                           ;; with the drain-lock held.
-                          (orig-vacate frame-id path)
+                          (apply orig-vacate frame-id args)
                           (.countDown vacated)
                           (await! release "clear-flow release"))))
       (try

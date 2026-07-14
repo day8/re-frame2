@@ -1,0 +1,221 @@
+(ns re-frame.flows-clear-reg-watch-incarnation-test
+  "rf2-vxgfnd.155 — exact-incarnation fence for the callback-bearing flow
+  registry lifecycle ops.
+
+  `clear-flow` and `reg-flow` REPLACEMENT each perform callback-bearing
+  container writes (the output-mark refresh via `swap-elision-slot!`, and — in
+  the non-drain path — the app-db path vacation via `swap-frame-db!`) BEFORE
+  their bare-id registry / dirty-check / commit-epoch tail. A synchronous
+  container watch fired during one of those writes can destroy incarnation A
+  and publish a same-id B. Before the fix the stale A tail then dissociated B's
+  flow row, dropped B's dirty-check cache, and bumped B's commit epoch by bare
+  id — while the reserved-fx postcheck only observed the loss AFTER the whole
+  handler returned.
+
+  After the fix each callback-bearing write is exact-incarnation aware (the
+  commit-epoch bump is fenced once A is lost) and each lifecycle op rechecks A's
+  live continuation after the callback, aborting before any bare-id registry /
+  cache / dedup mutation reaches B. Only A's write that physically linearized
+  before the loss stands; B's stores stay byte-identical.
+
+  The watch is driven SYNCHRONOUSLY on the single JVM test thread (the watch
+  destroys A + publishes B reentrantly), so the cross-incarnation ordering is
+  fully deterministic without threads. A one-shot `armed?` CAS makes the watch
+  fire exactly once, during the lifecycle op under test."
+  (:require [clojure.test :refer [deftest is use-fixtures]]
+            [re-frame.core :as rf]
+            [re-frame.elision :as elision]
+            [re-frame.flows :as flows]
+            [re-frame.flows.registry :as registry]
+            [re-frame.frame :as frame]
+            [re-frame.substrate.adapter :as adapter]
+            [re-frame.substrate.plain-atom :as plain-atom]
+            [re-frame.test-support :as test-support]))
+
+(use-fixtures :each
+  (test-support/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
+
+(defn- install-watching-adapter!
+  "Install a plain-atom-backed adapter whose `replace-container!` runs `on-write`
+  (a 0-arg thunk) exactly once, the first time a container write happens while
+  `armed?` holds true. The physical write always lands FIRST so A's write that
+  linearized before the loss stands."
+  [armed? on-write]
+  (let [base-replace (:replace-container! plain-atom/adapter)]
+    (adapter/dispose-adapter!)
+    (reset! frame/frames {})
+    (adapter/install-adapter!
+      (assoc plain-atom/adapter
+             :kind :custom
+             :replace-container!
+             (fn [container value]
+               (base-replace container value)
+               (when (compare-and-set! armed? true false)
+                 (on-write)))))))
+
+(defn- restore-plain-adapter! []
+  (reset! frame/frames {})
+  (adapter/dispose-adapter!)
+  (adapter/install-adapter! plain-atom/adapter))
+
+;; ---------------------------------------------------------------------------
+;; clear-flow — the output-mark write's watch loses A; the stale tail must not
+;; dissociate B's flow row, drop B's dirty-check cache, or bump B's commit epoch.
+;; ---------------------------------------------------------------------------
+
+(deftest clear-flow-output-mark-watch-loss-does-not-corrupt-successor
+  ;; rf2-vxgfnd.155 (red before fix). Clearing A's flow removes its output-mark
+  ;; declaration through a container write; that write's synchronous watch
+  ;; destroys A and publishes same-id B (with B's own flow row + dirty-check
+  ;; cache + output-mark declaration). Before the fix A's stale clear-flow tail
+  ;; then dissociated B's flow row and dropped B's dirty-check cache, and the
+  ;; bare-id mark write bumped B's commit epoch.
+  (let [id            :flow.incarnation/clear-loss
+        armed?        (atom false)
+        b-flow-row    (atom ::unset)
+        b-dirty       (atom ::unset)
+        b-commit      (atom ::unset)
+        b-sensitive   (atom ::unset)
+        b-token       (atom nil)]
+    (install-watching-adapter!
+      armed?
+      (fn []
+        ;; The mark-write watch: destroy A, publish same-id B with its own flow
+        ;; state, and snapshot B's stores for the byte-identical assertions.
+        (frame/destroy-frame! id)
+        (rf/make-frame {:id id})
+        (rf/reg-flow :flow.incarnation/f
+          {:frame id :inputs [[:bn]] :output-path [:bout] :sensitive [[:bout]]}
+          (fn [n] (or n 0)))
+        (registry/set-frame-flow-last-inputs! id :flow.incarnation/f [::b-input])
+        (reset! b-token (frame/frame-incarnation-token id))
+        (reset! b-flow-row (get-in (registry/flows-snapshot)
+                                   [id :flow.incarnation/f]))
+        (reset! b-dirty (registry/get-frame-flow-last-inputs id :flow.incarnation/f))
+        (reset! b-commit (frame/frame-commit-epoch id))
+        (reset! b-sensitive (elision/sensitive-declarations id))))
+    (try
+      (rf/make-frame {:id id})
+      ;; A's flow declares an output classification so clearing it produces a
+      ;; real elision-registry (runtime-db) container write — the watch seam.
+      (rf/reg-flow :flow.incarnation/f
+        {:frame id :inputs [[:n]] :output-path [:out] :sensitive [[:out]]}
+        (fn [n] (or n 0)))
+      (reset! armed? true)
+      (is (nil? (flows/clear-flow :flow.incarnation/f {:frame id}))
+          "clear-flow returns nil; its stale tail is aborted after the watch")
+      (let [token-b @b-token]
+        (is (some? token-b) "the mark-write watch published a same-id B")
+        (is (identical? token-b (frame/frame-incarnation-token id))
+            "B remains the live incarnation")
+        (is (= @b-flow-row (get-in (registry/flows-snapshot) [id :flow.incarnation/f]))
+            "A's stale clear-flow tail never dissociates B's flow row")
+        (is (= @b-dirty
+               (registry/get-frame-flow-last-inputs id :flow.incarnation/f))
+            "A's stale clear-flow tail never drops B's dirty-check cache")
+        (is (= @b-commit (frame/frame-commit-epoch id))
+            "A's stale mark write never bumps B's commit epoch")
+        (is (= @b-sensitive (elision/sensitive-declarations id))
+            "A's stale clear-flow tail never rewrites B's output-mark declaration"))
+      (finally
+        (restore-plain-adapter!)))))
+
+;; ---------------------------------------------------------------------------
+;; reg-flow REPLACEMENT — the output-mark refresh write's watch loses A; the
+;; stale post-mark tail (dirty-check drop + dedup trace + commit-epoch bump)
+;; must not reach B.
+;; ---------------------------------------------------------------------------
+
+(deftest reg-flow-replacement-mark-watch-loss-does-not-corrupt-successor
+  ;; rf2-vxgfnd.155 (red before fix). Replacing A's flow refreshes its output
+  ;; marks through a container write; that write's synchronous watch destroys A
+  ;; and publishes same-id B (with B's own flow row + dirty-check cache). Before
+  ;; the fix A's stale post-mark tail then dropped B's dirty-check cache (and
+  ;; emitted a bare-id dedup trace), and the bare-id mark write bumped B's
+  ;; commit epoch.
+  (let [id            :flow.incarnation/reg-loss
+        armed?        (atom false)
+        b-flow-row    (atom ::unset)
+        b-dirty       (atom ::unset)
+        b-commit      (atom ::unset)
+        b-token       (atom nil)]
+    (install-watching-adapter!
+      armed?
+      (fn []
+        (frame/destroy-frame! id)
+        (rf/make-frame {:id id})
+        (rf/reg-flow :flow.incarnation/g
+          {:frame id :inputs [[:bn]] :output-path [:bout] :sensitive [[:bout]]}
+          (fn [n] (or n 0)))
+        (registry/set-frame-flow-last-inputs! id :flow.incarnation/g [::b-input])
+        (reset! b-token (frame/frame-incarnation-token id))
+        (reset! b-flow-row (get-in (registry/flows-snapshot)
+                                   [id :flow.incarnation/g]))
+        (reset! b-dirty (registry/get-frame-flow-last-inputs id :flow.incarnation/g))
+        (reset! b-commit (frame/frame-commit-epoch id))))
+    (try
+      (rf/make-frame {:id id})
+      (rf/reg-flow :flow.incarnation/g
+        {:frame id :inputs [[:n]] :output-path [:out] :sensitive [[:out]]}
+        (fn [n] (or n 0)))
+      ;; Prime a dirty-check row for A so the (unfixed) stale drop-frame-flow-row!
+      ;; would have something to drop off the successor.
+      (registry/set-frame-flow-last-inputs! id :flow.incarnation/g [::a-input])
+      (reset! armed? true)
+      ;; Replacement registration: refreshes marks (the watch seam), then runs
+      ;; the post-mark dirty-cache + dedup tail.
+      (rf/reg-flow :flow.incarnation/g
+        {:frame id :inputs [[:n2]] :output-path [:out] :sensitive [[:out]]}
+        (fn [n] (* 2 (or n 0))))
+      (let [token-b @b-token]
+        (is (some? token-b) "the mark-refresh watch published a same-id B")
+        (is (identical? token-b (frame/frame-incarnation-token id))
+            "B remains the live incarnation")
+        (is (= @b-flow-row (get-in (registry/flows-snapshot) [id :flow.incarnation/g]))
+            "A's stale reg-flow tail never rewrites B's flow row")
+        (is (= @b-dirty
+               (registry/get-frame-flow-last-inputs id :flow.incarnation/g))
+            "A's stale post-mark tail never drops B's dirty-check cache")
+        (is (= @b-commit (frame/frame-commit-epoch id))
+            "A's stale mark write never bumps B's commit epoch"))
+      (finally
+        (restore-plain-adapter!)))))
+
+;; ---------------------------------------------------------------------------
+;; Green control — when A retains ownership through a NON-destroying watch, the
+;; ordinary clear-flow behaviour (row removal, cache drop, mark removal, commit-
+;; epoch bump) is preserved. A wrongly-fencing exact path would silently no-op.
+;; ---------------------------------------------------------------------------
+
+(deftest clear-flow-with-live-owner-still-clears-row-cache-and-marks
+  ;; rf2-vxgfnd.155 mutation tooth. The exact-incarnation writes must NOT
+  ;; suppress the normal clear when A stays live: the flow row and dirty-check
+  ;; cache are removed, the output-mark declaration is cleared, and the mark
+  ;; write's commit epoch advances.
+  (let [id          :flow.incarnation/clear-live
+        armed?      (atom false)
+        watch-runs  (atom 0)]
+    (install-watching-adapter!
+      armed?
+      (fn [] (swap! watch-runs inc)))          ; observe only — A stays live
+    (try
+      (rf/make-frame {:id id})
+      (rf/reg-flow :flow.incarnation/h
+        {:frame id :inputs [[:n]] :output-path [:out] :sensitive [[:out]]}
+        (fn [n] (or n 0)))
+      (registry/set-frame-flow-last-inputs! id :flow.incarnation/h [::a-input])
+      (let [epoch-before (frame/frame-commit-epoch id)]
+        (reset! armed? true)
+        (is (nil? (flows/clear-flow :flow.incarnation/h {:frame id}))
+            "clear-flow completes normally against the live owner")
+        (is (= 1 @watch-runs) "the container watch fired on the mark write")
+        (is (nil? (get-in (registry/flows-snapshot) [id :flow.incarnation/h]))
+            "the flow row is removed for the live owner")
+        (is (nil? (registry/get-frame-flow-last-inputs id :flow.incarnation/h))
+            "the dirty-check cache row is dropped for the live owner")
+        (is (empty? (elision/sensitive-declarations id))
+            "the flow's output-mark declaration is cleared for the live owner")
+        (is (> (frame/frame-commit-epoch id) epoch-before)
+            "the mark write advanced the live owner's commit epoch"))
+      (finally
+        (restore-plain-adapter!)))))
