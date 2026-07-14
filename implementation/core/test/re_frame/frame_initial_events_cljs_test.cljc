@@ -559,6 +559,54 @@
           (late-bind/set-fn! :router/dispatch-sync! orig)
           (late-bind/invalidate-cache! :router/dispatch-sync!))))))
 
+(deftest construction-rollback-owns-exact-incarnation-not-live-id
+  (testing "rf2-wduv35: a setup-step-failure rollback (raise-setup-step-failed!)
+            destroys the EXACT incarnation this construction installed — via its
+            token — NOT whatever same-id incarnation happens to be live when the
+            rollback runs. If a same-id successor B replaces the failed A between
+            failure-known and the rollback's destroy, the stale A rollback must
+            NOT destroy B. Before the fix the rollback called the one-argument
+            `destroy-frame!` (which pins the live token = B's) and destroyed B;
+            with the fix it threads the installed token and the two-argument
+            destroy no-ops on the token mismatch, leaving B untouched.
+            CONFIRM-BY-REVERT: reverting run-setup-events!/raise-setup-step-failed!
+            to the bare-id `(destroy-frame! id)` makes (frame/frame id) nil here —
+            B was destroyed by A's stale rollback."
+    (reg-test-events!)
+    (let [id           :rollback/token-fence
+          real-destroy frame/destroy-frame!
+          b-token      (atom nil)
+          injected?    (atom false)]
+      ;; Model the bead's construction-rollback race deterministically: intercept
+      ;; the FIRST `destroy-frame!` for our id — the failed-A rollback — and, just
+      ;; before it resumes, seat a same-id successor B with a DISTINCT token
+      ;; (the "Install same-ID B … Resume A's rollback" step). We remove the
+      ;; failed A under its exact token, then top-level `make-frame` a fresh B
+      ;; (we are past the setup step's dispatch, so not in handler scope — the
+      ;; construction guard does not fire). Then we delegate the ORIGINAL rollback
+      ;; call verbatim, so WHICH arity/token the rollback used is what decides
+      ;; whether B survives.
+      (with-redefs
+        [frame/destroy-frame!
+         (fn [& args]
+           (if (and (= id (first args)) (not @injected?))
+             (do
+               (reset! injected? true)
+               (real-destroy id (frame/frame-incarnation-token id)) ; remove failed A
+               (rf/make-frame {:id id})                             ; seat successor B
+               (reset! b-token (frame/frame-incarnation-token id))
+               (apply real-destroy args))                           ; resume A's rollback
+             (apply real-destroy args)))]
+        (err-data
+          #(rf/make-frame {:id id :initial-events [[:test/set-db {:n 0}]
+                                                   [:test/boom]]})))
+      (is (some? @b-token)
+          "the successor B was seated with a distinct token before A's rollback ran")
+      (is (some? (frame/frame id))
+          "successor B survives — the stale A rollback did NOT destroy it")
+      (is (identical? @b-token (frame/frame-incarnation-token id))
+          "the live incarnation is still B (its exact token), untouched by A's rollback"))))
+
 ;; ===========================================================================
 ;; 8. The handler-time construction guard
 ;; ===========================================================================

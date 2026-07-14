@@ -1853,9 +1853,15 @@
   `:rf.error/initial-events-step-failed` naming the failing step. `cause-ex` is
   the host throwable when the failure escaped (carried as `:cause`); nil for an
   in-band capture. `cause-msg` is the human cause text for the diagnostic
-  message. `where-sym` is the constructor symbol."
-  [id idx event cause-ex cause-msg where-sym]
-  (destroy-frame! id)
+  message. `where-sym` is the constructor symbol. `owner-token` is the EXACT
+  incarnation token this construction installed (the record's `:drain-lock`,
+  returned by `try-install-new-frame!`): teardown is exact-token-owned, so a
+  setup step that (re-entrantly / concurrently) destroyed A and seated a same-id
+  successor B before this rollback ran cannot make the stale A rollback destroy
+  B — the two-argument `destroy-frame!` no-ops unless A's token is still live
+  (rf2-wduv35)."
+  [id idx event cause-ex cause-msg where-sym owner-token]
+  (destroy-frame! id owner-token)
   (error/throw-error!
     :rf.error/initial-events-step-failed
     where-sym
@@ -1932,8 +1938,16 @@
   etc.), and the framework keys (`:frame` / `:source` / `:step-index`) win last.
 
   Reached through `dispatch-sync!` via late-bind to avoid a compile-time cyclic
-  dep (router requires frame)."
-  [id steps base-opts where-sym]
+  dep (router requires frame).
+
+  `owner-token` is the EXACT incarnation token the winning `make-frame` install
+  produced (the record's `:drain-lock`). Every teardown path here — the
+  escaping-throw + in-band `raise-setup-step-failed!` branches and the
+  runner-unavailable branch — destroys via the two-argument `destroy-frame! id
+  owner-token`, so a rollback owns exactly the incarnation it constructed and
+  can never destroy a same-id successor that replaced it in the interim
+  (rf2-wduv35)."
+  [id steps base-opts where-sym owner-token]
   (when (seq steps)
     ;; rf2-jsokxu: the setup runner reaches `dispatch-sync!` via late-bind (the
     ;; router requires frame, so a compile-time call would be a cyclic dep). If
@@ -2004,7 +2018,7 @@
                     ;; resolution throw escaping context assembly). Tear down +
                     ;; raise, carrying the original throwable as `:cause`.
                     (raise-setup-step-failed!
-                      id idx event t (error/ex-message-safe t) where-sym)))
+                      id idx event t (error/ex-message-safe t) where-sym owner-token)))
                 (finally
                   (when (and register remove-cb)
                     (remove-cb listener-k))))
@@ -2020,15 +2034,17 @@
                   id idx event nil
                   (str "the interceptor chain captured " (:error record)
                        (when-let [r (:reason record)] (str " (" r ")")))
-                  where-sym)))
+                  where-sym owner-token)))
             (recur (inc idx) (rest remaining)))))
       ;; The runner hook is unavailable but there ARE steps to run: fail loud
       ;; rather than silently dropping the setup (rf2-jsokxu). Tear down the
       ;; partial frame (the caller already swapped the container into `frames`)
       ;; so no half-created, never-setup frame is left live, then throw naming
-      ;; that re-frame.router is not loaded.
+      ;; that re-frame.router is not loaded. Teardown is exact-token-owned
+      ;; (`owner-token`) so it removes only the incarnation we installed
+      ;; (rf2-wduv35).
       (do
-        (destroy-frame! id)
+        (destroy-frame! id owner-token)
         (error/throw-error!
           :rf.error/initial-events-runner-unavailable
           where-sym
@@ -2158,18 +2174,31 @@
   container allocation, and registry install. A losing creator therefore
   allocates nothing: every state container returned by the adapter is installed
   as an owned frame record. This avoids inventing a disposal-free adapter
-  contract for abandoned speculative containers. Returns true on install."
+  contract for abandoned speculative containers.
+
+  Returns the INSTALLED incarnation's identity token (its `:drain-lock`) on a
+  successful install, `nil` when the id was already present (nothing installed).
+  Handing back the exact token of the record WE installed — rather than a bare
+  `true` the caller would have to re-read via `frame-incarnation-token` — lets
+  construction rollback OWN that exact incarnation: a failed-setup / handler-
+  guard teardown passes this token to the two-argument `destroy-frame!`, which
+  can then only destroy the frame this call created, never a same-id successor
+  that replaced it in the interim (rf2-wduv35). A later re-read would repeat the
+  same check-then-act race the token closes."
   [id config policy-token]
   (letfn [(install! []
             (if (contains? @frames id)
-              false
+              nil
               (let [f (assoc (new-frame-record id config)
                              :trace-policy-token policy-token)]
                 ;; `upsert-frame!` is the sole creator. Under `frame-create-lock`
                 ;; no other JVM creator can seat this id between the absence
                 ;; recheck and assoc; CLJS runs the block synchronously.
                 (swap! frames assoc id f)
-                true)))]
+                ;; The record's `:drain-lock` IS the incarnation identity token
+                ;; (`frame-incarnation-token`); return it so the winning caller
+                ;; owns this exact incarnation through construction rollback.
+                (:drain-lock f))))]
     #?(:clj  (call-with-frame-create-lock install!)
        :cljs (install!))))
 
@@ -2376,15 +2405,16 @@
         (cond
           ;; ---- CREATE: install the record iff the id is STILL absent ---------
           (nil? existing)
-          (if-not (try-install-new-frame! id config policy-token)
-              (if must-create?
-                ;; Exclusive mode (ui.test): a taken id is a hard COLLISION, not
-                ;; an adoption — throw the typed error (nothing was installed).
-                (throw-frame-id-taken! id)
-                ;; Ordinary construction: fall through to a RE-registration on the
-                ;; now-present id (idempotent replacement, EP-0024) — recur.
-                (recur))
-              ;; WON the create: our record is the sole installed one.
+          (if-let [installed-token (try-install-new-frame! id config policy-token)]
+              ;; WON the create: our record is the sole installed one, and
+              ;; `installed-token` is ITS exact incarnation identity token (the
+              ;; record's `:drain-lock`). Every construction-rollback teardown
+              ;; below owns this token and destroys via the two-argument
+              ;; `destroy-frame!`, so a failed-setup / handler-guard teardown can
+              ;; only ever destroy the incarnation THIS call installed — never a
+              ;; same-id successor that replaced it before the rollback ran
+              ;; (rf2-wduv35). Re-reading the live token here would repeat the
+              ;; check-then-act race the exact token closes.
               (do
                 ;; EP-0025: no durable app-db classification install here anymore
                 ;; — the frame `:sensitive` / `:large {:app-db …}` annotation was
@@ -2399,9 +2429,11 @@
                 ;; binds it for the duration of a handler's execution and ONLY
                 ;; then. The container was already installed above; tear it back
                 ;; down before throwing so a handler-time construction leaves NO
-                ;; half-registered frame.
+                ;; half-registered frame. Teardown owns `installed-token`, so it
+                ;; removes exactly the incarnation we just installed — never a
+                ;; concurrently-seated same-id successor (rf2-wduv35).
                 (when trace/*handler-scope*
-                  (destroy-frame! id)
+                  (destroy-frame! id installed-token)
                   (error/throw-error!
                     :rf.error/frame-construction-in-handler
                     'rf/make-frame
@@ -2425,14 +2457,25 @@
                 ;; BEFORE emitting :frame/created (Spec 002 §Frame creation;
                 ;; EP-0027 §Construction). `setup-steps` was PREFLIGHT-validated
                 ;; at the top of the engine. A step that throws at runtime tears
-                ;; down the partial frame inside the runner and rethrows. Runs
-                ;; ONCE — only on the WON install, never on a lost-create recur.
-                (run-setup-events! id setup-steps {} 'rf/make-frame)
+                ;; down the partial frame inside the runner and rethrows —
+                ;; teardown owns `installed-token`, so it destroys exactly this
+                ;; incarnation. Runs ONCE — only on the WON install, never on a
+                ;; lost-create recur.
+                (run-setup-events! id setup-steps {} 'rf/make-frame installed-token)
                 (trace/emit! :rf.frame :rf.frame/created
                              {:frame id :config (dissoc config :rf.frame/generation
                                                         :rf.frame/initial-db)})
                 (fire-frame-registered-hook! id)
-                id))
+                id)
+              ;; LOST the create: `try-install-new-frame!` returned nil — nothing
+              ;; was installed.
+              (if must-create?
+                ;; Exclusive mode (ui.test): a taken id is a hard COLLISION, not
+                ;; an adoption — throw the typed error (nothing was installed).
+                (throw-frame-id-taken! id)
+                ;; Ordinary construction: fall through to a RE-registration on the
+                ;; now-present id (idempotent replacement, EP-0024) — recur.
+                (recur)))
 
           ;; ---- must-create met a LIVE frame at the decide read → COLLISION ---
           ;; Exclusive mode never adopts or surgically refreshes; a present id is
