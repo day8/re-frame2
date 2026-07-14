@@ -218,7 +218,7 @@
   ;; source removed its final ui/defview it contributes nothing, and — pre-fix —
   ;; its accepted row survived as a ghost view because it was never pre-touched.
   ;; The :compile-finish reconcile against Shadow's authoritative compiled set
-  ;; (fresh :compiled-at) evicts it. Fails against pre-fix build_hook.clj.
+  ;; (a fresh output OBJECT, not identical to the prepare snapshot) evicts it.
   (doseq [parallel? [true false]]
     (testing (str (if parallel? "parallel" "sequential") " compilation")
       (let [good (-> (two-source-state :ghost parallel?)
@@ -231,24 +231,22 @@
             "the accepted build declares both sources' views")
         ;; Warm pass: app.a + app.b both retain output, so re-frame.ui pre-touches
         ;; neither. A later prepare hook then removes app.a's output; app.a
-        ;; recompiles this pass (fresh :compiled-at) contributing NO declaration.
-        ;; app.b stays a cache hit (older stamp, no re-declaration).
-        (let [warm-input (-> good
+        ;; recompiles this pass — Shadow installs a FRESH output object —
+        ;; contributing NO declaration. app.b stays a cache hit: its EXACT output
+        ;; object is retained unchanged across the pass.
+        (let [warm-b-output {:resource-id app-b-rid :js "app.b = {};"
+                             :cached true}
+              warm-input (-> good
                              (assoc-in [:output carrier-rid :js]
                                        build-hook/digest-sentinel)
                              (assoc-in [:output app-a-rid]
                                        {:resource-id app-a-rid :js "app.a = {};"
                                         :cached true})
-                             (assoc-in [:output app-b-rid]
-                                       {:resource-id app-b-rid :js "app.b = {};"
-                                        :cached true}))
+                             (assoc-in [:output app-b-rid] warm-b-output))
               prepared (prepare warm-input)
-              pass-start (get-in prepared
-                                 [:compiler-env build/scratch-key :pass-start])
               finished (-> prepared
                            (assoc-in [:output app-a-rid]
                                      {:resource-id app-a-rid :js "app.a = {};"
-                                      :compiled-at (inc (long pass-start))
                                       :cached false})
                            finish)]
           (is (not (contains?
@@ -264,6 +262,82 @@
           (is (not= (build/accepted-build-digest good)
                     (build/accepted-build-digest finished))
               "evicting the ghost changes the accepted whole-build digest"))))))
+
+(deftest exact-provenance-distinguishes-colliding-warm-hit-from-real-recompile
+  ;; rf2-vxgfnd.255: final-schedule membership is decided by exact per-pass
+  ;; provenance — output-object identity — not a wall-clock `compiled-at >=
+  ;; pass-start` test. In ONE warm pass, under the SAME optimizer/compile
+  ;; controls (sequential + parallel):
+  ;;   * app.b is a genuine cache hit whose retained output object is unchanged,
+  ;;     yet carries a `:compiled-at` stamp that EXCEEDS any pass start (the
+  ;;     adversarial collision the bead reproduces) — it must stay accepted and
+  ;;     digest-stable;
+  ;;   * app.a is genuinely recompiled (a fresh output object) with the SAME
+  ;;     colliding stamp and removed its final view — it must be evicted.
+  ;; Restoring the timestamp-only membership test would flag app.b too (its
+  ;; stamp >= pass-start) and wrongly evict it, failing the survival assertion.
+  (doseq [parallel? [true false]]
+    (testing (str (if parallel? "parallel" "sequential") " compilation")
+      (let [good (-> (two-source-state :collide parallel?)
+                     prepare
+                     (declare 'app.a :app/a-view ["tfa-1" "hsa-1"])
+                     (declare 'app.b :app/b-view ["tfb-1" "hsb-1"])
+                     finish)
+            b-before (get (build/accepted-aggregate build/views good) :app/b-view)]
+        (is (= {:app/a-view ["tfa-1" "hsa-1"] :app/b-view ["tfb-1" "hsb-1"]}
+               (build/accepted-aggregate build/views good))
+            "the accepted build declares both sources' views")
+        ;; The EXACT same retained object stands in for app.b across prepare and
+        ;; finish (a true cache hit) even though its stamp collides with a fresh
+        ;; compile. app.a is replaced with a fresh output object.
+        (let [warm-b-output {:resource-id app-b-rid :js "app.b = {};"
+                             :compiled-at Long/MAX_VALUE :cached false}
+              warm-input (-> good
+                             (assoc-in [:output carrier-rid :js]
+                                       build-hook/digest-sentinel)
+                             (assoc-in [:output app-a-rid]
+                                       {:resource-id app-a-rid :js "app.a = {};"
+                                        :compiled-at 1 :cached true})
+                             (assoc-in [:output app-b-rid] warm-b-output))
+              prepared (prepare warm-input)
+              finished (-> prepared
+                           (assoc-in [:output app-a-rid]
+                                     {:resource-id app-a-rid :js "app.a = {};"
+                                      :compiled-at Long/MAX_VALUE :cached false})
+                           (assoc-in [:output app-b-rid] warm-b-output)
+                           finish)
+              views-after (build/accepted-aggregate build/views finished)]
+          (is (not (contains?
+                    (get-in prepared [:compiler-env build/scratch-key :touched])
+                    'app.a)))
+          (is (not (contains?
+                    (get-in prepared [:compiler-env build/scratch-key :touched])
+                    'app.b))
+              "neither output-present warm source is pre-touched at prepare")
+          (is (= {:app/b-view ["tfb-1" "hsb-1"]} views-after)
+              "the colliding-stamp warm hit survives; only the real recompile is evicted")
+          (is (= b-before (get views-after :app/b-view))
+              "app.b's accepted row is digest-stable across the warm pass")
+          (is (not (contains? views-after :app/a-view))
+              "the genuinely recompiled zero-declaration source is evicted"))))))
+
+(deftest missing-per-pass-provenance-fails-loud-not-empty-schedule
+  ;; rf2-vxgfnd.255: an open pass whose prepare-time provenance snapshot is
+  ;; unobservable must fail loudly at finish rather than silently reconcile
+  ;; against an assumed-empty compile schedule (which would leak ghost rows).
+  (let [prepared (-> (two-source-state :no-prov false)
+                     prepare
+                     (declare 'app.a :app/a-view ["tfa-1" "hsa-1"])
+                     (declare 'app.b :app/b-view ["tfb-1" "hsb-1"]))
+        blinded (update-in prepared [:compiler-env build/scratch-key]
+                           dissoc :pass-output)
+        ex (try (finish blinded) nil
+                (catch clojure.lang.ExceptionInfo e e))]
+    (is (some? (get-in prepared [:compiler-env build/scratch-key :pass-output]))
+        "an ordinary open pass records the provenance snapshot")
+    (is (some? ex) "finish with open scratch but no :pass-output must throw")
+    (is (= :re-frame.ui.compiler.build-hook/missing-pass-provenance
+           (:re-frame.ui.compiler.build-hook/error (ex-data ex))))))
 
 (deftest interleaved-build-values-carry-isolated-digests
   (let [a (-> (shadow-state :a build-hook/digest-sentinel)

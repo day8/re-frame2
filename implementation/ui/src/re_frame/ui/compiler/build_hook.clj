@@ -11,14 +11,22 @@
   `:compile-finish`:
 
   0. reconcile against Shadow's FINAL authoritative compile schedule — every
-     CLJS source actually compiled THIS pass (a fresh `:compiled-at` in its
-     output, no earlier than the recorded pass start) is pre-touched too. A
-     later `:compile-prepare` hook (Shadow deep-merges build-local hooks after
+     CLJS source actually compiled THIS pass is pre-touched too. Membership is
+     read from EXACT per-pass provenance, never wall-clock ordering: at
+     `:compile-prepare` re-frame.ui snapshots the `:output` map Shadow handed
+     it, and a source counts as recompiled iff its finish-time output OBJECT is
+     present and not `identical?` to that snapshot's. Shadow installs a
+     freshly-built output object only for the sources it recompiles this pass (a
+     warm cache hit keeps the byte-identical retained object), so identity is
+     the ground truth — immune to the millisecond collision where a retained
+     warm output's `:compiled-at` stamp equals the next pass start. A later
+     `:compile-prepare` hook (Shadow deep-merges build-local hooks after
      `:build-defaults` and lets them mutate build state) can force a source to
-     recompile AFTER re-frame.ui observed the schedule; observing the compiled
-     set at finish, not the intermediate prepare snapshot, closes that
-     hook-order gap so a forced recompile that removed a source's final
-     `ui/defview` evicts its accepted row instead of leaving a ghost view;
+     recompile AFTER re-frame.ui observed the schedule; comparing the finish
+     output objects against the prepare snapshot, not the intermediate prepare
+     schedule, closes that hook-order gap so a forced recompile that removed a
+     source's final `ui/defview` evicts its accepted row instead of leaving a
+     ghost view;
   1. derive the candidate finalized slice (commit staged sources, evict sources
      absent from authoritative membership) and its whole-build digest;
   2. purely validate and project that digest into exactly one compiled
@@ -103,32 +111,34 @@
 (defn- actually-recompiled-member-nss
   "Declaring namespaces of every CLJS source Shadow ACTUALLY (re)compiled in
   THIS pass, read from the FINAL build-state at `:compile-finish` — after every
-  schedule-mutating `:compile-prepare` hook and after compilation ran. Shadow
-  stamps a fresh `:compiled-at` on a source it compiles this pass
-  (`shadow.build.compiler` sets it to the compile wall-clock); a cache-loaded or
-  cross-pass-retained output keeps an OLDER stamp. Comparing that stamp against
-  `pass-start` (captured when re-frame.ui opened the pass, before any
-  compilation) therefore identifies Shadow's authoritative final compile
-  schedule — immune to the build-local hook merge order re-frame.ui cannot
-  control, and immune to the stale `:cached` marker a retained output carries
-  across passes. Returns the empty set when no pass start was recorded (a
-  non-Shadow/plain-JVM finish), leaving the prepare-time pre-touch as the sole
-  reconciler."
-  [{:keys [build-sources sources output]} pass-start]
-  (if-not (number? pass-start)
-    #{}
-    (let [pass-start (long pass-start)]
-      (reduce
-       (fn [acc resource-id]
-         (let [{:keys [type ns provides]} (get sources resource-id)
-               compiled-at (:compiled-at (get output resource-id))]
-           (if (and (= :cljs type)
-                    (number? compiled-at)
-                    (>= (long compiled-at) pass-start))
-             (into acc (or provides (when ns #{ns})))
-             acc)))
-       #{}
-       build-sources))))
+  schedule-mutating `:compile-prepare` hook and after compilation ran —
+  distinguished by EXACT per-pass provenance: output-object identity, never
+  wall-clock ordering.
+
+  `pass-output` is the `:output` map re-frame.ui snapshotted at
+  `:compile-prepare` (the outputs Shadow was about to compile from). Shadow
+  installs a freshly-built output OBJECT for a source iff it recompiles it this
+  pass: parallel compile leaves already-present outputs untouched, and
+  sequential `generate-output-for-source` returns the retained output object
+  unchanged for a warm cache hit. So a source whose finish-time output is
+  present and not `identical?` to its snapshot object was compiled this pass,
+  regardless of its `:compiled-at` stamp. This is immune to the millisecond
+  collision where a retained warm output's stamp equals the next pass start (the
+  former `compiled-at >= pass-start` test wrongly counted it as recompiled and
+  evicted its accepted row), and immune to the build-local hook merge order
+  re-frame.ui cannot control."
+  [{:keys [build-sources sources output]} pass-output]
+  (reduce
+   (fn [acc resource-id]
+     (let [{:keys [type ns provides]} (get sources resource-id)
+           final-output (get output resource-id)]
+       (if (and (= :cljs type)
+                (some? final-output)
+                (not (identical? final-output (get pass-output resource-id))))
+         (into acc (or provides (when ns #{ns})))
+         acc)))
+   #{}
+   build-sources))
 
 (defn- reconcile-final-schedule
   "Before deriving the finish candidate, pre-touch every source Shadow actually
@@ -138,18 +148,35 @@
   source whose successful recompile contributed no re-frame.ui declaration (its
   final `ui/defview` was removed), closing the ghost-view gap of CLOSED
   rf2-n7ff9f; a recompiled source that DID re-declare is already touched+staged,
-  so the union is idempotent, and a warm cache hit (no fresh `:compiled-at`)
-  keeps its accepted row. Pure build-state transform."
+  so the union is idempotent, and a warm cache hit (output object unchanged from
+  the prepare snapshot) keeps its accepted row.
+
+  When no re-frame.ui pass is open (a non-Shadow / plain-JVM finish with no
+  scratch) this is a no-op — the prepare-time pre-touch is the sole reconciler.
+  When a pass IS open the prepare-time `:pass-output` provenance snapshot MUST
+  be present; its absence is unobservable provenance and fails loudly rather
+  than silently reconciling against an assumed-empty compile schedule. Pure
+  build-state transform (apart from that guard)."
   [build-state]
-  (let [pass-start (get-in build-state
-                           [:compiler-env build/scratch-key :pass-start])
-        extra      (actually-recompiled-member-nss build-state pass-start)]
-    (if (and (seq extra)
-             (get-in build-state [:compiler-env build/scratch-key]))
-      (update-in build-state
-                 [:compiler-env build/scratch-key :touched]
-                 (fnil into #{}) extra)
-      build-state)))
+  (let [scratch (get-in build-state [:compiler-env build/scratch-key])]
+    (if-not scratch
+      build-state
+      (do
+        (when-not (contains? scratch :pass-output)
+          (throw
+           (ex-info
+            (str "re-frame.ui compile-finish observed no per-pass compile "
+                 "provenance (missing prepare-time :pass-output snapshot); "
+                 "refusing to reconcile against an assumed-empty compile schedule")
+            {::error ::missing-pass-provenance
+             :recovery :configure-ui-build-hook-once})))
+        (let [extra (actually-recompiled-member-nss build-state
+                                                    (:pass-output scratch))]
+          (if (seq extra)
+            (update-in build-state
+                       [:compiler-env build/scratch-key :touched]
+                       (fnil into #{}) extra)
+            build-state))))))
 
 (defn- marker-count [^String s ^String marker]
   (loop [from 0 n 0]
@@ -351,16 +378,17 @@
     (do
       (validate-ui-cache-blocker! build-state)
       (let [build-state (reset-cold-ui-consumer-output build-state)]
-        ;; Record the pass start BEFORE any compilation so `:compile-finish` can
-        ;; identify the sources Shadow actually recompiled this pass (fresh
-        ;; `:compiled-at`) — the final authoritative schedule, robust to a later
-        ;; prepare hook mutating it (rf2-vxgfnd.194).
+        ;; Snapshot the `:output` map Shadow handed us BEFORE any compilation, so
+        ;; `:compile-finish` can identify the sources Shadow actually recompiled
+        ;; this pass by output-object identity — exact per-pass provenance,
+        ;; robust to a later prepare hook mutating the schedule and immune to the
+        ;; millisecond stamp collision (rf2-vxgfnd.194, rf2-vxgfnd.255).
         (-> (build/prepare-shadow-build build-state
                                         build-id
                                         (member-nss build-state)
                                         (recompiled-member-nss build-state))
-            (assoc-in [:compiler-env build/scratch-key :pass-start]
-                      (System/currentTimeMillis)))))
+            (assoc-in [:compiler-env build/scratch-key :pass-output]
+                      (:output build-state)))))
 
     :compile-finish
     ;; Reconcile against Shadow's final compile schedule, then project. All are
