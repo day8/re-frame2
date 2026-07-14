@@ -286,6 +286,93 @@
                      (is (= before (mounted-baseline)))
                      (done))))))))
 
+;; --- rf2-vxgfnd.201: failure/teardown tracking by PRESENCE, not JS truthiness.
+;; A body/mount/flush/cleanup may reject with ANY value — including a falsy one
+;; (nil, false). Those are REAL failures and must not be reclassified as success;
+;; a body that legitimately returns nil/false is a REAL success and must not be
+;; reclassified as a failure. (Off-DOM decision coverage: test-outcome-cljs-test.)
+
+(deftest with-root-preserves-a-falsy-body-rejection-and-still-tears-down
+  (when (browser?)
+    (async done
+      (let [before (mounted-baseline)]
+        (-> (uit/with-root [_root [query-fixture]]
+              (js/Promise.reject false))
+            (.then
+             (fn [] (throw (js/Error. "reject(false) body unexpectedly resolved")))
+             (fn [e]
+               (is (false? e)
+                   "Promise.reject(false) is a real failure, not a swallowed success")
+               (is (= before (mounted-baseline))
+                   "a falsy rejection still settles after total teardown")
+               (uit/with-root [_root [query-fixture]]
+                 (js/Promise.reject nil))))
+            (.then
+             (fn [] (reject-unexpectedly! done "reject(nil) body unexpectedly resolved" nil))
+             (fn [e]
+               (is (nil? e) "Promise.reject(nil) is a real failure")
+               (is (= before (mounted-baseline)))
+               (done))))))))
+
+(deftest with-root-resolves-a-falsy-body-value
+  (when (browser?)
+    (async done
+      (-> (uit/with-root [_root [query-fixture]] false)
+          (.then
+           (fn [value]
+             (is (false? value)
+                 "a body returning false succeeds with false — not misread as a failure")
+             (uit/with-root [_root [query-fixture]] nil))
+           (fn [e] (reject-unexpectedly! done "false body value rejected" e)))
+          (.then
+           (fn [value]
+             (is (nil? value) "a body returning nil succeeds with nil")
+             (done))
+           (fn [e] (reject-unexpectedly! done "nil body value rejected" e)))))))
+
+(deftest with-root-preserves-a-falsy-flush-failure
+  (when (browser?)
+    (async done
+      (let [before (mounted-baseline)]
+        (-> (uit/with-root [_root [query-fixture]]
+              (uit/flush! #(throw false)))
+            (.then (fn [] (reject-unexpectedly! done "falsy flush failure resolved" nil))
+                   (fn [e]
+                     (is (false? e) "a flush thunk throwing false is a real failure")
+                     (is (= before (mounted-baseline))
+                         "a falsy flush rejection cannot strand mounted ownership")
+                     (done))))))))
+
+(deftest a-falsy-cleanup-failure-rides-the-primary-and-is-not-lost
+  (when (browser?)
+    (async done
+      (let [before  (mounted-baseline)
+            primary (ex-info "primary body failure" {:kind ::primary})]
+        (-> (uit/with-root [_root [throwing-cleanup-fixture {:cleanup-error false}]]
+              (throw primary))
+            (.then (fn [] (reject-unexpectedly! done "falsy-cleanup dual failure resolved" nil))
+                   (fn [e]
+                     (is (identical? primary e) "the primary reason is preserved and thrown")
+                     (is (false? (unchecked-get e "rfUiTestCleanupError"))
+                         "a FALSY cleanup failure still rides the object primary — presence, not truthiness")
+                     (is (= before (mounted-baseline)))
+                     (done))))))))
+
+(deftest a-falsy-primary-wins-over-a-truthy-cleanup-failure
+  (when (browser?)
+    (async done
+      (let [before  (mounted-baseline)
+            cleanup (js/Error. "cleanup failed")]
+        (-> (uit/with-root [_root [throwing-cleanup-fixture {:cleanup-error cleanup}]]
+              (js/Promise.reject false))
+            (.then (fn [] (reject-unexpectedly! done "falsy-primary + cleanup resolved" nil))
+                   (fn [e]
+                     (is (false? e)
+                         "a falsy PRIMARY failure wins as the rejection over a later cleanup failure")
+                     (is (= before (mounted-baseline))
+                         "both roots/containers are still reclaimed under a primitive primary")
+                     (done))))))))
+
 (deftest act-environment-is-restored-after-success-and-rejection
   (when (browser?)
     (async done
