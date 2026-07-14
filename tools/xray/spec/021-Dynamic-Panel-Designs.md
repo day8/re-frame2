@@ -670,6 +670,21 @@ Rationale: unchanged subs are coverage signal, not signal-of-the-moment.
 Hiding by default keeps the dense view scannable; the toggle preserves
 the "I want to see what DIDN'T fire" affordance.
 
+**Data-availability (rf2-vxgfnd.22).** The projection tier
+(`reactive-panel-subs/project-record`) carries NO `subs-skipped` slot. A
+memo-hit (input-unchanged short-circuit) emits NO `:sub-runs` row — the
+substrate's `sub-run-row` hardcodes `:recomputed? true`, and a
+`:rf.sub/skip` memo-hit rides only `:trace-events` — so `:subs-ran` is
+the whole run-set. Surfacing *skipped* subs (the "what DIDN'T fire"
+coverage above) awaits the `:rf.sub/skipped` attribution op (§12, not yet
+landed); it MUST NOT be reconstructed by filtering `:sub-runs` on
+`(complement :recomputed?)`, which is structurally always empty — a
+projected slot that shape produced was doubly-dead (unproducible AND
+consumed by no panel: the §3.2 flow graph reads `:level-1/2-subs` /
+`:view-rows` / `:sub-readers`). The graph's `unchanged` (dashed,
+short-circuited) nodes are subs that RAN with `:value-changed? false`,
+NOT memo-hit skips.
+
 ### §3.4.1 ViewCell invalidation evidence (re-frame.ui substrate · rf2-vxgfnd.146)
 
 Xray is the OWNING native consumer of the `re-frame.ui.tool.evidence`

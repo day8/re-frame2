@@ -9,11 +9,17 @@
   `:trace-events` by op-keyword: the canonical ops are `:rf.sub/run` /
   `:rf.sub/skip` / `:rf.view/rendered` (Spec 009 §:op-type vocabulary),
   and the earlier op-keyword path grepped for names the substrate never
-  emits (`:rf.sub/computed` / `:rf.sub/skipped`), pinning subs-ran /
-  subs-skipped to zero regardless of how many subs actually ran.
+  emits (`:rf.sub/computed` / `:rf.sub/skipped`), pinning subs-ran to
+  zero regardless of how many subs actually ran.
 
-  - `:sub-runs` → subs-ran (`:recomputed?` true) + subs-skipped
-    (memo-hit, `:recomputed?` false); each carries `:value-changed?`.
+  - `:sub-runs` → subs-ran; every `:sub-runs` row is a genuine recompute
+    (the substrate's `sub-run-row` hardcodes `:recomputed? true` and a
+    `:rf.sub/skip` memo-hit projects NO `:sub-runs` row — it rides only
+    `:trace-events`), so there is no memo-hit / `subs-skipped` split to
+    surface here. Each row carries `:value-changed?`. Surfacing skipped
+    (memo-hit) subs awaits the `:rf.sub/skipped` attribution op (spec/021
+    §12) — it MUST NOT be reconstructed by filtering `:sub-runs` on
+    `(complement :recomputed?)`, which is structurally always empty.
   - `:renders`  → views-rendered (`:render-key` → top-level `:view-id`)
   - flow counts → tallied from `:trace-events` (`:rf.flow/computed` /
     `:rf.flow/skip`), the one slice with no structured projection.
@@ -66,14 +72,13 @@
          :triggered-by    <event-vec>
          :seed-paths      [<path> ...]
          :subs-ran        [{:sub-id _ :value-changed? _ ...} ...]
-         :subs-skipped    [{:sub-id _ ...} ...]
          :views-rendered  [{:view-id _ ...} ...]      ; legacy count slot
          :level-1-subs    [{:sub-id _ :changed? _ :coord _ :readers [...]} ...]
          :level-2-subs    [{:sub-id _ :changed? _ :inputs [...] :coord _
                             :readers [...]} ...]
          :sub-readers     {<sub-id> [<view-id> ...] ...}
          :view-rows       [{:view-id _ :action _ :reason {...} :coord _} ...]
-         :counts          {:subs-ran N :subs-skipped N
+         :counts          {:subs-ran N
                            :views-rendered N
                            :flows-recomputed N}}
 
@@ -477,9 +482,11 @@
   sub to Level 1 with no inputs / no coord — the panel still renders.
 
   `:sub-runs` entries carry `:sub-id` / `:query-v` / `:recomputed?` /
-  `:value-changed?`; `:recomputed?` splits genuine recomputes (subs-ran)
-  from memo-hit skips (subs-skipped). The view rows ride the phase-A
-  rf2-9hoos fields on the view-render ops.
+  `:value-changed?`. Every `:sub-runs` row is a genuine recompute
+  (`:recomputed? true` — the substrate's `sub-run-row` hardcodes it; a
+  `:rf.sub/skip` memo-hit emits NO `:sub-runs` row), so there is no
+  memo-hit / `subs-skipped` split — `:subs-ran` IS the run-set. The view
+  rows ride the phase-A rf2-9hoos fields on the view-render ops.
 
   Returns the map shape documented in the ns docstring (sans the
   focus / frame / dispatch-id keys; those come from the spine sub)."
@@ -487,7 +494,6 @@
   ([record topology]
    (let [sub-runs (vec (:sub-runs record))
          ran      (filterv :recomputed? sub-runs)
-         skipped  (filterv (complement :recomputed?) sub-runs)
          renders  (mapv (fn [r] (assoc r :view-id (first (:render-key r))))
                         (:renders record))
          trace-events (or (:trace-events record) [])
@@ -501,7 +507,6 @@
          unmounted     (unmounted-views trace-events)
          destroyed     (destroyed-subscriptions trace-events)]
      {:subs-ran        ran
-      :subs-skipped    skipped
       :views-rendered  renders
       :level-1-subs    level-1
       :level-2-subs    level-2
@@ -510,7 +515,6 @@
       :unmounted-views unmounted
       :destroyed-subs  destroyed
       :counts          {:subs-ran         (count ran)
-                        :subs-skipped     (count skipped)
                         :views-rendered   (count renders)
                         :view-rows        (count v-rows)
                         :unmounted-views  (count unmounted)

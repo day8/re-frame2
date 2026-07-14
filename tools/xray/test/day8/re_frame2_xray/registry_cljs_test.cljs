@@ -1445,7 +1445,9 @@
     (rf/with-frame :rf/xray
       (let [data @(rf/subscribe [:rf.xray/reactive-data])]
         (is (contains? data :subs-ran))
-        (is (contains? data :subs-skipped))
+        ;; rf2-vxgfnd.22 — no `:subs-skipped` slot: the substrate emits no
+        ;; memo-hit `:sub-runs` row, so `:subs-ran` is the whole run-set.
+        (is (not (contains? data :subs-skipped)))
         (is (contains? data :views-rendered))
         (is (false? (:has-event-bundle? data)))))))
 
