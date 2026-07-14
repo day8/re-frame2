@@ -265,21 +265,34 @@
   (when-let [existing (get @live-roots root-id)]
     (error/throw-error!
      :rf.error/duplicate-root-id where
-     (str "root-id " (pr-str root-id) " is already live in this document — "
-          "root-ids are page-unique identity. "
-          (if (= :derived (:provenance existing) provenance)
-            "both ids derived from the same view — add :disambiguator or author :root-id"
-            "unmount! the existing root, or author a distinct :root-id"))
+     (if (:tearing-down? existing)
+       ;; rf2-vxgfnd.182 — a deferred host teardown still owns this id.
+       (str "root-id " (pr-str root-id) " is tearing down — a host teardown is "
+            "in flight (a deferred React unmount that returned but has not yet "
+            "settled). The root-id frees once teardown settles; re-mount after "
+            "settlement, or use a distinct :root-id and a fresh container")
+       (str "root-id " (pr-str root-id) " is already live in this document — "
+            "root-ids are page-unique identity. "
+            (if (= :derived (:provenance existing) provenance)
+              "both ids derived from the same view — add :disambiguator or author :root-id"
+              "unmount! the existing root, or author a distinct :root-id")))
      {:recovery :make-root-ids-unique
       :extra {:root-id  root-id
-              :existing (select-keys existing [:provenance :site])
+              :existing (select-keys existing [:provenance :site :tearing-down?])
               :arriving {:provenance provenance :site site}}}))
   (when-let [owner (container-owner container)]
     (error/throw-error!
      :rf.error/root-container-in-use where
-     (str "the container for root " (pr-str root-id) " is already owned by "
-          "live root " (pr-str owner) " — one container, one root. "
-          "unmount! the owning root first, or mount into a different node")
+     (if (:tearing-down? (get @live-roots owner))
+       ;; rf2-vxgfnd.182 — the owner is tearing down; the node is not yet free.
+       (str "the container for root " (pr-str root-id) " is still owned by root "
+            (pr-str owner) ", whose host teardown is in flight (a deferred React "
+            "unmount that has not yet settled) — one container, one root. The "
+            "node frees once teardown settles; mount into a fresh node, or "
+            "re-mount after settlement")
+       (str "the container for root " (pr-str root-id) " is already owned by "
+            "live root " (pr-str owner) " — one container, one root. "
+            "unmount! the owning root first, or mount into a different node"))
      {:recovery :unmount-the-owning-root-first
       :extra {:root-id root-id :owner-root-id owner}}))
   (when (some? identifier-prefix)
@@ -371,6 +384,26 @@
              m)))
   nil)
 
+(defn- mark-tearing-down!
+  "Move live root `root-id`'s claim into the `:tearing-down` state — the
+  `:live -> :tearing-down -> :released` transition of rf2-vxgfnd.182. Marked
+  BEFORE the host `.unmount` so that if react-dom DEFERS teardown (a non-throwing
+  in-render `.unmount` that returns while its work is still scheduled), a
+  reentrant `mount*`/`create-root*` on the exact root-id/container is REJECTED —
+  the entry stays in `live-roots`, occupying both id and container, until the
+  settlement boundary frees it (`release-root!`). A SYNCHRONOUS teardown clears
+  the mark by releasing before `unmount!*` returns, so the state is invisible to
+  callers; only a deferred teardown observes it. Identity-guarded to THIS exact
+  Root; a no-op if the entry was superseded."
+  [root-id root]
+  (swap! live-roots
+         (fn [m]
+           (let [entry (get m root-id)]
+             (if (identical? (:root entry) root)
+               (assoc m root-id (assoc entry :tearing-down? true))
+               m))))
+  nil)
+
 (defn require-live-root!
   "The shared live-root OWNERSHIP invariant — the render-side mirror of
   `unmount!*`'s membership check. A `Root` is LIVE iff the live-root
@@ -398,17 +431,27 @@
        untouched, mirroring the fresh-mount re-check.
 
   Thrown BEFORE the descriptor write / `.render`; retry = `create-root` +
-  `render!` (or `mount`) a fresh root."
+  `render!` (or `mount`) a fresh root.
+
+  A root whose claim is `:tearing-down` (rf2-vxgfnd.182 — a deferred host
+  teardown in flight) is NOT live either: its React tree is being unmounted, so
+  a `render!` into it would `.render` a consumed/unmounting handle. It fails the
+  same LOUD `:rf.error/root-not-live` — recreate after the teardown settles."
   [^Root root where]
-  (let [rid (.-root-id root)]
-    (when-not (identical? (:root (get @live-roots rid)) root)
+  (let [rid   (.-root-id root)
+        entry (get @live-roots rid)]
+    (when (or (not (identical? (:root entry) root))
+              (:tearing-down? entry))
       (error/throw-error!
        :rf.error/root-not-live where
        (str "the Root handle for root-id " (pr-str rid) " is no longer the "
-            "live root for that id — it was unmount!ed, or superseded by a "
-            "newer root claiming the same id (possibly during this "
-            "operation's frame preflight, which drains :initial-events — "
-            "arbitrary app code). A superseded root can never commit a "
+            "live root for that id — it was unmount!ed"
+            (if (:tearing-down? entry)
+              " (a host teardown is in flight — the root is tearing down)"
+              (str ", or superseded by a newer root claiming the same id "
+                   "(possibly during this operation's frame preflight, which "
+                   "drains :initial-events — arbitrary app code)"))
+            ". A superseded or tearing-down root can never commit a "
             "render; rendering into it would drain :initial-events "
             "(irreversible fx) and write install records against a dead "
             "root. create-root + render! (or mount) a fresh root")
@@ -583,7 +626,12 @@
   (require-root-creation-open! 're-frame.ui/mount)
   (require-container! 're-frame.ui/mount root-id container)
   (let [existing (get @live-roots root-id)]
-    (if (and existing (identical? (:container existing) container))
+    ;; rf2-vxgfnd.182 — a `:tearing-down` entry is NOT eligible for the
+    ;; idempotent re-mount fast path (its React tree is being unmounted). Fall
+    ;; through to `check-root-claim!`, which rejects the reentrant mount with the
+    ;; tearing-down diagnostic rather than `.render`ing into a dying root.
+    (if (and existing (not (:tearing-down? existing))
+             (identical? (:container existing) container))
       (let [^Root root (:root existing)]
         ;; rf2-vxgfnd.59: the effective identifierPrefix is IMMUTABLE for a
         ;; live root (React root options are fixed at createRoot). A same-root
@@ -683,7 +731,29 @@
                   ;; root residue. Rethrow the ORIGINAL mount error even if the
                   ;; host cleanup also throws (cleanup never masks it).
                   (release-root! root-id root)
-                  (try (.unmount react-root) (catch :default _ nil))
+                  ;; rf2-vxgfnd.182 — do NOT silently swallow a cleanup-`.unmount`
+                  ;; failure. The original mount error stays PRIMARY, but a failed
+                  ;; rollback unmount is surfaced with exact root/container context
+                  ;; (a dev diagnostic + a secondary-evidence property on the
+                  ;; primary error), matching the adapter drain's discipline — a
+                  ;; consumed handle means same-container reuse is NOT proven
+                  ;; clean, so the honest guidance is a fresh/replaced container.
+                  (try (.unmount react-root)
+                    (catch :default cleanup-error
+                      (when (and ^boolean js/goog.DEBUG (exists? js/console))
+                        (.warn js/console
+                               (str "[re-frame.ui] rollback of a failed first mount "
+                                    "of root " (pr-str root-id) " could not cleanly "
+                                    "unmount the host root — the original mount error "
+                                    "is rethrown as primary, but this container's "
+                                    "React teardown did not complete. Do NOT assume "
+                                    "same-container reuse is clean; retry into a "
+                                    "fresh/replaced container.")
+                               cleanup-error))
+                      (try (js/Object.defineProperty
+                            e "rfUiRollbackCleanupError"
+                            #js {:value cleanup-error :configurable true})
+                        (catch :default _ nil))))
                   (throw e))))
             (catch :default e
               ;; rf2-vxgfnd.139: preflight completed but the post-preflight
@@ -791,11 +861,26 @@
 (defn unmount!*
   "Runtime half of `ui/unmount!` — TOTAL teardown: unmount the React root
   and unregister the root-id (contract §7). Idempotent: a Root already
-  torn down (or superseded in the registry) is a no-op. Framework
-  ownership is released in a `finally`, so a throwing host `.unmount`
-  still frees the exact root-id/container claim (identity-guarded — never
-  evicts a newer claim) and a second `unmount!*` is then a no-op; the
-  host teardown error still propagates to the caller (rf2-vxgfnd.18 AC4).
+  torn down, superseded in the registry, OR already `:tearing-down` (a deferred
+  host teardown in flight — rf2-vxgfnd.182) is a no-op. The claim is released at
+  the SETTLEMENT BOUNDARY through `teardown-root!`'s `on-settled` callback:
+  synchronously for a synchronous host teardown, or in the settlement microtask
+  after a DEFERRED one clears the DOM. A THROWING host `.unmount` still frees the
+  exact root-id/container claim immediately in the `catch` (identity-guarded —
+  never evicts a newer claim), a second `unmount!*` is then a no-op, and the host
+  teardown error still propagates to the caller (rf2-vxgfnd.18 AC4, untouched).
+
+  OWNERSHIP FENCE through DEFERRED teardown (rf2-vxgfnd.182). react-dom 19.2
+  refuses a synchronous `.unmount` from inside render/commit: it consumes the
+  handle and returns NORMALLY while the teardown work stays scheduled for a later
+  microtask. The claim is marked `:tearing-down` BEFORE the host `.unmount`, so
+  during that deferred window a reentrant `mount*`/`create-root*` on the exact
+  root-id/container is REJECTED (`check-root-claim!`) rather than admitted onto a
+  container React is about to clear. `teardown-root!` observes the deferral (the
+  root's cells stay `:connected` — nothing hit its cleanup window) and holds
+  `on-settled` until React's teardown settles; a SYNCHRONOUS teardown fires
+  `on-settled` at once, freeing the claim before this fn returns and preserving
+  the ratified same-container immediate re-mount.
 
   LIFECYCLE (03 §4; rf2-vxgfnd.62). The host `.unmount` is driven through
   `reactive/teardown-root!`, which arms a collection window around it: React
@@ -840,26 +925,44 @@
   goog.DEBUG-gated (Closure-DCE'd from production — I-12). Returns nil."
   [^Root root]
   (when (and (some? root)
-             (identical? (:root (get @live-roots (.-root-id root))) root))
+             (let [entry (get @live-roots (.-root-id root))]
+               (and (identical? (:root entry) root)
+                    ;; rf2-vxgfnd.182 — a teardown already in flight (deferred) is
+                    ;; not re-driven: the host handle is consumed; a second
+                    ;; unmount! is a no-op until the settlement frees the claim.
+                    (not (:tearing-down? entry)))))
+    ;; rf2-vxgfnd.182 — fence the exact claim BEFORE the host `.unmount`, so a
+    ;; deferred host teardown cannot advertise the id/container as free while
+    ;; React is still scheduled to clear the DOM.
+    (mark-tearing-down! (.-root-id root) root)
     (try
       ;; rf2-vxgfnd.62 — drive the host unmount through the root-teardown window
       ;; so this root's ViewCells are retroactively proven :unmounted → :dead
       ;; after React sweeps their effect cleanups (see the docstring LIFECYCLE
       ;; note). teardown-root! rethrows a throwing host `.unmount` unchanged, so
-      ;; the catch/finally below keep the rf2-vxgfnd.53 ownership behaviour.
+      ;; the catch below keeps the rf2-vxgfnd.53 ownership behaviour.
       ;; rf2-vxgfnd.85/.92 — pass this root's INCARNATION so a cell Activity-hidden
       ;; BEFORE the unmount window (which the window can never capture) is still
       ;; reaped through the root-incarnation ownership registry, even when the
       ;; whole root was hidden and the window collects nothing.
+      ;; rf2-vxgfnd.182 — `on-settled` releases the exact claim at the settlement
+      ;; boundary: inline for a synchronous teardown, or via the settlement
+      ;; microtask after a deferred one clears the container.
       (reactive/teardown-root! (root-incarnation-of (.-root-id root))
-                               (fn [] (.unmount (.-react-root root))))
+                               (fn [] (.unmount (.-react-root root)))
+                               (fn [] (release-root! (.-root-id root) root)))
       (catch :default e
+        ;; rf2-vxgfnd.53 / rf2-vxgfnd.84 / rf2-vxgfnd.18 AC4 — the SYNCHRONOUS host
+        ;; `.unmount` threw; release the claim IMMEDIATELY (untouched by .182: the
+        ;; throwing path keeps its immediate release — the fence is only for the
+        ;; NON-throwing deferred path).
+        (release-root! (.-root-id root) root)
         ;; rf2-vxgfnd.53 / rf2-vxgfnd.84 — the synchronous host .unmount did NOT
-        ;; complete, yet the `finally` below still releases the claim (AC4) and a
-        ;; second `unmount!*` is a no-op (the membership guard). Make the
-        ;; aftermath non-silent AND honest: verified against pinned react-dom
-        ;; 19.2.0, ReactDOMRoot.unmount nulls its internal root BEFORE the flush
-        ;; that threw, so the handle is CONSUMED — re-calling .unmount on it is a
+        ;; complete, yet the claim is released just above (AC4) and a second
+        ;; `unmount!*` is a no-op (the membership guard). Make the aftermath
+        ;; non-silent AND honest: verified against pinned react-dom 19.2.0,
+        ;; ReactDOMRoot.unmount nulls its internal root BEFORE the flush that
+        ;; threw, so the handle is CONSUMED — re-calling .unmount on it is a
         ;; silent no-op, NOT a manual escape (the pre-.84 diagnostic recommended
         ;; that no-op). React usually defers + self-completes the teardown work
         ;; scheduled pre-throw, so a stuck tree is the exception; when one does
@@ -881,9 +984,7 @@
                       "a container is genuinely left with a stuck tree, clear it "
                       "directly (set its innerHTML to \"\") or mount into a FRESH "
                       "container — never reuse the consumed handle.")))
-        (throw e))
-      (finally
-        (release-root! (.-root-id root) root))))
+        (throw e))))
   nil)
 
 (defn- reclaim-consumed-container!
