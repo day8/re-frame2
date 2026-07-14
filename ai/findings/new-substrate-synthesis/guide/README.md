@@ -3,22 +3,79 @@
 re-frame2 UI is the view layer for re-frame2: views are hiccup, handlers are event
 vectors, and the compiler ships code with no interpreter, no hooks ceremony, and no
 manual memoization. This guide teaches the library as a user. Design rationale lives
-one directory up, and the dataflow half of the story — events, effects, app-db — is
-the core guide's (`docs/core/`).
+one directory up; the dataflow half — events, effects, app-db — is the
+[core guide](../../../../docs/core/introduction.md)
+(`docs/core/`).
 
-| Chapter | You'll learn |
+## How to read this guide
+
+Chapters are **numbered for stable filenames**, not reading order. Start with **Part I**
+and follow the steps in sequence — each step assumes the ones before it.
+
+### Part I — The reactive loop
+
+Build reads, writes, view structure, frame scoping, then a full app.
+
+| Step | Chapter | You'll learn |
+|---|---|---|
+| 1 | [01 — Getting started](01-getting-started.md) | Install, mount, the counter, your first headless test |
+| 2 | [03 — State](03-state.md) | `(sub …)`, `local`, `effect`, `lease` — the four inputs |
+| 3 | [04 — Events](04-events.md) | Event vectors, placeholders, forms, the callback table |
+| 4 | [02 — Views](02-views.md) | `defview`, templates, styling, props, interop |
+| 5 | [05 — Frames](05-frames.md) | `frame-root`, `frame-provider`, multi-frame pages |
+| 6 | [10 — A worked app](10-worked-app.md) | Counter → dashboard: state shape, tiles, tests |
+
+Chapter 01 shows the whole loop in one screen; chapters 03–05 unpack each face. Chapter
+02 comes *after* state and events so `defview` examples land when `(sub …)` and
+`{:on-click [:event …]}` are already familiar — not as new concepts on top of template
+grammar.
+
+### Part II — Operate the app
+
+Verify, observe, and tune what Part I built.
+
+| Step | Chapter | You'll learn |
+|---|---|---|
+| 7 | [09 — Testing](09-testing.md) | Tier-1 headless tests, selectors, mounted tests, Story |
+| 8 | [06 — Debugging](06-debugging.md) | Render causes, Xray, pairing with an AI |
+| 9 | [07 — Performance](07-performance.md) | What you never write, the little you do |
+
+### Part III — Ship and understand
+
+Deploy to the server; optional deep dive into the machinery.
+
+| Step | Chapter | You'll learn |
+|---|---|---|
+| 10 | [08 — Server rendering](08-ssr.md) | JVM rendering, roots, identity, hydration |
+| 11 | [11 — How it works](11-how-it-works.md) | Compiler, digest, reactive core, two emitters |
+
+Read [11](11-how-it-works.md) when you want to *trust* the claims, not before you can
+use the library. It is deliberately last.
+
+### Short paths
+
+| You are… | Read |
 |---|---|
-| [01 — Getting started](01-getting-started.md) | Install, mount, first interactive view, first headless test |
-| [02 — Views](02-views.md) | `defview`, templates, styling, props, children, lists, presence (exit animations), custom elements |
-| [03 — State](03-state.md) | `sub` (including conditional reads), `local`, `effect`, `lease` |
-| [04 — Events](04-events.md) | Event vectors, placeholders, `ui/event`, forms & controlled inputs, the callback decision table |
-| [05 — Frames](05-frames.md) | `frame-root`, `frame-provider`, multi-frame pages, holds |
-| [06 — Debugging](06-debugging.md) | Render causes, the interaction surface, Xray navigation, pairing with an AI |
-| [07 — Performance](07-performance.md) | What you never do, the little you do |
-| [08 — Server rendering](08-ssr.md) | JVM rendering, roots and frames, root identity, the host tier, static output |
-| [09 — Testing](09-testing.md) | Headless view tests, selectors, `flush!`, Story |
-| [10 — A worked app](10-worked-app.md) | The counter grown into a dashboard: state shape, tiles, narrow subs, a live tile, tests |
-| [11 — How it works](11-how-it-works.md) | The mechanism: the compiler, the build digest, the reactive core, two emitters, the dev/prod split |
+| New to re-frame2 UI | Part I, in order |
+| Porting from Reagent | 01 → **04** → 03 → 02 → 05 → 10 (handlers first — biggest habit change) |
+| Adding SSR to an existing app | 01 → 05 → 08 |
+| Evaluating the architecture | Part I, then 11 |
+
+### File index (by number)
+
+| # | Chapter | Part |
+|---|---|---|
+| 01 | [Getting started](01-getting-started.md) | I |
+| 02 | [Views](02-views.md) | I (step 4) |
+| 03 | [State](03-state.md) | I (step 2) |
+| 04 | [Events](04-events.md) | I (step 3) |
+| 05 | [Frames](05-frames.md) | I (step 5) |
+| 06 | [Debugging](06-debugging.md) | II |
+| 07 | [Performance](07-performance.md) | II |
+| 08 | [Server rendering](08-ssr.md) | III |
+| 09 | [Testing](09-testing.md) | II |
+| 10 | [A worked app](10-worked-app.md) | I (step 6) |
+| 11 | [How it works](11-how-it-works.md) | III |
 
 **Stage honesty.** The library ships in stages (S1–S7). Everything unmarked on these
 pages is shipped on main today. That covers the Stage-1 compiler slice (compiled
@@ -26,14 +83,12 @@ templates, props, roots and mounting, `ui/raw` / `ui/html` / `ui/spread`, the Ti
 test core) and the Stage-2 reactive core that has since landed: `sub`-driven repaints,
 Tier-1 `sub` reads, `frame-root`'s runtime ENSURE preflight, the `ui/adapter` you hand
 `rf/init!`, the `(frame)` ops map, and the mounted Tier-3 test surface (`with-root`,
-`query`, `flush!`). A
-compact marker like *(lands S3 — committed handlers)* flags a surface whose contract is
-final but whose implementation lands in a later stage; the spelling and semantics shown
-are the ruled contract either way. The *(lands S2)* marker survives on just one
-straggler — `lease`, whose view-level semantics confirm at S3. Wave-2 names
-(`ui/element`, `ui/view`,
-`ui/portal`, `re-frame.ui.data/render`) are not v1 and only ever appear with that
-qualifier.
+`query`, `flush!`). A compact marker like *(lands S3 — committed handlers)* flags a
+surface whose contract is final but whose implementation lands in a later stage; the
+spelling and semantics shown are the ruled contract either way. `lease` is exported on
+main today; view-level lease semantics confirm at S3. Wave-2 names (`ui/element`,
+`ui/view`, `ui/portal`, `re-frame.ui.data/render`) are not v1 and only ever appear with
+that qualifier.
 
 **Reading the examples.** Code on these pages assumes
 `(:require [re-frame.core :as rf] [re-frame.ui :as ui :refer [defview sub]])`, with the
@@ -60,6 +115,17 @@ Where your reflexes reach for a hook, this is the map:
 | Error boundaries | `ui/error-boundary` ([02](02-views.md)) *(lands S3)* |
 | Refs | `(ui/raw-fn set-node)` + `effect` ([03](03-state.md)) |
 | Portals | wave-2 (`ui/portal`) — not v1 |
+
+**Core guide cross-links.** This guide owns the view layer; these core chapters own the
+dataflow it plugs into:
+
+| Topic | Core chapter |
+|---|---|
+| app-db, the event pipeline | [introduction](../../../../docs/core/introduction.md), [app-db](../../../../docs/core/app-db.md) |
+| `reg-sub`, derivation graphs | [subscriptions](../../../../docs/core/subscriptions.md) |
+| `reg-event`, fx | [effects](../../../../docs/core/effects.md) |
+| Frame isolation (dataflow side) | [frames](../../../../docs/core/frames.md) |
+| Handler/sub unit tests | [testing](../../../../docs/core/testing/index.md) |
 
 ---
 
