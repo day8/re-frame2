@@ -64,6 +64,10 @@ If you know Reagent hiccup, you are home — minus the traps.
 - A `map` that returns markup is rejected (extract a child view, use `for`). Keywords
   in child position are rejected (silent-text mistakes).
 
+These are not taste rules — they are what compile-time lowering requires. The full
+catalogue of walls, fixes, and escapes is
+[14 — What the compiler forbids](14-compile-time-limits.md).
+
 Genuinely data-driven UI (CMS trees, form definitions) uses an explicit interpreter
 artefact — opt-in, cost visible:
 

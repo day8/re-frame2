@@ -66,7 +66,7 @@ fix:
 
 | When | Examples |
 |---|---|
-| Build time | dynamic tag heads; `sub`/`lease`/vector-handlers inside loops; missing list keys; markup-returning `map`; unknown literal DOM props |
+| Build time | dynamic tag heads; `sub`/`lease`/vector-handlers inside loops; missing list keys; markup-returning `map`; unknown literal DOM props — full catalogue in [14](14-compile-time-limits.md) |
 | First dev render | props failing a view's schema; unknown event ids; dynamic child that is a keyword |
 | When they run | `set!` during render; dispatch during render; `dispatch-fn` after disconnect |
 

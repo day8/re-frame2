@@ -23,15 +23,16 @@ By the end of the main track you can:
 6. Grow that counter into a small dashboard with tests
 7. Fetch server data end-to-end without fetching inside views
 
-Then optional chapters cover testing depth, debugging tools, performance, SSR, and
-mechanism.
+Then optional chapters cover testing, debugging, performance, SSR, mechanism, migration
+maps, and the closed grammar's hard limits.
 
 ---
 
 ## How to read this guide
 
 **Read in order through chapter 07.** Each chapter assumes the ones before it.
-Chapters 08–13 are depth: open them when you need them.
+Chapters 08–14 are depth: open them when you need them. Chapter 14 is the
+"compile error dictionary" — reach for it when a build failure surprises you.
 
 | # | Chapter | Job |
 |---|---------|-----|
@@ -48,6 +49,7 @@ Chapters 08–13 are depth: open them when you need them.
 | 11 | [Server rendering](11-ssr.md) | Same views on the JVM; roots and hydration |
 | 12 | [How it works](12-how-it-works.md) | Optional mechanism (why the claims hold) |
 | 13 | [From other worlds](13-from-other-worlds.md) | React / UIx / Helix / Reagent translation |
+| 14 | [What the compiler forbids](14-compile-time-limits.md) | Closed grammar: walls, fixes, escapes |
 
 **Coming from Reagent?** Hiccup mostly transfers. The big habit change is **events as
 vectors** and **`(sub …)` without deref** — read [04](04-events.md) carefully, then

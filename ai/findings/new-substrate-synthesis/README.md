@@ -39,7 +39,7 @@ benchmark hope.
 | [11-adoption-workstreams.md](11-adoption-workstreams.md) | Everything beyond the library — migrator, docs, tools, CI, deletion wave — as stage epics |
 | [12-implementation-plan.md](12-implementation-plan.md) | Where the artifact lands, the **blessed** public API table + demand-bar audit, the stage→bead plan |
 | [drafts/](drafts/) | Diff-ready spec amendment drafts (004 interim + rewrite, 006 observation port, `ui.test` selector grammar) |
-| [guide/](guide/README.md) | The user tutorial (13 chapters: main track 01–07, depth 08–13) |
+| [guide/](guide/README.md) | The user tutorial (14 chapters: main track 01–07, depth 08–14) |
 | [reviews/](reviews/) | The review archive |
 
 ## Naming
