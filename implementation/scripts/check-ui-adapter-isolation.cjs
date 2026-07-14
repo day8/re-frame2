@@ -44,8 +44,8 @@
 
 const fs = require('node:fs');
 const path = require('node:path');
-const { spawnSync } = require('node:child_process');
 
+const repoRoot = path.resolve(__dirname, '..', '..');
 const loaderPath = path.resolve(__dirname, '..', 'out', 'node-test-ui.js');
 const uiArtefactDir = path.resolve(__dirname, '..', 'ui');
 const requiredImport = 're_frame.ui.substrate.js';
@@ -112,15 +112,48 @@ function forbiddenCoordinates(treeText) {
   );
 }
 
+// Hardened, shell-free spawn of the system `clojure` binary — the rf2-wn4o1 /
+// rf2-33vvc posture, mirroring scripts/test-mcp-conformance.cjs. Resolve the
+// bare name to a single TRUSTED absolute path OUTSIDE the workspace, then
+// dispatch it via cross-spawn with an args ARRAY and NO shell. This gates the
+// Windows command-hijack accident class (a workspace-local `clojure.cmd` in a
+// repo-controlled `cwd` shadowing PATH under a shell-enabled spawn) and avoids
+// the DEP0190 args-concatenation warning. Both helpers are lazy-required so the
+// hermetic `--self-test` needs neither cross-spawn nor a resolved toolchain.
+// A missing dependency or an untrusted/absent `clojure` returns an `{ error }`
+// object, which main() reports as a hard failure (exit 2) — never a silent
+// pass.
 function resolveDependencyTree(cwd) {
-  // `clojure` is a shim script (`.ps1`/`.bat` on Windows, shell function-ish
-  // launcher on POSIX); resolve it through the shell. The command is a fixed
-  // literal with no interpolation, and it is passed as a single string (no
-  // args array) so it does not trip Node's DEP0190 shell-args warning.
-  return spawnSync('clojure -Stree', {
+  let crossSpawn;
+  try {
+    crossSpawn = require('cross-spawn');
+  } catch (err) {
+    if (err && err.code === 'MODULE_NOT_FOUND') {
+      return {
+        error: new Error(
+          "cross-spawn is not installed — run `npm install`/`npm ci` in " +
+            'implementation/ first (it is the devDependency used for the ' +
+            'shell-free clojure spawn).'
+        ),
+      };
+    }
+    throw err;
+  }
+
+  const { resolveTrustedExe } = require(
+    path.join(repoRoot, 'tools', 'mcp-conformance', 'lib', 'exec-safety.cjs')
+  );
+
+  let clojureExe;
+  try {
+    clojureExe = resolveTrustedExe('clojure', { workspaceRoot: repoRoot });
+  } catch (err) {
+    return { error: err };
+  }
+
+  return crossSpawn.sync(clojureExe, ['-Stree'], {
     cwd,
     encoding: 'utf8',
-    shell: true,
     maxBuffer: 16 * 1024 * 1024,
   });
 }
