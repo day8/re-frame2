@@ -44,6 +44,9 @@
             [re-frame.epoch :as epoch]
             [re-frame.epoch.listeners :as epoch.listeners]
             [re-frame.epoch.state :as state]
+            ;; rf2-vxgfnd.265 — the reentrant claim-before-delivery fixture reads
+            ;; the successor incarnation's token to model its pre-first-epoch claim.
+            [re-frame.frame :as frame]
             [re-frame.interop :as interop]
             ;; rf2-vxgfnd.245 — the reentrant CLJS fail-before fixture wraps the
             ;; `:epoch/on-frame-destroyed` late-bind hook to install + settle a
@@ -485,3 +488,86 @@
           (late-bind/set-fn! :epoch/on-frame-destroyed original)
           (rf/unregister-listener! :epoch cb)
           (rf/unregister-listener! :trace ::rf2-245-cljs-silencing))))))
+
+;; ---- 9. rf2-vxgfnd.265 — per-identity delayed silencing (claim / ABA) -------
+
+(deftest predecessor-silences-after-reentrant-successor-claims-without-delivery-cljs
+  (testing "rf2-vxgfnd.265 (reentrant CLJS, red before fix) — A's post-dissoc
+            epoch hook re-entrantly installs a same-id successor B which CLAIMS
+            the id-keyed stores (the pre-first-epoch render/backfill claim routes
+            through `claim-frame-owner!`) but SETTLES nothing — cb never observes
+            B. When A resumes it must STILL emit its one owed silence for cb. Under
+            #5872's coarse gate A LOST the cleanup comparison to B's claim and
+            emitted nothing — a false negative."
+    (let [id         :rf2-265-claim/frame
+          cb         ::rf2-265-claim-cb
+          silencings (atom [])
+          armed?     (atom true)
+          original   (late-bind/get-fn :epoch/on-frame-destroyed)]
+      (rf/reg-event :rf2-265-claim/seed (fn [{:keys [db]} _] {:db {:n 0}}))
+      (rf/make-frame {:id id})
+      (rf/register-listener! :epoch cb (fn [_] nil))
+      ;; cb observes A by settling one ordinary event; A claims the id-keyed stores.
+      (rf/dispatch-sync [:rf2-265-claim/seed] {:frame id})
+      (rf/register-listener! :trace ::rf2-265-claim-silencing
+        (fn [ev]
+          (when (= :rf.epoch.cb/silenced-on-frame-destroy (:operation ev))
+            (swap! silencings conj ev))))
+      (try
+        (late-bind/set-fn! :epoch/on-frame-destroyed
+          (fn [& args]
+            (when (and (= id (first args)) (compare-and-set! armed? true false))
+              ;; Same-id B claims the id-keyed stores WITHOUT settling — no B
+              ;; record reaches cb, so cb never observes B.
+              (rf/make-frame {:id id})
+              (state/claim-frame-owner! id (frame/frame-incarnation-token id)))
+            (when original (apply original args))))
+        (rf/destroy-frame! id)
+        ;; THE FIX: cb never observed B, so A owes and emits exactly one silence.
+        (is (= 1 (count (filter #(= cb (:cb-id (:tags %))) @silencings)))
+            "A emits its one owed silence for cb — B claimed but never delivered")
+        (finally
+          (late-bind/set-fn! :epoch/on-frame-destroyed original)
+          (rf/unregister-listener! :epoch cb)
+          (rf/unregister-listener! :trace ::rf2-265-claim-silencing)
+          (when (frame/frame id) (rf/destroy-frame! id)))))))
+
+(deftest late-predecessor-does-not-re-emit-silence-a-retired-successor-fired-cljs
+  (testing "rf2-vxgfnd.265 (synchronous CLJS, red before fix) — a same-id
+            successor B re-arms cb and then RETIRES before paused predecessor A
+            resumes (the A→B→nil ABA). B emits the one truthful silence and
+            releases the stores; late A now WINS the cleanup comparison but must
+            NOT re-emit the identical unqualified signal. #5872's coarse gate let
+            A re-fire it — a double signal. The monotonic terminal-silence mark
+            surviving B's cleanup is what lets late A recognise B already fired."
+    (let [id         :rf2-265-aba/frame
+          cb         ::rf2-265-aba-cb
+          silencings (atom [])
+          token-a    #js {}
+          token-b    #js {}]
+      (rf/register-listener! :epoch cb (fn [_] nil))
+      (rf/register-listener! :trace ::rf2-265-aba-silencing
+        (fn [ev]
+          (when (= :rf.epoch.cb/silenced-on-frame-destroy (:operation ev))
+            (swap! silencings conj ev))))
+      (try
+        ;; A claims + cb observes A.
+        (state/claim-frame-owner! id token-a)
+        (epoch.listeners/notify-listeners! {:frame id :epoch-id 1})
+        ;; A snapshots its owed identities + terminal-silence baseline BEFORE the
+        ;; successor acts (a same-id B is constructable only after dissoc).
+        (let [a-ev (epoch.listeners/snapshot-terminal-destroy-evidence! id nil nil nil)]
+          ;; B re-arms cb, then RETIRES — its terminal hook fires cb's one silence.
+          (state/claim-frame-owner! id token-b)
+          (epoch.listeners/notify-listeners! {:frame id :epoch-id 2})
+          (epoch.listeners/on-frame-destroyed! id token-b
+            (epoch.listeners/snapshot-terminal-destroy-evidence! id nil nil nil))
+          (is (= 1 (count (filter #(= cb (:cb-id (:tags %))) @silencings)))
+              "B's retire fired exactly one truthful silence for cb")
+          ;; A resumes with its stale snapshot — must add NO silence.
+          (epoch.listeners/on-frame-destroyed! id token-a a-ev)
+          (is (= 1 (count (filter #(= cb (:cb-id (:tags %))) @silencings)))
+              "late A adds no silence — the retired successor already fired the one signal"))
+        (finally
+          (rf/unregister-listener! :epoch cb)
+          (rf/unregister-listener! :trace ::rf2-265-aba-silencing))))))
