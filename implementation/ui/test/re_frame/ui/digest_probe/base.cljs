@@ -1,6 +1,12 @@
 (ns re-frame.ui.digest-probe.base
   (:require [re-frame.ui :as ui]
             [re-frame.ui.client :as client]
+            ;; The runtime half of the activation transaction. The overlapping-
+            ;; activation fixture (rf2-vxgfnd.243) drives its before-load /
+            ;; stage! / after-load hooks directly to MODEL two reloads paused and
+            ;; released newest-first — a deterministic interleaving real Shadow
+            ;; under `:loader-mode :eval` runs synchronously and never overlaps.
+            [re-frame.ui.digest-carrier :as digest-carrier]
             ;; A loaded application source in the base module: the
             ;; runtime-activation probe (counterexample 2) edits it to throw at
             ;; top-level during a compile-valid hot reload.
@@ -63,4 +69,16 @@
         (fn []
           (when-let [el (.querySelector js/document "[data-probe=\"loaded\"]")]
             (.-textContent el))))
+  ;; rf2-vxgfnd.243 — the raw activation-transaction hooks, so the runner can
+  ;; DRIVE a modeled overlapping-reload interleaving (two reloads paused,
+  ;; released newest-first) against the REAL carrier cell. Real Shadow under the
+  ;; probe's default `:loader-mode :eval` runs before-load/stage!/after-load
+  ;; synchronously per cycle, so it never produces the interleaving; the fixture
+  ;; reproduces it deterministically to prove a STALE after-load neither
+  ;; regresses the published digest nor clears a newer reload's fence. Driven
+  ;; LAST in the proof, so mutating the live cell corrupts nothing downstream.
+  (set! (.-__rf2CarrierBeforeLoad js/globalThis) digest-carrier/before-load)
+  (set! (.-__rf2CarrierStage js/globalThis)
+        (fn [digest] (digest-carrier/stage! digest)))
+  (set! (.-__rf2CarrierAfterLoad js/globalThis) digest-carrier/after-load)
   (set! (.-__rf2BaseLoaded js/globalThis) true))

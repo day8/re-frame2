@@ -18,7 +18,8 @@
 
   - `before-load` fences the runtime (`updating` true) so reads become
     fail-closed for the duration of the swap;
-  - carrier evaluation STAGES the generation's compiled digest;
+  - carrier evaluation STAGES the generation's compiled digest (`stage!`),
+    minting the next monotone activation GENERATION;
   - `after-load` promotes the staged digest to the published slot — and Shadow
     runs after-load hooks only once EVERY reloaded source has evaluated without
     throwing.
@@ -29,6 +30,26 @@
   a partially mutated runtime. The initial page load runs no before-load fence,
   so that first, whole load publishes immediately.
 
+  Overlapping async activations (rf2-vxgfnd.243). Under Shadow
+  `:loader-mode :script` a reload's sources load asynchronously, so a second
+  reload's `before-load`/`stage!` can interleave BETWEEN a first reload's
+  `before-load` and its `after-load` — CLJS is single-threaded, so this is
+  interleaved reload continuations, not threads. Without an ordering rule a
+  STALE after-load (an older reload finishing after a newer one already
+  published) would regress the published digest and/or clear the newer reload's
+  fence. The rule is a monotone `:generation` minted at each `stage!` plus an
+  `:activated` high-water mark: `after-load` promotes and releases the fence
+  ONLY when `generation > activated` — i.e. only for a NOT-yet-activated
+  staging. A stale after-load observes `generation == activated` (a newer
+  staging already advanced the high-water mark) and is INERT: it never
+  regresses `:published` and never clears a newer generation's `:updating`
+  fence. The high-water rule also keeps forward recovery intact — a throwing
+  reload's skipped after-load merely leaves `activated` lagging, and the next
+  successful reload's after-load jumps the mark forward and publishes. (Under
+  the default `:loader-mode :eval` a reload's before-load/stage!/after-load run
+  synchronously to completion, so activations never overlap; the generation
+  rule is the correctness guarantee for the `:script` interleaving.)
+
   Every operation is goog.DEBUG-gated. Closure removes the slot, sentinel,
   staging cell, reload hooks, validation and accessors from advanced production
   output."
@@ -36,14 +57,25 @@
 
 ;; The runtime activation cell. It PERSISTS across `^:dev/always` reloads
 ;; (`defonce` re-init is skipped once the slot exists), so the `updating` fence
-;; a hot reload's `before-load` sets survives this namespace re-evaluating.
-;;   :published — the digest reads observe; nil while fail-closed;
-;;   :staged    — the candidate digest of the generation currently evaluating;
-;;   :updating  — the fence: true between a hot reload's before-load and a
-;;                SUCCESSFUL after-load (a reloaded-source throw leaves it true).
+;; a hot reload's `before-load` sets — and the `generation`/`activated`
+;; activation ordinals — survive this namespace re-evaluating.
+;;   :published  — the digest reads observe; nil while fail-closed;
+;;   :staged     — the candidate digest of the generation most recently staged;
+;;   :updating   — the fence: true between a hot reload's before-load and a
+;;                 SUCCESSFUL after-load (a reloaded-source throw leaves it true);
+;;   :generation — monotone activation ordinal, bumped by each `stage!`; the
+;;                 generation of the currently-staged digest;
+;;   :activated  — high-water mark: the greatest generation an after-load has
+;;                 promoted+released. `after-load` acts only when
+;;                 `generation > activated`, so a stale (overlapping) after-load
+;;                 is inert;
+;;   :reloaded   — true once ANY hot reload has begun (before-load ran). Keeps
+;;                 the initial-load auto-publish from misfiring on a later
+;;                 staging whose fence a stale after-load happened to clear.
 (defonce ^:private cell
   (when ^boolean js/goog.DEBUG
-    #js {:published nil :updating false :staged nil}))
+    #js {:published nil :updating false :staged nil
+         :generation 0 :activated 0 :reloaded false}))
 
 ;; Exactly 20 bytes, matching a bd1- + 16-hex-digit digest. Keep this literal
 ;; unique and in ONE source location: the hook requires exactly one occurrence
@@ -52,15 +84,26 @@
 (def ^:private compiled-digest
   (when ^boolean js/goog.DEBUG "__RF2_UI_DIGEST_XX__"))
 
-;; (Re)evaluation stages this generation's compiled digest. On the initial page
-;; load no before-load fence has run, so the runtime is not `updating` and this
-;; whole, first load publishes immediately. During a hot reload before-load has
-;; set `updating`, so this only STAGES: after-load promotes it iff every
-;; reloaded source evaluated successfully.
+(defn stage!
+  "Stage `digest` as the next monotone activation GENERATION. Called by carrier
+  (re)evaluation and by the activation-ordering fixture. On the genuine initial
+  page load — no before-load fence has run and no reload has ever begun — the
+  runtime is not `updating`, so this whole first load PUBLISHES immediately and
+  seeds the activation high-water mark. During (or overlapping) a hot reload the
+  runtime is fenced (or has already been reloaded), so this only STAGES and
+  bumps `:generation`; a subsequent `after-load` promotes it iff its generation
+  is still ahead of `:activated`."
+  [digest]
+  (when ^boolean js/goog.DEBUG
+    (set! (.-generation cell) (inc (.-generation cell)))
+    (set! (.-staged cell) digest)
+    (when (and (not (.-updating cell)) (not (.-reloaded cell)))
+      (set! (.-published cell) digest)
+      (set! (.-activated cell) (.-generation cell)))))
+
+;; (Re)evaluation stages this generation's compiled digest.
 (when ^boolean js/goog.DEBUG
-  (set! (.-staged cell) compiled-digest)
-  (when-not (.-updating cell)
-    (set! (.-published cell) compiled-digest)))
+  (stage! compiled-digest))
 
 (defn- finalized-digest?
   "True only for a FINALIZED `bd1-` whole-build digest — never the unpatched
@@ -92,20 +135,33 @@
 (defn ^:dev/before-load before-load
   "Fence the runtime before Shadow swaps reloaded code: digest/descriptor reads
   become fail-closed until a successful after-load promotes the staged
-  generation."
+  generation. Records that a reload has begun so a later staging cannot be
+  mistaken for the initial whole-page load."
   []
   (when ^boolean js/goog.DEBUG
-    (set! (.-updating cell) true)))
+    (set! (.-updating cell) true)
+    (set! (.-reloaded cell) true)))
 
 (defn ^:dev/after-load after-load
   "Promote the staged generation once EVERY reloaded source has evaluated. A
   top-level throw in any reloaded source skips this hook (Shadow stops the
   reload before after-load), leaving reads fail-closed until a later successful
-  reload."
+  reload.
+
+  Overlapping-activation ordering (rf2-vxgfnd.243): promote + release the fence
+  ONLY when `generation > activated` — i.e. only for a staging that has not yet
+  been activated by a newer transaction. A STALE after-load from an earlier,
+  overlapping reload observes `generation == activated` (a newer `stage!`
+  already advanced both the staged digest and the high-water mark) and is
+  therefore INERT: it neither regresses `:published` nor clears a newer
+  reload's fence. Advancing `:activated` to the current generation is also what
+  preserves forward recovery after a throwing reload skipped its after-load."
   []
   (when ^boolean js/goog.DEBUG
-    (set! (.-published cell) (.-staged cell))
-    (set! (.-updating cell) false)))
+    (when (> (.-generation cell) (.-activated cell))
+      (set! (.-published cell) (.-staged cell))
+      (set! (.-activated cell) (.-generation cell))
+      (set! (.-updating cell) false))))
 
 ;; A configured build that omitted the load-bearing hook must not limp along
 ;; with a plausible but false identity. The hook patches the sentinel before
