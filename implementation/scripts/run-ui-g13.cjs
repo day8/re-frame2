@@ -215,6 +215,13 @@ function expectedProjection() {
     'hot-base': 8,
     'stable-parent': 8,
     'cold-leaf': 0,
+    // rf2-vxgfnd.210 — the named candidate-work axis. `port-fan-out` is the
+    // observation port's total DELIVERED fan-out for the drain (C*Q=64),
+    // summed over ALL V live cells; `fan-out-cells` is the number of cells
+    // that received any fold (exactly C=8). Both are functions of C and Q,
+    // independent of V.
+    'port-fan-out': 64,
+    'fan-out-cells': 8,
   };
 }
 
@@ -289,6 +296,14 @@ function assertMutationTeeth(result) {
     ['multiple root commits', (r) => { r.results[0].cold.projection['root-commits'] = 8; }],
     ['same-total uneven hot distribution', (r) => {
       r.results[0].cold.projection['hot-renders-by-index'] = [2, 0, 1, 1, 1, 1, 1, 1];
+    }],
+    // rf2-vxgfnd.210 — the candidate-work axis teeth. A V-wide port fan-out
+    // (the observation port delivering to V owners instead of C) inflates the
+    // summed occurrence total; a fan-out that reaches any non-affected cell
+    // grows `fan-out-cells` past C. Both must be rejected.
+    ['V-wide port fan-out', (r) => { r.results[0].cold.projection['port-fan-out'] = 6400; }],
+    ['fan-out reached a non-affected cell', (r) => {
+      r.results[0].cold.projection['fan-out-cells'] = 100;
     }],
   ];
   const red = mutations.map(([label, mutate]) => {
