@@ -1,5 +1,10 @@
 # Hierarchical (compound) states
 
+Flat machines ([the model](concepts.md)) put every state at one level. A
+**compound** state holds sub-states — factor shared transitions into a parent,
+cascade entry into an `:initial` child, and finish a sub-flow without ending the
+whole machine.
+
 A flat machine is a single list of states, one active at a time. That carries
 most flows. But some states are really a *cluster*: three leaves that share a
 resource, a sub-flow with its own beginning and end, a family of states that

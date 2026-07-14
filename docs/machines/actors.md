@@ -1,5 +1,11 @@
 # Actors: spawning child machines
 
+Long-lived singletons are only half the story. **Actors** are machines started for
+a job — a per-request protocol, a worker, a wizard step — via declarative
+`:spawn` / `:spawn-all` (or imperative fx). Assumes the [flat model](concepts.md);
+child completion often uses [final states](concepts.md#final-states) and parent
+`:on-done`.
+
 A machine doesn't have to be a singleton. When a state needs to run some self-contained, asynchronous activity — an HTTP request, a websocket session, a worker grinding through a shard — you can **spawn a child machine** to do it, scoped to that state's lifetime. The child is a full machine instance with its own `:state` and `:data`; we call it an **actor**.
 
 The pattern earns its keep when an activity has a *lifetime that should match a state's lifetime*: start it when you enter the state, and — this is the part that's easy to get wrong by hand — tear it down on **every** way out of the state, including the ones you forgot about. Declare the binding once and the runtime enforces it.
@@ -112,7 +118,7 @@ A freshly-spawned actor needs a first nudge. Two ways:
   :idle {:on {:rf.machine.spawn/spawned :processing}}
   ```
 
-  Both work; new code prefers `:entry` (it fires for every kick-off mode). An unhandled `:rf.machine.spawn/spawned` is a benign no-op — it's reserved framework lifecycle traffic, exempt from the [unhandled-event trace](concepts.md#one-thing-that-wont-throw-the-unhandled-event).
+  Both work; new code prefers `:entry` (it fires for every kick-off mode). An unhandled `:rf.machine.spawn/spawned` is a benign no-op — it's reserved framework lifecycle traffic, exempt from the [unhandled-event trace](concepts.md#one-thing-that-wont-throw-the-unhandled-event) (see [See one run](concepts.md#see-one-run)).
 
 - **With `:start [:begin url]`.** Hand the child a specific first event payload. The two paths are mutually exclusive — an actor gets the synthetic kick-off *or* your `:start`, never both.
 

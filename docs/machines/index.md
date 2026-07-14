@@ -1,63 +1,72 @@
-# Hierarchical State Machines
+# Hierarchical state machines
 
-## They're everywhere
+Some state is not a number in app-db — it is **which named stage you are in**, and
+which events may legally leave it. Login is idle, then submitting, then authed or
+error or locked-out. A websocket is connecting, open, reconnecting, closed. Those
+flows usually hide as enums and booleans scattered across handlers.
 
-Finite state machines (FSMs) are hiding in plain sight all over your app:
+A **machine** makes that shape first-class: one data table of states and
+transitions, driven by ordinary `dispatch`, read by ordinary `subscribe`, living in
+the same [frame](../core/frames.md) as the rest of re-frame2. No second runtime.
 
-- Your app's boot process — load config, check the session, get some codes, then go ready.
-- Auth — user logged out, or logged in; and if logged in, an admin or not. And do we have a JWT yet?
-- A single HTTP request — `idle → loading → timeout → retry → loaded | failed`.
-- A websocket — `connecting → open → reconnecting → closed`.
-- A humble dropdown — `disabled | enabled → closed → open → selecting`.
+## What you get
 
-Keep looking and you'll find them at every scale — usually tangled up in a cluster of enums and boolean flags. 
+- **Hierarchical** states (nested flows), **parallel** regions, **history**,
+  **spawned** child machines, guards, delayed transitions — near the power of
+  [XState](coming-from-xstate.md), expressed as Clojure data.
+- **Deep integration** — `reg-machine` is sugar over `reg-event`. Snapshots ride
+  runtime-db; undo, Xray, SSR, and tests share the same pipeline.
 
-But if you have a way of modelling them formally, your code becomes more explicit, robust, and easier to understand.
+## How to read this section
 
-## First-class support
+| Job | Page |
+|---|---|
+| Build a real machine once | [Tutorial: login flow](tutorial.md) |
+| The flat model in full | [The model](concepts.md) |
+| Labels for views ("busy?") | [Tags](tags.md) |
+| Nested states | [Hierarchical states](hierarchical-states.md) |
+| Orthogonal axes in one machine | [Parallel regions](parallel-states.md) |
+| `:always`, `:after`, choice, timeout | [Automatic transitions](automatic-transitions.md) |
+| Resume where you left off | [History](history.md) |
+| Child machines / workers | [Actors](actors.md) |
+| Xray + pure tests | [Inspecting and testing](inspecting-machines.md) |
+| Runnable apps | [Examples](examples.md) |
+| XState mapping | [Coming from XState](coming-from-xstate.md) |
+| Term definitions | [Glossary](glossary.md) |
 
-re-frame2 has first-class, **hierarchical** state machines — including nested states, parallel regions, spawned children, guards, and delayed transitions. 
+**Prerequisites.** The [Core introduction](../core/introduction.md) — events,
+app-db, subscriptions, and effects. Machines plug into those; they do not replace
+them.
 
-The re-frame2 implementation seeks near-parity with the 500-pound gorilla in this space, [XState v6](coming-from-xstate.md) — a wonderful library which has taught me a lot.
-
-## Deeply integrated
-
-The machines implementation is wired into the **core** of re-frame2 — not bolted on as a side-car. And it is infused with the re-frame2 ethos. 
-
-A machine is **expressed** via a data-oriented DSL — state, transitions, guards, etc. The whole machine is just a value. You bind that value with `defmachine` — a drop-in for `def` that also captures per-element source so tooling like Xray can jump from a live snapshot back to the guard/action/state definition — like this.
-
-```clojure
-(rf/defmachine auth-login-machine
-  {:initial :idle
-   :states  {:idle       {:on {:submit :submitting}}   ;; :submit → :submitting
-             :submitting {:on {:ok   :authed            ;; :ok     → :authed
-                               :fail :error}}           ;; :fail   → :error
-             :authed     {}
-             :error      {:on {:submit :submitting}}}})
-```
-
-And a singleton machine (based on this specification value) can be defined as an event handler using `reg-machine` (which is just a machine-specific `reg-event`), like this:
-
-```clojure
-(rf/reg-machine :auth-login auth-login-machine)
-```
-
-The state for all machines lives in a [frame](../core/frames.md) alongside your `app-db`. It moves on the same pipeline, can be "undone" the same way, debugged with the same tools (like Xray), and tested the same way — **there's no second runtime to learn**.
-
-Triggers are sent to machines by normal events, dispatched the normal way, so you drive a machine straight from an ordinary handler. Dispatching `[:auth-login [:submit …]]` fires the machine's `:submit` arrow:
+## A machine in four lines
 
 ```clojure
-(rf/reg-event :login/submit
-  (fn [_ [_ credentials]]
-    {:fx [[:dispatch [:auth-login [:submit credentials]]]]}))
+(:require [re-frame.core :as rf]
+          [re-frame.machines])   ;; opt-in artefact
 
-(rf/dispatch [:login/submit credentials])   ;; fire it the normal way
+(rf/defmachine door
+  {:initial :closed
+   :states  {:closed {:on {:open :open}}
+             :open   {:on {:close :closed}}}})
+
+(rf/reg-machine :door door)
+
+(rf/dispatch [:door [:open]])
+@(rf/subscribe [:rf/machine :door])
+;; => {:state :open :data {}}
 ```
 
-And the state of a machine is **read** like an ordinary subscription — you get back a [snapshot](glossary.md#snapshot), `{:state … :data …}`:
+The tutorial turns that idea into a login with guards, actions, HTTP, a view, and a
+test. The model page explains every slot.
 
-```clojure
-@(rf/subscribe [:rf/machine :auth-login])   ;; => {:state :submitting :data {}}
-```
+## When *not* to use a machine
 
-The snapshot moves, and the views that read it follow.
+| Situation | Prefer |
+|---|---|
+| A counter, list, or form field | app-db + events |
+| Two stages (`:loading?` boolean) | a keyword or flag |
+| Server fetch / cache / invalidate | [resources](../resources/concepts.md) |
+| A fixed sequence of operations | chained events / effects |
+
+Reach for a machine when **named stages and legal transitions** are the load-bearing
+concept — not when the load-bearing concept is a value or a network cache.

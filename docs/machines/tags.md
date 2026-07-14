@@ -1,16 +1,25 @@
 # State tags
 
-Some questions a view asks aren't "which state is the machine in?" but "is the machine *busy*?" — across `:loading`, `:retrying`, `:reconnecting`, and whatever in-flight state you add next month. A **[state tag](glossary.md#state-tag)** is a semantic label you pin to a state so a view can ask for the *intent* — busy, read-only, terminal — instead of enumerating the exact state names that happen to mean it. *Ask, don't tell.*
+You know the [flat model](concepts.md): states, transitions, snapshot. This page is
+the first growth feature — how views ask **what is true** without hard-coding state
+names.
+
+Some questions are not "which state?" but "is it *busy*?" across `:loading`,
+`:retrying`, `:reconnecting`, and whatever you add next month. A
+**[state tag](glossary.md#state-tag)** is a semantic label on a state so a view asks
+for intent — busy, read-only, terminal — instead of enumerating names. *Ask, don't
+tell.*
 
 Reach for tags when:
 
-- several states share a meaning a view cares about ("any of these is loading-ish"), and you don't want a boolean sub per state;
-- a page's render decision slices across more than one axis (data cardinality × form validity × mode) and you want one decision table instead of an N-way `cond`;
-- a guard in one [parallel region](parallel-states.md) needs to know what a *sibling* region is doing without reaching into its private state.
+- several states share a meaning a view cares about;
+- render decisions slice across more than one axis (see also
+  [parallel regions](parallel-states.md));
+- a guard in one parallel region needs a sibling region's *intent* without private
+  state.
 
-If a label would only ever match exactly one state, skip it — query the state directly with `(= :loading (:state snap))`. Tags earn their keep by matching *many* states with one shared intent.
-
-This page assumes the [machine grammar](concepts.md) — `reg-machine`, the transition table, the `{:state :data}` snapshot — from the concepts chapter.
+If a label would only ever match one state, skip it — compare `:state` directly.
+Tags earn their keep when one label covers many states.
 
 ## Declaring tags on a state
 
