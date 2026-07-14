@@ -176,9 +176,9 @@ mini-TOC of the whole guide.
 XState, re-frame v1, …) and the deliberate divergences. Persona deltas are collapsed
 `??? info` callouts — short, never load-bearing. A v1 callout is earned only where
 the v1 instinct *misleads*; most pages need zero. Retired v1 surfaces
-(`inject-cofx`, `:rf.world/inputs`) appear **only** on the
-[migration page](25-from-re-frame-v1.md), marked superseded — never as live teaching
-elsewhere.
+(`inject-cofx`; the retired/renamed `:rf.world/inputs` → flat `:rf.cofx` map)
+appear **only** on the [migration page](25-from-re-frame-v1.md), marked
+superseded — never as live teaching elsewhere.
 
 ## Live cells and demo shapes
 
