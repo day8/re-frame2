@@ -3125,6 +3125,15 @@
         (is (valid-observation-on-change-failed-tags? (:tags tev))
             "the :hmr dev-trace tags satisfy the canonical schema")
         (is (= :hmr (:cause (:tags tev))))
+        (testing "the dev-trace :tags carry the EXACT original throwable and frame
+                  keyword — not only the always-on record (rf2-5iud0a false-greens
+                  #1 + #3: :exception is schema-typed :any and :frame is an OPEN
+                  optional key, so the schema alone accepts nil / a wrong throwable /
+                  a dropped frame in the trace tags; the fixtures assert real values)"
+          (is (identical? boom (:exception (:tags tev)))
+              "trace :exception is the exact original throwable, not nil / a copy")
+          (is (= fid (:frame (:tags tev)))
+              "trace :frame carries the exact emitting frame keyword"))
         (testing "the always-on record carries the wire fields the 009 row lists"
           (is (some? rec))
           (is (= [:obs/items] (:event rec)))
@@ -3148,6 +3157,13 @@
           (is (valid-observation-on-change-failed-tags? (:tags tev))
               "the :disposed dev-trace tags satisfy the canonical schema")
           (is (= :disposed (:cause (:tags tev))))
+          (testing "the :disposed dev-trace :tags likewise carry the EXACT throwable
+                    and frame keyword, independently of the always-on record
+                    (rf2-5iud0a false-greens #1 + #3)"
+            (is (identical? boom (:exception (:tags tev)))
+                "trace :exception is the exact original throwable, not nil / a copy")
+            (is (= fid (:frame (:tags tev)))
+                "trace :frame carries the exact emitting frame keyword"))
           (is (some? rec))
           (is (identical? boom (:exception rec))))
         (obs/release! la)))))
@@ -3175,7 +3191,27 @@
                      (assoc tags :cause :bogus)))))
         (testing "a spoofed :category fails"
           (is (not (valid-observation-on-change-failed-tags?
-                     (assoc tags :category :rf.error/handler-exception))))))
+                     (assoc tags :category :rf.error/handler-exception)))))
+        (testing "false-green #1 — :exception is schema-typed :any, so the SCHEMA
+                  alone accepts a mutated trace :exception; the real fixtures instead
+                  assert exact throwable identity, which catches nil / a substituted
+                  throwable (rf2-5iud0a)"
+          (is (identical? boom (:exception tags))
+              "baseline: the real trace tags carry the exact throwable")
+          (is (valid-observation-on-change-failed-tags? (assoc tags :exception nil))
+              "the schema (:any) still validates a nil'd :exception — schema alone is a false green")
+          (is (valid-observation-on-change-failed-tags?
+                (assoc tags :exception (ex-info "different" {})))
+              "the schema (:any) still validates a DIFFERENT throwable")
+          (is (not (identical? boom (:exception (assoc tags :exception nil))))
+              "the exact-identity assertion the fixtures use catches the nil mutation")
+          (is (not (identical? boom (:exception (assoc tags :exception (ex-info "different" {})))))
+              "…and catches a substituted throwable"))
+        (testing "false-green #3 — a legitimately-absent OPTIONAL :frame stays valid
+                  (the optional row must not silently become required) (rf2-5iud0a)"
+          (is (= fid (:frame tags)) "baseline: the real record emits the frame tag")
+          (is (valid-observation-on-change-failed-tags? (dissoc tags :frame))
+              "an absent optional :frame remains valid (frame is optional in the schema)")))
       (obs/release! la))))
 
 (defn- schema-entry-of
@@ -3215,7 +3251,32 @@
     (testing "required→optional drift — the required-key SET is exactly these eight"
       (is (= #{:category :rf.sub/id :rf.sub/query-v :where :cause
                :exception :exception-message :reason}
-             (set (map :key (remove :optional? (map-schema-entries s)))))))))
+             (set (map :key (remove :optional? (map-schema-entries s)))))))
+    (testing "false-green #3 — the OPTIONAL :frame row is pinned to
+              [:frame {:optional true} :keyword]; because the map is open, deleting
+              the row or weakening it to :any leaves real records + every OTHER shape
+              assertion green even though runtime emits the frame tag, so pin it
+              explicitly (rf2-5iud0a)"
+      (let [e (schema-entry-of s :frame)]
+        (is (some? e)
+            "the :frame row is PRESENT (deleting it from the markdown reddens here)")
+        (is (:optional? e) "the :frame row is optional")
+        (is (= :keyword (:schema e))
+            "the :frame row is :keyword, not weakened to :any")))))
+
+#?(:clj
+   (defn- dev-trace-backtick-keywords
+     "Extract the EXACT backtick-delimited keyword tokens from a Spec 009 DEV-TRACE
+     `:tags` fragment (rf2-5iud0a false-green #2): each `` `:kw` `` span parsed to a
+     keyword, so `:exception` and `:exception-message` are DISTINCT tokens and a
+     substring / prefix match or an un-backticked prose mention never counts. A
+     focused extraction helper, NOT a general Markdown parser."
+     [fragment]
+     (->> (re-seq #"`([^`]+)`" fragment)
+          (map second)
+          (filter #(str/starts-with? % ":"))
+          (map #(keyword (subs % 1)))
+          set)))
 
 #?(:clj
    (deftest spec-009-catalogue-lists-the-canonical-observation-tag-keys
@@ -3241,7 +3302,23 @@
        (is (some? tags)
            "the 009 row must carry a DEV-TRACE :tags list")
        (when tags
-         (doseq [k required]
-           (is (str/includes? tags (str k))
-               (str "the Spec 009 DEV-TRACE :tags list must enumerate the canonical "
-                    "schema key " k)))))))
+         ;; rf2-5iud0a false-green #2 — the prior check was a SUBSTRING scan, so
+         ;; deleting `:exception` while keeping `:exception-message` still passed
+         ;; (the shorter token is a prefix of the longer). Compare EXACT
+         ;; backtick-delimited keyword tokens instead.
+         (let [row-tokens (dev-trace-backtick-keywords tags)]
+           (doseq [k required]
+             (is (contains? row-tokens k)
+                 (str "the Spec 009 DEV-TRACE :tags list must enumerate the canonical "
+                      "schema key " k " as an exact backtick-delimited token")))
+           (testing "exact-token extraction rejects a PREFIX — `:exception-message`
+                     alone does NOT satisfy the required `:exception` token (the
+                     false-green #2 this closes), and never matches un-backticked prose"
+             (is (contains? row-tokens :exception))
+             (is (contains? row-tokens :exception-message))
+             (let [only-message (dev-trace-backtick-keywords
+                                  "DEV-TRACE `:exception-message`, :exception in prose")]
+               (is (not (contains? only-message :exception))
+                   "a fragment with only `:exception-message` (plus prose `:exception`)
+                    does NOT yield the `:exception` token")
+               (is (contains? only-message :exception-message)))))))))
