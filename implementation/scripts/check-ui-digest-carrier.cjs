@@ -733,9 +733,84 @@ async function main() {
            `descriptor ${JSON.stringify(recoveredDescriptorDigest)}, active ${recoveredC2}`);
     }
 
+    // Counterexample 3 — overlapping async activations (rf2-vxgfnd.243). The
+    // probe's default `:loader-mode :eval` runs a reload's
+    // before-load/stage!/after-load synchronously per cycle, so real Shadow
+    // never overlaps activations. Under `:loader-mode :script` a reload's
+    // sources load asynchronously and a second reload's before-load/stage! can
+    // interleave between a first reload's before-load and its after-load. We
+    // MODEL that interleaving deterministically by driving the REAL carrier
+    // cell's raw activation hooks (exported by base.cljs): two reloads paused,
+    // then RELEASED NEWEST-FIRST, then a stale straggler firing after a newer
+    // reload has re-fenced. The generation fence must make the stale after-load
+    // INERT — never regressing the published digest, never clearing the newer
+    // fence. (Deleting the `generation > activated` guard in digest-carrier's
+    // after-load turns the stale straggler back into an unconditional
+    // promote+release, flipping the "newer fence intact" assertion below red.)
+    // Driven last: mutating the live cell corrupts nothing downstream.
+    const dA = 'bd1-aaaaaaaaaaaaaaaa';
+    const dB = 'bd1-bbbbbbbbbbbbbbbb';
+    const dC = 'bd1-cccccccccccccccc';
+    const carrierReady = await page.evaluate(() =>
+      typeof globalThis.__rf2CarrierBeforeLoad === 'function' &&
+      typeof globalThis.__rf2CarrierStage === 'function' &&
+      typeof globalThis.__rf2CarrierAfterLoad === 'function');
+    if (!carrierReady) {
+      fail('counterexample 3: activation-transaction hooks were not exported');
+    }
+    if ((await page.evaluate(() => globalThis.__rf2ReadDigest())) !== recoveredC2) {
+      fail('counterexample 3 did not start from the last accepted activated digest');
+    }
+    // Step the model and read `current` after each hook. `beforeLoad` fences
+    // (null); `stage` mints the next generation; `afterLoad` promotes+releases
+    // only for a not-yet-activated generation.
+    const step = (op, arg) => page.evaluate(({ op, arg }) => {
+      if (op === 'before') globalThis.__rf2CarrierBeforeLoad();
+      else if (op === 'stage') globalThis.__rf2CarrierStage(arg);
+      else if (op === 'after') globalThis.__rf2CarrierAfterLoad();
+      return globalThis.__rf2ReadDigest();
+    }, { op, arg });
+
+    // Reload A pauses (fenced + staged); reload B pauses (fenced + staged).
+    if ((await step('before')) !== null) fail('c3: reload A before-load did not fence reads');
+    if ((await step('stage', dA)) !== null) fail('c3: staging under the fence published early');
+    if ((await step('before')) !== null) fail('c3: reload B before-load did not keep reads fenced');
+    if ((await step('stage', dB)) !== null) fail('c3: second staging published under the fence');
+    // Release NEWEST-FIRST: reload B (the newer generation) activates.
+    const afterB = await step('after');
+    if (afterB !== dB) {
+      fail(`c3: newest reload B did not publish its generation (got ${JSON.stringify(afterB)}, want ${dB})`);
+    }
+    // The STALE straggler — reload A's after-load, released second — must be
+    // inert: its generation is no longer ahead of the activated high-water mark.
+    const afterStaleA = await step('after');
+    if (afterStaleA !== dB) {
+      fail(`c3: stale reload A completion REGRESSED the active digest to ` +
+           `${JSON.stringify(afterStaleA)} (must stay on the newer ${dB})`);
+    }
+    // A newer reload C now re-fences. A late stale straggler firing here must
+    // NOT clear C's newer fence — the load-bearing overlap invariant.
+    if ((await step('before')) !== null) fail('c3: reload C before-load did not re-fence reads');
+    const staleAfterCFence = await step('after');
+    if (staleAfterCFence !== null) {
+      fail(`c3: a stale completion CLEARED the newer reload C's fence ` +
+           `(read ${JSON.stringify(staleAfterCFence)}; the newer fence must hold reads closed)`);
+    }
+    // C completes normally and publishes its generation exactly once.
+    if ((await step('stage', dC)) !== null) fail('c3: reload C staging published under its own fence');
+    const afterC = await step('after');
+    if (afterC !== dC) {
+      fail(`c3: reload C did not publish its generation after release (got ${JSON.stringify(afterC)}, want ${dC})`);
+    }
+    console.log(
+      'ui digest carrier: overlapping activations fenced by generation ' +
+      '(newest-first release inert for the stale straggler; newer fence held)',
+    );
+
     console.log(
       `ui digest carrier: PASS (${digest1} -> ${digest2} -> failed/LKG -> ${digest3}` +
-      ` -> v2-loaded-throw/fail-closed -> forward-recovery ${recoveredC2})`,
+      ` -> v2-loaded-throw/fail-closed -> forward-recovery ${recoveredC2}` +
+      ` -> overlap-fence ${dB}/${dC})`,
     );
   } finally {
     fs.writeFileSync(LAZY_SOURCE, original);
