@@ -183,6 +183,106 @@
           "root A's install survives; retry = the host re-calls mount"))))
 
 ;; ---------------------------------------------------------------------------
+;; rf2-vxgfnd.139 — evidence bound to the exact root attempt + host commit
+;; boundary. These use a REAL live-root registry + React root (what the node
+;; executor twin cannot fake): a fresh install whose HOST render fails must not
+;; read as a completed install, and a committed root's failed refresh must
+;; preserve its prior committed Root/DOM.
+;; ---------------------------------------------------------------------------
+
+(deftest fresh-mount-host-failure-marks-mount-incomplete-not-committed
+  ;; Counterexample 2: preflight INSTALLS :frame/installed139 (create +
+  ;; :initial-events drain), then the host boundary (element thunk) throws. The
+  ;; mount rolls back — NO live root survives — yet the record must not read as
+  ;; a completed install. It is :mount-incomplete: no root scopes it.
+  (when (browser?)
+    (reg-events!)
+    (let [c     (container)
+          info  {:root-id :dom139/fresh :provenance :authored}
+          boom  (fn [] (throw (ex-info "host render boom" {:tag :host})))
+          plans (fn [] [{:frame-id :frame/installed139
+                         :config {:initial-events [[:test/set-db {:n 1}]]}
+                         :config-fingerprint "cf1-installed13911"}])
+          threw (try (flush-without-act!
+                      #(client/mount* info c boom
+                                      (client/root-options nil nil nil nil) plans))
+                     false (catch :default _ true))]
+      (is threw "the host render throw propagated out of mount*")
+      (is (some? (frame/frame :frame/installed139))
+          "the frame is live — its :initial-events fired at preflight (irreversible)")
+      (is (not (contains? (client/live-root-ids) :dom139/fresh))
+          "the fresh mount rolled back — NO live root survives")
+      (is (true? (:mount-incomplete (frames/installed-plan-entry :frame/installed139)))
+          "a fresh install whose host render failed is :mount-incomplete — no root scopes it")
+      (is (not (:committed (frames/installed-plan-entry :frame/installed139)))
+          "and it is NOT recorded as a committed root scope")
+      ;; a later conflicting root must be told the mount is incomplete.
+      (let [msg (try (frames/execute-frame-plans!
+                      :dom139/other [{:frame-id :frame/installed139 :config {}
+                                      :config-fingerprint "cf1-other139222222"}])
+                     nil (catch cljs.core/ExceptionInfo e (ex-message e)))]
+        (is (some? (re-find #"did NOT complete" msg))
+            "the conflict flags the phantom installer's incomplete mount")))))
+
+(deftest successful-mount-commits-the-frame-record
+  ;; The happy path: a real ui/mount whose host render commits records the
+  ;; committed root scope (:committed), with no failed-attempt evidence.
+  (when (browser?)
+    (reg-events!)
+    (let [c (container)]
+      (act!
+       #(ui/mount [frame-root {:id :frame/committed139
+                               :initial-events [[:test/set-db {:n 7}]]}
+                   [mini {:label "ok"}]]
+                  c {:root-id :dom139/ok}))
+      (is (re-find #"ok" (.-innerHTML c)) "sanity: the render committed")
+      (let [entry (frames/installed-plan-entry :frame/committed139)]
+        (is (true? (:committed entry))
+            "a successful mount's host render commits the record (rf2-vxgfnd.139)")
+        (is (nil? (:mount-incomplete entry)) "no incomplete-mount evidence")
+        (is (nil? (:preflight-attempt-failed entry)) "no failed-attempt evidence")))))
+
+(deftest committed-root-failed-refresh-preserves-committed-and-marks-attempt-failed
+  ;; A genuinely committed root's failed REFRESH/re-render: the prior Root + its
+  ;; last committed DOM are preserved (Q49), and only the failed attempt is
+  ;; recorded — the committed scope is NEVER relabelled :mount-incomplete.
+  (when (browser?)
+    (reg-events!)
+    (let [c    (container)
+          info {:root-id :dom139/live :provenance :authored}
+          ok   (fn [] (React/createElement "div" #js {:className "live139"} "live"))
+          boom (fn [] (throw (ex-info "rerender boom" {})))
+          v1   (fn [] [{:frame-id :frame/live139
+                        :config {:initial-events [[:test/set-db {:n 1}]]}
+                        :config-fingerprint "cf1-live139v1aaaa"}])
+          v2   (fn [] [{:frame-id :frame/live139
+                        :config {:initial-events [[:test/set-db {:n 2}]]}
+                        :config-fingerprint "cf1-live139v2bbbb"}])]
+      ;; first mount COMMITS the frame + root
+      (act! #(client/mount* info c ok (client/root-options nil nil nil nil) v1))
+      (is (true? (:committed (frames/installed-plan-entry :frame/live139)))
+          "sanity: the first mount committed a root scope")
+      (is (re-find #"live" (.-innerHTML c)) "sanity: the committed render is in the DOM")
+      ;; a re-mount REFRESHES the frame (v2) but its re-render throws
+      (let [threw (try (flush-without-act!
+                        #(client/mount* info c boom
+                                        (client/root-options nil nil nil nil) v2))
+                       false (catch :default _ true))]
+        (is threw "the failed re-render throws"))
+      ;; Q49: the existing root stays registered + its last committed DOM intact
+      (is (contains? (client/live-root-ids) :dom139/live)
+          "the committed root stays registered on a failed re-render")
+      (is (re-find #"live" (.-innerHTML c))
+          "its last committed render / DOM is UNTOUCHED (Q49)")
+      (let [entry (frames/installed-plan-entry :frame/live139)]
+        (is (true? (:committed entry)) "the committed root scope is PRESERVED")
+        (is (nil? (:mount-incomplete entry))
+            "a committed root's failed refresh is NEVER mount-incomplete")
+        (is (true? (:preflight-attempt-failed entry))
+            "only the failed refresh ATTEMPT is recorded (rf2-vxgfnd.139)"))
+      (act! #(client/unmount!* (:root (client/live-root-entry :dom139/live)))))))
+
+;; ---------------------------------------------------------------------------
 ;; frame-provider — scope a live frame through the compiled template
 ;; ---------------------------------------------------------------------------
 
