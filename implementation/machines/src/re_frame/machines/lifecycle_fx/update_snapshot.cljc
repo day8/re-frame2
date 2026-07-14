@@ -55,7 +55,18 @@
   next dispatch); the patch fx itself does not run `state-resolves?` on the
   candidate. This is the deliberate escape-hatch trade-off: the hatch is the
   low-frequency \"I need to touch `:state` + something else atomically\"
-  primitive, not a guarded `:on`-transition."
+  primitive, not a guarded `:on`-transition.
+
+  Incarnation fence (rf2-vxgfnd.22): the escape-hatch store-write is fenced to
+  the exact frame incarnation, mirroring the destroy / finalize / spawn
+  incarnation-fencing family. The `:db` hard-disallow trace below is a PRE-WRITE
+  callback that fires synchronous trace listeners (the observation-port epoch
+  capture + any app-registered `:trace` handler); one may destroy the frame
+  incarnation A that owns the in-flight event and publish a same-id successor B.
+  Ownership is rechecked AFTER that emit and before the read/merge/write, and
+  the store-write rides the EXACT owner token (`swap-runtime-db-exact!`) so a
+  merge never lands on — nor bumps the commit epoch of — successor B. An
+  eventless caller (nil token) keeps the historical bare write."
   [{frame-id :frame} args]
   (let [;; The cascade envelope frame is the fx-context `:frame`; a nil
         ;; stamp is an invariant failure (`:rf.error/no-frame-context`),
@@ -65,7 +76,21 @@
                      {:where 'rf.machine/update-snapshot
                       :event-id (:rf/machine-id args)})
         machine-id (:rf/machine-id args)
-        patch      (:rf/patch args)]
+        patch      (:rf/patch args)
+        ;; rf2-vxgfnd.22 — capture A's exact-frame-incarnation continuation +
+        ;; raw owner token ONCE at the fx entry, mirroring the destroy /
+        ;; finalize / spawn incarnation-fencing family. This fx runs inside the
+        ;; emitting event's fx drain, so `*event-owner*` names the exact
+        ;; incarnation A that owns the in-flight event. `owner-gone?` fires once
+        ;; a synchronous callback below — the `:db` hard-disallow trace, whose
+        ;; sync listeners include the observation-port epoch capture + any
+        ;; app-registered `:trace` handler — has destroyed A / published a
+        ;; same-id successor B; `owner-token` binds the store-write to A's OWN
+        ;; container. An eventless caller (no owner bound) yields
+        ;; `(constantly false)` / nil — the historical full-authority bare write.
+        continue?   (data-validation/owner-continuation frame-id)
+        owner-gone? (fn [] (not (continue?)))
+        owner-token (frame/current-event-owner-token)]
     (when (and machine-id (map? patch))
       ;; Hard-disallow `:db` — symmetric with the action-effect path
       ;; (Spec 005:463). Canonical id / tags per Spec 009 §Error event
@@ -87,38 +112,60 @@
                             :offending-value (:db patch)
                             :frame           frame-id
                             :recovery        :logged-and-skipped}))
-      (let [clean-patch (select-keys patch permitted-patch-keys)]
-        (when (seq clean-patch)
-          ;; Machine snapshots are durable runtime-db state: the
-          ;; escape-hatch patch is a runtime-db partition write.
-          ;;
-          ;; The escape-hatch `:data` patch is NOT exempt from the
-          ;; `:where :machine-data` boundary. Spec 005 §Snapshot-
-          ;; level escape hatch says user error/status state lives under
-          ;; `:data` *where `[:schemas :data]` validation covers it*. The fx
-          ;; runs on the single drainer (Spec 002), so read-then-write is
-          ;; atomic for this actor's snapshot: read the current snapshot,
-          ;; compute the would-be-merged candidate, validate its `:data`
-          ;; against the actor's resolved `[:schemas :data]` schema, and SKIP
-          ;; the write when it fails (a PRE-WRITE rejection — nothing is
-          ;; committed, so `:rollback? false`; the trace fires with
-          ;; `:phase :update-snapshot`). A valid patch — or a machine with
-          ;; no `[:schemas :data]` schema — writes exactly as before. Absent actor
-          ;; (destroyed / unknown) is a no-op: nothing to merge into, and
-          ;; nothing to validate.
-          (let [snapshots (get-in (frame/frame-runtime-db-value frame-id)
-                                  (paths/snapshot-path))]
-            (when (contains? snapshots machine-id)
-              (let [merged (merge (get snapshots machine-id) clean-patch)]
-                (when (data-validation/validate-update-snapshot-data!
-                        machine-id merged)
-                  (frame/swap-runtime-db!
-                    frame-id
-                    (fn [runtime-db]
-                      ;; Re-check presence inside the swap — never conjure
-                      ;; a snapshot for an actor torn down between the read
-                      ;; and the write.
-                      (if (contains? (get-in runtime-db (paths/snapshot-path)) machine-id)
-                        (update-in runtime-db (paths/snapshot-path machine-id) merge clean-patch)
-                        runtime-db))))))))))
+      ;; rf2-vxgfnd.22 — the `:db` hard-disallow trace above fires SYNC trace
+      ;; listeners (the observation-port epoch capture + any app-registered
+      ;; `:trace` listener); one may destroy A and re-seed a same-id successor
+      ;; B on this stack. Recheck ownership BEFORE the read/merge/write — a
+      ;; callback that lost A must not drive an A-derived merge onto B: B's
+      ;; presence-check would pass, and `resolve-data-schema`'s branches go nil
+      ;; once A is lost, so the pre-write `validate-update-snapshot-data!`
+      ;; returns vacuously true (no schema to reject on) and the bare write
+      ;; would merge A's patch onto B AND bump B's commit epoch. Short-circuit
+      ;; to the inert outcome. The eventless caller keeps full authority
+      ;; (`owner-gone?` never fires).
+      (when-not (owner-gone?)
+        (let [clean-patch (select-keys patch permitted-patch-keys)]
+          (when (seq clean-patch)
+            ;; Machine snapshots are durable runtime-db state: the
+            ;; escape-hatch patch is a runtime-db partition write.
+            ;;
+            ;; The escape-hatch `:data` patch is NOT exempt from the
+            ;; `:where :machine-data` boundary. Spec 005 §Snapshot-
+            ;; level escape hatch says user error/status state lives under
+            ;; `:data` *where `[:schemas :data]` validation covers it*. The fx
+            ;; runs on the single drainer (Spec 002), so read-then-write is
+            ;; atomic for this actor's snapshot: read the current snapshot,
+            ;; compute the would-be-merged candidate, validate its `:data`
+            ;; against the actor's resolved `[:schemas :data]` schema, and SKIP
+            ;; the write when it fails (a PRE-WRITE rejection — nothing is
+            ;; committed, so `:rollback? false`; the trace fires with
+            ;; `:phase :update-snapshot`). A valid patch — or a machine with
+            ;; no `[:schemas :data]` schema — writes exactly as before. Absent actor
+            ;; (destroyed / unknown) is a no-op: nothing to merge into, and
+            ;; nothing to validate.
+            (let [snapshots (get-in (frame/frame-runtime-db-value frame-id)
+                                    (paths/snapshot-path))]
+              (when (contains? snapshots machine-id)
+                (let [merged (merge (get snapshots machine-id) clean-patch)]
+                  (when (data-validation/validate-update-snapshot-data!
+                          machine-id merged)
+                    ;; rf2-vxgfnd.22 — route the store-write through the EXACT
+                    ;; durable write so it NO-OPS on owner loss: no merge onto
+                    ;; B, and no phantom commit-epoch bump (the observation-port
+                    ;; signal B never earned). The `validate-update-snapshot-
+                    ;; data!` callback above is itself schema/app code that can
+                    ;; lose A, so the exact write is the terminal fence for that
+                    ;; boundary too. The eventless caller (nil token) falls back
+                    ;; to the historical bare write.
+                    (let [swap-fn
+                          (fn [runtime-db]
+                            ;; Re-check presence inside the swap — never conjure
+                            ;; a snapshot for an actor torn down between the read
+                            ;; and the write.
+                            (if (contains? (get-in runtime-db (paths/snapshot-path)) machine-id)
+                              (update-in runtime-db (paths/snapshot-path machine-id) merge clean-patch)
+                              runtime-db))]
+                      (if owner-token
+                        (frame/swap-runtime-db-exact! frame-id owner-token swap-fn)
+                        (frame/swap-runtime-db! frame-id swap-fn)))))))))))
     nil))

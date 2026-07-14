@@ -266,6 +266,86 @@
           (finally
             (late-bind/set-fn! :schemas/validate-with-registered-fn orig)))))))
 
+(deftest update-snapshot-db-trace-listener-fences-write-to-successor
+  (testing "the :rf.machine/update-snapshot escape hatch, :db-TRACE path (the
+            pre-validator callback the validator-callback fence does NOT cover,
+            rf2-vxgfnd.22): a `:db` key in the patch fires the
+            :rf.error/machine-action-wrote-db hard-disallow trace; a SYNC :trace
+            listener on it destroys A + publishes same-id B (with a distinct
+            sentinel snapshot). The A-derived patch must NOT merge onto B, and
+            B's commit epoch must NOT bump.
+
+            Counterexample (why the existing validator-callback fence misses
+            this): A is destroyed BEFORE `validate-update-snapshot-data!` runs,
+            so `resolve-data-schema`'s branches (`(when (continue?) …)`-guarded)
+            go nil — the would-REJECT validator is never even consulted and the
+            validator returns vacuously true. Only the :db-trace incarnation
+            fence blocks the write.
+
+            Mutation tooth: dropping the post-:db-trace `(when-not (owner-gone?)
+            …)` recheck + the `swap-runtime-db-exact!` store-write lets the bare
+            swap merge {:v :patched} onto same-id B AND bump B's commit epoch."
+    (rf/reg-machine :rf2-vxgfnd22/sing
+      {:initial :running
+       :data    {:v :a-init}
+       :schemas {:data ::db-trace-schema}
+       :states  {:running {:on {:go :done}}
+                 :done    {:final? true}}})
+    (let [frame-a :rf2-vxgfnd22/dbtrace-frame
+          fired?  (atom false)
+          b-snap  (atom ::unset)
+          b-epoch (atom ::unset)
+          orig    (late-bind/get-fn :schemas/validate-with-registered-fn)]
+      (rf/make-frame {:id frame-a})
+      (let [token-a (frame/frame-incarnation-token frame-a)]
+        ;; Seed A's singleton snapshot so the escape hatch has a live target.
+        (frame/swap-runtime-db! frame-a
+          (fn [rt] (assoc-in rt [:rf.runtime/machines :snapshots :rf2-vxgfnd22/sing]
+                             {:state :running :data {:v :a-init}})))
+        ;; The DESTROYER is a :trace listener on the :db hard-disallow trace (NOT
+        ;; the schema validator) — that is the whole point: this pre-validator
+        ;; callback path is the one the validator-callback fence cannot cover.
+        (rf/register-listener! :trace ::db-trace-destroyer
+          (fn [ev]
+            (when (and (= :rf.error/machine-action-wrote-db (:operation ev))
+                       (compare-and-set! fired? false true))
+              (frame/destroy-frame! frame-a)      ;; destroy incarnation A
+              (rf/make-frame {:id frame-a})        ;; publish same-id successor B
+              (frame/swap-runtime-db! frame-a      ;; B's DISTINCT sentinel snapshot
+                (fn [rt] (assoc-in rt [:rf.runtime/machines :snapshots :rf2-vxgfnd22/sing]
+                                   {:state :running :data {:v :b-sentinel}})))
+              (reset! b-snap  (mtest/snapshot frame-a :rf2-vxgfnd22/sing))
+              (reset! b-epoch (frame/frame-commit-epoch frame-a)))))
+        (try
+          ;; A REJECTING validator (false for the machine's schema). It is NEVER
+          ;; consulted on the destroyed-A path (`resolve-data-schema` goes nil
+          ;; once A is lost) — registered only to prove the validator-callback
+          ;; fence leaves this :db-trace path open.
+          (late-bind/set-fn! :schemas/validate-with-registered-fn
+            (fn [schema _data] (not= schema ::db-trace-schema)))
+          ;; Drive the escape-hatch fx DIRECTLY under A's bound event owner. The
+          ;; patch carries a `:db` key (the hard-disallow) so the trace fires and
+          ;; the listener destroys A on its own stack; `:data` is the escape-hatch
+          ;; payload that must not reach same-id B.
+          (frame/call-with-event-owner-token frame-a token-a
+            (fn [] (update-snapshot/update-snapshot-fx
+                     {:frame frame-a}
+                     {:rf/machine-id :rf2-vxgfnd22/sing
+                      :rf/patch      {:db   {:naughty :write}
+                                      :data {:v :patched}}})))
+          (is (true? @fired?)
+              "the :db-trace hard-disallow listener ran (the fence boundary was exercised)")
+          (is (= {:v :b-sentinel} (:data @b-snap))
+              "sanity: B's snapshot at birth carried the distinct sentinel")
+          (is (= {:v :b-sentinel}
+                 (:data (mtest/snapshot frame-a :rf2-vxgfnd22/sing)))
+              "B's snapshot :data is untouched — the A-derived patch did not merge onto same-id B")
+          (is (= @b-epoch (frame/frame-commit-epoch frame-a))
+              "B's commit epoch is unbumped — no phantom observation-port signal from an A-derived write")
+          (finally
+            (rf/unregister-listener! :trace ::db-trace-destroyer)
+            (late-bind/set-fn! :schemas/validate-with-registered-fn orig)))))))
+
 ;; ---- completion-output finalize diagnostic fence --------------------------
 
 (defn- run-completion-validation
