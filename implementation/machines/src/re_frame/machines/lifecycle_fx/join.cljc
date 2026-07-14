@@ -155,32 +155,76 @@
   ONLY its private recordable `:rf.machine/join-auth` `:rf.cofx` fact and stamps
   `:source :machine-action`; the public completion event VALUE is unchanged.
 
+  CANONICAL DISPATCH OVERRIDES INTERCEPT FIRST (rf2-ulsbgr). #5881 lowered the
+  authored `:dispatch` / `:dispatch-later` completion to this PRIVATE id BEFORE
+  core override resolution, so `do-fx` looked up `:fx-overrides` under the
+  private id and a `{:fx-overrides {:dispatch capture-fn}}` never intercepted
+  the completion. Here we resolve the CANONICAL override FIRST: when the
+  completion's authored id (`:dispatch-later` for a numeric `:ms`, else
+  `:dispatch`) is overridden in the SAME effective override map `do-fx` used
+  (per-frame ⋈ per-call, per-call winning — `re-frame.router/apply-overrides`),
+  we route the canonical `[fx-id args]` back through the shared core seam
+  `re-frame.fx/handle-one-fx` (fn-value pre-empts / keyword-redirect / traces,
+  the identical resolution a normal dispatch flows through). The override
+  captures / redirects the completion, queues nothing, folds nothing, and NO
+  private join authority is minted — an application override can never forge or
+  replay the recordable authority into the normal transport. Only the
+  UNOVERRIDDEN completion is lowered to the recordable transport below.
+
   Not an application control surface — reserved-`:rf.machine/*` internal, it
   re-dispatches ONLY the pre-built completion carrier it was handed (never
   traverses arbitrary / custom effect payloads).
 
-  ctx carries `:frame` and `:envelope` (the emitting child's dispatch envelope,
-  threaded by `re-frame.fx/do-fx`). args: `{:event <[parent-id inner-event]>
-  :rf/join-auth <auth-tuple> :ms <ms?>}`. A POSITIVE `:ms` (from a
-  `:dispatch-later` completion) arms a frame-owned delayed dispatch; nil /
-  non-positive dispatches immediately — the same enqueue a direct `:dispatch`
-  completion takes."
-  [{:keys [frame envelope]} {:keys [event ms] auth :rf/join-auth}]
-  (let [frame-id (frame/require-frame-stamp!
-                   frame :rf.machine/join-dispatch
-                   {:where 'rf.machine/join-dispatch :event-id (first event)})]
-    (fx/child-dispatch!
-      frame-id envelope event
-      ;; The recordable causal-envelope fact rides `:rf.cofx`; `:source
-      ;; :machine-action` matches the child's original `:dispatch` stamp; the
-      ;; `:rf.machine/internal?` front-of-queue ordering + override / lineage /
-      ;; mint-policy inheritance are lifted from `envelope` by `child-dispatch!`.
-      ;; A positive delay carries `:ms` + `:source-detail`; ms 0 / nil enqueues
-      ;; immediately (a `:dispatch-later {:ms 0}` completion folds synchronously
-      ;; on the in-progress drain, matching the direct `:dispatch` completion).
-      (cond-> {:source  :machine-action
-               :rf.cofx {:rf.machine/join-auth auth}}
-        (and (number? ms) (pos? ms)) (assoc :ms ms :source-detail {:ms ms}))))
+  ctx carries `:frame`, `:envelope` (the emitting child's dispatch envelope),
+  and `:event` (the originating event, threaded by `re-frame.fx/do-fx`). args:
+  `{:event <[parent-id inner-event]> :rf/join-auth <auth-tuple> :ms <ms?>}`. A
+  POSITIVE `:ms` (from a `:dispatch-later` completion) arms a frame-owned
+  delayed dispatch; nil / non-positive `:ms` dispatches immediately — the same
+  enqueue a direct `:dispatch` completion takes."
+  [{:keys [frame envelope] origin-event :event} {:keys [event ms] auth :rf/join-auth}]
+  (let [frame-id     (frame/require-frame-stamp!
+                       frame :rf.machine/join-dispatch
+                       {:where 'rf.machine/join-dispatch :event-id (first event)})
+        ;; The CANONICAL authored effect this completion was lowered from: a
+        ;; `:dispatch-later` completion carries a numeric `:ms` (zero or
+        ;; positive); a direct `:dispatch` completion carries none.
+        canonical-id (if (number? ms) :dispatch-later :dispatch)
+        frame-record (frame/frame frame-id)
+        ;; The SAME effective override map `do-fx` resolved against — per-frame
+        ;; ⋈ per-call, per-call winning (mirrors `router/apply-overrides`). The
+        ;; per-call tier rides the emitting child's dispatch envelope.
+        overrides    (merge (:fx-overrides (:config frame-record))
+                            (:fx-overrides envelope))]
+    (if (fx/real-override? overrides canonical-id)
+      ;; OVERRIDDEN (rf2-ulsbgr): route the canonical `:dispatch` /
+      ;; `:dispatch-later` back through the shared core override-resolution seam
+      ;; so the override intercepts the completion exactly as it would a normal
+      ;; dispatch. `handle-one-fx` (not `do-fx`) keeps the single `:event/do-fx`
+      ;; boundary marker on the outer walk (the nav-token wrapper precedent). No
+      ;; `child-dispatch!` → no fold, no queue, and no private authority minted.
+      (fx/handle-one-fx
+        frame-id
+        (if (number? ms)
+          [:dispatch-later {:ms ms :event event}]
+          [:dispatch event])
+        (fx/platform-for-frame-record frame-record)
+        overrides
+        origin-event
+        envelope)
+      ;; UNOVERRIDDEN: the normal recordable transport. The recordable causal-
+      ;; envelope fact rides `:rf.cofx`; `:source :machine-action` matches the
+      ;; child's original `:dispatch` stamp; the `:rf.machine/internal?`
+      ;; front-of-queue ordering + override / lineage / mint-policy inheritance
+      ;; are lifted from `envelope` by `child-dispatch!`. A POSITIVE-delay
+      ;; `:dispatch-later` completion carries `:ms` + `:source-detail`, so
+      ;; `child-dispatch!` arms the frame-owned delayed dispatch; ms 0 / nil
+      ;; enqueues immediately (a `:dispatch-later {:ms 0}` completion folds
+      ;; synchronously on the in-progress drain, matching a direct `:dispatch`).
+      (fx/child-dispatch!
+        frame-id envelope event
+        (cond-> {:source  :machine-action
+                 :rf.cofx {:rf.machine/join-auth auth}}
+          (and (number? ms) (pos? ms)) (assoc :ms ms :source-detail {:ms ms})))))
   nil)
 
 (defn- stamp-fx-entry

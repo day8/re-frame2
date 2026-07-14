@@ -491,11 +491,27 @@
     :rf.fx/clear-flow
     :rf.route/with-nav-token})
 
+(defn real-override?
+  "True iff `overrides` carries a GENUINE override for `fx-id` — a fn body, a
+  keyword redirect, or any other non-noop value (which `resolve-fx-with-
+  overrides` then reports) — as opposed to the documented nil/false no-op
+  placeholder (spec/002 §`:fx-overrides`: \"nil/false → no override, fall
+  through\"). The single definition of \"is this fx actually overridden\",
+  shared by the reject-tier gate (`real-reject-override?`) and the machines
+  `:rf.machine/join-dispatch` transport's override-first resolution (rf2-ulsbgr
+  — a `:spawn-all` child completion whose canonical `:dispatch` / `:dispatch-
+  later` is overridden must route through that override, NOT be lowered to the
+  private recordable transport). Public so the machines transport reuses this
+  one definition rather than forking a second override engine."
+  [overrides fx-id]
+  (let [v (get overrides fx-id)]
+    (and (some? v) (not (false? v)))))
+
 (defn- real-reject-override?
   "True iff `overrides` carries a GENUINE reject-tier override attempt for
   reserved `fx-id` — i.e. `fx-id` is in `rejected-reserved-fx-ids` AND its
-  override VALUE is a real override (a fn body or keyword redirect, or any
-  other non-noop value), NOT the documented nil/false no-op placeholder.
+  override VALUE is a real override (`real-override?`), NOT the documented
+  nil/false no-op placeholder.
 
   rf2-x76af2.27: the reject-tier gates previously tested bare key PRESENCE
   (`contains?`), so an override entry `{:rf.fx/reg-flow nil}` — the collapsed
@@ -508,8 +524,7 @@
   through silently, only a real fn/keyword override emits + is neutralised."
   [overrides fx-id]
   (and (contains? rejected-reserved-fx-ids fx-id)
-       (let [v (get overrides fx-id)]
-         (and (some? v) (not (false? v))))))
+       (real-override? overrides fx-id)))
 
 ;; Inheritable envelope fields — copied from parent to child when
 ;; `:dispatch` / `:dispatch-later` queue a new envelope. Per Spec 002
