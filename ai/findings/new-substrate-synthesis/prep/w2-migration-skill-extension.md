@@ -232,7 +232,8 @@ runtime class is frame scoping at boundaries and interaction-time behaviour, so 
 done-bar per subtree is still live, not "compiles":
 
 1. **Tier-1 structural tests** (`re-frame.ui.test`; JVM, no DOM): `(uit/render view
-   {:app-db seed})`, structural `find`/`text`/`attrs`, and **event-intent assertions**
+   {:frame (rf/make-frame {:initial-events [[:rf/set-db seed]]})})`, structural
+   `find`/`text`/`attrs`, and **event-intent assertions**
    — assert the button *carries* `[:cart/add id]` as data; no DOM click needed.
    `uit/dispatch!` drives Tier-1 state — real dispatch + drain to fixed point,
    re-render and assert, no flush call needed (`flush!` belongs to the Tier-3 mounted
