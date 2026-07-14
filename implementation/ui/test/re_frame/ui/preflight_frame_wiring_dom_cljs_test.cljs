@@ -337,6 +337,92 @@
       (act! #(client/unmount!* (:root (client/live-root-entry :dom139/live)))))))
 
 ;; ---------------------------------------------------------------------------
+;; rf2-vxgfnd.264 — TERMINALLY settle an exact preflight receipt when React
+;; ABORTS or ABANDONS the render before the commit reporter can finalize it.
+;;
+;; The rf2-vxgfnd.248 commit reporter binds finalization to a REAL commit, so an
+;; aborted render publishes no COMMITTED evidence — but left alone the receipt
+;; LINGERS FOREVER, neither committed nor failed (the .248 fixture above asserts
+;; only `not :committed`, accepting that permanent-provisional evidence). .264
+;; gives each live Root ONE exact pending render-attempt owner, seated before
+;; `.render`; the host-error and unmount edges terminally settle it as
+;; :mount-incomplete for a fresh install.
+;; ---------------------------------------------------------------------------
+
+(defn- no-act!
+  "Run `thunk` with React's act env toggled OFF and NO flush — the initial render
+  is SCHEDULED but not committed (drives the unmount-before-commit edge). Restores
+  the prior flag."
+  [thunk]
+  (let [prior (.-IS_REACT_ACT_ENVIRONMENT js/globalThis)]
+    (set! (.-IS_REACT_ACT_ENVIRONMENT js/globalThis) false)
+    (try (thunk)
+         (finally (set! (.-IS_REACT_ACT_ENVIRONMENT js/globalThis) prior)))))
+
+(deftest host-abort-terminally-settles-a-fresh-receipt-mount-incomplete
+  ;; The CORE .264 defect: the element thunk succeeds (React receives an element),
+  ;; the component throws during React's render, and `onUncaughtError` ABORTS the
+  ;; commit AFTER `.render` returned — the reporter's layout effect never runs. The
+  ;; .248 fixture proves the receipt is NOT falsely :committed; .264 additionally
+  ;; requires it be TERMINALLY settled :mount-incomplete, never left provisional.
+  ;; RED before fix: the record is neither :committed NOR :mount-incomplete.
+  (when (browser?)
+    (reg-events!)
+    (let [c        (container)
+          captured (atom nil)
+          info     {:root-id :dom264/host :provenance :authored}
+          element-thunk (fn [] (React/createElement throwing-during-render #js {}))
+          plans    (fn [] [{:frame-id :frame/abort264
+                            :config {:initial-events [[:test/set-db {:n 1}]]}
+                            :config-fingerprint "cf1-abort264aaaa"}])
+          ;; an AUTHORED onUncaughtError — it MUST still be delegated after the
+          ;; receipt abort (rf2-vxgfnd.264), and capturing the deliberate throw keeps
+          ;; it off the window as an uncaught error (rf2-mwx08).
+          opts     (client/root-options
+                    nil (fn [error _info] (reset! captured error)) nil nil)
+          _        (flush-without-act!
+                    #(client/mount* info c element-thunk opts plans))]
+      (is (some? @captured)
+          "the authored onUncaughtError is still delegated after the receipt abort")
+      (is (some? (frame/frame :frame/abort264))
+          "preflight installed the frame — a receipt exists to settle")
+      (let [entry (frames/installed-plan-entry :frame/abort264)]
+        (is (true? (:mount-incomplete entry))
+            "the host-aborted FRESH render is TERMINALLY settled :mount-incomplete (rf2-vxgfnd.264)")
+        (is (not (:committed entry))
+            "and never a phantom committed root scope (rf2-vxgfnd.248 preserved)"))
+      ;; the root stays registered after an aborted commit (`.render` returned) —
+      ;; release its claim so no live-root leaks into the next test.
+      (act! #(some-> (:root (client/live-root-entry :dom264/host)) client/unmount!*)))))
+
+(deftest unmount-before-commit-terminally-settles-a-fresh-receipt-mount-incomplete
+  ;; A fresh async render, SCHEDULED but never committed, followed by an immediate
+  ;; unmount: the seated receipt is terminally settled :mount-incomplete rather than
+  ;; left forever provisional. RED before fix: unmount never settled the receipt.
+  (when (browser?)
+    (reg-events!)
+    (let [c     (container)
+          info  {:root-id :dom264/unmount :provenance :authored}
+          ok    (fn [] (React/createElement "div" #js {:className "u264"} "u264"))
+          plans (fn [] [{:frame-id :frame/unmount264
+                         :config {:initial-events [[:test/set-db {:n 1}]]}
+                         :config-fingerprint "cf1-unmount264aa"}])]
+      ;; mount schedules the initial render (act env off, no flush → uncommitted),
+      ;; then unmount BEFORE it can commit.
+      (no-act!
+       #(let [root (client/mount* info c ok (client/root-options nil nil nil nil) plans)]
+          (client/unmount!* root)))
+      (is (some? (frame/frame :frame/unmount264))
+          "preflight installed the frame — a receipt exists to settle")
+      (let [entry (frames/installed-plan-entry :frame/unmount264)]
+        (is (true? (:mount-incomplete entry))
+            "the unmounted-before-commit FRESH render is TERMINALLY settled :mount-incomplete (rf2-vxgfnd.264)")
+        (is (not (:committed entry))
+            "and never a phantom committed root scope"))
+      (is (not (contains? (client/live-root-ids) :dom264/unmount))
+          "the unmounted root is released"))))
+
+;; ---------------------------------------------------------------------------
 ;; frame-provider — scope a live frame through the compiled template
 ;; ---------------------------------------------------------------------------
 
