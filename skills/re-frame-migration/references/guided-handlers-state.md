@@ -86,7 +86,7 @@ Present every call site with its file:line and the four options; collect the aut
 **Decision shape** (per component-under-frame pair):
 
 1. **Convert to `reg-view`**. Replace `(defn my-view [args] ...)` with `(rf/reg-view ^{:doc "..."} my-view [args] ...)`. The view picks up the surrounding frame correctly. Recommended.
-2. **Carry the frame explicitly**. Keeping it a plain fn means carrying its frame *in*, since it cannot read the provider's from context (that is the very premise above). A **bare** no-arg `(rf/capture-frame)` in the body does **not** fix it — with no readable scope it repeats the same ambient lookup and re-raises `:rf.error/no-frame-context`. Carry the target instead: `(rf/capture-frame frame-id)` locked to a named frame, a `{:frame <id>}` opt on each `dispatch` / `subscribe`, or a frame api captured in a frame-aware ancestor and threaded down as a prop — then route `(dispatch [...])` / `(subscribe [...])` through it (the captured handle, unlike the ambient binding, survives into any async callback the body sets up). A no-arg capture captures only from a genuine live scope — a registered view, or a synchronous `with-frame` wrapping the actual operation — which the unregistered plain fn under a provider does not have.
+2. **Carry the frame explicitly**. Keeping it a plain fn means carrying its frame *in*, since it cannot read the provider's from context (that is the very premise above). A **bare** no-arg `(rf/capture-frame)` in the body does **not** fix it — with no readable scope it repeats the same ambient lookup and re-raises `:rf.error/no-frame-context`. Carry the target instead: `(rf/capture-frame frame-id)` locked to a named frame, a `{:frame <id>}` opt on each `dispatch` / `subscribe`, or a frame api captured in a frame-aware ancestor and threaded down as a prop — then route `(dispatch [...])` / `(subscribe [...])` through it (the captured handle, unlike the ambient binding, survives into any async callback the body sets up). A no-arg capture succeeds wherever the standard resolver currently yields a frame — a registered view's render and a synchronous `with-frame` around the operation are the examples that matter here, but a handler, an effect, a test binding, or an SSR render resolves one just as legitimately; the whitelist is the live resolver, not that short pair of shapes. The unregistered plain fn under a provider is simply the case with no resolvable scope at all.
 3. **Leave as-is** — *only* when the component never calls `rf/subscribe` / `rf/dispatch` (a pure presentational fn with no frame-scoped reads), **or** when it establishes / carries a frame explicitly inside its own body (a `with-frame`, an explicit `{:frame <id>}` op opt, or a captured `(rf/capture-frame)`). Do **not** describe this as pinning to `:rf/default`: there is no `:rf/default` fall-through (EP-0002), so a frame-dependent plain fn left under any provider — the default/root included — raises `:rf.error/no-frame-context` at render; it does not silently route to a default. To *intentionally* target `:rf/default` (e.g. a "global" UI primitive), the component must scope or pass that frame explicitly like any other; document why.
 
 ### The single-frame case — a forced whole-tree sweep, not the opt-in O-2
@@ -148,9 +148,9 @@ The spec prefers Form-1 + an explicit setup event over Form-2 (see [`spec/004-Vi
 **Form-3 (`reagent.core/create-class` — lifecycle).** The `reg-view` macro **rejects** a `create-class` body at macroexpand (Form-3 is not defn-shape; the error points the author at `reg-view*`), so you cannot wrap the class in `reg-view` and have it pick up `:contextType` the way a function component does. Two routes, both spec-supported:
 
 1. **Extract the subscribing content into a `reg-view` child (preferred).** Keep the class for its lifecycle, but move the part that derefs subs / dispatches into a small `reg-view`-registered child the class renders. The child carries its own `:contextType` and reads the frame; the class manages its DOM/lifecycle and subscribes nothing.
-2. **Register the class through `reg-view*` and capture the frame explicitly.** Per [`spec/004-Views.md` §Form-3](../../../spec/004-Views.md#removed-forms--normative-absences), the class ships through `re-frame.core/reg-view*` (the plain-fn surface — no auto-inject), and inside its render / lifecycle hooks you bind `{:keys [dispatch subscribe]}` from `(rf/capture-frame)` and route through those ops. The captured handle locks to the render frame and survives the lifecycle callbacks' async boundary.
+2. **Register the outer fn through `reg-view*` and capture the frame *once, in that outer callable*, before you build the class.** Per [`spec/004-Views.md` §Form-3](../../../spec/004-Views.md#removed-forms--normative-absences), the class ships through `re-frame.core/reg-view*` (the plain-fn surface — no auto-inject). The `reg-view*` outer callable runs under the live resolver scope — the one compiler-visible site in a Form-3 where a reactive read still resolves a frame — so bind `{:keys [dispatch subscribe]}` from `(rf/capture-frame)` **there**, before constructing `create-class`, and close that locked handle over the render fn and every lifecycle hook. Do **not** move the capture into a lifecycle callback (`:component-did-mount` / `:component-will-unmount` / `:component-did-update`): those fire after the resolver scope has unwound, so a `(rf/capture-frame)` inside one re-raises `:rf.error/no-frame-context`. The handle taken in the outer callable, by contrast, is a locked value that survives into the lifecycle callbacks' async boundary — which is exactly why the render fn and the callbacks share it rather than each re-capturing.
 
-**What you register through `reg-view*` is the *outer closure fn*, not a bare singleton `(create-class …)`.** The singleton form — `(reg-view* ::id (reagent.core/create-class {…}))` — is only the simplest case. The dominant real Form-3 (charts, maps, editors: per-instance JS state + lifecycle + props) wraps the class in an **outer fn** that closes over per-mount `r/atom`s + props and *returns* the `create-class`. `reg-view*`'s render-fn argument is **any callable** (per [`spec/004-Views.md` §`reg-view*`](../../../spec/004-Views.md#removed-forms--normative-absences): "a plain function … the body can be any callable"), and that outer fn is a callable, so you register **it** — `(reg-view* ::id my-outer-fn)`, optionally `(def my-view (rf/view ::id))` for a hiccup handle. The per-mount state stays in the closure exactly as the v1 source had it; capture the frame in the render / lifecycle hooks as in route 2 above. A behaviour-preserving migration **keeps the outer-fn closure** — do not rewrite it into a Reagent `get-initial-state`/`reagent-state` shape.
+**What you register through `reg-view*` is the *outer closure fn*, not a bare singleton `(create-class …)`.** The singleton form — `(reg-view* ::id (reagent.core/create-class {…}))` — is only the simplest case. The dominant real Form-3 (charts, maps, editors: per-instance JS state + lifecycle + props) wraps the class in an **outer fn** that closes over per-mount `r/atom`s + props and *returns* the `create-class`. `reg-view*`'s render-fn argument is **any callable** (per [`spec/004-Views.md` §`reg-view*`](../../../spec/004-Views.md#removed-forms--normative-absences): "a plain function … the body can be any callable"), and that outer fn is a callable, so you register **it** — `(reg-view* ::id my-outer-fn)`, optionally `(def my-view (rf/view ::id))` for a hiccup handle. The per-mount state stays in the closure exactly as the v1 source had it; capture the frame **once in the outer callable** — the live resolver site — as in route 2 above, never inside a lifecycle hook. A behaviour-preserving migration **keeps the outer-fn closure** — do not rewrite it into a Reagent `get-initial-state`/`reagent-state` shape.
 
 ```clojure
 ;; v1 Form-3 — the dominant shape: an OUTER fn closes over per-mount instance
@@ -163,17 +163,27 @@ The spec prefers Form-1 + an explicit setup event over Form-2 (see [`spec/004-Vi
        :component-will-unmount (fn [_] (destroy! @!inst))})))
 
 ;; v2 — register the OUTER fn through reg-view* (any callable). The per-mount
-;; !inst and props stay in the closure; capture the frame in the render hook.
+;; !inst and props stay in the closure; capture the frame ONCE here in the outer
+;; callable — the live resolver site — before building the class, then close that
+;; one locked handle over the render fn AND the lifecycle hooks.
 (re-frame.core/reg-view* ::chart
   (fn [series]
-    (let [!inst (r/atom nil)]                        ; still per-MOUNT — unchanged
+    (let [{:keys [dispatch]} (rf/capture-frame)      ; captured ONCE, in the live outer callable
+          !inst (r/atom nil)]                        ; still per-MOUNT — unchanged
       (reagent.core/create-class
         {:reagent-render
          (fn [series]
-           (let [{:keys [dispatch]} (rf/capture-frame)]   ; frame captured at render
-             [:div.chart {:on-click #(dispatch [:chart/clicked])}]))
-         :component-did-mount    (fn [this] (reset! !inst (mk-chart! this series)))
-         :component-will-unmount (fn [_] (destroy! @!inst))}))))
+           [:div.chart {:on-click #(dispatch [:chart/clicked])}])  ; closes over the locked handle
+         ;; the lifecycle hooks fire AFTER the resolver scope has unwound — they
+         ;; reach the frame ONLY through the outer-captured `dispatch`, never a
+         ;; fresh (rf/capture-frame) of their own (that would re-raise
+         ;; :rf.error/no-frame-context). The locked handle survives the boundary.
+         :component-did-mount    (fn [this]
+                                   (reset! !inst (mk-chart! this series))
+                                   (dispatch [:chart/mounted]))
+         :component-will-unmount (fn [_]
+                                   (destroy! @!inst)
+                                   (dispatch [:chart/unmounted]))}))))
 ;; optional hiccup handle for call sites — [chart series]:
 (def chart (rf/view ::chart))
 ```
