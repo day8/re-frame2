@@ -1,6 +1,8 @@
 # Errors: dossiers, not log lines
 
-You know the pipeline, [effects](effects.md), and [coeffects](coeffects.md). Now: what happens when one of them breaks?
+You know the pipeline through [effects](effects.md), [coeffects](coeffects.md),
+[frames](frames.md), and [flows](flows.md). Now: what happens when one of them
+breaks?
 
 You've caught a hundred errors with `console.error("something broke", e)`. It kept the message and the stack — and threw away the important half: *which [event](glossary.md#event) was in flight, which [frame](glossary.md#frame) owned it, which [handler](glossary.md#event-handler) was on the hook, what the [pipeline run](glossary.md#run) had already done*. Every one of those facts existed in the runtime, microseconds before the catch. Then the catch fired, kept two of them, and you spent the next hour rebuilding the rest by hand.
 

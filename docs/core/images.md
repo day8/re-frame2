@@ -1,8 +1,11 @@
 # Images: which registrations a frame runs
 
-You've registered a dozen [events](glossary.md#event) and [subscriptions](glossary.md#subscription). Your app works. And you have never once wondered *which* of them a given [frame](glossary.md#frame) can see.
+You've registered a dozen [events](glossary.md#event) and
+[subscriptions](glossary.md#subscription); [frames](frames.md) isolate state. You
+have never once wondered *which* registrations a given frame can see.
 
-Good. That's the design working. The default path is deliberately invisible, and you can stay productive on it for a long time without learning the word on this page.
+Good. That's the design working. The default path is deliberately invisible, and you
+can stay productive on it for a long time without learning the word on this page.
 
 This page is for the day the default stops being enough. The day you want two examples on one page that both call their event `:counter/inc`. Or an inspection tool mounted right beside the app it inspects. Or a test that needs a *fake* HTTP effect instead of the real one. Three different wishes; one question underneath — *which registrations does this frame resolve against?*
 

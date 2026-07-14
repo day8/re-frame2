@@ -1,12 +1,26 @@
 # Flows: derived values your handlers can read
 
-You already know one way to derive a value: a [subscription](glossary.md#subscription) — a named, pure derivation that reads [app-db](glossary.md#app-db) (your app's single state map) and hands the result to a [view](glossary.md#view). Keep that as your reflex. Most derived values are subscriptions, and a typical app has dozens of them.
+You already know one way to derive a value: a
+[subscription](glossary.md#subscription) — a named, pure derivation that reads
+[app-db](glossary.md#app-db) and hands the result to a [view](glossary.md#view)
+([Subscriptions](subscriptions.md)). Keep that as your reflex. Most derived values
+are subscriptions.
 
-But there's a catch in *where* a subscription keeps its answer. It lives in a view-facing cache — built for views to read on the way to rendering, and only views. An [event handler](glossary.md#event-handler) — the pure function that runs when an [event](glossary.md#event) is dispatched and returns the next app-db — can't reach into that cache. Neither can an app-db validation [schema](glossary.md#schema) (they check state, not caches). Neither can another derivation, or anything else that wants the answer as plain data rather than as something a view will render.
+But there's a catch in *where* a subscription keeps its answer. It lives in a
+view-facing cache — built for views, and only views. An
+[event handler](glossary.md#event-handler) can't reach into that cache. Neither can
+an app-db validation [schema](glossary.md#schema). Neither can another derivation
+that wants the answer as plain data.
 
-Sometimes a derived value needs to be *state*: plain data sitting in app-db that the rest of your program reads. For that you want a **[flow](glossary.md#flow)** — a registered rule that says *"when these paths change, run this pure function and write the result into app-db."* You declare the rule once. From then on the framework holds the pen for that path: it keeps the answer fresh, and you never write it by hand.
+Sometimes a derived value needs to be *state*: plain data sitting in app-db that
+handlers and other machinery read. For that you want a **[flow](glossary.md#flow)**
+— a registered rule that says *"when these paths change, run this pure function and
+write the result into app-db."* You declare the rule once; the framework holds the
+pen for that path.
 
-This page builds flows up one step at a time: first the smallest possible flow, then the registration map key by key, then a value that genuinely earns its place in app-db, and finally the runtime tricks — toggling, validating, and classifying a flow's output.
+This page builds flows one step at a time: the smallest possible flow, the
+registration map, a value that earns its place in app-db, then toggling, validating,
+and classifying output.
 
 ## Your first flow
 
