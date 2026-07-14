@@ -2,50 +2,138 @@
 ;;
 ;; Per [005 §Per-region `:always` / `:after` / `:spawn` scoping]
 ;; (../../005-StateMachines.md#per-region-always--after--spawn-scoping):
-;; the macrostep's `:always` microstep loop runs PER REGION. After a
-;; region's event-driven transition, that region's new state's `:always`
-;; entries are checked; matching guards fire transitions in that
-;; region. Sibling regions are not re-evaluated for `:always` on the
-;; transitioning region's microstep.
+;; a region's `:always` transition TARGET / cascade is region-scoped (it
+;; moves that region's own state, never a sibling's), but stabilization is
+;; PARENT-OWNED. After the complete selected event set applies, the parent
+;; selects EVERY enabled regional `:always` against ONE frozen whole-machine
+;; snapshot, applies that preselected set in region-declaration order, and
+;; repeats to quiescence — a single macrostep converging across all regions.
+;; This supersedes the rejected region-local drain model (PR #5801): the
+;; parent does NOT settle one region's `:always` before a sibling's event
+;; action has applied, and declaration order never changes which set is
+;; selected.
 ;;
-;; This fixture exercises a region whose `:initial` state's `:always`
-;; guard already passes after an action sets the data — the macrostep
-;; settles to the post-`:always` state in one dispatch.
+;; Two invariants are proven, corresponding to the two halves of the law:
+;;
+;;   Call 1 — REGION-SCOPED TARGET. A region's `:always` advances only that
+;;   region (`:a → :resolved`); the sibling region that does not participate
+;;   is untouched (`:b` stays `:x`). This is the "region-scoped cascade" half.
+;;
+;;   Calls 2 & 3 — PARENT-OWNED ROUND (the load-bearing distinction). Both
+;;   regions handle the same event `:go`, each writing its own shared-`:data`
+;;   flag (`:a?` / `:b?`); each region's `:mid` `:always` is guarded on BOTH
+;;   flags. Under the ratified engine the event set applies to BOTH regions
+;;   FIRST (both flags set), so the first frozen `:always` round selects both
+;;   regions and both reach `:resolved` in the same macrostep. Call 2 declares
+;;   the regions `[:a :b]`, Call 3 declares them `[:b :a]`; both converge to
+;;   the SAME `{:a :resolved :b :resolved}` / `{:a? true :b? true}`, proving
+;;   declaration-order invariance.
+;;
+;;   Discrimination (mutation gate): a REGION-LOCAL drain — one region
+;;   stabilizing its `:always` before the sibling region's `:go` action has
+;;   written its flag — strands the first-declared region at `:mid` (its
+;;   guard sees only its own flag), producing `{:a :mid :b :resolved}` for
+;;   Call 2 and `{:a :resolved :b :mid}` for Call 3. Both discriminating
+;;   calls therefore REDDEN under region-local draining while Call 1 (region-
+;;   scoped target, shared by both models) stays green. The vacuous single-
+;;   region predecessor passed under either model; these do not.
 
 {:fixture/id           :machine/parallel-always-cascade-per-region
  :fixture/spec-version "1.0"
  :fixture/capabilities #{:fsm/parallel-regions :fsm/eventless-always}
- :fixture/doc          "After a region's :on transition fires, that region's :always microstep cascade runs scoped to the region; sibling regions are unaffected. The action sets `:left-ready? true`, which makes the :always guard pass and advances :left to :resolved in the same macrostep."
+ :fixture/doc          "Region `:always` targets are region-scoped but stabilization is parent-owned. Call 1 proves the region-scoped target (a region's `:always` advances only that region). Calls 2/3 prove the parent-owned round: both regions' `:go` actions apply before the first frozen `:always` round, so a guard requiring BOTH regions' flags fires for both regions in the same macrostep — reaching `{:a :resolved :b :resolved}` regardless of `[:a :b]` vs `[:b :a]` declaration order. A region-local drain would strand the first-declared region at `:mid`."
 
  :fixture/registry
  {:machine-action
-  {:par/mark-ready {:doc "Sets :left-ready? true on the shared :data."}}
+  {:par/arm-a  {:doc "Sets :a-armed? true on the shared :data (region-scoped call)."}
+   :par/mark-a {:doc "Sets :a? true on the shared :data (region :a handled :go)."}
+   :par/mark-b {:doc "Sets :b? true on the shared :data (region :b handled :go)."}}
   :machine-guard
-  {:par/ready? {:doc "True when :left-ready? is true."}}}
+  {:par/a-armed? {:doc "True when :a-armed? is true."}
+   :par/both?    {:doc "True only when BOTH :a? and :b? are true (needs both regions' :go actions)."}}}
 
  :fixture/handlers
  {:machine-action
-  {:par/mark-ready [[:set [:left-ready?] true]]}
+  {:par/arm-a  [[:set [:a-armed?] true]]
+   :par/mark-a [[:set [:a?] true]]
+   :par/mark-b [[:set [:b?] true]]}
   :machine-guard
-  {:par/ready? [[:fn := [:get [:left-ready?]] true]]}}
+  {:par/a-armed? [[:fn := [:get [:a-armed?]] true]]
+   :par/both?    [[:fn :and [:get [:a?]] [:get [:b?]]]]}}
 
  :fixture/calls
+ ;; Call 1 — region-scoped `:always` target. Region :a handles :arm (sets
+ ;; :a-armed?) and its :always advances :a → :resolved in the same macrostep;
+ ;; region :b declines :arm and is untouched. The always TARGET is region-
+ ;; scoped: only :a moves.
  [{:call         :machine-transition
    :definition
-   {:type    :parallel
-    :data    {:left-ready? false}
-    :guards  {:ready? :par/ready?}
-    :actions {:mark-ready :par/mark-ready}
-    :regions {:left  {:initial :idle
-                      :states
-                      {:idle     {:always [{:guard :ready? :target :resolved}]
-                                  :on     {:prep {:target :idle :action :mark-ready}}}
-                       :resolved {}}}
-              :right {:initial :a
-                      :states  {:a {}}}}}
-   :snapshot     {:state {:left :idle :right :a}
-                  :data  {:left-ready? false}}
-   :event        [:prep]
-   :expect-next-snapshot {:state {:left :resolved :right :a}
-                          :data  {:left-ready? true}}
+   {:type         :parallel
+    :data         {:a-armed? false}
+    :region-order [:a :b]
+    :guards       {:a-armed? :par/a-armed?}
+    :actions      {:arm-a :par/arm-a}
+    :regions {:a {:initial :idle
+                  :states  {:idle     {:always [{:guard :a-armed? :target :resolved}]
+                                       :on     {:arm {:target :idle :action :arm-a}}}
+                            :resolved {}}}
+              :b {:initial :x
+                  :states  {:x {}}}}}
+   :snapshot     {:state {:a :idle :b :x} :data {:a-armed? false}}
+   :event        [:arm]
+   :expect-next-snapshot {:state {:a :resolved :b :x}
+                          :data  {:a-armed? true}}
+   :expect-effects       []}
+
+  ;; Call 2 — parent-owned round, declaration order [:a :b]. Broadcasting :go
+  ;; applies BOTH regions' actions first (:a? and :b? both set), so the first
+  ;; frozen :always round selects both :mid regions (guard :both? passes for
+  ;; each against the one frozen snapshot) and both reach :resolved in this
+  ;; macrostep. A region-local drain would settle :a's :always before :b's :go
+  ;; action ran → :a stranded at :mid → {:a :mid :b :resolved}.
+  {:call         :machine-transition
+   :definition
+   {:type         :parallel
+    :data         {:a? false :b? false}
+    :region-order [:a :b]
+    :guards       {:both? :par/both?}
+    :actions      {:mark-a :par/mark-a :mark-b :par/mark-b}
+    :regions {:a {:initial :idle
+                  :states  {:idle     {:on     {:go {:target :mid :action :mark-a}}}
+                            :mid      {:always [{:guard :both? :target :resolved}]}
+                            :resolved {}}}
+              :b {:initial :idle
+                  :states  {:idle     {:on     {:go {:target :mid :action :mark-b}}}
+                            :mid      {:always [{:guard :both? :target :resolved}]}
+                            :resolved {}}}}}
+   :snapshot     {:state {:a :idle :b :idle} :data {:a? false :b? false}}
+   :event        [:go]
+   :expect-next-snapshot {:state {:a :resolved :b :resolved}
+                          :data  {:a? true :b? true}}
+   :expect-effects       []}
+
+  ;; Call 3 — parent-owned round, declaration order [:b :a]. Identical machine,
+  ;; regions declared in the reverse order. The ratified engine is declaration-
+  ;; order invariant, so this converges to the SAME
+  ;; {:a :resolved :b :resolved} / {:a? true :b? true} as Call 2. A region-
+  ;; local drain reverses the strand → {:a :resolved :b :mid}.
+  {:call         :machine-transition
+   :definition
+   {:type         :parallel
+    :data         {:a? false :b? false}
+    :region-order [:b :a]
+    :guards       {:both? :par/both?}
+    :actions      {:mark-a :par/mark-a :mark-b :par/mark-b}
+    :regions {:a {:initial :idle
+                  :states  {:idle     {:on     {:go {:target :mid :action :mark-a}}}
+                            :mid      {:always [{:guard :both? :target :resolved}]}
+                            :resolved {}}}
+              :b {:initial :idle
+                  :states  {:idle     {:on     {:go {:target :mid :action :mark-b}}}
+                            :mid      {:always [{:guard :both? :target :resolved}]}
+                            :resolved {}}}}}
+   :snapshot     {:state {:a :idle :b :idle} :data {:a? false :b? false}}
+   :event        [:go]
+   :expect-next-snapshot {:state {:a :resolved :b :resolved}
+                          :data  {:a? true :b? true}}
    :expect-effects       []}]}
