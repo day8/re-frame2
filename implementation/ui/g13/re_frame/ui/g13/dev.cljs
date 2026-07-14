@@ -3,6 +3,7 @@
   Timing is descriptive only; correctness rests entirely on deterministic
   counts before and after the single read/render commit."
   (:require [re-frame.core :as rf]
+            [re-frame.substrate.observation :as obs]
             [re-frame.ui :as ui]
             [re-frame.ui.g13.fixture :as fixture]
             [re-frame.ui.reactive :as reactive]
@@ -55,6 +56,9 @@
         before (into {} (map (juxt identity reactive/revision)) all)
         pre    (atom nil)]
     (fixture/reset-counters!)
+    ;; rf2-vxgfnd.250 — reset the production-erased port candidate-inspection
+    ;; witness so this sample counts only THIS drain's inspections.
+    (obs/reset-g13-candidate-inspections!)
     (let [started (js/performance.now)]
       (-> (uit/flush!
            (fn []
@@ -101,13 +105,24 @@
                               :stable-parent (:stable-parent counters)
                               :cold-leaf (:cold-leaf counters)
                               :port-fan-out (:port-fan-out @pre)
-                              :fan-out-cells (:fan-out-cells @pre)}
+                              :fan-out-cells (:fan-out-cells @pre)
+                              ;; rf2-vxgfnd.250 — the production-erased port
+                              ;; candidate-inspection witness. The compiled-view
+                              ;; commit reconciler probes/reads/current?-checks
+                              ;; f(C) candidates per drain, INDEPENDENT of V; a
+                              ;; source mutant that scans all V mounted cells (even
+                              ;; delivering to only C) inflates these past f(C),
+                              ;; which the V-independence check below turns red.
+                              :port-candidate-inspections
+                              (obs/g13-candidate-inspection-snapshot)}
                  expected    {:enrolled 8 :advances 8 :revision-delta 8
                               :hot-renders 8
                               :hot-renders-by-index (vec (repeat 8 1))
                               :cold-renders 0 :root-commits 1
                               :hot-base 8 :stable-parent 8 :cold-leaf 0
-                              :port-fan-out 64 :fan-out-cells 8}]
+                              :port-fan-out 64 :fan-out-cells 8
+                              :port-candidate-inspections
+                              {:probe 8 :read 8 :current? 16}}]
              (ensure! (= {:pending 8 :hot-dirty 8 :cold-dirty 0 :idle-dirty 0
                           :revision-delta 0
                           :evidence-counts (vec (repeat 8 8))

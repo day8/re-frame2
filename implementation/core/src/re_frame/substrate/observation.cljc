@@ -352,6 +352,58 @@
       (on-change payload))
     (on-change payload)))
 
+;; ---- G-13 candidate-work witness (rf2-vxgfnd.250; DEV-ONLY, DCE'd in prod) ---
+;;
+;; A production-erased witness at the port's per-candidate inspection entry
+;; points (`probe` / `read` / `current?` — the ops the compiled-view commit
+;; reconciler calls once per candidate site it processes). It counts REAL
+;; candidate inspections so the G-13 gate can CAUSALLY prove the invalidation /
+;; commit path inspects work proportional to the affected set C, not the mounted
+;; total V: a source mutant that scans all V mounted cells — even one that
+;; ENROLLS / DELIVERS to only C, so every delivered-work count (rf2-vxgfnd.210's
+;; `port-fan-out`) stays identical — must route its extra inspections through
+;; these same port entries, inflating the witness past f(C) and turning G-13
+;; deterministically red. That is the original rf2-vxgfnd.210 criterion 1 the
+;; delivered-work projection provably cannot see.
+;;
+;; DEBUG-GATED / PRODUCTION-ERASED: every increment sits behind
+;; `interop/debug-enabled?` (a compile-time constant under CLJS `:advanced` +
+;; `goog.DEBUG=false`, the same idiom `fan-out!` uses above), so the counter
+;; atoms, the increments, and the `RF2_G13_PORT_CANDIDATE_SENTINEL` that binds
+;; the witness to its owning branch all DCE out of ordinary builds — never a
+;; runtime-global counter, never port ABI, never production bookkeeping. The
+;; G-13 advanced-bundle scan proves the sentinel absent; the `console.debug`
+;; side effect (latched to one emit, off the hot path) binds the token to this
+;; executable branch so the scan's absence is CAUSAL, not incidental.
+(def ^:private g13-candidate-sentinel "RF2_G13_PORT_CANDIDATE_SENTINEL")
+
+(defonce ^:private g13-candidate-counts (atom {:probe 0 :read 0 :current? 0}))
+(defonce ^:private g13-candidate-witnessed? (atom false))
+
+(defn- note-candidate-inspection!
+  "DEV-ONLY: record one port candidate inspection of kind `op` (`:probe` /
+  `:read` / `:current?`) for the G-13 witness (rf2-vxgfnd.250). Called ONLY from
+  behind an `interop/debug-enabled?` call-site gate, so it has no live caller —
+  and thus DCEs wholesale, together with its sentinel — under `:advanced` +
+  `goog.DEBUG=false`."
+  [op]
+  (when (compare-and-set! g13-candidate-witnessed? false true)
+    #?(:cljs (.debug js/console g13-candidate-sentinel)))
+  (swap! g13-candidate-counts update op (fnil inc 0)))
+
+(defn ^:no-doc g13-candidate-inspection-snapshot
+  "DEV/TEST-ONLY G-13 witness read (rf2-vxgfnd.250): the per-op port
+  candidate-inspection counts since the last reset, or nil in production. NOT
+  part of the port ABI — exists only under `interop/debug-enabled?`."
+  []
+  (when interop/debug-enabled? @g13-candidate-counts))
+
+(defn ^:no-doc reset-g13-candidate-inspections!
+  "DEV/TEST-ONLY G-13 witness reset (rf2-vxgfnd.250)."
+  []
+  (when interop/debug-enabled?
+    (reset! g13-candidate-counts {:probe 0 :read 0 :current? 0})))
+
 ;; ---- node records (weak identity-keyed) -------------------------------------
 ;;
 ;; Per-node observation bookkeeping — `{:node-key <int> :version <int>
@@ -1150,6 +1202,7 @@
    ;; typed :rf.error/observation-malformed-target before `(first query)` / a
    ;; frame-registry op can leak a bare host error the ViewCell cannot classify.
    (validate-target! 're-frame.substrate.observation/probe target)
+   (when interop/debug-enabled? (note-candidate-inspection! :probe))
    (case (:kind target)
      :story-override
      {:value          (:value target)
@@ -1672,6 +1725,7 @@
   ;; than field-accessing lease-state and leaking a host error — current? is the
   ;; commit kept-check, and a malformed value is simply "not current". `and`
   ;; short-circuits before `@(lease-state lease)` so no raw NPE/TypeError escapes.
+  (when interop/debug-enabled? (note-candidate-inspection! :current?))
   (and (lease? lease)
        (let [st @(lease-state lease)]
          (case (:lease-kind st)
@@ -1724,6 +1778,7 @@
   ;; any host object) with the typed :rf.error/observation-malformed-lease before
   ;; lease-state field-accesses + derefs it and leaks a raw NPE / TypeError.
   (validate-lease! 're-frame.substrate.observation/read lease)
+  (when interop/debug-enabled? (note-candidate-inspection! :read))
   (let [st @(lease-state lease)]
     (case (:lease-kind st)
       :static
