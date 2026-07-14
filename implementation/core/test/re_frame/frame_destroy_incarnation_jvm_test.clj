@@ -1,6 +1,7 @@
 (ns re-frame.frame-destroy-incarnation-jvm-test
   "Deterministic JVM barriers for incarnation-owned frame teardown."
-  (:require [clojure.test :refer [deftest is use-fixtures]]
+  (:require [clojure.set :as set]
+            [clojure.test :refer [deftest is use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.error-emit :as error-emit]
             [re-frame.epoch]
@@ -575,6 +576,187 @@
     (is (empty? (filter #(= :rf.warning/teardown-hook-exception (:operation %))
                         (:b-buffer suppressed)))
         "A's teardown warning never enters B's epoch capture buffer")))
+
+;; ---- rf2-vxgfnd.244 — predecessor terminal facts out of successor RING ------
+;;
+;; The extension #5850's epoch-only fence missed. #5850 made A's terminal facts
+;; bypass B's epoch CAPTURE and B's no-emit POLICY (structural delivery), and
+;; its fixtures assert B's epoch buffer / history — but NOT B's per-frame trace
+;; RING. Under structural delivery A's terminal facts still carried A's inherited
+;; dispatch-id and A's bare frame id, so `trace/tooling.cljc` pushed them into
+;; the CURRENT ring for that id — B's, once B is installed. The fix makes
+;; structural delivery RETENTIONLESS: global listeners get each terminal fact
+;; exactly once, but no ring retains it. These fixtures assert the RING.
+
+(deftest predecessor-terminal-facts-never-retained-in-successor-ring
+  ;; rf2-vxgfnd.244 (red before fix). A is destroyed mid-drain and paused at its
+  ;; POST-DISSOC epoch hook. Same-id B is then installed and SETTLES an ordinary
+  ;; event, populating B's per-frame trace RING with a legitimate sentinel run.
+  ;; When A resumes it publishes its terminal facts (:rf.epoch/snapshotted /
+  ;; :rf.epoch/outcome, plus :rf.epoch.cb/silenced-on-frame-destroy for the
+  ;; observer A accrued) under retentionless structural delivery: each carries
+  ;; A's inherited dispatch-id and A's bare frame id (== B's id). B's public flat
+  ;; trace buffer must stay byte-identical, no ring must be recreated for
+  ;; destroyed A, and every A terminal fact must still reach the global live
+  ;; trace listener exactly once.
+  ;;
+  ;; Before the fix `deliver-to-tooling!` pushed unconditionally, so A's
+  ;; :halted-destroy snapshotted / :blocked outcome / silencing landed under a
+  ;; new (A-dispatch-id) run slot in B's ring — B's flat buffer grew.
+  (let [id             :destroy/ring-evidence-overlap
+        a-after-dissoc (CountDownLatch. 1)
+        release-a      (CountDownLatch. 1)
+        first-epoch?   (atom true)
+        a-observer     ::ring-a-observer
+        global-facts   (atom [])
+        original-epoch (late-bind/get-fn :epoch/on-frame-destroyed)]
+    (rf/reg-event :destroy/ring-a-settle
+      (fn [{:keys [db]} _] {:db (assoc db :a-settled true)}))
+    (rf/reg-event :destroy/ring-a
+      (fn [_ _] (frame/destroy-frame! id) {:db {:owner :a-tail}}))
+    (rf/reg-event :destroy/ring-b-settle
+      (fn [{:keys [db]} _] {:db (assoc db :owner :b)}))
+    (rf/make-frame {:id id})
+    ;; A accrues an observer by settling one ordinary event, so its destroy
+    ;; fans a :rf.epoch.cb/silenced-on-frame-destroy terminal fact too.
+    (rf/register-listener! :epoch a-observer (fn [_] nil))
+    (rf/dispatch-sync [:destroy/ring-a-settle] {:frame id})
+    ;; Global live trace listener — captures A's frame-tagged terminal facts.
+    (rf/register-listener! :trace ::ring-global-facts
+      (fn [ev]
+        (when (and (= id (get-in ev [:tags :frame]))
+                   (contains? #{:rf.epoch/snapshotted :rf.epoch/outcome
+                                :rf.epoch.cb/silenced-on-frame-destroy}
+                              (:operation ev)))
+          (swap! global-facts conj ev))))
+    (try
+      (late-bind/set-fn! :epoch/on-frame-destroyed
+        (fn [& args]
+          (when (and (= id (first args))
+                     (compare-and-set! first-epoch? true false))
+            (.countDown a-after-dissoc)
+            (.await release-a 10 TimeUnit/SECONDS))
+          (when original-epoch (apply original-epoch args))))
+      (let [dispatch-a (future
+                         (rf/dispatch-sync [:destroy/ring-a] {:frame id}))]
+        (is (.await a-after-dissoc 10 TimeUnit/SECONDS)
+            "A is paused at its post-dissoc epoch hook")
+        ;; Same-id B: install and settle an ordinary event so B's RING holds a
+        ;; legitimate sentinel run before A publishes its terminal facts.
+        (rf/make-frame {:id id})
+        (rf/dispatch-sync [:destroy/ring-b-settle] {:frame id})
+        (let [token-b       (frame/frame-incarnation-token id)
+              b-ring-before (rf/trace-buffer id {:flat true})
+              b-bundles-before (rf/trace-buffer id)]
+          (is (seq b-ring-before)
+              "B's ring holds its own settle sentinel before A resumes")
+          ;; A resumes and publishes its terminal facts while B owns the id.
+          (.countDown release-a)
+          (is (not= ::timeout (deref dispatch-a 5000 ::timeout))
+              "A's terminal recipe completes")
+          (executor-barrier!)
+
+          ;; THE RING BOUNDARY: B's public flat buffer is byte-identical.
+          (is (= b-ring-before (rf/trace-buffer id {:flat true}))
+              "B's flat trace ring is byte-identical after A's terminal fan-out")
+          (is (= b-bundles-before (rf/trace-buffer id))
+              "B's event-bundle ring view is unchanged too")
+          ;; None of A's terminal operations reach B's ring.
+          (is (empty? (filter #(contains? #{:rf.epoch/snapshotted :rf.epoch/outcome
+                                            :rf.epoch.cb/silenced-on-frame-destroy}
+                                          (:operation %))
+                              (rf/trace-buffer id {:flat true})))
+              "no A terminal operation is retained in B's ring")
+          ;; A's inherited dispatch-id never appears as a run slot in B's ring.
+          (let [a-dispatch-ids (into #{}
+                                     (comp (map #(get-in % [:tags :rf.trace/dispatch-id]))
+                                           (remove nil?))
+                                     @global-facts)
+                b-ring-dispatch-ids (into #{}
+                                          (comp (map #(get-in % [:tags :rf.trace/dispatch-id]))
+                                                (remove nil?))
+                                          (rf/trace-buffer id {:flat true}))]
+            (is (empty? (set/intersection a-dispatch-ids b-ring-dispatch-ids))
+                "A's dispatch-id is never retained as a run slot in B's ring"))
+
+          ;; GLOBAL DELIVERY still fires: each A terminal fact reaches the live
+          ;; listener exactly once (scoped to A's terminal outcomes).
+          (is (= 1 (count (filter #(and (= :rf.epoch/snapshotted (:operation %))
+                                        (= :halted-destroy (get-in % [:tags :outcome])))
+                                  @global-facts)))
+              "A's :halted-destroy snapshotted reaches the global listener once")
+          (is (= 1 (count (filter #(and (= :rf.epoch/outcome (:operation %))
+                                        (= :blocked (get-in % [:tags :outcome])))
+                                  @global-facts)))
+              "A's :blocked outcome reaches the global listener once")
+          (is (= 1 (count (filter #(and (= :rf.epoch.cb/silenced-on-frame-destroy
+                                           (:operation %))
+                                        (= a-observer (get-in % [:tags :cb-id])))
+                                  @global-facts)))
+              "A's silencing fact for its observer reaches the global listener once")
+
+          ;; B stays live and keeps settling normally.
+          (is (identical? token-b (frame/frame-incarnation-token id))
+              "B remains the current incarnation")
+          (rf/dispatch-sync [:destroy/ring-b-settle] {:frame id})
+          (is (< (count b-ring-before)
+                 (count (rf/trace-buffer id {:flat true})))
+              "B's own subsequent event does grow B's ring (ring is live, not frozen)")))
+      (finally
+        (.countDown release-a)
+        (rf/unregister-listener! :epoch a-observer)
+        (rf/unregister-listener! :trace ::ring-global-facts)
+        (when (frame/frame id) (frame/destroy-frame! id))
+        (late-bind/set-fn! :epoch/on-frame-destroyed original-epoch)))))
+
+(deftest snapshot-hook-failure-leaves-no-residual-ring
+  ;; rf2-vxgfnd.244 (red before fix). A throwing `:epoch/snapshot-frame-destroyed`
+  ;; during a mid-run destroy emits `:rf.warning/teardown-hook-exception` under
+  ;; ORDINARY (non-structural) delivery, carrying A's bare frame id. Ordering the
+  ;; snapshot BEFORE A's ring release means that warning's ring push is cleared
+  ;; by A's normal ring release — no residual per-frame ring survives for the
+  ;; destroyed frame — while the required global diagnostic still fires.
+  ;;
+  ;; Before the fix the snapshot ran AFTER release-frame-ring!, so the warning
+  ;; RECREATED A's already-released ring, leaving a residual ring keyed by the
+  ;; destroyed id.
+  (let [id           :destroy/ring-snapshot-fail
+        warnings     (atom [])
+        original-snap (late-bind/get-fn :epoch/snapshot-frame-destroyed)]
+    (rf/reg-event :destroy/ring-snap-a
+      (fn [_ _] (frame/destroy-frame! id) {:db {:owner :a-tail}}))
+    (rf/make-frame {:id id})
+    (rf/register-listener! :trace ::ring-snap-warn
+      (fn [ev]
+        (when (and (= id (get-in ev [:tags :frame]))
+                   (= :rf.warning/teardown-hook-exception (:operation ev)))
+          (swap! warnings conj ev))))
+    (try
+      ;; Fail the pre-dissoc snapshot hook for this mid-run destroy.
+      (late-bind/set-fn! :epoch/snapshot-frame-destroyed
+        (fn [& args]
+          (if (= id (first args))
+            (throw (ex-info "snapshot blew" {}))
+            (when original-snap (apply original-snap args)))))
+      (rf/dispatch-sync [:destroy/ring-snap-a] {:frame id})
+      (executor-barrier!)
+      ;; The required global diagnostic fired.
+      (is (= 1 (count @warnings))
+          "the snapshot-failure teardown-hook warning reaches the global listener")
+      (is (= :epoch/snapshot-frame-destroyed
+             (get-in (first @warnings) [:tags :hook]))
+          "the warning names the failing snapshot hook")
+      ;; No residual ring survives for the destroyed frame.
+      (is (empty? (rf/trace-buffer id {:flat true}))
+          "no residual per-frame trace ring survives destroyed A")
+      (is (empty? (rf/trace-buffer id))
+          "no residual event-bundle ring survives destroyed A either")
+      (is (nil? (frame/frame-incarnation-token id))
+          "the frame is fully destroyed")
+      (finally
+        (rf/unregister-listener! :trace ::ring-snap-warn)
+        (when (frame/frame id) (frame/destroy-frame! id))
+        (late-bind/set-fn! :epoch/snapshot-frame-destroyed original-snap)))))
 
 (deftest owner-loss-unwinds-only-entered-authored-afters
   ;; Mutation tooth: removing execute-chain's continuation predicate would run
