@@ -260,6 +260,94 @@
     (is (= :plain-cljs (build/current-build-id))
         "a non-shadow compiler env uses the intended session build fallback")))
 
+;; ---------------------------------------------------------------------------
+;; Shadow OUTER-marker drift (rf2-vxgfnd.192): compiler authority must follow
+;; re-frame.ui's OWN private build carrier, not Shadow's implementation-detail
+;; outer `:shadow.build.cljs-bridge/state` bridge key. A Shadow rename/removal
+;; of that outer key while the private carrier stays intact must NOT downgrade
+;; identity, reads, or writes to the process/session fallback.
+;; ---------------------------------------------------------------------------
+
+(defn- drifted-env
+  "A compiler-env atom carrying re-frame.ui's private accepted + scratch carrier
+  for `build-id` but WITHOUT Shadow's outer bridge marker — the exact state a
+  Shadow rename/removal of that outer key produces while re-frame.ui's own
+  carrier stays intact."
+  [build-id members]
+  (atom (:compiler-env (build/prepare-shadow-build {} build-id (set members)
+                                                   (set members)))))
+
+(deftest drifted-outer-marker-routes-identity-through-private-carrier
+  ;; session-build names a DIFFERENT build, so a downgrade to the session
+  ;; fallback would return the wrong id.
+  (build/begin-build! :session-other)
+  (binding [cljs-env/*compiler* (drifted-env :app-a '#{app.a})]
+    (is (= :app-a (build/current-build-id))
+        "the private accepted carrier is authoritative once the outer marker drifts")))
+
+(deftest drifted-private-carrier-with-missing-build-id-fails-loud
+  (binding [cljs-env/*compiler*
+            (atom {build/accepted-snapshot-key {:registries {} :digest "d" :version 0}})]
+    (let [ex (try (build/current-build-id) nil
+                  (catch clojure.lang.ExceptionInfo ex ex))]
+      (is (some? ex) "a private carrier missing its build id must not downgrade")
+      (is (= :re-frame.ui.compiler.build/private-build-id-unresolved
+             (:re-frame.ui.compiler.build/error (ex-data ex)))))))
+
+(deftest private-carrier-disagreeing-with-present-shadow-id-fails-loud
+  (binding [cljs-env/*compiler*
+            (atom {build/accepted-snapshot-key {:build-id :app-a :registries {}
+                                                :digest "d" :version 1}
+                   :shadow.build.cljs-bridge/state {:shadow.build/build-id :app-b}})]
+    (let [ex (try (build/current-build-id) nil
+                  (catch clojure.lang.ExceptionInfo ex ex))]
+      (is (some? ex) "a private/shadow build-id disagreement must fail, not guess")
+      (is (= :re-frame.ui.compiler.build/private-build-id-shadow-disagreement
+             (:re-frame.ui.compiler.build/error (ex-data ex)))))))
+
+(deftest canonical-shadow-marker-still-resolves-to-the-private-build-id
+  ;; The current (non-drifted) path: bridge marker present with an AGREEING id.
+  (binding [cljs-env/*compiler*
+            (atom {build/accepted-snapshot-key {:build-id :app-a :registries {}
+                                                :digest "d" :version 1}
+                   :shadow.build.cljs-bridge/state {:shadow.build/build-id :app-a}})]
+    (is (= :app-a (build/current-build-id))
+        "canonical marker + agreeing private id resolves to that id")))
+
+(deftest drifted-outer-marker-keeps-interleaved-builds-isolated
+  ;; The headline regression: two builds A and B, each drifted, interleaved.
+  ;; Rows must not cross and the session/global fallback must stay empty.
+  (build/begin-build! :session-global)
+  (let [env-a (drifted-env :A '#{app.a})
+        env-b (drifted-env :B '#{app.b})]
+    (binding [cljs-env/*compiler* env-a]
+      (build/contribute! build/views 'app.a :a/view ["tfa" "hsa"]))
+    (binding [cljs-env/*compiler* env-b]
+      (build/contribute! build/views 'app.b :b/view ["tfb" "hsb"]))
+    (binding [cljs-env/*compiler* env-a]
+      (build/contribute! build/views 'app.a2 :a/view2 ["tfa2" "hsa2"]))
+    (binding [cljs-env/*compiler* env-a]
+      (is (= #{:a/view :a/view2} (set (keys (build/aggregate build/views))))
+          "build A sees only its own rows"))
+    (binding [cljs-env/*compiler* env-b]
+      (is (= #{:b/view} (set (keys (build/aggregate build/views))))
+          "build B sees only its own rows"))
+    (is (= {} (build/aggregate build/views :session-global))
+        "the interleaved drifted writes never touched the session/global fallback")))
+
+(deftest private-resolution-distinct-from-a-same-valued-session-fallback
+  ;; The private carrier's build-id EQUALS the session-build value, yet routing
+  ;; must read the PRIVATE carrier — a test comparing only ids would pass wrongly.
+  (build/begin-build! :app)
+  (build/contribute! build/views 'fallback.ns :fallback/row ["tf-fb" "hs-fb"])
+  (build/commit-build! :app)
+  (binding [cljs-env/*compiler* (drifted-env :app '#{app.a})]
+    (build/contribute! build/views 'app.a :app/row ["tf-app" "hs-app"])
+    (is (= #{:app/row} (set (keys (build/aggregate build/views))))
+        "reads the private carrier's rows, not the coincidentally same-keyed session slice"))
+  (is (= #{:fallback/row} (set (keys (build/aggregate build/views :app))))
+      "the same-keyed session slice is untouched by the private-carrier writes"))
+
 (deftest explicit-view-id-collision-fails-in-either-compile-order
   (doseq [[first-ns second-ns] [['app.alpha 'app.beta]
                                 ['app.beta 'app.alpha]]]
