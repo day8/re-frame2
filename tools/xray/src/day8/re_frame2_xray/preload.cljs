@@ -54,9 +54,9 @@
             [day8.re-frame2-xray.registry :as registry]
             [day8.re-frame2-xray.settings.effects :as settings-effects]
             ;; The native ViewCell invalidation-evidence consumer
-            ;; (rf2-vxgfnd.146) — Xray owns the re-frame.ui.tool.evidence
-            ;; projection with a stable identity; load-inert, installed
-            ;; from the boot block below.
+            ;; (rf2-vxgfnd.146/.286) — Xray owns the re-frame.ui.tool.evidence
+            ;; projection under a stable identity + per-span receipt;
+            ;; load-inert, acquired from the boot block below.
             [day8.re-frame2-xray.viewcell-evidence :as viewcell-evidence]
             ;; Loading the runtime installs its debug-gated session
             ;; sentinel for agent discovery; no second preload is needed.
@@ -105,14 +105,17 @@
   (registry/register-xray-handlers!)
   (install/register-trace-collector!)
   (install/register-epoch-collector!)
-  ;; Claim the re-frame.ui ViewCell invalidation-evidence projection
-  ;; under Xray's stable owner identity (rf2-vxgfnd.146). On
-  ;; `:after-load` this same call is the evidence tier's idempotent
-  ;; same-owner re-arm (accumulated evidence survives); a foreign owner
-  ;; is never clobbered (the install is rejected and Xray projects zero
-  ;; rows). Hosts not running the re-frame.ui substrate simply deliver
-  ;; nothing into the claimed projection.
-  (viewcell-evidence/install!)
+  ;; Acquire the re-frame.ui ViewCell invalidation-evidence projection
+  ;; under Xray's stable owner identity, opening a fresh ownership span
+  ;; (rf2-vxgfnd.146/.286). On `:after-load` this same call is the
+  ;; evidence tier's idempotent same-span re-arm (accumulated evidence
+  ;; and in-flight deliveries survive); a foreign owner is never
+  ;; clobbered (the acquire is rejected — returns nil — and Xray projects
+  ;; zero rows). Hosts not running the re-frame.ui substrate simply
+  ;; deliver nothing into the claimed projection. The returned receipt is
+  ;; retained in the ledger (`current-receipt`); the standing boot path
+  ;; ignores it.
+  (viewcell-evidence/acquire!)
   (install/install-browser-api-exports!)
   (keybinding/attach!)
   ;; Apply the persisted CSS-var + theme-class effects. The shell

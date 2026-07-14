@@ -129,9 +129,12 @@
   does NOT default the target to `:rf/default` (Spec 002 §Frame target
   resolution).
 
-  Wires the five foundation side-effects (registry, trace-cb, epoch-cb,
-  browser-API exports, keybinding listener), then threads each supplied
-  opt through to its backing surface:
+  Wires the foundation side-effects — the registry handlers, the trace
+  and epoch collectors, the ViewCell evidence acquire (rf2-vxgfnd.286 —
+  opens Xray's ownership span over the re-frame.ui evidence projection, or
+  is inertly rejected when a foreign owner holds it / no ui substrate is
+  present), the browser-API exports, and the keybinding listener — then
+  threads each supplied opt through to its backing surface:
 
   - `:target-frame` — dispatches `:rf.xray/set-target-frame` so the
     scrubber + every dependent panel re-fire on the standard reactive
@@ -160,15 +163,16 @@
    (registry/register-xray-handlers!)
    (install/register-trace-collector!)
    (install/register-epoch-collector!)
-   ;; Claim the re-frame.ui ViewCell invalidation-evidence projection under
-   ;; Xray's stable owner identity (rf2-vxgfnd.146/.238). The manual `init!`
-   ;; path MUST wire this exactly as the preload boot block does — otherwise
-   ;; a clean process that requires core and calls `init!` (the supported
-   ;; alternative to `:devtools/preloads`) enables Xray WITHOUT ViewCell
-   ;; evidence. Idempotent: a second `init!` / shadow `:after-load` is the
-   ;; evidence tier's same-owner re-arm (accumulated evidence survives); a
-   ;; foreign owner is never clobbered (install rejected, Xray reads nothing).
-   (viewcell-evidence/install!)
+   ;; Acquire the re-frame.ui ViewCell invalidation-evidence projection under
+   ;; Xray's stable owner identity, opening a fresh ownership span
+   ;; (rf2-vxgfnd.146/.238/.286). The manual `init!` path MUST wire this
+   ;; exactly as the preload boot block does — otherwise a clean process that
+   ;; requires core and calls `init!` (the supported alternative to
+   ;; `:devtools/preloads`) enables Xray WITHOUT ViewCell evidence.
+   ;; Idempotent: a second `init!` / shadow `:after-load` is the evidence
+   ;; tier's same-span re-arm (accumulated evidence survives); a foreign owner
+   ;; is never clobbered (acquire rejected — returns nil — Xray reads nothing).
+   (viewcell-evidence/acquire!)
    ;; The palette and Settings effects resolve mount operations through
    ;; these globals to avoid a mount/shell require cycle. Manual and
    ;; preload startup therefore install the same exports.
