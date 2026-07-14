@@ -246,8 +246,12 @@ commit path with honest ownership reporting ⟨S-3 §5; 09 codex2 F1⟩:
   retains — and fails when the override changed or was removed — retargeting through
   the normal staged commit path, exactly like a real node.
 
-*(Shape ruled and final; unprototyped in S-3 — no Story context existed in the harness.
-Its Tier-3 fixture is a named Stage-2 obligation.)*
+*(Shape ruled and final. S-3 itself did not prototype this — no Story context existed in
+the spike harness — but its Tier-3 mounted Story-context fixture has since **landed** with
+the ViewCell layer: `implementation/ui/test/re_frame/ui/mounted_story_override_image_schema_dom_cljs_test.cljs`
+proves the NaN→NaN keep and the map→NaN retarget in a live mount, and the port's own NaN
+split-equality assertion lives in
+`implementation/core/test/re_frame/observation_port_cljs_test.cljc`.)*
 
 ### Transactional multi-acquire — staging and rollback
 
