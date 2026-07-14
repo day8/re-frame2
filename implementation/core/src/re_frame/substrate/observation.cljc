@@ -195,7 +195,8 @@
 ;;     drain mistook trace coverage for full coverage and emitted nothing.
 ;;   - THROWABLE-BOUND / NON-FORGEABLE (rf2-9m4oy7) — the [[EmissionProvenance]]
 ;;     token is bound to the EXACT throwable it attests through a PRIVATE weak
-;;     identity association ([[provenance-by-throwable]]), keyed by the throwable
+;;     identity association (the reload-safe [[provenance-storage]] holder on the
+;;     JVM, a `provenance-by-throwable` `js/WeakMap` on CLJS), keyed by the throwable
 ;;     OBJECT and written ONLY by [[attest-provenance!]] here. It is NOT carried
 ;;     in the thrown ex-data. This closes two spoof vectors an ex-data token
 ;;     could not: (a) an application `on-change` can call the cross-namespace
@@ -269,20 +270,103 @@
 ;; `hashCode`/`equals` — with cleared entries reclaimed on each access. `js/WeakMap`
 ;; is genuinely identity-keyed (reference keys, ephemeron semantics) with no such
 ;; hazard, so CLJS keeps it unchanged.
-#?(:clj
-   (defonce ^:private ^java.lang.ref.ReferenceQueue provenance-queue
-     (java.lang.ref.ReferenceQueue.)))
+;; ---- RELOAD-SAFE private provenance storage (rf2-qqvgk1) --------------------
+;;
+;; On the JVM the storage is a VERSIONED HOLDER — a plain Clojure map
+;; `{:version N :by-throwable <HashMap> :queue <ReferenceQueue>}` — `defonce`'d so
+;; an ordinary same-version namespace reload KEEPS the live entries, but reconciled
+;; at load ([[ensure-current-provenance-storage!]]) so a reload over an INCOMPATIBLE
+;; predecessor root is RECOGNIZED and REPLACED rather than silently mis-operated.
+;; This closes an HMR/REPL upgrade hazard the bare-`defonce` shape carried: the
+;; predecessor representation (rf2-9m4oy7) was a synchronized `WeakHashMap<Throwable>`
+;; under this same Var; a plain `defonce` retains that old root across a reload onto
+;; the current weak-identity code, so existing raw-Throwable entries are unreachable
+;; through the new `WeakReference` lookup key AND a freshly-`defonce`'d queue desyncs
+;; from the retained map. Bundling the map + queue in ONE holder makes them
+;; impossible to desync, and the version tag makes an incompatible predecessor
+;; detectable.
+;;
+;; The version carrier is a plain Clojure MAP, NOT a `deftype`, ON PURPOSE: a
+;; namespace reload REDEFINES a `deftype`'s class, so an `instance?`-based
+;; recognition would read false on EVERY reload and drop the entries; a Clojure
+;; map's class (`PersistentArrayMap`) is stable across reloads, so version
+;; recognition is stable and repeated reloads stay idempotent.
+;;
+;; A `WeakReference`-subclass identity-key ([[weak-identity-key]]) → `EmissionProvenance`.
+;; The inner `by-throwable` is a plain `HashMap` guarded by `locking` on that map
+;; (the node-records lock discipline); NOT a `WeakHashMap` — weakness comes from the
+;; `WeakReference` KEYS + ReferenceQueue expunge, IDENTITY from the keys' own
+;; `hashCode`/`equals`. `js/WeakMap` on CLJS is genuinely identity-keyed with
+;; ephemeron semantics and NO reload hazard (a page reload is a fresh JS realm), so
+;; CLJS keeps the bare `defonce` unchanged.
+#?(:clj (def ^:private provenance-storage-version
+          ;; Representation version of the private JVM provenance storage. BUMP when
+          ;; the holder shape changes so a reload over an older root REPLACES it. v2
+          ;; = the weak-identity `HashMap<WeakReference-key>` + `ReferenceQueue`
+          ;; (predecessor v1 was a raw synchronized `WeakHashMap<Throwable>` with NO
+          ;; version tag, so it reads uncurrent and is replaced).
+          2))
 
 #?(:clj
-   (defonce ^:private ^java.util.Map provenance-by-throwable
-     ;; identity-key (a `WeakReference` subclass, [[weak-identity-key]]) →
-     ;; `EmissionProvenance`. A plain `HashMap` guarded by `locking
-     ;; provenance-by-throwable` (the node-records lock discipline). NOT a
-     ;; `WeakHashMap`: weakness comes from the `WeakReference` KEYS + ReferenceQueue
-     ;; expunge, IDENTITY from the keys' own `hashCode`/`equals`.
-     (java.util.HashMap.))
+   (defn- fresh-provenance-storage
+     "A fresh CURRENT-version provenance storage holder: an empty identity-keyed
+     `HashMap` paired with its OWN `ReferenceQueue`, tagged with the current
+     representation version (rf2-qqvgk1)."
+     []
+     {:version      provenance-storage-version
+      :by-throwable (java.util.HashMap.)
+      :queue        (java.lang.ref.ReferenceQueue.)}))
+
+#?(:clj
+   (defn- current-provenance-storage?
+     "True when `s` is a CURRENT-version provenance storage holder — a Clojure map
+     tagged with [[provenance-storage-version]]. A predecessor raw `WeakHashMap`
+     (`map?` false) or an older/newer-version holder reads false, so the load-time
+     reconciliation replaces it (rf2-qqvgk1)."
+     [s]
+     (and (map? s) (= provenance-storage-version (:version s)))))
+
+#?(:clj
+   (defonce ^:private provenance-storage (fresh-provenance-storage))
    :cljs
    (defonce ^:private provenance-by-throwable (js/WeakMap.)))
+
+#?(:clj
+   (defn- ensure-current-provenance-storage!
+     "Reconcile the `defonce`'d [[provenance-storage]] root to the current
+     representation version. Idempotent + atomic — an `alter-var-root` with a pure
+     compare-and-replace: a fresh JVM keeps the `defonce` initializer's current
+     storage; a RELOAD over an incompatible predecessor / older-version root REPLACES
+     it with a fresh current holder; a SAME-version reload is a NO-OP that preserves
+     every live entry (and the SAME holder object, so repeated reloads converge).
+
+     The explicit private reload rule (rf2-qqvgk1): a same-version reload PRESERVES
+     entries; a version-mismatch REPLACE drops predecessor-bound provenance, so any
+     in-flight predecessor throwable reads UNCOVERED — the disposal drain then fails
+     LOUD (an extra catalogued `:rf.error/observation-on-change-failed` record),
+     never silent or corrupt. Runs on EVERY ns load (not `defonce`-guarded), so
+     reverting to a bare `defonce` of the map is a detectable regression: the reload
+     fixture, which seeds a predecessor root and re-runs this, reddens."
+     []
+     (alter-var-root #'provenance-storage
+                     (fn [s] (if (current-provenance-storage? s) s (fresh-provenance-storage))))
+     nil))
+
+;; Recognize + replace an incompatible predecessor / older-version root on load.
+#?(:clj (ensure-current-provenance-storage!))
+
+#?(:clj
+   (defn- provenance-map
+     "The current identity-keyed provenance `HashMap` (rf2-qqvgk1)."
+     ^java.util.Map []
+     (:by-throwable provenance-storage)))
+
+#?(:clj
+   (defn- provenance-ref-queue
+     "The current provenance `ReferenceQueue` — bundled with [[provenance-map]] in
+     the one holder so the two can never desync across a reload (rf2-qqvgk1)."
+     ^java.lang.ref.ReferenceQueue []
+     (:queue provenance-storage)))
 
 #?(:clj
    (defn- weak-identity-key
@@ -308,15 +392,16 @@
 #?(:clj
    (defn- expunge-stale-provenance!
      "Reclaim entries whose throwable has been collected (rf2-fs99nq): poll the
-     ReferenceQueue for cleared keys and drop each from the map. Removal matches the
-     EXACT enqueued key by identity (`equals` short-circuits on `identical? this o`),
-     so a cleared referent is never dereferenced and the throwable's own
-     `hashCode`/`equals` are never invoked. Call under `locking
-     provenance-by-throwable`."
-     []
+     ReferenceQueue `q` for cleared keys and drop each from the map `m`. Removal
+     matches the EXACT enqueued key by identity (`equals` short-circuits on
+     `identical? this o`), so a cleared referent is never dereferenced and the
+     throwable's own `hashCode`/`equals` are never invoked. `m` + `q` are the paired
+     members of the one [[provenance-storage]] holder (rf2-qqvgk1), so they never
+     desync. Call under `locking` on `m`."
+     [^java.util.Map m ^java.lang.ref.ReferenceQueue q]
      (loop []
-       (when-some [k (.poll ^java.lang.ref.ReferenceQueue provenance-queue)]
-         (.remove ^java.util.Map provenance-by-throwable k)
+       (when-some [k (.poll q)]
+         (.remove m k)
          (recur)))))
 
 (defn- attest-provenance!
@@ -328,13 +413,14 @@
   minted-and-bound is covered. A no-op-safe identity write; the entry dies with
   the throwable."
   [t provenance]
-  #?(:clj  (locking provenance-by-throwable
-             (expunge-stale-provenance!)
-             ;; Store under a WEAK IDENTITY key (rf2-fs99nq): keyed by t's object
-             ;; identity, never its own hashCode/equals; the key is registered on the
-             ;; ReferenceQueue so the entry is reclaimed once t is collected.
-             (.put ^java.util.Map provenance-by-throwable
-                   (weak-identity-key t provenance-queue) provenance))
+  #?(:clj  (let [m (provenance-map)
+                 q (provenance-ref-queue)]
+             (locking m
+               (expunge-stale-provenance! m q)
+               ;; Store under a WEAK IDENTITY key (rf2-fs99nq): keyed by t's object
+               ;; identity, never its own hashCode/equals; the key is registered on
+               ;; the ReferenceQueue so the entry is reclaimed once t is collected.
+               (.put ^java.util.Map m (weak-identity-key t q) provenance)))
      :cljs (.set provenance-by-throwable t provenance))
   t)
 
@@ -343,8 +429,9 @@
   channel-aware [[EmissionProvenance]] attesting its canonical record was ALREADY
   fanned on the ALWAYS-ON axis at the source (with the source's own attribution),
   so a containment drain must add nothing there. NON-FORGEABLE by binding to the
-  EXACT throwable identity through the PRIVATE weak [[provenance-by-throwable]]
-  association (rf2-9m4oy7): an application cannot write that association, so a
+  EXACT throwable identity through the PRIVATE weak provenance association (the
+  reload-safe [[provenance-storage]] holder on the JVM, a `js/WeakMap` on CLJS)
+  (rf2-9m4oy7): an application cannot write that association, so a
   forged `->EmissionProvenance` token in its ex-data reads false; and provenance
   is keyed by the exact original throwable, so an authentic token TRANSPLANTED
   onto a different exception reads false (that different throwable has no binding).
@@ -352,17 +439,18 @@
   false, so trace coverage is never mistaken for always-on coverage
   (rf2-w55bh0)."
   [t]
-  (let [prov #?(:clj  (locking provenance-by-throwable
-                        (expunge-stale-provenance!)
-                        ;; A transient IDENTITY LOOKUP key (nil queue) — HashMap.get
-                        ;; discriminates by our key's `System/identityHashCode` +
-                        ;; referent `identical?`, NEVER t's own hashCode/equals
-                        ;; (rf2-fs99nq). So a distinct application throwable that is
-                        ;; `.equals`/hash-collides with a bound one reads uncovered,
-                        ;; and a throwable whose hashCode/equals THROWS cannot make
-                        ;; this lookup escape the drain's catch.
-                        (.get ^java.util.Map provenance-by-throwable
-                              (weak-identity-key t nil)))
+  (let [prov #?(:clj  (let [m (provenance-map)
+                            q (provenance-ref-queue)]
+                        (locking m
+                          (expunge-stale-provenance! m q)
+                          ;; A transient IDENTITY LOOKUP key (nil queue) — HashMap.get
+                          ;; discriminates by our key's `System/identityHashCode` +
+                          ;; referent `identical?`, NEVER t's own hashCode/equals
+                          ;; (rf2-fs99nq). So a distinct application throwable that is
+                          ;; `.equals`/hash-collides with a bound one reads uncovered,
+                          ;; and a throwable whose hashCode/equals THROWS cannot make
+                          ;; this lookup escape the drain's catch.
+                          (.get ^java.util.Map m (weak-identity-key t nil))))
                 ;; `WeakMap.prototype.get` returns undefined (never throws) for a
                 ;; non-object key, so a raw thrown value (CLJS permits
                 ;; `(throw :kw)` / `(throw "x")`) simply reads uncovered — NO guard

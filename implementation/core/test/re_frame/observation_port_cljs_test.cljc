@@ -2868,6 +2868,133 @@
          (obs/release! s1) (obs/release! lb) (obs/release! lc) (obs/release! s2)))))
 
 ;; ===========================================================================
+;; rf2-qqvgk1 — the JVM provenance STORAGE is reload-safe and its weak lifecycle
+;; is PROVEN.
+;;
+;; #5884 keeps the same `defonce` storage Var while changing its representation
+;; (predecessor rf2-9m4oy7: a synchronized `WeakHashMap<Throwable>`; current: a
+;; weak-identity `HashMap<WeakReference-key>` + `ReferenceQueue`). A normal reload
+;; retains the old `defonce` root, so predecessor entries become unreachable through
+;; the new key and a freshly-`defonce`'d queue desyncs from the retained map. The fix
+;; bundles map + queue in ONE versioned holder and RECONCILES it at load — recognizing
+;; + replacing an incompatible predecessor root — while a same-version reload is an
+;; idempotent no-op that preserves entries. These fixtures PROVE the reload-safety and
+;; the weak lifecycle (GC + expunge), rather than assuming them. JVM-only: CLJS uses
+;; `js/WeakMap` (ephemeron, fresh realm per page reload).
+;; ===========================================================================
+
+#?(:clj
+   (deftest jvm-provenance-storage-reload-replaces-an-incompatible-predecessor-root
+     ;; acceptance 1 + revert-detection: seed the PREDECESSOR representation
+     ;; (rf2-9m4oy7's synchronized WeakHashMap<Throwable>, unversioned) under the
+     ;; defonce'd storage Var, simulate a namespace reload by re-running the load-time
+     ;; reconciliation WITHOUT remove-ns, and prove the CURRENT versioned representation
+     ;; is installed and the port round-trips over it. A bare `defonce` (no
+     ;; reconciliation) would RETAIN the predecessor WeakHashMap, so this fixture
+     ;; reddens if the fix is reverted ("mutation back to an unversioned defonce
+     ;; retaining the predecessor map fails the reload fixture").
+     (let [saved @#'obs/provenance-storage]
+       (try
+         ;; A reload keeps the defonce root; seed the predecessor shape under the Var.
+         (alter-var-root #'obs/provenance-storage
+                         (constantly (java.util.Collections/synchronizedMap
+                                       (java.util.WeakHashMap.))))
+         (is (not (#'obs/current-provenance-storage? @#'obs/provenance-storage))
+             "precondition: the seeded predecessor root is NOT current-version")
+         ;; The reload's load-time reconciliation re-runs (as the top-level form does).
+         (#'obs/ensure-current-provenance-storage!)
+         (let [installed @#'obs/provenance-storage]
+           (is (#'obs/current-provenance-storage? installed)
+               "the current versioned representation is installed after reload")
+           (is (= @#'obs/provenance-storage-version (:version installed)))
+           (is (instance? java.util.HashMap (:by-throwable installed))
+               "the inner map is the current plain HashMap, not the predecessor WeakHashMap")
+           (is (instance? java.lang.ref.ReferenceQueue (:queue installed))
+               "the current holder carries its own paired ReferenceQueue"))
+         ;; The port round-trips over the reload-installed storage.
+         (let [t (ex-info "post-reload boom" {})]
+           (#'obs/attest-provenance! t @#'obs/provenance-both-channels)
+           (is (true? (#'obs/source-covered-always-on? t))
+               "attest/lookup round-trips over the reload-installed storage")
+           (is (false? (#'obs/source-covered-always-on? (ex-info "unbound" {})))
+               "an unbound throwable still reads uncovered"))
+         ;; Repeated reconciliation is idempotent — the SAME current holder is kept.
+         (let [before @#'obs/provenance-storage]
+           (#'obs/ensure-current-provenance-storage!)
+           (is (identical? before @#'obs/provenance-storage)
+               "a same-version reconciliation is a NO-OP (idempotent, entries preserved)"))
+         (finally
+           (alter-var-root #'obs/provenance-storage (constantly saved)))))))
+
+#?(:clj
+   (deftest jvm-provenance-survives-gc-while-throwable-strongly-held-no-duplicate-wrapper
+     ;; acceptance 2: a strongly-retained throwable's provenance SURVIVES bounded GC
+     ;; (the weak key is pinned by its strong referent), so the disposal drain still
+     ;; reads it covered and adds NO duplicate callback-failure wrapper.
+     (reg-items!)
+     (seed-items! [:a])
+     (let [setup (obs/acquire! (items-target) (fn [_]))
+           _     (obs/release! setup)
+           ;; A REAL port-minted always-on throwable, bound #{:always-on :trace} by
+           ;; read-after-release's emit-then-throw.
+           A     (try (obs/read setup) (catch Throwable e e))]
+       (is (= :rf.error/read-after-release (error-id A)))
+       (is (true? (#'obs/source-covered-always-on? A))
+           "authentic provenance reads covered before GC")
+       ;; Force bounded GC while A is strongly reachable (this local + the closure
+       ;; below both retain it); provenance MUST survive.
+       (dotimes [_ 10]
+         (System/gc) (System/runFinalization) (make-array Object 200000))
+       (is (true? (#'obs/source-covered-always-on? A))
+           "provenance survives GC while its throwable is strongly reachable")
+       (with-redefs [interop/next-tick (fn [_f] nil)]
+         (let [notes (atom [])
+               la (obs/acquire! (items-target) (fn [_n] (throw A)))
+               lc (obs/acquire! (items-target) (fn [n] (swap! notes conj n)))]
+           (force-dispose-node! [:obs/items])
+           (let [[_ records] (with-error-records #(obs/drain-pending-disposals! :disposed))
+                 wrapped (filterv #(= :rf.error/observation-on-change-failed (:error %))
+                                  records)]
+             (is (= 1 (count @notes)) "the healthy sibling was still notified")
+             (is (zero? (count wrapped))
+                 "the covered source stands — NO duplicate wrapper (exact-once)"))
+           (obs/release! la) (obs/release! lc))))))
+
+#?(:clj
+   (deftest jvm-provenance-entry-is-weak-and-expunged-when-its-throwable-dies
+     ;; acceptance 3 (the weak-lifecycle PROOF): release the throwable, retain only a
+     ;; WeakReference, force bounded GC + a later map access, and prove the referent
+     ;; CLEARS (the storage retains it via NEITHER key NOR value) and the private
+     ;; storage returns to baseline (the cleared entry is expunged). A strong-map
+     ;; mutation — retaining the referent by key OR value — reddens gc-until-cleared?.
+     (let [prov @#'obs/provenance-both-channels
+           m    (:by-throwable @#'obs/provenance-storage)]
+       ;; Reach a stable baseline: drain any prior stale entries first.
+       (System/gc) (System/runFinalization)
+       (#'obs/source-covered-always-on? (ex-info "baseline drain" {}))
+       (let [baseline (.size ^java.util.Map m)
+             t-box    (volatile! (ex-info "weak-lifecycle boom" {}))
+             t-ref    (java.lang.ref.WeakReference. ^Object @t-box)]
+         (#'obs/attest-provenance! @t-box prov)
+         (is (= (inc baseline) (.size ^java.util.Map m))
+             "the attestation bound exactly one entry")
+         (is (true? (#'obs/source-covered-always-on? @t-box))
+             "the bound throwable reads covered")
+         (vreset! t-box nil) ;; drop the last strong ref — only t-ref (weak) remains
+         (is (gc-until-cleared? t-ref)
+             (str "the throwable is GC-collectable — the storage retains it via "
+                  "NEITHER the weak key NOR the provenance value"))
+         ;; A later map access polls the ReferenceQueue and expunges the cleared key;
+         ;; poll until the async reference-enqueue lands (bounded, deterministic).
+         (is (loop [i 0]
+               (#'obs/source-covered-always-on? (ex-info "post-gc access" {}))
+               (cond
+                 (= baseline (.size ^java.util.Map m)) true
+                 (>= i 40)                             false
+                 :else (do (System/gc) (System/runFinalization) (recur (inc i)))))
+             "the cleared entry was expunged — private storage returned to baseline")))))
+
+;; ===========================================================================
 ;; ABI guard
 ;; ===========================================================================
 
