@@ -396,7 +396,7 @@ Props compare by value (`rf=`, per slot) to decide re-renders:
 
 ```clojure
 (deftest add-button-carries-intent
-  (let [frame (uit/frame {:app-db {:cart #{}}})
+  (let [frame (rf/make-frame {:initial-events [[:rf/set-db {:cart #{}}]]})
         tree  (uit/render [product-card {:product {:id 42 :name "Hat" :price 9.5}}]
                           {:frame frame})]
     (is (= "Hat"          (uit/text (uit/find tree :h3))))
@@ -404,13 +404,17 @@ Props compare by value (`rf=`, per slot) to decide re-renders:
 ```
 
 - **Tier-1 (default): real view + real frame on the JVM, no DOM.** `render`
-  opts are CLOSED: `{:frame f}` XOR `{:app-db seed}`, `:props` (bare-view
-  form only), `:sub-overrides {query value}` (the explicit JVM override
-  door). Unknown keys throw didactically.
-- `render` also takes a **literal root form** — plan-bearing `frame-root`
+  opts are CLOSED: `{:frame f}` (a frame minted with `rf/make-frame` +
+  `:initial-events`), `:props` (bare-view form only),
+  `:sub-overrides {query value}` (the explicit JVM override door). Unknown
+  keys throw didactically.
+- `render` also takes a **literal root form** — the same top-region root
+  grammar `mount` takes, tightened so the form mounts exactly ONE view (root
+  identity is that view's id); a form with zero or two-plus views fails at
+  expansion with `:rf.ui.compile/bad-test-root`. Plan-bearing `frame-root`
   forms preflight fresh isolated test frames and tear down after. With a root
-  form, `:props` is rejected (props live in the form); `:frame`/`:app-db`
-  alongside a plan-bearing form are rejected (the form owns its frames).
+  form, `:props` is rejected (props live in the form), and `:frame` alongside
+  a plan-bearing form is rejected (the form owns its frames).
 - **Assert structure and intent, not pixels.** Handler slots hold event
   vectors as data — "what does this button do" is an equality check, no
   click simulation. **Reads go through the projections**: `(uit/attrs node)`
