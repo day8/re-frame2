@@ -17,6 +17,11 @@ const {
   startLocalHttpServer,
 } = require('./lib/local-browser-harness.cjs');
 const { classifyReleaseBundle } = require('./lib/read-release-bundle.cjs');
+const {
+  validateWarmSamples,
+  summarizeWarm,
+  buildSummary,
+} = require('./lib/g13-timing-evidence.cjs');
 
 const IMPL = path.resolve(__dirname, '..');
 const OUT = path.join(IMPL, 'out');
@@ -279,13 +284,13 @@ function assertDevResult(result) {
     if (!Array.isArray(size.samples) || size.samples.length !== 9) {
       fail(`V=${size.v} did not retain exactly nine warm samples`);
     }
-    if (!Array.isArray(size.warm['raw-ms']) || size.warm['raw-ms'].length !== 9) {
-      fail(`V=${size.v} raw timing evidence is not the odd nine-sample set`);
-    }
-    if (!Number.isFinite(size.cold['elapsed-ms']) ||
-        !Number.isFinite(size.warm['p50-ms']) ||
-        !Number.isFinite(size.warm['p95-ms'])) {
-      fail(`V=${size.v} timing evidence is incomplete`);
+    // The warm dispatch-to-commit evidence must be exactly nine finite
+    // samples; empty, malformed, non-finite, or wrong-count arrays fail here
+    // (the p50/p95 are the runner's nearest-rank derivation, not browser
+    // output — see attachWarmSummary).
+    validateWarmSamples(size.warm['raw-ms'], `V=${size.v} warm timing evidence`);
+    if (!Number.isFinite(size.cold['elapsed-ms'])) {
+      fail(`V=${size.v} cold timing evidence is incomplete`);
     }
     for (const sample of size.samples) {
       if (!sameJson(sample.projection, expected)) {
@@ -410,21 +415,20 @@ function writeReport(report) {
   fs.writeFileSync(REPORT, `${JSON.stringify(report, null, 2)}\n`, 'utf8');
 }
 
+// Derive the labelled p50/p95 from the raw warm samples (the browser emits
+// only the raw array, so there is ONE quantile convention, applied here) and
+// fold them back onto each size so the JSON artifact carries raw + p50 + p95.
+function attachWarmSummary(result) {
+  for (const size of result.results || []) {
+    size.warm = summarizeWarm(size.warm['raw-ms'], `V=${size.v} warm timing evidence`);
+  }
+  return result;
+}
+
 function appendSummary(report) {
   const target = process.env.GITHUB_STEP_SUMMARY;
   if (!target || report.status !== 'pass') return;
-  const lines = [
-    '### re-frame.ui G-13 push economics',
-    '',
-    '| V | cold ms | warm p50 ms | warm p95 ms | exact projection |',
-    '|---:|---:|---:|---:|:---:|',
-  ];
-  for (const row of report.development.results) {
-    lines.push(`| ${row.v} | ${row.cold['elapsed-ms'].toFixed(3)} | ` +
-      `${row.warm['p50-ms'].toFixed(3)} | ${row.warm['p95-ms'].toFixed(3)} | yes |`);
-  }
-  lines.push('', 'Timing is evidence-only; G-13 has no wall-clock threshold.', '');
-  fs.appendFileSync(target, `${lines.join('\n')}\n`, 'utf8');
+  fs.appendFileSync(target, buildSummary(report.development.results), 'utf8');
 }
 
 async function main() {
@@ -471,6 +475,9 @@ async function main() {
     if (pageErrors.length) fail(`development page errors:\n${pageErrors.join('\n')}`);
     assertDevResult(devState.result);
     const mutationTeeth = assertMutationTeeth(devState.result);
+    // Fold the nearest-rank p50/p95 onto each size so the JSON artifact and
+    // step summary carry raw + p50 + p95 (single stated quantile convention).
+    attachWarmSummary(devState.result);
 
     const prod = await browser.newPage();
     const prodErrors = [];
@@ -515,7 +522,17 @@ async function main() {
   }
 }
 
-main().catch((error) => {
-  console.error(error.stack || String(error));
-  process.exitCode = 1;
-});
+module.exports = {
+  assertDevResult,
+  attachWarmSummary,
+  appendSummary,
+  expectedProjection,
+};
+
+// CLI entry-point (skipped when require()'d by the test suite).
+if (require.main === module) {
+  main().catch((error) => {
+    console.error(error.stack || String(error));
+    process.exitCode = 1;
+  });
+}

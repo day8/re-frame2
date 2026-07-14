@@ -51,7 +51,38 @@
 (defn- deltas [cells before]
   (mapv #(- (reactive/revision %) (get before %)) cells))
 
-(defn- sample! [root frame v label]
+;; rf2-vxgfnd.213 — the timing sample and the correctness sample are two
+;; SEPARATE drains, on purpose. A single drain cannot be both timed and
+;; audited: the exact-work projection needs O(V) live-cell scans (dirty split,
+;; revision deltas, port fan-out) captured between the write coalesce and the
+;; read commit, and those scans — plus every post-commit assertion and DOM
+;; query — are exactly the V-dependent work that must NOT sit inside a
+;; dispatch-to-commit interval. So the clean timing cycle carries no evidence
+;; collection at all, and the untimed correctness cycle carries all of it.
+
+(defn- timing-cycle!
+  "CLEAN dispatch-to-commit measurement. The measured interval spans exactly
+  the eight write epochs plus the single read/render commit: no pre-commit
+  evidence scan and no post-commit validation runs inside it. The end
+  timestamp is taken the instant the post-commit Promise resolves — before any
+  delta scan, counter comparison, or DOM query — so the sample is the true
+  dispatch-to-commit span and is independent of the V-scaled audit work done by
+  the correctness cycle. Returns the elapsed milliseconds."
+  [frame]
+  (let [started (js/performance.now)]
+    (-> (uit/flush!
+         (fn []
+           ;; dispatch! completes all eight write epochs synchronously; the
+           ;; read side runs when flush!'s Promise advances to the commit.
+           (uit/dispatch! frame [::fixture/step fixture/queued-writes])))
+        (.then (fn [_] (- (js/performance.now) started))))))
+
+(defn- correctness-cycle!
+  "Exact push-work accounting for ONE drain — UNTIMED. Owns the O(V) live-cell
+  scans that prove the V−C non-affected cells contribute zero work; those scans
+  and every assertion sit here, never inside a timing interval. Returns the
+  deterministic projection plus the fixed-shell count."
+  [root frame v label]
   (let [{:keys [all hot cold idle]} (split-cells v)
         before (into {} (map (juxt identity reactive/revision)) all)
         pre    (atom nil)]
@@ -59,38 +90,37 @@
     ;; rf2-vxgfnd.250 — reset the production-erased port candidate-inspection
     ;; witness so this sample counts only THIS drain's inspections.
     (obs/reset-g13-candidate-inspections!)
-    (let [started (js/performance.now)]
-      (-> (uit/flush!
-           (fn []
-             ;; dispatch! completes all eight write epochs synchronously. The
-             ;; read side has not run until flush!'s returned Promise advances.
-             (uit/dispatch! frame [::fixture/step fixture/queued-writes])
-             (reset! pre
-                     {:pending (reactive/pending-cell-count)
-                      :hot-dirty (count (filter reactive/dirty? hot))
-                      :cold-dirty (count (filter reactive/dirty? cold))
-                      :idle-dirty (count (filter reactive/dirty? idle))
-                      :revision-delta (reduce + (deltas all before))
-                      :evidence-counts
-                      (mapv #(get (reactive/pending-evidence %) :count) hot)
-                      ;; rf2-vxgfnd.210 — the NAMED candidate-work axis.
-                      ;; Summed over EVERY live cell (all V), `:port-fan-out` is
-                      ;; the observation port's total DELIVERED fan-out for the
-                      ;; drain: one fold per (queued write × affected owner). Its
-                      ;; value is C*Q, and — critically — the V−C non-affected
-                      ;; cells contribute ZERO (`:fan-out-cells` counts the cells
-                      ;; that received ANY fold, and it is exactly C). The number
-                      ;; is therefore causally independent of V: it is not merely
-                      ;; numerically equal across the two runs, it is summed over
-                      ;; all V and provably sourced from only C of them.
-                      :port-fan-out
-                      (reduce + 0 (keep #(:count (reactive/pending-evidence %)) all))
-                      :fan-out-cells
-                      (count (filter #(some? (reactive/pending-evidence %)) all))
-                      :counters (fixture/counter-snapshot)})))
-          (.then
-           (fn []
-             (let [hot-deltas  (deltas hot before)
+    (-> (uit/flush!
+         (fn []
+           ;; dispatch! completes all eight write epochs synchronously. The
+           ;; read side has not run until flush!'s returned Promise advances.
+           (uit/dispatch! frame [::fixture/step fixture/queued-writes])
+           (reset! pre
+                   {:pending (reactive/pending-cell-count)
+                    :hot-dirty (count (filter reactive/dirty? hot))
+                    :cold-dirty (count (filter reactive/dirty? cold))
+                    :idle-dirty (count (filter reactive/dirty? idle))
+                    :revision-delta (reduce + (deltas all before))
+                    :evidence-counts
+                    (mapv #(get (reactive/pending-evidence %) :count) hot)
+                    ;; rf2-vxgfnd.210 — the NAMED candidate-work axis.
+                    ;; Summed over EVERY live cell (all V), `:port-fan-out` is
+                    ;; the observation port's total DELIVERED fan-out for the
+                    ;; drain: one fold per (queued write × affected owner). Its
+                    ;; value is C*Q, and — critically — the V−C non-affected
+                    ;; cells contribute ZERO (`:fan-out-cells` counts the cells
+                    ;; that received ANY fold, and it is exactly C). The number
+                    ;; is therefore causally independent of V: it is not merely
+                    ;; numerically equal across the two runs, it is summed over
+                    ;; all V and provably sourced from only C of them.
+                    :port-fan-out
+                    (reduce + 0 (keep #(:count (reactive/pending-evidence %)) all))
+                    :fan-out-cells
+                    (count (filter #(some? (reactive/pending-evidence %)) all))
+                    :counters (fixture/counter-snapshot)})))
+        (.then
+         (fn [_]
+           (let [hot-deltas  (deltas hot before)
                  cold-deltas (deltas cold before)
                  idle-deltas (deltas idle before)
                  counters    (fixture/counter-snapshot)
@@ -159,13 +189,20 @@
                       "cold DOM changed during a hot-only drain"
                       {:v v :label label})
              {:label label
-              :elapsed-ms (- (js/performance.now) started)
               :fixed-shell-idle-cells (count idle)
-              :projection projection})))))))
+              :projection projection}))))))
 
-(defn- percentile [xs p]
-  (let [sorted (vec (sort xs))]
-    (nth sorted (js/Math.floor (* p (dec (count sorted)))))))
+(defn- sample!
+  "One recorded sample: the untimed correctness cycle (exact-work projection +
+  DOM proof) followed by a separate CLEAN timing cycle. The reported
+  `:elapsed-ms` therefore measures only dispatch-to-commit, while the exact
+  counts come from a cycle that is never on the clock."
+  [root frame v label]
+  (-> (correctness-cycle! root frame v label)
+      (.then (fn [c]
+               (-> (timing-cycle! frame)
+                   (.then (fn [elapsed]
+                            (assoc c :elapsed-ms elapsed))))))))
 
 (defn- run-size! [v]
   (let [frame (rf/make-frame {:initial-events [[:rf/set-db (fixture/seed v)]]})
@@ -203,11 +240,14 @@
                                   (.getAttribute
                                    (uit/query root "[data-g13-v]") "data-g13-v")
                                   10)]
+                   ;; rf2-vxgfnd.213 — the browser emits only the RAW warm
+                   ;; dispatch-to-commit samples; the runner is the single owner
+                   ;; of the (stated, nearest-rank) quantile convention and folds
+                   ;; p50/p95 back on. No percentile is computed here, so there
+                   ;; is exactly one convention and it is unit-tested.
                    {:v mounted-v
                     :cold @cold*
-                    :warm {:raw-ms raw
-                           :p50-ms (percentile raw 0.50)
-                           :p95-ms (percentile raw 0.95)}
+                    :warm {:raw-ms raw}
                     :samples samples})))))
         (.then (fn [result]
                  (rf/destroy-frame! frame)
