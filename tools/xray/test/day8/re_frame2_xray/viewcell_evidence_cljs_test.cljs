@@ -1,35 +1,46 @@
 (ns day8.re-frame2-xray.viewcell-evidence-cljs-test
-  "rf2-vxgfnd.146 — the REAL Xray runtime owns the re-frame.ui ViewCell
-  invalidation-evidence projection.
+  "rf2-vxgfnd.146/.238/.286 — the REAL Xray runtime owns the re-frame.ui
+  ViewCell invalidation-evidence projection, EXACTLY (per span, not per
+  reusable id), REACTIVELY (an ownership change invalidates the query), and
+  LIFECYCLE-COMPLETELY (every transition — acquire, read, HMR re-arm,
+  release, reclaim, canonical reset — keeps ownership correct).
 
   Requiring `day8.re-frame2-xray.preload` here runs the ACTUAL preload
   boot block (the same namespace shadow-cljs `:devtools/preloads` loads
   into every dev host), and `owner-at-load` snapshots the evidence
   tier's owner IMMEDIATELY after — before any fixture can reset it. If
-  the preload's `viewcell-evidence/install!` wiring is removed, that
+  the preload's `viewcell-evidence/acquire!` wiring is removed, that
   snapshot is nil and the wiring test goes RED (the mutation probe the
   bead demands; the browser counterpart lives in the feature-matrix
   shell sweep, which checks the install sentinel + the rendered Views
   panel section against the real chrome runtime).
 
-  The end-to-end row test drives a REAL observation-port movement — a
-  committed ViewCell whose subscription lease fans out an `:hmr`
-  invalidation, flushed by the scheduler — and asserts the row surfaces
-  through Xray's query path (`:rf.xray/viewcell-evidence`, subscribed in
-  the `:rf/xray` frame exactly as the Views panel section reads it) with
-  stable identity + the bounded epoch/count/batch/cause/target/loss
-  fields, then that teardown prunes it. Lifecycle tests pin the HMR
-  re-arm (evidence kept), the exact-owner release, and the
-  never-clobber-a-foreign-owner contract."
+  ## The three .286 properties, each with a red-before-fix control
+
+    - EXACT (rf2-vxgfnd.286 AC1) — `same-key-aba-*`: acquire span A, close
+      it, reclaim the SAME owner-id as span B, publish a real B row. A's
+      receipt reads NO B data and A's release cannot clear B. Reverting the
+      receipt fence to owner equality makes it fail (owner-id matches, so a
+      bare read would surface B and a bare release would clear B).
+    - REACTIVE (rf2-vxgfnd.286 AC3/AC4) — `ownership-change-is-reactive-*`:
+      the query DECLARES the ownership-revision axis as a `:<-` input, and
+      every transition bumps that revision in `:rf/xray` app-db. Removing
+      the listener/event or the `:<-` input makes it fail.
+    - LIFECYCLE-COMPLETE (rf2-vxgfnd.286 AC5) — `canonical-reset-*`:
+      `core/init!` then the clean-slate `reset-all!`/`reset-runtime!` tier
+      leaves owner, rows, entries and sentinel at baseline (owner-checked),
+      while a FOREIGN registration survives. Omitting the reset-tier
+      cleanup makes it fail."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.frame :as frame]
+            [re-frame.subs.tooling :as subs-tooling]
             [re-frame.ui.reactive :as reactive]
             [re-frame.ui.tool.evidence :as evidence]
             [day8.re-frame2-xray.core :as core]
             [day8.re-frame2-xray.mount :as mount]
             ;; The REAL preload — its debug-gated boot block runs at load,
-            ;; installing the evidence projection under Xray's identity.
+            ;; acquiring the evidence projection under Xray's identity.
             [day8.re-frame2-xray.preload]
             [day8.re-frame2-xray.registry :as registry]
             [day8.re-frame2-xray.test-support :as xray-test-support]
@@ -47,18 +58,22 @@
   (xray-test-support/make-xray-runtime-fixture {})
   (fn [f]
     (reactive/reset-scheduler!)
-    (evidence/force-release!)
+    ;; The Xray-level fixture-reset door: force-releases the tier AND
+    ;; withdraws Xray's sentinel + clears the ledger receipt — so no
+    ;; cross-test owner/sentinel leakage (rf2-vxgfnd.286: the prior bespoke
+    ;; `evidence/force-release!` cleared the tier but LEAKED Xray's sentinel).
+    (viewcell-evidence/reset-for-test!)
     (try (f) (finally
                (reactive/reset-scheduler!)
-               (evidence/force-release!)))))
+               (viewcell-evidence/reset-for-test!)))))
 
 (def ^:private fid :rf/default)
 
 (defn- boot-xray!
   "The production init path (mirrors `init_filter_reset_cljs_test`):
   register the Xray handlers, then `ensure-xray-frame!` — so the
-  `:rf/xray` frame and the `:rf.xray/*` sub graph exist exactly as a
-  real page load builds them."
+  `:rf/xray` frame and the `:rf.xray/*` sub graph (incl. the ownership
+  reactivity bridge) exist exactly as a real page load builds them."
   []
   (registry/register-xray-handlers!)
   (mount/ensure-xray-frame!))
@@ -81,17 +96,21 @@
   (rf/with-frame :rf/xray
     @(rf/subscribe [:rf.xray/viewcell-evidence])))
 
+(defn- ownership-rev-sub []
+  (rf/with-frame :rf/xray
+    @(rf/subscribe [:rf.xray/viewcell-evidence-ownership])))
+
 ;; ===========================================================================
-;; The preload wiring — no test-only direct install stands in for it
+;; The preload wiring — no test-only direct acquire stands in for it
 ;; ===========================================================================
 
-(deftest preload-boot-installs-the-projection-under-xrays-stable-identity
+(deftest preload-boot-acquires-the-projection-under-xrays-stable-identity
   (is (= viewcell-evidence/owner-id owner-at-load)
-      "the REAL preload boot block claimed the evidence projection —
-       removing the preload install wiring turns this nil (AC: a mutation
-       removing the Xray install must fail)")
+      "the REAL preload boot block acquired the evidence projection —
+       removing the preload acquire wiring turns this nil (AC: a mutation
+       removing the Xray acquire must fail)")
   (is (some? sentinel-at-load)
-      "…and mirrored the install on the browser-probe sentinel")
+      "…and mirrored the acquire on the browser-probe sentinel")
   (is (= (str viewcell-evidence/owner-id)
          (aget sentinel-at-load "owner"))))
 
@@ -101,7 +120,7 @@
 
 (deftest real-movement-surfaces-in-the-xray-query-row
   (boot-xray!)
-  (is (true? (viewcell-evidence/install!)))
+  (is (some? (viewcell-evidence/acquire!)))
   (rf/reg-sub :vce/a (fn [db _] (:a db)))
   (frame/replace-app-db! fid {:a 1})
   (let [cell (rc! (reactive/make-cell ::v) [[:vce/a]])]
@@ -152,43 +171,148 @@
       (is (= [] (xray-query))))))
 
 ;; ===========================================================================
-;; Lifecycle — HMR re-arm, exact-owner release, never clobber
+;; EXACT — same-key ABA: a superseded span reads no successor and cannot
+;; clear it (rf2-vxgfnd.286 AC1)
 ;; ===========================================================================
 
-(deftest hmr-rearm-keeps-the-accumulated-evidence
-  (is (true? (viewcell-evidence/install!)))
-  (let [cell (reactive/make-cell ::v)]
-    (reactive/mark-dirty! cell 1)
+(deftest same-key-aba-a-superseded-span-reads-no-successor-and-cannot-clear-it
+  ;; span A publishes a real row
+  (let [receipt-a (viewcell-evidence/acquire!)
+        cell-a    (reactive/make-cell ::a)]
+    (is (some? receipt-a))
+    (reactive/mark-dirty! cell-a 1)
     (reactive/flush-pending!)
-    (is (= 1 (:count (first (viewcell-evidence/rows)))))
-    ;; the `:after-load` path: the preload boot re-runs → same-owner re-arm
-    (is (true? (viewcell-evidence/install!)))
-    (is (true? (viewcell-evidence/installed?)))
-    (is (= 1 (:count (first (viewcell-evidence/rows))))
-        "accumulated evidence survives the re-arm")
-    (reactive/mark-dirty! cell 2)
-    (reactive/flush-pending!)
-    (is (= 2 (:count (first (viewcell-evidence/rows))))
-        "…and delivery continues into the SAME accumulator")))
+    (is (= 1 (:count (first (viewcell-evidence/rows receipt-a))))
+        "A sees A's own row through A's receipt")
+
+    ;; close A, reclaim the SAME logical id as span B
+    (is (true? (viewcell-evidence/release-current!)) "span A closed")
+    (let [receipt-b (viewcell-evidence/acquire!)
+          cell-b    (reactive/make-cell ::b)]
+      (is (some? receipt-b))
+      (is (not= receipt-a receipt-b)
+          "B is a DISTINCT span even under the SAME reusable owner-id")
+      (is (= viewcell-evidence/owner-id (evidence/installed-owner))
+          "…reclaimed under the same tier id")
+      (reactive/mark-dirty! cell-b 1)
+      (reactive/flush-pending!)
+      (is (= 1 (:count (first (viewcell-evidence/rows receipt-b))))
+          "B publishes a real, distinct row")
+
+      (testing "A reads NO B data — a superseded span's receipt authorizes nothing"
+        ;; Fail-before: with owner-equality the read passes the id fence
+        ;; (owner-id matches) and would surface B's row.
+        (is (= [] (viewcell-evidence/rows receipt-a))))
+
+      (testing "A's release cannot clear B's owner, sentinel, entries or delivery"
+        ;; Fail-before: an owner-checked-only release would call the tier's
+        ;; `uninstall!` for owner-id and release B.
+        (is (false? (viewcell-evidence/release! receipt-a))
+            "the stale receipt's release is refused")
+        (is (= viewcell-evidence/owner-id (evidence/installed-owner))
+            "B still owns the projection")
+        (is (some? (aget js/globalThis sentinel-key))
+            "B's install sentinel is intact")
+        (is (= 1 (:count (first (viewcell-evidence/rows receipt-b))))
+            "B's retained entries are intact")
+        ;; a LATER delivery still lands into B's live sink
+        (reactive/mark-dirty! cell-b 2)
+        (reactive/flush-pending!)
+        (is (= 2 (:count (first (viewcell-evidence/rows receipt-b))))
+            "B's sink still delivers after the stale release")))))
+
+;; ===========================================================================
+;; REACTIVE — ownership change is a reactive input to the evidence query
+;; (rf2-vxgfnd.286 AC3/AC4)
+;; ===========================================================================
+
+(deftest ownership-change-is-a-reactive-input-to-the-evidence-query
+  (boot-xray!)
+
+  (testing "the query DECLARES the ownership-revision axis as a `:<-` input"
+    ;; Fail-before: the composite `:<-`'d only `:rf.xray/epoch-history`, so an
+    ;; acquire/release invalidated nothing until an unrelated epoch pump.
+    (let [inputs    (:inputs (get (subs-tooling/sub-topology)
+                                  :rf.xray/viewcell-evidence))
+          input-ids (map #(if (vector? %) (first %) %) (or inputs []))]
+      (is (some #{:rf.xray/viewcell-evidence-ownership} input-ids)
+          "so an acquire/release recomputes the query without an epoch pump")))
+
+  (testing "each ownership transition bumps the reactive ownership revision"
+    ;; Fail-before: no listener / event / ownership slot ⇒ the value never
+    ;; changes on a release, so a live query keeps its stale rows.
+    (let [receipt       (viewcell-evidence/acquire!)
+          after-acquire (ownership-rev-sub)]
+      (is (some? receipt))
+      (is (true? (viewcell-evidence/release-current!)))
+      (let [after-release (ownership-rev-sub)]
+        (is (not= after-acquire after-release)
+            "release bumped the reactive ownership input — a held query
+             recomputes immediately, no epoch pump")
+        (is (> after-release after-acquire) "revisions are monotonic"))))
+
+  (testing "a held subscription reflects the release — receipt-fenced recompute"
+    ;; On the plain-atom node adapter every deref recomputes, so this is a
+    ;; live-surface smoke over the held-subscription path (the caching-adapter
+    ;; gate is the feature-matrix shell sweep); the receipt fence keeps the
+    ;; recompute honest.
+    (let [receipt (viewcell-evidence/acquire!)
+          cell    (reactive/make-cell ::live)
+          sub     (rf/with-frame :rf/xray
+                    (rf/subscribe [:rf.xray/viewcell-evidence]))]
+      (is (some? receipt))
+      (reactive/mark-dirty! cell 1)
+      (reactive/flush-pending!)
+      (is (seq @sub) "non-empty while Xray owns the span")
+      (viewcell-evidence/release-current!)
+      (is (= [] @sub)
+          "empty after release — the ownership axis recomputed it, not an
+           epoch pump"))))
+
+;; ===========================================================================
+;; Lifecycle — HMR re-arm keeps the span + evidence; exact-owner release;
+;; never clobber a foreign owner
+;; ===========================================================================
+
+(deftest hmr-rearm-keeps-the-same-span-and-accumulated-evidence
+  (let [receipt-1 (viewcell-evidence/acquire!)]
+    (is (some? receipt-1))
+    (let [cell (reactive/make-cell ::v)]
+      (reactive/mark-dirty! cell 1)
+      (reactive/flush-pending!)
+      (is (= 1 (:count (first (viewcell-evidence/rows)))))
+      ;; the `:after-load` path: the preload boot re-runs → same-span re-arm
+      (let [receipt-2 (viewcell-evidence/acquire!)]
+        (is (= receipt-1 receipt-2)
+            "the HMR re-arm PRESERVES the span receipt (same continuous span)")
+        (is (true? (viewcell-evidence/installed?)))
+        (is (= 1 (:count (first (viewcell-evidence/rows))))
+            "accumulated evidence survives the re-arm"))
+      (reactive/mark-dirty! cell 2)
+      (reactive/flush-pending!)
+      (is (= 2 (:count (first (viewcell-evidence/rows))))
+          "…and delivery continues into the SAME accumulator"))))
 
 (deftest shutdown-releases-the-exact-owner-and-never-clobbers-a-foreign-one
-  (testing "uninstall releases exactly Xray's registration"
-    (is (true? (viewcell-evidence/install!)))
+  (testing "release-current! frees exactly Xray's registration"
+    (is (some? (viewcell-evidence/acquire!)))
     (is (some? (aget js/globalThis sentinel-key)))
-    (is (true? (viewcell-evidence/uninstall!)))
+    (is (true? (viewcell-evidence/release-current!)))
     (is (nil? (evidence/installed-owner)))
+    (is (nil? (viewcell-evidence/current-receipt)) "the span receipt is cleared")
     (is (= [] (viewcell-evidence/rows)) "closed retains zero")
     (is (nil? (aget js/globalThis sentinel-key))
         "the install sentinel is withdrawn with the registration"))
 
-  (testing "a foreign owner is NEVER clobbered — Xray's install is refused"
+  (testing "a foreign owner is NEVER clobbered — Xray's acquire is refused"
     (is (true? (evidence/install! ::another-tool)))
-    (is (false? (viewcell-evidence/install!)))
+    (is (nil? (viewcell-evidence/acquire!)) "acquire rejected → nil receipt")
     (is (= ::another-tool (evidence/installed-owner))
         "the foreign registration stands")
     (is (false? (viewcell-evidence/installed?)))
-    (is (false? (viewcell-evidence/uninstall!))
-        "…and Xray's uninstall cannot release what it does not own")
+    (is (nil? (viewcell-evidence/current-receipt)))
+    (is (false? (viewcell-evidence/release-current!))
+        "…and Xray's release cannot free what it does not own")
     (is (= ::another-tool (evidence/installed-owner)))))
 
 ;; ===========================================================================
@@ -198,9 +322,9 @@
 
 (deftest foreign-owner-evidence-never-surfaces-through-any-xray-read
   ;; A foreign tool owns the shared projection AND has accumulated evidence
-  ;; in it — the case the earlier never-clobber test omitted (it installed a
-  ;; foreign owner but delivered nothing, so `rows` was empty for the wrong
-  ;; reason). Drive a real flush so `evidence/projection` is non-empty.
+  ;; in it — the case the never-clobber test omits (it installs a foreign
+  ;; owner but delivers nothing). Drive a real flush so `evidence/projection`
+  ;; is non-empty.
   (is (true? (evidence/install! ::another-tool)))
   (let [cell (reactive/make-cell ::foreign-v)]
     (reactive/mark-dirty! cell 1)
@@ -208,11 +332,10 @@
     (is (= 1 (count (evidence/projection)))
         "the FOREIGN owner accumulated a row in the shared projection")
     ;; Xray's own claim is rejected — Xray does not own the projection.
-    (is (false? (viewcell-evidence/install!)))
+    (is (nil? (viewcell-evidence/acquire!)))
     (is (false? (viewcell-evidence/installed?)))
     ;; AC: rows + every derived Xray query return NO evidence unless Xray
-    ;; owns the installed projection. Fail-before: pre-fix `rows` read the
-    ;; shared projection regardless of ownership and surfaced this row.
+    ;; owns the installed projection.
     (is (= [] (viewcell-evidence/rows))
         "ownership rejection ⇒ zero observation through Xray's rows")
     (boot-xray!)
@@ -225,25 +348,28 @@
         "…and its evidence still lives in the shared projection")))
 
 ;; ===========================================================================
-;; core/init! is a full evidence-projection install path (rf2-vxgfnd.238)
+;; core/init! is a full evidence-projection acquire path (rf2-vxgfnd.238)
 ;; ===========================================================================
 
-(deftest core-init-claims-the-projection-under-xrays-identity
+(deftest core-init-acquires-the-projection-under-xrays-identity
   ;; A clean process that requires `core` and calls `init!` (the supported
-  ;; manual alternative to the preload) must claim the evidence projection,
-  ;; or Xray is enabled WITHOUT ViewCell evidence. Fail-before: pre-fix
-  ;; `init!` never installed, so this owner stayed nil.
+  ;; manual alternative to the preload) must acquire the evidence projection,
+  ;; or Xray is enabled WITHOUT ViewCell evidence.
   (is (nil? (evidence/installed-owner)) "clean slate — nobody owns it")
   (core/init!)
   (is (= viewcell-evidence/owner-id (evidence/installed-owner))
-      "core/init! claims the projection under Xray's stable owner id")
+      "core/init! acquires the projection under Xray's stable owner id")
   (is (true? (viewcell-evidence/installed?)))
+  (is (some? (viewcell-evidence/current-receipt)) "…opening an ownership span")
   (is (some? (aget js/globalThis sentinel-key))
-      "…and mirrors the install on the browser-probe sentinel")
-  (testing "idempotent — a second init! is the same-owner re-arm, not a reject"
-    (core/init!)
-    (is (= viewcell-evidence/owner-id (evidence/installed-owner)))
-    (is (true? (viewcell-evidence/installed?)))))
+      "…and mirrors the acquire on the browser-probe sentinel")
+  (testing "idempotent — a second init! is the same-span re-arm, not a reject"
+    (let [receipt-before (viewcell-evidence/current-receipt)]
+      (core/init!)
+      (is (= viewcell-evidence/owner-id (evidence/installed-owner)))
+      (is (= receipt-before (viewcell-evidence/current-receipt))
+          "the re-arm keeps the span receipt")
+      (is (true? (viewcell-evidence/installed?))))))
 
 (deftest core-init-does-not-clobber-a-foreign-owner
   ;; The manual path honours the same never-clobber contract as the preload.
@@ -255,19 +381,60 @@
   (is (= [] (viewcell-evidence/rows))
       "…and exposes no evidence while another owner holds the projection"))
 
-(deftest uninstall-then-core-init-reclaims-a-fresh-projection
-  ;; dispose (uninstall) then re-init: the ordinary tool-shutdown / test
-  ;; door, and a re-init that reclaims a fresh, empty ownership span.
-  (is (true? (viewcell-evidence/install!)))
-  (let [cell (reactive/make-cell ::v)]
-    (reactive/mark-dirty! cell 1)
-    (reactive/flush-pending!)
-    (is (= 1 (:count (first (viewcell-evidence/rows))))))
-  (is (true? (viewcell-evidence/uninstall!)))
-  (is (nil? (evidence/installed-owner)))
-  (is (= [] (viewcell-evidence/rows)) "closed retains zero")
-  ;; re-init through the manual path reclaims the projection, empty
-  (core/init!)
-  (is (true? (viewcell-evidence/installed?)))
-  (is (= [] (viewcell-evidence/rows))
-      "re-init starts from a fresh, empty projection"))
+(deftest release-then-core-init-reclaims-a-fresh-span
+  ;; release then re-init: the ordinary tool-shutdown / test door, and a
+  ;; re-init that reclaims a fresh, empty ownership span with a NEW receipt.
+  (let [receipt-1 (viewcell-evidence/acquire!)]
+    (is (some? receipt-1))
+    (let [cell (reactive/make-cell ::v)]
+      (reactive/mark-dirty! cell 1)
+      (reactive/flush-pending!)
+      (is (= 1 (:count (first (viewcell-evidence/rows))))))
+    (is (true? (viewcell-evidence/release! receipt-1)))
+    (is (nil? (evidence/installed-owner)))
+    (is (= [] (viewcell-evidence/rows)) "closed retains zero")
+    ;; re-init through the manual path reclaims the projection, empty
+    (core/init!)
+    (is (true? (viewcell-evidence/installed?)))
+    (is (not= receipt-1 (viewcell-evidence/current-receipt))
+        "the reclaim mints a NEW span receipt")
+    (is (= [] (viewcell-evidence/rows))
+        "re-init starts from a fresh, empty projection")))
+
+;; ===========================================================================
+;; LIFECYCLE-COMPLETE — the canonical clean-slate reset tier releases Xray's
+;; evidence owner (owner-checked); a foreign owner survives (rf2-vxgfnd.286 AC5)
+;; ===========================================================================
+
+(deftest canonical-reset-tier-releases-xrays-evidence-owner-checked
+  (testing "core/init! then reset-all! leaves owner, rows, entries + sentinel baseline"
+    (core/init!)
+    (is (= viewcell-evidence/owner-id (evidence/installed-owner)))
+    (is (some? (aget js/globalThis sentinel-key)))
+    (let [cell (reactive/make-cell ::v)]
+      (reactive/mark-dirty! cell 1)
+      (reactive/flush-pending!)
+      (is (= 1 (count (viewcell-evidence/rows))) "a real row accumulated"))
+    ;; Fail-before: reset-all! omitted the evidence release, leaking owner +
+    ;; sentinel + entries across tests.
+    (xray-test-support/reset-all!)
+    (is (nil? (evidence/installed-owner))
+        "the clean-slate reset released Xray's registration")
+    (is (nil? (viewcell-evidence/current-receipt)) "…and its span receipt")
+    (is (= [] (viewcell-evidence/rows)) "no retained rows/entries")
+    (is (nil? (aget js/globalThis sentinel-key)) "the sentinel is withdrawn"))
+
+  (testing "reset-runtime! is likewise a full owner-checked evidence teardown"
+    (core/init!)
+    (is (= viewcell-evidence/owner-id (evidence/installed-owner)))
+    (xray-test-support/reset-runtime!)
+    (is (nil? (evidence/installed-owner)))
+    (is (nil? (aget js/globalThis sentinel-key))))
+
+  (testing "a FOREIGN registration SURVIVES the owner-checked reset"
+    ;; Fail-before/guard: an unconditional force-release in the reset tier
+    ;; would clobber the foreign owner — the reset must be owner-checked.
+    (is (true? (evidence/install! ::another-tool)))
+    (xray-test-support/reset-all!)
+    (is (= ::another-tool (evidence/installed-owner))
+        "owner-checked reset never clobbers a foreign owner")))

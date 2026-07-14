@@ -476,7 +476,11 @@
    ;; rf2-vxgfnd.146 — the ViewCell Invalidation Evidence section's query
    ;; over Xray's OWNED `re-frame.ui.tool.evidence` projection
    ;; (spec/021 §3.4.1); registered by `reactive-panel-subs/install!`.
-   :rf.xray/viewcell-evidence))
+   :rf.xray/viewcell-evidence
+   ;; rf2-vxgfnd.286 — the ownership-REVISION reactive input to the query
+   ;; above: `viewcell-evidence` bumps it on every acquire/release so a live
+   ;; query recomputes to empty immediately (not on the next epoch pump).
+   :rf.xray/viewcell-evidence-ownership))
 
 (def ^:private all-event-names
   "Every Xray-namespaced event registered by `register-xray-handlers!`.
@@ -784,7 +788,12 @@
    ;; Reactive panel events (rf2-wyvf2 · spec/021 §3 · renamed from
    ;; Views per §11.5; tab key stays `:views`).
    :rf.xray/reactive-set-unchanged
-   :rf.xray/reactive-toggle-unchanged))
+   :rf.xray/reactive-toggle-unchanged
+   ;; rf2-vxgfnd.286 — the ownership reactivity bridge: `viewcell-evidence`'s
+   ;; listener dispatches this into `:rf/xray` on every evidence acquire/
+   ;; release, bumping `:rf.xray/viewcell-evidence-ownership` so a live
+   ;; query recomputes immediately (no epoch pump).
+   :rf.xray/viewcell-evidence-ownership-changed))
 
 (def ^:private all-fx-names
   "Every Xray-namespaced fx registered by `register-xray-handlers!`.

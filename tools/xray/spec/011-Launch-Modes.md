@@ -448,9 +448,17 @@ available. The lifecycle is normative.
    `rf/register-listener!` facade, so the preload never requires
    `re-frame.core`). `day8/re-frame2-epoch` is a hard Xray dependency, so
    the artefact is always present in an Xray build.
-4. Attach a global `Ctrl+Shift+C` keydown listener on
+4. Acquire the re-frame.ui ViewCell invalidation-evidence projection under
+   Xray's stable owner identity, opening an ownership span
+   (`viewcell-evidence/acquire!`, rf2-vxgfnd.146/.286). Idempotent: an
+   `:after-load` re-run is the same-span re-arm (accumulated evidence
+   survives, the receipt is preserved); a foreign owner already holding
+   the projection is never clobbered (the acquire is rejected — returns
+   nil — and Xray projects zero rows); a host not running the re-frame.ui
+   substrate simply projects nothing. See spec/021 §3.4.1.
+5. Attach a global `Ctrl+Shift+C` keydown listener on
    `document`.
-5. Schedule default true-inline auto-open once the substrate adapter
+6. Schedule default true-inline auto-open once the substrate adapter
    is ready, unless `:rf.xray/auto-open?` is false before the probe
    observes readiness.
 
@@ -468,9 +476,9 @@ alternative — `(require '[day8.re-frame2-xray.core])` then `configure!`
 → `init!`/`open!` — MUST be inert until the host explicitly calls
 `init!`/`open!`. Requiring the `core` facade (or any namespace
 transitively required to reach `configure!`/`init!`) MUST NOT run any
-of the five foundation side-effects: no handler / trace / epoch
-registration, no browser-global install, no keybinding attach, no
-auto-open scheduled. Concretely, `core` MUST NOT `:require` a namespace
+of the foundation side-effects: no handler / trace / epoch registration,
+no ViewCell-evidence acquire, no browser-global install, no keybinding
+attach, no auto-open scheduled. Concretely, `core` MUST NOT `:require` a namespace
 whose load performs the installation side-effects — the callable install
 primitives live in a side-effect-free-on-load namespace
 (`day8.re-frame2-xray.install`) that both `core/init!` and the
@@ -481,9 +489,14 @@ sets `:rf.xray/auto-open? false` or `:rf.xray/keybinding-enabled? false`
 via `core/configure!` BEFORE calling `init!` wins deterministically,
 because nothing fired merely from requiring the facade. `core/init!`
 then performs the manual install explicitly (register handlers →
-register trace collector → register epoch collector → attach keybinding,
-the same boot order as the foundation phase), and auto-open remains a
-preload-only concern — `init!` is open-explicit (the host calls `open!`).
+register trace collector → register epoch collector → acquire the ViewCell
+evidence projection → attach keybinding, the same boot order as the
+foundation phase), and auto-open remains a preload-only concern — `init!`
+is open-explicit (the host calls `open!`). The evidence acquire is
+load-inert on `core` (the callable primitive lives in the side-effect-free
+`viewcell-evidence` ns, invoked only by `init!` and the preload boot
+block), so a foreign owner is honoured and merely requiring `core` never
+touches the projection.
 
 **Boot order.** Within the preload's foundation phase the side-
 effects MUST run in the order **register-handlers → register-

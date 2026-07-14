@@ -678,32 +678,56 @@ invalidation-evidence accumulators the reactive scheduler's evidence-sink
 seam was built for). The Views panel renders it as the **VIEWCELL
 INVALIDATION EVIDENCE** section below the teardown lists.
 
-**Ownership + lifecycle.** Two supported paths claim the projection under
-the stable owner identity `:rf.xray/viewcell-evidence`
-(`day8.re-frame2-xray.viewcell-evidence/install!`): the preload boot block,
-and the manual `day8.re-frame2-xray.core/init!` path (the alternative to
-`:devtools/preloads`). Both wire the identical install (rf2-vxgfnd.238), so
-a host that requires `core` and calls `init!` is never left with Xray
-enabled but evidence-blind. A shadow-cljs `:after-load` (or a second
-`init!`) re-runs the same call as the evidence tier's idempotent
-same-owner re-arm — accumulated evidence survives (the HMR path). A
-foreign owner already holding the projection is NEVER clobbered: Xray's
-install is rejected. `viewcell-evidence/uninstall!` releases exactly
-Xray's registration — generation-fenced downstream (rf2-vxgfnd.147), so an
-in-flight delivery cannot repopulate the released projection and a stale
-release cannot touch a successor owner. A successful install mirrors onto
-the `__day8_re_frame2_xray_viewcell_evidence` global sentinel (the browser
-feature-gate's wiring probe; withdrawn on uninstall).
+**Ownership + span receipt (rf2-vxgfnd.286).** The stable id
+`:rf.xray/viewcell-evidence` is the tier registration KEY, but it is a
+REUSABLE key — after one ownership span closes and another reclaims the
+same id, id equality alone cannot tell the two incarnations apart. So
+`day8.re-frame2-xray.viewcell-evidence` layers an opaque, per-span RECEIPT
+over the tier's identity+generation lifecycle (rf2-vxgfnd.147):
 
-**Query path — ownership-fenced.** `:rf.xray/viewcell-evidence` (registered
-by `reactive-panel-subs/install!`) → `viewcell-evidence/rows`. Every read
-is gated on the exact ownership token (rf2-vxgfnd.238): rows — and
+- Two supported paths ACQUIRE the projection under the stable id — the
+  preload boot block and the manual `core/init!` path (the alternative to
+  `:devtools/preloads`). Both wire the identical `viewcell-evidence/acquire!`
+  (rf2-vxgfnd.238), so a host that requires `core` and calls `init!` is
+  never left with Xray enabled but evidence-blind. `acquire!` returns the
+  span's opaque receipt (nil when rejected / in production).
+- A shadow-cljs `:after-load` (or a second `init!`) re-runs the same call
+  as the evidence tier's idempotent same-span RE-ARM — accumulated evidence
+  survives and the receipt is PRESERVED (the HMR path is one continuous
+  span).
+- A foreign owner already holding the projection is NEVER clobbered:
+  `acquire!` is rejected (returns nil) and Xray projects zero rows.
+- `viewcell-evidence/release!` frees EXACTLY the span named by a receipt;
+  `release-current!` frees whatever span Xray currently owns (the
+  owner-checked teardown the reset tier drives, below). A stale receipt
+  from a superseded span can neither read a successor's data nor clear a
+  successor's registration (the same-key ABA fence), on top of the tier's
+  downstream generation fence (rf2-vxgfnd.147). A successful acquire mirrors
+  onto the `__day8_re_frame2_xray_viewcell_evidence` global sentinel (the
+  browser feature-gate's wiring probe; withdrawn on release).
+
+`installed-owner` (the tier read) is DIAGNOSTIC-only: ownership is
+authorized by the receipt, not by owner-id equality.
+
+**Query path — receipt-fenced + reactive (rf2-vxgfnd.238/.286).**
+`:rf.xray/viewcell-evidence` (registered by `reactive-panel-subs/install!`)
+→ `viewcell-evidence/rows`. Every read is gated on BOTH the exact span
+receipt AND that Xray is still the installed tier owner: rows — and
 therefore the sub, the panel section, and any derived Xray query — observe
-evidence ONLY while Xray is the installed owner. The evidence tier's
-`projection` read exposes the shared slot's entries REGARDLESS of owner, so
-an ownership rejection (a foreign tool installed first) must — and does —
-mean zero observation through Xray, never the foreign owner's rows. When
-Xray owns the projection, one row per live ViewCell instance in stable
+evidence ONLY for Xray's current span. The evidence tier's `projection`
+read exposes the shared slot's entries REGARDLESS of owner, so an ownership
+rejection (a foreign tool installed first) or a superseded span must — and
+does — mean zero observation through Xray, never another span's rows.
+Because ownership is not app-db state, the query carries an
+ownership-REVISION reactive input alongside `:rf.xray/epoch-history`:
+`viewcell-evidence` bumps a monotonic revision on every acquire/release and
+the sub-layer listener mirrors it into Xray's `:rf/xray` app-db (the
+`:rf.xray/viewcell-evidence-ownership` sub), so a live subscription +
+rendered panel recomputes to empty the instant Xray releases (or a foreign
+owner takes the slot) — WITHOUT waiting for an unrelated epoch pump. The
+revision only TRIGGERS the recompute; the recompute's `rows` call still
+checks the exact receipt, so reactivity can never authorize a stale reader.
+When Xray owns the span, one row per live ViewCell instance in stable
 `:cell-id` order —
 
     {:cell-id ord :view-id vid :root-id rid|nil
@@ -714,10 +738,21 @@ Xray owns the projection, one row per live ViewCell instance in stable
 `:targets` is the bounded shown sample; `:dropped-count` /
 `:dropped-exact?` is the HONEST loss account (`false` ⇒ the count is a
 floor, rendered `≥N dropped`). Dead cells are pruned by the projection
-itself. Freshness rides the `:rf.xray/epoch-history` input (the standing
-epoch-pump axis): the ViewCell flush runs a microtask after drain-settle,
-so a same-epoch read may trail by one pump — the cumulative accumulators
-catch up, never lose.
+itself. Delivery freshness rides the `:rf.xray/epoch-history` input (the
+standing epoch-pump axis): the ViewCell flush runs a microtask after
+drain-settle, so a same-epoch read may trail by one pump — the cumulative
+accumulators catch up, never lose. OWNERSHIP freshness rides the separate
+`:rf.xray/viewcell-evidence-ownership` revision input (above), so a release
+/ foreign-takeover empties the query immediately, independent of epoch
+pumps.
+
+**Reset lifecycle (rf2-vxgfnd.286).** The canonical clean-slate reset tier
+(`test-support/reset-all!` → `reset-runtime!`) runs the owner-checked
+`viewcell-evidence/release-current!`, so a `core/init!` (or preload) that
+acquired the projection leaves NO tier owner, sink, retained entries or
+globalThis sentinel behind — process-global state the sentinel/ring resets
+do not otherwise touch. The release is owner-checked (never
+`force-release!`): a FOREIGN owner survives the reset intact.
 
 **Render.** One `list-row` per cell under
 `rf-xray-reactive-viewcell-evidence-section` (rows

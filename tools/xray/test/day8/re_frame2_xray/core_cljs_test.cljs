@@ -142,8 +142,9 @@
 ;; ---- init! contract ----------------------------------------------------
 
 (deftest init!-no-opts-is-idempotent
-  (testing "init! wires the four foundation side-effects; second call is no-op"
-    ;; First call wires registry + trace-cb + epoch-cb + keybinding.
+  (testing "init! wires the foundation side-effects; second call is no-op"
+    ;; First call wires registry + trace-cb + epoch-cb + ViewCell-evidence
+    ;; acquire (rf2-vxgfnd.286) + browser-API exports + keybinding.
     ;; The keybinding listener requires js/window which the node-test
     ;; host does not expose; the attach call no-ops on that host (the
     ;; (when (exists? js/window) ...) guard inside keybinding/attach!).

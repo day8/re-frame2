@@ -103,7 +103,9 @@
   `install!` registers `:rf.xray/reactive-data` + the panel-local
   disclosure-toggle state slot. Idempotent."
   (:require [re-frame.core :as rf]
+            [re-frame.frame :as frame]
             [re-frame.subs.tooling :as subs-tooling]
+            [day8.re-frame2-xray.defaults :as defaults]
             [day8.re-frame2-xray.panels.shared.focus-resolver :as focus]
             [day8.re-frame2-xray.viewcell-evidence :as viewcell-evidence]))
 
@@ -567,21 +569,64 @@
                 :seed-paths   (when record (seed-paths record))
                 :has-event-bundle? (some? record)}))))
 
-  ;; -- the ViewCell invalidation-evidence query (rf2-vxgfnd.146) ------
+  ;; -- ViewCell evidence ownership reactivity bridge (rf2-vxgfnd.286) --
+  ;;
+  ;; Ownership of the evidence projection is NOT app-db state, so an
+  ;; acquire/release would not, on its own, invalidate the cumulative
+  ;; evidence query below — a live subscription + rendered panel could
+  ;; keep a stale row after Xray released the projection (or a foreign
+  ;; owner took the slot), until some unrelated epoch pump recomputed it.
+  ;; So each ownership transition bumps a monotonic revision the evidence
+  ;; ledger publishes through a listener; the listener mirrors it into
+  ;; Xray's OWN (`:rf/xray`) app-db, a reactive input to the derived
+  ;; query. Cache invalidation only TRIGGERS the recompute; the
+  ;; recompute's `rows` call still checks the exact ownership receipt, so
+  ;; reactivity can never authorize a stale reader.
+  (rf/reg-event :rf.xray/viewcell-evidence-ownership-changed
+    {:rf.trace/no-emit? true}
+    (fn [{:keys [db]} [_ revision]]
+      {:db (assoc db :viewcell-evidence-ownership-rev revision)}))
+
+  (rf/reg-sub :rf.xray/viewcell-evidence-ownership
+    (fn [db _query]
+      (get db :viewcell-evidence-ownership-rev 0)))
+
+  ;; The single ownership listener: on each acquire/release, mirror the
+  ;; revision into Xray's own frame — guarded on the `:rf/xray` frame
+  ;; existing (a pre-mount acquire has no live sub to invalidate) and
+  ;; dispatched SYNCHRONOUSLY so a held subscription reflects the change
+  ;; immediately, without an epoch pump. `:rf.trace/no-emit?` keeps this
+  ;; internal chrome event off the trace bus Xray inspects.
+  (viewcell-evidence/set-ownership-listener!
+    (fn [revision]
+      (when (frame/frame defaults/default-frame-id)
+        (rf/with-frame defaults/default-frame-id
+          (rf/dispatch-sync [:rf.xray/viewcell-evidence-ownership-changed
+                             revision])))))
+
+  ;; -- the ViewCell invalidation-evidence query (rf2-vxgfnd.146/.286) --
   ;;
   ;; The developer-facing query surface over Xray's OWNED
   ;; `re-frame.ui.tool.evidence` projection (see
   ;; `day8.re-frame2-xray.viewcell-evidence`). The accumulators are
-  ;; CUMULATIVE per cell (accretion since install), read live at compute
-  ;; time; the `:rf.xray/epoch-history` input is the panel's standing
-  ;; freshness axis — each epoch pump recomputes the read, so newly
-  ;; delivered batches surface on the next recorded epoch (the ViewCell
-  ;; flush runs a microtask AFTER the drain settles, so a same-epoch
-  ;; read may trail by one pump — cumulative rows catch up, never lose).
+  ;; CUMULATIVE per cell (accretion since acquire), read live at compute
+  ;; time; the `rows` read is ownership-receipt-fenced so a foreign owner
+  ;; or a superseded span never surfaces. Two reactive inputs, both pure
+  ;; cache-invalidation triggers (the compute reads the authoritative
+  ;; receipt-checked `rows`, never these values):
+  ;;   - `:rf.xray/epoch-history` — the standing freshness axis; each
+  ;;     epoch pump recomputes the read, so newly delivered batches
+  ;;     surface on the next recorded epoch (the ViewCell flush runs a
+  ;;     microtask AFTER drain-settle, so a same-epoch read may trail by
+  ;;     one pump — cumulative rows catch up, never lose).
+  ;;   - `:rf.xray/viewcell-evidence-ownership` — the ownership-revision
+  ;;     axis (rf2-vxgfnd.286), so an acquire/release recomputes the query
+  ;;     IMMEDIATELY, not only on the next epoch pump.
   ;; Hosts not running the re-frame.ui substrate project zero rows.
   (rf/reg-sub :rf.xray/viewcell-evidence
     :<- [:rf.xray/epoch-history]
-    (fn [_history _query]
+    :<- [:rf.xray/viewcell-evidence-ownership]
+    (fn [[_history _ownership-rev] _query]
       (viewcell-evidence/rows)))
 
   nil)
