@@ -18,6 +18,12 @@
                :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
             #?(:clj [clojure.java.io :as io])
             #?(:clj [clojure.string :as str])
+            ;; rf2-qyvyes — the canonical ObservationOnChangeFailedTags schema is
+            ;; EXTRACTED from spec/Spec-Schemas.md at COMPILE TIME (a JVM-only macro
+            ;; that runs for both the CLJ eval and the CLJS compilation), so both
+            ;; hosts validate emitted records against the executable canonical form.
+            #?(:clj [re-frame.observation-schema-extract
+                     :refer [canonical-observation-schema]])
             [re-frame.core                  :as rf]
             [re-frame.error-emit            :as error-emit]
             [re-frame.frame                 :as frame]
@@ -28,7 +34,9 @@
             [re-frame.subs.cache            :as subs-cache]
             [re-frame.substrate.observation :as obs]
             [re-frame.substrate.plain-atom  :as plain-atom]
-            [re-frame.test-support          :as test-support]))
+            [re-frame.test-support          :as test-support])
+  #?(:cljs (:require-macros [re-frame.observation-schema-extract
+                             :refer [canonical-observation-schema]])))
 
 (use-fixtures :each
   (test-support/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
@@ -2688,46 +2696,104 @@
         "the boot skew fans the always-on record before throwing")))
 
 ;; ===========================================================================
-;; rf2-xakb4p — the catalogue-to-schema / record validation gate.
+;; rf2-xakb4p + rf2-qyvyes — the catalogue-to-schema / record validation gate,
+;; bound to the EXECUTABLE canonical schema.
 ;;
-;; The disposal-notify wrapper's record shape is now FROZEN by a canonical
-;; per-category schema ([Spec-Schemas §ObservationOnChangeFailedTags]). This
-;; gate binds that schema to the ACTUAL runtime record fanned at BOTH drain
-;; boundaries, in two directions:
+;; The disposal-notify wrapper's record shape is FROZEN by a canonical per-category
+;; schema ([Spec-Schemas §ObservationOnChangeFailedTags]). rf2-qyvyes replaces the
+;; earlier HAND-COPIED predicate (which merely MIRRORED the markdown and could drift
+;; from it silently — required→optional, enum→keyword, vector→any, symbol→keyword
+;; would all stay green while real HMR/disposed records stopped conforming) with the
+;; actual schema form EXTRACTED from Spec-Schemas.md at compile time
+;; ([[canonical-observation-schema-form]]) and a minimal structural interpreter. The
+;; gate binds that executable schema in three directions:
 ;;
-;;   1. RECORD → SCHEMA (both hosts): a real :hmr drain and a real :disposed
-;;      drain produce dev-trace `:tags` that satisfy the schema's required-key
-;;      contract, and the always-on record carries the wire fields the 009
-;;      catalogue row lists. Dropping any required key, or drifting the
-;;      channel-discriminating :cause / spoofing :category, fails the gate.
-;;   2. SCHEMA → MARKDOWN (JVM only): Spec-Schemas.md must declare the schema
-;;      enumerating every required key — so removing the row or dropping a key
-;;      from the markdown fails too, and the two surfaces cannot drift silently.
+;;   1. RECORD → SCHEMA (both hosts): a real :hmr drain and a real :disposed drain
+;;      produce dev-trace `:tags` that VALIDATE against the extracted `[:map …]`
+;;      form, and the always-on record carries the wire fields the 009 catalogue row
+;;      lists. Dropping any required key, or drifting the channel-discriminating
+;;      :cause / spoofing :category, fails the gate.
+;;   2. SCHEMA SHAPE (both hosts): the extracted form itself is pinned to the strict
+;;      shape ([[canonical-schema-form-pins-the-strict-observation-shape]]) — so a
+;;      required→optional / enum→keyword / vector→any / field-type weakening in the
+;;      markdown reddens deterministically, and removing the def is a compile error.
+;;   3. SCHEMA ↔ SPEC 009 (JVM only): the extracted schema's required keys are the
+;;      SAME keys the Spec 009 catalogue row enumerates as DEV-TRACE :tags, so a
+;;      tag-key drift between the two surfaces reddens.
 ;;
 ;; (The CHANNEL classification — always-on — is already pinned by
 ;; error-catalogue-channel-conformance-test + always-on-axis-conformance's
 ;; `always-on-categories` literal, which includes this category.)
 ;; ===========================================================================
 
+(def ^:private canonical-observation-schema-form
+  "The `ObservationOnChangeFailedTags` `[:map …]` schema, EXTRACTED at compile time
+  from spec/Spec-Schemas.md (rf2-qyvyes) — the executable canonical form, identical on
+  both hosts. Runtime records are validated against THIS, so markdown schema drift
+  reddens the gate (and removing the def is a build error)."
+  (canonical-observation-schema))
+
+(declare valid-against-map-schema?)
+
+(defn- leaf-schema-valid?
+  "Minimal structural validator for the leaf Malli forms the extracted
+  ObservationOnChangeFailedTags schema uses — `:any` / `:keyword` / `:string` /
+  `:symbol` / `:boolean` / `:int`, `[:= v]`, `[:enum …]`, `[:vector inner]`, and a
+  nested `[:map …]`. Intentionally NOT a general Malli engine (rf2-qyvyes)."
+  [schema v]
+  (cond
+    (= schema :any)     true
+    (= schema :keyword) (keyword? v)
+    (= schema :string)  (string? v)
+    (= schema :symbol)  (symbol? v)
+    (= schema :boolean) (boolean? v)
+    (= schema :int)     (integer? v)
+    (vector? schema)
+    (case (first schema)
+      :=      (= v (second schema))
+      :enum   (contains? (set (rest schema)) v)
+      :vector (and (vector? v) (every? #(leaf-schema-valid? (second schema) %) v))
+      :map    (valid-against-map-schema? schema v)
+      false)
+    :else false))
+
+(defn- map-schema-entries
+  "Parse an extracted Malli `[:map [:k schema] [:k {:optional true} schema] …]` form
+  into a seq of `{:key k :optional? bool :schema s}` (rf2-qyvyes)."
+  [map-schema]
+  (for [entry (rest map-schema)
+        :let  [k (first entry)
+               r (rest entry)
+               [opts s] (if (map? (first r)) [(first r) (second r)] [nil (first r)])]]
+    {:key k :optional? (boolean (:optional opts)) :schema s}))
+
+(defn- valid-against-map-schema?
+  "True when record map `m` conforms to the extracted Malli `[:map …]` `map-schema`:
+  every REQUIRED key present and leaf-valid, every present OPTIONAL key leaf-valid.
+  Extra keys are allowed (Malli maps are open by default). rf2-qyvyes."
+  [map-schema m]
+  (and (map? m)
+       (every? (fn [{:keys [key optional? schema]}]
+                 (if (contains? m key)
+                   (leaf-schema-valid? schema (get m key))
+                   optional?))
+               (map-schema-entries map-schema))))
+
 (def ^:private observation-tags-required-keys
-  [:category :rf.sub/id :rf.sub/query-v :where :cause :exception
-   :exception-message :reason])
+  "The required keys of the EXTRACTED canonical schema (rf2-qyvyes) — DERIVED, not
+  hand-copied, so removing a required runtime field fails the same causal gate."
+  (->> (map-schema-entries canonical-observation-schema-form)
+       (remove :optional?)
+       (mapv :key)))
 
 (defn- valid-observation-on-change-failed-tags?
-  "Structural conformance of a dev-trace `:tags` payload against the canonical
-  [Spec-Schemas §ObservationOnChangeFailedTags] required-key contract. Mirrors
-  the markdown schema; the JVM leg below pins the markdown itself so the two
-  cannot drift silently."
+  "Validate a dev-trace `:tags` payload against the EXECUTABLE canonical
+  ObservationOnChangeFailedTags schema extracted from Spec-Schemas.md (rf2-qyvyes) —
+  no longer a hand-copied predicate. Markdown schema drift (required→optional,
+  enum→keyword, vector→any, a field type, the category) changes what conforms, so the
+  record-validation tests below redden on drift."
   [tags]
-  (and (map? tags)
-       (= :rf.error/observation-on-change-failed (:category tags))
-       (keyword? (:rf.sub/id tags))
-       (vector? (:rf.sub/query-v tags))
-       (symbol? (:where tags))
-       (contains? #{:hmr :disposed} (:cause tags))
-       (some? (:exception tags))
-       (string? (:exception-message tags))
-       (string? (:reason tags))))
+  (valid-against-map-schema? canonical-observation-schema-form tags))
 
 (deftest hmr-and-disposed-records-validate-against-the-canonical-schema
   (testing ":hmr boundary — the record validates against the frozen schema"
@@ -2797,23 +2863,70 @@
                      (assoc tags :category :rf.error/handler-exception))))))
       (obs/release! la))))
 
+(defn- schema-entry-of
+  [map-schema k]
+  (first (filter #(= k (:key %)) (map-schema-entries map-schema))))
+
+(defn- schema-of
+  [map-schema k]
+  (:schema (schema-entry-of map-schema k)))
+
+(defn- schema-required?
+  [map-schema k]
+  (let [e (schema-entry-of map-schema k)]
+    (and (some? e) (not (:optional? e)))))
+
+(deftest canonical-schema-form-pins-the-strict-observation-shape
+  ;; rf2-qyvyes — bind each drift class to the EXTRACTED schema form (structural, not
+  ;; a substring scan of the markdown): weakening the markdown schema reddens here
+  ;; deterministically, and removing the def is already a compile error (the extract
+  ;; macro throws), so the schema and its consumers cannot drift silently.
+  (let [s canonical-observation-schema-form]
+    (testing "category / channel — pinned to the exact = literal (not weakened to :keyword)"
+      (is (= [:= :rf.error/observation-on-change-failed] (schema-of s :category)))
+      (is (schema-required? s :category)))
+    (testing "enum→keyword drift — :cause stays the [:enum :hmr :disposed] discriminator"
+      (is (= [:enum :hmr :disposed] (schema-of s :cause)))
+      (is (schema-required? s :cause)))
+    (testing "vector→any drift — :rf.sub/query-v stays [:vector :any]"
+      (is (= [:vector :any] (schema-of s :rf.sub/query-v))))
+    (testing "field-type drift — :where is a :symbol, :rf.sub/id a :keyword"
+      (is (= :symbol (schema-of s :where)))
+      (is (= :keyword (schema-of s :rf.sub/id))))
+    (testing ":exception-message / :reason are :string, :exception :any"
+      (is (= :string (schema-of s :exception-message)))
+      (is (= :string (schema-of s :reason)))
+      (is (= :any (schema-of s :exception))))
+    (testing "required→optional drift — the required-key SET is exactly these eight"
+      (is (= #{:category :rf.sub/id :rf.sub/query-v :where :cause
+               :exception :exception-message :reason}
+             (set (map :key (remove :optional? (map-schema-entries s)))))))))
+
 #?(:clj
-   (deftest spec-schemas-declares-the-observation-on-change-failed-schema
-     (let [f     (let [nested (io/file "../../spec/Spec-Schemas.md")
-                       legacy (io/file "../spec/Spec-Schemas.md")]
-                   (if (.exists nested) nested legacy))
-           text  (slurp f)
-           start (str/index-of text "(def ObservationOnChangeFailedTags")
-           block (when start
-                   (let [rest*    (subs text start)
-                         next-def (str/index-of (subs rest* 5) "(def ")]
-                     (subs rest* 0 (if next-def (+ 5 next-def) (count rest*)))))]
-       (is (some? block)
-           "Spec-Schemas.md must declare ObservationOnChangeFailedTags")
-       (when block
-         (is (str/includes? block ":rf.error/observation-on-change-failed")
-             "the schema pins the canonical category")
-         (doseq [k [":category" ":rf.sub/id" ":rf.sub/query-v" ":where"
-                    ":cause" ":exception" ":exception-message" ":reason"]]
-           (is (str/includes? block k)
-               (str "the schema must enumerate the required key " k)))))))
+   (deftest spec-009-catalogue-lists-the-canonical-observation-tag-keys
+     ;; rf2-qyvyes — bind the EXTRACTED schema's required keys to the Spec 009
+     ;; catalogue row's DEV-TRACE :tags list, so a tag-key drift between the two
+     ;; surfaces reddens. Structural on the schema side (the extracted form, not a
+     ;; substring scan of Spec-Schemas.md — that surface is now pinned by the compile-
+     ;; time extraction + canonical-schema-form-pins-the-strict-observation-shape).
+     (let [required (->> (map-schema-entries canonical-observation-schema-form)
+                         (remove :optional?)
+                         (map :key))
+           f        (let [nested (io/file "../../spec/009-Instrumentation.md")
+                          legacy (io/file "../spec/009-Instrumentation.md")]
+                      (if (.exists nested) nested legacy))
+           row      (->> (str/split-lines (slurp f))
+                         (filter #(str/includes?
+                                    % "`:rf.error/observation-on-change-failed`"))
+                         first)
+           tags     (when (and row (str/index-of row "DEV-TRACE"))
+                      (subs row (str/index-of row "DEV-TRACE")))]
+       (is (some? row)
+           "the Spec 009 catalogue must carry the observation-on-change-failed row")
+       (is (some? tags)
+           "the 009 row must carry a DEV-TRACE :tags list")
+       (when tags
+         (doseq [k required]
+           (is (str/includes? tags (str k))
+               (str "the Spec 009 DEV-TRACE :tags list must enumerate the canonical "
+                    "schema key " k)))))))
