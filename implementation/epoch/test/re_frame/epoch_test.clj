@@ -3963,6 +3963,50 @@
       (is (empty? @traces)
           "no traces emitted — nothing observed to silence"))))
 
+;; ---- rf2-vxgfnd.246 — the snapshot/publish SPLIT: nil bundle publishes nothing
+;;
+;; `frame/destroy-frame!` SPLITS the epoch destroy contract across two late-bind
+;; hooks: `:epoch/snapshot-frame-destroyed` binds A's terminal evidence BEFORE
+;; dissoc, and `:epoch/on-frame-destroyed` PUBLISHES it AFTER dissoc (the halted
+;; record under structural delivery, then the per-identity silencing).
+;; `snapshot-epoch-terminal-evidence!` is best-effort: if it THREW it returns nil,
+;; and `notify-epoch-listeners!` (step 11) still fires — threading that nil
+;; through as the `terminal-evidence` bundle. The publish half must then fabricate
+;; NOTHING. This pins that honesty at the epoch seam: a lost snapshot yields no
+;; terminal record — the publish never synthesises evidence the snapshot did not
+;; bind (rf2-vxgfnd.151/.246). The full-destroy peer (a throwing snapshot hook
+;; leaving no residual ring + exactly one diagnostic) lives in
+;; `frame-destroy-incarnation-jvm-test/snapshot-hook-failure-leaves-no-residual-ring`.
+
+(deftest terminal-publish-noops-on-nil-bundle-no-fabrication
+  (testing "on-frame-destroyed! handed a NIL terminal-evidence bundle (the exact
+            state destroy-frame! threads when the pre-dissoc snapshot threw)
+            publishes no :halted-destroy record and fires no silencing for the
+            observed cb — no fabrication, and no deferred-silence mark accreted"
+    (let [id      :test/nil-bundle
+          cb      ::nil-bundle-cb
+          records (atom [])
+          traces  (record-trace!)]
+      (rf/make-frame {:id id})
+      (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 0}}))
+      ;; cb OBSERVES A: one settled event stamps cb's observation of the frame,
+      ;; so a fabricating publish would have a real observer to (wrongly) silence.
+      (rf/register-listener! :epoch cb (fn [r] (swap! records conj r)))
+      (rf/dispatch-sync [:seed] {:frame id})
+      (reset! records [])                       ; drop the :seed :ok record
+      (let [token (frame/frame-incarnation-token id)]
+        ;; The 3-arity nil-bundle seam: exactly what `notify-epoch-listeners!`
+        ;; threads when `snapshot-epoch-terminal-evidence!` returned nil (threw).
+        (epoch.listeners/on-frame-destroyed! id token nil))
+      (is (empty? (filterv (fn [r] (= :halted-destroy (:outcome r))) @records))
+          "no :halted-destroy record is fabricated from the nil bundle")
+      (is (empty? (filterv #(= :rf.epoch.cb/silenced-on-frame-destroy
+                                (:operation %))
+                           @traces))
+          "no silencing fires — the snapshot that would have owed it produced nothing")
+      (is (zero? (reduce + 0 (map count (vals (state/terminal-silence-marks-snapshot)))))
+          "a nil bundle opens no deferred-silence window — no mark accreted (bounded)"))))
+
 ;; ---- capture-buffer cross-contamination from out-of-drain emits -----------
 ;;
 ;; The `capture-event!` fn must skip every `:rf.epoch/*` op the namespace
