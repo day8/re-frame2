@@ -101,6 +101,31 @@
    :digest (fingerprint/build-digest [])
    :version 0})
 
+(def ^:private shadow-bridge-key
+  "Shadow's OUTER build-bridge marker. re-frame.ui recognizes it but does NOT
+  depend on it for build authority: a future Shadow rename/removal of this key
+  must not strand re-frame.ui's own private carrier."
+  :shadow.build.cljs-bridge/state)
+
+(def ^:private private-carrier-keys
+  "re-frame.ui's OWN compiler-env carrier keys — the accepted snapshot plus the
+  disposable scratch/overlay. Their presence is authoritative re-frame.ui build
+  ownership, independent of Shadow's outer marker."
+  [accepted-snapshot-key scratch-key repl-overlay-key])
+
+(defn- ui-owned-compiler-state?
+  "The ONE closed re-frame.ui compiler-ownership recognizer. A compiler-env map
+  is re-frame.ui-owned when it carries any of re-frame.ui's own private carrier
+  keys — the authority re-frame.ui itself established via the build hook — OR
+  Shadow's still-recognized outer bridge marker (the pre-hook window / legacy
+  path). Identity resolution, accepted/scratch reads, contribution writes, and
+  finish all gate on THIS predicate, so a drift of the outer marker cannot route
+  one build's authority onto another's while the private carrier is intact. Pure."
+  [compiler-state]
+  (boolean
+   (or (contains? compiler-state shadow-bridge-key)
+       (some #(contains? compiler-state %) private-carrier-keys))))
+
 #?(:clj
    (defn- compiler-env-atom []
      (when-let [compiler-var (resolve 'cljs.env/*compiler*)]
@@ -108,10 +133,10 @@
          (when (instance? clojure.lang.IAtom v) v)))))
 
 #?(:clj
-   (defn- shadow-compiler-state []
+   (defn- ui-owned-compiler-state []
      (when-let [a (compiler-env-atom)]
        (let [s @a]
-         (when (contains? s :shadow.build.cljs-bridge/state) s)))))
+         (when (ui-owned-compiler-state? s) s)))))
 
 (defn accepted-snapshot
   "Return the accepted re-frame.ui snapshot carried by an explicit Shadow
@@ -156,37 +181,66 @@
   (boolean (some (comp true? :pass-open?) (vals @state))))
 
 #?(:clj
-   (defn- shadow-build-id
-     "The build id of the compile currently running on THIS thread, read from
-     the CLJS compiler env: `cljs.env/*compiler*` (an atom) ->
-     `:shadow.build.cljs-bridge/state` -> `:shadow.build/build-id`. A compiler
-     env is recognized as Shadow-shaped only when that outer bridge marker is
-     present. While a hook-opened pass is live, a recognized bridge with a
-     missing build-id leaf fails loudly rather than using the process-global
-     session fallback. A plain/no-marker compiler env returns nil and uses the
-     documented session fallback. A future migration of the OUTER bridge
-     marker is therefore not independently diagnosable here."
+   (defn- ambient-build-id
+     "The build id the current compilation belongs to, resolved from
+     re-frame.ui's OWN authority rather than Shadow's outer marker.
+
+     When the bound compiler-env carries re-frame.ui's private accepted carrier,
+     that carrier is authoritative: its `:build-id` is the answer. A private
+     carrier present with a MISSING build id, or with an id that DISAGREES with a
+     still-present Shadow bridge id, fails loudly — downgrading to the process
+     session fallback could route this compilation into a different parallel
+     build.
+
+     With no private carrier yet (the pre-hook window / legacy path) a
+     recognized Shadow bridge supplies the id; a recognized bridge missing its
+     leaf id while a pass is open still fails loudly. A plain/no-marker compiler
+     env returns nil and uses the documented session fallback."
      []
-     (when-let [compiler-var (resolve 'cljs.env/*compiler*)]
-       (when-let [compiler-atom @compiler-var]
-         (let [compiler-state @compiler-atom
-               shadow-shaped? (contains? compiler-state
-                                         :shadow.build.cljs-bridge/state)
-               build-id (get-in compiler-state
-                                [:shadow.build.cljs-bridge/state
-                                 :shadow.build/build-id])]
-           (when (and shadow-shaped? (nil? build-id) (any-pass-open?))
+     (when-let [compiler-state (ui-owned-compiler-state)]
+       (let [private?   (some #(contains? compiler-state %) private-carrier-keys)
+             private-id (get-in compiler-state [accepted-snapshot-key :build-id])
+             shadow-id  (get-in compiler-state
+                                [shadow-bridge-key :shadow.build/build-id])]
+         (if private?
+           (cond
+             (nil? private-id)
              (throw
               (ex-info
-               (str "re-frame.ui compiler could not resolve shadow's build id "
-                    "while a build pass is open; refusing the session-build "
+               (str "re-frame.ui compiler found its private build carrier but no "
+                    "build id in the accepted snapshot; refusing the session-build "
                     "fallback because it can route this compilation into a "
                     "different parallel build")
-               {::error ::shadow-build-id-unresolved
-                :recovery :check-shadow-compiler-env
-                :expected-path [:shadow.build.cljs-bridge/state
-                                :shadow.build/build-id]})))
-           build-id)))))
+               {::error ::private-build-id-unresolved
+                :recovery :check-ui-build-carrier
+                :expected-path [accepted-snapshot-key :build-id]}))
+
+             (and (some? shadow-id) (not= shadow-id private-id))
+             (throw
+              (ex-info
+               (str "re-frame.ui compiler private build carrier id " private-id
+                    " disagrees with Shadow's still-present build id " shadow-id
+                    "; refusing to guess which build this compilation belongs to")
+               {::error ::private-build-id-shadow-disagreement
+                :recovery :check-ui-build-carrier
+                :private-build-id private-id
+                :shadow-build-id shadow-id}))
+
+             :else private-id)
+
+           ;; No private carrier yet: a recognized Shadow bridge supplies the id.
+           (do
+             (when (and (nil? shadow-id) (any-pass-open?))
+               (throw
+                (ex-info
+                 (str "re-frame.ui compiler could not resolve shadow's build id "
+                      "while a build pass is open; refusing the session-build "
+                      "fallback because it can route this compilation into a "
+                      "different parallel build")
+                 {::error ::shadow-build-id-unresolved
+                  :recovery :check-shadow-compiler-env
+                  :expected-path [shadow-bridge-key :shadow.build/build-id]})))
+             shadow-id))))))
 
 (defn current-build-id
   "The build id a contribution belongs to: the explicit `*build-id*`
@@ -194,7 +248,7 @@
   the last `begin-build!` id, else `::default`."
   []
   (or *build-id*
-      #?(:clj (shadow-build-id) :cljs nil)
+      #?(:clj (ambient-build-id) :cljs nil)
       @session-build
       ::default))
 
@@ -225,7 +279,7 @@
      an isolated overlay seeded from the accepted snapshot. Neither is an
      accepted successful-build authority."
      []
-     (when-let [compiler-state (shadow-compiler-state)]
+     (when-let [compiler-state (ui-owned-compiler-state)]
        (or (get compiler-state scratch-key)
            (get compiler-state repl-overlay-key)
            (assoc empty-slice
@@ -233,7 +287,7 @@
 
 #?(:clj
    (defn- ambient-accepted-slice []
-     (when-let [compiler-state (shadow-compiler-state)]
+     (when-let [compiler-state (ui-owned-compiler-state)]
        (assoc empty-slice
               :committed (:registries (accepted-snapshot compiler-state))))))
 
@@ -314,7 +368,7 @@
   [f]
   #?(:clj
      (if-let [compiler-atom (when-not *build-id* (compiler-env-atom))]
-       (if (contains? @compiler-atom :shadow.build.cljs-bridge/state)
+       (if (ui-owned-compiler-state? @compiler-atom)
          (let [updated (atom nil)]
            (swap! compiler-atom
                   (fn [compiler-state]
@@ -530,7 +584,7 @@
   plain-JVM fallback build's committed digest. Real Shadow tooling should use
   `accepted-build-digest` with an explicit retained build-state."
   ([]
-   (if-let [compiler-state #?(:clj (shadow-compiler-state) :cljs nil)]
+   (if-let [compiler-state #?(:clj (ui-owned-compiler-state) :cljs nil)]
      (:digest (accepted-snapshot compiler-state))
      (finalized-build-digest (current-build-id))))
   ([build-id]
