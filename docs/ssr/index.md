@@ -1,24 +1,44 @@
 # Server-Side Rendering
 
-Ship HTML before the JavaScript loads, then let the client take over — without writing your app twice. That's the promise SSR usually breaks: you end up maintaining a server render path and a client render path that drift, plus a tangle of `typeof window` checks. re-frame2's rule is **"one app, runs twice."** The same events, subscriptions, and views run on the JVM (server) and in the browser (client); only genuinely one-sided code is fenced off with `:platforms`.
-
-On the server, [`render-to-string`](glossary.md#render-to-string) runs your real views in a per-request [frame](../core/glossary.md#frame) and emits HTML plus a serialized state payload. On the client, [hydration](glossary.md#hydration) adopts that HTML and installs the state instead of re-rendering from scratch — and a [hydration mismatch](glossary.md#hydration-mismatch) is *detected and traced*, never silently patched.
+Ship HTML before the JavaScript loads, then let the client take over — without
+writing your app twice. Most stacks break that promise with a server path and a
+client path that drift, plus `typeof window` checks. re-frame2's rule is **"one
+app, runs twice."** The same events, subscriptions, and views run on the JVM and
+in the browser; only genuinely one-sided code is fenced with `:platforms`.
 
 ```clojure
-;; server (JVM): your real views, rendered inside a per-request frame — no DOM anywhere
+(:require [re-frame.core :as rf]
+          [re-frame.ssr  :as ssr])   ;; day8/re-frame2-ssr — forget this → :rf.error/ssr-artefact-missing
+
+;; server (JVM): real views, per-request frame — no DOM
 (rf/with-frame f
   (ssr/render-to-string [(rf/view :app/root)] {}))
 
-;; client: adopt the server's HTML and its state instead of re-rendering
+;; client: adopt the server's HTML + state
 (ssr/hydrate! {:frame :app :render-tree-fn (fn [] ((rf/view :app/root)))})
 ```
 
-## In this section
+## Start here
 
-- **[Tutorial: render on the server](tutorial.md)** — build it by hand, one step at a time: a pure render at the REPL, a frame per request, the state payload, hydration, a deliberately-tripped mismatch, and the production Ring adapter. Start here.
-- **[Concepts](concepts.md)** — the model in dependency order: why the same code runs on a JVM, one request start to finish, the payload allowlist, hydrate-then-verify, response control, head metadata, error projection, and streaming.
-- **[Examples](examples.md)** — runnable end-to-end SSR apps in the repo.
-- **[Glossary](glossary.md)** — the section's vocabulary, one definition each.
-- **[Coming from Next.js](coming-from-nextjs.md)** — the translation table and the deliberate divergences.
+1. **[Tutorial](tutorial.md)** — build the lifecycle by hand (REPL render → frame per
+   request → payload → hydrate → mismatch → platforms → Ring). Best first hour.
+2. **[The model](concepts.md)** — why the same code runs on a JVM; request lifecycle;
+   fail-closed payload; hydrate-then-verify; platform gates; error projection.
+3. Then open a growth page only when a need appears (response headers, head, streaming).
 
-The API-level surface lives in [re-frame.ssr](../api/re-frame.ssr.md) and [re-frame.ssr.ring](../api/re-frame.ssr.ring.md): the guide teaches, the reference is where you look things up.
+**Prerequisites.** [Core introduction](../core/introduction.md) — events, app-db, views,
+frames. SSR plugs into those; it does not replace them.
+
+Optional later: [testing](testing.md), [examples](examples.md),
+[Next.js mapping](coming-from-nextjs.md), [glossary](glossary.md).
+
+## When *not* to use SSR
+
+| Situation | Prefer |
+|---|---|
+| Fully authenticated SPA with no SEO / first-paint need | Client-only render |
+| Static marketing pages only | Static HTML / site generator |
+| One-off JVM report PDF | Not this surface |
+
+Reach for SSR when **first-byte HTML from your real app** matters — crawlers, social
+unfurls, or fast first paint — and you refuse a second server-only app.

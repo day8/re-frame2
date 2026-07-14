@@ -72,4 +72,6 @@ Two SSR behaviours can't run on the JVM, and the honest move is to test them whe
 - **Hydration** — `hydrate!`, the payload install, and the deploy-drift checks run client-side. The lever you own is per-frame strict mode, `{:ssr {:on-mismatch :hard-error}}`, which escalates a [hydration mismatch](concepts.md#when-the-renders-disagree) from warn-and-replace to a thrown structured exception — turn it on in dev and CI browser runs so a mismatch is a red build, not a console warning nobody reads. (The [tutorial's Step 5](tutorial.md) trips one on purpose.)
 - **Determinism, indirectly.** The mismatch detector is itself the test for "views are deterministic given the state" — a view that reads the clock or renders host-dependent output gets caught by the hash comparison — a red build under strict mode, instead of silent drift.
 
-Everything else on the [SSR concepts page](concepts.md) — the request lifecycle, `:rf.server/*` response effects, the payload allowlist — is handler-and-effect territory your JVM suite covers with the moves above.
+Everything else on [The model](concepts.md) — the request lifecycle, the payload
+allowlist — and [response control](response.md) is handler-and-effect territory your
+JVM suite covers with the moves above.
