@@ -50,8 +50,7 @@
   routes every inbound event through it before the machine's normal `:on`
   lookup."
   (:require [re-frame.frame :as frame]
-            [re-frame.interop :as interop]
-            [re-frame.late-bind :as late-bind]
+            [re-frame.fx :as fx]
             [re-frame.machines.parallel :as parallel]
             [re-frame.machines.path-walk :as path-walk]
             [re-frame.machines.paths :as paths]
@@ -143,36 +142,45 @@
   survives BOTH the event/coeffect recording + strict-replay path AND the
   delayed-dispatch path (event-vector metadata survives neither).
 
+  A THIN handler over the shared core reserved-dispatch seam
+  `re-frame.fx/child-dispatch!` (rf2-lud4af). Routing the completion carrier
+  through the SAME seam the parent `:dispatch` / `:dispatch-later` reserved-fx
+  bodies use preserves the FULL reserved-dispatch contract — inheriting from the
+  emitting child's envelope its `:fx-overrides`, `:interceptor-overrides`,
+  `:trace-id`, `:origin`, the per-call `:rf.cofx/mint-policy` strict/replay
+  discipline, and the `:rf.machine/internal?` front-of-queue ordering (the
+  emitter is always a machine child) — and a POSITIVE-delay completion (a
+  `:dispatch-later` form) rides the frame-owned `:dispatch-later` timer table,
+  cancelled on frame destroy, rather than a raw host timeout. The transport adds
+  ONLY its private recordable `:rf.machine/join-auth` `:rf.cofx` fact and stamps
+  `:source :machine-action`; the public completion event VALUE is unchanged.
+
   Not an application control surface — reserved-`:rf.machine/*` internal, it
   re-dispatches ONLY the pre-built completion carrier it was handed (never
-  traverses arbitrary / custom effect payloads). The completion event VALUE is
-  unchanged; only the private `:rf.machine/join-auth` cofx fact is added.
+  traverses arbitrary / custom effect payloads).
 
-  args: `{:event <[parent-id inner-event]> :rf/join-auth <auth-tuple>
-          :ms <ms?>}`. A `:ms` (from a `:dispatch-later` completion) that is
-  positive arms a host timer; nil / non-positive dispatches immediately (the
-  same enqueue a direct `:dispatch` completion takes). The completion inherits
-  the machine-internal front-of-queue ordering + `:source :machine-action` the
-  child's original `:dispatch` carried (the emitter is always a machine child)."
-  [{frame-id :frame} {:keys [event ms] auth :rf/join-auth}]
+  ctx carries `:frame` and `:envelope` (the emitting child's dispatch envelope,
+  threaded by `re-frame.fx/do-fx`). args: `{:event <[parent-id inner-event]>
+  :rf/join-auth <auth-tuple> :ms <ms?>}`. A POSITIVE `:ms` (from a
+  `:dispatch-later` completion) arms a frame-owned delayed dispatch; nil /
+  non-positive dispatches immediately — the same enqueue a direct `:dispatch`
+  completion takes."
+  [{:keys [frame envelope]} {:keys [event ms] auth :rf/join-auth}]
   (let [frame-id (frame/require-frame-stamp!
-                   frame-id :rf.machine/join-dispatch
-                   {:where 'rf.machine/join-dispatch :event-id (first event)})
-        opts     {:frame                 frame-id
-                  :source                :machine-action
-                  :rf.machine/internal?  true
-                  ;; The recordable causal-envelope fact. `build-envelope`
-                  ;; preserves a supplied `:rf.cofx` map verbatim (extra
-                  ;; owner-qualified keys kept) and fills `:rf/time-ms`, so the
-                  ;; auth rides `:rf.event/cofx` at record time and is
-                  ;; re-presented on strict replay.
-                  :rf.cofx               {:rf.machine/join-auth auth}}
-        fire!    (fn []
-                   (when-let [dispatch! (late-bind/get-fn :router/dispatch!)]
-                     (dispatch! event opts)))]
-    (if (and (number? ms) (pos? ms))
-      (interop/set-timeout! fire! ms)
-      (fire!)))
+                   frame :rf.machine/join-dispatch
+                   {:where 'rf.machine/join-dispatch :event-id (first event)})]
+    (fx/child-dispatch!
+      frame-id envelope event
+      ;; The recordable causal-envelope fact rides `:rf.cofx`; `:source
+      ;; :machine-action` matches the child's original `:dispatch` stamp; the
+      ;; `:rf.machine/internal?` front-of-queue ordering + override / lineage /
+      ;; mint-policy inheritance are lifted from `envelope` by `child-dispatch!`.
+      ;; A positive delay carries `:ms` + `:source-detail`; ms 0 / nil enqueues
+      ;; immediately (a `:dispatch-later {:ms 0}` completion folds synchronously
+      ;; on the in-progress drain, matching the direct `:dispatch` completion).
+      (cond-> {:source  :machine-action
+               :rf.cofx {:rf.machine/join-auth auth}}
+        (and (number? ms) (pos? ms)) (assoc :ms ms :source-detail {:ms ms}))))
   nil)
 
 (defn- stamp-fx-entry
