@@ -1,7 +1,5 @@
 # 07 — Performance
 
-*Part II, step 9 · [← 06](06-debugging.md) · [Next: 08 →](08-ssr.md)*
-
 The performance model is mostly a list of things you *don't* do. The compiler emits what a
 meticulous React engineer writes by hand — every view, every time.
 
@@ -81,7 +79,3 @@ byte of an advanced build — the library's contribution should read as the kern
 your compiled views and nothing else. The claims above are CI gates in the library's
 own pipeline; the report is how you check nothing in *your* app dragged the dev tier
 in.
-
----
-
-**Next:** [08 — Server rendering](08-ssr.md) — Part III: the same views on the JVM.

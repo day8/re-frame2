@@ -1,7 +1,5 @@
 # 09 — Testing
 
-*Part II, step 7 · [← 10](10-worked-app.md) · [Next: 06 →](06-debugging.md)*
-
 Views here are pure functions whose interaction surface is data — so most UI testing needs
 no DOM, no browser, and no flake. Work down this list; stop at the first tier that answers
 your question.
@@ -183,7 +181,3 @@ with S3–S6. Your tests get to assume the substrate; they only need to cover yo
   (tier 1) — simulate clicks only when the *DOM mechanics* are under test.
 - If a view is hard to set up, it's reading too much — narrow its subs (that's a design
   smell surfacing in the test, which is the point of tests).
-
----
-
-**Next:** [06 — Debugging](06-debugging.md) — observe renders and intent in running apps.

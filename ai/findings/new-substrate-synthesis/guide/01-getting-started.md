@@ -1,10 +1,7 @@
 # 01 — Getting started
 
-*Part I, step 1 · Next: [03 — State](03-state.md)*
-
-This page is the whole app in one screen. The next chapters unpack each face in order:
-state (reads), events (writes), views (structure), frames (scoping), then a worked
-dashboard.
+This page is the whole app in one screen. Later chapters unpack each face: state
+(reads), events (writes), views (structure), frames (scoping), then a worked dashboard.
 
 ## Install
 
@@ -140,13 +137,3 @@ subscriptions arrived with the S2 reactive core.
 
 `mount` is idempotent per root; views re-register by name; the frame is reused; edited
 views repaint against live state. This is the default development loop.
-
-## Where next
-
-Follow **Part I** in order: [03 — State](03-state.md) (how `(sub …)` works) →
-[04 — Events](04-events.md) (handler vectors in depth) → [02 — Views](02-views.md)
-(`defview`, templates, lists) → [05 — Frames](05-frames.md) →
-[10 — A worked app](10-worked-app.md).
-
-**Porting from Reagent?** Swap steps 2 and 3 — read [04](04-events.md) before
-[03](03-state.md); data handlers are the biggest habit change.

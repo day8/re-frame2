@@ -1,7 +1,5 @@
 # 11 — How it works
 
-*Part III, step 11 · [← 08](08-ssr.md)*
-
 The rest of the guide states contracts: `sub` is the value, props memoize by value,
 the two emitters cannot drift, production carries nothing it doesn't use. This page
 explains the machinery that keeps those promises — read it when you want to *trust*
@@ -159,7 +157,3 @@ the programming model, the ownership protocol and its fixtures, the production
 economics with their kill-gates — written for people changing the library rather than
 using it. If a claim on this page seems too good, that's where its proof obligations
 live.
-
----
-
-**Back to the shelf:** [README](README.md) · [01 — Getting started](01-getting-started.md)

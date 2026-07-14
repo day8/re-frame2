@@ -1,7 +1,5 @@
 # 08 — Server rendering
 
-*Part III, step 10 · [← 07](07-performance.md) · [Next: 11 →](11-how-it-works.md)*
-
 The same compiled views render on the JVM — no React on the server, no second serialiser.
 One compiled template, two emitters, one conversion/escaping rule table: client and
 server output are **structurally equivalent** (verified by fingerprint and a generative
@@ -156,7 +154,3 @@ here.)
 No dual-emitter drift, no escaping decisions (everything escapes for its context except
 the explicit `ui/html` door), no per-root wiring beyond the mount — manifests, payload
 scoping, and teardown ride the frame and root contracts you already use.
-
----
-
-**Next:** [11 — How it works](11-how-it-works.md) — optional mechanism deep dive.

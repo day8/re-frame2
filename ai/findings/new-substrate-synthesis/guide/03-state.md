@@ -1,7 +1,5 @@
 # 03 — State
 
-*Part I, step 2 · [← 01](01-getting-started.md) · [Next: 04 →](04-events.md)*
-
 A view has four inputs, each with one spelling:
 
 | Question | Answer |
@@ -139,7 +137,3 @@ Spec 016's. And nothing on this page *fetches*: the resource system does. Leases
 declare that somebody is watching; how data actually arrives — effects, transports,
 the events they dispatch — is core re-frame2 dataflow ([core effects](../../../../docs/core/effects.md), [resources](../../../../docs/core/where-state-lives.md)),
 and [10](10-worked-app.md) shows the seam from the view side.
-
----
-
-**Next:** [04 — Events](04-events.md) — how intent leaves the view as data.

@@ -1,15 +1,5 @@
 # 02 — Views
 
-*Part I, step 4 · [← 04](04-events.md) · [Next: 05 →](05-frames.md)*
-
-**On this page:** [Defining views](#defining-views) → [Templates](#templates) →
-[Styling](#styling) → [Props discipline](#props-discipline) → [Interop](#interop) →
-*[Advanced](#advanced-topics)* (presence, custom elements).
-
-**Prerequisites:** [03 — State](03-state.md) (`sub`, `local`) and
-[04 — Events](04-events.md) (event vectors). This page assumes both are familiar —
-it focuses on view *structure*, not re-teaching reads and writes.
-
 A view is a pure function from a props map to hiccup, defined with `defview`. The compiler
 lowers the hiccup at build time — you write data; the browser runs direct element
 construction.
@@ -239,7 +229,3 @@ strings) declare them once, at the top level:
 
 (Head policy — what may render into `<head>` — hardens in the same stage; the posture
 until then: treat the document head as host-owned.)
-
----
-
-**Next:** [05 — Frames](05-frames.md) — scoping `sub` and handlers to a running universe.

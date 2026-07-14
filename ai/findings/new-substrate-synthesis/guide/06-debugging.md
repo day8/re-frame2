@@ -1,7 +1,5 @@
 # 06 — Debugging
 
-*Part II, step 8 · [← 09](09-testing.md) · [Next: 07 →](07-performance.md)*
-
 Dev builds answer causal questions directly, in the tools you already run (Xray, Story,
 the Pair, React DevTools). Everything on this page is dev-only and provably absent from
 production builds.
@@ -123,7 +121,3 @@ to React's tools, causal questions to Xray, and neither patches the other.
 None of this exists — not flagged off; *absent*, verified by a bundle scan in CI. What
 remains is re-frame2's always-on error contract: structured, bounded, redacted per
 Spec 009.
-
----
-
-**Next:** [07 — Performance](07-performance.md) — what the compiler already optimizes for you.
