@@ -17,6 +17,12 @@ register it under a name, and wrap any handler — or every handler in a
 
 > **Interceptors decide and decorate; effects do.**
 
+**When *not* an interceptor.** One-off logic in a single handler stays in the
+handler. Prefer a named event + effect over a global interceptor that secretly
+mutates outcomes for every dispatch. Interceptors earn their keep when the *same*
+chore genuinely applies across many handlers (logging, undo snapshot, boundary
+validation).
+
 ## A first interceptor: a logger
 
 Here's a complete, registered interceptor. It logs each event on the way in, and prints how long the handler took on the way out:
