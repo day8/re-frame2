@@ -726,6 +726,12 @@
     ;; the exact root generation.
     (react/useLayoutEffect
      (fn root-teardown-sentinel []
+       ;; SETUP runs on COMMIT: a rendered root tree now exists whose host
+       ;; teardown React will signal — mark the reporter live so teardown-root!
+       ;; awaits it (fences a deferred teardown of even a cell-less root). An
+       ;; unrendered/pre-commit root never reaches here, so it has no pending
+       ;; teardown to await and settles synchronously.
+       (reactive/report-root-commit! incarnation)
        (fn cleanup []
          (reactive/report-root-teardown! incarnation)
          js/undefined))
@@ -1246,13 +1252,22 @@
   []
   (let [roots  (mapv :root (vals @live-roots))
         errors (volatile! [])]
-    (doseq [root roots]
+    (doseq [^Root root roots]
       (try
         (unmount!* root)
         (catch :default e
           (vswap! errors conj e)
           (try
             (reclaim-consumed-container! root)
+            ;; rf2-vxgfnd.275 — `unmount!*` QUARANTINED this throwing root's claim
+            ;; (`:tearing-down`, fail-closed: an isolated caller cannot prove the
+            ;; container free). The adapter reclaim just DID prove it free — DOM
+            ;; cleared + the pinned React ownership marker deleted against the
+            ;; pinned host — so release the quarantine now: adapter disposal is
+            ;; total and the exact id/container is reusable after re-init. If the
+            ;; reclaim itself threw, this is skipped and the claim stays
+            ;; quarantined (the container is NOT proven free).
+            (release-root! (.-root-id root) root)
             (catch :default recovery-error
               (vswap! errors conj recovery-error))))))
     (when-let [primary (first @errors)]

@@ -152,6 +152,9 @@
         root (register! :rtw/root (fn [] nil))
         inc  (:root-incarnation (client/live-root-entry :rtw/root))]
     (reactive/attach-root! cell inc)
+    ;; a rendered root has a COMMITTED reporter whose host teardown teardown-root!
+    ;; must await — the ROOT-LEVEL deferral signal (rf2-vxgfnd.275)
+    (reactive/report-root-commit! inc)
     (is (= :connected (reactive/lifecycle cell)) "precondition: mounted + connected")
     (is (nil? (client/unmount!* root)) "unmount!* returns nil (host .unmount did not throw)")
     (testing "the deferred teardown is FENCED — the claim is held :tearing-down"
@@ -176,6 +179,7 @@
         inc  (:root-incarnation (client/live-root-entry :rtw/root))
         c    (:container (client/live-root-entry :rtw/root))]
     (reactive/attach-root! cell inc)
+    (reactive/report-root-commit! inc)     ;; rendered root: committed reporter to await
     (is (nil? (client/unmount!* root)))
     (is (= :rf.error/root-container-in-use
            (thrown-id #(client/check-root-claim!
@@ -194,6 +198,7 @@
         root   (register! :rtw/root (fn [] (swap! calls inc)))
         inc    (:root-incarnation (client/live-root-entry :rtw/root))]
     (reactive/attach-root! cell inc)
+    (reactive/report-root-commit! inc)     ;; rendered root: committed reporter to await
     (is (nil? (client/unmount!* root)))
     (is (= 1 @calls) "first unmount drove the host handle once")
     (is (nil? (client/unmount!* root)) "a second unmount during deferral is a no-op")
@@ -214,12 +219,15 @@
 (deftest deferred-cell-less-teardown-fences-the-claim-not-released-immediately
   (live-frame/make-frame {:id :rtw/frame})
   (frame/replace-app-db! :rtw/frame {:a 1})
-  ;; NO cell is attached to this root — it is cell-less. The fake host `.unmount`
-  ;; DEFERS: it returns normally, firing no cleanup and no reporter sentinel.
+  ;; NO cell is attached to this root — it is cell-less. But a RENDERED cell-less
+  ;; root DID commit a reporter (report-root-commit!), so its host teardown is
+  ;; awaited. The fake host `.unmount` DEFERS: it returns normally, firing no
+  ;; cleanup and no reporter sentinel.
   (let [root (register! :rtw/root (fn [] nil))
+        inc  (:root-incarnation (client/live-root-entry :rtw/root))
         c    (:container (client/live-root-entry :rtw/root))]
-    (is (zero? (reactive/root-cell-count
-                (:root-incarnation (client/live-root-entry :rtw/root))))
+    (reactive/report-root-commit! inc)     ;; the rendered cell-less root's reporter
+    (is (zero? (reactive/root-cell-count inc))
         "precondition: a cell-less root — no ViewCell to observe")
     (is (nil? (client/unmount!* root)) "unmount!* returns nil (host .unmount did not throw)")
     (testing "the cell-less deferral is FENCED — the claim is held :tearing-down"

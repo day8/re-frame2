@@ -499,6 +499,8 @@
         cell    (mount! ::v inc fid [[:rt/a]])
         settled (atom false)]
     (is (= :connected (reactive/lifecycle cell)) "precondition: connected")
+    ;; a rendered root has a COMMITTED reporter teardown-root! must await
+    (reactive/report-root-commit! inc)
     (reactive/teardown-root! inc
                              (fn [] nil)                    ;; deferred: no cleanup fired
                              (fn [] (reset! settled true)))
@@ -553,6 +555,9 @@
   (let [inc     (reactive/make-root-incarnation)
         settled (atom false)]
     (is (zero? (reactive/root-cell-count inc)) "precondition: a cell-less root")
+    ;; a RENDERED cell-less root still has a committed reporter to await — the
+    ;; ROOT-LEVEL signal ViewCell-connectivity could not supply (rf2-vxgfnd.275)
+    (reactive/report-root-commit! inc)
     (reactive/teardown-root! inc
                              (fn [] nil)          ;; deferred: no cleanup, no sentinel
                              (fn [] (reset! settled true)))
