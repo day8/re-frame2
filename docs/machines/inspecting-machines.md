@@ -181,34 +181,42 @@ This is the surface Xray's focused-transition lens and the re-frame2 pair MCP us
 
 ## Unit-test transitions as pure function calls — `machine-transition`
 
-This is where machines pay you back hardest. A transition is a pure function of *(definition, snapshot, event)*, exposed as `re-frame.machines/machine-transition`. No frame, no browser, no mocks, no clock — table in, snapshot in, event in; result out. These tests run on the JVM in microseconds, which is exactly the testing experience you want for the flows where testing usually gets *hard*.
+This is where machines pay you back hardest. A transition is a pure function of
+*(definition, snapshot, event)*, exposed as `re-frame.machines/machine-transition`.
+No frame, no browser, no mocks, no clock — table in, snapshot in, event in; result
+out. These tests run on the JVM in microseconds.
 
-The return value is a **Result map**. Discriminate it with `result/ok?` / `result/fail?`, and read the post-transition snapshot and emitted effects with the `result/snap` / `result/fx` accessors (or destructure the `::result/snap` / `::result/fx` keys directly):
+Use the same `login-flow` value from the [tutorial](tutorial.md#the-complete-machine)
+(the `defmachine` binding, not the registered id):
 
 ```clojure
-(ns my-app.login-flow-test
+(ns app.login-test
   (:require [clojure.test :refer [deftest is]]
             [re-frame.machines :as machines]
             [re-frame.machines.result :as result]
-            [my-app.login :refer [login-flow]]))   ;; the transition-table value
+            [app.login :refer [login-flow]]))
 
 (deftest login-flow-test
-  ;; happy path: :idle --submit--> :submitting, whose :entry fires the request fx
+  ;; :idle --submit--> :submitting; :entry fires the HTTP fx description
   (let [r (machines/machine-transition
             login-flow
             {:state :idle :data {:attempts 0 :error nil}}
             [:auth.login/submit {:email "a@b.com" :password "secret"}])]
     (is (result/ok? r))
     (is (= :submitting (:state (result/snap r))))
-    (is (= :rf.http/managed (ffirst (result/fx r)))))   ;; the :issue-request action's fx
+    (is (= :rf.http/managed (ffirst (result/fx r)))))
 
-  ;; at the retry limit the guard rejects :error-shown, so :locked-out wins
+  ;; at the retry limit the first failure candidate is skipped → :locked-out
   (let [r (machines/machine-transition
             login-flow
             {:state :submitting :data {:attempts 3 :error nil}}
-            [:auth.login/failure {:failure {:message "bad creds"}}])]
+            [:auth.login/failure {:error {:message "bad creds"}}])]
     (is (= :locked-out (:state (result/snap r))))))
 ```
+
+The return value is a **Result map**. Discriminate with `result/ok?` / `result/fail?`;
+read the post-transition snapshot and emitted effects with `result/snap` /
+`result/fx` (or destructure `::result/snap` / `::result/fx`).
 
 Two things make this pleasant:
 

@@ -2,7 +2,11 @@
 
 Not every move is a user click. This page is the grammar for transitions the
 **table** takes on its own: eventless `:always`, choice nodes, delayed `:after`,
-and named timeouts. Works on flat machines ([the model](concepts.md)) and inside
+and named timeouts.
+
+You already met `:after` on the [login tutorial](tutorial.md#step-4--talk-to-a-real-server)
+(8s server deadline). Everything below works on **flat** machines
+([the model](concepts.md)) and the same keys nest inside
 [hierarchical](hierarchical-states.md) / [parallel](parallel-states.md) states.
 
 Most [transitions](glossary.md#transition) wait for the world: a user clicks, an HTTP reply lands, a timer you wired by hand goes off. An **automatic transition** is one the [machine](glossary.md#machine) takes *on its own*, with no external event — the instant a condition becomes true, or a deadline passes, the [snapshot](glossary.md#snapshot) moves.

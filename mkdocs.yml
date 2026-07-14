@@ -239,10 +239,12 @@ nav:
     - "Tutorial: login machine": machines/tutorial.md
     - "The model": machines/concepts.md
     - "Growing the table":
+      # Tags and automatic transitions work on flat machines (tutorial uses both).
+      # Hierarchy / parallel / history / actors build on the flat model next.
       - "Tags": machines/tags.md
+      - "Automatic transitions": machines/automatic-transitions.md
       - "Hierarchical states": machines/hierarchical-states.md
       - "Parallel regions": machines/parallel-states.md
-      - "Automatic transitions": machines/automatic-transitions.md
       - "History": machines/history.md
       - "Actors": machines/actors.md
     - "Operating":
