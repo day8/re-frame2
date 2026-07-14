@@ -243,6 +243,68 @@
       (is (not (re-find #":or default" msg))
           "and does not misreport it as an :or default"))))
 
+(deftest binding-plan-is-host-faithful-order
+  ;; rf2-vxgfnd.283 — the ordered-scope model must be the HOST `destructure`
+  ;; `bes` order, not an invented explicit-first + rank-sorted `:keys`/`:strs`/
+  ;; `:syms` order. Where the two disagree, a bare reactive var in a default
+  ;; that the host binds BEFORE its shadow escapes while the invented order
+  ;; falsely accepts it. These rows reject ONLY under the faithful order —
+  ;; restoring the source/rank order re-accepts them (the mutation fixture).
+  (testing "the ≥9-entry hash-map regime reorders the shadow behind the default"
+    ;; The host promotes the transformed bindings map to a PersistentHashMap at
+    ;; nine entries; here it binds `target` (with default `sub`) BEFORE `sub`, so
+    ;; the default is the outer public var. The invented explicit-first order put
+    ;; `sub` first and false-accepted.
+    (is (= :rf.ui.compile/unsupported-form
+           (reject-id '[:div {:title (let [{:keys [sub a b c d e f g h target]
+                                            :or {target sub}} m] target)}]))
+        "a 10-entry hash-regime default the host expands before its shadow escapes")
+    (is (= :rf.ui.compile/unsupported-form
+           (reject-id '[:div {:title (let [{:keys [lease a b c d e f g h target]
+                                            :or {target lease}} m] target)}]))
+        "lease escapes identically in the hash regime"))
+  (testing "mixed :keys/:strs/:syms follow SOURCE group order, not a fixed rank"
+    ;; Host group order = the order the group directives appear in the pattern.
+    ;; With `:strs`/`:keys`/`:syms` written in that order the host binds
+    ;; a, target, sub — so target's default `sub` is the outer var. A fixed
+    ;; keys<strs<syms rank would bind sub first and false-accept.
+    (is (= :rf.ui.compile/unsupported-form
+           (reject-id '[:div {:title (let [{:strs [a] :keys [target] :syms [sub]
+                                            :or {target sub}} m] target)}]))
+        "reordered mixed groups keep the host's source group order"))
+  (testing "the faithful order does not over-reject a genuine earlier shadow"
+    ;; Array-map regime (two entries): the host binds `sub` then `target`, so
+    ;; target's `:or` default resolves to the earlier local, not the outer var.
+    ;; (In the hash regime source order is NOT bind order — the 10-entry row
+    ;; above binds `target` before `sub` even though `sub` is written first.)
+    (is (nil? (reject-id '[:div {:title (let [{:keys [sub target] :or {target sub}}
+                                              m] target)}]))
+        "an earlier-bound local in the array regime still shadows the default")))
+
+(deftest portable-binding-grammar-close
+  ;; rf2-vxgfnd.283 — close the portable grammar to simple-symbol (and nested)
+  ;; explicit locals and simple-symbol :or keys. The host tolerates keyword and
+  ;; namespace-qualified explicit locals (binding them name-only) and composite
+  ;; :or keys (a dead default), but the analyzer's scope walk keeps the written
+  ;; form — a divergence that can mis-lower a reactive read. Reject up front with
+  ;; the shared typed unsupported-form error rather than reproduce those shapes.
+  (testing "keyword and qualified explicit locals are rejected"
+    (is (= :rf.ui.compile/unsupported-form
+           (reject-id '[:div {:title (let [{:foo :bar} m] 1)}]))
+        "a keyword explicit local is nonportable")
+    (is (= :rf.ui.compile/unsupported-form
+           (reject-id '[:div {:title (let [{a/b :bar} m] 1)}]))
+        "a namespace-qualified explicit local is nonportable"))
+  (testing "composite :or keys are rejected"
+    (is (= :rf.ui.compile/unsupported-form
+           (reject-id '[:div {:title (let [{[a b] :pair :or {[a b] [1 2]}} m] a)}]))
+        "a composite :or key never defaults a bound local"))
+  (testing "portable simple-symbol and nested destructuring stays legal"
+    (is (nil? (reject-id '[:div {:title (let [{:keys [x] :or {x 0}} m] x)}]))
+        "simple-symbol keys + literal default")
+    (is (nil? (reject-id '[:div {:title (let [{[a b] :pair} m] [a b])}]))
+        "a nested destructuring explicit local")))
+
 (deftest reactive-verb-head-reserved-before-foreign-classification
   ;; rf2-vxgfnd.266 — the next escape in the .252/dzyqis family. sub/lease/frame
   ;; are reactive authoring verbs, sound ONLY as their compiler-owned DIRECT

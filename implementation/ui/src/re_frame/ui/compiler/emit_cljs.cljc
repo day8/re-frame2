@@ -410,13 +410,28 @@
        (if (cljs.core/undefined? v#) ~default v#))
     `(cljs.core/unchecked-get ~props-sym ~slot)))
 
-(defn header-bindings [header]
-  (concat
-   (mapcat (fn [{:keys [slot pattern default]}]
-             [pattern (slot-read slot default)])
-           (:entries header))
-   (when (:as-sym header)
-     [(:as-sym header) `(re-frame.ui.runtime/props->map ~props-sym)])))
+(defn header-bindings
+  "The CLJS header `let` bindings, in canonical host `destructure` order
+  (rf2-vxgfnd.283): `:as` binds the whole props map FIRST — matching the JVM
+  native destructuring the JVM emitter uses — then the property-read entries in
+  the host `bes` order supplied by the ONE shared binding plan
+  (`ana/header-binding-order`). Emitting `:as` last, or the entries in parse
+  order, could resolve a dependent `:or` default to a different symbol on CLJS
+  than on the JVM — including a public reactive authoring var. Ordering by the
+  shared plan keeps both emitters and the scope check on one order. `sort-by` is
+  stable, so any entry the plan does not enumerate keeps its relative place."
+  [header]
+  (let [order   (ana/header-binding-order (:binding-form header))
+        idx     (when order (zipmap order (range)))
+        entries (cond->> (:entries header)
+                  idx (sort-by (fn [{:keys [pattern]}]
+                                 (get idx pattern (count order)))))]
+    (concat
+     (when (:as-sym header)
+       [(:as-sym header) `(re-frame.ui.runtime/props->map ~props-sym)])
+     (mapcat (fn [{:keys [slot pattern default]}]
+               [pattern (slot-read slot default)])
+             entries))))
 
 (defn comparator-form
   "The generated straight-line rf= comparator (RULED: Object.is OR = per
