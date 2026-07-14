@@ -1586,6 +1586,25 @@
        (identical? (:frame-token prior) (:frame-token desired))
        (eq/rf= (:descriptor prior) (:descriptor desired))))
 
+(def ^:private ^:dynamic *resource-release-fence*
+  "The outermost resource ensure-enqueue fence, or nil at rest.
+
+  `router/dispatch!` fires its synchronous `:rf.event/dispatched` trace
+  listeners BEFORE it inserts the envelope and schedules the drain (see
+  `re-frame.router/dispatch!` — the emit-then-enqueue seam). A listener that
+  reentrantly tears down or supersedes this cell can therefore dispatch a
+  cleanup `release-owner` and have it enter FIFO AHEAD of the ensure envelope
+  that is still mid-dispatch — draining `release, ensure` leaks/resurrects the
+  owner (rf2-vxgfnd.150).
+
+  While an ensure is inside that pre-FIFO window this holds a volatile release
+  accumulator: reentrant releases record their intent here instead of
+  dispatching (see `enqueue-release!`), and the outermost ensure flushes them in
+  request order once every ensure has actually entered FIFO (see
+  `fenced-enqueue-ensure!`). Bound on one reconcile thread (JVM) / the single JS
+  thread; never observed at rest."
+  nil)
+
 (defn- ensure-event
   [view-id {:keys [sid descriptor frame-id owner commit-id]}]
   [:rf.resource/ensure
@@ -1604,10 +1623,22 @@
   [view-id {:keys [frame-id] :as record}]
   (router/dispatch! (ensure-event view-id record) {:frame frame-id}))
 
-(defn- enqueue-release!
+(defn- dispatch-release!
   [{:keys [frame-id owner]}]
   (router/dispatch! [:rf.resource/release-owner {:owner owner}]
                     {:frame frame-id}))
+
+(defn- enqueue-release!
+  "Enqueue an owner release — or, while an ensure is inside its pre-FIFO trace
+  window (`*resource-release-fence*` bound), record the release intent so it
+  cannot enter the frame queue before the ensure envelope that triggered it. The
+  outermost ensure flushes deferred releases in request order once every ensure
+  has actually entered FIFO. Outside that window this is the ordinary immediate
+  dispatch."
+  [record]
+  (if-some [fence *resource-release-fence*]
+    (do (vswap! fence conj record) nil)
+    (dispatch-release! record)))
 
 (defn- attempt-resource-releases!
   "Attempt every release in order. Never short-circuits; returns the first
@@ -1621,6 +1652,46 @@
                 {:error (or error e) :failed (conj failed record)})))
           {:error nil :failed []}
           records))
+
+(defn- flush-deferred-releases!
+  "Dispatch the releases deferred during an ensure's pre-FIFO trace window, in
+  request order, now that every nested/outer ensure has actually entered FIFO —
+  so every owner's ensure envelope precedes its cleanup release. Best-effort per
+  release (matching `attempt-resource-releases!`): a single release escape never
+  strands the rest of the batch."
+  [records]
+  (doseq [record records]
+    (try
+      (dispatch-release! record)
+      (catch #?(:clj Throwable :cljs :default) _e nil))))
+
+(defn- fenced-enqueue-ensure!
+  "Enqueue a resource ensure inside the outermost resource-release fence.
+
+  `router/dispatch!` emits its synchronous `:rf.event/dispatched` trace
+  listeners BEFORE it inserts the envelope, so a listener that reentrantly tears
+  down or supersedes this cell would otherwise dispatch a cleanup release into
+  FIFO ahead of the still-mid-dispatch ensure (rf2-vxgfnd.150). The OUTERMOST
+  ensure establishes the fence: reentrant releases fired inside its trace window
+  record intent instead of dispatching (see `enqueue-release!`), while nested
+  ensures dispatched from that window reuse the active fence and enter FIFO
+  immediately. When the outermost ensure returns — every nested/outer ensure now
+  in FIFO — the deferred releases flush in request order, so no cleanup release
+  precedes its owner's ensure envelope. The flush runs on the throw path too
+  (`finally`): an ensure-dispatch failure still compensates the deferred cleanup
+  without pretending the owner was attached, and the fence is already unbound
+  there so the flush dispatches for real rather than re-deferring."
+  [view-id record]
+  (if *resource-release-fence*
+    ;; Nested ensure: reuse the outer fence so this envelope enters FIFO ahead of
+    ;; the deferred releases the outermost frame flushes.
+    (enqueue-ensure! view-id record)
+    (let [fence (volatile! [])]
+      (try
+        (binding [*resource-release-fence* fence]
+          (enqueue-ensure! view-id record))
+        (finally
+          (flush-deferred-releases! @fence))))))
 
 (defn- stage-resource-held!
   "Make exactly one about-to-be-enqueued owner lifecycle-cleanup reachable.
@@ -1788,11 +1859,17 @@
   before owner mint or dispatch; same-site `rf=` descriptors on the same frame
   incarnation retain their exact owner. Every fresh ensure is queued in lexical
   order before any old owner release is attempted. Because dispatch trace
-  listeners run synchronously, each owner becomes cleanup-reachable immediately
-  before its own enqueue and exact capture/lifecycle authority is fenced after
-  every ensure and release. Future lexical owners are never staged early, and
-  final publication is conditional on the same accepted capture still owning a
-  connected cell."
+  listeners run synchronously — and `router/dispatch!` fires them BEFORE it
+  actually enqueues — each ensure runs through `fenced-enqueue-ensure!`: a
+  reentrant teardown/supersession release fired inside that pre-FIFO window is
+  deferred and flushed only once the ensure envelope has really entered the
+  queue, so no cleanup release can precede its owner's ensure (rf2-vxgfnd.150).
+  Each owner becomes cleanup-reachable immediately before its own enqueue and
+  exact capture/lifecycle authority is still fenced after every ensure and
+  release — post-dispatch lifecycle/capture fencing complements, but does not
+  replace, this queue-order fence. Future lexical owners are never staged early,
+  and final publication is conditional on the same accepted capture still owning
+  a connected cell."
   [^ViewCell cell cap]
   (let [st  (state cell)
         st0 @st
@@ -1853,7 +1930,7 @@
                         (let [attempted' (conj attempted record)
                               escape
                               (try
-                                (enqueue-ensure! view-id record)
+                                (fenced-enqueue-ensure! view-id record)
                                 nil
                                 (catch #?(:clj Throwable :cljs :default) e e))]
                           (cond
