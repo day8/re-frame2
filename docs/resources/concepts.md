@@ -18,8 +18,10 @@ To *build* Conduit end to end, use the [tutorial](tutorial/index.md). Task recip
 !!! note "Optional artefact"
 
     Require `re-frame.resources` (and usually `re-frame.http.managed`) once at boot —
-    Maven coordinate `day8/re-frame2-resources`. An app with one or two reads is often
-    happier with [managed HTTP](../async/http.md) alone.
+    Maven coordinate `day8/re-frame2-resources`. Forget the require and the first
+    `reg-resource` / `reg-mutation` throws `:rf.error/resources-artefact-missing`.
+    An app with one or two uncached reads is often happier with
+    [managed HTTP](../async/http.md) alone.
 
 ## The cache you don't own
 

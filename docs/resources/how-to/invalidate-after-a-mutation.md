@@ -97,7 +97,7 @@ One thing about the code below: the read uses the `[:rf/mutation {:instance …}
 
 ```cljs-rf2
 (rf/reg-view article-editor [article]
-  (let [save @(rf/subscribe [:rf/mutation {:instance [:article-save (:slug article}])])]
+  (let [save @(rf/subscribe [:rf/mutation {:instance [:article-save (:slug article)]}])]
     [:<>
      [editor-fields article]
      [:button {:disabled (:pending? save)
@@ -110,7 +110,7 @@ One thing about the code below: the read uses the `[:rf/mutation {:instance …}
      (when (:error? save) [save-error (:error save)])]))
 ```
 
-A quick tour of what that view is doing. The `[:rf/mutation {:instance …}]` read is a passive read of one write's lifecycle: it never fires the write, it just watches it, and it yields a map: `{:status :pending? :success? :error? :settled? :result :error :optimistic?}`. That's what the button reads to flip its label to "Saving…" and disable itself. The `:instance` id — `[:article-save (:slug article)]` — is per-slug on purpose: it keeps two articles being saved at once from clobbering each other's pending/success/error state. (`editor-fields` and `save-error` are your own child views.)
+A quick tour of what that view is doing. The `[:rf/mutation {:instance …}]` read is a passive read of one write's lifecycle: it never fires the write, it just watches it, and it yields a map with keys like `:status`, `:pending?`, `:success?`, `:error?`, `:settled?`, `:result`, `:error`, and `:optimistic?`. That's what the button reads to flip its label to "Saving…" and disable itself. The `:instance` id — `[:article-save (:slug article)]` — is per-slug on purpose: it keeps two articles being saved at once from clobbering each other's pending/success/error state. (`editor-fields` and `save-error` are your own child views.)
 
 Now notice what's *absent*: the view never dispatches an invalidate, never refetches a list, and never touches [app-db](../../core/glossary.md#app-db) — your app's single state map. It doesn't have to, because the registration in §2 already declared which reads this write breaks. That absence is the payoff of doing the work once, at registration.
 

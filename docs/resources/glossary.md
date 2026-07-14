@@ -7,7 +7,10 @@ re-frame2's optional server-state capability — declarative, cached reads and w
 A declared, cached server-state **read** (the read-side partner to a [mutation](#mutation)'s write), registered with `reg-resource`. Its [`:scope`](#scope) is a required, fail-closed leak boundary — part of the read's identity (with its `:params`) — so one user's data can't surface in another's cache.
 
 ```clojure
-(rf/reg-resource :article {:scope :rf.scope/global} request-fn)
+(rf/reg-resource :article
+  {:params-schema [:map [:slug :string]]   ;; required — the read's identity
+   :scope         :rf.scope/global}        ;; required — whose cache?
+  request-fn)
 ```
 
 Related: [Server state](concepts.md). "Server state" is the category, not the noun.
@@ -17,7 +20,11 @@ Related: [Server state](concepts.md). "Server state" is the category, not the no
 A declared server-state **write** — the write-side partner to a [resource](#resource)'s read. Its cache consequences (which cached reads it [invalidates](#invalidate), by [cache tag](#cache-tag)) are declared *once, on the registration*, never imperatively at the call site.
 
 ```clojure
-(rf/reg-mutation :article/favorite {:scope :rf.scope/global} request-fn)
+(rf/reg-mutation :article/favorite
+  {:params-schema [:map [:slug :string]]
+   :scope         :rf.scope/global
+   :invalidates   (fn [{:keys [slug]} _result] #{[:article slug]})}
+  request-fn)
 ```
 
 Related: [Server state](concepts.md). The reply field is `:value`; the instance sub field is `:result`.
@@ -28,7 +35,7 @@ A [mutation](#mutation) declares — as data on its registration, never imperati
 
 ```clojure
 {:invalidates (fn [{:keys [slug]} _result]
-                {:tags #{[:article slug]}})}     ;; declared once, on the mutation
+                #{[:article slug]})}     ;; bare tag-set; or [{:scope … :tags #{…}}]
 ```
 
 Related: [Server state](concepts.md).
