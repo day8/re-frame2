@@ -273,9 +273,18 @@ derive from**, so its identity set is `:root-id` / `:identifier-prefix` only; su
   identity is `:rf.ui.compile/missing-root-id`, and an out-of-grammar opt (a stray
   `:disambiguator` among them) is `:rf.ui.compile/bad-root-opts`.
 - Frame preflight (ENSURE + `:initial-events` drain, exactly once, before React) runs
-  before the first `render!` on a Root and before `hydrate-root`'s hydration — timing
-  and semantics owned by [Spec 002](002-Frames.md); this draft only pins *what is extracted*
-  (§6).
+  before the first `render!` on a Root and before `hydrate-root`'s hydration. **This
+  compiled host-root sequencing — preflight completing before `createRoot`/`render!`
+  and before hydration ever touches the container — is owned here.** Spec 002 owns only
+  what each preflight step *does*:
+  [`make-frame` construction](002-Frames.md#make-frame--atomic-create-and-register-and-the-canonical-config-grammar),
+  its [idempotent-replacement ENSURE](002-Frames.md#duplicate-id--idempotent-replacement)
+  (create-if-absent, reuse-no-reseed), and the synchronous, ordered `:initial-events`
+  drain those sections define. That is the whole Spec-002 debt — pointedly **not** its
+  frozen/transitional [`frame-root` two-pass contract](002-Frames.md#frame-root--the-ensure-component-cljs-reference)
+  (empty first render → commit-phase `useLayoutEffect` ENSURE → populated second render),
+  which runs the *opposite* order and scopes a component subtree, not a host root. This
+  draft only pins *what is extracted* (§6).
 
 ## 4. Element locators
 
