@@ -36,12 +36,15 @@
 (def use-current-frame
   "UIx hook returning the current frame keyword from the surrounding
   React context, or the no-provider sentinel
-  (`re-frame.adapter.context/no-provider-sentinel`) when no frame-provider
-  sits above. All React-shaped adapters use the same context, so mixed
-  Reagent, UIx, and Helix provider trees compose.
+  (`re-frame.adapter.context/no-provider-sentinel`, `:rf.frame/no-provider`)
+  when NEITHER `frame-provider` (SCOPE) nor `frame-root` (ENSURE) installs
+  the shared frame-context above. Both boundaries write that one context —
+  explicitly not `:rf/default` — and every React-shaped adapter reads it, so
+  mixed Reagent, UIx, and Helix provider trees compose.
 
-  This is the raw React-context read and does not map the sentinel to nil.
-  Use `(rf/current-frame-id)` for dynamic-var then React-context resolution."
+  This is the narrow raw `useContext` read: it does not map the sentinel to
+  nil, nor consult the dynamic-var tier. Use `(rf/current-frame-id)` for the
+  full dynamic-var → context → nil resolution chain."
   (:use-current-frame spine-fns))
 
 (defui frame-provider
