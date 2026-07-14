@@ -301,10 +301,13 @@ phase.
 
 - **`frame-provider`** (SCOPE) — pure context over a live frame. Did-you-mean errors both
   ways (`frame-root` given `:frame` / `frame-provider` given `:id`), per rf2-nyea0r.
-  *Reconciliation:* the split has **landed** — the checked-in adapters ship `frame-root`
-  (ENSURE) and a SCOPE-only `frame-provider` (rf2-nyea0r, #5691), with commit-owned
-  two-pass ENSURE. What remains under R-7 (08 §5) is moving ENSURE *timing* to host
-  preflight for the compiled substrate — not the split itself.
+  *Reconciliation:* both the split and the compiled substrate's host-preflight ENSURE
+  have **landed** — the checked-in `re-frame.ui` substrate extracts frame plans and runs
+  ENSURE at host preflight before React (#5711), while the frozen Reagent (and retiring
+  UIx/Helix) adapters ship `frame-root` (ENSURE) and a SCOPE-only `frame-provider`
+  (rf2-nyea0r, #5691) with commit-owned two-pass ENSURE for their lifetime. What remains
+  under R-7 (08 §5) is promoting this already-live contract into the spec — not moving
+  runtime timing.
 - **`(frame)`** — the hold (capture-frame per rf2-y6dz8t): the frame ops map for rare
   imperative needs. **Honesty:** a carried ops map *can* be used under a different
   frame's subtree — cross-frame access via carry exists and is not claimed impossible.
