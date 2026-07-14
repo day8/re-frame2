@@ -1,21 +1,25 @@
 # Frames: isolated worlds
 
-Every example so far used one [frame](glossary.md#frame) — one app-db, one queue —
-and never said much about it. That is the normal case. This page is for when the
-frame *is* the point.
+Every pure-loop page used one [frame](glossary.md#frame) — one app-db, one queue —
+under `frame-root`, and never said much about it. That is the normal case. Until
+now that root was ambient magic. **This page owns isolation:** what a world is,
+ensure vs scope, and *frame identity is carried, not found.*
+
+The **boot recipe** — `init!`, hot reload, host listeners, packaging a real entry
+namespace — is not re-taught here. Use
+[Boot and mount an app](how-to/boot-and-mount-an-app.md).
 
 Sooner or later you want two of your app: a split pane, a [Story](glossary.md#story)
 canvas with three states, many SSR requests, or a `setTimeout` that just raised
-`:rf.error/no-frame-context`.
-
-A frame is re-frame2's isolation boundary — a **world**: one complete, running copy
-of your app, sealed off from every other copy. Most apps establish exactly one world
-at boot and never say its name again. We start there, then add a second world.
-By the end: *frame identity is carried, not found.*
+`:rf.error/no-frame-context`. A frame is re-frame2's isolation boundary — a
+**world**: one complete, running copy of your app, sealed off from every other
+copy. Most apps establish exactly one world at boot and never say its name again.
+We start there, then add a second world.
 
 **On this page — two speeds.** Day one: one `frame-root`, seed with
-`:initial-events`, two frames side by side. Going further: config keys, destroy,
-capture-frame from callbacks, images. Ship on one frame until you need a second.
+`:initial-events`, two frames side by side, the carried rule. Going further:
+config keys, destroy, `capture-frame` from callbacks. Ship on one frame until you
+need a second.
 
 ## The counter, twice
 

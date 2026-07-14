@@ -175,7 +175,7 @@ nav:
     - "Structure":
       - "Frames: isolated worlds": core/frames.md
       - "Flows: write-side derivations": core/flows.md
-      - "Interceptors: cross-cutting": core/interceptors.md
+      - "Interceptors: cross-cutting (rare)": core/interceptors.md
     - "Operations":
       - "Errors: dossiers": core/errors.md
       - "Observability: one wire": core/observability.md
