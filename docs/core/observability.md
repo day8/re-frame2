@@ -210,6 +210,14 @@ The remaining two streams — `:events` and `:errors` — are different in kind:
 
 ## Production: the wire disappears — errors don't
 
+**Classification (brief owner note).** Values that must not appear on the wire —
+tokens, passwords, huge blobs — are marked with
+[data classification](glossary.md#data-classification) (`:sensitive`, `:large`) on
+subs, events, and flows. That is an observability concern: the runtime elides or
+redacts classified paths when building traces and always-on records. The recipe is
+[Keep secrets out of traces](how-to/keep-secrets-out-of-traces.md); this page owns
+*why* classification exists (one wire, many consumers).
+
 Everything above is development machinery, and none of it ships. The whole dev wire is [**elided**](glossary.md#elide) from production builds — the `:trace` and `:epoch` streams, the rings, the epoch history, the listener registries behind them — all of it sitting behind one compile-time flag (`goog.DEBUG`, a constant the ClojureScript toolchain sets to `false` for production).
 
 In an `:advanced` production build, the Closure compiler — the optimising compiler ClojureScript ships through — sees the flag is constantly `false`, so dead-code elimination (DCE) removes every branch guarded by it. The emit calls don't just become no-ops; they're elided entirely, so production bundles carry zero trace code and zero trace cost.
