@@ -222,7 +222,15 @@ And this pattern should feel familiar, because you already program in it all day
 
     A bare `:rf.http/managed` fx is the low-level move — you're hand-wiring one request and its two reply events. Most real screens want caching, staleness, and dedup, and for those you reach one level higher: [resources](../resources/concepts.md) manage the request lifecycle for you, the way a `useQuery` hook does. The `:rf.http/managed` fx above is the mechanism underneath that convenience.
 
-The `:rf.http/managed` args map carries far more than the four keys above — `:retry`, dropping a reply with `:on-failure nil`, the co-located single-handler form, the closed set of failure categories — but all of that is [Managed HTTP](../async/http.md)'s subject.
+!!! note "HTTP depth is not this page's job"
+
+    Core stops at the **shape**: describe the request in `:fx`, land success and
+    failure as later events. Full technique —
+    `:retry`, reply categories, co-located handlers, abort — lives in the
+    [async guide](../async/index.md), especially [Managed HTTP](../async/http.md).
+    Runnable companions: [`examples/core/managed_http_counter`](../../examples/core/managed_http_counter)
+    (compact) and [RealWorld HTTP](../../examples/real-apps/realworld_http) (wide).
+    Caching and staleness are [resources](../resources/concepts.md), not more Core.
 
 Notes:
 

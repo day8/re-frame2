@@ -135,9 +135,10 @@ event queue, and subscription cache. `frame-root` ensures that frame exists (onc
 runs `:initial-events` once, and scopes the subtree so `dispatch` / `subscribe`
 inside the view resolve to it.
 
-Most apps need exactly one frame for their lifetime. Multi-frame and "which
-handlers does this frame see?" are [Frames](frames.md) (and, rarely,
-[Images](images.md)). Until then, one `frame-root` is the whole boot story.
+Until the pure loop is closed, treat that form as the whole boot story. Isolation
+and carry live on [Frames](frames.md). Packaging a real app (`init!`, hot reload,
+listeners) lives on [Boot and mount an app](how-to/boot-and-mount-an-app.md).
+Different registration sets per frame are rare — [Images](images.md).
 
 ## In summary
 
@@ -163,13 +164,13 @@ marks optional depth so you can stop and ship.
 |---|---|---|
 | **Pure loop** | [Events](events.md) → [app-db](app-db.md) → [Subscriptions](subscriptions.md) → [Views](views.md) | Real screens: intent in, one map, named conclusions, pure UI |
 | **Impurity** | [Effects](effects.md) → [Coeffects](coeffects.md) | HTTP, storage, timers, recorded world facts — handlers stay pure |
-| **Structure** | [Frames](frames.md) → [Flows](flows.md) → [Interceptors](interceptors.md) | Isolation, write-side derivations, cross-cutting chores |
+| **Structure** | [Frames](frames.md) → [Flows](flows.md) → [Interceptors](interceptors.md) (rare) | Isolation, write-side derivations; interceptors only when a chore is truly shared |
 | **Operations** | [Errors](errors.md) → [Observability](observability.md) | Named dossiers and the one trace wire when something breaks |
 | **Advanced** | [Images](images.md) | Different registration sets per frame (rare) |
 
-How-to recipes, testing, and "why it's built this way" essays sit under those
-headings — use them when you have a task or a design question, not as the first
-read-through.
+How-to recipes (including [boot](how-to/boot-and-mount-an-app.md)), testing, and
+"why it's built this way" essays sit under those headings — use them when you have
+a task or a design question, not as the first read-through.
 
 ### Happy path and unhappy path
 

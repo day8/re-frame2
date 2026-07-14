@@ -123,6 +123,34 @@ interceptors) → **operations** (errors → observability) → **advanced** (im
 run-to-completion operational detail) → how-to → testing → explanation → migration →
 glossary.
 
+### Technique owners (do not invent a second home)
+
+One technique, one concept owner. Recipes and tests *use* the technique; they do
+not re-teach it.
+
+| Technique | Owner |
+|---|---|
+| Event vocabulary, `dispatch` | [Events](events.md) |
+| `{:db}`, facts vs conclusions, seed-as-event | [app-db](app-db.md) |
+| Named derivation, layers, `=` gate | [Subscriptions](subscriptions.md) |
+| Hiccup, `reg-view`, thin views | [Views](views.md) |
+| `:fx` grammar, RTC *idea*, `reg-fx` | [Effects](effects.md) |
+| Managed HTTP depth / retry / abort | [async](../async/http.md) (not Core) |
+| `:rf.cofx/requires`, grades, `reg-cofx` | [Coeffects](coeffects.md) |
+| Isolation, carry, ensure vs scope | [Frames](frames.md) |
+| `init!`, hot reload, host listeners | [Boot how-to](how-to/boot-and-mount-an-app.md) |
+| Materialise for handlers | [Flows](flows.md) |
+| Four homes (which tool) | [Where state lives](where-state-lives.md) |
+| Cross-cutting chain (rare) | [Interceptors](interceptors.md) |
+| Registration sets (rare) | [Images](images.md) |
+| Dossiers / recovery verbs | [Errors](errors.md) |
+| Trace wire; classification *why* | [Observability](observability.md) |
+| Classification *recipe* | [Secrets how-to](how-to/keep-secrets-out-of-traces.md) |
+| Machines / resources / routing / SSR | Their battery corpora — pointer only from Core |
+
+Interceptors and images are **structure but rare** — open with when-not; do not
+imply every app needs them on day two.
+
 **Domain corpora** (machines, resources, async, routing, ssr): index with **Start
 here** (tutorial first when one exists, then model, then growth in dependency
 order) → tutorial → model/concepts → growth pages → operate / migrate. Index also

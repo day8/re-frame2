@@ -1,27 +1,38 @@
 # Interceptors
 
+> **Most apps never write a custom interceptor.** Read this when the *same* chore
+> must wrap many handlers. Until then, pure handlers + effects + coeffects are enough.
+
 You can write pure [event handlers](glossary.md#event-handler),
 [effects](effects.md), and [coeffects](coeffects.md). Cross-cutting chores remain:
 log every event, snapshot state for undo, validate input at the boundary — applied
 to hundreds of handlers.
 
-Where do the chores go?
+Where do the chores go? Not into the handlers — that multiplies the same code and
+smears stateful concerns (undo stacks) across every mutator.
 
-Not into the handlers. That multiplies the same code, drifts it apart, and smears
-stateful concerns (undo stacks) across every mutator.
-
-An **interceptor** is where a cross-cutting chore lives instead. Write it once,
-register it under a name, and wrap any handler — or every handler in a
-[frame](glossary.md#frame) — by referencing that name. The handler stays focused:
-[coeffects](glossary.md#coeffect) in, [effect map](glossary.md#effect-map) out.
+An **interceptor** is where that chore lives instead. Write it once, register it
+under a name, and wrap handlers — or every handler in a [frame](glossary.md#frame)
+— by **referencing** that name. The handler stays focused: coeffects in, effect
+map out.
 
 > **Interceptors decide and decorate; effects do.**
 
-**When *not* an interceptor.** One-off logic in a single handler stays in the
-handler. Prefer a named event + effect over a global interceptor that secretly
-mutates outcomes for every dispatch. Interceptors earn their keep when the *same*
-chore genuinely applies across many handlers (logging, undo snapshot, boundary
-validation).
+**When *not* an interceptor**
+
+| Situation | Prefer |
+|---|---|
+| Logic for **one** handler | Keep it in that handler |
+| Something that **does** I/O | An [effect](effects.md) (`reg-fx`) |
+| A **derived value** many places need | [subscription](subscriptions.md) or [flow](flows.md) |
+| A global secret mutator of every outcome | Don't — named events + effects stay greppable |
+
+Interceptors earn their keep when the *same* chore genuinely applies across many
+handlers (logging, undo snapshot, boundary validation).
+
+**On this page — two speeds.** Day one: register a logger, attach by id, know the
+context map and the sandwich, use `path` if you need it. Going further: frame-wide
+attach, contribute-don't-perform, undo worked example, introspection, testing.
 
 ## A first interceptor: a logger
 
@@ -291,6 +302,17 @@ So what *are* interceptors allowed to do? Two things. They **decide**: a `:befor
 !!! warning "Gotcha — a frame interceptor runs on the server too"
 
     A frame-wide interceptor runs on *every* event in that frame, [SSR](../ssr/glossary.md#ssr) included. That's another reason the contribute pattern matters: the `:localstorage/set` row above is safe under SSR because it's just a `:db`-derived effect row, and the `reg-fx` handler that performs it carries `:platforms #{:client}` — so the server's fx resolver simply skips it. An interceptor that instead pokes the host *directly* in its body (a `:before` that reads `js/localStorage`) has no such fence and throws on the JVM during a server render. Keep host access in the effect handler, where the platform gate lives.
+
+## Day-one checklist
+
+You can register an interceptor by id, attach it with `:interceptors […]`, read
+`:coeffects` on the way in and `:effects` on the way out, and prefer
+contribute-don't-perform over host I/O in the body. That is enough until a real
+cross-cutting pain appears.
+
+---
+
+## Going further
 
 ## A real interceptor: undo
 
