@@ -1,16 +1,13 @@
 # Controlling the response — `:rf.server/*`
 
-You know the [request lifecycle](concepts.md#a-request-start-to-finish): frame, drain,
-render, payload. This page is one job — **shape the HTTP response as data** from
-handlers: status, headers, cookies, redirects.
+You know the [request lifecycle](concepts.md#a-request-start-to-finish). This page is
+one job: **shape status, headers, cookies, and redirects as data** from handlers.
 
-A real response carries more than HTML. Handlers control it with server-only
-[effects](../core/glossary.md#effect), so response logic stays pure and testable like
-the rest of the [effect map](../core/glossary.md#effect-map). Each fx writes a
-per-request accumulator; the Ring adapter materialises it onto the wire.
+Server-only [effects](../core/glossary.md#effect) write a per-request accumulator; the
+Ring adapter materialises it. Response logic stays pure and testable like any
+[effect map](../core/glossary.md#effect-map).
 
-**Prerequisites.** [The model](concepts.md) (payload allowlist, request coeffect) or
-the [tutorial](tutorial.md) through Step 7.
+**Prerequisites.** [The model](concepts.md) or the [tutorial](tutorial.md) through Step 7.
 
 ## The effects
 

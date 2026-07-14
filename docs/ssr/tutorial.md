@@ -1,14 +1,19 @@
 # Tutorial: render on the server
 
-Let's take a small articles app and make it render on the JVM — one step at a time: a pure render, a frame per request, the state payload, hydration on the client, a deliberately broken render to see the safety net fire, and finally the production Ring adapter that owns the whole lifecycle for you.
+Build one small articles app end to end on the JVM — pure render → frame per request →
+payload → client hydrate → deliberate mismatch → platform gates → Ring adapter. By
+the end you have the **complete server/client shape** the production adapter packages.
 
-Every step below is adapted from the worked example at [`examples/capabilities/ssr/ssr/`](../../examples/capabilities/ssr/ssr) — one `.cljc` file that runs on both sides. Keep it open beside this page if you like reading ahead; where this page simplifies or diverges, it says so.
+Adapted from [`examples/capabilities/ssr/ssr/`](../../examples/capabilities/ssr/ssr)
+(one `.cljc` on both sides). Vocabulary after this walk-through: [The model](concepts.md).
 
 !!! note "Before you start"
 
-    You've done the [introduction](../core/introduction.md), [events](../core/events.md), and [app-db](../core/app-db.md) — you know what an [event](../core/events.md), a [subscription](../core/subscriptions.md), and a [view](../core/views.md) are, and what a [frame](../core/frames.md) is. That's the only prerequisite: SSR adds no new kind of handler, which is rather the point.
+    [Core introduction](../core/introduction.md) (events, app-db, views, frames). SSR
+    adds no new kind of handler — that is the point.
 
-    Steps 1–3 run at a plain **JVM REPL** — evaluate along as you read. Steps 4 and 5 are browser-side; the worked example ships a page you can open to see them live.
+    Steps 1–3 run at a **JVM REPL**. Steps 4–5 are browser-side; the example ships a
+    frozen `index.html` so you can watch hydration without standing up Jetty.
 
 ## Step 0 — turn SSR on
 
@@ -261,10 +266,10 @@ You've now built every step of the lifecycle by hand: stash the request, create 
 
 ```clojure
 (require '[ring.adapter.jetty :as jetty]
-         '[re-frame.ssr.ring  :as ssr.ring])
+         '[re-frame.ssr.ring  :as ssr-ring])
 
 (def handler
-  (ssr.ring/ssr-handler
+  (ssr-ring/ssr-handler
     {:initial-events [[:rf/server-init]]     ;; Step 2's boot event
      :root-view      [:app/root]             ;; Step 2's render target
      :payload        [:articles]}))          ;; Step 3's payload — now an allowlist
@@ -272,11 +277,30 @@ You've now built every step of the lifecycle by hand: stash the request, create 
 (jetty/run-jetty handler {:port 3000 :join? false})
 ```
 
-One thing is new, and it's the important one: **`:payload` is required, and it's an allowlist.** Name the top-level app-db keys that may ship; everything else stays on the server — *including keys you haven't written yet*. Omit it entirely and construction throws `:rf.error/ssr-missing-payload-policy` at boot, not a quiet leak on the first request. (Shipping everything is still possible, but you say it out loud: `:rf.ssr.payload/whole-app-db`.)
+One thing is new, and it's the important one: **`:payload` is required, and it's an
+allowlist.** Name the top-level app-db keys that may ship; everything else stays on
+the server — *including keys you haven't written yet*. Omit it entirely and
+construction throws `:rf.error/ssr-missing-payload-policy` at boot, not a quiet leak
+on the first request. (Shipping everything is still possible, but you say it out loud:
+`:rf.ssr.payload/whole-app-db`.)
 
-**What you see:** `curl localhost:3000` returns the full document — rendered HTML, the `__rf_payload` script, the hash on the root element — and the client from Step 4 hydrates it unchanged.
+**What you see:** `curl localhost:3000` returns the full document — rendered HTML, the
+`__rf_payload` script, the hash on the root element — and the client from Step 4
+hydrates it unchanged.
 
-That's the everyday surface, end to end. [The model](concepts.md) has the request
-lifecycle diagram, payload policy, hydrate-then-verify, platforms, and error
-projection. Growth pages: [response control](response.md), [head metadata](head.md),
-[streaming](streaming.md).
+## The complete shape
+
+Everything above, as the two halves you ship:
+
+| Half | Surface | You supply |
+|---|---|---|
+| Server | `ssr-ring/ssr-handler` | `:initial-events`, `:root-view`, **`:payload` allowlist** |
+| Client | `ssr/hydrate!` then mount | Same `:frame` as `frame-provider`; `:render-tree-fn` that *calls* the root view |
+
+Hand-rolled lifecycle (Steps 2–3) is still the right mental model when something
+misbehaves — the adapter is that sequence, packaged. Full copy-paste with both
+sides: [The model → A complete loop](concepts.md#a-complete-loop-server--client).
+
+Growth pages when you need them: [response](response.md), [head](head.md),
+[streaming](streaming.md). Vocabulary and mismatch rules:
+[The model](concepts.md).

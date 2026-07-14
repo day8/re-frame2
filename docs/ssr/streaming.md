@@ -1,20 +1,19 @@
 # Streaming: `:rf/suspense-boundary`
 
 You know [plain SSR](concepts.md) — one drain, one HTML string, one payload. This page
-is the advanced slice: **don't make the whole page wait on its slowest region**.
+is one job: **ship a shell on the first byte, then stream slow regions in**.
 
-Ship a usable shell on the first byte (fallbacks where slow regions will be), then
-stream each region in as its data resolves. React 18 / Next.js `loading.js` use
-`<Suspense>`; re-frame2 uses one declarative hiccup marker.
+React 18 / Next.js `loading.js` use `<Suspense>`; re-frame2 uses one hiccup marker.
+Runnable tree:
+[`examples/capabilities/ssr/ssr_streaming/`](../../examples/capabilities/ssr/ssr_streaming).
 
-**Prerequisites.** [The model](concepts.md) and the [Ring adapter](tutorial.md#step-7--swap-in-the-ring-adapter).
-Runnable tree: [`examples/capabilities/ssr/ssr_streaming/`](../../examples/capabilities/ssr/ssr_streaming).
+**Prerequisites.** [The model](concepts.md) and the
+[Ring adapter](tutorial.md#step-7--swap-in-the-ring-adapter).
 
 !!! note "Don't reach for streaming by default"
 
-    A page without independently-slow regions gains nothing over plain `ssr-handler`.
-    A `:rf/suspense-boundary` that hits the non-streaming emitter fails loud rather
-    than rendering a phantom element.
+    No independently-slow regions → plain `ssr-handler` is enough. A
+    `:rf/suspense-boundary` on the non-streaming emitter fails loud.
 
 ## Mark slow regions
 

@@ -1,11 +1,8 @@
 # Head metadata — title, meta, OpenGraph, JSON-LD
 
 You know [server render + hydrate](concepts.md). This page is one job: put
-**`<title>`, `<meta>`, OpenGraph, and JSON-LD`** on the first byte — as data derived
-from app-db, not an imperative DOM API.
-
-Crawlers and link-unfurlers don't run JS. The commitment matches views and subs: the
-**head model is pure data from state**.
+**`<title>`, `<meta>`, OpenGraph, and JSON-LD** on the first byte as pure data from
+app-db — not an imperative DOM API. Crawlers don't run JS.
 
 **Prerequisites.** [The model](concepts.md) and a [route](../routing/concepts.md) that
 can name a head id.

@@ -1,10 +1,10 @@
-# SSR examples
+# Examples
 
-Worked SSR apps in the repo's example tree — each runs end-to-end, not as a sketch.
+Runnable SSR apps in the repo. Build the lifecycle yourself first
+([tutorial](tutorial.md) or [the model](concepts.md)), then open these in order.
 
-- **ssr** — the base example, and the source the [tutorial](tutorial.md) is adapted from: one `.cljc` file where the server hand-rolls the whole request lifecycle (per-request frame, `:rf/server-init` boot, `render-to-string`, the escaped `__rf_payload` script, teardown in a `finally`) and the client hydrates and verifies through `ssr/hydrate!`. Includes a `:platforms #{:client}` effect the server render skips, and ships a hand-authored `index.html` — a frozen snapshot of the server's output — so you can watch hydration happen without standing up a JVM. Start here. [→](../../examples/capabilities/ssr/ssr)
-- **resources_ssr** — server-side preloads a re-frame2 *resource* (an article list) into a request-local frame, drains the blocking fetch before rendering, ships only the allowed resource projection in the hydration payload, and hydrates the client cache so a fresh entry renders immediately with no double-fetch. [→](../../examples/capabilities/ssr/resources_ssr)
-- **ssr_streaming** — the streaming shape: a shell that flushes on the first byte with `:rf/suspense-boundary` fallbacks in place, slow regions streaming in as their data resolves, and the canonical final payload as the correctness lock. [→](../../examples/capabilities/ssr/ssr_streaming)
-
-See [The model](concepts.md) for the SSR and hydration model; [Streaming](streaming.md)
-for the suspense example.
+| Example | What it shows | Read first |
+|---|---|---|
+| [ssr](../../examples/capabilities/ssr/ssr) | Hand-rolled per-request frame, payload script, `hydrate!`, `:platforms #{:client}` skip; ships a frozen `index.html` so you can watch hydration without a JVM | [Tutorial](tutorial.md) |
+| [resources_ssr](../../examples/capabilities/ssr/resources_ssr) | Blocking resource wait before render; allowed cache projection in the payload; no double-fetch on hydrate | [The model](concepts.md), [Resources](../resources/concepts.md) |
+| [ssr_streaming](../../examples/capabilities/ssr/ssr_streaming) | `:rf/suspense-boundary` shell + chunks; canonical final payload as correctness lock | [Streaming](streaming.md) |
