@@ -4,13 +4,22 @@
   roster keys off these ids. Runs on both hosts (injected resolution)."
   (:require [clojure.test :refer [deftest is testing]]
             [re-frame.ui.compiler.analyze :as ana]
-            [re-frame.ui.analyze-accept-cljs-test :refer [mk-env]]))
+            [re-frame.ui.analyze-accept-cljs-test :refer [mk-env mk-self-env]]))
 
 (defn reject-id
   "nil when accepted; the :rf.ui.compile/error id when rejected."
   [form]
   (try
     (ana/analyze (mk-env) form)
+    nil
+    (catch #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo) ex
+      (:rf.ui.compile/error (ex-data ex)))))
+
+(defn reject-id-in
+  "reject-id against a supplied env (for self-head precedence rows)."
+  [e form]
+  (try
+    (ana/analyze e form)
     nil
     (catch #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo) ex
       (:rf.ui.compile/error (ex-data ex)))))
@@ -268,6 +277,22 @@
   ;; a genuine foreign component head still classifies (accepts)
   (is (nil? (reject-id '[ForeignComp {}]))
       "a genuine foreign component head still classifies as :foreign"))
+
+(deftest local-shadow-outranks-self-head
+  ;; rf2-vxgfnd.274 — self precedence is tier 2: a LEXICAL SHADOW of the self
+  ;; spelling (tier 1) still outranks it. In a view `defview`d as `sub`, a local
+  ;; also named `sub` makes the head a dynamic (local) head — never the self
+  ;; view — exactly as the Q5 rule pins (a local-bound head is a compile error,
+  ;; since dynamic component heads are rejected).
+  (let [e (mk-self-env 'sub)]
+    (is (= :rf.ui.compile/dynamic-head
+           (reject-id-in e '(let [sub identity] [sub {}])))
+        "a let-bound local named sub outranks the self view named sub")
+    (is (= :rf.ui.compile/dynamic-head
+           (reject-id-in e '(letfn [(sub [_] nil)] [sub {}])))
+        "a letfn binding named sub shadows self and is a dynamic head too")
+    (is (= :view (:op (ana/analyze e '[sub {}])))
+        "control: without a shadow the same self head IS the internal view")))
 
 (deftest frame-finite-sites
   (is (= :rf.ui.compile/frame-in-loop

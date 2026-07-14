@@ -6,7 +6,8 @@
             [cljs.env :as cljs-env]
             [clojure.test :refer [deftest is testing]]
             [re-frame.ui.compiler.analyze :as analyze]
-            [re-frame.ui.compiler.env :as env]))
+            [re-frame.ui.compiler.env :as env]
+            [re-frame.ui.compiler.root :as root]))
 
 (defmacro user-binder
   [[binding init] then else]
@@ -113,3 +114,117 @@
                       '[{sub :s x sub}]]]
           (is (nil? (compile-error-id #(analyze/reject-reactive-binding! e argv)))
               (pr-str argv)))))))
+
+;; ---------------------------------------------------------------------------
+;; rf2-vxgfnd.274 — self-head precedence + real CLJS authoring-head routing
+;; ---------------------------------------------------------------------------
+;;
+;; The .266 pure-analyzer fixtures inject Q5 resolution, and its real-host proof
+;; (defview_grammar_jvm_test) covers CLJ macroexpansion + fully-qualified
+;; spellings only. Neither exercised production `cljs.analyzer.api/resolve` with
+;; REFERRED / ALIASED spellings, nor the separate CLJS root-entry compiler. This
+;; harness stands up a REAL CLJS analyzer namespace state where cljs.user refers
+;; re-frame.ui/{sub,lease,frame} (and aliases the ns `ui`), so every spelling
+;; resolves through the production resolver — NOT an injected stub — and drives
+;; both the defview route (analyze) and the root-entry route (root/analyze-root).
+
+(defn- with-referred-cljs-env
+  "Populate a real CLJS compiler state where cljs.user REFERS re-frame.ui/sub,
+  lease, frame (+ frame-root/frame-provider) and aliases the ns as `ui`, then
+  call `(f aenv)` with a live analyzer env over that ns. Resolution runs through
+  production `cljs.analyzer.api/resolve` — there is no injected `:resolver`."
+  [f]
+  (binding [cljs-env/*compiler* (cljs-env/default-compiler-env)]
+    (swap! cljs-env/*compiler* update :cljs.analyzer/namespaces merge
+           {'re-frame.ui  {:name 're-frame.ui
+                           :defs {'sub            {:name 're-frame.ui/sub}
+                                  'lease          {:name 're-frame.ui/lease}
+                                  'frame          {:name 're-frame.ui/frame}
+                                  'frame-root     {:name 're-frame.ui/frame-root}
+                                  'frame-provider {:name 're-frame.ui/frame-provider}}}
+            'cljs.user    {:name 'cljs.user
+                           ;; `(:require [re-frame.ui :as ui :refer [...]])`
+                           :requires {'ui 're-frame.ui 're-frame.ui 're-frame.ui}
+                           :uses     {'sub 're-frame.ui 'lease 're-frame.ui
+                                      'frame 're-frame.ui 'frame-root 're-frame.ui
+                                      'frame-provider 're-frame.ui}
+                           :defs {}}})
+    (f (assoc (cljs-api/empty-env)
+              :ns (get-in @cljs-env/*compiler*
+                          [:cljs.analyzer/namespaces 'cljs.user])))))
+
+(defn- referred-env
+  "An analyzer env over the referred cljs.user; `self-sym` (or nil) is the view
+  currently being compiled."
+  [aenv self-sym]
+  (cond-> (env/make-env {:host :cljs :cljs-env aenv :ns-sym 'cljs.user})
+    self-sym (assoc :self self-sym
+                    :self-id (keyword "cljs.user" (name self-sym))
+                    :self-children? false :self-closed-keys nil)))
+
+(deftest real-cljs-referred-verb-resolution-is-genuine
+  ;; Sanity: production cljs.analyzer.api/resolve — not an injected resolver —
+  ;; resolves every referred / aliased / fully-qualified spelling to the
+  ;; re-frame.ui authoring vars. The rows below route through THIS resolution.
+  (with-referred-cljs-env
+    (fn [aenv]
+      (let [base (referred-env aenv nil)]
+        (doseq [[sym fqn] '{sub               re-frame.ui/sub
+                            ui/sub            re-frame.ui/sub
+                            re-frame.ui/sub   re-frame.ui/sub
+                            lease             re-frame.ui/lease
+                            ui/lease          re-frame.ui/lease
+                            frame             re-frame.ui/frame
+                            re-frame.ui/frame re-frame.ui/frame}]
+          (is (= fqn (:fqn (env/resolve-sym base sym))) (str sym)))
+        (is (nil? (env/resolve-sym base 'not-a-thing))
+            "an unresolvable spelling is genuinely unresolved (no stub)")))))
+
+(deftest real-cljs-self-head-outranks-reservation-defview-route
+  ;; rf2-vxgfnd.274 defview route under REAL CLJS resolution. The REFERRED
+  ;; spelling is the self-recursive case (a view named `sub` recursing on a bare
+  ;; [sub …] head) — it classifies as an internal view. The ALIASED and
+  ;; FULLY-QUALIFIED spellings in an UNRELATED view (no :self) stay reserved
+  ;; typed rejects, never foreign components. A local shadow outranks self.
+  (with-referred-cljs-env
+    (fn [aenv]
+      (testing "a referred self head classifies as an internal view"
+        (doseq [verb '[sub lease frame]]
+          (let [e   (referred-env aenv verb)
+                ast (analyze/analyze e [verb {}])]
+            (is (= :view (:op ast)) (str verb))
+            (is (= (keyword "cljs.user" (name verb)) (:view-id ast)) (str verb)))))
+      (testing "aliased / fully-qualified / referred verbs in an unrelated view stay reserved"
+        (let [e (referred-env aenv nil)]
+          (doseq [form '[[ui/sub {}] [re-frame.ui/lease {}] [frame]
+                         [ui/frame {}] [re-frame.ui/sub {}] [lease {}]]]
+            (is (= :rf.ui.compile/unsupported-form
+                   (compile-error-id #(analyze/analyze e form)))
+                (pr-str form)))))
+      (testing "a local shadow of the self spelling is a dynamic head (tier 1 wins)"
+        (let [e (referred-env aenv 'sub)]
+          (is (= :rf.ui.compile/dynamic-head
+                 (compile-error-id #(analyze/analyze e '(let [sub identity] [sub {}])))))))
+      (testing "the reservation stays narrow — a direct (sub …) still indexes one site"
+        (let [e (referred-env aenv 'panel)]
+          (analyze/analyze e '[:div (sub [:q])])
+          (is (= 1 (count (:subs @(:sites e))))
+              "a direct compiler-owned (sub …) call still lowers to a manifest site"))))))
+
+(deftest real-cljs-root-entry-reserves-reactive-verbs
+  ;; rf2-vxgfnd.274 root-entry route. The mount/render!/hydrate-root compiler
+  ;; (root/analyze-root) REUSES analyze/analyze, so the reservation holds at the
+  ;; root too: a public authoring verb head at root can never become a :foreign
+  ;; component. Bypassing the canonical-FQN reservation makes each [verb …] root
+  ;; compile :foreign and fail these rows (the root-compilation mutation
+  ;; fixture); a legal element root is untouched. (Roots carry no :self, so the
+  ;; self-precedence tier never applies here — only the reservation does.)
+  (with-referred-cljs-env
+    (fn [aenv]
+      (doseq [form '[[sub {}] [ui/lease {}] [re-frame.ui/frame] [frame]]]
+        (is (= :rf.ui.compile/unsupported-form
+               (compile-error-id #(root/analyze-root (referred-env aenv nil) 'ui/mount form)))
+            (pr-str form)))
+      (testing "a legal element root still analyzes through the root compiler"
+        (is (= :element
+               (:op (:ast (root/analyze-root (referred-env aenv nil) 'ui/mount '[:div "x"])))))))))

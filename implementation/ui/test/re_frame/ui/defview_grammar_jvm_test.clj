@@ -5,11 +5,13 @@
   these pins hold for the CLJS expansion path too."
   (:require [clojure.string :as str]
             [clojure.test :refer [deftest is testing]]
-            ;; `sub` is referred so a BARE `sub` in a header default resolves to
-            ;; re-frame.ui/sub through REAL CLJ macroexpansion — the rf2-vxgfnd.268
-            ;; ordered-scope proofs need the bare (non-qualified) spelling that the
-            ;; dzyqis flat scope over-accepted.
-            [re-frame.ui :as ui :refer [defview sub]]
+            ;; `sub`/`lease`/`frame` are referred so a BARE spelling resolves to
+            ;; the public reactive authoring var through REAL CLJ macroexpansion.
+            ;; The rf2-vxgfnd.268 ordered-scope proofs need the bare `sub` the
+            ;; dzyqis flat scope over-accepted; the rf2-vxgfnd.274 self-precedence
+            ;; proofs need all three bare spellings so a recursive `defview`
+            ;; named for a verb reproduces the reserved-before-self escape.
+            [re-frame.ui :as ui :refer [defview sub lease frame]]
             [re-frame.ui.compiler :as compiler]
             [re-frame.ui.compiler.build :as build]
             [re-frame.ui.compiler.emit-cljs :as emit-cljs]
@@ -149,6 +151,42 @@
       "sub is still legal as its compiler-owned direct call — only the head is reserved")
   (is (nil? (expand-error '(re-frame.ui/defview v [] [:div (:frame (re-frame.ui/frame))])))
       "a direct (frame) read still expands — only the head form is reserved"))
+
+(deftest self-recursive-defview-named-reactive-verb-compiles-through-real-resolution
+  ;; rf2-vxgfnd.274 — the escape the .266 reservation opened. A `defview` whose
+  ;; OWN name is a referred reactive authoring verb recurses on itself with a
+  ;; bare `[self …]` head. That head resolves (through REAL CLJ macroexpansion,
+  ;; *ns* bound below so the bare spelling is the referred re-frame.ui var) to
+  ;; the public authoring var — so the .266 reservation rejected it BEFORE the
+  ;; Q5 self-recursion rule could select it, even though the view Var may not
+  ;; exist yet. Self precedence (tier 2) now fires ahead of the reservation.
+  ;; Reverting to reserved-before-self re-throws :rf.ui.compile/unsupported-form
+  ;; on the accept rows, so this deftest is the real-host mutation fixture.
+  (binding [*ns* (find-ns 're-frame.ui.defview-grammar-jvm-test)]
+    (testing "a recursive defview named for each reactive verb expands cleanly"
+      (is (nil? (expand-error '(re-frame.ui/defview sub [] [sub {}])))
+          "a view named sub recurses on a bare [sub …] self head")
+      (is (nil? (expand-error '(re-frame.ui/defview lease [] [lease {}])))
+          "a view named lease recurses on a bare [lease …] self head")
+      (is (nil? (expand-error '(re-frame.ui/defview frame [] [frame {}])))
+          "a view named frame recurses on a bare [frame …] self head"))
+    (testing "a local binding of the self spelling still outranks self (tier 1)"
+      (is (= :rf.ui.compile/dynamic-head
+             (expand-error
+              '(re-frame.ui/defview sub [{:keys [sub]}] [sub {}])))
+          "a header slot named sub shadows self — the head is a dynamic head"))
+    (testing "the emitted output carries NO surviving public authoring var"
+      ;; rf2-vxgfnd.274 output proof: the self head lowers to the view's own
+      ;; registered component, never a re-frame.ui/sub reference or a lowered
+      ;; sub-read site — the public authoring function does not reach executable
+      ;; output through the recursive head.
+      (let [text (pr-str (macroexpand-1 '(re-frame.ui/defview sub [] [sub {}])))]
+        (is (not (re-find #"re-frame\.ui/sub" text))
+            "no qualified re-frame.ui/sub survives the self head")
+        (is (not (re-find #"sub-read" text))
+            "the self head is a view element, not a lowered reactive read")
+        (is (re-find #"register-view!" text)
+            "the recursive view still registers as an ordinary internal view")))))
 
 (deftest an-opaque-macro-cannot-inject-an-unmanifested-template-site
   (is (= :rf.ui.compile/unsupported-form
