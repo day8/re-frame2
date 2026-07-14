@@ -465,12 +465,16 @@
         ;; React.memo to the raw body with zero ViewCell hooks.
         has-subs?  (boolean (seq (:subs (:sites manifest))))
         has-leases? (boolean (seq leases))
-        ;; rf2-vxgfnd.228: a `(frame)` site resolves the AMBIENT committed frame
-        ;; (the form takes no arguments — always ambient, never an explicit pin),
-        ;; so a frame-ops-bearing view MUST become a real React frame-context
-        ;; CONSUMER or a provider retarget (A→B) memo-bails the non-consumer
-        ;; child and its held ops stay locked to the old frame. Frame-ops joins
-        ;; subs + leases in the wrapper-selection taxonomy; a view with NONE of
+        ;; rf2-vxgfnd.253 (extending .228): a `(frame)` site resolves the AMBIENT
+        ;; committed frame, and so does EVERY sub target and EVERY lease owner (a
+        ;; sub/lease site implicitly captures the ambient frame/incarnation). So
+        ;; any reactive view MUST become a real React frame-context CONSUMER or a
+        ;; provider retarget (A→B) memo-bails the non-consumer child and its held
+        ;; subs/leases/ops stay locked to the old frame. The sub/lease wrappers
+        ;; therefore consume the context unconditionally — frame-ops presence no
+        ;; longer forks the selection, so there are NO separate `-frame` variants.
+        ;; `render-frame` covers a frame-only view (a `(frame)` site but no
+        ;; sub/lease — a context consumer with no ViewCell); a view with NONE of
         ;; the three stays on the inert direct React.memo path.
         has-frame-ops? (boolean (seq (:frame-ops (:sites manifest))))
         lease-binds (vec
@@ -484,15 +488,9 @@
                      body)
         inner      (if (seq binds) `(let [~@binds] ~rendered) rendered)
         host-render (cond
-                      (and has-subs? has-leases? has-frame-ops?)
-                      're-frame.ui.viewcell/render-subs-and-leases-frame
                       (and has-subs? has-leases?)
                       're-frame.ui.viewcell/render-subs-and-leases
-                      (and has-subs? has-frame-ops?)
-                      're-frame.ui.viewcell/render-subs-frame
-                      has-subs? 're-frame.ui.viewcell/render-subs
-                      (and has-leases? has-frame-ops?)
-                      're-frame.ui.viewcell/render-leases-frame
+                      has-subs?  're-frame.ui.viewcell/render-subs
                       has-leases? 're-frame.ui.viewcell/render-leases
                       has-frame-ops? 're-frame.ui.viewcell/render-frame)
         var-meta   (cond-> {:rf.ui/view true
