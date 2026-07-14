@@ -255,6 +255,23 @@
           "the direct (sub …) is a compiler-owned call head, not an escaping var")
       (is (= [[:n]] (map :query (:subs sites)))))))
 
+(deftest legitimate-or-default-shadow-still-compiles
+  ;; rf2-dzyqis — reject-reactive-binding! now also rejects a BARE reactive
+  ;; authoring var used as a destructuring :or default, but the reject is
+  ;; binding-position-AWARE: a local the pattern itself BINDS (a lexical shadow
+  ;; named sub/lease/frame) is not the reactive var, so it still compiles and
+  ;; mints no reactive site.
+  (testing "a local named sub bound by the pattern is an ordinary shadow (no site)"
+    (let [{:keys [sites]} (ana-full '[:div {:title (let [{:keys [sub]} m] (str sub))}])]
+      (is (empty? (:subs sites))
+          "the destructured local sub is a value, never a reactive read")))
+  (testing "an :or default referencing a same-pattern shadow compiles (no site)"
+    (let [{:keys [sites]} (ana-full '[:div {:title (let [{:keys [sub a] :or {a sub}} m] a)}])]
+      (is (empty? (:subs sites)))))
+  (testing "a literal :or default is untouched (no site)"
+    (let [{:keys [sites]} (ana-full '[:div {:title (let [{:keys [x] :or {x 0}} m] x)}])]
+      (is (empty? (:subs sites))))))
+
 (deftest lexical-site-id-is-portable-stable-and-query-independent
   (let [template-a [:div (located-sub 102 8 [:item/by-id 'id])]
         template-b [:div (located-sub 202 8 [:item/by-id 'id])]

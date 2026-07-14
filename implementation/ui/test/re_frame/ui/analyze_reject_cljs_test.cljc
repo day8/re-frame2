@@ -146,6 +146,43 @@
   (is (nil? (reject-id '[:div {:title '((if p sub inc) [:q])}]))
       "quoted data is inert — never an invocation target"))
 
+(deftest or-default-value-escape
+  ;; rf2-dzyqis — the sibling gap PR #5874 (.252) left open. reject-reactive-
+  ;; binding! catches an executable (sub …)/(lease …)/(frame) embedded in a
+  ;; binding pattern, but a BARE reactive authoring var used as a destructuring
+  ;; :or DEFAULT is a value, not a call. Binding patterns never pass through
+  ;; expression rewriting, so that bare var flows as a VALUE into the host's
+  ;; destructuring default with no compiler-owned render site — the manifest
+  ;; under-declares and the optimized build elides the read. The reject is
+  ;; binding-position-AWARE: every symbol the pattern BINDS is treated as a
+  ;; local, so only a bare var reaching a default from OUTSIDE the pattern is
+  ;; rejected. Removing the :or-default guard silently re-accepts every reject
+  ;; row below, so this deftest is the mutation fixture too.
+  (is (= :rf.ui.compile/unsupported-form
+         (reject-id '[:div {:title (let [{:keys [x] :or {x sub}} m] x)}]))
+      "bare sub as an :or default — the rf2-dzyqis counterexample")
+  (is (= :rf.ui.compile/unsupported-form
+         (reject-id '[:div {:title (let [{:keys [x] :or {x lease}} m] x)}]))
+      "bare lease as an :or default escapes identically")
+  (is (= :rf.ui.compile/unsupported-form
+         (reject-id '[:div {:title (let [{:keys [x] :or {x frame}} m] x)}]))
+      "bare frame as an :or default escapes identically")
+  (is (= :rf.ui.compile/unsupported-form
+         (reject-id '[:div {:title (fn [{:keys [x] :or {x sub}}] x)}]))
+      "a bare sub :or default in an fn destructuring arg escapes identically")
+  (is (= :rf.ui.compile/unsupported-form
+         (reject-id '[:div {:title (let [{:keys [x] :or {x (str sub)}} m] x)}]))
+      "a bare sub flowing through an :or default expression escapes too")
+  ;; The binding-position-aware guard leaves the legal forms alone:
+  (is (nil? (reject-id '[:div {:title (let [{:keys [sub]} m] (str sub))}]))
+      "a local NAMED sub the pattern binds is a legitimate lexical shadow")
+  (is (nil? (reject-id '[:div {:title (let [{:keys [sub a] :or {a sub}} m] a)}]))
+      "an :or default referencing a sub the SAME pattern binds is the shadow")
+  (is (nil? (reject-id '[:div {:title (let [{:keys [x] :or {x 0}} m] x)}]))
+      "an ordinary literal :or default is untouched")
+  (is (nil? (reject-id '[:div {:title (let [{:keys [x] :or {x 'sub}} m] x)}]))
+      "quoted data in an :or default is inert — never a reactive read"))
+
 (deftest frame-finite-sites
   (is (= :rf.ui.compile/frame-in-loop
          (reject-id '(for [x xs] [:li {:key x} (:frame (frame))])))
