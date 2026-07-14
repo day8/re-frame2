@@ -168,16 +168,9 @@ intent (event) → one map (app-db) → named conclusions (subs) → screen (vie
 ```
 
 Many features never need more. The rest of this page is how views stay registered,
-fast, and debuggable.
-
-**Where the rest of the craft lives** (this page does not re-teach them):
-
-| Need | Owner |
-|---|---|
-| HTTP, storage, timers, follow-up events | [Effects](effects.md) (then [async](../async/index.md) for managed HTTP depth) |
-| Clock / storage / ids into handlers | [Coeffects](coeffects.md) |
-| Why `frame-root` works; multi-frame; async callbacks | [Frames](frames.md) |
-| `init!`, hot reload, host listeners end-to-end | [Boot and mount an app](how-to/boot-and-mount-an-app.md) |
+fast, and debuggable. When the app must touch the world, open [Effects](effects.md);
+isolation and carry are [Frames](frames.md); packaging a real entry point is
+[Boot and mount an app](how-to/boot-and-mount-an-app.md).
 
 ## `reg-view`: the project form
 
