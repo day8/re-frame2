@@ -1144,6 +1144,39 @@ attached; nodes created solely by a rolled-back acquisition dispose on their zer
 edge, correctly. A multi-target reconcile-failure fixture at the ViewCell layer is a
 named Stage-2 obligation.
 
+### Body authority under hot reload — the two-point commit fence
+
+Distinct from the value-movement guards (invariant 5, above), a commit also verifies the
+cell's **body authority** — that the body generation the capture was rendered against is
+still current — so an HMR re-registration landing in the render→commit gap can never
+publish a stale body. Authority is **dual** ⟨rf2-vxgfnd.214⟩:
+
+- the cell-local **generation** — bumped on an explicit sync/remount; and
+- the **registered-view-revision** — the authoritative body revision the view registry
+  holds for the view-id, which closes the harder `render(old) → re-registration(new) →
+  layout(old)` window even when the cell has not rendered again. A direct/headless caller
+  with no registered slot falls back to the cell-local half alone (the registry half
+  no-ops).
+
+The capture is rejected as **`:stale`** when either half has advanced past the captured
+generation, checked at **two points**:
+
+1. **Render→commit (step 1).** Commit entry samples the authority once and rejects a
+   stale capture before touching any ownership — the host simply re-renders.
+2. **Final publication boundary.** Step 1 samples *once*, but the staging window between
+   it and publication — the acquire/cache callbacks — can each synchronously advance the
+   authoritative revision (a same-shell re-registration mid-commit). So commit **re-reads**
+   the authority at the narrowest boundary — after all callback-capable work, with nothing
+   callback-capable between it and the publish swap — and refuses to publish a stale
+   capture: it releases **only the newly-staged leases** (reverse acquisition order),
+   leaves the prior committed set, published values, and lifecycle untouched, and returns
+   `:stale`. No revision advances, because the re-registration already notified the shell
+   and a fresh render at the new body is inbound.
+
+The whole fence is **dev/HMR-only**: production mints every cell at body revision 0 and
+never advances it, so both points constant-fold away under `goog.DEBUG=false` — no
+registry lookup on the commit hot path (I-12 production erasure).
+
 ### Callback and reentrancy rules
 
 Spike-validated ⟨S-3 §5, µ⟩:
