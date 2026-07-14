@@ -1,6 +1,6 @@
 # SSR glossary
 
-re-frame2's optional server-side-rendering capability — run your real app on the JVM to ship HTML before JavaScript loads, then hand state to the client to take over. "One app, runs twice." See [SSR](concepts.md).
+re-frame2's optional server-side-rendering capability — run your real app on the JVM to ship HTML before JavaScript loads, then hand state to the client to take over. "One app, runs twice." See [The model](concepts.md).
 
 ### **SSR**
 
@@ -36,7 +36,7 @@ The `:platforms` declaration on an [effect](../core/glossary.md#effect) or [coef
 
 ### **head model**
 
-The data that becomes `<title>`, `<meta>`, OpenGraph, and JSON-LD on the server-rendered page: a pure `(db, route) → head-model` function registered with `reg-head` and named by a route. Derived from app-db like a sub, so it stays current on client-side route changes and rides the same mismatch detector as the body.
+The data that becomes `<title>`, `<meta>`, OpenGraph, and JSON-LD on the server-rendered page: a pure `(db, route) → head-model` function registered with `reg-head` and named by a route. Derived from app-db like a sub, so it stays current on client-side route changes and rides the same mismatch detector as the body. Recipe: [Head metadata](head.md).
 
 ### **error projector**
 
@@ -44,4 +44,4 @@ The pure function that maps a rich internal trace to a sanitized, client-safe `:
 
 ### **suspense boundary**
 
-The streaming marker `:rf/suspense-boundary` — an `:id`, a `:fallback`, a subtree. The server flushes the page shell with fallbacks in place (fast first byte), then streams each boundary's subtree in as its data resolves. One boundary failing keeps its fallback and traces; the rest of the page streams on.
+The streaming marker `:rf/suspense-boundary` — an `:id`, a `:fallback`, a subtree. The server flushes the page shell with fallbacks in place (fast first byte), then streams each boundary's subtree in as its data resolves. One boundary failing keeps its fallback and traces; the rest of the page streams on. Recipe: [Streaming](streaming.md).

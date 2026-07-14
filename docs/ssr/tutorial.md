@@ -12,13 +12,18 @@ Every step below is adapted from the worked example at [`examples/capabilities/s
 
 ## Step 0 — turn SSR on
 
-SSR ships in its own artefact, `day8/re-frame2-ssr`, so an app that never renders server-side carries none of it. (Step 7 adds `day8/re-frame2-ssr-ring`, the Ring host adapter.) Add the dep and require the namespace:
+SSR ships in its own artefact, `day8/re-frame2-ssr`, so an app that never renders
+server-side carries none of it. (Step 7 adds `day8/re-frame2-ssr-ring`, the Ring host
+adapter.) Add the dep and require the namespace:
 
 ```clojure
 (ns app.core
   (:require [re-frame.core :as rf]
             [re-frame.ssr  :as ssr]))   ;; render-to-string, hydrate!, the :rf.server/* fx
 ```
+
+Forget the require and the first `render-to-string` / `reg-head` / related call
+throws `:rf.error/ssr-artefact-missing`.
 
 ## Step 1 — render a view to a string, no server anywhere
 
@@ -271,4 +276,7 @@ One thing is new, and it's the important one: **`:payload` is required, and it's
 
 **What you see:** `curl localhost:3000` returns the full document — rendered HTML, the `__rf_payload` script, the hash on the root element — and the client from Step 4 hydrates it unchanged.
 
-That's the everyday surface, end to end. [Concepts](concepts.md) carries the rest: the request lifecycle in one diagram, response control (`:rf.server/*` — status, headers, cookies, redirects), head metadata for crawlers, what happens when the server throws, and streaming for pages with independently-slow regions.
+That's the everyday surface, end to end. [The model](concepts.md) has the request
+lifecycle diagram, payload policy, hydrate-then-verify, platforms, and error
+projection. Growth pages: [response control](response.md), [head metadata](head.md),
+[streaming](streaming.md).

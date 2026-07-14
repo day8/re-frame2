@@ -300,15 +300,20 @@ nav:
     - "Coming from React Router": routing/coming-from-react-router.md
 
   - SSR:
-    # Tutorial first (build the lifecycle by hand), then the model; the
-    # Next.js translation last, like the other coming-from pages.
+    # Tutorial first, then the model, then production growth pages;
+    # Next.js translation last like other coming-from pages.
     - ssr/index.md
     - "Tutorial: render on the server": ssr/tutorial.md
-    - "Concepts": ssr/concepts.md
-    - "Testing": ssr/testing.md
-    - "Examples": ssr/examples.md
-    - "Glossary": ssr/glossary.md
+    - "The model": ssr/concepts.md
+    - "Growing the server":
+      - "Control the response": ssr/response.md
+      - "Head metadata": ssr/head.md
+      - "Streaming": ssr/streaming.md
+    - "Operating":
+      - "Testing": ssr/testing.md
+      - "Examples": ssr/examples.md
     - "Coming from Next.js": ssr/coming-from-nextjs.md
+    - "Glossary": ssr/glossary.md
 
   - Story:
     # Section label IS the Story welcome page (navigation.indexes, rf2-qgpkm).

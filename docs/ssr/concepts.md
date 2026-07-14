@@ -1,14 +1,24 @@
-# Server-side rendering
+# The model
 
-You want three things from SSR. Real HTML on the wire before any JavaScript loads, so crawlers can read it and the first paint lands fast. A client that **hydrates** — takes over that already-painted HTML and wakes it into the live app, with no flash and no re-fetch. And you want both *without* maintaining a second, server-flavoured copy of your application — which is where most stacks quietly buckle.
+This page is the **SSR model** — why one app runs twice, what one request does end to
+end, the payload allowlist, hydrate-then-verify, platform gating, and error
+projection. Response headers, head metadata, and streaming each have their own page.
 
-re-frame2's answer: run the same [event handlers](../core/glossary.md#event-handler), the same [subscriptions](../core/glossary.md#subscription), and the same [views](../core/glossary.md#view) on the JVM, against a per-request [frame](../core/glossary.md#frame) — one isolated, running instance of your app. The only difference is the output: a string instead of a DOM. **There's one app. It runs twice.**
-
-This page is the model, in the order the ideas depend on each other: why the same code can run on a server at all, what one request does from arrival to teardown, the two halves of the handshake (the server's payload, the client's hydrate), and then the production concerns one at a time — the mismatch detector, platform gating, response control, head metadata, error handling, streaming. If you'd rather *build* it first and read the model after, do the [tutorial](tutorial.md) — it wires everything on this page end to end, by hand.
+To *build* the lifecycle by hand (REPL → frame → payload → hydrate → Ring), use the
+[tutorial](tutorial.md).
 
 ??? info "For JavaScript developers"
 
-    Coming from Next.js or Remix? You keep the capabilities — first-paint HTML, loaders, form actions, React-18-style streaming — and you drop the separate server layer. A "loader" is your ordinary event handlers running in a per-request frame. Streaming is one hiccup marker, not a component API. [Coming from Next.js](coming-from-nextjs.md) is the full translation.
+    Coming from Next.js or Remix? Keep first-paint HTML, loaders, form actions,
+    streaming — drop the separate server layer. A "loader" is ordinary events in a
+    per-request frame. Streaming is one hiccup marker. Full map:
+    [Coming from Next.js](coming-from-nextjs.md).
+
+!!! note "Optional artefact"
+
+    Require `re-frame.ssr` once at boot (Maven `day8/re-frame2-ssr`; Ring adapter
+    `day8/re-frame2-ssr-ring`). Forget the require and the first `render-to-string` /
+    `reg-head` / related call throws `:rf.error/ssr-artefact-missing`.
 
 ## Why the same code runs on a JVM
 
@@ -19,8 +29,6 @@ SSR is hard in most stacks because the app is entangled with the browser: `windo
 - **The render-tree is data.** [Hiccup](../core/glossary.md#hiccup) is nested vectors and maps, and [`render-to-string`](glossary.md#render-to-string) is a pure function from hiccup to an HTML string — no React, no DOM, no JS runtime.
 
 So the question "can this code run on the server?" is answered once, structurally — yes, all of it, because none of it can reach the browser directly. The only genuinely one-sided code is impure work (a `localStorage` write, a focus trap), and that is declared, not branched around — [`:platforms`](#platforms--one-handler-gated-per-runtime), below.
-
-The SSR surface ships as its own artefact (`day8/re-frame2-ssr`, plus `day8/re-frame2-ssr-ring` for the Ring host adapter), so apps that never render server-side carry not one byte of it in their client bundle.
 
 ??? info "For JavaScript developers"
 
@@ -276,81 +284,21 @@ The same gate runs on the *input* side. A [coeffect](../core/glossary.md#coeffec
 
     This is the declarative answer to the `typeof window === 'undefined'` guards scattered through a Next.js codebase. Instead of *branching inside* every component or handler that touches the browser, you tag the *effect* once with the platforms it's allowed on, and the resolver enforces it. There is no `if (isServer)` anywhere in your business logic.
 
-## Controlling the response — `:rf.server/*`
+## Production concerns (elsewhere)
 
-A real response carries a status, headers, cookies, sometimes a redirect. Handlers control all of it with data — these are server-only [effects](../core/glossary.md#effect), so the response logic stays as pure and testable as the rest of the [effect map](../core/glossary.md#effect-map). Each one writes to a per-request accumulator, and the adapter materialises it onto the wire:
+<a id="controlling-the-response--rfserver"></a>
+<a id="head-metadata----opengraph-json-ld"></a>
+<a id="streaming-rfsuspense-boundary"></a>
 
-| fx-id | args | does |
-|---|---|---|
-| `:rf.server/set-status` | `<int>` | set the HTTP status (last write wins; a conflict emits a `:rf.warning/multiple-status-set` trace) |
-| `:rf.server/set-header` | `{:name :value}` | set a header, **replacing** any prior value (case-insensitive name) |
-| `:rf.server/append-header` | `{:name :value}` | **append** another instance — for multi-value headers (`Set-Cookie`, `Vary`) |
-| `:rf.server/set-cookie` | a structured cookie map | the adapter does the wire encoding |
-| `:rf.server/delete-cookie` | `{:name :path}` | expire a cookie (sugar over `set-cookie` with `:max-age 0`) |
-| `:rf.server/redirect` | `{:status :location}` | short-circuit the render with a redirect (`:status` defaults to `302`; use `303` for POST success) |
-| `:rf.server/safe-redirect` | `{:location :relative-only? :allow}` | a validated redirect for user-supplied locations — the open-redirect guard |
+The core model stops at: one request lifecycle, fail-closed payload, hydrate +
+verify, platform gates, and error projection (next). Growth pages:
 
-A few things worth knowing before you reach for these.
-
-**Cookies are structured maps, never hand-built header strings.** You hand the framework the attributes; the adapter does the RFC 6265 wire encoding, which is exactly where raw-string cookie APIs grow quoting bugs:
-
-```clojure
-{:fx [[:rf.server/set-cookie
-       {:name      "session"
-        :value     session-token
-        :max-age   3600
-        :secure    true
-        :http-only true
-        :same-site :lax            ;; one of :strict :lax :none
-        :path      "/"}]]}
-```
-
-**`:rf.server/redirect` truncates the render.** If a redirect fires anywhere in the drain — a setup step, a route handler, a downstream pipeline run — the runtime sets `:redirect`, **skips the HTML render entirely** (no body), and skips the hydration payload (there's no client to hydrate). The host emits a status-and-`Location` response with no body. Last-write-wins on multiple redirects, with a `:rf.warning/multiple-redirects` trace.
-
-!!! warning "Gotcha — header injection fails loud"
-
-    A `\r` or `\n` smuggled into a header value is a response-splitting attack, so the framework does **not** quietly strip it: `:rf.server/set-header` / `:rf.server/append-header` throw `:rf.error/header-invalid-value`, `:rf.server/redirect` throws `:rf.error/redirect-invalid-location` on CRLF/NUL in `:location`, and `:rf.server/set-cookie` CRLF-checks *every* attribute (`:name`, `:value`, `:domain`, `:path`, …) before the adapter serialises the line. Build a cookie from a partner-supplied tenant string and the check has your back. The policy is fail-fast over strip-and-warn — silent normalisation masks the bug and lets the downstream-encoded vector through.
-
-`:rf.server/redirect` **trusts its caller**, which is fine for a location you control.
-
-!!! warning "Use `:rf.server/safe-redirect` for user-supplied locations"
-
-    For a `:location` built from user input (`?next=...`), use `:rf.server/safe-redirect` instead. It runs the gauntlet in order: the URL must parse (`:rf.error/safe-redirect-invalid-url`), `javascript:` / `data:` / `vbscript:` schemes are rejected (`:rf.error/safe-redirect-scheme-rejected`), and `:relative-only? true` or an `:allow ["app.example.com"]` allowlist gates the host (`:rf.error/safe-redirect-host-disallowed`). That's the open-redirect guard — an attacker-controlled `?next=…` cannot bounce a freshly-authed user off-origin to a phishing page.
-
-## Head metadata — `<title>`, `<meta>`, OpenGraph, JSON-LD
-
-Crawlers and link-unfurlers don't run JS, so the head metadata has to land on the first byte. The commitment is the same one views and subs already make: **the head model is data derived from app-db**, not an imperative DOM API. You register a head function and a route names it:
-
-```clojure
-;; reg-head is on the rf/ facade; route-url lives in re-frame.routing.
-(rf/reg-head :head/article
-  {:doc "Article-page head — derives title/meta/og from the article."}
-  (fn [db {:keys [params] :as route}]
-    (let [{:keys [title summary image]} (get-in db [:articles (:id params)])]
-      {:title   (str title " — Example")
-       :meta    [{:name "description" :content summary}
-                 {:property "og:title" :content title}
-                 {:property "og:image" :content image}]
-       :link    [{:rel "canonical" :href (routing/route-url :route/article params)}]
-       :json-ld [{"@context" "https://schema.org"
-                  "@type"    "Article"
-                  "headline" title}]})))
-
-(rf/reg-route :route/article
-  {:path "/articles/:id"
-   :head :head/article})            ;; the route declares which head to use
-```
-
-The head fn has the exact shape and discipline of a [sub](../core/glossary.md#subscription) — `(db, route) → head-model`, pure, with any subs inside it evaluating against the static app-db. A handful of details round it out:
-
-- **Output order is canonical.** The emitter writes the head in a fixed order (`<title>`, then `<meta>`, `<link>`, `<script>`, JSON-LD); `:html-attrs` / `:body-attrs` populate `<html>` / `<body>`.
-- **One head per route, shared by id.** There's no parent/child head composition in v1 — routes that want the same metadata just name the same head id.
-- **No `:head` is fine.** Routes without one get a sensible default: `<title>` from frame metadata, plus `charset` and `viewport`.
-- **It's covered by the mismatch detector, on both sides.** The head rides the same render-tree hash as the body, so a head mismatch surfaces through the same detector you met above. And on the client the head recomputes from the hydrated app-db plus the route slice — so an SPA that changes routes after load keeps its `<title>` and `<meta>` current.
-
-!!! warning "Gotcha — JSON-LD escaping is handled for you"
-
-    String values inlined into a `<script type="application/ld+json">` body have every `<` re-encoded so an attacker-supplied product title can't close the script tag and pivot into HTML. You write data; the emitter applies the position-correct escape at every leaf.
+| Need | Page |
+|---|---|
+| Status, headers, cookies, redirects | [Control the response](response.md) |
+| `<title>` / OpenGraph / JSON-LD | [Head metadata](head.md) |
+| First-byte shell + slow regions | [Streaming](streaming.md) |
+| Prove renders and boot guards | [Testing](testing.md) |
 
 ## When the server throws
 
@@ -385,58 +333,70 @@ The full error story lives in the [error dossier](../core/errors.md).
 
     The Ring handler exposes `:error-view` *and* `:on-error`, and a robust deployment wires both. `:error-view` is the **projected page** for a **5xx** server fault the projector caught (a drain-time exception, a render-time throw) — it takes the sanitised `:rf/public-error` map and renders hiccup (a projected 4xx keeps your own app body instead). `:on-error` is the **transport net** — it fires for a Ring-layer failure the projector can't see (per-request frame setup throw, a header-materialise throw), takes the raw `(request throwable)`, and returns a verbatim Ring response. Both are bug-contained, and `:error-view` is one-way: a buggy `:error-view` — whether it throws OR depends on a reactive sub that recovers to `nil` — falls back once to the default template without re-projecting; a buggy `:on-error` falls back to the locked topology-safe 500 — neither can bypass the error boundary.
 
-## Streaming: `:rf/suspense-boundary`
-
-This is the advanced slice — the direct analogue of React 18 streaming and Next.js's `loading.js`. The idea is the same: don't make the whole page wait on its slowest subscription. Ship a usable shell on the first byte, with skeletons where the slow regions will be, then stream each region in as its data resolves. In React that's a `<Suspense>` boundary with a `fallback`. In re-frame2 it's one declarative hiccup marker. Here's a Conduit article page whose body lands fast but whose comment thread and author-feed sidebar are slow:
-
-```clojure
-;; Adapted from examples/capabilities/ssr/ssr_streaming/core.cljc
-(rf/reg-view ^{:rf/id :article/page} article-page []
-  [:main.article-page
-   [:header [:h1 @(rf/subscribe [:article/title])]]
-   [:div.article-body @(rf/subscribe [:article/body])]
-   [:section.article-extras
-    [:rf/suspense-boundary
-     {:id :region.comments :fallback [:article/comments-skeleton]}
-     [:article/comments]]
-    [:rf/suspense-boundary
-     {:id :region.author-feed :fallback [:article/author-feed-skeleton]}
-     [:article/author-feed]]]])
-```
-
-The streaming walker emits the shell with each `:fallback` in place and flushes it immediately — that's your first byte. Each boundary's subtree then renders and streams in as its own chunk, and that chunk carries a per-subtree app-db delta, so the subscriptions in that region see the right state the moment they land.
-
-Failure isolation comes for free with the boundaries. If one boundary's render throws, *that region* keeps its fallback (with a `:rf.ssr/suspense-boundary-failed` trace) and the rest of the page streams on. A flaky comments service stops being able to 500 your entire page — the blast radius is exactly one boundary.
-
-The wiring mirrors what you've already seen, with streaming counterparts: `stream-handler` (from `re-frame.ssr.ring.streaming`) in place of `ssr-handler`, and an opt-in client install (`ssr/streaming-install!`, same carried `:frame`) that swaps fallbacks for resolved chunks as they arrive.
-
-??? note "Going deeper"
-
-    Each streamed chunk carries a speculative per-subtree app-db delta so the region paints early. The *final* chunk is the canonical full payload, and that's the safety net: if the speculative deltas and the canonical payload ever disagree, the payload wins, every time. You get the latency of streaming with the correctness guarantee of a single authoritative `:rf/hydrate`.
-
-!!! warning "Gotcha — each boundary `:id` must be unique"
-
-    The `:id` is how the client matches a streamed-in chunk to its placeholder, so you pick it (the runtime never autogenerates one) and it must be stable across the render. Reuse the same `:id` on two boundaries and the runtime can't tell them apart on the wire: it emits `:rf.error/suspense-boundary-duplicate-id`, keeps only the last-registered subtree's chunk, and leaves the earlier boundary stuck on its fallback. It's fail-soft (no 500, just a visible trace and one region that never resolves) — but it's a bug worth catching in dev.
-
-!!! note "Don't reach for streaming by default"
-
-    A page without independently-slow regions gains nothing over plain `ssr-handler`. And a `:rf/suspense-boundary` that reaches the non-streaming emitter fails loudly rather than rendering a phantom element.
-
 ## Two patterns, in brief
 
-Two compositions of these primitives are common enough to deserve names. They're conventions over what you already know, not new machinery:
+<a id="two-patterns-in-brief"></a>
 
-- **The SSR loader** — N parallel data fetches before render. A [state machine](../machines/glossary.md#machine) spawned from the frame's `:initial-events` fans out HTTP-fetching children with `:spawn-all`, joins when all complete, and writes the slices — so the wall-clock cost drops from the *sum* of the fetches to the *max*. The same machine drives the fetch on client-side navigation; only the spawn site moves. It's also what a route's [loader](../routing/glossary.md#loader) compiles down to when it runs server-side. (For Next.js readers: this is the `Promise.all` loader.)
-- **The form action** — form POSTs that work before JS loads. The form renders with a real `method="POST"` and `action`, and the server routes that POST to the *same* domain event the client's `:on-submit` dispatches after hydration — one handler tree, both entry points. Validation runs server-side via the event's schema; success answers with `[:rf.server/redirect {:status 303 ...}]`. Where the pattern reads the request, the spelling is the one you saw above: `:rf.cofx/requires [:rf.server/request]` on the registration, the value flat in the coeffects map.
+Two compositions of these primitives are common enough to name. Conventions, not new
+machinery:
+
+- **The SSR loader** — N parallel data fetches before render. A
+  [machine](../machines/glossary.md#machine) from `:initial-events` fans out with
+  `:spawn-all`, joins, writes slices — wall-clock cost is the *max* of the fetches,
+  not the *sum*. The same machine drives client-nav fetch; only the spawn site moves.
+  A route [loader](../routing/glossary.md#loader) compiles to this server-side.
+- **The form action** — form POSTs that work before JS loads. Real `method="POST"` +
+  `action`; the server routes that POST to the *same* event the client's
+  `:on-submit` dispatches. Success often answers with
+  `[:rf.server/redirect {:status 303 …}]` ([response control](response.md)).
 
 ## What you give up
 
-SSR isn't free of rules, and pretending otherwise would just move the surprise downstream. So here are the constraints, plainly:
+SSR isn't free of rules:
 
-- **Views must be deterministic given the state.** A view that reads `(js/Date.)` renders differently on each side. Put time in app-db at init.
-- **Views must have no render-time side effects.** The render-tree is a function of state. Anything else *is* a hydration mismatch waiting for the detector.
-- **Browser-only work waits for hydration.** Focus traps, scroll restoration, observers — these are `:platforms #{:client}` effects, fired after the client takes over. The user can't interact before JS loads anyway.
+- **Views must be deterministic given the state.** `(js/Date.)` / two timezones →
+  [mismatch](#when-the-renders-disagree). Put time in app-db at init.
+- **No render-time side effects.** The tree is a function of state.
+- **Browser-only work waits for hydration.** Focus traps, observers —
+  `:platforms #{:client}` after the client takes over.
 
-Good React developers follow these by instinct. Here they're architecture: enforced by the platform gate and caught by the hash.
+Enforced by the platform gate and caught by the hash.
 
-The API-level surface — every `:rf.server/*` effect with its args schema, the handler constructor options, and the hydration functions — is catalogued in [re-frame.ssr](../api/re-frame.ssr.md) and [re-frame.ssr.ring](../api/re-frame.ssr.ring.md).
+## A complete Ring loop
+
+Copy-paste skeleton — adapter owns create / drain / render / payload / teardown:
+
+```clojure
+(ns app.ssr
+  (:require [re-frame.core :as rf]
+            [re-frame.ssr :as ssr]
+            [re-frame.ssr.ring :as ssr-ring]
+            [re-frame.http.managed]
+            [ring.adapter.jetty :as jetty]))
+
+(rf/reg-event :rf/server-init
+  {:platforms        #{:server}
+   :rf.cofx/requires [:rf.server/request]}
+  (fn [{:keys [db rf.server/request]} _]
+    {:db db
+     :fx [[:dispatch [:rf.route/handle-url-change (:uri request)]]
+          [:rf.http/managed
+           {:request    {:method :get :url "/api/articles"}
+            :decode     :json
+            :on-success [:articles/loaded]}]]}))
+
+(def handler
+  (ssr-ring/ssr-handler
+    {:initial-events [[:rf/server-init]]
+     :root-view      [:app/root]
+     :payload        [:articles :session-user]}))   ;; required allowlist
+
+;; (jetty/run-jetty handler {:port 3000 :join? false})
+```
+
+Client boot (symmetric): `ssr/hydrate!` with the same `:frame` as `frame-provider` —
+see [The client side](#the-client-side-hydrate-then-verify) and
+[tutorial Step 4](tutorial.md#step-4--wake-it-up-hydrate-on-the-client).
+
+API surface: [re-frame.ssr](../api/re-frame.ssr.md),
+[re-frame.ssr.ring](../api/re-frame.ssr.ring.md).
