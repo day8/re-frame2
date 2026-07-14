@@ -267,7 +267,16 @@
   installed adapter's `:make-state-container`. Required contract fn —
   raises `:rf.error/no-adapter-installed` before `(rf/init! ...)` and
   `:rf.error/adapter-disposed` after teardown (per `require-adapter!`).
-  Per Spec 006."
+  Per Spec 006.
+
+  Construction-failure obligation (rf2-vxgfnd.198). A RETURNED physical
+  state container is GC-OWNED: it must not require an explicit per-container
+  teardown verb (there is none — the ten-fn adapter surface exposes no
+  state-container disposal, and the container is reclaimed by GC with the
+  dropped frame record). So `make-state-container` must either THROW BEFORE
+  returning or return a DISPOSAL-FREE value. `new-frame-record` relies on
+  this: when a later partition projection fails, the state container is left
+  to GC and only the disposable projections are unwound in reverse order."
   [initial-value]
   (let [a (require-adapter! 'rf/make-state-container)]
     ((:make-state-container a) initial-value)))
@@ -493,7 +502,19 @@
   adapter's `:make-derived-value`. Required contract fn — raises
   `:rf.error/no-adapter-installed` / `:rf.error/adapter-disposed` when no
   adapter is seated (per `require-adapter!`). Per Spec 006
-  §`make-derived-value`."
+  §`make-derived-value`.
+
+  Failure-atomicity obligations (rf2-vxgfnd.198):
+
+    - INTERNAL failure-atomicity. If `make-derived-value` throws BEFORE it
+      returns, it must have removed any watches / host resources it installed
+      — a caller (`new-frame-record`) that never received the value cannot
+      dispose it, so an un-returned partial allocation must unwind itself.
+    - DISPOSABLE result. Every successfully RETURNED derived value is
+      disposable through the existing `re-frame.interop/dispose!` seam (the
+      same seam that releases it at normal frame teardown). This is what lets
+      a caller reverse-order-dispose earlier projections when a LATER
+      construction step fails, WITHOUT an eleventh adapter function."
   [source-containers compute-fn]
   (let [a (require-adapter! 'rf/make-derived-value)]
     ((:make-derived-value a) source-containers compute-fn)))
