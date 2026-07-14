@@ -9,6 +9,8 @@
 (def ^:private carrier-rid [:cljs "re_frame/ui/digest_carrier.cljs"])
 (def ^:private client-rid [:cljs "re_frame/ui/client.cljs"])
 (def ^:private app-rid [:cljs "app/view.cljs"])
+(def ^:private app-a-rid [:cljs "app/a.cljs"])
+(def ^:private app-b-rid [:cljs "app/b.cljs"])
 
 (defn- shadow-state [build-id js]
   {:shadow.build/build-id build-id
@@ -29,6 +31,31 @@
    :build-modules [{:module-id :base :sources [carrier-rid]}
                    {:module-id :lazy :sources [app-rid]
                     :depends-on #{:base}}]})
+
+(defn- two-source-state
+  "A UI-client build graph with two app sources (app.a, app.b), each declaring a
+  view, plus the digest carrier. `parallel?` toggles Shadow's parallel vs
+  sequential compile-schedule detection (an executor present + parallel build)."
+  [build-id parallel?]
+  (cond-> {:shadow.build/build-id build-id
+           :shadow.build/stage :compile-prepare
+           :compiler-env {}
+           :build-options {:cache-blockers '#{re-frame.ui}}
+           :build-sources [carrier-rid app-a-rid app-b-rid]
+           :sources {carrier-rid {:ns 're-frame.ui.digest-carrier
+                                  :provides #{'re-frame.ui.digest-carrier}
+                                  :type :cljs}
+                     app-a-rid {:ns 'app.a :provides #{'app.a}
+                                :requires '#{re-frame.ui} :type :cljs}
+                     app-b-rid {:ns 'app.b :provides #{'app.b}
+                                :requires '#{re-frame.ui} :type :cljs}}
+           :output {carrier-rid {:resource-id carrier-rid
+                                 :js build-hook/digest-sentinel :cached true}
+                    app-a-rid {:resource-id app-a-rid :js "app.a = {};"}
+                    app-b-rid {:resource-id app-b-rid :js "app.b = {};"}}
+           :build-modules [{:module-id :base
+                            :sources [carrier-rid app-a-rid app-b-rid]}]}
+    parallel? (assoc :executor (Object.))))
 
 (defn- prepare [state]
   (build-hook/hook (assoc state :shadow.build/stage :compile-prepare)))
@@ -183,6 +210,60 @@
         "the rejected candidate remains disposable scratch")
     (is (nil? (get-in compiled [:output carrier-rid]))
         "zero carrier output cannot be mistaken for an accepted publication")))
+
+(deftest later-prepare-hook-forced-recompile-evicts-removed-view
+  ;; rf2-vxgfnd.194: a build-local :compile-prepare hook running AFTER the
+  ;; inherited re-frame.ui hook removes a source's retained output, forcing
+  ;; Shadow to recompile it after re-frame.ui observed the schedule. If that
+  ;; source removed its final ui/defview it contributes nothing, and — pre-fix —
+  ;; its accepted row survived as a ghost view because it was never pre-touched.
+  ;; The :compile-finish reconcile against Shadow's authoritative compiled set
+  ;; (fresh :compiled-at) evicts it. Fails against pre-fix build_hook.clj.
+  (doseq [parallel? [true false]]
+    (testing (str (if parallel? "parallel" "sequential") " compilation")
+      (let [good (-> (two-source-state :ghost parallel?)
+                     prepare
+                     (declare 'app.a :app/a-view ["tfa-1" "hsa-1"])
+                     (declare 'app.b :app/b-view ["tfb-1" "hsb-1"])
+                     finish)]
+        (is (= {:app/a-view ["tfa-1" "hsa-1"] :app/b-view ["tfb-1" "hsb-1"]}
+               (build/accepted-aggregate build/views good))
+            "the accepted build declares both sources' views")
+        ;; Warm pass: app.a + app.b both retain output, so re-frame.ui pre-touches
+        ;; neither. A later prepare hook then removes app.a's output; app.a
+        ;; recompiles this pass (fresh :compiled-at) contributing NO declaration.
+        ;; app.b stays a cache hit (older stamp, no re-declaration).
+        (let [warm-input (-> good
+                             (assoc-in [:output carrier-rid :js]
+                                       build-hook/digest-sentinel)
+                             (assoc-in [:output app-a-rid]
+                                       {:resource-id app-a-rid :js "app.a = {};"
+                                        :cached true})
+                             (assoc-in [:output app-b-rid]
+                                       {:resource-id app-b-rid :js "app.b = {};"
+                                        :cached true}))
+              prepared (prepare warm-input)
+              pass-start (get-in prepared
+                                 [:compiler-env build/scratch-key :pass-start])
+              finished (-> prepared
+                           (assoc-in [:output app-a-rid]
+                                     {:resource-id app-a-rid :js "app.a = {};"
+                                      :compiled-at (inc (long pass-start))
+                                      :cached false})
+                           finish)]
+          (is (not (contains?
+                    (get-in prepared [:compiler-env build/scratch-key :touched])
+                    'app.a))
+              "re-frame.ui does not pre-touch an output-present source at prepare")
+          (is (= {:app/b-view ["tfb-1" "hsb-1"]}
+                 (build/accepted-aggregate build/views finished))
+              "the forced-recompile ghost is evicted; the cache-hit sibling stays")
+          (is (not (contains? (build/accepted-aggregate build/views finished)
+                              :app/a-view))
+              "no ghost view survives the source's zero-declaration recompile")
+          (is (not= (build/accepted-build-digest good)
+                    (build/accepted-build-digest finished))
+              "evicting the ghost changes the accepted whole-build digest"))))))
 
 (deftest interleaved-build-values-carry-isolated-digests
   (let [a (-> (shadow-state :a build-hook/digest-sentinel)

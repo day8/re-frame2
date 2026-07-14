@@ -3,12 +3,22 @@
 
   Shadow's retained functional build-state is the successful-build authority.
   `:compile-prepare` seeds disposable compiler-env scratch from the incoming
-  accepted snapshot, captures authoritative namespace membership, and
-  pre-touches exactly the CLJS sources Shadow scheduled to compile. That last
-  step makes removing a source's final declaration observable even though no
-  registry macro then runs, while output-present cache hits remain accepted.
-  Macro contributions write only that scratch. `:compile-finish`:
+  accepted snapshot, captures authoritative namespace membership, pre-touches
+  exactly the CLJS sources Shadow scheduled to compile, and records the pass
+  start time. That pre-touch makes removing a source's final declaration
+  observable even though no registry macro then runs, while output-present cache
+  hits remain accepted. Macro contributions write only that scratch.
+  `:compile-finish`:
 
+  0. reconcile against Shadow's FINAL authoritative compile schedule — every
+     CLJS source actually compiled THIS pass (a fresh `:compiled-at` in its
+     output, no earlier than the recorded pass start) is pre-touched too. A
+     later `:compile-prepare` hook (Shadow deep-merges build-local hooks after
+     `:build-defaults` and lets them mutate build state) can force a source to
+     recompile AFTER re-frame.ui observed the schedule; observing the compiled
+     set at finish, not the intermediate prepare snapshot, closes that
+     hook-order gap so a forced recompile that removed a source's final
+     `ui/defview` evicts its accepted row instead of leaving a ghost view;
   1. derive the candidate finalized slice (commit staged sources, evict sources
      absent from authoritative membership) and its whole-build digest;
   2. purely validate and project that digest into exactly one compiled
@@ -85,6 +95,57 @@
            acc)))
      #{}
      build-sources)))
+
+(defn- actually-recompiled-member-nss
+  "Declaring namespaces of every CLJS source Shadow ACTUALLY (re)compiled in
+  THIS pass, read from the FINAL build-state at `:compile-finish` — after every
+  schedule-mutating `:compile-prepare` hook and after compilation ran. Shadow
+  stamps a fresh `:compiled-at` on a source it compiles this pass
+  (`shadow.build.compiler` sets it to the compile wall-clock); a cache-loaded or
+  cross-pass-retained output keeps an OLDER stamp. Comparing that stamp against
+  `pass-start` (captured when re-frame.ui opened the pass, before any
+  compilation) therefore identifies Shadow's authoritative final compile
+  schedule — immune to the build-local hook merge order re-frame.ui cannot
+  control, and immune to the stale `:cached` marker a retained output carries
+  across passes. Returns the empty set when no pass start was recorded (a
+  non-Shadow/plain-JVM finish), leaving the prepare-time pre-touch as the sole
+  reconciler."
+  [{:keys [build-sources sources output]} pass-start]
+  (if-not (number? pass-start)
+    #{}
+    (let [pass-start (long pass-start)]
+      (reduce
+       (fn [acc resource-id]
+         (let [{:keys [type ns provides]} (get sources resource-id)
+               compiled-at (:compiled-at (get output resource-id))]
+           (if (and (= :cljs type)
+                    (number? compiled-at)
+                    (>= (long compiled-at) pass-start))
+             (into acc (or provides (when ns #{ns})))
+             acc)))
+       #{}
+       build-sources))))
+
+(defn- reconcile-final-schedule
+  "Before deriving the finish candidate, pre-touch every source Shadow actually
+  recompiled this pass but which re-frame.ui did NOT pre-touch at
+  `:compile-prepare` — a source a later prepare hook forced to recompile after
+  re-frame.ui observed the schedule. Pre-touching evicts the accepted row of a
+  source whose successful recompile contributed no re-frame.ui declaration (its
+  final `ui/defview` was removed), closing the ghost-view gap of CLOSED
+  rf2-n7ff9f; a recompiled source that DID re-declare is already touched+staged,
+  so the union is idempotent, and a warm cache hit (no fresh `:compiled-at`)
+  keeps its accepted row. Pure build-state transform."
+  [build-state]
+  (let [pass-start (get-in build-state
+                           [:compiler-env build/scratch-key :pass-start])
+        extra      (actually-recompiled-member-nss build-state pass-start)]
+    (if (and (seq extra)
+             (get-in build-state [:compiler-env build/scratch-key]))
+      (update-in build-state
+                 [:compiler-env build/scratch-key :touched]
+                 (fnil into #{}) extra)
+      build-state)))
 
 (defn- marker-count [^String s ^String marker]
   (loop [from 0 n 0]
@@ -210,15 +271,23 @@
     (do
       (validate-ui-cache-blocker! build-state)
       (let [build-state (reset-cold-ui-consumer-output build-state)]
-        (build/prepare-shadow-build build-state
-                                    build-id
-                                    (member-nss build-state)
-                                    (recompiled-member-nss build-state))))
+        ;; Record the pass start BEFORE any compilation so `:compile-finish` can
+        ;; identify the sources Shadow actually recompiled this pass (fresh
+        ;; `:compiled-at`) — the final authoritative schedule, robust to a later
+        ;; prepare hook mutating it (rf2-vxgfnd.194).
+        (-> (build/prepare-shadow-build build-state
+                                        build-id
+                                        (member-nss build-state)
+                                        (recompiled-member-nss build-state))
+            (assoc-in [:compiler-env build/scratch-key :pass-start]
+                      (System/currentTimeMillis)))))
 
     :compile-finish
-    ;; Projection and candidate carriage are pure build-state transforms. A
-    ;; later Shadow failure discards the returned state transactionally.
-    (let [candidate (build/shadow-finish-candidate
+    ;; Reconcile against Shadow's final compile schedule, then project. All are
+    ;; pure build-state transforms; a later Shadow failure discards the returned
+    ;; state transactionally.
+    (let [build-state (reconcile-final-schedule build-state)
+          candidate (build/shadow-finish-candidate
                      build-state build-id (member-nss build-state))
           projected (if (ui-client-build? build-state)
                       (project-build-digest build-state (:digest candidate))
