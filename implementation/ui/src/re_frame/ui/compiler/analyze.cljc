@@ -579,11 +579,28 @@
                               {:form f :macro head})
 
                    :else
+                   ;; A generic invocation. Clojure evaluates the CALLEE before
+                   ;; its arguments, so the callee position is an ordinary
+                   ;; evaluated expression that can host a reactive site:
+                   ;;
+                   ;;   ((if (sub [:op]) inc dec) 1)   ; sub in a computed callee
+                   ;;
+                   ;; A simple symbol/keyword head is not itself an evaluated
+                   ;; expression (a plain fn/special-form name, a keyword lookup
+                   ;; op) and cannot contain a nested site — preserve it verbatim.
+                   ;; A COMPUTED callee (seq/vector/map/set) IS evaluated, so
+                   ;; rewrite it under a stable `:callee` token — BEFORE the
+                   ;; arguments, matching evaluation order — so a visible `(sub …)`
+                   ;; there lowers to its indexed site (or an immediately-invoked
+                   ;; fn / opaque-macro callee is rejected didactically by the
+                   ;; binder/deferred/macro rules `rw` already applies). It must
+                   ;; never survive as a public `ui/sub` with an empty manifest.
                    (with-same-meta
                      f
-                     ;; The call head is not an evaluated argument and cannot
-                     ;; itself contain a reactive site. Preserve it verbatim.
-                     (apply list head
+                     (apply list
+                            (if (or (symbol? head) (keyword? head))
+                              head
+                              (rw head locals (conj p :callee)))
                             (map-indexed #(rw %2 locals (conj p (inc %1)))
                                          (rest f))))))
 

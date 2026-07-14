@@ -81,6 +81,15 @@
   (is (= :rf.ui.compile/unsupported-form
          (reject-id '[:div {:title (-> [:q] sub)}]))
       "a macro cannot turn a bare resolved sub reference into an unindexed call")
+  ;; rf2-vxgfnd.217 — a COMPUTED callee is an evaluated position, so it is
+  ;; analyzed under the same rules; a callee that cannot own a finite site is
+  ;; rejected didactically rather than silently swallowing an invisible read.
+  (is (= :rf.ui.compile/sub-in-loop
+         (reject-id '[:div {:title ((fn [_] (sub [:q])) 1)}]))
+      "an immediately-invoked fn callee with a reactive body is a deferred site")
+  (is (= :rf.ui.compile/unsupported-form
+         (reject-id '[:div {:title ((-> [:q] sub) 1)}]))
+      "a bare sub reference under a macro in the callee position fails loudly too")
   (is (= :rf.ui.compile/unsupported-form
          (reject-id '(let [{:keys [x] :or {x (sub [:q])}} value] [:div x]))))
   (is (= :rf.ui.compile/unsupported-form

@@ -198,6 +198,43 @@
     (is (= 2 (count (:subs sites))))
     (is (= [[:title]] (map :query (take 1 (:subs sites)))))))
 
+(deftest computed-callee-subs-index-into-the-manifest
+  ;; rf2-vxgfnd.217 — Clojure evaluates a COMPUTED callee before its arguments,
+  ;; so the function/callee position is an ordinary evaluated expression that can
+  ;; host a finite render-time (sub …). It must be rewritten + indexed under a
+  ;; stable :callee token, never preserved verbatim with an empty manifest (which
+  ;; leaves a public ui/sub as an unlowered call at runtime).
+  (testing "an (if …) computed callee with one sub → exactly one indexed site"
+    (let [{:keys [sites]} (ana-full '[:div {:title ((if (sub [:op]) inc dec) 1)}])
+          site (first (:subs sites))]
+      (is (= 1 (count (:subs sites))))
+      (is (= [:op] (:query site)))
+      (is (some? (:sid site)) "the site carries a deterministic compiler-owned sid")
+      (is (some #{:callee} (:expr-path site))
+          "the site is credited to the callee position, not an argument")))
+  (testing "a str-wrapped computed callee in a child expression indexes too"
+    (let [{:keys [sites]} (ana-full '[:p (str ((if (sub [:operation]) inc dec) 1))])]
+      (is (= 1 (count (:subs sites))))
+      (is (= [[:operation]] (map :query (:subs sites))))))
+  (testing "computed vector / map / set callee expressions index their visible subs"
+    (is (= 1 (count (:subs (:sites (ana-full '[:div {:title ([(sub [:a]) dec] 0)}]))))))
+    (is (= 1 (count (:subs (:sites (ana-full '[:div {:title ({(sub [:k]) :v} :x)}]))))))
+    (is (= 1 (count (:subs (:sites (ana-full '[:div {:title (#{(sub [:s])} 1)}])))))))
+  (testing "the callee-site sid is host-portable (CLJ == CLJS) and finite"
+    (let [tmpl  '[:div {:title ((if (sub [:op]) inc dec) 1)}]
+          clj   (analyze-site-fixture :clj  {:line 10 :column 1} tmpl)
+          cljs  (analyze-site-fixture :cljs {:line 10 :column 1} tmpl)
+          sid   #(get-in % [:sites :subs 0 :sid])]
+      (is (= 1 (count (get-in clj [:sites :subs]))))
+      (is (= (sid clj) (sid cljs))
+          "host is not part of the callee site's lexical identity")))
+  (testing "a plain symbol head keeps its ordinary (non-callee) argument paths"
+    (let [{:keys [sites]} (ana-full '[:div {:title (str (sub [:s]))}])
+          site (first (:subs sites))]
+      (is (= 1 (count (:subs sites))))
+      (is (not (some #{:callee} (:expr-path site)))
+          "a symbol head is preserved verbatim — no :callee token is minted"))))
+
 (deftest lexical-site-id-is-portable-stable-and-query-independent
   (let [template-a [:div (located-sub 102 8 [:item/by-id 'id])]
         template-b [:div (located-sub 202 8 [:item/by-id 'id])]

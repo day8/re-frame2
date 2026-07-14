@@ -191,9 +191,16 @@ expression grammar is therefore **closed**:
   indexed site. A **bare** `sub`/`lease` **reference** below one is rejected: a
   threading step such as `(-> query sub)` would become an unindexed reactive call only
   after expansion, so the explicit `(sub query)` call is required.
-- **Ordinary function calls** — any function. The call head is not an evaluated
-  argument and cannot itself contain a reactive site, so it is preserved verbatim and
-  the arguments are analyzed. Helpers stay helpers: pass reactive **values** in.
+- **Ordinary function calls** — any function. A **simple** symbol/keyword head (a
+  plain fn/special-form name, a keyword lookup op) is not itself an evaluated
+  expression, so it is preserved verbatim and the arguments are analyzed. A
+  **computed callee** — a seq/vector/map/set in head position, e.g.
+  `((if (sub [:op]) inc dec) 1)` — IS evaluated (Clojure evaluates the callee before
+  its arguments), so it is analyzed under the same rules **before** the arguments: a
+  visible `(sub …)` there lowers to its indexed site, and an immediately-invoked-fn /
+  opaque-macro callee that could hide a read is rejected didactically. A visible
+  reactive site is never dropped from the manifest. Helpers stay helpers: pass
+  reactive **values** in.
 - **Every other macro is rejected at compile time** — `:rf.ui.compile/unsupported-form`,
   didactically: *macro X is outside the compiler's audited expression set and could
   inject, duplicate, or defer a reactive call after lexical site analysis; rewrite it
