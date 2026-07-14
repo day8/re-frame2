@@ -265,6 +265,46 @@ const ARTEFACTS = [
     expectedAllowListHits: 0,
   },
 
+  // Resources runtime (rf2-sh0sp4 — the `day8/re-frame2-resources`
+  // artefact, Spec 016). A separately published, browser-reachable OPTIONAL
+  // per-feature runtime (`.github/scripts/verify-version-lockstep.sh` ships it
+  // in the release inventory); `re-frame.core` MUST NOT `:require` it — the
+  // resources.cljc header (§Optionality + bundle isolation) pins that, and the
+  // public surface late-binds through the hook table so an app that omits the
+  // artefact sees a clean `:rf.error/resources-artefact-missing`. Counter
+  // imports zero resource symbols, so the whole `re-frame.resources.*` tree
+  // must DCE from its production bundle. A non-zero internal-sentinel hit means
+  // the resources runtime got dragged in (most likely a stray `:require
+  // [re-frame.resources]` in a core/* ns, or a production-reachable path
+  // reaching a resources sibling). The `resources-tooling` entry below is a
+  // SEPARATE, JVM-only tooling sibling (its CLJS require is `#?@(:clj ...)`-
+  // gated) — its sentinel is a planted `do-not-rename` marker, NOT a runtime
+  // literal, so a CLJS runtime leak surfaces THESE error-ids but need not carry
+  // the tooling sentinel. The two entries guard different bodies and cannot
+  // satisfy each other.
+  //
+  // Sentinels are `ex-info` reason-id keywords thrown UNCONDITIONALLY from the
+  // registration validators (`reg-resource` / `reg-mutation`) — the same
+  // proven shape as the schemas / machines / http error-ids the `login`
+  // on-bundle already validates present. They are keyword literals emitted from
+  // function bodies on the boot path (every resources app registers resources +
+  // mutations), so they survive `:advanced` (string literals are not renamed)
+  // and are NOT gated by `interop/debug-enabled?`. Both are unique to the
+  // resources artefact's own src tree (verified repo-wide).
+  {
+    name: 'resources',
+    internalSentinels: [
+      // registry.cljc — `reg-resource` spec validator ex-info reason.
+      { source: 're-frame.resources.registry reg-resource (resource-bad-spec)',
+        sentinel: 'rf.error/resource-bad-spec' },
+      // mutation_registry.cljc — `reg-mutation` spec validator ex-info reason.
+      { source: 're-frame.resources.mutation-registry reg-mutation (mutation-bad-spec)',
+        sentinel: 'rf.error/mutation-bad-spec' },
+    ],
+    consumerAllowList: null,
+    expectedAllowListHits: 0,
+  },
+
   // re-frame.trace.tooling (rf2-qwm0a — dev-tooling buffer + listener
   // surface split off from re-frame.trace for production DCE). The
   // counter example never `:require`s `re-frame.trace.tooling`
@@ -747,6 +787,14 @@ const POSITIVE_CONTROL = {
   machines: { onBundle: 'login' },
   http:     { onBundle: 'login' },
 
+  // On-bundle (rf2-sh0sp4): realworld-resources `:require`s re-frame.resources
+  // and registers 20 resources + 11 mutations, so its `:advanced` release
+  // carries both registration-validator reason-ids. The strongest control
+  // (a real same-options production bundle), matching the schemas/machines/http
+  // login template — it proves the sentinels are live literals that survive
+  // `:advanced`, not just source text.
+  resources: { onBundle: 'realworld-resources' },
+
   // Scoped source-presence: no on-bundle in this job's build set.
   routing:  { srcRoots: ['routing/src'] },
   flows:    { srcRoots: ['flows/src'] },
@@ -935,6 +983,74 @@ function assertPositiveControlComplete() {
   return { missing, extra, ok: missing.length === 0 && extra.length === 0 };
 }
 
+// ----- canonical publishable-artefact coverage (rf2-sh0sp4) ------------------
+
+// assertPositiveControlComplete only cross-checks this script's own two local
+// tables (ARTEFACTS <-> POSITIVE_CONTROL): an artefact absent from BOTH is
+// defined away, not detected. That is exactly how the resources runtime slipped
+// the gate — a separately published, browser-reachable optional runtime omitted
+// from every internal table stayed green. This check closes that hole by
+// deriving the REQUIRED set from the SAME canonical authority the release
+// lockstep uses (.github/scripts/verify-version-lockstep.sh): every
+// implementation/*/deps.edn carrying a `:clein/build` alias is a published
+// artefact. The browser-optional runtimes among them MUST each carry a primary
+// isolation entry here. It is filesystem-derived, so adding a new browser-
+// optional artefact (a new implementation/<name>/deps.edn with :clein/build,
+// not in the exclusion set below) without an ARTEFACTS entry fails
+// automatically — the check does NOT compare two copies of its own local table.
+//
+// Excluded (published, but NOT a browser-optional runtime — each with reason):
+//   core     — always present (the lockstep root; every app loads it, so it is
+//              never isolated from the counter bundle).
+//   ui       — always present (the compiled-view substrate; every adapter loads
+//              it, so it is never isolated from the counter bundle).
+//   ssr-ring — JVM-only ring server adapter (all .clj; no CLJS runtime body can
+//              reach a production client bundle).
+// Substrate adapters (implementation/adapters/*) are always present with their
+// substrate and live one directory deeper, so the top-level scan skips them.
+const NON_BROWSER_OPTIONAL = new Set(['core', 'ui', 'ssr-ring']);
+
+// Strip deps.edn line comments (`;` to EOL) so a header comment MENTIONING
+// `:clein/build` (several artefact deps.edn headers do) is not mistaken for a
+// real build alias.
+function stripEdnComments(edn) {
+  return edn.replace(/;[^\n]*/g, '');
+}
+
+function canonicalBrowserOptionalArtefacts() {
+  const out = [];
+  let entries;
+  try {
+    entries = fs.readdirSync(ROOT, { withFileTypes: true });
+  } catch (_e) {
+    return out; // implementation/ unreadable — nothing to require (fails safe elsewhere)
+  }
+  for (const ent of entries) {
+    if (!ent.isDirectory() || NON_BROWSER_OPTIONAL.has(ent.name)) continue;
+    let deps;
+    try {
+      deps = fs.readFileSync(path.join(ROOT, ent.name, 'deps.edn'), 'utf8');
+    } catch (_e) {
+      continue; // no deps.edn — not a publishable artefact directory
+    }
+    if (/:clein\/build/.test(stripEdnComments(deps))) {
+      out.push(ent.name);
+    }
+  }
+  return out;
+}
+
+// Every browser-optional publishable runtime must carry a primary ARTEFACTS
+// entry. A member of the canonical inventory with no isolation entry means a
+// separately published optional runtime could leak into a production bundle
+// with nothing to catch it.
+function assertCanonicalInventoryCovered() {
+  const required = canonicalBrowserOptionalArtefacts();
+  const have = new Set(ARTEFACTS.map((a) => a.name));
+  const missing = required.filter((n) => !have.has(n));
+  return { required, missing, ok: missing.length === 0 };
+}
+
 // ----- main ------------------------------------------------------------------
 
 function main() {
@@ -968,9 +1084,14 @@ function main() {
   // Completeness (rf2-e6qmxk): every artefact must declare a positive control.
   const completeness = assertPositiveControlComplete();
 
+  // Canonical coverage (rf2-sh0sp4): every browser-optional publishable runtime
+  // (deps.edn `:clein/build` authority) must carry a primary isolation entry,
+  // so an artefact omitted from every internal table cannot be defined away.
+  const coverage = assertCanonicalInventoryCovered();
+
   const ctx = makePositiveContext();
 
-  let allOk = completeness.ok;
+  let allOk = completeness.ok && coverage.ok;
   const failures = [];
   const positiveFailures = [];
   const gaps = [];
@@ -1011,6 +1132,7 @@ function main() {
         `${positiveChecked} positive-control sentinels present ` +
         `(${gaps.length} documented gap${gaps.length === 1 ? '' : 's'}: ` +
         `${gaps.map((g) => g.name).join(', ') || 'none'}); ` +
+        `${coverage.required.length} canonical browser-optional runtimes covered; ` +
         `bundle=${bundleDir} (${blob.length} chars)`
     );
     process.exit(0);
@@ -1050,6 +1172,17 @@ function main() {
         console.error(`  POSITIVE_CONTROL entries with no matching artefact: ${completeness.extra.join(', ')}`);
         console.error('  Remove the stale entry or restore the artefact it named.');
       }
+      console.error('');
+    }
+    if (!coverage.ok) {
+      console.error('Canonical inventory coverage (rf2-sh0sp4):');
+      console.error(`  Browser-optional publishable runtime(s) with NO isolation entry: ${coverage.missing.join(', ')}`);
+      console.error('  Each is a separately published day8/re-frame2-<name> artefact');
+      console.error('  (implementation/<name>/deps.edn carries :clein/build) with a CLJS');
+      console.error('  runtime that could leak into a production bundle unguarded. Add a');
+      console.error('  primary ARTEFACTS entry with live runtime sentinels + a positive');
+      console.error('  control. If it is genuinely not a browser-optional runtime (always-');
+      console.error('  present or JVM-only), add it to NON_BROWSER_OPTIONAL with a reason.');
       console.error('');
     }
     if (positiveFailures.length) {
