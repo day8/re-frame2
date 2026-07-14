@@ -348,22 +348,27 @@
   The effective `:identifier-prefix` rides the entry so a later claim can
   assert prefix uniqueness and release frees it by dissoc (rf2-ez3fqk).
 
-  MINTS the root's per-mount INCARNATION here (rf2-vxgfnd.85/.92) — a fresh
-  opaque token that scopes every ViewCell under this Root (provided via the
-  root-incarnation React context at render) and drives the incarnation-aware
-  root teardown reap at `unmount!*`. Stable for the Root's lifetime (registration
-  runs once per Root); a re-mount under the same root-id after `unmount!` mints a
-  DISTINCT incarnation, so a stale teardown can never reap the replacement's
-  cells."
-  [{:keys [root-id provenance site descriptor identifier-prefix]} container root]
-  (swap! live-roots assoc root-id {:root root
-                                   :container container
-                                   :provenance provenance
-                                   :identifier-prefix identifier-prefix
-                                   :site site
-                                   :descriptor descriptor
-                                   :root-incarnation (reactive/make-root-incarnation)})
-  nil)
+  Takes the root's per-mount INCARNATION (rf2-vxgfnd.85/.92) — a fresh opaque
+  token. The 4-arity form receives one minted by the caller BEFORE `createRoot`
+  (rf2-vxgfnd.264, so the root's `onUncaughtError` wrapper can close over the EXACT
+  incarnation it settles); the 3-arity form mints one internally (the low-level
+  test/tool seam that installs no host error wrapper). It scopes every ViewCell
+  under this Root (provided via the root-incarnation React context at render) and
+  drives the incarnation-aware root teardown reap at `unmount!*`. Stable for the
+  Root's lifetime (registration runs once per Root); a re-mount under the same
+  root-id after `unmount!` mints a DISTINCT incarnation, so a stale teardown can
+  never reap the replacement's cells."
+  ([info container root]
+   (register-live-root! info container root (reactive/make-root-incarnation)))
+  ([{:keys [root-id provenance site descriptor identifier-prefix]} container root incarnation]
+   (swap! live-roots assoc root-id {:root root
+                                    :container container
+                                    :provenance provenance
+                                    :identifier-prefix identifier-prefix
+                                    :site site
+                                    :descriptor descriptor
+                                    :root-incarnation incarnation})
+   nil))
 
 (defn- root-incarnation-of
   "The per-mount root incarnation minted for live root `root-id` at
@@ -382,6 +387,112 @@
            (if (identical? (:root (get m root-id)) root)
              (dissoc m root-id)
              m)))
+  nil)
+
+;; ---------------------------------------------------------------------------
+;; The pending render-attempt owner — terminal receipt settlement on React
+;; abort / abandonment (rf2-vxgfnd.264)
+;; ---------------------------------------------------------------------------
+;;
+;; The `root-commit-reporter` (rf2-vxgfnd.248) finalizes a preflight receipt from
+;; a layout effect only after React COMMITS the render. But it provides no owner
+;; for a receipt when React FAILS or ABANDONS the render before that reporter
+;; mounts: a descendant throw AFTER `.render` returns goes to root
+;; `onUncaughtError` (the commit is aborted; the reporter's layout effect never
+;; runs), a fresh async render followed by an immediate unmount never commits, and
+;; a superseding render leaves the old attempt provisional. Left alone, each such
+;; receipt lingers forever — neither committed nor terminally failed.
+;;
+;; The fix gives each live Root entry ONE exact pending render-attempt owner — the
+;; seated `receipt`, keyed to the root `:root-incarnation`. It is seated BEFORE
+;; `.render`; the exact reporter commit finalizes and clears it; a host error
+;; (`onUncaughtError`), an explicit supersession (a later `.render` seating a new
+;; attempt), and unmount TERMINALLY settle (abort) that exact pending receipt. The
+;; frames-layer `abort-preflight-attempt!`/`finalize-preflight-attempt!` stay
+;; REV-GUARDED, so a stale/late/cross-root/reincarnation signal can never settle a
+;; newer attempt. Suspense stays pending until a real terminal edge (commit,
+;; supersession, unmount, or host failure). No global flushSync, no second
+;; coordinator, no public API.
+
+(defn- seat-pending-attempt!
+  "Seat `receipt` (this render attempt's preflight evidence — possibly nil for a
+  no-plan render) as root `root-id`'s single pending render-attempt owner, keyed
+  to `incarnation`. A prior UNCOMMITTED attempt is a SUPERSESSION: its receipt is
+  aborted (only the OLD receipt — the new attempt proceeds to commit). Seated
+  BEFORE `.render`, and identity-guarded to the live incarnation, so a same-id
+  reincarnation's entry is never seated by a stale caller. Returns nil."
+  [root-id receipt incarnation]
+  (let [superseded (volatile! nil)]
+    (swap! live-roots
+           (fn [m]
+             (let [entry (get m root-id)]
+               (if (and entry (identical? (:root-incarnation entry) incarnation))
+                 (do (vreset! superseded (:pending-attempt entry))
+                     (assoc m root-id (assoc entry :pending-attempt receipt)))
+                 m))))
+    (when-some [old @superseded]
+      (frames/abort-preflight-attempt! old)))
+  nil)
+
+(defn- settle-committed-attempt!
+  "The reporter's HOST-COMMIT edge (rf2-vxgfnd.248/.264): finalize `receipt`
+  (mark its records `:committed`) and clear it from root `root-id`'s pending slot,
+  BOTH identity-guarded to the exact `receipt` + `incarnation` so a stale/late
+  reporter, a same-id reincarnation, or a cross-root control can never clear (or
+  finalize past) a newer attempt. Returns nil."
+  [root-id receipt incarnation]
+  (frames/finalize-preflight-attempt! receipt)
+  (swap! live-roots
+         (fn [m]
+           (let [entry (get m root-id)]
+             (if (and entry
+                      (identical? (:root-incarnation entry) incarnation)
+                      (identical? (:pending-attempt entry) receipt))
+               (assoc m root-id (dissoc entry :pending-attempt))
+               m))))
+  nil)
+
+(defn- abort-pending-attempt!
+  "The host-error / unmount edge (rf2-vxgfnd.264): TERMINALLY settle root
+  `root-id`'s currently-seated pending render attempt as FAILED (`:fresh` writes →
+  `:mount-incomplete`, `:live`/committed refreshes → `:preflight-attempt-failed`)
+  and clear it. Identity-guarded to `incarnation` (a same-id reincarnation's entry
+  is a distinct incarnation, left untouched); the frames abort is rev-guarded, so
+  a stale receipt never clobbers an overtaking write. No-op when nothing is
+  seated (a committed attempt already cleared its slot). Returns nil."
+  [root-id incarnation]
+  (let [pending (volatile! nil)]
+    (swap! live-roots
+           (fn [m]
+             (let [entry (get m root-id)]
+               (if (and entry
+                        (identical? (:root-incarnation entry) incarnation)
+                        (some? (:pending-attempt entry)))
+                 (do (vreset! pending (:pending-attempt entry))
+                     (assoc m root-id (dissoc entry :pending-attempt)))
+                 m))))
+    (when-some [r @pending]
+      (frames/abort-preflight-attempt! r)))
+  nil)
+
+(defn- abort-seated-attempt!
+  "The SYNCHRONOUS post-preflight-throw edge (the element thunk, host `.render`,
+  or the post-preflight ownership fence threw BEFORE React scheduled the commit):
+  terminally settle `receipt` as failed AND clear it from root `root-id`'s pending
+  slot when still seated. Unlike `abort-pending-attempt!`, the receipt is aborted
+  UNCONDITIONALLY (it is the caller's exact receipt) — a throw before the seat, or
+  after a first-mount rollback dissoc'd the entry, still settles it — preserving
+  the pre-.264 catch behaviour while also clearing any seated slot. Returns nil."
+  [root-id receipt incarnation]
+  (frames/abort-preflight-attempt! receipt)
+  (swap! live-roots
+         (fn [m]
+           (let [entry (get m root-id)]
+             (if (and entry
+                      (identical? (:root-incarnation entry) incarnation)
+                      (identical? (:pending-attempt entry) receipt))
+               (assoc m root-id (dissoc entry :pending-attempt))
+               m))))
   nil)
 
 (defn- mark-tearing-down!
@@ -518,6 +629,40 @@
       (unchecked-set o "onRecoverableError" on-recoverable))
     o))
 
+(defn- report-uncaught-default!
+  "React 19's default `onUncaughtError` reporting, preserved when the app authored
+  NO callback (rf2-vxgfnd.264): once we install a wrapper to catch the receipt-abort
+  edge, React no longer runs its own default, so we replicate it —
+  `globalThis.reportError` when present (React 19.2's `reportGlobalError`), else
+  `console.error`."
+  [error]
+  (if (fn? (.-reportError js/globalThis))
+    (js/reportError error)
+    (when (exists? js/console) (.error js/console error))))
+
+(defn- react-opts-with-attempt-abort
+  "Compose the (already-built) React root options with the .264 host-error edge:
+  an `onUncaughtError` that TERMINALLY settles root `root-id`'s currently-seated
+  pending render attempt (React aborts the commit before the reporter's layout
+  effect can finalize it), keyed to the EXACT `incarnation` this `createRoot`
+  registers, and THEN delegates to the authored callback — or to React's default
+  global-error report when none was authored. Every other option (identifierPrefix,
+  onCaughtError, onRecoverableError) is carried through unchanged. Returns a fresh
+  options object; the caller passes it straight to `createRoot`."
+  [react-opts root-id incarnation]
+  (let [authored (when react-opts (unchecked-get react-opts "onUncaughtError"))
+        composed (fn on-uncaught [error error-info]
+                   ;; React aborted this commit — the reporter never runs. Settle
+                   ;; the exact seated attempt (rev-guarded downstream), THEN honour
+                   ;; the authored React error callback / React's default.
+                   (abort-pending-attempt! root-id incarnation)
+                   (if (fn? authored)
+                     (authored error error-info)
+                     (report-uncaught-default! error)))
+        o        (if react-opts (js/Object.assign #js {} react-opts) #js {})]
+    (unchecked-set o "onUncaughtError" composed)
+    o))
+
 ;; ---------------------------------------------------------------------------
 ;; The host-commit reporter — preflight evidence finalizes on a REAL commit
 ;; (rf2-vxgfnd.248)
@@ -549,17 +694,22 @@
 ;; the only cost is one transparent wrapper + one layout effect per root render.
 
 (defn- root-commit-reporter
-  "React function component wrapping a root render (rf2-vxgfnd.248). Renders its
-  `children` unchanged and, in a `useLayoutEffect` keyed to the exact attempt
-  `rfReceipt`, finalizes that attempt at React's REAL commit boundary. Because
-  layout effects fire only for committed renders, an aborted/abandoned render
-  never finalizes; `finalize-preflight-attempt!`'s nil-receipt and rev guards
-  keep a no-plan render and a stale commit signal both harmless."
+  "React function component wrapping a root render (rf2-vxgfnd.248/.264). Renders
+  its `children` unchanged and, in a `useLayoutEffect` keyed to the exact attempt
+  `rfReceipt`, finalizes that attempt AND clears its pending-attempt slot at
+  React's REAL commit boundary (`settle-committed-attempt!`). Because layout
+  effects fire only for committed renders, an aborted/abandoned render never
+  reaches here — its receipt is instead terminally settled by the host-error /
+  supersession / unmount edges (rf2-vxgfnd.264). The finalize + clear are both
+  identity/rev-guarded, so a stale commit signal, a no-plan render, and a same-id
+  reincarnation are all harmless."
   [^js props]
-  (let [receipt (.-rfReceipt props)]
+  (let [receipt     (.-rfReceipt props)
+        root-id     (.-rfRootId props)
+        incarnation (.-rfIncarnation props)]
     (react/useLayoutEffect
      (fn commit-report []
-       (frames/finalize-preflight-attempt! receipt)
+       (settle-committed-attempt! root-id receipt incarnation)
        js/undefined)
      #js [receipt]))
   (.-children props))
@@ -567,14 +717,15 @@
 (defn- render-attempt-element
   "The exact element a root's `.render` receives for one attempt: the root
   incarnation-provided `element` wrapped in the `root-commit-reporter` carrying
-  this attempt's `receipt`, so the preflight attempt finalizes only after React
-  commits this render (rf2-vxgfnd.248), never merely because `.render` returned.
-  `element-thunk` is still evaluated eagerly by the caller, so a synchronous
-  throw from it (a top-region provider naming an absent frame) still propagates
-  into the caller's rollback try/catch unchanged."
-  [receipt incarnation element]
+  this attempt's `receipt` (plus its `root-id` + `incarnation`, so the commit can
+  clear the exact pending-attempt slot — rf2-vxgfnd.264), so the preflight attempt
+  finalizes only after React commits this render (rf2-vxgfnd.248), never merely
+  because `.render` returned. `element-thunk` is still evaluated eagerly by the
+  caller, so a synchronous throw from it (a top-region provider naming an absent
+  frame) still propagates into the caller's rollback try/catch unchanged."
+  [receipt root-id incarnation element]
   (react/createElement root-commit-reporter
-                       #js {:rfReceipt receipt}
+                       #js {:rfReceipt receipt :rfRootId root-id :rfIncarnation incarnation}
                        (viewcell/provide-root-incarnation incarnation element)))
 
 ;; ---------------------------------------------------------------------------
@@ -643,7 +794,8 @@
          (:identifier-prefix info) (:identifier-prefix existing))
         ;; re-preflight BEFORE the re-render: a failure leaves the live
         ;; root and its last committed render untouched (Q49).
-        (let [receipt (run-preflight! root-id plans-thunk)]
+        (let [receipt     (run-preflight! root-id plans-thunk)
+              incarnation (root-incarnation-of root-id)]
           (try
             ;; rf2-vxgfnd.69: run-preflight! drained :initial-events SYNCHRONOUSLY
             ;; (arbitrary app code) that may have unmount!ed this root and mounted
@@ -652,6 +804,10 @@
             ;; never commit, and `.render`ing the stale handle would write into a
             ;; root the replacement now owns. Mirrors the fresh-path re-check.
             (require-live-root! root 're-frame.ui/mount)
+            ;; rf2-vxgfnd.264: seat this attempt as the root's single pending
+            ;; render-attempt owner BEFORE `.render`, so a host error / supersession
+            ;; / unmount that aborts the commit still terminally settles the receipt.
+            (seat-pending-attempt! root-id receipt incarnation)
             ;; rf2-vxgfnd.139/.248: wrap the render in the host-commit reporter so
             ;; the attempt's evidence is finalized (clear stale tags + mark
             ;; committed) only when React actually COMMITS this render, never
@@ -660,15 +816,16 @@
             ;; render intact even if this re-render never commits.
             (.render (.-react-root root)
                      (render-attempt-element
-                      receipt (root-incarnation-of root-id) (element-thunk)))
+                      receipt root-id incarnation (element-thunk)))
             root
             (catch :default e
               ;; the re-render (or the post-preflight ownership fence) threw AFTER
               ;; preflight completed. The existing live root + its last committed
               ;; render are untouched (Q49); record only the FAILED ATTEMPT — an
               ;; already-committed refresh stays :committed + :preflight-attempt-
-              ;; failed, never falsely mount-incomplete (rf2-vxgfnd.139).
-              (frames/abort-preflight-attempt! receipt)
+              ;; failed, never falsely mount-incomplete (rf2-vxgfnd.139) — and clear
+              ;; the seated slot (rf2-vxgfnd.264).
+              (abort-seated-attempt! root-id receipt incarnation)
               (throw e)))))
       (do
         (check-root-claim! 're-frame.ui/mount info container)
@@ -681,7 +838,11 @@
         ;; cannot let this attempt allocate a Root under a generation that never
         ;; admitted it.
         (let [adapter-receipt (current-adapter-generation)
-              receipt (run-preflight! root-id plans-thunk)]
+              receipt (run-preflight! root-id plans-thunk)
+              ;; rf2-vxgfnd.264: mint the root incarnation BEFORE createRoot so the
+              ;; onUncaughtError wrapper closes over the EXACT incarnation it settles,
+              ;; and the register + the pending-attempt seat all share it.
+              incarnation (reactive/make-root-incarnation)]
           (try
             ;; REVALIDATE adapter admission FIRST — before the root-claim
             ;; re-check and any React work (rf2-vxgfnd.199). A terminal disposal
@@ -704,11 +865,18 @@
             ;; (createRoot is React-internal, register is a swap!), so the window
             ;; is closed.
             (check-root-claim! 're-frame.ui/mount info container)
-            (let [react-root (rdc/createRoot container react-opts)
+            (let [react-root (rdc/createRoot
+                              container
+                              (react-opts-with-attempt-abort react-opts root-id incarnation))
                   root       (Root. react-root container root-id)]
-              ;; register BEFORE any render (contract §7 Layer 3) — this MINTS the
-              ;; root incarnation the provider below scopes every ViewCell to.
-              (register-live-root! info container root)
+              ;; register BEFORE any render (contract §7 Layer 3) — installs the
+              ;; incarnation minted above that scopes every ViewCell to this root and
+              ;; drives the onUncaughtError receipt-abort wrapper (rf2-vxgfnd.264).
+              (register-live-root! info container root incarnation)
+              ;; rf2-vxgfnd.264: seat this attempt as the root's single pending
+              ;; render-attempt owner BEFORE `.render`, so a host error / unmount that
+              ;; aborts the commit still terminally settles the receipt.
+              (seat-pending-attempt! root-id receipt incarnation)
               (try
                 ;; rf2-vxgfnd.139/.248: wrap the FIRST render in the host-commit
                 ;; reporter so the attempt's evidence binds to React's real
@@ -717,10 +885,11 @@
                 ;; (onUncaughtError aborts the commit after `.render` returned),
                 ;; the reporter's layout effect never runs, so the fresh install is
                 ;; left uncommitted — never falsely recorded as a committed root
-                ;; scope for a render that never committed.
+                ;; scope, and the seated receipt is terminally settled
+                ;; :mount-incomplete by the onUncaughtError edge (rf2-vxgfnd.264).
                 (.render react-root
                          (render-attempt-element
-                          receipt (root-incarnation-of root-id) (element-thunk)))
+                          receipt root-id incarnation (element-thunk)))
                 root
                 (catch :default e
                   ;; TOTAL rollback of a failed FIRST mount — the element thunk
@@ -761,8 +930,9 @@
               ;; rollback above rethrowing). A fresh install whose host mount
               ;; never committed is :mount-incomplete — no root scopes it — never
               ;; a phantom completed installer. Rev-guarded: a re-entrant root
-              ;; that took ownership of the same frame is untouched.
-              (frames/abort-preflight-attempt! receipt)
+              ;; that took ownership of the same frame is untouched. Clears the
+              ;; seated slot too when still present (rf2-vxgfnd.264).
+              (abort-seated-attempt! root-id receipt incarnation)
               (throw e))))))))
 
 (defn create-root*
@@ -772,9 +942,16 @@
   [{:keys [root-id] :as info} container react-opts]
   (require-root-creation-open! 're-frame.ui/create-root)
   (check-root-claim! 're-frame.ui/create-root info container)
-  (let [react-root (rdc/createRoot container react-opts)
-        root       (Root. react-root container root-id)]
-    (register-live-root! info container root)
+  (let [incarnation (reactive/make-root-incarnation)
+        ;; rf2-vxgfnd.264: install the onUncaughtError receipt-abort wrapper at
+        ;; createRoot (closing over this incarnation) so a later `render!*`'s
+        ;; host-aborted attempt is terminally settled — the render seats onto THIS
+        ;; entry's incarnation.
+        react-root  (rdc/createRoot
+                     container
+                     (react-opts-with-attempt-abort react-opts root-id incarnation))
+        root        (Root. react-root container root-id)]
+    (register-live-root! info container root incarnation)
     root))
 
 (defn render!*
@@ -802,8 +979,9 @@
   attempt is never falsely marked committed off a `.render` return."
   [^Root root element-thunk plans-thunk descriptor-base]
   (require-live-root! root 're-frame.ui/render!)
-  (let [rid     (.-root-id root)
-        receipt (run-preflight! rid plans-thunk)]
+  (let [rid         (.-root-id root)
+        receipt     (run-preflight! rid plans-thunk)
+        incarnation (root-incarnation-of rid)]
     (try
       ;; rf2-vxgfnd.69: revalidate ownership AFTER the side-effecting preflight
       ;; (which may have unmount!ed this root and mounted a replacement under
@@ -824,21 +1002,26 @@
                                             :root-id rid
                                             :root-id-provenance (:provenance entry))))
                        m))))))
+      ;; rf2-vxgfnd.264: seat this attempt as the root's single pending
+      ;; render-attempt owner BEFORE `.render` (a host error / supersession /
+      ;; unmount aborting the commit then terminally settles the receipt).
+      (seat-pending-attempt! rid receipt incarnation)
       ;; rf2-vxgfnd.139/.248: wrap the render in the host-commit reporter so the
       ;; attempt finalizes at React's real COMMIT of this render, not the
       ;; `.render` return. A live root's re-render that never commits (an
       ;; uncaught render throw) leaves its prior committed record untouched.
       (.render (.-react-root root)
                (render-attempt-element
-                receipt (root-incarnation-of rid) (element-thunk)))
+                receipt rid incarnation (element-thunk)))
       root
       (catch :default e
         ;; the post-preflight ownership fence, element thunk, or host render
         ;; threw AFTER preflight completed. A live root's failed re-render leaves
         ;; its last committed render untouched (Q49); record only the failed
         ;; ATTEMPT (rf2-vxgfnd.139) — rev-guarded, never falsely mount-incomplete
-        ;; on an already-committed root, never clobbering a superseding root.
-        (frames/abort-preflight-attempt! receipt)
+        ;; on an already-committed root, never clobbering a superseding root — and
+        ;; clear the seated slot (rf2-vxgfnd.264).
+        (abort-seated-attempt! rid receipt incarnation)
         (throw e)))))
 
 (defn hydrate-root*
@@ -935,6 +1118,11 @@
     ;; deferred host teardown cannot advertise the id/container as free while
     ;; React is still scheduled to clear the DOM.
     (mark-tearing-down! (.-root-id root) root)
+    ;; rf2-vxgfnd.264 — a render attempt seated but not yet committed when the
+    ;; root is torn down never commits: TERMINALLY settle it now (a fresh install's
+    ;; :fresh writes → :mount-incomplete), rather than leaving it forever
+    ;; provisional. Identity-guarded to this root's incarnation.
+    (abort-pending-attempt! (.-root-id root) (root-incarnation-of (.-root-id root)))
     (try
       ;; rf2-vxgfnd.62 — drive the host unmount through the root-teardown window
       ;; so this root's ViewCells are retroactively proven :unmounted → :dead
