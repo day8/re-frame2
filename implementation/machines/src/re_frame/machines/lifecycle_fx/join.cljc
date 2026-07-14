@@ -15,10 +15,15 @@
       `:rf.error/machine-spawn-all-bad-child-id` error trace and a
       no-op fx (the join state is NOT mutated).
    3b. Authenticates the carrier to the EXACT join attempt (rf2-nvxehu):
-      the `:rf/join-auth` metadata the member child's own handler boundary
+      the exact-authority tuple the member child's own handler boundary
       stamped must match the current join's parent/invoke identity, logical
-      child id, exact current actor id, and exact attempt token. Unstamped
-      / superseded / duplicate carriers are suppressed stale
+      child id, exact current actor id, and exact attempt token. The PRIMARY
+      durable/replayable carrier is the recordable `:rf.machine/join-auth`
+      causal-envelope fact on the completion's `:rf.cofx` (it survives both
+      the event/coeffect recording + strict-replay path and delayed dispatch);
+      event-vector `:rf/join-auth` metadata is only the narrow immediate
+      internal-handoff / test-forged fallback (an EDN round-trip drops it).
+      Unstamped / superseded / duplicate carriers are suppressed stale
       (`:rf.machine.spawn-all/stale-completion`) with zero mutation.
    4. Adds `<child-id>` to `:done` or `:failed`. A NON-DECISIVE fold (the
       join does not resolve on it) publishes the child's canonical work
