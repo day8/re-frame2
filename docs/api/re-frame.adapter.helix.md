@@ -93,9 +93,9 @@ The substrate-agnostic carry and scoping primitives (`capture-frame`, `with-fram
 - **Kind**: Helix hook (function)
 - **Signature**:
   ```clojure
-  (use-current-frame) → frame-kw, or :rf.frame/no-provider when no provider is above
+  (use-current-frame) → frame-kw, or :rf.frame/no-provider when no boundary is above
   ```
-- **Description**: A raw React-context read of the surrounding `frame-provider`'s frame keyword. When no frame-provider sits above, it returns `:rf.frame/no-provider` — never a synthesised default. It consults the React-context tier only, not the dynamic-var tier; for the full resolution chain, use `(rf/current-frame-id)`.
+- **Description**: A raw React-context read of the frame keyword supplied by the surrounding `frame-provider` (SCOPE) or `frame-root` (ENSURE) — both install the one shared React context. When neither sits above, it returns `:rf.frame/no-provider` — never a synthesised default. It consults the React-context tier only, not the dynamic-var tier; for the full resolution chain, use `(rf/current-frame-id)`.
 
 > **NOT USED** — no call sites found in `implementation/`, `examples/`, or `tools/`.
 

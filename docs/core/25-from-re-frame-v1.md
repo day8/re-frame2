@@ -182,7 +182,7 @@ You can also pass `(rf/capture-frame frame-id)` to capture a *named* frame rathe
 
 ??? info "Coming from React Context?"
 
-    The merged `frame-provider {:frame …}` *is* a context provider, and the "no-frame-context" error is the exact analogue of calling a hook outside its provider and getting `undefined` back from `useContext` — except v2 throws instead of silently handing you a stale default. The one wrinkle React people already know: context doesn't cross an async boundary on its own. A `setTimeout` callback in React loses nothing because closures capture; a re-frame2 callback that fires *after* its render scope unwound needs to have captured a frame api (`rf/capture-frame`) while the scope was live. Same lesson, louder failure.
+    The `frame-provider {:frame …}` *is* a context provider, and the "no-frame-context" error is the exact analogue of calling a hook outside its provider and getting `undefined` back from `useContext` — except v2 throws instead of silently handing you a stale default. The one wrinkle React people already know: context doesn't cross an async boundary on its own. A `setTimeout` callback in React loses nothing because closures capture; a re-frame2 callback that fires *after* its render scope unwound needs to have captured a frame api (`rf/capture-frame`) while the scope was live. Same lesson, louder failure.
 
 ### Views render under a frame scope
 

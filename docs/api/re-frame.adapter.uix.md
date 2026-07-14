@@ -133,9 +133,9 @@ For narrative coverage and the substrate decision set, see [Use UIx, Helix, or r
   ```clojure
   (use-current-frame) → frame-kw, or :rf.frame/no-provider
   ```
-- **Description**: Returns the frame keyword of the surrounding `frame-provider`. It exists for components that thread the frame through hand-written child callbacks.
+- **Description**: Returns the frame keyword supplied by the surrounding `frame-provider` (SCOPE) or `frame-root` (ENSURE) — both install the one shared React context this read consults. It exists for components that thread the frame through hand-written child callbacks.
 
-  This hook reads the React-context tier only. When no provider sits above, it returns the no-provider sentinel `:rf.frame/no-provider` — never nil, and never a synthesised default. It does not consult the `with-frame` dynamic var; for the full resolution chain, use `rf/current-frame-id`.
+  This hook reads the React-context tier only. When neither `frame-provider` nor `frame-root` sits above, it returns the no-provider sentinel `:rf.frame/no-provider` — never nil, and never a synthesised default. It does not consult the `with-frame` dynamic var; for the full resolution chain, use `rf/current-frame-id`.
 
 > **NOT USED** — no call sites found in `implementation/`, `examples/`, or `tools/`.
 
