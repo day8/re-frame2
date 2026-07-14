@@ -51,7 +51,8 @@
   ride the registry in dev only (goog.DEBUG — production carries no
   manifests, I-12); root-id and container ownership are load-bearing
   identity and stay in production."
-  (:require ["react-dom/client" :as rdc]
+  (:require ["react" :as react]
+            ["react-dom/client" :as rdc]
             [clojure.string :as str]
             [re-frame.error :as error]
             [re-frame.ui.digest-carrier :as digest-carrier]
@@ -441,10 +442,12 @@
   ns docstring).
 
   Returns the live executor's preflight-attempt RECEIPT (rf2-vxgfnd.139) — the
-  caller passes it to `frames/finalize-preflight-attempt!` once the host render
-  commits, or `frames/abort-preflight-attempt!` if the post-preflight boundary
-  throws. nil when there are no static plans, or when a capture-hook override
-  returns a non-receipt (both are no-ops at the boundary)."
+  caller renders it through the `root-commit-reporter`, which calls
+  `frames/finalize-preflight-attempt!` only when React COMMITS the render
+  (rf2-vxgfnd.248), and `frames/abort-preflight-attempt!` if the post-preflight
+  boundary throws SYNCHRONOUSLY (before React receives the element). nil when
+  there are no static plans, or when a capture-hook override returns a
+  non-receipt (both are no-ops at the boundary)."
   [root-id plans-thunk]
   (when plans-thunk
     (let [plans (plans-thunk)
@@ -471,6 +474,65 @@
     (when (some? on-recoverable)
       (unchecked-set o "onRecoverableError" on-recoverable))
     o))
+
+;; ---------------------------------------------------------------------------
+;; The host-commit reporter — preflight evidence finalizes on a REAL commit
+;; (rf2-vxgfnd.248)
+;; ---------------------------------------------------------------------------
+;;
+;; `ReactDOMRoot.render` SCHEDULES the update and can return BEFORE React lays
+;; out / commits it (react.dev/reference/react-dom/client/createRoot; the pinned
+;; react-dom routes `.render` to `updateContainerImpl`, which enqueues + schedules
+;; without a commit callback). A component that succeeds the element thunk but
+;; then THROWS during React's render is caught by the root's `onUncaughtError`
+;; and the commit is ABORTED — yet `.render` returned normally, so neither the
+;; synchronous mount rollback nor `abort-preflight-attempt!` runs. Finalizing the
+;; preflight attempt immediately after `.render` therefore records a COMMITTED
+;; root scope for a render that never committed (the rf2-vxgfnd.248 defect).
+;;
+;; The fix binds attempt settlement to an AUTHORITATIVE host commit signal, not
+;; the `.render` return: the rendered root element is wrapped in this transparent
+;; reporter, whose sole `useLayoutEffect` calls `frames/finalize-preflight-
+;; attempt!`. Layout effects run ONLY for COMMITTED renders — an ABANDONED render
+;; (StrictMode double-invoke, time-sliced tear-off) publishes no layout effect,
+;; and an ABORTED commit (an uncaught render throw with no error boundary)
+;; discards the whole root tree INCLUDING this reporter, so the effect never
+;; runs. The attempt is thus finalized IFF React actually committed it; a
+;; commit contained by an error boundary (a fallback DID commit) finalizes, as a
+;; committed root scope truthfully exists. `finalize-preflight-attempt!` is itself
+;; REV-GUARDED (frames/finalize-writes!) to the exact install-record revision the
+;; receipt captured, so a stale, duplicated, or replayed commit signal can never
+;; finalize a newer attempt or another root's evidence. No global `flushSync`:
+;; the only cost is one transparent wrapper + one layout effect per root render.
+
+(defn- root-commit-reporter
+  "React function component wrapping a root render (rf2-vxgfnd.248). Renders its
+  `children` unchanged and, in a `useLayoutEffect` keyed to the exact attempt
+  `rfReceipt`, finalizes that attempt at React's REAL commit boundary. Because
+  layout effects fire only for committed renders, an aborted/abandoned render
+  never finalizes; `finalize-preflight-attempt!`'s nil-receipt and rev guards
+  keep a no-plan render and a stale commit signal both harmless."
+  [^js props]
+  (let [receipt (.-rfReceipt props)]
+    (react/useLayoutEffect
+     (fn commit-report []
+       (frames/finalize-preflight-attempt! receipt)
+       js/undefined)
+     #js [receipt]))
+  (.-children props))
+
+(defn- render-attempt-element
+  "The exact element a root's `.render` receives for one attempt: the root
+  incarnation-provided `element` wrapped in the `root-commit-reporter` carrying
+  this attempt's `receipt`, so the preflight attempt finalizes only after React
+  commits this render (rf2-vxgfnd.248), never merely because `.render` returned.
+  `element-thunk` is still evaluated eagerly by the caller, so a synchronous
+  throw from it (a top-region provider naming an absent frame) still propagates
+  into the caller's rollback try/catch unchanged."
+  [receipt incarnation element]
+  (react/createElement root-commit-reporter
+                       #js {:rfReceipt receipt}
+                       (viewcell/provide-root-incarnation incarnation element)))
 
 ;; ---------------------------------------------------------------------------
 ;; The mount surface — runtime halves
@@ -504,12 +566,18 @@
   clobbering the inner root's entry (which the rollback would then delete,
   orphaning the inner root's live tree). Registration still precedes any
   render (contract §7 Layer 3);
-  if that FIRST render (element thunk or host `.render`) throws, the mount
-  rolls back TOTALLY — the exact claim is released and the host root is
-  best-effort unmounted, so a retry starts clean (no phantom live root),
-  and the original error is rethrown even if cleanup also throws. A failed
-  RE-render on an already-live root is the distinct case: the existing
-  root stays registered with its last committed render intact (Q49).
+  if that FIRST render throws SYNCHRONOUSLY (the element thunk, or host
+  `.render` before React receives the element), the mount rolls back TOTALLY
+  — the exact claim is released and the host root is best-effort unmounted, so
+  a retry starts clean (no phantom live root), and the original error is
+  rethrown even if cleanup also throws. Preflight evidence is finalized only
+  when React actually COMMITS the render, through the `root-commit-reporter`
+  wrapper (rf2-vxgfnd.248): a first render whose element thunk succeeds but
+  whose component throws during React's render (onUncaughtError aborts the
+  commit AFTER `.render` returned) is left uncommitted — never a phantom
+  committed root scope. A failed RE-render on an already-live root is the
+  distinct case: the existing root stays registered with its last committed
+  render intact (Q49).
   Returns the Root."
   [{:keys [root-id] :as info} container element-thunk react-opts plans-thunk]
   (require-root-creation-open! 're-frame.ui/mount)
@@ -536,13 +604,15 @@
             ;; never commit, and `.render`ing the stale handle would write into a
             ;; root the replacement now owns. Mirrors the fresh-path re-check.
             (require-live-root! root 're-frame.ui/mount)
+            ;; rf2-vxgfnd.139/.248: wrap the render in the host-commit reporter so
+            ;; the attempt's evidence is finalized (clear stale tags + mark
+            ;; committed) only when React actually COMMITS this render, never
+            ;; merely because `.render` returned. No rollback on this same-root
+            ;; path: the existing root stays registered with its last committed
+            ;; render intact even if this re-render never commits.
             (.render (.-react-root root)
-                     (viewcell/provide-root-incarnation
-                      (root-incarnation-of root-id) (element-thunk)))
-            ;; rf2-vxgfnd.139: the host render COMMITTED — finalize the attempt's
-            ;; evidence (clear stale tags + mark committed). No rollback on this
-            ;; same-root path: the existing root stays registered.
-            (frames/finalize-preflight-attempt! receipt)
+                     (render-attempt-element
+                      receipt (root-incarnation-of root-id) (element-thunk)))
             root
             (catch :default e
               ;; the re-render (or the post-preflight ownership fence) threw AFTER
@@ -592,12 +662,17 @@
               ;; root incarnation the provider below scopes every ViewCell to.
               (register-live-root! info container root)
               (try
+                ;; rf2-vxgfnd.139/.248: wrap the FIRST render in the host-commit
+                ;; reporter so the attempt's evidence binds to React's real
+                ;; COMMIT of this render, not the `.render` return. If the element
+                ;; thunk returns but a component then throws during React's render
+                ;; (onUncaughtError aborts the commit after `.render` returned),
+                ;; the reporter's layout effect never runs, so the fresh install is
+                ;; left uncommitted — never falsely recorded as a committed root
+                ;; scope for a render that never committed.
                 (.render react-root
-                         (viewcell/provide-root-incarnation
-                          (root-incarnation-of root-id) (element-thunk)))
-                ;; rf2-vxgfnd.139: the FIRST host render COMMITTED — bind the
-                ;; attempt's evidence to this boundary (clear + mark committed).
-                (frames/finalize-preflight-attempt! receipt)
+                         (render-attempt-element
+                          receipt (root-incarnation-of root-id) (element-thunk)))
                 root
                 (catch :default e
                   ;; TOTAL rollback of a failed FIRST mount — the element thunk
@@ -650,7 +725,11 @@
   descriptor-base with the Root's identity on the registry entry — the swap
   is IDENTITY-GUARDED to THIS exact Root, never merely the current entry
   under the same id, so it can never write the stale call's descriptor onto
-  a replacement root."
+  a replacement root. Preflight evidence is finalized only when React COMMITS
+  the render, through the `root-commit-reporter` wrapper (rf2-vxgfnd.248): a
+  re-render whose component throws during React's render (the commit aborts
+  after `.render` returned) leaves the prior committed record untouched — the
+  attempt is never falsely marked committed off a `.render` return."
   [^Root root element-thunk plans-thunk descriptor-base]
   (require-live-root! root 're-frame.ui/render!)
   (let [rid     (.-root-id root)
@@ -675,11 +754,13 @@
                                             :root-id rid
                                             :root-id-provenance (:provenance entry))))
                        m))))))
+      ;; rf2-vxgfnd.139/.248: wrap the render in the host-commit reporter so the
+      ;; attempt finalizes at React's real COMMIT of this render, not the
+      ;; `.render` return. A live root's re-render that never commits (an
+      ;; uncaught render throw) leaves its prior committed record untouched.
       (.render (.-react-root root)
-               (viewcell/provide-root-incarnation
-                (root-incarnation-of rid) (element-thunk)))
-      ;; rf2-vxgfnd.139: the host render COMMITTED — finalize the attempt.
-      (frames/finalize-preflight-attempt! receipt)
+               (render-attempt-element
+                receipt (root-incarnation-of rid) (element-thunk)))
       root
       (catch :default e
         ;; the post-preflight ownership fence, element thunk, or host render
