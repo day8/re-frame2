@@ -369,12 +369,13 @@
       {:initial :running
        :states  {:running {:on {:go :done}}
                  :done    {:final? true}}})
-    (let [frame-a  :rf2-4ipqe4/spawn-write-frame
-          armed?   (atom false)
-          fired?   (atom false)
-          traces   (atom [])
-          b-birth  (atom nil)
-          b-commit (atom nil)]
+    (let [frame-a        :rf2-4ipqe4/spawn-write-frame
+          armed?         (atom false)
+          fired?         (atom false)
+          traces         (atom [])
+          b-birth        (atom nil)
+          b-commit       (atom nil)
+          orig-dispatch! (late-bind/get-fn :router/dispatch!)]
       (install-watching-adapter!
         armed?
         (fn []
@@ -384,6 +385,13 @@
             (reset! b-birth (mtest/runtime-db frame-a))
             (reset! b-commit (frame/frame-commit-epoch frame-a)))))
       (try
+        ;; DETERMINISM FENCE (rf2-kz0bmb) — sibling of the live-owner test's
+        ;; guard: hold the actor-bootstrap `:start` dispatch on a SYNCHRONOUS
+        ;; in-thread no-op so no JVM background-executor drain (`interop/
+        ;; next-tick`) races the assertions. The loss path fences the `:start`
+        ;; before it fires, so this is a pure guard here — but it keeps the
+        ;; whole spawn-write seam single-threaded and symmetric.
+        (late-bind/set-fn! :router/dispatch! (fn [_ev _opts] nil))
         (rf/make-frame {:id frame-a})
         (trace/register-listener!
           ::spawn-write-fence
@@ -411,6 +419,7 @@
               "no :rf.machine.lifecycle/spawned tail attributed after the write loss"))
         (finally
           (trace/unregister-listener! ::spawn-write-fence)
+          (late-bind/set-fn! :router/dispatch! orig-dispatch!)
           (restore-plain-adapter!))))))
 
 (deftest spawn-install-write-live-owner-installs-once
@@ -423,15 +432,29 @@
       {:initial :running
        :states  {:running {:on {:go :done}}
                  :done    {:final? true}}})
-    (let [frame-a    :rf2-4ipqe4/spawn-write-live-frame
-          armed?     (atom false)
-          watch-runs (atom 0)
-          traces     (atom [])
-          child-id   (keyword "rf2-4ipqe4" "spawn-write-live-child#1")]
+    (let [frame-a        :rf2-4ipqe4/spawn-write-live-frame
+          armed?         (atom false)
+          watch-runs     (atom 0)
+          traces         (atom [])
+          child-id       (keyword "rf2-4ipqe4" "spawn-write-live-child#1")
+          orig-dispatch! (late-bind/get-fn :router/dispatch!)]
       (install-watching-adapter!
         armed?
         (fn [] (swap! watch-runs inc)))          ; observe only — A stays live
       (try
+        ;; DETERMINISM FENCE (rf2-kz0bmb) — drop the child's actor-bootstrap
+        ;; `:start` dispatch onto a SYNCHRONOUS in-thread no-op. The default
+        ;; `:router/dispatch!` hook schedules the bootstrap drain on the JVM
+        ;; background executor (`interop/next-tick`); that async drain runs the
+        ;; freshly-installed child's `[:go]` transition to its `:done`
+        ;; `:final?` leaf and REAPS the child's snapshot + spawn-order on a
+        ;; SEPARATE thread — racing the post-install assertions below (and the
+        ;; `restore-plain-adapter!` teardown). The install this test asserts on
+        ;; completes BEFORE the `:start` dispatch, so suppressing the async
+        ;; bootstrap leaves every assertion's subject unchanged while making the
+        ;; fixture single-threaded and deterministic (was green in isolation /
+        ;; 8/8 reruns, red under CI load).
+        (late-bind/set-fn! :router/dispatch! (fn [_ev _opts] nil))
         (rf/make-frame {:id frame-a})
         (trace/register-listener!
           ::spawn-write-live
@@ -454,4 +477,5 @@
               "the live-owner install emitted :rf.machine.lifecycle/spawned exactly once"))
         (finally
           (trace/unregister-listener! ::spawn-write-live)
+          (late-bind/set-fn! :router/dispatch! orig-dispatch!)
           (restore-plain-adapter!))))))
