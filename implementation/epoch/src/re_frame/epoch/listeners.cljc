@@ -290,16 +290,25 @@
   `{cb-id → generation}` map, not a bare set (rf2-vxgfnd.265). The delayed
   silence is later decided PER identity: a cb re-registered to a fresh generation
   in the deferred window never observed this incarnation and must receive no
-  stale signal, which a bare set could not express. Identities come from the
-  observers this exact incarnation accrued (`cbs-observing-frame`, already scoped
-  to each cb's live generation) plus, for a mid-drain `:halted-destroy`, every
-  listener the record will be fanned to (they observe it at delivery).
+  stale signal, which a bare set could not express. The identities and their
+  generations come from ONE consistent `state/snapshot-terminal-observers` read
+  (rf2-vxgfnd.285) — each observing cb's generation is the OBSERVATION STAMP, so
+  a replacement landing mid-snapshot can never attribute A's observation to a
+  fresh generation H it never observed under (the exactness guarantee). For a
+  mid-drain `:halted-destroy`, the SAME registry read additionally owes every
+  listener the record will be fanned to (they observe it at delivery), so the
+  owed generations and the record's listener fan can never disagree across two
+  registry reads.
 
   `:baseline-silence-seq` is the terminal-silence counter snapshotted BEFORE
   dissoc. A same-id successor is constructable only AFTER dissoc, so any silence
   it emits is stamped strictly above this baseline — the monotonic evidence a
   paused predecessor uses to recognise a successor already silenced a cb (the
   A→B→nil ABA) rather than re-emitting the identical unqualified signal.
+
+  Producing a non-nil bundle also OPENS this frame's deferred-silence window
+  (`state/open-silence-lineage!`), keeping its terminal-silence marks alive until
+  `on-frame-destroyed!` publishes and closes the window (the boundedness bracket).
 
   Schema digesting is intentionally omitted: A's schemas are already torn down
   and a bare-id digest could only resolve absent state or a same-id B."
@@ -314,27 +323,27 @@
                                 committed-at :halted-destroy
                                 {:operation :rf.frame/destroyed-mid-drain}
                                 nil))
-          listener-snapshot (if record (state/listeners-snapshot) {})
-          live              (state/listeners-snapshot)
-          ;; EXACT identities: cb-id → the generation that observed this
-          ;; incarnation. Observers carry their live generation; a mid-drain
-          ;; record additionally owes every current listener (each observes the
-          ;; halted record when it is fanned out in `on-frame-destroyed!`).
-          silenced-cbs      (as-> {} m
-                              (into m
-                                    (map (fn [cb]
-                                           [cb (:generation (get live cb))]))
-                                    (state/cbs-observing-frame frame-id))
-                              (if record
-                                (into m
-                                      (map (fn [[cb {:keys [generation]}]]
-                                             [cb generation]))
-                                      listener-snapshot)
-                                m))]
+          ;; ONE consistent (listeners, observed) read (rf2-vxgfnd.285): the
+          ;; owed-observer generations come from the SAME registry read used to
+          ;; qualify them, so a replacement mid-snapshot can never attribute A's
+          ;; observation to a fresh generation it never observed under.
+          {:keys [listeners observing]} (state/snapshot-terminal-observers frame-id)
+          ;; A mid-drain record is fanned to every current listener, so each owes
+          ;; a silence under ITS live generation (from the same `listeners` read).
+          listener-snapshot (if record listeners {})
+          silenced-cbs      (cond-> observing
+                              record (into (map (fn [[cb {:keys [generation]}]]
+                                                  [cb generation]))
+                                           listeners))
+          baseline          (state/current-terminal-silence-seq)]
+      ;; Open the frame's deferred-silence window BEFORE dissoc so its
+      ;; terminal-silence marks survive until this predecessor publishes; the
+      ;; paired `close-silence-lineage!` runs in `on-frame-destroyed!`.
+      (state/open-silence-lineage! frame-id)
       {:record               record
        :listener-snapshot    listener-snapshot
        :silenced-cbs         silenced-cbs
-       :baseline-silence-seq (state/current-terminal-silence-seq)})))
+       :baseline-silence-seq baseline})))
 
 (defn on-frame-destroyed!
   "Publish a destroyed frame's terminal epoch evidence and drop its id-keyed
@@ -359,86 +368,113 @@
   so listener delivery is the only channel for this terminal partial record.
 
   The delayed silence is decided PER snapshotted callback-generation identity
-  (rf2-vxgfnd.265). Store claim, callback re-arm, and terminal silence are
-  DISTINCT events, so the coarse `cleanup-frame-owner!` result cannot gate the
-  fan: a successor that claims the stores but delivers no epoch (A still owes the
-  silence, losing the comparison notwithstanding); a successor that re-armed a cb
-  then destroyed before A resumes (A must NOT re-emit the silence B already
-  fired, even though A now wins the comparison); a cb re-registered to a fresh
-  generation (must receive no stale signal). Each owed identity is delivered iff
-  `state/delayed-silence-owed?` holds — its generation is still live, no live
-  successor re-armed it, and no successor silenced it after A's baseline.
+  (rf2-vxgfnd.265), and .285 makes that decision EXACT, LINEARIZABLE and BOUNDED.
+  Store claim, callback re-arm, and terminal silence are DISTINCT events, so the
+  coarse `cleanup-frame-owner!` result cannot gate the fan: a successor that
+  claims the stores but delivers no epoch (A still owes the silence, losing the
+  comparison notwithstanding); a successor that re-armed a cb then destroyed
+  before A resumes (A must NOT re-emit the silence B already fired, even though A
+  now wins the comparison); a cb re-registered to a fresh generation (must
+  receive no stale signal). Each owed identity is published iff
+  `state/claim-delayed-silence!` grants it — a single atomic operation that
+  rechecks the CURRENT generation, the CURRENT live observers (read fresh, not a
+  stale pre-loop set), and any existing mark, then RESERVES a fresh monotonic seq
+  BEFORE external delivery. The seq is the total order the observer relies on;
+  two overlapping same-id publishers can never both claim. A reservation is
+  rolled back only if the external envelope delivery itself throws. The owed
+  identities are fanned in a deterministic (cb-id-ordered) sequence so a trace
+  listener re-arming a LATER identity during an EARLIER silence sees a stable,
+  linearizable order.
 
   The id-keyed store DROP is compare-owned (`state/cleanup-frame-owner!`): it
   runs only while `owner-token` still owns the stores, so stale A can never
   erase a fresh same-id B. PUBLICATION of A's already-snapshotted terminal
   record and its structural trailers is INDEPENDENT of winning that comparison —
   the evidence was bound to A's exact incarnation before dissoc and is A's to
-  deliver whether or not A still owns the stores (rf2-vxgfnd.151). The live
-  observation state is read AFTER the compare-owned cleanup, so a winning cleanup
-  has already dropped this incarnation's own stamps while a losing one leaves the
-  successor's — exactly the re-arm evidence the per-identity decision consults.
-  All terminal emits use structural delivery so a same-id B's frame-no-emit
-  policy can neither suppress nor capture them. Repeated destroys are idempotent
-  (a re-destroyed frame has no observers and no mid-drain record, so nothing is
-  owed)."
+  deliver whether or not A still owns the stores (rf2-vxgfnd.151). Live
+  observation is re-read INSIDE each per-identity claim AFTER the compare-owned
+  cleanup, so a winning cleanup has already dropped this incarnation's own stamps
+  while a losing one leaves the successor's — exactly the re-arm evidence the
+  claim consults. All terminal emits use structural delivery so a same-id B's
+  frame-no-emit policy can neither suppress nor capture them. Repeated destroys
+  are idempotent (a re-destroyed frame has no observers and no mid-drain record,
+  so nothing is owed). The frame's deferred-silence window opened by
+  `snapshot-terminal-destroy-evidence!` is closed here in a `finally`, reclaiming
+  the frame's marks once its last outstanding predecessor resolves (BOUNDED)."
   ([frame-id owner-token fs-before fs-after committed-at]
    (on-frame-destroyed! frame-id owner-token
                        (snapshot-terminal-destroy-evidence!
                          frame-id fs-before fs-after committed-at)))
   ([frame-id owner-token terminal-evidence]
+   ;; Sole-condition `interop/debug-enabled?` gate so :advanced + goog.DEBUG=false
+   ;; dead-code-eliminates this whole publish path (Spec 009 §Production builds);
+   ;; the nil-bundle check nests INSIDE it, never folded into the gate condition.
+   ;; A non-nil bundle means `snapshot-terminal-destroy-evidence!` participated
+   ;; (debug on) and opened the deferred-silence window; that is the exact
+   ;; condition under which we must publish AND close it. A nil bundle (no epoch
+   ;; layer) opened nothing and has nothing to publish.
    (when interop/debug-enabled?
-     (let [{:keys [record listener-snapshot silenced-cbs baseline-silence-seq]}
-           terminal-evidence]
-       ;; Compare-owned store drop: A erases ONLY its own id-keyed stores. If a
-       ;; same-id B has already claimed them, this no-ops and leaves B untouched.
-       ;; The return value is intentionally ignored for the silencing decision —
-       ;; winning this comparison is NOT the same fact as "no successor re-armed
-       ;; the observers" (a claim without delivery loses it; a re-arm-then-destroy
-       ;; wins it), which the per-identity decision below resolves precisely
-       ;; (rf2-vxgfnd.265). The DROP itself still runs here so a winning A frees
-       ;; its stores (and leaves the live observation ledger showing the
-       ;; successor's re-arm evidence when A loses).
-       (state/cleanup-frame-owner!
-         frame-id owner-token
-         (fn []
-           ;; Data-only exact-owner transaction: no external callback runs
-           ;; between owner comparison and the complete drop.
-           (state/drop-frame-observation! frame-id)
-           (state/drop-frame-history! frame-id)
-           (state/drop-frame-buffer! frame-id)
-           (state/drop-last-settled-epoch! frame-id)
-           (state/drop-frame-mount-attribution! frame-id)
-           true))
-       ;; Publish A's terminal RECORD + trailers regardless of the cleanup
-       ;; comparison — the evidence was snapshotted before dissoc and belongs to
-       ;; A's incarnation (rf2-vxgfnd.151). A late predecessor terminal record may
-       ;; arrive after a newer same-id epoch; it is HISTORICAL and consumers must
-       ;; not treat it as the successor's current ring/focus (Spec 009 / Tool-Pair
-       ;; late-record consumer rule).
-       (when record
-         ;; Same detailed/coarse trailer pair as normal commits, delivered
-         ;; structurally: excluded from capture ownership and immune to a same-id
-         ;; B's frame-no-emit policy.
-         (trace/call-with-structural-delivery
-           #(assembly/emit-snapshotted+outcome! frame-id (:epoch-id record)
-                                                (:event-id record) :halted-destroy))
-         (deliver-listener-snapshot! record listener-snapshot))
-       ;; PER-IDENTITY silencing (rf2-vxgfnd.265). The live observer set is read
-       ;; AFTER the compare-owned cleanup: a winning A has just dropped its own
-       ;; stamps (so none of its identities are "live"), while a losing A leaves
-       ;; the SUCCESSOR's stamps — the delivery/re-arm evidence. Each owed
-       ;; identity is emitted iff its generation is still live, it is not a live
-       ;; observer, and no successor already silenced it after A's baseline; a
-       ;; successful emit records the monotonic mark so a still-paused peer (or a
-       ;; later re-destroy) will not repeat it.
-       (let [live-observers (set (state/cbs-observing-frame frame-id))]
-         (doseq [[cb-id observed-gen] silenced-cbs]
-           (when (state/delayed-silence-owed?
-                   frame-id cb-id observed-gen baseline-silence-seq live-observers)
-             ;; The silencing fact belongs to destroyed A too; never let a same-id
-             ;; successor's trace policy suppress or capture it.
-             (trace/call-with-structural-delivery
-               #(trace/emit! :rf.epoch.cb :rf.epoch.cb/silenced-on-frame-destroy
-                             {:frame frame-id :cb-id cb-id}))
-             (state/record-terminal-silence! frame-id cb-id))))))))
+     (when terminal-evidence
+       (try
+        (let [{:keys [record listener-snapshot silenced-cbs baseline-silence-seq]}
+              terminal-evidence]
+         ;; Compare-owned store drop: A erases ONLY its own id-keyed stores. If a
+         ;; same-id B has already claimed them, this no-ops and leaves B untouched.
+         ;; The return value is intentionally ignored for the silencing decision —
+         ;; winning this comparison is NOT the same fact as "no successor re-armed
+         ;; the observers" (a claim without delivery loses it; a re-arm-then-destroy
+         ;; wins it), which the per-identity claim below resolves precisely. The
+         ;; DROP itself still runs here so a winning A frees its stores (and leaves
+         ;; the live observation ledger showing the successor's re-arm evidence
+         ;; when A loses).
+         (state/cleanup-frame-owner!
+           frame-id owner-token
+           (fn []
+             ;; Data-only exact-owner transaction: no external callback runs
+             ;; between owner comparison and the complete drop.
+             (state/drop-frame-observation! frame-id)
+             (state/drop-frame-history! frame-id)
+             (state/drop-frame-buffer! frame-id)
+             (state/drop-last-settled-epoch! frame-id)
+             (state/drop-frame-mount-attribution! frame-id)
+             true))
+         ;; Publish A's terminal RECORD + trailers regardless of the cleanup
+         ;; comparison — the evidence was snapshotted before dissoc and belongs to
+         ;; A's incarnation (rf2-vxgfnd.151). A late predecessor terminal record may
+         ;; arrive after a newer same-id epoch; it is HISTORICAL and consumers must
+         ;; not treat it as the successor's current ring/focus (Spec 009 / Tool-Pair
+         ;; late-record consumer rule).
+         (when record
+           ;; Same detailed/coarse trailer pair as normal commits, delivered
+           ;; structurally: excluded from capture ownership and immune to a same-id
+           ;; B's frame-no-emit policy.
+           (trace/call-with-structural-delivery
+             #(assembly/emit-snapshotted+outcome! frame-id (:epoch-id record)
+                                                  (:event-id record) :halted-destroy))
+           (deliver-listener-snapshot! record listener-snapshot))
+         ;; PER-IDENTITY atomic-claim silencing (rf2-vxgfnd.285). Iterate the owed
+         ;; identities in a deterministic cb-id order so the linearizable claim
+         ;; sees a stable sequence. `claim-delayed-silence!` reserves the one
+         ;; signal atomically — rechecking current generation, FRESH live
+         ;; observers, and any existing mark, then writing the monotonic mark —
+         ;; BEFORE external delivery. Only a granted reservation emits; if the
+         ;; external delivery throws, the reservation is rolled back.
+         (doseq [[cb-id observed-gen] (sort-by (comp str key) silenced-cbs)]
+           (when-let [reserved (state/claim-delayed-silence!
+                                 frame-id cb-id observed-gen baseline-silence-seq)]
+             (try
+               ;; The silencing fact belongs to destroyed A too; never let a
+               ;; same-id successor's trace policy suppress or capture it.
+               (trace/call-with-structural-delivery
+                 #(trace/emit! :rf.epoch.cb :rf.epoch.cb/silenced-on-frame-destroy
+                               {:frame frame-id :cb-id cb-id}))
+               (catch #?(:clj Throwable :cljs :default) ex
+                 ;; Envelope delivery failed — release the reservation so the one
+                 ;; signal can be legitimately re-attempted, and let the fault
+                 ;; propagate contained.
+                 (state/rollback-delayed-silence! frame-id cb-id reserved)
+                 (throw ex))))))
+        (finally
+          ;; Close the deferred-silence window opened at snapshot time. When the
+          ;; frame's last outstanding predecessor resolves, its marks are reclaimed.
+          (state/close-silence-lineage! frame-id)))))))

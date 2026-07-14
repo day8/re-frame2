@@ -571,3 +571,90 @@
         (finally
           (rf/unregister-listener! :epoch cb)
           (rf/unregister-listener! :trace ::rf2-265-aba-silencing))))))
+
+;; ---- 10. rf2-vxgfnd.285 — exact / linearizable / bounded lineage -----------
+
+(defn- vxgfnd285-total-marks
+  "Count of `[frame cb]` terminal-silence marks currently retained."
+  []
+  (reduce + 0 (map count (vals (state/terminal-silence-marks-snapshot)))))
+
+(deftest vxgfnd285-trace-listener-rearming-later-identity-mid-fan-rechecked-cljs
+  (testing "rf2-vxgfnd.285 (reentrant CLJS, red before fix) — LINEARIZABLE. The
+            owed identities fan in a deterministic cb-id order; a trace listener
+            fired by the FIRST silence re-arms a LATER identity on a live
+            successor B synchronously mid-fan. Because eligibility is re-read
+            FRESH inside each per-identity claim, the re-armed identity is skipped.
+            A stale pre-loop observer set would miss the re-arm and wrongly
+            silence it."
+    (let [id         :rf2-285-rearm/frame
+          trigger    ::a-trigger            ; sorts first
+          target     ::z-target             ; sorts last
+          token-a    #js {}
+          token-b    #js {}
+          silencings (atom [])
+          silences-for (fn [cb] (count (filter #(= cb (:cb-id (:tags %))) @silencings)))]
+      (rf/register-listener! :epoch trigger (fn [_] nil))
+      (rf/register-listener! :epoch target (fn [_] nil))
+      (try
+        (state/claim-frame-owner! id token-a)
+        (epoch.listeners/notify-listeners! {:frame id :epoch-id 1})
+        (let [target-gen (:generation (get (state/listeners-snapshot) target))
+              a-ev       (epoch.listeners/snapshot-terminal-destroy-evidence! id nil nil nil)]
+          ;; Live successor B claims (dropping every observation); neither identity
+          ;; is a live observer at fan start.
+          (state/claim-frame-owner! id token-b)
+          (rf/register-listener! :trace ::rf2-285-rearm-silencing
+            (fn [ev]
+              (when (= :rf.epoch.cb/silenced-on-frame-destroy (:operation ev))
+                (swap! silencings conj ev)
+                (when (= trigger (:cb-id (:tags ev)))
+                  ;; Re-arm z-target on B mid-fan, before it is reached.
+                  (state/record-observation! target target-gen id)))))
+          (epoch.listeners/on-frame-destroyed! id token-a a-ev)
+          (is (= 1 (silences-for trigger)) "a-trigger — A-only — is silenced first")
+          (is (zero? (silences-for target))
+              "z-target — re-armed live mid-fan — is rechecked and skipped"))
+        (finally
+          (rf/unregister-listener! :epoch trigger)
+          (rf/unregister-listener! :epoch target)
+          (rf/unregister-listener! :trace ::rf2-285-rearm-silencing))))))
+
+(deftest vxgfnd285-lineage-marks-bounded-across-unique-frames-cljs
+  (testing "rf2-vxgfnd.285 (synchronous CLJS, red before fix) — BOUNDED. One
+            persistent callback observes and destroys many UNIQUE frame ids at the
+            epoch-state seam; each destroy's deferred window closes and reclaims
+            that frame's marks, so lineage storage returns to a constant (empty)
+            baseline rather than accreting a permanent tombstone per id."
+    (let [cb ::rf2-285-bounded-cb
+          n  1500]
+      (rf/register-listener! :epoch cb (fn [_] nil))
+      (try
+        (dotimes [i n]
+          (let [id    (keyword "rf2-285-bounded" (str i))
+                token #js {}]
+            (state/claim-frame-owner! id token)
+            (epoch.listeners/notify-listeners! {:frame id :epoch-id 1})
+            (epoch.listeners/on-frame-destroyed! id token
+              (epoch.listeners/snapshot-terminal-destroy-evidence! id nil nil nil))
+            (is (<= (vxgfnd285-total-marks) 1)
+                "at most one frame's marks are ever retained at once")))
+        (is (zero? (vxgfnd285-total-marks))
+            "after all destroys settle, lineage storage returns to a constant baseline")
+        (finally
+          (rf/unregister-listener! :epoch cb))))))
+
+(deftest vxgfnd285-reset-listeners-clears-silence-lineage-cljs
+  (testing "rf2-vxgfnd.285 (CLJS) — BOUNDED. A full listener wipe clears the
+            terminal-silence lineage too — the old reset-listeners! left a
+            tombstone per destroyed frame behind."
+    (let [id :rf2-285-reset/frame
+          cb ::rf2-285-reset-cb]
+      (rf/register-listener! :epoch cb (fn [_] nil))
+      ;; cb is owed (never a live observer of id), so the claim reserves a mark.
+      (state/open-silence-lineage! id)
+      (state/claim-delayed-silence! id cb (:generation (get (state/listeners-snapshot) cb)) 0)
+      (is (pos? (vxgfnd285-total-marks)) "a terminal-silence mark is present")
+      (state/reset-listeners!)
+      (is (zero? (vxgfnd285-total-marks))
+          "reset-listeners! clears the terminal-silence lineage, not just the registry"))))
