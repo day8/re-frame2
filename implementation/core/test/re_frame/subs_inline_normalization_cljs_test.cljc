@@ -12,10 +12,25 @@
   `:doc`, and the runtime-owned runnable slots win over any metadata that names
   them. A mutation restoring the direct `(assoc metadata …)` fails these rows.
 
+  rf2-vxgfnd.257 — normalize ONCE, and thread the authored descriptor id +
+  normalized metadata through the REAL image assembly. The `.219` parity above
+  called the lowerer directly; a residual defect only surfaced through the
+  assembled artifact: image assembly kept the descriptor's ORIGINAL RAW
+  `:metadata`, so a production image still carried `[:metadata :doc]` alongside
+  the doc-stripped top level; and the lowering hardcoded a synthetic
+  `:rf.image/inline-sub` id, so a retired/unknown-key diagnostic could not name
+  the author's subscription. The `production-assembly-*` and
+  `retired-key-diagnostic-*` deftests below drive `re-frame.image` +
+  `re-frame.image-assembly/lower-inline-descriptor` (the runnable descriptor a
+  frame resolves — NOT a direct `lower-inline-sub` call) and fail if the raw
+  metadata merge returns or the authored id is dropped.
+
   `.cljc` — the normalizer is host-agnostic, so this runs under both
   `clojure -M:test` (JVM) and `npm run test:cljs` (node CLJS)."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.subs :as subs]
+            [re-frame.image :as image]
+            [re-frame.image-assembly :as asm]
             [re-frame.registrar :as registrar]
             [re-frame.interop :as interop]
             [re-frame.test-support :as test-support]))
@@ -44,7 +59,7 @@
   (testing "public reg-sub and inline lower-inline-sub BOTH reject the retired
             `:spec` bare key with the same discriminator + named replacement"
     (let [pub    (caught-ex-data #(subs/reg-sub :norm/pub-retired {:spec [:map]} body))
-          inline (caught-ex-data #(subs/lower-inline-sub {:spec [:map]} body))]
+          inline (caught-ex-data #(subs/lower-inline-sub :norm/inline-retired {:spec [:map]} body))]
       (doseq [[label ed] [["public" pub] ["inline" inline]]]
         (testing label
           (is (some? ed) "must throw")
@@ -57,7 +72,7 @@
 (deftest bad-classification-hard-errors-on-inline-and-public
   (testing "public and inline BOTH reject a malformed `:sensitive` declaration"
     (let [pub    (caught-ex-data #(subs/reg-sub :norm/pub-badcls {:sensitive :wrong} body))
-          inline (caught-ex-data #(subs/lower-inline-sub {:sensitive :wrong} body))]
+          inline (caught-ex-data #(subs/lower-inline-sub :norm/inline-badcls {:sensitive :wrong} body))]
       (doseq [[label ed] [["public" pub] ["inline" inline]]]
         (testing label
           (is (some? ed) "must throw")
@@ -68,7 +83,7 @@
             top-level slot — the descriptor and registrar entry agree"
     (subs/reg-sub :norm/pub-cls {:sensitive [[:token]]} body)
     (let [pub-meta   (registrar/handler-meta :sub :norm/pub-cls)
-          inline-desc (subs/lower-inline-sub {:sensitive [[:token]]} body)]
+          inline-desc (subs/lower-inline-sub :norm/inline-cls {:sensitive [[:token]]} body)]
       (is (= [[:token]] (:sensitive pub-meta)))
       (is (= [[:token]] (:sensitive inline-desc))
           "inline descriptor carries the SAME classification declaration"))))
@@ -77,12 +92,12 @@
 
 (deftest doc-stripped-in-production-retained-in-dev-on-inline-path
   (testing "dev (default gate on) retains `:doc` for tooling / agent inspection"
-    (let [desc (subs/lower-inline-sub {:doc "kept in dev"} body)]
+    (let [desc (subs/lower-inline-sub :norm/inline-doc {:doc "kept in dev"} body)]
       (is (= "kept in dev" (:doc desc)))))
   (testing "production (gate off) strips `:doc` from the inline runnable
             descriptor, exactly as the public registrar does"
     (with-redefs [interop/debug-enabled? false]
-      (let [desc (subs/lower-inline-sub {:doc "elided in prod" :schema :int} body)]
+      (let [desc (subs/lower-inline-sub :norm/inline-doc {:doc "elided in prod" :schema :int} body)]
         (is (not (contains? desc :doc)) ":doc absent from the inline descriptor in prod")
         (is (= :int (:schema desc)) "a load-bearing key like :schema is retained")))))
 
@@ -91,7 +106,7 @@
 (deftest runtime-owned-slots-win-over-metadata
   (testing "the runnable slots are installed AFTER normalization, so metadata
             naming them cannot override the runtime-owned values"
-    (let [desc (subs/lower-inline-sub {:input-kind :parametric :input-signals [:x]} body)]
+    (let [desc (subs/lower-inline-sub :norm/inline-slots {:input-kind :parametric :input-signals [:x]} body)]
       (is (= body (:handler-fn desc)) ":handler-fn is the lowered impl")
       (is (= :db (:input-kind desc)) ":input-kind is the layer-1 :db, not the metadata's")
       (is (= [] (:input-signals desc)) ":input-signals is empty, not the metadata's"))))
@@ -99,5 +114,65 @@
 (deftest namespaced-extension-keys-survive-on-inline-path
   (testing "namespaced extension keys pass normalization untouched (the open-map
             carve-out), matching public reg-sub"
-    (let [desc (subs/lower-inline-sub {:myapp/analytics-id 7} body)]
+    (let [desc (subs/lower-inline-sub :norm/inline-ext {:myapp/analytics-id 7} body)]
       (is (= 7 (:myapp/analytics-id desc))))))
+
+;; ---------------------------------------------------------------------------
+;; rf2-vxgfnd.257 — through the REAL image assembly (not a direct lowerer call)
+;;
+;; `assemble-sub` drives `re-frame.image` → the image's `:rf.image/inline`
+;; descriptors → `image-assembly/lower-inline-descriptor`, i.e. the runnable
+;; descriptor a frame actually resolves. These are the fixtures a mutation that
+;; restores the raw-metadata merge, or drops the authored id, must fail.
+;; ---------------------------------------------------------------------------
+
+(defn- assemble-sub
+  "Assemble ONE inline `:reg-sub` through the LIVE image + assembly-side lowering
+  and return its runnable descriptor. `metadata` nil uses the 2-tuple form."
+  [id metadata body]
+  (-> (image/image
+        {:id            :norm/inline-image
+         :registrations {:reg-sub [(if (nil? metadata) [id body] [id metadata body])]}})
+      :rf.image/inline
+      first
+      asm/lower-inline-descriptor))
+
+(deftest production-assembly-strips-doc-from-top-level-and-nested-metadata
+  (testing "dev — the authored `:doc` survives at BOTH the top level and under the
+            nested `:metadata` of the assembled image descriptor"
+    (let [d (assemble-sub :counter/value {:doc "author note" :schema :int} body)]
+      (is (= "author note" (:doc d)) "top-level :doc retained in dev")
+      (is (= "author note" (get-in d [:metadata :doc]))
+          "nested [:metadata :doc] retained in dev")
+      (is (= :counter/value (:id d)) "authored id survives assembly")))
+  (testing "production (gate off) — the assembled image carries NO `:doc` at the
+            top level OR under nested `:metadata`; load-bearing keys are retained"
+    (with-redefs [interop/debug-enabled? false]
+      (let [d (assemble-sub :counter/value {:doc "author note" :schema :int} body)]
+        (is (not (contains? d :doc)) "no top-level :doc in a production image")
+        (is (not (contains? (:metadata d) :doc))
+            "no dev-only :doc under nested [:metadata …] in a production image")
+        (is (= :int (:schema d)) "load-bearing :schema retained at top level")
+        (is (= :int (get-in d [:metadata :schema]))
+            "and consistently under the normalized nested :metadata")))))
+
+(deftest production-assembly-doc-only-metadata-drops-the-nested-map
+  (testing "a doc-ONLY inline sub normalizes to empty metadata in production, so
+            the assembled descriptor carries neither :doc nor a stale raw
+            :metadata map"
+    (with-redefs [interop/debug-enabled? false]
+      (let [d (assemble-sub :counter/note {:doc "only a note"} body)]
+        (is (not (contains? d :doc)))
+        (is (not (contains? (:metadata d) :doc)))
+        (is (= body (:handler-fn d)) "the runnable slot is still installed")))))
+
+(deftest retired-key-diagnostic-names-the-authored-inline-id
+  (testing "a retired `:spec` key on an inline sub fails at REAL assembly naming
+            the AUTHORED id (`:counter/value`), not a synthetic
+            `:rf.image/inline-sub`"
+    (let [ed (caught-ex-data #(assemble-sub :counter/value {:spec [:map]} body))]
+      (is (some? ed) "assembly must throw on the retired key")
+      (is (= :rf.error/retired-registration-key (:rf.error/id ed)))
+      (is (= :counter/value (:id ed))
+          "the diagnostic names the author's subscription, not a synthetic id")
+      (is (= :schema (:replacement ed)) "still names the v2 replacement key"))))
