@@ -29,7 +29,9 @@ keep the shared markup outside.
 ## Rendering a page
 
 Server lifecycle is standard re-frame2 SSR: per-request frames, drain `:initial-events`,
-render (a tree walk — fast, no JS engines), respond, teardown.
+render (a tree walk — fast, no JS engines), respond, teardown. (The request-to-response
+glue — routing the request into a frame and the render into a response — ships as the
+`ssr-ring` ecosystem adapter; this page covers everything the view layer itself owns.)
 
 ## Roots and frames — two different things
 

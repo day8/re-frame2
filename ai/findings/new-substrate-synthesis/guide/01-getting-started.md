@@ -10,10 +10,9 @@
 ```
 
 `package.json` carries `react` and `react-dom` — nothing else. No Reagent, no UIx, no
-Helix. The published artifact's peer floor is planned as React 19.2.4+; the reference
-implementation today builds and tests against a 19.2.0 pin
-(`implementation/package.json`), and the floor takes effect when the artifact's peer
-contract ships with it.
+Helix. (The published artifact's peer floor is planned as React 19.2.4+; the reference
+implementation currently builds against a 19.2.0 pin, and the floor takes effect when
+the artifact's peer contract ships with it.)
 
 The compiler owns one whole-build view digest. For Shadow 3.4.10, configure its two
 load-bearing settings once (not once per build):
@@ -27,16 +26,19 @@ load-bearing settings once (not once per build):
  }
 ```
 
-On a daemon's version-zero pass, the hook clears retained output for UI macro consumers;
-the cache blocker then prevents a stale disk-cache reload, so those macros reconstruct the
-accepted registry. Later output-present cache hits stay warm. The hook carries a candidate
-digest in Shadow's returned functional build-state and patches the dev client carrier;
-Shadow accepts both only when the complete configured build/watch pass succeeds. Omitting
-either can produce an incomplete compiler view of the build, so a misconfigured dev bundle
-fails loudly instead of hydrating or debugging against a false identity. Direct
-unsaved REPL evaluation may replace a view body but does not change the build digest until
-the source is saved and the next pass completes. All of this machinery disappears from
-advanced production output.
+Both settings serve one contract: the compiler keeps a single, truthful, whole-build
+picture of your views (the *build digest*), across daemon restarts, cached builds, and
+hot reloads. Forget one and the failure is loud, not subtle — a misconfigured dev
+bundle refuses to hydrate or debug against a false identity rather than doing so
+silently. One habit worth knowing early: evaluating a view directly in the REPL
+repaints it, but the digest only advances when you save and the next watch pass
+completes. What the digest is and why the cache needs blocking is
+[11 — How it works](11-how-it-works.md); none of this machinery reaches advanced
+production output.
+
+A minimal project is four files: `deps.edn` and `shadow-cljs.edn` at the root
+(configured above), your app namespace under `src/`, and an `index.html` with a
+`<div id="root">`. Nothing else is load-bearing.
 
 ## The whole app
 
@@ -82,12 +84,13 @@ Three things carry the whole model:
    edits. No provider → `sub` raises `:rf.error/no-frame-context`; the runtime never
    guesses.
 
-> **Stage note.** The compiled template, the props model, and the mount grammar are
-> Stage 1; the reactive read loop — `sub` re-rendering the view, `frame-root`'s runtime
-> ENSURE, the `ui/adapter` you hand `rf/init!` — shipped with the S2 reactive core. All
-> of it is on main today. What's left is the button: committed dispatch from compiled
-> handler sites *(lands S3 — committed handlers)* — until then the vector is data you
-> can read and assert, and tests drive state with `ui.test/dispatch!`.
+> **Stage note.** Everything above is on main today except the button itself —
+> committed dispatch from compiled handler sites *(lands S3 — committed handlers)*.
+> Until then, **you are the click**: the live loop shipped with S2, so drive it
+> yourself — dispatch from your REPL or your AI pair against the running frame, or in
+> a test with `(ui.test/dispatch! frame [:count/inc])` — and watch the view repaint.
+> That's the deepest fact about this library, met early: the UI is an event stream,
+> and a button is just one of the emitters.
 
 One more default worth knowing: this single-root page needed no root identity — the
 root id derives from the mounted view. When a page mounts the same view twice, or you
@@ -101,11 +104,12 @@ needs no DOM, no browser, no flake — it runs on the JVM in your watch loop:
 ```clojure
 (ns my.app-test
   (:require [clojure.test :refer [deftest is]]
+            [re-frame.core :as rf]
             [re-frame.ui.test :as ui.test]
             [my.app :as app]))
 
 (deftest counter-carries-intent
-  (let [frame (ui.test/frame {:app-db {:count 3}})
+  (let [frame (rf/make-frame {:initial-events [[:rf/set-db {:count 3}]]})
         tree  (ui.test/render [app/counter] {:frame frame})]
     (is (= [:count/inc] (-> tree (ui.test/find :button) ui.test/attrs :on-click)))
     (is (= "+"          (-> tree (ui.test/find :button) ui.test/text)))))
@@ -113,7 +117,10 @@ needs no DOM, no browser, no flake — it runs on the JVM in your watch loop:
 
 Two ground rules, both cheap: the events/subs a view touches must be `.cljc` (they run
 on the JVM here — standard re-frame discipline anyway), and attribute reads go through
-`ui.test/attrs`, never keyword lookup on the node. The full testing story is
+`ui.test/attrs`, never keyword lookup on the node. And notice there is no test-only
+frame constructor: `rf/make-frame` with `:initial-events` is how every frame begins,
+and `[:rf/set-db {…}]` is the framework's standard seeding event for when a test wants
+a specific starting state. The full testing story is
 [09](09-testing.md). This test runs on main today, `sub` site included — the Tier-1
 harness shipped at Stage 1, and the snapshot path that lets a headless render resolve
 subscriptions arrived with the S2 reactive core.

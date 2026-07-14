@@ -9,8 +9,9 @@ A view has four inputs, each with one spelling:
 | Ephemeral, mine, gone on unmount? | `(local initial)` |
 | Keep a resource alive while I'm visible? | `(lease descriptor)` |
 
-There is no fifth. No ratoms, cursors, reactions, or external stores — state that matters
-lives in app-db where events, time-travel, Story, and Xray can see it.
+There is no fifth — and that's the feature. No ratoms, cursors, reactions, or external
+stores: state that matters lives in app-db, where events, time-travel, Story, and Xray
+can all see it.
 
 ## Subscriptions: `sub`
 
@@ -48,6 +49,10 @@ lives in app-db where events, time-travel, Story, and Xray can see it.
 - Keep real computation in `reg-sub` (shared, cached, Xray-visible, JVM-testable); views
   do presentation math only.
 
+> **See it live.** Mount any view from this page and open Xray's inspector on it: the
+> Dependencies panel's static column is exactly the `sub` sites you just wrote,
+> readable before a single event fires. *(The inspector's causal surfaces land S3.)*
+
 ## Local state: `local` *(lands S3)*
 
 ```clojure
@@ -58,8 +63,9 @@ lives in app-db where events, time-travel, Story, and Xray can see it.
      [:button {:on-click [:search/run text]} "Search"]]))
 ```
 
-`(local initial)` → `[value set!]`. Re-renders this view only; host state underneath; not
-time-travelled — deliberately.
+`(local initial)` returns the current value and a setter. Setting it re-renders this
+view only. The value lives in host state underneath — deliberately outside app-db, so
+it is never time-travelled.
 
 **The doctrine (read twice):** `local` is for keystroke-latency ephemera — uncommitted
 input text, an open/closed disclosure, hover. Handlers in the same view may read it —
@@ -124,3 +130,10 @@ a hidden tile holds nothing alive — while a `lease` inside a loop is a compile
 with the same fix (extract a keyed child view). Rule of thumb:
 loading that belongs to navigation or workflow rides route/event resource plans; `lease`
 is for liveness that genuinely follows visible UI — dashboard tiles, hover cards, modals.
+
+Two pointers to keep this section honest. The status vocabulary shown is the common
+subset — the full enum (`:idle` included) and the query map's `:scope` key are
+Spec 016's. And nothing on this page *fetches*: the resource system does. Leases only
+declare that somebody is watching; how data actually arrives — effects, transports,
+the events they dispatch — is core re-frame2 dataflow (the core guide, `docs/core/`),
+and [10](10-worked-app.md) shows the seam from the view side.

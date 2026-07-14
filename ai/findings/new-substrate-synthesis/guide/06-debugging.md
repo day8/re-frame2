@@ -70,10 +70,13 @@ Errors fire at the earliest moment the mistake exists, and every message names t
 - **When they run:** `set!` during render; dispatch during render; `dispatch-fn` after
   disconnect (your leaked listener, found).
 
-The runtime ids are catalogued (Spec 009) and greppable — no bespoke console prose:
+The runtime ids are catalogued in the spec — Spec 004 owns the view-layer ids,
+Spec 009 the runtime-wide ones — and greppable, no bespoke console prose:
 `:rf.error/no-frame-context`, `:rf.error/dispatch-disconnected`,
 `:rf.warning/unregistered-event-id`, `:rf.warning/placeholder-in-dynamic-vector`,
-`:rf.warning/render-phase-dispatch` / `-set!`. One catalogue for the whole library.
+`:rf.warning/render-phase-dispatch` / `-set!`. One catalogue for the whole library;
+each id ships with its feature's stage (the `dispatch-fn` and registrar-check ids
+arrive with S3).
 
 ## The programmatic surface: `re-frame.ui.tool` *(lands S3 — dev-only)*
 
@@ -83,6 +86,27 @@ sites, leases, straight from the compiler, before any mount), `mounted-views` (w
 live right now), `explain-render` (the causes behind a commit), and
 `view-dependencies` / `view-event-sites` (the two halves of the inspector's panels).
 Tool tier: provably absent from production bundles, like the rest of this page.
+
+It's REPL-shaped on purpose — ask a view what it can do before anything is mounted:
+
+```clojure
+;; guide:no-fixture — schematic; the ruled fields, lands S3 with the tool namespace
+(require '[re-frame.ui.tool :as tool])
+(tool/view-manifest my.app/counter)
+;; => its subs, event sites, and leases — straight from the compiler
+```
+
+## Pairing with an AI on the live app
+
+Everything above is machine-readable on purpose. The repo's Pair tooling
+(`re-frame2-pair` and its MCP server) attaches to your running app and consumes the
+same surfaces this page describes: ask *"why did that tile just re-render?"* and the
+pair reads the causes; hand it a bug and it dispatches the events, reads the epoch
+history, hot-swaps the fix, scrubs back, and replays. A session against
+[10](10-worked-app.md)'s dashboard is the fastest way to *feel* why intent-as-data
+matters — the AI is only that useful because your buttons say what they do. (The Pair
+rides the core Tool-Pair contract, live today; the UI-substrate surfaces it reads —
+causes, manifests — deepen with S3.)
 
 ## React DevTools & profiler
 

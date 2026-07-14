@@ -26,6 +26,11 @@ splicing, the sync door, `ui/event`/`ui/handler` semantics — lands S3.)*
 - **Fast** — vectors are values: no per-render closure churn, and props stay honestly
   comparable, which keeps memoization working ([07](07-performance.md)).
 
+> **See it live.** The vectors are on the rendered tree today — assert one headlessly
+> ([09](09-testing.md)), or hover the element in Xray's inspector and read it before
+> any click; your AI pair reads the same surface over MCP. *(Xray's UI-substrate
+> panels land S3.)*
+
 ## Payloads: placeholders (three, all scalars)
 
 ```clojure
@@ -124,11 +129,15 @@ testable:
 
 ```clojure
 (deftest plan-select-carries-intent
-  (let [frame (ui.test/frame {:app-db {:signup {:plan "free"}}})
+  (let [frame (rf/make-frame {:initial-events [[:signup/init]]})
         tree  (ui.test/render [signup-form] {:frame frame})]
     (is (= [:signup/set :plan :rf.ui/value]
            (-> tree (ui.test/find :select) ui.test/attrs :on-change)))))
 ```
+
+The frame is minted the one way every frame is — `rf/make-frame` — and initialised by
+the form's own `[:signup/init]`, so the fixture can never drift from what the app
+actually boots.
 
 *(This test runs on main today — a Tier-1 render resolves its `sub` sites against the
 frame you minted.)*
@@ -209,7 +218,9 @@ There is deliberately no `:on-mount`. React mounts, replays, hides, and restores
 components for mechanical reasons (StrictMode, Activity, HMR, error recovery) — "the
 user viewed this" cannot be inferred from them. Dispatch domain visibility from domain
 transitions (the route's `:on-match`, a machine state, the event that opened the modal);
-synchronize with the host world in `(effect …)` ([03](03-state.md)).
+synchronize with the host world in `(effect …)` ([03](03-state.md)). (Window-level
+listeners — global keyboard shortcuts, `error` events — are the same story one page
+over: an `effect` plus a held dispatch, [05](05-frames.md)'s `error-reporter`.)
 
 ## Safety nets
 

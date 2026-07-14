@@ -58,6 +58,10 @@ exactly one mounted view, which is why the mount above spells out `:page/home`.
 each root fails or hydrates independently ([08](08-ssr.md)). And you can mount one app N
 times side-by-side (each instance its own frame universe) for comparison demos and tests.
 
+> **See it live.** Mount the two-frame page, open Xray, and dispatch into `:shop` —
+> its epoch counter advances while `:assist` sits still. Frame isolation isn't a
+> promise to trust; it's something you can watch.
+
 ## Holding a frame: `(frame)`
 
 Data handlers and `sub` mean typical views never touch the frame directly. For the rare
