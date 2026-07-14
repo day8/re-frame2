@@ -19,8 +19,10 @@ This is also why the template grammar is closed. A dynamic tag head, an unkeyed 
 a `sub` inside a loop, an unaudited macro in expression position — each would put
 something into your view the compiler cannot see through, and everything downstream
 (the manifest, the memo comparators, the server emitter, Xray's static inspector)
-depends on the compiler seeing the whole template. The loud compile errors in
-[02](02-views.md) are not taste; they are the price of the machinery on this page.
+depends on the compiler seeing the whole template. The loud compile errors are not
+taste; they are the price of the machinery on this page. The practical catalogue —
+what is illegal, what to write instead, and the explicit escapes — is
+[14 — What the compiler forbids](14-compile-time-limits.md).
 
 Because the interesting work happens at compile time, your bundle contains no hiccup
 walker, no tag parser, no runtime prop converter on compiled paths — there is no
