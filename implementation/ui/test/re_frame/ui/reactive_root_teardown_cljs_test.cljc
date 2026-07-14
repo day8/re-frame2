@@ -339,6 +339,47 @@
       (is (= 2 (reactive/root-cell-count inc-b))
           "both B cells still owned by B — A's teardown claimed neither"))))
 
+(deftest explicit-teardown-requires-positive-incarnation-evidence-not-absence
+  ;; rf2-vxgfnd.251 — an explicit teardown must reap ONLY cells whose root is
+  ;; IDENTICAL to the named incarnation (positive ownership evidence), never a
+  ;; captured cell that merely LACKS ownership evidence. A re-entrant cleanup
+  ;; disconnects BOTH root A's attached cell AND an unrelated UNATTACHED
+  ;; (nil-root, reconnectable) cell inside A's window. Pre-fix, `teardown-root!`
+  ;; kept every nil-root captured cell (absence-of-a-known-different-root was
+  ;; read as ownership), so the bystander was force-dead. A must be reaped; the
+  ;; unattached sibling must stay alive and reconnectable with unchanged lease.
+  (rf/reg-sub :rt/a (fn [db _] (:a db)))
+  (let [fid    (make-frame! :rt/frame {:a 1})
+        inc-a  (reactive/make-root-incarnation)
+        cell-a (mount! ::a inc-a fid [[:rt/a]])
+        ;; an unattached cell: connected + observing, but NEVER attach-root! —
+        ;; a bare/reconnectable cell not owned by any provider incarnation
+        bare   (render+commit! (reactive/make-cell ::bare) fid [[:rt/a]])]
+    (is (= :connected (reactive/lifecycle cell-a)))
+    (is (= :connected (reactive/lifecycle bare)))
+    (is (nil? (reactive/cell-root bare)) "the bystander carries NO root ownership")
+    (is (= 1 (reactive/teardown-root!
+              inc-a
+              (fn []
+                (reactive/disconnect! cell-a)
+                ;; re-entrant: the unrelated unattached cell disconnects too
+                (reactive/disconnect! bare))))
+        "exactly ONE cell reaped — A's attached cell — not the nil-root bystander")
+    (is (= :dead (reactive/lifecycle cell-a)) "the correctly-attached A cell is reaped")
+    (testing "the unattached bystander is NOT force-dead — a reconnectable hide"
+      (is (not= :dead (reactive/lifecycle bare))
+          "explicit teardown must not kill a captured cell it cannot prove it owns")
+      (is (= :disconnected (reactive/lifecycle bare)) "left a plain reconnectable hide"))
+    (testing "the bystander reconnects cleanly and reacquires its lease"
+      (reactive/settle-disconnect! bare)
+      (render+commit! bare fid [[:rt/a]])
+      (is (= :connected (reactive/lifecycle bare)) "reconnected, never :dead")
+      (is (= 1 (ref-count fid [:rt/a])) "reacquired a live lease — never disposed")
+      (is (= 1 (first (rf/with-frame fid
+                        (reactive/with-capture bare
+                          (fn [] (reactive/sub-read ::site [:rt/a]))))))
+          "reads live through the real observation port"))))
+
 (deftest legacy-one-arity-still-reaps-siblings-via-captured-incarnation
   ;; The one-arity path is UNCHANGED (rf2-vxgfnd.85): with no explicit
   ;; incarnation, a window-captured cell's own incarnation still reaps its

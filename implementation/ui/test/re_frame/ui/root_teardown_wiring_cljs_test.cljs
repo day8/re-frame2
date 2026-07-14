@@ -55,7 +55,14 @@
   (frame/replace-app-db! :rtw/frame {:a 1})
   (let [cell (connected-cell! :rtw/frame [[:rtw/a]])
         ;; the host `.unmount` fires the cell's cleanup, as React does
-        root (register! :rtw/root #(reactive/disconnect! cell))]
+        root (register! :rtw/root #(reactive/disconnect! cell))
+        inc  (:root-incarnation (client/live-root-entry :rtw/root))]
+    ;; Attach the cell to the REAL root incarnation, exactly as the production
+    ;; lifecycle effect does (rf2-vxgfnd.251): the explicit-incarnation teardown
+    ;; reaps ONLY cells that carry positive ownership of the named root, so this
+    ;; wiring fixture must own its cell rather than lean on the retired nil-root
+    ;; exception.
+    (reactive/attach-root! cell inc)
     (is (= :connected (reactive/lifecycle cell)) "precondition: mounted + connected")
     (is (= #{:rtw/root} (client/live-root-ids)) "precondition: root is live")
     (is (nil? (client/unmount!* root)) "unmount!* returns nil")
