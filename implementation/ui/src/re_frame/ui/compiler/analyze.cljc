@@ -342,29 +342,98 @@
   [k]
   (and (keyword? k) (contains? #{"keys" "strs" "syms"} (name k))))
 
-(defn- binding-map-units
-  "The associative-destructuring binding units of `pattern`, in the host's
-  `bes` evaluation order: explicit `{local-pattern key-expr}` entries in source
-  order FIRST, then `:keys`/`:strs`/`:syms` expansions (that host order — the
-  `:or`/`:as` markers dissoc out and the group forms assoc their entries at the
-  tail). Each unit is `{:local-pattern p :key-expr e|nil}`; `key-expr` is the
-  EVALUATED lookup-key expression of an explicit entry (nil for the group
-  forms, whose keys are literals). The units are consumed in order so each
-  binding's default/lookup-key is judged against the scope established BEFORE
-  it — never against a symbol the same pattern binds later."
+(defn- key-group-directive-fn
+  "The lookup-key transform host `destructure` applies to a `:keys`/`:strs`/
+  `:syms` group directive `mk` (any namespace). This is the SHARED CLJ/CLJS
+  transform — both hosts run `destructure` on the JVM at macro-expansion time —
+  reproduced verbatim so the produced key (and, through it, the map's iteration
+  order) matches the host exactly."
+  [mk]
+  (let [mkns (namespace mk)]
+    (case (name mk)
+      "keys" #(keyword (or mkns (namespace %)) (name %))
+      "syms" #(list 'quote (symbol (or mkns (namespace %)) (name %)))
+      "strs" str)))
+
+(defn- assoc-binding-units
+  "The associative-destructuring binding units of map `pattern`, in the EXACT
+  host `destructure` `bes` order — the ONE canonical, host-faithful binding
+  plan (`reject-reactive-binding!` scope checking and the CLJS header emitter
+  both consume it, so neither can drift from the other or from the host).
+
+  It reproduces `destructure`'s remaining-bindings transformation rather than
+  invoking a general macroexpander: start from `(dissoc pattern :as :or)`, then
+  for each group directive — in the order it appears in the pattern's keys —
+  `dissoc` the directive and `assoc` each expanded local exactly as the host
+  does, and read the units off `(seq bes)` in the resulting map-iteration order.
+  Small patterns stay a `PersistentArrayMap` (insertion order); at nine or more
+  remaining bindings the host promotes to a `PersistentHashMap` and the order
+  becomes hash-driven. Because every host computes this on the JVM the 8→9
+  threshold and the hash order are identical on CLJ and CLJS, so reproducing the
+  transform here is faithful to both.
+
+  `:as` is NOT included — it binds first, before `bes`, so the caller seeds it
+  into scope. Each unit is `{:local-pattern p :key-expr e}`: for an explicit
+  `{p key-expr}` entry `p` is the local pattern and `key-expr` its EVALUATED
+  lookup-key expression; for a group local `p` is the simple symbol and the key
+  is the produced literal (a keyword/string/quoted symbol — never a reactive
+  escape). The units are consumed in order so each binding's default/lookup-key
+  is judged against the scope established BEFORE it — never against a symbol the
+  same pattern binds later, and never in an order the host would not use."
   [pattern]
-  (let [explicit (for [[k v] pattern
-                       :when (not (or (= k :or) (= k :as) (key-group-kw? k)))]
-                   {:local-pattern k :key-expr v})
-        rank     {"keys" 0 "strs" 1 "syms" 2}
-        grouped  (->> pattern
-                      (filter (fn [[k _]] (key-group-kw? k)))
-                      (sort-by (fn [[k _]] (rank (name k))))
-                      (mapcat (fn [[_ syms]]
-                                (map (fn [s] {:local-pattern (symbol (name s))
-                                              :key-expr nil})
-                                     syms))))]
-    (concat explicit grouped)))
+  (let [start      (dissoc pattern :as :or)
+        transforms (reduce (fn [t k] (if (key-group-kw? k) (assoc t k true) t))
+                           {} (keys pattern))
+        explicit   (set (keys (reduce dissoc start (keys transforms))))
+        bes        (reduce
+                    (fn [bes [mk _]]
+                      (let [f (key-group-directive-fn mk)]
+                        (reduce (fn [b s] (assoc b s (f s)))
+                                (dissoc bes mk)
+                                (get bes mk))))
+                    start
+                    transforms)]
+    (for [[bb bk] bes]
+      (if (contains? explicit bb)
+        {:local-pattern bb :key-expr bk}
+        {:local-pattern (symbol (name bb)) :key-expr nil}))))
+
+(defn- check-portable-map-shape!
+  "Reject the nonportable associative-destructuring shapes the host tolerates
+  but that bind ambiguously across analysis and emission (or across CLJ/CLJS):
+  a keyword or namespace-qualified EXPLICIT local, and a composite (non-simple-
+  symbol) `:or` key. The host strips the namespace off a qualified local and
+  binds a keyword local name-only, while the analyzer's scope walk keeps the
+  written form — a divergence that can mis-lower a reactive read. A composite
+  `:or` key never matches a bound local, so its default is silently dead. We
+  close the portable grammar to simple-symbol (and nested) locals with the
+  shared typed unsupported-form error rather than reproducing those shapes."
+  [e pattern]
+  (doseq [[k _] pattern]
+    (cond
+      (or (= k :as) (= k :or) (key-group-kw? k)) nil
+
+      (keyword? k)
+      (env/fail! e :rf.ui.compile/unsupported-form
+                 (str "keyword destructuring local " k " is not portable — an "
+                      "explicit binding local must be a simple symbol (or a "
+                      "nested destructuring pattern). Bind {a-symbol " k "}")
+                 {:form pattern :key k})
+
+      (and (symbol? k) (namespace k))
+      (env/fail! e :rf.ui.compile/unsupported-form
+                 (str "namespace-qualified destructuring local " k " is not "
+                      "portable — the host binds it name-only while analysis "
+                      "keeps the namespace, so a reactive read can mis-lower. "
+                      "Use the simple symbol " (symbol (name k)))
+                 {:form pattern :key k})))
+  (doseq [k (keys (:or pattern))]
+    (when-not (and (symbol? k) (nil? (namespace k)))
+      (env/fail! e :rf.ui.compile/unsupported-form
+                 (str ":or default key " (pr-str k) " is not a simple symbol — "
+                      "the host only defaults simple-symbol locals, so this "
+                      "default is dead. Default a bound symbol")
+                 {:form pattern :or-key k}))))
 
 (defn- reject-binding-escape!
   "Reject a reactive authoring escape reaching ONE evaluated destructuring
@@ -425,24 +494,28 @@
             :else     (recur (check-binding-scope! e scope x) (next xs))))))
 
     (map? pattern)
-    ;; Associative destructuring. `:as` binds the whole map FIRST (host order),
-    ;; so it is in scope for every key default. Then the key bindings are
-    ;; established sequentially (`binding-map-units` order): each key's default
-    ;; AND each explicit lookup-key expression is evaluated against the scope
-    ;; BEFORE that key's own local is bound — the local is added only after.
-    (let [defaults (:or pattern)
-          scope    (cond-> scope (:as pattern) (conj (:as pattern)))]
-      (reduce
-       (fn [scope {:keys [local-pattern key-expr]}]
-         (when key-expr
-           (reject-binding-escape! e scope "destructuring lookup-key expression"
-                                   pattern key-expr))
-         (when (and (symbol? local-pattern) (contains? defaults local-pattern))
-           (reject-binding-escape! e scope "destructuring :or default"
-                                   pattern (get defaults local-pattern)))
-         (check-binding-scope! e scope local-pattern))
-       scope
-       (binding-map-units pattern)))
+    ;; Associative destructuring. Close the portable grammar first, then thread
+    ;; scope in host `destructure` order. `:as` binds the whole map FIRST (host
+    ;; order), so it is in scope for every key default. Then the key bindings are
+    ;; established sequentially (`assoc-binding-units` = the host `bes` order):
+    ;; each key's default AND each explicit lookup-key expression is evaluated
+    ;; against the scope BEFORE that key's own local is bound — the local is
+    ;; added only after, and never in an order the host would not use.
+    (do
+      (check-portable-map-shape! e pattern)
+      (let [defaults (:or pattern)
+            scope    (cond-> scope (:as pattern) (conj (:as pattern)))]
+        (reduce
+         (fn [scope {:keys [local-pattern key-expr]}]
+           (when key-expr
+             (reject-binding-escape! e scope "destructuring lookup-key expression"
+                                     pattern key-expr))
+           (when (and (symbol? local-pattern) (contains? defaults local-pattern))
+             (reject-binding-escape! e scope "destructuring :or default"
+                                     pattern (get defaults local-pattern)))
+           (check-binding-scope! e scope local-pattern))
+         scope
+         (assoc-binding-units pattern))))
 
     :else scope))
 
@@ -468,6 +541,18 @@
   [e binding-form]
   (check-binding-scope! e (:locals e) binding-form)
   binding-form)
+
+(defn header-binding-order
+  "The explicit/group local-patterns of a defview header map `binding-form`, in
+  host `destructure` `bes` order (`:as` excluded — it binds first). The CLJS
+  header emitter consumes this so its property-read bindings land in the same
+  order the JVM native destructuring would use; a dependent `:or` default then
+  resolves to the same symbol on both hosts and no public authoring var can
+  survive through a reordered default. One plan (`assoc-binding-units`), both
+  emitters. Returns nil for a non-map header (`[sym]` ≡ `{:as sym}`)."
+  [binding-form]
+  (when (map? binding-form)
+    (mapv :local-pattern (assoc-binding-units binding-form))))
 
 (defn rewrite-expr
   "Rewrite an opaque expression, lowering resolved unshadowed `(sub q)` calls
