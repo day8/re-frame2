@@ -661,12 +661,31 @@
   any timer that fires between destroy and host-clock teardown; this
   helper releases the host-clock handle eagerly and emits the trace
   so the Xray Handler section can attribute the cancel to the actor's
-  destroy event."
-  [frame-id parent-id]
-  (when (and frame-id parent-id)
-    (doseq [[k _entry] (vec (get @after-timers frame-id))
-            :when (= parent-id (:parent k))]
-      (cancel-after-timer-entry! frame-id k :on-destroy))))
+  destroy event.
+
+  rf2-4ipqe4 — each `:rf.machine.timer/cancelled` emit is CALLBACK-BEARING:
+  a listener can synchronously destroy the finishing actor's owning frame
+  incarnation A and publish a same-id successor B ON THE FIRST CANCELLATION's
+  own stack. The cancellation loop reads each key's LIVE entry (so a stale
+  snapshot key whose slot B re-armed under a new token would be cancelled
+  against B) and the destroy tail that follows this call (classification /
+  spawn-order / system-id release) resolves bare frame/actor ids to the
+  CURRENT incarnation B. The optional `owner-gone?` predicate (the finalize
+  cascade's exact-incarnation gate) is rechecked BEFORE each snapshotted
+  cancellation, so once the first cancellation loses A the loop short-circuits
+  and never cancels B's timer. `owner-gone?` is MONOTONIC (once A→B it stays
+  gone). The 2-arity (the imperative `destroy` tail, which carries no event
+  owner) passes `(constantly false)` — unfenced, its historical behaviour."
+  ([frame-id parent-id]
+   (cancel-actor-timers! frame-id parent-id (constantly false)))
+  ([frame-id parent-id owner-gone?]
+   (when (and frame-id parent-id)
+     (loop [ks (->> (vec (get @after-timers frame-id))
+                    (into [] (comp (filter (fn [[k _]] (= parent-id (:parent k))))
+                                   (map first))))]
+       (when (and (seq ks) (not (owner-gone?)))
+         (cancel-after-timer-entry! frame-id (first ks) :on-destroy)
+         (recur (subvec ks 1)))))))
 
 (defn cancel-all-timers!
   "Cancel every in-flight :after timer the runtime is currently tracking
