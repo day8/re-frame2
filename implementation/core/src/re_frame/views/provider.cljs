@@ -248,7 +248,8 @@
   never repairs absence). The two tiers it observes:
 
     1. Dynamic var (set by with-frame).
-    2. Closest enclosing frame-provider via React context.
+    2. Closest enclosing frame boundary — a `frame-provider` (SCOPE) or
+       `frame-root` (ENSURE) — via React context.
 
   Reagent-specific: the React-context tier reads `(.-context cmp)` on
   the in-flight Reagent component. Reagent's class-component machinery

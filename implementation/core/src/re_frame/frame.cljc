@@ -297,13 +297,17 @@
 
     1. `*current-frame*` (dynamic var) — set by `with-frame` / `bind-fn`
        (INTERNAL) / the router's per-handler binding.
-    2. The closest enclosing frame-provider via React context (CLJS).
+    2. The closest enclosing frame boundary — a `frame-provider` (SCOPE)
+       or `frame-root` (ENSURE) — via React context (CLJS). Both install
+       the shared boundary context; the no-provider sentinel appears only
+       beneath neither.
 
   On CLJS this consults the `:adapter/current-frame` late-bind hook so
   the React-context tier is LIVE — adapters publish their React-context-
   aware impl through the hook at ns-load time. That impl returns nil when
-  neither the dynamic var nor an enclosing Provider names a frame (the
-  Provider default is the no-provider sentinel, per Spec 002 §`:rf/default`
+  neither the dynamic var nor an enclosing frame boundary (`frame-provider`
+  or `frame-root`) names a frame (the React-context default is the
+  no-provider sentinel, per Spec 002 §`:rf/default`
   is an ordinary id). When the hook is unbound (no adapter loaded yet, or JVM build)
   the result is `current-frame` — the dynamic-var tier alone; the React-
   context tier silently no-ops to nil.
@@ -589,8 +593,8 @@
   explicit frame binding rather than through `capture-frame`'s op bundle.
   The returned fn dispatches / reads into `frame` even when invoked after
   the caller's own dynamic / React-context scope has unwound (the async-
-  boundary case `with-frame` / a frame-provider cannot cover). NOT an
-  app-facing surface."
+  boundary case `with-frame` / a `frame-provider` / `frame-root` cannot
+  cover). NOT an app-facing surface."
   [frame f]
   (fn [& args]
     (binding [*current-frame* frame]
