@@ -446,6 +446,29 @@
    :rf.route.nav-token/stale-suppressed    :stale-suppressed
    :rf.machine.timer/stale-after           :stale-suppressed
    :rf.http/stale-suppressed               :stale-suppressed
+   ;; rf2-hj4skn — the `:spawn-all` join's TWO exact-authority stale rows
+   ;; (005 §`:spawn-all` join-child completion / 009 §op-type vocabulary):
+   ;;   - `:rf.machine.spawn-all/stale-completion` — the PRE-resolution
+   ;;     exact-authority suppression: a completion carrier that failed the
+   ;;     fold gate (`:rf.reply/stale-reason` one of
+   ;;     `:rf.machine.spawn-all/attempt-unverified` /
+   ;;     `.../attempt-superseded` / `.../duplicate-completion`);
+   ;;   - `:rf.machine.spawn-all/late-completion` — the POST-resolution
+   ;;     `:resolved?`-latched straggler (`:rf.reply/stale-reason
+   ;;     :rf.machine.spawn-all/join-resolved`).
+   ;; Both carry the canonical `:status :stale` / `:rf.reply/work-status
+   ;; :suppressed` reply facts additively on the public `:child-id` / `:kind`
+   ;; shape. NEITHER name matches a `stale-suppress` / `suppressed` /
+   ;; `completed` suffix (`stale-completion` / `late-completion` end in
+   ;; `-completion`, not `-completed`), so the heuristic returned nil for
+   ;; both and their exact-authority evidence was silently dropped — enumerate
+   ;; them explicitly. The NON-DECISIVE
+   ;; `:rf.machine.spawn-all/child-completed` terminal is a REAL `:completed`
+   ;; (its `-completed` suffix classifies correctly) and is NOT lowered here;
+   ;; the suffix heuristic is NOT broadened to admit arbitrary `*completion`
+   ;; ops without reply-envelope proof.
+   :rf.machine.spawn-all/stale-completion  :stale-suppressed
+   :rf.machine.spawn-all/late-completion   :stale-suppressed
    ;; Mutations emit `:rf.mutation/stale-suppressed` for a superseded / cleared
    ;; / cross-frame reply (EP-0016 D1 — a stale reply NEVER fires the
    ;; `:reply-to` continuation; it suppresses here instead), carrying the
@@ -535,6 +558,9 @@
        :stale?      false                           ; on a :stale-suppressed row
        :carried     {:work/id … :generation …}      ; suppression carried gate
        :current     {:work/id … :generation …}      ; suppression current gate
+       :correlation {:parent-id … :child-id …}      ; single-map correlation (summarized)
+       :stale-reason :rf.machine.spawn-all/join-resolved ; on a :stale-suppressed row
+       :completed-at <ms>                           ; causal reply completion time
        :cancel-reason :actor-destroyed              ; on a :cancel-requested row
        :delivered?  true                            ; on a :delivered row
        :time        <ms>
@@ -619,6 +645,23 @@
                             (rh/summarize (:rf.reply/carried tags)))
                  :current (when (contains? tags :rf.reply/current)
                             (rh/summarize (:rf.reply/current tags)))
+                 ;; rf2-hj4skn — some families carry a SINGLE
+                 ;; `:rf.reply/correlation` identity map instead of (or
+                 ;; alongside) the carried/current gate pair: the `:spawn-all`
+                 ;; join stamps `{:parent-id … :invoke-id … :child-id …
+                 ;; :spawned-id …}`, the machine `:after` timer stamps
+                 ;; `{:carried … :current …}`. Surface it (summarized for
+                 ;; PRIVACY, the SAME contract `reply-row` uses) so the
+                 ;; exact-authority correlation the operator diagnoses a
+                 ;; superseded / unverified / duplicate / post-resolution join
+                 ;; completion FROM is not silently dropped.
+                 :correlation (when (contains? tags :rf.reply/correlation)
+                                (rh/summarize (:rf.reply/correlation tags)))
+                 ;; rf2-hj4skn — the causal reply completion time (Managed-
+                 ;; Effects §The reply map — `:rf.reply/completed-at`), distinct
+                 ;; from the trace event `:time`; present on the spawn-all
+                 ;; stale rows "when present" per the 009 catalogue.
+                 :completed-at (:rf.reply/completed-at tags)
                  :stale-reason (or (:stale/reason tags) (:rf.reply/stale-reason tags)
                                    (:reason tags) (:outcome tags)))
 

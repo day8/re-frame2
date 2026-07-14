@@ -268,7 +268,27 @@
     ;; routing emits the explicit literal too.
     (is (= :stale-suppressed (re/phase-of :rf.route.nav-token/stale-suppressed)))
     ;; rf2-azcmd3 — HTTP supersession's superseded-attempt stale row.
-    (is (= :stale-suppressed (re/phase-of :rf.http/stale-suppressed))))
+    (is (= :stale-suppressed (re/phase-of :rf.http/stale-suppressed)))
+    ;; rf2-hj4skn — the `:spawn-all` join's TWO exact-authority stale rows.
+    ;; Neither name ends in a `-completed` / `stale-suppress` / `suppressed`
+    ;; suffix (`stale-completion` / `late-completion` end in `-completion`), so
+    ;; the heuristic returned nil for both until they were enumerated
+    ;; explicitly. `stale-completion` is the PRE-resolution exact-authority
+    ;; suppression; `late-completion` the POST-resolution `:resolved?`-latched
+    ;; straggler.
+    (is (= :stale-suppressed (re/phase-of :rf.machine.spawn-all/stale-completion)))
+    (is (= :stale-suppressed (re/phase-of :rf.machine.spawn-all/late-completion))))
+  (testing "rf2-hj4skn — the NON-DECISIVE `:spawn-all` child terminal is a REAL
+            completion (its `-completed` suffix classifies correctly) and stays
+            `:completed`, NOT lowered to stale"
+    (is (= :completed (re/phase-of :rf.machine.spawn-all/child-completed))))
+  (testing "rf2-hj4skn — the suffix heuristic is NOT broadened: an arbitrary
+            `*completion`-suffixed op with NO reply-envelope proof is not
+            admitted as a completion (only the enumerated spawn-all stale
+            literals lower)"
+    (is (nil? (re/phase-of :rf.fake/some-completion)))
+    (is (nil? (re/phase-of :rf.other/late-completion)))
+    (is (not (re/reply-trace-op? :rf.fake/some-completion))))
   (testing "delivery — the call-site :reply-to continuation is the mutation
             delivery row (EP-0016 D1, phase 6)"
     (is (= :delivered (re/phase-of :rf.mutation/replied)))
@@ -576,6 +596,166 @@
         (is (= :completed (:phase row)))
         (is (= s (:status row)) (str "completed status " s " unchanged"))
         (is (= expected-class (:status-class row)))))))
+
+;; ---------------------------------------------------------------------------
+;; (6b-spawn-all) The `:spawn-all` join's TWO exact-authority stale-completion
+;; operations (rf2-hj4skn). Both lower to `:stale-suppressed` and project the
+;; canonical `:rf.reply/*` work identity / status / work-status / stale-reason
+;; / correlation / completion time on the SAME uniform row a resource / HTTP
+;; suppression renders. The fixtures are RUNTIME-shaped per the 009 catalogue:
+;; `:tags {:actor-id :invoke-id :child-id :kind}` (the preserved public shape)
+;; PLUS the additive `:rf.reply/*` reply-envelope facts. Four `:rf.reply/
+;; stale-reason` classes: attempt-unverified / attempt-superseded /
+;; duplicate-completion (the PRE-resolution `stale-completion` classes) and
+;; join-resolved (the POST-resolution `late-completion` straggler).
+;; ---------------------------------------------------------------------------
+
+(defn- spawn-all-stale-row
+  "Build a RUNTIME-shaped `:spawn-all` stale trace event (009 catalogue) for a
+  given op / stale-reason / spawned-id / generation, feeding `work-event-row`."
+  [{:keys [id op child-id spawned-id generation stale-reason completed-at]}]
+  {:id id :operation op :time (+ 400 id)
+   :tags {:actor-id :hydrate#1 :invoke-id [:hydrating :spawn-all]
+          :child-id child-id :kind :done
+          :rf.frame/id :rf/default
+          :rf.reply/work-id      [:rf.work/machine spawned-id [:hydrating :spawn-all] generation]
+          :rf.reply/work-kind    :machine
+          :rf.reply/status       :stale
+          :rf.reply/work-status  :suppressed
+          :rf.reply/stale-reason stale-reason
+          :rf.reply/correlation  {:parent-id :hydrate#1 :invoke-id [:hydrating :spawn-all]
+                                  :child-id child-id :spawned-id spawned-id}
+          :rf.reply/completed-at completed-at}})
+
+(deftest spawn-all-stale-completions
+  (testing "rf2-hj4skn — a PRE-resolution `stale-completion` carrier that failed
+            the exact-authority fold gate (:attempt-unverified) projects the
+            full canonical reply identity on the uniform stale-suppressed row"
+    (let [row (re/work-event-row
+                (spawn-all-stale-row
+                  {:id 70 :op :rf.machine.spawn-all/stale-completion
+                   :child-id :fetch-user :spawned-id :fetch-user#1 :generation 1
+                   :stale-reason :rf.machine.spawn-all/attempt-unverified
+                   :completed-at 471}))]
+      (is (= :stale-suppressed (:phase row)))
+      (is (true? (:stale? row)))
+      (is (= :machine (:work-kind row)) "machine work-kind retained")
+      (is (= [:rf.work/machine :fetch-user#1 [:hydrating :spawn-all] 1] (:work-id row))
+          "canonical :rf.reply/work-id join key")
+      (is (= :stale (:status row)) "canonical EP-0011 :stale status")
+      (is (= :suppression (:status-class row)) "cross-surface suppression badge")
+      (is (= :suppressed (:work-status row)) "canonical :rf.reply/work-status")
+      (is (= :rf.machine.spawn-all/attempt-unverified (:stale-reason row))
+          "precise :rf.reply/stale-reason surfaced")
+      (is (= :rf/default (:frame row)) "carried-frame stamp preserved")
+      (is (= 471 (:completed-at row)) "causal reply completion time surfaced")
+      (is (some? (:correlation row)) "single-map correlation surfaced")
+      (is (= "map" (:type (:correlation row))) "correlation summarized (PRIVACY)")))
+  (testing "rf2-hj4skn — the :attempt-superseded PRE-resolution class (a carrier
+            bound to a prior attempt / wrong actor after respawn)"
+    (let [row (re/work-event-row
+                (spawn-all-stale-row
+                  {:id 71 :op :rf.machine.spawn-all/stale-completion
+                   :child-id :fetch-prefs :spawned-id :fetch-prefs#2 :generation 2
+                   :stale-reason :rf.machine.spawn-all/attempt-superseded
+                   :completed-at 472}))]
+      (is (= :stale-suppressed (:phase row)))
+      (is (= :rf.machine.spawn-all/attempt-superseded (:stale-reason row)))
+      (is (= :stale (:status row)))
+      (is (= :suppressed (:work-status row)))))
+  (testing "rf2-hj4skn — the :duplicate-completion PRE-resolution class (an
+            exact re-completion of an already-folded child)"
+    (let [row (re/work-event-row
+                (spawn-all-stale-row
+                  {:id 72 :op :rf.machine.spawn-all/stale-completion
+                   :child-id :fetch-perms :spawned-id :fetch-perms#1 :generation 1
+                   :stale-reason :rf.machine.spawn-all/duplicate-completion
+                   :completed-at 473}))]
+      (is (= :stale-suppressed (:phase row)))
+      (is (= :rf.machine.spawn-all/duplicate-completion (:stale-reason row)))
+      (is (= :stale (:status row)))))
+  (testing "rf2-hj4skn — the POST-resolution `late-completion` straggler (a
+            completion arriving after the `:resolved?` latch flipped)
+            :join-resolved"
+    (let [row (re/work-event-row
+                (spawn-all-stale-row
+                  {:id 73 :op :rf.machine.spawn-all/late-completion
+                   :child-id :fetch-flags :spawned-id :fetch-flags#1 :generation 1
+                   :stale-reason :rf.machine.spawn-all/join-resolved
+                   :completed-at 474}))]
+      (is (= :stale-suppressed (:phase row)))
+      (is (= :rf.machine.spawn-all/join-resolved (:stale-reason row)))
+      (is (= :machine (:work-kind row)))
+      (is (= :stale (:status row)))
+      (is (= :suppression (:status-class row)))
+      (is (= :suppressed (:work-status row)))
+      (is (= 474 (:completed-at row)))
+      (is (some? (:correlation row))))))
+
+;; ---------------------------------------------------------------------------
+;; (6b-spawn-all-races) The spawn-all stale rows flow into the cross-family
+;; stale-suppression tally + attempt-arc grouping with NO panel-specific code —
+;; `stale-suppressions` / `stale-tally-by-kind` / `races-by-work-id` all read
+;; `project-work-events`, so classifying the ops is all that is needed. Two
+;; superseded FIXED-id attempts (distinct `:work/id` generations) must stay
+;; DISTINCT rows, never merged.
+;; ---------------------------------------------------------------------------
+
+(def ^:private spawn-all-stale-trace
+  "A trace buffer of `:spawn-all` join completions: one non-decisive child
+  completion (a REAL `:completed`, not stale) + the four stale-suppression
+  classes, two of them fixed-id superseded attempts with DISTINCT generations."
+  [{:id 80 :operation :rf.machine.spawn-all/child-completed
+    :time 480 :tags {:actor-id :hydrate#1 :invoke-id [:hydrating :spawn-all]
+                     :child-id :fetch-user :spawned-id :fetch-user#1 :kind :done
+                     :rf.reply/work-id [:rf.work/machine :fetch-user#1 [:hydrating :spawn-all] 1]
+                     :rf.reply/work-kind :machine :rf.reply/status :ok
+                     :rf.reply/work-status :completed}}
+   (spawn-all-stale-row {:id 81 :op :rf.machine.spawn-all/stale-completion
+                         :child-id :fetch-a :spawned-id :fixed-a :generation 1
+                         :stale-reason :rf.machine.spawn-all/attempt-superseded
+                         :completed-at 481})
+   (spawn-all-stale-row {:id 82 :op :rf.machine.spawn-all/stale-completion
+                         :child-id :fetch-a :spawned-id :fixed-a :generation 2
+                         :stale-reason :rf.machine.spawn-all/attempt-superseded
+                         :completed-at 482})
+   (spawn-all-stale-row {:id 83 :op :rf.machine.spawn-all/stale-completion
+                         :child-id :fetch-b :spawned-id :fetch-b#1 :generation 1
+                         :stale-reason :rf.machine.spawn-all/duplicate-completion
+                         :completed-at 483})
+   (spawn-all-stale-row {:id 84 :op :rf.machine.spawn-all/late-completion
+                         :child-id :fetch-c :spawned-id :fetch-c#1 :generation 1
+                         :stale-reason :rf.machine.spawn-all/join-resolved
+                         :completed-at 484})])
+
+(deftest spawn-all-stale-races
+  (testing "rf2-hj4skn — stale-suppressions surfaces every spawn-all stale row
+            (the four suppression classes), NOT the non-decisive child terminal"
+    (let [sup (re/stale-suppressions spawn-all-stale-trace)]
+      (is (= 4 (count sup)) "four stale rows, the :completed child terminal excluded")
+      (is (every? #(= :machine (:work-kind %)) sup))
+      (is (= #{:rf.machine.spawn-all/attempt-superseded
+               :rf.machine.spawn-all/duplicate-completion
+               :rf.machine.spawn-all/join-resolved}
+             (into #{} (map :stale-reason) sup)))))
+  (testing "rf2-hj4skn — the cross-surface stale tally counts the spawn-all
+            suppressions under :machine"
+    (is (= {:machine 4} (re/stale-tally-by-kind spawn-all-stale-trace))))
+  (testing "rf2-hj4skn — races-by-work-id keeps the two FIXED-id superseded
+            attempts DISTINCT (distinct :work/id generations never merge); the
+            non-decisive child arc is a completed :ok, the stragglers :stale"
+    (let [races (re/races-by-work-id spawn-all-stale-trace)
+          a1 (get races [:rf.work/machine :fixed-a [:hydrating :spawn-all] 1])
+          a2 (get races [:rf.work/machine :fixed-a [:hydrating :spawn-all] 2])
+          child (get races [:rf.work/machine :fetch-user#1 [:hydrating :spawn-all] 1])]
+      (is (some? a1) "first fixed-id attempt has its own arc")
+      (is (some? a2) "second fixed-id attempt has its own arc — NOT merged")
+      (is (= :stale (:terminal-status a1)))
+      (is (= :stale (:terminal-status a2)))
+      (is (true? (:suppressed? a1)))
+      (is (true? (:suppressed? a2)))
+      (is (= :ok (:terminal-status child)) "the non-decisive child folded :ok")
+      (is (false? (:suppressed? child)) "the non-decisive child is NOT a suppression"))))
 
 ;; ---------------------------------------------------------------------------
 ;; (6c) Frame attribution across families (rf2-l9vb09). Two LEGITIMATE frame
