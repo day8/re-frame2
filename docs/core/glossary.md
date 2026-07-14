@@ -167,7 +167,7 @@ The commit is the seam: the write side is transactional up to it and best-effort
 
 One traversal of the pipeline is a [**run**](#run); the record a run leaves behind is an [**epoch**](#epoch). Read the triple as **pipeline** (the structure) / **run** (one traversal) / **epoch** (the record). The to-fixed-point family — running the whole queue before the read side — is a [**drain**](#drain--run-to-completion).
 
-Related: [Introduction](introduction.md). (Older prose called this the *event cascade* or a *turn of the loop*; those spellings are retired for the event-traversal sense — the machines *cancellation cascade* keeps its name.)
+Related: [Introduction](introduction.md). (Older prose called this the *event cascade*, a *turn of the loop*, or simply *the loop*; those spellings are retired for the event-traversal sense — prefer **event pipeline** / **pipeline run**. The machines *cancellation cascade* keeps its name.)
 
 ### **run**
 

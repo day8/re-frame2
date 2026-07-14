@@ -8,7 +8,7 @@ Every one of those is auth-*shaped* use of parts you already met:
 - an [**interceptor**](../glossary.md#interceptor) — a named `:before`/`:after` wrapper around a handler, the place cross-cutting concerns live;
 - an [**effect**](../glossary.md#effect) — a *description* of a side effect you hand back as data, which the runtime then performs for you.
 
-There is no auth machinery to learn. There's a token [slice](../glossary.md#app-db), a route guard, and a teardown — and they're all built from the loop you already know.
+There is no auth machinery to learn. There's a token [slice](../glossary.md#app-db), a route guard, and a teardown — and they're all built from the [event pipeline](../glossary.md#event-pipeline) you already know.
 
 We'll grow it one step at a time: a tiny token slice in [app-db](../glossary.md#app-db), then login, then the request decorator, then the route guard, then the bounce-back, then logout. Each step is a few lines and stands on its own. The full recipe runs end to end, with live views, in [Part 3 of the tutorial](../../resources/tutorial/03-auth-and-forms.md) — this page is the reference shape behind it.
 
@@ -393,4 +393,4 @@ With all six steps wired, watch the whole flow in [Xray](../../xray/index.md):
 - Reload the page while signed in: the `:auth/init` row shows the saved token folded in from the coeffect, and the slice comes back classified — no re-login.
 - Dispatch `:auth/logout`: one clear-scope row lists what was removed, what was aborted, and what was left alone.
 
-And that's auth. A slice, a guard, and a teardown — no subsystem, no new machinery, just the loop you already know doing one more job.
+And that's auth. A slice, a guard, and a teardown — no subsystem, no new machinery, just the event pipeline you already know doing one more job.

@@ -1,8 +1,8 @@
 # Events
 
-The [introduction](introduction.md) closed the loop once. This page is the
-**language** of that loop: what events look like, how you announce them, and what
-handlers are allowed to do.
+The [introduction](introduction.md) walked the [event pipeline](glossary.md#event-pipeline)
+once. This page is the **language** of that pipeline: what events look like, how
+you announce them, and what handlers are allowed to do.
 
 > **Nothing moves without an event. Design the event set and you design the app.**
 

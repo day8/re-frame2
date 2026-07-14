@@ -1,6 +1,6 @@
 # Frames: isolated worlds
 
-Every pure-loop page used one [frame](glossary.md#frame) — one app-db, one queue —
+Every pure-pipeline page used one [frame](glossary.md#frame) — one app-db, one queue —
 under `frame-root`, and never said much about it. That is the normal case. Until
 now that root was ambient magic. **This page owns isolation:** what a world is,
 ensure vs scope, and *frame identity is carried, not found.*
@@ -118,7 +118,7 @@ Notice there's no place to hand the frame config an initial app-db. That's on pu
 
     State arrives the only way state ever arrives: through an
     [event pipeline](glossary.md#event-pipeline). Prefer a **named seed event** —
-    the same pattern the pure-loop pages used:
+    the same pattern the pure-pipeline pages used:
 
     ```clojure
     (rf/reg-event :cart/initialise

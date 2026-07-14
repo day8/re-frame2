@@ -1,7 +1,7 @@
 # Inside out: why views come last
 
 This page is the argument, not the instructions. The working mental model lives in
-the [Introduction](../introduction.md) and the pure-loop pages that follow it
+the [Introduction](../introduction.md) and the pure-pipeline pages that follow it
 ([Events](../events.md) → [Views](../views.md)), and you can ship without ever
 reading this essay. But re-frame2 asks something of you up front — it costs
 ceremony a `useState` user never pays, and it forbids things React happily allows —
@@ -165,4 +165,4 @@ Honest to the last, then.
 
 re-frame2 is pre-alpha. Its contracts are still settling, and this guide says so wherever it matters.
 
-Beyond that, the architecture has a floor. A static content site, a single embedded widget, a weekend prototype you'll throw away — the loop pays for itself only when the app outgrows the loop, and those don't. And if your team is committed to component-local state as a philosophy, this framework will feel like swimming upstream the entire time, because it is. The current flows the other way here, on purpose.
+Beyond that, the architecture has a floor. A static content site, a single embedded widget, a weekend prototype you'll throw away — the event pipeline pays for itself only when the app outgrows ad-hoc callbacks, and those don't. And if your team is committed to component-local state as a philosophy, this framework will feel like swimming upstream the entire time, because it is. The current flows the other way here, on purpose.
