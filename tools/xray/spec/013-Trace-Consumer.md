@@ -388,12 +388,32 @@ machines / timers:
   literals (`:rf.resource/work-started`, `:rf.http/replied`,
   `:rf.http/retry-attempt`, `:rf.resource/stale-suppressed`,
   `:rf.reply/suppressed`, the routing `:rf.route.nav-token/stale-suppressed`,
-  the machine `:rf.machine.timer/stale-after`, and the HTTP-supersession
-  `:rf.http/stale-suppressed` — rf2-waawic / rf2-azcmd3; the suffix heuristic
-  catches `stale-suppress` / `suppressed` but NOT `stale-after`, so the
-  machine-timer op is enumerated explicitly); a name-suffix heuristic
+  the machine `:rf.machine.timer/stale-after`, the HTTP-supersession
+  `:rf.http/stale-suppressed`, and the `:spawn-all` join's two
+  exact-authority stale rows `:rf.machine.spawn-all/stale-completion`
+  (PRE-resolution exact-authority suppression) +
+  `:rf.machine.spawn-all/late-completion` (POST-resolution `:resolved?`-latched
+  straggler) — rf2-waawic / rf2-azcmd3 / rf2-hj4skn; the suffix heuristic
+  catches `stale-suppress` / `suppressed` but NOT `stale-after`, and NOT the
+  spawn-all `*-completion` names (which end in `-completion`, not
+  `-completed`), so those ops are enumerated explicitly. The NON-DECISIVE
+  `:rf.machine.spawn-all/child-completed` terminal is a REAL `:completed`
+  (its `-completed` suffix classifies correctly) and is deliberately left on
+  the heuristic — the heuristic is NOT broadened to admit arbitrary
+  `*completion` ops without reply-envelope proof). A name-suffix heuristic
   classifies a not-yet-enumerated family op (e.g. a future `:rf.stream/*`
   surface) before the table learns its literal.
+- **Single-map correlation + completion time on a stale row (rf2-hj4skn).**
+  A `:stale-suppressed` row surfaces the carried/current gate pair
+  (`:rf.reply/carried` / `:rf.reply/current`, HTTP / resource supersession)
+  AND a single `:rf.reply/correlation` identity map when the family stamps
+  one instead — the `:spawn-all` join stamps `{:parent-id … :invoke-id …
+  :child-id … :spawned-id …}`, the machine `:after` timer stamps
+  `{:carried … :current …}`. `work-event-row` surfaces it as `:correlation`
+  (summarized for PRIVACY, the same contract `reply-row` uses) plus the
+  causal `:completed-at` from `:rf.reply/completed-at`, so the
+  exact-authority evidence an operator diagnoses a superseded / unverified /
+  duplicate / post-resolution join completion FROM is not silently dropped.
 - **Production `:rf.reply/*` trace vocabulary (rf2-waawic).** Family
   completion / stale rows stamp the canonical reply facts ADDITIVELY as
   `:rf.reply/status` / `:rf.reply/work-id` / `:rf.reply/work-status` /
