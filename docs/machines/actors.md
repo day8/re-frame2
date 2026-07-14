@@ -368,7 +368,7 @@ A few rules worth knowing:
 - **Each child needs a unique `:id`** (the join key) on top of the usual spawn keys. Duplicate ids are a registration error.
 - **Join discriminators:** `:all` (default) or `:any`. `:on-all-complete` is required for `:all`; `:on-some-complete` is required for `:any`. A quorum ("N of M") join uses the data-only `:after` + `:done-guard` idiom, not a `:join` mode ([Spec 005 §Join semantics](../../spec/005-StateMachines.md#join-semantics)).
 - **Sibling cancellation on join resolution is unconditional** — when the join resolves, surviving siblings are torn down. A late result from an already-decided join fires no further parent event. A fan-out where each child is independently valuable is modelled as N independent single-`:spawn`s (fire-and-forget), not a non-cancelling join.
-- **An unregistered child type fails the whole join closed** before any join-state is seeded — a child that can never run can never deadlock an `:all` join.
+- **An unregistered child type fails the whole invoke closed, atomically.** The runtime seeds a childless reject marker at the join slot (physically present, but with no children to wait on) and suppresses the registered siblings too — so a malformed fan-out spawns nothing rather than leaving orphans behind. A child that can never run can never deadlock an `:all` join.
 - **Wall-clock timeout:** same as single `:spawn` — an `:after` on the `:spawn-all`-bearing state. When it fires, the exit cascade cancels every surviving child.
 
 `:spawn-all` packages the fan-out, the join condition, and the cancel-on-resolution cascade into one declaration.

@@ -158,8 +158,8 @@
 (def ^:private spawn-all-reject-sentinel
   "The join-slot value `spawn-all-init-fx` writes when it REJECTS a
   `:spawn-all` invoke (some child names an UNREGISTERED TYPE). It carries NO
-  `:children`, so `join.cljc`'s interceptor treats it as an unseeded no-op
-  and `destroy.cljc`'s `destroy-spawn-all-children!` finds nothing to tear
+  `:children`, so `join.cljc`'s interceptor treats it as no live child-bearing
+  join (a no-op) and `destroy.cljc`'s `destroy-spawn-all-children!` finds nothing to tear
   down and clears the slot on parent exit.
 
   Its sole purpose is to make the reject ATOMIC: the registered siblings'
@@ -797,7 +797,7 @@
       ;; (`spawn-all-invoke-rejected?`) — the whole malformed invoke spawns
       ;; NOTHING, the consistent analogue of a single `:spawn`'s atomic
       ;; reject. The sentinel carries no `:children`, so the join interceptor
-      ;; treats it as unseeded (no deadlock) and `destroy-spawn-all-children!`
+      ;; treats it as no live child-bearing join (no deadlock) and `destroy-spawn-all-children!`
       ;; finds nothing to tear down and clears the slot on parent exit.
       (do (doseq [child unregistered]
             (reject-unregistered-spawn! frame-id (:machine-id child)))
