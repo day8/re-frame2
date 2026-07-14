@@ -52,6 +52,19 @@
                      :resolver resolver})
       (assoc :self-children? false :self-closed-keys nil)))
 
+(defn mk-self-env
+  "Like `mk-env` but the view being compiled (`:self`) is `self-sym`. The
+  injected resolver ALSO resolves sub/lease/frame to their public reactive
+  authoring vars, so this env is the rf2-vxgfnd.274 crux: a head equal to
+  `self-sym` must classify as a self-recursive internal view BEFORE the
+  reactive-authoring reservation can reject it."
+  [self-sym]
+  (-> (env/make-env {:host :clj :ns-sym 'app.test
+                     :self self-sym
+                     :self-id (keyword "app.test" (name self-sym))
+                     :resolver resolver})
+      (assoc :self-children? false :self-closed-keys nil)))
+
 (defn ana* [form]
   (ana/analyze (mk-env) form))
 
@@ -182,6 +195,38 @@
     (let [{:keys [sites]} (ana-full '[:div (:frame (frame))])]
       (is (= 1 (count (:frame-ops sites)))
           "a direct (frame) read is one indexed frame-ops site"))))
+
+(deftest self-head-outranks-reactive-verb-reservation
+  ;; rf2-vxgfnd.274 — vector-head precedence. A head equal to the view being
+  ;; `defview`d right now (`:self`) classifies as an internal view BEFORE the
+  ;; reactive-authoring reservation (rf2-vxgfnd.266) can reject it, EVEN THOUGH
+  ;; the same injected resolver resolves that spelling to a public reactive
+  ;; authoring var. Self-recursion works because the view Var need not exist yet
+  ;; (Q5 rule 1) — so classification here is resolution-free. Reverting the
+  ;; precedence to reserved-before-self throws :rf.ui.compile/unsupported-form
+  ;; on every accept row below, so this deftest is the mutation fixture.
+  (doseq [verb '[sub lease frame]]
+    (let [e   (mk-self-env verb)
+          ast (ana/analyze e [verb {}])]
+      (is (= :view (:op ast))
+          (str "a recursive [" verb " …] self head classifies as an internal view"))
+      (is (= (keyword "app.test" (name verb)) (:view-id ast))
+          (str verb " registers under the defview's own view id, not the verb var"))
+      (is (= verb (:sym ast)) "the authored self spelling is preserved")))
+  (testing "a self head nested deep in the template still classifies as a view"
+    (let [ast (ana/analyze (mk-self-env 'sub) '[:div [:section [sub {}]]])]
+      (is (= :view (get-in ast [:children 0 :children 0 :op]))
+          "self precedence is carried through the whole template walk")))
+  (testing "a self head accepts children when the view declares them"
+    (let [ast (ana/analyze (assoc (mk-self-env 'sub) :self-children? true)
+                           '[sub {} [:p "kid"]])]
+      (is (= :view (:op ast)))
+      (is (= 1 (count (:children ast))) "self-recursion with declared children")))
+  (testing "a self head mints NO reactive site — it is a view, not a sub read"
+    (let [e   (mk-self-env 'sub)
+          _   (ana/analyze e '[sub {}])]
+      (is (empty? (:subs @(:sites e)))
+          "the self head does not leak the public authoring var into the manifest"))))
 
 ;; ---------------------------------------------------------------------------
 ;; Handlers

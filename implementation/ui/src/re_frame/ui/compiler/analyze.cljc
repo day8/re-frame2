@@ -1833,6 +1833,43 @@
         {:op :expr :form (walk-expr e [:expr] form)
          :static? false :path (:path e)}))))
 
+;; ---------------------------------------------------------------------------
+;; Vector-head precedence (rf2-vxgfnd.274)
+;; ---------------------------------------------------------------------------
+;;
+;; A symbol head classifies by RESOLUTION at expansion time (the Q5 rule,
+;; env/classify-head), but two reservations run in `analyze`'s dispatch
+;; AHEAD of `env/classify-head`: the frame-boundary heads (frame-root /
+;; frame-provider) and the reactive-authoring verbs (sub / lease / frame,
+;; rf2-vxgfnd.266). Both key on Var resolution — so a head equal to the view
+;; being `defview`d right now (`:self`) that ALSO resolves to a referred
+;; public authoring Var (`(defview sub [] [sub …])` in a namespace that
+;; refers `re-frame.ui/sub`) was reserved-then-rejected BEFORE the Q5
+;; self-recursion rule could select it as an internal view — even though the
+;; view Var may not exist yet, so classification here cannot depend on Var
+;; resolution at all (Q5 rule 1). The one true precedence ordering is:
+;;
+;;   1. a local/dynamic binding of the spelling (checked inside every head
+;;      predicate and env/classify-head) — a lexical shadow outranks self;
+;;   2. the exact, unshadowed `:self` — an internal-view head, resolution-free;
+;;   3. the reserved frame-boundary / reactive-authoring heads (Var-resolved);
+;;   4. ordinary internal/foreign classification (env/classify-head).
+;;
+;; `self-head?` is tier 2 — it fires before every reserved-head predicate so a
+;; genuine self-recursive head is never reclassified as a reserved verb.
+
+(defn- self-head?
+  "True when `head` is the exact, unshadowed symbol of the view currently
+  being compiled (`:self`). Self-recursion outranks every reserved-head
+  reservation because the view Var may not exist yet — classification cannot
+  depend on Var resolution here (Q5 rule 1). A local binding of the same
+  spelling (checked first) still outranks self and yields a dynamic head."
+  [e head]
+  (and (:self e)
+       (symbol? head)
+       (= head (:self e))
+       (not (contains? (:locals e) head))))
+
 (defn analyze
   "Template form -> AST node."
   [e form]
@@ -1851,6 +1888,12 @@
       (cond
         (= :<> head)     (analyze-fragment e form)
         (keyword? head)  (analyze-element e form)
+        ;; The exact unshadowed self outranks every reserved-head reservation
+        ;; below (rf2-vxgfnd.274): the view Var may not exist yet, so a
+        ;; self-recursive head classifies as an internal view up front —
+        ;; resolution-free — before any Var-resolved reservation (frame
+        ;; boundary / reactive authoring) can reclassify it.
+        (self-head? e head) (analyze-component e form)
         (frame-root-head? e head) (analyze-frame-root e form)
         (frame-provider-head? e head) (analyze-frame-provider e form)
         ;; Reserve sub/lease/frame BEFORE generic component classification
