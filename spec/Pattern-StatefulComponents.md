@@ -5,6 +5,10 @@
 
 > **Code samples are in ClojureScript** (the CLJS reference). The pattern itself is host-agnostic where the host has a component-lifecycle equivalent; on the JVM there is no DOM to bridge, so the pattern is browser-side.
 
+> **[TRANSITION] What this pattern classifies as.** The outer/inner shape below is spelled on **today's shipping view adapters** — the **frozen stock-Reagent compatibility tier** (Form-3 via `reg-view*`, render-time `capture-frame`) and the **retiring UIx / Helix / reagent-slim adapters** (transition surfaces scheduled for removal in the Spec 004 S7 deletion wave; see [Spec 006 §CLJS reference scope](006-ReactiveSubstrate.md#cljs-reference-scope) for each adapter's lifecycle role). It is the **current** guidance for bridging a stateful JS component — these adapters ship until the transition completes.
+>
+> The **canonical-forward** view layer is the first-party compiled substrate `re-frame.ui`, whose one component form is `ui/defview` over a single props map ([Spec 004 §`ui/defview`](004-Views.md#uidefview--the-one-component-form)) and whose stateful-bridge equivalent — component refs, `ui/effect`, and observation leases ([Spec 004 §Effects and leases](004-Views.md#effects-and-leases--the-view-side-surface)) — is being specified through the re-frame.ui S1–S7 program and is **not yet the shipping bridge**. When it lands, this pattern's compiled form joins the frozen family's contract in the compatibility appendix `spec/004A-Reagent-Compat.md`. Until then, the Form-3 / `reg-view*` / `capture-frame` shape documented here is the one to use.
+
 ## Role
 
 A **named pattern**, not a Spec. Re-frame2's view substrate ([Spec 004 — Views](004-Views.md)) is built around pure render functions that compute hiccup from state. A small but unavoidable fraction of real-world views need to wrap a third-party JS library that **owns its own DOM** and exposes an imperative `init / update / dispose` lifecycle.
@@ -70,7 +74,7 @@ The outer handles the reactive read; the inner handles the imperative lifecycle.
 
 ## Per-adapter spelling
 
-The shape is identical across adapters; only the lifecycle-hook surface differs. Cross-link to each adapter's README for the exact API surface and per-adapter worked example.
+The shape is identical across adapters; only the lifecycle-hook surface differs. Cross-link to each adapter's README for the exact API surface and per-adapter worked example. Per the classification callout above, the **Reagent** and **Reagent-slim** rows are the frozen stock-Reagent tier and the **UIx** and **Helix** rows are retiring transition surfaces; all four remain the shipping spelling until the Spec 004 S7 deletion wave.
 
 | Adapter | Inner lifecycle surface | Registration | Reference |
 |---|---|---|---|
@@ -89,7 +93,7 @@ The one cross-adapter discipline: **capture `(rf/capture-frame)` at render-time*
 
 ## Worked example — a Mapbox-shaped widget
 
-A small map view, parameterised by a current position from `app-db`. The shape is library-agnostic; substitute D3, Three.js, CodeMirror, etc. with no structural change. Pseudo-code — the library calls are illustrative, not runnable.
+A small map view, parameterised by a current position from `app-db`. The shape is library-agnostic; substitute D3, Three.js, CodeMirror, etc. with no structural change. Pseudo-code — the library calls are illustrative, not runnable. The spelling below is on the **frozen stock-Reagent** tier (Form-3 via `reg-view*`); it is the current bridge until the compiled `re-frame.ui` equivalent lands (see the classification callout above).
 
 ```clojure
 (ns my-app.map

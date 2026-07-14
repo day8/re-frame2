@@ -1973,6 +1973,8 @@ The CLJS adapter namespaces (`re-frame.ui`, Reagent, UIx, Helix) and the SSR nam
 
 ## CLJS reference: UIx as alternative substrate
 
+> **[TRANSITION] surface, not a permanent peer.** The UIx adapter is a transition artefact scheduled for removal in the Spec 004 S7 deletion wave — it is not a permanent alternative to the frozen stock-Reagent compatibility tier or the canonical-forward first-party compiled substrate `re-frame.ui`. See [§CLJS reference scope](#cljs-reference-scope) for each adapter's lifecycle role. The section below documents it as it ships until that wave lands.
+
 The UIx adapter ships in `day8/re-frame2-uix` and implements the same ten-fn contract as the Reagent adapter — same observable behaviour for events, subs, effects; different rendering substrate for views.
 
 The UIx adapter's design decisions are:
@@ -1996,6 +1998,8 @@ The CLJS-reference code follows the same per-contract-fn shape as the Reagent ad
 Every other adapter primitive (read, replace, subscribe-container, dispose) is structurally identical to the Reagent adapter's — the contract is genuinely substrate-agnostic.
 
 ## CLJS reference: Helix as alternative substrate
+
+> **[TRANSITION] surface, not a permanent peer.** Like the UIx adapter above, the Helix adapter is a transition artefact scheduled for removal in the Spec 004 S7 deletion wave — not a permanent alternative to the frozen stock-Reagent tier or the canonical-forward `re-frame.ui` compiled substrate. See [§CLJS reference scope](#cljs-reference-scope) for each adapter's lifecycle role.
 
 The Helix adapter ships in `day8/re-frame2-helix` and implements the same ten-fn contract as the Reagent and UIx adapters — same observable behaviour for events, subs, effects; different rendering substrate for views. Helix occupies the *minimal-React-wrapper* niche: it is structurally similar to UIx (React + hooks; no reactive-atom primitive) but ships a smaller surface and does not auto-instrument hooks.
 
@@ -2023,6 +2027,8 @@ Every other adapter primitive (read, replace, subscribe-container, dispose) is s
 ## Cross-substrate affordance summary
 
 The ten-fn substrate contract is identical across adapters, but the three **view-author-facing** surfaces — *read a subscription*, *scope a frame to a subtree*, *flush pending renders in a test* — differ per substrate because each rides its host's idiom (Reagent's reactive deref vs the React-hooks model). A dev moving between substrates needs the one-glance map; this table is it. Each React-shaped adapter's `frame-provider` / `frame-root` is a **native substrate component** (UIx `defui`, Helix `defnc`). The *scope* surface below is `frame-provider {:frame …}` (rf2-nyea0r split; see [EP-0024](../docs/EP/EP-0024-unified-frame-identity-and-lifecycle.md)): **roots ensure; providers scope** — `frame-provider {:frame …}` scopes an existing frame into a React subtree (failing loud if absent), and its sibling `frame-root {:id …}` ensures a named frame at commit; see [002 §`frame-provider`](002-Frames.md#frame-provider--the-scope-only-component-cljs-reference) and [002 §`frame-root`](002-Frames.md#frame-root--the-ensure-component-cljs-reference). Each is realized per-adapter and reads the same React context.
+
+> **The three columns are not three permanent peers.** The Reagent column is the frozen stock-Reagent compatibility tier; the UIx and Helix columns are **[TRANSITION]** surfaces scheduled for removal in the Spec 004 S7 deletion wave; the canonical-forward view layer is the first-party `re-frame.ui` compiled substrate. This table maps the shipping adapters as they stand today — see [§CLJS reference scope](#cljs-reference-scope) for each adapter's lifecycle role.
 
 | Affordance | Reagent (`day8/re-frame2-reagent`) | UIx (`day8/re-frame2-uix`) | Helix (`day8/re-frame2-helix`) |
 |---|---|---|---|
