@@ -1,5 +1,11 @@
 # 01 — Getting started
 
+*Part I, step 1 · Next: [03 — State](03-state.md)*
+
+This page is the whole app in one screen. The next chapters unpack each face in order:
+state (reads), events (writes), views (structure), frames (scoping), then a worked
+dashboard.
+
 ## Install
 
 ```clojure
@@ -96,10 +102,11 @@ One more default worth knowing: this single-root page needed no root identity �
 root id derives from the mounted view. When a page mounts the same view twice, or you
 need stable identity for hydration, you author it ([08](08-ssr.md)).
 
-## Prove it without a browser
+## A first test (preview)
 
 The rendered tree is data and the button's handler is a vector, so your first test
-needs no DOM, no browser, no flake — it runs on the JVM in your watch loop:
+needs no DOM, no browser, no flake — it runs on the JVM in your watch loop. (The full
+testing story is [09](09-testing.md); this snippet is enough to see the idea now.)
 
 ```clojure
 (ns my.app-test
@@ -136,7 +143,10 @@ views repaint against live state. This is the default development loop.
 
 ## Where next
 
-Real views with props and lists → [02](02-views.md). Porting an app? Read
-[04 — Events](04-events.md) first: data handlers are the biggest habit change and the
-biggest payoff. Want the whole model on one page — state shape, tiles, tests? The
-worked app: [10](10-worked-app.md).
+Follow **Part I** in order: [03 — State](03-state.md) (how `(sub …)` works) →
+[04 — Events](04-events.md) (handler vectors in depth) → [02 — Views](02-views.md)
+(`defview`, templates, lists) → [05 — Frames](05-frames.md) →
+[10 — A worked app](10-worked-app.md).
+
+**Porting from Reagent?** Swap steps 2 and 3 — read [04](04-events.md) before
+[03](03-state.md); data handlers are the biggest habit change.
