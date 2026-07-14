@@ -35,10 +35,13 @@ below, know *why*.
 4. **Reader-first order.** Goal → working code → explanation. Never open with
    internals. Examples and gotchas sit beside the step they serve.
 
-5. **No navigation ceremony.** MkDocs already supplies the left nav and prev/next.
-   No "What's next" / "You can now" footers. Useful cross-links go inline where
-   relevant. A **day-one checklist** (what the reader can do *now*) is not ceremony;
-   a list of later chapters is.
+5. **No navigation ceremony.** The guide is built and published with
+   **[MkDocs](https://www.mkdocs.org/)** (Material theme; config in repo-root
+   `mkdocs.yml`). Readers already get a left sidebar, section nesting, and
+   prev/next from that build — do **not** re-implement navigation on the page.
+   No "What's next" / "You can now" footers; no mini-TOCs that restates the left
+   nav. Useful cross-links go inline where relevant. A **day-one checklist** (what
+   the reader can do *now*) is not ceremony; a list of later chapters is.
 
 ## Voice
 
