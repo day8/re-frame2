@@ -85,6 +85,62 @@
             (is (true? @a-observed-b?)
                 "B completed while A was still inside its callback")))))))
 
+(deftest foreign-thread-cannot-enumerate-a-provisional-frame
+  (let [id      :construction-visibility.provisional/x
+        reached (CountDownLatch. 1)
+        release (CountDownLatch. 1)
+        owner   (binding [frame/*upsert-policy-probe*
+                          (fn [candidate-id]
+                            (when (= id candidate-id)
+                              (.countDown reached)
+                              (.await release 10 TimeUnit/SECONDS)))]
+                  (future
+                    (frame/upsert-frame!
+                      id {:rf.frame/generation :visibility/gen})))]
+    (try
+      (is (.await reached 10 TimeUnit/SECONDS)
+          "the owner staged the exact provisional row before pausing")
+      (is (= :provisional (get-in @frame/frames [id :construction :state]))
+          "the barrier is after provisional publication, not before installation")
+      (is (nil? (frame/frame id)) "foreign exact lookup hides the provisional row")
+      (is (nil? (frame/frame-meta id)) "foreign metadata lookup hides it too")
+      (is (not (contains? (frame/frame-ids) id))
+          "whole-registry public enumeration hides the provisional id")
+      (is (not (contains? (frame/frame-ids "construction-visibility") id))
+          "prefix-filtered public enumeration hides the provisional id")
+      (is (not (contains? (frame/image-loaded-frame-ids) id))
+          "image-loaded introspection cannot bypass provisional visibility")
+      (finally
+        (.countDown release)))
+    (is (= id @owner) "the owner finalizes after release")
+    (is (contains? (frame/frame-ids) id) "the final id becomes enumerable")
+    (is (contains? (frame/image-loaded-frame-ids) id)
+        "the final image-loaded id becomes enumerable")))
+
+(deftest ensure-default-does-not-adopt-a-foreign-provisional-row
+  (let [id      :rf/default
+        reached (CountDownLatch. 1)
+        release (CountDownLatch. 1)
+        owner   (binding [frame/*upsert-policy-probe*
+                          (fn [candidate-id]
+                            (when (= id candidate-id)
+                              (.countDown reached)
+                              (.await release 10 TimeUnit/SECONDS)))]
+                  (future
+                    (frame/upsert-frame!
+                      id {:doc "replacement default"})))]
+    (try
+      (is (.await reached 10 TimeUnit/SECONDS)
+          "the owner staged the replacement default before pausing")
+      (is (= :provisional (get-in @frame/frames [id :construction :state]))
+          "the default row is provisional in the observed window")
+      (is (= :rf.error/frame-construction-in-progress
+             (outcome frame/ensure-default-frame!))
+          "the fixture helper must not treat a foreign provisional row as established")
+      (finally
+        (.countDown release)))
+    (is (= id @owner) "the owning replacement finalizes after release")))
+
 (deftest lifecycle-dead-raw-row-rejects-ordinary-and-exclusive-construction
   (let [id              :construction-destroy/dead-window
         dead-window     (CountDownLatch. 1)
