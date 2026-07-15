@@ -71,12 +71,14 @@ markup-returning `map`; keywords in child position; raw lazy seqs; unkeyed list 
 expressions hold ordinary Clojure *values* — value-opaque with respect to
 DOM/template interpretation — but their lexical *syntax* is audited for finite reactive
 ownership (every `sub`/`lease` is a compile-indexed site; sub-free views elide their
-ViewCell in production). The compiler accepts special/binder forms (`quote`, `fn`,
-`let`/`loop`/`letfn`, `try` — no reactive calls or unaudited macros in binding
-patterns/`:or` defaults), the audited transparent core macro set (`or` `and` `when`
-`when-not` `cond` `->` `->>` `some->` `some->>` `cond->` `cond->>`; a bare `sub`/`lease`
-reference below one is rejected), and ordinary function calls. **Every other macro —
-core or user — is rejected** (`:rf.ui.compile/unsupported-form`) because an unaudited
+ViewCell in production). The compiler accepts the binder-aware structural tier (`quote`,
+`fn`/`fn*`, `let`/`let*`, `loop`/`loop*`, `letfn`/`letfn*`, `try` — no reactive calls or
+unaudited macros in binding patterns/`:or` defaults), the audited transparent core macro
+set (`or` `and` `when` `when-not` `cond` `->` `->>` `some->` `some->>` `cond->`
+`cond->>`; a bare `sub`/`lease` reference below one is rejected), and ordinary function
+calls plus the evaluated-only host specials `if`, `do`, `throw`, `.`, `new`, and `set!`.
+The first tier is not an exhaustive host-special inventory. **Every other macro — core
+or user — is rejected** (`:rf.ui.compile/unsupported-form`) because an unaudited
 expansion could inject, duplicate, or defer a reactive call the manifest never sees.
 Recovery: a supported core form, an ordinary function, pass reactive values in, or a
 `defview` boundary. No double macroexpansion, no runtime dynamic sites, no fallback.

@@ -117,7 +117,8 @@
         "numeric children canonicalize via the tree builders")))
 
 ;; ---------------------------------------------------------------------------
-;; Form 2 — a literal root form (the same grammar mount takes)
+;; Form 2 — mount's literal top-region syntax, tightened to one mounted internal view
+;; (:rf.ui.compile/bad-test-root; wrap a multi-view composition in one defview)
 ;; ---------------------------------------------------------------------------
 
 (deftest literal-root-form-renders

@@ -364,10 +364,10 @@ server in sight (guide 01):
    `:initial-events` (07 §2); with none, structural rendering proceeds and any `sub`
    raises `:rf.error/no-frame-context` — honest, not defaulted.
 2. **A literal root form** — the same top-region root grammar `mount` takes,
-   tightened so the form mounts exactly **ONE** view (root identity is that view's
-   id). A form with zero or two-plus views fails at expansion with
+   tightened so the form mounts exactly **one internal view** (root identity is that
+   view's id). A form with zero or two-plus views fails at expansion with
    `:rf.ui.compile/bad-test-root` — the shipped `ui.test/render` asserts this (a
-   fragment of two views has no single identity; wrap bare markup in a `defview`).
+   fragment of two views has no single identity; wrap the composition in one `defview`).
    Then:
    - `{:props p}` is **rejected** (didactic: props live in the form);
    - the form's `frame-root` plans run preflight ENSURE against the test registrar,
