@@ -235,7 +235,7 @@ template → **docs/guide + skills** → CI → benchmarks ⟨12 §3 S6⟩), S1�
 ### 2.4 Fence markers: add the mandatory ones now, freeze the fences
 
 The seven mandatory markers are **already on the pages** (re-censused after #5894), so the
-stage-truth reconciliation), so the extractor PR touches zero pages. The pipeline's
+extractor PR touches zero pages. The pipeline's
 fence contract makes unmarked elisions and unmarked wave-2 fences an extractor *error*
 ⟨guide-fixture-pipeline §2⟩. **The move PR verifies the census** — any fence added
 since must carry its marker; the set as of 2026-07-13:

@@ -118,26 +118,49 @@ For focus, IME, foreign widgets — things only a real mount exercises — use
 
 `with-root` owns its React root and DOM container. A frame you pass through
 `frame-provider` is separate and remains yours. For Promise-backed tests, settle the
-body before destroying that frame so an original rejection remains the primary
-failure even if cleanup also fails:
+body before destroying that frame. Pass the mounted operation as a thunk so a
+synchronous `with-root` preflight throw is owned too. Every exit destroys exactly
+once; an original throw/rejection remains primary, and a secondary cleanup error
+rides an object primary as `rfUiTestCleanupError`, matching `with-root` itself:
 
 ```clojure
+(defn- attach-frame-cleanup-error!
+  [primary cleanup-error]
+  (let [attached?
+        (try
+          (js/Object.defineProperty
+            primary "rfUiTestCleanupError"
+            #js {:value cleanup-error :configurable true})
+          true
+          (catch :default _ false))]
+    (when (and (not attached?) (exists? js/console))
+      (.warn js/console
+             "frame cleanup could not ride the primitive primary rejection"
+             cleanup-error)))
+  primary)
+
 (defn- destroy-frame-after!
-  [frame promise]
-  (-> promise
-      (.then (fn [value] {:settlement :fulfilled :value value})
-             (fn [error] {:settlement :rejected :error error}))
-      (.then
-        (fn [{:keys [settlement value error]}]
-          (try
-            (rf/destroy-frame! frame)
-            (catch :default cleanup-error
+  [frame thunk]
+  (letfn [(reject-after-current! [error]
+            (-> (js/Promise.resolve nil)
+                (.then (fn [] (throw error)))))
+          (finish! [settlement value]
+            (try
+              (rf/destroy-frame! frame)
               (if (= :rejected settlement)
-                (js/console.error "frame cleanup also failed" cleanup-error)
-                (throw cleanup-error))))
-          (if (= :rejected settlement)
-            (js/Promise.reject error)
-            value)))))
+                (reject-after-current! value)
+                (js/Promise.resolve value))
+              (catch :default cleanup-error
+                (if (= :rejected settlement)
+                  (reject-after-current!
+                    (attach-frame-cleanup-error! value cleanup-error))
+                  (reject-after-current! cleanup-error)))))]
+    (try
+      (-> (js/Promise.resolve (thunk))
+          (.then (fn [value] (finish! :fulfilled value))
+                 (fn [error] (finish! :rejected error))))
+      (catch :default error
+        (finish! :rejected error)))))
 ```
 
 Read-only:
@@ -148,8 +171,8 @@ Read-only:
     (let [frame (rf/make-frame {:initial-events [[:rf/set-db {:query ""}]]})]
       (-> (destroy-frame-after!
             frame
-            (ui.test/with-root [root [ui/frame-provider {:frame frame} [search-box]]]
-              (is (some? (ui.test/query root "input")))))
+            #(ui.test/with-root [root [ui/frame-provider {:frame frame} [search-box]]]
+               (is (some? (ui.test/query root "input")))))
           (.then (fn [_] (done))
                  (fn [e] (is false (str e)) (done)))))))
 ```
@@ -163,14 +186,14 @@ Promise:
     (let [frame (rf/make-frame {:initial-events [[:rf/set-db {:query ""}]]})]
       (-> (destroy-frame-after!
             frame
-            (ui.test/with-root
-              [root [ui/frame-provider {:frame frame} [search-box]]]
-              (-> (ui.test/flush!
-                    #(ui.test/dispatch! frame [:search/set-query "hats"]))
-                  (.then (fn []
-                           (is (= "hats"
-                                  (.-value (ui.test/query root "input"))))
-                           :asserted)))))
+            #(ui.test/with-root
+               [root [ui/frame-provider {:frame frame} [search-box]]]
+               (-> (ui.test/flush!
+                     #(ui.test/dispatch! frame [:search/set-query "hats"]))
+                   (.then (fn []
+                            (is (= "hats"
+                                   (.-value (ui.test/query root "input"))))
+                            :asserted)))))
           (.then (fn [body-value]
                    (is (= :asserted body-value))
                    (done))
