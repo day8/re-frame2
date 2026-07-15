@@ -166,11 +166,24 @@ Epic `EPIC: re-frame.ui program` with per-stage children. Sequencing constraints
   **Spec-011 edits sequenced behind whichever open PR owns Spec-011 edits at dispatch
   time (verify none is in flight before dispatching)**.
 - **S6 epic — repo adoption**: migrator (W1) → examples (W4) → tools' own UIs (W7b) →
-  template (W8) → docs/guide + skills (W2/W3/W6) → CI matrix rewrite (W9) → benchmarks
-  vs trio (W11). *RealWorld-resources full app + Story + Xray green = the proof.*
-- **S7 epic — deletion wave**: the soak gates (two green nightlies + one week
-  no-fallback) → UIx/Helix/slim deleted, stock Reagent + the `reg-view` family frozen
-  into the compat tier, tag cut, meta-docs (W12/W13).
+  template (W8) → docs/guide + skills (W2/W3/W6) → CI matrix rewrite (W9) → one-time
+  benchmarks vs the legacy trio (W11). *RealWorld-resources full app + Story + Xray
+  green = the proof.* Primary examples/templates/docs teach only `re-frame.ui`; a
+  minimum compatibility reference remains for Reagent/UIx.
+- **S7 epic — compatibility freeze + deletion wave**: the soak gates (two green
+  nightlies + one week no-fallback) → Helix/reagent-slim deleted; stock Reagent + the
+  `reg-view` family and UIx frozen as compatibility adapters; tag cut; meta-docs
+  (W12/W13). Retain `day8/re-frame2-uix`, its public exports, pinned compatibility
+  suite + one smoke, classpath probe, changed-surface classifier arm, release test/deploy
+  leaf, and minimum compatibility reference. The import-deletion grep covers only
+  Helix/reagent-slim. Reagent's live view contract moves to the Reagent-specific 004A
+  appendix; UIx remains primarily owned by Spec 006/API/Conventions/Ownership.
+
+**Adapter-selection invariant through S7.** v1 keeps exactly one installed adapter per
+process. The surviving browser boot choices are `re-frame.ui`, stock Reagent, and UIx;
+there is no per-frame or within-frame selector. Foreign React-component boundaries
+(`ui/raw`, `ui/->react`, and ordinary React elements) do not install or select another
+adapter.
 
 **Standing coordination rules for the program:** hot-zone specs one-owner-at-a-time
 (009 is the busiest — the catalogue rows land in small batches with their features);

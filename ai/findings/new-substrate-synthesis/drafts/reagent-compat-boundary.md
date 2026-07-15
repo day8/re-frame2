@@ -12,12 +12,24 @@
 > the S6 migration wave, when both doors are implemented and the boundary fixtures
 > exist. House style: `⟨source⟩` provenance tags; British "serialisable".
 
-## 1. Scope: two tiers, one rendering boundary, three granularities
+## 1. Scope: two rendering tiers, one installed adapter, three granularities
 
 **The two tiers.** The **new-UI tier** is `re-frame.ui` — compiled `defview`s under a
 `ui` host root. The **frozen Reagent tier** is stock Reagent — Form-1/2/3, the
 `reg-view` family, the ratom substrate, the checked-in Spec 006 Reagent adapter —
 correct but frozen per the ratified Adapters decision. ⟨08 §5 Adapters, 08 §6⟩
+
+**The v1 adapter-selection law is unchanged.** A process installs exactly one adapter
+at boot. Its surviving browser choices are `ui/adapter`, `reagent-adapter/adapter`, and
+`uix-adapter/adapter`; every frame and root in that process uses that one choice.
+Nothing in this boundary contract adds per-frame or within-frame adapter selection.
+The two directions below are ordinary React-value interop (`ui/raw` takes an element;
+`ui/->react` returns a component), not a mechanism that installs or routes to a second
+adapter. A use case that truly requires two installed adapters remains separate-process
+work in v1. UIx is a separately-owned frozen compatibility adapter, primarily governed
+by Spec 006/API/Conventions/Ownership; it is not folded into this Reagent-specific
+boundary or the Reagent-specific 004A appendix. ⟨checked-in Spec 006 §Adapter selection
+at boot / §Single adapter per process; 08 §5 Adapters⟩
 
 **The boundary is a rendering boundary, never a state boundary.** The dataflow layer —
 frames, events, subs, fx, machines, schemas, routes, resources — is tier-independent:
@@ -28,16 +40,18 @@ anything; only *rendering* crosses. ⟨10 Status, 08 §6⟩
 **No artifact coupling.** Both doors traffic in plain React values — `ui/raw` takes a
 React **element** in; `ui/->react` hands a React **component** out. Neither door makes
 `day8/re-frame2-ui` depend on the compat adapter or vice versa; the crossing code lives
-in **application** namespaces. G-12 (`ui` never depends on the compat adapter) holds at
-the artifact level by construction. ⟨08 §5 Adapters, 02 §6⟩
+in **application** namespaces, and neither door changes the process's installed
+adapter. G-12 (`ui` never depends on the compat adapter) holds at the artifact level by
+construction. ⟨08 §5 Adapters, 02 §6⟩
 
 **Three supported granularities**, coarsest first — the migration default is to use the
 coarsest one that fits:
 
 1. **Sibling roots** (no React nesting). One page runs a legacy Reagent root and a `ui`
-   root side by side; they share frames and nothing else. No React bridging, no context
-   plumbing — the boundary is the DOM. This is the recommended first cut for step-2
-   migration (convert a whole route/panel mount at a time). ⟨10 mechanics, 06 §2⟩
+   root side by side under the **same process-installed adapter**; they share frames and
+   nothing else. No React bridging, no context plumbing — the boundary is the DOM. This
+   is the recommended first cut for step-2 migration (convert a whole route/panel mount
+   at a time). It is not one adapter per root. ⟨10 mechanics, 06 §2⟩
 2. **Inward nesting** — an existing React/Reagent element inside a `ui` tree, via
    `ui/raw` (§2). For legacy widgets (re-com) inside migrated views.
 3. **Outward nesting** — a `defview` subtree inside a remaining Reagent parent, via
@@ -287,18 +301,17 @@ checklist flag every site):
 
 ⟨02 §6, 03 §10, 06 §1–§3⟩
 
-## 7. The retained CI surface — two suites and one smoke (Q59)
+## 7. The retained CI surface — three suites, one Reagent smoke here (Q59)
 
-W9 ("the adapter matrix/shared suite collapses") and W13 ("contract suite + one smoke
-remain") coexist because they name **different suites**. The plan names both
-explicitly; no reading of "all legacy coverage is retired" is correct. ⟨11 W9/W13,
-09 codex2 row 7⟩
+W9's shared-matrix collapse and W13's compatibility freezes name **three different
+causal suites**. The plan names all three explicitly; no reading of "all legacy
+coverage is retired" is correct. ⟨11 W9/W13, 09 codex2 row 7⟩
 
 **Suite 1 — the new-UI conformance suite** (`ui-conformance`). The `re-frame.ui`
 contract surface: the Tier-1 parity corpus, the Tier-3 ownership/commit walkthrough
-(07 §3), the HMR matrix, and the G-roster gates. This is what **replaces**
-`react_shared_suite` and the ×3 adapter parameterisation. Built from S1 (`ui.test`
-critical path) onward. ⟨07 §1–§3, 11 W9⟩
+(07 §3), the HMR matrix, and the G-roster gates. This becomes the forward conformance
+owner instead of treating the legacy shared parameterisation as product parity. Built
+from S1 (`ui.test` critical path) onward. ⟨07 §1–§3, 11 W9⟩
 
 **Suite 2 — the frozen-Reagent compatibility suite** (`reagent-compat`). Pinned once at
 the freeze, then maintenance-only (bugs fixed when they block migration):
@@ -318,11 +331,17 @@ the freeze, then maintenance-only (bugs fixed when they block migration):
   stable-component-object-across-HMR assertion; the Activity/class-component lifecycle
   probe (§2 **[S6-CONFIRM]**).
 
-**Plus exactly one browser smoke.** The Reagent adapter smoke
+**Suite 3 — the frozen-UIx compatibility suite** (`uix-compat`). Separately owned by
+Spec 006/API/Conventions/Ownership, pinned from the existing UIx adapter-contract and
+UIx-specific CLJS coverage at the S7 freeze, then maintenance-only. It keeps the UIx
+classpath probe and exactly one UIx mount → subscribe → dispatch → re-render browser
+smoke. It is not a feature-parity suite and gains no new `re-frame.ui` capabilities.
+
+**Plus exactly one Reagent browser smoke owned here.** The Reagent adapter smoke
 (`implementation/adapters/reagent/testbed/spec.cjs` — mount + dispatch + assert)
-survives; the UIx and Helix smokes are deleted with their adapters. Net: the legacy
-adapter matrix collapses from ×3 to ×1, and that ×1 is the compat tier's smoke.
-⟨08 §5 Adapters, 11 W13, repo testing policy (adapter-level smokes ×3 → 1)⟩
+survives. The UIx smoke survives under `uix-compat`; the Helix smoke deletes with its
+adapter. Net after adding the new-UI smoke: exactly three browser smokes remain—one
+each for `re-frame.ui`, Reagent, and UIx. ⟨08 §5 Adapters, 11 W13⟩
 
 ## 8. The normative home after the Spec-004 rewrite: a live compatibility appendix (Q58)
 
@@ -333,14 +352,15 @@ codex2 row 4⟩
 **Name:** **`spec/004A-Reagent-Compat.md` — "Spec 004A — The stock-Reagent
 compatibility tier (live appendix to Spec 004)."** It sorts beside the rewritten
 `spec/004-Views.md`, which points at it from §Removed forms; `spec/Ownership.md`'s
-re-scoped Reagent row names it as the owning spec. It lands **with the S7 deletion
-wave** (until then the pre-rewrite 004/006 text still governs the shipping adapters via
+re-scoped Reagent row names it as the owning spec. It lands **with the S7
+compatibility-freeze / Helix-and-slim deletion wave** (until then the pre-rewrite
+004/006 text still governs the shipping adapters via
 the [TRANSITION] markers). Contents: the freeze rules (correct-but-frozen, no new
 capabilities, no `ui`-feature parity, sunset unpromised/demand-reviewed post-1.0), the
 preserved normative sections for Form-1/2/3 + the `reg-view` family + the Reagent
 adapter + frame-context resolution (carried forward from the pre-rewrite revisions as
 live text, with the git tag as provenance only), **this boundary contract promoted into
-it**, and the two-suite CI surface (§7).
+it**, and the three-suite CI surface (§7).
 
 **API/facade export rows the appendix retains** (moved under a
 `v1 (frozen — compat tier)` status, not deleted; this supersedes the rewrite draft's
@@ -363,8 +383,9 @@ Conventions rows retained (re-scoped "compat tier", not removed): the facade exp
 list entries for `reg-view`/`reg-view*`; the `*`-suffix pair table's `reg-view` row +
 the asymmetry footnote (re-worded, not deleted — the pair still exists, in the
 appendix); the `reg-view` auto-id derivation section (also re-homed as the `defview`
-id rule — the same derivation serves both, stated once each side). The UIx/Helix
-adapter rows are **not** retained — they delete with their adapters. No new
+id rule — the same derivation serves both, stated once each side). The UIx adapter rows
+are **retained in their existing Spec 006/API/Conventions/Ownership homes**, not moved
+into 004A; the Helix rows delete with that adapter. No new
 capabilities are ever added to a retained row (the freeze rule); any new export
 touching the compat tier still passes the standing diff-time facade-classification
 rule. ⟨checked-in spec/API.md §Registration + §View ergonomics + §Reagent adapter,
@@ -398,6 +419,6 @@ fold-in per the disposition. ⟨09 codex2 rows 4–5⟩
   §§2–3 (per direction), §5 (ownership/teardown), §6 (SSR/HMR).
 - **Q57** (which plain fns complete step 1 unchanged; prescribed rewrite): §4.
 - **Q58** (live normative home + retained facade/API/Conventions rows): §8.
-- **Q59** (deleted vs retained CI): §7 — deleted: UIx/Helix/slim smokes,
-  `react_shared_suite`'s ×3 parameterisation; retained: `ui-conformance` (new) +
-  `reagent-compat` (pinned) + one Reagent browser smoke.
+- **Q59** (deleted vs retained CI): §7 — deleted: Helix/slim-only coverage and the
+  legacy cross-adapter parity framing; retained: `ui-conformance` (new),
+  `reagent-compat` (pinned), `uix-compat` (pinned), and one browser smoke for each.

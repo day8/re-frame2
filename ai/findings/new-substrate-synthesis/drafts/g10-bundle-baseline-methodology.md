@@ -5,7 +5,7 @@
 > written down before they can gate."* ⟨09 §Still open⟩ Consumers: the G-10 gate row
 > (07 §5), the 05 §5 budget paragraph, the 12 §2b residual budget gates (S6), and W11
 > — the benchmark-vs-trio workstream that runs the one-time comparison table before
-> deletion ⟨11 W11⟩. The methodology aligns deliberately with the repo's shipped
+> the S7 freeze/removal wave ⟨11 W11⟩. The methodology aligns deliberately with the repo's shipped
 > bundle-gate house style (`check-schemas-bundle.cjs`, `check-bundle-isolation.cjs`,
 > `check-perf-bundle.cjs`, `scripts/lib/read-release-bundle.cjs`). Where a detail can
 > only be confirmed against the built S6 artefacts, it is marked **[S6-CONFIRM]**.
@@ -34,12 +34,14 @@ Three consequences pin the design:
    specialisation, and proven erasure ⟨05 §1⟩: a view pays for exactly the capability
    bits it uses. The observable form of that claim in bundle bytes is the **slope**
    — the marginal cost of each added view/feature — not the intercept.
-3. **The trio is a Stage-6-only comparator.** After the S7 deletion wave the trio no
-   longer builds from this repo ⟨11 W13; 08 §5 Adapters⟩. So the trio comparison is a
-   **one-time S6 table produced before deletion** (W11: "baselines run against the
-   trio **before** deletion; results + fixtures + git tag are what survive"
-   ⟨11 W11⟩), while the *ongoing* gate compares the new substrate against **its own
-   last-accepted baseline artefact** and never depends on the trio existing.
+3. **The trio is a Stage-6-only comparator.** At S7, Helix is deleted while Reagent and
+   UIx freeze as compatibility adapters. Their survival is a correctness commitment,
+   not an ongoing size/parity promise. Therefore the trio comparison is a **one-time S6
+   table produced before the freeze/removal wave**; results + fixtures + a tag preserve
+   the comparison and the removed Helix/slim provenance. The *ongoing* gate compares
+   the new substrate against **its own last-accepted baseline artefact** and never
+   turns Reagent/UIx compatibility into a recurring parity budget. ⟨11 W11/W13; 08 §5
+   Adapters⟩
 
 ## 2. The shared-chunk problem, stated precisely
 
@@ -97,8 +99,9 @@ Fixture rules:
   bench/testbed tree, not `examples/` — examples are test-free, locked
   ⟨CLAUDE.md; rf2-8cevm⟩) and are frozen once baselined: a fixture edit is by
   definition a baseline-refresh event (§6.3).
-- **The trio variants are written once, at S6, and survive deletion** as part of the
-  W11 archive (results + fixtures + git tag ⟨11 W11⟩).
+- **The trio variants are written once, at S6, and remain an archive** after the wave
+  (results + fixtures + git tag ⟨11 W11⟩). Reagent/UIx continue shipping, but these
+  comparison variants do not become parity gates.
 
 ## 4. Build protocol: identical settings, pinned splits
 
@@ -308,8 +311,9 @@ from the EDN, not checked in.
 
 ### 8.1 Ongoing: relative regression, candidate vs last-accepted baseline
 
-For every fixture × substrate row present in the baseline (post-S7 that is the new
-substrate only), per fixture:
+For every fixture × substrate row present in the active baseline (post-S7 that is the
+new substrate only; compatibility adapters are deliberately outside the recurring
+parity budget), per fixture:
 
 - **Gate quantity**: the `:app` module (raw and gzip).
 - **Budget as ratio**: `candidate / baseline ≤ R` with an absolute floor —
@@ -331,12 +335,13 @@ substrate only), per fixture:
 
 ### 8.2 One-time: the S6 comparison table vs the trio (the W11 deliverable)
 
-At S6, before the deletion wave, the full fixture family builds for **all**
+At S6, before the freeze/removal wave, the full fixture family builds for **all**
 substrates — `re-frame.ui`, Reagent, UIx, Helix, plus reagent-slim as a named
 comparator ⟨07 §5 G-10 "vs UIx-adapter / slim"; 05 §5⟩ — and the runner emits the
 complete cross-substrate table: quantities (a)/(b)/(c), slopes, and build-report
-evidence. That table, the fixtures, and a git tag are the archive that survives
-deletion ⟨11 W11⟩; the trio rows freeze there and are never rebuilt. The ongoing
+evidence. That table, the fixtures, and a git tag are the archive that survives the
+wave ⟨11 W11⟩; the trio comparison rows freeze there and are never rebuilt by G-10,
+even though Reagent/UIx remain shipping compatibility adapters. The ongoing
 gate (§8.1) carries forward only the new-substrate rows. This table is also where
 the *product* claim is judged once: the compiled substrate's `:app` chunk and
 per-view slope vs each trio member, on identical apps, with shared chunks pinned
@@ -398,7 +403,7 @@ none has another venue.
 4. The checked-in baseline EDN + the comparison gate with ratio/floor/slope budgets
    (§8.1).
 5. The one-time S6 trio table + archive tag (§8.2), delivered by W11 before the
-   deletion wave.
+   compatibility-freeze / Helix-and-slim deletion wave.
 
 ⟨09 §Still open — this draft is the write-down that item required; 07 §5 G-10;
 05 §1/§5; 11 W11; 12 §2b/§3; 08 §2 Stage 6⟩

@@ -18,9 +18,10 @@ behaviour). Until then the interim-amended 004 (see
 **Provenance:** every section carries a `⟨source⟩` tag naming the synthesis
 passage it traces to (`01`–`10` = `ai/findings/new-substrate-synthesis/*.md`; `R-n` = the
 08 §5 decision record; `I-n` = the 01 invariants). Tags are stripped at merge.
-Markers: **[TRANSITION]** = conditional until the adapter deletion wave (08 §5 Adapters
-decision: proof/default/soak gates, then UIx + Helix + slim are deleted and stock Reagent
-— with the `reg-view` family — freezes into the compatibility tier); **[OPEN — needs
+Markers: **[TRANSITION]** = conditional until the compatibility-freeze / adapter
+deletion wave (08 §5 Adapters decision: proof/default/soak gates, then Helix +
+reagent-slim are deleted while stock Reagent — with the `reg-view` family — and UIx
+freeze as compatibility adapters); **[OPEN — needs
 ruling]** = the synthesis is silent; do not invent (none remain in the body after the
 2026-07-12 fold-in — see the OPEN roster). **[WAVE-2]** = named in the
 synthesis as demand-gated, not v1 (08 §3).
@@ -568,10 +569,10 @@ path + generation, released/remounted on ambiguity.
   scanned absence roster. The always-on Spec 009 error contracts remain.
 - **[TRANSITION]** The `[view-id instance-token]` `:render-key` wire shape and the
   `[:rf.view/anonymous nil]` fallback for unregistered render fns remain emitted by the
-  UIx/Helix/slim adapters until the deletion wave, and by the frozen stock-Reagent
-  compatibility tier thereafter; the compiled substrate emits its own versioned evidence
-  schema (integer render-key + separate `:view-id` + `occurrence-path`) in the 009
-  catalogue.
+  UIx/Helix/slim adapters until the wave, and by the frozen stock-Reagent **and UIx**
+  compatibility adapters thereafter; Helix/slim stop emitting them when deleted. The
+  compiled substrate emits its own versioned evidence schema (integer render-key +
+  separate `:view-id` + `occurrence-path`) in the 009 catalogue.
 
 ## The JVM structural subset
 
@@ -648,8 +649,8 @@ There is exactly **one** component form. The following do not exist in this cont
   outer/inner render split; the Forms live on only in the frozen stock-Reagent
   compatibility tier (live normative home: the compatibility appendix
   `spec/004A-Reagent-Compat.md`, per
-  [reagent-compat-boundary.md](reagent-compat-boundary.md) §8), taught on one migration
-  page only. Form-2 local state is `local`;
+  [reagent-compat-boundary.md](reagent-compat-boundary.md) §8), documented only as a
+  frozen migration/compatibility path. Form-2 local state is `local`;
   Form-3 lifecycle work is
   `effect` (+ refs) or a foreign-boundary component; setup-on-mount work is a frame's
   `:initial-events` or a route/domain transition — never a render-phase or
@@ -684,28 +685,33 @@ There is exactly **one** component form. The following do not exist in this cont
   frameworks, resumability machinery** — non-goals (resumability is research-tier per
   R-5).
 
-**[TRANSITION] Until the adapter deletion wave** (proof/default/soak gates per the
+**[TRANSITION] Until the compatibility-freeze / adapter deletion wave**
+(proof/default/soak gates per the
 08 §5 Adapters decision: RealWorld-resources green · Story + Xray green ·
 SSR/hydration + HMR matrices green · production-specialization + bundle-absence gates
 green · templates/docs/examples defaulted · zero repo-owned non-historical
-UIx/Helix/slim imports · two consecutive green nightlies + one week with no fallback),
-the UIx and Helix adapters (and reagent-slim) remain shipping surfaces governed by the
+Helix/reagent-slim imports · two consecutive green nightlies + one week with no
+fallback), UIx, Helix, and reagent-slim remain shipping surfaces governed by the
 carried pre-rewrite contract text under these [TRANSITION] markers — **the markers, not
 git history, are the live contract during the transition** (the git tag is provenance
-only, never a normative home). **The Reagent-tier forms — Form-1/2/3 and the `reg-view`
+only, never a normative home). At the wave, **Helix and reagent-slim delete; UIx
+freezes in place** under Spec 006 plus its API/Conventions/Ownership rows. **The
+Reagent-tier forms — Form-1/2/3 and the `reg-view`
 family — are not deleted at the wave: they freeze into the stock-Reagent compatibility
 tier**, whose **live normative home is the compatibility appendix
 `spec/004A-Reagent-Compat.md`** (lands with the wave; carries the freeze rules, the
 preserved Form/`reg-view`/Reagent-adapter/frame-context sections as live text, the
-two-direction boundary contract, the retained API/facade rows, and the two-suite CI
+two-direction boundary contract, the retained API/facade rows, and the three-suite CI
 surface — [reagent-compat-boundary.md](reagent-compat-boundary.md) §8). Correct but
-frozen: contract suite + one smoke in CI; no new capabilities; taught on exactly one
-migration page; `ui/defview` is the only *taught* component form. Old and new trees
-co-mount at explicit boundaries during migration (per the migration guide); the
-dataflow layer is untouched throughout. After the wave: Spec 006's host-neutral
-contracts, the plain-atom substrate, and benchmark results + fixtures are kept, and a
-git tag of UIx/Helix/slim is kept **as provenance, not contract**; those adapters are
-not.
+frozen: one pinned contract suite + one smoke for Reagent and for UIx; no new
+capabilities or parity promise; discoverable through minimum compatibility reference;
+`ui/defview` is the only *taught* component form. Old and new rendering trees co-mount
+at explicit React boundaries during migration (per the migration guide), but every
+process still installs exactly one adapter; no boundary selects an adapter per frame or
+subtree. The dataflow layer is untouched throughout. After the wave: Spec 006's
+host-neutral contracts, the plain-atom substrate, the Reagent and UIx compatibility
+contracts, and benchmark results + fixtures are kept; a git tag of Helix/slim is kept
+**as provenance, not contract** for the deleted adapters.
 
 ## Stage conformance profiles
 
@@ -828,9 +834,9 @@ not drafted. Line references are against the current checked-in files (revisions
 | `spec/002-Frames.md` | Frame-keyword-captured-by-value note (1701–1702) | Re-word from injected-closure mechanics to committed-slot publication. |
 | `spec/006-ReactiveSubstrate.md` | Adapter op table + `render`/`render-to-string` contracts (117, 197–221) | Re-point "a serialisable nested data structure (per Spec 004)" at the template law; `render` consumes a compiled root; `render-to-string` consumes the JVM structural tree. |
 | `spec/006-ReactiveSubstrate.md` | Source-coord wrapping component, Form-2 handling, `:rf/view-id-attr` (356–469) | [TRANSITION] Reagent-adapter render-time wrapper machinery — freezes with the stock-Reagent compatibility tier; the compiled substrate stamps coords at compile time (04 §4). |
-| `spec/006-ReactiveSubstrate.md` | Reference adapter implementations over hiccup (883–980) | [TRANSITION] UIx/Helix/slim reference implementations deleted at the adapter wave; the stock-Reagent implementation freezes with the compatibility tier; plain-atom substrate and the JVM emitter binding survive. |
+| `spec/006-ReactiveSubstrate.md` | Reference adapter implementations over hiccup (883–980) | [TRANSITION] Helix/slim reference implementations delete at the adapter wave; stock Reagent and UIx freeze as compatibility adapters; plain-atom substrate and the JVM emitter binding survive. |
 | `spec/006-ReactiveSubstrate.md` | `re-frame.views/current-frame` context reader keyed on `reg-view*` `:contextType` (1111–1116) | Replace with the compiled substrate's frame scoping; the compat-tier path freezes [TRANSITION]. |
-| `spec/006-ReactiveSubstrate.md` | UIx/Helix adapter decisions + comparison table + artifact list (1242–1243, 1267, 1289–1301, 1348, 1360–1361) | [TRANSITION] deleted at the adapter wave (adapter matrix collapses to one contract suite). |
+| `spec/006-ReactiveSubstrate.md` | UIx/Helix adapter decisions + comparison table + artifact list (1242–1243, 1267, 1289–1301, 1348, 1360–1361) | [TRANSITION] retain and freeze the UIx contract/artifact rows; delete the Helix rows at the adapter wave. The end state has three causal suites (`ui-conformance`, `reagent-compat`, `uix-compat`), not one compatibility suite. Preserve the v1 one-adapter-per-process law explicitly. |
 | `spec/006-ReactiveSubstrate.md` | NEW section | The R-2 observation port, per the FINAL amendment ([spec-006-observation-port-amendment.md](spec-006-observation-port-amendment.md) — shapes **final**, S-3 §5 the sole source): the six frozen invariants (render probes without ownership · commit acquires the captured target-identity, re-resolving the canonical node · acquire-before-release · synchronous idempotent release · evidence corrected before paint · every queued write epoch executes, then each dirty cell is notified once in the drain's post-quiescence batch); the six operations (`resolve-target` · `probe` · `acquire!` · `current?` · `read` · `release!`) over the target/evidence/lease split; staged transactional multi-acquire rollback; static override leases; internal-fail-loud vs public-recover-to-nil on the ONE catalogue id `:rf.error/no-such-sub`; the named seam `re-frame.substrate.observation` + `port-abi-version` guard; explicitly **outside** the closed public ten-fn adapter map. Plus the three-state lifecycle (hide/unmount as qualified retroactive annotations) and the slice-scoped probe memo. |
 | `spec/009-Instrumentation.md` | `:op-type` vocabulary + emission catalogue `:rf.view/*` (30, 156, 203–205) | Extend the `:rf.view` family for the compiled substrate's evidence schema (connected-commit publication). Lifecycle per 03 §4 (three layers, F6): the emitted disconnect fact is `:disconnected {:reason :unknown}`; Activity-hide vs unmount are **qualified retroactive annotations** with proof provenance (`:reconnect` / `:host-teardown` / best-effort `:gc-inference`, no exact timestamp, bounded non-retaining tombstone) — never distinct emitted runtime states. |
 | `spec/009-Instrumentation.md` | `:rf.view/rendered` tags incl. `:rf.view/render-args` (269–292, 400) | Props are one map (no positional render-args); render-key wire shape versioned (integer + `:view-id` + `occurrence-path` + `parent-render-key` + `:rf.view/causes` vector with loss accounting). |
@@ -856,7 +862,7 @@ not drafted. Line references are against the current checked-in files (revisions
 | `spec/Conventions.md` | Reserved namespaces + packaging sections | NEW: reserve `:rf.ui/*` (the closed placeholder vocabulary `:rf.ui/value` / `:rf.ui/checked` / `:rf.ui/key`); register `day8/re-frame2-ui` (lockstep train per R-6) + `re-frame.ui.data` as artifacts; the `{:re-frame.ui/bare-handlers …}` lint key. |
 | `spec/Ownership.md` | View contract row (39) | Re-write: "View contract and `reg-view` … Form-1/2/3" → "`ui/defview`, template grammar + portability law, handler law, presence, JVM structural subset"; artifact cell `day8/re-frame2` → `day8/re-frame2-ui`. |
 | `spec/Ownership.md` | Ephemeral view-state placement rule row (40) | Owner unchanged (004); wording gains `local` as the sanctioned spelling. |
-| `spec/Ownership.md` | Reagent/UIx/Helix adapter rows + shared React frame Context row (42–45) | [TRANSITION] UIx/Helix(/slim) adapter rows deleted at the adapter wave; the Reagent row re-scopes to the frozen compatibility tier with **`spec/004A-Reagent-Compat.md` as its owning spec**; the shared-context row's consumers become `day8/re-frame2-ui` plus the compat tier. |
+| `spec/Ownership.md` | Reagent/UIx/Helix adapter rows + shared React frame Context row (42–45) | [TRANSITION] the UIx row remains, re-statused as frozen compatibility under Spec 006; the Helix(/slim) rows delete at the adapter wave; the Reagent row re-scopes to the frozen compatibility tier with **`spec/004A-Reagent-Compat.md` as its owning spec**; the shared-context row's surviving consumers become `day8/re-frame2-ui`, `day8/re-frame2-reagent`, and `day8/re-frame2-uix`. Adapter selection stays process-owned and singular. |
 | `spec/Ownership.md` | SSR rows (54–56) | Emitter wording (hiccup → structural tree); add the root-manifest surface to the 011 row. |
 | `spec/Ownership.md` | NEW rows | Observation port (006, R-2); root manifest + per-root hydration (011); presence + `ui/html` + `ui/error-boundary` (004); `ui.test` contract (008); evidence schema / view manifests (009). |
 
@@ -865,9 +871,9 @@ not drafted. Line references are against the current checked-in files (revisions
 - `spec/API.md` — projection: move `reg-view`/`reg-view*`/`view` (and the
   Reagent-adapter rows) to `v1 (frozen — compat tier)` status under
   `spec/004A-Reagent-Compat.md` — relocated, not removed (retained-rows table per
-  [reagent-compat-boundary.md](reagent-compat-boundary.md) §8; lands S7); UIx/Helix
-  adapter rows delete with their adapters; add the `re-frame.ui` surface per its owning
-  rows.
+  [reagent-compat-boundary.md](reagent-compat-boundary.md) §8; lands S7); retain and
+  freeze the UIx adapter rows in Spec 006/API/Conventions/Ownership; delete only the
+  Helix rows; add the `re-frame.ui` surface per its owning rows.
 - `spec/Spec-Schemas.md` — projection: `:rf/epoch-record` `:renders`, `:rf/view-id-attr`,
   and the new versioned manifest/instance-record shapes follow their owners.
 - `spec/008-Testing.md` — the `ui.test` contract (render/find/query/frame/dispatch!/

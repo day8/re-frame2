@@ -67,7 +67,8 @@ declared demand-bar audit items, and OPEN-2's non-shipping is itself **asserted*
 port shapes final). None blocks the merge.
 
 **(b) [TRANSITION] markers — survive the merge by design, confirmed.** The draft says so
-in three places: the header ("conditional until the adapter deletion wave"), the
+in three places: the header ("conditional until the compatibility-freeze / adapter
+deletion wave"), the
 §Removed-forms/[TRANSITION] block ("the markers, not git history, are the live contract
 during the transition — the git tag is provenance only"), and the profile row
 "§Removed forms — [TRANSITION] freeze + the 004A appendix → **S7**". One caveat the
@@ -121,9 +122,9 @@ whose rows land with their stages.
 | `spec/008-Testing.md` | Add the S1 `ui.test` contract rows (render/find/find-all/query/text/attrs + tier table + `.cljc` constraint), the selector-grammar home/pointer, **the G-1/G-14 gate rows, and the parity-corpus row** — 008 currently contains **zero** ui/parity/G-gate content, yet the merged 004 says "per [008] G-14", "generatively tested (per [008])", "`ui.test/flush!` is the only test flush (per [008])" | **No** (008 is not on the fixed hot-zone list) |
 | `spec/Conventions.md` | Remaining S1 rows only: packaging/artifact registration for `day8/re-frame2-ui` (lockstep train per R-6; `re-frame.ui.data` reserved as future separate artefact); the `{:re-frame.ui/bare-handlers …}` lint-key reservation; `ui/defview` added to the per-kind registration-macro list (**additive** — `reg-view` stays until S7); the defview id-derivation stated (additive beside the existing §reg-view rule). Do NOT touch the four already-landed reservation rows | **YES — hot-zone; sequence** |
 | `spec/API.md` | **Additive** `re-frame.ui` surface rows per the blessed 12 §2 table (with stage annotations). The reg-view/reg-view*/view re-status to `v1 (frozen — compat tier)` is **S7, not now** | **YES — hot-zone; sequence** |
-| `spec/Ownership.md` | Row 39 rewrite (view contract → `ui/defview`/template grammar/portability law; artifact cell → `day8/re-frame2-ui`); row 40 re-word to the **F8 narrow law** (the current row restates the superseded strict "never read by any handler" test — leaving it contradicts merged 004) + fix its 004 anchor; NEW rows for the 004-owned S1-landing surfaces (presence/`ui/html`/`ui/error-boundary` as declared 004-owned; `ui.test` contract → 008). Defer: observation-port row (S2), root-manifest row (S5), adapter-row deletions (S7) | No |
+| `spec/Ownership.md` | Row 39 rewrite (view contract → `ui/defview`/template grammar/portability law; artifact cell → `day8/re-frame2-ui`); row 40 re-word to the **F8 narrow law** (the current row restates the superseded strict "never read by any handler" test — leaving it contradicts merged 004) + fix its 004 anchor; NEW rows for the 004-owned S1-landing surfaces (presence/`ui/html`/`ui/error-boundary` as declared 004-owned; `ui.test` contract → 008). Defer: observation-port row (S2), root-manifest row (S5), adapter freeze/deletion rows (S7: retain UIx; delete Helix/slim) | No |
 | Inbound-link hygiene | 49 anchor references from 17 tracked files point into current-004 headings that all vanish (top offenders: `#plain-reagent-fns-no-frame-injection` ×5, `#reg-view-is-the-multi-frame-contract` ×3, `#regime-c--library-bridged-animations…` ×3, `#calling-a-registered-view` ×3, `#affordance-for-plain-fns-rfcapture-frame` ×3, `#where-ephemeral-view-state-lives…` ×3, `#view-antipatterns` ×3, Form-1/2/3 anchors ×8). Files: 000, 001, 002, 006, 009, AI-Audit, Conventions, Cross-Spec-Interactions, Ownership, Pattern-NineStates, Pattern-RemoteData, Pattern-StatefulComponents, Principles, Spec-Schemas, Tool-Pair, migration/from-re-frame-v1/README.md, docs/api/re-frame.core.md. Broken anchors pass `--strict` (anchors default to info) but are reader-facing debt; fix in the same PR. **Coordinate the 002 touches** against the in-flight h1vqa4 slice-3 worker at dispatch time | Mixed (002/006/009/Conventions/Spec-Schemas/Tool-Pair/migration-README are hot-zone — link-only edits, same PR, verify no in-flight owner at dispatch; zero open PRs at audit time) |
-| De-linkify two stage-later citations inside the merged 004 body | `reagent-compat-boundary.md` links (§Interop `->react` row, §Removed forms, [TRANSITION] block, profile rows) → plain-prose citation ("the compat-boundary contract; promotes as `spec/004A-Reagent-Compat.md` at the deletion wave"); `spec-006-observation-port-amendment.md` link (§Reactive reads) → cite 006 + "the port amendment (merges with the S2 slice)". Their promoted homes land S7/S2 respectively — linking now = dead links | No (inside 004) |
+| De-linkify two stage-later citations inside the merged 004 body | `reagent-compat-boundary.md` links (§Interop `->react` row, §Removed forms, [TRANSITION] block, profile rows) → plain-prose citation ("the Reagent compat-boundary contract; promotes as `spec/004A-Reagent-Compat.md` at the S7 freeze/deletion wave"); `spec-006-observation-port-amendment.md` link (§Reactive reads) → cite 006 + "the port amendment (merges with the S2 slice)". Their promoted homes land S7/S2 respectively — linking now = dead links | No (inside 004) |
 
 ### NOT in this merge (later stages, per the draft's own timing)
 
@@ -131,8 +132,9 @@ whose rows land with their stages.
   rf2-h1vqa4 which is actively refactoring this surface — slice 2 merged as #5704).
 - **006-ReactiveSubstrate.md** — all rows incl. the NEW observation-port section → S2
   (the S2a obs worker just dispatched owns this lane).
-- **009** — evidence-schema/`:rf.view/*` rows → S3; port rows → S2; compat-tier
-  deletions → S7. (S1 rows: already landed, above.)
+- **009** — evidence-schema/`:rf.view/*` rows → S3; port rows → S2; compatibility
+  freeze plus Helix/slim-only deletion housekeeping → S7. (S1 rows: already landed,
+  above.)
 - **011-SSR.md** — all rows → S5.
 - **Conventions** facade re-status (1187) + `*`-pair table (1341–51) → S7;
   **API.md**/**Cross-Spec-Interactions §21** re-status → S7; `spec/004A-Reagent-Compat.md` → S7.
