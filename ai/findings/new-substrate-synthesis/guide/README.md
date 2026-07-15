@@ -47,7 +47,7 @@ Chapters 08–14 are depth: open them when you need them. Chapter 14 is the
 | 9 | [Debugging](09-debugging.md) | Causes, Xray, Pair, loud failures |
 | 10 | [Performance](10-performance.md) | What you never write; the little you do |
 | 11 | [Server rendering](11-ssr.md) | Same views on the JVM; roots and hydration |
-| 12 | [How it works](12-how-it-works.md) | Optional mechanism (why the claims hold) |
+| 12 | [How it works](12-how-it-works.md) | Optional mechanism: hiccup→AST→emit, ViewCell, dual hosts |
 | 13 | [From other worlds](13-from-other-worlds.md) | React / UIx / Reagent translation |
 | 14 | [What the compiler forbids](14-compile-time-limits.md) | Closed grammar: walls, fixes, escapes |
 
