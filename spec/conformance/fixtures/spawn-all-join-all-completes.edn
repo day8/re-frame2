@@ -3,7 +3,12 @@
 ;; Per Spec 005 §Spawn-and-join via :spawn-all (rf2-6vmw). Verify that
 ;; entering a :spawn-all-bearing state with `:join :all` emits:
 ;;   1. One :rf.machine/spawn-all-init fx that seeds the join state at
-;;      [:rf.runtime/machines :spawned <parent> <invoke-id>].
+;;      [:rf.runtime/machines :spawned <parent> <invoke-id>]. It carries
+;;      :child-args — the prepared per-child spawn args (identical to the
+;;      args of the :rf.machine/spawn fxs below, in declaration order) — so
+;;      its invoke-level admission preflight can decide unregistered-TYPE and
+;;      spawn-time [:schemas :data] rejection BEFORE publishing a live join
+;;      or running any child effect (rf2-7u8gen).
 ;;   2. N :rf.machine/spawn fxs (one per child), each carrying the
 ;;      runtime-stamped :rf/parent-id, :rf/spawn-all-id (the prefix-path
 ;;      of the :spawn-all-bearing state), and :rf/spawn-all-child-id
@@ -93,7 +98,29 @@
                                  :on-child-error   :asset/failed
                                  :on-all-complete  [:hydrate/done]
                                  :on-any-failed    [:hydrate/failed]}
-                     :invoke-id [:hydrating]}}]
+                     :invoke-id [:hydrating]}
+      ;; The prepared per-child spawn args, in declaration order — byte-for-byte
+      ;; the args of the three :rf.machine/spawn fxs below. The init fx
+      ;; preflights THESE, so its admission decision sees exactly what each
+      ;; per-child effect would run.
+      :child-args   [{:machine-id             :load-config
+                      :id-prefix              :load-config
+                      :rf/spawned-id          :load-config#1
+                      :rf/parent-id           :rf/transition-pure
+                      :rf/spawn-all-id        [:hydrating]
+                      :rf/spawn-all-child-id  :cfg}
+                     {:machine-id             :load-feature-flags
+                      :id-prefix              :load-feature-flags
+                      :rf/spawned-id          :load-feature-flags#1
+                      :rf/parent-id           :rf/transition-pure
+                      :rf/spawn-all-id        [:hydrating]
+                      :rf/spawn-all-child-id  :flag}
+                     {:machine-id             :load-user-profile
+                      :id-prefix              :load-user-profile
+                      :rf/spawned-id          :load-user-profile#1
+                      :rf/parent-id           :rf/transition-pure
+                      :rf/spawn-all-id        [:hydrating]
+                      :rf/spawn-all-child-id  :user}]}]
     ;; Per rf2-er0t: the runtime dissocs :id from each child spec before
     ;; emitting the :rf.machine/spawn fx; the user-supplied child id rides
     ;; on :rf/spawn-all-child-id instead.

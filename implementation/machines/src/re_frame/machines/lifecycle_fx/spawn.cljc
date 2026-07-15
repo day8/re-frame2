@@ -222,6 +222,40 @@
                       join-child (assoc :rf/join-child join-child))]
       (assoc spec :data data'))))
 
+(defn- join-child-record-from-state
+  "`join-child-record`'s pure core — build the record from an already-in-hand
+  join-state VALUE rather than reading it back out of runtime-db.
+
+  Split out (rf2-7u8gen) so `spawn-all-init-fx`'s invoke-level PREFLIGHT can
+  build the candidate child `:data` it validates against the join-state it is
+  ABOUT to seed: that state is not in runtime-db yet, and for a REJECTED
+  invoke it never will be. Sharing this core is what makes the preflight's
+  `:rf/join-child` stamp byte-identical to the one the later per-child install
+  writes, so the two paths can never reach different schema verdicts for the
+  same child.
+
+  Returns nil unless `join-state` is a live child-bearing join (the reject
+  sentinel carries no `:children`)."
+  [join-state args spawned-id]
+  (when (and (map? join-state) (contains? join-state :children))
+    {:parent-id       (:rf/parent-id args)
+     :invoke-id       (:rf/spawn-all-id args)
+     :child-id        (:rf/spawn-all-child-id args)
+     :spawned-id      spawned-id
+     :done-kw         (get-in join-state [:spec :on-child-done])
+     :error-kw        (get-in join-state [:spec :on-child-error])
+     :attempt         (:rf/attempt join-state)
+     ;; Exact private work discriminator. The authored fixed-id presence
+     ;; is explicit provenance: fixed children use the join attempt even
+     ;; when their literal happens to end in `#<digits>`. Only after the
+     ;; runtime has established that a child is generated do we extract
+     ;; the allocator's established `<type>#<n>` counter. Actor-id spelling
+     ;; therefore never decides fixed-vs-generated provenance, and the
+     ;; public/pure spawn effect shape remains unchanged.
+     :work-generation (if (contains? args :fixed-actor-id)
+                        (:rf/attempt join-state)
+                        (m-reply/actor-generation spawned-id))}))
+
 (defn- join-child-record
   "Build the PRIVATE join-membership record the runtime stamps into a
   `:spawn-all` child's `:data` under `:rf/join-child` (rf2-nvxehu). It
@@ -248,26 +282,33 @@
   `spawn-all-invoke-rejected?` relies on)."
   [runtime-db args spawned-id]
   (when-let [invoke-id (:rf/spawn-all-id args)]
-    (let [parent-id  (:rf/parent-id args)
-          join-state (get-in runtime-db (paths/spawned-path parent-id invoke-id))]
-      (when (and (map? join-state) (contains? join-state :children))
-        {:parent-id       parent-id
-         :invoke-id       invoke-id
-         :child-id        (:rf/spawn-all-child-id args)
-         :spawned-id      spawned-id
-         :done-kw         (get-in join-state [:spec :on-child-done])
-         :error-kw        (get-in join-state [:spec :on-child-error])
-         :attempt         (:rf/attempt join-state)
-         ;; Exact private work discriminator. The authored fixed-id presence
-         ;; is explicit provenance: fixed children use the join attempt even
-         ;; when their literal happens to end in `#<digits>`. Only after the
-         ;; runtime has established that a child is generated do we extract
-         ;; the allocator's established `<type>#<n>` counter. Actor-id spelling
-         ;; therefore never decides fixed-vs-generated provenance, and the
-         ;; public/pure spawn effect shape remains unchanged.
-         :work-generation (if (contains? args :fixed-actor-id)
-                            (:rf/attempt join-state)
-                            (m-reply/actor-generation spawned-id))}))))
+    (join-child-record-from-state
+      (get-in runtime-db (paths/spawned-path (:rf/parent-id args) invoke-id))
+      args spawned-id)))
+
+(defn- candidate-spawn-spec
+  "The fully framework-stamped machine spec a spawn of `args` WOULD install:
+  the resolved TYPE spec (registry `:machine-id` xor inline `:definition`),
+  the args' materialised `:data` override applied, and the framework's
+  `:rf/self-id` / `:rf/parent-id` / `:rf/invoke-id` / `:rf/join-child` keys
+  stamped into `:data`. Returns nil when the type resolves to no spec (an
+  unregistered `:machine-id` — the `unregistered-spawn-type?` gate's child).
+
+  The SINGLE source of truth shared by `spawn-all-init-fx`'s invoke-level
+  PREFLIGHT and `spawn-fx*`'s per-child install (rf2-7u8gen), so the two can
+  never disagree about the value that gets schema-validated. Pure: the
+  transition reducer already materialised any user `:data` fn into a VALUE on
+  the args (`spawn-one`), so this evaluates no application code and allocates
+  no id — it may be called on both paths without double-running user code."
+  [args spawned-id join-child]
+  (let [spec  (resolve-spawn-machine args)
+        spec' (if (and spec (contains? args :data))
+                (assoc spec :data (:data args))
+                spec)]
+    (stamp-framework-data spec' spawned-id
+                          (:rf/parent-id args)
+                          (:rf/invoke-id args)
+                          join-child)))
 
 ;; The spawned actor's initial snapshot is built by
 ;; `parallel/build-initial-snapshot` — the single source of truth shared
@@ -540,10 +581,6 @@
         ;; as the fallback allocator, bumped inside the same db-swap as
         ;; the snapshot install / registry bind below.
         pre-id     (pre-allocated-actor-id args)
-        spec       (resolve-spawn-machine args)
-        spec'      (if (and spec (contains? args :data))
-                     (assoc spec :data (:data args))
-                     spec)
         ;; The revertible TYPE reference the lazy resolver reads back off
         ;; the installed snapshot.
         type-ref   (machine-type-ref args)
@@ -571,7 +608,11 @@
           (and old-rt machine-id-for-alloc)
                         (allocate-actor-id-in-runtime-db old-rt machine-id-for-alloc)
           :else         [old-rt nil])
-        spec''     (stamp-framework-data spec' spawned-id parent-id invoke-id
+        ;; The stamped spec this install would land — built through the SAME
+        ;; `candidate-spawn-spec` path `spawn-all-init-fx`'s preflight uses, so
+        ;; a `:spawn-all` child's invoke-level verdict and its install-time
+        ;; verdict are decided over an identical value (rf2-7u8gen).
+        spec''     (candidate-spawn-spec args spawned-id
                                          (join-child-record old-rt args spawned-id))
         ;; Build the initial snapshot ONCE here so the schema-rejection
         ;; decision can gate every side effect below; `install-spawn!`
@@ -758,6 +799,39 @@
 (defn- next-join-attempt-token []
   (swap! join-attempt-counter inc))
 
+(defn- schema-rejected-child?
+  "True iff `args` — ONE prepared per-child spawn of the `:spawn-all` whose
+  join-state is `join-state` — would be REJECTED by spawn-time
+  `[:schemas :data]` validation. Emits that child's
+  `:rf.error/schema-validation-failure :phase :spawn` exactly once, as it
+  decides (rf2-7u8gen).
+
+  Builds the candidate snapshot through the SAME `candidate-spawn-spec` /
+  `build-initial-snapshot` path the per-child install runs, against the
+  join-state about to be seeded — so this IS the verdict the install would
+  reach, not an approximation of it.
+
+  An unregistered TYPE resolves to no spec and is NOT a schema reject
+  (`spawn-rejected?` is false for a nil spec): `unregistered-spawn-type?` owns
+  that child, and the two invoke-level reject reasons stay disjoint — each
+  offending child is counted, and reported, under exactly one of them.
+
+  Returns nil (not a reject) for a child with no pre-allocated id: its
+  `:rf/self-id` stamp — and therefore its `:data` — is unknowable until the
+  install allocates one, so there is nothing faithful to validate. The
+  transition reducer pre-allocates every declarative `:spawn-all` child; the
+  runtime-db fallback allocator serves only hand-emitted `:rf.machine/spawn`
+  fxs, which belong to no invoke and so have no invoke to reject."
+  [args join-state continue?]
+  (when-let [spawned-id (pre-allocated-actor-id args)]
+    (let [spec (candidate-spawn-spec
+                 args spawned-id
+                 (join-child-record-from-state join-state args spawned-id))
+          snap (when spec
+                 (parallel/build-initial-snapshot
+                   spec {:bootstrap-pending? true}))]
+      (spawn-rejected? spec spawned-id snap continue?))))
+
 (defn spawn-all-init-fx
   "fx handler for `:rf.machine/spawn-all-init`. Per Spec 005
   §Spawn-and-join via `:spawn-all`, on entry to a `:spawn-all`-bearing
@@ -778,14 +852,33 @@
   `intercept-spawn-all-event` (in `lifecycle-fx.join`).
 
   This fx fires FIRST in the entry `:fx` vector — BEFORE the per-child
-  `:rf.machine/spawn` fxs. If ANY child in the set names an UNREGISTERED
-  machine TYPE (no inline `:definition`), the WHOLE invoke is REJECTED
-  ATOMICALLY here (rf2-qb1j5z): instead of a live child-bearing join
-  state, this fx seeds `spawn-all-reject-sentinel` at the join slot — a
-  slot that is PHYSICALLY present in runtime-db but carries NO `:children`,
-  so it is a reject marker, NOT a live join. A never-running spec-less
-  child would otherwise never dispatch its `:on-child-done`, blocking an
-  `:all` join FOREVER (`join.cljc` `(= n-done n-total)` can never hold).
+  `:rf.machine/spawn` fxs — and its PREFLIGHT is the AUTHORITATIVE decision
+  for every fail-closed child-admission condition. If ANY child in the set
+  fails admission, the WHOLE invoke is REJECTED ATOMICALLY here: instead of a
+  live child-bearing join state, this fx seeds `spawn-all-reject-sentinel` at
+  the join slot — a slot that is PHYSICALLY present in runtime-db but carries
+  NO `:children`, so it is a reject marker, NOT a live join.
+
+  Two admission conditions, both preflighted over the PREPARED per-child
+  spawn args (`:child-args`) before anything is published:
+
+   1. **Unregistered child TYPE** (no inline `:definition`) — rf2-qb1j5z. A
+      never-running spec-less child would never dispatch its
+      `:on-child-done`, blocking an `:all` join FOREVER (`join.cljc`
+      `(= n-done n-total)` can never hold).
+   2. **Spawn-time `[:schemas :data]` rejection** — rf2-7u8gen. Validation
+      used to run only inside each per-child spawn, so a mixed
+      valid/schema-invalid invoke published a live join naming EVERY child,
+      installed the valid siblings, and left the rejected child in that join
+      forever: it has no snapshot and can never emit completion, so the
+      parent waits on it eternally while its valid siblings are real live
+      actors owned by an impossible join. That is the same dead-join/orphan
+      class the unregistered-type sentinel exists to remove, and it violates
+      Spec 005's promise that a parent never observes a half-installed child.
+      Preflighting it HERE composes the two guarantees.
+
+  An all-valid invoke keeps the existing fast path. Registration-time SHAPE
+  rejection stays where it already belongs (`reg-machine`).
   EVERY child's per-child `:rf.machine/spawn` fx — SEPARATE entries later in
   THIS same entry vector — reads the sentinel (`spawn-all-invoke-rejected?`)
   and SUPPRESSES itself BEFORE installing, so a malformed set spawns NOTHING
@@ -807,14 +900,40 @@
                       :event-id (:rf/parent-id args)})
         parent-id  (:rf/parent-id args)
         invoke-id  (:rf/invoke-id args)
-        join-state (:join-state args)
-        children   (:children join-state)
-        ;; The original child invoke-specs (carry `:machine-id` /
-        ;; `:definition`) ride the seeded join-state's `:spec`. Detect any
-        ;; unregistered child TYPE up front.
-        unregistered (->> (get-in join-state [:spec :children])
-                          (filterv unregistered-spawn-type?))]
-    (if (seq unregistered)
+        children   (:children (:join-state args))
+        ;; The PREPARED per-child spawn args — the exact `[:rf.machine/spawn
+        ;; args]` payloads the sibling fxs later in THIS entry vector will run,
+        ;; threaded here by the transition reducer (this fx's single producer).
+        ;; Preflighting THESE, rather than the raw invoke-specs off
+        ;; `[:spec :children]`, is what lets the invoke-level decision see
+        ;; everything a per-child effect would: the materialised `:data`, the
+        ;; pre-allocated id, and hence the child's real `[:schemas :data]`
+        ;; verdict (rf2-7u8gen).
+        child-args (:child-args args)
+        ;; Mint the attempt token BEFORE the preflight so the candidate
+        ;; snapshots validated below carry the very `:rf/join-child` record the
+        ;; per-child installs will stamp — identical values, identical
+        ;; verdicts. A REJECTED invoke simply discards the token: it is an
+        ;; opaque monotonic counter whose only contract is uniqueness, so a gap
+        ;; costs nothing and a rejected invoke has no attempt to authenticate
+        ;; against.
+        join-state (assoc (:join-state args)
+                          :cancelled #{}
+                          :rf/attempt (next-join-attempt-token))
+        continue?  (data-validation/owner-continuation frame-id)
+        ;; ---- The invoke-level admission preflight ------------------------
+        ;; ONE decision, authoritative for EVERY fail-closed child-admission
+        ;; condition, taken BEFORE a live join or ANY child side effect is
+        ;; published (rf2-qb1j5z for unregistered types, rf2-7u8gen for
+        ;; spawn-time schema validity). The two conditions are DISJOINT — an
+        ;; unregistered type resolves to no spec, so it can never also be a
+        ;; schema reject — hence each offending child is reported exactly once
+        ;; under exactly one of them. Registration-time SHAPE rejection stays
+        ;; where it already belongs (`reg-machine`).
+        unregistered   (filterv unregistered-spawn-type? child-args)
+        schema-invalid (filterv #(schema-rejected-child? % join-state continue?)
+                                child-args)]
+    (if (or (seq unregistered) (seq schema-invalid))
       ;; Fail-closed: reject the join so the never-running spec-less child
       ;; cannot hang the `:all` join forever. Emit EXACTLY one reject per
       ;; offending child (structural-only tags, per the privacy contract) —
@@ -835,31 +954,32 @@
       ;; reject. The sentinel carries no `:children`, so the join interceptor
       ;; treats it as no live child-bearing join (no deadlock) and `destroy-spawn-all-children!`
       ;; finds nothing to tear down and clears the slot on parent exit.
+      ;; Each unregistered child reports here; each schema-invalid child
+      ;; already emitted its own `:rf.error/schema-validation-failure
+      ;; :phase :spawn` as the preflight decided it. Both axes: exactly one
+      ;; error per offending child, and no child effect runs at all.
       (do (doseq [child unregistered]
             (reject-unregistered-spawn! frame-id (:machine-id child)))
           (frame/swap-runtime-db! frame-id assoc-in
                                   (paths/spawned-path parent-id invoke-id)
                                   spawn-all-reject-sentinel)
           nil)
-      (let [;; Mint the opaque per-attempt token (rf2-nvxehu). One LIVE seed =
-            ;; one join ATTEMPT; the token rides the join state AND each
-            ;; child's `:rf/join-child` membership record (stamped by the
-            ;; per-child spawn fxs that run AFTER this fx in the same entry
-            ;; vector), binding every completion carrier to this exact
-            ;; attempt. The reject sentinel branch above mints NO token —
-            ;; a rejected invoke has no attempt to authenticate against.
-            join-state (assoc join-state
-                              :cancelled #{}
-                              :rf/attempt (next-join-attempt-token))]
-        ;; Machine spawn-registry state is durable runtime-db state.
-        (frame/swap-runtime-db! frame-id assoc-in
-                                (paths/spawned-path parent-id invoke-id) join-state)
-        (trace/emit! :rf.machine :rf.machine.spawn-all/started
-                     {;; The parent's live actor INSTANCE address;
-                      ;; `:invoke-id` is the declarative invocation path.
-                      :actor-id   parent-id
-                      :invoke-id  invoke-id
-                      :child-ids  (set (keys children))
-                      :children   children
-                      :frame      frame-id})
-        nil))))
+      ;; The all-valid fast path. `join-state` already carries the opaque
+      ;; per-attempt token (rf2-nvxehu) minted above: one LIVE seed = one join
+      ;; ATTEMPT, and the token rides both the join state and each child's
+      ;; `:rf/join-child` membership record (stamped by the per-child spawn
+      ;; fxs that run AFTER this fx in the same entry vector), binding every
+      ;; completion carrier to this exact attempt.
+      ;;
+      ;; Machine spawn-registry state is durable runtime-db state.
+      (do (frame/swap-runtime-db! frame-id assoc-in
+                                  (paths/spawned-path parent-id invoke-id) join-state)
+          (trace/emit! :rf.machine :rf.machine.spawn-all/started
+                       {;; The parent's live actor INSTANCE address;
+                        ;; `:invoke-id` is the declarative invocation path.
+                        :actor-id   parent-id
+                        :invoke-id  invoke-id
+                        :child-ids  (set (keys children))
+                        :children   children
+                        :frame      frame-id})
+          nil))))

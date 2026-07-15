@@ -2448,12 +2448,17 @@
 
    1. Allocate one spawned-id per child up-front (thread the snapshot's
       counter through children in declaration order).
-   2. Build the join-state seed map and the `:rf.machine/spawn-all-init`
-      fx that seeds `[:rf.runtime/machines :spawned <parent> <invoke-id>]` in runtime-db.
+   2. Build the join-state seed map.
    3. For each child, delegate to `spawn-one` to materialise `:data` and
       build its `:rf.machine/spawn` fx (short-circuits on the first
       child's `:data` failure).
-   4. Run each child's `:on-spawn` advisory callback in declaration order,
+   4. Build the `:rf.machine/spawn-all-init` fx that seeds
+      `[:rf.runtime/machines :spawned <parent> <invoke-id>]` in runtime-db,
+      carrying the join-state seed AND the prepared per-child spawn args its
+      invoke-level admission preflight decides over (`:child-args`). It is
+      built after (3) because it carries (3)'s output; it is EMITTED first,
+      ahead of every per-child `:rf.machine/spawn`.
+   5. Run each child's `:on-spawn` advisory callback in declaration order,
       threading `:data` writes across siblings.
 
   Returns `[snap-after acc-fx']` for the reducer, or a `reduced` wrapper
@@ -2480,10 +2485,6 @@
                       :resolved? false
                       :spec      spawn-all-spec
                       :invoke-id invoke-id}
-        init-fx      [:rf.machine/spawn-all-init
-                      {:rf/parent-id parent-id
-                       :rf/invoke-id invoke-id
-                       :join-state   join-state}]
         ;; (3) Materialise + build spawn fxs per child via `spawn-one`.
         spawn-fxs-r
         (reduce
@@ -2517,7 +2518,27 @@
       ;; onto the failure — so the reducer never terminates mid-spawn
       ;; without a machine-scoped trace, and no parent/child snapshot or
       ;; registry slot commits.
-      (let [s' (reduce
+      (let [;; (2) The `:rf.machine/spawn-all-init` fx — built HERE, after the
+            ;; per-child fxs, so it can carry them. `spawn-one` emits exactly
+            ;; one `[:rf.machine/spawn args]` per child, so `spawn-fxs-r`'s
+            ;; seconds ARE the prepared per-child args in declaration order.
+            ;;
+            ;; Threading them onto the init fx is what lets its invoke-level
+            ;; PREFLIGHT decide child admission — unregistered TYPE and
+            ;; spawn-time `[:schemas :data]` validity alike — against the very
+            ;; payloads the per-child fxs will run, BEFORE it publishes a live
+            ;; join or any child effect executes (rf2-7u8gen). The raw invoke
+            ;; specs riding `[:join-state :spec :children]` cannot serve: they
+            ;; carry neither the materialised `:data` nor the pre-allocated
+            ;; id, so the child's real schema verdict is not derivable from
+            ;; them. `:data` fns are materialised ONCE, here in the reducer —
+            ;; the preflight re-runs no application code.
+            init-fx [:rf.machine/spawn-all-init
+                     {:rf/parent-id parent-id
+                      :rf/invoke-id invoke-id
+                      :join-state   join-state
+                      :child-args   (mapv second spawn-fxs-r)}]
+            s' (reduce
                  (fn [snap child]
                    (let [r (apply-on-spawn machine snap child (:rf/spawned-id child))]
                      (if (result/fail? r)
