@@ -23,6 +23,7 @@
   warning exactly ONCE."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [clojure.string :as str]
+            [reagent.core :as r]
             [re-frame.core :as rf]
             [re-frame.adapter.reagent :as reagent-adapter]
             [re-frame.test-support :as test-support]
@@ -137,3 +138,29 @@
                (pr-str warnings)))
       (is (str/includes? (first warnings) "interop-multi")
           "the single warning names the interop-rooted view-id"))))
+
+;; ---- Form-3 class root: preserve identity + warn -------------------------
+
+(deftest form-3-class-root-is-not-misclassified-as-form-2
+  (testing "A create-class value is callable but is a component class, not a
+            Form-2 render fn. The source-coord walk must return the exact class
+            so Reagent can install its lifecycle, and must still emit the
+            standard one-shot non-DOM-root warning because this outer view has
+            no concrete DOM node to annotate."
+    (let [view-id ::form-3-class-root
+          klass   (r/create-class
+                    {:display-name "rf2-form-3-source-coord-probe"
+                     :reagent-render (fn [] [:div "form-3"])})]
+      (rf/reg-view* view-id (fn [] klass))
+      (let [render   (rf/view view-id)
+            outputs  (atom [])
+            warnings (with-captured-console-warn
+                       (fn []
+                         (dotimes [_ 3]
+                           (swap! outputs conj (render)))))]
+        (is (every? #(identical? klass %) @outputs)
+            "the walker returns the exact create-class constructor — no Form-2 wrapper")
+        (is (= 1 (count warnings))
+            "the unannotatable Form-3 root emits exactly one warning per view id")
+        (is (str/includes? (first warnings) "form-3-class-root")
+            "the warning names the registered Form-3 view")))))

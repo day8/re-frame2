@@ -59,7 +59,7 @@
       `data-rf2-source-coord` and `data-rf-view` literals are part of
       the production-bundle elision sentinel set (see
       `scripts/check-elision.cjs`)."
-  (:require [reagent.impl.component :as reagent-component]
+  (:require [goog.object :as gobj]
             [re-frame.adapter.context :as adapter-context]
             [re-frame.views.warn-once :as warn-once]))
 
@@ -72,6 +72,23 @@
 ;; parity tests.
 (def format-source-coord adapter-context/format-source-coord)
 (def format-view-id       adapter-context/format-view-id)
+
+(defn- reagent-class?
+  "Dependency-free copy of stock Reagent's `reagent-class?` shape.
+
+  `re-frame.views.source-coord-annotation` lives in the substrate-neutral core
+  artefact, whose classpath intentionally contains neither stock Reagent nor
+  reagent-slim. Requiring `reagent.impl.component` here would therefore make a
+  core-only compile fail and would pull Reagent into UIx/Helix release bundles.
+
+  Both stock Reagent 2.x and the frozen reagent-slim bridge mark a
+  `create-class` constructor with `prototype.reagentRender`; using the same
+  structural test keeps this dev-only Hiccup walk neutral without inventing a
+  second adapter hook for one predicate."
+  [x]
+  (and (fn? x)
+       (some? (some-> (gobj/get x "prototype")
+                      (gobj/get "reagentRender")))))
 
 (defn- dom-tag?
   "True if `head` is a Hiccup DOM-tag keyword. Reagent's React-fragment
@@ -107,8 +124,14 @@
     ;; create-class values satisfy fn?, but Reagent must see the class itself
     ;; in order to install its lifecycle methods. This check therefore stays
     ;; ahead of the plain Form-2 branch.
-    (and (fn? out) (reagent-component/reagent-class? out))
-    out
+    (reagent-class? out)
+    (do
+      ;; A Form-3 class is a component-returning root: it has no concrete DOM
+      ;; node this outer registered view can annotate. Preserve the class
+      ;; identity so Reagent mounts it, while retaining Spec 006's standard
+      ;; one-shot warning for every non-DOM root.
+      (warn-once/warn-non-dom-root! id out)
+      out)
 
     ;; Form-2: render-fn returned a fn. Wrap so the inner fn's output
     ;; is also annotated when Reagent calls through.

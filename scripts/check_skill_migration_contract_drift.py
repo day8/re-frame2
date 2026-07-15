@@ -283,8 +283,8 @@ PAIR_PARTITION_NEGATION_RE = re.compile(
 
 # --- Rule 5: stock-Reagent Form-3 lifecycle advice must target the captured
 # frame explicitly. The one-argument forms are valid while a real resolver scope
-# exists, so this rule deliberately requires lifecycle/hook wording on the SAME
-# line and clears corrected negative examples ("a bare call throws").
+# exists, so this rule requires bounded lifecycle/hook context and clears
+# corrected negative examples ("a bare call throws").
 FORM3_LIFECYCLE_RE = re.compile(
     r"form-3|component-did-mount|component-did-update|component-will-unmount"
     r"|lifecycle",
@@ -299,6 +299,41 @@ FORM3_BARE_LIFECYCLE_NEGATION_RE = re.compile(
     r"|must not|never|invalid|wrong|omit(?:s|ted)?|instead",
     re.IGNORECASE,
 )
+FORM3_NEGATIVE_EXAMPLE_RE = re.compile(
+    r"\bBEFORE\b|(?i:bad example|negative example|anti-pattern|do not copy)",
+)
+FORM3_SENTENCE_BOUNDARY_RE = re.compile(r"[.!?](?:[*_`]+)?\s+")
+
+FORM3_BARE_LIFECYCLE_PROBLEM = (
+    "FORM3-BARE-LIFECYCLE: a Form-3 lifecycle callback has no ambient "
+    "frame after render scope unwinds. Capture the frame once in the "
+    "registered outer callable; use `(rf/subscribe-once query-v "
+    "{:frame frame})` for a hook one-shot read and frame-first "
+    "`(rf/unsubscribe frame query-v)` for teardown. Do not recommend "
+    "the bare one-argument forms in lifecycle guidance."
+)
+
+
+def _has_unnegated_form3_bare_call(line: str) -> bool:
+    """True when `line` contains a bare call that is itself affirmative.
+
+    Markdown guidance often puts a positive recipe and a later warning on one
+    long line. Negation therefore applies to the sentence containing each call;
+    a later "omits the frame" sentence must not bless an earlier bare recipe.
+    """
+    for match in FORM3_BARE_LIFECYCLE_CALL_RE.finditer(line):
+        sentence_start = 0
+        sentence_end = len(line)
+        for boundary in FORM3_SENTENCE_BOUNDARY_RE.finditer(line):
+            if boundary.end() <= match.start():
+                sentence_start = boundary.end()
+            elif boundary.start() >= match.end():
+                sentence_end = boundary.end()
+                break
+        sentence = line[sentence_start:sentence_end]
+        if not FORM3_BARE_LIFECYCLE_NEGATION_RE.search(sentence):
+            return True
+    return False
 
 
 def _slurp(path: Path) -> str:
@@ -381,19 +416,70 @@ def line_problems(line: str) -> list[str]:
     # one-shot read or teardown after the resolver scope has unwound.
     if (
         FORM3_LIFECYCLE_RE.search(line)
-        and FORM3_BARE_LIFECYCLE_CALL_RE.search(line)
-        and not FORM3_BARE_LIFECYCLE_NEGATION_RE.search(line)
+        and _has_unnegated_form3_bare_call(line)
     ):
-        problems.append(
-            "FORM3-BARE-LIFECYCLE: a Form-3 lifecycle callback has no ambient "
-            "frame after render scope unwinds. Capture the frame once in the "
-            "registered outer callable; use `(rf/subscribe-once query-v "
-            "{:frame frame})` for a hook one-shot read and frame-first "
-            "`(rf/unsubscribe frame query-v)` for teardown. Do not recommend "
-            "the bare one-argument forms in lifecycle guidance."
-        )
+        problems.append(FORM3_BARE_LIFECYCLE_PROBLEM)
 
     return problems
+
+
+def _markdown_blocks(text: str) -> list[tuple[int, list[str]]]:
+    """Return non-blank Markdown blocks with their one-based start line.
+
+    Rule 5 needs bounded context because user-facing prose and fenced examples
+    routinely place `:component-did-mount` and its call on adjacent lines. A
+    block is the smallest useful unit: blank lines keep unrelated sections from
+    being treated as one global Form-3 context.
+    """
+    blocks: list[tuple[int, list[str]]] = []
+    current: list[str] = []
+    start = 1
+    for lineno, line in enumerate(text.splitlines(), start=1):
+        if line.strip():
+            if not current:
+                start = lineno
+            current.append(line)
+        elif current:
+            blocks.append((start, current))
+            current = []
+    if current:
+        blocks.append((start, current))
+    return blocks
+
+
+def form3_context_problems(text: str) -> list[tuple[int, str, str]]:
+    """Find multiline Rule-5 drift using at most four Markdown blocks.
+
+    Bare one-argument forms are valid in a real ambient render scope, so this is
+    deliberately not a file-wide search. A call is dirty only when its current
+    block or one of the three immediately preceding blocks establishes Form-3 /
+    lifecycle context. Negation remains call-line local: a nearby paragraph
+    explaining that a bare call throws must not accidentally bless a later
+    affirmative recipe. An explicit BEFORE/negative-example marker exempts only
+    the call's own block or its immediately preceding label block; an older
+    negative example must not suppress a later positive recipe.
+    """
+    found: list[tuple[int, str, str]] = []
+    recent: list[str] = []
+    for start, lines in _markdown_blocks(text):
+        block = "\n".join(lines)
+        context = "\n\n".join([*recent[-3:], block])
+        negative_example = (
+            FORM3_NEGATIVE_EXAMPLE_RE.search(block)
+            or (recent and FORM3_NEGATIVE_EXAMPLE_RE.search(recent[-1]))
+        )
+        if FORM3_LIFECYCLE_RE.search(context) and not negative_example:
+            for offset, line in enumerate(lines):
+                if (
+                    _has_unnegated_form3_bare_call(line)
+                    # Same-line cases are already reported by line_problems.
+                    and not FORM3_LIFECYCLE_RE.search(line)
+                ):
+                    found.append(
+                        (start + offset, FORM3_BARE_LIFECYCLE_PROBLEM, line.strip())
+                    )
+        recent.append(block)
+    return found
 
 
 # ---------------------------------------------------------------------------
@@ -587,11 +673,15 @@ def find_drift(files: list[Path]) -> tuple[list[str], int]:
                 "from the layout; update _scanned_files()."
             )
             continue
-        for lineno, line in enumerate(_slurp(path).splitlines(), start=1):
+        text = _slurp(path)
+        for lineno, line in enumerate(text.splitlines(), start=1):
             lines_checked += 1
             for label in line_problems(line):
                 rel = path.relative_to(REPO_ROOT)
                 problems.append(f"{rel}:{lineno}: {label}\n    {line.strip()}")
+        for lineno, label, excerpt in form3_context_problems(text):
+            rel = path.relative_to(REPO_ROOT)
+            problems.append(f"{rel}:{lineno}: {label}\n    {excerpt}")
     return problems, lines_checked
 
 
@@ -661,6 +751,16 @@ def _self_test() -> int:
             print(
                 f"SELF-TEST FAIL ({label}): expected dirty={dirty}, got "
                 f"{got} for: {line!r}"
+            )
+            failures += 1
+
+    def expect_text(text: str, *, dirty: bool, label: str) -> None:
+        nonlocal failures
+        got = bool(form3_context_problems(text))
+        if got != dirty:
+            print(
+                f"SELF-TEST FAIL ({label}): expected dirty={dirty}, got "
+                f"{got} for multiline text: {text!r}"
             )
             failures += 1
 
@@ -830,6 +930,46 @@ def _self_test() -> int:
         "A bare `(rf/subscribe-once query-v)` in a lifecycle hook throws "
         "`:rf.error/no-frame-context`.",
         dirty=False, label="E3 negative bare lifecycle example",
+    )
+    expect_text(
+        "**Form-3 lifecycle.** Capture the frame in the outer callable.\n\n"
+        "- **One-shot current value at mount:** "
+        "`(rf/subscribe-once query-v)` retains no handle.",
+        dirty=True, label="E4 multiline Form-3 paragraph catches bare one-shot",
+    )
+    expect_text(
+        "**Form-3 lifecycle.** A hook has no ambient frame.\n\n"
+        "```clojure\n:component-did-mount\n"
+        "(fn [_]\n  (rf/subscribe-once query-v))\n```",
+        dirty=True, label="E5 multiline hook code catches bare one-shot",
+    )
+    expect_text(
+        "**Form-3 lifecycle.** Capture the frame in the outer callable.\n\n"
+        "- **One-shot current value at mount:** "
+        "`(rf/subscribe-once query-v {:frame frame})` retains no handle.",
+        dirty=False, label="E6 multiline explicit-frame recipe is clean",
+    )
+    expect_text(
+        "**Form-3 lifecycle — negative example.** Do not copy this.\n\n"
+        "```clojure\n:component-did-mount\n"
+        "(fn [_]\n  (rf/subscribe-once query-v))\n```",
+        dirty=False, label="E7 explicit negative multiline example is clean",
+    )
+    expect_text(
+        "**Form-3 lifecycle — BEFORE.** Do not copy this.\n\n"
+        "`(rf/subscribe-once old-query)`\n\n"
+        "**Recommended Form-3 lifecycle.** Use the current recipe.\n\n"
+        "`(rf/subscribe-once query-v)`",
+        dirty=True,
+        label="E8 older negative example cannot bless a later positive recipe",
+    )
+    expect(
+        "**Form-3 lifecycle.** Acquire in `:component-did-mount`. Pair it "
+        "with `(rf/unsubscribe query-v)` in "
+        "`:component-will-unmount`. A teardown that omits the frame throws "
+        "`:rf.error/no-frame-context`.",
+        dirty=True,
+        label="E9 later warning cannot bless earlier bare teardown",
     )
 
     # --- M-1 classifier fixtures (rf2-3fc89f.35) --------------------------------
