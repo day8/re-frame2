@@ -78,7 +78,7 @@
                    (deliver outcome
                             (try
                               (run-plan root-id p)
-                              (catch Exception e e))))
+                              (catch Throwable e e))))
                  "frame-plan-preflight-contender")]
     (.setDaemon thread true)
     (.start thread)
