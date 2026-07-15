@@ -57,9 +57,11 @@
   Transaction boundary: the accepted build-state and active HMR runtime are
   last-known-good. Shadow may have partially rewritten its raw output directory
   before a late failure; re-frame.ui does not claim filesystem rollback for that
-  raw directory. `promote-served-generation` below closes exactly that gap for
-  the SERVED bytes by publishing the candidate output-dir onto a separate stable
-  served directory only when the whole pipeline succeeds (rf2-vxgfnd.237)."
+  raw directory. The opt-in `promote-served-generation` helper below can copy
+  that output onto a separate served directory after earlier pipeline steps, but
+  it is a best-effort incremental copy, not content-atomic activation: partial
+  failure can expose mixed bytes and candidate-absent destinations are retained.
+  It is currently wired only by the digest-probe build, not `:build-defaults`."
   (:require [clojure.java.io :as io]
             [clojure.string :as str]
             [re-frame.ui.compiler.build :as build]))
@@ -316,7 +318,7 @@
                   (str/replace js digest-sentinel digest))))))
 
 ;; ---------------------------------------------------------------------------
-;; Artifact generation/activation separation (rf2-vxgfnd.237)
+;; Opt-in served-output copy helper (rf2-vxgfnd.237)
 ;;
 ;; Shadow's browser target flushes the candidate module bytes to its raw
 ;; `:output-dir` at `:flush`, BEFORE any later `:flush` step can fail; on a
@@ -325,15 +327,13 @@
 ;; fresh page load or a first lazy-module request served straight from
 ;; `:output-dir` would execute/advertise the rejected candidate generation.
 ;;
-;; The fix separates GENERATION from ACTIVATION at the served-bytes boundary:
-;; Shadow writes the candidate to `:output-dir`; the browser is served from a
-;; SEPARATE stable directory (the dev-http `:http-root`); and this hook — the
-;; LAST configured `:flush` hook — publishes the candidate onto the stable
-;; directory only once every earlier flush step succeeded. Because Shadow runs
-;; a stage's target flush first and then its `:build-hooks` in configured order
-;; (defaults before build-local), placing this hook last makes the publish the
-;; terminal action of a fully-successful build: any earlier downstream failure
-;; aborts before it, leaving the served generation on the prior accepted bytes.
+;; With a separate dev-http `:http-root`, configuring this hook last means an
+;; earlier flush failure aborts before copying starts. The copy itself is NOT
+;; atomic generation activation: `publish-tree!` overwrites files one by one,
+;; uses only existence/length/mtime as its freshness check, has no rollback, and
+;; retains destination files absent from the candidate. A copy failure can
+;; therefore leave mixed served bytes. Only the digest-probe build currently
+;; installs this helper; the standard `:build-defaults` do not.
 ;; ---------------------------------------------------------------------------
 
 (defn- stale-copy?
@@ -360,8 +360,8 @@
             (io/copy src dest)))))))
 
 (defn promote-served-generation
-  "A `:flush`-stage build hook that PUBLISHES the just-flushed candidate output
-  onto the stable served directory, atomically w.r.t. the configured pipeline.
+  "A `:flush`-stage build hook that makes an opt-in, best-effort incremental
+  copy of just-flushed candidate output onto a separate served directory.
 
   Configure it as the LAST entry in a dev `:browser` build's `:build-hooks`,
   with the build's `:output-dir` pointing at a CANDIDATE directory and the
@@ -371,10 +371,15 @@
     :devtools   {:http-root \"out/<build>/stable\" ...}
     :build-hooks [... (re-frame.ui.compiler.build-hook/promote-served-generation)]
 
-  Being the terminal `:flush` hook, it runs only after Shadow's target flush and
-  every other downstream flush step have succeeded, so the served generation
-  advances iff the whole pipeline succeeds; a downstream failure aborts before
-  the publish and leaves the served directory on the prior accepted generation.
+  When configured as the terminal `:flush` hook, ordering ensures earlier
+  pipeline failures abort before copying starts. The hook does not enforce that
+  placement. Once started, it overwrites files one by one using
+  existence/length/mtime freshness, without rollback or removal of destinations
+  absent from the candidate. It is therefore not content-atomic: copy failure
+  can leave mixed served bytes, and a later hook can still reject the build.
+
+  The repository currently installs this helper only in
+  `:ui-digest-probe-lazy`; standard `:build-defaults` do not install it.
 
   When no separation is configured (`:http-root` absent, or the same path as
   `:output-dir`) it is a no-op — the served directory IS the output directory,
