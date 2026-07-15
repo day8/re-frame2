@@ -14,7 +14,7 @@ v2 has breaking changes, but there's a [migration skill](skills/re-frame-migrati
 
 ## Status
 
-Alpha, although changes are now minimal. I'm retaining optionality for a little while longer.
+Pre-alpha. I'm still preserving optionality.
 
 I'd be interested in your feedback if you want to try it. But nothing is published to Clojars or npm yet, so point your `deps.edn` at this repo directly — via a `:git/sha` coordinate, or `:local/root` on a local clone.
 
