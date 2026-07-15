@@ -759,6 +759,21 @@
 
 ;; ---- lookup ---------------------------------------------------------------
 
+(defn- frame-record-visible-to-current-actor?
+  "True when raw registry record `f` is a live frame visible to this actor.
+
+  Final records are process-visible. A provisional record is visible only when
+  the current dynamic construction owner is the record's exact owner AND that
+  identity still holds `id` on this host thread. This is the single visibility
+  predicate for exact lookup and every public registry enumeration; no reader
+  may expose a half-constructed id by filtering raw `@frames` independently."
+  [id f]
+  (and (not (-> f :lifecycle :destroyed?))
+       (or (not= :provisional (get-in f [:construction :state]))
+           (let [owner (get-in f [:construction :owner])]
+             (and (identical? owner *frame-transaction-owner*)
+                  (owner-holds-frame-id? owner id))))))
+
 (defn frame
   "Return the frame record for `id` (a frame-id keyword), or nil if not
   registered, still provisional under another host actor's construction
@@ -775,10 +790,7 @@
   / subscribe through `current-frame` resolution."
   [id]
   (when-let [f (get @frames id)]
-    (when (and (not (-> f :lifecycle :destroyed?))
-               (or (not= :provisional (get-in f [:construction :state]))
-                   (owner-holds-frame-id?
-                     (get-in f [:construction :owner]) id)))
+    (when (frame-record-visible-to-current-actor? id f)
       f)))
 
 (defn frame-incarnation-token
@@ -944,12 +956,14 @@
 
 (def ^:private live-frame-id-xf
   "Transducer over `@frames` `[id record]` pairs → the `:id` of each
-  registered, non-destroyed frame. The shared front of both `frame-ids`
-  arities (the 1-arity composes a prefix filter after it). The frame-id is
-  read from the record's own `:id` slot (which equals the map key, the bare
-  frame-id)."
-  (comp (remove (fn [[_ f]] (-> f :lifecycle :destroyed?)))
-        (map (fn [[_ f]] (:id f)))))
+  registered frame visible to the current actor. The shared front of both
+  `frame-ids` arities (the 1-arity composes a prefix filter after it) delegates
+  lifecycle + provisional visibility to the same predicate as exact `frame`
+  lookup. The frame-id is read from the record's own `:id` slot (which equals
+  the map key, the bare frame-id)."
+  (comp (filter (fn [[id f]]
+                  (frame-record-visible-to-current-actor? id f)))
+         (map (fn [[_ f]] (:id f)))))
 
 (defn frame-ids
   "All registered, non-destroyed frame ids.
@@ -981,13 +995,13 @@
 
 (defn- image-loaded-frame-record?
   "True for a frame record that is image-loaded AND publicly enumerable: it
-  carries a resolved image `:generation`, is not destroyed, and its id is a
-  PUBLIC id (the reserved `:rf.frame/<gensym>` namespace — no-id / direct
-  frames — excluded). The selection predicate `image-loaded-frame-ids` uses to
-  pick the records it projects ids off. INTERNAL."
-  [f]
+  carries a resolved image `:generation`, is visible to the current actor, and
+  its id is a PUBLIC id (the reserved `:rf.frame/<gensym>` namespace — no-id /
+  direct frames — excluded). The selection predicate `image-loaded-frame-ids`
+  uses to pick the records it projects ids off. INTERNAL."
+  [id f]
   (and (some? (:generation f))
-       (not (-> f :lifecycle :destroyed?))
+       (frame-record-visible-to-current-actor? id f)
        (not= "rf.frame" (namespace (:id f)))))
 
 (defn image-loaded-frame-ids
@@ -1005,7 +1019,7 @@
   destroyed frames."
   []
   (into #{}
-        (comp (filter (fn [[_ f]] (image-loaded-frame-record? f)))
+        (comp (filter (fn [[id f]] (image-loaded-frame-record? id f)))
               (map (fn [[_ f]] (:id f))))
         @frames))
 
@@ -4033,5 +4047,5 @@
   a default frame). Application / SSR boot code that wants a default-named
   app frame registers it explicitly via `(rf/make-frame {:id :rf/default …})`."
   []
-  (when-not (get @frames :rf/default)
+  (when-not (frame :rf/default)
     (upsert-frame! :rf/default {:doc "Test-fixture default frame (ordinary id; not a runtime floor)."})))
