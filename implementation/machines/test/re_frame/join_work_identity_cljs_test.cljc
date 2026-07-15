@@ -356,9 +356,8 @@
                  first :tags :rf.reply/stale-reason)))
       (rf/dispatch-sync [:jwi/queued-cancel-parent [:abort]])
       (rf/dispatch-sync [:jwi/queued-cancel-parent [:start]])
-      (is (not (contains? (join-state :jwi/queued-cancel-parent)
-                          :cancelled))
-          "re-entry seeds a fresh attempt without the prior tombstone"))))
+      (is (= #{} (:cancelled (join-state :jwi/queued-cancel-parent)))
+          "re-entry seeds an explicit empty tombstone set for the new attempt"))))
 
 (deftest fixed-id-join-attempt-authority-is-the-machine-work-generation
   (testing "sequential fixed-id attempts stay distinct across accepted, late,

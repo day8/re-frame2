@@ -582,9 +582,12 @@
 
 (defn- destroy-join-reap!
   "The VERIFIED reap form `{:rf/reap true :rf/parent-id p :rf/invoke-id i
-  :rf/child-id c}` — the ONLY way `:rf.machine/join-reaped` (a
-  cancellation-SUPPRESSING destroy reason) can be selected (rf2-tj3l6a,
-  rf2-3lyqzu).
+  :rf/child-id c}` — the only CALLER-VISIBLE way to request
+  `:rf.machine/join-reaped` (a cancellation-suppressing destroy reason;
+  rf2-tj3l6a, rf2-3lyqzu). Ordinary keyword / tracked teardown cannot select
+  a reason. Separately, `prepare-join-child-teardown!` may DERIVE the same
+  reason internally after authenticating a current child's private membership
+  against live join state and proving it already folded into `:done ∪ :failed`.
 
   A `:spawn-all` join reaps its ALREADY-TERMINAL (completed / failed)
   children at resolution. Their teardown must NOT re-classify as an
