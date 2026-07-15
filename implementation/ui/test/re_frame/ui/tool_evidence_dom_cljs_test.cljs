@@ -40,6 +40,7 @@
 (def ^:private Activity React/Activity)
 
 (def ^:private gc-request-key "__RF2_TOOL_EVIDENCE_GC_REQUEST__")
+(def ^:private gc-canonical-key "__RF2_TOOL_EVIDENCE_GC_CANONICAL__")
 
 (defonce ^:private gc-request-seq* (atom 0))
 
@@ -83,24 +84,36 @@
    (when (ui/sub [::churn-visible?])
      [churn-leaf {:generation (ui/sub [::churn-generation])}])])
 
-(defn- collect-until-churn-baseline!
-  "Request bounded GC/compaction rounds until every ordinary-unmount row is
-  gone. Resolves {:supported? bool :bounded? bool}; projection reads are the
-  evidence store's supported opportunistic compaction seam."
-  [remaining]
-  (if (zero? (count (rows-for ::churn-leaf)))
-    (js/Promise.resolve {:supported? true :bounded? true})
+(defn- canonical-gc-runner?
+  []
+  (true? (aget js/globalThis gc-canonical-key)))
+
+(defn- collect-until!
+  "Request at least one GC handshake, then bounded collection/compaction rounds
+  until `done?`. The mandatory first request is the canonical CI positive
+  control even when the host happened to collect before the explicit request."
+  [done? remaining requests]
+  (if (and (pos? requests) (done?))
+    (js/Promise.resolve {:supported? true
+                         :bounded? true
+                         :requests requests})
     (if (zero? remaining)
-      (js/Promise.resolve {:supported? true :bounded? false})
+      (js/Promise.resolve {:supported? true
+                           :bounded? false
+                           :requests requests})
       (-> (request-browser-gc!)
           (.then (fn [result]
                    (if-not (.-supported result)
-                     {:supported? false :bounded? false :error (.-error result)}
+                     {:supported? false
+                      :bounded? false
+                      :requests requests
+                      :error (.-error result)}
                      ;; Yield one job boundary after collection before the
                      ;; projection dereferences/compacts its WeakRef roster.
                      (-> (js/Promise.resolve nil)
-                         (.then #(collect-until-churn-baseline!
-                                  (dec remaining)))))))))))
+                         (.then #(collect-until! done?
+                                                (dec remaining)
+                                                (inc requests)))))))))))
 
 (defn- churn-cycles!
   "Run `cycles` mount -> invalidate -> ordinary-remove cycles serially under
@@ -120,6 +133,61 @@
                  (fn []
                    (uit/dispatch! f [::churn-set {:visible? false}]))))
         (.then #(churn-cycles! f (inc generation) cycles)))))
+
+(def ^:private cycle-evidence
+  {:first-epoch 1 :latest-epoch 1 :count 1
+   :causes #{:value} :targets [] :dropped #{} :dropped-exact? true})
+
+(defn- publish-cycle-refs!
+  "Publish direct + nested query→ViewCell cycles, assert the public projection
+  is already opaque, then return only WeakRefs so collection is observable."
+  []
+  (let [sink   (evidence/installed-sink)
+        direct (reactive/make-cell ::cycle-direct)
+        nested (reactive/make-cell ::cycle-nested)]
+    (sink direct (assoc cycle-evidence
+                        :targets [[:sub :rf/default [::q direct]]]))
+    (sink nested (assoc cycle-evidence
+                        :targets [[:sub :rf/default
+                                   [::q {:nested {:cell nested}}]]]))
+    (doseq [vid [::cycle-direct ::cycle-nested]]
+      (let [ev (:evidence (first (rows-for vid)))]
+        (is (false? (:targets-exact? ev)))
+        (is (= {:rf.ui.evidence/opaque :dynamic}
+               (get-in ev [:targets 0 2 1])))))
+    [(js/WeakRef. direct) (js/WeakRef. nested)]))
+
+(deftest query-cycles-are-collectible-in-the-real-browser-heap
+  (when (browser?)
+    (is (true? (evidence/install! ::cycle-proof)))
+    (async done
+      (let [refs (publish-cycle-refs!)]
+        (-> (collect-until!
+             #(and (every? (fn [ref] (nil? (.deref ref))) refs)
+                   (empty? (rows-for ::cycle-direct))
+                   (empty? (rows-for ::cycle-nested)))
+             10 0)
+            (.then
+             (fn [{:keys [supported? bounded? requests error]}]
+               (cond
+                 supported?
+                 (do
+                   (is (pos? requests))
+                   (is (true? bounded?)
+                       "direct/nested query cycles collected after projection"))
+
+                 (canonical-gc-runner?)
+                 (is false (str "canonical requestGC unavailable: " error))
+
+                 :else
+                 (is true (str "SKIP GC-dependent assertions: " error)))
+               (is (true? (evidence/uninstall! ::cycle-proof)))
+               (done)))
+            (.catch
+             (fn [e]
+               (evidence/force-release!)
+               (is false (str "unexpected rejection: " e))
+               (done))))))))
 
 (deftest a-real-invalidation-flows-through-the-flush-into-the-projection
   (when (browser?)
@@ -219,20 +287,32 @@
                        (-> (churn-cycles! f 0 cycles)
                            (.then
                             (fn []
-                              (is (= cycles (count (rows-for ::churn-leaf)))
-                                  "red precondition: one disconnected row per
-                                   ordinary unmount exists before GC")
-                              (collect-until-churn-baseline! 10)))
+                              ;; The engine may collect before our explicit
+                              ;; request. Only the upper bound is deterministic.
+                              (is (<= (count (rows-for ::churn-leaf)) cycles))
+                              (collect-until!
+                               #(zero? (count (rows-for ::churn-leaf)))
+                               10 0)))
                            (.then
-                            (fn [{:keys [supported? bounded? error]}]
-                              (if-not supported?
+                            (fn [{:keys [supported? bounded? requests error]}]
+                              (cond
+                                supported?
+                                (do
+                                  (is (pos? requests)
+                                      "at least one GC handshake executed")
+                                  (is (true? bounded?)
+                                      "ordinary-unmount rows collected and the
+                                       live projection returned to baseline")
+                                  (is (= [] (rows-for ::churn-leaf))))
+
+                                (canonical-gc-runner?)
+                                (is false
+                                    (str "canonical Playwright runner MUST "
+                                         "provide requestGC: " error))
+
+                                :else
                                 (is true
-                                    (str "SKIP: engine has no deterministic "
-                                         "Playwright requestGC control: " error))
-                                (is (true? bounded?)
-                                    "ordinary-unmount rows collected and the
-                                     live projection returned to baseline"))
-                              (is (= [] (rows-for ::churn-leaf)))
+                                    (str "SKIP GC-dependent assertions: " error)))
                               (let [activity-row
                                     (first (rows-for
                                             ::retained-activity-leaf))]
@@ -261,8 +341,6 @@
                                               ::retained-activity-leaf)))))))))))
             (.then
              (fn []
-               (testing "ordinary-unmount collection stays at baseline"
-                 (is (= [] (rows-for ::churn-leaf))))
                (is (true? (evidence/uninstall! ::xray-panel)))
                (is (= [] (evidence/projection))
                    "tool uninstall immediately drops the Activity-retained row")

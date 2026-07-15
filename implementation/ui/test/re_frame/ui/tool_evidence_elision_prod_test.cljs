@@ -30,6 +30,9 @@
   ;; artefact whose debug-only registry implementation must disappear.
   "rf-ui-tool-evidence-registry-state-absent-v1")
 
+(def ^:private ^:const renamed-mutation-control
+  "rf-ui-tool-evidence-renamed-root-mutation-v1")
+
 (use-fixtures :each
   (fn [f]
     (reactive/reset-scheduler!)
@@ -57,7 +60,9 @@
   (testing "cleanup remains constant-inert and cannot allocate a reset target"
     (evidence/force-release!)
     (is (nil? @#'evidence/state*)
-        "force-release! retained neither a registry atom nor reset path"))
+        "force-release! retained neither a registry atom nor reset path")
+    (is (nil? @#'evidence/cacheline*)
+        renamed-mutation-control))
 
   (testing "a driven flush accrues NO evidence anywhere"
     (let [cell (reactive/make-cell ::v)

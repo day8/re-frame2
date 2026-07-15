@@ -47,6 +47,7 @@ const VERBOSE_TESTS = isVerboseTests();
 // supported=false acknowledgement so the fixture can skip cleanly instead of
 // hanging. This is intentionally NOT a general page RPC channel.
 const EVIDENCE_GC_REQUEST = '__RF2_TOOL_EVIDENCE_GC_REQUEST__';
+const EVIDENCE_GC_CANONICAL = '__RF2_TOOL_EVIDENCE_GC_CANONICAL__';
 
 async function serviceEvidenceGcRequest(page, diagnostics) {
   const request = await page.evaluate((key) => {
@@ -132,6 +133,11 @@ async function main() {
     browser = await chromium.launch({ headless: true });
     const context = await browser.newContext();
     const page = await context.newPage();
+    // The canonical runner must never silently take the manual/no-control
+    // branch in the evidence GC fixture. Installed before any page script.
+    await page.addInitScript((key) => {
+      globalThis[key] = true;
+    }, EVIDENCE_GC_CANONICAL);
 
     // Capture every console line so we can scan for the cljs.test summary.
     // Flush the buffer only on failure or RF2_VERBOSE_TESTS=1.
