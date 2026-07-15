@@ -749,6 +749,7 @@
     {:children   {<child-id> <spawned-id>, ...}
      :done       #{}
      :failed     #{}
+     :cancelled  #{}   ;; authenticated explicit-teardown tombstones for THIS attempt
      :resolved?  false
      :spec       <invoke-all-spec>
      :rf/attempt <opaque-attempt-token>}   ;; minted HERE per live seed (rf2-nvxehu)
@@ -825,7 +826,9 @@
             ;; vector), binding every completion carrier to this exact
             ;; attempt. The reject sentinel branch above mints NO token —
             ;; a rejected invoke has no attempt to authenticate against.
-            join-state (assoc join-state :rf/attempt (next-join-attempt-token))]
+            join-state (assoc join-state
+                              :cancelled #{}
+                              :rf/attempt (next-join-attempt-token))]
         ;; Machine spawn-registry state is durable runtime-db state.
         (frame/swap-runtime-db! frame-id assoc-in
                                 (paths/spawned-path parent-id invoke-id) join-state)

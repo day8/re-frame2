@@ -748,8 +748,8 @@
              (let [phases       (into #{} (map :phase) grp)
                    completed    (some #(when (= :completed (:phase %)) (:status %)) grp)
                    suppressed?  (contains? phases :stale-suppressed)
-                   terminal     (cond suppressed? :stale
-                                      completed   completed
+                   terminal     (cond completed   completed
+                                      suppressed? :stale
                                       :else       nil)]
                (assoc acc work-id
                       {:work-id         work-id

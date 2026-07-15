@@ -155,7 +155,8 @@
                 arc-b  (get arcs work-b)]
             (is (= #{work-a work-b} (set (keys arcs)))
                 "the same fixed actor address yields two canonical attempt arcs")
-            (is (= :stale (:terminal-status arc-a)))
+            (is (= :cancelled (:terminal-status arc-a))
+                "A's real cancellation terminal outranks later stale evidence")
             (is (true? (:suppressed? arc-a)))
             (is (= :ok (:terminal-status arc-b)))
             (is (false? (:suppressed? arc-b))
@@ -240,6 +241,8 @@
         (rf/dispatch-sync [:xray-work-id/cancel-race-child#7 [:go]])
         (let [arc (get (reply-envelope/races-by-work-id @traces) work-id)]
           (is (= #{:completed :stale-suppressed} (:phases arc)))
+          (is (= :cancelled (:terminal-status arc))
+              "the actual terminal row outranks later suppression evidence")
           (is (= 1 (count (filter #(= :completed (:phase %)) (:rows arc))))
               "destroyed cancellation is the sole terminal-phase row")
           (is (= :cancelled
