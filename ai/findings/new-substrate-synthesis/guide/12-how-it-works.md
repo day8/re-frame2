@@ -7,45 +7,201 @@ that keeps those promises — read it when you want to *trust* the claims, not j
 them. Nothing here is required to build apps; everything here is why the other pages
 can be short.
 
-## The compiler
+## The compiler in one picture
 
-`defview` does not produce a function that *interprets* hiccup — it lowers the
-template at build time. Element vectors become direct element construction; `:class`,
-`:style`, and attribute casing convert at compile time under one rule table; branches
-(`if`, `when`, `cond`, `case`, `let`, `for`) normalise into the compiler's AST, so
-every analyser and both emitters see through them. Subtrees the compiler can prove
-inert hoist to module constants and are built once, at load.
+`defview` does **not** produce a function that *interprets* hiccup at runtime. At
+macro-expand / compile time it runs a pipeline:
+
+```text
+defview body (hiccup + control forms)
+        │
+        ▼
+   analyze  ──►  closed template AST
+        │
+        ├──────────────┬──────────────┐
+        ▼              ▼              ▼
+   emit-cljs      emit-jvm      manifest / fingerprint
+  (jsx / jsxs)  (tree nodes)   (sites, capabilities)
+```
+
+**One parse → one AST → per-host emitters.** No emitter re-reads raw source or the other
+host's output. That is the portability law behind dual-host parity.
 
 Contrast the frozen stock-Reagent path: `reg-view` is registration and frame injection
-only — the body is not lowered — so it is not "the same compiler under another name".
-The migration map is [13 — From other worlds](13-from-other-worlds.md).
+only — the body is spliced **verbatim** and still interpreted by Reagent. It is not
+"the same compiler under another name". The migration map is
+[13 — From other worlds](13-from-other-worlds.md).
 
-This is also why the template grammar is closed. A dynamic tag head, an unkeyed list,
-a `sub` inside a loop, an unaudited macro in expression position — each would put
-something into your view the compiler cannot see through, and everything downstream
-(the manifest, the memo comparators, the server emitter, Xray's static inspector)
-depends on the compiler seeing the whole template. The loud compile errors are not
-taste; they are the price of the machinery on this page. The practical catalogue —
-what is illegal, what to write instead, and the explicit escapes — is
-[14 — What the compiler forbids](14-compile-time-limits.md).
+Because the interesting work happens at compile time, your production bundle contains
+no hiccup walker, no tag parser, no general runtime prop camelizer on compiled paths —
+there is no interpreter to pay for, which is most of [10](10-performance.md)'s table.
 
-Because the interesting work happens at compile time, your bundle contains no hiccup
-walker, no tag parser, no runtime prop converter on compiled paths — there is no
-interpreter to pay for, which is most of [10](10-performance.md)'s table.
+## What the compiler does to hiccup
 
-## The build digest and the registry
+Take a view you already know from the main track:
 
-Every `defview` registers the view — its source coordinates, template fingerprint,
-and capability profile — and the compiler maintains one whole-build summary of all of
-them: the *build digest*. S3 debugging surfaces trust it; S5 hydration checks it.
+```clojure
+(defview counter []
+  (let [n (sub [:value])]
+    [:div.card
+     [:span n]
+     [:button {:on-click [:inc]} "+"]]))
+```
 
-The two `shadow-cljs.edn` settings from [01](01-getting-started.md) exist to keep the
-digest truthful across a build daemon's lifetime: the build hook clears retained
-output for macro consumers on a daemon's first pass and carries the candidate digest
-through the build; the cache blocker stops a stale disk cache from resurrecting a
-pre-restart view of the world. An unsaved REPL evaluation can replace a view's live
-body without changing build identity: the body is live immediately; the digest
-advances when you save and the next pass completes.
+Here is what happens to that template, step by step.
+
+### 1. Accept or reject the grammar
+
+The body is not "any Clojure that returns vectors." It is a **closed dialect**. The
+analyzer walks forms and either places them into a fixed set of AST node kinds or
+fails the build with a didactic id (see [14](14-compile-time-limits.md)).
+
+| You write | Becomes |
+|---|---|
+| `[:div.card {…} kids…]` | **element** — tag, class/id sugar, attrs, children |
+| `[child-view {…}]` | **view** call (Var resolved at compile time) |
+| `[ForeignComp {…}]` | **foreign** React component boundary |
+| `[:<> …]` | **fragment** |
+| `(for […] [row {:key k} …])` | **for** — keyed list → array of children |
+| `(if …)` / `when` / `cond` / `let` / … | **control nodes** in the AST (not opaque blobs) |
+| strings / numbers / `nil` / `false` | **text** or **nothing** |
+| `(ui/html s)` / `(ui/raw …)` | explicit escape nodes |
+
+Rejected examples: dynamic tag heads, markup-returning `map`, unkeyed list items, raw
+lazy seqs as children, `sub` / `lease` inside a loop without a child view, unaudited
+macros that could hide reactive sites.
+
+That closedness is load-bearing. Manifests, memo slots, dual-host parity, and Xray all
+assume the compiler **saw the whole tree**. The loud compile errors are not taste;
+they are the price of the machinery on this page.
+
+### 2. Normalize into a private AST
+
+Hiccup vectors of keywords are not left as data for later. They become an internal
+graph with a closed op set (element, fragment, view, foreign, if, let, for, text, expr,
+raw, html, …). Three moves matter for reading the counter:
+
+**Control forms fold into the AST.** The `let` is not "run some Clojure, then interpret
+whatever vector comes out." It is a binder node whose body is still template structure.
+Both arms of an `if`, every `cond` clause, the body of a `for` — analyzers and both
+emitters see through them.
+
+**Tag and prop conversion are total and compile-time** (static cases) under **one rule
+table**:
+
+- `:div.card` → tag `div`, class `card` → React `className`
+- `:on-click` → `onClick` (hyphenated spelling in source; camelCase only after conversion)
+- `:style` maps, `:class` string / vector / flag-map, custom-element property vs attribute
+  rules
+
+Static prop objects can hoist to **module-level constants**. Dynamic maps go through
+the single known conversion path — not ad-hoc runtime camelizing.
+
+**Event vectors stay intent, not closures you wrote.**
+`{:on-click [:inc]}` is recognized as a **literal vector in a known native event
+property**. The AST records an event site: the vector is data (manifest, JVM tree, tools);
+the client emitter installs a **stable per-site** callback that dispatches that intent
+into the committed frame when the browser fires. Placeholders (`:rf.ui/value` and friends)
+are compiled into that path — which is why they only work in literal vectors.
+
+**Reactive sites are indexed.** `(sub [:value])` becomes a **finite, compile-indexed
+site** (site 0 on this view), not an open-ended "call a hook here." That is why `sub`
+may sit in a branch but must not free-float inside a loop: the set of sites must be
+finite and known at compile time. Sub-free views can elide the reactive wrapper entirely
+in production.
+
+**Static subtrees hoist.** Markup the compiler proves inert becomes module constants —
+built once at load. The counter cannot fully hoist (the sub and `n` vary), but a pure
+`[:footer "© 2026"]` can.
+
+### 3. Emit for each host
+
+**Browser (CLJS).** The AST lowers to direct React construction — conceptually
+`jsx` / `jsxs` (the same family as hand-written JSX), with props already converted.
+There is no `[:div.card …]` vector left at runtime.
+
+**JVM.** The same AST lowers to versioned structural nodes
+(`re-frame.ui.tree` — tag / attrs / events / children …) under the **same** conversion
+rules. That tree is what headless `ui.test` and (at S5) SSR consumption see. Neither
+this emit nor the parity gate produces HTML by itself; HTML serialization is a later,
+separate step (`re-frame.ssr/emit-ui-tree` at S5).
+
+### 4. Side products from the same analysis
+
+From the same walk the compiler also contributes:
+
+- a **registry / manifest** row (view id, source coordinates, template fingerprint,
+  capability bits)
+- **site indexes** (subs, events, presence, trusted-html, …) for tooling and HMR
+  identity
+- a contribution to the **build digest** (whole-app summary used by later hydration
+  and debug gates)
+
+So "compiling hiccup" is also **indexing**, not only codegen.
+
+## If you had written JSX by hand
+
+A readable mental model of the counter — **not** the public API, and **not** a promise
+of identical emitted source:
+
+```jsx
+// Readable shape only — you do not write this; the compiler does the real lowering.
+function Counter() {
+  // (sub [:value]) — one reactive site on this view (see ViewCell below)
+  const n = readSub([:value]);
+
+  return (
+    <div className="card">
+      <span>{n}</span>
+      <button onClick={/* stable handler for [:inc] */}>+</button>
+    </div>
+  );
+}
+// + memo wrapper with rf= over declared props (none here)
+```
+
+Closer to the *intent* of the emitted code:
+
+```jsx
+function Counter() {
+  // One ViewCell per reactive view — not a public hook you call by name
+  const cell = /* compiler-chosen wrapper: useRef + useSyncExternalStore + … */;
+
+  const n = cell.readSite(0, [:value]);           // (sub [:value])
+  const onInc = cell.eventHandler(1, [:inc]);     // {:on-click [:inc]}
+
+  return jsx("div", {
+    className: "card",
+    children: [
+      jsx("span", { children: n }),
+      jsx("button", { onClick: onInc, children: "+" }),
+    ],
+  });
+}
+```
+
+What casual React would get wrong if you imitated the surface without the protocol:
+
+| Casual hand-write | What the compiler actually aims for |
+|---|---|
+| `onClick={() => dispatch([:inc])}` every render | **Stable** per-site handler; vector is data; frame is the committed one |
+| `useContext` or N hooks for N subs | **One** external-store bridge; sites are indexed slots |
+| Leave `className` / camelCase to habit | Conversion done **before** emit from one rule table |
+| Return nested arrays of props as "virtual DOM data" | Return **already constructed** React elements (or build them via `jsx`) |
+
+### ViewCell is ours; `useSyncExternalStore` is React's
+
+**ViewCell** is a *re-frame.ui* name for the per-view reactive unit (design docs and
+implementation). It is **not** a standard React API. You will not import `useViewCell`
+in app code. The compiler selects a thin production wrapper by capability
+(`render-subs`, `render-leases`, …) that sits on React primitives:
+
+- **`useSyncExternalStore`** — the well-known React 18 bridge (one per reactive view)
+- `useRef` / layout effects — capture, commit reconcile, connect/disconnect
+
+App code stays `(sub [:value])`. The name "ViewCell" is the ownership and indexing
+story; the portable React fact underneath is one external-store subscription and a
+scalar revision snapshot.
 
 ## The reactive core
 
@@ -121,6 +277,20 @@ boundary. Until then, `render-to-string` remains the frozen Reagent/hiccup compa
 route. At S5 a fingerprint in the root manifest lets hydration check the delivered
 structure rather than hope.
 
+## The build digest and the registry
+
+Every `defview` registers the view — its source coordinates, template fingerprint,
+and capability profile — and the compiler maintains one whole-build summary of all of
+them: the *build digest*. S3 debugging surfaces trust it; S5 hydration checks it.
+
+The two `shadow-cljs.edn` settings from [01](01-getting-started.md) exist to keep the
+digest truthful across a build daemon's lifetime: the build hook clears retained
+output for macro consumers on a daemon's first pass and carries the candidate digest
+through the build; the cache blocker stops a stale disk cache from resurrecting a
+pre-restart view of the world. An unsaved REPL evaluation can replace a view's live
+body without changing build identity: the body is live immediately; the digest
+advances when you save and the next pass completes.
+
 ## Hot reload, mechanically
 
 `defview` exports a stable component shell keyed by the view's id; the registry holds
@@ -144,8 +314,11 @@ making direct element calls and nothing else. The debug tier is not flagged off;
 is *absent*, and CI proves the absence. The kernel that remains is budgeted at
 ≤ 4 KB gzipped over React, and the budget is a gate, not a hope.
 
-## Where to go deeper
+## Where to go next
 
-The design documents one directory up carry the full contracts this page summarises —
-written for people changing the library rather than using it. If a claim on this page
-seems too good, that is where its proof obligations live.
+- Walls, fixes, escapes: [14 — What the compiler forbids](14-compile-time-limits.md)
+- Performance consequences of no interpreter: [10](10-performance.md)
+- Reagent `reg-view` vs this compiler: [13](13-from-other-worlds.md)
+- Design contracts one directory up — written for people changing the library rather
+  than using it. If a claim on this page seems too good, that is where its proof
+  obligations live.

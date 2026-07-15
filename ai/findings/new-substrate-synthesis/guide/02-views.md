@@ -2,7 +2,8 @@
 
 A view is a pure function from a props map to hiccup, defined with `defview`. The
 compiler lowers the hiccup at build time: you write data; the browser runs direct
-element construction.
+element construction. For a worked walk-through (AST, event sites, "if this were
+JSX", what ViewCell is), see [12 — How it works](12-how-it-works.md).
 
 ## Defining a view
 
