@@ -1621,7 +1621,7 @@ Per Spec 005 and Spec 009:
 | `:rf.machine.microstep/transition` traces | Microstep replay within an `:always`-driven cascade. |
 | `:rf.machine.timer/scheduled` / `-fired` / `-stale-after` | Drive `:after` countdown rings. |
 | `:rf.machine.spawn-all/*` traces | Render `:spawn-all` join state (started, all-completed, some-completed, any-failed). |
-| `:rf.machine.spawn/spawned` (fx-substrate) · `:rf.machine.lifecycle/spawned` (registrar-substrate) / `:rf.machine/destroyed` · `:rf.machine.lifecycle/destroyed` | Render spawn/destroy lifecycle in the parent's chart. The inspector keys on the `:rf.machine.lifecycle/*` axis for "actor appeared/disappeared" and on the `:rf.machine.spawn/*` / `:rf.machine/*` axis when correlating the causing fx (per [009 §Two-axis machine observation](../../../spec/009-Instrumentation.md#two-axis-machine-observation--registrar-substrate-vs-fx-substrate)). |
+| `:rf.machine.spawn/spawned` (fx-substrate) · `:rf.machine.lifecycle/spawned` (registrar-substrate) / `:rf.machine/destroyed` · `:rf.machine.lifecycle/destroyed` | Render spawn/destroy lifecycle in the parent's chart. The spawn axes are symmetric, so the inspector keys "actor appeared" on either. The destroy channels are **disjoint** — `:rf.machine.lifecycle/destroyed` carries only frame-exit reaping (`:parent-frame-destroyed`), `:rf.machine/destroyed` every other teardown — so the inspector reads **both** for "actor disappeared" and uses the channel itself to attribute cause (per [009 §the channel/reason matrix](../../../spec/009-Instrumentation.md#op-type-vocabulary) and [§Two-axis machine observation](../../../spec/009-Instrumentation.md#two-axis-machine-observation--registrar-substrate-vs-fx-substrate)). |
 | `:rf.machine/done` | Mark `:final?`-state entry, before the auto-destroy. |
 | `:rf.machine/system-id-bound` / `-released` | Surface `:system-id` reverse-index activity in a sidebar. |
 | `:rf.machine.history/restored` / `:rf.machine.history/recorded` | Render the history restore / record banner + the per-`:entry`-step `:source` chip — see [§History restore rendering](#history-restore-rendering-rf2-mle6e5) below. |
@@ -1959,8 +1959,10 @@ full countdown-ring system + retro-replay (Phase 2 per
 **Bug class:** Parent state exits; child's `:spawn` destroyed; child had
 N in-flight HTTP requests; each aborts. The author sees a flurry of
 `:rf.http/aborted-on-actor-destroy` traces in the Trace firehose and one
-`:rf.machine.lifecycle/destroyed`. They cannot reconstruct which abort
-belongs to which destroy.
+`:rf.machine/destroyed` (a parent state-exit cascade is an fx-substrate
+teardown — `:reason :explicit`; the registrar-substrate
+`:rf.machine.lifecycle/destroyed` fires only when the whole frame goes
+away). They cannot reconstruct which abort belongs to which destroy.
 
 **Example bug:** You clicked Cancel on a checkout flow. The Trace tab
 shows 4 abort traces + 1 destroyed trace, scattered through 200 unrelated

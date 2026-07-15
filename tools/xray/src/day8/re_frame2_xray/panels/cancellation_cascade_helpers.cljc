@@ -50,10 +50,14 @@
 
   ## Detection strategy
 
-  The cascade pivots on a single anchor: a `:rf.machine.lifecycle/
-  destroyed` or `:rf.machine/destroyed` trace event whose `:reason`
-  is one of the cancellation reasons the substrate emits (`:explicit`,
-  `:parent-frame-destroyed`, `:actor-destroyed`). The anchor's
+  The cascade pivots on a single anchor: a destroy trace event whose
+  (channel, reason) tuple is BOTH emittable per the disjoint
+  channel/reason matrix (`destroy-channel-reasons` below) AND a
+  cancellation — `:rf.machine/destroyed` + `:explicit` (the fx-substrate
+  teardown of a not-yet-final actor: imperative destroy, parent
+  state-exit cascade, `:spawn-all` cancel-on-decision) or
+  `:rf.machine.lifecycle/destroyed` + `:parent-frame-destroyed` (the
+  registrar-substrate frame-exit reap). The anchor's
   `:dispatch-id` (when present) is the cascade boundary; aborts that
   share the same `:dispatch-id` (or land within a small wall-clock
   window of the anchor for the actor-destroy case where the abort
@@ -84,17 +88,43 @@
 
 ;; ---- canonical operation sets -------------------------------------------
 
+(def destroy-channel-reasons
+  "The canonical channel/reason matrix — per Spec 009 §op-type
+  vocabulary (`spec/009-Instrumentation.md`, the `:reason` enum table).
+
+  The two destroy channels are **DISJOINT, not symmetric**. Each reason
+  belongs to exactly ONE channel, so a (channel, reason) tuple absent
+  from this map is one the runtime CANNOT emit:
+
+    - `:rf.machine.lifecycle/destroyed` — the REGISTRAR-substrate
+      channel. Fires only from the frame-exit cascade
+      (`lifecycle_fx/frame_destroy.cljc`, or `frame.cljc` when the
+      machines artefact is absent), always with the channel's sole
+      reason `:parent-frame-destroyed`.
+    - `:rf.machine/destroyed` — the FX-substrate channel
+      (`lifecycle_fx/finalize.cljc` + `lifecycle_fx/destroy.cljc`).
+      Carries every NON-frame-exit reason. Never fires for frame-exit
+      reaping.
+
+  A consumer that wants the complete \"an actor went away\" record must
+  therefore read BOTH channels — neither alone is complete.
+
+  `:parent-unmount-cascade` is reserved by 005 §Final states D6 with no
+  current emit site (the reference implementation stamps `:explicit`
+  for parent-cascade teardowns); it is admitted on the fx channel so a
+  runtime that starts discriminating the two does not read as corrupt
+  here. `:actor-destroyed` is deliberately ABSENT: it is an HTTP/WS
+  abort `:cancel-cause`, never a machine-destroy `:reason` — see
+  `cancel-cause` below."
+  {:rf.machine.lifecycle/destroyed #{:parent-frame-destroyed}
+   :rf.machine/destroyed           #{:rf.machine/finished
+                                     :rf.machine/join-reaped
+                                     :explicit
+                                     :parent-unmount-cascade}})
+
 (def ^:private destroy-operations
-  "Trace operations that signal a machine-instance teardown. Per Spec
-  009 §Trace events both pairs land on a destroy:
-
-    - `:rf.machine.lifecycle/destroyed` (frame.cljc + lifecycle_fx)
-    - `:rf.machine/destroyed` (fx.cljc on the destroy fx-id path)
-
-  The pair is intentionally symmetric so consumers can subscribe to
-  either; we accept either as a cascade anchor."
-  #{:rf.machine.lifecycle/destroyed
-    :rf.machine/destroyed})
+  "The destroy trace channels — the key set of the matrix above."
+  (set (keys destroy-channel-reasons)))
 
 (def ^:private abort-operations
   "Trace operations that signal an in-flight effect being cancelled.
@@ -119,14 +149,25 @@
     :rf.machine.spawn/cancelled-on-join-resolution})
 
 (def ^:private cancellation-reasons
-  "Destroy `:reason` values that classify a destroy as part of a
-  cancellation cascade — the reasons the substrate actually stamps on
-  `:rf.machine/destroyed` traces (per `machines/lifecycle_fx/destroy`,
-  `frame_destroy`, and the destroy-trace-shape tests). `:rf.machine/finished`
-  is excluded — it is a natural termination, not a cancellation."
-  #{:explicit
-    :parent-frame-destroyed
-    :actor-destroyed})
+  "The subset of the matrix's reasons that classify a destroy as a
+  CANCELLATION — the actor was torn down before reaching a `:final?`
+  leaf. Spans both channels: `:parent-frame-destroyed` rides the
+  registrar channel, `:explicit` / `:parent-unmount-cascade` the fx
+  channel.
+
+  Excluded (emittable, but NOT cancellations):
+
+    - `:rf.machine/finished`   — natural termination; the actor closed
+                                 its attempt through `:rf.machine/done`.
+    - `:rf.machine/join-reaped` — post-terminal cleanup of an already
+                                 `:done ∪ :failed` `:spawn-all` child.
+
+  Membership here is necessary but NOT sufficient for an anchor — the
+  (channel, reason) tuple must also be emittable. See
+  `cancellation-anchor?`."
+  #{:parent-frame-destroyed
+    :explicit
+    :parent-unmount-cascade})
 
 (def ^:const default-actor-destroy-window-ms
   "Best-effort wall-clock window (ms) around the anchor's `:time` for
@@ -139,10 +180,35 @@
 ;; ---- predicates ---------------------------------------------------------
 
 (defn destroy-event?
-  "True iff `ev` is a machine-destroy trace event."
+  "True iff `ev` names one of the two machine-destroy trace channels.
+  Channel membership only — says nothing about whether the event's
+  `:reason` is one that channel can carry. See `emittable-destroy?`."
   [ev]
   (and (map? ev)
        (contains? destroy-operations (:operation ev))))
+
+(defn- destroy-reason
+  "Lift the destroy `:reason` off a destroy trace event. Both emitters
+  stamp it under `:tags :reason` (per Spec 009 §op-type vocabulary).
+  nil when absent."
+  [ev]
+  (get-in ev [:tags :reason]))
+
+(defn emittable-destroy?
+  "True iff `ev` is a destroy trace event whose (channel, reason) tuple
+  is one the runtime can ACTUALLY emit, per `destroy-channel-reasons`.
+
+  This is the guard against reading a cross-product the disjoint
+  channels forbid — lifecycle+`:explicit`, fx+`:parent-frame-destroyed`,
+  or either channel carrying the HTTP-only `:actor-destroyed`. A destroy
+  event failing this predicate is malformed (a hand-built fixture, a
+  replay from a divergent runtime, or a genuine emitter bug); the
+  cascade visualiser declines to anchor on it rather than draw a
+  cascade the substrate could not have produced."
+  [ev]
+  (and (destroy-event? ev)
+       (contains? (get destroy-channel-reasons (:operation ev) #{})
+                  (destroy-reason ev))))
 
 (defn abort-event?
   "True iff `ev` is an effect-abort trace event."
@@ -156,19 +222,19 @@
   (and (map? ev)
        (= :rf.event/dispatched (:operation ev))))
 
-(defn- destroy-reason
-  "Lift the cancellation `:reason` off the destroy trace event. Per
-  Spec 009 the runtime stamps `:tags :reason` on both
-  `:rf.machine/destroyed` (lifecycle_fx) and `:rf.machine.lifecycle/
-  destroyed` (frame.cljc) emit sites. nil when absent."
-  [ev]
-  (get-in ev [:tags :reason]))
-
 (defn cancellation-anchor?
-  "True iff `ev` is a destroy event whose `:reason` marks it as part
-  of a cancellation cascade (vs. a natural `:rf.machine/finished`)."
+  "True iff `ev` is an EMITTABLE destroy whose `:reason` marks it as a
+  cancellation — i.e. both halves must hold:
+
+    1. the (channel, reason) tuple is one the runtime emits, and
+    2. that reason is a cancellation (not `:rf.machine/finished` /
+       `:rf.machine/join-reaped`).
+
+  Checking the tuple rather than channel-membership and
+  reason-membership independently is what keeps the impossible
+  cross-products out of the visualiser."
   [ev]
-  (and (destroy-event? ev)
+  (and (emittable-destroy? ev)
        (contains? cancellation-reasons (destroy-reason ev))))
 
 ;; ---- fx-id classification -----------------------------------------------
