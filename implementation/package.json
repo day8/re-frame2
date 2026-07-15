@@ -40,7 +40,7 @@
     "test:elision": "shadow-cljs release elision-probe elision-probe-control && node scripts/check-elision.cjs",
     "test:perf-bundle": "shadow-cljs release examples/counter examples/counter-perf && node scripts/check-perf-bundle.cjs",
     "test:schemas-bundle": "shadow-cljs release schemas-bundle-probe schemas-bundle-probe-malli && node scripts/check-schemas-bundle.cjs",
-    "test:bundle-isolation": "shadow-cljs release examples/counter examples/counter-uix examples/counter-helix examples/login examples/login-uix examples/login-helix examples/realworld-resources && node scripts/check-bundle-isolation.cjs && node scripts/check-uix-helix-reagent-free.cjs && node scripts/check-login-bundle-isolation.cjs",
+    "test:bundle-isolation": "shadow-cljs release examples/counter examples/counter-uix examples/counter-helix examples/login examples/login-uix examples/login-helix examples/realworld-resources bundle-isolation-positive-control && node scripts/check-bundle-isolation.test.cjs && node scripts/check-bundle-isolation.cjs && node scripts/check-uix-helix-reagent-free.cjs && node scripts/check-login-bundle-isolation.cjs",
     "test:examples-compile": "node scripts/check-examples-compile.cjs",
     "test:reagent-slim:bundle-isolation": "shadow-cljs release examples/counter examples/counter-slim-and-fast && node scripts/check-reagent-slim-bundle-isolation.cjs",
     "test:reagent-slim:smoke": "node scripts/serve-and-run-reagent-slim-smoke.cjs",
@@ -54,7 +54,7 @@
     "test:xray-feature-gate:smoke": "node scripts/serve-and-run-xray-feature-gate.cjs --smoke",
     "test:story-static": "node scripts/check-story-static.cjs",
     "test:script-policy": "node scripts/_path-policy.test.cjs && node scripts/_changed-surfaces.test.cjs && node scripts/_lint-workflow-policy.test.cjs && node scripts/_walk-tree.test.cjs && node scripts/_story-feature-load-port.test.cjs && node scripts/_examples-port.test.cjs && node scripts/_story-script-runners-policy.test.cjs && node scripts/_impl-browser-runners-pageerror-policy.test.cjs && node scripts/_script-spawn-policy.test.cjs && node scripts/_orchestrator-teardown-policy.test.cjs && node scripts/_mcp-conformance-install-policy.test.cjs && node scripts/_adapter-smoke-filter.test.cjs && node scripts/_examples-staging.test.cjs && node scripts/check-examples-compile.test.cjs && node scripts/check-examples-assets.test.cjs && node scripts/check-reagent-slim-boundary.test.cjs && node scripts/_transform-reagent-slim-ns.test.cjs && node scripts/_reagent-slim-smoke-policy.test.cjs && node scripts/_rigorous-local-inventory.test.cjs && node scripts/_serve-and-run-cli.test.cjs",
-    "test:script-helpers": "node scripts/_browser-test-report.test.cjs && node scripts/_gate-report.test.cjs && node scripts/_local-browser-harness.test.cjs && node scripts/_orchestrator-teardown-integration.test.cjs && node scripts/_read-release-bundle.test.cjs && node scripts/_g13-timing-evidence.test.cjs && node scripts/dev-testbed.test.cjs",
+    "test:script-helpers": "node scripts/_browser-test-report.test.cjs && node scripts/_gate-report.test.cjs && node scripts/_local-browser-harness.test.cjs && node scripts/_orchestrator-teardown-integration.test.cjs && node scripts/_read-release-bundle.test.cjs && node scripts/check-bundle-isolation.test.cjs && node scripts/_g13-timing-evidence.test.cjs && node scripts/dev-testbed.test.cjs",
     "test:mcp-conformance": "node scripts/test-mcp-conformance.cjs"
   }
 }
