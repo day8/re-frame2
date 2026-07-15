@@ -46,20 +46,26 @@
 
 (defn- hoist-literal-sub-queries
   [st form]
-  (walk/postwalk
-   (fn [x]
-     (if (ana/runtime-sub-form? x)
-       (let [[runtime sid query] x]
-         (if (literal-data? query)
-           (let [query-sym
-                 (or (get-in @st [:sub-queries query])
-                     (let [sym (hoist! st :query query)]
-                       (swap! st assoc-in [:sub-queries query] sym)
-                       sym))]
-             (with-meta (list runtime sid query-sym) (meta x)))
-           x))
-       x))
-   form))
+  (letfn [(hoist-one [x]
+            (if (ana/runtime-sub-form? x)
+              (let [[runtime sid query] x]
+                (if (literal-data? query)
+                  (let [query-sym
+                        (or (get-in @st [:sub-queries query])
+                            (let [sym (hoist! st :query query)]
+                              (swap! st assoc-in [:sub-queries query] sym)
+                              sym))]
+                    (with-meta (list runtime sid query-sym) (meta x)))
+                  x))
+              x))
+          (visit [x]
+            ;; `quote` is data, not executable compiler output. Returning the
+            ;; exact form preserves its payload spelling and metadata while the
+            ;; lower-level walk remains post-order everywhere executable.
+            (if (and (seq? x) (= 'quote (first x)))
+              x
+              (walk/walk visit hoist-one x)))]
+    (visit form)))
 
 ;; ---------------------------------------------------------------------------
 ;; Handlers
