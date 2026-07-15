@@ -26,46 +26,99 @@
 (def ^:private stop-propagation-flag 4)
 (def ^:private once-flag 8)
 
-(def ^:dynamic *capture* nil)
+;; ---------------------------------------------------------------------------
+;; Render-time event capture (S3a).
+;;
+;; A render accumulates its ownership-free candidate into a plain js-object whose
+;; per-site `sites` table is itself a js-object, threaded through a module-private
+;; single slot rather than a dynamic `binding`. Render is synchronous and
+;; single-threaded, and compiled child views are rendered by React LATER (never
+;; called inline within a parent thunk), so event captures never nest within one
+;; thunk: a save/restore of the slot suffices and avoids both the dynamic-var
+;; push/pop and the per-site persistent-map `assoc-in` churn on the G-1
+;; direct-render hot path. The candidate→owner commit split is unchanged: a layout
+;; commit republishes the exact table to the EventOwner, so an abandoned render
+;; (which never reaches `commit!`) publishes no ownership.
+;;
+;; Each site's stable callback rides on its descriptor, so there is no separate
+;; callback table to allocate per render or merge at commit: a re-render reuses
+;; the callback the site's committed descriptor carries. A site-key is a string
+;; sid in DEV and an integer site-index in production; both key the `sites` table
+;; directly (the integer coerces to its decimal string, consistently for get and
+;; set), and because the candidate's winning table becomes the committed table
+;; verbatim, owner and candidate always agree on that key with no rebuild.
+;; ---------------------------------------------------------------------------
+
+;; Module-private single-slot holder for the in-flight candidate. `nil` outside
+;; any render boundary; a compiled event site executed outside one throws.
+(def ^:private capture-holder #js {:current nil})
 
 (defn make-owner
-  "Create the commit-owned state for one mounted compiled-view instance."
+  "Create the commit-owned state for one mounted compiled-view instance.
+
+  A plain mutable js-object: render, layout commit, native invocation and
+  disconnect all run on the single JS thread and never interleave, so an atom's
+  CAS is unnecessary and a direct mutable slot is both leaner and faster. Every
+  field is installed by a browser layout commit (never reached under the SSR G-1
+  bench), so all stay nil until then and `make-owner` is a single allocation on
+  the measured render path. The stable per-site callback lives on the committed
+  descriptor, so there is no separate callback table to allocate or merge."
   [view-id]
-  (atom {:view-id view-id
-         :lifecycle :new
-         :committed {}
-         :callbacks {}
-         :native-refs {}
-         :once-fired #{}}))
+  #js {:viewId view-id
+       :lifecycle :new
+       :committed nil
+       :nativeRefs nil
+       :onceFired nil
+       :frameOps nil})
+
+(defn- make-candidate
+  "A fresh ownership-free candidate for one render.  `sites` is a js-object
+  keyed by the raw site-key (integer site-index in production, string sid in
+  DEV) whose descriptors each carry their stable callback; `nativeRefs` holds
+  the cold passive-listener persistent map."
+  [owner frame-id]
+  #js {:owner owner
+       :frameId frame-id
+       :sites (js-obj)
+       :nativeRefs {}})
 
 (defn with-capture
-  "Evaluate `thunk` under a fresh event candidate.  Returns [element capture].
-  Resolving the ambient frame is lazy, so the stable dev wrapper may install
-  this capability without requiring a frame from event-free views."
+  "Evaluate `thunk` under a fresh event candidate.  Returns the pair
+  `[element capture]` as a lightweight js-array (destructures via `nth` exactly
+  like a vector, but costs one object rather than a PersistentVector's two on
+  every render). Resolving the ambient frame is lazy, so the stable dev wrapper
+  may install this capability without requiring a frame from event-free views."
   [owner frame-id thunk]
-  (let [candidate (atom {:sites {}
-                         :callbacks {}
-                         :native-refs {}
-                         :frame-id frame-id})
-        element   (binding [*capture* {:owner owner :candidate candidate}]
-                    (thunk))]
-    [element @candidate]))
+  (let [candidate (make-candidate owner frame-id)
+        prior     (.-current capture-holder)]
+    (set! (.-current capture-holder) candidate)
+    (try
+      #js [(thunk) candidate]
+      (finally
+        (set! (.-current capture-holder) prior)))))
 
 (defn- publish-commit!
-  [owner capture frame-ops]
-  (let [sites (:sites capture)
-        committed (reduce-kv (fn [m k site]
-                               (assoc m k (assoc site :frame-ops frame-ops)))
-                             {} sites)]
-    (swap! owner
-           (fn [state]
-             (-> state
-                 (assoc :lifecycle :connected
-                        :committed committed
-                        :native-refs (:native-refs capture))
-                 (update :callbacks merge (:callbacks capture))
-                 (update :once-fired
-                         #(into #{} (filter (set (keys sites))) %))))))
+  "Republish the winning render's exact table to the owner.  Cold path: runs
+  only in a browser layout commit, never under the SSR G-1 bench. The candidate
+  and owner key their site table by the same raw site-key, so the winning `sites`
+  table (whose descriptors already carry their stable callbacks) becomes the
+  committed table verbatim — no per-site rebuild and no callback merge. The
+  uniform `frame-ops` bundle lives once on the owner; a provider retarget updates
+  it without churning the callback the descriptor carries onto the DOM node."
+  [^js owner ^js candidate frame-ops]
+  (let [sites (.-sites candidate)]
+    (set! (.-lifecycle owner) :connected)
+    (set! (.-committed owner) sites)
+    (set! (.-frameOps owner) frame-ops)
+    (set! (.-nativeRefs owner) (.-nativeRefs candidate))
+    ;; Retain :once-consumed state only for sites still present this render.
+    (let [prev (.-onceFired owner)
+          next (js-obj)]
+      (when (some? prev)
+        (doseq [k (js/Object.keys prev)]
+          (when (some? (unchecked-get sites k))
+            (unchecked-set next k true))))
+      (set! (.-onceFired owner) next)))
   nil)
 
 (defn commit!
@@ -76,10 +129,9 @@
   The three-argument arity is the narrow host-agnostic test seam: it supplies a
   frame-op bundle directly, allowing callback semantics to be tested without a
   React host or the retired process-global dispatch hook."
-  ([owner capture]
-   (let [sites (:sites capture)
-         frame-ops (when (seq sites)
-                     (if-some [frame-id (:frame-id capture)]
+  ([owner ^js capture]
+   (let [frame-ops (when (pos? (alength (js/Object.keys (.-sites capture))))
+                     (if-some [frame-id (.-frameId capture)]
                        (frames/frame-ops-for frame-id)
                        ;; Preserve the canonical no-frame-context failure for a
                        ;; client commit outside any provider. SSR never runs
@@ -90,19 +142,19 @@
    (publish-commit! owner capture frame-ops)))
 
 (defn disconnect!
-  [owner]
+  [^js owner]
   ;; Native DOM ownership belongs to the composed React ref. React calls its
   ;; cleanup during node replacement/unmount (and StrictMode ref replay); the
-  ;; lifecycle fence here only makes an in-flight callback inert immediately.
-  (swap! owner assoc
-         :lifecycle :disconnected
-         :committed {}
-         :native-refs {}
-         :once-fired #{})
+  ;; lifecycle fence here only makes an in-flight callback inert immediately by
+  ;; dropping the committed table (invocation reads it and no-ops on nil).
+  (set! (.-lifecycle owner) :disconnected)
+  (set! (.-committed owner) nil)
+  (set! (.-nativeRefs owner) nil)
+  (set! (.-onceFired owner) nil)
   nil)
 
 (defn- capture-or-throw! []
-  (or *capture*
+  (or (.-current capture-holder)
       (error/throw-error!
        :rf.error/ui-tree-malformed 're-frame.ui/render
        "compiled event handler executed outside its owning render boundary"
@@ -137,43 +189,51 @@
     {:source :ui}))
 
 (defn- invoke-site!
-  [owner site-key native-event]
-  (when-let [{:keys [kind value flags frame-ops debug-site]}
-             (get-in @owner [:committed site-key])]
-    (when-not (and (pos? (bit-and flags once-flag))
-                   (contains? (:once-fired @owner) site-key))
-      (when (pos? (bit-and flags once-flag))
-        (swap! owner update :once-fired conj site-key))
-      (when (pos? (bit-and flags prevent-default-flag))
-        (.preventDefault native-event))
-      (when (pos? (bit-and flags stop-propagation-flag))
-        (.stopPropagation native-event))
-      (case kind
-        :data
-        (let [event (project-event value native-event)
-              opts  (debug-dispatch-opts debug-site)]
-          (if (pos? (bit-and flags sync-flag))
-            (do
-              ((:dispatch-sync frame-ops) event opts)
-              ;; The write-side drain has reached quiescence. Advance each
-              ;; dirty ViewCell once; React owns the one host batch.
-              (reactive/flush-frame! (:frame frame-ops)))
-            ((:dispatch frame-ops) event opts)))
+  [^js owner site-key native-event]
+  (when-some [committed (.-committed owner)]
+    (when-some [^js desc (unchecked-get committed site-key)]
+      (let [flags (.-flags desc)]
+        (when-not (and (pos? (bit-and flags once-flag))
+                       (unchecked-get (.-onceFired owner) site-key))
+          (when (pos? (bit-and flags once-flag))
+            (unchecked-set (.-onceFired owner) site-key true))
+          (when (pos? (bit-and flags prevent-default-flag))
+            (.preventDefault native-event))
+          (when (pos? (bit-and flags stop-propagation-flag))
+            (.stopPropagation native-event))
+          (case (.-kind desc)
+            :data
+            (let [frame-ops (.-frameOps owner)
+                  event (project-event (.-value desc) native-event)
+                  opts  (debug-dispatch-opts (.-debugSite desc))]
+              (if (pos? (bit-and flags sync-flag))
+                (do
+                  ((:dispatch-sync frame-ops) event opts)
+                  ;; The write-side drain has reached quiescence. Advance each
+                  ;; dirty ViewCell once; React owns the one host batch.
+                  (reactive/flush-frame! (:frame frame-ops)))
+                ((:dispatch frame-ops) event opts)))
 
-        :fn
-        (value native-event)
+            :fn
+            ((.-value desc) native-event)
 
-        nil)))
+            nil)))))
   nil)
 
 (defn- stable-site-callback!
-  [owner candidate site-key]
-  (or (get-in @owner [:callbacks site-key])
-      (get-in @candidate [:callbacks site-key])
-      (let [callback (fn [native-event]
-                       (invoke-site! owner site-key native-event))]
-        (swap! candidate assoc-in [:callbacks site-key] callback)
-        callback)))
+  "The stable callback for `site-key`: the one already committed for this site
+  (kept stable across commits while the site stays mounted), or one already
+  published earlier in THIS render, else a freshly minted callback. An abandoned
+  render only ever writes its own `candidate.sites` and never the owner, so it
+  can seed no callback — the candidate/owner split holds."
+  [^js owner ^js sites site-key]
+  (let [committed (.-committed owner)
+        prior     (or (when (some? committed) (unchecked-get committed site-key))
+                      (unchecked-get sites site-key))]
+    (if (some? prior)
+      (.-callback ^js prior)
+      (fn [native-event]
+        (invoke-site! owner site-key native-event)))))
 
 (defn- debug-site-tags
   [{:keys [view-id sid source-coord path]}]
@@ -183,19 +243,23 @@
    :occurrence-path path})
 
 (defn- warn-unregistered!
-  [event-id debug-site]
-  (when (and interop/debug-enabled?
-             (keyword? event-id)
-             (nil? (registrar/lookup :event event-id)))
-    (trace/emit!
-     :warning :rf.warning/unregistered-event-id
-     (merge
-      {:event-id event-id
-       :reason (str "compiled data handler references an event id that is not "
-                    "currently registered. A lazily loaded module may register "
-                    "it before invocation; rendering continues")
-       :recovery :warned-and-continued}
-      (debug-site-tags debug-site)))))
+  ;; Takes the event VECTOR (not its head) so the `(first ...)` extraction is
+  ;; itself inside the DEV-only guard and costs nothing on the production render
+  ;; path (the whole body elides under `:advanced`).
+  [event debug-site]
+  (when interop/debug-enabled?
+    (let [event-id (first event)]
+      (when (and (keyword? event-id)
+                 (nil? (registrar/lookup :event event-id)))
+        (trace/emit!
+         :warning :rf.warning/unregistered-event-id
+         (merge
+          {:event-id event-id
+           :reason (str "compiled data handler references an event id that is "
+                        "not currently registered. A lazily loaded module may "
+                        "register it before invocation; rendering continues")
+           :recovery :warned-and-continued}
+          (debug-site-tags debug-site)))))))
 
 (defn- warn-dynamic-placeholder!
   [event debug-site]
@@ -212,18 +276,21 @@
               (debug-site-tags debug-site))))))
 
 (defn- publish-candidate-site!
-  [site-key descriptor]
-  (let [{:keys [owner candidate]} (capture-or-throw!)
-        callback  (stable-site-callback! owner candidate site-key)]
-    (swap! candidate assoc-in [:sites site-key] descriptor)
+  [site-key ^js descriptor]
+  (let [^js candidate (capture-or-throw!)
+        sites         (.-sites candidate)
+        callback      (stable-site-callback! (.-owner candidate) sites site-key)]
+    (set! (.-callback descriptor) callback)
+    (unchecked-set sites site-key descriptor)
     callback))
 
 (defn data-handler
   "Return the stable callback for a compiler-proven data handler site."
   [site-key template flags debug-site]
-  (warn-unregistered! (first template) debug-site)
+  (warn-unregistered! template debug-site)
   (publish-candidate-site!
-   site-key {:kind :data :value template :flags flags :debug-site debug-site}))
+   site-key #js {:kind :data :value template :flags flags :debugSite debug-site
+                 :callback nil}))
 
 ;; ---------------------------------------------------------------------------
 ;; Literal passive handler maps — narrow native-listener seam
@@ -317,19 +384,21 @@
   spec. An unchanged committed element reuses the exact ref; option/ref changes
   make React clean the old attachment before installing the new one."
   [specs authored-ref]
-  (let [{:keys [owner candidate]} (capture-or-throw!)
+  (let [^js candidate (capture-or-throw!)
+        owner     (.-owner candidate)
         listeners (mapv (fn [[_site-key event-name callback capture?]]
                           {:event-name event-name
                            :callback callback
                            :capture? (boolean capture?)})
                         specs)
         group-key (mapv first specs)
-        prior     (or (get-in @candidate [:native-refs group-key])
-                      (get-in @owner [:native-refs group-key]))
+        prior     (or (get (.-nativeRefs candidate) group-key)
+                      (get (.-nativeRefs owner) group-key))
         entry     (if (matching-native-entry? prior listeners authored-ref)
                     prior
                     (make-native-ref-entry listeners authored-ref))]
-    (swap! candidate assoc-in [:native-refs group-key] entry)
+    (set! (.-nativeRefs candidate)
+          (assoc (.-nativeRefs candidate) group-key entry))
     (:ref entry)))
 
 (defn dynamic-handler
@@ -344,9 +413,10 @@
     (vector? v)
     (do
       (warn-dynamic-placeholder! v debug-site)
-      (warn-unregistered! (first v) debug-site)
+      (warn-unregistered! v debug-site)
       (publish-candidate-site!
-       site-key {:kind :data :value v :flags 0 :debug-site debug-site}))
+       site-key #js {:kind :data :value v :flags 0 :debugSite debug-site
+                     :callback nil}))
 
     (map? v)
     (let [unknown (remove rules/handler-option-keys (keys v))
@@ -366,18 +436,20 @@
          {:extra {:value v :unsupported-dynamic-options
                   (cond-> [] capture (conj :capture) passive (conj :passive))}}))
       (warn-dynamic-placeholder! event debug-site)
-      (warn-unregistered! (first event) debug-site)
+      (warn-unregistered! event debug-site)
       (publish-candidate-site!
-       site-key {:kind :data
-                 :value event
-                 :flags (+ (if prevent-default prevent-default-flag 0)
-                           (if stop-propagation stop-propagation-flag 0)
-                           (if once once-flag 0))
-                 :debug-site debug-site}))
+       site-key #js {:kind :data
+                     :value event
+                     :flags (+ (if prevent-default prevent-default-flag 0)
+                               (if stop-propagation stop-propagation-flag 0)
+                               (if once once-flag 0))
+                     :debugSite debug-site
+                     :callback nil}))
 
     (fn? v)
     (publish-candidate-site!
-     site-key {:kind :fn :value v :flags 0 :debug-site debug-site})
+     site-key #js {:kind :fn :value v :flags 0 :debugSite debug-site
+                   :callback nil})
 
     :else
     (error/throw-error!
