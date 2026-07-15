@@ -55,6 +55,18 @@
        machine's `:regions` declarations yields the SAME selected
        configuration (region selection is set-like, declaration-order
        independent) — generalised from the fixed-case deftests.
+    9. PARENT-OWNED PARALLEL `:always` ROUNDS — eventless stabilization in
+       a parallel machine belongs to the PARENT, not to each region. After
+       the complete selected event set applies, the parent freezes the
+       whole configuration + `:data` for ONE selection round, selects every
+       enabled regional `:always` against that frozen view, applies the
+       preselected set in region order, and re-freezes for the next round
+       until quiescent — all before the same macrostep commits. So a
+       region's `:always` guard reading a SIBLING's same-macrostep `:data`
+       write converges in THIS macrostep, and reordering the regions cannot
+       change the resolved configuration or data. Invariant 8 pins selection
+       for regions that are independent by construction; this one pins the
+       law for regions that are deliberately COUPLED across the freeze.
 
   ## Why a hand-rolled seeded PRNG (not clojure.test.check)
 
@@ -270,29 +282,31 @@
 
 ;; ---- independent-region parallel generator (for INVARIANT 8) ---------------
 ;;
-;; Selection order-sensitivity after rf2-lq5yo3. The parallel broadcast now
-;; SELECTS every region's EVENT transition against ONE frozen pre-event view
-;; (incl. `:data`) before any region applies, so an `:on` GUARD reading shared
-;; `:data` is declaration-order-INDEPENDENT — it never sees a sibling's same-
-;; macrostep `:data` write. The ONE residual order-sensitive SELECTION is a
-;; guarded `:always` reading a sibling's same-macrostep `:data` write:
-;; `:always` microsteps run in the APPLY phase against the region's EVOLVING
-;; `:data` (Spec 005:1731 — the blessed per-region drain), so reordering the
-;; regions can change what a `:data`-reading `:always` guard sees, hence the
-;; selected leaf. That is documented, correct behaviour (NOT a bug); the
-;; shared-`:data` VALUE flow it rides on is tested separately
-;; (`parallel-shared-data-flows-through-regions`, parallel_test §6).
+;; Both parallel selection phases are frozen select-then-apply. The event
+;; broadcast SELECTS every region's transition against ONE frozen pre-event
+;; view (incl. `:data`) before any region applies; the parent then owns the
+;; eventless stabilization, selecting every enabled regional `:always` against
+;; ONE frozen post-event view, applying that set in region order, and
+;; re-freezing per round to a fixed point (Spec 005 §Per-region `:always` /
+;; `:after` / `:spawn` scoping). No region drains a local `:always` tail, so
+;; no guard in either phase can observe a sibling's mid-set write.
 ;;
-;; The declaration-order-INDEPENDENCE invariant the bead names is about
-;; SELECTION being set-like for INDEPENDENT regions. To test it without
-;; conflating the residual `:always`-`:data` coupling OR the (separately-
-;; covered) shared-`:data` VALUE flow, this generator draws regions that are
-;; independent BY CONSTRUCTION: their `:always` guards are CONSTANT
-;; (`:g/true` / `:g/false`, never the `:data`-reading `:g/even?`) and their
-;; `:on` edges carry NO action (no shared-`:data` writes — so the committed
-;; `:data` VALUE, which still accumulates in declaration order, cannot feed a
-;; later event's frozen selection differently across orderings). Reordering such regions cannot change behaviour,
-;; so any divergence is a genuine selection / broadcast bug.
+;; What declaration order STILL governs is APPLY ordering — action / `:fx`
+;; order and `:data` accumulation. Two regions writing the same `:data` key
+;; non-commutatively therefore end on different committed `:data` per
+;; ordering, which is correct behaviour, not a selection bug. This generator
+;; isolates the SELECTION invariant from that legitimate accumulation
+;; ordering by drawing regions that are independent BY CONSTRUCTION: their
+;; `:always` guards are CONSTANT (`:g/true` / `:g/false`, never the
+;; `:data`-reading `:g/even?`) and their `:on` edges carry NO action (no
+;; shared-`:data` writes at all). Reordering such regions cannot change
+;; behaviour, so any divergence is a genuine selection / broadcast bug.
+;;
+;; The COUPLED cross-region case — a region's `:always` guard reading a
+;; sibling's same-macrostep `:data` write — is not excluded from the suite;
+;; it is the subject of INVARIANT 9 below, which keeps order-independence
+;; testable by constraining the writes to be commutative rather than by
+;; removing them.
 
 (defn- gen-independent-on-map
   "Like `gen-on-map` but every edge is a BARE target (no `:action`), so a
@@ -812,16 +826,30 @@
             SAME selected configuration (+ tag union) for the same event
             sequence — region selection is set-like, declaration-order
             independent. Regions are independent by construction (constant
-            guards, no shared-:data writes); the SEPARATELY-tested shared-
-            :data sequential-flow coupling (parallel_test §6) legitimately
-            depends on declaration order and is excluded here by design."
+            guards, no shared-:data writes), which isolates SELECTION from
+            the apply-phase :data accumulation that declaration order does
+            legitimately govern. Cross-region :always coupling is covered by
+            INVARIANT 9, which keeps the writes commutative instead."
     (let [reorder-regions
           (fn [machine]
-            ;; rebuild the regions map in reversed key order; reinstall the
-            ;; region cache so the reordered spec is a fresh, valid machine.
-            (let [rs   (:regions machine)
-                  rev  (into {} (map (fn [k] [k (get rs k)]) (reverse (keys rs))))]
-              (parallel/install-region-cache (assoc machine :regions rev))))
+            ;; Rebuild the regions map in reversed key order AND declare the
+            ;; matching `:region-order` explicitly.
+            ;;
+            ;; Declaring it is LOAD-BEARING, not belt-and-braces:
+            ;; `normalise-region-order` is idempotent by keyset — it returns a
+            ;; machine that already carries a valid `:region-order` UNCHANGED,
+            ;; and reversing the `:regions` map leaves the keyset identical. So
+            ;; re-installing the cache over an already-normalised machine keeps
+            ;; the ORIGINAL order and the "reorder" silently no-ops, making this
+            ;; property vacuous. Restating `:region-order` is the supported
+            ;; author-facing mechanism and is validated as an exact permutation.
+            (let [rs    (:regions machine)
+                  order (vec (reverse (keys rs)))
+                  rev   (into {} (map (fn [k] [k (get rs k)])) order)]
+              (parallel/install-region-cache
+                (-> machine
+                    (assoc :regions rev)
+                    (assoc :region-order order)))))
           failure
           (loop [i 0, s 8008]
             (if (= i 300)
@@ -842,3 +870,252 @@
                   :else (recur (inc i) (lcg-next s2))))))]
       (is (nil? failure)
           (str "declaration-order-independence property failed: " (pr-str failure))))))
+
+;; ---- INVARIANT 9: parent-owned parallel `:always` rounds -------------------
+;;
+;; The law (Spec 005 §Per-region `:always` / `:after` / `:spawn` scoping):
+;; `:always` TARGETING stays region-scoped, but `:always` STABILIZATION is
+;; PARENT-owned. Once the complete selected event set has applied, the parent
+;; freezes the whole configuration + `:data`, selects every enabled regional
+;; `:always` against that one frozen view, applies the preselected set in
+;; region order, then RE-FREEZES and repeats to a fixed point — all inside the
+;; one macrostep, before it commits. Two consequences this family pins:
+;;
+;;   (a) SAME-MACROSTEP CONVERGENCE — a region's `:always` guard reading a
+;;       sibling's same-macrostep `:data` write fires in THIS macrostep (the
+;;       first post-event round observes the complete event set), not on some
+;;       later event.
+;;   (b) ORDER INDEPENDENCE ACROSS THE COUPLING — because every round selects
+;;       against a frozen view, reordering the regions cannot change which
+;;       `:always` set is selected in any round, hence cannot change the
+;;       resolved configuration or data.
+;;
+;; The superseded region-local model — settle each region's `:always` loop
+;; before visiting the next region — satisfies NEITHER. Under it, a region
+;; drained BEFORE the sibling it watches has applied sees no flag and strands;
+;; move that region later in the declaration and it converges. That order
+;; sensitivity is exactly what this property detects (see the pinned
+;; `parallel-always-round-*` deftests below for the minimal counterexample).
+;;
+;; DISCRIMINATION BY CONSTRUCTION — every write here is COMMUTATIVE: a region
+;; only ever writes its OWN two flag keys, and only ever to the constant
+;; `true`. Disjoint key sets + constant values ⇒ apply-order cannot change the
+;; resulting `:data`, so `:data` accumulation ordering (which declaration
+;; order DOES legitimately govern) is removed as a confound. Any divergence
+;; across orderings therefore indicts SELECTION semantics, not effect order —
+;; which is what makes a failure here a real signal rather than a re-statement
+;; of apply-order.
+
+(def ^:private cross-region-names [:rA :rB :rC])
+
+(defn- flag-key   [rn] (keyword (str "flag-"  (name rn))))
+(defn- flag2-key  [rn] (keyword (str "flag2-" (name rn))))
+(defn- flag-action  [rn] (keyword "a" (str "flag-"  (name rn))))
+(defn- flag2-action [rn] (keyword "a" (str "flag2-" (name rn))))
+(defn- flag-guard   [rn] (keyword "g" (str "flag-"  (name rn) "?")))
+(defn- flag2-guard  [rn] (keyword "g" (str "flag2-" (name rn) "?")))
+
+(def ^:private cross-region-actions
+  "Region-OWNED, COMMUTATIVE writes: region `rn` writes only `flag-rn` /
+  `flag2-rn`, and only ever to `true`. The regions' written key sets are
+  disjoint and the values constant, so applying the same set in ANY region
+  order yields the same `:data` map."
+  (reduce (fn [acc rn]
+            (assoc acc
+                   (flag-action rn)  (fn [{d :data}] {:data (assoc d (flag-key rn) true)})
+                   (flag2-action rn) (fn [{d :data}] {:data (assoc d (flag2-key rn) true)})))
+          {}
+          cross-region-names))
+
+(def ^:private cross-region-guards
+  "SIBLING-reading `:always` guards — the cross-region `:data` dependency the
+  parent-round law is about. Each reads a flag some OTHER region owns."
+  (reduce (fn [acc rn]
+            (assoc acc
+                   (flag-guard rn)  (fn [{d :data}] (true? (get d (flag-key rn))))
+                   (flag2-guard rn) (fn [{d :data}] (true? (get d (flag2-key rn))))))
+          {}
+          cross-region-names))
+
+(defn- cross-region-body
+  "One region body for the parent-round family. `self` owns its flags;
+  `watched` is the SIBLING whose flags this region's `:always` guards read.
+
+    :s0 --ev--> :s1            (event action writes flag-SELF)
+    :s0/:s1 :always{flag-WATCHED?} --> :s2   (action writes flag2-SELF)
+    :s2     :always{flag2-WATCHED?} --> :s3  (the SECOND round's edge)
+
+  Tier 1 (`:s0`/`:s1` → `:s2`) needs the sibling's EVENT write, so it can only
+  fire in a post-event round. Tier 2 (`:s2` → `:s3`) needs the sibling's
+  tier-1 ALWAYS write, so it can only fire in a round AFTER that one — which
+  is what exercises the RE-FREEZE between rounds rather than a single round.
+  No `:always` targets its declaring state (`:rf.error/machine-always-self-loop`
+  would reject that), and `:s3` is terminal, so every draw reaches a fixed
+  point well inside the depth limit."
+  [state self watched]
+  (let [ev     (nth event-pool (rnd state (count event-pool)))
+        tier2? (zero? (rnd (lcg-next state) 2))
+        tier1  [{:guard (flag-guard watched) :target :s2 :action (flag2-action self)}]
+        body   {:initial :s0
+                :states
+                (cond-> {:s0 {:tags   #{(keyword (name self) "s0")}
+                              :on     {ev {:target :s1 :action (flag-action self)}}
+                              :always tier1}
+                         :s1 {:tags   #{(keyword (name self) "s1")}
+                              :always tier1}
+                         :s2 {:tags #{(keyword (name self) "s2")}}}
+                  tier2?
+                  (-> (assoc-in [:s2 :always]
+                                [{:guard (flag2-guard watched) :target :s3}])
+                      (assoc :s3 {:tags #{(keyword (name self) "s3")}})))}]
+    [body (lcg-next (lcg-next state))]))
+
+(defn- gen-cross-region-parallel-machine
+  "Draw a parallel machine whose 2..3 regions are deliberately COUPLED across
+  the eventless freeze: region i's `:always` guards read region (i+1 mod n)'s
+  flags, so the watch relation is a cycle and every region both feeds and
+  reads a sibling. Returns `[machine next]`."
+  [state]
+  (let [n     (+ 2 (rnd state 2))
+        names (vec (take n cross-region-names))
+        [regions s']
+        (loop [i 0, s (lcg-next state), acc {}]
+          (if (= i n)
+            [acc s]
+            (let [self      (nth names i)
+                  watched   (nth names (mod (inc i) n))
+                  [body s1] (cross-region-body s self watched)]
+              (recur (inc i) s1 (assoc acc self body)))))]
+    [(parallel/install-region-cache
+       {:type    :parallel
+        :data    {}
+        :guards  (merge shared-guards cross-region-guards)
+        :actions (merge shared-actions cross-region-actions)
+        :regions regions})
+     s']))
+
+(defn- permutations
+  "Every ordering of `coll` (distinct elements). `coll` here is 2..3 region
+  names, so this stays at most 6 orderings."
+  [coll]
+  (if (<= (count coll) 1)
+    [(vec coll)]
+    (vec (mapcat (fn [x]
+                   (map #(vec (cons x %)) (permutations (remove #{x} coll))))
+                 coll))))
+
+(defn- reorder-regions-by
+  "Rebuild `machine`'s `:regions` in `order` and reinstall the region cache, so
+  the reordered spec is a fresh, valid machine whose canonical `:region-order`
+  is `order`.
+
+  `:region-order` is restated EXPLICITLY because `normalise-region-order` is
+  idempotent by keyset: a machine already carrying a valid `:region-order` is
+  returned unchanged, and permuting `:regions` does not change the keyset — so
+  re-installing alone would keep the original order and silently no-op the
+  reorder. An explicit `:region-order` is the supported author-facing
+  mechanism and is validated as an exact permutation of the keyset."
+  [machine order]
+  (let [rs (:regions machine)]
+    (parallel/install-region-cache
+      (-> machine
+          (assoc :regions (into {} (map (fn [k] [k (get rs k)])) order))
+          (assoc :region-order (vec order))))))
+
+(deftest prop-parallel-always-rounds-are-parent-owned
+  (testing "a parallel machine whose regions' :always guards read a SIBLING's
+            same-macrostep :data write resolves to the SAME configuration and
+            the SAME :data under EVERY :regions declaration order — parent-owned
+            frozen rounds, not per-region drains. Writes are commutative by
+            construction (disjoint region-owned keys, constant values), so
+            apply-order cannot explain a divergence; only selection can."
+    (let [failure
+          (loop [i 0, s 9009]
+            (if (= i 300)
+              nil
+              (let [[m s1]   (gen-cross-region-parallel-machine s)
+                    [evs s2] (gen-events s1)
+                    orders   (permutations (vec (keys (:regions m))))
+                    base     (:snap (last (run-sequence m evs)))
+                    bad      (some (fn [order]
+                                     (let [m'  (reorder-regions-by m order)
+                                           fin (:snap (last (run-sequence m' evs)))]
+                                       (cond
+                                         (not= (:state base) (:state fin))
+                                         {:why :state-differs :order order
+                                          :base (:state base) :got (:state fin)}
+                                         (not= (:data base) (:data fin))
+                                         {:why :data-differs :order order
+                                          :base (:data base) :got (:data fin)}
+                                         (not= (:tags base) (:tags fin))
+                                         {:why :tags-differ :order order
+                                          :base (:tags base) :got (:tags fin)})))
+                                   orders)]
+                (if bad
+                  ;; MINIMIZED counterexample: the region bodies + the event
+                  ;; sequence are the whole repro. The `:guards` / `:actions`
+                  ;; vocabularies are fixed and shared, and printing them would
+                  ;; bury the signal under fn objects — so report the shape,
+                  ;; not the machine.
+                  [:parent-round-divergence
+                   {:regions      (:regions m)
+                    :region-order (:region-order m)
+                    :events       evs
+                    :divergence   bad}]
+                  (recur (inc i) (lcg-next s2))))))]
+      (is (nil? failure)
+          (str "parent-owned-always-rounds property failed: " (pr-str failure))))))
+
+;; The MINIMAL counterexample the property above generalises — pinned by hand
+;; so the discriminating shape is readable, and so a regression names itself
+;; instead of arriving as a random seed. `:rB` watches `:rA`; only `:rA`
+;; handles the event.
+;;
+;;   region-local drain, order [:rA :rB] → :rA applies+drains, THEN :rB drains
+;;                                          and sees flag-rA  ⇒ {:rA :s1 :rB :s2}
+;;   region-local drain, order [:rB :rA] → :rB drains FIRST, no flag yet, and
+;;                                          STRANDS at :s0    ⇒ {:rA :s1 :rB :s0}
+;;   parent-owned rounds, EITHER order   → the whole event set applies first,
+;;                                          then round 1 observes flag-rA
+;;                                                             ⇒ {:rA :s1 :rB :s2}
+
+(def ^:private watcher-machine-regions
+  {:rA {:initial :s0
+        :states  {:s0 {:on {:e0 {:target :s1 :action :a/flag-rA}}}
+                  :s1 {}}}
+   :rB {:initial :s0
+        :states  {:s0 {:always [{:guard :g/flag-rA? :target :s2}]}
+                  :s2 {}}}})
+
+(defn- watcher-machine [order]
+  (parallel/install-region-cache
+    {:type    :parallel
+     :data    {}
+     :guards  (merge shared-guards cross-region-guards)
+     :actions (merge shared-actions cross-region-actions)
+     :regions (into {} (map (fn [k] [k (get watcher-machine-regions k)])) order)}))
+
+(deftest parallel-always-round-converges-in-the-same-macrostep
+  (testing "a sibling-reading :always converges in the SAME macrostep as the
+            event that enables it — the first post-event round observes the
+            complete applied event set (NOT 'settles on the next event')"
+    (let [m (watcher-machine [:rA :rB])
+          r (machines/machine-transition m (initial-snapshot m) [:e0])]
+      (is (result/ok? r))
+      (is (= {:rA :s1 :rB :s2} (:state (result/snap r)))
+          ":rB's :always read :rA's same-macrostep flag write and moved in THIS
+           macrostep — one dispatch, no second event")
+      (is (true? (:flag-rA (:data (result/snap r)))))))
+  (testing "and it does so under EITHER declaration order — the region-local
+            drain strands :rB at :s0 when :rB is declared first; parent-owned
+            frozen rounds cannot, because the whole event set applies before
+            any :always round selects"
+    (let [final (fn [order]
+                  (let [m (watcher-machine order)]
+                    (:state (result/snap
+                              (machines/machine-transition
+                                m (initial-snapshot m) [:e0])))))]
+      (is (= {:rA :s1 :rB :s2} (final [:rA :rB])))
+      (is (= {:rA :s1 :rB :s2} (final [:rB :rA]))
+          "declaring the WATCHER first must not strand it — this is the
+           assertion the superseded region-local drain fails"))))
