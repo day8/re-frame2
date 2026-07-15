@@ -359,6 +359,78 @@
           (.countDown release)
           (late-bind/set-fn! hook-key original-hook))))))
 
+(deftest failed-reregistration-rollback-preserves-prestage-generation
+  ;; A reads the final frame and pauses immediately before its staging
+  ;; `swap-vals!`. Reprojection legitimately updates the generation in that
+  ;; window. Staging may temporarily replace the new value, but a later hook
+  ;; failure must roll back to the registry value the atomic swap ACTUALLY
+  ;; replaced, not the stale record A read before the swap.
+  (let [id                  :tp/prestage-rollback-merge
+        hook-key            :routing/on-frame-registered!
+        original-hook       (late-bind/get-fn hook-key)
+        original-swap-vals! clojure.core/swap-vals!
+        reached             (CountDownLatch. 1)
+        release             (CountDownLatch. 1)]
+    (frame/upsert-frame! id
+                         {:tags #{:prior}
+                          :rf.frame/generation :prior-gen
+                          :rf.trace/frame-no-emit? true
+                          :rf.trace/events-retained 5})
+    (let [prior-config       (:config (frame/frame id))
+          prior-policy-token (:trace-policy-token (frame/frame id))
+          prior-revision     (get-in (frame/frame id)
+                                     [:construction :revision])]
+      (try
+        (late-bind/set-fn!
+          hook-key
+          (fn [candidate-id]
+            (when (= id candidate-id)
+              (throw (ex-info "registration hook failed"
+                              {:test/outcome :hook-failed})))))
+        (with-redefs [clojure.core/swap-vals!
+                      (fn [reference f & args]
+                        (when (identical? reference frame/frames)
+                          (.countDown reached)
+                          (.await release 10 TimeUnit/SECONDS))
+                        (apply original-swap-vals! reference f args))]
+          (let [owner
+                (future
+                  (try
+                    (frame/upsert-frame!
+                      id {:tags #{:failed}
+                          :rf.frame/generation :failed-gen
+                          :rf.trace/frame-no-emit? false
+                          :rf.trace/events-retained 99})
+                    :unexpected-success
+                    (catch clojure.lang.ExceptionInfo e
+                      (:test/outcome (ex-data e)))))]
+            (try
+              (is (.await reached 10 TimeUnit/SECONDS)
+                  "A read the prior record and reached the pre-stage swap")
+              (frame/set-generation! id :foreign-gen)
+              (is (= :foreign-gen (frame/frame-generation id))
+                  "the valid generation write linearized before provisional staging")
+              (finally
+                (.countDown release)))
+            (is (= :hook-failed @owner) "the staged re-registration fails")
+            (is (= :foreign-gen (frame/frame-generation id))
+                "rollback uses the atomic swap's actual prior generation")
+            (is (= prior-config (:config (frame/frame id)))
+                "the complete pre-attempt config is restored")
+            (is (true? (trace/frame-trace-disabled? id))
+                "rollback restores the pre-attempt no-emit policy")
+            (is (= 5 (retained-cap id))
+                "rollback restores the pre-attempt retention policy")
+            (is (identical? prior-policy-token
+                            (:trace-policy-token (frame/frame id)))
+                "rollback restores the pre-attempt policy authority")
+            (is (identical? prior-revision
+                            (get-in (frame/frame id) [:construction :revision]))
+                "rollback restores the pre-attempt final revision")))
+        (finally
+          (.countDown release)
+          (late-bind/set-fn! hook-key original-hook))))))
+
 (deftest omitting-retention-on-reregistration-clears-frame-override
   (rf/configure! {:trace-buffer {:events-retained 7}})
   (frame/upsert-frame! :tp/inherit {:rf.trace/events-retained 99})

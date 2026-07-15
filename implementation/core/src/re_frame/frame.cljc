@@ -2793,18 +2793,18 @@
           ;; REPLAYED (replay is the opt-in `destroy-frame!` then `make-frame`
           ;; composition, rf2-lxwpob).
           :else
-          (let [prior         existing
+          (let [observed      existing
                 stored-config (dissoc config
                                       :rf.frame/generation
                                       :rf.frame/initial-db)
-                [_ new]
+                [old new]
                 (swap-vals!
                   frames
                   (fn [registry]
                     (let [current (get registry id)]
                       (if (and current
                                (not (-> current :lifecycle :destroyed?))
-                               (identical? (:drain-lock prior)
+                               (identical? (:drain-lock observed)
                                            (:drain-lock current)))
                         (assoc registry id
                                (assoc current
@@ -2816,6 +2816,12 @@
                                       (provisional-construction
                                         owner policy-token)))
                         registry))))
+                ;; The candidate above is built from the registry value that
+                ;; the atomic swap actually replaced. A generation-only writer
+                ;; may have updated that record after `observed` was read but
+                ;; before this swap linearized, so rollback must use this exact
+                ;; pre-stage value rather than the stale observation.
+                prior  (get old id)
                 staged (get new id)]
             (if (provisional-owned? staged owner policy-token)
               (try
