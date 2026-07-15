@@ -25,6 +25,7 @@
             #?(:clj [re-frame.observation-schema-extract
                      :refer [canonical-observation-schema]])
             [re-frame.core                  :as rf]
+            #?(:cljs [re-frame.disposable :as rf-disposable])
             [re-frame.error-emit            :as error-emit]
             [re-frame.frame                 :as frame]
             [re-frame.live-frame            :as live-frame]
@@ -32,6 +33,7 @@
             [re-frame.source-coords         :as source-coords]
             [re-frame.subs                  :as subs]
             [re-frame.subs.cache            :as subs-cache]
+            [re-frame.substrate.adapter     :as substrate-adapter]
             [re-frame.substrate.observation :as obs]
             [re-frame.substrate.plain-atom  :as plain-atom]
             [re-frame.test-support          :as test-support])
@@ -60,6 +62,78 @@
   [container]
   #?(:clj  (count (.getWatches ^clojure.lang.IRef container))
      :cljs (count (.-watches container))))
+
+(defprotocol PullWatchHostTest
+  (fire-host-change! [host prev nu])
+  (host-last-read [host])
+  (host-read-count [host]))
+
+#?(:clj
+   (deftype PullWatchHost
+     [source-containers compute-fn reads last-read watches validator]
+     clojure.lang.IDeref
+     (deref [_]
+       (let [value {:pull     (swap! reads inc)
+                    :computed (apply compute-fn (map deref source-containers))}]
+         (reset! last-read value)
+         value))
+     clojure.lang.IRef
+     (setValidator [_ vf] (reset! validator vf))
+     (getValidator [_] @validator)
+     (getWatches [_] @watches)
+     (addWatch [this key callback]
+       (swap! watches assoc key callback)
+       this)
+     (removeWatch [this key]
+       (swap! watches dissoc key)
+       this)
+     PullWatchHostTest
+     (fire-host-change! [this prev nu]
+       (doseq [[key callback] @watches]
+         (callback key this prev nu)))
+     (host-last-read [_] @last-read)
+     (host-read-count [_] @reads))
+   :cljs
+   (deftype PullWatchHost
+     [source-containers compute-fn reads last-read watches on-dispose-fns disposed?]
+     IDeref
+     (-deref [_]
+       (let [value {:pull     (swap! reads inc)
+                    :computed (apply compute-fn (map deref source-containers))}]
+         (reset! last-read value)
+         value))
+     IWatchable
+     (-notify-watches [this prev nu]
+       (doseq [[key callback] @watches]
+         (callback key this prev nu)))
+     (-add-watch [this key callback]
+       (swap! watches assoc key callback)
+       this)
+     (-remove-watch [this key]
+       (swap! watches dissoc key)
+       this)
+     rf-disposable/IDisposable
+     (-add-on-dispose [_ callback]
+       (swap! on-dispose-fns conj callback))
+     (-dispose [_]
+       (when-not @disposed?
+         (vreset! disposed? true)
+         (let [callbacks @on-dispose-fns]
+           (reset! on-dispose-fns [])
+           (doseq [callback callbacks]
+             (callback)))))
+     PullWatchHostTest
+     (fire-host-change! [this prev nu]
+       (-notify-watches this prev nu))
+     (host-last-read [_] @last-read)
+     (host-read-count [_] @reads)))
+
+(defn- make-pull-watch-host
+  [source-containers compute-fn]
+  #?(:clj  (PullWatchHost. source-containers compute-fn
+                           (atom 0) (atom nil) (atom {}) (atom nil))
+     :cljs (PullWatchHost. source-containers compute-fn
+                           (atom 0) (atom nil) (atom {}) (atom []) (volatile! false))))
 
 (defn- error-id [e]
   (:rf.error/id (ex-data e)))
@@ -437,6 +511,46 @@
                                 :version  (:version rec)
                                 :node-key (:node-key rec)}))
     state))
+
+(deftest watchable-pull-host-delivers-callback-value-without-a-reread
+  (reg-items!)
+  (seed-items! [:a])
+  (let [hosts (atom [])
+        notes (atom [])]
+    ;; Replace only the adapter's derived-value constructor. The observation
+    ;; port still builds, acquires, watches, and releases the real cache node
+    ;; through its public operations; the test host makes every pull observable.
+    (with-redefs [substrate-adapter/make-derived-value
+                  (fn [source-containers compute-fn]
+                    (let [host (make-pull-watch-host source-containers compute-fn)]
+                      (swap! hosts conj host)
+                      host))]
+      (let [target (items-target)
+            lease  (obs/acquire! target (fn [event] (swap! notes conj event)))
+            host   (first @hosts)]
+        (try
+          (is (= 1 (count @hosts))
+              "the entry sub built one instrumented pull-derived cache node")
+          (is (some? host))
+          (let [baseline       (host-last-read host)
+                reads-before   (host-read-count host)
+                delivered-value {:pull :delivered :computed [:b]}]
+            (is (pos? reads-before)
+                "acquire! performed the expected baseline observation")
+            (is (= [:a] (:computed baseline))
+                "the instrumented host really pulls through the sub compute fn")
+            ;; Fire the host's registered watch with a value that a fresh pull
+            ;; can never produce (:pull is numeric on every deref). The port must
+            ;; consume this callback-provided `nu`, not dereference the host.
+            (fire-host-change! host baseline delivered-value)
+            (is (= reads-before (host-read-count host))
+                "value delivery performed ZERO additional observable reads")
+            (is (= 1 (count @notes))
+                "the public lease callback received exactly one movement")
+            (is (= :value (:cause (first @notes))))
+            (is (= target (:target (first @notes)))))
+          (finally
+            (obs/release! lease)))))))
 
 (deftest watchable-nan-to-nan-recompute-does-not-fan-out-value-movement
   (let [target (items-target)
@@ -1099,52 +1213,114 @@
 ;; deterministically, both hosts, no sleeps.
 ;; ===========================================================================
 
-(deftest frame-destroy-schedules-and-drives-the-disposed-drain-with-epoch-zero
+(deftest disposed-drain-coalesces-multiple-nodes-and-owners-one-thunk-per-window
+  (reg-items!)
+  (rf/reg-sub :obs/item-count (fn [db _] (count (:items db))))
+  (seed-items! [:a :b])
+  (let [pending    @#'obs/pending-disposals
+        scheduled? @#'obs/disposal-drain-scheduled?]
+    ;; Hermetic start only: scheduling and delivery assertions below stay at the
+    ;; public port + captured-host boundary rather than reading CAS internals.
+    (reset! pending [])
+    (reset! scheduled? false)
+    (let [items-target (items-target)
+          count-target (obs/resolve-target {:frame fid :query-v [:obs/item-count]})
+          items-notes  (atom [])
+          count-notes  (atom [])
+          captured     (atom [])
+          l1           (obs/acquire! items-target
+                                     (fn [event] (swap! items-notes conj event)))
+          l2           (obs/acquire! items-target
+                                     (fn [event] (swap! items-notes conj event)))
+          l3           (obs/acquire! count-target
+                                     (fn [event] (swap! count-notes conj event)))]
+      (with-redefs [interop/next-tick (fn [thunk] (swap! captured conj thunk))]
+        ;; Window 1: two independently disposed nodes, one with two owners.
+        (subs-cache/clear-sub-cache! fid)
+        (testing "one coalescing window owns exactly one scheduled drain"
+          (is (= 1 (count @captured))
+              "three independent lease enqueues across two nodes schedule ONE thunk")
+          (is (empty? @items-notes))
+          (is (empty? @count-notes)
+              "disposal only enqueues; callbacks do not run on the cache-clear stack"))
+        ((first @captured))
+        (testing "the one scheduled thunk drains every queued owner exactly once"
+          (is (= 2 (count @items-notes)) "both owners of the shared node delivered")
+          (is (= 1 (count @count-notes)) "the independently cached node delivered")
+          (is (every? #(= :disposed (:cause %))
+                      (concat @items-notes @count-notes))))
+        (doseq [lease [l1 l2 l3]] (obs/release! lease))
+
+        ;; Window 2: after the first scheduled thunk returned, a freshly rebuilt
+        ;; node must own exactly one NEW thunk. Destroying the frame retains the
+        ;; original end-to-end epoch-zero assertion.
+        (reset! captured [])
+        (let [later-notes (atom [])
+              later-lease (obs/acquire! items-target
+                                        (fn [event] (swap! later-notes conj event)))]
+          (frame/destroy-frame! fid)
+          (is (= 1 (count @captured))
+              "a later independent window schedules exactly one new thunk")
+          (is (empty? @later-notes) "the later destroy is still queued")
+          ((first @captured))
+          (is (= 1 (count @later-notes)) "the later window drains exactly once")
+          (let [event (first @later-notes)]
+            (is (= :disposed (:cause event)))
+            (is (= items-target (:target event)))
+            (is (zero? (:frame-epoch event))
+                "the real frame-destroy delivery retains epoch-zero evidence"))
+          (obs/release! later-lease))))))
+
+(deftest scheduled-disposal-drain-recovers-its-latch-after-callback-failure
   (reg-items!)
   (seed-items! [:a])
   (let [pending    @#'obs/pending-disposals
-        scheduled? @#'obs/disposal-drain-scheduled?]
-    ;; Hermetic start: clear the process-global drain latches so the CAS
-    ;; false->true transition is observable regardless of sibling test order.
+        scheduled? @#'obs/disposal-drain-scheduled?
+        captured   (atom [])
+        target     (items-target)
+        healthy    (atom [])
+        boom       (ex-info "scheduled on-change boom" {::scheduled-boom true})]
     (reset! pending [])
     (reset! scheduled? false)
-    (let [target   (items-target)
-          notes    (atom [])
-          captured (atom [])
-          lease    (obs/acquire! target (fn [ev] (swap! notes conj ev)))]
-      (is (= :live (:status @(@#'obs/lease-state lease))))
-      (is (int? (frame/frame-commit-epoch fid)) "the live frame has a commit epoch")
-      ;; CAPTURE the next-tick thunk(s) instead of running them — so the CAS
-      ;; scheduling is observable and the scheduled drain is driven by hand.
-      (with-redefs [interop/next-tick (fn [f] (swap! captured conj f))]
-        (frame/destroy-frame! fid))
-      (testing "the frame-destroy disposal enqueued a :disposed entry and the
-                next-tick CAS scheduled the fallback drain — nothing fanned yet"
-        (is (true? @scheduled?)
-            "compare-and-set! disposal-drain-scheduled? false->true fired")
-        (is (pos? (count @captured)) "interop/next-tick received the drain closure")
-        (is (some (fn [[_lease cause]] (= :disposed cause)) @pending)
-            "the queued entry carries the INTRINSIC :disposed cause
-             (frame-destroy -> :frame-destroy -> :disposed), never :hmr")
-        (is (empty? @notes)
-            "delivery is QUEUED — no synchronous on-change on the destroy stack"))
-      (testing "the destroyed frame's commit-epoch counter is cleared to 0"
-        (is (zero? (frame/frame-commit-epoch fid))
-            "dissoc-frame! dropped the destroyed frame's commit-epoch"))
-      ;; DRIVE the captured next-tick closure(s) = the REAL scheduled path.
-      (doseq [thunk @captured] (thunk))
-      (testing "the scheduled closure ran the :disposed drain and reset the latch"
-        (is (false? @scheduled?)
-            "the drain closure reset disposal-drain-scheduled? to false")
-        (is (empty? @pending) "the :disposed drain emptied the pending queue"))
-      (testing "the still-live destroyed-frame lease received {:cause :disposed}
-                carrying frame-commit-epoch 0"
-        (is (= 1 (count @notes)) "exactly one coalesced disposal notification")
-        (let [ev (first @notes)]
-          (is (= :disposed (:cause ev)) "the intrinsic :frame-destroy cause -> :disposed")
-          (is (= target (:target ev)))
-          (is (zero? (:frame-epoch ev))
-              "the payload's :frame-epoch is 0 for the destroyed frame"))))))
+    (with-redefs [interop/next-tick (fn [thunk] (swap! captured conj thunk))]
+      (let [bad-lease  (obs/acquire! target (fn [_event] (throw boom)))
+            good-lease (obs/acquire! target (fn [event] (swap! healthy conj event)))]
+        (force-dispose-node! [:obs/items])
+        (is (= 1 (count @captured)) "the failing window owns one real scheduled thunk")
+        (let [[[outcome thrown] records]
+              (with-error-records #((first @captured)))
+              wrapped (filterv #(= :rf.error/observation-on-change-failed (:error %))
+                               records)]
+          (is (= :threw outcome) "the manually driven next-tick boundary sees the escape")
+          (is (identical? boom thrown) "the drain rethrows the original callback failure")
+          (is (= 1 (count @healthy))
+              "per-owner containment delivers the healthy sibling exactly once")
+          (is (= :disposed (:cause (first @healthy))))
+          (is (= 1 (count wrapped))
+              "the swallowed-in-production boundary failure is always-on visible once")
+          (is (identical? boom (:exception (first wrapped)))))
+        (testing "the scheduled thunk recovers all drain state even though delivery threw"
+          (is (empty? @pending) "the failing window still drained the complete queue")
+          (is (false? @scheduled?)
+              "the scheduling latch was reset before the potentially throwing drain"))
+        (obs/release! bad-lease)
+        (obs/release! good-lease)
+
+        (testing "later work owns a fresh scheduling window and drains normally"
+          (reset! captured [])
+          (let [later-notes (atom [])
+                later-lease (obs/acquire! target
+                                          (fn [event] (swap! later-notes conj event)))]
+            (force-dispose-node! [:obs/items])
+            (is (= 1 (count @captured))
+                "callback failure did not strand the latch or suppress later scheduling")
+            (when-let [thunk (first @captured)]
+              (thunk)
+              (is (= 1 (count @later-notes)))
+              (is (= :disposed (:cause (first @later-notes))))
+              (is (empty? @pending))
+              (is (false? @scheduled?)))
+            (obs/release! later-lease)))))))
 
 ;; ===========================================================================
 ;; rf2-vxgfnd.70 — a follower must not publish a lease behind the FIRST owner's
@@ -1940,18 +2116,28 @@
   (let [cache-count-before   (count @(sub-cache))
         #?@(:clj [node-records-before (.size ^java.util.Map @#'obs/node-records)])
         watch-count-before   (container-watch-count (frame/frame-state-container fid))
+        watch-installs        (atom 0)
+        real-add-watch        #?(:clj  clojure.core/add-watch
+                                 :cljs cljs.core/add-watch)
         dispose-traces        (atom 0)]
     (rf/register-listener! :trace ::dispose-watch
       (fn [ev] (when (= :rf.sub/dispose (:operation ev))
                  (swap! dispose-traces inc))))
     (try
-      ;; alternate shared-memo and memo-less probes; both must retain zero
-      (let [memo (obs/make-slice-memo)]
-        (dotimes [i 10000]
-          (let [ev (obs/probe (obs/resolve-target {:frame fid :query-v [:obs/sum]})
-                              (when (even? i) memo))]
-            (when (zero? i)
-              (is (= [:sum 3] (:value ev)))))))
+      ;; Instrument the HOST registration seam for the whole probe loop. Final
+      ;; cardinality alone cannot see add-then-remove churn; this counter does.
+      (with-redefs [#?(:clj  clojure.core/add-watch
+                       :cljs cljs.core/add-watch)
+                    (fn [reference key callback]
+                      (swap! watch-installs inc)
+                      (real-add-watch reference key callback))]
+        ;; alternate shared-memo and memo-less probes; both must retain zero
+        (let [memo (obs/make-slice-memo)]
+          (dotimes [i 10000]
+            (let [ev (obs/probe (obs/resolve-target {:frame fid :query-v [:obs/sum]})
+                                (when (even? i) memo))]
+              (when (zero? i)
+                (is (= [:sum 3] (:value ev))))))))
       (testing "no cache entries, no disposal obligations, no node records"
         (is (= cache-count-before (count @(sub-cache)))
             "10k cold probes created ZERO cache entries")
@@ -1959,6 +2145,8 @@
         (is (nil? (entry [:obs/leaf2])))
         (is (zero? @dispose-traces)
             "no disposal obligations were created (nothing disposed)")
+        (is (zero? @watch-installs)
+            "10k cold probes attempted ZERO transient watch registrations")
         (is (= watch-count-before
                (container-watch-count (frame/frame-state-container fid)))
             "10k cold probes installed ZERO watches — a cold probe is a pure
