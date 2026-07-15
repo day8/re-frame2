@@ -1014,11 +1014,17 @@
             {:rf.db/runtime runtime-db
              :fx []})
 
-          ;; DUPLICATE exact completion of an already-folded child in a
-          ;; still-live join — suppressed so one child attempt can never
-          ;; publish two terminals (rf2-ir4t5v).
+          ;; CLOSED exact attempt in a still-live join: either the child was
+          ;; already folded, or an authenticated explicit teardown published
+          ;; cancellation and durably tombstoned it before callbacks. Both are
+          ;; duplicate terminal claims and must suppress without folding, even
+          ;; when an already-queued/delayed carrier retains exact auth. Actor
+          ;; liveness is deliberately irrelevant; final-state auto-destroy has
+          ;; no cancellation tombstone and its legitimate queued completion
+          ;; still folds (rf2-ir4t5v).
           (or (contains? (:done   join-state) child-id)
-              (contains? (:failed join-state) child-id))
+              (contains? (:failed join-state) child-id)
+              (contains? (:cancelled join-state) child-id))
           (suppress-stale-completion!
             frame-id parent-id invoke-id child-id
             (get-in join-state [:children child-id])

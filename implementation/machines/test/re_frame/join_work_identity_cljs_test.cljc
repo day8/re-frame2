@@ -11,6 +11,8 @@
    #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
       :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
    [re-frame.core :as rf]
+   [re-frame.interop :as interop]
+   [re-frame.late-bind :as late-bind]
    [re-frame.machines]
    [re-frame.machines.reply :as m-reply]
    [re-frame.machines.test-support :as mtest]
@@ -30,10 +32,16 @@
                             {:data (assoc data :id (second event))})
              :complete    (fn [{data :data}]
                             {:fx [[:dispatch
-                                   [parent-id [:child/done (:id data)]]]]})}
+                                   [parent-id [:child/done (:id data)]]]]})
+             :fail        (fn [{data :data}]
+                            {:fx [[:dispatch
+                                   [parent-id [:child/error (:id data)
+                                               :child-failed]]]]})}
    :states  {:running {:on {:set-id {:action :remember-id}
-                            :go     {:target :done :action :complete}}}
-             :done    {}}})
+                            :go     {:target :done :action :complete}
+                            :fail   {:target :failed :action :fail}}}
+             :done    {}
+             :failed  {}}})
 
 (defn- register-fixed-parent!
   [parent-id child-a-type child-b-type fixed-a fixed-b join]
@@ -77,6 +85,65 @@
                :on {:abort :idle}}}})
   (rf/dispatch-sync [parent-id [:start]]))
 
+(defn- register-imperative-destroy-parent!
+  [parent-id child-a-type child-b-type fixed-a fixed-b join
+   child-a-machine]
+  (rf/reg-machine child-a-type child-a-machine)
+  (rf/reg-machine child-b-type (dispatching-child parent-id))
+  (rf/reg-machine
+    parent-id
+    {:initial :idle
+     :actions {:destroy-folded-a
+               (fn [_]
+                 {:fx [[:rf.machine/destroy fixed-a]]})}
+     :states
+     {:idle   {:on {:start :racing}}
+      :racing {:spawn-all
+               {:children [{:id :a :machine-id child-a-type
+                            :fixed-actor-id fixed-a :start [:set-id :a]}
+                           {:id :b :machine-id child-b-type
+                            :fixed-actor-id fixed-b :start [:set-id :b]}]
+                :join join
+                :on-child-done :child/done
+                :on-child-error :child/error
+                :on-all-complete [:join/all]
+                :on-some-complete [:join/some]}
+               ;; A separate parent event runs only after the test observes the
+               ;; accepted non-decisive fold, then imperatively tears A down
+               ;; without leaving the unresolved spawn-all state.
+               :on {:destroy-a {:action :destroy-folded-a}
+                    :abort :idle}}}})
+  (rf/dispatch-sync [parent-id [:start]]))
+
+(defn- delayed-completion-child [parent-id]
+  {:initial :running
+   :data {:id nil}
+   :actions {:remember-id (fn [{data :data event :event}]
+                            {:data (assoc data :id (second event))})
+             :complete-later
+             (fn [{data :data}]
+               {:fx [[:dispatch-later
+                      {:ms 0
+                       :event [parent-id [:child/done (:id data)]]}]]})}
+   :states {:running {:on {:set-id {:action :remember-id}
+                           :later {:target :waiting
+                                   :action :complete-later}}}
+            :waiting {}}})
+
+(defn- completion-then-destroy-child [parent-id actor-id]
+  {:initial :running
+   :data {:id nil}
+   :actions {:remember-id (fn [{data :data event :event}]
+                            {:data (assoc data :id (second event))})
+             :complete-then-destroy
+             (fn [{data :data}]
+               {:fx [[:dispatch [parent-id [:child/done (:id data)]]]
+                     [:rf.machine/destroy actor-id]]})}
+   :states {:running {:on {:set-id {:action :remember-id}
+                           :go {:target :done
+                                :action :complete-then-destroy}}}
+            :done {}}})
+
 (defn- join-state [parent-id]
   (get-in (mtest/runtime-db)
           [:rf.runtime/machines :spawned parent-id [:racing]]))
@@ -103,6 +170,16 @@
   (rf/dispatch-sync
     [parent-id (with-meta [:child/done (:child-id auth)]
                  {:rf/join-auth auth})]))
+
+(defn- capture-dispatch! [sink f]
+  (let [real (late-bind/get-fn :router/dispatch!)]
+    (try
+      (late-bind/set-fn! :router/dispatch!
+                         (fn [event opts]
+                           (swap! sink conj [event opts])))
+      (f)
+      (finally
+        (late-bind/set-fn! :router/dispatch! real)))))
 
 (deftest numeric-tail-fixed-id-uses-runtime-attempt-not-keyword-spelling
   (testing "sequential attempts at a fixed address ending in #7 get distinct work ids"
@@ -188,6 +265,100 @@
                   (filter #(= :jwi/exit-fixed-a (get-in % [:tags :actor-id])))
                   first :tags :reason))
           "A's physical teardown is classified as post-terminal cleanup"))))
+
+(deftest imperative-destroy-of-a-done-folded-child-is-post-terminal-cleanup
+  (testing "an unresolved :all join authenticates A's done fold before destroy"
+    (register-imperative-destroy-parent!
+      :jwi/direct-done-parent :jwi/direct-done-a-type :jwi/direct-done-b-type
+      :jwi/direct-done-a#7 :jwi/direct-done-b :all
+      (dispatching-child :jwi/direct-done-parent))
+    (let [attempt (:rf/attempt (join-state :jwi/direct-done-parent))
+          work-a  [:rf.work/machine :jwi/direct-done-a#7 [:racing] attempt]]
+      (rf/dispatch-sync [:jwi/direct-done-a#7 [:go]])
+      (is (= #{:a} (:done (join-state :jwi/direct-done-parent))))
+      (is (false? (:resolved? (join-state :jwi/direct-done-parent))))
+      (rf/dispatch-sync [:jwi/direct-done-parent [:destroy-a]])
+      (is (= [:completed] (terminal-statuses-for work-a))
+          "imperative teardown cannot add cancelled after accepted done")
+      (is (= :rf.machine/join-reaped
+             (-> (events-of :rf.machine/destroyed) first :tags :reason))))))
+
+(deftest imperative-destroy-of-a-failed-folded-child-is-post-terminal-cleanup
+  (testing "an unresolved :any join authenticates A's failed fold before destroy"
+    (register-imperative-destroy-parent!
+      :jwi/direct-failed-parent
+      :jwi/direct-failed-a-type :jwi/direct-failed-b-type
+      :jwi/direct-failed-a#7 :jwi/direct-failed-b :any
+      (dispatching-child :jwi/direct-failed-parent))
+    (let [attempt (:rf/attempt (join-state :jwi/direct-failed-parent))
+          work-a  [:rf.work/machine :jwi/direct-failed-a#7 [:racing] attempt]]
+      (rf/dispatch-sync [:jwi/direct-failed-a#7 [:fail]])
+      (is (= #{:a} (:failed (join-state :jwi/direct-failed-parent))))
+      (is (false? (:resolved? (join-state :jwi/direct-failed-parent))))
+      (rf/dispatch-sync [:jwi/direct-failed-parent [:destroy-a]])
+      (is (= [:failed] (terminal-statuses-for work-a))
+          "imperative teardown cannot add cancelled after accepted failure")
+      (is (= :rf.machine/join-reaped
+             (-> (events-of :rf.machine/destroyed) first :tags :reason))))))
+
+(deftest delayed-completion-after-explicit-cancellation-cannot-fold
+  (testing "a delayed exact-auth carrier is suppressed after its attempt closes"
+    (let [callback (atom nil)
+          pending  (atom [])]
+      (with-redefs [interop/set-timeout! (fn [f _ms]
+                                          (reset! callback f)
+                                          ::timer)
+                    interop/clear-timeout! (fn [_] nil)]
+        (register-imperative-destroy-parent!
+          :jwi/delayed-cancel-parent
+          :jwi/delayed-cancel-a-type :jwi/delayed-cancel-b-type
+          :jwi/delayed-cancel-a#7 :jwi/delayed-cancel-b :all
+          (delayed-completion-child :jwi/delayed-cancel-parent))
+        (let [attempt (:rf/attempt (join-state :jwi/delayed-cancel-parent))
+              work-a  [:rf.work/machine :jwi/delayed-cancel-a#7
+                       [:racing] attempt]]
+          (rf/dispatch-sync [:jwi/delayed-cancel-a#7 [:later]])
+          (is (some? @callback))
+          (is (= #{} (:done (join-state :jwi/delayed-cancel-parent))))
+          ;; Let the host timer fire but hold its recordable router delivery.
+          ;; The resulting pending event already carries exact join auth.
+          (capture-dispatch! pending #(@callback))
+          (is (= 1 (count @pending)))
+          (rf/dispatch-sync [:jwi/delayed-cancel-parent [:destroy-a]])
+          (is (= [:cancelled] (terminal-statuses-for work-a)))
+          (let [[event opts] (first @pending)]
+            (rf/dispatch-sync event opts))
+          (is (= #{} (:done (join-state :jwi/delayed-cancel-parent)))
+              "the authenticated late carrier cannot fold")
+          (is (= #{:a} (:cancelled (join-state :jwi/delayed-cancel-parent))))
+          (is (= [:cancelled] (terminal-statuses-for work-a))
+              "cancellation remains the attempt's sole terminal")
+          (is (= :rf.machine.spawn-all/duplicate-completion
+                 (-> (events-of :rf.machine.spawn-all/stale-completion)
+                     first :tags :rf.reply/stale-reason))))))))
+
+(deftest same-fx-completion-queued-before-destroy-is-still-suppressed
+  (testing "destroy closes the attempt before the queued exact carrier drains"
+    (register-imperative-destroy-parent!
+      :jwi/queued-cancel-parent
+      :jwi/queued-cancel-a-type :jwi/queued-cancel-b-type
+      :jwi/queued-cancel-a#7 :jwi/queued-cancel-b :all
+      (completion-then-destroy-child
+        :jwi/queued-cancel-parent :jwi/queued-cancel-a#7))
+    (let [attempt (:rf/attempt (join-state :jwi/queued-cancel-parent))
+          work-a  [:rf.work/machine :jwi/queued-cancel-a#7 [:racing] attempt]]
+      (rf/dispatch-sync [:jwi/queued-cancel-a#7 [:go]])
+      (is (= #{} (:done (join-state :jwi/queued-cancel-parent))))
+      (is (= #{:a} (:cancelled (join-state :jwi/queued-cancel-parent))))
+      (is (= [:cancelled] (terminal-statuses-for work-a)))
+      (is (= :rf.machine.spawn-all/duplicate-completion
+             (-> (events-of :rf.machine.spawn-all/stale-completion)
+                 first :tags :rf.reply/stale-reason)))
+      (rf/dispatch-sync [:jwi/queued-cancel-parent [:abort]])
+      (rf/dispatch-sync [:jwi/queued-cancel-parent [:start]])
+      (is (not (contains? (join-state :jwi/queued-cancel-parent)
+                          :cancelled))
+          "re-entry seeds a fresh attempt without the prior tombstone"))))
 
 (deftest fixed-id-join-attempt-authority-is-the-machine-work-generation
   (testing "sequential fixed-id attempts stay distinct across accepted, late,

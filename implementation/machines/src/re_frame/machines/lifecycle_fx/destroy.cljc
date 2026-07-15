@@ -34,12 +34,12 @@
   `{:rf/reap true :rf/parent-id <p> :rf/invoke-id <i> :rf/child-id <c>}` —
   is what a `:spawn-all` join emits to tear down an ALREADY-TERMINAL
   (completed / failed) child at resolution WITHOUT a contradictory
-  cancellation reply (rf2-tj3l6a). It is the ONLY selector of the
-  cancellation-suppressing `:rf.machine/join-reaped` destroyed reason, and it
-  is AUTHENTICATED against the live join state before being honoured — the
-  reason and the reaped actor-id are runtime-derived from durable join state,
-  never caller-supplied, so the form cannot be forged at the public
-  reserved-fx boundary (rf2-3lyqzu). See `destroy-join-reap!`.
+  cancellation reply (rf2-tj3l6a). The same post-terminal reason is selected
+  automatically for ANY teardown of a current join child already folded into
+  `:done ∪ :failed`. Both paths authenticate private membership against live
+  durable join state; callers can never select the reason or victim through
+  the public reserved-fx grammar (rf2-3lyqzu). See `destroy-join-reap!` and
+  `prepare-join-child-teardown!`.
 
   The map grammar is a CLOSED discriminated union (rf2-3phait). PRESENCE of
   a discriminator key (`:rf/reap` / `:rf/spawn-all`) SELECTS that shape —
@@ -328,6 +328,100 @@
      ;; an already-destroyed actor (silent no-op).
      true)))
 
+(defn- authenticated-join-child
+  "Return a private join-child teardown context only when the actor snapshot's
+  membership is authenticated against the CURRENT durable join state.
+
+  Every coordinate must agree: parent, invoke path, logical child id, spawned
+  actor id, and opaque attempt token. A stale/replaced/forged membership is not
+  join authority and returns nil. Membership in `:done ∪ :failed` then proves
+  that this exact attempt already published its terminal reply."
+  [runtime-db actor-id]
+  (let [join-child (get-in runtime-db
+                           (conj (paths/snapshot-path actor-id)
+                                 :data :rf/join-child))
+        parent-id  (:parent-id join-child)
+        invoke-id  (:invoke-id join-child)
+        child-id   (:child-id join-child)
+        join-state (when (and (keyword? parent-id) (vector? invoke-id))
+                     (get-in runtime-db
+                             (paths/spawned-path parent-id invoke-id)))]
+    (when (and (map? join-child)
+               (map? join-state)
+               (some? child-id)
+               (= actor-id (:spawned-id join-child))
+               (= actor-id (get-in join-state [:children child-id]))
+               (some? (:attempt join-child))
+               (= (:attempt join-child) (:rf/attempt join-state)))
+      {:join-child join-child
+       :join-state join-state
+       :parent-id  parent-id
+       :invoke-id  invoke-id
+       :child-id   child-id
+       :terminal?  (or (contains? (:done join-state) child-id)
+                       (contains? (:failed join-state) child-id))})))
+
+(defn- prepare-join-child-teardown!
+  "Classify one teardown from authenticated runtime state before teardown.
+
+  An already-folded current child is post-terminal cleanup (`join-reaped`) for
+  every entry point. An authenticated in-progress explicit teardown remains a
+  cancellation and atomically closes the attempt by adding its logical child
+  id to the live join state's private `:cancelled` set BEFORE exit callbacks,
+  snapshot removal, or the terminal destroyed trace. Consequently an already
+  queued/delayed exact-auth completion observes a closed attempt and cannot
+  fold a contradictory terminal. A new join attempt seeds a new join-state, so
+  no tombstone crosses re-entry.
+
+  Returns `{:reason ... :join-child ...}` for the caller's trace, or nil when
+  the exact event owner was lost during the durable write."
+  [frame-id actor-id requested-reason
+   {:keys [owner-gone? owner-token]}]
+  (when-not (owner-gone?)
+    (let [runtime-db     (frame/frame-runtime-db-value frame-id)
+          current        (authenticated-join-child runtime-db actor-id)
+          classification (if current
+                           (assoc current
+                                  :reason (if (:terminal? current)
+                                            :rf.machine/join-reaped
+                                            requested-reason))
+                           {:reason requested-reason})
+          cancel-current? (and current
+                               (= :explicit (:reason classification))
+                               (not (:terminal? current)))]
+      (if-not cancel-current?
+        classification
+        (let [prepared (volatile! nil)
+              mark-fn  (fn [latest-db]
+                         ;; Re-authenticate inside the exact durable write: the
+                         ;; decision and tombstone must describe the same live
+                         ;; join attempt that is committed.
+                         (if-let [latest (authenticated-join-child
+                                          latest-db actor-id)]
+                           (let [reason (if (:terminal? latest)
+                                          :rf.machine/join-reaped
+                                          requested-reason)]
+                             (vreset! prepared (assoc latest :reason reason))
+                             (if (= :explicit reason)
+                               (update-in
+                                 latest-db
+                                 (conj (paths/spawned-path
+                                         (:parent-id latest)
+                                         (:invoke-id latest))
+                                       :cancelled)
+                                 (fnil conj #{})
+                                 (:child-id latest))
+                               latest-db))
+                           (do
+                             (vreset! prepared {:reason requested-reason})
+                             latest-db)))
+              written  (if owner-token
+                         (frame/swap-runtime-db-exact!
+                           frame-id owner-token mark-fn)
+                         (frame/swap-runtime-db! frame-id mark-fn))]
+          (when (some? written)
+            @prepared))))))
+
 (declare destroy-spawn-all-children!*)
 
 (defn- destroy-spawn-all-children!
@@ -384,23 +478,18 @@
       ;; in `:done ∪ :failed` has published its terminal reply, so parent exit
       ;; tears it down with the existing post-terminal cleanup reason; only an
       ;; in-progress sibling is an explicit cancellation.
-      (let [runtime-db       (frame/frame-runtime-db-value frame-id)
-            join-child      (get-in runtime-db
-                                    (conj (paths/snapshot-path spawned-id)
-                                          :data :rf/join-child))
-            already-terminal? (or (contains? (:done join-state) child-id)
-                                  (contains? (:failed join-state) child-id))
-            reason           (when already-terminal?
-                               :rf.machine/join-reaped)]
+      (when-let [{:keys [reason join-child]}
+                 (prepare-join-child-teardown!
+                   frame-id spawned-id :explicit fence)]
         (when (destroy-single-actor! frame-id spawned-id fence)
           (traces/emit-destroyed!
-            (cond-> {:frame           frame-id
-                     :actor-id        spawned-id
-                     :parent-id       parent-id
-                     :invoke-id       invoke-id
-                     :work-generation (:work-generation join-child)
-                     :child-id        child-id}
-              reason (assoc :reason reason))))))
+            {:frame           frame-id
+             :actor-id        spawned-id
+             :parent-id       parent-id
+             :invoke-id       invoke-id
+             :work-generation (:work-generation join-child)
+             :child-id        child-id
+             :reason          reason}))))
     ;; Clear the join-state slot via the unified projection (slot-only). rf2-i4aj9c —
     ;; fenced on live ownership and routed through the EXACT durable write, so a
     ;; child-`:rf.machine/destroyed` listener that published same-id B cannot have
@@ -445,16 +534,17 @@
   rf2-i4aj9c — `fence` carries the destroy-effect's exact-incarnation gate +
   owner token; it is threaded into `teardown-live-actor!` so every
   callback-bearing teardown boundary is rechecked and the durable writes ride
-  A's token. Before teardown, the tail also reads the child's private
-  `:rf/join-child` membership. When present, its carried `:work-generation`
-  and `:invoke-id` feed only the canonical cancelled reply work-id, so an
-  imperative/survivor destroy of a fixed join child retains exact attempt
-  identity without changing the public destroy grammar or trace keys."
-  [frame-id actor-id reason parent-id invoke-id old-db fence]
-  (let [join-child (get-in old-db
-                           (conj (paths/snapshot-path actor-id)
-                                 :data :rf/join-child))]
-    (when (actor-live? frame-id actor-id old-db)
+  A's token. Before teardown, `prepare-join-child-teardown!` authenticates the
+  child's private membership against the durable live join. Its exact work
+  generation feeds the reply identity; an already-folded child selects
+  post-terminal cleanup, while an in-progress explicit teardown durably closes
+  the attempt before callbacks can release a queued completion."
+  [frame-id actor-id requested-reason parent-id invoke-id old-db fence]
+  (when (actor-live? frame-id actor-id old-db)
+    (when-let [teardown (prepare-join-child-teardown!
+                          frame-id actor-id requested-reason fence)]
+      (let [reason     (:reason teardown)
+            join-child (:join-child teardown)]
       ;; Shared ordered teardown pipeline (see `teardown-live-actor!`). The
       ;; `:exit` cascade runs BEFORE the `:rf.machine/destroyed` trace:
       ;; per Spec 005 §Declarative `:spawn` §Composition with explicit `:entry`
@@ -487,7 +577,7 @@
                      :reason            reason}
               (some? (:work-generation join-child))
               (assoc :work-generation (:work-generation join-child)))))
-        fence)))
+        fence))))
   nil)
 
 (defn- destroy-join-reap!

@@ -91,6 +91,34 @@
                   :on-all-complete [:join/done]}
                  :on {:abort :idle}}}})))
 
+(defn- register-cancel-race-machines! []
+  (let [parent :xray-work-id/cancel-race-parent
+        actor  :xray-work-id/cancel-race-child#7]
+    (rf/reg-machine
+      :xray-work-id/cancel-race-child-type
+      {:initial :running
+       :actions {:queue-then-destroy
+                 (fn [_]
+                   {:fx [[:dispatch [parent [:child/done :only]]]
+                         [:rf.machine/destroy actor]]})}
+       :states {:running {:on {:go {:target :done
+                                    :action :queue-then-destroy}}}
+                :done {}}})
+    (rf/reg-machine
+      parent
+      {:initial :idle
+       :states {:idle {:on {:start :racing}}
+                :racing
+                {:spawn-all
+                 {:children [{:id :only
+                              :machine-id :xray-work-id/cancel-race-child-type
+                              :fixed-actor-id actor}]
+                  :join :all
+                  :on-child-done :child/done
+                  :on-child-error :child/error
+                  :on-all-complete [:join/done]}}}})
+    (rf/dispatch-sync [parent [:start]])))
+
 (deftest emitted-fixed-id-attempts-remain-distinct-in-xray
   (testing "a stale carrier from A cannot suppress B's actual Xray arc"
     (register-machines!)
@@ -194,3 +222,28 @@
           (is (= 1 (count (filter #(= :completed (:phase %))
                                   (:rows arc-b))))
               "B contributes exactly one cancellation terminal"))))))
+
+(deftest cancelled-then-suppressed-carrier-has-one-xray-terminal
+  (testing "an exact carrier after cancellation adds suppression, not a terminal"
+    (register-cancel-race-machines!)
+    (with-trace-recorder!
+      [traces {:pred #(contains?
+                       #{:rf.machine/destroyed
+                         :rf.machine.spawn-all/stale-completion}
+                       (:operation %))}]
+      (let [join-state (get-in (frame/frame-runtime-db-value :rf/default)
+                               [:rf.runtime/machines :spawned
+                                :xray-work-id/cancel-race-parent [:racing]])
+            work-id    [:rf.work/machine
+                        :xray-work-id/cancel-race-child#7
+                        [:racing] (:rf/attempt join-state)]]
+        (rf/dispatch-sync [:xray-work-id/cancel-race-child#7 [:go]])
+        (let [arc (get (reply-envelope/races-by-work-id @traces) work-id)]
+          (is (= #{:completed :stale-suppressed} (:phases arc)))
+          (is (= 1 (count (filter #(= :completed (:phase %)) (:rows arc))))
+              "destroyed cancellation is the sole terminal-phase row")
+          (is (= :cancelled
+                 (->> (:rows arc)
+                      (filter #(= :completed (:phase %)))
+                      first :status)))
+          (is (true? (:suppressed? arc))))))))
