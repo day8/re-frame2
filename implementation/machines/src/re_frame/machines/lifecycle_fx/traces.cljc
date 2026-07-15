@@ -24,7 +24,9 @@
   Per the destroyed-trace-shape contract (assertion test in
   `re-frame.destroyed-trace-shape-test`), the permitted site-provided
   keys are `#{:frame :actor-id :system-id :parent-id :invoke-id
-  :child-id :reason}`. `:actor-id` is the destroyed actor's live INSTANCE
+  :child-id :reason :work-bearing-path :attempt}`. The final two are PRIVATE
+  reply-correlation inputs and never become bare public trace tags.
+  `:actor-id` is the destroyed actor's live INSTANCE
   address (`:machine-id` is reserved for the registered TYPE);
   `:invoke-id` is the declarative invocation path. Callers pass only the
   slots their site populates —
@@ -65,7 +67,8 @@
       as `:cancelled` would emit a SECOND, contradictory terminal (rf2-tj3l6a).
 
   The public destroyed-trace shape is unchanged."
-  [{:keys [frame actor-id system-id parent-id invoke-id child-id reason]
+  [{:keys [frame actor-id system-id parent-id invoke-id child-id reason
+           work-bearing-path attempt]
     :or {reason :explicit}
     :as args}]
   (let [cancelled? (= reason :explicit)
@@ -74,7 +77,8 @@
                        (m-reply/cancelled-actor-reply
                          {:actor-id          actor-id
                           :parent-id         parent-id
-                          :work-bearing-path invoke-id
+                          :work-bearing-path (or work-bearing-path invoke-id)
+                          :attempt           attempt
                           :frame             frame
                           :reason            reason})
                        {:frame frame}))]
