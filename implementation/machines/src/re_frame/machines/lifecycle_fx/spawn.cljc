@@ -173,13 +173,18 @@
 
 (defn- spawn-all-invoke-rejected?
   "True iff `args` is a `:spawn-all` per-child spawn whose invoke was
-  REJECTED by `spawn-all-init-fx` (an unregistered sibling TYPE). The reject
+  REJECTED by `spawn-all-init-fx`'s preflight (an unregistered child TYPE, or
+  a child that fails spawn-time `[:schemas :data]` validation). The reject
   seeds `spawn-all-reject-sentinel` at the join slot BEFORE the per-child
   spawns run — `spawn-all-init-fx` is the FIRST fx in the entry vector, ahead
-  of every per-child `:rf.machine/spawn` — so a sibling spawn reads it here
+  of every per-child `:rf.machine/spawn` — so every child spawn reads it here
   and suppresses itself. Keyed on the child's `:rf/spawn-all-id` (== the
   parent's invoke-id / join-slot key), so it fires ONLY for `:spawn-all`
-  children, never a single `:spawn`."
+  children, never a single `:spawn`.
+
+  `spawn-fx` consults this AHEAD of its child-local `unregistered-spawn-type?`
+  gate so an OFFENDING child suppresses too rather than re-emitting the reject
+  the preflight already fanned (rf2-smya7a)."
   [frame-id args]
   (when-let [invoke-id (:rf/spawn-all-id args)]
     (let [slot (get-in (frame/frame-runtime-db-value frame-id)
@@ -457,26 +462,40 @@
         frame-id   (frame/require-frame-stamp!
                      frame-id :rf.machine/spawn
                      {:where 'rf.machine/spawn :event-id (:system-id args)})]
-    ;; Step 0 — fail-closed gate. An unregistered `:machine-id`
-    ;; (no inline `:definition`) is REJECTED here, BEFORE any id allocation,
-    ;; spec resolution, snapshot/slot/system-id install, spawn-order record,
-    ;; trace, or `:start` dispatch. The reject emits the always-on
-    ;; `:rf.error/machine-spawn-unregistered-type` and returns nil — the
-    ;; strongest atomicity (there is no spec-less spawn path, so there is no
-    ;; half-installed bookkeeping the next op could trip over).
+    ;; Step 0 — the two fail-closed gates, INVOKE-level before CHILD-local.
+    ;; Both reject BEFORE any id allocation, spec resolution,
+    ;; snapshot/slot/system-id install, spawn-order record, trace, or
+    ;; `:start` dispatch — the strongest atomicity (there is no spec-less
+    ;; spawn path, so there is no half-installed bookkeeping the next op
+    ;; could trip over).
     (cond
-      (unregistered-spawn-type? args)
-      (reject-unregistered-spawn! frame-id (:machine-id args))
-
-      ;; Step 0b — atomic `:spawn-all` reject. When a SIBLING in this
-      ;; `:spawn-all` set named an UNREGISTERED TYPE, `spawn-all-init-fx`
-      ;; (the first fx in this entry vector) rejected the whole invoke and
-      ;; seeded `spawn-all-reject-sentinel` at the join slot. Suppress this
-      ;; registered sibling's spawn so the reject is ATOMIC — no live orphan
-      ;; with no seeded join to ever tear it down (rf2-qb1j5z). Silent: the
-      ;; invoke-level reject trace already fired from `spawn-all-init-fx`.
+      ;; Step 0a — atomic `:spawn-all` reject. `spawn-all-init-fx` (the FIRST
+      ;; fx in this entry vector) preflights the whole child set and, on any
+      ;; fail-closed admission failure, seeds `spawn-all-reject-sentinel` at
+      ;; the join slot. EVERY per-child effect of a rejected invoke suppresses
+      ;; here — registered, unregistered, and schema-invalid alike — so the
+      ;; reject is ATOMIC: no live orphan with no seeded join to ever tear it
+      ;; down (rf2-qb1j5z).
+      ;;
+      ;; This gate is FIRST, ahead of the child-local unregistered check
+      ;; below, and the order is the CONTRACT (rf2-smya7a). The invoke-level
+      ;; preflight is the SOLE emitter for a rejected invoke: it already
+      ;; emitted exactly one reject per offending child. Were the child-local
+      ;; gate tested first, each offending child would bypass this suppression
+      ;; and emit a SECOND, duplicate record + dev trace — doubling the
+      ;; production error cardinality and making one malformed invoke look
+      ;; like two independent boundary failures per child. Silent by design.
       (spawn-all-invoke-rejected? frame-id args)
       nil
+
+      ;; Step 0b — child-local fail-closed gate for an unregistered
+      ;; `:machine-id` (no inline `:definition`). This is the SOLE emitter for
+      ;; a standalone single `:spawn`, which has no invoke sentinel to hide
+      ;; behind — it must still reject exactly once and fail closed. It also
+      ;; still covers a hand-emitted `:spawn-all` child fx that reaches the
+      ;; runtime with no preceding init fx (no sentinel, no live join).
+      (unregistered-spawn-type? args)
+      (reject-unregistered-spawn! frame-id (:machine-id args))
 
       :else
       (spawn-fx* frame-id args))))
@@ -767,12 +786,13 @@
   so it is a reject marker, NOT a live join. A never-running spec-less
   child would otherwise never dispatch its `:on-child-done`, blocking an
   `:all` join FOREVER (`join.cljc` `(= n-done n-total)` can never hold).
-  The registered siblings' per-child `:rf.machine/spawn` fxs — SEPARATE
-  entries later in THIS same entry vector — read the sentinel
-  (`spawn-all-invoke-rejected?`) and SUPPRESS themselves BEFORE installing,
-  so a malformed set spawns NOTHING rather than orphaning the registered
-  siblings under no live join (each unregistered child's own
-  `:rf.machine/spawn` fx also rejects independently in `spawn-fx`).
+  EVERY child's per-child `:rf.machine/spawn` fx — SEPARATE entries later in
+  THIS same entry vector — reads the sentinel (`spawn-all-invoke-rejected?`)
+  and SUPPRESSES itself BEFORE installing, so a malformed set spawns NOTHING
+  rather than orphaning the registered siblings under no live join. That
+  suppression covers the OFFENDING children too, not just their registered
+  siblings: this fx is the SOLE emitter for a rejected invoke and emits
+  exactly ONE reject per offending child (rf2-smya7a).
   Because the sentinel is childless, no actor is ever spawned to complete:
   a stray / forged `:on-child-done` hits `join.cljc`'s childless-slot
   guard and is a no-op (no deadlock), and `destroy-spawn-all-children!`
@@ -796,9 +816,11 @@
                           (filterv unregistered-spawn-type?))]
     (if (seq unregistered)
       ;; Fail-closed: reject the join so the never-running spec-less child
-      ;; cannot hang the `:all` join forever. Emit one reject per offending
-      ;; child (structural-only tags, per the privacy contract). The
-      ;; per-child `:rf.machine/spawn` fx rejects each unregistered child too.
+      ;; cannot hang the `:all` join forever. Emit EXACTLY one reject per
+      ;; offending child (structural-only tags, per the privacy contract) —
+      ;; this fx is the sole emitter, and each offending child's own
+      ;; `:rf.machine/spawn` fx suppresses silently under the sentinel it
+      ;; seeds below rather than emitting a duplicate (rf2-smya7a).
       ;;
       ;; ATOMIC reject (rf2-qb1j5z): seed `spawn-all-reject-sentinel` at the
       ;; join slot rather than seeding NO join-state. The registered

@@ -220,10 +220,13 @@
       (rf/reg-machine :sup/join parent)
       (let [records (with-error-records
                       #(rf/dispatch-sync [:sup/join [:start]]))]
-        ;; FAIL-CLOSED: the unregistered child fans the reject (one from the
-        ;; spawn-all-init pre-check; the per-child spawn-fx also rejects).
-        (is (<= 1 (count records))
-            "the unregistered child fans at least one always-on reject")
+        ;; FAIL-CLOSED, and EXACTLY ONCE (rf2-smya7a). `spawn-all-init-fx`'s
+        ;; preflight is the SOLE emitter for a rejected invoke: the offending
+        ;; child's own per-child spawn fx consults the invoke sentinel BEFORE
+        ;; its child-local unregistered gate and suppresses silently, rather
+        ;; than fanning a second, duplicate record for the same child.
+        (is (= 1 (count records))
+            "exactly ONE always-on reject for the one unregistered child")
         (is (every? #(= :gc/missing (:machine-id %)) records)
             "every reject names the unregistered child TYPE :gc/missing")
         ;; A reject SENTINEL was seeded (no :children) — the join cannot hang
@@ -243,6 +246,113 @@
         ;; (dispatch-sync returned).
         (is (= :forking (mtest/machine-state :sup/join))
             "parent stays in :forking — no deadlock, just a refused join")))))
+
+;; ---------------------------------------------------------------------------
+;; (4b) EXACT reject CARDINALITY — one per offending child, never doubled.
+;; ---------------------------------------------------------------------------
+
+(defn- reject-machine-ids
+  "The `:machine-id` of every unregistered-type reject the dev TRACE axis
+  fanned (the always-on axis is captured separately by `with-error-records`)."
+  []
+  (mapv #(get-in % [:tags :machine-id])
+        (mtest/events-of :rf.error/machine-spawn-unregistered-type)))
+
+(defn- spawn-all-parent
+  "A `:spawn-all :all` parent over `children`, for cardinality fixtures."
+  [children]
+  {:initial :idle
+   :states
+   {:idle    {:on {:start :forking}}
+    :forking {:spawn-all {:children        children
+                          :join            :all
+                          :on-child-done   :gc/done
+                          :on-child-error  :gc/failed
+                          :on-all-complete [:all/done]}
+              :on {:all/done :ready}}
+    :ready   {}}})
+
+(deftest spawn-all-emits-exactly-one-reject-per-offending-child
+  (testing "N unregistered children fan EXACTLY N always-on records and
+            EXACTLY N dev traces — one per offending machine-id, never two.
+            Duplicate production-surviving records distort off-box failure
+            rates and make ONE malformed invoke look like TWO independent
+            boundary failures per child (rf2-smya7a)"
+    (let [ok-child {:initial :running :data {} :states {:running {}}}]
+      (rf/reg-machine :card/ok ok-child)
+      ;; :card/missing-a and :card/missing-b are NEVER reg-machine'd.
+      (rf/reg-machine :sup/card
+                      (spawn-all-parent [{:id :a  :machine-id :card/missing-a}
+                                         {:id :ok :machine-id :card/ok}
+                                         {:id :b  :machine-id :card/missing-b}]))
+      (let [records (with-error-records
+                      #(rf/dispatch-sync [:sup/card [:start]]))]
+        ;; TWO offending children ⇒ TWO records. The old gate order (child-local
+        ;; unregistered check ahead of the invoke sentinel) produced FOUR.
+        (is (= 2 (count records))
+            "exactly TWO always-on records — one per offending child, not four")
+        (is (= [:card/missing-a :card/missing-b]
+               (sort (mapv :machine-id records)))
+            "one record per offending machine-id — no duplicates, no sibling")
+        ;; The dev-trace axis carries the same cardinality.
+        (is (= [:card/missing-a :card/missing-b]
+               (sort (reject-machine-ids)))
+            "exactly TWO dev traces — one per offending machine-id")
+        ;; The registered sibling was suppressed, not merely un-rejected.
+        (is (nil? (get-in (frame-db) [:rf.runtime/machines :snapshots :card/ok#1]))
+            "the registered sibling installs no snapshot under the rejected invoke")
+        (is (not (some #{:card/ok#1} (spawn-order/frame-order :rf/default)))
+            "the registered sibling records no spawn-order entry")
+        (is (empty? (mtest/events-of :rf.machine.spawn/spawned))
+            "no :rf.machine.spawn/spawned trace for ANY child of a rejected invoke")))))
+
+(deftest spawn-all-reject-cardinality-is-order-invariant
+  (testing "the per-child reject count is invariant under child ORDER and under
+            the number / placement of registered siblings — the offending
+            children are preflighted as a SET at the invoke boundary, so a
+            leading, trailing, or sandwiched sibling cannot change it"
+    (let [ok-child {:initial :running :data {} :states {:running {}}}]
+      (rf/reg-machine :card/ok2 ok-child)
+      ;; The mirror image of the fixture above: offenders LAST, two registered
+      ;; siblings leading, and the offending ids swapped in declaration order.
+      (rf/reg-machine :sup/card2
+                      (spawn-all-parent [{:id :ok1 :machine-id :card/ok2}
+                                         {:id :ok2 :machine-id :card/ok2}
+                                         {:id :b   :machine-id :card/missing-b2}
+                                         {:id :a   :machine-id :card/missing-a2}]))
+      (let [records (with-error-records
+                      #(rf/dispatch-sync [:sup/card2 [:start]]))]
+        (is (= 2 (count records))
+            "still exactly TWO records — order and sibling count are irrelevant")
+        (is (= [:card/missing-a2 :card/missing-b2]
+               (sort (mapv :machine-id records)))
+            "one record per offending machine-id regardless of declaration order")
+        (is (= {:rf/spawn-all-rejected? true}
+               (get-in (frame-db) [:rf.runtime/machines :spawned :sup/card2 [:forking]]))
+            "one childless reject sentinel — no live join")))))
+
+(deftest spawn-all-parent-exit-clears-the-reject-sentinel
+  (testing "parent exit clears the reject sentinel and leaves no valid sibling
+            live or orphaned — the rejected invoke owns no teardown debt"
+    (let [ok-child {:initial :running :data {} :states {:running {}}}
+          parent   (assoc-in (spawn-all-parent [{:id :ok :machine-id :card/ok3}
+                                                {:id :x  :machine-id :card/missing-c}])
+                             [:states :forking :on :back] :idle)]
+      (rf/reg-machine :card/ok3 ok-child)
+      (rf/reg-machine :sup/card3 parent)
+      (rf/dispatch-sync [:sup/card3 [:start]])
+      (is (= {:rf/spawn-all-rejected? true}
+             (get-in (frame-db) [:rf.runtime/machines :spawned :sup/card3 [:forking]]))
+          "(precondition) the childless reject sentinel is seeded")
+      ;; Leave :forking — `destroy-spawn-all-children!` finds nothing to tear
+      ;; down and clears the slot.
+      (rf/dispatch-sync [:sup/card3 [:back]])
+      (is (= :idle (mtest/machine-state :sup/card3))
+          "(precondition) the parent left the :spawn-all state")
+      (is (nil? (get-in (frame-db) [:rf.runtime/machines :spawned :sup/card3 [:forking]]))
+          "parent exit CLEARS the reject sentinel")
+      (is (nil? (get-in (frame-db) [:rf.runtime/machines :snapshots :card/ok3#1]))
+          "no valid sibling was left live or orphaned by the rejected invoke"))))
 
 (deftest spawn-all-registered-sibling-completion-is-noop-not-hang
   (testing "after the join is rejected, a hand-driven :on-child-done finds the
