@@ -94,6 +94,26 @@ for (const expected of ['dropped-exact', 'invalidation-evidence projection']) {
   }
 }
 
+/*
+ * Compiled behavioural positive control (rf2-vxgfnd.149): the advanced test
+ * roots the PRIVATE state var and asserts its value is nil before and after
+ * force-release!. The marker must survive in this bundle, so a mutant which
+ * merely renames/minifies an unconditional atom/reset path still fails at
+ * runtime; this is deliberately stronger than another bundle substring.
+ */
+const TOOL_PROD_TEST = path.join(ROOT, 'ui', 'test', 're_frame', 'ui',
+                                'tool_evidence_elision_prod_test.cljs');
+const toolProdTest = fs.readFileSync(TOOL_PROD_TEST, 'utf8');
+const REGISTRY_CONTROL = 'rf-ui-tool-evidence-registry-state-absent-v1';
+for (const expected of ["@#'evidence/state*", REGISTRY_CONTROL]) {
+  if (!toolProdTest.includes(expected)) {
+    fail(`tool-evidence compiled state-elision control is absent: ${expected}`);
+  }
+}
+if (!bundle.includes(REGISTRY_CONTROL)) {
+  fail('tool-evidence private-state assertion was omitted from advanced bundle');
+}
+
 for (const forbidden of ['dropped-exact', 'invalidation-evidence projection']) {
   if (bundle.includes(forbidden)) {
     fail(`invalidation-evidence projection survived advanced output: ${forbidden}`);

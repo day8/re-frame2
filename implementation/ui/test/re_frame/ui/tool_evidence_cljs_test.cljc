@@ -70,6 +70,39 @@
   #{:batches :first-epoch :latest-epoch :count :causes :targets
     :dropped :dropped-exact?})
 
+(defn- connect-empty!
+  "Commit one empty render so `cell` follows the real connected/disconnected
+  lifecycle without introducing observation owners into a retention proof."
+  [cell]
+  (let [[_ capture] (reactive/with-capture cell (fn [] nil))]
+    (reactive/commit! cell capture))
+  cell)
+
+#?(:clj
+   (defn- gc-until
+     "Hint a full collection until `pred` observes the weak population gone.
+     Bounded retries keep a failure diagnostic rather than hanging the suite."
+     [pred]
+     (loop [i 0]
+       (cond
+         (pred)      true
+         (>= i 100) (pred)
+         :else       (do (System/gc)
+                         (Thread/sleep 10)
+                         (recur (inc i)))))))
+
+#?(:clj
+   (defn- churn-disconnected-cell!
+     "Publish one row, then model ordinary reconciliation cleanup: disconnect
+     and return only a WeakReference after the render/fiber owner is gone."
+     [i]
+     (let [cell (connect-empty!
+                 (reactive/make-cell (keyword "tool-ev.churn" (str i))))]
+       (reactive/mark-dirty! cell (inc i))
+       (reactive/flush-pending!)
+       (reactive/disconnect! cell)
+       (java.lang.ref.WeakReference. cell))))
+
 ;; ===========================================================================
 ;; Identity-owned lifecycle — never clobbers, releases everything
 ;; ===========================================================================
@@ -269,3 +302,49 @@
     (testing "uninstall then releases the survivor too — zero retention"
       (is (true? (evidence/uninstall! ::xray)))
       (is (= [] (evidence/projection))))))
+
+#?(:clj
+   (deftest ordinary-unmount-churn-is-weak-while-activity-retention-survives
+     ;; The exact ambiguity that forbids pruning merely on :disconnected:
+     ;; React runs the same cleanup for an ordinary conditional/keyed unmount
+     ;; and an Activity hide. The registry must therefore be NON-OWNING. React
+     ;; keeps a hidden fiber/cell strongly reachable; an ordinary unmount drops
+     ;; that last owner and the row follows the cell through weak collection.
+     (is (true? (evidence/install! ::xray)))
+     (let [hidden    (connect-empty! (reactive/make-cell ::activity-hidden))
+           _         (reactive/mark-dirty! hidden 1)
+           _         (reactive/flush-pending!)
+           hidden-id (:cell-id (entry-for ::activity-hidden))
+           hidden-ev (:evidence (entry-for ::activity-hidden))
+           _         (reactive/disconnect! hidden)
+           n         32
+           refs      (mapv churn-disconnected-cell! (range n))]
+       (is (= :disconnected (reactive/lifecycle hidden)))
+       (is (= (inc n) (count (evidence/projection)))
+           "red precondition: hidden + every ordinarily-unmounted row exists
+            before collection/compaction")
+
+       (testing "ordinary unmounts are garbage, not evidence-registry owners"
+         ;; RED with the prior persistent map keyed strongly by ViewCell: none
+         ;; of these WeakReferences can clear and the projection grows forever.
+         (is (true? (gc-until #(and (every? (fn [^java.lang.ref.WeakReference r]
+                                               (nil? (.get r)))
+                                             refs)
+                                          (= 1 (count (evidence/projection))))))
+             "all churned cells collected and projection compaction returned
+              the still-live tool to its one-row baseline"))
+
+       (testing "Activity hide/reveal retains and reconnects the SAME row"
+         (is (= [::activity-hidden] (mapv :view-id (evidence/projection))))
+         (is (= hidden-id (:cell-id (entry-for ::activity-hidden))))
+         (is (= hidden-ev (:evidence (entry-for ::activity-hidden)))
+             "collection changed neither classification nor honest loss")
+         (connect-empty! hidden)
+         (is (= :connected (reactive/lifecycle hidden)))
+         (is (= hidden-id (:cell-id (entry-for ::activity-hidden)))
+             "weak membership does not confuse a retained hide with final unmount")
+         (is (= hidden-ev (:evidence (entry-for ::activity-hidden)))))
+
+       (testing "explicit teardown still removes the retained row immediately"
+         (reactive/teardown! hidden)
+         (is (= [] (evidence/projection)))))))

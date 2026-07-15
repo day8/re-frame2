@@ -752,8 +752,15 @@ When Xray owns the span, one row per live ViewCell instance in stable
 
 `:targets` is the bounded shown sample; `:dropped-count` /
 `:dropped-exact?` is the HONEST loss account (`false` ⇒ the count is a
-floor, rendered `≥N dropped`). Dead cells are pruned by the projection
-itself. Delivery freshness rides the `:rf.xray/epoch-history` input (the
+floor, rendered `≥N dropped`). The projection index is NON-OWNING
+(rf2-vxgfnd.148): JVM uses weak cell keys; CLJS uses WeakRef holders whose
+bounded values never point back to the cell. React therefore keeps the exact
+row/ordinal/loss evidence while an Activity-hidden cell remains retained,
+whereas an ordinary reconciliation unmount becomes collectible and cannot
+grow the projection forever. Explicitly dead cells and GC-cleared refs are
+compacted on projection reads (with host finalization as an additional husk
+reaper), not by a polling scan; owner-checked uninstall drops the whole
+registry immediately. Delivery freshness rides the `:rf.xray/epoch-history` input (the
 standing epoch-pump axis): the ViewCell flush runs a microtask after
 drain-settle, so a same-epoch read may trail by one pump — the cumulative
 accumulators catch up, never lose. OWNERSHIP freshness rides the separate
@@ -779,8 +786,12 @@ client root); trailing tag = occurrences · batches · epoch span
 **Boundary.** tools/xray depends on the ui artefact's tool tier
 (`day8/re-frame2-ui` in deps.edn); `re-frame.ui` never depends on Xray;
 production applications pull neither (the tools/README bundle-isolation
-contract + the debug evidence plane's production elision). Tool absence
-stays zero-cost.
+contract + the debug evidence plane's production elision). Under an advanced
+`goog.DEBUG=false` build the evidence namespace's private state var is nil:
+no atom, weak registry, transition lock or reset path is allocated. The
+production gate roots that private var in the compiled artefact and executes
+the assertion, so minification cannot hide a retained-state mutation behind
+renamed strings (rf2-vxgfnd.149). Tool absence stays zero-cost.
 
 ### §3.5 Queries
 
