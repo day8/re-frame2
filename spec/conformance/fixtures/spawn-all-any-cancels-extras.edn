@@ -81,7 +81,32 @@
                                  :on-child-done    :done
                                  :on-child-error   :failed
                                  :on-some-complete [:phase/one-done]}
-                     :invoke-id [:working]}}]
+                     :invoke-id [:working]}
+      ;; The prepared per-child spawn args, in declaration order — byte-for-byte
+      ;; the args of the five :rf.machine/spawn fxs below. The init fx
+      ;; preflights THESE, so its invoke-level admission decision (unregistered
+      ;; TYPE / spawn-time [:schemas :data]) sees exactly what each per-child
+      ;; effect would run, before any live join is published (rf2-7u8gen).
+      :child-args   [{:machine-id :worker :id-prefix :worker
+                      :rf/spawned-id :worker#1
+                      :rf/parent-id  :rf/transition-pure
+                      :rf/spawn-all-id [:working] :rf/spawn-all-child-id :a}
+                     {:machine-id :worker :id-prefix :worker
+                      :rf/spawned-id :worker#2
+                      :rf/parent-id  :rf/transition-pure
+                      :rf/spawn-all-id [:working] :rf/spawn-all-child-id :b}
+                     {:machine-id :worker :id-prefix :worker
+                      :rf/spawned-id :worker#3
+                      :rf/parent-id  :rf/transition-pure
+                      :rf/spawn-all-id [:working] :rf/spawn-all-child-id :c}
+                     {:machine-id :worker :id-prefix :worker
+                      :rf/spawned-id :worker#4
+                      :rf/parent-id  :rf/transition-pure
+                      :rf/spawn-all-id [:working] :rf/spawn-all-child-id :d}
+                     {:machine-id :worker :id-prefix :worker
+                      :rf/spawned-id :worker#5
+                      :rf/parent-id  :rf/transition-pure
+                      :rf/spawn-all-id [:working] :rf/spawn-all-child-id :e}]}]
     ;; Per rf2-er0t: the runtime dissocs :id from each child spec before
     ;; emitting the :rf.machine/spawn fx; the user-supplied child id rides
     ;; on :rf/spawn-all-child-id instead.
