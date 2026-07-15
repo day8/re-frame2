@@ -15,6 +15,10 @@ template at build time. Element vectors become direct element construction; `:cl
 every analyser and both emitters see through them. Subtrees the compiler can prove
 inert hoist to module constants and are built once, at load.
 
+Contrast the frozen stock-Reagent path: `reg-view` is registration and frame injection
+only — the body is not lowered — so it is not "the same compiler under another name".
+The migration map is [13 — From other worlds](13-from-other-worlds.md).
+
 This is also why the template grammar is closed. A dynamic tag head, an unkeyed list,
 a `sub` inside a loop, an unaudited macro in expression position — each would put
 something into your view the compiler cannot see through, and everything downstream
