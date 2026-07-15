@@ -30,6 +30,7 @@
             [re-frame.machines.lifecycle-fx.resolver :as resolver]
             [re-frame.machines.parallel :as parallel]
             [re-frame.machines.paths :as paths]
+            [re-frame.machines.reply :as m-reply]
             [re-frame.machines.spawn-order :as spawn-order]
             [re-frame.trace :as trace]))
 
@@ -222,13 +223,15 @@
   carries the exact coordinates of the join ATTEMPT this child instance
   belongs to — the parent/invoke identity, the logical child id, the
   child's own spawned instance address, the join's completion event
-  keywords, and the opaque per-attempt token the seeding
-  `spawn-all-init-fx` minted into the join state. The child's
+  keywords, the opaque per-attempt token the seeding `spawn-all-init-fx`
+  minted into the join state, and the canonical private work generation
+  selected from explicit spawn provenance. The child's
   machine-handler boundary reads it to stamp outbound completion carriers
   with the attempt authentication the parent's join interceptor verifies
   (`join/stamp-join-completion-fx` / `intercept-spawn-all-event`), so a
   stale completion from a PRIOR attempt / prior actor incarnation can
-  never fold into a successor join. Framework-reserved, never
+  never fold into a successor join, while fixed-vs-generated work provenance
+  never depends on the actor keyword's spelling. Framework-reserved, never
   application-facing.
 
   Returns nil for non-`:spawn-all` spawns and for a rejected invoke (the
@@ -243,13 +246,23 @@
     (let [parent-id  (:rf/parent-id args)
           join-state (get-in runtime-db (paths/spawned-path parent-id invoke-id))]
       (when (and (map? join-state) (contains? join-state :children))
-        {:parent-id  parent-id
-         :invoke-id  invoke-id
-         :child-id   (:rf/spawn-all-child-id args)
-         :spawned-id spawned-id
-         :done-kw    (get-in join-state [:spec :on-child-done])
-         :error-kw   (get-in join-state [:spec :on-child-error])
-         :attempt    (:rf/attempt join-state)}))))
+        {:parent-id       parent-id
+         :invoke-id       invoke-id
+         :child-id        (:rf/spawn-all-child-id args)
+         :spawned-id      spawned-id
+         :done-kw         (get-in join-state [:spec :on-child-done])
+         :error-kw        (get-in join-state [:spec :on-child-error])
+         :attempt         (:rf/attempt join-state)
+         ;; Exact private work discriminator. The authored fixed-id presence
+         ;; is explicit provenance: fixed children use the join attempt even
+         ;; when their literal happens to end in `#<digits>`. Only after the
+         ;; runtime has established that a child is generated do we extract
+         ;; the allocator's established `<type>#<n>` counter. Actor-id spelling
+         ;; therefore never decides fixed-vs-generated provenance, and the
+         ;; public/pure spawn effect shape remains unchanged.
+         :work-generation (if (contains? args :fixed-actor-id)
+                            (:rf/attempt join-state)
+                            (m-reply/actor-generation spawned-id))}))))
 
 ;; The spawned actor's initial snapshot is built by
 ;; `parallel/build-initial-snapshot` — the single source of truth shared

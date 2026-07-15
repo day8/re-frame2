@@ -431,6 +431,11 @@
    :rf.mutation/failed                     :completed
    :rf.machine.timer/fired                 :completed
    :rf.machine/done                        :completed
+   ;; An explicit actor teardown emits the canonical terminal cancellation
+   ;; reply on `:rf.machine/destroyed`. Non-cancelling finished/join-reaped
+   ;; cleanup rows use the same operation but carry no reply facts; the row
+   ;; projector below admits only the `:rf.reply/status :cancelled` shape.
+   :rf.machine/destroyed                   :completed
    ;; ---- stale suppression (the correctness boundary) ----
    ;; Resources emit `:rf.resource/stale-suppressed` (landed). The shared
    ;; substrate suppression trace is `:rf.reply/suppressed` (re-frame.reply
@@ -573,10 +578,15 @@
   carried/current correlation + any value/error tags are summarized. Pure."
   [ev]
   (let [op    (trace-op ev)
-        phase (phase-of op)]
-    (when phase
-      (let [tags    (trace-tags ev)
-            work-id (work-id-of tags)
+        phase (phase-of op)
+        tags  (trace-tags ev)]
+    (when (and phase
+               ;; `:rf.machine/destroyed` is reply-bearing only for explicit
+               ;; cancellation. Final-state and join-reap cleanup must not
+               ;; manufacture nil work arcs merely because they share the op.
+               (or (not= :rf.machine/destroyed op)
+                   (= :cancelled (:rf.reply/status tags))))
+      (let [work-id (work-id-of tags)
             status  (cond
                       (= phase :completed)
                       ;; read the closed reply status from EITHER the bare

@@ -177,7 +177,8 @@
                 :invoke-id  [:racing]
                 :child-id   :a
                 :spawned-id a
-                :attempt    (:rf/attempt (join-state :lud4af/rp))}
+                :attempt    (:rf/attempt (join-state :lud4af/rp))
+                :work-generation 1}
                (get-in opts [:rf.cofx :rf.machine/join-auth]))
             "the recordable join-auth exact-authority tuple rides :rf.cofx"))
       (is (= #{:a} (:done (join-state :lud4af/rp)))

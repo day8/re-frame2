@@ -132,9 +132,12 @@
   "The exact-authority tuple the interceptor verifies, projected from a child's
   `:rf/join-child` membership record `rec`: parent/invoke identity, logical
   child id, the child's own spawned instance address, and the opaque per-attempt
-  token."
+  token. Work generation is carried as evidence for a SUPERSEDED attempt, whose
+  old join spec no longer exists. It is NEVER authoritative for an exact-current
+  carrier: those paths derive the discriminator from durable join/spec state."
   [rec]
-  (select-keys rec [:parent-id :invoke-id :child-id :spawned-id :attempt]))
+  (select-keys rec [:parent-id :invoke-id :child-id :spawned-id :attempt
+                    :work-generation]))
 
 (defn join-dispatch-fx
   "fx handler for `:rf.machine/join-dispatch` (rf2-t154jx) — the framework-
@@ -315,6 +318,19 @@
        (= (:rf/attempt join-state) (:attempt auth))
        (= (get-in join-state [:children child-id]) (:spawned-id auth))))
 
+(defn- join-work-generation
+  "Derive one child's canonical work discriminator from DURABLE join state.
+  The child spec supplies explicit fixed-vs-generated provenance; fixed uses
+  the named attempt, while a known-generated child uses its allocator address
+  generation. Exact-current carried auth never supplies or overrides this
+  decision."
+  [join-state child-id spawned-id attempt]
+  (when-let [child-spec (some #(when (= child-id (:id %)) %)
+                              (get-in join-state [:spec :children]))]
+    (if (contains? child-spec :fixed-actor-id)
+      attempt
+      (m-reply/actor-generation spawned-id))))
+
 (defn- suppress-stale-completion!
   "Fail-closed suppression of a completion carrier that may NOT fold
   (rf2-nvxehu): emit one `:rf.machine.spawn-all/stale-completion` trace
@@ -338,17 +354,18 @@
   caller passes the live child mapping (the slot the carrier claimed); for
   `:duplicate-completion` the carrier is exact-current, so the two coincide.
 
-  `attempt` is sourced from the same authority as `spawned-id`: carried auth
-  for a superseded carrier, otherwise the current join state. Fixed-id stale
-  evidence therefore never borrows a successor attempt's work identity."
-  [frame-id parent-id invoke-id child-id spawned-id attempt kind completed-at
-   runtime-db stale-reason]
+  `work-generation` is sourced from the same authority as `spawned-id`:
+  carried auth for a superseded carrier, otherwise the current child's private
+  runtime record. Fixed-id stale evidence therefore never borrows a successor
+  attempt's work identity."
+  [frame-id parent-id invoke-id child-id spawned-id work-generation kind
+   completed-at runtime-db stale-reason]
   (let [stale-reply (m-reply/stale-join-child-reply
                       {:parent-id    parent-id
                        :invoke-id    invoke-id
                        :child-id     child-id
                        :spawned-id   spawned-id
-                       :attempt      attempt
+                       :work-generation work-generation
                        :frame        frame-id
                        :completed-at completed-at}
                       kind stale-reason)
@@ -545,14 +562,15 @@
   `kind` is the arriving child's fold kind (`:done` / `:failed`);
   `child-extra` is its forwarded payload (the `:value` for a `:done`,
   the error for a `:failed`)."
-  [frame-id parent-id invoke-id join-state'' child-id kind child-extra completed-at]
+  [frame-id parent-id invoke-id join-state'' child-id work-generation kind
+   child-extra completed-at]
   (let [spawned-id (get-in join-state'' [:children child-id])
         reply      (m-reply/join-child-reply
                      {:parent-id    parent-id
                       :invoke-id    invoke-id
                       :child-id     child-id
                       :spawned-id   spawned-id
-                      :attempt      (:rf/attempt join-state'')
+                      :work-generation work-generation
                       :frame        frame-id
                       :completed-at completed-at}
                      kind child-extra)
@@ -582,8 +600,8 @@
   exactly ONE terminal authority. Duplicate pre-resolution signals never
   reach here (suppressed by the exact-authority gate) and post-resolution
   arrivals stay `:stale` — one terminal per work attempt, closed."
-  [frame-id parent-id invoke-id join-state'' child-id kind child-extra
-   completed-at]
+  [frame-id parent-id invoke-id join-state'' child-id work-generation kind
+   child-extra completed-at]
   (let [spawned-id (get-in join-state'' [:children child-id])]
     (trace/emit! :rf.machine :rf.machine.spawn-all/child-completed
                  (merge {:actor-id   parent-id
@@ -596,7 +614,8 @@
                          :frame      frame-id}
                         (child-completion-reply-facts
                           frame-id parent-id invoke-id join-state''
-                          child-id kind child-extra completed-at)))))
+                          child-id work-generation kind child-extra
+                          completed-at)))))
 
 (defn- emit-resolution-traces!
   "Fire the post-resolution observability traces in order: any-failed,
@@ -616,8 +635,8 @@
   single-`:spawn` path does. The public resolution-trace shape
   (`:actor-id` / `:invoke-id` / `:done` / `:failed` / `:reason`) is
   preserved."
-  [frame-id parent-id invoke-id spec join-state'' child-id child-extra completed-at
-   {:keys [fail-fired? success-fired?]}]
+  [frame-id parent-id invoke-id spec join-state'' child-id work-generation
+   child-extra completed-at {:keys [fail-fired? success-fired?]}]
   (when fail-fired?
     (trace/emit! :rf.machine :rf.machine.spawn-all/any-failed
                  (merge {:actor-id parent-id
@@ -629,11 +648,13 @@
                          :frame      frame-id}
                         (child-completion-reply-facts
                           frame-id parent-id invoke-id join-state''
-                          child-id :failed child-extra completed-at))))
+                          child-id work-generation :failed child-extra
+                          completed-at))))
   (when success-fired?
     (let [reply-facts (child-completion-reply-facts
                         frame-id parent-id invoke-id join-state''
-                        child-id :done child-extra completed-at)]
+                        child-id work-generation :done child-extra
+                        completed-at)]
       (if (= :all (:join spec :all))
         (trace/emit! :rf.machine :rf.machine.spawn-all/all-completed
                      (merge {:actor-id parent-id
@@ -695,7 +716,9 @@
                         {:actor-id          spawned-id
                          :parent-id         parent-id
                          :work-bearing-path invoke-id
-                         :attempt           (:rf/attempt join-state'')
+                         :work-generation   (join-work-generation
+                                              join-state'' cid spawned-id
+                                              (:rf/attempt join-state''))
                          :frame             frame-id
                          :reason            :on-join-resolution})
                       {:frame frame-id})]
@@ -924,14 +947,18 @@
           (suppress-stale-completion!
             frame-id parent-id invoke-id child-id
             (get-in join-state [:children child-id])
-            (:rf/attempt join-state) kind completed-at runtime-db
+            (join-work-generation join-state child-id
+                                  (get-in join-state [:children child-id])
+                                  (:rf/attempt join-state))
+            kind completed-at runtime-db
             :rf.machine.spawn-all/attempt-unverified)
 
           (not (join-auth-current? auth parent-id invoke-id child-id join-state))
           (suppress-stale-completion!
             frame-id parent-id invoke-id child-id
             (:spawned-id auth)
-            (:attempt auth) kind completed-at runtime-db
+            (:work-generation auth)
+            kind completed-at runtime-db
             :rf.machine.spawn-all/attempt-superseded)
 
           ;; The carrier is now proven EXACT-CURRENT for this attempt.
@@ -953,12 +980,15 @@
           ;; preserved; no `:done` / `:failed` fold, no re-resolution.
           (:resolved? join-state)
           (let [spawned-id  (get-in join-state [:children child-id])
+                work-generation (join-work-generation
+                                  join-state child-id spawned-id
+                                  (:rf/attempt join-state))
                 stale-reply (m-reply/stale-join-child-reply
                               {:parent-id    parent-id
                                :invoke-id    invoke-id
                                :child-id     child-id
                                :spawned-id   spawned-id
-                               :attempt      (:rf/attempt join-state)
+                               :work-generation work-generation
                                :frame        frame-id
                                :completed-at completed-at}
                               kind)
@@ -992,21 +1022,28 @@
           (suppress-stale-completion!
             frame-id parent-id invoke-id child-id
             (get-in join-state [:children child-id])
-            (:rf/attempt join-state) kind completed-at runtime-db
+            (join-work-generation join-state child-id
+                                  (get-in join-state [:children child-id])
+                                  (:rf/attempt join-state))
+            kind completed-at runtime-db
             :rf.machine.spawn-all/duplicate-completion)
 
           :else
-          (intercept-fold frame-id parent-id invoke-id spec join-state
-                          child-id kind child-extra completed-at
-                          runtime-db))))))
+          (let [spawned-id      (get-in join-state [:children child-id])
+                work-generation (join-work-generation
+                                  join-state child-id spawned-id
+                                  (:rf/attempt join-state))]
+            (intercept-fold frame-id parent-id invoke-id spec join-state
+                            child-id work-generation kind child-extra
+                            completed-at runtime-db)))))))
 
 (defn- intercept-fold
   "The verified fold body of `intercept-spawn-all-event` — the carrier has
   passed the live-join / child-ownership / exact-authority gates. Read
   'compute resolution; emit traces; build fx; write back': three named
   acts plus an assoc-in."
-  [frame-id parent-id invoke-id spec join-state child-id kind child-extra
-   completed-at runtime-db]
+  [frame-id parent-id invoke-id spec join-state child-id work-generation kind
+   child-extra completed-at runtime-db]
   (let [join-state'  (case kind
                        :done   (update join-state :done   (fnil conj #{}) child-id)
                        :failed (update join-state :failed (fnil conj #{}) child-id))
@@ -1046,9 +1083,11 @@
     ;; its canonical terminal HERE, at first valid fold — never both.
     (if (:resolved? resolution)
       (emit-resolution-traces! frame-id parent-id invoke-id spec join-state''
-                               child-id child-extra completed-at resolution)
+                               child-id work-generation child-extra completed-at
+                               resolution)
       (emit-child-fold-terminal! frame-id parent-id invoke-id join-state''
-                                 child-id kind child-extra completed-at))
+                                 child-id work-generation kind child-extra
+                                 completed-at))
     (let [fx (build-resolution-fx frame-id parent-id invoke-id spec join-state''
                                   child-id child-extra resolution)]
       {:rf.db/runtime (assoc-in runtime-db (paths/spawned-path parent-id invoke-id) join-state'')

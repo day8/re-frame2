@@ -24,7 +24,7 @@
   Per the destroyed-trace-shape contract (assertion test in
   `re-frame.destroyed-trace-shape-test`), the permitted site-provided
   keys are `#{:frame :actor-id :system-id :parent-id :invoke-id
-  :child-id :reason :work-bearing-path :attempt}`. The final two are PRIVATE
+  :child-id :reason :work-bearing-path :work-generation}`. The final two are PRIVATE
   reply-correlation inputs and never become bare public trace tags.
   `:actor-id` is the destroyed actor's live INSTANCE
   address (`:machine-id` is reserved for the registered TYPE);
@@ -38,7 +38,7 @@
   `reason` is the discriminator — `:explicit` for direct-destroy
   cascades, `:rf.machine/finished` for final-state auto-destroy,
   `:rf.machine/join-reaped` for a `:spawn-all` join reaping an
-  ALREADY-TERMINAL child at resolution (rf2-tj3l6a).
+  ALREADY-TERMINAL child at resolution or parent exit (rf2-tj3l6a).
 
   Only an `:explicit` destroy is a CANCELLATION of an IN-PROGRESS actor work
   attempt (the actor was torn down before reaching a terminal outcome), so
@@ -62,25 +62,27 @@
       `:completed` / `:failed` terminal for the same canonical
       `[:rf.work/machine spawned-id invoke-id generation]`); its
       `:on-child-done` / `:on-child-error` terminal state was NOT `:final?`,
-      so it stays a LIVE actor that the join tears down at resolution — but
+      so it stays a LIVE actor that the join tears down at resolution or
+      parent exit — but
       its terminal status is already decided, so re-classifying the teardown
       as `:cancelled` would emit a SECOND, contradictory terminal (rf2-tj3l6a).
 
   The public destroyed-trace shape is unchanged."
   [{:keys [frame actor-id system-id parent-id invoke-id child-id reason
-           work-bearing-path attempt]
+           work-bearing-path work-generation]
     :or {reason :explicit}
     :as args}]
   (let [cancelled? (= reason :explicit)
+        reply-ctx (cond-> {:actor-id          actor-id
+                           :parent-id         parent-id
+                           :work-bearing-path (or work-bearing-path invoke-id)
+                           :frame             frame
+                           :reason            reason}
+                    (contains? args :work-generation)
+                    (assoc :work-generation work-generation))
         summary    (when cancelled?
                      (m-reply/trace-reply
-                       (m-reply/cancelled-actor-reply
-                         {:actor-id          actor-id
-                          :parent-id         parent-id
-                          :work-bearing-path (or work-bearing-path invoke-id)
-                          :attempt           attempt
-                          :frame             frame
-                          :reason            reason})
+                       (m-reply/cancelled-actor-reply reply-ctx)
                        {:frame frame}))]
     (trace/emit! :rf.machine :rf.machine/destroyed
                  (cond-> {:frame    frame
