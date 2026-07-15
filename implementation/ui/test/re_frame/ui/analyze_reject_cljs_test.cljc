@@ -442,12 +442,7 @@
       "the listener option vocabulary is closed")
   (is (= :rf.ui.compile/bad-handler-options
          (reject-id '[:button {:on-click {:prevent-default true}} "x"]))
-      "options maps need a literal :event vector")
-  (is (= :rf.ui.compile/handler-option-unavailable-s1
-         (reject-id '[:button {:on-click {:event [:a/b] :once true}} "x"]))
-      ":once/:passive land S3 — rejected loudly rather than dropped")
-  (is (= :rf.ui.compile/handler-option-unavailable-s1
-         (reject-id '[:button {:on-click {:event [:a/b] :passive true}} "x"]))))
+      "options maps need a literal :event vector"))
 
 (deftest bare-fn-law
   (is (= :rf.ui.compile/bare-fn-prop

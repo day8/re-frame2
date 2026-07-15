@@ -5,14 +5,16 @@
   semantics, handler lowering with compile-time placeholder splicing, the
   ruled rf= memo comparator, foreign components, custom elements, spread.
 
-  No DOM: renderToStaticMarkup exercises the render path; handler fns are
-  plucked from the element tree and invoked with fake events against the
-  S1 dispatch hook."
+  No DOM: renderToStaticMarkup exercises the render path; focused handler
+  tests publish an ownership-free candidate through the internal EventOwner
+  test seam, then invoke the same stable committed callback a DOM node gets."
   (:require [clojure.string :as str]
             [clojure.test :refer [deftest is use-fixtures]]
             ["react-dom/server" :as rds]
             [re-frame.registrar :as registrar]
+            [re-frame.trace :as trace]
             [re-frame.ui :as ui :refer [defview]]
+            [re-frame.ui.events :as events]
             [re-frame.ui.reactive :as reactive]
             [re-frame.ui.runtime :as rt]))
 
@@ -43,12 +45,12 @@
     :version version}))
 
 (defonce dispatches (atom []))
+(defonce dispatch-opts-seen (atom []))
 
 (use-fixtures :each
   {:before (fn []
              (reset! dispatches [])
-             (rt/set-dispatch-hook! (fn [ev] (swap! dispatches conj ev))))
-   :after  (fn [] (rt/set-dispatch-hook! nil))})
+             (reset! dispatch-opts-seen []))})
 
 ;; ---------------------------------------------------------------------------
 ;; Fixtures
@@ -72,6 +74,12 @@
    [:input {:value (str n) :on-input [:counter/set :rf.ui/value] :read-only true}]
    (when locked? [:p.warn "Locked"])
    (if (neg? n) [:p.neg "neg"] [:p.pos "pos"])])
+
+(defview dynamic-handler-probe [{:keys [handler]}]
+  [:button {:on-click handler} "dynamic"])
+
+(defview unregistered-handler-probe []
+  [:button {:on-click [::intentionally-unregistered]} "warn"])
 
 (defview todo-row
   [{:keys [todo]}]
@@ -287,7 +295,7 @@
           (str (name surface) " keeps Object.prototype unchanged")))))
 
 ;; ---------------------------------------------------------------------------
-;; Handlers — compile-time placeholder splice + dispatch hook
+;; Handlers — committed callback identity + compile-time placeholder provenance
 ;; ---------------------------------------------------------------------------
 
 (defn- find-prop
@@ -302,38 +310,119 @@
                   (array? ch) ch
                   :else [ch]))))))
 
+(defn- fake-frame-ops []
+  {:frame ::test-frame
+   :dispatch (fn [event opts]
+               (swap! dispatch-opts-seen conj opts)
+               (swap! dispatches conj event))
+   :dispatch-sync (fn [event opts]
+                    (swap! dispatch-opts-seen conj opts)
+                    (swap! dispatches conj event))})
+
+(defn- committed-render
+  [owner view-id props]
+  (let [[element capture]
+        (events/with-capture
+         owner ::test-frame #((current-render view-id) props))]
+    (events/commit! owner capture (fake-frame-ops))
+    element))
+
 (deftest handler-vector-dispatches-and-splices
-  (let [el      ((current-render ::counter) (js-obj "n" 3 "locked?" false))
+  (let [owner   (events/make-owner ::counter)
+        el      (committed-render owner ::counter
+                                  (js-obj "n" 3 "locked?" false))
         onClick (find-prop el "onClick")
         onInput (find-prop el "onInput")]
     (is (fn? onClick))
     (onClick (js-obj))
     (is (= [[:counter/inc 2]] @dispatches))
+    (is (= :ui (:source (first @dispatch-opts-seen))))
+    (is (= {:view-id ::counter :classification :vector}
+           (select-keys (:source-detail (first @dispatch-opts-seen))
+                        [:view-id :classification]))
+        "dispatch provenance is stamped at the authored event site")
     (reset! dispatches [])
     (onInput (js-obj "target" (js-obj "value" "typed")))
     (is (= [[:counter/set "typed"]] @dispatches)
         ":rf.ui/value splices the event's target.value at dispatch time")))
 
 (deftest checked-placeholder-splices
-  (let [el ((current-render ::todo-row) (js-obj "todo" {:id 9 :label "x" :done? false
-                                              :priority :low}))
+  (let [owner (events/make-owner ::todo-row)
+        el (committed-render
+            owner ::todo-row
+            (js-obj "todo" {:id 9 :label "x" :done? false :priority :low}))
         onChange (find-prop el "onChange")]
     (onChange (js-obj "target" (js-obj "checked" true)))
     (is (= [[:todo/toggle 9 true]] @dispatches))))
 
-(deftest capture-free-handlers-hoist-and-dedupe
-  ;; same capture-free vector in two renders -> the same fn object
-  (let [el1 ((current-render ::counter) (js-obj "n" 1 "locked?" false))
-        el2 ((current-render ::counter) (js-obj "n" 2 "locked?" false))]
+(deftest committed-site-callback-is-stable-across-render-commits
+  (let [owner (events/make-owner ::counter)
+        el1 (committed-render owner ::counter
+                              (js-obj "n" 1 "locked?" false))
+        el2 (committed-render owner ::counter
+                              (js-obj "n" 2 "locked?" false))]
     (is (identical? (find-prop el1 "onClick") (find-prop el2 "onClick"))
-        "capture-free literal event vectors hoist to one module callback")))
+        "one mounted lexical site keeps one callback while commit retargets data")))
 
-(deftest unwired-dispatch-throws-loudly
-  (rt/set-dispatch-hook! nil)
-  (let [el ((current-render ::counter) (js-obj "n" 1 "locked?" false))
-        onClick (find-prop el "onClick")]
-    (is (thrown-with-msg? js/Error #"ui-dispatch-unwired"
-                          (onClick (js-obj))))))
+(deftest abandoned-first-render-does-not-publish-its-callback
+  (let [owner (events/make-owner ::counter)
+        [abandoned _]
+        (events/with-capture
+         owner ::test-frame
+         #((current-render ::counter) (js-obj "n" 1 "locked?" false)))
+        committed (committed-render owner ::counter
+                                    (js-obj "n" 2 "locked?" false))]
+    (is (not (identical? (find-prop abandoned "onClick")
+                         (find-prop committed "onClick")))
+        "an uncommitted candidate cannot seed the owner's stable callback table")))
+
+(deftest dynamic-handler-values-classify-behind-one-stable-site
+  (let [owner (events/make-owner ::dynamic-handler-probe)
+        render-one #(committed-render
+                     owner ::dynamic-handler-probe (js-obj "handler" %))
+        vector-el (render-one [::runtime-vector :rf.ui/value])
+        callback  (find-prop vector-el "onClick")]
+    (callback (js-obj "target" (js-obj "value" "not-spliced")))
+    (is (= [[::runtime-vector :rf.ui/value]] @dispatches)
+        "a placeholder-looking keyword in runtime data stays ordinary data")
+    (let [seen (atom nil)
+          event (js-obj "kind" "native")
+          fn-el (render-one #(reset! seen %))]
+      (is (identical? callback (find-prop fn-el "onClick"))
+          "runtime type changes retarget meaning, not callback identity")
+      (callback event)
+      (is (identical? event @seen)))
+    (reset! dispatches [])
+    (let [once-callback (find-prop
+                         (render-one {:event [::once] :once true}) "onClick")]
+      (once-callback (js-obj))
+      (once-callback (js-obj))
+      (is (= [[::once]] @dispatches)
+          ":once is enforced behind the stable React callback"))
+    (is (nil? (find-prop (render-one nil) "onClick"))
+        "nil removes the committed handler")
+    (is (thrown-with-msg?
+         js/Error #"classify by type"
+         (render-one 42))
+        "invalid runtime values fail at render, before commit")))
+
+(deftest handler-dev-warnings-use-the-trace-catalogue-operations
+  (let [traces (atom [])
+        key    ::event-warning-capture]
+    (trace/register-listener! key #(swap! traces conj %))
+    (try
+      (committed-render (events/make-owner ::unregistered-handler-probe)
+                        ::unregistered-handler-probe (js-obj))
+      (committed-render
+       (events/make-owner ::dynamic-handler-probe)
+       ::dynamic-handler-probe
+       (js-obj "handler" [::runtime-vector :rf.ui/value]))
+      (let [operations (into #{} (map :operation) @traces)]
+        (is (contains? operations :rf.warning/unregistered-event-id))
+        (is (contains? operations :rf.warning/placeholder-in-dynamic-vector)
+            "both advisory conditions are structured trace events"))
+      (finally
+        (trace/unregister-listener! key)))))
 
 ;; ---------------------------------------------------------------------------
 ;; The ruled rf= memo comparator

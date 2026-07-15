@@ -3,11 +3,11 @@
   `useSyncExternalStore` / `useLayoutEffect` layer that drives
   `re-frame.ui.reactive`'s host-agnostic ViewCell + commit reconciler.
   The compiled CLJS emitter selects one exact PRODUCTION wrapper by capability:
-  `render-subs`, `render-leases`, or `render-subs-and-leases` for a reactive
-  view (all three ALSO consume the frame context — every sub/lease site is an
-  ambient-frame reader, rf2-vxgfnd.253), `render-frame` for a frame-only view
-  (a `(frame)` site but no sub/lease — a context consumer with no ViewCell), and
-  no wrapper at all for a genuinely inert view (no sub, no lease, no `(frame)`).
+  the sub/lease combinations own a ViewCell, event combinations own a committed
+  EventOwner, and the combined forms own exactly both. Reactive and event sites
+  ALSO consume the frame context — every sub/lease/event site is an ambient-
+  frame reader. `render-frame` covers a frame-only view (a `(frame)` site but no
+  sub/lease/event), while a genuinely inert view has no wrapper at all.
   In DEV the stable Fast Refresh Inner always calls `render-dev`, providing the
   fixed superset hook skeleton before a view gains or loses any capability
   without charging production for it.
@@ -53,6 +53,7 @@
   (:require ["react" :as react]
             [re-frame.adapter.context :as adapter-context]
             [re-frame.interop :as interop]
+            [re-frame.ui.events :as events]
             [re-frame.ui.reactive :as reactive]
             [re-frame.ui.sub-overrides :as sub-overrides]))
 
@@ -208,7 +209,89 @@
   render of a given compiled view's component (never conditional at runtime)."
   []
   (react/useContext adapter-context/frame-context)
-  nil)
+  ;; Preserve the full carried-invariant precedence (dynamic binding before
+  ;; React context) while the useContext call above owns repaint subscription.
+  (adapter-context/function-component-current-frame))
+
+;; ---------------------------------------------------------------------------
+;; Committed event sites (S3a)
+;; ---------------------------------------------------------------------------
+
+(defn- use-event-owner
+  [view-id]
+  (let [owner-ref (react/useRef nil)]
+    (when (nil? (.-current owner-ref))
+      (set! (.-current owner-ref) (events/make-owner view-id)))
+    (.-current owner-ref)))
+
+(defn- use-event-commit-and-lifecycle!
+  [owner capture]
+  ;; Each effect closes over this render's immutable capture. An abandoned
+  ;; render never reaches this publication point.
+  (react/useLayoutEffect
+    (fn commit-events []
+      (events/commit! owner capture)
+      js/undefined))
+  (react/useLayoutEffect
+    (fn event-lifecycle []
+      (fn cleanup [] (events/disconnect! owner)))
+    #js []))
+
+(defn- capture-reactive-and-events
+  [owner frame-id capture-reactive]
+  (let [[[element reactive-capture] event-capture]
+        (events/with-capture owner frame-id capture-reactive)]
+    [element reactive-capture event-capture]))
+
+(defn render-events
+  "Production wrapper for an event-bearing view with no reactive sites.  It is
+  a real frame-context consumer so provider retargets produce a fresh candidate
+  whose locked destination is published at commit."
+  [view-id thunk]
+  (let [frame-id                (use-frame-context!)
+        owner                   (use-event-owner view-id)
+        [element event-capture] (events/with-capture owner frame-id thunk)]
+    (use-event-commit-and-lifecycle! owner event-capture)
+    element))
+
+(defn render-subs-and-events
+  [view-id thunk]
+  (let [frame-id               (use-frame-context!)
+        [cell root-incarnation] (use-cell view-id)
+        overrides              (use-sub-revision! cell)
+        owner                  (use-event-owner view-id)
+        [element capture event-capture]
+        (capture-reactive-and-events
+         owner frame-id #(capture-with-overrides cell overrides thunk))]
+    (use-commit-and-lifecycle! cell root-incarnation capture)
+    (use-event-commit-and-lifecycle! owner event-capture)
+    element))
+
+(defn render-leases-and-events
+  [view-id thunk]
+  (let [frame-id               (use-frame-context!)
+        [cell root-incarnation] (use-cell view-id)
+        owner                  (use-event-owner view-id)
+        [element capture event-capture]
+        (capture-reactive-and-events owner frame-id #(capture-plain cell thunk))]
+    (use-resource-commit-and-lifecycle! cell root-incarnation capture)
+    (use-event-commit-and-lifecycle! owner event-capture)
+    (use-resource-reconcile! cell capture)
+    element))
+
+(defn render-subs-leases-and-events
+  [view-id thunk]
+  (let [frame-id               (use-frame-context!)
+        [cell root-incarnation] (use-cell view-id)
+        overrides              (use-sub-revision! cell)
+        owner                  (use-event-owner view-id)
+        [element capture event-capture]
+        (capture-reactive-and-events
+         owner frame-id #(capture-with-overrides cell overrides thunk))]
+    (use-resource-commit-and-lifecycle! cell root-incarnation capture)
+    (use-event-commit-and-lifecycle! owner event-capture)
+    (use-resource-reconcile! cell capture)
+    element))
 
 (defn render-frame
   "Production wrapper for a FRAME-ONLY view: a `(frame)` site but no sub sites
@@ -276,11 +359,15 @@
   HMR edit keeps ONE stable hook signature and a dev view always repaints on a
   provider retarget."
   [view-id thunk]
-  (use-frame-context!)
-  (let [[cell root-incarnation] (use-cell view-id)
+  (let [frame-id               (use-frame-context!)
+        [cell root-incarnation] (use-cell view-id)
         overrides              (use-sub-revision! cell)
-        [element capture]      (capture-with-overrides cell overrides thunk)]
+        owner                  (use-event-owner view-id)
+        [element capture event-capture]
+        (capture-reactive-and-events
+         owner frame-id #(capture-with-overrides cell overrides thunk))]
     (use-resource-commit-and-lifecycle! cell root-incarnation capture)
+    (use-event-commit-and-lifecycle! owner event-capture)
     (use-resource-reconcile! cell capture)
     element))
 

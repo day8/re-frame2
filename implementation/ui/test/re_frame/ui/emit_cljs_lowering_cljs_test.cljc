@@ -1,6 +1,7 @@
 (ns re-frame.ui.emit-cljs-lowering-cljs-test
   "Focused golden for the production JSX call shape (rf2-dj7pav)."
-  (:require [clojure.test :refer [deftest is testing]]
+  (:require [clojure.string :as str]
+            [clojure.test :refer [deftest is testing]]
             [re-frame.ui.compiler.analyze :as ana]
             [re-frame.ui.compiler.emit-cljs :as emit]
             [re-frame.ui.compiler.env :as env]))
@@ -88,6 +89,53 @@
         props-form (nth call 4)]
     (is (some #{'re-frame.ui.rules/classes-str} (forms-of props-form))
         "without a static base the general empty-class semantics remain")))
+
+(deftest event-sites-lower-to-committed-runtime-callbacks
+  (let [ordinary   (emitted '[:button {:on-click [:cart/add id]} "add"])
+        controlled (emitted '[:input {:value value
+                                      :on-input [:form/typed :rf.ui/value]}])
+        once-form  (emitted '[:button {:on-click {:event [:save]
+                                                   :once true}} "save"])
+        dynamic    (emitted '[:button {:on-click handler-value} "go"])
+        data-call  (first (filter #(and (seq? %)
+                                       (= 're-frame.ui.events/data-handler
+                                          (first %)))
+                                  (forms-of controlled)))
+        dyn-call   (first (filter #(and (seq? %)
+                                       (= 're-frame.ui.events/dynamic-handler
+                                          (first %)))
+                                  (forms-of dynamic)))
+        once-call  (first (filter #(and (seq? %)
+                                       (= 're-frame.ui.events/data-handler
+                                          (first %)))
+                                  (forms-of once-form)))]
+    (is (some #{'re-frame.ui.events/data-handler} (forms-of ordinary)))
+    (is (not-any? #{'re-frame.ui.runtime/dispatch-event!}
+                  (forms-of ordinary))
+        "the staging dispatch hook is no longer generated")
+    (is (some? data-call))
+    (is (odd? (nth data-call 3))
+        "bit 0 is the compile-proven controlled-input synchronous door")
+    (is (pos? (bit-and 8 (nth once-call 3)))
+        "bit 3 carries the committed site's once policy")
+    (is (some? dyn-call)
+        "runtime-classified values still enter the per-site commit boundary")))
+
+(deftest passive-handler-maps-lower-to-one-native-ref-not-a-react-handler
+  (let [form (emitted
+              '[:button {:ref authored-ref
+                         :on-wheel {:event [:scroll/tick]
+                                    :passive true
+                                    :capture true
+                                    :once true}}
+                "scroll"])
+        printed (pr-str form)]
+    (is (some #{'re-frame.ui.events/passive-ref} (forms-of form))
+        "the native listener composes through the element's sole ref prop")
+    (is (not (str/includes? printed "onWheelCapture"))
+        "the passive site never also installs React's synthetic handler")
+    (is (some #{'authored-ref} (forms-of form))
+        "the authored object/callback ref is carried into the composition")))
 
 (deftest prototype-setter-key-is-computed-on-every-literal-props-surface
   (doseq [[surface form]

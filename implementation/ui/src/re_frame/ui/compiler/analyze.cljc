@@ -983,6 +983,48 @@
                               "ordinary keywords")
                     :form vec-form}))))
 
+(defn- event-source-coord
+  "Best available authored coordinate for an event site. Reader metadata on
+  the handler wins; macro-generated forms fall back to the defview anchor.
+  The template path remains a separate, deterministic occurrence coordinate."
+  [e form]
+  (let [m    (meta form)
+        base (:source e)]
+    (cond-> (select-keys base [:file :line :column])
+      (:line m)   (assoc :line (:line m))
+      (:column m) (assoc :column (:column m)))))
+
+(defn- event-site-identity
+  [e k form]
+  {:sid          (lexical-site-id e :event form [:handler k])
+   :site-index   (count (:events @(:sites e)))
+   :view-id      (:self-id e)
+   :source-coord (event-source-coord e form)
+   :path         (:path e)})
+
+(defn- add-event-site!
+  [e identity site]
+  (env/add-site! e :events (merge identity site))
+  identity)
+
+(defn- controlled-event-sync?
+  "The deliberately narrow controlled-input sync door.  It is a property of
+  the whole native element, not of the handler in isolation, so it is applied
+  after every prop has been classified."
+  [controlled? handler]
+  (boolean
+   (and controlled?
+        (contains? #{"on-input" "on-change" "on-before-input"}
+                   (:name handler))
+        (= :vector (:classification handler)))))
+
+(defn- record-event-sync!
+  [e sid sync?]
+  (swap! (:sites e)
+         update :events
+         (fn [sites]
+           (mapv #(if (= sid (:sid %)) (assoc % :sync? sync?) %) sites))))
+
 (defn- analyze-event-vector! [e k form]
   (when-not (keyword? (first form))
     (env/fail! e :rf.ui.compile/bad-event-vector
@@ -1003,15 +1045,20 @@
   :vector|:options|:fn|:dynamic :form form :capture? bool
   :hoistable? bool :serializable? bool}"
   [e k form]
-  (let [nm (name k)]
+  (let [nm       (name k)
+        identity (event-site-identity e k form)]
     (cond
       (vector? form)
       (let [form* (analyze-event-vector! e k form)]
-          (env/add-site! e :events {:prop k :handler form* :path (:path e)
-                                    :classification :vector :serializable? true})
-          {:k k :name nm :classification :vector :form form* :capture? false
-           :hoistable? (every? #(or (literal-scalar? %) (contains? rules/placeholders %)) form*)
-           :serializable? true})
+        (add-event-site! e identity
+                         {:prop k :handler form*
+                          :classification :vector :serializable? true})
+        (merge identity
+               {:k k :name nm :classification :vector :form form* :capture? false
+                :hoistable? (every? #(or (literal-scalar? %)
+                                         (contains? rules/placeholders %))
+                                    form*)
+                :serializable? true}))
 
       (map? form)
       (let [unknown (remove rules/handler-option-keys (keys form))]
@@ -1036,23 +1083,19 @@
                           ":event vector — {:event [:domain/event args...] "
                           ":prevent-default true ...}")
                      {:prop k :form form}))
-        (when (or (:passive form) (:once form))
-          (env/fail! e :rf.ui.compile/handler-option-unavailable-s1
-                     (str ":passive/:once at " k " land with the committed-"
-                          "handler slice (S3) — the React host cannot express "
-                          "them as element props; S1 rejects rather than "
-                          "silently dropping them. Remove the option for now")
-                     {:prop k :form form}))
         (let [event* (analyze-event-vector! e k (:event form))
               form*  (assoc form :event event*)]
-          (env/add-site! e :events {:prop k :handler form* :path (:path e)
-                                    :classification :options :serializable? true})
-          {:k k :name nm :classification :options :form form*
-           :capture? (boolean (:capture form))
-           :hoistable? (every? #(or (literal-scalar? %)
-                                     (contains? rules/placeholders %))
-                                event*)
-           :serializable? true}))
+          (add-event-site! e identity
+                           {:prop k :handler form*
+                            :classification :options :serializable? true})
+          (merge identity
+                 {:k k :name nm :classification :options :form form*
+                  :capture? (boolean (:capture form))
+                  :passive? (boolean (:passive form))
+                  :hoistable? (every? #(or (literal-scalar? %)
+                                           (contains? rules/placeholders %))
+                                      event*)
+                  :serializable? true})))
 
       (fn-form? form)
       (do (when (:in-loop? e)
@@ -1063,18 +1106,22 @@
                                     "keyed child view")
                           :form form}))
           (let [form* (walk-expr e [:handler k :fn] form)]
-            (env/add-site! e :events {:prop k :handler :opaque :path (:path e)
-                                      :classification :fn :serializable? false})
-            {:k k :name nm :classification :fn :form form* :capture? false
-             :hoistable? false :serializable? false}))
+            (add-event-site! e identity
+                             {:prop k :handler :opaque
+                              :classification :fn :serializable? false})
+            (merge identity
+                   {:k k :name nm :classification :fn :form form* :capture? false
+                    :hoistable? false :serializable? false})))
 
       :else
       (let [form* (walk-expr e [:handler k :dynamic] form)]
         (check-loop-capture! e (str "dynamic handler at " k) form)
-        (env/add-site! e :events {:prop k :handler :opaque :path (:path e)
-                                  :classification :dynamic :serializable? false})
-        {:k k :name nm :classification :dynamic :form form* :capture? false
-         :hoistable? false :serializable? false}))))
+        (add-event-site! e identity
+                         {:prop k :handler :opaque
+                          :classification :dynamic :serializable? false})
+        (merge identity
+               {:k k :name nm :classification :dynamic :form form* :capture? false
+                :hoistable? false :serializable? false})))))
 
 ;; ---------------------------------------------------------------------------
 ;; :class / :style
@@ -1222,11 +1269,16 @@
                      {:form props-form}))
         (let [base*      (walk-expr e [:spread :base] base)
               overrides* (when overrides
-                           (walk-expr e [:spread :overrides] overrides))]
-        {:key {:present? false} :class (analyze-class e (:classes tag-info) nil)
-         :style nil :attrs [] :events []
-         :spread {:base base* :overrides overrides*}
-         :ref nil :property-props #{} :static? false}))
+                           (walk-expr e [:spread :overrides] overrides))
+              identity   (event-site-identity e :spread props-form)]
+          (add-event-site! e identity
+                           {:prop :spread :handler :opaque
+                            :classification :spread :serializable? false
+                            :sync? false})
+          {:key {:present? false} :class (analyze-class e (:classes tag-info) nil)
+           :style nil :attrs [] :events []
+           :spread (merge identity {:base base* :overrides overrides*})
+           :ref nil :property-props #{} :static? false}))
       (let [m (or props-form {})]
         (doseq [k (keys m)]
           (when-not (keyword? k)
@@ -1246,7 +1298,31 @@
               on?        (fn [k] (str/starts-with? (name k) "on-"))
               handler-ks (filter on? (keys m*))
               attr-ks    (remove on? (keys m*))
-              events     (mapv #(analyze-handler e % (get m* %)) handler-ks)
+              controlled? (or (contains? m :value) (contains? m :checked))
+              events0    (mapv #(analyze-handler e % (get m* %)) handler-ks)
+              events     (mapv (fn [handler]
+                                 (let [sync? (controlled-event-sync?
+                                              controlled? handler)]
+                                   (record-event-sync! e (:sid handler) sync?)
+                                   (when (and controlled?
+                                              (contains? #{"on-input" "on-change"
+                                                           "on-before-input"}
+                                                         (:name handler))
+                                              (not sync?))
+                                     (env/warn!
+                                      e
+                                      {:id :rf.ui.compile/controlled-input-async-handler
+                                       :msg (str (:k handler)
+                                                 " is paired with a controlled "
+                                                 ":value/:checked prop, but its "
+                                                 "handler is not a literal data "
+                                                 "event. It stays on the ordinary "
+                                                 "batched path; use a literal event "
+                                                 "vector to open the controlled-"
+                                                 "input sync door")
+                                       :form (:form handler)}))
+                                   (assoc handler :sync? sync?)))
+                               events0)
               attrs      (mapv (fn [k]
                                   (let [v (get m* k)
                                         n (name k)
@@ -1307,10 +1383,10 @@
            :property-props (into #{} (comp (filter #(= :property (:kind %))) (map :k)) attrs)
            :static? (and (not (contains? m :key))
                          (nil? ref-a)
+                         (empty? events)
                          (every? :literal? attrs)
                          (or (nil? class-a) (:static? class-a))
-                         (or (nil? style-a) (:static? style-a))
-                         (every? :hoistable? events))})))))
+                         (or (nil? style-a) (:static? style-a)))})))))
 
 ;; ---------------------------------------------------------------------------
 ;; Nodes

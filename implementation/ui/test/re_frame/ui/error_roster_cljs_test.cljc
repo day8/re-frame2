@@ -58,7 +58,6 @@
     :rf.ui.compile/bad-event-vector
     :rf.ui.compile/bad-handler-options
     :rf.ui.compile/contradictory-handler-options
-    :rf.ui.compile/handler-option-unavailable-s1
     ;; props
     :rf.ui.compile/bad-class
     :rf.ui.compile/bad-style
@@ -286,10 +285,6 @@
    [:rf.ui.compile/contradictory-handler-options
     '[:button {:on-click {:event [:a/b] :passive true :prevent-default true}} "x"]
     ["preventDefault" "Drop one"]]
-   [:rf.ui.compile/handler-option-unavailable-s1
-    '[:button {:on-click {:event [:a/b] :passive true}} "x"] ["S3" "Remove the option"]]
-   [:rf.ui.compile/handler-option-unavailable-s1
-    '[:button {:on-click {:event [:a/b] :once true}} "x"] ["S3"]]
    ;; props
    [:rf.ui.compile/bad-class '[:div {:class {(kw) true}} "x"] ["literal names"]]
    [:rf.ui.compile/bad-style '[:div {:style {(kw) 1}} "x"] ["dynamic expression"]]
