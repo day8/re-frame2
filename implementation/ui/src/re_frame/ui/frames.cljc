@@ -1221,6 +1221,24 @@
                 :bundle))))))
    (throw-frame-ops-destroyed! frame-id)))
 
+(defn frame-ops-for
+  "INTERNAL committed-site bridge: return the incarnation-fenced operation
+  bundle for an already-resolved `frame-id`.  Event candidates carry the exact
+  frame observed by React render and call this only from the winning layout
+  commit, so abandoned renders publish no frame-op cache state."
+  [frame-id]
+  (let [token (frame/frame-incarnation-token frame-id)]
+    (when (or (nil? token)
+              (frame/frame-incarnation-closing? frame-id token))
+      (throw-frame-ops-destroyed! frame-id))
+    (let [entry (get @frame-ops-cache frame-id)]
+      (if (and entry (identical? token (:token entry)))
+        (:bundle entry)
+        (do
+          (when-some [barrier *frame-ops-publish-barrier*]
+            (barrier frame-id token))
+          (publish-frame-ops! frame-id token))))))
+
 (defn frame-ops
   "The runtime bridge `(frame)` lowers to (compiler-owned; the public
   authoring form is `re-frame.ui/frame`). Resolve the committed frame via
@@ -1241,22 +1259,7 @@
   destroy/reincarnation (rf2-vxgfnd.229) so a stale reader can neither displace
   a newer incarnation's entry nor return a dead-incarnation bundle."
   []
-  (let [frame-id (resolve-frame :frame 're-frame.ui/frame)
-        token    (frame/frame-incarnation-token frame-id)]
-    (when (or (nil? token)
-              (frame/frame-incarnation-closing? frame-id token))
-      (throw-frame-ops-destroyed! frame-id))
-    (let [entry (get @frame-ops-cache frame-id)]
-      (if (and entry (identical? token (:token entry)))
-        ;; FAST PATH — a pure read of an entry already keyed to the live
-        ;; incarnation token; it publishes nothing and displaces nothing, so it
-        ;; is race-free and needs no serialization (the common per-render read).
-        (:bundle entry)
-        (do
-          ;; SLOW PATH (cache miss / stale-token entry) — the only writer.
-          (when-some [barrier *frame-ops-publish-barrier*]
-            (barrier frame-id token))
-          (publish-frame-ops! frame-id token))))))
+  (frame-ops-for (resolve-frame :frame 're-frame.ui/frame)))
 
 ;; ---------------------------------------------------------------------------
 ;; Scope element builders — the emitted halves

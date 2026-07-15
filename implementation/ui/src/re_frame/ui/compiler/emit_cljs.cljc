@@ -5,9 +5,8 @@
     (cljs.core/js-obj with literal string keys — safe under :advanced);
   - maximal fully-static subtrees hoist to module constants;
   - fully-static props/style objects on otherwise-dynamic elements hoist;
-  - capture-free literal event vectors hoist to one module-level callback,
-    deduped by event form; placeholders (:rf.ui/value ...) splice at
-    compile time;
+  - event vectors lower to stable per-site callbacks whose meaning and frame
+    destination are retargeted only by the winning layout commit;
   - per-slot rf= memo comparator (straight-line over declared slots;
     generic for :as views);
   - `(when ^boolean js/goog.DEBUG ...)`-wrapped dev checks strip under
@@ -21,10 +20,9 @@
             [re-frame.ui.rules :as rules]))
 
 (def ^:private props-sym 'rf-ui-props)
-(def ^:private event-sym 'rf-ui-evt)
 
 (defn- new-state [view-name]
-  (atom {:defs [] :n 0 :handlers {} :sub-queries {}
+  (atom {:defs [] :n 0 :sub-queries {}
          :view-name (name view-name)}))
 
 (defn- hoist! [st kind form]
@@ -73,43 +71,69 @@
 
 (defn- placeholder-form [x]
   (case x
-    :rf.ui/value   `(cljs.core/unchecked-get
-                     (cljs.core/unchecked-get ~event-sym "target") "value")
-    :rf.ui/checked `(cljs.core/unchecked-get
-                     (cljs.core/unchecked-get ~event-sym "target") "checked")
-    :rf.ui/key     `(cljs.core/unchecked-get ~event-sym "key")
+    :rf.ui/value   `re-frame.ui.events/value-placeholder
+    :rf.ui/checked `re-frame.ui.events/checked-placeholder
+    :rf.ui/key     `re-frame.ui.events/key-placeholder
     x))
 
-(defn- vector-handler-form [ev-vec {:keys [prevent? stop?]}]
-  `(fn [~event-sym]
-     ~@(when prevent? [`(.preventDefault ~event-sym)])
-     ~@(when stop? [`(.stopPropagation ~event-sym)])
-     (re-frame.ui.runtime/dispatch-event! [~@(map placeholder-form ev-vec)])))
+(defn- site-key-form [{:keys [sid site-index]}]
+  `(if ~(with-meta 'js/goog.DEBUG {:tag 'boolean}) ~sid ~site-index))
 
-(defn- handler-form [st h]
+(defn- debug-site-form
+  [{:keys [sid view-id source-coord path classification]}]
+  `(when ~(with-meta 'js/goog.DEBUG {:tag 'boolean})
+     {:sid ~sid
+      :view-id ~view-id
+      :source-coord ~source-coord
+      :path ~path
+      :classification ~classification}))
+
+(defn- handler-flags
+  [h prevent? stop?]
+  (+ (if (:sync? h) 1 0)
+     (if prevent? 2 0)
+     (if stop? 4 0)
+     (if (get-in h [:form :once]) 8 0)))
+
+(defn- vector-handler-form
+  [h ev-vec prevent? stop?]
+  `(re-frame.ui.events/data-handler
+    ~(site-key-form h)
+    [~@(map placeholder-form ev-vec)]
+    ~(handler-flags h prevent? stop?)
+    ~(debug-site-form h)))
+
+(defn- handler-form [h]
   (case (:classification h)
     :vector
-    (let [f (vector-handler-form (:form h) {})]
-      (if (:hoistable? h)
-        (or (get-in @st [:handlers (:form h)])
-            (let [sym (hoist! st :handler f)]
-              (swap! st assoc-in [:handlers (:form h)] sym)
-              sym))
-        f))
+    (vector-handler-form h (:form h) false false)
 
     :options
-    (let [{:keys [event prevent-default stop-propagation]} (:form h)
-          f (vector-handler-form event {:prevent? prevent-default
-                                        :stop? stop-propagation})]
-      (if (:hoistable? h)
-        (or (get-in @st [:handlers (:form h)])
-            (let [sym (hoist! st :handler f)]
-              (swap! st assoc-in [:handlers (:form h)] sym)
-              sym))
-        f))
+    (let [{:keys [event prevent-default stop-propagation]} (:form h)]
+      (vector-handler-form h event prevent-default stop-propagation))
 
-    :fn      (:form h)
-    :dynamic `(re-frame.ui.runtime/dynamic-handler ~(:form h))))
+    :fn
+    `(re-frame.ui.events/dynamic-handler
+      ~(site-key-form h) ~(:form h) ~(debug-site-form h))
+
+    :dynamic
+    `(re-frame.ui.events/dynamic-handler
+      ~(site-key-form h) ~(:form h) ~(debug-site-form h))))
+
+(defn- native-event-name
+  "Literal :on-* spelling -> the browser addEventListener event type.  Native
+  event types are the hyphen-collapsed author spelling except dblclick."
+  [handler-name]
+  (case handler-name
+    "on-double-click" "dblclick"
+    (str/replace (subs handler-name 3) "-" "")))
+
+(defn- passive-listener-spec
+  [h]
+  `[~(site-key-form h)
+    ~(native-event-name (:name h))
+    ~(handler-form h)
+    ~(:capture? h)])
 
 ;; ---------------------------------------------------------------------------
 ;; Element props
@@ -179,17 +203,27 @@
                        (let [[n f] (attr-pair a)]
                          {:name n :form f :static? (:literal? a)}))
                      (:attrs props))
+        passive-events (filter :passive? (:events props))
+        react-events   (remove :passive? (:events props))
         event-ps (map (fn [h]
                         {:name (rules/react-event-name (:name h) (:capture? h))
-                         :form (handler-form st h)
-                         :static? (:hoistable? h)})
-                      (:events props))
+                         :form (handler-form h)
+                         :static? false})
+                      react-events)
         style-p (when (:style props)
                   [{:name "style"
                     :form (style-form st (:style props) inner-inline?)
                     :static? (:static? (:style props))}])
-        ref-p   (when (:ref props)
-                  [{:name "ref" :form (:form (:ref props)) :static? false}])
+        ref-form (cond
+                   (seq passive-events)
+                   `(re-frame.ui.events/passive-ref
+                     [~@(map passive-listener-spec passive-events)]
+                     ~(:form (:ref props)))
+
+                   (:ref props)
+                   (:form (:ref props)))
+        ref-p   (when ref-form
+                  [{:name "ref" :form ref-form :static? false}])
         html-p  (when (:html node)
                   [{:name "dangerouslySetInnerHTML"
                     :form `(cljs.core/js-obj "__html" ~(:form (:html node)))
@@ -270,7 +304,9 @@
                          ~tag-str
                          ~(when (seq sugar) sugar)
                          ~(:base spread)
-                         ~(:overrides spread))
+                         ~(:overrides spread)
+                         ~(site-key-form spread)
+                         ~(debug-site-form (assoc spread :classification :spread)))
             chs (children-forms st (:children node) inner-inline?)]
         ;; spread props objects are runtime-built; children ride the same call
         (if (:present? key-info)
@@ -486,6 +522,7 @@
         ;; React.memo to the raw body with zero ViewCell hooks.
         has-subs?  (boolean (seq (:subs (:sites manifest))))
         has-leases? (boolean (seq leases))
+        has-events? (boolean (seq (:events (:sites manifest))))
         ;; rf2-vxgfnd.253 (extending .228): a `(frame)` site resolves the AMBIENT
         ;; committed frame, and so does EVERY sub target and EVERY lease owner (a
         ;; sub/lease site implicitly captures the ambient frame/incarnation). So
@@ -509,6 +546,13 @@
                      body)
         inner      (if (seq binds) `(let [~@binds] ~rendered) rendered)
         host-render (cond
+                      (and has-subs? has-leases? has-events?)
+                      're-frame.ui.viewcell/render-subs-leases-and-events
+                      (and has-subs? has-events?)
+                      're-frame.ui.viewcell/render-subs-and-events
+                      (and has-leases? has-events?)
+                      're-frame.ui.viewcell/render-leases-and-events
+                      has-events? 're-frame.ui.viewcell/render-events
                       (and has-subs? has-leases?)
                       're-frame.ui.viewcell/render-subs-and-leases
                       has-subs?  're-frame.ui.viewcell/render-subs

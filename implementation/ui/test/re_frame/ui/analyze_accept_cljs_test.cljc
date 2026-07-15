@@ -240,9 +240,16 @@
     (is (true? (:hoistable? (first (get-in el [:props :events]))))
         "literal/placeholder-only vectors hoist"))
   (let [el (ana* '[:button {:on-click {:event [:x/y] :prevent-default true
-                                       :capture true}} "x"])]
+                                       :capture true :once true}} "x"])]
     (is (= :options (:classification (first (get-in el [:props :events])))))
-    (is (true? (:capture? (first (get-in el [:props :events]))))))
+    (is (true? (:capture? (first (get-in el [:props :events])))))
+    (is (true? (get-in el [:props :events 0 :form :once]))))
+  (let [el (ana* '[:button {:on-wheel {:event [:x/scroll]
+                                       :passive true}} "x"])
+        h  (first (get-in el [:props :events]))]
+    (is (= :options (:classification h)))
+    (is (true? (:passive? h))
+        "literal passive maps select the narrow native-listener seam"))
   (let [el (ana* '[:button {:on-click (fn [e] e)} "x"])]
     (is (= :fn (:classification (first (get-in el [:props :events]))))
         "bare fns are legal in known native event properties"))
@@ -263,6 +270,45 @@
     (is (true? (:serializable? (first (:events sites)))))
     (is (= :opaque (:handler (second (:events sites)))))
     (is (false? (:serializable? (second (:events sites)))))))
+
+(deftest event-sites-carry-runtime-and-tool-identity
+  (let [{:keys [ast sites]}
+        (analyze-site-fixture
+         :cljs {:file "src/app/view.cljs" :line 10 :column 2}
+         '[:input {:value value
+                   :on-input [:form/typed :rf.ui/value]}])
+        handler (first (get-in ast [:props :events]))
+        site    (first (:events sites))]
+    (is (= 0 (:site-index handler))
+        "the generated production callback key is a compact per-view index")
+    (is (= (:sid handler) (:sid site)))
+    (is (string? (:sid site))
+        "dev tooling and HMR use a deterministic lexical site id")
+    (is (= :app.test/self-view (:view-id site)))
+    (is (= {:file "src/app/view.cljs" :line 10 :column 2}
+           (:source-coord site)))
+    (is (= [] (:path site)))
+    (is (true? (:sync? handler))
+        "literal controlled :on-input vector sites open the one sync door")))
+
+(deftest controlled-input-sync-door-is-compiler-proven-and-narrow
+  (testing "the literal-vector + literal controlled-prop predicate"
+    (is (true? (-> (ana* '[:input {:value value
+                                    :on-change [:form/typed :rf.ui/value]}])
+                   (get-in [:props :events 0 :sync?]))))
+    (is (true? (-> (ana* '[:input {:checked checked?
+                                    :on-before-input [:form/check]}])
+                   (get-in [:props :events 0 :sync?])))))
+  (testing "ordinary sites and non-data handlers stay batched"
+    (is (false? (-> (ana* '[:button {:value value :on-click [:form/go]}])
+                    (get-in [:props :events 0 :sync?]))))
+    (let [{:keys [ast warnings]}
+          (ana-full '[:input {:value value
+                              :on-input handler-value}])]
+      (is (false? (get-in ast [:props :events 0 :sync?])))
+      (is (= [:rf.ui.compile/controlled-input-async-handler]
+             (mapv :id warnings))
+          "a fallback site names the exact conditions it failed to prove"))))
 
 (deftest sub-sites-index
   (let [{:keys [sites]} (ana-full '[:div

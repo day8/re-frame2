@@ -5,17 +5,17 @@
   compiled template path (I-7). The one sanctioned runtime conversion is
   `spread->props` (`ui/spread`), which advertises its cost.
 
-  S1 scope note (no reactivity in this slice): event handlers lower to
-  fns calling `dispatch-event!`, which routes to an installable hook.
-  Frame wiring (committed-frame dispatch, the sync door, per-site
-  identity) lands S2/S3; until then the default hook throws loudly.
-  Tests install a capture hook via `set-dispatch-hook!`."
+  Event ownership lives in `re-frame.ui.events`: generated callbacks are
+  stable per mounted site and read only the winning committed frame/template.
+  This namespace contains no process-global dispatch hook."
   (:require ["react" :as react]
             ["react/jsx-runtime" :as jsxrt]
             [clojure.string :as str]
             [re-frame.error :as error]
+            [re-frame.interop :as interop]
             [re-frame.registrar :as registrar]
             [re-frame.ui.eq :as eq]
+            [re-frame.ui.events :as events]
             [re-frame.ui.reactive :as reactive]
             [re-frame.ui.rules :as rules]
             [re-frame.ui.viewcell :as viewcell]))
@@ -135,74 +135,6 @@
       outer)))
 
 ;; ---------------------------------------------------------------------------
-;; Dispatch — the S1 seam
-;; ---------------------------------------------------------------------------
-
-(defonce ^:private dispatch-hook (atom nil))
-
-(defn set-dispatch-hook!
-  "Install the event-vector consumer (tests; the S2 frame wiring replaces
-  this seam). Returns the previous hook."
-  [f]
-  (let [prev @dispatch-hook]
-    (reset! dispatch-hook f)
-    prev))
-
-(defn dispatch-event!
-  "Route a (placeholder-spliced) event vector to the installed hook."
-  [ev]
-  (if-let [f @dispatch-hook]
-    (f ev)
-    (error/throw-error!
-     :rf.error/ui-dispatch-unwired 're-frame.ui/dispatch
-     (str "compiled-view dispatch is not wired in the S1 compiler slice — "
-          "frame dispatch lands with reactivity (S2/S3); tests install a "
-          "hook via re-frame.ui.runtime/set-dispatch-hook!")
-     {:extra {:event ev}})))
-
-(defn dynamic-handler
-  "Runtime classification of a DYNAMIC handler-position value (Spec 004
-  §Handlers): vector -> dispatch; map -> options form; fn -> itself;
-  nil -> no handler. Placeholders are compiled, so they are recognized in
-  literal vectors only — a placeholder keyword inside a runtime vector
-  dispatches as an ordinary keyword and dev warns."
-  [v]
-  (cond
-    (nil? v) js/undefined
-
-    (vector? v)
-    (do (when ^boolean js/goog.DEBUG
-          (when (some rules/placeholders v)
-            (js/console.warn
-             "[:rf.warning/placeholder-in-dynamic-vector] placeholder in a"
-             "dynamic event vector — placeholders are compiled and only"
-             "recognized in literal vectors; build the literal at the DOM"
-             "site or use ui/event." (pr-str v))))
-        (fn [_e] (dispatch-event! v)))
-
-    (map? v)
-    (let [{:keys [event prevent-default stop-propagation]} v]
-      (when ^boolean js/goog.DEBUG
-        (when (some #{:capture :passive :once} (keys v))
-          (js/console.warn
-           "[re-frame.ui] :capture/:passive/:once in a DYNAMIC handler map"
-           "are not applied at S1 — write the options map literally at the"
-           "site.")))
-      (fn [e]
-        (when prevent-default (.preventDefault e))
-        (when stop-propagation (.stopPropagation e))
-        (dispatch-event! event)))
-
-    (fn? v) v
-
-    :else
-    (error/throw-error!
-     :rf.error/ui-tree-malformed 're-frame.ui/render
-     (str "a dynamic handler expression produced " (pr-str v) " — handlers "
-          "classify by type: event vector, options map, handler fn, or nil")
-     {:extra {:value v}})))
-
-;; ---------------------------------------------------------------------------
 ;; Dev checks (goog.DEBUG-stripped in production)
 ;; ---------------------------------------------------------------------------
 
@@ -319,10 +251,19 @@
   on-* runtime handler classification, custom-element property
   classification by `tag`. `:key` inside a spread is structural and
   ignored (dev warns)."
-  [tag sugar-classes base overrides]
+  [tag sugar-classes base overrides event-site-key debug-site]
   (let [m (merge base overrides)
         property? (rules/custom-element-properties (keyword tag))
         o (js-obj)]
+    (when interop/debug-enabled?
+      (when (and (or (contains? m :value) (contains? m :checked))
+                 (some #(contains? m %)
+                       [:on-input :on-change :on-before-input]))
+        (js/console.warn
+         "[re-frame.ui] a controlled :value/:checked and input handler came "
+         "through ui/spread. The controlled-input synchronous door requires "
+         "literal co-present props plus a literal event vector; this site "
+         "uses ordinary drain batching.")))
     (when (and (some? sugar-classes) (not (contains? m :class)))
       (unchecked-set o "className" sugar-classes))
     (doseq [[k v] m]
@@ -350,7 +291,11 @@
 
           (str/starts-with? n "on-")
           (unchecked-set o (rules/react-event-name n false)
-                         (dynamic-handler v))
+                         (events/dynamic-handler
+                          [event-site-key n]
+                          v
+                          (when interop/debug-enabled?
+                            (assoc debug-site :prop k))))
 
           (property? k)
           (unchecked-set o (rules/custom-element-property-name n) v)
