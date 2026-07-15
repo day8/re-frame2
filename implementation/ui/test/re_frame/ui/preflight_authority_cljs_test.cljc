@@ -27,6 +27,7 @@
   (:require #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
                :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
             [re-frame.core                 :as rf]
+            [re-frame.error-emit           :as error-emit]
             [re-frame.frame                :as frame]
             [re-frame.live-frame           :as live-frame]
             [re-frame.substrate.plain-atom :as plain-atom]
@@ -59,6 +60,10 @@
   (try (thunk) nil
        (catch #?(:clj clojure.lang.ExceptionInfo :cljs :default) e
          (ex-data e))))
+
+(defn- owner-root
+  [entry]
+  (or (:installed-by entry) (:adopted-by entry)))
 
 ;; ---------------------------------------------------------------------------
 ;; (A) setup fail-closed
@@ -131,6 +136,143 @@
             "the refresh did NOT create-if-absent a spurious replacement incarnation")
         (is (nil? (frame/frame-incarnation-token fid)))
         (is (not (identical? token-a (frame/frame-incarnation-token fid))))))))
+
+(deftest stale-found-live-decision-cannot-settle-an-absent-or-replaced-frame
+  (testing "a found-live decision is pinned to its decision-time incarnation and
+            record: an earlier sibling may destroy that incarnation, but the
+            stale arm cannot return a settleable receipt for it"
+    (let [fid :auth/found-live-target
+          g   :auth/found-live-driver
+          fp  "cff-ffffffffffffff"]
+      (frames/execute-frame-plans! :root/a [(plan fid fp)])
+      (let [ed (thrown
+                #(frames/execute-frame-plans!
+                  :root/a [(plan g "cfg-gggggggggggggg"
+                                 {:initial-events [[:test/destroy-other fid]]})
+                           (plan fid fp)]))]
+        (is (= :rf.error/frame-preflight-lifecycle-loss (:rf.error/id ed)))
+        (is (= :found-live-authority-lost (:kind ed)))
+        (is (= fid (:frame-id ed)))
+        (is (nil? (frame/frame fid))
+            "the destroyed decision-time incarnation stays absent")
+        (is (nil? (frames/installed-plan-entry fid))
+            "the stale found-live arm cannot resurrect or settle its pruned record")))))
+
+;; ---------------------------------------------------------------------------
+;; (C) fail-fast per-id reservation: same-id nesting loses, disjoint/plan-free
+;; nesting proceeds on both hosts without a process-wide monitor.
+;; ---------------------------------------------------------------------------
+
+(deftest initial-event-nesting-is-per-id-and-never-blocks
+  (let [same-id-result (atom nil)
+        disjoint-result (atom nil)
+        plan-free-result (atom nil)
+        outer :auth/nested-outer
+        other :auth/nested-disjoint]
+    ;; The disjoint inner run scopes a boot-authoritative frame. It therefore
+    ;; exercises nested preflight admission without asking core to construct a
+    ;; frame from inside an event handler (which EP-0027 independently forbids).
+    (live-frame/make-frame {:id other :doc "boot-disjoint"})
+    (rf/reg-event
+     :test/nested-preflights
+     (fn [_ _]
+       (reset! same-id-result
+               (try
+                 (frames/execute-frame-plans!
+                  :root/inner-same [(plan outer "cfo-oooooooooooooo")])
+                 ::won
+                 (catch #?(:clj clojure.lang.ExceptionInfo :cljs :default) e
+                   (ex-data e))))
+       (reset! disjoint-result
+               (try
+                 (frames/execute-frame-plans!
+                  :root/inner-disjoint [(plan other "cfd-dddddddddddddd")])
+                 ::won
+                 (catch #?(:clj clojure.lang.ExceptionInfo :cljs :default) e
+                   (ex-data e))))
+       (reset! plan-free-result
+               (try
+                 (frames/execute-frame-plans! :root/inner-plan-free [])
+                 ::won
+                 (catch #?(:clj clojure.lang.ExceptionInfo :cljs :default) e
+                   (ex-data e))))
+       {}))
+    (let [outer-receipt
+          (frames/execute-frame-plans!
+           :root/outer
+           [(plan outer "cfo-oooooooooooooo"
+                  {:initial-events [[:test/nested-preflights]]})])]
+      (is (= :root/outer (:root-id outer-receipt))
+          "the outer same-id owner succeeds")
+      (is (= :rf.error/frame-preflight-overlap
+             (:rf.error/id @same-id-result))
+          "the nested same-id run loses immediately with the UI preflight error")
+      (is (= outer (:frame-id @same-id-result)))
+      (is (= :root/inner-same (:root-id @same-id-result)))
+      (is (= ::won @disjoint-result)
+          "a disjoint nested plan proceeds independently")
+      (is (= ::won @plan-free-result)
+          "a plan-free nested run proceeds without touching reservations")
+      (is (= :root/outer
+             (:installed-by (frames/installed-plan-entry outer)))
+          "exactly the outer same-id run owns the record")
+      (is (= :root/inner-disjoint
+             (:adopted-by (frames/installed-plan-entry other)))
+          "the disjoint nested run publishes its own adoption"))))
+
+;; ---------------------------------------------------------------------------
+;; (D) settlement authority: rev + root ownership, with foreign equal-plan
+;; found-live remaining a valid scoping no-op and receiving no settlement rights.
+;; ---------------------------------------------------------------------------
+
+(deftest receipts-carry-root-authority-and-foreign-found-live-cannot-settle
+  (let [fid       :auth/receipt-owner
+        fp        "cfr-rrrrrrrrrrrrrr"
+        owner-r   (frames/execute-frame-plans! :root/owner [(plan fid fp)])
+        foreign-r (frames/execute-frame-plans! :root/foreign [(plan fid fp)])]
+    (is (= [:root/owner] (mapv :root-id (:writes owner-r)))
+        "every settleable write carries the root authority that minted it")
+    (is (= :root/foreign (:root-id foreign-r)))
+    (is (empty? (:writes foreign-r))
+        "foreign equal-fingerprint found-live is valid scoping, not settlement authority")
+    (frames/finalize-preflight-attempt! foreign-r)
+    (frames/abort-preflight-attempt! foreign-r)
+    (let [entry (frames/installed-plan-entry fid)]
+      (is (= :root/owner (owner-root entry)))
+      (is (not (:committed entry))
+          "the foreign root cannot finalize the owner's record")
+      (is (not (:mount-incomplete entry))
+          "the foreign root cannot abort the owner's record"))
+    (frames/finalize-preflight-attempt! owner-r)
+    (is (true? (:committed (frames/installed-plan-entry fid)))
+        "the legitimate owner still settles normally")))
+
+(deftest settlement-rejects-a-foreign-controller-with-typed-mismatch-evidence
+  (let [abort-id    :auth/foreign-abort
+        finalize-id :auth/foreign-finalize
+        fp-a        "cfa-aaaaaaaaaaaaaa"
+        fp-f        "cff-ffffffffffffff"
+        abort-r     (frames/execute-frame-plans! :root/owner [(plan abort-id fp-a)])
+        finalize-r  (frames/execute-frame-plans! :root/owner [(plan finalize-id fp-f)])
+        records     (atom [])
+        listener-id (keyword "test" (str (gensym "preflight-evidence")))]
+    (error-emit/register-error-listener! listener-id #(swap! records conj %))
+    (try
+      ;; Model a foreign lifecycle controller presenting another root's exact
+      ;; receipt. The per-write owner remains :root/owner; the outer receipt
+      ;; claims :root/foreign. Rev-only guards incorrectly admit both calls.
+      (frames/abort-preflight-attempt! (assoc abort-r :root-id :root/foreign))
+      (frames/finalize-preflight-attempt! (assoc finalize-r :root-id :root/foreign))
+      (finally
+        (error-emit/unregister-error-listener! listener-id)))
+    (is (nil? (:mount-incomplete (frames/installed-plan-entry abort-id)))
+        "a foreign controller cannot abort the exact owner's record")
+    (is (nil? (:committed (frames/installed-plan-entry finalize-id)))
+        "a foreign controller cannot finalize the exact owner's record")
+    (is (= 2 (count (filter #(= :rf.error/frame-preflight-evidence-mismatch
+                                (:error %))
+                           @records)))
+        "each rejected settlement emits the typed evidence-mismatch diagnostic")))
 
 ;; ---------------------------------------------------------------------------
 ;; regression: the exact-authority binding leaves every live-authority path

@@ -8,8 +8,10 @@
   can write a dead-lifetime record after the only prune has already happened.
 
   A wrapped real UI hook opens that window with a CountDownLatch handoff; there
-  are no sleeps or scheduler guesses. CLJS cannot interleave a second publisher
-  while synchronous destruction is paused, so this fixture is JVM-only."
+  are no sleeps or scheduler guesses. The shared per-id transaction now rejects
+  the preflight promptly with `:rf.error/frame-preflight-overlap`, so it cannot
+  reach publication at all. CLJS cannot interleave a second publisher while
+  synchronous destruction is paused, so this fixture is JVM-only."
   (:require [clojure.test :refer [deftest is use-fixtures]]
             [re-frame.core                 :as rf]
             [re-frame.frame                :as frame]
@@ -68,13 +70,16 @@
       (is (nil? (frames/installed-plan-entry fid))
           "precondition: the real UI hook already pruned plan authority")
 
-      ;; This config-less plan would ordinarily adopt the live boot frame. A
-      ;; closing incarnation is not publishable even though frame/frame and its
-      ;; incarnation token remain visible until the destroy's next step.
-      (frames/execute-frame-plans!
-       :root/a [(plan fid "cf1-closing-aaaaaaaa")])
+      ;; This config-less plan would ordinarily adopt the live boot frame. The
+      ;; in-flight destruction owns the shared per-id transaction, so preflight
+      ;; loses promptly before decision/publication even though frame/frame and
+      ;; its incarnation token remain visible until the destroy's next step.
+      (is (= :rf.error/frame-preflight-overlap
+             (err-id #(frames/execute-frame-plans!
+                       :root/a [(plan fid "cf1-closing-aaaaaaaa")])))
+          "a same-id preflight never waits on or publishes through destruction")
       (is (nil? (frames/installed-plan-entry fid))
-          "publication rejects the closing incarnation after the prune")
+          "the rejected run publishes no record after the prune")
 
       (.countDown release)
       (is (nil? (deref @destroy* 10000 ::timeout))

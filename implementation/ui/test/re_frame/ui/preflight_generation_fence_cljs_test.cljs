@@ -99,7 +99,35 @@
       (swap! drain-log conj :replace)
       (substrate-adapter/dispose-adapter!)
       (substrate-adapter/install-adapter! plain-atom/adapter)
+      {}))
+  (rf/reg-event :test/destroy-own-frame
+    (fn [_ [_ frame-id]]
+      (swap! drain-log conj :destroy-own-frame)
+      (frame/destroy-frame! frame-id)
       {})))
+
+(deftest real-self-destroying-setup-fails-before-host-root-creation
+  (reg-events!)
+  (let [fid   :frame/self-destroying-mount
+        rid   :preflight/self-destroying-mount
+        c     (container)
+        info  {:root-id rid :provenance :authored}
+        plans (fn [] [{:frame-id fid
+                       :config {:initial-events [[:test/destroy-own-frame fid]]}
+                       :config-fingerprint "cf1-selfdestroying"}])
+        {:keys [id data]}
+        (thrown-error #(client/mount* info c (fn [] nil) nil plans))]
+    (is (= [:destroy-own-frame] @drain-log)
+        "the real setup reached its self-destroying initial event")
+    (is (= :rf.error/frame-construction-in-progress id)
+        "the lifecycle-dead provisional frame fails loud inside preflight")
+    (is (= :lifecycle-dead (:reason data)))
+    (is (nil? (frame/frame fid))
+        "exact rollback leaves no self-destroyed frame")
+    (is (nil? (frames/installed-plan-entry fid))
+        "no plan record is published for the absent frame")
+    (is (not (contains? (client/live-root-ids) rid))
+        "the typed preflight failure precedes createRoot and live-root registration")))
 
 ;; ---------------------------------------------------------------------------
 ;; Terminal disposal from a REAL initial event — fail loud before createRoot
