@@ -1381,11 +1381,17 @@
   row). The table inside is created lazily on first cold probe, tagged with
   `(frame, frame-epoch, registry-epoch)` PLUS the exact frame-incarnation
   token, and invalidated on any mismatch — the token by identity, because the
-  epoch triple can tie across a same-id destroy+recreate (rf2-vxgfnd.160). On
-  CLJS the table is cleared by `queueMicrotask` so an abandoned slice's table
-  is released. The memo is an ECONOMY, never an authority — for a COMMITTING
-  reader the commit evidence comparison (invariant 5) corrects any staleness
-  before paint; the incarnation-complete tag additionally keeps a COMMIT-FREE
+  epoch triple can tie across a same-id destroy+recreate (rf2-vxgfnd.160). The
+  handle dies with its slice under ONE law — probes may share within a slice,
+  but no table or handle survives into a later render slice — which each host
+  reaches by its own mechanism, because their scheduling models differ: on the
+  JVM a thread-local render scope discards the table when the render thunk
+  returns (there is no microtask there), while on CLJS a module holder is
+  cleared at the `queueMicrotask` checkpoint so an abandoned slice's table is
+  released. `re-frame.ui.reactive` owns both. The memo is an ECONOMY, never an
+  authority — for a COMMITTING reader the commit evidence comparison
+  (invariant 5) corrects any staleness before paint; the
+  incarnation-complete tag additionally keeps a COMMIT-FREE
   reader (a Tier-1 probe outside a ViewCell, which has no commit step 5)
   correct on its own. Per Spec 006 §The slice-scoped probe memo."
   []
