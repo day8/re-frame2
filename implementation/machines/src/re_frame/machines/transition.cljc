@@ -2957,22 +2957,30 @@
         ;; choice for the only caller that hits it.)
         decl-path     (:decl-path transition [])
         raw-target    (:target transition)
-        ;; `targetless?` is the structural "no `:target` declared" predicate.
-        ;; It is NOT the same as the effective `internal?` flag computed
-        ;; below: under the XState-v5 model a TARGETED transition
-        ;; whose target lands on the ACTIVE PATH (self or proper ancestor) is
-        ;; ALSO internal by default — it only becomes external when the
-        ;; transition opts in with `:reenter? true`. So `internal?` = no
-        ;; target, OR an active-path target without `:reenter?`.
+        ;; `targetless?` is the structural "no `:target` declared" predicate
+        ;; — and, per `internal?` below, the ONLY internal (true
+        ;; configuration no-op) case. An EXPLICIT target is NEVER internal:
+        ;; a self / proper-ancestor target on the active path re-resolves the
+        ;; active descendants below it, and a proper descendant of the
+        ;; DECLARING compound re-enters the target node itself. The `lca-len`
+        ;; case table below is the single statement of that geometry.
         targetless?   (nil? raw-target)
-        ;; `:reenter? true` is the opt-in for an EXTERNAL self/ancestor
-        ;; transition: re-run `:exit` then `:entry`, restart the target's
-        ;; `:after` timers + tear-down-and-respawn its `:spawn`/`:spawn-all`
-        ;; children. Absent / false ⇒ a self/ancestor target is internal
-        ;; (no exit/entry churn). The flag is meaningful only for a target on
-        ;; the active path; for a disjoint-subtree target the LCCA already
-        ;; lies above both source and target, so exit/entry fire regardless
-        ;; (the flag is a no-op there). Per Spec 005 §Self-transitions.
+        ;; `:reenter? true` is the EXTERNAL opt-in — it re-enters the node the
+        ;; default geometry would otherwise leave standing. WHICH node depends
+        ;; on the TARGET ↔ DECLARING-state relationship (see the `lca-len`
+        ;; case table): a SELF / proper-ANCESTOR target restarts the TARGET
+        ;; (re-run its `:exit`/`:entry`, restart its `:after` timers,
+        ;; tear-down-and-respawn its `:spawn`/`:spawn-all` children, then
+        ;; re-descend its `:initial`); a proper DESCENDANT of the declaring
+        ;; compound restarts the DECLARING COMPOUND and then descends to the
+        ;; NAMED target. Absent / false does NOT mean "no exit/entry churn":
+        ;; the default geometry still re-resolves the descendants below a
+        ;; self/ancestor target, and still re-enters a declaring-compound
+        ;; descendant target. The flag is meaningful for a target on the
+        ;; active path OR a descendant named by the declaring compound; for a
+        ;; disjoint-subtree target the LCCA already lies above both source and
+        ;; target, so exit/entry fire regardless (the flag is a no-op there).
+        ;; Per Spec 005 §Self-transitions.
         reenter?      (true? (:reenter? transition))
         ;; The target BEFORE initial-cascade re-descent. Needed to detect
         ;; the self/ancestor transition: a `:target` (the `:same-state`
@@ -3025,68 +3033,29 @@
         ;; The LCCA is computed against `target-base` (the resolved target
         ;; BEFORE its own `:initial` re-descent), NOT `target-leaf` — the
         ;; initial cascade is part of ENTERING the target, not of locating
-        ;; the common ancestor. Two geometries arise:
+        ;; the common ancestor. Computing it against `target-leaf` is the
+        ;; classic "LCCA trap": a target whose `:initial` chain re-descends to
+        ;; the source would yield a FULL-length common prefix, both cascades
+        ;; would come out empty, and the transition would be a SILENT no-op
+        ;; (the emz8l shape).
         ;;
-        ;;  (1) TARGET ON THE ACTIVE PATH — `target-base` is a prefix of
-        ;;      `src-path` (the target is the source itself, OR a proper
-        ;;      ANCESTOR of the source). Per the XState-v5 internal-by-
-        ;;      default model the target NODE is not exited/re-entered — its
-        ;;      own `:exit`/`:entry` do NOT re-run — but its active
-        ;;      DESCENDANTS re-resolve: the children strictly below the
-        ;;      target exit and the target's `:initial` chain re-descends.
-        ;;      So `lca-len` = `(count target-base)` (the
-        ;;      `target-on-active-path?` arm below): everything strictly
-        ;;      below the target on the active path exits and the target's
-        ;;      `:initial` re-enters. This is NOT a configuration no-op —
-        ;;      only a TARGETLESS transition preserves the whole
-        ;;      configuration (active descendants included); the two coincide
-        ;;      ONLY when the target is a LEAF (no descendants left to
-        ;;      re-resolve). See Spec 005 §Self-transitions. Only when the
-        ;;      transition opts in with `:reenter? true` does the EXTERNAL
-        ;;      restart geometry apply: pull `lca-len` UP to the target's
-        ;;      PARENT (`(count target-base) - 1`) so the target ITSELF lands
-        ;;      in BOTH the exit and entry cascades — it is exited (re-running
-        ;;      its `:exit`), the transition `:action` fires, the target is
-        ;;      re-entered (re-running its `:entry`) and its `:initial` chain
-        ;;      re-descends (`target-leaf`). That is the RESTART-the-compound
-        ;;      geometry XState v5 gives an external/`reenter:true` transition
-        ;;      to self or an ancestor (and the v4/SCXML DEFAULT, which v5
-        ;;      flipped — see Spec 005 §Self-transitions). The pull-up is what
-        ;;      makes `:reenter?` restart the target NODE too; without it the
-        ;;      target node survives and only its descendants re-resolve —
-        ;;      exactly the internal-default case above. `max 0` keeps
-        ;;      a root-level target (`target-base == []`) sane: with
-        ;;      `:reenter?` the whole machine exits + re-enters from the root.
+        ;; The two predicates below CLASSIFY the target; the `lca-len` case
+        ;; table is the SINGLE statement of the resulting geometry and of the
+        ;; branch precedence between them. Deliberately not restated here —
+        ;; a second copy of the case analysis is what drifted out of sync with
+        ;; the executable `cond` before (rf2-xkr5r3).
         ;;
-        ;;  (2) TARGET IN A DISJOINT SUBTREE — sibling-leaf, cross-level to a
-        ;;      sibling subtree, or to the root. `target-base` is NOT a prefix
-        ;;      of `src-path`, so source and target diverge at the common-
-        ;;      prefix node, which is a proper ancestor of both and therefore
-        ;;      the LCCA. `lca-len` is the plain common-prefix length; the
-        ;;      common-ancestor node neither exits nor enters. (Here the LCP
-        ;;      of `src-path` with `target-base` and with `target-leaf` agree
-        ;;      — they diverge before `target-base` ends — so this arm is left
-        ;;      computing against `target-leaf`, unchanged.) `:reenter?` is a
-        ;;      no-op here: the LCCA already lies above both, so exit/entry
-        ;;      fire regardless.
-        ;;
-        ;;  Only a TARGETLESS transition is INTERNAL (`internal? =
-        ;;  targetless?` below): it is untouched — it never reaches the
-        ;;  cascade (`internal?` short-circuits exit/entry below). An
-        ;;  active-path target WITHOUT `:reenter?` is NOT internal — it
-        ;;  re-resolves the descendants below the target through the normal
-        ;;  exit/entry cascade (boundary = `(count target-base)`), even
-        ;;  though the target node itself is not exited or re-entered.
-        ;;
-        ;; `target-on-active-path?` is the GEOMETRIC predicate (the literal
-        ;; target lands on the active path — `target-base` is a prefix of
+        ;; `target-on-active-path?` is the GEOMETRIC predicate: the literal
+        ;; target lands on the active path (`target-base` is a prefix of
         ;; `src-path`, so the target is the source leaf, a CURRENTLY-ACTIVE
         ;; COMPOUND on the path, or a proper ANCESTOR of the leaf),
-        ;; independent of the `:reenter?` opt-in. An explicit active-path
-        ;; target is NEVER a configuration no-op — XState v5 RE-RESOLVES the
-        ;; active descendants below the target (children reset to `:initial`)
-        ;; even without `:reenter?`. Only a TARGETLESS transition
-        ;; preserves the configuration unchanged.
+        ;; independent of the `:reenter?` opt-in. NOTE it does NOT discriminate
+        ;; the declaring-state relationship: it ALSO matches a
+        ;; declaring-compound descendant target that happens to be active.
+        ;; `target-descendant-of-decl?` below is tested FIRST in `lca-len` and
+        ;; wins that overlap — a `:parent`-declared target of the already-active
+        ;; leaf `[:parent :leaf]` re-enters the leaf rather than treating it as
+        ;; a survives-in-place self target.
         target-on-active-path? (and (not targetless?)
                                     (= (count target-base)
                                        (common-prefix-length src-path target-base)))
@@ -3142,7 +3111,15 @@
         ;; prefix that SURVIVES (is neither exited nor entered). The geometries,
         ;; all grounded in xstate@5.32.0, are
         ;; discriminated by the TARGET ↔ DECLARING-state (`decl-path`)
-        ;; relationship, NOT by the active leaf:
+        ;; relationship, NOT by the active leaf.
+        ;;
+        ;; BRANCH PRECEDENCE IS LOAD-BEARING and the `cond` order below is the
+        ;; contract: `internal?` (targetless) first, then
+        ;; `target-descendant-of-decl?`, then the active-path arms. The
+        ;; descendant arm MUST stay ahead of `target-on-active-path?` — an
+        ;; already-active descendant target satisfies BOTH predicates, and the
+        ;; active-path arm would silently swallow the re-entry the
+        ;; declaring-compound rule requires. Do not reorder or collapse.
         ;;
         ;;  • T is a PROPER DESCENDANT of D (D's compound transition targets a
         ;;    descendant — XState "child nodes targeted by compound transitions
@@ -3151,7 +3128,12 @@
         ;;        D survives. boundary = (count target-base) - 1. Computed
         ;;        against target-BASE (not target-leaf) so a T whose `:initial`
         ;;        re-descends to the active leaf still re-enters rather than
-        ;;        collapsing to the emz8l silent no-op.
+        ;;        collapsing to the emz8l silent no-op. This holds EVEN WHEN T
+        ;;        IS ALREADY ACTIVE AND EVEN WHEN T IS A LEAF — that case is
+        ;;        NOT equivalent to a targetless transition: declared on
+        ;;        :parent while at [:parent :leaf], target [:parent :leaf]
+        ;;        gives exit-leaf/action/enter-leaf, whereas the targetless
+        ;;        control on :parent gives the action alone.
         ;;          e.g. declared on :parent, target [:parent :child] while at
         ;;          [:parent :child :a] → exit a + child, re-enter child/a;
         ;;          :parent not exited.
