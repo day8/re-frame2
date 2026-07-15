@@ -42,7 +42,8 @@
 
   `state` plus begin/commit/abort below remain only as a plain-JVM/test harness
   for the same pure slice transitions. They are not Shadow build authority."
-  (:require [re-frame.ui.fingerprint :as fingerprint]))
+  (:require [re-frame.ui.eq :as eq]
+            [re-frame.ui.fingerprint :as fingerprint]))
 
 ;; ---------------------------------------------------------------------------
 ;; Registry ids (opaque keys naming the five build-scoped registries)
@@ -54,6 +55,7 @@
 (def plans       ::plans)        ; Layer-1 frame-plan index
 (def descriptors ::descriptors)  ; Root Descriptor index
 (def elements    ::elements)     ; compile-time custom-element declarations
+(def ^:private element-declarations ::element-declarations) ; tag -> owning ns
 
 ;; ---------------------------------------------------------------------------
 ;; State
@@ -507,6 +509,102 @@
                          (write-slice views source view-id digest)))))))
     @outcome))
 
+(defn- element-conflict-row
+  "Pure: one side of a custom-element contradiction, rendered as deterministic
+  evidence. `build-id` + `ns` are the ruled `[build-id ns-sym]` anchor pair."
+  [build-id source decl]
+  {:build build-id
+   :ns source
+   :properties (:properties decl #{})})
+
+(defn elements-conflict
+  "Pure DEFENCE-IN-DEPTH detector: the first cross-source non-`rf=`-equal
+  same-tag collision in a per-source `registries` map (`{source {reg-id {k v}}}`),
+  or nil.
+
+  `contribute-element-checked!` is the write BARRIER — it is the law, and it
+  makes a conflicting row unable to enter a slice in the first place. This
+  function re-derives the same verdict from finalized rows so that NO
+  aggregation path can ever pick a winner by merge order, even if a row
+  arrived by some route that bypassed the barrier. Sources are folded in
+  sorted order and the losing pair is reported with BOTH anchors sorted the
+  same way, so the evidence is identical under every source permutation."
+  [build-id registries]
+  (let [conflict (fn [tag owner prior source decl]
+                   {::conflict
+                    {:tag tag
+                     :declarations
+                     (vec (sort-by (juxt (comp str :build) (comp str :ns))
+                                   [(element-conflict-row build-id owner prior)
+                                    (element-conflict-row build-id source decl)]))}})
+        step (fn [seen source]
+               (reduce-kv
+                (fn [seen tag decl]
+                  (let [[owner prior] (get seen tag)]
+                    (cond
+                      (nil? owner)          (assoc seen tag [source decl])
+                      (eq/rf= prior decl)   seen  ; duplicates co-exist
+                      :else                 (reduced (conflict tag owner prior
+                                                               source decl)))))
+                seen
+                (get-in registries [source elements])))
+        outcome (reduce (fn [seen source]
+                          (let [next (step seen source)]
+                            (if (::conflict next) (reduced next) next)))
+                        {}
+                        (sort-by str (keys registries)))]
+    (::conflict outcome)))
+
+(defn contribute-element-checked!
+  "Atomically contribute ONE custom-element declaration under the ruled
+  cross-source conflict law (rf2-vxgfnd.143, delegated ruling 2026-07-15
+  Option A — fail atomically; never a merge/winner law).
+
+  Inside ONE `swap!`, `source`'s `tag` -> `decl` is admitted iff every OTHER
+  live source's declaration of `tag` is `rf=`-equal to it. `rf=`-equal
+  duplicates co-exist (idempotent — two namespaces may legitimately state the
+  same fact); a non-`rf=`-equal declaration from a DIFFERENT source is a
+  contradiction and is REJECTED without writing, so the losing row never
+  enters the ledger and the last-known-good aggregate is left untouched.
+
+  A source never conflicts with ITSELF across passes: during an open pass the
+  source's COMMITTED rows are excluded (it is being replaced wholesale), and
+  on the no-pass REPL path a re-evaluated declaration simply replaces its own
+  prior row. Its STAGED rows are NOT excluded, so two contradictory
+  declarations of one tag inside a single compile of one namespace do fail —
+  those are two live declarations, not a replacement.
+
+  Owner provenance is written in the SAME `swap!` as the declaration, so the
+  rejected side can always be anchored to BOTH `[build-id ns-sym]` pairs.
+  Returns nil on success, or `{:conflict {:owner <ns> :declaration <decl>}}`
+  without writing."
+  [source tag decl]
+  (let [outcome (atom nil)]
+    (update-current-slice!
+     (fn [slice]
+       (let [other-decl (get (effective slice elements source) tag)
+             other-owner (get (effective slice element-declarations source) tag)
+             ;; Own STAGED row only: a second, contradictory declaration of the
+             ;; same tag in the same pass of the same ns. Committed/no-pass rows
+             ;; are the source replacing itself and must stay admissible.
+             own-decl (when (:pass-open? slice)
+                        (get-in slice [:staged source elements tag]))
+             conflict (cond
+                        (and (some? other-decl) (not (eq/rf= other-decl decl)))
+                        {:owner other-owner :declaration other-decl}
+
+                        (and (some? own-decl) (not (eq/rf= own-decl decl)))
+                        {:owner source :declaration own-decl}
+
+                        :else nil)]
+         (if conflict
+           (do (reset! outcome {:conflict conflict}) slice)
+           (do (reset! outcome nil)
+               (-> slice
+                   (write-slice element-declarations source tag source)
+                   (write-slice elements source tag decl)))))))
+    @outcome))
+
 ;; ---------------------------------------------------------------------------
 ;; Pass boundaries
 ;; ---------------------------------------------------------------------------
@@ -628,6 +726,22 @@
          :build-id build-id
          :recovery :configure-ui-build-hook-once})))
     (let [after (-> scratch commit-slice (keep-members (set members)))
+          ;; Defence in depth (rf2-vxgfnd.143): `contribute-element-checked!`
+          ;; is the barrier, so a contradiction cannot reach here. Re-deriving
+          ;; the verdict from the FINALIZED rows — once per pass, not per read —
+          ;; means no aggregation can publish a merge-order winner even if a row
+          ;; arrived by a route that bypassed the barrier.
+          _ (when-let [c (elements-conflict build-id (:committed after))]
+              (throw
+               (ex-info
+                (str "re-frame.ui found contradictory custom-element declarations "
+                     "for " (:tag c) " in the finalized build; refusing to publish "
+                     "a merge-order winner")
+                {::error ::custom-element-conflict
+                 :build-id build-id
+                 :recovery :reconcile-custom-element-declarations
+                 :tag (:tag c)
+                 :declarations (:declarations c)})))
           digest (digest-for-slice after)
           snapshot {:build-id build-id
                     :registries (:committed after)
