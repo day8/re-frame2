@@ -81,6 +81,12 @@
 (defview unregistered-handler-probe []
   [:button {:on-click [::intentionally-unregistered]} "warn"])
 
+(defview passive-ref-explicitness-probe [{:keys [authored-ref]}]
+  [:button {:ref authored-ref
+            :on-wheel {:event [::passive-ref-event]
+                       :passive true}}
+   "ref"])
+
 (defview todo-row
   [{:keys [todo]}]
   (let [{:keys [id label done? priority]} todo]
@@ -417,12 +423,52 @@
        (events/make-owner ::dynamic-handler-probe)
        ::dynamic-handler-probe
        (js-obj "handler" [::runtime-vector :rf.ui/value]))
-      (let [operations (into #{} (map :operation) @traces)]
+      (let [operations (into #{} (map :operation) @traces)
+            warning (some #(when (= :rf.warning/placeholder-in-dynamic-vector
+                                    (:operation %))
+                             %)
+                          @traces)
+            site (get-in (reactive/view-descriptor ::dynamic-handler-probe)
+                         [:manifest :sites :events 0])]
         (is (contains? operations :rf.warning/unregistered-event-id))
         (is (contains? operations :rf.warning/placeholder-in-dynamic-vector)
-            "both advisory conditions are structured trace events"))
+            "both advisory conditions are structured trace events")
+        (is (= {:operation :rf.warning/placeholder-in-dynamic-vector
+                :op-type :warning
+                :recovery :warned-and-continued}
+               (select-keys warning [:operation :op-type :recovery])))
+        (is (= {:event [::runtime-vector :rf.ui/value]
+                :placeholder :rf.ui/value
+                :reason (str "placeholder keywords splice only in literal "
+                             "compiled event vectors; this runtime vector "
+                             "dispatches the keyword as ordinary data")
+                :view-id ::dynamic-handler-probe
+                :site-id (:sid site)
+                :source-coord (:source-coord site)
+                :occurrence-path (:path site)}
+               (select-keys
+                (:tags warning)
+                [:event :placeholder :reason :view-id :site-id
+                 :source-coord :occurrence-path]))
+            "the warning envelope matches the Spec 009 catalogue exactly"))
       (finally
         (trace/unregister-listener! key)))))
+
+(deftest unmarked-dynamic-function-ref-is-rejected-without-invocation
+  (let [called (atom 0)
+        owner  (events/make-owner ::passive-ref-explicitness-probe)
+        callback-ref (fn [_node] (swap! called inc))
+        error (try
+                (events/with-capture
+                 owner ::test-frame
+                 #((current-render ::passive-ref-explicitness-probe)
+                   (js-obj "authored-ref" callback-ref)))
+                nil
+                (catch :default e e))]
+    (is (= :rf.error/ui-tree-malformed (:rf.error/id (ex-data error))))
+    (is (= :unmarked-callback-ref (:kind (ex-data error))))
+    (is (zero? @called)
+        "the rejected unmarked function is never invoked as a callback ref")))
 
 ;; ---------------------------------------------------------------------------
 ;; The ruled rf= memo comparator

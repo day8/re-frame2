@@ -11,6 +11,7 @@
     child-view {:fqn 'app.views/child-view
                 :meta {:rf.ui/view true :rf.ui/children? true}}
     ForeignComp {:fqn 'app.interop/ForeignComp :meta {}}
+    raw-fn {:fqn 're-frame.ui/raw-fn :meta {}}
     nil))
 
 (defn- emitted [form]
@@ -123,7 +124,7 @@
 
 (deftest passive-handler-maps-lower-to-one-native-ref-not-a-react-handler
   (let [form (emitted
-              '[:button {:ref authored-ref
+              '[:button {:ref (raw-fn authored-ref)
                          :on-wheel {:event [:scroll/tick]
                                     :passive true
                                     :capture true
@@ -136,6 +137,56 @@
         "the passive site never also installs React's synthetic handler")
     (is (some #{'authored-ref} (forms-of form))
         "the authored object/callback ref is carried into the composition")))
+
+(deftest passive-lowering-preserves-ref-explicitness-and-host-event-spelling
+  (let [unmarked (emitted
+                  '[:button {:ref authored-ref
+                             :on-wheel {:event [:scroll/tick]
+                                        :passive true}}])
+        explicit (emitted
+                  '[:button {:ref (raw-fn authored-ref)
+                             :on-wheel {:event [:scroll/tick]
+                                        :passive true}}])
+        dom-event (emitted
+                   '[:div {:on-key-down {:event [:key/down]
+                                         :passive true}}])
+        custom-event (emitted
+                      '[:rf-probe {:on-my-event {:event [:probe/fired]
+                                                 :passive true}}])]
+    (is (some #{'re-frame.ui.runtime/assert-object-ref!} (forms-of unmarked))
+        "an unmarked dynamic ref is guarded as an object-ref position")
+    (is (not-any? #{'re-frame.ui.runtime/assert-object-ref!}
+                  (forms-of explicit))
+        "ui/raw-fn is the explicit callback-ref capability")
+    (is (= 1 (count (filter #{'authored-ref} (forms-of unmarked))))
+        "the guarded dynamic ref expression is evaluated once")
+    (is (str/includes? (pr-str dom-event) "\"keydown\"")
+        "native DOM event spelling retains the standard normalization")
+    (is (str/includes? (pr-str custom-event) "\"my-event\"")
+        "custom-element event tails are verbatim")
+    (is (not (str/includes? (pr-str custom-event) "\"myevent\"")))))
+
+(deftest keyed-passive-ownership-carries-the-once-bound-row-key
+  (let [key-expr '(:id row)
+        form (emitted
+              '(for [row rows]
+                 [:button {:key (:id row)
+                           :on-click {:event [:row/click]
+                                      :passive true}}
+                  "row"]))
+        passive-call (first (filter #(and (seq? %)
+                                          (= 're-frame.ui.events/passive-ref
+                                             (first %)))
+                                    (forms-of form)))
+        occurrence-path (nth passive-call 3)
+        row-key-sym (first occurrence-path)]
+    (is (= 1 (count (filter #{key-expr} (forms-of form))))
+        "the authored row key expression is evaluated once")
+    (is (= 1 (count occurrence-path))
+        "the native-ref owner receives the enclosing keyed occurrence")
+    (is (symbol? row-key-sym))
+    (is (> (count (filter #{row-key-sym} (forms-of form))) 2)
+        "one binding feeds duplicate checking, React key, and passive ownership")))
 
 (deftest prototype-setter-key-is-computed-on-every-literal-props-surface
   (doseq [[surface form]

@@ -121,24 +121,28 @@ function emittedJsGolden() {
   //           generic form, whose value carries commas).
   //   GENERIC (`v/todo-row-generic-class`): className is the generic
   //           `classes-str` vector/join over the `["todo-item", class-val(...)]`
-  //           vector (`jsxs("li",{className:CLASSES_STR(new VEC(...,
-  //           ["todo-item",CLASS_VAL(...)]...))`). The `["todo-item",` array
-  //           literal head survives Closure renaming and IS the discriminator:
-  //           a specialized view can never emit it. The jsx callee itself is
-  //           incidental — Closure may spell it `(0,module.jsxs)(...)` OR alias
-  //           the module property to a bare local (`f(...)`) when the enclosing
-  //           function (here the render-events thunk carrying `class-val`'s type
-  //           dispatch) trips its aliasing heuristic. Both are direct calls (the
-  //           IFn-fallback trap above already forbids protocol dispatch), so the
-  //           prefix admits either spelling; the load-bearing assertion is the
-  //           `className:CLASSES_STR(new VEC(...["todo-item",` head. The mutation
-  //           control benches THIS emit, so a class-property specialization
-  //           regressing to generic lowering (or the control view being swapped
-  //           back to the specialized shape) moves this count and the runtime
-  //           red control together.
+  //           vector (`JSXS("li",{className:CLASSES_STR(new VEC(...,
+  //           ["todo-item",CLASS_VAL(...)]...)),"data-priority":...`). The
+  //           `["todo-item",` array literal head survives Closure renaming and
+  //           IS the discriminator: a specialized view can never emit it. The
+  //           jsx callee itself is incidental — Closure may spell it
+  //           `(0,module.jsxs)(...)` OR alias the module property to a bare
+  //           local (`f(...)`) when the enclosing function (here the
+  //           render-events thunk carrying `class-val`'s type dispatch) trips
+  //           its aliasing heuristic. Both are direct calls (the IFn-fallback
+  //           trap above already forbids protocol dispatch), so the prefix
+  //           admits either spelling. Because the bare-local branch is by
+  //           itself loose, the tail re-anchors on the `,"data-priority":`
+  //           prop that closes this element's props literal — so the
+  //           load-bearing assertion is the whole
+  //           `className:CLASSES_STR(new VEC(...["todo-item",...)),"data-priority":`
+  //           shape, not the callee. The mutation control benches THIS emit, so
+  //           a class-property specialization regressing to generic lowering (or
+  //           the control view being swapped back to the specialized shape)
+  //           moves this count and the runtime red control together.
   const todoGenericClassLowering = countMatches(
     src,
-    /(?:\(0,[$\w]+(?:\.[$\w]+)*\.jsxs\)|[$\w]+)\("li",\{className:[$\w]+\(new [$\w.]+\([\w,.$]*\["todo-item",/g,
+    /(?:\(0,[$\w]+(?:\.[$\w]+)*\.jsxs\)|[$\w]+)\("li",\{className:[$\w]+\(new [$\w.]+\([^)]*\["todo-item",[^)]*\)\),"data-priority":/g,
   );
 
   const MIN_DIRECT = 10;

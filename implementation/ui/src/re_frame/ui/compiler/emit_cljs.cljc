@@ -21,6 +21,11 @@
 
 (def ^:private props-sym 'rf-ui-props)
 
+;; Compiler-local stack of the runtime keys for enclosing keyed rows. It is
+;; carried only into native passive-ref ownership; capture-free data handlers
+;; deliberately keep their one shared lexical callback (Spec 004 §Loops).
+(def ^:dynamic *row-key-forms* [])
+
 (defn- new-state [view-name]
   (atom {:defs [] :n 0 :sub-queries {}
          :view-name (name view-name)}))
@@ -122,18 +127,35 @@
 
 (defn- native-event-name
   "Literal :on-* spelling -> the browser addEventListener event type.  Native
-  event types are the hyphen-collapsed author spelling except dblclick."
-  [handler-name]
-  (case handler-name
-    "on-double-click" "dblclick"
-    (str/replace (subs handler-name 3) "-" "")))
+  DOM event types are the hyphen-collapsed author spelling except dblclick;
+  custom-element event tails are their verbatim author spelling."
+  [handler-name custom?]
+  (if custom?
+    (subs handler-name 3)
+    (case handler-name
+      "on-double-click" "dblclick"
+      (str/replace (subs handler-name 3) "-" ""))))
 
 (defn- passive-listener-spec
-  [h]
+  [h custom?]
   `[~(site-key-form h)
-    ~(native-event-name (:name h))
+    ~(native-event-name (:name h) custom?)
     ~(handler-form h)
     ~(:capture? h)])
+
+(defn- emitted-ref-form
+  "Preserve the explicit callback-ref marker. Unmarked dynamic values are
+  object-ref positions; the dev guard rejects a function without invoking it.
+  The branch and single-evaluation carrier disappear under :advanced."
+  [{:keys [form raw-fn?] :as ref-a}]
+  (when ref-a
+    (if raw-fn?
+      form
+      (let [ref-value (gensym "rf-ui-ref")]
+        `(let [~ref-value ~form]
+           (when ~(with-meta 'js/goog.DEBUG {:tag 'boolean})
+             (re-frame.ui.runtime/assert-object-ref! ~ref-value))
+           ~ref-value)))))
 
 ;; ---------------------------------------------------------------------------
 ;; Element props
@@ -214,14 +236,17 @@
                   [{:name "style"
                     :form (style-form st (:style props) inner-inline?)
                     :static? (:static? (:style props))}])
+        authored-ref-form (emitted-ref-form (:ref props))
         ref-form (cond
                    (seq passive-events)
                    `(re-frame.ui.events/passive-ref
-                     [~@(map passive-listener-spec passive-events)]
-                     ~(:form (:ref props)))
+                     [~@(map #(passive-listener-spec % (:custom? node))
+                             passive-events)]
+                     ~authored-ref-form
+                     ~(when (seq *row-key-forms*) (vec *row-key-forms*)))
 
                    (:ref props)
-                   (:form (:ref props)))
+                   authored-ref-form)
         ref-p   (when ref-form
                   [{:name "ref" :form ref-form :static? false}])
         html-p  (when (:html node)
@@ -354,19 +379,31 @@
 (defn- row-key-expr [body]
   (or (get-in body [:props :key :expr]) (get-in body [:key :expr])))
 
+(defn- replace-row-key-expr
+  "Use the once-bound row key for the body root's React key. The analyzer has
+  already restricted a for body to an element/view/foreign/fragment."
+  [body key-form]
+  (if (= :fragment (:op body))
+    (assoc-in body [:key :expr] key-form)
+    (assoc-in body [:props :key :expr] key-form)))
+
 (defn- emit-for [node st]
   (let [arr  (gensym "rf-ui-arr")
         seen (gensym "rf-ui-seen")
-        row  (emit-node (:body node) st false)
-        kexpr (row-key-expr (:body node))]
+        row-key (gensym "rf-ui-row-key")
+        kexpr (row-key-expr (:body node))
+        row  (binding [*row-key-forms* (conj *row-key-forms* row-key)]
+               (emit-node (replace-row-key-expr (:body node) row-key)
+                          st false))]
     `(let [~arr (cljs.core/array)
            ~seen (cljs.core/js-obj)]
        (doseq [~@(:seq-exprs node)]
-         ;; dev-only duplicate-key check; key exprs are pure — the
-         ;; double evaluation exists in dev builds only
-         (when ~(with-meta 'js/goog.DEBUG {:tag 'boolean})
-           (re-frame.ui.runtime/check-key! ~seen ~kexpr))
-         (.push ~arr ~row))
+         ;; Bind once: React identity, duplicate checking, and passive native
+         ;; attachment ownership must all name the exact same occurrence.
+         (let [~row-key ~kexpr]
+           (when ~(with-meta 'js/goog.DEBUG {:tag 'boolean})
+             (re-frame.ui.runtime/check-key! ~seen ~row-key))
+           (.push ~arr ~row)))
        ~arr)))
 
 (defn- emit-frame-root
