@@ -124,14 +124,15 @@ A whole form is fields over app-db — one event, one sub, every field:
    [:button "Sign up"]])
 ```
 
-Every field is inspectable, replayable, and headlessly testable:
+Every field is inspectable, replayable, and headlessly testable after installing the
+[test namespace fixture](08-testing.md#test-namespace-setup):
 
 ```clojure
 (deftest plan-select-carries-intent
-  (let [frame (rf/make-frame {:initial-events [[:signup/init]]})
-        tree  (ui.test/render [signup-form] {:frame frame})]
-    (is (= [:signup/set :plan :rf.ui/value]
-           (-> tree (ui.test/find :select) ui.test/attrs :on-change)))))
+  (rf/with-new-frame [frame (rf/make-frame {:initial-events [[:signup/init]]})]
+    (let [tree (ui.test/render [signup-form] {:frame frame})]
+      (is (= [:signup/set :plan :rf.ui/value]
+             (-> tree (ui.test/find :select) ui.test/attrs :on-change))))))
 ```
 
 **When the door applies.** The compiler proves an element controlled by seeing a

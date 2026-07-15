@@ -91,30 +91,33 @@ invariant: **I/O ends in events**, and events are the only writers.
 
 ## Testing the seam without a network
 
-Headless tests never need a real HTTP client. Seed the state the resource would have
-produced, or dispatch the arrival event yourself:
+Headless tests never need a real HTTP client. Install the shared
+[test namespace fixture](08-testing.md#test-namespace-setup), then seed the state the
+resource would have produced or dispatch the arrival event yourself:
 
 ```clojure
 (deftest latency-tile-shows-loaded-value
-  (let [frame (rf/make-frame
-               {:initial-events
-                [[:rf/set-db
-                  ;; shape depends on how your resource sub projects status/data;
-                  ;; prefer dispatching your real :metrics/latency-arrived when possible
-                  {}]]})
-        ;; Prefer: drive through the real event
-        _     (ui.test/dispatch! frame [:metrics/latency-arrived {:p95 42}])
-        tree  (ui.test/render [latency-tile] {:frame frame})]
-    (is (str/includes? (ui.test/text tree) "42"))))
+  (rf/with-new-frame
+    [frame (rf/make-frame
+             {:initial-events
+              [[:rf/set-db
+                ;; shape depends on how your resource sub projects status/data;
+                ;; prefer dispatching your real :metrics/latency-arrived when possible
+                {}]]})]
+    ;; Prefer: drive through the real event
+    (ui.test/dispatch! frame [:metrics/latency-arrived {:p95 42}])
+    (let [tree (ui.test/render [latency-tile] {:frame frame})]
+      (is (str/includes? (ui.test/text tree) "42")))))
 ```
 
 Or stub the resource sub for a pure presentation check:
 
 ```clojure
-(ui.test/render [latency-tile]
-  {:frame frame
-   :sub-overrides {[:rf/resource {:resource :metrics/latency-feed}]
-                   {:status :loaded :data {:p95 42}}}})
+(rf/with-new-frame [frame (rf/make-frame {})]
+  (ui.test/render [latency-tile]
+    {:frame frame
+     :sub-overrides {[:rf/resource {:resource :metrics/latency-feed}]
+                     {:status :loaded :data {:p95 42}}}}))
 ```
 
 Assert the retry button's intent as data when status is `:error` — same Tier-1 move

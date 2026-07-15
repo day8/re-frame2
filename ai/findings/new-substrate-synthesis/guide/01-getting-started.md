@@ -13,8 +13,9 @@ views, state, events, frames, then a real dashboard.
         day8/re-frame2-ui {…}}}
 ```
 
-`package.json` carries `react` and `react-dom` — nothing else. No Reagent, no UIx, no
-Helix.
+`package.json` carries `react` and `react-dom` — nothing else. `re-frame.ui` is the
+default and the only view surface this guide teaches. Stock Reagent and UIx remain
+optional, frozen compatibility adapters; Helix and slim are deleted.
 
 The browser/runtime must provide the standard JavaScript `WeakRef` constructor (all
 current evergreen browsers and supported modern Node runtimes do). re-frame.ui probes
@@ -106,7 +107,8 @@ the mounted view. Author one when a page mounts the same view twice, or for hydr
 ## A first test
 
 The rendered tree is data and the button's handler is a vector, so your first test
-needs no DOM and no browser — it runs on the JVM in your watch loop.
+needs no DOM and no browser — it runs on the JVM in your watch loop. First install the
+small per-test adapter/reset fixture from [08 — Test namespace setup](08-testing.md#test-namespace-setup).
 
 ```clojure
 (ns my.app-test
@@ -116,10 +118,10 @@ needs no DOM and no browser — it runs on the JVM in your watch loop.
             [my.app :as app]))
 
 (deftest counter-carries-intent
-  (let [frame (rf/make-frame {:initial-events [[:rf/set-db {:count 3}]]})
-        tree  (ui.test/render [app/counter] {:frame frame})]
-    (is (= [:count/inc] (-> tree (ui.test/find :button) ui.test/attrs :on-click)))
-    (is (= "+"          (-> tree (ui.test/find :button) ui.test/text)))))
+  (rf/with-new-frame [frame (rf/make-frame {:initial-events [[:rf/set-db {:count 3}]]})]
+    (let [tree (ui.test/render [app/counter] {:frame frame})]
+      (is (= [:count/inc] (-> tree (ui.test/find :button) ui.test/attrs :on-click)))
+      (is (= "+"          (-> tree (ui.test/find :button) ui.test/text))))))
 ```
 
 Two ground rules:
@@ -128,8 +130,9 @@ Two ground rules:
 - Attribute reads go through `ui.test/attrs`, never keyword lookup on the node.
 
 There is no test-only frame constructor: `rf/make-frame` with `:initial-events` is how
-every frame begins. `[:rf/set-db {…}]` seeds a specific starting state when a test
-wants one. Full testing story: [08](08-testing.md).
+every frame begins. `rf/with-new-frame` binds that caller-owned frame and destroys it
+on every synchronous exit. `[:rf/set-db {…}]` seeds a specific starting state when a
+test wants one. Full testing story: [08](08-testing.md).
 
 ## Hot reload
 

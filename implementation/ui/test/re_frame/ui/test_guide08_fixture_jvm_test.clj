@@ -1,5 +1,5 @@
-(ns re-frame.ui.test-guide09-fixture-jvm-test
-  "Guide 09 §Tier 1 examples as fixtures (07 §7: every guide example
+(ns re-frame.ui.test-guide08-fixture-jvm-test
+  "Guide 08 §Tier 1 examples as fixtures (07 §7: every guide example
   compiles and runs as a fixture; an example needing internals explained
   is an API defect). The code block + the prose one-liners lift with the
   2026-07-12 respelling — the intent assertion reads through the
@@ -22,13 +22,26 @@
   track the exact per-chapter coverage)."
   (:require [clojure.test :refer [deftest is use-fixtures]]
             [re-frame.core :as rf]
+            [re-frame.frame :as frame]
             [re-frame.substrate.plain-atom :as plain-atom]
             [re-frame.test-support :as test-support]
             [re-frame.ui :refer [defview sub]]
             [re-frame.ui.test :as uit]))
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
+  (test-support/make-reset-runtime-fixture {:adapter plain-atom/adapter
+                                            :ambient-frame nil}))
+
+(defn- runtime-footprint
+  "The live-frame and per-frame sub-cache baseline guarded by the copied recipe."
+  []
+  (into {}
+        (map (fn [frame-id]
+               [frame-id
+                (if-let [sub-cache (:sub-cache (frame/frame frame-id))]
+                  (set (keys @sub-cache))
+                  #{})]))
+        (frame/frame-ids)))
 
 ;; ---------------------------------------------------------------------------
 ;; Fixture app surface — .cljc-honest (the guide's own Tier-1 ground rule):
@@ -71,11 +84,15 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest add-button-carries-intent
-  (let [frame (rf/make-frame {:initial-events [[:rf/set-db {:cart #{} :catalog fixture-catalog}]]})
-        tree  (uit/render [product-card {:product (product 42)}]
-                          {:frame frame})]
-    (is (= [:cart/add 42] (-> tree (uit/find :button) uit/attrs :on-click)))
-    (is (= "Add to cart"  (-> tree (uit/find :button) uit/text)))))
+  (let [baseline (runtime-footprint)]
+    (rf/with-new-frame
+      [frame (rf/make-frame {:initial-events [[:rf/set-db {:cart #{} :catalog fixture-catalog}]]})]
+      (let [tree (uit/render [product-card {:product (product 42)}]
+                             {:frame frame})]
+        (is (= [:cart/add 42] (-> tree (uit/find :button) uit/attrs :on-click)))
+        (is (= "Add to cart"  (-> tree (uit/find :button) uit/text)))))
+    (is (= baseline (runtime-footprint))
+        "the copied with-new-frame form restores the live-frame/cache baseline")))
 
 ;; "Assert structure and intent, not pixels: … because handlers are event
 ;; vectors, 'what does this button do' is an equality check."
@@ -90,7 +107,8 @@
 ;; included, runs on main today."
 (deftest drive-state-through-the-real-sub
   (reg-cart!)
-  (let [frame (rf/make-frame {:initial-events [[:rf/set-db {:cart #{} :catalog fixture-catalog}]]})]
+  (rf/with-new-frame
+    [frame (rf/make-frame {:initial-events [[:rf/set-db {:cart #{} :catalog fixture-catalog}]]})]
     ;; before: the sub reads an empty cart → the button offers Add
     (is (= "Add to cart"
            (-> (uit/render [toggle-card {:product (product 42)}] {:frame frame})
@@ -110,20 +128,43 @@
 ;; membership directly (no dispatch); the sub-reading view renders against it.
 (deftest seeded-membership-renders-without-a-dispatch
   (reg-cart!)
-  (let [frame (rf/make-frame {:initial-events [[:rf/set-db {:cart #{42} :catalog fixture-catalog}]]})
-        tree  (uit/render [toggle-card {:product (product 42)}] {:frame frame})]
-    (is (= "Remove" (-> tree (uit/find :button) uit/text))
-        "install a state, render against it — the (sub …) reads the seeded
-         cart with no mocking layer and no dispatch")))
+  (rf/with-new-frame
+    [frame (rf/make-frame {:initial-events [[:rf/set-db {:cart #{42} :catalog fixture-catalog}]]})]
+    (let [tree (uit/render [toggle-card {:product (product 42)}] {:frame frame})]
+      (is (= "Remove" (-> tree (uit/find :button) uit/text))
+          "install a state, render against it — the (sub …) reads the seeded
+           cart with no mocking layer and no dispatch"))))
 
 ;; "Stubbing a sub is the explicit option:
 ;;  (ui.test/render [view] {:frame frame :sub-overrides {[:cart/locked?] true}})."
 (deftest stubbing-a-sub-is-the-explicit-option
   (reg-cart!)
-  (let [frame (rf/make-frame {:initial-events [[:rf/set-db {:cart #{} :catalog fixture-catalog}]]})
-        tree  (uit/render [toggle-card {:product (product 42)}]
-                          {:frame frame
-                           :sub-overrides {[:cart/contains? 42] true}})]
-    (is (= "Remove" (-> tree (uit/find :button) uit/text))
-        "the override door pins the membership read — the button reads Remove
-         over an empty real cart, the read never touching app-db")))
+  (rf/with-new-frame
+    [frame (rf/make-frame {:initial-events [[:rf/set-db {:cart #{} :catalog fixture-catalog}]]})]
+    (let [tree (uit/render [toggle-card {:product (product 42)}]
+                           {:frame frame
+                            :sub-overrides {[:cart/contains? 42] true}})]
+      (is (= "Remove" (-> tree (uit/find :button) uit/text))
+          "the override door pins the membership read — the button reads Remove
+           over an empty real cart, the read never touching app-db"))))
+
+(deftest caller-owned-frame-releases-live-frame-and-sub-cache-after-throw
+  (reg-cart!)
+  (let [baseline (runtime-footprint)
+        failure  (try
+                   (rf/with-new-frame
+                     [owned (rf/make-frame
+                              {:initial-events [[:rf/set-db {:cart #{42}}]]})]
+                     ;; Deliberately retain a subscription pin. destroy-frame! must
+                     ;; release both this cache entry and the anonymous frame.
+                     (rf/subscribe [:cart/contains? 42] {:frame owned})
+                     (let [during (runtime-footprint)]
+                       (is (not= baseline during) "the owned frame is live in the body")
+                       (is (some #(contains? % [:cart/contains? 42]) (vals during))
+                           "the body materialised a real per-frame sub-cache entry"))
+                     (throw (ex-info "guide body failed" {:kind ::guide-body})))
+                   (catch Exception error
+                     (:kind (ex-data error))))]
+    (is (= ::guide-body failure) "the body's failure remains primary")
+    (is (= baseline (runtime-footprint))
+        "throw cleanup restores both live-frame and subscription-cache state")))
