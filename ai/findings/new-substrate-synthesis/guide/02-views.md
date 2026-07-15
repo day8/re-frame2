@@ -97,9 +97,9 @@ prop slot — React.memo, except CLJS data compares by value:
 | Host values (plain JS objects, arrays, fns, React elements) | by identity |
 
 Two honest consequences of the host row: a raw fn in props "re-renders with the
-parent" (the dev heatmap points at it if it matters), and an in-place-mutated JS
-object never repaints — mutable foreign values belong at an explicit interop
-boundary, not in props.
+parent" (the S3 cause vector on its existing Xray Views row points at that identity
+change), and an in-place-mutated JS object never repaints — mutable foreign values
+belong at an explicit interop boundary, not in props.
 
 Because handlers are usually vectors and children are realised, comparison stays
 honest by default.

@@ -48,7 +48,7 @@ Chapters 08–14 are depth: open them when you need them. Chapter 14 is the
 | 10 | [Performance](10-performance.md) | What you never write; the little you do |
 | 11 | [Server rendering](11-ssr.md) | Same views on the JVM; roots and hydration |
 | 12 | [How it works](12-how-it-works.md) | Optional mechanism (why the claims hold) |
-| 13 | [From other worlds](13-from-other-worlds.md) | React / UIx / Helix / Reagent translation |
+| 13 | [From other worlds](13-from-other-worlds.md) | React / UIx / Reagent translation |
 | 14 | [What the compiler forbids](14-compile-time-limits.md) | Closed grammar: walls, fixes, escapes |
 
 **Coming from Reagent?** Hiccup mostly transfers. The big habit change is **events as
@@ -57,7 +57,7 @@ vectors** and **`(sub …)` without deref** — read [04](04-events.md) carefull
 compiler: `reg-view` registers and injects frame locals; `defview` lowers templates —
 [13 §From Reagent](13-from-other-worlds.md) spells out the difference.
 
-**Coming from React / UIx / Helix?** You will not write hooks, deps arrays, or
+**Coming from React / UIx?** You will not write hooks, deps arrays, or
 `memo` wrappers in ordinary views. Start at [01](01-getting-started.md), then use
 [13](13-from-other-worlds.md) as a map whenever a reflex reaches for a hook.
 
@@ -93,5 +93,4 @@ on the fence itself.
 | app-db, the event pipeline | [introduction](../../../../docs/core/introduction.md), [app-db](../../../../docs/core/app-db.md) |
 | `reg-sub`, derivation graphs | [subscriptions](../../../../docs/core/subscriptions.md) |
 | `reg-event`, fx | [effects](../../../../docs/core/effects.md) |
-| Frame isolation (dataflow side) | [frames](../../../../docs/core/frames.md) |
 | Handler/sub unit tests | [testing](../../../../docs/core/testing/index.md) |

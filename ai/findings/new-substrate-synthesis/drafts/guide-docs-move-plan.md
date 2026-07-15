@@ -1,7 +1,7 @@
 # DRAFT — Guide → docs move plan (S6, W2/W3): landing shape, transforms, PR sequencing
 
 > **Status: DRAFT · 2026-07-12 · re-based 2026-07-13.** The concrete migration plan for
-> moving the re-frame.ui user guide (11 files, ⟨guide/⟩ — completeness + correctness
+> moving the re-frame.ui user guide (15 files: index + 14 chapters, ⟨guide/⟩ — completeness + correctness
 > passed 2026-07-12) out of the synthesis tree into the repo's human-facing docs at S6,
 > per ⟨11 W2/W3⟩ and ⟨12 §3 S6 epic⟩. Note the tree's tracking state: the synthesis
 > subtree has been **force-tracked in git since #5800** (the surrounding `ai/` tree
@@ -36,12 +36,12 @@
    `serialisable` — uniform across docs/core, verified by grep); no bead ids or ruling
    dates in prose — "pages state current truth" ⟨docs/core/AUTHORING.md §§2, Callouts,
    Honesty; docs/core grep 2026-07-12⟩.
-5. **The pages as they stand.** All markdown links are intra-guide same-directory
-   relative links (`[02](02-views.md)` etc. — zero links out of `guide/`, verified);
-   one prose reference points outside ("design rationale lives one directory up",
-   ⟨guide/README ¶1⟩); ~18 inline stage markers + 8 stage notes (correctness-pass
-   re-census — the completeness pass added chapter-top notes) + the README
-   stage-honesty paragraph; the **five mandatory `;; guide:no-fixture` markers** exist
+5. **The pages as they stand.** Chapter links are same-directory relative links
+   (`[02](02-views.md)` etc.). README, 07, and 08 also link to `docs/core` through
+   `../../../../docs/core/...`; §2.1 records the required `../core/...` relocation
+   transform. One prose reference points outside ("design rationale lives one
+   directory up", ⟨guide/README ¶1⟩); inline stage markers + stage notes and the README
+   stage-honesty paragraph remain; the **seven mandatory `;; guide:no-fixture` markers** exist
    on the pages (added 2026-07-13 with the stage-truth reconciliation — the §2.4 set);
    zero images ⟨guide/ greps 2026-07-12/13⟩.
 
@@ -52,14 +52,14 @@ Core and API.** Not folded into `docs/core/`.
 
 Why a tab, not Core integration:
 
-- **During S6 both worlds coexist.** Core's view surfaces (views.md, frames.md, the
-  introduction counter, the how-tos) teach `reg-view` — the tier that is *shipping and
-  supported* until S7. Folding `defview` pages into Core mid-stage would force every
-  Core page to disambiguate two view APIs while one of them is still the default.
+- **During S6 both worlds coexist.** `re-frame.ui` is the default and the only view
+  surface taught. Core's not-yet-rewritten view pages still describe `reg-view` as a
+  frozen compatibility surface, not a parity target. Folding `defview` pages into Core
+  before that downstream rewrite would mix the canonical and compatibility lessons.
   A separate tab keeps both corpora truthful for the whole transition window.
 - **The house pattern.** Cohesive sub-domains earn their own tab (Machines, Resources,
   Routing, SSR, Story, Xray) rather than piling into an existing one; the guide is a
-  coherent 10-chapter learning track with its own index — the same shape as the Story
+  coherent 14-chapter learning track with its own index — the same shape as the Story
   and Xray tabs ⟨mkdocs.yml nav; standing tab-per-sub-domain ruling⟩.
 - **Post-S7 end state.** After the freeze/deletion wave (W13), `re-frame.ui` IS the
   optimized/default/only taught views layer; stock Reagent and UIx remain frozen
@@ -79,7 +79,8 @@ Why a tab, not Core integration:
     `docs/ui/migration.md`.
   - `docs/core/how-to/use-uix-helix-or-slim.md` — **deleted** (nav row removed; link
     sweep; no redirects plugin is installed, so inbound links must be swept in the
-    same PR) ⟨11 W3 names the deletion explicitly⟩.
+    same PR). Helix/slim are deleted; stock UIx remains a frozen compatibility adapter,
+    but it is not a parallel tutorial or parity target ⟨11 W3 names the deletion explicitly⟩.
   - `docs/core/how-to/boot-and-mount-an-app.md`, `build-a-form.md`,
     `fix-a-slow-view.md`, `keep-secrets-out-of-traces.md`, `introduction.md`,
     `frames.md`, `glossary.md`, `docs/core/testing/views.md` — re-taught over the new
@@ -91,12 +92,26 @@ Why a tab, not Core integration:
     remains in the Reagent-specific 004A when it promotes at S7
     ⟨drafts/spec-004A-reagent-compat-appendix.md status⟩.
 
-**File mapping** (11 guide files + the migration doc, §4):
+**File mapping** (15 guide files + the migration doc, §4). The chapter order is the
+README's numeric learning order, 01 through 14:
 
 | Source (ai tree) | Lands as |
 |---|---|
 | `guide/README.md` | `docs/ui/index.md` (navigation.indexes: this IS the "UI" tab label/landing) |
-| `guide/01-getting-started.md` … `guide/10-worked-app.md` | `docs/ui/01-getting-started.md` … `docs/ui/10-worked-app.md` (names unchanged) |
+| `guide/01-getting-started.md` | `docs/ui/01-getting-started.md` |
+| `guide/02-views.md` | `docs/ui/02-views.md` |
+| `guide/03-state.md` | `docs/ui/03-state.md` |
+| `guide/04-events.md` | `docs/ui/04-events.md` |
+| `guide/05-frames.md` | `docs/ui/05-frames.md` |
+| `guide/06-worked-app.md` | `docs/ui/06-worked-app.md` |
+| `guide/07-servers.md` | `docs/ui/07-servers.md` |
+| `guide/08-testing.md` | `docs/ui/08-testing.md` |
+| `guide/09-debugging.md` | `docs/ui/09-debugging.md` |
+| `guide/10-performance.md` | `docs/ui/10-performance.md` |
+| `guide/11-ssr.md` | `docs/ui/11-ssr.md` |
+| `guide/12-how-it-works.md` | `docs/ui/12-how-it-works.md` |
+| `guide/13-from-other-worlds.md` | `docs/ui/13-from-other-worlds.md` |
+| `guide/14-compile-time-limits.md` | `docs/ui/14-compile-time-limits.md` |
 | `10-migration-from-reagent.md` (suite doc, one directory up) | `docs/ui/migration.md` (unnumbered — resolves the "10" collision, §4) |
 
 **mkdocs.yml nav diff sketch** (inserted after the Core block, before API; labels
@@ -111,11 +126,15 @@ follow the Story/Xray "N. Title" convention):
     - "3. State": ui/03-state.md
     - "4. Events": ui/04-events.md
     - "5. Frames": ui/05-frames.md
-    - "6. Debugging": ui/06-debugging.md
-    - "7. Performance": ui/07-performance.md
-    - "8. Server rendering": ui/08-ssr.md
-    - "9. Testing": ui/09-testing.md
-    - "10. A worked app": ui/10-worked-app.md
+    - "6. A worked app": ui/06-worked-app.md
+    - "7. Talking to servers": ui/07-servers.md
+    - "8. Testing": ui/08-testing.md
+    - "9. Debugging": ui/09-debugging.md
+    - "10. Performance": ui/10-performance.md
+    - "11. Server rendering": ui/11-ssr.md
+    - "12. How it works": ui/12-how-it-works.md
+    - "13. From other worlds": ui/13-from-other-worlds.md
+    - "14. What the compiler forbids": ui/14-compile-time-limits.md
     - "Migrating from Reagent": ui/migration.md
 ```
 
@@ -136,39 +155,53 @@ input. Every transform below happens in it, once.
 | Reference | Fate |
 |---|---|
 | Intra-guide chapter links (`[02](02-views.md)` — ~30 sites, all same-dir relative) | **Keep unchanged**; README→index rename doesn't affect them (no chapter links back to README) |
+| Current `../../../../docs/core/...` links in README, 07, and 08 | **Rewrite every target to `../core/...`.** From `docs/ui/<page>.md`, that resolves inside `docs/core`; retaining the source-tree prefix would escape the repository. Exact target census follows below. |
 | ⟨guide/README ¶1⟩ "design rationale lives one directory up" | **Remove the clause.** The synthesis suite does not move; docs never link `spec/` ⟨AUTHORING §2⟩. The sentence becomes "This guide teaches the library as a user." |
-| ⟨guide/README ¶1⟩ the fixture-coverage statement | **Update to the move-time truth.** Since 2026-07-13 the README states exact coverage (guide 09's fixture today, growing per stage); by S6 all S1–S5 chapters are active per the stage forcer, so the sentence becomes the full every-example promise. The "except fences marked `guide:no-fixture`" amendment lands with the extractor PR, not the move ⟨guide-fixture-pipeline §2 README amendment⟩ |
+| ⟨guide/README ¶1⟩ the fixture-coverage statement | **Update to the move-time truth.** Since 2026-07-13 the README states exact coverage (Guide 08's Tier-1 fixture today, growing per stage); by S6 all S1–S5 chapters are active per the stage forcer, so the sentence becomes the full every-example promise. The "except fences marked `guide:no-fixture`" amendment lands with the extractor PR, not the move ⟨guide-fixture-pipeline §2 README amendment⟩ |
 | ⟨10-migration doc⟩ links to `drafts/reagent-compat-boundary.md` (×3) | **Replace with inline prose.** The draft doesn't move; its Reagent normative content promotes spec-side (004A at S7), and docs never link `spec/`. The page inlines only what the reader needs: the three React-interoperability granularities, ownership/teardown one-liners, and the load-bearing rule that every root/subtree uses the process's one boot-selected adapter. The interop doors never select a second adapter. |
-| ⟨10-migration doc⟩ synthesis-suite citations ("08 §2", "12 §2", "02 §3 table", "06 §1", "guide 03") | **Rewrite or drop.** "02 §3 table" → link `04-events.md` (the decision table's guide home); "guide 03" → `03-state.md`; "06 §1 subset check" → `08-ssr.md`; stage-plumbing citations ("08 §2", "12 §2", delta numbers) → **drop** — program management is not reader content |
-| Provenance parentheticals: "Blessed-table verdict; qualifier added 2026-07-12" ⟨guide/02 L73–74⟩, "delta #2, ruled 2026-07-12; 12 §2" ⟨10-migration⟩, "(an Xray addition staged behind its integration review)" ⟨guide/06 L32⟩, the migration doc's **Status:** line | **Strip.** "No bead ids in prose. Pages state current truth" ⟨AUTHORING §Honesty⟩. The *facts* stay (wave-2 status, S7 freeze); the ruling ledger goes |
+| ⟨10-migration doc⟩ synthesis-suite citations ("08 §2", "12 §2", "02 §3 table", "06 §1", "guide 03") | **Rewrite or drop.** "02 §3 table" → link `04-events.md` (the decision table's guide home); "guide 03" → `03-state.md`; "06 §1 subset check" → `11-ssr.md`; stage-plumbing citations ("08 §2", "12 §2", delta numbers) → **drop** — program management is not reader content |
+| Provenance parentheticals: "Blessed-table verdict; qualifier added 2026-07-12" ⟨guide/02 L73–74⟩, "delta #2, ruled 2026-07-12; 12 §2" ⟨10-migration⟩, "(an Xray addition staged behind its integration review)" ⟨guide/09⟩, the migration doc's **Status:** line | **Strip.** "No bead ids in prose. Pages state current truth" ⟨AUTHORING §Honesty⟩. The *facts* stay (wave-2 status, S7 freeze); the ruling ledger goes |
+
+**Exact core-link relocation census:**
+
+| Source site(s) | Source-tree target | `docs/ui` target |
+|---|---|---|
+| README opening + dataflow row | `../../../../docs/core/introduction.md` | `../core/introduction.md` |
+| README dataflow row | `../../../../docs/core/app-db.md` | `../core/app-db.md` |
+| README subscriptions row | `../../../../docs/core/subscriptions.md` | `../core/subscriptions.md` |
+| README effects row + 07 Where next | `../../../../docs/core/effects.md` | `../core/effects.md` |
+| README testing row + 08 Tier 2 | `../../../../docs/core/testing/index.md` | `../core/testing/index.md` |
+| 07 resource registration + Where next | `../../../../docs/core/where-state-lives.md` | `../core/where-state-lives.md` |
+
+The former README "Frame isolation (dataflow side)" row is removed before the move:
+`docs/core/frames.md` currently teaches the frozen Reagent realization and is not a
+substrate-neutral continuation of this guide.
 
 Acceptance grep (§5): no `findings/`, `new-substrate-synthesis`, `drafts/`, `⟨`, or
 `ai/` reference survives anywhere under `docs/ui/`.
 
 ### 2.2 Stage markers: strip shipped, keep genuinely-future
 
-Census at 2026-07-12 (correctness-pass re-count): ~18 inline `*(lands S<N> …)*` markers
-across chapters 02/03/04/06/08/09/10 (+ the README convention example), and **eight**
-stage notes — the 01 §The whole app blockquote, chapter-top italic notes on
-04/05/06/07/08 and 10-worked-app, the 09 §Tier 1 list note — plus the README
-stage-honesty paragraph.
+Derive the move-time census from all 15 current guide files. The present tree carries
+stage markers or notes in chapters 02, 03, 04, 06, and 08–13, plus the README
+stage-honesty convention; re-count at execution rather than relying on the pre-#5894
+chapter numbers.
 
 By the docs-move point in the S6 epic order (migrator → examples → tools' UIs →
 template → **docs/guide + skills** → CI → benchmarks ⟨12 §3 S6⟩), S1–S5 have shipped:
 
-- **Strip every S1–S5 marker and all eight stage notes.** A marker for a shipped stage
-  is noise at best and rot at worst. This includes the mid-sentence variants ("*(a
-  re-render that reads `sub` sites rides S2's snapshot path)*" ⟨guide/09⟩, "*(Dispatch
-  behaviour lands S3.)*" ⟨guide/10-worked-app⟩) — the sentences read correctly with the
-  parenthetical deleted; where one doesn't, reword to present tense.
-- **The two S6 markers** — `->react` *(lands S6)* ⟨guide/02 L144; 10-migration⟩ and
-  Story *(rides the migration wave — S6)* ⟨guide/09 L88⟩ — strip **iff** their owning
+- **Strip every S1–S5 marker and stage note.** A marker for a shipped stage is noise at
+  best and rot at worst. This includes mid-sentence variants in the SSR, mechanism,
+  debugging, and testing depth chapters; delete the parenthetical where the sentence
+  remains grammatical and otherwise reword to present tense.
+- **The S6 markers** — `->react` *(lands S6)* in guides 02 and 13 plus the migration
+  doc, and Story *(rides the migration wave — S6)* in guide 08 — strip **iff** their owning
   S6 beads have merged when the move PR opens (normally yes: W1/W7b precede W2/W3 in
   the epic order). If either hasn't, keep the marker and strip it in that bead's own
   PR. **[S6-CONFIRM]** at dispatch time — check merge state, don't assume.
 - **Wave-2 qualifiers stay, verbatim.** `ui/element` / `ui/view` / `ui/portal` /
-  `re-frame.ui.data/render` remain "wave-2 — does not ship in v1" ⟨guide/02 L73, L146;
-  07 L49; 08 L17⟩. That's the honesty rule ("mark deferred surfaces" ⟨AUTHORING
+  `re-frame.ui.data/render` remain "wave-2 — does not ship in v1" in guides 02, 13,
+  and 14. That's the honesty rule ("mark deferred surfaces" ⟨AUTHORING
   §Honesty⟩), and the pipeline's eligibility check depends on the wave-2 fence carrying
   its no-fixture marker (§2.4).
 - **README stage-honesty paragraph** ⟨guide/README L22–28⟩: rewritten down to one
@@ -192,7 +225,7 @@ template → **docs/guide + skills** → CI → benchmarks ⟨12 §3 S6⟩), S1�
   blockquotes"⟩: the `> **Stage note.**` blockquote (01) and the italic stage notes
   (04–08, 09, 10) are deleted outright by §2.2. Remaining bold-lead asides that survive as content
   convert to `!!! note` (expanded) or `??? note` (optional depth). The index page's
-  "Coming from Reagent?" / "Coming from React / UIx / Helix?" paragraphs stay as prose
+  "Coming from Reagent?" / "Coming from React / UIx?" paragraphs stay as prose
   — they are routing content on an index, not asides. **[S6-CONFIRM]** optionally
   convert them to collapsed `??? info` persona deltas per the house delta-teaching
   pattern; prose is the lighter default.
@@ -201,7 +234,7 @@ template → **docs/guide + skills** → CI → benchmarks ⟨12 §3 S6⟩), S1�
 
 ### 2.4 Fence markers: add the mandatory ones now, freeze the fences
 
-The five mandatory markers are **already on the pages** (added 2026-07-13 with the
+The seven mandatory markers are **already on the pages** (re-censused after #5894), so the
 stage-truth reconciliation), so the extractor PR touches zero pages. The pipeline's
 fence contract makes unmarked elisions and unmarked wave-2 fences an extractor *error*
 ⟨guide-fixture-pipeline §2⟩. **The move PR verifies the census** — any fence added
@@ -210,10 +243,12 @@ since must carry its marker; the set as of 2026-07-13:
 | Fence | Marker |
 |---|---|
 | 01 `deps.edn` stub (`{…}`) | `;; guide:no-fixture — install stub, elided coordinates` |
+| 02 `data/render` | `;; guide:no-fixture — wave-2, does not ship in v1` |
 | 03 conditional-read one-liner (`… ✓`) | `;; guide:no-fixture — illustrative fragment` |
 | 05 `media-bridge` body (`…)`) | `;; guide:no-fixture — illustrative fragment, elided body` |
-| 08 `render-static` call (`{…}`) | `;; guide:no-fixture — illustrative fragment` |
-| 02 `data/render` | `;; guide:no-fixture — wave-2, does not ship in v1` |
+| 09 `re-frame.ui.tool` call | `;; guide:no-fixture — schematic; the ruled fields, lands S3 with the tool namespace` |
+| 11 `render-static` call (`{…}`) | `;; guide:no-fixture — illustrative fragment` |
+| 14 `data/render` | `;; guide:no-fixture — wave-2, does not ship in v1` |
 
 (Exact census per ⟨guide-fixture-pipeline §0 constraint 2⟩; re-count at execution — the
 completeness pass may have changed the set.) Everything else about fence bodies is
@@ -297,26 +332,26 @@ current API so the gates stay green, and future drift protection is free.
 - **The 004A cross-link:** none, deliberately. Docs never link into `spec/`
   ⟨AUTHORING §2⟩, and at S6 the appendix is still a draft (it promotes to
   `spec/004A-Reagent-Compat.md` at S7 ⟨drafts/spec-004A-reagent-compat-appendix.md
-  status⟩). The page states the frozen-tier guarantees **inline** — stock Reagent +
-  the `reg-view` family stay supported, frozen, CI-covered, no sunset promised — which
-  is what a reader needs; the normative cross-link (Spec 004 §Removed forms → 004A)
+  status⟩). The page states the frozen-tier guarantees **inline** — stock Reagent and
+  UIx stay supported as frozen compatibility adapters, with no parity programme and no
+  sunset promised. `re-frame.ui` remains the default and only taught surface. This is
+  what a reader needs; the normative cross-link (Spec 004 §Removed forms → 004A)
   is spec-side W5/W13 work. **[S6-CONFIRM]** only if Mike wants a reader-facing
   exception to the no-spec-links rule here; the default is prose.
 - **Numbering collision resolved by de-numbering the migration page.** The synthesis
-  suite's doc **10** (migration) and guide chapter **10** (worked app) collide only if
-  the migration doc kept its suite number. It doesn't: chapters keep `01`–`10`
-  (`10-worked-app.md` unchanged), the migration page lands unnumbered as
-  `migration.md` — it is tab-level companion material, not chapter 11 of the learning
-  track. No renumbering anywhere.
+  suite's doc **10** (migration) and guide chapter **10** (performance) collide only if
+  the migration doc kept its suite number. It doesn't: chapters keep `01`–`14`, and
+  the migration page lands unnumbered as `migration.md` — it is tab-level companion
+  material, not chapter 15 of the learning track. No renumbering anywhere.
 - **At S7 (W13's "one migration doc page"):** this same page absorbs the wave truths:
-  Helix/reagent-slim deleted; Reagent and UIx frozen; `re-frame.ui` remains the only
-  taught/default/forward surface; one adapter installed per process; `->react` is a
-  React interop bridge, not per-subtree adapter selection. The move PR writes S6 truth
-  only — it does not pre-write S7 state.
+  Helix/reagent-slim deleted; stock Reagent and UIx frozen with no parity work;
+  `re-frame.ui` remains the only taught/default/forward surface; one adapter is
+  installed per process; `->react` is a React interop bridge, not per-subtree adapter
+  selection. The move PR writes S6 truth only — it does not pre-write S7 state.
 
 ## 5. The PR shape (PR-A)
 
-**One worker, one PR, pure prose.** ~12 files added (`docs/ui/index.md`, ten chapters,
+**One worker, one PR, pure prose.** 16 files added (`docs/ui/index.md`, 14 chapters,
 `migration.md`), one modified (`mkdocs.yml`). No hot-zone (fixed list — §0.3), no
 workflow edits (docs.yml paths already cover the surface), no implementation/ or
 scripts/ touches. Well inside single-worker sizing; no bundling.
@@ -341,7 +376,7 @@ scripts/ touches. Well inside single-worker sizing; no bundling.
    `docs/ui/` prose → zero (code identifiers exempt).
 7. No bead ids, ruling dates, or delta numbers in prose.
 8. Nav renders: the UI tab appears between Core and API; `ui/index.md` is the tab
-   label; prev/next footer runs 01→…→10→migration.
+   label; prev/next footer runs 01→…→14→migration.
 
 **Follow-up roster (pointers only, not this PR):**
 

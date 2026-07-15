@@ -9,7 +9,7 @@ what a meticulous React engineer writes by hand — every view, every time.
 |---|---|
 | `React.memo` / sCU | every view memoised on value-equal props, always |
 | `useCallback` / stable-handler dances | handlers are vectors — values, stable by nature |
-| `useMemo` / deps arrays | `effect` deps are values; templates are compiled; nothing else memoises |
+| `useMemo` / deps arrays | `effect` deps are values *(lands S3)*; templates are compiled; nothing else memoises |
 | "hoist this constant JSX" | static subtrees become module constants automatically |
 | interpreter-cost worries | there is no interpreter in your bundle |
 | per-subscription hook budgeting | a view has **one** React bridge no matter how many `sub`s |
@@ -38,7 +38,8 @@ profiler exists to confirm this, not to negotiate with it.
 3. **Fn props defeat memo — and so do freshly-built children.** A raw fn compares by
    identity, and a parent that rebuilds child elements each render defeats the
    child's memo the same way. In hot lists, prefer data handlers, hoist fns, narrow
-   what the parent rebuilds. The heatmap makes offenders visible.
+   what the parent rebuilds. The S3 cause vector on the existing Xray Views row names
+   the identity-caused render.
 4. **Broad values walk.** `rf=` short-circuits identity, so structurally-shared values
    are cheap — but a subscription that *rebuilds* a large equal collection forces
    walks downstream. Fix the producing sub; do not sprinkle comparators.
@@ -56,13 +57,14 @@ scan, size budget, output-shape diff — not intentions.
 
 ## Measuring
 
-**Dev:** the causes timeline *(lands S3)* and the Xray heatmap beat flame graphs for
-"why is this slow": counts, causes, and epochs, per view.
+**Dev:** cause vectors and cause chips on Xray's existing Views rows *(land S3)* answer
+"why is this slow" per view. S3 adds neither a causes-timeline lane nor a heatmap; a
+heatmap remains conditional on a post-S3 information-architecture review.
 
 **Production:** the React Profiler works normally (real component names, real memo
 boundaries). Renders should look like the model above — sparse, shallow,
-value-justified. If they do not, the timeline's cause column names the culprit before
-you reach for the profiler.
+value-justified. If they do not, the existing Views row's cause vector names the
+culprit before you reach for the profiler.
 
 Measure your own build the way the library measures itself:
 

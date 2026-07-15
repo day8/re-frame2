@@ -198,9 +198,9 @@ plays for genuinely DOM-shaped checks. Scenes mount by **view id** from the regi
 
 ## What you can trust without testing it yourself
 
-The library's CI pins ownership under concurrent React, JVM/browser emitter parity,
-dev/prod behavioural equivalence, bundle absence rosters, and performance gates. Your
-tests cover *your* app; they get to assume the substrate.
+The library's CI pins ownership under concurrent React, browser/JVM-tree conversion
+parity, dev/prod behavioural equivalence, bundle absence rosters, and performance
+gates. Your tests cover *your* app; they get to assume the substrate.
 
 ## Rules of thumb
 

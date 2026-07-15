@@ -1,10 +1,14 @@
 # 13 — From other worlds
 
-A translation map for people arriving from React, UIx, Helix, or Reagent. Nothing
+A translation map for people arriving from React, UIx, or Reagent. Nothing
 here is required if you started at [01](01-getting-started.md) with a blank mind —
 use it when a habit from elsewhere misleads.
 
-## From React / UIx / Helix
+`re-frame.ui` is the default and the only view surface taught here. Stock Reagent and
+UIx remain frozen compatibility adapters, without a feature-parity programme. Helix
+and slim are deleted.
+
+## From React / UIx
 
 | Looking for | Here | Chapter |
 |---|---|---|
