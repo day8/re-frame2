@@ -41,6 +41,33 @@ use it when a habit from elsewhere misleads.
 
 Step 1 does **not** rewrite your views. Step 2 is this guide's programming model.
 
+### `reg-view` is not the same kind of thing as `defview`
+
+A common confusion if you already know re-frame2: **`reg-view` is not a template
+compiler.** It is a registration macro. It defs the symbol, derives a registry id,
+and injects frame-bound `dispatch` / `subscribe` as lexical locals (with source
+coordinates). The view body is spliced **verbatim** — no code-walking, no hiccup
+lowering. Under the frozen stock-Reagent tier, templates still go through Reagent at
+runtime; handlers are still ordinary closures.
+
+`defview` is different in kind: the template (and data handlers) are **compiled** —
+direct React in the browser, a structural tree on the JVM, closed grammar, ownership
+sites. That is why this guide can promise no interpreter on the hot path and the walls
+in [14](14-compile-time-limits.md). Migrating views is step 2 for that reason — not a
+rename of `reg-view`.
+
+What that means while you still sit on the Reagent tier:
+
+- Hiccup stays interpreted; event vectors as handlers, `local` / `effect` / `lease` /
+  `presence`, and dual-host emission are **not** products of `reg-view`.
+- Form-3 / `create-class` cannot use the app-facing `reg-view` lane — they register
+  through `reg-view*` (no auto-inject; capture the frame yourself).
+- The bulk rewrite table below is step 2: Form-1 bodies become `defview`, not
+  "smarter `reg-view`".
+
+Mechanism for the new path: [12](12-how-it-works.md). Full migration tiers: the
+synthesis suite's migration note one directory up.
+
 ### Mechanical rewrites (the bulk)
 
 | Reagent | Here |

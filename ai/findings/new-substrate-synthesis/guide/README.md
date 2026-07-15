@@ -53,7 +53,9 @@ Chapters 08–14 are depth: open them when you need them. Chapter 14 is the
 
 **Coming from Reagent?** Hiccup mostly transfers. The big habit change is **events as
 vectors** and **`(sub …)` without deref** — read [04](04-events.md) carefully, then
-[13](13-from-other-worlds.md).
+[13](13-from-other-worlds.md). Do not equate re-frame2's `reg-view` with this library's
+compiler: `reg-view` registers and injects frame locals; `defview` lowers templates —
+[13 §From Reagent](13-from-other-worlds.md) spells out the difference.
 
 **Coming from React / UIx / Helix?** You will not write hooks, deps arrays, or
 `memo` wrappers in ordinary views. Start at [01](01-getting-started.md), then use
