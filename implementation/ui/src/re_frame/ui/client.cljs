@@ -194,8 +194,12 @@
   "The COMPLETE Root Descriptor v1 for live root `root-id` (dev): its static
   core from the live-root registry, stamped with the current whole-build
   `:build-digest` (`current-build-digest`) — the client read-time projection
-  (Spec 004C §2). nil if `root-id` is not live, its entry carries no descriptor
-  yet (a `create-root` before its first `render!`), or in production."
+  (Spec 004C §2). During an active HMR digest fence, this returns the static
+  core with `:build-digest` nil. Consumers requiring a finalized-complete
+  descriptor must treat nil as not-yet-known; the static core alone does not
+  identify a build mid-fence. nil if `root-id` is not live, its entry carries
+  no descriptor yet (a `create-root` before its first `render!`), or in
+  production."
   [root-id]
   (when-let [d (:descriptor (get @live-roots root-id))]
     (assoc d :build-digest (current-build-digest))))
@@ -205,8 +209,11 @@
   + the current whole-build `:build-digest`. The CLIENT counterpart of the
   compiler's `re-frame.ui.compiler.root/descriptor-index` — the same shape and
   the same (byte-identical) digest — the Xray / tool read surface for the live
-  runtime descriptors. Roots still awaiting their first `render!` (no
-  descriptor yet) are omitted. Empty in production."
+  runtime descriptors. During an active HMR digest fence, every included value
+  remains its static core with `:build-digest` nil. Consumers requiring
+  finalized-complete descriptors must treat nil as not-yet-known; the static
+  core alone does not identify a build mid-fence. Roots still awaiting their
+  first `render!` (no descriptor yet) are omitted. Empty in production."
   []
   (let [bd (current-build-digest)]
     (into {}
