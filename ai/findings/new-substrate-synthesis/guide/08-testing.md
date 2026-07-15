@@ -7,6 +7,30 @@ that answers your question.
 **Tier 1 is the default.** Tier 2 is unchanged re-frame2 dataflow testing. Tier 3 is
 for when the DOM itself is under test.
 
+## Test namespace setup
+
+`rf/make-frame` needs an installed substrate adapter. Install one once through the
+reset fixture, and keep the ambient frame clear because each test below owns its own
+throwaway frame:
+
+```clojure
+(ns shop.ui-test
+  (:require [clojure.test :refer [deftest is use-fixtures]]
+            [re-frame.core :as rf]
+            [re-frame.substrate.plain-atom :as plain-atom]
+            [re-frame.test-support :as test-support]
+            [re-frame.ui.test :as ui.test]
+            [shop.ui :as app]))
+
+(use-fixtures :each
+  (test-support/make-reset-runtime-fixture
+    {:adapter plain-atom/adapter
+     :ambient-frame nil}))
+```
+
+This is the JVM adapter for headless tests, not a second view programming model. In a
+mounted CLJS test namespace, use the same fixture with `ui/adapter` and `:async? true`.
+
 ## Tier 1 — headless view tests (daily driver)
 
 `ui.test/render` runs the real view against a real frame on the JVM — real
@@ -14,10 +38,11 @@ subscriptions, real registrations, no React:
 
 ```clojure
 (deftest add-button-carries-intent
-  (let [frame (rf/make-frame {:initial-events [[:rf/set-db {:cart #{} :catalog fixture-catalog}]]})
-        tree  (ui.test/render [product-card {:product (product 42)}] {:frame frame})]
-    (is (= [:cart/add 42] (-> tree (ui.test/find :button) ui.test/attrs :on-click)))
-    (is (= "Add to cart"  (-> tree (ui.test/find :button) ui.test/text)))))
+  (rf/with-new-frame
+    [frame (rf/make-frame {:initial-events [[:rf/set-db {:cart #{} :catalog fixture-catalog}]]})]
+    (let [tree (ui.test/render [product-card {:product (product 42)}] {:frame frame})]
+      (is (= [:cart/add 42] (-> tree (ui.test/find :button) ui.test/attrs :on-click)))
+      (is (= "Add to cart"  (-> tree (ui.test/find :button) ui.test/text))))))
 ```
 
 ### Assert structure and intent
@@ -64,7 +89,8 @@ you need to:
 
 There is no test-only way to make a frame: `rf/make-frame` with `:initial-events`,
 exactly like production. Seed with `[:rf/set-db {…}]`, or better, run your app's own
-init events so fixtures cannot drift from what the app boots.
+init events so fixtures cannot drift from what the app boots. `rf/with-new-frame`
+destroys the caller-owned frame after the body returns or throws.
 
 `render` also takes a **literal root form** — same grammar as `mount`, tightened:
 a test root mounts exactly *one* view. Need multi-view composition? Wrap it in one
@@ -90,14 +116,40 @@ views. See the [core testing guide](../../../../docs/core/testing/index.md).
 For focus, IME, foreign widgets — things only a real mount exercises — use
 `with-root`, `query`, and `flush!`.
 
+`with-root` owns its React root and DOM container. A frame you pass through
+`frame-provider` is separate and remains yours. For Promise-backed tests, settle the
+body before destroying that frame so an original rejection remains the primary
+failure even if cleanup also fails:
+
+```clojure
+(defn- destroy-frame-after!
+  [frame promise]
+  (-> promise
+      (.then (fn [value] {:settlement :fulfilled :value value})
+             (fn [error] {:settlement :rejected :error error}))
+      (.then
+        (fn [{:keys [settlement value error]}]
+          (try
+            (rf/destroy-frame! frame)
+            (catch :default cleanup-error
+              (if (= :rejected settlement)
+                (js/console.error "frame cleanup also failed" cleanup-error)
+                (throw cleanup-error))))
+          (if (= :rejected settlement)
+            (js/Promise.reject error)
+            value)))))
+```
+
 Read-only:
 
 ```clojure
 (deftest search-box-really-mounts
   (async done
     (let [frame (rf/make-frame {:initial-events [[:rf/set-db {:query ""}]]})]
-      (-> (ui.test/with-root [root [ui/frame-provider {:frame frame} [search-box]]]
-            (is (some? (ui.test/query root "input"))))
+      (-> (destroy-frame-after!
+            frame
+            (ui.test/with-root [root [ui/frame-provider {:frame frame} [search-box]]]
+              (is (some? (ui.test/query root "input")))))
           (.then (fn [_] (done))
                  (fn [e] (is false (str e)) (done)))))))
 ```
@@ -109,14 +161,16 @@ Promise:
 (deftest search-commits-the-latest-query
   (async done
     (let [frame (rf/make-frame {:initial-events [[:rf/set-db {:query ""}]]})]
-      (-> (ui.test/with-root
-            [root [ui/frame-provider {:frame frame} [search-box]]]
-            (-> (ui.test/flush!
-                  #(ui.test/dispatch! frame [:search/set-query "hats"]))
-                (.then (fn []
-                         (is (= "hats"
-                                (.-value (ui.test/query root "input"))))
-                         :asserted))))
+      (-> (destroy-frame-after!
+            frame
+            (ui.test/with-root
+              [root [ui/frame-provider {:frame frame} [search-box]]]
+              (-> (ui.test/flush!
+                    #(ui.test/dispatch! frame [:search/set-query "hats"]))
+                  (.then (fn []
+                           (is (= "hats"
+                                  (.-value (ui.test/query root "input"))))
+                           :asserted)))))
           (.then (fn [body-value]
                    (is (= :asserted body-value))
                    (done))

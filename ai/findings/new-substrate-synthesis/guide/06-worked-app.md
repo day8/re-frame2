@@ -151,7 +151,8 @@ day one: edit a tile, save, and it repaints against live app-db.
 ## Tests, headless
 
 The tile's whole contract — what it shows, what it dispatches — asserts on the JVM
-tree, no browser:
+tree, no browser. Install the shared [test namespace fixture](08-testing.md#test-namespace-setup)
+before using these frame helpers:
 
 ```clojure
 (ns dash.app-test
@@ -169,24 +170,25 @@ tree, no browser:
                                    [:metrics/arrived fixture-metrics]]}))
 
 (deftest tile-shows-metric-and-intent
-  (let [frame (fixture-frame)
-        tree  (ui.test/render [app/metric-tile {:id :cpu}] {:frame frame})]
-    (is (= "CPU" (-> tree (ui.test/find :h3) ui.test/text)))
-    (is (= [:watch/toggled :cpu :rf.ui/checked]
-           (-> tree (ui.test/find :input) ui.test/attrs :on-change)))))
+  (rf/with-new-frame [frame (fixture-frame)]
+    (let [tree (ui.test/render [app/metric-tile {:id :cpu}] {:frame frame})]
+      (is (= "CPU" (-> tree (ui.test/find :h3) ui.test/text)))
+      (is (= [:watch/toggled :cpu :rf.ui/checked]
+             (-> tree (ui.test/find :input) ui.test/attrs :on-change))))))
 
 (deftest filter-narrows-the-grid
-  (let [frame (fixture-frame)]
+  (rf/with-new-frame [frame (fixture-frame)]
     (ui.test/dispatch! frame [:filter/typed "cp"])
     (let [tree (ui.test/render [app/dashboard] {:frame frame})]
       (is (= 1 (count (ui.test/find-all tree :dash.app/metric-tile)))))))
 ```
 
 The fixture uses `rf/make-frame` and the app's *own* events, so test state cannot
-drift from a state the real app can reach. The second test drives state with a real
-event and counts tiles by **view id**. Business logic (the filtering itself) belongs
-in a plain dataflow sub test; these two assert the *view* contract only. Full tiers:
-[08](08-testing.md).
+drift from a state the real app can reach. Each test owns that frame through
+`rf/with-new-frame`, including cleanup after a thrown body. The second test drives
+state with a real event and counts tiles by **view id**. Business logic (the filtering
+itself) belongs in a plain dataflow sub test; these two assert the *view* contract
+only. Full tiers: [08](08-testing.md).
 
 ## What you just did not write
 
