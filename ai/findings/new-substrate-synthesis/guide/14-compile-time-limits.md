@@ -1,9 +1,12 @@
 # 14 — What the compiler forbids
 
 `defview` does not *interpret* hiccup at runtime. It **lowers** the template at
-build time into direct element construction (and a JVM twin of the same AST). That
-is why there is no interpreter in your bundle, why Xray can list a view's event
-sites without running it, and why client and server cannot drift.
+build time: the browser path uses direct React element construction, while the JVM path
+produces versioned `re-frame.ui.tree` structural data. Both implement the same
+specified prop/child conversion contract; at S5, `re-frame.ssr/emit-ui-tree`
+separately serializes the JVM tree to HTML. Parity gates detect drift between those
+implementations. That is why there is no interpreter in your browser bundle and why
+Xray can list a view's event sites without running it.
 
 The price is a **closed template grammar**. Anything the compiler cannot see through
 is a build failure — with a message that names the fix — not a silent runtime
@@ -130,7 +133,7 @@ Accepted in those positions: special/binder forms (`quote`, `fn`, `let`/`loop`/
 |---|---|---|
 | An app prop named `:key` | `:key` is React's list-identity slot | Rename the prop |
 | Pass children to a view that did not declare `:children` | Child acceptance is opt-in and compile-checked | Declare `:children` in the props destructure |
-| `#js` / hand-rolled camelCase on compiled DOM paths | Conversion is the compiler's job (same table on the server) | Keyword props; let the emitter convert |
+| `#js` / hand-rolled camelCase on compiled DOM paths | Browser direct-React and JVM-tree outputs obey one specified conversion table | Keyword props; let the ruled host output convert |
 | Opt out of view memoisation | Correctness and performance assume value-equal props | Fix inputs (narrow props, data handlers) — a view that "must always re-render" is reading the wrong things |
 
 ---
@@ -201,7 +204,9 @@ Because the other pages' promises are not slogans:
   can see — [02](02-views.md), [10](10-performance.md)
 - **Static interaction surface** — Xray and headless tests read event vectors without
   executing them — [08](08-testing.md), [09](09-debugging.md)
-- **One template, two emitters** — client and server share the AST — [11](11-ssr.md)
+- **Ruled host outputs** — browser direct React and the versioned JVM structural
+  tree obey one conversion contract; the separate S5 HTML emitter and parity gates
+  make drift detectable — [11](11-ssr.md)
 - **Finite ownership** — every `sub`/`lease` is a known slot; abandoned renders cannot
   leak — [12](12-how-it-works.md)
 

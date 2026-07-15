@@ -59,8 +59,11 @@ If you know Reagent hiccup, you are home — minus the traps.
   element's file:line, not a console warning.
 - **Tag heads must be literal.** `[(if big? :h1 :h2) title]` is a compile error —
   bind attributes dynamically or write two branches.
-- **No `#js`, no camelCase on compiled paths.** Conversion is the compiler's job —
-  and the same conversion runs on the server, so SSR cannot drift from the client.
+- **No `#js`, no camelCase on compiled paths.** Conversion is the compiler's job.
+  The browser lowers to direct React construction; the JVM lowers to versioned
+  `re-frame.ui.tree` structural data under the same specified conversion contract.
+  At S5, `re-frame.ssr/emit-ui-tree` separately serializes that tree to HTML;
+  browser/JVM and serializer parity gates detect drift.
 - A `map` that returns markup is rejected (extract a child view, use `for`). Keywords
   in child position are rejected (silent-text mistakes).
 
@@ -79,10 +82,11 @@ artefact — opt-in, cost visible:
 
 ## Styling
 
-`:class` and `:style` are the whole surface the compiler owns. It emits them
-(keyword CSS values included) identically on client and server. The CSS itself is
-yours: plain stylesheets, Tailwind, utility classes — anything that resolves to class
-names works unchanged. There is no css-in-cljs layer to learn. Later,
+`:class` and `:style` are the whole surface the compiler owns. Browser direct-React
+output and JVM structural-tree output apply the same specified conversion contract
+to them (keyword CSS values included); parity gates detect implementation drift. The
+CSS itself is yours: plain stylesheets, Tailwind, utility classes — anything that
+resolves to class names works unchanged. There is no css-in-cljs layer to learn. Later,
 `ui/presence` hands you phase names so *your* CSS does the animating.
 
 ## Props discipline

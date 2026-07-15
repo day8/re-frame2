@@ -1,8 +1,9 @@
 (ns re-frame.ui.guide-truth-jvm-test
   "Focused truth gates for the tracked pre-publication re-frame.ui guide.
 
-  These assertions protect the ruled lifecycle recipe, S3/S5 boundary, Xray S3
-  surface, and S6 relocation plan until the guide moves to docs/ui."
+  These assertions protect the ruled lifecycle recipe, guide-wide rendering
+  boundary, Xray S3 surface, and S6 relocation plan until the guide moves to
+  docs/ui."
   (:require [clojure.java.io :as io]
             [clojure.string :as str]
             [clojure.test :refer [deftest is testing]]))
@@ -76,12 +77,39 @@
     (testing "mounted examples keep root and frame ownership separate"
       (is (str/includes? testing-guide
                          "`with-root` owns its React root and DOM container"))
+      (is (str/includes? testing-guide "[frame thunk]"))
+      (is (str/includes? testing-guide "(js/Promise.resolve (thunk))"))
+      (is (str/includes? testing-guide "rfUiTestCleanupError"))
+      (is (not (str/includes? testing-guide "[frame promise]")))
+      (is (re-find #"destroy-frame-after!\s+frame\s+#\(ui\.test/with-root"
+                   testing-guide)
+          "mounted call sites pass with-root as a thunk")
       (is (str/includes? testing-guide "(rf/destroy-frame! frame)"))
-      (is (str/includes? testing-guide "(js/Promise.reject error)")))))
+      (is (str/includes? testing-guide "reject-after-current!")))))
 
 (deftest pipeline-and-stage-claims-stay-truthful
-  (let [ssr (slurp-guide "11-ssr.md")
-        how (slurp-guide "12-how-it-works.md")]
+  (let [chapters (into {} (map (juxt identity slurp-guide) chapter-files))
+        views    (get chapters "02-views.md")
+        ssr      (get chapters "11-ssr.md")
+        how      (get chapters "12-how-it-works.md")
+        limits   (get chapters "14-compile-time-limits.md")
+        retired-claim-patterns
+        [["host outputs cannot drift"
+          #"(?is)(?:(?:client|browser|server|ssr|jvm)[^\n]{0,120}(?:cannot|can't)\s+drift|(?:cannot|can't)\s+drift[^\n]{0,120}(?:client|browser|server|ssr|jvm))"]
+         ["browser/JVM share one AST value"
+          #"(?i)(?:same|shared)\s+(?:template\s+)?AST\b|\bshare(?:s|d)?\s+the\s+AST\b|\btwin\s+of\s+the\s+same\s+AST\b"]
+         ["one emitter implements both hosts"
+          #"(?i)(?:(?:one|same)\s+emitter[^\n]{0,120}(?:both\s+hosts|client[^\n]*server|browser[^\n]*jvm)|(?:both\s+hosts|client[^\n]*server|browser[^\n]*jvm)[^\n]{0,120}(?:one|same)\s+emitter)"]
+         ["host output is identical"
+          #"(?i)identically\s+on\s+(?:the\s+)?(?:client|browser)[^\n]{0,40}(?:server|jvm)"]
+         ["no second serializer"
+          #"(?i)no\s+second\s+seriali[sz]er"]
+         ["JVM string emitter"
+          #"(?i)(?:a\s+)?string\s+emitter\s+for\s+the\s+jvm"]
+         ["equivalent by construction"
+          #"(?i)structurally\s+equivalent\s+by\s+construction"]
+         ["no implementation can drift"
+          #"(?i)there\s+is\s+no\s+second\s+implementation\s+to\s+drift"]]]
     (testing "JVM emission is structural data and HTML serialization is S5"
       (doseq [required ["versioned `re-frame.ui.tree` structural data"
                         "`re-frame.ssr/emit-ui-tree`"
@@ -90,13 +118,27 @@
         (is (or (str/includes? ssr required)
                 (str/includes? how required))
             (str "missing ruled pipeline phrase: " required))))
-    (testing "the former one-emitter overclaims cannot return"
-      (doseq [forbidden ["no second serialiser"
-                         "a string emitter for the JVM"
-                         "structurally equivalent by construction"
-                         "there is no second implementation to drift"]]
-        (is (not (str/includes? (str ssr "\n" how) forbidden))
-            (str "retired pipeline claim returned: " forbidden))))
+    (testing "chapters 02 and 14 state the same precise three-stage responsibility"
+      (doseq [[chapter text] [["02" views] ["14" limits]]]
+        (is (re-find #"(?is)browser.{0,80}direct.{0,40}React" text)
+            (str "Guide " chapter " must name browser direct React output"))
+        (doseq [[responsibility pattern]
+                [["versioned re-frame.ui.tree structural data"
+                  #"(?is)versioned\s+`re-frame\.ui\.tree`\s+structural\s+data"]
+                 ["S5 HTML serializer"
+                  #"`re-frame\.ssr/emit-ui-tree`"]
+                 ["conversion contract"
+                  #"(?i)conversion\s+contract"]
+                 ["parity gates"
+                  #"(?i)parity\s+gates"]]]
+          (is (re-find pattern text)
+              (str "Guide " chapter " missing ruled responsibility: "
+                   responsibility)))))
+    (testing "retired rendering overclaims stay absent from every numbered chapter"
+      (doseq [[chapter text] chapters
+              [claim pattern] retired-claim-patterns]
+        (is (not (re-find pattern text))
+            (str chapter " reintroduced retired claim: " claim))))
     (testing "controlled inputs state the exact S3 causal sequence"
       (is (re-find
             #"browser input event → synchronous drain/epoch commit → ViewCell snapshot advance →\s+React's discrete render observes the matching value"
