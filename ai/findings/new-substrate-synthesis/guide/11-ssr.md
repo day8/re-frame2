@@ -67,6 +67,7 @@ from the mounted view's registered id — the [01](01-getting-started.md) counte
 zero ceremony. Author identity the moment a page outgrows that:
 
 ```clojure
+;; guide:target dom
 (ui/mount [ui/frame-root {:id :shop} [product-panel]] left-el
           {:root-id :panel/left})
 (ui/mount [ui/frame-root {:id :shop} [product-panel]] right-el
@@ -83,6 +84,7 @@ zero ceremony. Author identity the moment a page outgrows that:
 Hosts needing more control than `mount` use the host tier directly:
 
 ```clojure
+;; guide:target dom
 (def root (ui/create-root el {:root-id :page/shop}))
 (ui/render! root [ui/frame-root {:id :shop :initial-events [[:shop/init]]}
                    [shop-app]])
@@ -96,6 +98,7 @@ place (the hot-reload path from [01](01-getting-started.md)).
 Hydration is the same tier *(lands S5)*:
 
 ```clojure
+;; guide:target dom
 (ui/hydrate-root (js/document.getElementById "shop-root")
                  [ui/frame-root {:id :shop} [shop-app]])
 ```

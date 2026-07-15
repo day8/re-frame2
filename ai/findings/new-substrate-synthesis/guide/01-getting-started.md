@@ -50,6 +50,7 @@ namespace under `src/`, and an `index.html` with a `<div id="root">`.
 ## The whole app
 
 ```clojure
+;; guide:target dom
 (ns my.app
   (:require [re-frame.core :as rf]
             [re-frame.ui :as ui :refer [defview sub]]))

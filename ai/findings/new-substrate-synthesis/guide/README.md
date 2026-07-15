@@ -75,14 +75,16 @@ Code assumes:
 Other body forms (`local`, `effect`, `lease`, `frame`, `presence-phase`) are referred
 the same way when a chapter needs them — one convention, every chapter.
 
-**Stage honesty.** The library ships in stages. Unmarked examples are the ruled
-contract and, where noted on a page, already on main. Surfaces that land later carry a
-short marker such as *(lands S3)*. Wave-2 names (`ui/element`, `ui/view`, `ui/portal`,
-`re-frame.ui.data/render`) are not v1 and only appear with that qualifier.
+**Stage honesty.** The library ships in stages. Unmarked examples describe behaviour
+shipped on main. Surfaces that land later carry a short marker such as *(lands S3)*.
+Wave-2 names (`ui/element`, `ui/view`, `ui/portal`, `re-frame.ui.data/render`) are not
+v1 and only appear with that qualifier.
 
 **True snippets.** Fences are written to run as guide fixtures where the pipeline covers
 them. A fence that is schematic or wave-2 says so with a `;; guide:no-fixture` comment
-on the fence itself.
+on the fence itself. Guide 08's enrolled fixture covers the Tier-1 deftest, intent
+projection, dispatch-to-sub loop, seeded-state render, and sub-override door. Its
+remaining fences and every other chapter are prospective pipeline enrolment.
 
 ---
 

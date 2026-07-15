@@ -41,9 +41,9 @@
    `../../../../docs/core/...`; §2.1 records the required `../core/...` relocation
    transform. One prose reference points outside ("design rationale lives one
    directory up", ⟨guide/README ¶1⟩); inline stage markers + stage notes and the README
-   stage-honesty paragraph remain; the **seven mandatory `;; guide:no-fixture` markers** exist
-   on the pages (added 2026-07-13 with the stage-truth reconciliation — the §2.4 set);
-   zero images ⟨guide/ greps 2026-07-12/13⟩.
+   stage-honesty paragraph remain; the **seven mandatory `;; guide:no-fixture` markers**
+   and **nine mandatory `;; guide:target dom` markers** exist on the pages (the §2.4
+   censuses); zero images ⟨guide/ greps 2026-07-12/15⟩.
 
 ## 1. Landing location + nav
 
@@ -157,7 +157,7 @@ input. Every transform below happens in it, once.
 | Intra-guide chapter links (`[02](02-views.md)` — ~30 sites, all same-dir relative) | **Keep unchanged**; README→index rename doesn't affect them (no chapter links back to README) |
 | Current `../../../../docs/core/...` links in README, 07, and 08 | **Rewrite every target to `../core/...`.** From `docs/ui/<page>.md`, that resolves inside `docs/core`; retaining the source-tree prefix would escape the repository. Exact target census follows below. |
 | ⟨guide/README ¶1⟩ "design rationale lives one directory up" | **Remove the clause.** The synthesis suite does not move; docs never link `spec/` ⟨AUTHORING §2⟩. The sentence becomes "This guide teaches the library as a user." |
-| ⟨guide/README ¶1⟩ the fixture-coverage statement | **Update to the move-time truth.** Since 2026-07-13 the README states exact coverage (Guide 08's Tier-1 fixture today, growing per stage); by S6 all S1–S5 chapters are active per the stage forcer, so the sentence becomes the full every-example promise. The "except fences marked `guide:no-fixture`" amendment lands with the extractor PR, not the move ⟨guide-fixture-pipeline §2 README amendment⟩ |
+| ⟨guide/README ¶1⟩ the fixture-coverage statement | **Update to the move-time truth.** The README currently names Guide 08's exact enrolled subset (Tier-1 deftest, intent projection, dispatch-to-sub loop, seeded-state render, sub-override door) and makes every other fence prospective. By S6 all S1–S5 chapters are active per the stage forcer, so the sentence becomes the full every-example promise. The "except fences marked `guide:no-fixture`" amendment lands with the extractor PR, not the move ⟨guide-fixture-pipeline §2 README amendment⟩ |
 | ⟨10-migration doc⟩ links to `drafts/reagent-compat-boundary.md` (×3) | **Replace with inline prose.** The draft doesn't move; its Reagent normative content promotes spec-side (004A at S7), and docs never link `spec/`. The page inlines only what the reader needs: the three React-interoperability granularities, ownership/teardown one-liners, and the load-bearing rule that every root/subtree uses the process's one boot-selected adapter. The interop doors never select a second adapter. |
 | ⟨10-migration doc⟩ synthesis-suite citations ("08 §2", "12 §2", "02 §3 table", "06 §1", "guide 03") | **Rewrite or drop.** "02 §3 table" → link `04-events.md` (the decision table's guide home); "guide 03" → `03-state.md`; "06 §1 subset check" → `11-ssr.md`; stage-plumbing citations ("08 §2", "12 §2", delta numbers) → **drop** — program management is not reader content |
 | Provenance parentheticals: "Blessed-table verdict; qualifier added 2026-07-12" ⟨guide/02 L73–74⟩, "delta #2, ruled 2026-07-12; 12 §2" ⟨10-migration⟩, "(an Xray addition staged behind its integration review)" ⟨guide/09⟩, the migration doc's **Status:** line | **Strip.** "No bead ids in prose. Pages state current truth" ⟨AUTHORING §Honesty⟩. The *facts* stay (wave-2 status, S7 freeze); the ruling ledger goes |
@@ -206,7 +206,7 @@ template → **docs/guide + skills** → CI → benchmarks ⟨12 §3 S6⟩), S1�
   its no-fixture marker (§2.4).
 - **README stage-honesty paragraph** ⟨guide/README L22–28⟩: rewritten down to one
   sentence on the wave-2 names ("Wave-2 names (…) are not v1 and only ever appear with
-  that qualifier."). The S1-default framing and the marker convention are obsolete once
+  that qualifier."). The current-versus-future marker framing is obsolete once
   no S1–S5 markers remain.
 
 ### 2.3 British spelling + house admonitions
@@ -232,13 +232,13 @@ template → **docs/guide + skills** → CI → benchmarks ⟨12 §3 S6⟩), S1�
 - **Pull-quote check**: chapters already carry their one-liner contracts in prose; no
   forced takeaway boxes added.
 
-### 2.4 Fence markers: add the mandatory ones now, freeze the fences
+### 2.4 Fence markers: marker-complete now, then freeze the fences
 
-The seven mandatory markers are **already on the pages** (re-censused after #5894), so the
-extractor PR touches zero pages. The pipeline's
+The mandatory waiver and target markers are **already on the pages**, so the extractor
+PR touches zero pages. The pipeline's
 fence contract makes unmarked elisions and unmarked wave-2 fences an extractor *error*
 ⟨guide-fixture-pipeline §2⟩. **The move PR verifies the census** — any fence added
-since must carry its marker; the set as of 2026-07-13:
+since must carry its marker; the waiver set as of 2026-07-15:
 
 | Fence | Marker |
 |---|---|
@@ -250,8 +250,26 @@ since must carry its marker; the set as of 2026-07-13:
 | 11 `render-static` call (`{…}`) | `;; guide:no-fixture — illustrative fragment` |
 | 14 `data/render` | `;; guide:no-fixture — wave-2, does not ship in v1` |
 
-(Exact census per ⟨guide-fixture-pipeline §0 constraint 2⟩; re-count at execution — the
-completeness pass may have changed the set.) Everything else about fence bodies is
+The DOM-target set as of 2026-07-15 is exact and marker-complete:
+
+| Fence | Marker |
+|---|---|
+| 01 whole-app mount | `;; guide:target dom` |
+| 05 `frame-root` mount | `;; guide:target dom` |
+| 05 multi-frame page mount | `;; guide:target dom` |
+| 06 dashboard mount | `;; guide:target dom` |
+| 08 mounted read-only test | `;; guide:target dom` |
+| 08 mounted write test | `;; guide:target dom` |
+| 11 authored two-root mounts | `;; guide:target dom` |
+| 11 direct host-tier root | `;; guide:target dom` |
+| 11 hydration | `;; guide:target dom` |
+
+Every other Clojure fence defaults to the structural JVM target. The golden census
+enumerates these nine fence ids and fails if any marker is removed or if a newly
+host-dependent fence is left unclassified.
+
+(Exact censuses per ⟨guide-fixture-pipeline §0 constraint 2⟩; re-count at execution — the
+guide may have changed the set.) Everything else about fence bodies is
 **byte-stable through the move**: the drift-comparison normalisations already strip
 `;; guide:*` lines and CRLF, so added markers don't break bridge-fixture comparison
 ⟨guide-fixture-pipeline §5⟩, and any other fence edit would.
