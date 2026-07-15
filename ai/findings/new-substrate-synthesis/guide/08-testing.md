@@ -36,6 +36,11 @@ mounted CLJS test namespace, use the same fixture with `ui/adapter` and `:async?
 `ui.test/render` runs the real view against a real frame on the JVM — real
 subscriptions, real registrations, no React:
 
+Guide 08's enrolled fixture covers the Tier-1 deftest, intent projection,
+dispatch-to-sub loop, seeded-state render, and sub-override door. The selector and
+literal-root fences below, plus the Tier-2 and Tier-3 examples, remain prospective
+pipeline enrolment.
+
 ```clojure
 (deftest add-button-carries-intent
   (rf/with-new-frame
@@ -166,6 +171,7 @@ rides an object primary as `rfUiTestCleanupError`, matching `with-root` itself:
 Read-only:
 
 ```clojure
+;; guide:target dom
 (deftest search-box-really-mounts
   (async done
     (let [frame (rf/make-frame {:initial-events [[:rf/set-db {:query ""}]]})]
@@ -181,6 +187,7 @@ When the test *writes*, put the write inside `flush!`'s act boundary and await e
 Promise:
 
 ```clojure
+;; guide:target dom
 (deftest search-commits-the-latest-query
   (async done
     (let [frame (rf/make-frame {:initial-events [[:rf/set-db {:query ""}]]})]

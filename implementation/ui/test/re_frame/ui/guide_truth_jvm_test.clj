@@ -2,8 +2,8 @@
   "Focused truth gates for the tracked pre-publication re-frame.ui guide.
 
   These assertions protect the ruled lifecycle recipe, guide-wide rendering
-  boundary, Xray S3 surface, and S6 relocation plan until the guide moves to
-  docs/ui."
+  boundary, fixture-marker mechanics, Xray S3 surface, and S6 relocation plan
+  until the guide moves to docs/ui."
   (:require [clojure.java.io :as io]
             [clojure.string :as str]
             [clojure.test :refer [deftest is testing]]))
@@ -54,6 +54,29 @@
 (defn- target-path
   [target]
   (first (str/split target #"#" 2)))
+
+(defn- clojure-fences
+  [chapter]
+  (map-indexed
+    (fn [index [_ body]]
+      {:id   (str chapter "#" (inc index))
+       :body body})
+    (re-seq #"(?ms)^```clojure[^\r\n]*\r?\n(.*?)^```\s*$"
+            (slurp-guide chapter))))
+
+(defn- host-fence?
+  [{:keys [body]}]
+  (boolean
+    (re-find #"ui/(?:mount|hydrate-root|create-root|render!|unmount!)|ui\.test/with-root|js/document"
+             body)))
+
+(defn- dom-target?
+  [{:keys [body]}]
+  (boolean (re-find #"\A;; guide:target dom\r?\n" body)))
+
+(defn- one-line
+  [text]
+  (str/replace text #"\s+" " "))
 
 (deftest lifecycle-recipe-is-installed-and-owned
   (let [getting-started (slurp-guide "01-getting-started.md")
@@ -189,6 +212,69 @@
     (is (not (str/includes? readme
                             "../../../../docs/core/frames.md"))
         "compatibility-only Frames teaching must not be a canonical continuation")))
+
+(deftest fixture-stage-and-guide09-ledger-stay-current
+  (let [readme (slurp-guide "README.md")
+        testing-guide (slurp-guide "08-testing.md")
+        pipeline (slurp (root-file
+                          "ai/findings/new-substrate-synthesis/drafts/guide-fixture-pipeline.md"))]
+    (testing "marker absence means active shipped behaviour, never an S1 fallback"
+      (is (str/includes? (one-line readme)
+                         "Unmarked examples describe behaviour shipped on main."))
+      (is (str/includes? (one-line pipeline)
+                         "An unmarked fence is active because it describes current shipped behaviour; it does not imply S1."))
+      (doseq [golden-row ["Guide 01 event-vector form | unmarked | active | S1 | frozen surface matrix"
+                          "Guide 03 `sub` form | unmarked | active | S2 | frozen surface matrix"
+                          "Guide 03 `local` form | `lands S3` | parked before S3 | S3 | explicit page marker"]]
+        (is (str/includes? pipeline golden-row)
+            (str "missing stage-classifier golden row: " golden-row)))
+      (is (not (re-find #"(?i)(?:unmarked\s*=\s*(?:stage\s*)?1|else\s+(?:stage\s*)?1)"
+                        pipeline))
+          "restoring marker absence as the S1 fallback must fail"))
+    (testing "the formerly Guide 09 S1 bridge adaptations retired when S2 shipped"
+      (doseq [page [readme testing-guide]]
+        (is (str/includes?
+              (one-line page)
+              "Guide 08's enrolled fixture covers the Tier-1 deftest, intent projection, dispatch-to-sub loop, seeded-state render, and sub-override door.")))
+      (is (str/includes?
+            pipeline
+            "implementation/ui/test/re_frame/ui/test_guide08_fixture_jvm_test.clj"))
+      (is (str/includes? pipeline ":adapted []"))
+      (is (zero? (count (re-seq #":until\s+:s2" pipeline)))
+          "no active formerly-Guide-09 adaptation may remain parked on shipped S2")
+      (is (str/includes? (one-line pipeline)
+                         "Guide 08 (formerly Guide 09) de-adaptation completed at S2")))))
+
+(deftest every-host-fence-declares-the-dom-target
+  (let [fences (mapcat clojure-fences chapter-files)
+        host-ids (->> fences (filter host-fence?) (map :id) set)
+        dom-ids  (->> fences (filter dom-target?) (map :id) set)
+        plan     (slurp (root-file
+                          "ai/findings/new-substrate-synthesis/drafts/guide-docs-move-plan.md"))
+        expected #{"01-getting-started.md#3"
+                   "05-frames.md#1"
+                   "05-frames.md#3"
+                   "06-worked-app.md#6"
+                   "08-testing.md#7"
+                   "08-testing.md#8"
+                   "11-ssr.md#2"
+                   "11-ssr.md#3"
+                   "11-ssr.md#4"}]
+    (is (= expected host-ids)
+        "the reviewed host-fence census changed; classify the changed fence explicitly")
+    (is (= expected dom-ids)
+        "every and only host-dependent fence must carry `;; guide:target dom`; structural fences default to JVM")
+    (doseq [plan-row ["01 whole-app mount | `;; guide:target dom`"
+                      "05 `frame-root` mount | `;; guide:target dom`"
+                      "05 multi-frame page mount | `;; guide:target dom`"
+                      "06 dashboard mount | `;; guide:target dom`"
+                      "08 mounted read-only test | `;; guide:target dom`"
+                      "08 mounted write test | `;; guide:target dom`"
+                      "11 authored two-root mounts | `;; guide:target dom`"
+                      "11 direct host-tier root | `;; guide:target dom`"
+                      "11 hydration | `;; guide:target dom`"]]
+      (is (str/includes? plan plan-row)
+          (str "move-plan target census omits " plan-row)))))
 
 (deftest simulated-docs-ui-relocation-keeps-every-guide-link-in-repo
   (let [source-prefix "../../../../docs/core/"

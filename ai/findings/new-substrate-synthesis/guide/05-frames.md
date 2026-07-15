@@ -7,6 +7,7 @@ names say which verb they perform.
 ## `frame-root` — ensure
 
 ```clojure
+;; guide:target dom
 (ui/mount [ui/frame-root {:id :app :initial-events [[:app/init]]}
             [app-view]]
           root-el)
@@ -37,6 +38,7 @@ Mixing them up fails loudly with a did-you-mean: `frame-root` given `:frame`, or
 Frames are **isolated**. A page can mount several:
 
 ```clojure
+;; guide:target dom
 (ui/mount [:div.page
            [ui/frame-root {:id :shop   :initial-events [[:shop/init]]}   [shop-app]]
            [ui/frame-root {:id :assist :initial-events [[:assist/init]]} [assistant]]]

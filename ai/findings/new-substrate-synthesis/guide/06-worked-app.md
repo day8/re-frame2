@@ -134,6 +134,7 @@ dashboard:
 ## Mount
 
 ```clojure
+;; guide:target dom
 (defn ^:export run []
   (rf/init! ui/adapter)
   (ui/mount [ui/frame-root {:id :dash :initial-events [[:dash/init]]}
