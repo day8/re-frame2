@@ -11,7 +11,11 @@
 
   Behaviourally: in production the debug evidence plane does not exist, so
   the projection is inert — install is a refused no-op, nothing is owned,
-  nothing is retained, and a driven scheduler flush accrues no evidence.
+  nothing is retained, and a driven scheduler flush accrues no evidence. The
+  real ViewCell lifecycle is also rooted through connect → disconnect → settle
+  → reconnect: production takes the ordinary reconnect annotation directly,
+  while the companion bundle scan proves the provisional state/decision path
+  is absent rather than merely false at runtime.
 
   The normal DEBUG-build counterparts (tool-evidence-cljs-test /
   tool-evidence-dom-cljs-test) supply the positive controls: the same calls
@@ -46,3 +50,26 @@
       (is (= 1 (reactive/revision cell)) "…while scheduling works as ever")
       (is (= 1 @hits))
       (is (nil? (evidence/projection)) "and the projection retained nothing"))))
+
+(defn- commit-empty!
+  [cell]
+  (let [[_ capture] (reactive/with-capture cell (fn [] nil))]
+    (reactive/commit! cell capture)))
+
+(deftest advanced-production-viewcell-has-no-provisional-disconnect-machinery
+  (let [cell (reactive/make-cell ::prod-lifecycle)]
+    (commit-empty! cell)
+    (is (= :connected (reactive/lifecycle cell)))
+    (reactive/disconnect! cell)
+    (is (= {:state :disconnected :reason :unknown}
+           (peek (reactive/intervals cell))))
+    ;; Root the public test seam in this exact advanced bundle. Its DEBUG body
+    ;; must fold away with the provisional state keyword it would otherwise set.
+    (reactive/settle-disconnect! cell)
+    (commit-empty! cell)
+    (is (= :connected (reactive/lifecycle cell)))
+    (is (= {:state :disconnected
+            :reason :activity-hidden
+            :proof :reconnect}
+           (peek (reactive/intervals cell)))
+        "production reconnect follows the ordinary lifecycle path directly")))

@@ -8,7 +8,8 @@
   No DOM: renderToStaticMarkup exercises the render path; handler fns are
   plucked from the element tree and invoked with fake events against the
   S1 dispatch hook."
-  (:require [clojure.test :refer [deftest is use-fixtures]]
+  (:require [clojure.string :as str]
+            [clojure.test :refer [deftest is use-fixtures]]
             ["react-dom/server" :as rds]
             [re-frame.registrar :as registrar]
             [re-frame.ui :as ui :refer [defview]]
@@ -18,6 +19,28 @@
 (defn- render [el] (rds/renderToStaticMarkup el))
 (defn- current-render [id] (:render-fn (reactive/view-descriptor id)))
 (defn- current-compare [id] (:compare-fn (reactive/view-descriptor id)))
+
+(defn- with-captured-console-warn
+  [thunk]
+  (let [prior (.-warn js/console)
+        calls (atom [])]
+    (set! (.-warn js/console)
+          (fn [& args] (swap! calls conj (mapv str args))))
+    (try
+      {:value (thunk) :warnings @calls}
+      (finally
+        (set! (.-warn js/console) prior)))))
+
+(defn- register-hmr-version!
+  [id version hook-signature display-name]
+  (rt/register-view!
+   id
+   (fn [_props] version)
+   (fn [_prev _next] true)
+   display-name
+   {:view-id id
+    :hook-signature hook-signature
+    :version version}))
 
 (defonce dispatches (atom []))
 
@@ -449,6 +472,136 @@
       (is (identical? cmp2 (:compare-fn descriptor)))
       (is (= "hs1-b" (get-in descriptor [:manifest :hook-signature]))
           "listener observes descriptor and both revisions from one publication"))))
+
+(deftest hmr-publication-listener-failure-never-starves-siblings-or-rolls-back-commit
+  ;; rf2-vxgfnd.215 — drive a throw before, between, and after the two good
+  ;; listeners. A bare doseq aborts at the throw, skips whichever siblings
+  ;; follow it, and runtime/register-view! then falsely treats the committed
+  ;; publication as registrar failure.
+  (doseq [order [[:throw :a :b] [:a :throw :b] [:a :b :throw]]]
+    (let [label   (name (first order))
+          id      (keyword "hmr-listener-order" (str (hash order)))
+          shell   (register-hmr-version! id 0 "hs-order" (str "Order-" label))
+          seen    (atom [])
+          stops   (mapv (fn [entry]
+                          (reactive/subscribe-view!
+                           id
+                           (case entry
+                             :throw #(throw (js/Error. (str "boom-" label)))
+                             :a     #(swap! seen conj :a)
+                             :b     #(swap! seen conj :b))))
+                        order)
+          {:keys [value warnings]}
+          (with-captured-console-warn
+            #(register-hmr-version! id 1 "hs-order" (str "Order-" label)))]
+      (doseq [stop stops] (stop))
+      (is (identical? shell value)
+          "a post-commit listener failure is not reported as registration failure")
+      (is (= [:a :b] @seen) "both good siblings run exactly once in every ordering")
+      (is (= 1 (reactive/view-generation id)))
+      (is (= 0 (reactive/view-remount-generation id)))
+      (is (= 1 (get-in (reactive/view-descriptor id) [:manifest :version])))
+      (is (identical? shell (registrar/handler :view id))
+          "registrar and descriptor authority remain committed and coherent")
+      (is (= 1 (count warnings)) "one bounded warning reports the publication failure")
+      (let [warning (str/join " " (first warnings))]
+        (is (str/includes? warning (pr-str id)) "warning names the view")
+        (is (str/includes? warning "commit") "warning names the publication phase")
+        (is (str/includes? warning "revision 1") "warning names the committed revision")))))
+
+(deftest hmr-publication-detects-falsy-thrown-values-by-presence
+  ;; JS permits `throw false` and `throw null`. First-failure selection must
+  ;; carry an explicit presence bit; `or`, `some?`, and truthiness all lose one
+  ;; of these values and can silently report a later error instead.
+  (doseq [[label thrown-value expected] [[:false false "false"] [:null nil "nil"]]]
+    (let [id    (keyword "hmr-falsy-listener" (name label))
+          _     (register-hmr-version! id 0 "hs-falsy" (str "Falsy-" (name label)))
+          seen  (atom 0)
+          stop1 (reactive/subscribe-view! id #(throw thrown-value))
+          stop2 (reactive/subscribe-view! id #(throw (js/Error. "secondary")))
+          stop3 (reactive/subscribe-view! id #(swap! seen inc))
+          {:keys [warnings]}
+          (with-captured-console-warn
+            #(register-hmr-version! id 1 "hs-falsy" (str "Falsy-" (name label))))]
+      (stop1) (stop2) (stop3)
+      (is (= 1 @seen) "a falsy throw cannot starve a later sibling")
+      (is (= 1 (count warnings)))
+      (is (str/includes? (str/join " " (first warnings)) expected)
+          "the first falsy thrown value, not the secondary error, is reported"))))
+
+(deftest hmr-publication-listener-set-is-snapshotted-before-delivery
+  (let [id      ::listener-snapshot
+        _       (reactive/register-view-descriptor! id "hs-snapshot" {:version 0})
+        seen    (atom [])
+        changed (atom false)
+        stop-b  (volatile! nil)
+        stop-c  (volatile! nil)
+        stop-a  (reactive/subscribe-view!
+                 id
+                 (fn []
+                   (swap! seen conj :a)
+                   (when (compare-and-set! changed false true)
+                     (@stop-b)
+                     (vreset! stop-c
+                              (reactive/subscribe-view! id #(swap! seen conj :c))))))]
+    (vreset! stop-b (reactive/subscribe-view! id #(swap! seen conj :b)))
+    (reactive/register-view-descriptor! id "hs-snapshot" {:version 1})
+    (is (= [:a :b] @seen)
+        "unsubscribe/subscribe during fan-out affects only the next publication")
+    (reactive/register-view-descriptor! id "hs-snapshot" {:version 2})
+    (is (= [:a :b :a :c] @seen))
+    (stop-a)
+    (when @stop-c (@stop-c))))
+
+(deftest reentrant-hmr-publication-owns-its-snapshot-and-newer-revision
+  (let [id     ::reentrant-listener-publication
+        _      (reactive/register-view-descriptor! id "hs-reentrant" {:version 0})
+        seen   (atom [])
+        nested (atom false)
+        stop-a (reactive/subscribe-view!
+                id
+                (fn []
+                  (let [version (:version (reactive/view-descriptor id))]
+                    (swap! seen conj [:a version])
+                    (when (and (= 1 version) (compare-and-set! nested false true))
+                      (reactive/register-view-descriptor!
+                       id "hs-reentrant" {:version 2})))))
+        stop-b (reactive/subscribe-view!
+                id #(swap! seen conj [:b (:version (reactive/view-descriptor id))]))]
+    (reactive/register-view-descriptor! id "hs-reentrant" {:version 1})
+    (stop-a) (stop-b)
+    (is (= [[:a 1] [:a 2] [:b 2] [:b 2]] @seen)
+        "nested publication completes its own snapshot before the outer resumes")
+    (is (= 2 (:version (reactive/view-descriptor id)))
+        "the outer transaction never rolls back the nested winner")
+    (is (= 2 (reactive/view-generation id)))))
+
+(deftest rollback-listener-failure-preserves-primary-and-completes-compensation
+  (let [id       ::rollback-listener-failure
+        shell    (register-hmr-version! id 0 "hs-rb-a" "RollbackListenerV1")
+        primary  (js/Error. "registrar primary")
+        seen     (atom 0)
+        stop-bad (reactive/subscribe-view! id #(throw (js/Error. "rollback listener")))
+        stop-ok  (reactive/subscribe-view! id #(swap! seen inc))
+        {:keys [value warnings]}
+        (with-captured-console-warn
+          #(try
+             (with-redefs [registrar/register! (fn [& _] (throw primary))]
+               (register-hmr-version! id 1 "hs-rb-b" "RollbackListenerV2"))
+             ::unexpected-success
+             (catch :default e e)))]
+    (stop-bad) (stop-ok)
+    (is (identical? primary value)
+        "a rollback listener failure cannot mask the registrar's primary failure")
+    (is (= 1 @seen) "compensation still reaches the good sibling")
+    (is (= 2 (reactive/view-generation id)) "rollback is a fresh monotone publication")
+    (is (= 2 (reactive/view-remount-generation id)))
+    (is (= 0 (get-in (reactive/view-descriptor id) [:manifest :version])))
+    (is (identical? shell (registrar/handler :view id)))
+    (is (= "RollbackListenerV1" (.-displayName shell))
+        "the primary registrar failure still restores the prior diagnostic name")
+    (is (= 1 (count warnings)))
+    (is (str/includes? (str/join " " (first warnings)) "rollback"))))
 
 (deftest failed-first-registration-publishes-unavailable-compensation
   (let [id ::failed-publication

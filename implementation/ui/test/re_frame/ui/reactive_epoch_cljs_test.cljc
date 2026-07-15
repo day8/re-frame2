@@ -27,8 +27,10 @@
       finds the registry already drained and cannot double-advance (the
       safety the dev-tier `:rf.error/flush-in-open-epoch` signal, whose
       typed throw + Spec 009 catalogue row ride the S2f 009 batch, sits atop);
-    - DISCARD ON DISCONNECT/TEARDOWN — an unmounted cell leaves the registry
-      without a stale flush;
+    - DISCARD ON DISCONNECT/TEARDOWN/RESET — an unmounted cell leaves the
+      registry without a stale flush; the test-support reset also clears every
+      detached cell's dirty/evidence window, and a racing mark is coherently
+      pre-reset-cleared or post-reset-enrolled;
     - THE SLICE-SCOPED PROBE MEMO — `sub-read` threads one memo per slice, so
       sibling probes compute shared derivation parents once.
 
@@ -374,6 +376,86 @@
     (is (= :dead (reactive/lifecycle cell)))
     (is (= 0 (reactive/pending-cell-count)) "teardown drops the pending flush")))
 
+(deftest scheduler-reset-clears-detached-cell-state-and-opens-a-fresh-window
+  ;; rf2-vxgfnd.181 — clearing only the registry strands this cell: its dirty
+  ;; flag remains true, epoch 2 folds into epoch 1, and the false->true enrolment
+  ;; edge never happens. Reset owns the detached cells as well as the set.
+  (let [cell (reactive/make-cell ::reset-cell)
+        hits (atom 0)]
+    (reactive/subscribe cell (fn [] (swap! hits inc)))
+    (reactive/mark-dirty! cell 1)
+    (is (= 1 (reactive/pending-cell-count)))
+    (is (= {:first-epoch 1 :latest-epoch 1 :count 1}
+           (select-keys (reactive/pending-evidence cell)
+                        [:first-epoch :latest-epoch :count])))
+
+    (reactive/reset-scheduler!)
+    (is (false? (reactive/dirty? cell))
+        "every cell detached from the registry is clean")
+    (is (nil? (reactive/pending-evidence cell))
+        "the pre-reset evidence window is gone")
+    (is (= 0 (reactive/pending-cell-count)))
+    (is (= 0 (reactive/revision cell)) "reset never advances the revision")
+    (is (= 0 @hits) "reset never notifies")
+
+    (reactive/mark-dirty! cell 2)
+    (is (true? (reactive/dirty? cell)))
+    (is (= 1 (reactive/pending-cell-count))
+        "epoch 2 crosses a fresh false->true edge and re-enrols")
+    (is (= {:first-epoch 2 :latest-epoch 2 :count 1}
+           (select-keys (reactive/pending-evidence cell)
+                        [:first-epoch :latest-epoch :count]))
+        "evidence cannot span the fixture reset")
+    (is (= 1 (reactive/flush-pending!)))
+    (is (= 1 (reactive/revision cell)))
+    (is (= 1 @hits))))
+
+#?(:clj
+   (deftest reset-versus-mark-linearizes-to-a-post-reset-enrolment
+     ;; Deterministically pause reset AFTER it detaches the registry but BEFORE
+     ;; it clears the detached cell. The scheduler lock must keep the epoch-2
+     ;; mark outside that ownership window. Without the lock the mark returns
+     ;; while the cell is still dirty, skips enrolment, and reset erases it.
+     (let [cell       (reactive/make-cell ::reset-race)
+           hits       (atom 0)
+           detached   (java.util.concurrent.CountDownLatch. 1)
+           release    (java.util.concurrent.CountDownLatch. 1)
+           mark-start (java.util.concurrent.CountDownLatch. 1)
+           real-swap  swap-vals!]
+       (reactive/subscribe cell (fn [] (swap! hits inc)))
+       (reactive/mark-dirty! cell 1)
+       (with-redefs [clojure.core/swap-vals!
+                     (fn [a f & args]
+                       (let [result (apply real-swap a f args)]
+                         ;; The registry is the only set-valued atom touched by
+                         ;; reset. Pause after its atomic detach while reset
+                         ;; still owns the scheduler lock.
+                         (when (set? (first result))
+                           (.countDown detached)
+                           (.await release 5 java.util.concurrent.TimeUnit/SECONDS))
+                         result))]
+         (let [reset-f (future (reactive/reset-scheduler!))]
+           (is (.await detached 5 java.util.concurrent.TimeUnit/SECONDS)
+               "reset reached the deterministic detach boundary")
+           (let [mark-f (future
+                          (.countDown mark-start)
+                          (reactive/mark-dirty! cell 2))]
+             (is (.await mark-start 5 java.util.concurrent.TimeUnit/SECONDS))
+             (is (= ::blocked (deref mark-f 250 ::blocked))
+                 "a mark cannot enter the detached-but-not-cleared window")
+             (.countDown release)
+             (is (nil? (deref reset-f 5000 ::reset-timeout)))
+             (is (nil? (deref mark-f 5000 ::mark-timeout)))
+             (is (true? (reactive/dirty? cell)))
+             (is (= 1 (reactive/pending-cell-count))
+                 "the racing mark linearized after reset and is registered")
+             (is (= {:first-epoch 2 :latest-epoch 2 :count 1}
+                    (select-keys (reactive/pending-evidence cell)
+                                 [:first-epoch :latest-epoch :count])))
+             (is (= 1 (reactive/flush-pending!)))
+             (is (= 1 (reactive/revision cell)))
+             (is (= 1 @hits))))))))
+
 ;; ===========================================================================
 ;; The slice-scoped probe memo — sibling probes share derivation parents
 ;; ===========================================================================
@@ -507,7 +589,8 @@
 ;; and evidence stay independent — one dirty enrolment / one render, yet the
 ;; debug plane retains enough to attribute that render to its contributing
 ;; movement (first/latest epoch, a cause set, a capped target vector + a
-;; dropped-count) WITHOUT forcing a render per epoch.
+;; bounded `:dropped` set whose `:dropped-exact?` flag records saturation)
+;; WITHOUT forcing a render per epoch.
 
 (deftest n-invalidations-in-one-drain-preserve-bounded-evidence
   ;; N invalidations with DISTINCT epochs fold before one flush: ONE revision
