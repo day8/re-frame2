@@ -217,6 +217,11 @@
 ;; Committed event sites (S3a)
 ;; ---------------------------------------------------------------------------
 
+;; A shared, never-mutated empty deps array for mount-only layout effects.
+;; React only reads the deps element-wise, so one instance serves every event
+;; view and saves an array allocation on every render.
+(def ^:private empty-deps #js [])
+
 (defn- use-event-owner
   [view-id]
   (let [owner-ref (react/useRef nil)]
@@ -235,7 +240,7 @@
   (react/useLayoutEffect
     (fn event-lifecycle []
       (fn cleanup [] (events/disconnect! owner)))
-    #js []))
+    empty-deps))
 
 (defn- capture-reactive-and-events
   [owner frame-id capture-reactive]
