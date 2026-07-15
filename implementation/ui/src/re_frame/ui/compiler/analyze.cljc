@@ -117,6 +117,8 @@
   [ast]
   (letfn [(project [x]
             (cond
+              (and (seq? x) (= 'quote (first x))) x
+
               (runtime-sub-form? x)
               (with-meta (list 're-frame.ui/sub (project (nth x 2))) (meta x))
 
@@ -823,7 +825,7 @@
                                 (str "bare " (name kind) " reference below macro "
                                      head " would become an unindexed reactive "
                                      "call after expansion. Write the explicit "
-                                     "(" (name kind) " query) call")
+                                     (reactive-direct-form kind) " call")
                                 {:form f :macro head})
                      (with-same-meta
                        f

@@ -2,7 +2,8 @@
   "Template-grammar REJECT table: every rejected form throws a compile
   error carrying {:rf.ui.compile/error <id>} — the S1e didactic-message
   roster keys off these ids. Runs on both hosts (injected resolution)."
-  (:require [clojure.test :refer [deftest is testing]]
+  (:require [clojure.string :as str]
+            [clojure.test :refer [deftest is testing]]
             [re-frame.ui.compiler.analyze :as ana]
             [re-frame.ui.analyze-accept-cljs-test :refer [mk-env mk-self-env]]))
 
@@ -154,6 +155,21 @@
       "a local shadowing sub is an ordinary call, never a reactive site")
   (is (nil? (reject-id '[:div {:title '((if p sub inc) [:q])}]))
       "quoted data is inert — never an invocation target"))
+
+(deftest indirect-frame-diagnostic-recommends-the-zero-arity-form
+  (let [ex (try
+             (ana/analyze (mk-env) '[:div {:title (-> x frame)}])
+             nil
+             (catch #?(:clj clojure.lang.ExceptionInfo
+                       :cljs cljs.core/ExceptionInfo) ex
+               ex))
+        message (some-> ex ex-message)]
+    (is (= :rf.ui.compile/unsupported-form
+           (:rf.ui.compile/error (ex-data ex))))
+    (is (str/includes? message "(frame)")
+        "the didactic repair is the frozen zero-arity frame form")
+    (is (not (str/includes? message "frame query"))
+        "the diagnostic never recommends the invalid argument-taking form")))
 
 (deftest or-default-value-escape
   ;; rf2-dzyqis — the sibling gap PR #5874 (.252) left open. reject-reactive-

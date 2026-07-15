@@ -433,6 +433,29 @@
           (ana/template-fingerprint-projection (:ast changed-query))))
         "site id is projected out, but the semantic query remains")))
 
+(deftest quoted-runtime-sub-lookalikes-are-fingerprint-opaque
+  (let [runtime  're-frame.ui.reactive/sub-read
+        quoted   (with-meta
+                   (list 'quote (list runtime :quoted/sid [:quoted/query]))
+                   {:line 17 :column 9})
+        ast      {:op :expr :form (list 'str quoted)}
+        projected (ana/template-fingerprint-projection ast)
+        digest   (fn [sid query]
+                   (fingerprint/template-fingerprint
+                    (ana/template-fingerprint-projection
+                     {:op :expr
+                      :form (list 'str
+                                  (list 'quote (list runtime sid query)))})))]
+    (is (= ast projected)
+        "fingerprint projection preserves quoted internal-looking data exactly")
+    (is (identical? quoted (second (:form projected)))
+        "the quote form itself is opaque, preserving its spelling and metadata")
+    (is (apply distinct?
+               [(digest :quoted/sid-a [:quoted/query])
+                (digest :quoted/sid-b [:quoted/query])
+                (digest :quoted/sid-a [:quoted/other-query])])
+        "quoted lookalike sid and query data both remain part of build identity")))
+
 (deftest metadata-loss-reacquires-safely-instead-of-transferring-an-ordinal
   (let [old (analyze-site-fixture :clj {:line 1} '[:div (sub [:a])])
         edited (analyze-site-fixture

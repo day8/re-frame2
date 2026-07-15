@@ -393,6 +393,40 @@
                      literal-cljs)))
         "the hot call itself carries only scalar sid + query")))
 
+(deftest quoted-runtime-sub-lookalikes-never-hoist
+  (let [runtime 're-frame.ui.reactive/sub-read
+        payload {:marker ::quoted-lookalikes
+                 :list   (list runtime :fake/list [:q/list])
+                 :vector [(list runtime :fake/vector [:q/vector])]
+                 :map    {(list runtime :fake/key [:q/key])
+                          (list runtime :fake/value [:q/value])}
+                 :set    #{(list runtime :fake/set [:q/set])}}
+        quoted  (list 'quote payload)
+        forms   (emit-cljs/emit-defview
+                 {:vname 'quoted-lookalikes
+                  :view-id :app.probe/quoted-lookalikes
+                  :display-name "app.probe/quoted-lookalikes"
+                  :docstring nil
+                  :header (header/parse-header [])
+                  :slots []
+                  :ast {:op :expr :form (list 'str quoted)}
+                  :manifest {:view-id :app.probe/quoted-lookalikes
+                             :hook-signature "hs1-fixed"
+                             :sites {:subs []}}
+                  :closed-keys nil
+                  :children? false})
+        emitted-quote
+        (some (fn [x]
+                (when (and (seq? x)
+                           (= 'quote (first x))
+                           (= ::quoted-lookalikes (:marker (second x))))
+                  x))
+              (tree-seq coll? seq forms))]
+    (is (= quoted emitted-quote)
+        "lists, vectors, map keys/values, and sets beneath quote round-trip unchanged")
+    (is (not (str/includes? (pr-str forms) "quoted-lookalikes$query$"))
+        "a quoted internal-looking form never synthesizes a module query def")))
+
 (deftest file-pass-registration-does-not-embed-a-per-view-digest
   (build/begin-build! ::file '#{app.file})
   (try
