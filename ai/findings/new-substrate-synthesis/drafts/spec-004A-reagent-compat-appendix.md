@@ -1,7 +1,7 @@
 # Spec 004A — The stock-Reagent compatibility tier (live appendix to Spec 004)
 
 > **Status: DRAFT — 2026-07-12. Promotes to `spec/004A-Reagent-Compat.md` at S7, with
-> the adapter deletion wave** (per the ratified Adapters decision's proof / default /
+> the compatibility-freeze / Helix-and-slim deletion wave** (per the ratified Adapters decision's proof / default /
 > soak gates and the binding codex2 disposition, rows 4 and 7 — a **live** compatibility
 > appendix, not git-history provenance). **Until the wave lands, this page has no
 > normative force: the pre-rewrite [Spec 004](004-Views.md) and
@@ -39,7 +39,11 @@ revisions is kept as **provenance only, never a normative home**.
   events, subs, fx, machines, schemas, routes, resources — is tier-independent: one
   process-global registrar, one frame registry, one epoch stream. Frozen-tier views and
   `ui/defview` trees dispatch into and subscribe against the same frames. Nothing in
-  this appendix moves state across anything; only *rendering* crosses.
+  this appendix moves state across anything; only *rendering* crosses. The crossing
+  does not select an adapter: v1 installs exactly one adapter per process, and every
+  root/subtree in that process uses that boot choice. `ui/raw` / `ui/->react` traffic
+  in ordinary React values; they do not create per-frame or within-frame adapter
+  coexistence.
   ⟨reagent-compat-boundary §1⟩
 - **The step-1 migration landing zone.** A Reagent app moves its dataflow onto
   re-frame2 while its views stay on this tier (one enumerated adjustment class —
@@ -62,14 +66,16 @@ revisions is kept as **provenance only, never a normative home**.
   Activity/presence semantics, the JVM structural subset — apply to `ui` cells only,
   never to frozen-tier components. This is stated honestly, not patched.
   ⟨08 §5 Adapters "no parity"; reagent-compat-boundary §2⟩
-- **Not the taught surface.** `ui/defview` is the only *taught* component form; the
-  frozen tier is taught on exactly one migration page. This appendix is a contract
-  reference, not a tutorial. ⟨rewrite [TRANSITION]⟩
-- **Not UIx, Helix, or reagent-slim.** Those adapters (and their API/Conventions rows,
-  their smokes, and the ×3 shared-suite parameterisation) are **deleted** at the S7
-  wave, not frozen. `day8/reagent-slim` deletes with them; the retained
-  `with-resource-lease` row below loses its slim shipping note at promotion. A git tag
-  preserves the deleted adapters as provenance. ⟨08 §5 Adapters; rewrite [TRANSITION]⟩
+- **Not the taught surface.** `ui/defview` is the only *taught* component form. The
+  frozen tier appears only as a minimum migration/compatibility path; this appendix is
+  a contract reference, not a tutorial. ⟨rewrite [TRANSITION]⟩
+- **Reagent-specific, not the UIx contract home.** UIx is also retained as a frozen
+  compatibility adapter, but its live contract remains primarily in Spec 006 plus its
+  API/Conventions/Ownership rows; it is intentionally not folded into this appendix.
+  Helix and reagent-slim (and their unique rows/smokes) are **deleted** at the S7 wave.
+  The retained `with-resource-lease` row below loses its slim shipping note at
+  promotion. A git tag preserves the deleted Helix/slim surfaces as provenance.
+  ⟨08 §5 Adapters; rewrite [TRANSITION]⟩
 - **No artifact coupling with `re-frame.ui`.** `day8/re-frame2-ui` never depends on the
   compat adapter and vice versa (G-12); boundary-crossing code lives in application
   namespaces and traffics in plain React values. ⟨reagent-compat-boundary §1⟩
@@ -209,8 +215,9 @@ contract on every point):
 
 ### What CI keeps green
 
-Two suites exist after the wave; this tier owns one of them, plus exactly one browser
-smoke. ⟨reagent-compat-boundary §7; 11 W9/W13⟩
+Three causal suites exist after the wave; this tier owns one of them, plus exactly one
+browser smoke. The other two are `ui-conformance` and the separately-owned frozen UIx
+compatibility suite. ⟨reagent-compat-boundary §7; 11 W9/W13⟩
 
 - **`reagent-compat` — the frozen-tier contract suite.** Pinned once at the freeze,
   then maintenance-only. It carries: the Spec 006 adapter-contract fixtures against
@@ -226,12 +233,13 @@ smoke. ⟨reagent-compat-boundary §7; 11 W9/W13⟩
   lifecycle probe).
 - **Exactly one browser smoke.** The Reagent adapter smoke
   (`implementation/adapters/reagent/testbed/spec.cjs` — mount + dispatch + assert)
-  survives; the UIx and Helix smokes delete with their adapters. The legacy adapter
-  matrix collapses ×3 → ×1, and that ×1 is this tier's smoke.
-- **`ui-conformance` is the other suite** — the `re-frame.ui` contract surface. It
-  replaces the deleted `react_shared_suite` and is NOT part of this tier; no reading of
-  "all legacy coverage is retired" is correct, and none of this tier's coverage rides
-  it.
+  survives. The Helix smoke deletes; the UIx smoke survives under UIx's own frozen
+  compatibility contract. This appendix owns only the Reagent smoke.
+- **`ui-conformance` and `uix-compat` are the other suites.** `ui-conformance` owns the
+  forward `re-frame.ui` contract surface. `uix-compat` pins the retained UIx adapter's
+  Spec 006/public API contract and its one smoke. Neither is part of this Reagent tier;
+  no reading of "all legacy coverage is retired" is correct, and none of this tier's
+  coverage rides them.
 
 ### What "frozen" means for the bug policy
 

@@ -2,8 +2,9 @@
 
 > **Status: DRAFT — not merged · 2026-07-12.** W11 is the S6 "benchmarks vs trio"
 > workstream ⟨11 W11; 12 §3 S6 epic⟩: the RUNTIME-performance comparison of
-> `re-frame.ui` against Reagent / UIx / Helix, run **before the S7 deletion wave**, with
-> results + fixtures + a git tag as what survives ⟨11 W11; 08 §5 Adapters "Keep" list⟩.
+> `re-frame.ui` against Reagent / UIx / Helix, run **before the S7 freeze/removal
+> wave**, with results + fixtures + a git tag as the durable comparison archive ⟨11
+> W11; 08 §5 Adapters "Keep" list⟩.
 > The G-10 draft explicitly carved runtime performance OUT of bundle measurement and
 > pointed it here ⟨drafts/g10-bundle-baseline-methodology.md §9 "Runtime performance"⟩;
 > this draft is the receiving end. It reuses G-10's house style deliberately: the
@@ -24,8 +25,10 @@ W11 answers exactly one question:
 > browser?** ⟨11 W11; 05 §2/§3; 07 §5 Methodology line⟩
 
 It is the **one-time-at-S6 comparative story** — the runtime sibling of G-10's §8.2
-trio table — plus a recommendation (§7.3) on the single recurring subset, if any, worth
-keeping after the trio is gone. Everything else runtime-shaped already has an owner, and
+trio table — plus a recommendation (§7.3) on the single recurring **ui self-baseline**
+subset, if any, worth keeping after the comparative campaign closes. Frozen
+Reagent/UIx support carries no runtime-performance parity promise. Everything else
+runtime-shaped already has an owner, and
 W11 refuses to re-own it:
 
 | Not W11's | Owner |
@@ -44,8 +47,8 @@ Its deliverable is the comparison table, the archive, and the §7.3 cadence ruli
 
 ## 2. The comparator set and the shared-dataflow control
 
-- **Comparators**: `re-frame.ui` vs **Reagent, UIx, Helix** (mandatory — the deletion
-  wave's named survivors-in-archive ⟨08 §5 Adapters⟩). **reagent-slim** rides as an
+- **Comparators**: `re-frame.ui` vs **Reagent, UIx, Helix** (mandatory — the one-time
+  S6 legacy-trio comparison ⟨08 §5 Adapters⟩). **reagent-slim** rides as an
   optional fifth row where its fixture builds without bespoke work, matching G-10's
   named-comparator treatment ⟨drafts/g10-bundle-baseline-methodology.md §8.2⟩
   **[S6-CONFIRM]** whether slim earns its rows.
@@ -57,10 +60,11 @@ Its deliverable is the comparison table, the archive, and the §7.3 cadence ruli
   delta: element construction, prop conversion, handler identity, subscription
   notification, memo behaviour, commit cost ⟨05 §2 table⟩. W11 is *not* "re-frame vs
   something else" — the dataflow term cancels.
-- **Timing**: the table is produced **at S6, before W13 deletes the trio** ⟨11 W11⟩.
-  The trio rows freeze in the archive and are never rebuilt; any post-S7 recurring
-  measurement (§7.3) is self-baseline only — the same one-time-vs-ongoing split G-10
-  §1.3 pins.
+- **Timing**: the table is produced **at S6, before W13 deletes Helix/slim and freezes
+  Reagent/UIx** ⟨11 W11⟩. The trio comparison rows freeze in the archive and are never
+  rebuilt by W11; any post-S7 recurring measurement (§7.3) is ui self-baseline only.
+  That policy is deliberate even though Reagent/UIx still build: compatibility
+  correctness must not turn into a feature/performance-parity promise.
 
 ## 3. The claims under honest measurement
 
@@ -394,12 +398,12 @@ table ⟨drafts/g10 §8.2; 11 W11⟩ **[S6-CONFIRM]** the single tag name. Shape
 
 Raw per-round JSON + traces go to CI artifact storage referenced by hash, not checked
 in (the G-10 §7 rule). The fixtures themselves — including the trio view layers — are
-part of the archive and survive the W13 deletion ⟨11 W11⟩.
+part of the archive and survive the W13 freeze/removal wave ⟨11 W11⟩.
 
 ### 7.2 When it runs
 
 Once, at S6, after the repo migration has produced the idiomatic-parity fixture
-variants and before the W13 deletion wave ⟨12 §3 S6 epic ordering: … → benchmarks vs
+variants and before the W13 freeze/removal wave ⟨12 §3 S6 epic ordering: … → benchmarks vs
 trio (W11) last⟩; rerun-at-will before the tag is cut if an S6 optimisation lands.
 Landing note: the bench build ids and npm scripts touch the top-level
 `implementation/shadow-cljs.edn` + `implementation/package.json` — hot-zone; one
@@ -419,8 +423,9 @@ remainder)"⟩ — and given what already recurs:
   G-8 gates the input path's correctness and its 10%-vs-hand-written-React latency
   bound; G-1 gates the render path. A per-PR browser wall-clock comparison would
   re-gate those claims with strictly worse signal-to-noise.
-- **The trio arms cannot recur at all** post-S7 — the trio no longer builds from the
-  repo ⟨drafts/g10 §1.3; 11 W13⟩. Anything recurring is self-baseline by construction.
+- **The trio arms do not recur** post-S7. Helix is gone; Reagent/UIx remain frozen
+  compatibility adapters, but recurring comparison would create the parity promise the
+  ruling explicitly rejects. Anything recurring is ui self-baseline by construction.
 - **The single scenario recommended for recurring status: R-B keyed-list churn**, as a
   **nightly** (not per-PR) self-baseline tripwire — because R-B is the only scenario
   whose dominant cost (real-DOM reconcile + paint on a hot list) no existing gate

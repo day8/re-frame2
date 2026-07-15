@@ -61,8 +61,11 @@ Why a tab, not Core integration:
   Routing, SSR, Story, Xray) rather than piling into an existing one; the guide is a
   coherent 10-chapter learning track with its own index — the same shape as the Story
   and Xray tabs ⟨mkdocs.yml nav; standing tab-per-sub-domain ruling⟩.
-- **Post-S7 end state.** After the deletion wave (W13) the substrate IS the views
-  layer. The end state is **two surfaces with different jobs**: `docs/core/` view
+- **Post-S7 end state.** After the freeze/deletion wave (W13), `re-frame.ui` IS the
+  optimized/default/only taught views layer; stock Reagent and UIx remain frozen
+  compatibility boot choices, while Helix/reagent-slim are gone. Adapter selection is
+  still once per process, never per frame or subtree. The docs end state is **two
+  surfaces with different jobs**: `docs/core/` view
   pages get the downstream re-teach ⟨drafts/spec-004-rewrite-draft.md L882: "docs/core/
   views.md, guide pages, examples, skills — downstream re-teach (Stage-6…)"⟩ — the
   growth-order Core track keeps a Views concept page, rewritten over
@@ -82,9 +85,10 @@ Why a tab, not Core integration:
     `frames.md`, `glossary.md`, `docs/core/testing/views.md` — re-taught over the new
     surface (16 files in docs/core currently mention `reg-view`; the re-teach wave
     sweeps all of them) ⟨grep docs/core 2026-07-12⟩.
-  - `reg-view` as *live teaching* survives only on the compat/migration surface:
-    `docs/ui/migration.md` (§4 below), the `25-from-re-frame-v1.md` track, and — spec
-    side, not docs side — Spec 004A when it promotes at S7
+  - Reagent compatibility/migration guidance survives only on `docs/ui/migration.md`
+    (§4 below); `25-from-re-frame-v1.md` routes there without duplicating the tier. UIx receives a
+    terse compatibility/API reference, not a guide track. Spec-side, Reagent's contract
+    remains in the Reagent-specific 004A when it promotes at S7
     ⟨drafts/spec-004A-reagent-compat-appendix.md status⟩.
 
 **File mapping** (11 guide files + the migration doc, §4):
@@ -134,7 +138,7 @@ input. Every transform below happens in it, once.
 | Intra-guide chapter links (`[02](02-views.md)` — ~30 sites, all same-dir relative) | **Keep unchanged**; README→index rename doesn't affect them (no chapter links back to README) |
 | ⟨guide/README ¶1⟩ "design rationale lives one directory up" | **Remove the clause.** The synthesis suite does not move; docs never link `spec/` ⟨AUTHORING §2⟩. The sentence becomes "This guide teaches the library as a user." |
 | ⟨guide/README ¶1⟩ the fixture-coverage statement | **Update to the move-time truth.** Since 2026-07-13 the README states exact coverage (guide 09's fixture today, growing per stage); by S6 all S1–S5 chapters are active per the stage forcer, so the sentence becomes the full every-example promise. The "except fences marked `guide:no-fixture`" amendment lands with the extractor PR, not the move ⟨guide-fixture-pipeline §2 README amendment⟩ |
-| ⟨10-migration doc⟩ links to `drafts/reagent-compat-boundary.md` (×3) | **Replace with inline prose.** The draft doesn't move; its normative content promotes spec-side (004A at S7), and docs never link `spec/`. The page inlines what the reader needs: the three co-mount granularities and the ownership/teardown one-liners it currently cites |
+| ⟨10-migration doc⟩ links to `drafts/reagent-compat-boundary.md` (×3) | **Replace with inline prose.** The draft doesn't move; its Reagent normative content promotes spec-side (004A at S7), and docs never link `spec/`. The page inlines only what the reader needs: the three React-interoperability granularities, ownership/teardown one-liners, and the load-bearing rule that every root/subtree uses the process's one boot-selected adapter. The interop doors never select a second adapter. |
 | ⟨10-migration doc⟩ synthesis-suite citations ("08 §2", "12 §2", "02 §3 table", "06 §1", "guide 03") | **Rewrite or drop.** "02 §3 table" → link `04-events.md` (the decision table's guide home); "guide 03" → `03-state.md`; "06 §1 subset check" → `08-ssr.md`; stage-plumbing citations ("08 §2", "12 §2", delta numbers) → **drop** — program management is not reader content |
 | Provenance parentheticals: "Blessed-table verdict; qualifier added 2026-07-12" ⟨guide/02 L73–74⟩, "delta #2, ruled 2026-07-12; 12 §2" ⟨10-migration⟩, "(an Xray addition staged behind its integration review)" ⟨guide/06 L32⟩, the migration doc's **Status:** line | **Strip.** "No bead ids in prose. Pages state current truth" ⟨AUTHORING §Honesty⟩. The *facts* stay (wave-2 status, S7 freeze); the ruling ledger goes |
 
@@ -280,8 +284,13 @@ current API so the gates stay green, and future drift protection is free.
   "Coming from X" slot (the Machines/XState, Resources/TanStack, SSR/Next.js pattern)
   and W1's companion doc — the two-step story (dataflow first, views per-subtree with
   the migrator), the M/D/R tiers, and the step-1 plain-fn contract
-  ⟨10-migration-from-reagent.md⟩. W2's skill teaches the same tiers; the page is the
-  reader-facing half.
+  ⟨10-migration-from-reagent.md⟩. W2's skill implements the same migration tiers; the
+  page is the reader-facing half, not a second view-layer teaching track.
+- **UIx compatibility is discoverable, not taught.** Add one compact note naming UIx
+  as the third boot choice and linking its retained
+  `docs/api/re-frame.adapter.uix.md` reference. State correct-but-frozen, one pinned
+  suite + one smoke, no new capabilities/parity/examples/templates, and one adapter
+  per process. Do not add UIx component examples to this migration page.
 - **Not** into the `migration/` tree: `migration/from-re-frame-v1/` is scoped to the
   v1→v2 path, is staged into docs separately, and its README is on the fixed hot-zone
   list — landing there buys conflicts and mis-scoping for nothing.
@@ -299,9 +308,11 @@ current API so the gates stay green, and future drift protection is free.
   (`10-worked-app.md` unchanged), the migration page lands unnumbered as
   `migration.md` — it is tab-level companion material, not chapter 11 of the learning
   track. No renumbering anywhere.
-- **At S7 (W13's "one migration doc page"):** this same page absorbs the
-  deletion-wave truths (adapters deleted, tier frozen, `->react` as the outward
-  bridge). The move PR writes S6 truth only — it does not pre-write S7 state.
+- **At S7 (W13's "one migration doc page"):** this same page absorbs the wave truths:
+  Helix/reagent-slim deleted; Reagent and UIx frozen; `re-frame.ui` remains the only
+  taught/default/forward surface; one adapter installed per process; `->react` is a
+  React interop bridge, not per-subtree adapter selection. The move PR writes S6 truth
+  only — it does not pre-write S7 state.
 
 ## 5. The PR shape (PR-A)
 
@@ -337,7 +348,8 @@ scripts/ touches. Well inside single-worker sizing; no bundling.
 - PR-B extractor + wiring, PR-C activation (§3) — with the residue-gate widening.
 - docs/core downstream re-teach (W3): views.md, introduction.md counter, frames.md,
   the reg-view how-tos, **delete** `use-uix-helix-or-slim.md` + its nav row + link
-  sweep, glossary, `docs/api/re-frame.ui*.md` reference pages.
+  sweep, glossary, `docs/api/re-frame.ui*.md` reference pages, and re-status the
+  retained `docs/api/re-frame.adapter.uix.md` as compatibility-only.
 - Playground rebuild + smoke (W3) — precondition for any guide live cells (§2.4 rule).
 - Skills (W6): `re-frame2` authoring view sections, `re-frame2-pair` hot-swap/ui.tool,
   `re-frame2-xray` causes surface; migration skill (W2) alongside the migrator.

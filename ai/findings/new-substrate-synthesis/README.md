@@ -4,10 +4,14 @@
 
 ## The proposal in one paragraph
 
-One first-party view library for re-frame2 — the only *taught* view layer — replacing
-UIx and Helix outright, with **stock Reagent retained as a frozen compatibility tier**
-(it enables the two-step v1 migration — dataflow first on existing Reagent/re-com views,
-`ui` per subtree later). Views
+One first-party view library for re-frame2 — the optimized, default, and only *taught*
+view layer — replacing Helix and reagent-slim outright, with **stock Reagent and UIx
+retained as frozen compatibility adapters**. Each remains correct under a pinned
+contract suite plus one browser smoke, but neither receives new capabilities or a
+parity promise. The Reagent tier enables the two-step v1 migration — dataflow first on
+existing Reagent/re-com views, `ui` rendering boundaries later. Adapter selection
+remains one explicit boot-time choice per process (`re-frame.ui`, Reagent, or UIx);
+React-component interop does not select another adapter. Views
 are hiccup with **event vectors as handlers**; a compiler lowers them to one normalized
 AST and emits direct React code for the browser and a structural render tree for the JVM
 — no interpreter ships. A view's reads share **one** React bridge under a committed

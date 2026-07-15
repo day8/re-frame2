@@ -13,9 +13,11 @@ AST→output functions; handlers are data; ownership begins only at commit.
 | 4 | Story variants (CLJS-unit-test shape per repo ruling) | CLJS | s |
 | 5 | Gates — parity, elision, bundle, benchmarks, equivalence | CI | build |
 
-The trio's ×3 adapter matrix collapses into the **new-UI conformance suite**, pinned
-once; the frozen-Reagent compatibility tier keeps its own distinct **compatibility
-suite + one smoke** (08 §5 Adapters) — two named suites, not one.
+The legacy shared-adapter parity matrix collapses into three causal owners: the
+**new-UI conformance suite + one smoke**, the frozen-Reagent **compatibility suite + one
+smoke**, and the frozen-UIx **compatibility suite + one smoke** (08 §5 Adapters). Only
+Helix/slim arms retire. The compatibility suites are pinned correctness contracts, not
+feature/performance parity promises.
 
 ## 2. `ui.test` — the contract (one namespace, one table)
 

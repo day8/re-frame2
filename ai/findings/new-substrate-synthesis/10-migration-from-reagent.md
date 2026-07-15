@@ -11,6 +11,13 @@
 > Reagent subtrees / foreign heads until a `ui`-native answer exists — a separate,
 > deferrable decision).
 
+**One adapter still boots the process.** Incremental/co-mount below describes React
+rendering boundaries, not adapter selection. The process installs exactly one of
+`ui/adapter`, `reagent-adapter/adapter`, or `uix-adapter/adapter`; all frames, roots,
+and subtrees use that choice. `ui/raw` and `ui/->react` pass ordinary React values and
+never install a second adapter. UIx is a separate frozen compatibility boot choice,
+not part of this Reagent-specific migration contract.
+
 **Status:** final · 2026-07-12 (step-1 claim qualified to the checked-in Spec 006
 plain-fn contract; boundary mechanics split out to
 [drafts/reagent-compat-boundary.md](drafts/reagent-compat-boundary.md) — per the 09
@@ -26,8 +33,9 @@ AI agent with a checklist) applies without judgment. The remainder splits into *
 transformations with a decision** (~10–15%: Form-2 state, lifecycle methods) and **a
 handful of genuine redesigns** (~1–5%: reaction/cursor cleverness, cross-frame tricks,
 render-phase side effects — most of which were bugs waiting to happen and are the
-*reason* this library exists). Old and new trees co-mount at explicit boundaries, so
-migration is incremental per view subtree, not big-bang. Both nesting directions are
+*reason* this library exists). Old and new rendering trees co-mount at explicit
+boundaries under the same process-installed adapter, so migration is incremental per
+view subtree, not big-bang and never per-subtree adapter selection. Both nesting directions are
 specified in the compatibility-boundary contract
 ([drafts/reagent-compat-boundary.md](drafts/reagent-compat-boundary.md)): legacy
 subtrees inside `ui` trees via `ui/raw`, and migrated `defview` subtrees inside a
@@ -141,7 +149,8 @@ payoff arrives per-subtree, not at the end.
    the three granularities and their ownership/teardown rules are the boundary
    contract's §1/§5); run the app (HMR makes this loop fast) + Tier-1 tests. Note the
    outward direction (`ui/->react`, a migrated subtree inside a remaining Reagent
-   shell) becomes available at S6 with the migration wave.
+   shell) becomes available at S6 with the migration wave. Do not call `rf/init!` at
+   the boundary; the process's one boot adapter remains in force.
 3. Work rootward; convert shared components last (their call sites are already map-args
    by then).
 4. The dataflow layer, tests for it, and all tooling keep working throughout — nothing in

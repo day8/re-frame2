@@ -42,7 +42,9 @@
 
 ## Non-goals
 
-- Backward compatibility with Reagent/UIx/Helix APIs.
+- Reproducing Reagent/UIx/Helix APIs inside `re-frame.ui`. Stock Reagent and UIx remain
+  separately packaged, frozen compatibility adapters; Helix does not become a forward
+  compatibility target.
 - A second state model: no signals, ratoms, cursors, query caches, form runtimes, actor
   systems — one reactive grammar, subscriptions.
 - Suspense as loading state; RSC; `startTransition` over app-db; general animation
