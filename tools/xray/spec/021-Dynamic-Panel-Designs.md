@@ -750,17 +750,26 @@ When Xray owns the span, one row per live ViewCell instance in stable
      :causes #{:value :hmr :disposed} :targets [tk …]
      :dropped-count d :dropped-exact? bool}
 
-`:targets` is the bounded shown sample; `:dropped-count` /
-`:dropped-exact?` is the HONEST loss account (`false` ⇒ the count is a
-floor, rendered `≥N dropped`). The projection index is NON-OWNING
+`:targets` is the bounded shown sample. Before a target crosses the evidence
+boundary, the tier copies bounded plain EDN and replaces a ViewCell, host
+identity, record, over-deep or oversized value with an explicit
+`:rf.ui.evidence/opaque` marker; the tier's cumulative
+`:targets-exact?` bit stays false once that happens. `:dropped-count` /
+`:dropped-exact?` is the HONEST omission account (`false` ⇒ the count is a
+floor, rendered `≥N dropped`); opaque target collisions also make it false
+because distinct cumulative omissions are no longer provably countable. The
+projection index is NON-OWNING
 (rf2-vxgfnd.148): JVM uses weak cell keys; CLJS uses WeakRef holders whose
-bounded values never point back to the cell. React therefore keeps the exact
-row/ordinal/loss evidence while an Activity-hidden cell remains retained,
+bounded copied values cannot point back to the cell. React therefore keeps the
+same row/ordinal/loss evidence while an Activity-hidden cell remains retained,
 whereas an ordinary reconciliation unmount becomes collectible and cannot
 grow the projection forever. Explicitly dead cells and GC-cleared refs are
-compacted on projection reads (with host finalization as an additional husk
-reaper), not by a polling scan; owner-checked uninstall drops the whole
-registry immediately. Delivery freshness rides the `:rf.xray/epoch-history` input (the
+compacted on projection reads (including unregistering the exact cleared
+holder from host finalization) with finalization as an additional husk reaper,
+not by a polling scan. The weak store is structurally tagged across HMR, so a
+constructor reload reuses its host registrations, ordinal mint and accumulated
+Activity evidence; owner-checked uninstall drops the whole registry
+immediately. Delivery freshness rides the `:rf.xray/epoch-history` input (the
 standing epoch-pump axis): the ViewCell flush runs a microtask after
 drain-settle, so a same-epoch read may trail by one pump — the cumulative
 accumulators catch up, never lose. OWNERSHIP freshness rides the separate
@@ -790,8 +799,10 @@ contract + the debug evidence plane's production elision). Under an advanced
 `goog.DEBUG=false` build the evidence namespace's private state var is nil:
 no atom, weak registry, transition lock or reset path is allocated. The
 production gate roots that private var in the compiled artefact and executes
-the assertion, so minification cannot hide a retained-state mutation behind
-renamed strings (rf2-vxgfnd.149). Tool absence stays zero-cost.
+the assertion. A second compiled control flips a private define that creates
+and mutates an unrelatedly named `cacheline*` atom; the gate must reject that
+exact minified mutant at runtime. This is a scoped evidence-state oracle, not a
+general JavaScript heap claim (rf2-vxgfnd.149). Tool absence stays zero-cost.
 
 ### §3.5 Queries
 

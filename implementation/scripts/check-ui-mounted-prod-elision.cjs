@@ -12,6 +12,7 @@
 
 const fs = require('fs');
 const path = require('path');
+const { spawnSync } = require('child_process');
 
 const ROOT = path.resolve(__dirname, '..');
 const SOURCE = path.join(ROOT, 'ui', 'src', 're_frame', 'ui', 'viewcell.cljs');
@@ -118,6 +119,59 @@ for (const forbidden of ['dropped-exact', 'invalidation-evidence projection']) {
   if (bundle.includes(forbidden)) {
     fail(`invalidation-evidence projection survived advanced output: ${forbidden}`);
   }
+}
+
+/*
+ * rf2-vxgfnd.94.8 — REAL compiled mutation control. A second advanced build
+ * flips a private goog-define which roots an unrelatedly named atom/reset path
+ * inside re-frame.ui.tool.evidence. The same production test must turn red on
+ * that exact minified artefact. This proves the runtime private-root oracle has
+ * teeth beyond source strings; it is intentionally scoped to evidence rather
+ * than pretending to be a general JavaScript heap analyser.
+ */
+for (const expected of ['elision-negative-control?', 'cacheline*']) {
+  if (!toolSource.includes(expected)) {
+    fail(`tool-evidence renamed-state mutation control is absent: ${expected}`);
+  }
+}
+
+const MUTANT_ROOT = path.join(ROOT, 'out', 'browser-test-prod-elision-mutant');
+const shadowRunner = require.resolve('shadow-cljs/cli/runner.js');
+const configMerge = [
+  '{:test-dir "out/browser-test-prod-elision-mutant"',
+  ':devtools {:http-root "out/browser-test-prod-elision-mutant" :http-port 8024}',
+  ':compiler-options {:closure-defines',
+  '{goog.DEBUG false',
+  're-frame.ui.tool.evidence/elision-negative-control? true}}}',
+].join(' ');
+const mutantBuild = spawnSync(
+  process.execPath,
+  [shadowRunner, 'release', 'browser-test-prod-elision',
+   '--config-merge', configMerge],
+  { cwd: ROOT, encoding: 'utf8', maxBuffer: 8 * 1024 * 1024 },
+);
+if (mutantBuild.status !== 0) {
+  fail(`renamed-state mutant build failed to compile:\n${mutantBuild.error || ''}\n${mutantBuild.stdout || ''}\n${mutantBuild.stderr || ''}`);
+}
+
+const mutantMarker = 'rf-ui-tool-evidence-renamed-root-mutation-v1';
+const mutantRun = spawnSync(
+  process.execPath,
+  [path.join(ROOT, 'scripts', 'serve-and-run-browser-tests.cjs'),
+   '--root', MUTANT_ROOT, '--port', '8024'],
+  {
+    cwd: ROOT,
+    encoding: 'utf8',
+    maxBuffer: 8 * 1024 * 1024,
+    env: { ...process.env, BROWSER_TEST_TIMEOUT_MS: '120000' },
+  },
+);
+const mutantOutput = `${mutantRun.stdout || ''}\n${mutantRun.stderr || ''}`;
+if (mutantRun.status === 0) {
+  fail('renamed rooted evidence-state mutation was NOT rejected');
+}
+if (!mutantOutput.includes(mutantMarker)) {
+  fail(`mutant failed for the wrong reason; missing runtime marker ${mutantMarker}:\n${mutantOutput}`);
 }
 
 process.stdout.write('ui mounted production elision: PASS\n');

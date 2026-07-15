@@ -135,7 +135,10 @@ That includes the `re-frame.ui.tool.evidence` state itself: its compiled
 private state var is nil, so production allocates no registry atom, weak
 membership, ordinal mint, transition lock, or cleanup/reset path. The
 advanced gate executes a private-state assertion in addition to bundle
-sentinels, making renamed/minified retained state a test failure.
+sentinels. Its second advanced build deliberately creates and mutates a
+renamed `cacheline*` atom and must fail the runtime assertion, proving this
+specific evidence-state oracle still has teeth after minification; it is not a
+general heap analyser.
 
 Per [Spec 009 §Production builds](../../../spec/009-Instrumentation.md#production-builds-zero-overhead-zero-code).
 CI's elision jobs (`npm run test:elision` and

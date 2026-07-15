@@ -80,6 +80,122 @@
   ;; becomes a LOWER bound) — mirrors the per-window loss-set cap.
   64)
 
+(def ^:private ^:const target-value-cap
+  ;; Maximum members copied from any ONE EDN collection in a target key.
+  ;; The scheduler bounds target cardinality; this tier also bounds the values
+  ;; inside those keys before retaining them beyond the delivery callback.
+  32)
+
+(def ^:private ^:const target-depth-cap 8)
+(def ^:private ^:const target-node-cap 128)
+(def ^:private ^:const target-string-cap 256)
+
+(def ^:private dynamic-marker {:rf.ui.evidence/opaque :dynamic})
+(def ^:private bounded-marker {:rf.ui.evidence/opaque :bounded})
+
+(defn- project-target-value
+  "Copy one target value into bounded plain EDN, returning `[copy exact?]`.
+
+  ViewCells, host values, records and arbitrary sequences become an opaque
+  marker. That is deliberately a COPY, not a serializer: no metadata,
+  identity-bearing object or query→cell back-edge can enter the long-lived
+  weak-registry value. Ordinary bounded EDN remains exact."
+  ([x] (project-target-value x 0 (volatile! target-node-cap)))
+  ([x depth budget]
+   (if-not (pos? @budget)
+     [bounded-marker false]
+     (do
+       (vswap! budget dec)
+       (cond
+         (> depth target-depth-cap)
+         [bounded-marker false]
+
+         (or (nil? x) (boolean? x) (number? x) (char? x))
+         [x true]
+
+         (string? x)
+         (if (<= (count x) target-string-cap)
+           [x true]
+           [bounded-marker false])
+
+         (keyword? x)
+         (if (<= (count (str x)) target-string-cap)
+           [x true]
+           [bounded-marker false])
+
+         (symbol? x)
+         (if (<= (count (str x)) target-string-cap)
+           [x true]
+           [bounded-marker false])
+
+         (reactive/cell? x)
+         [dynamic-marker false]
+
+         (record? x)
+         [dynamic-marker false]
+
+         (vector? x)
+         (if (> (count x) target-value-cap)
+           [bounded-marker false]
+           (let [parts (mapv #(project-target-value % (inc depth) budget) x)]
+             [(mapv first parts) (every? second parts)]))
+
+         (list? x)
+         (if (> (count x) target-value-cap)
+           [bounded-marker false]
+           (let [parts (mapv #(project-target-value % (inc depth) budget) x)]
+             [(apply list (map first parts)) (every? second parts)]))
+
+         (map? x)
+         (if (> (count x) target-value-cap)
+           [bounded-marker false]
+           (let [parts (mapv (fn [[k v]]
+                               [(project-target-value k (inc depth) budget)
+                                (project-target-value v (inc depth) budget)])
+                             x)]
+             ;; A partial map could misstate which value belonged to which key.
+             ;; Preserve it only when every copied association is exact.
+             (if (every? (fn [[[_ k-exact?] [_ v-exact?]]]
+                           (and k-exact? v-exact?))
+                         parts)
+               [(into {} (map (fn [[[k _] [v _]]] [k v])) parts) true]
+               [dynamic-marker false])))
+
+         (set? x)
+         (if (> (count x) target-value-cap)
+           [bounded-marker false]
+           (let [parts (mapv #(project-target-value % (inc depth) budget) x)
+                 copy  (into #{} (map first) parts)]
+             (if (and (every? second parts) (= (count copy) (count x)))
+               [copy true]
+               [dynamic-marker false])))
+
+         :else
+         [dynamic-marker false])))))
+
+(defn- project-batch-evidence
+  "Replace delivered target identities with bounded non-owning EDN copies.
+  Loss is explicit: `:targets-exact?` covers both shown and dropped target
+  identity. `:dropped-exact?` also becomes false after any such loss because
+  opaque collisions mean cumulative omitted-target cardinality is no longer
+  provably exact."
+  [ev]
+  (let [target-parts  (mapv project-target-value (:targets ev))
+        dropped-parts (mapv project-target-value (:dropped ev))
+        targets        (mapv first target-parts)
+        dropped        (into #{} (map first) dropped-parts)
+        shown-exact?   (every? second target-parts)
+        omitted-exact? (and (every? second dropped-parts)
+                            (= (count dropped) (count (:dropped ev))))
+        targets-exact? (and shown-exact? omitted-exact?)]
+    (-> ev
+        (assoc :targets targets
+               :dropped dropped
+               :targets-exact? targets-exact?)
+        (cond-> (or (false? (:dropped-exact? ev))
+                    (not targets-exact?))
+          (assoc :dropped-exact? false)))))
+
 (def ^:private empty-accrual
   ;; The zero accumulator — also the normalization for a (defensive) nil or
   ;; partial delivered batch, which folds as empty.
@@ -88,6 +204,7 @@
    :count          0
    :causes         #{}
    :targets        []
+   :targets-exact? true
    :dropped        #{}
    :dropped-exact? true})
 
@@ -118,16 +235,18 @@
     :count          — total invalidation OCCURRENCES across every batch
     :batches        — how many flushed batches delivered evidence
     :causes         — the union cause set (:value/:hmr/:disposed — ≤3)
-    :targets        — bounded shown sample of distinct moving targets
+    :targets        — bounded non-owning EDN sample of moving targets
+    :targets-exact? — false when a target needed an opaque/bounded marker
     :dropped        — bounded loss SET of distinct omitted targets; its
                       count is the honest cumulative fan-out loss
-    :dropped-exact? — false once EITHER a delivered window or the
-                      cumulative loss set saturated (a floor, never a lie)
+    :dropped-exact? — false once a delivered window/cumulative loss set
+                      saturated OR target projection lost distinct identity
+                      (a floor, never a lie)
 
   Never retains `ev` itself, a payload, or anything scaling with the
   invalidation count."
   [acc ev]
-  (let [ev  (merge empty-accrual ev)
+  (let [ev  (project-batch-evidence (merge empty-accrual ev))
         acc (or acc (assoc empty-accrual
                            :first-epoch (:first-epoch ev)
                            :batches 0))]
@@ -137,36 +256,61 @@
         (update :count + (:count ev))
         (update :causes into (:causes ev))
         (as-> a (reduce fold-target a (concat (:targets ev) (:dropped ev))))
-        (cond-> (false? (:dropped-exact? ev)) (assoc :dropped-exact? false)))))
+        (cond-> (false? (:targets-exact? ev)) (assoc :targets-exact? false)
+                (false? (:dropped-exact? ev)) (assoc :dropped-exact? false)))))
 
 ;; ---- projection state --------------------------------------------------------
 
-(defrecord ^:private WeakCellEntries
-  [members by-cell next-ordinal reaper])
+(def ^:private ^:const weak-store-tag ::weak-cell-entries-v1)
+(def ^:private ^:const weak-store-tag-key ::weak-cell-entries)
 
 (defn- new-weak-cell-entries
   "Create one non-owning identity registry for an OPEN ownership span."
   []
   #?(:clj
-     (->WeakCellEntries (java.util.WeakHashMap.)
-                        nil
-                        (java.util.concurrent.atomic.AtomicLong. 0)
-                        nil)
+     {weak-store-tag-key weak-store-tag
+      :members          (java.util.WeakHashMap.)
+      :by-cell          nil
+      :next-ordinal     (java.util.concurrent.atomic.AtomicLong. 0)
+      :reaper           nil}
      :cljs
      (let [members (js/Set.)]
-       (->WeakCellEntries
-        members
-        (js/WeakMap.)
-        (volatile! 0)
-        (when (exists? js/FinalizationRegistry)
-          (js/FinalizationRegistry.
-           (fn [holder]
-             ;; The holder contains only a WeakRef + bounded evidence record.
-             (.delete members holder))))))))
+       {weak-store-tag-key weak-store-tag
+        :members          members
+        :by-cell          (js/WeakMap.)
+        :next-ordinal     (volatile! 0)
+        :reaper           (when (exists? js/FinalizationRegistry)
+                            (js/FinalizationRegistry.
+                             (fn [holder]
+                               ;; The holder contains only a WeakRef + bounded
+                               ;; copied evidence record.
+                               (.delete members holder))))})))
 
 (defn- weak-cell-entries?
+  "Recognize the reload-stable tagged map AND the exact same host structure
+  left by the pre-tag defrecord implementation. Constructor identity is not
+  stable across a CLJS :after-load; these host fields are."
   [x]
-  (instance? WeakCellEntries x))
+  (and (map? x)
+       (or (= weak-store-tag (get x weak-store-tag-key))
+           (and (contains? x :members)
+                (contains? x :by-cell)
+                (contains? x :next-ordinal)
+                (contains? x :reaper)))
+       #?(:clj  (and (instance? java.util.Map (:members x))
+                     (instance? java.util.concurrent.atomic.AtomicLong
+                                (:next-ordinal x)))
+          :cljs (and (instance? js/Set (:members x))
+                     (instance? js/WeakMap (:by-cell x))
+                     (some? (:next-ordinal x))))))
+
+(defn- tag-weak-cell-entries
+  "Drop a reload-specific record constructor while preserving its exact host
+  weak maps, reaper and ordinal mint."
+  [store]
+  (if (= weak-store-tag (get store weak-store-tag-key))
+    store
+    (assoc (into {} store) weak-store-tag-key weak-store-tag)))
 
 (defn- store-next-ordinal!
   [store]
@@ -278,8 +422,28 @@
                            (when-some [reaper (:reaper store)]
                              (.unregister ^js reaper holder)))
                          (.push out [cell (aget holder "entry")]))
-                       (.delete members holder))))
+                       (do
+                         ;; FinalizationRegistry holds its `heldValue`
+                         ;; strongly until callback/unregister. A cleared
+                         ;; WeakRef can be observed first, so release that
+                         ;; exact unique token during opportunistic compaction.
+                         (when-some [reaper (:reaper store)]
+                           (.unregister ^js reaper holder))
+                         (.delete members holder)))))
          (vec out)))))
+
+#?(:cljs
+   (goog-define ^boolean elision-negative-control? false))
+
+#?(:clj
+   (def ^:const elision-negative-control? false))
+
+#?(:cljs
+   (defonce ^:private cacheline*
+     ;; Exact-head mutation oracle for the advanced-production gate. The
+     ;; default false branch folds to nil; the gate's second build flips this
+     ;; define and must reject the renamed rooted atom/reset path at runtime.
+     (when elision-negative-control? (atom {:cursor 0}))))
 
 (defonce ^:private state*
   ;; THE ONE AUTHORITATIVE projection state (rf2-vxgfnd.147): owner,
@@ -301,15 +465,16 @@
   ;;                   reactive slot (nil when closed) — kept HERE per the
   ;;                   one-authoritative-state discipline, and the capture
   ;;                   door for race fixtures (`installed-sink`).
-  ;;   :entries      — nil while closed; while open, WeakCellEntries whose
-  ;;                   values contain only cell-id/view-id/bounded evidence.
-  ;;                   No value points back to its weak cell key/ref. Its
+  ;;   :entries      — nil while closed; while open, a reload-stable tagged
+  ;;                   structural weak store whose values contain only
+  ;;                   cell-id/view-id/bounded copied evidence. Dynamic
+  ;;                   targets are opaque, so no value owns its weak key/ref.
   ;;                   ordinal mint belongs to this ownership span and is
   ;;                   discarded with the registry on close.
   ;;
-  ;; `defonce` is module-lived; normalize-state migrates a pre-weak strong map
-  ;; on the first post-reload install/read without losing retained Activity
-  ;; evidence or ordinals.
+  ;; `defonce` is module-lived; normalize-state migrates both a pre-weak strong
+  ;; map and the former defrecord-shaped weak store on first post-reload access
+  ;; without losing retained Activity evidence, host registrations or ordinals.
   ;; In production the var root is literally nil: no atom, weak registry, or
   ;; ordinal mint is allocated (rf2-vxgfnd.149).
   (when interop/debug-enabled?
@@ -342,7 +507,9 @@
     (-> s (assoc :entries nil) (dissoc :next-ordinal))
 
     (weak-cell-entries? entries)
-    (dissoc s :next-ordinal)
+    (-> s
+        (assoc :entries (tag-weak-cell-entries entries))
+        (dissoc :next-ordinal))
 
     :else
     (let [store (new-weak-cell-entries)]
@@ -505,6 +672,11 @@
   with `reactive/reset-scheduler!` between fixtures); production tools use
   the owner-checked `uninstall!`. Returns nil."
   []
+  #?(:cljs
+     (when elision-negative-control?
+       ;; Compiles only in the mutated advanced control. This is an actual
+       ;; rooted-state mutation, not a source-name or diagnostic-string proxy.
+       (swap! cacheline* update :cursor inc)))
   (when interop/debug-enabled?
     (transition!
      (fn []

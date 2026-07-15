@@ -68,7 +68,23 @@
 
 (def ^:private bounded-evidence-keys
   #{:batches :first-epoch :latest-epoch :count :causes :targets
-    :dropped :dropped-exact?})
+    :targets-exact? :dropped :dropped-exact?})
+
+(defrecord PreReloadWeakCellEntries
+  [members by-cell next-ordinal reaper])
+
+(def ^:private one-target-evidence
+  {:first-epoch 1
+   :latest-epoch 1
+   :count 1
+   :causes #{:value}
+   :targets []
+   :dropped #{}
+   :dropped-exact? true})
+
+(defn- publish-target!
+  [sink cell target]
+  (sink cell (assoc one-target-evidence :targets [target])))
 
 (defn- connect-empty!
   "Commit one empty render so `cell` follows the real connected/disconnected
@@ -168,6 +184,41 @@
           "delivery resumed into the SAME accumulator (batches accrete)")
       (is (= 2 (get-in (entry-for ::v) [:evidence :batches]))))))
 
+(deftest same-owner-reinstall-survives-weak-store-constructor-churn
+  ;; Model a CLJS :after-load precisely: defonce preserves the old record
+  ;; value while the namespace reload replaces its record constructor. The
+  ;; post-load code must recognize the store structurally, not by constructor
+  ;; identity, and must reuse its already-registered host weak machinery.
+  (is (true? (evidence/install! ::tool-a)))
+  (let [cell   (connect-empty! (reactive/make-cell ::hmr-retained))
+        state* @#'evidence/state*]
+    (reactive/mark-dirty! cell 1)
+    (reactive/flush-pending!)
+    (reactive/disconnect! cell)
+    (let [before      (entry-for ::hmr-retained)
+          store       (:entries @state*)
+          old-shape   (->PreReloadWeakCellEntries
+                       (:members store)
+                       (:by-cell store)
+                       (:next-ordinal store)
+                       (:reaper store))]
+      (swap! state* assoc :entries old-shape)
+      (is (true? (evidence/install! ::tool-a))
+          "constructor churn is a compatible same-owner re-arm")
+      (is (= before (entry-for ::hmr-retained))
+          "Activity identity, ordinal and exact loss survive")
+      (let [after-store (:entries @state*)]
+        (is (identical? (:members store) (:members after-store)))
+        (is (identical? (:by-cell store) (:by-cell after-store)))
+        (is (identical? (:next-ordinal store) (:next-ordinal after-store)))
+        (is (identical? (:reaper store) (:reaper after-store))
+            "the existing reaper is retained, not double-armed"))
+      (let [fresh (reactive/make-cell ::hmr-fresh)]
+        (reactive/mark-dirty! fresh 2)
+        (reactive/flush-pending!)
+        (is (< (:cell-id before) (:cell-id (entry-for ::hmr-fresh)))
+            "the preserved ordinal mint advances exactly once")))))
+
 ;; ===========================================================================
 ;; Batch evidence content — stable identity, bounded record, no payloads
 ;; ===========================================================================
@@ -240,6 +291,95 @@
       (is (= [(tk fid [:tool-ev/a])] (:targets evidence))
           "…with the moving target key")
       (is (= 1 (:count evidence))))))
+
+(deftest target-projection-is-bounded-truthful-and-never-owns-the-cell
+  (is (true? (evidence/install! ::xray)))
+  (let [sink        (evidence/installed-sink)
+        direct-cell (reactive/make-cell ::cycle-direct)
+        nested-cell (reactive/make-cell ::cycle-nested)
+        host-cell   (reactive/make-cell ::cycle-host)
+        bounded-cell (reactive/make-cell ::bounded)
+        ordinary-cell (reactive/make-cell ::ordinary)
+        host-value  #?(:clj (Object.) :cljs (js-obj))]
+    (publish-target! sink direct-cell [:sub fid [::q direct-cell]])
+    (publish-target! sink nested-cell [:sub fid [::q {:nested [nested-cell]}]])
+    (publish-target! sink host-cell [:sub fid [::q host-value]])
+    (doseq [vid [::cycle-direct ::cycle-nested ::cycle-host]]
+      (let [ev (:evidence (entry-for vid))]
+        (is (false? (:targets-exact? ev))
+            "dynamic identity loss is explicit")
+        (is (false? (:dropped-exact? ev))
+            "opaque identity makes the cumulative omission floor explicit")
+        (is (= {:rf.ui.evidence/opaque :dynamic}
+               (get-in ev [:targets 0 2 1]))
+            "the query position carries a truthful opaque marker")))
+    (publish-target! sink bounded-cell
+                     [:sub fid [::q (vec (range 33))]])
+    (let [ev (:evidence (entry-for ::bounded))]
+      (is (false? (:targets-exact? ev)))
+      (is (= {:rf.ui.evidence/opaque :bounded}
+             (get-in ev [:targets 0 2 1]))
+          "oversized EDN is replaced instead of retained"))
+    (publish-target! sink ordinary-cell
+                     [:sub fid [::ordinary {:nested [1 :two "three"]}]])
+    (is (= [:sub fid [::ordinary {:nested [1 :two "three"]}]]
+           (first (:targets (:evidence (entry-for ::ordinary)))))
+        "ordinary bounded EDN remains exact")))
+
+#?(:clj
+   (deftest direct-and-nested-query-cycles-do-not-defeat-weak-keys
+     (is (true? (evidence/install! ::xray)))
+     (let [sink (evidence/installed-sink)
+           refs (mapv
+                 (fn [[vid query-fn]]
+                   (let [cell (connect-empty! (reactive/make-cell vid))]
+                     (publish-target! sink cell [:sub fid (query-fn cell)])
+                     (reactive/disconnect! cell)
+                     (java.lang.ref.WeakReference. cell)))
+                 [[::weak-cycle-direct (fn [cell] [::q cell])]
+                  [::weak-cycle-nested
+                   (fn [cell] [::q {:nested {:cell cell}}])]])]
+       (is (true? (gc-until #(every?
+                              (fn [^java.lang.ref.WeakReference ref]
+                                (nil? (.get ref)))
+                              refs)))
+           "neither a direct nor nested query→cell path owns the weak key")
+       (is (= [] (evidence/projection))))))
+
+#?(:cljs
+   (deftest cleared-holder-compaction-unregisters-without-touching-replacement
+     (is (true? (evidence/install! ::xray)))
+     (let [state*      @#'evidence/state*
+           base        (:entries @state*)
+           survivor    (reactive/make-cell ::replacement)
+           cleared     #js {:ref #js {:deref (fn [] nil)}
+                            :entry {:cell-id 0 :view-id ::cleared :evidence {}}}
+           replacement #js {:ref #js {:deref (fn [] survivor)}
+                            :entry {:cell-id 1 :view-id ::replacement
+                                    :evidence one-target-evidence}}
+           members     (doto (js/Set.) (.add cleared) (.add replacement))
+           calls*      (atom [])
+           reaper      #js {:unregister (fn [token]
+                                          (swap! calls* conj token)
+                                          true)}]
+       (swap! state* assoc :entries
+              (assoc base :members members :by-cell (js/WeakMap.) :reaper reaper))
+       (is (= [::replacement] (mapv :view-id (evidence/projection))))
+       (is (= 1 (count @calls*)))
+       (is (identical? cleared (first @calls*))
+           "read-time compaction unregisters the exact holder/token")
+       (is (not (.has members cleared)))
+       (is (.has members replacement)
+           "a stale unique token cannot remove a replacement holder")
+
+       (let [no-reaper-holder #js {:ref #js {:deref (fn [] nil)} :entry {}}
+             no-reaper-set    (doto (js/Set.) (.add no-reaper-holder))]
+         (swap! state* assoc :entries
+                (assoc base :members no-reaper-set
+                            :by-cell (js/WeakMap.) :reaper nil))
+         (is (= [] (evidence/projection)))
+         (is (zero? (.-size no-reaper-set))
+             "hosts without FinalizationRegistry compact on read")))))
 
 ;; ===========================================================================
 ;; Cross-batch loss honesty (the rf2-vxgfnd.74 axis, cumulative tier)
@@ -320,9 +460,10 @@
            n         32
            refs      (mapv churn-disconnected-cell! (range n))]
        (is (= :disconnected (reactive/lifecycle hidden)))
-       (is (= (inc n) (count (evidence/projection)))
-           "red precondition: hidden + every ordinarily-unmounted row exists
-            before collection/compaction")
+       ;; Collection is allowed before the explicit GC hint. Do not assert an
+       ;; exact pre-GC population; the strong-map mutation still fails below
+       ;; because none of its WeakReferences can ever clear.
+       (is (<= 1 (count (evidence/projection)) (inc n)))
 
        (testing "ordinary unmounts are garbage, not evidence-registry owners"
          ;; RED with the prior persistent map keyed strongly by ViewCell: none
