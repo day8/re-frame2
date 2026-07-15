@@ -111,6 +111,9 @@
 
 (defn- require-root-creation-open!
   [where]
+  ;; Probe/capture the required weak-ownership primitive once, before frame
+  ;; preflight, React allocation, live-root registration, or ViewCell work.
+  (reactive/ensure-platform-compatible! where)
   (when (or @disposing-live-roots?
             (substrate-adapter/adapter-disposed?))
     (error/throw-error!
@@ -301,7 +304,9 @@
             "live root " (pr-str owner) " — one container, one root. "
             "unmount! the owning root first, or mount into a different node"))
      {:recovery :unmount-the-owning-root-first
-      :extra {:root-id root-id :owner-root-id owner}}))
+      :extra (cond-> {:root-id root-id :owner-root-id owner}
+               (:tearing-down? (get @live-roots owner))
+               (assoc :existing {:tearing-down? true}))}))
   (when (some? identifier-prefix)
     (when-let [owner (prefix-owner identifier-prefix root-id)]
       (error/throw-error!
@@ -395,6 +400,16 @@
              (dissoc m root-id)
              m)))
   nil)
+
+(defn- queue-microtask!
+  "Enqueue `f` at the next FIFO microtask checkpoint. Failed-first-mount
+  rollback has no committed reporter from which to observe host settlement, so
+  a normally returning cleanup conservatively releases its exact claim here —
+  after the current mount/error stack has unwound, never inline."
+  [f]
+  (if (exists? js/queueMicrotask)
+    (js/queueMicrotask f)
+    (.then (js/Promise.resolve) (fn [_] (f)))))
 
 ;; ---------------------------------------------------------------------------
 ;; The pending render-attempt owner — terminal receipt settlement on React
@@ -522,6 +537,54 @@
                m))))
   nil)
 
+(defn- attach-rollback-cleanup-error!
+  "Retain a failed-first-mount host-cleanup error as canonical SECONDARY
+  evidence on `primary`. The mount failure remains the thrown value."
+  [primary cleanup-error]
+  (try
+    (js/Object.defineProperty
+     primary "rfUiRollbackCleanupError"
+     #js {:value cleanup-error :configurable true})
+    (catch :default _ nil))
+  primary)
+
+(defn- rollback-failed-first-mount!
+  "Roll back one exact first-mount incarnation after its element/host render
+  boundary threw.
+
+  Transaction law (rf2-vxgfnd.291): retain the id/container/prefix claim and
+  mark it `:tearing-down` BEFORE host cleanup. Drive cleanup through
+  `reactive/teardown-root!` so a throwing host force-deads every framework
+  owner in this exact incarnation. A normal return has no committed reporter
+  settlement signal, so it releases the identity-guarded claim at the next
+  FIFO microtask. A cleanup throw schedules no release: the host surface is not
+  proven free and stays fail-closed quarantined. The original mount error is
+  always primary; cleanup rides `rfUiRollbackCleanupError`."
+  [root-id ^Root root incarnation primary]
+  (mark-tearing-down! root-id root)
+  (try
+    (reactive/teardown-root!
+     incarnation
+     (fn [] (.unmount (.-react-root root)))
+     ;; No reporter committed on a synchronous failed first render. The raw
+     ;; cleanup return is therefore insufficient evidence for inline reuse;
+     ;; settle conservatively at the next host microtask checkpoint.
+     (fn []
+       (queue-microtask! #(release-root! root-id root))))
+    (catch :default cleanup-error
+      (when (and ^boolean js/goog.DEBUG (exists? js/console))
+        (.warn js/console
+               (str "[re-frame.ui] rollback of a failed first mount of root "
+                    (pr-str root-id) " could not cleanly unmount the host root "
+                    "— the original mount error is rethrown as primary, every "
+                    "framework owner in this exact incarnation is force-dead, "
+                    "and this id/container/identifierPrefix claim remains "
+                    "QUARANTINED (tearing-down). The host surface is not proven "
+                    "settled; mount into a fresh/replaced container.")
+               cleanup-error))
+      (attach-rollback-cleanup-error! primary cleanup-error)))
+  nil)
+
 (defn require-live-root!
   "The shared live-root OWNERSHIP invariant — the render-side mirror of
   `unmount!*`'s membership check. A `Root` is LIVE iff the live-root
@@ -574,7 +637,9 @@
             "(irreversible fx) and write install records against a dead "
             "root. create-root + render! (or mount) a fresh root")
        {:recovery :recreate-the-root
-        :extra {:root-id rid}}))))
+        :extra (cond-> {:root-id rid}
+                 (:tearing-down? entry)
+                 (assoc :existing {:tearing-down? true}))}))))
 
 ;; ---------------------------------------------------------------------------
 ;; The preflight — LIVE (S2c); the hook stays as the test/tool override
@@ -792,10 +857,12 @@
   orphaning the inner root's live tree). Registration still precedes any
   render (contract §7 Layer 3);
   if that FIRST render throws SYNCHRONOUSLY (the element thunk, or host
-  `.render` before React receives the element), the mount rolls back TOTALLY
-  — the exact claim is released and the host root is best-effort unmounted, so
-  a retry starts clean (no phantom live root), and the original error is
-  rethrown even if cleanup also throws. Preflight evidence is finalized only
+  `.render` before React receives the element), the mount rolls back as one
+  exact-incarnation teardown transaction: the claim becomes `:tearing-down`
+  before host cleanup; a normal cleanup releases it at the next FIFO microtask,
+  while a cleanup throw force-deads framework ownership and leaves the host
+  claim quarantined fail-closed. The original error stays primary and cleanup
+  is attached as canonical secondary evidence. Preflight evidence is finalized only
   when React actually COMMITS the render, through the `root-commit-reporter`
   wrapper (rf2-vxgfnd.248): a first render whose element thunk succeeds but
   whose component throws during React's render (onUncaughtError aborts the
@@ -923,37 +990,14 @@
                           receipt root-id incarnation (element-thunk)))
                 root
                 (catch :default e
-                  ;; TOTAL rollback of a failed FIRST mount — the element thunk
-                  ;; or the synchronous host render threw. Release this exact
-                  ;; claim (identity-guarded: a stale handle never evicts a
-                  ;; newer root) and best-effort unmount the host root so a
-                  ;; retry starts clean, with no phantom live root and no host
-                  ;; root residue. Rethrow the ORIGINAL mount error even if the
-                  ;; host cleanup also throws (cleanup never masks it).
-                  (release-root! root-id root)
-                  ;; rf2-vxgfnd.182 — do NOT silently swallow a cleanup-`.unmount`
-                  ;; failure. The original mount error stays PRIMARY, but a failed
-                  ;; rollback unmount is surfaced with exact root/container context
-                  ;; (a dev diagnostic + a secondary-evidence property on the
-                  ;; primary error), matching the adapter drain's discipline — a
-                  ;; consumed handle means same-container reuse is NOT proven
-                  ;; clean, so the honest guidance is a fresh/replaced container.
-                  (try (.unmount react-root)
-                    (catch :default cleanup-error
-                      (when (and ^boolean js/goog.DEBUG (exists? js/console))
-                        (.warn js/console
-                               (str "[re-frame.ui] rollback of a failed first mount "
-                                    "of root " (pr-str root-id) " could not cleanly "
-                                    "unmount the host root — the original mount error "
-                                    "is rethrown as primary, but this container's "
-                                    "React teardown did not complete. Do NOT assume "
-                                    "same-container reuse is clean; retry into a "
-                                    "fresh/replaced container.")
-                               cleanup-error))
-                      (try (js/Object.defineProperty
-                            e "rfUiRollbackCleanupError"
-                            #js {:value cleanup-error :configurable true})
-                        (catch :default _ nil))))
+                  ;; rf2-vxgfnd.291 — the failed first mount enters the SAME
+                  ;; exact-incarnation lifecycle as normal teardown. Retain and
+                  ;; mark the claim BEFORE cleanup; normal return settles at the
+                  ;; next FIFO microtask (there is no committed reporter), while
+                  ;; cleanup throw force-deads framework ownership and leaves
+                  ;; the host claim quarantined. The original mount error stays
+                  ;; primary; cleanup is canonical secondary evidence.
+                  (rollback-failed-first-mount! root-id root incarnation e)
                   (throw e))))
             (catch :default e
               ;; rf2-vxgfnd.139: preflight completed but the post-preflight

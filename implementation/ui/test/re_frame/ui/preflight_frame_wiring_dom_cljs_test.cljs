@@ -17,7 +17,7 @@
   Browser-only bodies — the `-dom-cljs-test$` suffix opts this file into
   the `:browser-test` build; under `:node-test` every DOM body gates on
   `(browser?)` and exits early."
-  (:require [cljs.test :refer [deftest is use-fixtures]]
+  (:require [cljs.test :refer [deftest is use-fixtures async]]
             ["react" :as React]
             ["react-dom" :as react-dom]
             [re-frame.core :as rf]
@@ -83,24 +83,25 @@
     (try (react-dom/flushSync thunk)
          (finally (set! (.-IS_REACT_ACT_ENVIRONMENT js/globalThis) prior)))))
 
+(def ^:private prior-act-env (atom nil))
+
 (use-fixtures :each
   (test-support/make-reset-runtime-fixture {:adapter plain-atom/adapter
-                                            :ambient-frame nil})
-  (fn [t]
-    ;; Enable React's act environment for this ns's DOM tests, then RESTORE the
-    ;; prior value so the fixture neither depends on nor leaks the shared-page
-    ;; flag.
-    (let [prior (when (browser?) (.-IS_REACT_ACT_ENVIRONMENT js/globalThis))]
-      (enable-react-act-env!)
-      (client/reset-live-roots!)
-      (frames/reset-installed-plans!)
-      (try
-        (t)
-        (finally
-          (client/reset-live-roots!)
-          (frames/reset-installed-plans!)
-          (when (browser?)
-            (set! (.-IS_REACT_ACT_ENVIRONMENT js/globalThis) prior)))))))
+                                            :ambient-frame nil
+                                            :async? true})
+  {:before (fn []
+             ;; Map form keeps the fixture installed until an async test calls
+             ;; `done`; the rollback claim settles on a host microtask.
+             (reset! prior-act-env
+                     (when (browser?) (.-IS_REACT_ACT_ENVIRONMENT js/globalThis)))
+             (enable-react-act-env!)
+             (client/reset-live-roots!)
+             (frames/reset-installed-plans!))
+   :after  (fn []
+             (client/reset-live-roots!)
+             (frames/reset-installed-plans!)
+             (when (browser?)
+               (set! (.-IS_REACT_ACT_ENVIRONMENT js/globalThis) @prior-act-env)))})
 
 (defn- container [] (js/document.createElement "div"))
 
@@ -210,8 +211,8 @@
       (is threw "the host render throw propagated out of mount*")
       (is (some? (frame/frame :frame/installed139))
           "the frame is live — its :initial-events fired at preflight (irreversible)")
-      (is (not (contains? (client/live-root-ids) :dom139/fresh))
-          "the fresh mount rolled back — NO live root survives")
+      (is (true? (:tearing-down? (client/live-root-entry :dom139/fresh)))
+          "the failed attempt keeps its exact claim while host cleanup settles")
       (is (true? (:mount-incomplete (frames/installed-plan-entry :frame/installed139)))
           "a fresh install whose host render failed is :mount-incomplete — no root scopes it")
       (is (not (:committed (frames/installed-plan-entry :frame/installed139)))
@@ -469,27 +470,39 @@
   ;; try/catch that rf2-vxgfnd.18 wraps around `(.render root (thunk))`.
   ;; So .18 ALREADY covers this throw source: no phantom claimed React
   ;; root, no lingering live-root registration, and a retry mounts clean.
-  (when (browser?)
-    (let [c (container)
-          mount-provider!
-          (fn []
-            (flush-without-act!
-             #(ui/mount [frame-provider {:frame :dom-absent/never}
+  (async done
+    (if-not (browser?)
+      (done)
+      (let [c (container)
+            mount-provider!
+            (fn []
+              (ui/mount [frame-provider {:frame :dom-absent/never}
                          [mini {:label "scoped"}]]
-                        c {:root-id :dom-absent/root})))]
-      (is (= :rf.error/frame-provider-frame-absent (thrown-id mount-provider!))
-          "the absent-frame throw propagates synchronously out of mount")
-      (is (not (contains? (client/live-root-ids) :dom-absent/root))
-          "no phantom claimed live root remains — mount* rolled back (rf2-vxgfnd.18)")
-      (is (nil? (client/live-root-entry :dom-absent/root)))
-      (is (= "" (.-innerHTML c)) "nothing committed to the container")
-      ;; retry: create the frame, then the SAME mount succeeds cleanly —
-      ;; the freed root-id + container prove the rollback was total
-      (rf/make-frame {:id :dom-absent/never :doc "now live"})
-      (let [root (mount-provider!)]
-        (is (some? root))
-        (is (contains? (client/live-root-ids) :dom-absent/root)
-            "the freed root-id + container accept a clean retry")
-        (is (re-find #"<div class=\"mini\">scoped</div>" (.-innerHTML c))
-            "the provider scopes the now-live frame transparently")
-        (act! #(ui/unmount! root))))))
+                        c {:root-id :dom-absent/root}))]
+        (is (= :rf.error/frame-provider-frame-absent
+               (thrown-id #(flush-without-act! mount-provider!)))
+            "the absent-frame throw propagates synchronously out of mount")
+        (is (true? (:tearing-down? (client/live-root-entry :dom-absent/root)))
+            "the failed attempt keeps its exact claim while cleanup settles")
+        (is (= "" (.-innerHTML c)) "nothing committed to the container")
+        ;; The retry becomes admissible only after the no-reporter cleanup has
+        ;; terminally settled on the next FIFO microtask.
+        (rf/make-frame {:id :dom-absent/never :doc "now live"})
+        (is (= :rf.error/duplicate-root-id (thrown-id mount-provider!))
+            "a same-stack retry cannot overtake the failed incarnation")
+        (js/queueMicrotask
+         (fn []
+           (try
+             (is (nil? (client/live-root-entry :dom-absent/root))
+                 "normal rollback releases the exact claim after settlement")
+             (let [root (flush-without-act! mount-provider!)]
+               (is (some? root))
+               (is (contains? (client/live-root-ids) :dom-absent/root)
+                   "the settled root-id + container accept a clean retry")
+               (is (re-find #"<div class=\"mini\">scoped</div>" (.-innerHTML c))
+                   "the provider scopes the now-live frame transparently")
+               (act! #(ui/unmount! root)))
+             (catch :default e
+               (is false (str "async rollback settlement threw: " e)))
+             (finally
+               (done)))))))))

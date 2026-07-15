@@ -1072,6 +1072,14 @@
   ;; published frames.
   (atom {}))
 
+#?(:cljs
+   (defonce ^:private platform-capabilities
+     ;; One lazy, root-admission/attach-time probe for the host primitives that
+     ;; make weak root ownership honest. Both success and incompatibility are
+     ;; cached: production never re-probes per cell/render. Tests clear this
+     ;; alongside the root registry in `reset-scheduler!`.
+     (atom nil)))
+
 (defonce ^:private teardown-collector
   ;; The COLLECTION WINDOW of an in-flight host/root teardown (`teardown-root!`),
   ;; or nil at rest. `teardown-root!` arms it (a set) around the host React
@@ -1713,6 +1721,7 @@
   (reset! slice-memo* nil)
   (reset! live-cells #{})
   (reset! root-cells {})
+  #?(:cljs (reset! platform-capabilities nil))
   (reset! teardown-collector nil)
   (reset! teardown-settle-signal nil)
   (reset! live-reporters #{})
@@ -2357,11 +2366,13 @@
 ;;   - JVM: a synchronized `WeakHashMap`-backed keyset (the
 ;;     `re-frame.interop` weak-registry idiom) — stale entries expunge on
 ;;     every access, iteration under the wrapper's own lock.
-;;   - CLJS: a `js/Set` of `js/WeakRef` plus an ephemeron `js/WeakMap`
-;;     (cell -> its ref) for O(1) removal; a module `FinalizationRegistry`
-;;     reaper prunes a collected cell's ref and drops the incarnation entry
-;;     when its last member clears (where the host lacks the registry, husks
-;;     are compacted opportunistically on iteration instead).
+;;   - CLJS: a `js/Set` of required `js/WeakRef` plus an ephemeron `js/WeakMap`
+;;     (cell -> its ref) for O(1) removal. Root admission captures WeakRef once
+;;     and fails typed-before-mutation when absent — there is no retaining
+;;     fallback. An OPTIONAL module `FinalizationRegistry` reaper prunes a
+;;     collected cell's ref and drops the incarnation entry when its last member
+;;     clears; where the host lacks that accelerator, every synchronous scan
+;;     compacts husks and drops empty entries instead.
 
 (defn- make-weak-member-set
   []
@@ -2388,44 +2399,89 @@
                  (dissoc m incarnation)
                  m))))))
 
-#?(:cljs
-   (defonce ^:private root-cells-reaper
-     ;; Finalization hook: when a member cell is collected, remove its cleared
-     ;; WeakRef husk from its incarnation's set and drop the entry when that
-     ;; was the last member — so GC-driven departure is as bounded as the
-     ;; deterministic `detach-root!` path. Guarded: an exotic host without
-     ;; FinalizationRegistry just leaves husks to iteration-time compaction.
-     (when (exists? js/FinalizationRegistry)
-       (js/FinalizationRegistry.
-        (fn [held]
-          (let [{:keys [incarnation ref]} held
-                members (get @root-cells incarnation)]
-            (when (some? members)
-              (.delete ^js (:refs members) ref)
-              (drop-root-entry-if-empty! incarnation members))))))))
+(defn ensure-platform-compatible!
+  "Internal root-admission gate for the CLJS weak-ownership substrate.
+
+  `WeakRef` is required: without it, root ownership would either retain every
+  ordinarily-unmounted ViewCell or silently lose hidden-cell teardown
+  discovery. The capability is probed exactly once and its constructor is
+  retained. `FinalizationRegistry` is optional; when absent, every synchronous
+  registry scan compacts cleared WeakRef husks. The JVM host uses its
+  WeakHashMap implementation and needs no JavaScript capability probe.
+
+  Throws `:rf.error/ui-platform-incompatible` before root/ViewCell ownership
+  mutation when the required JavaScript capability is absent. Returns the
+  cached internal capability record on CLJS, nil on the JVM."
+  [where]
+  #?(:clj nil
+     :cljs
+     (let [caps
+           (or @platform-capabilities
+               (let [weak-ref-constructor
+                     (when (exists? js/globalThis)
+                       (aget js/globalThis "WeakRef"))
+                     finalization-registry-constructor
+                     (when (exists? js/globalThis)
+                       (aget js/globalThis "FinalizationRegistry"))
+                     compatible? (= "function" (goog/typeOf weak-ref-constructor))
+                     reaper
+                     (when (and compatible?
+                                (= "function"
+                                   (goog/typeOf finalization-registry-constructor)))
+                       (js/Reflect.construct
+                        finalization-registry-constructor
+                        #js [(fn [held]
+                               (let [{:keys [incarnation ref]} held
+                                     members (get @root-cells incarnation)]
+                                 (when (some? members)
+                                   (.delete ^js (:refs members) ref)
+                                   (drop-root-entry-if-empty!
+                                    incarnation members))))]))
+                     probed {:compatible? compatible?
+                             :platform :javascript
+                             :capability :js/WeakRef
+                             :weak-ref-constructor weak-ref-constructor
+                             :reaper reaper}]
+                 (if (compare-and-set! platform-capabilities nil probed)
+                   probed
+                   @platform-capabilities)))]
+       (when-not (:compatible? caps)
+         (error/throw-error!
+          :rf.error/ui-platform-incompatible where
+          (str "re-frame.ui requires JavaScript WeakRef for bounded root/ViewCell "
+               "ownership, but this host does not provide it — use a modern "
+               "WeakRef-capable browser or JavaScript runtime")
+          {:recovery :use-a-weakref-capable-javascript-runtime
+           :extra {:platform (:platform caps)
+                   :capability (:capability caps)}}))
+       caps)))
 
 (defn- weak-add!
   [members incarnation ^ViewCell cell]
   #?(:clj  (.add ^java.util.Set members cell)
-     :cljs (let [by-cell ^js (:by-cell members)]
+     :cljs (let [{:keys [weak-ref-constructor reaper]}
+                 (ensure-platform-compatible!
+                  're-frame.ui.reactive/attach-root!)
+                 by-cell ^js (:by-cell members)]
              (when-not (.has by-cell cell)
-               (let [ref (js/WeakRef. cell)]
+               (let [ref (js/Reflect.construct weak-ref-constructor #js [cell])]
                  (.set by-cell cell ref)
                  (.add ^js (:refs members) ref)
-                 (when (some? root-cells-reaper)
-                   (.register root-cells-reaper cell
+                 (when (some? reaper)
+                   (.register reaper cell
                               {:incarnation incarnation :ref ref}
                               ref)))))))
 
 (defn- weak-remove!
   [members ^ViewCell cell]
   #?(:clj  (.remove ^java.util.Set members cell)
-     :cljs (let [by-cell ^js (:by-cell members)]
+     :cljs (let [by-cell ^js (:by-cell members)
+                 reaper (:reaper @platform-capabilities)]
              (when-some [ref (.get by-cell cell)]
                (.delete by-cell cell)
                (.delete ^js (:refs members) ref)
-               (when (some? root-cells-reaper)
-                 (.unregister root-cells-reaper ref))))))
+               (when (some? reaper)
+                 (.unregister reaper ref))))))
 
 (defn- weak-live
   "Snapshot the still-LIVE cells of one incarnation's weak membership set
@@ -2433,25 +2489,30 @@
   a cleared ref is a collected — therefore unreachable, therefore never
   reconnectable — cell with nothing left to reap; on CLJS its husk is
   compacted away as it is encountered."
-  [members]
-  (if (nil? members)
-    []
-    #?(:clj  (locking members (into [] members))
-       :cljs (let [refs ^js (:refs members)
-                   out  (array)]
-               (.forEach refs
-                         (fn [ref _ _]
-                           (if-some [cell (.deref ^js ref)]
-                             (.push out cell)
-                             (.delete refs ref))))
-               (vec out)))))
+  ([members] (weak-live members nil))
+  ([members incarnation]
+   (if (nil? members)
+     []
+     #?(:clj  (locking members (into [] members))
+        :cljs (let [refs ^js (:refs members)
+                    out  (array)]
+                (.forEach refs
+                          (fn [ref _ _]
+                            (if-some [cell (.deref ^js ref)]
+                              (.push out cell)
+                              (.delete refs ref))))
+                ;; FinalizationRegistry is only an accelerator. A host without
+                ;; it still converges synchronously whenever ownership is read.
+                (when (some? incarnation)
+                  (drop-root-entry-if-empty! incarnation members))
+                (vec out))))))
 
 (defn- weak-live-count
-  [members]
+  [members incarnation]
   (if (nil? members)
     0
     #?(:clj  (.size ^java.util.Set members)
-       :cljs (count (weak-live members)))))
+       :cljs (count (weak-live members incarnation)))))
 
 ;; ---- reload migration (rf2-vxgfnd.168) ---------------------------------------
 ;;
@@ -2559,6 +2620,9 @@
   (which removes the cell from `live-cells`) does NOT drop this membership —
   that is the whole point. Returns the cell."
   [^ViewCell cell incarnation]
+  ;; The capability gate precedes even the cell's `:root` write and the
+  ;; registry install, so an incompatible host leaves both surfaces pristine.
+  (ensure-platform-compatible! 're-frame.ui.reactive/attach-root!)
   (let [st  (state cell)
         old (:root @st)]
     ;; A resource/frame pin can reject and tear down the cell in the preceding
@@ -2594,8 +2658,15 @@
   read). Proves the ownership registry is bounded to retained/mounted cells:
   empty incarnations drop on final teardown (rf2-vxgfnd.85 AC5), and a
   collected member simply stops counting (rf2-mc62sp)."
-  ([] (count @root-cells))
-  ([incarnation] (weak-live-count (get @root-cells incarnation))))
+  ([]
+   ;; Synchronous compaction is the correctness path when the optional
+   ;; FinalizationRegistry accelerator is unavailable.
+   #?(:cljs (doseq [[incarnation members] @root-cells]
+              (weak-live members incarnation))
+      :clj nil)
+   (count @root-cells))
+  ([incarnation]
+   (weak-live-count (get @root-cells incarnation) incarnation)))
 
 (defn- release-committed!
   "Release every live lexical-site lease and retain each exact query/target/
@@ -2804,7 +2875,8 @@
         connected (filter #(cell-retained-frame? % frame-id frame-token)
                           @live-cells)
         hidden    (into #{}
-                        (comp (mapcat (comp weak-live val))
+                        (comp (mapcat (fn [[incarnation members]]
+                                        (weak-live members incarnation)))
                               (filter #(= :disconnected (lifecycle %)))
                               (filter #(cell-retained-frame?
                                         % frame-id frame-token)))
@@ -2862,7 +2934,8 @@
   synchronously."
   [incarnation on-settled]
   (let [settle (fn []
-                 (doseq [cell (weak-live (get @root-cells incarnation))]
+                 (doseq [cell (weak-live (get @root-cells incarnation)
+                                         incarnation)]
                    (teardown! cell))
                  (when on-settled (on-settled)))]
     #?(:cljs (queue-microtask! settle)
@@ -3029,14 +3102,15 @@
          ;; membership still discovers it; only collected (unreachable, never
          ;; reconnectable) cells are absent — nothing to reap (rf2-mc62sp).
          hidden    (into #{}
-                         (comp (mapcat #(weak-live (get @root-cells %)))
+                         (comp (mapcat #(weak-live (get @root-cells %) %))
                                (filter #(= :disconnected (lifecycle %))))
                          incs)
          victims   (if (and @host-error explicit?)
                      ;; The host handle is consumed/released even on this path.
                      ;; Fail closed over the EXACT root generation, including
                      ;; cells still connected because React ran no cleanup.
-                     (into owned (weak-live (get @root-cells root-incarnation)))
+                     (into owned (weak-live (get @root-cells root-incarnation)
+                                            root-incarnation))
                      (into owned hidden))
          ;; rf2-vxgfnd.275 — the ROOT-LEVEL settlement law. A teardown is DEFERRED
          ;; iff a COMMITTED reporter for this root has not yet torn down
