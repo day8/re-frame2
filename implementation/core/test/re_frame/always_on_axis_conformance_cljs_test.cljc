@@ -212,7 +212,8 @@
     :rf.error/read-after-release
     :rf.error/observation-port-version-mismatch
     :rf.error/observation-retry-exhausted
-    :rf.error/observation-on-change-failed})
+    :rf.error/observation-on-change-failed
+    :rf.error/frame-preflight-evidence-mismatch})
 
 ;; The frame-teardown report is the ONE always-on category that rides the
 ;; bounded `dispatch-frame-teardown-report!` sibling (Spec 009: one record
