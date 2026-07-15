@@ -187,12 +187,10 @@
 
 (deftest self-destroying-initial-events-fail-closed-and-leave-no-dead-record
   ;; `make-frame` runs :initial-events synchronously before the plan executor
-  ;; publishes its install record. A handler may destroy its own frame and still
-  ;; return normally (run-to-completion), leaving the frame ABSENT. Publication
-  ;; is rejected — and rf2-5svfa1 now FAILS THE PREFLIGHT CLOSED with the typed
-  ;; `:rf.error/frame-preflight-lifecycle-loss` rather than silently returning a
-  ;; receipt: ENSURE must not leave a live host root scoped to an absent frame.
-  ;; The dead lifetime still leaves NO install record (rf2-m1dsuw preserved).
+  ;; publishes its install record. A handler's same-id destroy joins the current
+  ;; owner and makes the provisional row lifecycle-dead; construction refuses
+  ;; to revive it, reports the uniform construction error, and rolls back.
+  ;; ENSURE therefore leaves neither a frame nor an install record.
   (rf/reg-event :test/destroy-self
     (fn [_ _]
       (frame/destroy-frame! :frame/self-destroy)
@@ -202,16 +200,16 @@
               :root/a [(plan :frame/self-destroy
                              {:initial-events [[:test/destroy-self]]}
                              "cf1-dead111111111111")]))]
-    (is (= :rf.error/frame-preflight-lifecycle-loss (:rf.error/id ed))
-        "the self-destroying setup fails the preflight closed")
-    (is (= :ensured-frame-lost (:kind ed))))
+    (is (= :rf.error/frame-construction-in-progress (:rf.error/id ed))
+        "construction fails on the lifecycle-dead provisional row")
+    (is (= :frame/self-destroy (:frame ed))))
   (is (nil? (frame/frame :frame/self-destroy))
-      "sanity: the setup handler destroyed the frame under construction")
+      "the self-destroyed setup causes exact construction rollback")
   (is (nil? (frames/installed-plan-entry :frame/self-destroy))
       "the dead lifetime has no visible install record")
 
-  ;; Recreate the same id outside the plan registry. A stale record that was
-  ;; merely hidden by installed-plan-entry's liveness guard becomes visible now.
+  ;; Recreate the same id outside the plan registry. A stale plan record must
+  ;; not become visible when the id acquires a later lifetime.
   (rf/make-frame {:id :frame/self-destroy :doc "replacement lifetime"})
   (is (nil? (frames/installed-plan-entry :frame/self-destroy))
       "the replacement must not resurrect root A's dead-lifetime record")

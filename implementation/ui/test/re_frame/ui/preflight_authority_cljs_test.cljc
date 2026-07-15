@@ -5,13 +5,12 @@
   when that authority is lost mid-preflight. Two arms, host-shared (.cljc: node
   `test:cljs` / `test:ui` AND JVM `clojure -M:test`), against the REAL executor:
 
-    (A) LIFECYCLE-LOSS FAIL-CLOSED — a self-destroying `:initial-events` setup
-        (the handler destroys the very frame it is seating) leaves the frame
-        ABSENT when its record would publish. Previously the executor silently
-        skipped the write and returned a normal receipt, so the client mounted a
-        host root scoped to an absent frame; now it throws. The :install arm
-        (self-destroy) and the :adopt arm (a sibling plan destroys the boot frame
-        a later config-less plan scopes) are both pinned.
+    (A) FAIL-CLOSED SETUP — a same-owner destroy from `:initial-events` joins
+        the transaction and makes its provisional row lifecycle-dead; ordinary
+        construction cannot revive it and fails with the uniform construction
+        error before exact rollback. The distinct :adopt arm still pins
+        preflight lifecycle loss when a sibling plan destroys the boot frame a
+        later config-less plan scopes.
 
     (B) DECISION-TIME TOKEN REVALIDATION — a `:refresh` decided against the
         incarnation live at decision time must not apply to a same-id replacement
@@ -40,8 +39,8 @@
     :init-fn (fn []
                ;; The setup steps the tests drive their frames' :initial-events
                ;; with — one destroys its OWN frame (self-destroy), one destroys
-               ;; a named sibling. destroy-frame! is not handler-guarded (only
-               ;; construction is), so both run inside the synchronous drain.
+               ;; a named sibling. The same-id destroy joins its construction
+               ;; owner; the sibling destroy remains an ordinary teardown.
                (rf/reg-event :test/destroy-self
                              (fn [_ [_ fid]] (frame/destroy-frame! fid) {}))
                (rf/reg-event :test/destroy-other
@@ -62,24 +61,23 @@
          (ex-data e))))
 
 ;; ---------------------------------------------------------------------------
-;; (A) lifecycle-loss fail-closed
+;; (A) setup fail-closed
 ;; ---------------------------------------------------------------------------
 
 (deftest self-destroying-install-setup-fails-closed
-  (testing "an :install whose :initial-events destroy their own frame no longer
-            returns a normal receipt over an absent frame — it throws the typed
-            lifecycle-loss error, leaving no frame and no plan record"
+  (testing "an :install whose :initial-events destroy their own provisional
+            frame reports the uniform construction conflict for the resulting
+            dead row, then rolls back without a frame or plan record"
     (let [fid :auth/self-destroy
           ed  (thrown
                #(frames/execute-frame-plans!
                  :root/a [(plan fid "cfa-aaaaaaaaaaaaaa"
                                 {:initial-events [[:test/destroy-self fid]]})]))]
-      (is (= :rf.error/frame-preflight-lifecycle-loss (:rf.error/id ed))
-          "the self-destroying setup fails the preflight closed")
-      (is (= :ensured-frame-lost (:kind ed)))
-      (is (= fid (:frame-id ed)))
-      (is (= :root/a (:root-id ed)))
-      (is (nil? (frame/frame fid)) "the self-destroyed frame stays absent")
+      (is (= :rf.error/frame-construction-in-progress (:rf.error/id ed))
+          "construction cannot continue through its lifecycle-dead provisional row")
+      (is (= fid (:frame ed)))
+      (is (= :lifecycle-dead (:reason ed)))
+      (is (nil? (frame/frame fid)) "the owning construction rolls back")
       (is (nil? (frames/installed-plan-entry fid))
           "no plan record was published for the absent frame"))))
 
