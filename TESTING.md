@@ -16,6 +16,7 @@ This table is also the command catalogue: each kind names the command that runs 
 | **JVM unit** — per-artefact `clojure -M:test` | fast | CLJC logic + pure helpers per artefact; the adapter probes double as classpath/deps wiring checks. |
 | **Security tier** — `test:security` (also rides `test:cljs`) | fast | Adversarial-property nets on redaction / escaping / egress boundaries: hostile-input corpus + generated shapes, each verified to go RED if the protection is reverted. |
 | **Lockstep + drift** — fast-pr spine | fast | Version drift between coordinated artefacts; skill / MCP-server schema drift. |
+| **Tracked synthesis guide** — `python scripts/check_doc_slugs.py --synthesis-only --verbose` + focused `re-frame.ui.guide-truth-jvm-test` | fast | Enumerates and validates links/anchors in the pre-publication `re-frame.ui` guide + active drafts, then pins the ruled guide claims (including Guide 09) without publishing them through MkDocs before S6. |
 | **JS harness self-tests** — `test:script-policy`, `test:script-helpers` | fast | The Node-side plumbing that runs everything else. |
 | **Skills structural** — `skills-structural` job | fast | Skill manifests + shared content stay valid against the schema. |
 | **Browser unit** — `test:browser` | medium | DOM-dependent tests only (`*_dom_cljs_test.cljs`): real React mounts, context tier, browser-only runtime features. |
@@ -59,7 +60,7 @@ The classifier maps "what files changed" → "which expensive jobs fire." The fu
 
 1. **Agent pre-checkin** — `scripts/test-fast-pr.sh` plus the surface-specific commands for the files touched (find them in the Kinds table).
 2. **PR CI** — `.github/workflows/test.yml`. Always: lockstep + skill/MCP drift, core JVM, CLJS node integration, JS harness self-tests, docs link validation on docs PRs. Expensive jobs fire only on their changed surface, and browser gates run their smoke tiers.
-3. **Nightly / manual** — `.github/workflows/expensive-tests.yml`. The rigorous browser/bundle matrix, full Story/Xray sweeps, template smoke, live MCP conformance.
+3. **Nightly / manual** — `.github/workflows/expensive-tests.yml`. The rigorous browser/bundle matrix, unconditional all-examples compile, full Story/Xray sweeps, template smoke, live MCP conformance.
 4. **Release** — `.github/workflows/release.yml` plus the latest green expensive run on the release candidate.
 
 **The Story/Xray two-tier split.** The `story-xray-browser` PR job runs `test:xray-feature-gate:smoke` + `test:story-play-scripts`; the full sweep runs nightly. The dominant cost is testbed compilation, so both tiers share a keyed shadow-cljs compile cache that any source change busts. When adding an Xray scenario, tag it `smoke: true` (in `tools/xray/testbeds/feature_matrix/scenarios.cjs`) only if it earns a slot on every PR **and** loads an already-staged smoke surface; everything else is nightly by default. The gate fails loud if the smoke set is ever empty.
@@ -96,6 +97,7 @@ The classifier is the **source of truth for "which jobs run when"** on a PR: the
 | `adapter_diagnostic` | an adapter artefact changes | the skip-ok classpath probes |
 | `cljs_node_test` | anything compiled into `:node-test` changes (core, adapters, feature artefacts, conformance fixtures, build config + scripts, story/xray src+test CLJS, machines-viz) | the consolidated `cljs` job |
 | `cljs_browser` | a `:browser-test`-covered surface changes (incl. machines-viz DOM suites) | the Playwright `cljs-browser` job |
+| `examples_compile` | a surface that can change a standalone example build changes: `examples/**`, build config, adapters, UI/feature artefacts, Story/Xray/machines-viz, or the checker itself; core-only changes use the unconditional nightly net | `cljs-examples-compile` |
 | `cljs_prod` | a release-probe-covered surface changes (including `implementation/ui/**`) | the prod-elision / schemas-boundary probes |
 | `bundle_isolation` | a bundle-boundary surface changes (adapters, `implementation/ui/**`, build scripts, probe examples, package metadata) | `bundle-isolation` |
 | `reagent_slim_bundle` | the Slim adapter, its example, or its check script changes | `reagent-slim-bundle-isolation` |
@@ -108,6 +110,7 @@ The classifier is the **source of truth for "which jobs run when"** on a PR: the
 | `tenant_switcher_smoke` | `testbeds/tenant_switcher/**` or `implementation/scripts/serve-and-run-tenant-switcher-testbed.cjs` change | the `tenant-switcher-testbed-smoke` browser job |
 | `skills_structural` | `skills/re-frame2-pair/*`, `skills/re-frame2-setup/*`, or `skills/shared/*` change | `skills-structural` |
 | `playground` | the playground tool, a committed playground bundle, or `implementation/machines/*` changes (the SCI bundle bakes the machines artefact in) | `tools-playground` |
+| `synthesis_docs` | tracked `ai/findings/new-substrate-synthesis/{guide,drafts}/**`, the synthesis link checker, or its focused guide-truth fixture changes; unrelated `ai/` scratch is excluded | `synthesis-docs` — enumerated links/anchors + focused Guide 09 truth fixture |
 
 **Blast radius**: a change to either workflow file, the classifier script, or `TESTING.md` sets every output `true` — anything that re-tiers the matrix must re-run the matrix. `implementation/core/*` fans out to almost everything (core regressions can break every downstream invariant), deliberately excepting the two Playwright gates noted above.
 

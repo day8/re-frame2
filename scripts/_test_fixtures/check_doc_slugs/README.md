@@ -3,7 +3,9 @@
 Each subdirectory is a self-contained mini-repo the validator script
 treats as a real corpus when invoked with `--repo-root <fixture-dir>`.
 Required minimum: a top-level `mkdocs.yml` (so the repo-root guard
-accepts the directory) and at least one `.md` file under `docs/`.
+accepts the directory) and at least one `.md` file under the scope the
+fixture exercises (`docs/` by default, or the exact synthesis guide/drafts
+roots for `--synthesis-only`).
 
 Run all fixtures via:
 
@@ -29,3 +31,6 @@ Fixtures:
 | `ai_findings_dir_link_flagged`     | 1               | Link into the bare `ai/findings/` directory is flagged (rf2-l7yj8)                 |
 | `blockquoted_heading_ok`           | 0               | Link into a blockquoted heading (`> #### Foo`, incl. nested) resolves (rf2-869k9m) |
 | `indented_heading_not_indexed`     | 1               | Negative control: an *indented bare* `#` line still mints no anchor (rf2-869k9m)   |
+| `synthesis_broken_target`          | default 0 / synthesis 1 | The unchanged default corpus excludes the guide; opt-in catches a missing target (rf2-vxgfnd.135) |
+| `synthesis_broken_anchor`          | default 0 / synthesis 1 | The unchanged default corpus excludes the guide; opt-in catches a missing anchor (rf2-vxgfnd.135) |
+| `synthesis_valid_narrow_scope`     | 0               | Exactly guide + drafts are enumerated; unrelated broken `ai/` scratch remains excluded |

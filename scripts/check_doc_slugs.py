@@ -73,17 +73,44 @@ DEFAULT_ROOTS = (
     "migration",
 )
 
+# Tracked, authoritative pre-publication re-frame.ui material. This is an
+# explicit opt-in scope: it must not widen the default docs/MkDocs corpus or
+# sweep unrelated ai/ scratch. S6 owns publication; this gate owns only links
+# and anchors while the source remains here.
+SYNTHESIS_ROOTS = (
+    "ai/findings/new-substrate-synthesis/guide",
+    "ai/findings/new-substrate-synthesis/drafts",
+)
+
+# Diff-ready spec drafts author their links for the file's eventual `spec/`
+# location, not for the temporary drafts/ directory. Validate that intended
+# link context explicitly. The target path also supplies existing headings for
+# same-file anchors in amendment fragments; a not-yet-created target (004A)
+# still contributes its `spec/` parent as the relative-link base.
+DRAFT_LANDING_TARGETS = {
+    "ai/findings/new-substrate-synthesis/drafts/spec-004-rewrite-draft.md":
+        "spec/004-Views.md",
+    "ai/findings/new-substrate-synthesis/drafts/spec-004A-reagent-compat-appendix.md":
+        "spec/004A-Reagent-Compat.md",
+    "ai/findings/new-substrate-synthesis/drafts/spec-006-observation-port-amendment.md":
+        "spec/006-ReactiveSubstrate.md",
+    "ai/findings/new-substrate-synthesis/drafts/spec-009-ui-catalogue-rows.md":
+        "spec/009-Instrumentation.md",
+    "ai/findings/new-substrate-synthesis/drafts/spec-011-ui-tree-amendment.md":
+        "spec/011-SSR.md",
+}
+
 # Tools live one tier deeper: tools/<tool-name>/spec/**/*.md.
 TOOLS_ROOT = "tools"
 
 # Paths whose markdown should never be scanned.
 EXCLUDE_DIR_NAMES = frozenset({
-    "findings",      # exploratory working substrate
+    "findings",      # default excludes exploratory work; synthesis opt-in is exact
     "node_modules",
     "site",          # mkdocs build output
     ".git",
     ".beads",
-    "ai",            # gitignored AI working tree
+    "ai",            # default excludes AI work; tracked synthesis opt-in is exact
     "__pycache__",
 })
 
@@ -160,11 +187,21 @@ _FENCE_RE = re.compile(r"^(```|~~~)")
 _INLINE_CODE_RE = re.compile(r"(`+)(?:.+?)\1(?!`)")
 
 
-def _is_excluded(path: Path, repo_root: Path) -> bool:
+def _is_excluded(
+    path: Path,
+    repo_root: Path,
+    *,
+    allow_ai_findings: bool = False,
+) -> bool:
     """Return True if path lies under a directory we should skip."""
     rel = path.relative_to(repo_root)
     parts = set(rel.parts)
-    if parts & EXCLUDE_DIR_NAMES:
+    excluded_names = EXCLUDE_DIR_NAMES
+    if allow_ai_findings:
+        # Safe only because `_iter_markdown` applies this exception beneath
+        # the two exact SYNTHESIS_ROOTS, never to an arbitrary ai/ path.
+        excluded_names = excluded_names - {"ai", "findings"}
+    if parts & excluded_names:
         return True
     for ex in EXCLUDE_DIR_REL:
         try:
@@ -175,24 +212,38 @@ def _is_excluded(path: Path, repo_root: Path) -> bool:
     return False
 
 
-def _iter_markdown(repo_root: Path) -> Iterable[Path]:
+def _iter_markdown(
+    repo_root: Path,
+    *,
+    synthesis_only: bool = False,
+) -> Iterable[Path]:
     """Yield absolute paths to every in-scope .md file."""
-    roots = []
-    for d in DEFAULT_ROOTS:
-        p = repo_root / d
-        if p.is_dir():
-            roots.append(p)
-    tools = repo_root / TOOLS_ROOT
-    if tools.is_dir():
-        for tool in sorted(tools.iterdir()):
-            spec = tool / "spec"
-            if spec.is_dir():
-                roots.append(spec)
+    roots: list[tuple[Path, bool]] = []
+    if synthesis_only:
+        for d in SYNTHESIS_ROOTS:
+            p = repo_root / d
+            if p.is_dir():
+                roots.append((p, True))
+    else:
+        for d in DEFAULT_ROOTS:
+            p = repo_root / d
+            if p.is_dir():
+                roots.append((p, False))
+        tools = repo_root / TOOLS_ROOT
+        if tools.is_dir():
+            for tool in sorted(tools.iterdir()):
+                spec = tool / "spec"
+                if spec.is_dir():
+                    roots.append((spec, False))
 
     seen: set[Path] = set()
-    for root in roots:
+    for root, allow_ai_findings in roots:
         for path in sorted(root.rglob("*.md")):
-            if _is_excluded(path, repo_root):
+            if _is_excluded(
+                path,
+                repo_root,
+                allow_ai_findings=allow_ai_findings,
+            ):
                 continue
             ap = path.resolve()
             if ap in seen:
@@ -301,7 +352,13 @@ def _extract_links(path: Path) -> Iterable[tuple[int, str]]:
             yield line_no, m.group(1)
 
 
-def _resolve_target(linker: Path, dest_path: str, repo_root: Path) -> Path | None:
+def _resolve_target(
+    linker: Path,
+    dest_path: str,
+    repo_root: Path,
+    *,
+    relative_base: Path | None = None,
+) -> Path | None:
     """Resolve a (possibly relative) link path against the linker's directory.
 
     Returns the absolute Path to the target file, or None if resolution would
@@ -313,18 +370,26 @@ def _resolve_target(linker: Path, dest_path: str, repo_root: Path) -> Path | Non
     """
     if not dest_path:
         return linker  # same-file anchor
-    try:
-        if dest_path.startswith("/"):
-            target = (repo_root / dest_path.lstrip("/")).resolve()
-        else:
-            target = (linker.parent / dest_path).resolve()
-    except (OSError, ValueError):
-        return None
-    try:
-        target.relative_to(repo_root.resolve())
-    except ValueError:
-        return None
-    return target
+    bases = [repo_root] if dest_path.startswith("/") else [linker.parent]
+    if relative_base and relative_base != linker.parent:
+        bases.append(relative_base)
+
+    candidates: list[Path] = []
+    for base in bases:
+        try:
+            target = (
+                base / (dest_path.lstrip("/") if dest_path.startswith("/") else dest_path)
+            ).resolve()
+            target.relative_to(repo_root.resolve())
+        except (OSError, ValueError):
+            continue
+        candidates.append(target)
+        # Drafts mix links to neighbouring source material with links authored
+        # for their landing directory. Prefer the real source-neighbour when
+        # present, then fall through to the explicit landing context.
+        if target.is_file():
+            return target
+    return candidates[-1] if candidates else None
 
 
 def _is_ai_findings_link(path_part: str) -> bool:
@@ -351,7 +416,12 @@ def _is_ai_findings_link(path_part: str) -> bool:
     return False
 
 
-def check(repo_root: Path, verbose: bool = False) -> int:
+def check(
+    repo_root: Path,
+    verbose: bool = False,
+    *,
+    synthesis_only: bool = False,
+) -> int:
     """Validate every in-repo markdown link.  Return broken-link count.
 
     Flags three distinct defects:
@@ -362,7 +432,21 @@ def check(repo_root: Path, verbose: bool = False) -> int:
                               gitignored working artefacts; inline a sentence
                               summary instead.
     """
-    files = list(_iter_markdown(repo_root))
+    files = list(_iter_markdown(repo_root, synthesis_only=synthesis_only))
+    if synthesis_only:
+        if not files:
+            sys.stderr.write(
+                "error: synthesis link gate matched zero markdown files under "
+                f"{', '.join(SYNTHESIS_ROOTS)}; refusing a vacuous pass.\n"
+            )
+            return 1
+        sys.stderr.write(
+            f"synthesis link gate files ({len(files)}):\n"
+        )
+        for path in files:
+            sys.stderr.write(
+                f"  {path.relative_to(repo_root.resolve()).as_posix()}\n"
+            )
     if verbose:
         sys.stderr.write(f"scanning {len(files)} markdown files...\n")
 
@@ -379,6 +463,10 @@ def check(repo_root: Path, verbose: bool = False) -> int:
     broken_target: list[tuple[Path, int, str, str]] = []
     ai_findings: list[tuple[Path, int, str]] = []
     for path in files:
+        path_rel = path.relative_to(repo_root.resolve()).as_posix()
+        landing_rel = DRAFT_LANDING_TARGETS.get(path_rel)
+        landing_target = (repo_root / landing_rel).resolve() if landing_rel else None
+        relative_base = landing_target.parent if landing_target else None
         for line_no, dest in _extract_links(path):
             # External / non-file references — out of scope.
             if dest.startswith(("http://", "https://", "mailto:", "tel:", "//")):
@@ -403,7 +491,10 @@ def check(repo_root: Path, verbose: bool = False) -> int:
             if path_part == "":
                 if not anchor:
                     continue
-                if anchor not in slugs_for(path):
+                same_file_slugs = set(slugs_for(path))
+                if landing_target and landing_target.is_file():
+                    same_file_slugs.update(slugs_for(landing_target))
+                if anchor not in same_file_slugs:
                     broken_anchor.append(
                         (path, line_no, dest, str(path.relative_to(repo_root.resolve())))
                     )
@@ -416,7 +507,12 @@ def check(repo_root: Path, verbose: bool = False) -> int:
             if not path_part.endswith(".md"):
                 continue
 
-            target = _resolve_target(path, path_part, repo_root)
+            target = _resolve_target(
+                path,
+                path_part,
+                repo_root,
+                relative_base=relative_base,
+            )
             if target is None:
                 # Path escapes the repo — treat as external reference, skip.
                 continue
@@ -519,6 +615,14 @@ def main(argv: list[str]) -> int:
             "scripts/_test_fixtures/check_doc_slugs/ and exit."
         ),
     )
+    parser.add_argument(
+        "--synthesis-only",
+        action="store_true",
+        help=(
+            "Scan only the tracked re-frame.ui synthesis guide and active "
+            "drafts. Enumerates every matched file and fails if the scope is empty."
+        ),
+    )
     args = parser.parse_args(argv)
 
     if args.self_test:
@@ -536,7 +640,11 @@ def main(argv: list[str]) -> int:
         )
         return 2
 
-    broken = check(repo_root, verbose=args.verbose)
+    broken = check(
+        repo_root,
+        verbose=args.verbose,
+        synthesis_only=args.synthesis_only,
+    )
     return 0 if broken == 0 else 1
 
 
@@ -601,11 +709,96 @@ def _run_self_tests(verbose: bool = False) -> int:
             )
             failures += 1
 
+    # rf2-vxgfnd.135 — prove the new scope is explicit and has real teeth:
+    # both defects remain invisible to the unchanged default corpus, then fail
+    # when the narrow synthesis scope is selected. The valid fixture also
+    # proves both roots are enumerated while unrelated ai/ scratch stays out.
+    synthesis_cases: list[tuple[str, int]] = [
+        ("synthesis_broken_target", 1),
+        ("synthesis_broken_anchor", 1),
+        ("synthesis_valid_narrow_scope", 0),
+    ]
+    for fixture, expected in synthesis_cases:
+        root = _SELF_TEST_FIXTURE_ROOT / fixture
+        if not (root / "mkdocs.yml").is_file():
+            sys.stderr.write(
+                f"self-test FAIL: fixture {fixture!r} missing mkdocs.yml at {root}\n"
+            )
+            failures += 1
+            continue
+
+        saved_stderr = sys.stderr
+        sys.stderr = _DevNull()
+        try:
+            default_got = check(root, verbose=False)
+            synthesis_got = check(root, verbose=False, synthesis_only=True)
+        finally:
+            sys.stderr = saved_stderr
+
+        if default_got != 0:
+            sys.stderr.write(
+                f"self-test FAIL: {fixture} leaked into the default corpus "
+                f"(broken={default_got}, expected 0)\n"
+            )
+            failures += 1
+        elif synthesis_got == expected:
+            if verbose:
+                sys.stderr.write(
+                    f"self-test PASS: {fixture} "
+                    f"(default=0, synthesis={synthesis_got})\n"
+                )
+        else:
+            sys.stderr.write(
+                f"self-test FAIL: {fixture} expected synthesis broken={expected}, "
+                f"got {synthesis_got}\n"
+            )
+            failures += 1
+
+    narrow_root = _SELF_TEST_FIXTURE_ROOT / "synthesis_valid_narrow_scope"
+    narrow_files = {
+        path.relative_to(narrow_root).as_posix()
+        for path in _iter_markdown(narrow_root, synthesis_only=True)
+    }
+    expected_narrow_files = {
+        "ai/findings/new-substrate-synthesis/guide/index.md",
+        "ai/findings/new-substrate-synthesis/drafts/design.md",
+    }
+    if narrow_files != expected_narrow_files:
+        sys.stderr.write(
+            "self-test FAIL: synthesis scope inventory mismatch: "
+            f"expected {sorted(expected_narrow_files)}, got {sorted(narrow_files)}\n"
+        )
+        failures += 1
+    elif verbose:
+        sys.stderr.write(
+            "self-test PASS: synthesis scope enumerates guide + drafts only\n"
+        )
+
+    empty_root = _SELF_TEST_FIXTURE_ROOT / "valid_link"
+    saved_stderr = sys.stderr
+    sys.stderr = _DevNull()
+    try:
+        empty_got = check(empty_root, verbose=False, synthesis_only=True)
+    finally:
+        sys.stderr = saved_stderr
+    if empty_got != 1:
+        sys.stderr.write(
+            "self-test FAIL: empty synthesis scope did not fail closed "
+            f"(got broken={empty_got}, expected 1)\n"
+        )
+        failures += 1
+    elif verbose:
+        sys.stderr.write(
+            "self-test PASS: empty synthesis scope refuses a vacuous pass\n"
+        )
+
     if failures:
         sys.stderr.write(f"\n{failures} self-test failure(s).\n")
         return 1
     if verbose:
-        sys.stderr.write(f"all {len(cases)} self-tests passed.\n")
+        sys.stderr.write(
+            f"all {len(cases) + len(synthesis_cases) + 2} self-tests passed.\n"
+        )
     return 0
 
 

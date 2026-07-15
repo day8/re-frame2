@@ -64,6 +64,12 @@ jobs:
       - name: npm install
         run: npm ci
 
+      # rf2-gzavkm — core-only PRs no longer queue the all-examples compile.
+      # Keep that transitive safety net unconditional in the nightly/manual
+      # full sweep, before the browser download so compile failures stay cheap.
+      - name: Compile every standalone example build (nightly coverage net)
+        run: npm run test:examples-compile
+
       - name: Install Playwright (Chromium + system deps)
         run: npx playwright install --with-deps chromium
 

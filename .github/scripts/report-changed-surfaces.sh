@@ -42,6 +42,7 @@ cljs_node_test=false
 ui_gates=false
 adapter_diagnostic=false
 cljs_browser=false
+examples_compile=false
 cljs_prod=false
 bundle_isolation=false
 reagent_slim_bundle=false
@@ -54,6 +55,7 @@ story_xray_browser=false
 tenant_switcher_smoke=false
 skills_structural=false
 playground=false
+synthesis_docs=false
 
 mark_all() {
   implementation_jvm=true
@@ -61,6 +63,7 @@ mark_all() {
   ui_gates=true
   adapter_diagnostic=true
   cljs_browser=true
+  examples_compile=true
   cljs_prod=true
   bundle_isolation=true
   reagent_slim_bundle=true
@@ -73,6 +76,7 @@ mark_all() {
   tenant_switcher_smoke=true
   skills_structural=true
   playground=true
+  synthesis_docs=true
 }
 
 # rf2-k9ekz — predicate: does `$1` look like a Story/Xray runtime
@@ -129,6 +133,33 @@ if [ "$files" = "__ALL__" ]; then
 else
   while IFS= read -r file; do
     [ -z "$file" ] && continue
+
+    # rf2-gzavkm — compile every standalone example build only when the
+    # changed surface can alter one of those builds. This is deliberately
+    # separate from `cljs_browser`: core still gets its focused browser/node/
+    # production gates at PR time, while the full example-build sweep moves
+    # to the nightly safety net for core-only changes. Story/Xray and
+    # machines-viz remain here because example builds load the Xray preload
+    # and Story hosts, whose compiled closure includes machines-viz.
+    case "$file" in
+      examples/*|implementation/adapters/*|implementation/epoch/*|implementation/schemas/*|implementation/machines/*|implementation/routing/*|implementation/flows/*|implementation/http/*|implementation/ssr/*|implementation/ssr-ring/*|implementation/resources/*|implementation/security/*|implementation/ui/*|implementation/deps.edn|implementation/shadow-cljs.edn|implementation/package.json|implementation/package-lock.json|implementation/scripts/check-examples-compile.cjs)
+        examples_compile=true
+        ;;
+      tools/story/src/*|tools/story/testbeds/*|tools/story/deps.edn|tools/xray/src/*|tools/xray/testbeds/*|tools/xray/deps.edn|tools/machines-viz/src/*|tools/machines-viz/deps.edn)
+        examples_compile=true
+        ;;
+    esac
+
+    # rf2-vxgfnd.135 — tracked, authoritative pre-publication UI guide
+    # material gets a narrow gate without classifying unrelated ai/ scratch
+    # or pulling the guide into MkDocs before S6. The checker and focused JVM
+    # fixture arm their own job so a gate edit cannot avoid its proof.
+    case "$file" in
+      ai/findings/new-substrate-synthesis/guide/*|ai/findings/new-substrate-synthesis/drafts/*|scripts/check_doc_slugs.py|scripts/_test_fixtures/check_doc_slugs/*|implementation/ui/test/re_frame/ui/guide_truth_jvm_test.clj)
+        synthesis_docs=true
+        ;;
+    esac
+
     case "$file" in
       .github/workflows/test.yml|.github/workflows/expensive-tests.yml|.github/scripts/report-changed-surfaces.sh|TESTING.md)
         mark_all
@@ -938,6 +969,7 @@ emit cljs_node_test "$cljs_node_test"
 emit ui_gates "$ui_gates"
 emit adapter_diagnostic "$adapter_diagnostic"
 emit cljs_browser "$cljs_browser"
+emit examples_compile "$examples_compile"
 emit cljs_prod "$cljs_prod"
 emit bundle_isolation "$bundle_isolation"
 emit reagent_slim_bundle "$reagent_slim_bundle"
@@ -950,3 +982,4 @@ emit story_xray_browser "$story_xray_browser"
 emit tenant_switcher_smoke "$tenant_switcher_smoke"
 emit skills_structural "$skills_structural"
 emit playground "$playground"
+emit synthesis_docs "$synthesis_docs"
