@@ -82,7 +82,7 @@ You read the `:state` map through one ordinary subscription — `@(rf/subscribe 
 
 ## Each region has its own `:initial`
 
-Every region declares its own `:initial`, just like a flat machine — a region missing `:initial` is a registration-time error. At machine boot the initial snapshot's `:state` is the map of each region's initial cascade: a flat region lands on its `:initial` keyword; a compound region descends its `:initial` chain to a leaf. Each region's `:entry` cascade runs once at boot, and each region's birth `:always` settles independently as part of the initial step.
+Every region declares its own `:initial`, just like a flat machine — a region missing `:initial` is a registration-time error. At machine boot the initial snapshot's `:state` is the map of each region's initial cascade: a flat region lands on its `:initial` keyword; a compound region descends its `:initial` chain to a leaf. Every region's `:entry` cascade runs once, for every region, *before* any eventless work begins. Only then does the machine settle its `:always` transitions — and it settles them the same way it settles them after an event: the parent runs [frozen rounds](#always-stabilization-is-parent-owned) across the whole configuration until nothing more is enabled. A region's birth `:always` guard can therefore read where its siblings landed, because every sibling has already entered.
 
 So immediately after the machine above starts, before any event:
 
@@ -111,8 +111,9 @@ In the nine-states machine, dispatching `:fetch-started` reaches all three regio
 ;; :state {:data :loading :form :neutral :mode :active}
 
 (rf/dispatch-sync [:ui/nine-states [:fetch-succeeded {:items [{:id 1} {:id 2}]}]])
-;; :data handles it: :loading → :resolving (running :set-items), then the
-;; region's own :always cascade reads the now-2 :items and falls through to :some.
+;; :data handles it: :loading → :resolving (running :set-items). The event set
+;; having applied, the first eventless round reads the now-2 :items and the
+;; :resolving cascade lands on :some — all within this one macrostep.
 ;; :state {:data :some :form :neutral :mode :active}  ·  :data {:items [{:id 1} {:id 2}] ...}
 ```
 
@@ -143,7 +144,9 @@ If you wanted that event to count *once*, you'd register the coordinating action
 
 !!! note "A subtle, load-bearing rule — selection is order-independent"
 
-    The broadcast is **select-then-apply**: every region's enabled transition is *selected* against **one frozen pre-broadcast snapshot** of the configuration, and only *then* are the selected transitions *applied* in declaration order. Declaration order governs only the apply order (action / `:fx` order, `:data` accumulation) — **never** which transitions are selected. Reorder the regions and you get the *same* selected set, and the new configuration is computed **atomically** old→new: no region ever observes an intermediate state where some siblings have moved and others haven't. This matches SCXML, where a parallel macrostep selects against the pre-event configuration. (It matters most for the next section.)
+    The broadcast is **select-then-apply**: every region's enabled transition is *selected* against **one frozen pre-broadcast snapshot** of the configuration, and only *then* are the selected transitions *applied* in declaration order. Declaration order governs only the apply order (action / `:fx` order, `:data` accumulation) — **never** which transitions are selected. Reorder the regions and you get the *same* selected set, and the new configuration is computed **atomically** old→new: no region ever observes an intermediate state where some siblings have moved and others haven't. This matches SCXML, where a parallel macrostep selects against the pre-event configuration.
+
+    The same select-then-apply shape governs `:always` too, once the event set has landed — the parent repeats it per [round](#always-stabilization-is-parent-owned) until the machine is quiescent. It's one idea, applied twice.
 
 ## The root `:on`: an ancestor fallback
 
@@ -236,14 +239,14 @@ The precise variant reads the sibling's state value directly:
 
 Prefer the **tag** query: a tag is a named, tool-legible render-state, and it holds up when a sibling region refactors its internal state names.
 
-!!! note "Both keys are frozen"
+!!! note "Both keys are frozen — per selection round"
 
-    `:tags` and `:all-state` reflect the **frozen pre-broadcast snapshot** — the sibling configuration as of the *start* of the macrostep. A region's guard never sees a sibling's *same-event* move during selection (regions are genuinely simultaneous), which is exactly why selection is declaration-order-independent. A region reading its *own* state uses `:state` (which does evolve through its own `:always` loop); `:tags` / `:all-state` are the mechanism for reading *siblings*, and they're frozen. These two keys appear **only** for region guards/actions — a flat / compound machine's ctx stays exactly `{:data :event :state :meta}`, because it has no siblings to read; its own `:state` already answers *where am I?*.
+    `:tags` and `:all-state` are frozen for the **selection round** that is currently choosing transitions, not for the whole macrostep. Within a round every co-selected region reads the *same* sibling view, so no region can observe a sibling's move from the set being selected alongside it — which is exactly why selection is declaration-order-independent. Between rounds the view is **re-frozen**, so each round sees the complete result of the one before it. A region reading its *own* state uses `:state`; `:tags` / `:all-state` are the mechanism for reading *siblings*. These two keys appear **only** for region guards/actions — a flat / compound machine's ctx stays exactly `{:data :event :state :meta}`, because it has no siblings to read; its own `:state` already answers *where am I?*.
 
-The two `dispatch-sync` calls above are **separate events**, which is why each `:submit` reads the prior committed config. If you need a *single* event to flip `:form` to `:valid` **and** advance `:checkout` in the same breath, two statechart-idiomatic paths re-couple them — they differ in *when* convergence lands:
+The two `dispatch-sync` calls above are **separate events**, which is why each `:submit` reads the prior committed config. If you need a *single* event to flip `:form` to `:valid` **and** advance `:checkout` in the same breath, two statechart-idiomatic paths re-couple them. Both converge inside the one macrostep; they differ in *which* mechanism carries the dependency:
 
-- **`:raise` — converges in the SAME macrostep.** `:form`'s `:complete` action returns `:fx [[:raise [:form-valid]]]`; that internal event re-broadcasts across every region (next microstep, still inside the one atomic macrostep), and `:checkout`'s `:on {:form-valid …}` resolves it against the now-`:valid` `:form`. This is the strictly-same-macrostep path.
-- **A guarded `:always` reading the sibling — converges on the NEXT EVENT.** `:checkout` carries `{:always {:target :submitting :guard :form-valid?}}`. A *plain* sibling move doesn't trigger an in-macrostep re-broadcast, so this re-selects against the committed `:form/valid` on the next event delivered — it fires, just one event later.
+- **`:raise` — the region announces the news.** `:form`'s `:complete` action returns `:fx [[:raise [:form-valid]]]`; that internal event re-broadcasts across every region on the next microstep, and `:checkout`'s `:on {:form-valid …}` resolves it against the now-`:valid` `:form`. Reach for it when the sibling should react to an *event* — something happened — and when you want the dependency written down as a name.
+- **A guarded `:always` reading the sibling — the region notices the condition.** `:checkout` carries `{:always {:target :submitting :guard :form-valid?}}`. Once the event set has applied, the parent's first eventless round evaluates that guard against the updated configuration and `:checkout` moves — in the **same** macrostep, before it commits. Reach for it when the sibling should track a *condition* — the world now looks like this — without the announcing region needing to know anyone is listening.
 
 Both are bounded by the `:always-depth-limit` / `:raise-depth-limit` (default 16), so neither can spin.
 
@@ -251,14 +254,73 @@ Both are bounded by the `:always-depth-limit` / `:raise-depth-limit` (default 16
 
 Each region's state-node keys are **scoped to that region**:
 
-- **`:always`** — the microstep loop runs *per region*. After a region's transition, that region's new state's `:always` entries are checked and settle to *that region's* fixed point; siblings aren't re-evaluated for `:always` on this region's microstep. (That's exactly the `:resolving → :empty | :some | :too-many` cascade in the nine-states `:data` region.)
+- **`:always`** — a region's `:always` entries target states *inside that region*: the `:resolving → :empty | :some | :too-many` cascade in the nine-states `:data` region can only land on `:data`'s own states, never on a sibling's. But **targeting is not stabilization**. *Which* `:always` transitions fire, and *when* the loop is finished, is decided by the **parent** across the whole configuration — see [below](#always-stabilization-is-parent-owned). Keep those two ideas apart and the rest of this section follows.
 - **`:after`** — a timer arms / cancels on *its region's* state entry / exit. A sibling region transitioning does **not** cancel this region's in-flight `:after` timer; each region keeps its own timer epoch.
 - **`:spawn`** — a region's [`:spawn`](glossary.md#spawn)-bearing state starts and tears down child actors bound to *that region's* state; siblings never see the spawn / destroy cascade.
 - **`:entry` / `:exit`** — fire on the region's own transitions, never on a sibling's.
 
 !!! note "`:raise` is the exception — it BROADCASTS"
 
-    A `[:raise [:event]]` emitted by any region's action does **not** stay local. It re-enters the parallel machine's single internal-event queue and re-broadcasts across **every** region — exactly as SCXML delivers a `raise`d internal event to the whole machine, every active parallel state included. Each re-broadcast is its own microstep (a fresh frozen sibling view that already reflects the prior microstep's moves, while the in-flight `:data` flows through), the queue drains FIFO, and the whole macrostep — external event + every raised event + every region's `:always` settling — commits **once, atomically**, bounded by the `:raise-depth-limit`.
+    A `[:raise [:event]]` emitted by any region's action does **not** stay local. It re-enters the parallel machine's single internal-event queue and re-broadcasts across **every** region — exactly as SCXML delivers a `raise`d internal event to the whole machine, every active parallel state included. Each re-broadcast is its own microstep (a fresh frozen sibling view that already reflects the prior microstep's moves, while the in-flight `:data` flows through), the queue drains FIFO, and the whole macrostep — external event + every raised event + every eventless round — commits **once, atomically**, bounded by the `:raise-depth-limit`. Eventless work has priority: the parent settles `:always` to a fixed point before it dequeues the next raise.
+
+## `:always` stabilization is parent-owned
+
+A region chooses *where* its `:always` transitions go. The **parent** decides *when* they fire. After the selected event transitions have applied, the parent repeats one **round** until nothing is left to do:
+
+1. **Freeze** the current whole configuration and `:data`.
+2. **Select** every regional `:always` transition enabled against that one frozen view.
+3. **Apply** the whole selected set, in region-declaration order.
+
+Then it freezes again and goes round once more, until a round selects nothing. Only then does the macrostep commit. So the loop is not *"each region settles itself"* — it is *"the machine settles, one whole-configuration round at a time"*.
+
+That distinction is worth one worked example. Three regions, one dispatch:
+
+```clojure
+(rf/reg-machine :ui/gate
+  {:type :parallel
+   :data {:ready? false :cleared? false}
+
+   :guards  {:ready?   (fn [{:keys [data]}] (:ready? data))
+             :cleared? (fn [{:keys [data]}] (:cleared? data))}
+
+   :actions {:mark-ready (fn [{d :data}] {:data (assoc d :ready? true)})
+             :clear      (fn [{d :data}] {:data (assoc d :cleared? true)})}
+
+   :regions
+   {:source {:initial :idle
+             :states  {:idle {:on {:go {:target :sent :action :mark-ready}}}
+                       :sent {}}}
+
+    :gate   {:initial :closed
+             :states  {:closed {:always [{:guard :ready? :target :open :action :clear}]}
+                       :open   {}}}
+
+    :audit  {:initial :waiting
+             :states  {:waiting {:always [{:guard :cleared? :target :logged}]}
+                       :logged  {}}}}})
+
+(rf/dispatch-sync [:ui/gate [:go]])
+;; => {:state {:source :sent :gate :open :audit :logged}
+;;     :data  {:ready? true :cleared? true}}
+```
+
+One event; all three regions moved. Here is how, round by round:
+
+**The event set applies first.** `:go` is broadcast; only `:source` handles it, and its `:mark-ready` action sets `:ready?`. Every selected event action runs to completion **before** any `:always` is considered — so the first round already sees the finished work of the event.
+
+**Round 1 — selection is frozen.** The parent freezes the configuration and `:data` (`:ready?` true, `:cleared?` false) and asks every region what is enabled. `:gate` is: its `:ready?` guard passes, so `:closed → :open` is selected. `:audit` is **not**: its `:cleared?` guard reads the frozen `:data`, where `:cleared?` is still false. The parent then applies the selected set — `:gate` moves and its `:clear` action sets `:cleared?`. Note what *didn't* happen: `:audit` did not move in this round, even though by the time the round finished applying, its guard's condition held. Selection was decided before any of it applied.
+
+**Round 2 — the view is re-frozen.** A new round, a new freeze: `:cleared?` is now true. `:audit`'s guard passes, and `:waiting → :logged` is selected and applied. This is the payoff of re-freezing — each round sees the previous round's completed result.
+
+**Round 3 — the fixed point.** Nothing is enabled. The loop stops and the macrostep commits, publishing `{:source :sent :gate :open :audit :logged}` as one atomic step. External observers never see the intermediate rounds; they see one dispatch and one new configuration.
+
+The same process runs at **birth**, once every region's `:entry` cascade has completed — which is why a birth `:always` guard can read where its siblings landed.
+
+Two consequences worth naming:
+
+**Reordering the regions cannot change the outcome.** Because each round selects against a frozen view, no region's guard can ever observe a sibling's move from the set being selected alongside it. Declaration order governs only the *apply* order within a round — action and `:fx` order, and how `:data` accumulates — never *which* transitions are chosen. Write regions whose actions touch disjoint `:data` keys and their order stops mattering entirely.
+
+**Failure is bounded and atomic.** `:always-depth-limit` (default 16) counts parent **rounds**, not transitions — a round in which five regions move is one round. If a machine spins past the limit, or a guard or action throws, the **whole** macrostep fails and rolls back: no snapshot is published and no effects run. There is no half-settled configuration to reason about, which is what makes the fixed point safe to lean on.
 
 ## Tags compose across regions
 
