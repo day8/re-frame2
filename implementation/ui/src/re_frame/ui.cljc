@@ -91,7 +91,8 @@
   `:rf.adapter/ui`. Destroying it first tears down every public compiled Root
   and then the generic React spine, so no DOM/ViewCell/observation ownership
   survives adapter disposal. CLJS Root/ViewCell ownership requires the host's
-  standard WeakRef constructor, probed once before admission; absence throws
+  standard usable WeakRef constructor + deref, probed once before admission;
+  absence or an unusable implementation throws
   :rf.error/ui-platform-incompatible before mutation. FinalizationRegistry is
   optional because synchronous weak scans compact collected entries."
   #?(:clj  (assoc plain-atom/adapter :kind :rf.adapter/ui)

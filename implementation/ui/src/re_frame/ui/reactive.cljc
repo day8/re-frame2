@@ -2399,44 +2399,80 @@
                  (dissoc m incarnation)
                  m))))))
 
+#?(:cljs
+   (defn- usable-weak-ref-constructor
+     "Return `candidate` only when it implements the required WeakRef contract:
+     constructable with an object target and a callable, non-throwing `deref`
+     that returns that still-strongly-held target. Probe objects are local only."
+     [candidate]
+     (when (= "function" (goog/typeOf candidate))
+       (try
+         (let [target (js-obj)
+               ref    (js/Reflect.construct candidate #js [target])
+               deref  (.-deref ref)]
+           (when (and (= "function" (goog/typeOf deref))
+                      (identical? target (.call deref ref)))
+             candidate))
+         (catch :default _ nil)))))
+
+#?(:cljs
+   (defn- usable-finalization-reaper
+     "Construct and minimally exercise the optional FinalizationRegistry.
+     Missing/malformed/throwing implementations are treated as absence. The
+     probe registration is immediately unregistered, retaining no probe target."
+     [candidate callback]
+     (when (= "function" (goog/typeOf candidate))
+       (try
+         (let [reaper     (js/Reflect.construct candidate #js [callback])
+               register   (.-register reaper)
+               unregister (.-unregister reaper)
+               target     (js-obj)
+               token      (js-obj)]
+           (when (and (= "function" (goog/typeOf register))
+                      (= "function" (goog/typeOf unregister)))
+             (.call register reaper target :rf.ui/finalizer-probe token)
+             (when (true? (.call unregister reaper token))
+               reaper)))
+         (catch :default _ nil)))))
+
 (defn ensure-platform-compatible!
   "Internal root-admission gate for the CLJS weak-ownership substrate.
 
   `WeakRef` is required: without it, root ownership would either retain every
   ordinarily-unmounted ViewCell or silently lose hidden-cell teardown
-  discovery. The capability is probed exactly once and its constructor is
-  retained. `FinalizationRegistry` is optional; when absent, every synchronous
-  registry scan compacts cleared WeakRef husks. The JVM host uses its
+  discovery. The capability is probed exactly once for working construction +
+  `deref`, and its constructor is retained. `FinalizationRegistry` is optional;
+  when absent or unusable, synchronous scans compact cleared WeakRef husks. The JVM uses its
   WeakHashMap implementation and needs no JavaScript capability probe.
 
   Throws `:rf.error/ui-platform-incompatible` before root/ViewCell ownership
-  mutation when the required JavaScript capability is absent. Returns the
+  mutation when the required JavaScript capability is absent or unusable. Returns the
   cached internal capability record on CLJS, nil on the JVM."
   [where]
   #?(:clj nil
      :cljs
      (let [caps
            (or @platform-capabilities
-               (let [weak-ref-constructor
+               (let [weak-ref-candidate
                      (when (exists? js/globalThis)
                        (aget js/globalThis "WeakRef"))
+                     weak-ref-constructor
+                     (usable-weak-ref-constructor weak-ref-candidate)
                      finalization-registry-constructor
                      (when (exists? js/globalThis)
                        (aget js/globalThis "FinalizationRegistry"))
-                     compatible? (= "function" (goog/typeOf weak-ref-constructor))
+                     compatible? (some? weak-ref-constructor)
                      reaper
-                     (when (and compatible?
-                                (= "function"
-                                   (goog/typeOf finalization-registry-constructor)))
-                       (js/Reflect.construct
+                     (when compatible?
+                       (usable-finalization-reaper
                         finalization-registry-constructor
-                        #js [(fn [held]
-                               (let [{:keys [incarnation ref]} held
-                                     members (get @root-cells incarnation)]
-                                 (when (some? members)
-                                   (.delete ^js (:refs members) ref)
-                                   (drop-root-entry-if-empty!
-                                    incarnation members))))]))
+                        (fn [held]
+                          (let [{:keys [incarnation ref]} held
+                                members (get @root-cells incarnation)]
+                            (when (some? members)
+                              (.delete ^js (:refs members) ref)
+                              (drop-root-entry-if-empty!
+                               incarnation members))))))
                      probed {:compatible? compatible?
                              :platform :javascript
                              :capability :js/WeakRef
@@ -2448,8 +2484,9 @@
        (when-not (:compatible? caps)
          (error/throw-error!
           :rf.error/ui-platform-incompatible where
-          (str "re-frame.ui requires JavaScript WeakRef for bounded root/ViewCell "
-               "ownership, but this host does not provide it — use a modern "
+          (str "re-frame.ui requires a usable JavaScript WeakRef for bounded "
+               "root/ViewCell ownership, but this host does not provide one — "
+               "use a modern "
                "WeakRef-capable browser or JavaScript runtime")
           {:recovery :use-a-weakref-capable-javascript-runtime
            :extra {:platform (:platform caps)
@@ -2601,13 +2638,26 @@
   install and the add — the re-check guarantees the added cell is reachable
   through the CURRENT registry entry."
   [^ViewCell cell incarnation]
-  (let [members (or (get @root-cells incarnation)
+  (let [existing (get @root-cells incarnation)
+        members (or existing
                     (let [fresh (make-weak-member-set)]
                       (-> (swap! root-cells update incarnation #(or % fresh))
                           (get incarnation))))]
-    (weak-add! members incarnation cell)
-    (when-not (identical? members (get @root-cells incarnation))
-      (recur cell incarnation))))
+    ;; Without the optional reaper, enrolment is itself the bounded churn edge:
+    ;; compact cleared reconciliation members before appending. A capable reaper
+    ;; keeps the normal production attach path O(1), with no added scan.
+    #?(:cljs (when (and (some? existing)
+                        (nil? (:reaper @platform-capabilities)))
+               (weak-live members incarnation))
+       :clj nil)
+    (if-not (identical? members (get @root-cells incarnation))
+      ;; Compaction may have dropped an all-dead entry. Retry before allocating a
+      ;; member into that now-orphan set.
+      (recur cell incarnation)
+      (do
+        (weak-add! members incarnation cell)
+        (when-not (identical? members (get @root-cells incarnation))
+          (recur cell incarnation))))))
 
 (defn attach-root!
   "Mount seam: associate `cell` with root `incarnation` — the per-mount ownership

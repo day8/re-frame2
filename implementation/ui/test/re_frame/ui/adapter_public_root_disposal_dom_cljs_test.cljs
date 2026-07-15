@@ -43,6 +43,9 @@
   [f]
   (try (f) nil (catch cljs.core/ExceptionInfo e (:rf.error/id (ex-data e)))))
 
+(defn- thrown-value [f]
+  (try (f) nil (catch :default e e)))
+
 (defn- next-macrotask
   "A promise resolving on the next macrotask — drains the whole microtask queue
   (React's deferred teardown + `settle-deferred-root!`'s FIFO settlement) so a
@@ -218,6 +221,171 @@
             (.then (fn [] (done))
                    (fn [e]
                      (unexpected! done "throwing-root recovery rejected" e))))))))
+
+(deftest adapter-destroy-reclaims-a-preexisting-failed-first-mount-quarantine
+  (when (browser?)
+    (async done
+      (let [container   (js/document.createElement "div")
+            info        {:root-id :adapter-public/failed-first
+                         :provenance :authored
+                         :identifier-prefix "rf2-failed-first-"}
+            primary     (js/Error. "first mount failed")
+            cleanup     (js/Error. "failed-first cleanup failed")
+            predecessor (volatile! nil)
+            successor   (volatile! nil)
+            thrown
+            (thrown-value
+             #(client/mount*
+               info container
+               (fn []
+                 (let [^client/Root root
+                       (:root (client/live-root-entry
+                               :adapter-public/failed-first))]
+                   (vreset! predecessor root)
+                   (set! (.-unmount (.-react-root root))
+                         (fn [] (throw cleanup)))
+                   (throw primary)))
+               nil nil))]
+        (is (identical? primary thrown))
+        (is (identical? cleanup (.-rfUiRollbackCleanupError thrown)))
+        (is (true? (:tearing-down?
+                    (client/live-root-entry :adapter-public/failed-first))))
+        (is (true? (:cleanup-failure?
+                    (client/live-root-entry :adapter-public/failed-first))))
+        (-> (act-promise rf/destroy-adapter!)
+            (.then
+             (fn []
+               (is (empty? (client/live-root-ids))
+                   "adapter destroy reclaims a quarantine created before its drain")
+               (rf/init! ui/adapter)
+               (act-promise
+                #(vreset!
+                  successor
+                  (client/mount*
+                   info container
+                   (fn [] (React/createElement admission-probe))
+                   nil nil)))))
+            (.then
+             (fn []
+               (is (= "admitted" (.-textContent container)))
+               (is (identical?
+                    @successor
+                    (:root (client/live-root-entry
+                            :adapter-public/failed-first))))
+               ;; A late predecessor settlement/release signal remains fenced
+               ;; to the exact old Root and cannot evict this fresh generation.
+               (client/release-root!
+                :adapter-public/failed-first @predecessor)
+               (is (identical?
+                    @successor
+                    (:root (client/live-root-entry
+                            :adapter-public/failed-first))))
+               (act-promise rf/destroy-adapter!)))
+            (.then (fn [] (done))
+                   (fn [e]
+                     (unexpected! done "failed-first quarantine reclaim rejected" e))))))))
+
+(deftest adapter-destroy-reclaims-a-preexisting-public-unmount-quarantine
+  (when (browser?)
+    (async done
+      (let [container   (js/document.createElement "div")
+            cleanup     (js/Error. "preexisting public cleanup failed")
+            predecessor (volatile! nil)
+            successor   (volatile! nil)]
+        (-> (act-promise
+             #(vreset!
+               predecessor
+               (ui/mount [admission-probe] container
+                         {:root-id :adapter-public/prequarantined})))
+            (.then
+             (fn []
+               (let [^client/Root root @predecessor]
+                 (set! (.-unmount (.-react-root root))
+                       (fn [] (throw cleanup)))
+                 (is (identical? cleanup
+                                 (thrown-value #(client/unmount!* root))))
+                 (is (true? (:tearing-down?
+                             (client/live-root-entry
+                              :adapter-public/prequarantined))))
+                 (is (true? (:cleanup-failure?
+                             (client/live-root-entry
+                              :adapter-public/prequarantined))))
+                 (act-promise rf/destroy-adapter!))))
+            (.then
+             (fn []
+               (is (empty? (client/live-root-ids)))
+               (is (= "" (.-textContent container)))
+               (rf/init! ui/adapter)
+               (act-promise
+                #(vreset!
+                  successor
+                  (ui/mount [admission-probe] container
+                            {:root-id :adapter-public/prequarantined})))))
+            (.then
+             (fn []
+               (client/release-root!
+                :adapter-public/prequarantined @predecessor)
+               (is (identical?
+                    @successor
+                    (:root (client/live-root-entry
+                            :adapter-public/prequarantined))))
+               (is (= "admitted" (.-textContent container)))
+               (act-promise rf/destroy-adapter!)))
+            (.then (fn [] (done))
+                   (fn [e]
+                     (unexpected! done "public prequarantine reclaim rejected" e))))))))
+
+(deftest adapter-destroy-does-not-reclaim-a-preexisting-deferred-teardown
+  (when (browser?)
+    (async done
+      (let [container        (js/document.createElement "div")
+            root*            (volatile! nil)
+            claim-pre-drain  (atom nil)
+            claim-post-drain (atom nil)]
+        (-> (act-promise
+             #(vreset!
+               root*
+               (ui/mount [admission-probe] container
+                         {:root-id :adapter-public/predeferred})))
+            (.then
+             (fn []
+               (destroy-adapter-in-commit-phase!
+                (fn []
+                  ;; This first unmount occurs inside another root's layout
+                  ;; effect, so react-dom defers its reporter cleanup.
+                  (client/unmount!* @root*)
+                  (reset! claim-pre-drain
+                          (client/live-root-entry
+                           :adapter-public/predeferred))
+                  ;; Adapter destruction sees an already-tearing claim. It must
+                  ;; distinguish this genuinely pending host settlement from a
+                  ;; cleanup-failure quarantine and leave it fenced.
+                  (rf/destroy-adapter!)
+                  (reset! claim-post-drain
+                          (client/live-root-entry
+                           :adapter-public/predeferred))))))
+            (.then (fn [] (next-macrotask)))
+            (.then
+             (fn []
+               (is (true? (:tearing-down? @claim-pre-drain)))
+               (is (not (:cleanup-failure? @claim-pre-drain))
+                   "ordinary deferral is not classified as cleanup failure")
+               (is (identical? (:root @claim-pre-drain)
+                               (:root @claim-post-drain))
+                   "adapter destroy did not reclaim the pending incarnation")
+               (is (empty? (client/live-root-ids))
+                   "the reporter-authoritative deferred settlement releases later")
+               (rf/init! ui/adapter)
+               (act-promise
+                #(ui/mount [admission-probe] container
+                           {:root-id :adapter-public/predeferred}))))
+            (.then
+             (fn []
+               (is (= "admitted" (.-textContent container)))
+               (act-promise rf/destroy-adapter!)))
+            (.then (fn [] (done))
+                   (fn [e]
+                     (unexpected! done "preexisting deferred teardown rejected" e))))))))
 
 (deftest adapter-destroy-closes-root-admission-through-the-generic-spine-tail
   (when (browser?)
