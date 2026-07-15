@@ -169,6 +169,163 @@
   frames
   (atom {}))
 
+;; ---- per-id frame construction transaction -------------------------------
+;;
+;; One process-owned CAS registry is the admission point for construction and
+;; the pre-dissoc portion of destruction. Values are opaque owner maps compared
+;; ONLY by identity; their data fields are diagnostics, never authority. A claim
+;; always names a SET of ids and installs all of them in one CAS, which is the
+;; unchanged primitive the later re-frame.ui multi-plan preflight consumes.
+;;
+;; There is deliberately no queue or generation counter. A conflicting claim
+;; fails promptly on both hosts, avoiding callback-waits-for-contender deadlocks
+;; and keeping CLJ/CLJS semantics identical. Incarnation/config generations
+;; remain owned by :drain-lock / :trace-policy-token on the frame record.
+
+(defonce ^:private frame-construction-reservations
+  (atom {}))
+
+(def ^:dynamic ^:private *frame-transaction-owner* nil)
+
+(def ^:dynamic ^:private *frame-construction-handoff* nil)
+
+(defn- current-host-holder []
+  #?(:clj (Thread/currentThread) :cljs true))
+
+(defn- owner-current-on-host? [owner]
+  (and (some? owner)
+       (identical? (:holder owner) (current-host-holder))))
+
+(defn- owner-holds-frame-id? [owner id]
+  (and (owner-current-on-host? owner)
+       (identical? owner (get @frame-construction-reservations id))))
+
+(defn- throw-frame-construction-in-progress!
+  ([id held-owner]
+   (throw-frame-construction-in-progress!
+     id :reservation-held (:kind held-owner)))
+  ([id reason owner-kind]
+   (error/throw-error!
+     :rf.error/frame-construction-in-progress
+     'rf/make-frame
+     (str "frame construction for " (pr-str id) " cannot start because the id "
+          (if (= :lifecycle-dead reason)
+            "still names a lifecycle-dead row awaiting exact removal"
+            "is already owned by an in-flight frame transaction")
+          ". Same-id overlap fails promptly rather than waiting inside arbitrary "
+          "adapter, setup, or teardown callbacks. Retry after the owning "
+          "transaction settles.")
+     {:recovery :retry-after-frame-transaction
+      :extra    {:frame      id
+                 :reason     reason
+                 :owner-kind owner-kind}})))
+
+(defn- try-claim-frame-transaction!
+  "Try the same all-or-nothing set CAS as `claim-frame-construction!`.
+
+  Returns an owner token, or nil on contention. Destruction uses this
+  non-throwing form only after it has revalidated an exact live incarnation:
+  duplicate/concurrent destroy remains its established prompt nil no-op, while
+  public construction uses the typed throwing form below."
+  [frame-ids kind]
+  (let [owner {:kind      kind
+               :frame-ids frame-ids
+               :holder    (current-host-holder)}]
+    (loop []
+      (let [registry @frame-construction-reservations]
+        (if (some #(contains? registry %) frame-ids)
+          nil
+          (let [claimed (reduce #(assoc %1 %2 owner) registry frame-ids)]
+            (if (compare-and-set! frame-construction-reservations
+                                  registry claimed)
+              owner
+              (recur))))))))
+
+(defn ^:no-doc claim-frame-construction!
+  "Atomically reserve every id in non-empty SET `frame-ids` for one exact owner.
+
+  Returns the opaque identity-compared owner token. If any id is already owned,
+  throws `:rf.error/frame-construction-in-progress` and claims NONE. The set
+  shape and all-or-nothing CAS are the narrow core seam reserved for the later
+  re-frame.ui multi-plan preflight; ordinary core construction claims a
+  singleton. INTERNAL — not part of the public frame API."
+  ([frame-ids]
+   (claim-frame-construction! frame-ids :preflight))
+  ([frame-ids kind]
+   (when-not (and (set? frame-ids) (seq frame-ids))
+     (throw (ex-info "frame construction claim requires a non-empty set of ids"
+                     {:frame-ids frame-ids})))
+   (let [owner {:kind      kind
+                :frame-ids frame-ids
+                :holder    (current-host-holder)}]
+     (loop []
+       (let [registry @frame-construction-reservations
+             conflict (some (fn [id]
+                              (when-let [held (get registry id)]
+                                [id held]))
+                            (sort-by pr-str frame-ids))]
+         (if-let [[id held] conflict]
+           (throw-frame-construction-in-progress! id held)
+           (let [claimed (reduce #(assoc %1 %2 owner) registry frame-ids)]
+             (if (compare-and-set! frame-construction-reservations
+                                   registry claimed)
+               owner
+               (recur)))))))))
+
+(defn ^:no-doc release-frame-construction!
+  "Compare-release every reservation still owned by exact `owner`.
+
+  A stale release cannot erase a successor's claim. INTERNAL companion to
+  `claim-frame-construction!`."
+  [owner]
+  (swap! frame-construction-reservations
+         (fn [registry]
+           (reduce-kv (fn [m id held]
+                        (if (identical? owner held) (dissoc m id) m))
+                      registry
+                      registry)))
+  nil)
+
+(defn ^:no-doc call-with-frame-construction-handoff!
+  "Invoke zero-arg `f` with one exact permission for `owner`'s reserved `id` to
+  enter the construction engine without self-colliding.
+
+  The permission is consumed at engine entry, before any adapter callback. A
+  nested public `make-frame` therefore sees no permission and loses normally.
+  This is the narrow future re-frame.ui preflight → core hand-off seam; it is
+  intentionally not blanket same-owner re-entrancy. INTERNAL."
+  [owner id f]
+  (when-not (owner-holds-frame-id? owner id)
+    (throw (ex-info "frame construction handoff owner does not hold id"
+                    {:frame id})))
+  (binding [*frame-construction-handoff*
+            {:owner owner :id id :available? (atom true)}]
+    (f)))
+
+(defn- consume-frame-construction-handoff! [id]
+  (let [{:keys [owner available?] handoff-id :id} *frame-construction-handoff*]
+    (when (and (= id handoff-id)
+               (owner-holds-frame-id? owner id)
+               (compare-and-set! available? true false))
+      owner)))
+
+(defn- call-with-frame-transaction!
+  [id kind handoff? join-current-owner? f]
+  (if-let [owner (or (when handoff?
+                       (consume-frame-construction-handoff! id))
+                     (when (and join-current-owner?
+                                (owner-holds-frame-id?
+                                  *frame-transaction-owner* id))
+                       *frame-transaction-owner*))]
+    (binding [*frame-transaction-owner* owner]
+      (f owner))
+    (let [owner (claim-frame-construction! #{id} kind)]
+      (binding [*frame-transaction-owner* owner]
+        (try
+          (f owner)
+          (finally
+            (release-frame-construction! owner)))))))
+
 ;; ---- frame address — the bare frame-id ------------------------------------
 ;;
 ;; A frame is addressed by its process-local frame-id keyword. The registry key
@@ -604,7 +761,13 @@
 
 (defn frame
   "Return the frame record for `id` (a frame-id keyword), or nil if not
-  registered or destroyed. The registry is keyed by the bare frame-id.
+  registered, still provisional under another host actor's construction
+  transaction, or destroyed. The registry is keyed by the bare frame-id.
+
+  A provisional record is visible only to its exact construction owner on the
+  owning host thread. Synchronous setup and lifecycle publication can therefore
+  use the ordinary frame machinery, while unrelated callers never observe the
+  former live-looking pre-setup row. Final records have no owner restriction.
 
   2-level lookup written as keyword-invoke (`(-> f :lifecycle :destroyed?)`)
   rather than `(get-in f [:lifecycle :destroyed?])` — `get-in` allocates
@@ -612,7 +775,10 @@
   / subscribe through `current-frame` resolution."
   [id]
   (when-let [f (get @frames id)]
-    (when-not (-> f :lifecycle :destroyed?)
+    (when (and (not (-> f :lifecycle :destroyed?))
+               (or (not= :provisional (get-in f [:construction :state]))
+                   (owner-holds-frame-id?
+                     (get-in f [:construction :owner]) id)))
       f)))
 
 (defn frame-incarnation-token
@@ -2154,13 +2320,11 @@
 (def ^:dynamic ^:no-doc *upsert-decide-probe*
   "JVM linearization TEST SEAM — `nil` in production (one `nil` check per
   construction, zero further cost). When bound to a 1-arg fn, `upsert-frame!`
-  calls `(*upsert-decide-probe* id)` exactly ONCE immediately BEFORE the
-  authoritative registry decision/install path.
+  calls `(*upsert-decide-probe* id)` exactly ONCE after acquiring the per-id
+  transaction and immediately BEFORE the authoritative registry decision path.
   A concurrency fixture binds it (conveyed into the racing thread by `future`'s
-  binding-conveyance) to pause one actor while another installs or destroys the
-  same id, then releases it — proving serialized create and guarded
-  re-register/destroy decisions produce no clobber, zombie resurrection, or
-  lost update. NEVER bound off the JVM test path."
+  binding-conveyance) to pause the owner while same-id construction loses
+  promptly or a disjoint id proceeds. NEVER bound off the JVM test path."
   nil)
 
 (defn- fresh-trace-policy-token
@@ -2170,17 +2334,10 @@
   []
   #?(:clj (Object.) :cljs (js-obj)))
 
-#?(:clj
-   (do
-     (defonce ^:private frame-create-lock
-       ;; JVM-only serialization for the cold absent-id allocation path.
-       (Object.))
-     (defn- call-with-frame-create-lock [f]
-       (locking frame-create-lock (f)))))
-
 (def ^:dynamic ^:no-doc *upsert-policy-probe*
-  "JVM test seam fired after a successful frame-registry commit and immediately
-  before its auxiliary trace policy enters publication serialization."
+  "JVM test seam fired after an exact provisional frame revision is staged and
+  immediately before its auxiliary trace policy enters publication
+  serialization."
   nil)
 
 #?(:clj
@@ -2204,14 +2361,59 @@
   (when-let [probe *upsert-policy-probe*] (probe id))
   (serialize-frame-trace-policy! publish!))
 
-(defn- try-install-new-frame!
-  "Install a freshly allocated record iff `id` is still absent.
+(defn- provisional-construction [owner revision]
+  {:state    :provisional
+   :owner    owner
+   :revision revision})
 
-  JVM creators are serialized around the authoritative absence recheck,
-  container allocation, and registry install. A losing creator therefore
-  allocates nothing: every state container returned by the adapter is installed
-  as an owned frame record. This avoids inventing a disposal-free adapter
-  contract for abandoned speculative containers.
+(defn- provisional-owned? [f owner revision]
+  (let [construction (:construction f)]
+    (and (= :provisional (:state construction))
+         (identical? owner (:owner construction))
+         (identical? revision (:revision construction)))))
+
+(defn- finalize-frame-construction!
+  "Transition `id`'s exact owner/revision from provisional to final.
+
+  Returns false if the provisional row was destroyed or replaced. The final
+  record retains only the revision diagnostic; it does not retain the
+  transaction owner after admission is released."
+  [id owner revision]
+  (loop []
+    (let [registry @frames
+          f        (get registry id)]
+      (if (provisional-owned? f owner revision)
+        (let [final-f (assoc f :construction
+                             {:state :final :revision revision})]
+          (if (compare-and-set! frames registry (assoc registry id final-f))
+            true
+            (recur)))
+        false))))
+
+(defn- restore-provisional-frame!
+  "Restore `prior` only while `id` still names this exact provisional revision.
+
+  Used by surgical re-registration rollback. A stale failure can never restore
+  across a successor because both owner and revision are identity-pinned."
+  [id owner revision prior]
+  (loop []
+    (let [registry @frames
+          f        (get registry id)]
+      (if (provisional-owned? f owner revision)
+        (if (compare-and-set! frames registry (assoc registry id prior))
+          true
+          (recur))
+        false))))
+
+(defn- try-install-new-frame!
+  "Allocate and install one PROVISIONAL record iff reserved `id` is absent.
+
+  The caller already owns `id` in `frame-construction-reservations`, so no same-id
+  creator or destroyer can enter this region. Adapter callbacks run only AFTER
+  that reservation exists. The registry CAS may retry for unrelated-id writes,
+  but the candidate is allocated once and either installed as the reserved
+  owner's provisional row or unwound by `new-frame-record`'s allocation failure
+  boundary. There is no process-wide monitor and disjoint ids never block here.
 
   Returns the INSTALLED incarnation's identity token (its `:drain-lock`) on a
   successful install, `nil` when the id was already present (nothing installed).
@@ -2222,38 +2424,42 @@
   can then only destroy the frame this call created, never a same-id successor
   that replaced it in the interim (rf2-wduv35). A later re-read would repeat the
   same check-then-act race the token closes."
-  [id config policy-token]
-  (letfn [(install! []
-            (if (contains? @frames id)
-              nil
-              (let [f (assoc (new-frame-record id config)
-                             :trace-policy-token policy-token)]
-                ;; `upsert-frame!` is the sole creator. Under `frame-create-lock`
-                ;; no other JVM creator can seat this id between the absence
-                ;; recheck and assoc; CLJS runs the block synchronously.
-                (swap! frames assoc id f)
-                ;; The record's `:drain-lock` IS the incarnation identity token
-                ;; (`frame-incarnation-token`); return it so the winning caller
-                ;; owns this exact incarnation through construction rollback.
-                (:drain-lock f))))]
-    #?(:clj  (call-with-frame-create-lock install!)
-       :cljs (install!))))
+  [id config policy-token owner]
+  (when-not (contains? @frames id)
+    (let [f (assoc (new-frame-record id config)
+                   :trace-policy-token policy-token
+                   :construction (provisional-construction owner policy-token))]
+      (loop []
+        (let [registry @frames]
+          (cond
+            (contains? registry id)
+            nil
+
+            (compare-and-set! frames registry (assoc registry id f))
+            ;; The record's `:drain-lock` IS the incarnation identity token
+            ;; (`frame-incarnation-token`); return it so the winning caller owns
+            ;; this exact incarnation through construction rollback.
+            (:drain-lock f)
+
+            :else
+            (recur)))))))
 
 (defn- throw-frame-id-taken!
   "Throw the typed `:rf.error/frame-id-taken` collision (rf2-vxgfnd.76) — the
   create-exclusive (`:rf.frame/must-create?`) primitive `ui.test` rests its
   fresh-isolated-frame contract on. Raised when an exclusive construction for
-  `id` meets (or races to lose against) an already-live frame under the same id:
-  in exclusive mode a pre-existing frame is a COLLISION, never an adoption or a
-  surgical refresh (the fall-throughs ordinary construction takes). Never
-  returns."
+  `id` meets an already-live FINAL frame under the same id. Same-id overlap with
+  an in-flight transaction instead fails earlier as
+  `:rf.error/frame-construction-in-progress`; in exclusive mode a pre-existing
+  final frame is a COLLISION, never an adoption or surgical refresh (the
+  fall-through ordinary construction takes). Never returns."
   [id]
   (error/throw-error!
     :rf.error/frame-id-taken 'rf/make-frame
     (str "exclusive frame construction for " (pr-str id) " collided with an "
          "already-live frame under the same id. The caller requested "
          "create-exclusive construction (:rf.frame/must-create?), so a "
-         "pre-existing (or concurrently-installed) frame is a hard collision, "
+         "pre-existing final frame is a hard collision, "
          "not an adoption or a surgical refresh. Use a distinct frame id, or "
          "destroy the existing frame before constructing.")
     {:recovery :use-a-distinct-frame-id
@@ -2290,10 +2496,11 @@
   (let [;; The registry is keyed by the bare frame-id.
         config       (expand-preset metadata)
         ;; INTERNAL create-exclusive mode (rf2-vxgfnd.76): when the caller
-        ;; threads `:rf.frame/must-create?`, a collision on the id (a live frame
-        ;; already present at decide, OR a concurrent install winning the guarded
-        ;; CAS) throws a typed `:rf.error/frame-id-taken` instead of the ordinary
-        ;; fall-through to a surgical re-registration. `ui.test` consumes it to
+        ;; threads `:rf.frame/must-create?`, a live final frame already present at
+        ;; decide throws typed `:rf.error/frame-id-taken` instead of the ordinary
+        ;; fall-through to a surgical re-registration. An in-flight same-id
+        ;; transaction is the distinct `:rf.error/frame-construction-in-progress`.
+        ;; `ui.test` consumes exclusive mode to
         ;; keep plan frames FRESH + isolated (adopt/refresh become collisions).
         ;; A construction-only reserved key: read here, stripped from `config`
         ;; below so it never lands in the stored `:config` or a lifecycle trace.
@@ -2368,12 +2575,9 @@
                              {:extra {:frame id}})))
         ;; One identity token per attempted config commit. Only a successful
         ;; create/re-register installs it. Auxiliary policy stores consult the
-        ;; installed token inside their own atomic updates, so publication from
-        ;; an older successful actor is rejected after a newer actor commits.
+        ;; installed token inside their own atomic updates, so teardown and exact
+        ;; rollback cannot publish against the wrong revision.
         policy-token   (fresh-trace-policy-token)
-        policy-current?
-        (fn []
-          (identical? policy-token (:trace-policy-token (frame id))))
         ;; rf2-umsyo9: the frame-scoped TRACE POLICY writes (the suppression flag
         ;; + the `:rf.trace/events-retained` retention override) are process-global
         ;; stores SEPARATE from the `frames` registry, so the registry commit
@@ -2381,8 +2585,8 @@
         ;; the commit,
         ;; which let a must-create LOSER — or a create/create loser — overwrite
         ;; the WINNER's trace policy for this id even though the loser installed
-        ;; nothing, corrupting the live winner's tracing. They now ride the WINNING
-        ;; branch via this thunk, so an exclusive collision is truly ZERO-WRITE
+        ;; nothing, corrupting the live winner's tracing. They now ride the sole
+        ;; transaction-owner branch via this thunk, so any admission loss is ZERO-WRITE
         ;; across every frame-owned store (the record AND its auxiliary
         ;; trace/retention stores), while first-registration and ordinary
         ;; re-registration still apply the winning config's policy EXACTLY ONCE.
@@ -2390,8 +2594,12 @@
         ;; flag either way; the won-create branch calls it BEFORE
         ;; `run-setup-events!` so an init-cascade against a trace-disabled tool
         ;; frame stays redacted.
-        apply-trace-policy!
-        (fn []
+        apply-trace-policy-for!
+        (fn [applied-config applied-token]
+          (let [policy-current?
+                (fn []
+                  (identical? applied-token
+                              (:trace-policy-token (frame id))))]
           ;; Frame-level trace-emission gate: a frame registered with
           ;; `:rf.trace/frame-no-emit? true` is a tool / inspector frame (e.g.
           ;; Xray's `:rf/xray`) whose own reactive substrate must NOT flood the
@@ -2399,7 +2607,7 @@
           ;; of the handler-scoped `:rf.trace/no-emit?` (Spec 009 §Trace-emission
           ;; opt-out); `trace.cljc` owns the canonical set + predicate.
           (trace/set-frame-no-emit! id
-                                    (true? (:rf.trace/frame-no-emit? config))
+                                    (true? (:rf.trace/frame-no-emit? applied-config))
                                     policy-current?)
           ;; Per Spec 009 §Retention contract: apply the per-frame
           ;; `:rf.trace/events-retained` override. When the key is absent the
@@ -2409,9 +2617,12 @@
           (when-let [apply-retention! (late-bind/get-fn-cached
                                        :trace.tooling/apply-frame-events-retained-policy!)]
             (apply-retention! id
-                              (contains? config :rf.trace/events-retained)
-                              (:rf.trace/events-retained config)
-                              policy-current?)))]
+                              (contains? applied-config :rf.trace/events-retained)
+                              (:rf.trace/events-retained applied-config)
+                              policy-current?))))
+        apply-trace-policy!
+        (fn []
+          (apply-trace-policy-for! config policy-token))]
     ;; SUBSTRATE OWNERSHIP (rf2-h1vqa4): deliberately NO `registrar/register!`
     ;; here. A seated frame lives in the `frames` registry alone. The former
     ;; `:frame` registrar row leaked into the registration SOURCE STORE
@@ -2422,37 +2633,40 @@
     ;; Routing (the one former consumer) reads frame config via
     ;; `frame-meta` / `frame-ids`; the registrar `:frame` kind is reserved with
     ;; an intentionally EMPTY slot (the `:flow` precedent, rf2-en00bk).
-    ;; A-prime linearization (rf2-vxgfnd.76): create rechecks absence + allocates
-    ;; + installs under the cold JVM create lock (CLJS is single-threaded), so a
-    ;; losing creator allocates nothing; re-registration remains a guarded-CAS
-    ;; retry through `frames`, closing concurrent destroy resurrection. The
-    ;; frame-scoped TRACE POLICY writes run only after a successful registry
-    ;; commit, serialize across the two auxiliary atoms, and are guarded there
-    ;; by the installed `:trace-policy-token`. A superseded successful actor
-    ;; therefore cannot publish after the newer record, while an exclusive
-    ;; loser writes nothing.
-    ;; `run-setup-events!` runs EXACTLY ONCE, in the won-create branch (EP-0027:
-    ;; setup drains before the constructor returns — preserved because only
-    ;; decide + install + the winner's writes are inside the loop). The one-shot
-    ;; decision-window test probe fires HERE, before the authoritative registry
-    ;; path and before any side effect.
-    (when-let [probe *upsert-decide-probe*] (probe id))
-    (loop []
-      (let [existing (get @frames id)]
-        (cond
+    ;; One exact per-id reservation is acquired BEFORE the decision probe, any
+    ;; adapter callback, provisional registry publication, trace-policy write,
+    ;; synchronous setup, lifecycle trace, or extension hook. It is released in
+    ;; `finally` only after the exact provisional revision becomes final or has
+    ;; been rolled back. Disjoint ids never share a monitor; same-id entry fails
+    ;; promptly on both hosts.
+    (call-with-frame-transaction!
+      id :construction true false
+      (fn [owner]
+        ;; Destruction publishes its exact-incarnation marker and acquires this
+        ;; same reservation under the drain gate. If construction acquired first,
+        ;; destroy loses as a prompt idempotent no-op; if destroy marked first,
+        ;; this exact-token check fails construction before any side effect. A
+        ;; stale marker from an already-dissoc'd incarnation does not match.
+        (let [raw           (get @frames id)
+              closing-token (get-in @destroying-frames [id :token])]
+          (when (and raw
+                     (some? closing-token)
+                     (identical? closing-token (:drain-lock raw)))
+            (throw-frame-construction-in-progress!
+              id :lifecycle-closing :destruction)))
+        (when-let [probe *upsert-decide-probe*] (probe id))
+        (loop []
+          (let [existing (get @frames id)]
+            (cond
           ;; ---- CREATE: install the record iff the id is STILL absent ---------
           (nil? existing)
-          (if-let [installed-token (try-install-new-frame! id config policy-token)]
-              ;; WON the create: our record is the sole installed one, and
-              ;; `installed-token` is ITS exact incarnation identity token (the
-              ;; record's `:drain-lock`). Every construction-rollback teardown
-              ;; below owns this token and destroys via the two-argument
-              ;; `destroy-frame!`, so a failed-setup / handler-guard teardown can
-              ;; only ever destroy the incarnation THIS call installed — never a
-              ;; same-id successor that replaced it before the rollback ran
-              ;; (rf2-wduv35). Re-reading the live token here would repeat the
-              ;; check-then-act race the exact token closes.
-              (do
+          (if-let [installed-token
+                   (try-install-new-frame! id config policy-token owner)]
+              ;; The reservation owns this id before allocation, and the row
+              ;; remains provisional until setup + lifecycle publication all
+              ;; succeed. Any throw destroys only this exact incarnation before
+              ;; admission is released.
+              (try
                 ;; EP-0025: no durable app-db classification install here anymore
                 ;; — the frame `:sensitive` / `:large {:app-db …}` annotation was
                 ;; removed in favour of the commit-plane classification effects.
@@ -2503,7 +2717,13 @@
                              {:frame id :config (dissoc config :rf.frame/generation
                                                         :rf.frame/initial-db)})
                 (fire-frame-registered-hook! id)
-                id)
+                (if (finalize-frame-construction! id owner policy-token)
+                  id
+                  (throw-frame-construction-in-progress!
+                    id :lifecycle-dead :destruction))
+                (catch #?(:clj Throwable :cljs :default) e
+                  (destroy-frame! id installed-token)
+                  (throw e)))
               ;; LOST the create: `try-install-new-frame!` returned nil — nothing
               ;; was installed.
               (if must-create?
@@ -2514,13 +2734,27 @@
                 ;; now-present id (idempotent replacement, EP-0024) — recur.
                 (recur)))
 
-          ;; ---- must-create met a LIVE frame at the decide read → COLLISION ---
+          ;; A lifecycle-dead raw row is neither a live duplicate nor a legal
+          ;; surgical-refresh target. Normal destruction still owns the id's
+          ;; reservation here; this branch defends an orphaned/internal dead row.
+          (true? (-> existing :lifecycle :destroyed?))
+          (throw-frame-construction-in-progress!
+            id :lifecycle-dead :destruction)
+
+          ;; A provisional row without its matching reservation is internal
+          ;; corruption, not a refreshable live frame. Fail closed.
+          (= :provisional (get-in existing [:construction :state]))
+          (throw-frame-construction-in-progress!
+            id :orphaned-provisional
+            (get-in existing [:construction :owner :kind]))
+
+          ;; ---- must-create met a LIVE final frame → COLLISION ----------------
           ;; Exclusive mode never adopts or surgically refreshes; a present id is
           ;; a hard collision (the id may have been created since the claim).
           must-create?
           (throw-frame-id-taken! id)
 
-          ;; ---- RE-REGISTER: surgical update iff the id is STILL present ------
+          ;; ---- RE-REGISTER: stage one exact provisional revision -------------
           ;; Per Spec 002 §Re-registration. EP-0024 idempotent replacement:
           ;; refresh the `:generation` slot + replaceable `:config` while durable
           ;; runtime state (app-db, sub-cache, queue) is preserved. EP-0027 §Reset
@@ -2528,35 +2762,56 @@
           ;; REPLAYED (replay is the opt-in `destroy-frame!` then `make-frame`
           ;; composition, rf2-lxwpob).
           :else
-          (let [stored-config (dissoc config :rf.frame/generation :rf.frame/initial-db)
-                ;; Guarded CAS: update ONLY while the id is still present. If a
-                ;; concurrent `destroy-frame!` dissoc'd it between the decide read
-                ;; and this CAS, `old` will not contain `id` — recur (now a
-                ;; CREATE). This closes the zombie-resurrection hole a bare
-                ;; `(update m id assoc …)` on a dissoc'd id would open (it would
-                ;; resurrect a partial `{:config … :generation …}` record with no
-                ;; state container and no `:drain-lock`).
-                [old _] (swap-vals! frames
-                          (fn [m] (if (contains? m id)
-                                    (update m id assoc
-                                            :config stored-config
-                                            :generation (get config :rf.frame/generation)
-                                            :trace-policy-token policy-token)
-                                    m)))]
-            (if (contains? old id)
-              (do
-                ;; rf2-umsyo9: apply the winning config's frame-scoped trace
-                ;; policy now that this refresh WON its guarded CAS — BEFORE the
-                ;; `:rf.frame/re-registered` emit so a hot-reload that flips the
-                ;; frame to no-emit suppresses its own re-registration trace. A
-                ;; re-registration that LOST (the id vanished under a concurrent
-                ;; destroy) recurs into a create and never reaches here.
+          (let [prior         existing
+                stored-config (dissoc config
+                                      :rf.frame/generation
+                                      :rf.frame/initial-db)
+                [_ new]
+                (swap-vals!
+                  frames
+                  (fn [registry]
+                    (let [current (get registry id)]
+                      (if (and current
+                               (not (-> current :lifecycle :destroyed?))
+                               (identical? (:drain-lock prior)
+                                           (:drain-lock current)))
+                        (assoc registry id
+                               (assoc current
+                                      :config stored-config
+                                      :generation
+                                      (get config :rf.frame/generation)
+                                      :trace-policy-token policy-token
+                                      :construction
+                                      (provisional-construction
+                                        owner policy-token)))
+                        registry))))]
+            (if (provisional-owned? (get new id) owner policy-token)
+              (try
+                ;; Policy + trace + hook all run while the staged revision is
+                ;; provisional. Only their complete success publishes final.
                 (publish-trace-policy! id apply-trace-policy!)
                 (trace/emit! :rf.frame :rf.frame/re-registered
                              {:frame id :config stored-config})
                 (fire-frame-registered-hook! id)
-                id)
-              (recur))))))))
+                (if (finalize-frame-construction! id owner policy-token)
+                  id
+                  (throw-frame-construction-in-progress!
+                    id :lifecycle-dead :destruction))
+                (catch #?(:clj Throwable :cljs :default) e
+                  ;; Restore only this exact staged owner/revision, then restore
+                  ;; its auxiliary policy. A rollback publication fault must not
+                  ;; mask the original constructor failure.
+                  (when (restore-provisional-frame!
+                          id owner policy-token prior)
+                    (try
+                      (publish-trace-policy!
+                        id
+                        #(apply-trace-policy-for!
+                           (:config prior)
+                           (:trace-policy-token prior)))
+                      (catch #?(:clj Throwable :cljs :default) _ nil)))
+                  (throw e)))
+              (recur))))))))))
 
 (defn make-anon-frame-record!
   "INTERNAL anonymous-instance creation (EP-0024): generate a
@@ -3030,9 +3285,12 @@
 (defn- claim-frame-destroy!
   "Claim teardown authority for `expected-token`'s live incarnation of `id`.
 
-  The token check, `destroying-frames` publication, and pre-claim queue cutoff
-  run under the candidate incarnation's drain lock. The queue cutoff is atomic
-  on the router atom: every not-yet-dequeued envelope moves to the private
+  The token check, shared per-id transaction reservation,
+  `destroying-frames` publication, and pre-claim queue cutoff run under the
+  candidate incarnation's drain lock. A foreign construction owner makes this
+  the established prompt nil no-op; construction rollback on the current host
+  thread joins its own owner. The queue cutoff is atomic on the router atom:
+  every not-yet-dequeued envelope moves to the private
   `:destroy-claim-dropped-count` evidence slot and the live queue becomes empty
   before the lock releases. The later internal `:on-destroy` cascade therefore
   cannot drain ordinary work behind its cleanup seed.
@@ -3066,7 +3324,13 @@
                           nil
 
                           :else
-                          (let [router (:router current)]
+                          (when-let [transaction-owner
+                                     (or (when (owner-holds-frame-id?
+                                                 *frame-transaction-owner* id)
+                                           *frame-transaction-owner*)
+                                         (try-claim-frame-transaction!
+                                           #{id} :destruction))]
+                            (let [router (:router current)]
                             ;; Serialize claim publication + queue cutoff with
                             ;; the router's scheduling/release monitor. A
                             ;; submitter that linearized before this section is
@@ -3074,7 +3338,8 @@
                             ;; after publication observe the claim and halt.
                             (locking router
                               (swap! destroying-frames assoc id
-                                     {:token candidate-token})
+                                     {:token candidate-token
+                                      :transaction-owner transaction-owner})
                                (swap! router
                                       (fn [{:keys [queue destroy-claim-dropped-count]
                                             :as state}]
@@ -3093,7 +3358,9 @@
                                                       (dissoc :destroy-claim-report-emitted?))
                                             (pos? dropped)
                                             (assoc :destroy-claim-dropped-count dropped)))))
-                               current)))))))]
+                               (assoc current
+                                      ::destroy-transaction-owner
+                                      transaction-owner)))))))))]
             (if (= ::retry-destroy-claim claimed)
               (recur)
               claimed)))))))
@@ -3242,9 +3509,13 @@
   "Tear down a frame. Per Spec 002 §Destroy, the ordered steps are:
 
     1. claim-frame-destroy!         — claim the exact incarnation under its
-                                      drain serialization, atomically cut the
-                                      ordinary queue, and publish the cutoff
-                                      before lifecycle-dead.
+                                      drain serialization; atomically acquire
+                                      the shared per-id transaction reservation,
+                                      cut the ordinary queue, and publish the
+                                      cutoff before lifecycle-dead. The
+                                      reservation lasts through step 10, then is
+                                      released for the fresh-incarnation
+                                      post-dissoc window.
     2. fire-on-destroy-event!       — run user :on-destroy and its same-frame
                                       descendants on the destroy-owned private
                                       queue while the claimed frame is still
@@ -3415,9 +3686,9 @@
   ;; (the in-flight guard, `mark-frame-destroyed!`, `dissoc-frame!`)
   ;; targets the frame-id-keyed record directly.
   (when-let [f (claim-frame-destroy! id expected-incarnation-token)]
-      ;; `claim-frame-destroy!` records the DESTROYING incarnation's token (the
-      ;; live record's `:drain-lock`) under that SAME lock, after revalidating
-      ;; the expected token.
+      ;; `claim-frame-destroy!` acquires the shared per-id transaction and records
+      ;; the DESTROYING incarnation's token (the live record's `:drain-lock`)
+      ;; under that SAME lock, after revalidating the expected token.
       ;; `frame-incarnation-closing?` can therefore tell
       ;; this teardown apart from a fresh same-id replacement that goes live
       ;; under the reused id before this destroy's `finally` clears the marker
@@ -3434,7 +3705,8 @@
       ;; router-bound `*run-frame-state-before*` dynamic var (nil outside a
       ;; drain). Both are passed to `notify-epoch-listeners!` (step 11): the
       ;; whole frame-state, both partitions.
-      (let [run-fs-before *run-frame-state-before*
+      (let [transaction-owner (::destroy-transaction-owner f)
+            run-fs-before *run-frame-state-before*
             ;; The destroying event's causal `:time-ms`, bound by
             ;; the router alongside `*run-frame-state-before*`. Threaded to
             ;; the epoch hook so the `:halted-destroy` record's `:committed-at`
@@ -3646,6 +3918,14 @@
              ;; Idempotent no-op for application frames (the common case).
              (trace/clear-frame-no-emit-for! id)))
           (dissoc-frame! id)
+          ;; A PUBLIC destroy owns a :destruction reservation only through exact
+          ;; registry removal. Release here (the recipe's finally is a harmless
+          ;; compare-release fallback) so the established post-dissoc window may
+          ;; seat a fresh same-id incarnation before stale teardown diagnostics
+          ;; finish. A construction rollback JOINED its outer :construction owner
+          ;; and must leave that reservation for the constructor's own finally.
+          (when (= :destruction (:kind transaction-owner))
+            (release-frame-construction! transaction-owner))
           (notify-epoch-listeners! id expected-incarnation-token
                                    terminal-evidence))
         nil)
@@ -3677,6 +3957,8 @@
           ;; Compare-remove only this incarnation's in-flight marker. A fresh
           ;; same-id incarnation may have replaced it after `dissoc-frame!`;
           ;; stale A's finally must never erase B's claim.
+          (when (= :destruction (:kind transaction-owner))
+            (release-frame-construction! transaction-owner))
           (release-frame-destroy-claim! id expected-incarnation-token)))))))))))
 
 ;; ---- reset-frame! — RETIRED (rf2-lxwpob) -----------------------------------

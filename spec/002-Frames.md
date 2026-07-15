@@ -539,6 +539,10 @@ Transient state is frame-scoped and torn down on `destroy-frame!` (per [§Destro
 
 Atomic create-and-register. There is no way to obtain an unregistered frame; this avoids orphan-frame states. The return value is the **live frame value** (the lifecycle token — `dispatch` / `subscribe` / `destroy-frame!` accept the value or its id interchangeably, per [§Frame addressing](#frame-addressing--the-frame-id-is-the-whole-public-address)).
 
+**Construction is one fail-fast per-frame-id transaction.** After pure config preflight and before any adapter allocation callback or mutable publication, `make-frame` reserves its frame id. The reservation remains held through provisional registry seating, trace-policy publication, synchronous `:initial-events`, lifecycle trace emission, registration hooks, and the final transition (or exact rollback). A same-id construction attempt — including synchronous re-entry from an adapter, setup event, trace listener, or hook, and a competing JVM thread — fails immediately with `:rf.error/frame-construction-in-progress`; it never waits, queues, adopts the provisional row, or allocates a competing container. A different frame id proceeds independently. The internal admission primitive accepts a **set** of ids and claims all or none in one CAS; its one-shot handoff permits exactly one reserved id to enter the ordinary construction engine without turning same-owner callback re-entry into blanket re-entrancy.
+
+The registry transition is explicitly **reserved → provisional → final**. A provisional row is visible only to its exact owner on the owning host thread, so setup and lifecycle publication can use ordinary frame machinery while unrelated callers cannot observe a live-looking half-construction. Any throw restores the prior final record on re-registration, or exactly tears down the newly-created incarnation, before releasing admission. A lifecycle-dead or exact-closing raw row is never a surgical-refresh target: construction fails with the same typed in-progress category until teardown's exact dissoc completes. Once a transaction settles, ordinary later `make-frame` calls retain the sequential create/refresh semantics below.
+
 **`make-frame` is the ONE programmatic constructor (rf2-h1vqa4).** The `reg-frame` macro spelling is DELETED — no alias, no tombstone. A frame is a **live runtime object**, not a registered program member: `reg-*` registers image-resolved, inert program members, and a spelling that *constructs* under the registrar grammar corrupted that grammar. Frame construction therefore captures **no source coordinates** (frames are not click-to-source targets; live metadata lives in `frame-meta`, and `:initial-events` dispatch traces carry their own `:source :frame-init` provenance). The **day-1 mount recipe** is [`frame-root`](#frame-root--the-ensure-component-cljs-reference) (ENSURE — creates the frame if absent and establishes it for the subtree); `make-frame` is the programmatic path for tools, tests, SSR, dynamic construction, and image-loaded frames (see [§Per-instance frames](#per-instance-frames--make-frame-the-ep-0023-object-constructor)).
 
 This section is the **canonical grammar** for the frame config map. Subsequent sections — [§Re-registration — surgical update](#re-registration--surgical-update), [§Frame presets](#frame-presets--capability-bundles-for-common-configurations), [§Per-instance frames](#per-instance-frames--make-frame-the-ep-0023-object-constructor) — refer to the keys defined here; they do not re-define them.
@@ -609,7 +613,7 @@ The framework stamps each setup dispatch with the frame's id automatically — t
 
 **One ownership path (EP-0024).** `destroy-frame!` removes the **one unified frame value** from the **one** live registry and runs per-subsystem teardown exactly once. Because a live frame is a single value (not an image-loaded object paired with a separate backing record), there is **no second public registry whose cleanup can succeed or fail independently** — teardown walks one structure. Teardown remains best-effort where individual cleanup hooks are host-transient, but the ownership path is one path (per [EP-0024 §Teardown](../docs/EP/EP-0024-unified-frame-identity-and-lifecycle.md#teardown)).
 
-- Claims the exact frame incarnation and atomically cuts off its ordinary router queue.
+- Claims the exact frame incarnation, atomically acquires the shared per-id construction/destruction reservation, and cuts off its ordinary router queue. The reservation is released immediately after exact registry dissociation so the established fresh-incarnation post-dissoc window remains available.
 - Runs the optional `:on-destroy` cleanup cascade against the still-live frame.
 - Disposes the sub-cache (each cached reactive is torn down so nothing leaks listeners).
 - Drops the frame from the one live-frame registry after every frame-owned subsystem is released.
@@ -625,10 +629,14 @@ context/output is inert after the claim: no commit, flow, effect, child dispatch
 ordinary diagnostic/trailer, normal epoch settlement, or render may follow. The private
 exact-token teardown cascade described below is the sole executable exception.
 
-1. **Claim the exact incarnation and cut its ordinary queue.** Under that incarnation's
-   drain lock, publish a token-scoped destroy claim and atomically remove every waiting
-   ordinary envelope from the real router queue. Record their count for disposal
-   evidence. A stale claim for incarnation A does not fence a fresh same-id incarnation B.
+1. **Claim the exact incarnation, reserve its id, and cut its ordinary queue.** Under that
+   incarnation's drain lock, atomically acquire the same per-id reservation construction
+   uses, publish a token-scoped destroy claim, and remove every waiting ordinary envelope
+   from the real router queue. Record their count for disposal evidence. A foreign
+   construction owner makes destroy a prompt idempotent no-op; construction rollback on
+   the owning host thread joins its own reservation. A stale claim for incarnation A does
+   not fence a fresh same-id incarnation B. Teardown releases its reservation immediately
+   after step 10's exact dissoc, before step 11, preserving the supported successor window.
 2. **Run the user `:on-destroy` cleanup cascade** (if configured) — seed a private,
    token-scoped router and drain the seed plus its synchronous same-frame descendants to
    fixed point while the frame remains lifecycle-live. Ordinary pre-claim work and
@@ -722,6 +730,8 @@ So **machines publishes both**: `:machines/teardown-on-frame-destroy!` (step 3) 
 ### Re-registration — surgical update
 
 `make-frame` against an already-registered `:id` performs a **surgical update**: existing runtime state (`app-db`, sub-cache, router queue, in-flight events) is preserved; only the metadata/config is replaced. This is what makes hot-reload Just Work — figwheel/shadow-cljs recompile triggers re-evaluation of `make-frame` forms, the page doesn't blink, the user's state survives. The contract for re-registration of every other registry kind (events, subs, fx, cofx, machine actions/guards, views, routes, heads, error projectors) is owned by [001 §Hot-reload semantics](001-Registration.md#hot-reload-semantics).
+
+The surgical update rides the same per-id transaction as first construction. Its candidate config is staged as a provisional revision while trace policy, `:rf.frame/re-registered`, and the registration hook run; complete success publishes final, while any throw restores the exact prior record and its prior auxiliary trace policy before admission is released. A same-id constructor or destroyer cannot interleave with that staged revision.
 
 **What gets replaced on surgical update:**
 

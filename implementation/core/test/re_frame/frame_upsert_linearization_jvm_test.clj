@@ -1,6 +1,5 @@
 (ns re-frame.frame-upsert-linearization-jvm-test
-  "rf2-vxgfnd.76 — linearize frame-id creation through the `frames` registry
-  atom itself.
+  "rf2-vxgfnd.76 / rf2-vxgfnd.197 — linearize frame-id construction.
 
   THE WINDOW (JVM-only; CLJS is single-threaded). Before the A-prime fix
   `upsert-frame!` read `(get @frames
@@ -12,19 +11,19 @@
   assoc …)` on a dissoc'd id, RESURRECTING a partial `{:config … :generation …}`
   zombie with no state container and no `:drain-lock`.
 
-  The fix serializes the cold create absence-check/allocation/install path so a
-  losing creator allocates nothing; re-registration is contains-guarded and, if
-  the id vanished under a concurrent destroy, recurs as a create. Plus an
-  internal create-exclusive mode
+  The original fix serialized only cold creation. The construction transaction
+  now reserves a frame id before adapter callbacks and retains that ownership
+  through publication or exact rollback. A same-id contender fails promptly;
+  disjoint ids remain independent. Plus an internal create-exclusive mode
   (`:rf.frame/must-create?`) that throws typed `:rf.error/frame-id-taken` on a
   taken id — the primitive `ui.test` rests its fresh-isolated-frame contract on.
 
-  These fixtures open the decision window DETERMINISTICALLY via the
+  These fixtures open construction windows DETERMINISTICALLY via the
   `frame/*upsert-decide-probe*` JVM linearization seam (a `nil`-in-production
-  dynamic hook fired once before the authoritative registry path),
+  dynamic hook fired once after reservation and before the authoritative
+  registry path),
   conveyed into the racing thread by `future` binding-conveyance — NO sleeps.
-  Each FAILS against the pre-fix read-then-write shape (clobber / zombie / no
-  such error id)."
+  Each asserts the fail-fast transaction contract without sleeps."
   (:require [clojure.test :refer [deftest is use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.frame :as frame]
@@ -37,8 +36,7 @@
             ;; before these tests run (the retention override is otherwise a
             ;; silent no-op) and so the per-frame retention store is observable.
             [re-frame.trace.tooling :as trace-tooling])
-  (:import [java.util.concurrent CountDownLatch CyclicBarrier
-            LinkedBlockingQueue TimeUnit]))
+  (:import [java.util.concurrent CountDownLatch TimeUnit]))
 
 (defn reset-runtime [test-fn]
   (registrar/clear-all!)
@@ -69,7 +67,7 @@
        (catch clojure.lang.ExceptionInfo e (:rf.error/id (ex-data e)))))
 
 ;; A probe that trips a "reached the window" latch for the target id, then blocks
-;; on a "release" latch — the deterministic read→CAS window opener.
+;; on a "release" latch — the deterministic reserved-construction window opener.
 (defn- window-probe [target reached release]
   (fn [id]
     (when (= id target)
@@ -77,57 +75,32 @@
       (.await ^CountDownLatch release 10 TimeUnit/SECONDS))))
 
 ;; ===========================================================================
-;; Create/create: the loser of the serialized create decision re-registers — no
-;; last-writer clobber of the winner's durable record.
+;; Create/create: the transaction owner is the only actor allowed to publish.
 ;; ===========================================================================
 
-(deftest serialized-create-loser-reregisters-surgically-never-clobbers
-  ;; A reads the id absent, pauses in the decide→install window; B installs its
-  ;; frame and seeds durable app-db; A resumes and its create decision finds the id
-  ;; PRESENT, so it re-registers surgically (metadata refresh, runtime state
-  ;; preserved) instead of assoc-clobbering B's record. B's incarnation + seeded
-  ;; app-db SURVIVE. Pre-fix: A's unconditional `assoc` clobbered B → this fails.
+(deftest same-id-contender-loses-before-owner-installs
+  ;; A owns the id and pauses before installation. B fails promptly instead of
+  ;; entering callbacks, allocating a container, or adopting A's future record.
   (let [reached (CountDownLatch. 1)
         release (CountDownLatch. 1)
         a (binding [frame/*upsert-decide-probe* (window-probe :race/x reached release)]
             (future (frame/upsert-frame! :race/x {:tags #{:a}})))]
-    (.await reached 10 TimeUnit/SECONDS)
-    ;; B installs on the main thread (its *upsert-decide-probe* is nil — the
-    ;; binding scope above closed once the future was created).
-    (frame/upsert-frame! :race/x {:tags #{:b}})
-    (frame/replace-app-db! :race/x {:who :b})
-    (let [token-b (frame/frame-incarnation-token :race/x)]
-      (.countDown release)
-      (is (= :race/x @a) "A's upsert returns the id — it re-registered, did not throw")
-      (is (identical? token-b (frame/frame-incarnation-token :race/x))
-          "B's incarnation SURVIVES — A lost the create decision and re-registered
-           surgically rather than clobbering B's record (the pre-fix hole)")
-      (is (= {:who :b} (frame/frame-app-db-value :race/x))
-          "B's durable app-db is preserved through A's surgical re-registration —
-           no runtime-state loss")
-      (is (some? (frame/frame-state-container :race/x))
-          "the record is FULL (a real state container), never a partial zombie"))))
-
-(deftest concurrent-creates-linearize-to-one-full-live-frame
-  ;; A barrier releases two ordinary creates together; the serialized create path
-  ;; linearizes them — exactly one live, FULL record survives (both calls return
-  ;; the id; the loser re-registered).
-  (let [gate (CyclicBarrier. 2)
-        mk   (fn [tag] (future (.await gate 10 TimeUnit/SECONDS)
-                               (frame/upsert-frame! :cc/x {:tags #{tag}})))
-        r1   (mk :one)
-        r2   (mk :two)
-        outs [@r1 @r2]]
-    (is (= [:cc/x :cc/x] outs) "both calls returned the id (one installed, one re-registered)")
-    (is (some? (frame/frame :cc/x)) "one live frame exists")
-    (is (some? (frame/frame-state-container :cc/x))
-        "with a real state container — serialization never left a clobbered/partial record")))
+    (is (.await reached 10 TimeUnit/SECONDS) "A owns the id before B runs")
+    (is (= :rf.error/frame-construction-in-progress
+           (err-id #(frame/upsert-frame! :race/x {:tags #{:b}})))
+        "same-id contender loses with the typed construction conflict")
+    (is (nil? (frame/frame :race/x))
+        "the owner's unpublished construction is invisible")
+    (.countDown release)
+    (is (= :race/x @a) "the reservation owner completes")
+    (is (= #{:a} (get-in (frame/frame :race/x) [:config :tags]))
+        "only the owner's config is published")
+    (is (some? (frame/frame-state-container :race/x))
+        "the published record has a real state container")))
 
 (deftest losing-creator-does-not-allocate-an-unowned-state-container
-  ;; A pauses before the authoritative create path. B creates and owns the sole
-  ;; container; A resumes, observes B, and re-registers without calling the
-  ;; adapter allocator. The former speculative shape allocated once in A above
-  ;; the race and once in B, abandoning A's opaque adapter value.
+  ;; A pauses before allocation. B fails at reservation admission and therefore
+  ;; cannot allocate an opaque adapter value that nobody owns.
   (let [reached       (CountDownLatch. 1)
         release       (CountDownLatch. 1)
         allocations   (atom 0)
@@ -141,43 +114,38 @@
                 (future (frame/upsert-frame! :cc/owned {:tags #{:a}})))]
         (is (.await reached 10 TimeUnit/SECONDS)
             "A reached the pre-create barrier without allocating")
-        (is (= :cc/owned (frame/upsert-frame! :cc/owned {:tags #{:b}}))
-            "B installs the frame")
+        (is (= :rf.error/frame-construction-in-progress
+               (err-id #(frame/upsert-frame! :cc/owned {:tags #{:b}})))
+            "B loses before allocation")
+        (is (zero? @allocations) "neither actor has allocated while A is paused")
         (.countDown release)
-        (is (= :cc/owned @a) "A falls through to surgical re-registration")
+        (is (= :cc/owned @a) "A installs as the reservation owner")
         (is (= 1 @allocations)
             "exactly the installed frame's state container was allocated")))))
 
 ;; ===========================================================================
-;; Re-register vs destroy: the losing re-registration recurs as a CREATE — no
-;; zombie resurrection of a dissoc'd record.
+;; Re-register vs destroy: construction retains same-id ownership through
+;; publication, so teardown cannot turn the provisional row into a zombie.
 ;; ===========================================================================
 
-(deftest reregister-losing-to-a-concurrent-destroy-recurs-as-create-no-zombie
-  ;; A re-registers a LIVE frame; it pauses in the window; B destroys the frame;
-  ;; A resumes and its guarded update finds the id GONE, so it recurs as a fresh
-  ;; CREATE — NOT a bare `(update m id assoc …)` that would resurrect a partial
-  ;; `{:config :generation}` zombie (no container, no drain-lock). Pre-fix: the
-  ;; bare update resurrected the zombie → this fails.
+(deftest reregister-owner-rejects-concurrent-destroy-no-zombie
   (frame/upsert-frame! :zombie/x {:tags #{:orig}})
   (let [token-orig (frame/frame-incarnation-token :zombie/x)
         reached    (CountDownLatch. 1)
         release    (CountDownLatch. 1)
         a (binding [frame/*upsert-decide-probe* (window-probe :zombie/x reached release)]
             (future (frame/upsert-frame! :zombie/x {:tags #{:reregister}})))]
-    (.await reached 10 TimeUnit/SECONDS)
-    (frame/destroy-frame! :zombie/x)
-    (is (nil? (frame/frame :zombie/x)) "B's destroy forgot the record before A resumes")
+    (is (.await reached 10 TimeUnit/SECONDS) "A owns the re-registration transaction")
+    (is (nil? (frame/destroy-frame! :zombie/x))
+        "same-id destroy loses promptly without disturbing the transaction")
     (.countDown release)
     (is (= :zombie/x @a) "A completes and returns the id")
-    (is (some? (frame/frame :zombie/x)) "A re-created the frame (the guarded update recurred as a create)")
+    (is (identical? token-orig (frame/frame-incarnation-token :zombie/x))
+        "the original incarnation survives")
+    (is (= #{:reregister} (get-in (frame/frame :zombie/x) [:config :tags]))
+        "the owner's metadata is published")
     (is (some? (frame/frame-state-container :zombie/x))
-        "the re-created record is FULL — a state container is present, NOT a
-         partial {:config :generation} zombie the bare update would resurrect")
-    (let [token-new (frame/frame-incarnation-token :zombie/x)]
-      (is (and (some? token-new) (not (identical? token-orig token-new)))
-          "a DISTINCT fresh incarnation — the id was rebuilt, not zombie-patched
-           onto the destroyed record"))))
+        "the record remains full, never a partial zombie")))
 
 ;; ===========================================================================
 ;; must-create (create-exclusive) — the ui.test primitive.
@@ -199,100 +167,62 @@
   (is (false? (contains? (:config (frame/frame :mc/free)) :rf.frame/must-create?))
       "the construction-only :rf.frame/must-create? key is stripped from stored config"))
 
-(deftest must-create-losing-the-window-race-throws-typed-collision
-  ;; A requests must-create, reads the id absent, pauses in the window; B installs
-  ;; the id; A resumes and, finding the id now live, throws the typed collision
-  ;; (exclusive mode never adopts). B's frame is untouched.
+(deftest must-create-owner-rejects-ordinary-same-id-contender
+  ;; Exclusive and ordinary construction share the same per-id admission rule.
   (let [reached (CountDownLatch. 1)
         release (CountDownLatch. 1)
         a (binding [frame/*upsert-decide-probe* (window-probe :mc/race reached release)]
-            (future (err-id #(frame/upsert-frame! :mc/race {:rf.frame/must-create? true}))))]
-    (.await reached 10 TimeUnit/SECONDS)
-    (frame/upsert-frame! :mc/race {:tags #{:b}})
-    (let [token-b (frame/frame-incarnation-token :mc/race)]
-      (.countDown release)
-      (is (= :rf.error/frame-id-taken @a)
-          "A's exclusive construction loses the window race → typed collision, not adoption")
-      (is (identical? token-b (frame/frame-incarnation-token :mc/race))
-          "B's frame is untouched — the losing exclusive construction wrote nothing"))))
+            (future (frame/upsert-frame! :mc/race {:rf.frame/must-create? true})))]
+    (is (.await reached 10 TimeUnit/SECONDS) "A owns the exclusive transaction")
+    (is (= :rf.error/frame-construction-in-progress
+           (err-id #(frame/upsert-frame! :mc/race {:tags #{:b}})))
+        "ordinary same-id construction loses at admission")
+    (.countDown release)
+    (is (= :mc/race @a) "the must-create owner completes")
+    (is (some? (frame/frame-state-container :mc/race))
+        "the owner's full record is published")))
 
 ;; ===========================================================================
-;; rf2-umsyo9 — the exclusive create loser must not overwrite the WINNER's
-;; frame-scoped trace policy.
+;; rf2-umsyo9 — a same-id loser must not overwrite the OWNER's frame-scoped
+;; trace policy.
 ;;
 ;; `upsert-frame!`'s two frame-scoped TRACE POLICY writes — the `set-frame-
 ;; no-emit!` suppression flag (always written) and the `:rf.trace/events-
 ;; retained` retention override — live in process-global stores SEPARATE from
-;; the `frames` registry, so the registry commit does not linearize them. PR #5776
-;; ran them ABOVE the CAS, so a must-create LOSER (or a create/create loser)
-;; already mutated the WINNER's trace policy for the id by the time its CAS
-;; failed — an exclusive collision that claims to write NOTHING corrupted the
-;; live winner's tracing (self-noise from an inspector frame, a rewritten ring
-;; cap). The `*upsert-decide-probe*` seam now fires BEFORE those writes, opening
-;; the actual pre-side-effect window; the fix makes them ride the winning
-;; branch. Fails against PR #5776's ordering (the loser's writes clobber the
-;; winner's policy); passes once the writes are linearized onto the winner.
+;; the `frames` registry. The per-id transaction keeps registry and auxiliary
+;; publication under one owner, including rollback.
 ;; ===========================================================================
 
 (deftest exclusive-create-loser-must-not-overwrite-winner-trace-policy
-  ;; LOSER A: exclusive (must-create) construction with DISTINCT trace policy —
-  ;; no-emit? FALSE, retention 10. A reads the id absent and pauses in the
-  ;; PRE-side-effect window (after the decide snapshot, before its policy writes
-  ;; / CAS). WINNER B: ordinary construction, no-emit? TRUE, retention 99 —
-  ;; installs the id and writes its policy fully on the main thread. A resumes;
-  ;; its create decision finds the id present → typed `:rf.error/frame-id-taken`. The
-  ;; winner's suppression flag AND retention override must be UNCHANGED. Pre-fix:
-  ;; A's policy writes ran on CAS loss and overwrote B's (no-emit? → false,
-  ;; retention → 10) → both post-collision assertions fail.
-  (let [stage        (LinkedBlockingQueue.)
-        release      (CountDownLatch. 1)
-        original-set trace/set-frame-no-emit!
-        probe        (fn [id]
-                       (when (= :tp/race id)
-                         (.put stage :decide-probe)
-                         (.await release 10 TimeUnit/SECONDS)))]
-    ;; The auxiliary-writer barrier makes this fixture independent of where a
-    ;; historical implementation placed *upsert-decide-probe*. Correct/current
-    ;; ordering reaches :decide-probe first. PR #5776's pre-CAS policy ordering
-    ;; reaches :policy-write first. In either case B then wins before A resumes.
-    (with-redefs [trace/set-frame-no-emit!
-                  (fn [frame-id no-emit? & guard]
-                    (when (and (= :tp/race frame-id) (false? no-emit?))
-                      (.put stage :policy-write)
-                      (.await release 10 TimeUnit/SECONDS))
-                    (apply original-set frame-id no-emit? guard))]
-      (let [a (binding [frame/*upsert-decide-probe* probe]
-                (future (err-id #(frame/upsert-frame! :tp/race
-                                   {:rf.frame/must-create?     true
-                                    :rf.trace/frame-no-emit?   false
-                                    :rf.trace/events-retained 10}))))
-            first-stage (.poll stage 10 TimeUnit/SECONDS)]
-        (is (contains? #{:decide-probe :policy-write} first-stage)
-            "A reached either the decision barrier (fixed ordering) or the
-             policy barrier (PR #5776 ordering) before B runs")
-        (frame/upsert-frame! :tp/race {:rf.trace/frame-no-emit?  true
-                                       :rf.trace/events-retained 99})
-        (is (true? (trace/frame-trace-disabled? :tp/race))
-            "precondition: winner B registered trace-disabled (no-emit? true)")
-        (is (= 99 (retained-cap :tp/race))
-            "precondition: winner B installed its retention override (99)")
-        (.countDown release)
-        (is (= :rf.error/frame-id-taken @a)
-            "the exclusive loser threw the typed collision — it installed nothing")
-        (is (true? (trace/frame-trace-disabled? :tp/race))
-            "winner B's trace SUPPRESSION survives. Under PR #5776, A resumes
-             its already-entered pre-CAS writer and clears B here → fails")
-        (is (= 99 (retained-cap :tp/race))
-            "winner B's RETENTION override survives. Under PR #5776, A writes
-             its pre-CAS cap 10 after B's cap 99 here → fails")))))
+  (let [reached (CountDownLatch. 1)
+        release (CountDownLatch. 1)
+        a       (binding [frame/*upsert-decide-probe*
+                          (window-probe :tp/race reached release)]
+                  (future
+                    (frame/upsert-frame! :tp/race
+                                         {:rf.frame/must-create? true
+                                          :rf.trace/frame-no-emit? false
+                                          :rf.trace/events-retained 10})))]
+    (is (.await reached 10 TimeUnit/SECONDS) "A owns the id before policy publication")
+    (is (= :rf.error/frame-construction-in-progress
+           (err-id #(frame/upsert-frame! :tp/race
+                                         {:rf.trace/frame-no-emit? true
+                                          :rf.trace/events-retained 99})))
+        "B loses before it can mutate either auxiliary policy store")
+    (is (false? (trace/frame-trace-disabled? :tp/race))
+        "no suppression policy is published while A is paused")
+    (is (nil? (retained-cap :tp/race))
+        "no retention policy is published while A is paused")
+    (.countDown release)
+    (is (= :tp/race @a) "the owner completes")
+    (is (false? (trace/frame-trace-disabled? :tp/race))
+        "the owner's no-emit policy is final")
+    (is (= 10 (retained-cap :tp/race))
+        "the owner's retention policy is final")))
 
-(deftest older-successful-reregistration-cannot-publish-policy-after-newer-winner
-  ;; Both A and B successfully commit a surgical re-registration. A commits
-  ;; config A first, then pauses immediately before its first auxiliary policy
-  ;; write. B commits config + policy B and returns. When A resumes, its stale
-  ;; policy publication must be rejected: the authoritative record and BOTH
-  ;; auxiliary stores stay at B. This is the successful-winner race that merely
-  ;; moving policy writes below the registry CAS does not close.
+(deftest reregister-owner-rejects-newer-policy-contender
+  ;; A stages a provisional re-registration and pauses before policy publication.
+  ;; B cannot become a "newer winner" while A owns the transaction.
   (frame/upsert-frame! :tp/successful
                        {:tags #{:initial}
                         :rf.trace/frame-no-emit? true
@@ -306,66 +236,47 @@
                                          {:tags #{:a}
                                           :rf.trace/frame-no-emit? false
                                           :rf.trace/events-retained 10})))]
-    (is (.await reached 10 TimeUnit/SECONDS)
-        "A committed config A and reached the pre-policy barrier")
-    (is (= :tp/successful
-           (frame/upsert-frame! :tp/successful
-                                {:tags #{:b}
-                                 :rf.trace/frame-no-emit? true
-                                 :rf.trace/events-retained 99}))
-        "newer actor B committed config + policy and returned")
+    (is (.await reached 10 TimeUnit/SECONDS) "A reached the pre-policy barrier")
+    (is (= :rf.error/frame-construction-in-progress
+           (err-id #(frame/upsert-frame! :tp/successful
+                                         {:tags #{:b}
+                                          :rf.trace/frame-no-emit? true
+                                          :rf.trace/events-retained 99})))
+        "B loses at same-id admission")
     (.countDown release)
-    (is (= :tp/successful @a) "older actor A also returns successfully")
-    (is (= #{:b} (get-in (frame/frame :tp/successful) [:config :tags]))
-        "the authoritative frame record remains B")
-    (is (true? (trace/frame-trace-disabled? :tp/successful))
-        "the no-emit auxiliary store remains B — stale A was rejected")
-    (is (= 99 (retained-cap :tp/successful))
-        "the retention auxiliary store remains B — stale A was rejected")))
+    (is (= :tp/successful @a) "A returns successfully")
+    (is (= #{:a} (get-in (frame/frame :tp/successful) [:config :tags]))
+        "the authoritative frame record is A")
+    (is (false? (trace/frame-trace-disabled? :tp/successful))
+        "the no-emit auxiliary store is A")
+    (is (= 10 (retained-cap :tp/successful))
+        "the retention auxiliary store is A")))
 
-(deftest destroyed-frame-rejects-delayed-successful-policy-publication
-  ;; A successfully commits config, then pauses before publishing its auxiliary
-  ;; policy. B destroys that SAME incarnation and pauses after BOTH policy stores
-  ;; have been cleared (ring release precedes no-emit clear) but before the frame
-  ;; record is dissociated. A must not treat the destroyed raw record's matching
-  ;; token as live authority and repopulate either store.
+(deftest construction-transaction-rejects-destroy-before-policy-publication
+  ;; A owns a provisional re-registration through auxiliary policy publication,
+  ;; so B cannot make that raw row lifecycle-dead underneath it.
   (frame/upsert-frame! :tp/destroy-race
                        {:rf.trace/frame-no-emit? false
                         :rf.trace/events-retained 5})
-  (let [policy-reached   (CountDownLatch. 1)
-        release-policy   (CountDownLatch. 1)
-        teardown-cleared (CountDownLatch. 1)
-        release-teardown (CountDownLatch. 1)
-        original-clear   trace/clear-frame-no-emit-for!]
-    (with-redefs [trace/clear-frame-no-emit-for!
-                  (fn [frame-id]
-                    (original-clear frame-id)
-                    (when (= :tp/destroy-race frame-id)
-                      (.countDown teardown-cleared)
-                      (.await release-teardown 10 TimeUnit/SECONDS)))]
-      (let [a (binding [frame/*upsert-policy-probe*
-                        (window-probe :tp/destroy-race
-                                      policy-reached release-policy)]
-                (future
-                  (frame/upsert-frame! :tp/destroy-race
-                                       {:rf.trace/frame-no-emit? true
-                                        :rf.trace/events-retained 77})))]
-        (is (.await policy-reached 10 TimeUnit/SECONDS)
-            "A committed config and paused before policy publication")
-        (let [b (future (frame/destroy-frame! :tp/destroy-race))]
-          (is (.await teardown-cleared 10 TimeUnit/SECONDS)
-              "B cleared the ring and no-emit store, then paused before dissoc")
-          (is (nil? (frame/frame :tp/destroy-race))
-              "the matching raw record is already lifecycle-dead")
-          (.countDown release-policy)
-          (.countDown release-teardown)
-          (is (= :tp/destroy-race @a) "A's earlier config commit still returns")
-          (is (nil? @b) "B completes teardown")
-          (is (nil? (frame/frame :tp/destroy-race)) "the frame stays absent")
-          (is (false? (trace/frame-trace-disabled? :tp/destroy-race))
-              "delayed A cannot repopulate no-emit after B cleared it")
-          (is (nil? (retained-cap :tp/destroy-race))
-              "delayed A cannot recreate a ring override after B released it"))))))
+  (let [policy-reached (CountDownLatch. 1)
+        release-policy (CountDownLatch. 1)
+        a (binding [frame/*upsert-policy-probe*
+                    (window-probe :tp/destroy-race policy-reached release-policy)]
+            (future
+              (frame/upsert-frame! :tp/destroy-race
+                                   {:rf.trace/frame-no-emit? true
+                                    :rf.trace/events-retained 77})))]
+    (is (.await policy-reached 10 TimeUnit/SECONDS)
+        "A staged config and paused before policy publication")
+    (is (nil? (frame/destroy-frame! :tp/destroy-race))
+        "B's same-id destroy loses promptly")
+    (.countDown release-policy)
+    (is (= :tp/destroy-race @a) "A completes")
+    (is (some? (frame/frame :tp/destroy-race)) "the frame remains live")
+    (is (true? (trace/frame-trace-disabled? :tp/destroy-race))
+        "A publishes its no-emit policy")
+    (is (= 77 (retained-cap :tp/destroy-race))
+        "A publishes its retention policy")))
 
 (deftest omitting-retention-on-reregistration-clears-frame-override
   (rf/configure! {:trace-buffer {:events-retained 7}})
