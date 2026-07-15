@@ -2405,18 +2405,35 @@
         false))))
 
 (defn- restore-provisional-frame!
-  "Restore `prior` only while `id` still names this exact provisional revision.
+  "Roll back construction-owned fields while `id` still names this exact
+  provisional revision.
 
-  Used by surgical re-registration rollback. A stale failure can never restore
-  across a successor because both owner and revision are identity-pinned."
-  [id owner revision prior]
+  Surgical re-registration stages `:config`, `:generation`,
+  `:trace-policy-token`, and `:construction`, but `:generation` also has a valid
+  generation-only writer (`set-generation!`) used by live-frame reprojection.
+  Preserve the current record and restore the failed constructor's config,
+  policy token, and construction metadata unconditionally. Restore its staged
+  generation only while that slot is still the exact value this revision
+  installed; an intervening reprojection wins and is retained. State-bearing
+  containers and every other current slot are therefore preserved by identity.
+
+  A stale failure can never restore across a successor because owner and
+  revision remain identity-pinned."
+  [id owner revision prior staged]
   (loop []
     (let [registry @frames
           f        (get registry id)]
       (if (provisional-owned? f owner revision)
-        (if (compare-and-set! frames registry (assoc registry id prior))
-          true
-          (recur))
+        (let [restored
+              (cond-> (assoc f
+                             :config (:config prior)
+                             :trace-policy-token (:trace-policy-token prior)
+                             :construction (:construction prior))
+                (identical? (:generation f) (:generation staged))
+                (assoc :generation (:generation prior)))]
+          (if (compare-and-set! frames registry (assoc registry id restored))
+            true
+            (recur)))
         false))))
 
 (defn- try-install-new-frame!
@@ -2798,8 +2815,9 @@
                                       :construction
                                       (provisional-construction
                                         owner policy-token)))
-                        registry))))]
-            (if (provisional-owned? (get new id) owner policy-token)
+                        registry))))
+                staged (get new id)]
+            (if (provisional-owned? staged owner policy-token)
               (try
                 ;; Policy + trace + hook all run while the staged revision is
                 ;; provisional. Only their complete success publishes final.
@@ -2816,7 +2834,7 @@
                   ;; its auxiliary policy. A rollback publication fault must not
                   ;; mask the original constructor failure.
                   (when (restore-provisional-frame!
-                          id owner policy-token prior)
+                          id owner policy-token prior staged)
                     (try
                       (publish-trace-policy!
                         id

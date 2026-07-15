@@ -27,6 +27,7 @@
   (:require [clojure.test :refer [deftest is use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.frame :as frame]
+            [re-frame.late-bind :as late-bind]
             [re-frame.registrar :as registrar]
             [re-frame.substrate.adapter :as substrate]
             [re-frame.substrate.plain-atom :as plain-atom]
@@ -277,6 +278,86 @@
         "A publishes its no-emit policy")
     (is (= 77 (retained-cap :tp/destroy-race))
         "A publishes its retention policy")))
+
+(deftest failed-reregistration-rollback-preserves-intervening-generation
+  ;; A stages replaceable config + generation and pauses before policy
+  ;; publication. The image reprojection path legitimately swaps only the
+  ;; generation while A is provisional. A later registration-hook failure must
+  ;; roll back A's config/policy revision without replacing the whole record and
+  ;; erasing that intervening generation (or runtime-container) update.
+  (let [id            :tp/rollback-merge
+        hook-key      :routing/on-frame-registered!
+        original-hook (late-bind/get-fn hook-key)
+        reached       (CountDownLatch. 1)
+        release       (CountDownLatch. 1)]
+    (frame/upsert-frame! id
+                         {:tags #{:prior}
+                          :rf.frame/generation :prior-gen
+                          :rf.trace/frame-no-emit? true
+                          :rf.trace/events-retained 5})
+    (let [prior-record       (frame/frame id)
+          prior-config       (:config prior-record)
+          prior-policy-token (:trace-policy-token prior-record)
+          prior-revision     (get-in prior-record [:construction :revision])]
+      (try
+        (late-bind/set-fn!
+          hook-key
+          (fn [candidate-id]
+            (when (= id candidate-id)
+              ;; A valid same-owner runtime write during the callback must also
+              ;; survive rollback; its container is not construction-owned.
+              (frame/replace-runtime-db! id {:foreign-runtime true})
+              (throw (ex-info "registration hook failed"
+                              {:test/outcome :hook-failed})))))
+        (let [owner
+              (binding [frame/*upsert-policy-probe*
+                        (window-probe id reached release)]
+                (future
+                  (try
+                    (frame/upsert-frame!
+                      id {:tags #{:failed}
+                          :rf.frame/generation :failed-gen
+                          :rf.trace/frame-no-emit? false
+                          :rf.trace/events-retained 99})
+                    :unexpected-success
+                    (catch clojure.lang.ExceptionInfo e
+                      (:test/outcome (ex-data e))))))]
+          (try
+            (is (.await reached 10 TimeUnit/SECONDS)
+                "A staged its exact provisional revision")
+            (is (= :provisional
+                   (get-in @frame/frames [id :construction :state])))
+            (is (= #{:failed} (get-in @frame/frames [id :config :tags])))
+            (is (= :failed-gen (get-in @frame/frames [id :generation])))
+            ;; `reproject-live-frame!` resolves outside the registry atom and
+            ;; reaches this raw, generation-only mutator after resolution.
+            (frame/set-generation! id :foreign-gen)
+            (is (= :foreign-gen (get-in @frame/frames [id :generation]))
+                "the intervening generation write linearized before rollback")
+            (finally
+              (.countDown release)))
+          (is (= :hook-failed @owner) "the staged re-registration fails")
+          (is (= :foreign-gen (frame/frame-generation id))
+              "rollback preserves the valid intervening generation write")
+          (is (= {:foreign-runtime true} (frame/frame-runtime-db-value id))
+              "rollback preserves runtime updates made during callbacks")
+          (is (= #{:prior} (get-in (frame/frame id) [:config :tags]))
+              "rollback cannot retain the failed constructor's config")
+          (is (= prior-config (:config (frame/frame id)))
+              "the complete prior config, not only tags, is restored")
+          (is (true? (trace/frame-trace-disabled? id))
+              "rollback restores the prior no-emit policy")
+          (is (= 5 (retained-cap id))
+              "rollback restores the prior retention policy")
+          (is (identical? prior-policy-token
+                          (:trace-policy-token (frame/frame id)))
+              "the record's prior policy authority is restored")
+          (is (identical? prior-revision
+                          (get-in (frame/frame id) [:construction :revision]))
+              "rollback restores the prior final construction revision"))
+        (finally
+          (.countDown release)
+          (late-bind/set-fn! hook-key original-hook))))))
 
 (deftest omitting-retention-on-reregistration-clears-frame-override
   (rf/configure! {:trace-buffer {:events-retained 7}})
