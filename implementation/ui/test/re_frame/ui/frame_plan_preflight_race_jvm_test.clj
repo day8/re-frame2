@@ -44,8 +44,7 @@
             [re-frame.substrate.plain-atom :as plain-atom]
             [re-frame.test-support :as test-support]
             [re-frame.ui.frames :as frames])
-  (:import [java.lang Thread$State]
-           [java.util.concurrent CountDownLatch CyclicBarrier TimeUnit]))
+  (:import [java.util.concurrent CountDownLatch CyclicBarrier TimeUnit]))
 
 (use-fixtures :each
   (test-support/make-reset-runtime-fixture {:adapter plain-atom/adapter
@@ -83,33 +82,6 @@
     (.setDaemon thread true)
     (.start thread)
     {:thread thread :outcome outcome}))
-
-(defn- await-admission-evidence
-  "Wait for causal evidence about a contender whose call-boundary latch fired.
-
-  `:completed` is the ruled fail-fast reservation shape. `:contended` is the
-  current JVM serializer shape: the dedicated thread has attempted monitor
-  admission while A owns it. The deadline is a failing harness watchdog only;
-  elapsed time is never returned as successful evidence. No sleep participates
-  in the proof."
-  [^Thread thread outcome]
-  (let [deadline (+ (System/nanoTime)
-                    (.toNanos TimeUnit/SECONDS 10))]
-    (loop []
-      (cond
-        (realized? outcome)
-        {:kind :completed :outcome @outcome}
-
-        (= Thread$State/BLOCKED (.getState thread))
-        {:kind :contended}
-
-        (>= (System/nanoTime) deadline)
-        {:kind :watchdog-timeout}
-
-        :else
-        (do
-          (Thread/yield)
-          (recur))))))
 
 (defn- stop-thread!
   "Bounded cleanup for the dedicated contender; interrupt only after its
@@ -157,49 +129,37 @@
               _            (reset! contender b)]
           (is (.await at-admission 10 TimeUnit/SECONDS)
               "root B reached the executor admission boundary while A is open")
-          ;; Do not release A merely because a deref timed out. Wait until B
-          ;; has causally attempted today's admission OR has completed through
-          ;; the future fail-fast per-ID reservation. With coordination removed,
-          ;; B completes here with the wrong boot-authority diagnosis.
-          (let [{:keys [kind outcome] :as early}
-                (await-admission-evidence (:thread b) (:outcome b))]
-            (is (not= :watchdog-timeout kind)
-                (str "root B produced causal admission evidence: " early))
-            (when (= :completed kind)
-              (is (map? outcome)
-                  "a fail-fast contention result is typed data")
-              (is (= :rf.error/frame-preflight-overlap (:rf.error/id outcome))
-                  (str "only the ruled per-ID overlap rejection may complete "
-                       "while root A's run is open; got " (pr-str outcome))))
+          ;; B must COMPLETE while A is still paused: the shared reservation is
+          ;; fail-fast and never a monitor wait. The bounded deref is a failing
+          ;; watchdog only; a timeout is not accepted as coordination evidence.
+          (let [outcome (deref (:outcome b) 10000 ::timeout)]
+            (is (map? outcome) "the fail-fast contention result is typed data")
+            (is (= :rf.error/frame-preflight-overlap (:rf.error/id outcome))
+                (str "root B loses immediately while root A is open; got "
+                     (pr-str outcome))))
 
           (.countDown release)
           (is (= ::won (deref a 10000 ::timeout))
               "root A's install completes and wins")
-            (let [final-outcome (deref (:outcome b) 10000 ::timeout)]
-              (if (= :contended kind)
-                (do
-                  (is (map? final-outcome)
-                      "the serialized loser fails loud — never a silent overwrite")
-                  (is (= :rf.error/frame-payload-conflict
-                         (:rf.error/id final-outcome))
-                      "the serialized loser surfaces the ratified conflict")
-                  (is (= :root/a
-                         (get-in final-outcome [:installed :installed-by]))
-                      (str "the conflict names root A's COMPLETED install — not "
-                           "a boot-authority misdiagnosis of the half-installed frame"))
-                  (is (= "cf1-aaaaaaaa"
-                         (get-in final-outcome
-                                 [:installed :config-fingerprint]))
-                      "the conflict carries the winner's recorded fingerprint")
-                  (is (= :root/b (get-in final-outcome [:arriving :root-id]))
-                      "the conflict scopes the failure to the arriving root"))
-                (is (= outcome final-outcome)
-                    "the fail-fast overlap result is final and cannot last-write")))
+          (is (= {:config-fingerprint "cf1-aaaaaaaa" :installed-by :root/a}
+                 (frames/installed-plan-entry fid))
+              "exactly one install wins — the surviving record is root A's")
+          ;; Retry happens only AFTER release. It re-evaluates committed state
+          ;; and therefore reaches the ordinary payload-conflict disposition,
+          ;; never a stale reservation or half-installed boot diagnosis.
+          (let [retry (run-plan :root/b
+                                (plan fid "cf1-bbbbbbbb"
+                                      {:initial-events
+                                       [[:rf/set-db {:from :b}]]}))]
+            (is (= :rf.error/frame-payload-conflict (:rf.error/id retry)))
+            (is (= :root/a (get-in retry [:installed :installed-by])))
+            (is (= "cf1-aaaaaaaa"
+                   (get-in retry [:installed :config-fingerprint]))))
           (is (= {:config-fingerprint "cf1-aaaaaaaa" :installed-by :root/a}
                  (frames/installed-plan-entry fid))
               "exactly one install wins — the surviving record is root A's")
           (is (some? (frame/frame fid))
-              "the winner's frame is live and untouched (06 §2 failure scoping)"))))
+              "the winner's frame is live and untouched (06 §2 failure scoping)")))
       (finally
         ;; Never strand root A's drain if an assertion or setup step fails.
         (.countDown release)

@@ -128,19 +128,15 @@
   multi-plan rollback by destroying seeded frames would not un-fire their
   effects.
 
-  On the JVM, whole runs are additionally SERIALIZED under one process-wide
-  monitor (rf2-vxgfnd.35): phase 1 decides against `installed-plans` and
-  phase 2 records into it, so two concurrent `execute-frame-plans!` calls
-  could otherwise BOTH decide `:install` for one frame-id — the second
-  `make-frame` would surgically overwrite the first and the last record
-  would win, silently missing the cross-root conflict this table exists to
-  catch (or misreading a half-installed frame as boot-authoritative). The
-  monitor makes each decide+record run atomic with respect to other runs.
-  It is the OUTERMOST lock — taken at host preflight, before `make-frame`'s
-  synchronous drain or any per-frame drain serialization; nothing below this
-  entry point acquires it — and JVM monitors are reentrant, so a nested
-  same-thread preflight still enters. CLJS is single-threaded: no lock
-  exists there and the call is direct.
+  Every run atomically reserves its complete set of planned frame ids through
+  core's shared per-id construction transaction BEFORE phase-1 decision, holds
+  those exact identity-owned claims through publication, and releases them in
+  `finally`. A same-id nested or cross-thread run fails immediately with
+  `:rf.error/frame-preflight-overlap`; disjoint ids and plan-free runs proceed
+  independently. There is no blocking monitor on either host. Each
+  install/refresh hands the run's exact reservation into `make-frame` for one
+  engine entry, so UI and core share one admission authority instead of
+  self-colliding or maintaining two coordination layers.
 
   ## Q49 RULING (ENSURE retry-after-preflight-failure; pinned here)
 
@@ -267,6 +263,11 @@
   [record]
   (true? (:adopted record)))
 
+(defn- record-root-id
+  "The root whose install/adopt record carries settlement authority."
+  [record]
+  (or (:installed-by record) (:adopted-by record)))
+
 (defn- installed-record
   "INTERNAL raw record for `frame-id` (carries `:rev` + `:committed`), guarded
   by frame liveness so a never-hooked dead record never surfaces as an install.
@@ -303,15 +304,12 @@
   (rf2-5svfa1). When non-nil (a `:refresh` carrying its decision-time
   incarnation token), the write is admitted ONLY while THAT incarnation is still
   live — never against a same-id replacement that overtook it after the plan
-  decision. When nil (a fresh `:install` / boot-`:adopt`, which have no
-  decision-time incarnation), the currently-live incarnation is captured and
-  pinned as before; an absent frame yields no token and the write is rejected.
-  A nil return is the caller's rejection signal: the executor FAILS CLOSED with
-  `:rf.error/frame-preflight-lifecycle-loss` when the frame is now ABSENT (a
-  self-destroying setup — rf2-5svfa1 part A) instead of silently skipping over an
-  absent frame; a rejection against a still-PRESENT incarnation is a concurrent
-  CLOSING race and keeps the pre-existing no-dead-record skip (parent .191 part
-  C owns that coordination).
+  decision. When nil (only a fresh `:install`, which has no decision-time live
+  incarnation), the newly-created current incarnation is captured and pinned;
+  an absent frame yields no token and the write is rejected. A boot `:adopt`
+  passes its decision-time token. Any nil return is the caller's signal to FAIL
+  CLOSED with `:rf.error/frame-preflight-lifecycle-loss`; publication rejection
+  can never be a successful/silent ENSURE.
 
   The incarnation pin rejects a destroy/recreate that overtakes publication.
   The incarnation-scoped closing check also covers `destroy-frame!`'s earlier
@@ -431,16 +429,20 @@
                                client mounted a live host root scoped to an
                                ABSENT frame (there is no frame-liveness guard
                                between preflight and `createRoot`). A rejection
-                               against a still-PRESENT incarnation is instead a
-                               concurrent-destroy CLOSING race whose full
-                               coordination is parent .191 part C, not this arm.
+                               The shared per-id reservation excludes a foreign
+                               concurrent destroy; any rejection is therefore
+                               fail-closed, never a silent successful ENSURE.
     :refresh-target-replaced — a `:refresh` decided against the incarnation live
-                               at decision time, but that incarnation was
-                               destroyed or replaced by a different same-id
-                               incarnation before the surgical `make-frame`
-                               could apply. Applying this root's config to an
-                               unrelated replacement would silently overwrite the
-                               replacement's own authority; fail BEFORE mutating.
+                                at decision time, but that incarnation was
+                                destroyed or replaced by a different same-id
+                                incarnation before the surgical `make-frame`
+                                could apply. Applying this root's config to an
+                                unrelated replacement would silently overwrite the
+                                replacement's own authority; fail BEFORE mutating.
+    :found-live-authority-lost — a found-live no-op lost either its exact live
+                                incarnation or exact install/adopt record after
+                                phase-1 decision. It cannot confer settlement
+                                rights over an absent/replacement lifetime.
 
   Fails loud like the payload/boot-authority conflicts — thrown out of preflight,
   so the mount fails before any `createRoot`, live-root registration, DOM
@@ -472,17 +474,25 @@
                "applying this root's config to an unrelated replacement would "
                "silently overwrite the replacement's authority. The mount fails "
                "closed before any mutation; re-mount so preflight re-decides "
-               "against the live incarnation")))
+               "against the live incarnation")
+          :found-live-authority-lost
+          (str " decided a found-live no-op against one exact live incarnation "
+               "and install/adopt record, but that authority was destroyed, "
+               "replaced, or overwritten before phase 2. A stale found-live "
+               "receipt must not settle another lifetime or root's evidence. "
+               "The mount fails closed; re-mount so preflight re-decides against "
+               "the current frame authority")))
    {:recovery :keep-the-preflight-frame-live
     :extra {:frame-id frame-id
             :root-id  root-id
             :kind     kind}}))
 
 ;; `written` (and a preflight receipt's `:writes`) is a vector of
-;; `{:frame-id :rev :provenance}` entries — one per record this attempt wrote or
-;; found-live, in document order. `:rev` binds the entry to the EXACT record
-;; written; `:provenance` is a COMMITTED-scope fact (rf2-vxgfnd.139), not an
-;; action:
+;; `{:frame-id :root-id :rev :provenance}` entries — one per record this attempt
+;; has settlement authority for, in document order. `:root-id` + `:rev` bind the
+;; entry to the EXACT root-owned record write; foreign equal-fingerprint
+;; found-live remains valid scoping but enters no write. `:provenance` is a
+;; COMMITTED-scope fact (rf2-vxgfnd.139), not an action:
 ;;   :fresh      — an install, or a refresh of a NEVER-committed record; on
 ;;                 abort → :mount-incomplete (no committed root scopes it).
 ;;   :live       — a refresh of an already-COMMITTED record, or an adopt of a
@@ -491,51 +501,113 @@
 ;;   :found-live — the ratified same-fingerprint no-op; never marked on abort,
 ;;                 only committed / cleared on a successful host boundary.
 
-(defn- abort-writes!
-  "Mark the surviving records of an aborted attempt, REV-GUARDED to the exact
-  write: only a record still carrying this entry's `:rev` is touched, so an
-  overtaking overwrite, a destroyed-then-recreated frame, or an unrelated
-  equal-plan root is never clobbered. :fresh → `:mount-incomplete`; :live →
-  `:preflight-attempt-failed`; :found-live is left untouched."
-  [writes]
+(defn- emit-preflight-evidence-mismatch!
+  "Surface a rejected finalize/abort entry without mutating plan authority.
+
+  Settlement happens at/after the host boundary, where throwing cannot undo a
+  host commit. Emit the canonical typed diagnostic through both observability
+  channels and leave the overtaking/missing/foreign record untouched."
+  [phase receipt-root-id {:keys [frame-id root-id]} record reason]
+  (error-emit/emit-error-both!
+   :rf.error/frame-preflight-evidence-mismatch
+   nil nil frame-id nil 0 (interop/now-ms)
+   {:frame-id        frame-id
+    :phase           phase
+    :reason          reason
+    :receipt-root-id receipt-root-id
+    :write-root-id   root-id}
+   {:phase           phase
+    :reason          reason
+    :receipt-root-id receipt-root-id
+    :write-root-id   root-id
+    :record-root-id  (record-root-id record)})
+  nil)
+
+(defn- settlement-mismatch-reason
+  "Return nil only when one receipt entry still names its exact root-owned
+  record; otherwise the stable diagnostic reason. Pure — CAS retries must not
+  duplicate evidence emission."
+  [receipt-root-id {:keys [root-id rev]} record]
+  (cond
+    (not= receipt-root-id root-id) :receipt-root-mismatch
+    (nil? record) :record-missing
+    (not= rev (:rev record)) :record-revision-mismatch
+    (not= root-id (record-root-id record)) :record-root-mismatch
+    :else nil))
+
+(defn- settle-writes!
+  "CAS-settle all authorized writes, then emit each rejected entry exactly once.
+
+  `settle-one` is pure `(fn [registry write record] registry')`. Evidence is
+  accumulated during the pure reduction and fanned only after the CAS wins, so
+  contention can retry without duplicate diagnostics."
+  [phase receipt-root-id writes settle-one]
   (when (seq writes)
-    (swap! installed-plans
-           (fn [m]
-             (reduce (fn [m {:keys [frame-id rev provenance]}]
-                       (let [rec (get m frame-id)]
-                         (if (and rec (= rev (:rev rec)))
-                           (case provenance
-                             :fresh (assoc-in m [frame-id :mount-incomplete] true)
-                             :live  (assoc-in m [frame-id :preflight-attempt-failed] true)
-                             m)
-                           m)))
-                     m writes)))))
+    (loop []
+      (let [before @installed-plans
+            [after mismatches]
+            (reduce
+             (fn [[m mismatches] {:keys [frame-id] :as write}]
+               (let [record (get m frame-id)]
+                 (if-let [reason (settlement-mismatch-reason
+                                  receipt-root-id write record)]
+                   [m (conj mismatches [write record reason])]
+                   [(settle-one m write record) mismatches])))
+             [before []]
+             writes)]
+        (if (compare-and-set! installed-plans before after)
+          (doseq [[write record reason] mismatches]
+            (emit-preflight-evidence-mismatch!
+             phase receipt-root-id write record reason))
+          (recur))))))
+
+(defn- abort-writes!
+  "Mark the surviving records of an aborted attempt, guarded by BOTH exact rev
+  and root authority. A mismatch never mutates and emits
+  `:rf.error/frame-preflight-evidence-mismatch`. :fresh →
+  `:mount-incomplete`; :live → `:preflight-attempt-failed`; :found-live is left
+  untouched."
+  [receipt-root-id writes]
+  (settle-writes!
+   :abort receipt-root-id writes
+   (fn [m {:keys [frame-id provenance]} _record]
+     (case provenance
+       :fresh (assoc-in m [frame-id :mount-incomplete] true)
+       :live  (assoc-in m [frame-id :preflight-attempt-failed] true)
+       m))))
 
 (defn- finalize-writes!
   "A host boundary COMMITTED: mark every record this attempt still owns
-  `:committed` and clear its stale failed-attempt evidence. REV-GUARDED — a
-  record overwritten or pruned since this attempt wrote it is skipped, so a
-  stale receipt can never finalize a newer record."
-  [writes]
-  (when (seq writes)
-    (swap! installed-plans
-           (fn [m]
-             (reduce (fn [m {:keys [frame-id rev]}]
-                       (let [rec (get m frame-id)]
-                         (if (and rec (= rev (:rev rec)))
-                           (assoc m frame-id
-                                  (-> rec
-                                      (assoc :committed true)
-                                      (dissoc :mount-incomplete
-                                              :preflight-attempt-failed)))
-                           m)))
-                     m writes)))))
+  `:committed` and clear its stale failed-attempt evidence. Guarded by BOTH
+  exact rev and root authority; a mismatch never mutates and emits
+  `:rf.error/frame-preflight-evidence-mismatch`."
+  [receipt-root-id writes]
+  (settle-writes!
+   :finalize receipt-root-id writes
+   (fn [m {:keys [frame-id]} record]
+     (assoc m frame-id
+            (-> record
+                (assoc :committed true)
+                (dissoc :mount-incomplete
+                        :preflight-attempt-failed))))))
+
+(defn- exact-decided-authority-live?
+  "True while a found-live decision still names its exact incarnation + record."
+  [frame-id expected-incarnation expected-record]
+  (let [current (installed-record frame-id)]
+    (and (identical? expected-incarnation
+                     (frame/frame-incarnation-token frame-id))
+         (not (frame/frame-incarnation-closing?
+               frame-id expected-incarnation))
+         (= (:rev expected-record) (:rev current))
+         (= (record-root-id expected-record) (record-root-id current)))))
 
 (defn- execute-frame-plans*
-  "The unserialized decide+record run behind [[execute-frame-plans!]] — see
-  that docstring. JVM callers MUST hold `preflight-run-lock` (rf2-vxgfnd.35).
-  Returns the preflight-attempt receipt `{:root-id … :writes […]}` on success."
-  [root-id plans]
+  "The per-id-reserved decide+record run behind [[execute-frame-plans!]].
+  `reservation-owner` is the exact core owner claimed by the public wrapper and
+  handed into each install/refresh engine entry. Returns the preflight-attempt
+  receipt `{:root-id … :writes […]}` on success."
+  [root-id plans reservation-owner]
   (let [decided
         (mapv (fn [{:keys [frame-id config config-fingerprint] :as plan}]
                 ;; `installed` is the RAW record (carries :rev + :committed);
@@ -552,11 +624,15 @@
                       ;; (rf2-vxgfnd.56 — adoption never grants refresh rights).
                       (if config-bearing?
                         (throw-boot-authority-conflict! root-id plan installed)
-                        (assoc plan ::action :found-live ::prior installed))
+                        (assoc plan ::action :found-live ::prior installed
+                               ::incarnation
+                               (frame/frame-incarnation-token frame-id)))
                       ;; INSTALLED = this-or-another root OWNS the lifetime.
                       (cond
                         (= (:config-fingerprint installed) config-fingerprint)
-                        (assoc plan ::action :found-live ::prior installed)
+                        (assoc plan ::action :found-live ::prior installed
+                               ::incarnation
+                               (frame/frame-incarnation-token frame-id))
 
                         (= (:installed-by installed) root-id)
                         ;; Capture the EXACT incarnation the :refresh decision was
@@ -582,25 +658,35 @@
                     (some? (frame/frame frame-id))
                     (if config-bearing?
                       (throw-boot-authority-conflict! root-id plan nil)
-                      (assoc plan ::action :adopt))
+                      (assoc plan ::action :adopt
+                             ::incarnation
+                             (frame/frame-incarnation-token frame-id)))
 
                     :else
                     (assoc plan ::action :install))))
               plans)
-        ;; The receipt's write log (rf2-vxgfnd.139): one `{:frame-id :rev
-        ;; :provenance}` per record this run wrote or found-live, in document
-        ;; order — see the `abort-writes!` / `finalize-writes!` comment for the
-        ;; provenance vocabulary. Bound to the host boundary by the receipt.
+        ;; The receipt's write log: one `{:frame-id :root-id :rev :provenance}`
+        ;; per record this run may settle, in document order. Foreign equal-plan
+        ;; found-live writes nothing. Bound to the host boundary by the receipt.
         written (volatile! [])]
     (try
       (doseq [{:keys [frame-id config config-fingerprint] :as plan} decided]
         (case (::action plan)
-          ;; the ratified idempotent no-op: no re-seed, no record churn. It
-          ;; STILL rides the receipt (by the found-live record's current rev)
-          ;; so a successful host boundary clears any stale evidence + commits.
+          ;; The ratified idempotent no-op: no re-seed, no record churn. It rides
+          ;; the receipt only when THIS root owns the record. A foreign
+          ;; equal-fingerprint root may scope the frame but gains no settlement
+          ;; rights. Revalidate the exact decision-time incarnation + record
+          ;; before carrying even an owner write to the host boundary.
           :found-live
-          (when-let [rev (:rev (::prior plan))]
-            (vswap! written conj {:frame-id frame-id :rev rev :provenance :found-live}))
+          (let [prior (::prior plan)]
+            (when-not (exact-decided-authority-live?
+                       frame-id (::incarnation plan) prior)
+              (throw-preflight-lifecycle-loss!
+               root-id frame-id :found-live-authority-lost))
+            (when (= root-id (record-root-id prior))
+              (vswap! written conj
+                      {:frame-id frame-id :root-id root-id
+                       :rev (:rev prior) :provenance :found-live})))
 
           ;; a live plan-less (boot-created) frame: create-if-absent means
           ;; create NOTHING. Record only the plan's fingerprint under an
@@ -620,17 +706,14 @@
                   :adopted-by root-id
                   :adopted true
                   :rev rev}
-                 nil)
-              (vswap! written conj {:frame-id frame-id :rev rev :provenance :live})
-              ;; Publication was rejected. If the boot frame this scope ensured is
-              ;; now ABSENT, it vanished mid-preflight (an earlier plan's
-              ;; :initial-events destroyed it): ENSURE cannot scope an absent
-              ;; frame — fail closed (rf2-5svfa1 part A). A still-PRESENT rejection
-              ;; is a concurrent-destroy CLOSING race (a paused cross-thread
-              ;; teardown), whose full coordination is parent .191 part C — leave
-              ;; the pre-existing no-dead-record skip untouched here.
-              (when (nil? (frame/frame frame-id))
-                (throw-preflight-lifecycle-loss! root-id frame-id :ensured-frame-lost))))
+                 (::incarnation plan))
+              (vswap! written conj
+                      {:frame-id frame-id :root-id root-id
+                       :rev rev :provenance :live})
+              ;; Any rejection means the exact decision-time boot incarnation
+              ;; was lost/replaced/closing. Never capture a successor.
+              (throw-preflight-lifecycle-loss!
+               root-id frame-id :ensured-frame-lost)))
 
           ;; :install / :refresh — create-if-absent / surgical refresh;
           ;; :initial-events drain synchronously inside the engine, in
@@ -663,21 +746,21 @@
                        (not (identical? expected
                                         (frame/frame-incarnation-token frame-id))))
               (throw-preflight-lifecycle-loss! root-id frame-id :refresh-target-replaced))
-            (live-frame/make-frame (assoc (or config {}) :id frame-id))
+            (frame/call-with-frame-construction-handoff!
+             reservation-owner frame-id
+             #(live-frame/make-frame (assoc (or config {}) :id frame-id)))
             ;; part A: publish against the EXPECTED authority (the :refresh's
             ;; decision-time incarnation; captured-current for a fresh :install).
-            ;; A rejected write over an ABSENT frame means the ensured incarnation
-            ;; was lost mid-preflight (a self-destroying :initial-events setup) —
-            ;; fail closed instead of silently returning a receipt over an absent
-            ;; frame (rf2-5svfa1 part A). A still-PRESENT rejection is a concurrent
-            ;; CLOSING race (a paused cross-thread teardown), whose coordination is
-            ;; parent .191 part C — leave the pre-existing no-dead-record skip.
+            ;; Any rejected write means the ensured exact incarnation was lost
+            ;; mid-preflight (for example a self-destroying :initial-events
+            ;; setup). Fail closed; never return a receipt over an absent,
+            ;; closing, or replacement frame.
             (if (publish-plan-for-live-incarnation! frame-id record expected)
               (vswap! written conj
-                      {:frame-id frame-id :rev rev
+                      {:frame-id frame-id :root-id root-id :rev rev
                        :provenance (if committed? :live :fresh)})
-              (when (nil? (frame/frame frame-id))
-                (throw-preflight-lifecycle-loss! root-id frame-id :ensured-frame-lost))))))
+              (throw-preflight-lifecycle-loss!
+               root-id frame-id :ensured-frame-lost)))))
       ;; The whole plan run completed. Do NOT finalize here — evidence is bound
       ;; to the host commit boundary (rf2-vxgfnd.139): the client calls
       ;; `finalize-preflight-attempt!` only AFTER its post-preflight ownership
@@ -692,18 +775,39 @@
         ;; :fresh → :mount-incomplete (no root scopes); :live → neutral
         ;; :preflight-attempt-failed (committed scope / boot frame persists,
         ;; Q49). Rev-guarded — never clobbers an overtaking write.
-        (abort-writes! @written)
+        (abort-writes! root-id @written)
         (throw e)))))
 
-#?(:clj
-   (defonce ^:private preflight-run-lock
-     ;; rf2-vxgfnd.35: the ONE process-wide monitor `execute-frame-plans!`
-     ;; serializes under on the JVM — see the ns docstring (§Atomicity
-     ;; posture) for the decide/record race it closes. OUTERMOST in the lock
-     ;; order (taken at host preflight, before any per-frame drain
-     ;; serialization) and reentrant, so a nested same-thread preflight (an
-     ;; `:initial-events` handler that mounts) still enters.
-     (Object.)))
+(defn- throw-preflight-overlap!
+  [root-id {:keys [frame owner-kind reason]}]
+  (error/throw-error!
+   :rf.error/frame-preflight-overlap 're-frame.ui/preflight
+   (str "root " (pr-str root-id) " cannot preflight frame " (pr-str frame)
+        " because that frame id is already reserved by an in-flight "
+        (name (or owner-kind :frame)) " transaction. Same-id overlap fails "
+        "immediately rather than waiting inside setup, adapter, or teardown "
+        "callbacks. Retry after the owning transaction settles; disjoint frame "
+        "ids and plan-free runs proceed independently.")
+   {:recovery :retry-after-frame-preflight
+    :extra {:frame-id   frame
+            :root-id    root-id
+            :reason     reason
+            :owner-kind owner-kind}}))
+
+(defn- claim-preflight-reservations!
+  "Atomically reserve every planned id, translating core contention to the UI
+  preflight discriminator. Empty plans claim nothing."
+  [root-id plans]
+  (let [frame-ids (into #{} (map :frame-id) plans)]
+    (when (seq frame-ids)
+      (try
+        (frame/claim-frame-construction! frame-ids :preflight)
+        (catch #?(:clj clojure.lang.ExceptionInfo :cljs :default) e
+          (let [data (ex-data e)]
+            (if (= :rf.error/frame-construction-in-progress
+                   (:rf.error/id data))
+              (throw-preflight-overlap! root-id data)
+              (throw e))))))))
 
 (defn execute-frame-plans!
   "Execute a root's static frame plans (the LIVE preflight ENSURE — see
@@ -736,38 +840,40 @@
 
   Evidence is BOUND to the host commit boundary (rf2-vxgfnd.139): a run that
   completes its plans does NOT finalize here. It returns a preflight-attempt
-  RECEIPT `{:root-id … :writes [{:frame-id :rev :provenance} …]}`; the client
+  RECEIPT `{:root-id … :writes [{:frame-id :root-id :rev :provenance} …]}`;
+  foreign equal-fingerprint found-live plans carry no settleable write. The client
   (`re-frame.ui.client/mount*` / `render!*`) calls `finalize-preflight-attempt!`
   only after its post-preflight ownership fence + synchronous host render
   succeed, and `abort-preflight-attempt!` if that boundary throws. So a run whose
   plans all succeed but whose host render fails leaves phase-correct evidence
   (a fresh install → `:mount-incomplete`), never a phantom completed installer.
 
-  Concurrency (rf2-vxgfnd.35): on the JVM the whole decide+record run is
-  serialized under one process-wide monitor, so two concurrent callers can
-  never both decide `:install` for one frame-id (the silent
-  last-record-wins overwrite); the loser instead observes the winner's
-  completed record and surfaces the ratified
-  `:rf.error/frame-payload-conflict`. CLJS is single-threaded — the call
-  is direct and lock-free (see the ns docstring §Atomicity posture)."
+  Concurrency: reserve every planned frame id BEFORE phase-1 decision and hold
+  the exact identity-owned claims through publication. Same-id overlap on either
+  host fails immediately with `:rf.error/frame-preflight-overlap`; disjoint ids
+  and plan-free nesting proceed. There is no process-wide monitor and no wait.
+  After release, a retry re-evaluates the committed disposition table."
   [root-id plans]
-  #?(:clj  (locking preflight-run-lock
-             (execute-frame-plans* root-id plans))
-     :cljs (execute-frame-plans* root-id plans)))
+  (if-let [owner (claim-preflight-reservations! root-id plans)]
+    (try
+      (execute-frame-plans* root-id plans owner)
+      (finally
+        (frame/release-frame-construction! owner)))
+    (execute-frame-plans* root-id plans nil)))
 
 (defn finalize-preflight-attempt!
   "The client's HOST-COMMIT-BOUNDARY hook (rf2-vxgfnd.139). Called by
   `re-frame.ui.client` AFTER a preflight `receipt`'s root has passed the
   post-preflight ownership fence AND its synchronous host render has COMMITTED:
   mark every record this exact attempt still owns `:committed` and clear its
-  stale failed-attempt evidence. REV-GUARDED to the exact write — a record
+  stale failed-attempt evidence. REV+ROOT-GUARDED to the exact write — a record
   overwritten (an overtaking root), pruned (a destroy), or reincarnated since is
-  skipped, so a stale receipt can never finalize a newer attempt or a
+  left untouched with typed mismatch evidence, so a stale receipt can never finalize a newer attempt or a
   post-commit boundary. A nil receipt (no static plans, or a capture-hook
   override) is a no-op. Returns nil."
   [receipt]
   (when-let [writes (:writes receipt)]
-    (finalize-writes! writes))
+    (finalize-writes! (:root-id receipt) writes))
   nil)
 
 (defn abort-preflight-attempt!
@@ -777,11 +883,12 @@
   holds the receipt). Mark this attempt's :fresh writes `:mount-incomplete` and
   its :live writes `:preflight-attempt-failed` (a fresh install whose host
   render failed reads as never-scoped; an already-committed refresh / adopted
-  boot frame keeps its committed scope). REV-GUARDED — never clobbers an
-  overtaking write. A nil receipt is a no-op. Returns nil."
+  boot frame keeps its committed scope). REV+ROOT-GUARDED — never clobbers an
+  overtaking write; mismatches emit typed evidence and mutate nothing. A nil
+  receipt is a no-op. Returns nil."
   [receipt]
   (when-let [writes (:writes receipt)]
-    (abort-writes! writes))
+    (abort-writes! (:root-id receipt) writes))
   nil)
 
 ;; ---------------------------------------------------------------------------
