@@ -31,6 +31,10 @@
   (.dispatchEvent el (js/MouseEvent. "click" #js {:bubbles true
                                                    :cancelable true})))
 
+(defn- dispatch-event! [el event-name]
+  (.dispatchEvent el (js/CustomEvent. event-name #js {:bubbles true
+                                                       :cancelable true})))
+
 (defn- install-listener-spy!
   [records]
   (let [proto       (.-prototype js/EventTarget)
@@ -87,6 +91,7 @@
   (reset! delivered [])
   (rf/reg-sub ::target-frame (fn [db _] (:target-frame db)))
   (rf/reg-sub ::node-key (fn [db _] (:node-key db)))
+  (rf/reg-sub ::rows (fn [db _] (:rows db)))
   (rf/reg-event
    ::record
    (fn [{:keys [db]} [_ label]]
@@ -99,7 +104,11 @@
   (rf/reg-event
    ::replace-node
    (fn [{:keys [db]} _]
-     {:db (update db :node-key inc)})))
+     {:db (update db :node-key inc)}))
+  (rf/reg-event
+   ::set-rows
+   (fn [{:keys [db]} [_ rows]]
+     {:db (assoc db :rows rows)})))
 
 (defview passive-panel [{:keys [node-key authored-ref object-ref]}]
   [:div {:data-passive-role "outer"
@@ -108,7 +117,7 @@
                     :capture true}}
    [:button {:key node-key
              :data-passive-role "passive"
-             :ref authored-ref
+             :ref (ui/raw-fn authored-ref)
              :on-click {:event [::record :passive]
                         :passive true}}
     "passive"]
@@ -135,6 +144,142 @@
     (React/createElement selected-passive-panel
                          #js {:authored-ref authored-ref
                               :object-ref object-ref}))))
+
+(defview keyed-passive-list []
+  [:div
+   (for [{:keys [id value]} (ui/sub [::rows])]
+     [:button {:key id
+               :value value
+               :data-passive-role (str "row-" (name id))
+               :on-click {:event [::record :rf.ui/value]
+                          :passive true}}
+      value])])
+
+(defview custom-passive-event-probe []
+  [:rf-passive-probe
+   {:data-passive-role "custom-hyphen-event"
+    :on-my-event {:event [::record :custom-hyphen-event]
+                  :passive true}}])
+
+(deftest keyed-list-passive-listeners-are-owned-per-row-occurrence
+  (if-not (browser?)
+    (is true ":node — browser gate runs keyed passive ownership")
+    (do
+      (register-domain!)
+      (let [records  (atom [])
+            restore! (install-listener-spy! records)
+            rows-a-b [{:id :a :value "A"} {:id :b :value "B"}]
+            rows-b-a (vec (reverse rows-a-b))
+            f        (rf/make-frame {:id ::keyed-list-frame
+                                     :initial-events [[:rf/set-db
+                                                       {:frame-label :keyed
+                                                        :rows rows-a-b}]]})]
+        (async done
+          (let [run
+                (uit/with-root
+                  [root [ui/frame-provider {:frame f} [keyed-passive-list]]]
+                  (let [row-a (uit/query root "[data-passive-role='row-a']")
+                        row-b (uit/query root "[data-passive-role='row-b']")
+                        adds-a (count (records-for @records :add "row-a"))
+                        adds-b (count (records-for @records :add "row-b"))]
+                    (testing "each keyed occurrence owns a live native listener"
+                      (is (= 1 (active-listener-count @records "row-a")))
+                      (is (= 1 (active-listener-count @records "row-b"))))
+                    (click! row-a)
+                    (click! row-b)
+                    (-> (uit/flush! host-turn!)
+                        (.then
+                         (fn []
+                           (is (= [[:keyed "A"] [:keyed "B"]] @delivered)
+                               "both rows dispatch independently through their committed slots")
+                           (reset! delivered [])
+                           (uit/flush! #(uit/dispatch! f [::set-rows rows-b-a]))))
+                        (.then
+                         (fn []
+                           (let [after-a (uit/query root "[data-passive-role='row-a']")
+                                 after-b (uit/query root "[data-passive-role='row-b']")]
+                             (is (identical? row-a after-a)
+                                 "keyed reorder preserves row A's node")
+                             (is (identical? row-b after-b)
+                                 "keyed reorder preserves row B's node")
+                             (is (= adds-a
+                                    (count (records-for @records :add "row-a")))
+                                 "reorder does not churn row A's attachment")
+                             (is (= adds-b
+                                    (count (records-for @records :add "row-b")))
+                                 "reorder does not churn row B's attachment")
+                             (is (= 1 (active-listener-count @records "row-a")))
+                             (is (= 1 (active-listener-count @records "row-b")))
+                             (click! after-b)
+                             (click! after-a)
+                             (uit/flush! host-turn!))))
+                        (.then
+                         (fn []
+                           (is (= [[:keyed "B"] [:keyed "A"]] @delivered)
+                               "reorder cannot cross-retarget the row callbacks")
+                           (reset! delivered [])
+                           (uit/flush! #(uit/dispatch! f [::set-rows [(second rows-a-b)]]))))
+                        (.then
+                         (fn []
+                           (let [survivor (uit/query root "[data-passive-role='row-b']")]
+                             (is (zero? (active-listener-count @records "row-a"))
+                                 "removing row A detaches only row A")
+                             (is (= 1 (active-listener-count @records "row-b"))
+                                 "row B remains live after its sibling is removed")
+                             (click! survivor)
+                             (uit/flush! host-turn!))))
+                        (.then
+                         (fn []
+                           (is (= [[:keyed "B"]] @delivered)))))))]
+            (.then run
+                   (fn []
+                     (is (zero? (active-listener-count @records "row-a")))
+                     (is (zero? (active-listener-count @records "row-b"))
+                         "final unmount leaves no keyed passive listener")
+                     (restore!)
+                     (rf/destroy-frame! f)
+                     (done))
+                   (fn [e]
+                     (restore!)
+                     (rf/destroy-frame! f)
+                     (is false (str "keyed passive fixture rejected: " e))
+                     (done)))))))))
+
+(deftest custom-element-passive-event-keeps-the-verbatim-hyphenated-tail
+  (if-not (browser?)
+    (is true ":node — browser gate runs custom passive event spelling")
+    (do
+      (register-domain!)
+      (let [f (rf/make-frame {:id ::custom-passive-frame
+                              :initial-events [[:rf/set-db
+                                                {:frame-label :custom}]]})]
+        (async done
+          (let [run
+                (uit/with-root
+                  [root [ui/frame-provider {:frame f}
+                         [custom-passive-event-probe]]]
+                  (let [node (uit/query root "rf-passive-probe")]
+                    (is (some? node)
+                        "the proof dispatches on an actual custom-element node")
+                    (if node
+                      (do
+                        (dispatch-event! node "my-event")
+                        (-> (uit/flush! host-turn!)
+                            (.then
+                             (fn []
+                               (is (= [[:custom :custom-hyphen-event]]
+                                      @delivered)
+                                   (str "CustomEvent(\"my-event\") reaches the "
+                                        "verbatim passive listener"))))))
+                      (js/Promise.resolve nil))))]
+            (.then run
+                   (fn []
+                     (rf/destroy-frame! f)
+                     (done))
+                   (fn [e]
+                     (rf/destroy-frame! f)
+                     (is false (str "custom passive event fixture rejected: " e))
+                     (done)))))))))
 
 (deftest passive-native-listeners-own-options-order-retarget-and-cleanup
   (if-not (browser?)

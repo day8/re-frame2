@@ -151,6 +151,19 @@
         (unchecked-set seen ks true))))
   k)
 
+(defn assert-object-ref!
+  "Development assertion for an unmarked dynamic :ref value. Callback refs
+  are commit-phase functions and must be explicitly authored with ui/raw-fn;
+  this check never invokes or mutates the supplied value."
+  [ref-value]
+  (when (fn? ref-value)
+    (error/throw-error!
+     :rf.error/ui-tree-malformed 're-frame.ui/render
+     (str "a dynamic :ref produced a function, but callback refs must be "
+          "explicit: (ui/raw-fn f); object refs are preferred")
+     {:extra {:value ref-value :kind :unmarked-callback-ref}}))
+  ref-value)
+
 (defn child
   "Dev validation of a DYNAMIC child value (the rejection roster's
   runtime arm): CLJS collections, seqs, keywords and symbols are not

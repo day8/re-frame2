@@ -383,23 +383,28 @@
   any authored callback/object ref and owns exactly one native listener per
   spec. An unchanged committed element reuses the exact ref; option/ref changes
   make React clean the old attachment before installing the new one."
-  [specs authored-ref]
-  (let [^js candidate (capture-or-throw!)
-        owner     (.-owner candidate)
-        listeners (mapv (fn [[_site-key event-name callback capture?]]
-                          {:event-name event-name
-                           :callback callback
-                           :capture? (boolean capture?)})
-                        specs)
-        group-key (mapv first specs)
-        prior     (or (get (.-nativeRefs candidate) group-key)
-                      (get (.-nativeRefs owner) group-key))
-        entry     (if (matching-native-entry? prior listeners authored-ref)
-                    prior
-                    (make-native-ref-entry listeners authored-ref))]
-    (set! (.-nativeRefs candidate)
-          (assoc (.-nativeRefs candidate) group-key entry))
-    (:ref entry)))
+  ([specs authored-ref]
+   (passive-ref specs authored-ref nil))
+  ([specs authored-ref occurrence-path]
+   (let [^js candidate (capture-or-throw!)
+         owner     (.-owner candidate)
+         listeners (mapv (fn [[_site-key event-name callback capture?]]
+                           {:event-name event-name
+                            :callback callback
+                            :capture? (boolean capture?)})
+                         specs)
+         ;; Lexical event sites identify the element shape; the enclosing row
+         ;; keys identify the concrete native attachment. Capture-free data
+         ;; callbacks remain shared across rows as the public loop law promises.
+         group-key [occurrence-path (mapv first specs)]
+         prior     (or (get (.-nativeRefs candidate) group-key)
+                       (get (.-nativeRefs owner) group-key))
+         entry     (if (matching-native-entry? prior listeners authored-ref)
+                     prior
+                     (make-native-ref-entry listeners authored-ref))]
+     (set! (.-nativeRefs candidate)
+           (assoc (.-nativeRefs candidate) group-key entry))
+     (:ref entry))))
 
 (defn dynamic-handler
   "Classify a dynamic handler-position value at render time, then publish its
