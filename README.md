@@ -83,7 +83,7 @@ Well, beyond the novel parts, re-frame2 comes with SOTA batteries in various dim
   - **[Story](https://day8.github.io/re-frame2/story/)** — a Storybook-class component playground. Parity with [Storybook 9](https://storybook.js.org/), [Histoire](https://histoire.dev/), and [Ladle](https://ladle.dev/) on the chrome shape, *plus* differentiators those tools can't easily reach: EDN-first variants (round-trip through MCP and visual-regression services), schema-derived controls (Malli walks generate the args editor automatically), per-variant frame isolation (no state leaks between scenarios), machine-state visualisation, a time-travel scrubber linked to the trace stream, and Test Codegen (record canvas interactions as a `:play` body — Storybook 9's killer feature, with Story's EDN-first form making the captured output cleaner).
   - **[Routing](https://day8.github.io/re-frame2/guide/19-routing/)** — URL-driven navigation with frame-aware semantics. Routes are registry entries; navigation is an event; `:route` is a sub. Per-pane routes are possible because frames are a thing. Same handler runs server- and client-side.
   - **[SSR](https://day8.github.io/re-frame2/guide/20-server-side/)** — server-side rendering and hydration that doesn't require a different mental model. Pure hiccup → HTML emitter, JVM-runnable (no React-on-the-server needed). Per-request frame lifecycle. Hydration-mismatch detection with structured error projection. `:rf/hydrate` is an event like any other.
-  - **[State Machines](https://day8.github.io/re-frame2/guide/12-machines/)** — near-parity with [XState v6](https://stately.ai/) (a wonderful library we've learned much from), and improved by deep integration into the framework rather than living as a sidecar. Machines are event-handlers; their transitions ride the same event pipeline every other event does; snapshots are values you can scrub, restore, and observe through the trace bus. Hierarchical states, parallel regions, history states (shallow / deep / default-target), `:after`, `:always`, declarative `:spawn`, spawn-and-join, actor model, `:tags` query layer. History states ride the revertible snapshot — the recording is part of the value, so restore-epoch and SSR hydration get it for free, with no parallel side-table.
+  - **[State Machines](https://day8.github.io/re-frame2/guide/12-machines/)** — near-parity with [XState v6](https://stately.ai/) (a wonderful library we've learned much from), the alpha-stage [design direction](spec/005-StateMachines.md#lessons-from-xstate-deliberate-divergences) re-frame2 tracks for behavioural parity rather than a released compatibility target, and improved by deep integration into the framework rather than living as a sidecar. Machines are event-handlers; their transitions ride the same event pipeline every other event does; snapshots are values you can scrub, restore, and observe through the trace bus. Hierarchical states, parallel regions, history states (shallow / deep / default-target), `:after`, `:always`, declarative `:spawn`, spawn-and-join, actor model, `:tags` query layer. History states ride the revertible snapshot — the recording is part of the value, so restore-epoch and SSR hydration get it for free, with no parallel side-table.
   - **[Flows](https://day8.github.io/re-frame2/guide/25-from-re-frame-v1/#on-changes-becomes-flows)** — registered, runtime-toggleable derived-computation declarations that recompute only when inputs change. Reactive without the framework gymnastics. The v2 incarnation of v1's `on-changes` interceptor, but registered globally and toggleable as data rather than scattered across event handlers.
   - **[Schemas](https://day8.github.io/re-frame2/guide/08-schemas/)** — Malli-backed boundary validation, opt-in, production-elidable via Closure dead-code elimination. Validate at every documented boundary — event vector, sub return, cofx, app-db slice. Pay for exactly what you turn on; production builds carry zero overhead.
   - **[Security](https://day8.github.io/re-frame2/guide/how-to/keep-secrets-out-of-traces/)** — auth tokens shouldn't be leaked in logs or sent to tools. re-frame2 has first-class mechanisms to help here: you classify data once at its owner, the framework projects it at every trust boundary under a named egress profile, and sinks consume records that are already safe. There is also a spec-level [Security Contract](spec/Security.md).
@@ -92,7 +92,7 @@ Well, beyond the novel parts, re-frame2 comes with SOTA batteries in various dim
 
 ## Status
 
-Alpha. I'm still preserving optionality.
+Pre-alpha. I'm still preserving optionality.
 
 We are building apps against the ClojureScript reference implementation, however out of an abundance of caution I have not yet published artifacts to Clojars and NPM. Soon.
 
@@ -152,7 +152,8 @@ spec/                          Full specification (AI-targeted; the primary arte
   Pattern-*.md                 Worked-example conventions (Forms, RemoteData, WebSocket, ...)
   conformance/                 EDN fixture corpus
 docs/
-  guide/                       Human-facing guide (marketing voice)
+  index.md                     Human guide landing
+  core/                        Core track
   release-process.md           Operational doc — multi-artefact release pipeline
   quiet-tests.md               Recipe for silent-on-success cljs.test / clojure.test reporters
 examples/                      Worked examples grouped per substrate (reagent canonical full
@@ -237,6 +238,8 @@ skills/                        Claude skills
   re-frame-migration/          re-frame v1.x → re-frame2 migration skill
   shared/                      Cross-skill protocols (retro-protocol, evidence discipline)
 ```
+
+**Start here:** [The user guide](docs/index.md), followed by the [Core track](docs/core/introduction.md).
 
 ## Information for AIs
 
