@@ -47,6 +47,13 @@ Two contract facts, each pinned against the shipped spec:
     "plain fn" subject + an inherit-verb on one line and so missed this distinct
     "pins to `:rf/default`" wording — hence the dedicated narrow rule.)
 
+  * **Form-3 lifecycle frame targeting — hooks have no ambient frame.** A stock
+    Reagent Form-3 lifecycle callback runs after the registered render scope has
+    unwound. A one-shot hook read therefore uses `(rf/subscribe-once query-v
+    {:frame frame})`, and teardown uses frame-first `(rf/unsubscribe frame
+    query-v)`. The stale affirmative recipe this gate kills is a lifecycle hook
+    that recommends the bare one-argument form for either operation.
+
   * **Boot-smoke Pair partition mismatch (rf2-j538f7.33) — an app-db-only Pair
     read aimed at a runtime-db path.** The boot smoke-test (references/runtime-
     smoke-test.md) must read the two runtime partitions with the right tool.
@@ -89,9 +96,10 @@ A fourth, structurally different guard (rf2-3fc89f.35) rides the same gate:
 
 Scan surface: the user-facing migration-skill leaves (SKILL.md + references/*.md)
 PLUS the migration corpus the skill treats as source of truth
-(migration/from-re-frame-v1/README.md), since the review found the same drift in
-both. The skill's `spec/` re-authoring meta-docs are out of scope (not loaded
-during normal operation).
+(migration/from-re-frame-v1/README.md) and the two Reagent adapter README entry
+points that migration guidance links to, since the review found the same drift
+across those user-facing surfaces. The skill's `spec/` re-authoring meta-docs
+are out of scope (not loaded during normal operation).
 
 Exit code:
     0  no drift detected
@@ -128,6 +136,10 @@ for _stream in (sys.stdout, sys.stderr):
 
 SKILL_DIR = REPO_ROOT / "skills" / "re-frame-migration"
 MIGRATION_MD = REPO_ROOT / "migration" / "from-re-frame-v1" / "README.md"
+ADAPTER_READMES = (
+    REPO_ROOT / "implementation" / "adapters" / "reagent" / "README.md",
+    REPO_ROOT / "implementation" / "adapters" / "reagent-slim" / "README.md",
+)
 
 
 def _scanned_files() -> list[Path]:
@@ -138,6 +150,7 @@ def _scanned_files() -> list[Path]:
     files = [SKILL_DIR / "SKILL.md"]
     files.extend(sorted((SKILL_DIR / "references").glob("*.md")))
     files.append(MIGRATION_MD)
+    files.extend(ADAPTER_READMES)
     return files
 
 
@@ -268,6 +281,25 @@ PAIR_PARTITION_NEGATION_RE = re.compile(
     re.IGNORECASE,
 )
 
+# --- Rule 5: stock-Reagent Form-3 lifecycle advice must target the captured
+# frame explicitly. The one-argument forms are valid while a real resolver scope
+# exists, so this rule deliberately requires lifecycle/hook wording on the SAME
+# line and clears corrected negative examples ("a bare call throws").
+FORM3_LIFECYCLE_RE = re.compile(
+    r"form-3|component-did-mount|component-did-update|component-will-unmount"
+    r"|lifecycle",
+    re.IGNORECASE,
+)
+FORM3_BARE_LIFECYCLE_CALL_RE = re.compile(
+    r"\((?:rf/)?(?:subscribe-once|unsubscribe)\s+[^\s()]+\)",
+    re.IGNORECASE,
+)
+FORM3_BARE_LIFECYCLE_NEGATION_RE = re.compile(
+    r"\bbare\b|raise(?:s|d)?|throw(?:s|n)?|no-frame-context|do not|don't"
+    r"|must not|never|invalid|wrong|omit(?:s|ted)?|instead",
+    re.IGNORECASE,
+)
+
 
 def _slurp(path: Path) -> str:
     return path.read_text(encoding="utf-8")
@@ -343,6 +375,22 @@ def line_problems(line: str) -> list[str]:
             "\"full\"}}` slice (needs `--allow-sensitive-reads` + per-call "
             "`include-sensitive: true`; a `:rf/redacted`/summary result is "
             "INCONCLUSIVE, never absence). (rf2-j538f7.33.)"
+        )
+
+    # Rule 5 — affirmative Form-3 lifecycle advice using a bare frame-scoped
+    # one-shot read or teardown after the resolver scope has unwound.
+    if (
+        FORM3_LIFECYCLE_RE.search(line)
+        and FORM3_BARE_LIFECYCLE_CALL_RE.search(line)
+        and not FORM3_BARE_LIFECYCLE_NEGATION_RE.search(line)
+    ):
+        problems.append(
+            "FORM3-BARE-LIFECYCLE: a Form-3 lifecycle callback has no ambient "
+            "frame after render scope unwinds. Capture the frame once in the "
+            "registered outer callable; use `(rf/subscribe-once query-v "
+            "{:frame frame})` for a hook one-shot read and frame-first "
+            "`(rf/unsubscribe frame query-v)` for teardown. Do not recommend "
+            "the bare one-argument forms in lifecycle guidance."
         )
 
     return problems
@@ -574,8 +622,8 @@ def run(*, verbose: bool, ci: bool) -> int:
             print(
                 "contract-drift: no plain-fn-inherits-frame (M-11), "
                 "moved-to-frame-level-:on-error (M-13), boot-smoke Pair "
-                "partition-mismatch (Rule 4), or M-1 classifier / kickoff-anchor "
-                "drift found."
+                "partition-mismatch (Rule 4), Form-3 bare-lifecycle targeting "
+                "(Rule 5), or M-1 classifier / kickoff-anchor drift found."
             )
         return 0
 
@@ -589,8 +637,8 @@ def run(*, verbose: bool, ci: bool) -> int:
         "recovery policy), the boot-smoke Pair partition contract (app-db-only "
         "`get-path`/`snapshot {path:}` CANNOT read runtime-db; use "
         "`read-sub [:rf/machine <id>]`), and the M-1 classifier (public "
-        "destinations exempt, private internals flagged) / kickoff anchors to the "
-        "shipped contract."
+        "destinations exempt, private internals flagged) / kickoff anchors, plus "
+        "Form-3 lifecycle explicit-frame targeting, to the shipped contract."
     )
     return 1
 
@@ -765,6 +813,23 @@ def _self_test() -> int:
     expect(
         'a `get-path {path: "[:session :ready?]"}` read of an app-db seed slot.',
         dirty=False, label="D6 get-path at an app-db slot (correct)",
+    )
+
+    # --- Rule 5 fixtures — stock-Reagent Form-3 lifecycle targeting ------------
+    expect(
+        "In :component-did-mount read `(rf/subscribe-once query-v)` and in "
+        ":component-will-unmount call `(rf/unsubscribe query-v)`.",
+        dirty=True, label="E1 Form-3 lifecycle recommends bare read/teardown",
+    )
+    expect(
+        "In a Form-3 hook use `(rf/subscribe-once query-v {:frame frame})`; "
+        "teardown is `(rf/unsubscribe frame query-v)`.",
+        dirty=False, label="E2 Form-3 lifecycle targets captured frame",
+    )
+    expect(
+        "A bare `(rf/subscribe-once query-v)` in a lifecycle hook throws "
+        "`:rf.error/no-frame-context`.",
+        dirty=False, label="E3 negative bare lifecycle example",
     )
 
     # --- M-1 classifier fixtures (rf2-3fc89f.35) --------------------------------

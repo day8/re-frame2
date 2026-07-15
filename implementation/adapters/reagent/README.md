@@ -2,7 +2,7 @@
 
 Maven artefact: `day8/re-frame2-reagent`. Target: Reagent 2.x on React 19. Public ns: `re-frame.adapter.reagent`.
 
-This is the canonical CLJS reference adapter — the substrate `reg-view` was designed against. It implements the contract from [Spec 006 — Reactive substrate](../../../spec/006-ReactiveSubstrate.md) on top of Reagent's RAtom/Reaction graph and React commit lifecycle.
+This is the stock-Reagent compatibility adapter. New UI work defaults to `re-frame.ui`; this adapter keeps existing classic Reagent views working while they migrate. It implements the contract from [Spec 006 — Reactive substrate](../../../spec/006-ReactiveSubstrate.md) on top of Reagent's RAtom/Reaction graph and React commit lifecycle.
 
 See [`../README.md`](../README.md) for the wider adapter tier and the substrate contract; [Spec 004 — Views](../../../spec/004-Views.md) for `reg-view` / `reg-view*` semantics.
 
@@ -44,7 +44,7 @@ The escape hatch is **Form-3** via [`reagent.core/create-class`](https://reagent
 
 ### Outer / inner pattern
 
-Compose Form-3 with the standard outer/inner split: the **outer** view is Form-1 (registered via `reg-view`), reads subscriptions, and produces props; the **inner** view is the Form-3 class component that owns the library's lifecycle. The outer recomputes whenever subs change and feeds new props into the inner; the inner's `:component-did-update` reacts imperatively.
+Compose Form-3 with the standard outer/inner split: the **outer** view is Form-1 (registered via `reg-view`), reads subscriptions, and produces props; the **inner** view is a Form-3 class component that owns the library's lifecycle. Its `reg-view*` callable is a one-shot per-mounted-instance factory: capture the immutable frame handle and allocate instance state there, then return `create-class`. The outer recomputes whenever subs change and feeds new props into the inner; the inner's `:component-did-update` reacts imperatively.
 
 ```clojure
 (ns my-app.charts
@@ -56,7 +56,7 @@ Compose Form-3 with the standard outer/inner split: the **outer** view is Form-1
   (fn [_initial-spec]
     (let [el-ref        (atom nil)
           vega-instance (atom nil)
-          dispatch      (:dispatch (rf/capture-frame))]   ;; captured at render — carries the frame
+          {:keys [frame dispatch]} (rf/capture-frame)] ; captured once by this mount's factory
       (r/create-class
         {:display-name "vega-inner"
 
@@ -89,16 +89,18 @@ Compose Form-3 with the standard outer/inner split: the **outer** view is Form-1
     [(rf/view :my-app.charts/vega-inner) spec]))
 ```
 
-Four things matter:
+Six things matter:
 
 1. **The inner owns instance state in closure atoms.** `el-ref` and `vega-instance` are per-mount; don't use top-level `def` or `defonce` here — those leak across mounts.
 2. **Cleanup is mandatory.** `:component-will-unmount` releases the library instance and event listeners. Without it, every navigation that unmounts the chart leaks the library's internal state, listeners, and tile/data caches.
-3. **`(:dispatch (rf/capture-frame))` is captured during render**, not inside the lifecycle callback. The frame api carries the surrounding frame; the lifecycle callback fires after commit but the closure is established at render-time, so dispatches from the callback resolve to the right frame.
-4. **Subscriptions live in the outer, not in the lifecycle callbacks.** The inner's `:reagent-render` can deref subs too, but reactive context is undefined inside `:component-did-mount` / `:component-did-update` / `:component-will-unmount` — don't `@(subscribe …)` there.
+3. **Capture once in the registered outer callable**, before `create-class`; do not recapture or replace the handle in `:reagent-render` or a lifecycle callback. The callable runs once for each mounted instance under the registered view's frame scope. Lifecycle callbacks fire after that scope has unwound, but the captured operations remain locked to the mount's frame.
+4. **Lifecycle reads and teardown name the captured frame explicitly.** A bare call in a hook raises `:rf.error/no-frame-context`. For a one-shot current value use `(rf/subscribe-once query-v {:frame frame})`. If the class exceptionally acquires a live reaction through captured `subscribe`, acquire it once in the outer callable, deref it in `:reagent-render`, and pair it with `(rf/unsubscribe frame query-v)` in `:component-will-unmount`.
+5. **A captured handle is invariant for the mount.** If a surrounding provider retargets from frame A to B, key the Form-3 child by frame so React first unmounts and cleans up the A instance, then mounts a fresh factory that captures B. Never mutate A's closed-over handle into B.
+6. **A top-level singleton class is only for frame-independent components.** If an existing singleton reads, dispatches, subscribes, or tears down against a frame, rewrite it as the per-mount outer callable above so sibling instances do not share frame capture or mutable lifecycle state.
 
 ### Cross-references
 
 - [Spec 004 §Form-3 (class — out of scope for the macro)](../../../spec/004-Views.md#removed-forms--normative-absences) — why Form-3 ships through `reg-view*` rather than the macro.
-- [Spec 004 §Views MUST NOT attach native DOM event listeners from render bodies](../../../spec/004-Views.md#effects-and-leases--the-view-side-surface) and [§Views MUST NOT own imperative library lifecycles directly](../../../spec/004-Views.md#effects-and-leases--the-view-side-surface) — bare `addEventListener` in a render body leaks listeners and silently routes dispatches to `:rf/default`; library lifecycles belong in Form-3.
-- [Spec 002 §Dispatches issued from inside a handler body](../../../spec/002-Frames.md#dispatches-issued-from-inside-a-handler-body) — async callbacks escape the dynamic frame binding; capture `(:dispatch (rf/capture-frame))` at render-time to carry the frame.
+- [Spec 004 §Views MUST NOT attach native DOM event listeners from render bodies](../../../spec/004-Views.md#effects-and-leases--the-view-side-surface) and [§Views MUST NOT own imperative library lifecycles directly](../../../spec/004-Views.md#effects-and-leases--the-view-side-surface) — bare `addEventListener` in a render body leaks listeners, and a later ambient dispatch with no carried frame raises `:rf.error/no-frame-context`; library lifecycles belong in Form-3.
+- [Spec 002 §Dispatches issued from inside a handler body](../../../spec/002-Frames.md#dispatches-issued-from-inside-a-handler-body) — async callbacks escape the dynamic frame binding; capture the frame handle once in the registered outer callable to carry it into the class lifecycle.
 - **Outer/inner Pattern (Pattern-OuterInner)** — the canonical home for wrapping stateful JS components (D3, Mapbox, animation libraries); the worked example above is one instance.

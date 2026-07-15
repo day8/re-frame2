@@ -44,6 +44,9 @@
           Reagent's per-render machinery. The simplest correct shape
           is to wrap the returned fn so the inner output gets walked
           too.
+        * Form-3: a `create-class` result also satisfies `fn?`, but it
+          must pass through unchanged so Reagent mounts the class rather
+          than repeatedly treating it as another Form-2 render fn.
 
     - The wrapper MUST annotate the existing root element. It never
       introduces a synthetic `[:div]`, which would change layout and
@@ -56,7 +59,8 @@
       `data-rf2-source-coord` and `data-rf-view` literals are part of
       the production-bundle elision sentinel set (see
       `scripts/check-elision.cjs`)."
-  (:require [re-frame.adapter.context :as adapter-context]
+  (:require [reagent.impl.component :as reagent-component]
+            [re-frame.adapter.context :as adapter-context]
             [re-frame.views.warn-once :as warn-once]))
 
 ;; `format-source-coord` / `format-view-id` are the pure string projections
@@ -90,11 +94,22 @@
   This fn annotates the existing root element; it never wraps the output
   with a synthetic element that would alter layout or selector semantics.
 
-  Form-2: when `out` is a fn, return a fn that recurses on the inner
-  output — Reagent's renderer will call our returned fn just like
-  the user's fn, and we get a chance to annotate the inner hiccup."
+  Form-2: when `out` is a plain fn, return a fn that recurses on the
+  inner output — Reagent's renderer will call our returned fn just like
+  the user's fn, and we get a chance to annotate the inner hiccup.
+
+  Form-3: a `reagent.core/create-class` value is callable too, but it is
+  a component class rather than a Form-2 render fn. Pass it through so
+  Reagent can mount the class; recursively wrapping it as Form-2 never
+  reaches the class renderer."
   [id coord-attr out]
   (cond
+    ;; create-class values satisfy fn?, but Reagent must see the class itself
+    ;; in order to install its lifecycle methods. This check therefore stays
+    ;; ahead of the plain Form-2 branch.
+    (and (fn? out) (reagent-component/reagent-class? out))
+    out
+
     ;; Form-2: render-fn returned a fn. Wrap so the inner fn's output
     ;; is also annotated when Reagent calls through.
     (fn? out)
