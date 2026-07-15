@@ -339,7 +339,36 @@
     ;; declaring ns so a hot-reload that DROPS this declaration evicts its
     ;; stale runtime row — the runtime arm of the same eviction model
     ;; (rf2-vxgfnd.48).
-    (build/contribute! build/elements ns-sym tag {:properties props})
+    ;;
+    ;; The ONE cross-source declaration law (rf2-vxgfnd.143, delegated ruling
+    ;; 2026-07-15 Option A): rf=-equal duplicates co-exist; a CONTRADICTORY
+    ;; declaration of the same tag from another source fails ATOMICALLY with
+    ;; both [build-id ns-sym] anchors and leaves the last-known-good aggregate
+    ;; unchanged. Which of two contradicting sources expands second decides
+    ;; only WHERE the failure is anchored — never who wins, and never whether
+    ;; the build fails. `:declarations` evidence is sorted, so it is identical
+    ;; under every source / evaluation / build-order permutation.
+    (let [decl {:properties props}]
+      (when-let [{:keys [conflict]} (build/contribute-element-checked!
+                                     ns-sym tag decl)]
+        (let [build-id (build/current-build-id)
+              rows (vec (sort-by (juxt (comp str :build) (comp str :ns))
+                                 [{:build build-id
+                                   :ns (:owner conflict)
+                                   :properties (:properties (:declaration conflict) #{})}
+                                  {:build build-id :ns ns-sym :properties props}]))]
+          (fail :rf.ui.compile/custom-element-conflict
+                (str "conflicting (ui/custom-element " tag " ...) declarations — "
+                     (str/join " vs "
+                               (map (fn [{:keys [ns properties]}]
+                                      (str ns " declares :properties "
+                                           (pr-str (vec (sort properties)))))
+                                    rows))
+                     ". One tag has ONE property manifest: delete the duplicate "
+                     "declaration, or make both sources declare an IDENTICAL "
+                     ":properties set (identical declarations may co-exist). "
+                     "re-frame.ui will not pick a winner by compile order")
+                {:tag tag :declarations rows}))))
     `(re-frame.ui.rules/register-custom-element!
       ~tag {:properties ~props} '~ns-sym)))
 

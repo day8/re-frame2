@@ -94,6 +94,8 @@
     :rf.ui.compile/unknown-option
     :rf.ui.compile/bad-view-id
     :rf.ui.compile/bad-custom-element
+    ;; the ONE cross-source custom-element declaration law (rf2-vxgfnd.143)
+    :rf.ui.compile/custom-element-conflict
     ;; root identity + mount surface (S1c, rf2-vxgfnd.3 — folded into
     ;; the frozen set by the S1f sweep, rf2-vxgfnd.6)
     :rf.ui.compile/bad-root-id
@@ -140,8 +142,13 @@
                              runtime-root-form / frame-root-misplaced /
                              bad-frame-root
     root_mount_jvm_test      client-entry-on-jvm
-    test_render_jvm_test     bad-test-render-form / bad-test-root"
-  #{:rf.ui.compile/bad-root-id
+    test_render_jvm_test     bad-test-render-form / bad-test-root
+    custom_element_conflict_jvm_test
+                             custom-element-conflict (needs TWO declaring
+                             sources in one build — not reachable by
+                             macroexpanding a single form)"
+  #{:rf.ui.compile/custom-element-conflict
+    :rf.ui.compile/bad-root-id
     :rf.ui.compile/bad-disambiguator
     :rf.ui.compile/bad-root-opts
     :rf.ui.compile/no-single-mounted-view
