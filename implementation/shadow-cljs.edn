@@ -337,6 +337,10 @@
                 ;; surface (no example :requires anything under
                 ;; testbeds/, and vice versa).
                 "../testbeds"
+                ;; Gate-owned advanced modules which prove each optional/tooling
+                ;; bundle-isolation sentinel is emitted by its declared owner.
+                ;; No production build requires these fixtures.
+                "scripts/bundle-isolation-positive-control/src"
                 ;; re-frame2-pair.runtime preload (skills/re-frame2-pair/preload).
                 ;; Added so dev builds can be attached to via the
                 ;; re-frame2-pair Tool-Pair transport for live debugging.
@@ -998,6 +1002,53 @@
    :compiler-options {:closure-defines {goog.DEBUG false}}
    :modules          {:probe {:init-fn re-frame.schemas-bundle-probe-malli/boot}}}
 
+  ;; Non-vacuous positive half of the bundle-isolation gate. `release` gives
+  ;; this build the same :advanced Closure mode as :examples/counter, and both
+  ;; builds pin goog.DEBUG=false explicitly. One module per owner is
+  ;; load-bearing: the checker inspects the exact module file, so a matching
+  ;; literal emitted by a sibling cannot satisfy the wrong artefact.
+  :bundle-isolation-positive-control
+  {:target           :browser
+   :output-dir       "out/bundle-isolation-positive-control"
+   :asset-path       "."
+   :compiler-options {:closure-defines {goog.DEBUG false}}
+   :modules
+   {:trace-tooling     {:init-fn re-frame.bundle-isolation-positive-control.trace-tooling/run}
+    :routing           {:init-fn re-frame.bundle-isolation-positive-control.routing/run
+                        :depends-on #{:trace-tooling}}
+    :flows             {:init-fn re-frame.bundle-isolation-positive-control.flows/run
+                        :depends-on #{:trace-tooling}}
+    :epoch             {:init-fn re-frame.bundle-isolation-positive-control.epoch/run
+                        :depends-on #{:trace-tooling}}
+    :ssr               {:init-fn re-frame.bundle-isolation-positive-control.ssr/run
+                        :depends-on #{:trace-tooling}}
+    :subs-tooling      {:init-fn re-frame.bundle-isolation-positive-control.subs-tooling/run
+                        :depends-on #{:trace-tooling}}
+    :flows-tooling     {:init-fn re-frame.bundle-isolation-positive-control.flows-tooling/run
+                        :depends-on #{:flows}}
+    :resources-tooling {:init-fn re-frame.bundle-isolation-positive-control.resources-tooling/run
+                        :depends-on #{:trace-tooling}}
+    :routing-tooling   {:init-fn re-frame.bundle-isolation-positive-control.routing-tooling/run
+                        :depends-on #{:routing}}
+    :machines-tooling  {:init-fn re-frame.bundle-isolation-positive-control.machines-tooling/run
+                        :depends-on #{:trace-tooling}}
+    :derivation-graph  {:init-fn re-frame.bundle-isolation-positive-control.derivation-graph/run
+                        :depends-on #{:subs-tooling}}
+    :derivation-egress {:init-fn re-frame.bundle-isolation-positive-control.derivation-egress/run
+                        :depends-on #{:trace-tooling}}
+    :trace-cascade     {:init-fn re-frame.bundle-isolation-positive-control.trace-cascade/run
+                        :depends-on #{:trace-tooling}}
+    :story             {:init-fn re-frame.bundle-isolation-positive-control.story/run
+                        :depends-on #{:trace-tooling}}
+    :xyflow            {:init-fn re-frame.bundle-isolation-positive-control.xyflow/run
+                        :depends-on #{:trace-tooling}}
+    :elkjs             {:init-fn re-frame.bundle-isolation-positive-control.elkjs/run
+                        :depends-on #{:trace-tooling}}
+    :zprint            {:init-fn re-frame.bundle-isolation-positive-control.zprint/run
+                        :depends-on #{:trace-tooling}}
+    :editscript        {:init-fn re-frame.bundle-isolation-positive-control.editscript/run
+                        :depends-on #{:trace-tooling}}}}
+
   ;; ============================================================================
   ;; Example apps (rf2-lyj0).
   ;;
@@ -1017,6 +1068,7 @@
   {:target     :browser
    :output-dir "out/examples/counter"
    :asset-path "."
+   :compiler-options {:closure-defines {goog.DEBUG false}}
    :modules    {:main {:init-fn counter.core/run}}
    ;; Xray Phase 1 smoke (rf2-n6x4q). Pulling the preload here is the
    ;; convention-anchoring path standing rule: every Phase-2+ panel

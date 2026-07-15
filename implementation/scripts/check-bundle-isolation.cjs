@@ -15,7 +15,7 @@
  *     trace.cascade, Story) — dev/inspection surfaces gated behind the
  *     Xray preload;
  *   - dev-only npm/Maven dependencies machines-viz + the Xray EDN widget
- *     pull in (xyflow / elkjs / cljs-devtools / zprint / editscript).
+ *     pull in (xyflow / elkjs / zprint / editscript).
  * Every one of these was verified at PR-time with a one-shot grep against
  * this same bundle; this script makes the assertion permanent so a future
  * change that accidentally re-imports a split-out namespace into core
@@ -206,34 +206,16 @@ const ARTEFACTS = [
   // the producing fns up through the late-bind hook table at call time;
   // a non-zero internal-sentinel hit means the epoch namespace got
   // dragged in (most likely a stray `:require` in a core/* ns — per
-  // audit rf2-i0veg §5c). The trace-op keywords below are emitted from
-  // epoch.cljc's function bodies as keyword data and survive `:advanced`
-  // (string literals are not renamed) regardless of whether
-  // `interop/debug-enabled?` gates the emission callsite.
+  // audit rf2-i0veg §5c). These two literals survive the real
+  // goog.DEBUG=false owner module: listener-failure reporting and record
+  // assembly remain reachable while the debug-only restore trace ids DCE.
   {
     name: 'epoch',
     internalSentinels: [
-      // epoch.cljc — restore-schema-mismatch trace op-name (a string
-      // literal inside `enabled-ops` and emitted from the restore
-      // path). Unique to epoch.cljc.
-      { source: 're-frame.epoch (rf.epoch/restore-schema-mismatch)',
-        sentinel: 'rf.epoch/restore-schema-mismatch' },
-      // epoch.cljc — restore-during-drain trace op-name. Second
-      // sentinel guards against a future rename of one but not the other.
-      { source: 're-frame.epoch (rf.epoch/restore-during-drain)',
-        sentinel: 'rf.epoch/restore-during-drain' },
-      // epoch.cljc — on-frame-destroyed! emits this per silenced cb.
-      { source: 're-frame.epoch on-frame-destroyed! (rf.epoch.cb/silenced-on-frame-destroy)',
-        sentinel: 'rf.epoch.cb/silenced-on-frame-destroy' },
-      // epoch.cljc — replace-app-db! success trace.
-      { source: 're-frame.epoch replace-app-db! (rf.epoch/db-replaced)',
-        sentinel: 'rf.epoch/db-replaced' },
-      // epoch.cljc — replace-app-db! drain-in-flight rejection.
-      { source: 're-frame.epoch replace-app-db! (rf.epoch/replace-during-drain)',
-        sentinel: 'rf.epoch/replace-during-drain' },
-      // epoch.cljc — replace-app-db! schema-mismatch rejection.
-      { source: 're-frame.epoch replace-app-db! (rf.epoch/replace-schema-mismatch)',
-        sentinel: 'rf.epoch/replace-schema-mismatch' },
+      { source: 're-frame.epoch.listeners listener failure diagnostic',
+        sentinel: 'rf.epoch.cb/listener-exception' },
+      { source: 're-frame.epoch.assembly redacted-path count',
+        sentinel: 'rf.epoch/redacted-modified-paths-count' },
     ],
     // One consumer-side string: `epoch/settle!` — the late-bind hook
     // key the router calls into at drain-empty (router.cljc). Core
@@ -278,10 +260,8 @@ const ARTEFACTS = [
   // [re-frame.resources]` in a core/* ns, or a production-reachable path
   // reaching a resources sibling). The `resources-tooling` entry below is a
   // SEPARATE, JVM-only tooling sibling (its CLJS require is `#?@(:clj ...)`-
-  // gated) — its sentinel is a planted `do-not-rename` marker, NOT a runtime
-  // literal, so a CLJS runtime leak surfaces THESE error-ids but need not carry
-  // the tooling sentinel. The two entries guard different bodies and cannot
-  // satisfy each other.
+  // gated). Its positive-control module reaches a real tooling projection;
+  // the two entries guard different bodies and cannot satisfy each other.
   //
   // Sentinels are `ex-info` reason-id keywords thrown UNCONDITIONALLY from the
   // registration validators (`reg-resource` / `reg-mutation`) — the same
@@ -321,15 +301,8 @@ const ARTEFACTS = [
   {
     name: 'trace-tooling',
     internalSentinels: [
-      // trace/tooling.cljc — explicit sentinel string planted at the
-      // bottom of the namespace body (`bundle-isolation-sentinel`).
-      // Survives `:advanced` (string literals are not renamed) and
-      // sits OUTSIDE any `interop/debug-enabled?` gate so DCE cannot
-      // drop the literal independently of the surrounding ns body.
-      // The string deliberately includes the bead id and the date it
-      // was planted so a future grep can trace it back to the split.
-      { source: 're-frame.trace.tooling (bundle-isolation-sentinel)',
-        sentinel: 'rf.trace.tooling/sentinel:rf2-qwm0a-2026-05-16:do-not-rename' },
+      { source: 're-frame.trace.tooling trace-buffer projection field',
+        sentinel: 'trace-events' },
     ],
     consumerAllowList: null,
     expectedAllowListHits: 0,
@@ -342,16 +315,13 @@ const ARTEFACTS = [
   // reference app). When this contract holds, the tooling sibling's
   // body is absent from the bundle entirely — the JVM-side aliases in
   // `re-frame.subs` and `re-frame.core` are `#?(:clj ...)`-gated so
-  // they never appear in CLJS compilation. Sentinel mirrors the
-  // trace-tooling shape (rf2-qwm0a): a unique string planted at the
-  // bottom of the namespace body.
+  // they never appear in CLJS compilation. The sentinel is a live node-kind
+  // value emitted while projecting a subscription-cache entry.
   {
     name: 'subs-tooling',
     internalSentinels: [
-      // subs/tooling.cljc — explicit sentinel planted at the bottom
-      // of the namespace body (`bundle-isolation-sentinel`).
-      { source: 're-frame.subs.tooling (bundle-isolation-sentinel)',
-        sentinel: 'rf.subs.tooling/sentinel:rf2-bmzq0-2026-05-16:do-not-rename' },
+      { source: 're-frame.subs.tooling live node kind',
+        sentinel: 'subscription-cache-entry' },
     ],
     consumerAllowList: null,
     expectedAllowListHits: 0,
@@ -366,17 +336,13 @@ const ARTEFACTS = [
   // tooling-sibling pattern standardises (it also fires if a flows-using
   // CLJS app's facade ever `:require`s the tooling sibling — the
   // `re-frame.flows` → `re-frame.flows.tooling` require is `#?@(:clj ...)`-
-  // gated so the body stays out of CLJS). Sentinel mirrors the
-  // subs-tooling / trace-tooling shape: a unique string planted at the
-  // bottom of the namespace body, surviving `:advanced` (string literals
-  // are not renamed) and outside any DCE gate.
+  // gated so the body stays out of CLJS). The sentinel is a live evaluation
+  // classification reached by the focused positive-control module.
   {
     name: 'flows-tooling',
     internalSentinels: [
-      // flows/tooling.cljc — explicit sentinel planted at the bottom
-      // of the namespace body (`bundle-isolation-sentinel`).
-      { source: 're-frame.flows.tooling (bundle-isolation-sentinel)',
-        sentinel: 'rf.flows.tooling/sentinel:rf2-s8w3nw-2026-06-12:do-not-rename' },
+      { source: 're-frame.flows.tooling evaluation classification',
+        sentinel: 'after-event' },
     ],
     consumerAllowList: null,
     expectedAllowListHits: 0,
@@ -391,17 +357,13 @@ const ARTEFACTS = [
   // pattern standardises (it also fires if a resources-using CLJS app's facade
   // ever `:require`s the tooling sibling — the `re-frame.resources` →
   // `re-frame.resources.tooling` require is `#?@(:clj ...)`-gated so the body
-  // stays out of CLJS). Sentinel mirrors the flows-tooling / subs-tooling /
-  // trace-tooling shape: a unique string planted at the bottom of the
-  // namespace body, surviving `:advanced` (string literals are not renamed)
-  // and outside any DCE gate.
+  // stays out of CLJS). The sentinel is a live node-kind value reached by the
+  // focused positive-control module.
   {
     name: 'resources-tooling',
     internalSentinels: [
-      // resources/tooling.cljc — explicit sentinel planted at the bottom
-      // of the namespace body (`bundle-isolation-sentinel`).
-      { source: 're-frame.resources.tooling (bundle-isolation-sentinel)',
-        sentinel: 'rf.resources.tooling/sentinel:rf2-gn9juw-2026-06-12:do-not-rename' },
+      { source: 're-frame.resources.tooling live node kind',
+        sentinel: 'resource-process' },
     ],
     consumerAllowList: null,
     expectedAllowListHits: 0,
@@ -416,17 +378,13 @@ const ARTEFACTS = [
   // pattern standardises (it also fires if a routing-using CLJS app's facade
   // ever `:require`s the tooling sibling — the `re-frame.routing` →
   // `re-frame.routing.tooling` require is `#?@(:clj ...)`-gated so the body
-  // stays out of CLJS). Sentinel mirrors the flows-tooling / subs-tooling /
-  // trace-tooling shape: a unique string planted at the bottom of the
-  // namespace body, surviving `:advanced` (string literals are not renamed)
-  // and outside any DCE gate.
+  // stays out of CLJS). The sentinel is a live route-fact node-kind reached by
+  // the focused positive-control module.
   {
     name: 'routing-tooling',
     internalSentinels: [
-      // routing/tooling.cljc — explicit sentinel planted at the bottom
-      // of the namespace body (`bundle-isolation-sentinel`).
-      { source: 're-frame.routing.tooling (bundle-isolation-sentinel)',
-        sentinel: 'rf.routing.tooling/sentinel:rf2-eiiifu-2026-06-12:do-not-rename' },
+      { source: 're-frame.routing.tooling node kind',
+        sentinel: 'route-fact' },
     ],
     consumerAllowList: null,
     expectedAllowListHits: 0,
@@ -442,17 +400,13 @@ const ARTEFACTS = [
   // tooling-sibling pattern standardises (it also fires if a machines-using
   // CLJS app's facade ever `:require`s the tooling sibling — the
   // `re-frame.machines` → `re-frame.machines.tooling` require is
-  // `#?@(:clj ...)`-gated so the body stays out of CLJS). Sentinel mirrors
-  // the flows-tooling / subs-tooling / trace-tooling shape: a unique string
-  // planted at the bottom of the namespace body, surviving `:advanced`
-  // (string literals are not renamed) and outside any DCE gate.
+  // `#?@(:clj ...)`-gated so the body stays out of CLJS). The sentinel is a
+  // live machine-process node-kind reached by the focused positive control.
   {
     name: 'machines-tooling',
     internalSentinels: [
-      // machines/tooling.cljc — explicit sentinel planted at the bottom
-      // of the namespace body (`bundle-isolation-sentinel`).
-      { source: 're-frame.machines.tooling (bundle-isolation-sentinel)',
-        sentinel: 'rf.machines.tooling/sentinel:rf2-2axssk-2026-06-12:do-not-rename' },
+      { source: 're-frame.machines.tooling live node kind',
+        sentinel: 'machine-process' },
     ],
     consumerAllowList: null,
     expectedAllowListHits: 0,
@@ -468,17 +422,13 @@ const ARTEFACTS = [
   // can never drag them into a core-only bundle. The composer is consumed
   // only by dev tools (Xray) + the conformance fixtures, which `:require`
   // it directly; the counter example never does, so the body is absent
-  // from the counter bundle entirely. Sentinel mirrors the five
-  // algebra-view siblings / trace-tooling shape: a unique string planted at
-  // the bottom of the namespace body, surviving `:advanced` (string
-  // literals are not renamed) and outside any DCE gate.
+  // from the counter bundle entirely. The sentinel is a live family marker
+  // reached while projecting the focused positive-control graph.
   {
     name: 'derivation-graph',
     internalSentinels: [
-      // derivation/graph.cljc — explicit sentinel planted at the bottom
-      // of the namespace body (`bundle-isolation-sentinel`).
-      { source: 're-frame.derivation.graph (bundle-isolation-sentinel)',
-        sentinel: 'rf.derivation.graph/sentinel:rf2-6xm07h-2026-06-12:do-not-rename' },
+      { source: 're-frame.derivation.graph family marker',
+        sentinel: 'rf/family' },
     ],
     consumerAllowList: null,
     expectedAllowListHits: 0,
@@ -495,17 +445,13 @@ const ARTEFACTS = [
   // loads it and Closure `:advanced` + goog.DEBUG=false DCE its body
   // wholesale. A non-zero hit means the egress ns got dragged into the counter
   // bundle (most likely a stray `:require` from a production-reachable ns, or
-  // an accidental re-export from the core facade). Sentinel mirrors the
-  // derivation-graph / algebra-view sibling shape: a unique string planted at
-  // the bottom of the namespace body, surviving `:advanced` (string literals
-  // are not renamed) and outside any DCE gate.
+  // an accidental re-export from the core facade). The sentinel is the live
+  // missing-frame marker produced by the egress projection.
   {
     name: 'derivation-egress',
     internalSentinels: [
-      // derivation/egress.cljc — explicit sentinel planted at the bottom
-      // of the namespace body (`bundle-isolation-sentinel`).
-      { source: 're-frame.derivation.egress (bundle-isolation-sentinel)',
-        sentinel: 'rf.derivation.egress/sentinel:rf2-mm3y49-2026-07-10:do-not-rename' },
+      { source: 're-frame.derivation.egress missing-frame marker',
+        sentinel: 're-frame.derivation.egress/no-egress-frame' },
     ],
     consumerAllowList: null,
     expectedAllowListHits: 0,
@@ -523,10 +469,8 @@ const ARTEFACTS = [
   {
     name: 'trace-cascade',
     internalSentinels: [
-      // trace/cascade.cljc — explicit sentinel planted at the bottom
-      // of the namespace body (`bundle-isolation-sentinel`).
-      { source: 're-frame.trace.cascade (bundle-isolation-sentinel)',
-        sentinel: 'rf.trace.cascade/sentinel:rf2-931pm:do-not-rename' },
+      { source: 're-frame.trace.cascade late-bind registration',
+        sentinel: 'trace.cascade/set-focus-predicate!' },
     ],
     consumerAllowList: null,
     expectedAllowListHits: 0,
@@ -557,8 +501,8 @@ const ARTEFACTS = [
       // internals were pulled in.
       { source: 're-frame.story.decorators (rf.error/decorator-bad-ref)',
         sentinel: 'rf.error/decorator-bad-ref' },
-      { source: 're-frame.story.decorators (rf.error/decorator-unknown)',
-        sentinel: 'rf.error/decorator-unknown' },
+      { source: 're-frame.story.decorators unknown-decorator diagnostic',
+        sentinel: 'no decorator registered under' },
       { source: 're-frame.story.decorators (rf.error/decorator-unknown-kind)',
         sentinel: 'rf.error/decorator-unknown-kind' },
     ],
@@ -631,41 +575,11 @@ const ARTEFACTS = [
     expectedAllowListHits: 0,
   },
 
-  // binaryage/cljs-devtools — the Chrome custom-formatters library
-  // Xray's EDN widget adopts for value-rendering
-  // (tools/xray/src/.../views/edn_widget/cljs_devtools_render.cljs).
-  // Same posture as xyflow + elkjs: dev-only, consumed only by tools/
-  // (Xray), gated behind the Xray `:devtools/preloads`. Production
-  // bundles MUST NOT pull cljs-devtools — the formatters body weighs
-  // tens of kilobytes and gives consumers no runtime benefit (Chrome's
-  // console isn't relevant to end users).
-  //
-  // Sentinels are distinctive identifiers from cljs-devtools' internal
-  // namespaces. `devtools.formatters.markup` is the ns that emits
-  // JSONML; `devtools_formatters$markup` is its munged form under
-  // :advanced. The literal namespace-name string appears in
-  // cljs-devtools' source body (in ex-info contexts, in goog.provide
-  // calls, in the prefs map). A non-zero hit means cljs-devtools' body
-  // got pulled into the bundle — most likely a `:require` slipped from
-  // tools/xray/* into implementation/*, or the EDN widget got
-  // referenced outside the Xray preload-gated tree.
-  {
-    name: 'cljs-devtools',
-    internalSentinels: [
-      // The namespace name as a literal string — appears in
-      // cljs-devtools' goog.provide-equivalent and prefs metadata.
-      { source: 'binaryage/cljs-devtools formatters namespace (devtools.formatters)',
-        sentinel: 'devtools.formatters' },
-    ],
-    consumerAllowList: null,
-    expectedAllowListHits: 0,
-  },
-
   // zprint — the canonical pretty-printer Xray's EDN widget
   // `code-block` uses to pre-format handler-source strings before the
   // in-bundle tokenizer renders them
   // (tools/xray/src/.../views/edn_widget.cljs). Same posture
-  // as cljs-devtools: dev-only, consumed only by tools/ (Xray), gated
+  // as the other Xray-only dependencies: consumed only by tools/ and gated
   // behind the Xray `:devtools/preloads`. Production bundles MUST
   // NOT pull zprint — the formatter body + its rewrite-clj dep weigh
   // hundreds of kilobytes and give consumers no runtime benefit.
@@ -691,28 +605,24 @@ const ARTEFACTS = [
 
   // editscript — Xray's diff engine (rf2-n2jig). A* algorithm
   // producing optimally-small EDN edit scripts; replaces the home-grown
-  // leaf-walker classifier. Same posture as zprint and cljs-devtools:
+  // leaf-walker classifier. Same posture as zprint:
   // dev-only, consumed only by tools/ (Xray), gated behind Xray's
   // `:devtools/preloads`. Production bundles MUST NOT pull editscript
   // — the engine ships ~25KB of source over multiple cljc files +
   // pulls in a priority-map dep; the operator inspection UX is a dev-
   // only concern, never a production one.
   //
-  // Sentinels are distinctive identifiers from editscript's source —
-  // the `editscript.core` + `editscript.diff.a-star` namespaces both
-  // appear in editscript's goog.provide-equivalent + internal
-  // references. A non-zero hit means a `:require` slipped from
+  // Sentinels are live identifiers from editscript's quick-diff and A*
+  // implementations. A non-zero hit means a `:require` slipped from
   // tools/xray/* into implementation/*, or the EDN widget's diff path
   // got referenced outside the Xray preload-gated tree.
   {
     name: 'editscript',
     internalSentinels: [
-      // editscript's core namespace name as a literal string.
-      { source: 'editscript diff engine core namespace (editscript.core)',
-        sentinel: 'editscript.core' },
-      // editscript's A* diff algorithm namespace.
-      { source: 'editscript A* diff algorithm namespace (editscript.diff.a_star)',
-        sentinel: 'editscript.diff.a_star' },
+      { source: 'editscript quick diff-map protocol entry',
+        sentinel: 'editscript.diff.quick/diff-map' },
+      { source: 'editscript A* failure diagnostic',
+        sentinel: 'A* diff fails to find a solution' },
     ],
     consumerAllowList: null,
     expectedAllowListHits: 0,
@@ -748,39 +658,19 @@ const ARTEFACTS = [
 //       the schemas / machines / http artefacts, so its bundle carries their
 //       sentinels — empirically 1+ each (rf2-e6qmxk validation).
 //
-//   { srcRoots: ['<dir>', ...] }
-//       Grep the artefact's OWN compiled source tree (dirs relative to ROOT;
-//       .clj/.cljc/.cljs only) and assert every sentinel is PRESENT. Used for
-//       artefacts this ISOLATED bundle-isolation CI job builds no on-bundle for
-//       (routing / flows / epoch / ssr — no example in the gate's build set
-//       loads them; the tooling siblings + Story — dev-only surfaces this job
-//       never releases). Scoping to the artefact's own /src/ (NOT docs / spec /
-//       .beads / tests / a sibling artefact) is load-bearing: a rename that
-//       leaves a stale copy of the old literal in the guide or a spec must
-//       STILL fail the control, and it does — the string is grep-ed only inside
-//       the namespace tree that owns it.
-//
-//   { gap: '<reason>' }
-//       No positive control is available in THIS job — recorded explicitly so
-//       the hole is DOCUMENTED, not silent (a documented gap beats a vacuous
-//       pass). Applies to the third-party dev-dependency sentinels (xyflow /
-//       elkjs / cljs-devtools / zprint / editscript): their only on-bundle is a
-//       tools/xray release this bundle-isolation job never builds, and their
-//       literals are UPSTREAM library strings that do not live in our own
-//       source, so neither the onBundle nor the srcRoots form can control them
-//       here. Their negative check still guards the leak this gate exists to
-//       catch (a tools/ dep dragged into a production bundle); what a gap
-//       forgoes is only drift-detection on the upstream string itself, which
-//       this repo does not own.
+//   { onModule: '<module-name>' }
+//       Grep exactly one module from the dedicated
+//       :bundle-isolation-positive-control release. Every module has a focused
+//       entrypoint that reaches the declared owner, and is built in the same
+//       :advanced mode with goog.DEBUG=false as the negative counter bundle.
+//       Exact module ownership is load-bearing: an occurrence emitted by a
+//       sibling module cannot satisfy this entry. Comments, docstrings,
+//       JVM-only reader branches, and DCE'd CLJS forms cannot satisfy it either
+//       because the checker reads emitted JavaScript only.
 //
 // assertPositiveControlComplete() requires EVERY artefact to appear here, so
 // adding a new artefact without declaring its positive control fails fast
 // rather than shipping another negative-only half-contract.
-const THIRD_PARTY_GAP =
-  'third-party dev-dep literal; the only on-bundle is a tools/xray release ' +
-  'this bundle-isolation job does not build, and the string does not live in ' +
-  'our own source — negative check still guards the tools↛production leak';
-
 const POSITIVE_CONTROL = {
   // On-bundle (perf-bundle template): login loads these three artefacts.
   schemas:  { onBundle: 'login' },
@@ -795,34 +685,24 @@ const POSITIVE_CONTROL = {
   // `:advanced`, not just source text.
   resources: { onBundle: 'realworld-resources' },
 
-  // Scoped source-presence: no on-bundle in this job's build set.
-  routing:  { srcRoots: ['routing/src'] },
-  flows:    { srcRoots: ['flows/src'] },
-  epoch:    { srcRoots: ['epoch/src'] },
-  ssr:      { srcRoots: ['ssr/src'] },
-
-  // Tooling siblings (planted `do-not-rename` markers, each unique to its
-  // artefact's src). Source-presence turns the naming CONVENTION into an
-  // ENFORCED check: rename the marker and the control fails loud.
-  'trace-tooling':     { srcRoots: ['core/src'] },
-  'subs-tooling':      { srcRoots: ['core/src'] },
-  'flows-tooling':     { srcRoots: ['flows/src'] },
-  'resources-tooling': { srcRoots: ['resources/src'] },
-  'routing-tooling':   { srcRoots: ['routing/src'] },
-  'machines-tooling':  { srcRoots: ['machines/src'] },
-  'derivation-graph':  { srcRoots: ['core/src'] },
-  'derivation-egress': { srcRoots: ['core/src'] },
-  'trace-cascade':     { srcRoots: ['core/src'] },
-
-  // Story lives under tools/ (checked out in full by this job).
-  story:    { srcRoots: ['../tools/story/src'] },
-
-  // Documented gaps (upstream library literals; see THIRD_PARTY_GAP).
-  xyflow:          { gap: THIRD_PARTY_GAP },
-  elkjs:           { gap: THIRD_PARTY_GAP },
-  'cljs-devtools': { gap: THIRD_PARTY_GAP },
-  zprint:          { gap: THIRD_PARTY_GAP },
-  editscript:      { gap: THIRD_PARTY_GAP },
+  routing:             { onModule: 'routing' },
+  flows:               { onModule: 'flows' },
+  epoch:               { onModule: 'epoch' },
+  ssr:                 { onModule: 'ssr' },
+  'trace-tooling':     { onModule: 'trace-tooling' },
+  'subs-tooling':      { onModule: 'subs-tooling' },
+  'flows-tooling':     { onModule: 'flows-tooling' },
+  'resources-tooling': { onModule: 'resources-tooling' },
+  'routing-tooling':   { onModule: 'routing-tooling' },
+  'machines-tooling':  { onModule: 'machines-tooling' },
+  'derivation-graph':  { onModule: 'derivation-graph' },
+  'derivation-egress': { onModule: 'derivation-egress' },
+  'trace-cascade':     { onModule: 'trace-cascade' },
+  story:               { onModule: 'story' },
+  xyflow:              { onModule: 'xyflow' },
+  elkjs:               { onModule: 'elkjs' },
+  zprint:              { onModule: 'zprint' },
+  editscript:          { onModule: 'editscript' },
 };
 
 // ----- helpers ---------------------------------------------------------------
@@ -876,42 +756,11 @@ function checkArtefact(blob, artefact) {
 
 // ----- positive control (rf2-e6qmxk) -----------------------------------------
 
-// Concatenate every .clj/.cljc/.cljs file under the given source roots (each
-// relative to ROOT) into one blob, so a srcRoots positive control can assert a
-// sentinel still exists in the artefact's own compiled source. A missing root
-// contributes nothing — an absent tree collapses the blob so the
-// sentinel-present assertion FAILS loud rather than passing vacuously.
-const SOURCE_EXTS = new Set(['.clj', '.cljc', '.cljs']);
-
-function readSourceBlob(srcRoots) {
-  const parts = [];
-  const walk = (dir) => {
-    let entries;
-    try {
-      entries = fs.readdirSync(dir, { withFileTypes: true });
-    } catch (_e) {
-      return; // missing root — no source; the present-check below fails loud
-    }
-    for (const ent of entries) {
-      const p = path.join(dir, ent.name);
-      if (ent.isDirectory()) {
-        walk(p);
-      } else if (ent.isFile() && SOURCE_EXTS.has(path.extname(ent.name))) {
-        parts.push(fs.readFileSync(p, 'utf8'));
-      }
-    }
-  };
-  for (const root of srcRoots) {
-    walk(path.resolve(ROOT, root));
-  }
-  return parts.join('\n');
-}
-
-// Lazy blob cache: on-bundle blobs keyed by example dir, source blobs keyed by
-// the joined srcRoots. A run only reads what its declared controls reference.
+// Lazy blob cache: real example bundles are keyed by directory, while focused
+// controls are keyed by their exact emitted module file.
 function makePositiveContext() {
   const bundleBlobs = new Map();
-  const sourceBlobs = new Map();
+  const moduleBlobs = new Map();
   return {
     onBundle(dir) {
       if (!bundleBlobs.has(dir)) {
@@ -919,27 +768,29 @@ function makePositiveContext() {
       }
       return bundleBlobs.get(dir);
     },
-    source(srcRoots) {
-      const key = srcRoots.join('|');
-      if (!sourceBlobs.has(key)) {
-        sourceBlobs.set(key, readSourceBlob(srcRoots));
+    onModule(moduleName) {
+      if (!moduleBlobs.has(moduleName)) {
+        const file = path.join(ROOT, 'out', 'bundle-isolation-positive-control', `${moduleName}.js`);
+        let blob = '';
+        let status = 'missing';
+        try {
+          blob = fs.readFileSync(file, 'utf8');
+          status = blob.length === 0 ? 'empty' : 'ok';
+        } catch (_e) {
+          // Missing module: the presence assertion below fails loud.
+        }
+        moduleBlobs.set(moduleName, { status, blob, file });
       }
-      return sourceBlobs.get(key);
+      return moduleBlobs.get(moduleName);
     },
   };
 }
 
 // Run the positive control for one artefact. Appends per-sentinel lines to the
-// report and returns { kind, ok, checked, passed, ... }. A `gap` artefact is
-// reported (non-fatal) and never fails the gate.
+// report and returns { kind, ok, checked, passed, ... }.
 function checkPositiveControl(ctx, artefact) {
   const pc = POSITIVE_CONTROL[artefact.name];
   const sentinels = artefact.internalSentinels;
-
-  if (pc.gap) {
-    report.detail(`    [GAP ] positive control: none in this job — ${pc.gap}`);
-    return { kind: 'gap', ok: true, checked: 0, passed: 0, gap: pc.gap };
-  }
 
   if (pc.onBundle) {
     const dir = pc.onBundle;
@@ -960,27 +811,66 @@ function checkPositiveControl(ctx, artefact) {
     return { kind: 'onBundle', ok, checked: sentinels.length, passed, bundle: dir };
   }
 
-  // srcRoots
-  const blob = ctx.source(pc.srcRoots);
+  const moduleName = pc.onModule;
+  const { status, blob, file } = ctx.onModule(moduleName);
+  if (status !== 'ok') {
+    report.detail(`    [FAIL] emitted module '${moduleName}' positive control: ${status} — ` +
+                  'cannot prove sentinels present (would be vacuous)');
+    return { kind: 'onModule', ok: false, checked: sentinels.length, passed: 0,
+      vacuous: true, module: moduleName, file };
+  }
   const { ok, passed } = assertSentinelSet(blob, sentinels, {
     mustContain: true,
     count: true,
     emit: (line) => report.detail(line),
     formatLine: ({ source, sentinel, hits, tag }) =>
-      `    [${tag}] source ${JSON.stringify(pc.srcRoots)} present: ${source}: sentinel ` +
+      `    [${tag}] emitted module '${moduleName}' present: ${source}: sentinel ` +
       `${JSON.stringify(sentinel)} expected >= 1, was ${hits}`,
   });
-  return { kind: 'srcRoots', ok, checked: sentinels.length, passed, srcRoots: pc.srcRoots };
+  return { kind: 'onModule', ok, checked: sentinels.length, passed,
+    module: moduleName, file };
 }
 
 // Startup completeness: every ARTEFACT must declare a positive control (and no
 // stale entries), so a new artefact cannot ship a negative-only half-contract.
-function assertPositiveControlComplete() {
-  const missing = ARTEFACTS.filter((a) => !POSITIVE_CONTROL[a.name]).map((a) => a.name);
-  const extra = Object.keys(POSITIVE_CONTROL).filter(
-    (n) => !ARTEFACTS.some((a) => a.name === n)
+function assertPositiveControlComplete(artefacts = ARTEFACTS, controls = POSITIVE_CONTROL) {
+  const missing = artefacts.filter((a) => !controls[a.name]).map((a) => a.name);
+  const extra = Object.keys(controls).filter(
+    (n) => !artefacts.some((a) => a.name === n)
   );
-  return { missing, extra, ok: missing.length === 0 && extra.length === 0 };
+  const malformed = Object.entries(controls)
+    .filter(([_name, pc]) => Number(Boolean(pc.onBundle)) + Number(Boolean(pc.onModule)) !== 1)
+    .map(([name]) => name);
+  const moduleOwners = new Map();
+  for (const [name, pc] of Object.entries(controls)) {
+    if (!pc.onModule) continue;
+    const owners = moduleOwners.get(pc.onModule) || [];
+    owners.push(name);
+    moduleOwners.set(pc.onModule, owners);
+  }
+  const sharedModules = [...moduleOwners.entries()]
+    .filter(([_moduleName, owners]) => owners.length !== 1)
+    .map(([moduleName, owners]) => ({ moduleName, owners }));
+  const sentinelOwners = new Map();
+  for (const artefact of artefacts) {
+    for (const { sentinel } of artefact.internalSentinels) {
+      const owners = sentinelOwners.get(sentinel) || [];
+      owners.push(artefact.name);
+      sentinelOwners.set(sentinel, owners);
+    }
+  }
+  const sharedSentinels = [...sentinelOwners.entries()]
+    .filter(([_sentinel, owners]) => owners.length !== 1)
+    .map(([sentinel, owners]) => ({ sentinel, owners }));
+  return {
+    missing,
+    extra,
+    malformed,
+    sharedModules,
+    sharedSentinels,
+    ok: missing.length === 0 && extra.length === 0 && malformed.length === 0 &&
+      sharedModules.length === 0 && sharedSentinels.length === 0,
+  };
 }
 
 // ----- canonical publishable-artefact coverage (rf2-sh0sp4) ------------------
@@ -1094,7 +984,6 @@ function main() {
   let allOk = completeness.ok && coverage.ok;
   const failures = [];
   const positiveFailures = [];
-  const gaps = [];
   let internalChecked = 0;
   let allowListChecked = 0;
   let positiveChecked = 0;
@@ -1114,9 +1003,7 @@ function main() {
     if (POSITIVE_CONTROL[artefact.name]) {
       const pos = checkPositiveControl(ctx, artefact);
       positiveChecked += pos.checked;
-      if (pos.kind === 'gap') {
-        gaps.push({ name: artefact.name, gap: pos.gap });
-      } else if (!pos.ok) {
+      if (!pos.ok) {
         allOk = false;
         positiveFailures.push({ name: artefact.name, ...pos });
       }
@@ -1127,11 +1014,9 @@ function main() {
   if (allOk) {
     report.pass(
       'bundle-isolation',
-      `${ARTEFACTS.length} artefact entries; ${internalChecked} internal sentinels absent; ` +
+        `${ARTEFACTS.length} artefact entries; ${internalChecked} internal sentinels absent; ` +
         `${allowListChecked} allow-list budgets ok; ` +
-        `${positiveChecked} positive-control sentinels present ` +
-        `(${gaps.length} documented gap${gaps.length === 1 ? '' : 's'}: ` +
-        `${gaps.map((g) => g.name).join(', ') || 'none'}); ` +
+        `${positiveChecked} emitted positive-control sentinels present; ` +
         `${coverage.required.length} canonical browser-optional runtimes covered; ` +
         `bundle=${bundleDir} (${blob.length} chars)`
     );
@@ -1165,12 +1050,21 @@ function main() {
       console.error('Positive-control completeness (rf2-e6qmxk):');
       if (completeness.missing.length) {
         console.error(`  Artefact(s) with NO positive control declared: ${completeness.missing.join(', ')}`);
-        console.error('  Add a POSITIVE_CONTROL entry (onBundle / srcRoots / gap) so the');
+        console.error('  Add a POSITIVE_CONTROL entry (onBundle / onModule) so the');
         console.error('  negative sentinel check cannot ship as a half-contract.');
       }
       if (completeness.extra.length) {
         console.error(`  POSITIVE_CONTROL entries with no matching artefact: ${completeness.extra.join(', ')}`);
         console.error('  Remove the stale entry or restore the artefact it named.');
+      }
+      if (completeness.malformed.length) {
+        console.error(`  Control(s) without exactly one emitted target: ${completeness.malformed.join(', ')}`);
+      }
+      for (const { moduleName, owners } of completeness.sharedModules) {
+        console.error(`  Emitted module '${moduleName}' is assigned to multiple owners: ${owners.join(', ')}`);
+      }
+      for (const { sentinel, owners } of completeness.sharedSentinels) {
+        console.error(`  Sentinel ${JSON.stringify(sentinel)} is assigned to multiple owners: ${owners.join(', ')}`);
       }
       console.error('');
     }
@@ -1193,12 +1087,14 @@ function main() {
       console.error('bundle check above has LOST ITS TEETH for that artefact: it would');
       console.error('pass whether or not the artefact actually leaked.');
       for (const p of positiveFailures) {
-        if (p.vacuous) {
+        if (p.vacuous && p.kind === 'onBundle') {
           console.error(`  - ${p.name}: on-bundle '${p.bundle}' missing/empty — cannot prove presence`);
+        } else if (p.vacuous) {
+          console.error(`  - ${p.name}: emitted module '${p.module}' missing/empty — cannot prove presence`);
         } else if (p.kind === 'onBundle') {
           console.error(`  - ${p.name}: only ${p.passed}/${p.checked} sentinels present in on-bundle '${p.bundle}'`);
         } else {
-          console.error(`  - ${p.name}: only ${p.passed}/${p.checked} sentinels present in source ${JSON.stringify(p.srcRoots)}`);
+          console.error(`  - ${p.name}: only ${p.passed}/${p.checked} sentinels present in emitted module '${p.module}'`);
         }
       }
       console.error('  Fix: re-derive the sentinel from the artefact source and update');
@@ -1210,4 +1106,13 @@ function main() {
   }
 }
 
-main();
+if (require.main === module) {
+  main();
+}
+
+module.exports = {
+  ARTEFACTS,
+  POSITIVE_CONTROL,
+  assertPositiveControlComplete,
+  checkArtefact,
+};
