@@ -141,10 +141,11 @@
     (is (= :install-a-fresh-adapter (:recovery data)))
     (is (true? (substrate-adapter/adapter-disposed?))
         "the real initial event terminally disposed the adapter (no replacement installed)")
-    ;; the frame's :initial-events fired (irreversible), so the frame is live…
-    (is (some? (frame/frame :frame/gen261-terminal))
-        "make-frame created the frame and drained its :initial-events — the live ENSURE executor, not a capture hook")
-    ;; …but NO Root / DOM / ViewCell / observation owner was ever allocated
+    ;; the :initial-events fired (irreversible), then the post-drain adapter
+    ;; failure made the owning construction transaction roll its frame back.
+    (is (nil? (frame/frame :frame/gen261-terminal))
+        "the live ENSURE drained setup, then exact construction rollback removed the provisional frame")
+    ;; NO Root / DOM / ViewCell / observation owner was ever allocated
     (is (not (contains? (client/live-root-ids) :gen261/terminal))
         "no live-root id, container claim, ViewCell, or observation owner — the failure preceded any React allocation")))
 

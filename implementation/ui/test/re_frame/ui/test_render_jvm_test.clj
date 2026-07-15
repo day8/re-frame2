@@ -634,25 +634,25 @@
 ;; Registry-rested EXCLUSIVE install (rf2-vxgfnd.76). The claim linearizes
 ;; render-vs-render; correctness against a RAW actor (an ordinary core
 ;; `make-frame`, which knows nothing of the private claim atom) rests on core's
-;; guarded-CAS `upsert-frame!` via `:rf.frame/must-create?`. The
+;; guarded-CAS `upsert-frame!` via `:rf.frame/must-create?`, plus core's
+;; fail-fast per-id construction reservation. The
 ;; `frame/*upsert-decide-probe*` seam opens the claim→install window
 ;; deterministically (no sleeps) — a raw actor acts INSIDE the plan install's
 ;; decide→CAS window.
 ;; ---------------------------------------------------------------------------
 
-(deftest plan-bearing-render-loses-must-create-race-in-the-claim-install-window
-  ;; The claim proved :test/mc absent, but a raw actor creates it in the window
-  ;; BETWEEN the claim CAS and the plan's guarded install. The plan installs in
-  ;; EXCLUSIVE mode (:rf.frame/must-create?), so the collision is a typed
-  ;; :rf.error/frame-id-taken — the render NEVER adopts the ambient frame, and
-  ;; its teardown destroys nothing it did not create.
+(deftest plan-bearing-render-rejects-same-id-reentry-in-the-claim-install-window
+  ;; The claim proved :test/mc absent, then a raw actor attempts construction in
+  ;; the plan's decide probe. The plan already owns the core per-id transaction,
+  ;; so nested same-id construction fails promptly and the plan rolls back. The
+  ;; actor never installs a competing frame for EXCLUSIVE mode to collide with.
   (reg-greeting!)
   (let [before (set (keys @frame/frames))
         acted  (volatile! false)]
     (binding [frame/*upsert-decide-probe*
               (fn [id]
-                ;; Simulate the raw actor creating :test/mc INSIDE the plan's
-                ;; decide→install window (once, seeded with its OWN state).
+                ;; Simulate the raw actor attempting :test/mc INSIDE the plan's
+                ;; decide→install window (once, with its own proposed seed).
                 (when (and (= id :test/mc) (not @acted))
                   (vreset! acted true)
                   (rf/make-frame {:id :test/mc
@@ -661,15 +661,13 @@
                     #(uit/render [ui/frame-root {:id :test/mc
                                                  :initial-events [[:rf/set-db {:greeting "planned"}]]}
                                   [greeting {}]]))]
-        (is (= :rf.error/frame-id-taken result)
-            "the exclusive plan install loses the guarded CAS to the raced-in actor
-             → typed collision, never a silent adoption")
-        (is (some? (frame/frame :test/mc)) "the actor's frame is untouched")
-        (is (= {:greeting "actor"} (frame/frame-app-db-value :test/mc))
-            "…and holds the ACTOR's seed, never the plan's — no adopt / reseed")
-        (frame/destroy-frame! :test/mc)
+        (is (= :rf.error/frame-construction-in-progress result)
+            "same-id re-entry fails fast at the construction reservation")
+        (is (true? @acted) "the deterministic decide-window probe ran")
+        (is (nil? (frame/frame :test/mc))
+            "the actor cannot publish and the owning plan rolls back")
         (is (= before (set (keys @frame/frames)))
-            "no residue once the actor's own frame is cleaned up")))))
+            "neither attempted construction leaves registry residue")))))
 
 (deftest plan-bearing-partial-failure-teardown-is-incarnation-owned
   ;; Multi-plan render: the OUTER plan (:pf/outer) installs; a concurrent actor
