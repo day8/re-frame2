@@ -440,13 +440,14 @@
   ;;                             ;   identity that SURVIVES an Activity hide, so
   ;;                             ;   root teardown reaps a cell hidden before its
   ;;                             ;   window (rf2-vxgfnd.85; see `root-cells`)
-  ;;    :disconnect-provisional? bool ; DEV-only (rf2-vxgfnd.44): a just-emitted
+  ;;    :disconnect-provisional? bool ; DEV-only and ABSENT in production
+  ;;                             ;   (rf2-vxgfnd.44): a just-emitted
   ;;                             ;   :disconnected interval that has NOT yet
   ;;                             ;   settled past its synchronous commit. A
   ;;                             ;   reconnect while still provisional is a
   ;;                             ;   same-tick StrictMode dev replay (no hide);
-  ;;                             ;   `settle-disconnect!` clears it. false/absent
-  ;;                             ;   in production (no StrictMode double-invoke)
+  ;;                             ;   `settle-disconnect!` clears it. Production
+  ;;                             ;   has no field, lookup, or provisional branch
   ;;    :committed {sid -> {:query exact-query :target target :value value
   ;;                        :lease lease|nil}}
   ;;                             ; lexical site records. `:lease nil` survives
@@ -488,13 +489,13 @@
                :generation     generation
                :lifecycle      :fresh
                :root           nil
-               :disconnect-provisional? false
                :committed      {}
                :revision       0
                :dirty?         false
                :evidence       nil
                :listeners      {}
-               :intervals      []})))))
+               :intervals      []}
+        interop/debug-enabled? (assoc :disconnect-provisional? false))))))
 
 ;; ---------------------------------------------------------------------------
 ;; Dev-only view slots — stable shell + exact body revision (03 §10)
@@ -585,12 +586,62 @@
      :before (get old-slots view-id)
      :prepared prepared}))
 
+(defn- report-hmr-listener-escape!
+  "Surface the FIRST contained listener failure from one DEV publication.
+
+  Reporting is deliberately bounded to one warning per publication and is
+  itself contained: diagnostic machinery can neither change a committed HMR
+  outcome nor replace the registrar failure that caused a rollback."
+  [view-id phase slot error]
+  #?(:cljs
+     (try
+       (when (exists? js/console)
+         (.warn js/console
+                (str "[re-frame.ui] an HMR publication listener threw while "
+                     "notifying view " (pr-str view-id) " after " (name phase)
+                     " revision " (:hmr-body-revision slot)
+                     " — the throw was CONTAINED, every snapshotted sibling "
+                     "still ran, and the publication outcome remains "
+                     "authoritative. Cause: "
+                     (if (nil? error)
+                       "nil"
+                       (error/ex-message-safe error)))))
+       (catch :default _ nil))
+     :clj nil))
+
+(defn- notify-view-listeners!
+  "Notify a snapshot of `slot`'s listeners, containing every failure.
+
+  The explicit `:failed?` bit preserves first-failure identity even when
+  JavaScript throws false or nil. Later failures are contained but do not
+  replace the bounded diagnostic's first cause."
+  [view-id phase slot]
+  (let [listeners (vec (vals (:hmr-listeners slot)))
+        first-failure
+        (reduce (fn [failure listener]
+                  (try
+                    (listener)
+                    failure
+                    (catch #?(:clj Throwable :cljs :default) error
+                      (if (:failed? failure)
+                        failure
+                        {:failed? true :error error}))))
+                {:failed? false :error nil}
+                listeners)]
+    (when (and interop/debug-enabled? (:failed? first-failure))
+      (report-hmr-listener-escape!
+       view-id phase slot (:error first-failure)))
+    nil))
+
 (defn commit-view-descriptor!
   "Commit a prepared view publication and notify mounted shells exactly once.
 
   A re-entrant registration for the same id supersedes an older transaction;
-  only the transaction whose token is still current may notify. Returns the
-  complete current slot snapshot."
+  only the transaction whose token is still current may notify. Notification
+  walks a pre-delivery listener snapshot and contains each listener failure,
+  so every sibling runs and no observer can turn a successful commit into a
+  registrar failure. A re-entrant winner remains authoritative while the outer
+  snapshot finishes. Returns the complete current slot snapshot."
   [{:keys [view-id publication-token]}]
   (let [[old-slots slots]
         (swap-vals! view-generations update view-id
@@ -604,8 +655,7 @@
                                 (:hmr-publication-token current-before))
         published (get slots view-id)]
     (when committed?
-      (doseq [listener (vals (:hmr-listeners published))]
-        (listener)))
+      (notify-view-listeners! view-id :commit published))
     published))
 
 (defn rollback-view-descriptor!
@@ -618,8 +668,10 @@
   candidate exposed a different hook shape, restoration advances remount
   generation again. A failed first registration becomes an unavailable
   tombstone at a fresh revision. Listener subscriptions made in flight are
-  retained. Returns true only when this publication performed the compensation;
-  a stale publication returns false."
+  retained. Compensation notification uses the same snapshotted, per-listener
+  containment as commit, so observer failures cannot replace the primary
+  registrar failure or starve siblings. Returns true only when this publication
+  performed the compensation; a stale publication returns false."
   [{:keys [view-id publication-token before]}]
   (let [[old-slots slots]
         (swap-vals!
@@ -653,8 +705,7 @@
                                   (:hmr-publication-token current-before))
         restored (get slots view-id)]
     (when rolled-back?
-      (doseq [listener (vals (:hmr-listeners restored))]
-        (listener)))
+      (notify-view-listeners! view-id :rollback restored))
     rolled-back?))
 
 (defn register-view-descriptor!
@@ -1261,7 +1312,7 @@
                    (error/ex-message-safe error))))
      :clj nil))
 
-(defn- enrol-dirty!
+(defn- enrol-dirty-window!
   "The PRODUCTION scheduling core — ONE linearizable pending-window enrolment
   transition (rf2-vxgfnd.180). In a SINGLE `swap-vals!` on the cell state,
   perform the `:dirty?` false→true flip and — in DEV/tool builds only — fold the
@@ -1282,8 +1333,7 @@
   enrolment from that swap's own false→true edge, makes a concurrent mark
   linearize cleanly EITHER before completion's capture (its evidence joins the
   captured window) OR after its clear (a fresh next window is enrolled)."
-  ([^ViewCell cell] (enrol-dirty! cell nil))
-  ([^ViewCell cell payload]
+  [^ViewCell cell payload]
    ;; `interop/debug-enabled?` is a STANDALONE top-level gate (not folded into the
    ;; swap-fn body as `(and interop/debug-enabled? payload)`) so Closure DCEs the
    ;; evidence-folding swap-fn — and every reference it carries into `fold-evidence`
@@ -1291,15 +1341,26 @@
    ;; bundle, exactly as the prod-elision gate proves. Both arms are ONE
    ;; `swap-vals!`, so the evidence fold and the `:dirty?` false→true flip stay a
    ;; single atomic transition on each host (rf2-vxgfnd.180).
-   (let [st (state cell)
-         [old _] (if interop/debug-enabled?
-                   (swap-vals! st (fn [s]
-                                    (cond-> (assoc s :dirty? true)
-                                      payload (update :evidence fold-evidence payload))))
-                   (swap-vals! st (fn [s] (assoc s :dirty? true))))]
-     (when-not (:dirty? old)
-       (swap! dirty-cells conj cell)
-       (schedule-flush!)))))
+  (let [st (state cell)
+        [old _] (if interop/debug-enabled?
+                  (swap-vals! st (fn [s]
+                                   (cond-> (assoc s :dirty? true)
+                                     payload (update :evidence fold-evidence payload))))
+                  (swap-vals! st (fn [s] (assoc s :dirty? true))))]
+    (when-not (:dirty? old)
+      (swap! dirty-cells conj cell)
+      (schedule-flush!))))
+
+(defn- enrol-dirty!
+  "Enrol one pending window. On the JVM, serialize the cell dirty edge and
+  registry insertion with `reset-scheduler!`'s detach-and-clear transition, so
+  a racing mark linearizes wholly before reset or becomes a fresh post-reset
+  enrolment. CLJS is single-threaded and pays no locking path."
+  ([^ViewCell cell] (enrol-dirty! cell nil))
+  ([^ViewCell cell payload]
+   #?(:clj  (locking dirty-cells
+              (enrol-dirty-window! cell payload))
+      :cljs (enrol-dirty-window! cell payload))))
 
 (defn mark-dirty!
   "The `on-change` body / test seam: enrol `cell` for a coalesced flush
@@ -1636,10 +1697,18 @@
   @last-sink-escape)
 
 (defn reset-scheduler!
-  "Test support: drop every pending notification and the slice memo without
-  advancing any revision — a clean slate between fixtures. Returns nil."
+  "Test support: detach every pending cell, clear its dirty/evidence window,
+  and reset scheduler/tool registries without advancing a revision or notifying
+  a listener — a clean slate between fixtures. A concurrent JVM mark linearizes
+  before the detach (and is cleared) or after it (and remains freshly enrolled).
+  Returns nil."
   []
-  (reset! dirty-cells #{})
+  (letfn [(detach-and-clear! []
+            (let [[detached _] (swap-vals! dirty-cells (constantly #{}))]
+              (doseq [cell detached]
+                (swap! (state cell) assoc :dirty? false :evidence nil))))]
+    #?(:clj  (locking dirty-cells (detach-and-clear!))
+       :cljs (detach-and-clear!)))
   (reset! flush-scheduled? false)
   (reset! slice-memo* nil)
   (reset! live-cells #{})
@@ -2233,9 +2302,9 @@
 ;; for it would fabricate a proof the runtime never observed. So `disconnect!`
 ;; marks each cleanup PROVISIONAL and `settle-disconnect!` (a microtask on CLJS)
 ;; clears it once the disconnect outlives its commit; only a disconnect that
-;; survived a host yield can then be proven a hide. DEV-only — production has no
-;; StrictMode double-invoke, so `:disconnect-provisional?` is never set and a
-;; reveal is proven exactly as before.
+;; survived a host yield can then be proven a hide. The field, lookup, settle,
+;; and reconnect branch are DEV-only; production has no StrictMode double-invoke
+;; and takes the ordinary reconnect-proof path directly.
 
 (defn lifecycle
   "The cell's current runtime state keyword."
@@ -2567,9 +2636,10 @@
   settled. A headless/JVM fixture calls this explicitly to model the host yield
   of a real reveal. Returns nil."
   [^ViewCell cell]
-  (let [st (state cell)]
-    (when (= :disconnected (:lifecycle @st))
-      (swap! st assoc :disconnect-provisional? false)))
+  (when interop/debug-enabled?
+    (let [st (state cell)]
+      (when (= :disconnected (:lifecycle @st))
+        (swap! st assoc :disconnect-provisional? false))))
   nil)
 
 (defn- arm-disconnect-settle!
@@ -2593,16 +2663,18 @@
   is a React StrictMode dev replay — the same cell's effect
   mount→cleanup→remount within ONE synchronous commit, where NO hide and NO
   unmount happened — so it is NOT annotated: the runtime must not fabricate an
-  Activity-hide proof it never observed (rf2-vxgfnd.44). In production
-  `:disconnect-provisional?` is never set (no StrictMode double-invoke), so a
-  reveal is proven exactly as before."
+  Activity-hide proof it never observed (rf2-vxgfnd.44). In production the
+  provisional field, lookup, and branch are elided (no StrictMode
+  double-invoke), so a reveal takes the reconnect-proof path directly."
   [^ViewCell cell]
   (let [st @(state cell)]
     (when (= :disconnected (:lifecycle st))
-      (if (:disconnect-provisional? st)
-        ;; same-tick StrictMode replay — the disconnect never settled; clear the
-        ;; provisional flag and DO NOT fabricate an Activity-hide proof.
-        (swap! (state cell) assoc :disconnect-provisional? false)
+      (if interop/debug-enabled?
+        (if (:disconnect-provisional? st)
+          ;; same-tick StrictMode replay — the disconnect never settled; clear
+          ;; the provisional flag and DO NOT fabricate an Activity-hide proof.
+          (swap! (state cell) assoc :disconnect-provisional? false)
+          (annotate-open-disconnect! cell :activity-hidden :reconnect))
         (annotate-open-disconnect! cell :activity-hidden :reconnect)))
     (swap! (state cell) assoc :lifecycle :connected)
     ;; Enrol in the live-cell registry (idempotent — a set) so a frame-destroy

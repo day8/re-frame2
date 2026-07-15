@@ -15,6 +15,8 @@ const path = require('path');
 
 const ROOT = path.resolve(__dirname, '..');
 const SOURCE = path.join(ROOT, 'ui', 'src', 're_frame', 'ui', 'viewcell.cljs');
+const REACTIVE_SOURCE = path.join(ROOT, 'ui', 'src', 're_frame', 'ui',
+                                  'reactive.cljc');
 const ANALYZER_SOURCE = path.join(ROOT, 'ui', 'src', 're_frame', 'ui',
                                   'compiler', 'analyze.cljc');
 const BUNDLE = path.join(ROOT, 'out', 'browser-test-prod-elision', 'js', 'test.js');
@@ -33,6 +35,11 @@ const source = fs.readFileSync(SOURCE, 'utf8');
 const occurrences = source.split(SENTINEL).length - 1;
 if (occurrences !== 1) {
   fail(`expected exactly one source sentinel, found ${occurrences}`);
+}
+
+const reactiveSource = fs.readFileSync(REACTIVE_SOURCE, 'utf8');
+if (!reactiveSource.includes('disconnect-provisional?')) {
+  fail('provisional-disconnect source positive-control sentinel is absent');
 }
 
 const analyzerSource = fs.readFileSync(ANALYZER_SOURCE, 'utf8');
@@ -56,7 +63,11 @@ for (const forbidden of [
   'hmr-body-revision',
   'hmr-remount-generation',
   'hmr-descriptor',
-  'hmr-inner'
+  'hmr-inner',
+  // rf2-vxgfnd.165: the advanced fixture roots make-cell, disconnect!, the
+  // settle seam, and reconnect. Any unconditional state member OR reconnect
+  // lookup therefore carries this keyword into the bundle and fails here.
+  'disconnect-provisional'
 ]) {
   if (bundle.includes(forbidden)) {
     fail(`development site/HMR diagnostic survived advanced output: ${forbidden}`);

@@ -97,7 +97,10 @@
   registrar success. A registrar throw compensates monotonically: the prior
   descriptor (or an unavailable first-load tombstone) is republished at a fresh
   revision and mounted shells are notified once, so no provisional render can
-  commit or strand a cell on a revision that moved backwards."
+  commit or strand a cell on a revision that moved backwards. Publication
+  listener failures are contained by the reactive authority after every
+  snapshotted sibling runs; because commit is outside the registrar catch, an
+  observer can never masquerade as registrar failure or trigger rollback."
   [id render-fn compare-fn display-name manifest]
   (let [{:keys [outer inner]}
         (reactive/ensure-view-shells! id #(make-view-shells id))
@@ -120,8 +123,6 @@
                   :rf.ui/compiled? true
                   :rf.ui/manifest manifest}
            (:doc manifest) (assoc :doc (:doc manifest))))
-        (reactive/commit-view-descriptor! publication)
-        outer
         (catch :default e
           ;; A registrar hook may have synchronously published a newer winner.
           ;; Restore diagnostic names only when this transaction also restored
@@ -129,7 +130,9 @@
           (when (reactive/rollback-view-descriptor! publication)
             (set! (.-displayName inner) old-inner-name)
             (set! (.-displayName outer) old-outer-name))
-          (throw e))))))
+          (throw e)))
+      (reactive/commit-view-descriptor! publication)
+      outer)))
 
 ;; ---------------------------------------------------------------------------
 ;; Dispatch — the S1 seam
