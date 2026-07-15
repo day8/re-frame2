@@ -102,39 +102,52 @@
 ;;                         so a re-spawn under the same declaring path lands
 ;;                         on a fresh work id (one ATTEMPT, one `:rf.reply/work-id`,
 ;;                         per EP-0007). An explicit `:fixed-actor-id` actor
-;;                         with no `#n` suffix carries generation 1.
+;;                         with no `#n` suffix carries generation 1 for an
+;;                         ordinary `:spawn`; a `:spawn-all` child reuses this
+;;                         SAME slot for its runtime-minted join-attempt token,
+;;                         because that exact authority distinguishes reuse of
+;;                         the fixed address without inventing another identity.
 ;; ---------------------------------------------------------------------------
+
+(defn- generated-actor-generation
+  "Parse the generated spawn suffix off an `actor-id` of the form
+  `<type>#<n>` (the instance id the spawn-counter mints — see
+  `lifecycle-fx.spawn/allocate-actor-id-in-runtime-db`). Returns integer `n`
+  only for a fully numeric suffix; fixed ids and malformed suffixes return nil."
+  [actor-id]
+  (let [nm (when (keyword? actor-id) (name actor-id))
+        i  (when nm #?(:clj  (.lastIndexOf ^String nm "#")
+                       :cljs (.lastIndexOf nm "#")))]
+    (when (and i (nat-int? i) (pos? i))
+      (let [suffix (subs nm (inc i))]
+        ;; The CLJS branch must REJECT a non-fully-numeric suffix BEFORE
+        ;; `js/parseInt`: `js/parseInt "3abc" 10` leniently returns 3, whereas
+        ;; CLJ parsing throws. Gating both branches first keeps work identity
+        ;; deterministic across platforms.
+        (when (re-matches #"\d+" suffix)
+          #?(:clj  (try (Long/parseLong suffix) (catch Exception _ nil))
+             :cljs (let [x (js/parseInt suffix 10)] (when-not (js/isNaN x) x))))))))
 
 (defn actor-generation
   "Parse the spawn generation off an `actor-id` of the form
-  `<type>#<n>` (the instance id the spawn-counter mints — see
-  `lifecycle-fx.spawn/allocate-actor-id-in-runtime-db`). Returns the
-  integer `n`, or 1 when the id carries no `#n` suffix (an explicit
-  per-state-singleton `:fixed-actor-id` actor — one attempt, generation 1).
-  nil-safe: returns nil for a nil id (no live counterpart). Public so the
-  finalize path can read the LIVE spawn-slot occupant's generation as the
-  `:current` counterpart of the stale-spawn carried/current gate."
+  `<type>#<n>`. Returns integer `n`, or 1 when the id carries no valid numeric
+  suffix (an explicit `:fixed-actor-id`). nil-safe: returns nil for a nil id.
+  Public so the finalize path can read the live spawn-slot occupant's
+  generation as the `:current` stale-spawn counterpart."
   [actor-id]
-  (if (nil? actor-id)
-    nil
-    (let [nm (when (keyword? actor-id) (name actor-id))
-          i  (when nm #?(:clj  (.lastIndexOf ^String nm "#")
-                         :cljs (.lastIndexOf nm "#")))]
-      (if (and i (nat-int? i) (pos? i))
-        (let [suffix (subs nm (inc i))
-              ;; The CLJS branch must REJECT a non-fully-numeric suffix
-              ;; BEFORE `js/parseInt`: `js/parseInt "3abc" 10`
-              ;; leniently returns 3, whereas CLJ `Long/parseLong "3abc"`
-              ;; THROWS → falls through to generation 1. A `:fixed-actor-id`
-              ;; carrying a `#` followed by a malformed suffix would otherwise
-              ;; mint DIFFERENT work-ids per platform (a determinism break).
-              ;; Gating both platforms on a fully-numeric `#"\d+"` match makes
-              ;; them agree: a malformed suffix defaults to generation 1.
-              n      (when (re-matches #"\d+" suffix)
-                       #?(:clj  (try (Long/parseLong suffix) (catch Exception _ nil))
-                          :cljs (let [x (js/parseInt suffix 10)] (when-not (js/isNaN x) x))))]
-          (or n 1))
-        1))))
+  (when (some? actor-id)
+    (or (generated-actor-generation actor-id) 1)))
+
+(defn- canonical-spawn-generation
+  "The existing machine work-id generation slot for one attempt. A generated
+  `<type>#<n>` address is already exact and keeps `n`. A fixed `:spawn-all`
+  address instead uses its carried runtime `attempt`; without that private join
+  authority (ordinary `:spawn`) it retains the established generation 1."
+  [actor-id attempt]
+  (when (some? actor-id)
+    (or (generated-actor-generation actor-id)
+        attempt
+        1)))
 
 (defn spawn-work-id
   "Build the machine work-id for one spawned-actor attempt:
@@ -143,10 +156,15 @@
   `actor-id` is the finishing actor's INSTANCE id; `work-bearing-path` is
   the `:spawn`-bearing node's declaring path (the child's stamped
   invocation path `:rf/invoke-id`). `generation` is parsed off the
-  `<type>#<n>` instance id (or 1 for an explicit `:fixed-actor-id`).
-  `=`-comparable and EDN-serializable."
-  [actor-id work-bearing-path]
-  [:rf.work/machine actor-id (vec work-bearing-path) (actor-generation actor-id)])
+  `<type>#<n>` instance id (or 1 for an ordinary explicit `:fixed-actor-id`).
+  The 3-arity accepts the existing runtime-minted `:spawn-all` attempt token:
+  generated actors keep their exact `#n`; a reusable fixed actor uses the token
+  in this SAME generation slot. `=`-comparable and EDN-serializable."
+  ([actor-id work-bearing-path]
+   (spawn-work-id actor-id work-bearing-path nil))
+  ([actor-id work-bearing-path attempt]
+   [:rf.work/machine actor-id (vec work-bearing-path)
+    (canonical-spawn-generation actor-id attempt)]))
 
 ;; ---------------------------------------------------------------------------
 ;; Canonical reply map for a spawned-actor completion (Managed-Effects §The
@@ -165,8 +183,8 @@
   prefix-path of the `:spawn`-bearing parent state) — the two are
   distinct identity facts. Optional facts are omitted when absent rather
   than nil-filled (Managed-Effects §The reply map)."
-  [{:keys [actor-id parent-id work-bearing-path frame completed-at]}]
-  (cond-> {:rf.reply/work-id   (spawn-work-id actor-id work-bearing-path)
+  [{:keys [actor-id parent-id work-bearing-path attempt frame completed-at]}]
+  (cond-> {:rf.reply/work-id   (spawn-work-id actor-id work-bearing-path attempt)
            :rf.reply/work-kind :machine}
     (some? frame)        (assoc :rf.frame/id frame)
     (some? completed-at) (assoc :completed-at completed-at)
@@ -181,8 +199,8 @@
   Completion). `value` is the child's `:output-key` result (nil when the
   final leaf declares no `:output-key`). `:rf.reply/work-status :completed`.
 
-  `ctx` keys: `:actor-id`, `:parent-id`, `:work-bearing-path`, `:frame`,
-  `:completed-at`."
+  `ctx` keys: `:actor-id`, `:parent-id`, `:work-bearing-path`, optional private
+  join `:attempt`, `:frame`, `:completed-at`."
   [ctx value]
   (assoc (base-reply ctx)
          :status      :ok
@@ -229,27 +247,28 @@
   `:rf.reply/work-status :suppressed`.
 
   `ctx` keys mirror `success-reply`'s (`:actor-id`, `:parent-id`,
-  `:work-bearing-path`, `:frame`, `:completed-at`) plus an optional
+  `:work-bearing-path`, optional private join `:attempt`, `:frame`,
+  `:completed-at`) plus an optional
   `:current-generation` — the generation currently occupying the spawn
   slot at completion (the LIVE counterpart), or nil when the slot is gone
   (the parent was destroyed, or the slot was never reused). Mirroring the
   `:after` path's carried/current gate, the correlation carries the
   carried-vs-current generation pair under
   `:generation {:carried <n> :current <m-or-nil>}` — `:carried` is the
-  generation parsed off the finishing actor's id (the `<type>#<n>` suffix),
-  `:current` is `:current-generation`. The pair is the data-only
+  generated actor's `<type>#<n>` suffix, or a fixed join child's private
+  attempt token; `:current` is `:current-generation`. The pair is the data-only
   supersession gate: `:carried` != `:current` (including a nil `:current`
   — no live counterpart) is exactly why the completion is stale. The
   whole correlation map elides through the shared trace summary
   (`stale-spawn-trace`)."
   [ctx]
-  (let [{:keys [actor-id parent-id work-bearing-path frame completed-at
-                current-generation]} ctx
-        carried-generation (actor-generation actor-id)]
+  (let [{:keys [actor-id parent-id work-bearing-path attempt frame completed-at
+                 current-generation]} ctx
+        carried-generation (canonical-spawn-generation actor-id attempt)]
     (cond-> {:status       :stale
              :stale?       true
              :rf.reply/stale-reason :rf.machine/actor-not-live
-             :rf.reply/work-id      (spawn-work-id actor-id work-bearing-path)
+             :rf.reply/work-id      (spawn-work-id actor-id work-bearing-path attempt)
              :rf.reply/work-kind    :machine
              :rf.reply/work-status  :suppressed
              :correlation  (cond-> {:actor-id   actor-id
@@ -293,21 +312,25 @@
   The work-id is `[:rf.work/machine spawned-id parent-invoke-id
   generation]` — the child's SPAWNED instance address (the `<type>#<n>`
   actor id in the join-state `:children` map) keyed on the parent's
-  `:spawn-all`-bearing declaring path; one child attempt has one `:rf.reply/work-id`.
+  `:spawn-all`-bearing declaring path. `ctx :attempt` is the runtime-minted
+  exact join authority: it occupies the existing generation slot for a fixed
+  address, while a generated actor keeps its exact `#n` generation. One child
+  attempt has one `:rf.reply/work-id`.
   `:rf.reply/work-kind :machine`.
 
   `ctx` keys: `:parent-id` (the join-owning parent INSTANCE), `:invoke-id`
   (the `:spawn-all`-bearing declaring path — the work-bearing path),
   `:child-id` (the logical child id off the arriving event), `:spawned-id`
-  (the child's spawned instance address from `:children`), `:frame`,
-  optional `:completed-at` (the firing dispatch's causal `:rf/time-ms`).
+  (the child's spawned instance address from `:children`), `:attempt` (the
+  join's runtime-minted exact authority), `:frame`, optional `:completed-at`
+  (the firing dispatch's causal `:rf/time-ms`).
   `child-extra` is the child's forwarded payload (the terminal `:data`
   slice / error reason), carried under `:value` for a `:done` reply and
   wrapped as a family `:error` map for a `:failed` reply so the closed
   reply-map schema's value/error conventions hold. Optional facts are
   omitted (not nil-filled) when absent."
-  [{:keys [parent-id invoke-id child-id spawned-id frame completed-at]} kind child-extra]
-  (let [base (cond-> {:rf.reply/work-id   (spawn-work-id spawned-id invoke-id)
+  [{:keys [parent-id invoke-id child-id spawned-id attempt frame completed-at]} kind child-extra]
+  (let [base (cond-> {:rf.reply/work-id   (spawn-work-id spawned-id invoke-id attempt)
                       :rf.reply/work-kind :machine
                       :correlation
                       (cond-> {}
@@ -352,11 +375,11 @@
   kind. Optional facts omitted when absent."
   ([ctx kind]
    (stale-join-child-reply ctx kind :rf.machine.spawn-all/join-resolved))
-  ([{:keys [parent-id invoke-id child-id spawned-id frame completed-at]} kind stale-reason]
+  ([{:keys [parent-id invoke-id child-id spawned-id attempt frame completed-at]} kind stale-reason]
    (cond-> {:status       :stale
            :stale?       true
            :rf.reply/stale-reason stale-reason
-           :rf.reply/work-id      (spawn-work-id spawned-id invoke-id)
+           :rf.reply/work-id      (spawn-work-id spawned-id invoke-id attempt)
            :rf.reply/work-kind    :machine
            :rf.reply/work-status  :suppressed
            :correlation  (cond-> {}
@@ -592,12 +615,12 @@
 
   `ctx` keys: `:actor-id` (the destroyed actor INSTANCE), `:parent-id`
   (optional), `:work-bearing-path` (the spawn declaring path — optional),
-  `:frame`, `:reason` (the cancel reason)."
-  [{:keys [actor-id parent-id work-bearing-path frame reason]}]
+  private join `:attempt` (optional), `:frame`, `:reason` (the cancel reason)."
+  [{:keys [actor-id parent-id work-bearing-path attempt frame reason]}]
   (cond-> {:status        :cancelled
            :cancelled?    true
            :rf.reply/cancel-reason reason
-           :rf.reply/work-id       (spawn-work-id actor-id work-bearing-path)
+           :rf.reply/work-id       (spawn-work-id actor-id work-bearing-path attempt)
            :rf.reply/work-kind     :machine
            :rf.reply/work-status   :cancelled
            :correlation   (cond-> {:actor-id actor-id}

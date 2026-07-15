@@ -311,8 +311,24 @@
         ;; not just observability) instead of the `:data`-only `:on-done`
         ;; callback. A plain `:final?` leaf keeps firing `:on-done`. `error-leaf?`
         ;; is computed above (cross-region scan for parallel).
+        ;; A `:spawn-all` child's private membership is the canonical REPLY
+        ;; source of its parent/invoke coordinates (per-child spawn args use the
+        ;; distinct `:rf/spawn-all-id`, so no public single-spawn `:rf/invoke-id`
+        ;; stamp is required) and the runtime-minted exact attempt authority.
+        ;; Keep the ordinary parent/invoke locals unchanged: they also govern
+        ;; single-`:spawn` callbacks + teardown-slot pruning, and a join child
+        ;; must not enter either path merely because reply identity needs the
+        ;; membership coordinates.
+        join-child  (:rf/join-child child-data)
         parent-id   (:rf/parent-id child-data)
         invoke-id   (:rf/invoke-id child-data)
+        reply-parent-id (or parent-id (:parent-id join-child))
+        reply-invoke-id (or invoke-id (:invoke-id join-child))
+        ;; Thread that authority into the SAME
+        ;; canonical machine work-id generation slot used by its join fold, so
+        ;; a fixed-id final leaf cannot publish a parallel generation-1 arc.
+        ;; Ordinary `:spawn` data has no membership record and stays unchanged.
+        join-attempt (:attempt join-child)
         ;; Per EP-0011 §Machine Completion / Managed-Effects §The uniform
         ;; reply envelope: form the canonical machine reply map INTERNALLY
         ;; (work-id `[:rf.work/machine actor-id work-bearing-path
@@ -340,8 +356,9 @@
         ;; nil-filled (Managed-Effects §The reply map).
         completed-at (get-in machine [:rf/cofx :rf/time-ms])
         reply-ctx   (cond-> {:actor-id          machine-id
-                             :parent-id         parent-id
-                             :work-bearing-path invoke-id
+                             :parent-id         reply-parent-id
+                             :work-bearing-path reply-invoke-id
+                             :attempt           join-attempt
                              :frame             frame-id}
                       (some? completed-at) (assoc :completed-at completed-at))
         ;; (1) Find parent's `:on-done` / `:on-error`, if this is a `:spawn`-

@@ -336,14 +336,19 @@
   evidence never borrows the current attempt's work identity (rf2-ixjd48).
   For `:attempt-unverified` there is no carrier authority to read, so the
   caller passes the live child mapping (the slot the carrier claimed); for
-  `:duplicate-completion` the carrier is exact-current, so the two coincide."
-  [frame-id parent-id invoke-id child-id spawned-id kind completed-at
+  `:duplicate-completion` the carrier is exact-current, so the two coincide.
+
+  `attempt` is sourced from the same authority as `spawned-id`: carried auth
+  for a superseded carrier, otherwise the current join state. Fixed-id stale
+  evidence therefore never borrows a successor attempt's work identity."
+  [frame-id parent-id invoke-id child-id spawned-id attempt kind completed-at
    runtime-db stale-reason]
   (let [stale-reply (m-reply/stale-join-child-reply
                       {:parent-id    parent-id
                        :invoke-id    invoke-id
                        :child-id     child-id
                        :spawned-id   spawned-id
+                       :attempt      attempt
                        :frame        frame-id
                        :completed-at completed-at}
                       kind stale-reason)
@@ -547,6 +552,7 @@
                       :invoke-id    invoke-id
                       :child-id     child-id
                       :spawned-id   spawned-id
+                      :attempt      (:rf/attempt join-state'')
                       :frame        frame-id
                       :completed-at completed-at}
                      kind child-extra)
@@ -689,6 +695,7 @@
                         {:actor-id          spawned-id
                          :parent-id         parent-id
                          :work-bearing-path invoke-id
+                         :attempt           (:rf/attempt join-state'')
                          :frame             frame-id
                          :reason            :on-join-resolution})
                       {:frame frame-id})]
@@ -917,14 +924,14 @@
           (suppress-stale-completion!
             frame-id parent-id invoke-id child-id
             (get-in join-state [:children child-id])
-            kind completed-at runtime-db
+            (:rf/attempt join-state) kind completed-at runtime-db
             :rf.machine.spawn-all/attempt-unverified)
 
           (not (join-auth-current? auth parent-id invoke-id child-id join-state))
           (suppress-stale-completion!
             frame-id parent-id invoke-id child-id
             (:spawned-id auth)
-            kind completed-at runtime-db
+            (:attempt auth) kind completed-at runtime-db
             :rf.machine.spawn-all/attempt-superseded)
 
           ;; The carrier is now proven EXACT-CURRENT for this attempt.
@@ -951,6 +958,7 @@
                                :invoke-id    invoke-id
                                :child-id     child-id
                                :spawned-id   spawned-id
+                               :attempt      (:rf/attempt join-state)
                                :frame        frame-id
                                :completed-at completed-at}
                               kind)
@@ -984,7 +992,7 @@
           (suppress-stale-completion!
             frame-id parent-id invoke-id child-id
             (get-in join-state [:children child-id])
-            kind completed-at runtime-db
+            (:rf/attempt join-state) kind completed-at runtime-db
             :rf.machine.spawn-all/duplicate-completion)
 
           :else

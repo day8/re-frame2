@@ -388,6 +388,7 @@
                                  :actor-id  spawned-id
                                  :parent-id parent-id
                                  :invoke-id invoke-id
+                                 :attempt   (:rf/attempt join-state)
                                  :child-id  child-id})))
     ;; Clear the join-state slot via the unified projection (slot-only). rf2-i4aj9c —
     ;; fenced on live ownership and routed through the EXACT durable write, so a
@@ -433,38 +434,48 @@
   rf2-i4aj9c — `fence` carries the destroy-effect's exact-incarnation gate +
   owner token; it is threaded into `teardown-live-actor!` so every
   callback-bearing teardown boundary is rechecked and the durable writes ride
-  A's token."
+  A's token. Before teardown, the tail also reads the child's private
+  `:rf/join-child` membership. When present, its carried `:attempt` and
+  `:invoke-id` feed only the canonical cancelled reply work-id, so an
+  imperative/survivor destroy of a fixed join child retains exact attempt
+  identity without changing the public destroy grammar or trace keys."
   [frame-id actor-id reason parent-id invoke-id old-db fence]
-  (when (actor-live? frame-id actor-id old-db)
-    ;; Shared ordered teardown pipeline (see `teardown-live-actor!`). The
-    ;; `:exit` cascade runs BEFORE the `:rf.machine/destroyed` trace:
-    ;; per Spec 005 §Declarative `:spawn` §Composition with explicit `:entry`
-    ;; / `:exit` (005:2138) the `:exit` action reads the actor's final
-    ;; snapshot before the auto-destroy clears it, so a consumer observing the
-    ;; db between `:exit` and `:rf.machine/destroyed` sees the live snapshot.
-    ;; This mirrors `finalize-machine`'s order (exit cascade → teardown →
-    ;; destroyed) so both destroy entry-points share one ordering convention.
-    (teardown-live-actor!
-      frame-id actor-id
-      {:actor-id actor-id :parent-id parent-id :invoke-id invoke-id}
-      ;; D6 — `:reason` discriminates "an action / fx tore the actor down"
-      ;; (`:explicit`, a cancellation) from `:rf.machine/finished` (the
-      ;; auto-destroy on `:final?`) and, for the VERIFIED reap shape,
-      ;; `:rf.machine/join-reaped` (post-completion cleanup of an
-      ;; already-terminal `:spawn-all` join child — NOT a cancellation, so
-      ;; no second-terminal cancelled reply, rf2-tj3l6a). Always stamp
-      ;; `:system-id` (nil when not bound) per the destroyed-trace-shape
-      ;; contract for the `destroy-single!` site. `released-sid` is the
-      ;; binding the teardown projection released — resolved from the reverse
-      ;; index BEFORE the dissoc, symmetric with `finalize-machine`.
-      (fn [released-sid]
-        (traces/emit-destroyed! {:frame     frame-id
-                                 :actor-id  actor-id
-                                 :system-id released-sid
-                                 :parent-id parent-id
-                                 :invoke-id invoke-id
-                                 :reason    reason}))
-      fence))
+  (let [join-child (get-in old-db
+                           (conj (paths/snapshot-path actor-id)
+                                 :data :rf/join-child))]
+    (when (actor-live? frame-id actor-id old-db)
+      ;; Shared ordered teardown pipeline (see `teardown-live-actor!`). The
+      ;; `:exit` cascade runs BEFORE the `:rf.machine/destroyed` trace:
+      ;; per Spec 005 §Declarative `:spawn` §Composition with explicit `:entry`
+      ;; / `:exit` (005:2138) the `:exit` action reads the actor's final
+      ;; snapshot before the auto-destroy clears it, so a consumer observing the
+      ;; db between `:exit` and `:rf.machine/destroyed` sees the live snapshot.
+      ;; This mirrors `finalize-machine`'s order (exit cascade → teardown →
+      ;; destroyed) so both destroy entry-points share one ordering convention.
+      (teardown-live-actor!
+        frame-id actor-id
+        {:actor-id actor-id :parent-id parent-id :invoke-id invoke-id}
+        ;; D6 — `:reason` discriminates "an action / fx tore the actor down"
+        ;; (`:explicit`, a cancellation) from `:rf.machine/finished` (the
+        ;; auto-destroy on `:final?`) and, for the VERIFIED reap shape,
+        ;; `:rf.machine/join-reaped` (post-completion cleanup of an
+        ;; already-terminal `:spawn-all` join child — NOT a cancellation, so
+        ;; no second-terminal cancelled reply, rf2-tj3l6a). Always stamp
+        ;; `:system-id` (nil when not bound) per the destroyed-trace-shape
+        ;; contract for the `destroy-single!` site. `released-sid` is the
+        ;; binding the teardown projection released — resolved from the reverse
+        ;; index BEFORE the dissoc, symmetric with `finalize-machine`.
+        (fn [released-sid]
+          (traces/emit-destroyed!
+            {:frame             frame-id
+             :actor-id          actor-id
+             :system-id         released-sid
+             :parent-id         parent-id
+             :invoke-id         invoke-id
+             :work-bearing-path (or invoke-id (:invoke-id join-child))
+             :attempt           (:attempt join-child)
+             :reason            reason}))
+        fence)))
   nil)
 
 (defn- destroy-join-reap!
