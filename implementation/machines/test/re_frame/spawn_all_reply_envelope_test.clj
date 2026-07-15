@@ -57,7 +57,8 @@
   (testing "rf2-d63qtp — a done join-child reply is canonical :status :ok"
     (let [r (m-reply/join-child-reply
               {:parent-id :sup/all :invoke-id [:hydrating]
-               :child-id :a :spawned-id :child/a#1 :frame :rf/default}
+               :child-id :a :spawned-id :child/a#1
+               :work-generation 1 :frame :rf/default}
               :done {:loaded true})]
       (is (= :ok (:status r)))
       (is (= :machine (:rf.reply/work-kind r)))
@@ -70,7 +71,8 @@
   (testing "a failed join-child reply is canonical :status :error with family :kind"
     (let [r (m-reply/join-child-reply
               {:parent-id :sup/all :invoke-id [:hydrating]
-               :child-id :b :spawned-id :child/b#1 :frame :rf/default}
+               :child-id :b :spawned-id :child/b#1
+               :work-generation 1 :frame :rf/default}
               :failed :boom)]
       (is (= :error (:status r)))
       (is (= :failed (:rf.reply/work-status r)))
@@ -81,7 +83,8 @@
   (testing "rf2-d63qtp — a post-resolution late join-child completion is :status :stale"
     (let [r (m-reply/stale-join-child-reply
               {:parent-id :sup/all :invoke-id [:hydrating]
-               :child-id :c :spawned-id :child/c#1 :frame :rf/default}
+               :child-id :c :spawned-id :child/c#1
+               :work-generation 1 :frame :rf/default}
               :done)]
       (is (= :stale (:status r)))
       (is (true? (:stale? r)))

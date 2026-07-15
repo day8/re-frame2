@@ -59,6 +59,24 @@
                :on {:abort :idle}}}})
   (rf/dispatch-sync [parent-id [:start]]))
 
+(defn- register-generated-successor-parent!
+  [parent-id child-a-type child-b-type fixed-b]
+  (rf/reg-machine
+    parent-id
+    {:initial :idle
+     :states
+     {:idle   {:on {:start :racing}}
+      :racing {:spawn-all
+               {:children [{:id :a :machine-id child-a-type :start [:set-id :a]}
+                           {:id :b :machine-id child-b-type
+                            :fixed-actor-id fixed-b :start [:set-id :b]}]
+                :join :all
+                :on-child-done :child/done
+                :on-child-error :child/error
+                :on-all-complete [:join/all]}
+               :on {:abort :idle}}}})
+  (rf/dispatch-sync [parent-id [:start]]))
+
 (defn- join-state [parent-id]
   (get-in (mtest/runtime-db)
           [:rf.runtime/machines :spawned parent-id [:racing]]))
@@ -73,10 +91,103 @@
 (defn- work-id-of [event]
   (:rf.reply/work-id (:tags event)))
 
+(defn- terminal-statuses-for [work-id]
+  (into []
+        (comp (map :tags)
+              (filter #(= work-id (:rf.reply/work-id %)))
+              (keep :rf.reply/work-status)
+              (filter #{:completed :failed :cancelled}))
+        (mtest/captured-events)))
+
 (defn- forged-completion! [parent-id auth]
   (rf/dispatch-sync
     [parent-id (with-meta [:child/done (:child-id auth)]
                  {:rf/join-auth auth})]))
+
+(deftest numeric-tail-fixed-id-uses-runtime-attempt-not-keyword-spelling
+  (testing "sequential attempts at a fixed address ending in #7 get distinct work ids"
+    (register-fixed-parent! :jwi/numeric-parent
+                            :jwi/numeric-a-type :jwi/numeric-b-type
+                            :jwi/fixed-a#7 :jwi/fixed-b :all)
+    (let [attempt-a (:rf/attempt (join-state :jwi/numeric-parent))]
+      (rf/dispatch-sync [:jwi/fixed-a#7 [:go]])
+      (let [work-a (work-id-of
+                     (first (events-of :rf.machine.spawn-all/child-completed)))]
+        (rf/dispatch-sync [:jwi/numeric-parent [:abort]])
+        (rf/dispatch-sync [:jwi/numeric-parent [:start]])
+        (let [attempt-b (:rf/attempt (join-state :jwi/numeric-parent))
+              tampered-generation (if (= attempt-b 7) 8 7)
+              ;; Tamper a non-authoritative carrier field to the misleading
+              ;; keyword suffix (or a distinct sentinel if the opaque attempt
+              ;; itself happens to be 7). The interceptor must derive from the
+              ;; durable join spec/attempt, never trust this carried value.
+              tampered-auth (assoc (join-auth :jwi/fixed-a#7)
+                                   :work-generation tampered-generation)]
+          (mtest/reset-captured!)
+          (forged-completion! :jwi/numeric-parent tampered-auth)
+          (let [work-b (work-id-of
+                         (first (events-of :rf.machine.spawn-all/child-completed)))]
+            (is (= [:rf.work/machine :jwi/fixed-a#7 [:racing] attempt-a]
+                   work-a))
+            (is (= [:rf.work/machine :jwi/fixed-a#7 [:racing] attempt-b]
+                   work-b))
+            (is (not= tampered-generation (last work-b))
+                "carried work-generation tampering cannot override runtime provenance")
+            (is (not= work-a work-b)
+                "the literal #7 suffix never overrides fixed-id provenance")))))))
+
+(deftest superseded-evidence-keeps-the-old-attempts-explicit-provenance
+  (testing "a fixed old attempt is not reclassified by a generated successor spec"
+    (register-fixed-parent! :jwi/spec-change-parent
+                            :jwi/spec-change-a-type :jwi/spec-change-b-type
+                            :jwi/spec-change-fixed-a#7
+                            :jwi/spec-change-fixed-b :all)
+    (let [attempt-a (:rf/attempt (join-state :jwi/spec-change-parent))
+          auth-a    (join-auth :jwi/spec-change-fixed-a#7)
+          old-work  [:rf.work/machine :jwi/spec-change-fixed-a#7
+                     [:racing] attempt-a]]
+      (rf/dispatch-sync [:jwi/spec-change-parent [:abort]])
+      ;; Model HMR/re-entry changing the same logical child from fixed to
+      ;; generated. The live successor spec cannot classify old evidence.
+      (register-generated-successor-parent!
+        :jwi/spec-change-parent
+        :jwi/spec-change-a-type :jwi/spec-change-b-type
+        :jwi/spec-change-fixed-b)
+      (let [successor (get-in (join-state :jwi/spec-change-parent)
+                              [:children :a])]
+        (is (not= :jwi/spec-change-fixed-a#7 successor))
+        (is (not= attempt-a (:rf/attempt (join-state :jwi/spec-change-parent))))
+        (mtest/reset-captured!)
+        (forged-completion! :jwi/spec-change-parent auth-a)
+        (let [stale-work (work-id-of
+                           (first (events-of
+                                    :rf.machine.spawn-all/stale-completion)))]
+          (is (= old-work stale-work)
+              "superseded evidence uses its carried old provenance")
+          (is (not= 7 (last stale-work))
+              "the successor's generated policy cannot parse the old fixed name"))))))
+
+(deftest pre-resolution-exit-does-not-cancel-an-already-folded-child
+  (testing "a non-decisive completion stays the sole terminal when the parent exits"
+    (register-fixed-parent! :jwi/exit-parent
+                            :jwi/exit-a-type :jwi/exit-b-type
+                            :jwi/exit-fixed-a :jwi/exit-fixed-b :all)
+    (let [attempt (:rf/attempt (join-state :jwi/exit-parent))
+          work-a  [:rf.work/machine :jwi/exit-fixed-a [:racing] attempt]
+          work-b  [:rf.work/machine :jwi/exit-fixed-b [:racing] attempt]]
+      ;; A folds successfully but is non-decisive for :all. Exiting before B
+      ;; reports must tear A down as post-terminal cleanup and cancel only B.
+      (rf/dispatch-sync [:jwi/exit-fixed-a [:go]])
+      (rf/dispatch-sync [:jwi/exit-parent [:abort]])
+      (is (= [:completed] (terminal-statuses-for work-a))
+          "A has exactly one terminal: its accepted completion")
+      (is (= [:cancelled] (terminal-statuses-for work-b))
+          "the still-running sibling is cancelled exactly once")
+      (is (= :rf.machine/join-reaped
+             (->> (events-of :rf.machine/destroyed)
+                  (filter #(= :jwi/exit-fixed-a (get-in % [:tags :actor-id])))
+                  first :tags :reason))
+          "A's physical teardown is classified as post-terminal cleanup"))))
 
 (deftest fixed-id-join-attempt-authority-is-the-machine-work-generation
   (testing "sequential fixed-id attempts stay distinct across accepted, late,
@@ -184,7 +295,8 @@
            (:rf.reply/work-id
              (m-reply/join-child-reply
                {:parent-id :jwi/parent :invoke-id [:racing]
-                :child-id :a :spawned-id :jwi/generated#7 :attempt 999}
+                :child-id :a :spawned-id :jwi/generated#7
+                :work-generation 7}
                :done [])))
         "a generated actor keeps its exact #n generation")
     (is (= [:rf.work/machine :jwi/single-fixed [:working] 1]

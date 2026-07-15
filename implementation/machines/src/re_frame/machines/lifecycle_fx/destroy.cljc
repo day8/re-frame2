@@ -379,17 +379,28 @@
       ;; gating the emit on its return value keeps each survivor's
       ;; `:rf.machine/destroyed` to EXACTLY ONE — no phantom double-destroy.
       ;;
-      ;; D6 — `:reason :explicit` discriminates "the parent cascade
-      ;; tore the child down" from `:rf.machine/finished` (the auto-destroy
-      ;; on `:final?`). Per-child fires omit `:system-id` (the join-state's
-      ;; children aren't system-id-bound through the parent's slot).
-      (when (destroy-single-actor! frame-id spawned-id fence)
-        (traces/emit-destroyed! {:frame     frame-id
-                                 :actor-id  spawned-id
-                                 :parent-id parent-id
-                                 :invoke-id invoke-id
-                                 :attempt   (:rf/attempt join-state)
-                                 :child-id  child-id})))
+      ;; Per-child fires omit `:system-id` (the join-state's children aren't
+      ;; system-id-bound through the parent's slot). A child already present
+      ;; in `:done ∪ :failed` has published its terminal reply, so parent exit
+      ;; tears it down with the existing post-terminal cleanup reason; only an
+      ;; in-progress sibling is an explicit cancellation.
+      (let [runtime-db       (frame/frame-runtime-db-value frame-id)
+            join-child      (get-in runtime-db
+                                    (conj (paths/snapshot-path spawned-id)
+                                          :data :rf/join-child))
+            already-terminal? (or (contains? (:done join-state) child-id)
+                                  (contains? (:failed join-state) child-id))
+            reason           (when already-terminal?
+                               :rf.machine/join-reaped)]
+        (when (destroy-single-actor! frame-id spawned-id fence)
+          (traces/emit-destroyed!
+            (cond-> {:frame           frame-id
+                     :actor-id        spawned-id
+                     :parent-id       parent-id
+                     :invoke-id       invoke-id
+                     :work-generation (:work-generation join-child)
+                     :child-id        child-id}
+              reason (assoc :reason reason))))))
     ;; Clear the join-state slot via the unified projection (slot-only). rf2-i4aj9c —
     ;; fenced on live ownership and routed through the EXACT durable write, so a
     ;; child-`:rf.machine/destroyed` listener that published same-id B cannot have
@@ -435,8 +446,8 @@
   owner token; it is threaded into `teardown-live-actor!` so every
   callback-bearing teardown boundary is rechecked and the durable writes ride
   A's token. Before teardown, the tail also reads the child's private
-  `:rf/join-child` membership. When present, its carried `:attempt` and
-  `:invoke-id` feed only the canonical cancelled reply work-id, so an
+  `:rf/join-child` membership. When present, its carried `:work-generation`
+  and `:invoke-id` feed only the canonical cancelled reply work-id, so an
   imperative/survivor destroy of a fixed join child retains exact attempt
   identity without changing the public destroy grammar or trace keys."
   [frame-id actor-id reason parent-id invoke-id old-db fence]
@@ -467,14 +478,15 @@
         ;; index BEFORE the dissoc, symmetric with `finalize-machine`.
         (fn [released-sid]
           (traces/emit-destroyed!
-            {:frame             frame-id
-             :actor-id          actor-id
-             :system-id         released-sid
-             :parent-id         parent-id
-             :invoke-id         invoke-id
-             :work-bearing-path (or invoke-id (:invoke-id join-child))
-             :attempt           (:attempt join-child)
-             :reason            reason}))
+            (cond-> {:frame             frame-id
+                     :actor-id          actor-id
+                     :system-id         released-sid
+                     :parent-id         parent-id
+                     :invoke-id         invoke-id
+                     :work-bearing-path (or invoke-id (:invoke-id join-child))
+                     :reason            reason}
+              (some? (:work-generation join-child))
+              (assoc :work-generation (:work-generation join-child)))))
         fence)))
   nil)
 

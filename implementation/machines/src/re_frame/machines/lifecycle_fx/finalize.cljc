@@ -328,7 +328,7 @@
         ;; canonical machine work-id generation slot used by its join fold, so
         ;; a fixed-id final leaf cannot publish a parallel generation-1 arc.
         ;; Ordinary `:spawn` data has no membership record and stays unchanged.
-        join-attempt (:attempt join-child)
+        join-work-generation (:work-generation join-child)
         ;; Per EP-0011 §Machine Completion / Managed-Effects §The uniform
         ;; reply envelope: form the canonical machine reply map INTERNALLY
         ;; (work-id `[:rf.work/machine actor-id work-bearing-path
@@ -358,8 +358,9 @@
         reply-ctx   (cond-> {:actor-id          machine-id
                              :parent-id         reply-parent-id
                              :work-bearing-path reply-invoke-id
-                             :attempt           join-attempt
                              :frame             frame-id}
+                      (some? join-work-generation)
+                      (assoc :work-generation join-work-generation)
                       (some? completed-at) (assoc :completed-at completed-at))
         ;; (1) Find parent's `:on-done` / `:on-error`, if this is a `:spawn`-
         ;; spawned actor. The parent's spec carries the `:spawn` map at
