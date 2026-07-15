@@ -104,7 +104,25 @@
 
      (defn- captured-throw [f]
        (try (f) nil
-            (catch :default e e)))))
+            (catch :default e e)))
+
+     (defn- controlled-weak-ref-constructor
+       "A constructable deterministic WeakRef model. Each produced ref exposes
+       `clearForTest`, which models collection without relying on host GC."
+       [created deref-calls]
+       (js/Proxy.
+        host-weak-ref
+        #js {:construct
+             (fn [_ args _]
+               (let [target* (volatile! (aget args 0))
+                     ref     (js-obj)]
+                 (aset ref "deref"
+                       (fn []
+                         (swap! deref-calls inc)
+                         @target*))
+                 (aset ref "clearForTest" #(vreset! target* nil))
+                 (swap! created conj ref)
+                 ref))}))))
 
 ;; ===========================================================================
 ;; rf2-vxgfnd.170 — the three-arm JavaScript capability matrix
@@ -189,6 +207,165 @@
                    [:rf.error/id :where :recovery :platform :capability])))
            (is (empty? (client/live-root-ids))
                "root admission fails before container/React/registry mutation"))))))
+
+#?(:cljs
+   (deftest unusable-weakref-shapes-fail-typed-before-any-mutation
+     (let [cases
+           [[:callable-nonconstructable
+             (js/eval "(target) => ({deref: () => target})")]
+            [:throwing-constructor
+             (js/Function. "throw new Error('weakref constructor failed')")]
+            [:missing-deref
+             (js/Function. "target" "return {}")]
+            [:malformed-deref
+             (js/Function. "target" "return {deref: 7}")]
+            [:throwing-deref
+             (js/Function.
+              "target"
+              "return {deref: function(){throw new Error('deref failed')}}")]
+            [:wrong-referent
+             (js/Function.
+              "target"
+              "return {deref: function(){return {wrong: true}}}")]]]
+       (doseq [[label weak-ref] cases]
+         (testing (name label)
+           (with-platform-capabilities!
+             weak-ref host-finalization-registry
+             (fn []
+               (let [incarnation (reactive/make-root-incarnation)
+                     cell        (reactive/make-cell label)
+                     attach-error
+                     (captured-throw
+                      #(reactive/attach-root! cell incarnation))]
+                 (is (= {:rf.error/id :rf.error/ui-platform-incompatible
+                         :where 're-frame.ui.reactive/attach-root!
+                         :recovery :use-a-weakref-capable-javascript-runtime
+                         :platform :javascript
+                         :capability :js/WeakRef}
+                        (select-keys
+                         (ex-data attach-error)
+                         [:rf.error/id :where :recovery :platform :capability])))
+                 (is (= :fresh (reactive/lifecycle cell)))
+                 (is (nil? (reactive/cell-root cell)))
+                 (is (zero? (reactive/root-cell-count)))
+                 (let [root-error
+                       (captured-throw
+                        #(client/create-root*
+                          {:root-id :unsupported/unusable :provenance :authored}
+                          nil nil))]
+                   (is (= :rf.error/ui-platform-incompatible
+                          (:rf.error/id (ex-data root-error))))
+                   (is (= 're-frame.ui/create-root
+                          (:where (ex-data root-error))))
+                   (is (empty? (client/live-root-ids))))))))))))
+
+#?(:cljs
+   (deftest unusable-finalizationregistry-is-treated-as-absent
+     (let [cases
+           [[:throwing-constructor
+             (js/Function.
+              "callback"
+              "throw new Error('finalization registry constructor failed')")]
+            [:missing-methods
+             (js/Function. "callback" "return {}")]
+            [:throwing-register
+             (js/Function.
+              "callback"
+              (str "return {register: function(){throw new Error('register failed')},"
+                   "unregister: function(){return true}}"))]
+            [:throwing-unregister
+             (js/Function.
+              "callback"
+              (str "return {register: function(){},"
+                   "unregister: function(){throw new Error('unregister failed')}}"))]]]
+       (doseq [[label finalization-registry] cases]
+         (testing (name label)
+           (with-platform-capabilities!
+             host-weak-ref finalization-registry
+             (fn []
+               (let [incarnation (reactive/make-root-incarnation)
+                     cell        (reactive/make-cell label)]
+                 (is (identical? cell
+                                 (reactive/attach-root! cell incarnation)))
+                 (is (= 1 (reactive/root-cell-count incarnation)))
+                 (reactive/teardown! cell)
+                 (is (zero? (reactive/root-cell-count)))))))))))
+
+#?(:cljs
+   (deftest no-finalizer-attach-compacts-reconciliation-churn-before-enrolment
+     (let [created     (atom [])
+           deref-calls (atom 0)
+           weak-ref    (controlled-weak-ref-constructor created deref-calls)]
+       (with-platform-capabilities!
+         weak-ref js/undefined
+         (fn []
+           ;; Seat the one-shot capability probe, then observe only membership
+           ;; refs made by the attach path below.
+           (reactive/ensure-platform-compatible! 'retention/churn)
+           (reset! created [])
+           (reset! deref-calls 0)
+           (let [incarnation (reactive/make-root-incarnation)
+                 hidden      (reactive/make-cell ::hidden)
+                 departed-a  (reactive/make-cell ::departed-a)]
+             (reactive/attach-root! hidden incarnation)
+             (reactive/disconnect! hidden)
+             (reactive/attach-root! departed-a incarnation)
+             (reactive/disconnect! departed-a)
+             (let [replacement
+                   (loop [i        0
+                          old-ref  (nth @created 1)]
+                     ;; Model ordinary reconciliation departure: React dropped
+                     ;; the fiber and the weak member cleared, but no
+                     ;; deterministic teardown/root/tool scan ran.
+                     (.clearForTest old-ref)
+                     (reset! deref-calls 0)
+                     (let [next-cell (reactive/make-cell
+                                      (keyword "ret" (str "replacement-" i)))]
+                       (reactive/attach-root! next-cell incarnation)
+                       (is (= 2 @deref-calls)
+                           "each no-reaper attach scans the live hidden member
+                            and compacts exactly one cleared predecessor husk")
+                       (if (< i 15)
+                         (do
+                           (reactive/disconnect! next-cell)
+                           (recur (inc i) (peek @created)))
+                         next-cell)))]
+               (is (= 2 (reactive/root-cell-count incarnation))
+                   "repeated churn stays bounded to hidden + current occurrence")
+               (is (identical? incarnation (reactive/cell-root hidden)))
+               (is (identical? incarnation (reactive/cell-root replacement)))
+               ;; Replaying a stale cleared occurrence cannot remove either
+               ;; exact live member.
+               (.clearForTest (nth @created 1))
+               (is (= 2 (reactive/root-cell-count incarnation)))
+               (reactive/teardown! departed-a)
+               (reactive/teardown! replacement)
+               (reactive/teardown! hidden)
+               (is (zero? (reactive/root-cell-count))))))))))
+
+#?(:cljs
+   (deftest finalizer-capable-attach-does-not-add-a-membership-scan
+     (let [created     (atom [])
+           deref-calls (atom 0)
+           weak-ref    (controlled-weak-ref-constructor created deref-calls)]
+       (with-platform-capabilities!
+         weak-ref host-finalization-registry
+         (fn []
+           (reactive/ensure-platform-compatible! 'retention/reaper)
+           (reset! created [])
+           (reset! deref-calls 0)
+           (let [incarnation (reactive/make-root-incarnation)
+                 departed    (reactive/make-cell ::reaper-departed)
+                 replacement (reactive/make-cell ::reaper-replacement)]
+             (reactive/attach-root! departed incarnation)
+             (reactive/disconnect! departed)
+             (.clearForTest (first @created))
+             (reset! deref-calls 0)
+             (reactive/attach-root! replacement incarnation)
+             (is (zero? @deref-calls)
+                 "the FinalizationRegistry-capable production arm keeps attach O(1)")
+             (reactive/teardown! departed)
+             (reactive/teardown! replacement)))))))
 
 ;; ===========================================================================
 ;; Weak membership keeps the rf2-vxgfnd.85 semantics: survives a hide,

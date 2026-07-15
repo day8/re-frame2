@@ -6,9 +6,10 @@
 
     - the `Root` handle (React root + container + root-id — identity is
       immutable for the Root's lifetime);
-    - the LAYER-3 live-root registry: a per-document map root-id -> entry.
+    - the LAYER-3 root-claim registry: a per-document map root-id -> entry.
       `create-root` / `mount` register their root-id BEFORE any render;
-      registering an id already live throws `:rf.error/duplicate-root-id`
+      registering an id already active or tearing down throws
+      `:rf.error/duplicate-root-id`
       with the existing root untouched (failure isolation) — the last line
       of the three-layer duplicate-detection contract (§7). Container
       ownership rides the same registry: a node already owned by a
@@ -73,12 +74,14 @@
   (.-root-id root))
 
 ;; ---------------------------------------------------------------------------
-;; Layer 3 — the per-document live-root registry
+;; Layer 3 — the per-document root-claim registry
 ;; ---------------------------------------------------------------------------
 
 (defonce ^:private live-roots
   ;; root-id -> {:root Root :container node :provenance kw
-  ;;             :identifier-prefix str|nil :site {..}|nil :descriptor {..}|nil}
+  ;;             :identifier-prefix str|nil :site {..}|nil :descriptor {..}|nil
+  ;;             :root-incarnation token
+  ;;             :tearing-down? bool? :cleanup-failure? bool?}
   ;; The effective identifier-prefix rides the entry so claim-time uniqueness
   ;; (rf2-ez3fqk) reads it and release frees it by dissoc — no side index.
   (atom {}))
@@ -91,13 +94,17 @@
   (atom false))
 
 (defn live-root-ids
-  "The set of root-ids currently live in this document (tool/test read)."
+  "The root-ids whose claims this document still owns (tool/test read).
+  Includes active roots and exact claims held `:tearing-down` through deferred
+  settlement or cleanup-failure quarantine."
   []
   (set (keys @live-roots)))
 
 (defn live-root-entry
-  "The registry entry for `root-id` (tool/test read):
-  `{:root :container :provenance :site :descriptor}` or nil."
+  "The active or tearing-down claim for `root-id` (tool/test read), or nil.
+  Entries carry the exact Root/container/incarnation plus provenance; transitional
+  entries additionally carry `:tearing-down?` and, only after a host cleanup
+  throw, `:cleanup-failure?`."
   [root-id]
   (get @live-roots root-id))
 
@@ -518,16 +525,14 @@
   nil)
 
 (defn- mark-tearing-down!
-  "Move live root `root-id`'s claim into the `:tearing-down` state — the
+  "Move active root `root-id`'s claim into the `:tearing-down` state — the
   `:live -> :tearing-down -> :released` transition of rf2-vxgfnd.182. Marked
-  BEFORE the host `.unmount` so that if react-dom DEFERS teardown (a non-throwing
-  in-render `.unmount` that returns while its work is still scheduled), a
-  reentrant `mount*`/`create-root*` on the exact root-id/container is REJECTED —
-  the entry stays in `live-roots`, occupying both id and container, until the
-  settlement boundary frees it (`release-root!`). A SYNCHRONOUS teardown clears
-  the mark by releasing before `unmount!*` returns, so the state is invisible to
-  callers; only a deferred teardown observes it. Identity-guarded to THIS exact
-  Root; a no-op if the entry was superseded."
+  BEFORE host cleanup, so reentrant `mount*`/`create-root*` on the exact
+  root-id/container is REJECTED until ownership is proven free. The claim may be
+  observed while a committed reporter authoritatively awaits deferred settlement,
+  while failed-first cleanup waits for its FIFO checkpoint, or after a cleanup
+  throw leaves it quarantined. A synchronous successful teardown releases inline.
+  Identity-guarded to THIS exact Root; a no-op if the entry was superseded."
   [root-id root]
   (swap! live-roots
          (fn [m]
@@ -536,6 +541,27 @@
                (assoc m root-id (assoc entry :tearing-down? true))
                m))))
   nil)
+
+(defn- mark-cleanup-failure-quarantine!
+  "Classify THIS exact tearing-down Root as a cleanup-failure quarantine.
+  Adapter destruction may terminally reclaim this consumed host surface; a
+  genuinely deferred settlement has no such mark and remains reporter-owned."
+  [root-id root]
+  (swap! live-roots
+         (fn [m]
+           (let [entry (get m root-id)]
+             (if (and (identical? (:root entry) root)
+                      (:tearing-down? entry))
+               (assoc m root-id (assoc entry :cleanup-failure? true))
+               m))))
+  nil)
+
+(defn- exact-cleanup-failure-quarantine?
+  [root-id root]
+  (let [entry (get @live-roots root-id)]
+    (and (identical? (:root entry) root)
+         (:tearing-down? entry)
+         (:cleanup-failure? entry))))
 
 (defn- attach-rollback-cleanup-error!
   "Retain a failed-first-mount host-cleanup error as canonical SECONDARY
@@ -565,13 +591,21 @@
   (try
     (reactive/teardown-root!
      incarnation
-     (fn [] (.unmount (.-react-root root)))
+     (fn []
+       (try
+         (.unmount (.-react-root root))
+         (catch :default e
+           ;; Publish the cleanup-failure cause at the host throw edge, before
+           ;; exact-incarnation framework reaping can run user cleanup hooks.
+           (mark-cleanup-failure-quarantine! root-id root)
+           (throw e))))
      ;; No reporter committed on a synchronous failed first render. The raw
      ;; cleanup return is therefore insufficient evidence for inline reuse;
      ;; settle conservatively at the next host microtask checkpoint.
      (fn []
        (queue-microtask! #(release-root! root-id root))))
     (catch :default cleanup-error
+      (mark-cleanup-failure-quarantine! root-id root)
       (when (and ^boolean js/goog.DEBUG (exists? js/console))
         (.warn js/console
                (str "[re-frame.ui] rollback of a failed first mount of root "
@@ -614,8 +648,9 @@
   Thrown BEFORE the descriptor write / `.render`; retry = `create-root` +
   `render!` (or `mount`) a fresh root.
 
-  A root whose claim is `:tearing-down` (rf2-vxgfnd.182 — a deferred host
-  teardown in flight) is NOT live either: its React tree is being unmounted, so
+  A root whose claim is `:tearing-down` (deferred host settlement,
+  failed-first settlement checkpoint, or cleanup-failure quarantine) is NOT
+  live either: its React tree is being unmounted/consumed, so
   a `render!` into it would `.render` a consumed/unmounting handle. It fails the
   same LOUD `:rf.error/root-not-live` — recreate after the teardown settles."
   [^Root root where]
@@ -774,7 +809,11 @@
   reaches here — its receipt is instead terminally settled by the host-error /
   supersession / unmount edges (rf2-vxgfnd.264). The finalize + clear are both
   identity/rev-guarded, so a stale commit signal, a no-plan render, and a same-id
-  reincarnation are all harmless."
+  reincarnation are all harmless. A separate mount-lifetime layout effect is
+  the authoritative deferred-host-settlement reporter for this exact root
+  incarnation, including cell-less/Activity-hidden roots; ViewCell population
+  never classifies deferral. A cleanup throw takes the distinct quarantined
+  claim path even if a late reporter cleanup eventually fires."
   [^js props]
   (let [receipt     (.-rfReceipt props)
         root-id     (.-rfRootId props)
@@ -1118,9 +1157,11 @@
 
 (defn unmount!*
   "Runtime half of `ui/unmount!` — TOTAL teardown: unmount the React root
-  and unregister the root-id (contract §7). Idempotent: a Root already
-  torn down, superseded in the registry, OR already `:tearing-down` (a deferred
-  host teardown in flight — rf2-vxgfnd.182) is a no-op. The claim is released at
+  and release the root claim (contract §7). Idempotent: a Root already released,
+  superseded in the registry, OR already `:tearing-down` is a no-op. The latter
+  can be reporter-authoritative deferred settlement or cleanup-failure quarantine;
+  only adapter-wide destruction may reclaim the quarantine's consumed host surface.
+  A newly-started claim is released at
   the SETTLEMENT BOUNDARY through `teardown-root!`'s `on-settled` callback:
   synchronously for a synchronous host teardown, or in the settlement microtask
   after a DEFERRED one clears the DOM. A THROWING host `.unmount` QUARANTINES the
@@ -1134,9 +1175,9 @@
   microtask. The claim is marked `:tearing-down` BEFORE the host `.unmount`, so
   during that deferred window a reentrant `mount*`/`create-root*` on the exact
   root-id/container is REJECTED (`check-root-claim!`) rather than admitted onto a
-  container React is about to clear. `teardown-root!` observes the deferral (the
-  root's cells stay `:connected` — nothing hit its cleanup window) and holds
-  `on-settled` until React's teardown settles; a SYNCHRONOUS teardown fires
+  container React is about to clear. `teardown-root!` observes deferral through
+  the committed root reporter's cleanup sentinel and holds `on-settled` until
+  React's teardown settles; a SYNCHRONOUS teardown fires
   `on-settled` at once, freeing the claim before this fn returns and preserving
   the ratified same-container immediate re-mount.
 
@@ -1187,9 +1228,10 @@
   (when (and (some? root)
              (let [entry (get @live-roots (.-root-id root))]
                (and (identical? (:root entry) root)
-                    ;; rf2-vxgfnd.182 — a teardown already in flight (deferred) is
-                    ;; not re-driven: the host handle is consumed; a second
-                    ;; unmount! is a no-op until the settlement frees the claim.
+                    ;; A teardown already in flight is not re-driven: a deferred
+                    ;; claim remains reporter-owned, while a cleanup-failure
+                    ;; quarantine has a consumed handle and is reclaimable only
+                    ;; by adapter-wide destruction.
                     (not (:tearing-down? entry)))))
     ;; rf2-vxgfnd.182 — fence the exact claim BEFORE the host `.unmount`, so a
     ;; deferred host teardown cannot advertise the id/container as free while
@@ -1214,9 +1256,16 @@
       ;; boundary: inline for a synchronous teardown, or via the settlement
       ;; microtask after a deferred one clears the container.
       (reactive/teardown-root! (root-incarnation-of (.-root-id root))
-                               (fn [] (.unmount (.-react-root root)))
+                               (fn []
+                                 (try
+                                   (.unmount (.-react-root root))
+                                   (catch :default e
+                                     (mark-cleanup-failure-quarantine!
+                                      (.-root-id root) root)
+                                     (throw e))))
                                (fn [] (release-root! (.-root-id root) root)))
       (catch :default e
+        (mark-cleanup-failure-quarantine! (.-root-id root) root)
         ;; rf2-vxgfnd.275 — the host `.unmount` THREW: React consumed the Root
         ;; handle but its teardown flush aborted, and whether the container is
         ;; actually settled is UNKNOWABLE in-process. FAIL CLOSED — do NOT
@@ -1296,31 +1345,64 @@
   snapshot is never refreshed: stale disposal does not own a replacement that
   appeared through an internal/test bypass.
 
-  Every root is attempted even when one host cleanup throws. The first error
-  is rethrown after the whole snapshot drains; later failures are retained on
-  its `rfUiAdapterCleanupErrors` diagnostic array because one teardown failure
-  must neither strand siblings nor erase their evidence."
+  Every active root is attempted even when one host cleanup throws. A snapshot
+  entry already classified `:cleanup-failure?` is not re-unmounted through its
+  consumed handle; adapter ownership directly reclaims that exact container and
+  releases the quarantine. A merely deferred `:tearing-down` entry is left for
+  its reporter-authoritative settlement. The first new error is rethrown after
+  the whole snapshot drains; later failures are retained on its
+  `rfUiAdapterCleanupErrors` diagnostic array because one teardown failure must
+  neither strand siblings nor erase their evidence."
   []
-  (let [roots  (mapv :root (vals @live-roots))
-        errors (volatile! [])]
-    (doseq [^Root root roots]
-      (try
-        (unmount!* root)
-        (catch :default e
-          (vswap! errors conj e)
+  (let [entries (vec (vals @live-roots))
+        errors  (volatile! [])]
+    (doseq [{:keys [root]} entries]
+      (let [^Root root root
+            root-id (.-root-id root)
+            current (get @live-roots root-id)
+            exact?  (identical? (:root current) root)
+            quarantined?
+            (and exact?
+                 (:tearing-down? current)
+                 (:cleanup-failure? current))
+            deferred?
+            (and exact?
+                 (:tearing-down? current)
+                 (not (:cleanup-failure? current)))]
+        (cond
+          ;; A pre-existing cleanup failure was already force-dead and its host
+          ;; handle consumed. Adapter destruction owns terminal container reclaim.
+          quarantined?
           (try
             (reclaim-consumed-container! root)
-            ;; rf2-vxgfnd.275 — `unmount!*` QUARANTINED this throwing root's claim
-            ;; (`:tearing-down`, fail-closed: an isolated caller cannot prove the
-            ;; container free). The adapter reclaim just DID prove it free — DOM
-            ;; cleared + the pinned React ownership marker deleted against the
-            ;; pinned host — so release the quarantine now: adapter disposal is
-            ;; total and the exact id/container is reusable after re-init. If the
-            ;; reclaim itself threw, this is skipped and the claim stays
-            ;; quarantined (the container is NOT proven free).
-            (release-root! (.-root-id root) root)
+            (release-root! root-id root)
             (catch :default recovery-error
-              (vswap! errors conj recovery-error))))))
+              (vswap! errors conj recovery-error)))
+
+          ;; Never consume reporter authority or clear a container whose deferred
+          ;; React teardown is still scheduled.
+          deferred?
+          nil
+
+          :else
+          (try
+            (unmount!* root)
+            (catch :default e
+              (vswap! errors conj e)
+              ;; `unmount!*` publishes these at its host throw edge. Reassert at
+              ;; the adapter seam as a defensive totality boundary (including
+              ;; injected/test host cleanup implementations that throw directly).
+              (mark-tearing-down! root-id root)
+              (mark-cleanup-failure-quarantine! root-id root)
+              (when (exact-cleanup-failure-quarantine? root-id root)
+                (try
+                  (reclaim-consumed-container! root)
+                  ;; `unmount!*` just classified this exact root as cleanup-failed.
+                  ;; Successful adapter reclaim proves the surface free; the
+                  ;; identity fence prevents a stale snapshot releasing a successor.
+                  (release-root! root-id root)
+                  (catch :default recovery-error
+                    (vswap! errors conj recovery-error)))))))))
     (when-let [primary (first @errors)]
       (when (< 1 (count @errors))
         (try

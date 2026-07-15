@@ -460,10 +460,12 @@
 (deftest adapter-disposal-retains-every-root-cleanup-failure
   (let [ca     (js-obj)
         cb     (js-obj)
-        a      (client/->Root (js-obj) ca :reg/dispose-a)
-        b      (client/->Root (js-obj) cb :reg/dispose-b)
         ea     (js/Error. "dispose a failed")
-        eb     (js/Error. "dispose b failed")]
+        eb     (js/Error. "dispose b failed")
+        a      (client/->Root #js {:unmount (fn [] (throw ea))}
+                                 ca :reg/dispose-a)
+        b      (client/->Root #js {:unmount (fn [] (throw eb))}
+                                 cb :reg/dispose-b)]
     (set! (.-innerHTML ca) "<span>stale-a</span>")
     (set! (.-innerHTML cb) "<span>stale-b</span>")
     (unchecked-set ca "__reactContainer$fixture" #js {:old-root true})
@@ -471,12 +473,8 @@
     (client/register-live-root! {:root-id :reg/dispose-a :provenance :authored} ca a)
     (client/register-live-root! {:root-id :reg/dispose-b :provenance :authored} cb b)
     (let [caught
-          (with-redefs [client/unmount!*
-                        (fn [root]
-                          (client/release-root! (.-root-id root) root)
-                          (throw (if (identical? root a) ea eb)))]
-            (try (client/dispose-live-roots!) nil
-                 (catch :default e e)))
+          (try (client/dispose-live-roots!) nil
+               (catch :default e e))
           diagnostics (.-rfUiAdapterCleanupErrors caught)
           retained    (if diagnostics (vec (array-seq diagnostics)) [])]
       (is (contains? #{ea eb} caught) "one cleanup error remains primary")
