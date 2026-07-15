@@ -624,8 +624,11 @@ deletion wave.
 | **Tier 3 — mounted** | a mounted root (`with-root`) | browser/jsdom CI | a native CSS selector string, verbatim | host interop (real listeners, `(.-value el)`) |
 
 **S1 core surface (Tier-1, `.cljc`):** `render` / `find` / `find-all` / `query` / `text`
-/ `attrs`. `render` accepts a view reference or a literal root form (the same
-grammar `mount` takes), per [004C-Roots-and-Mount.md](004C-Roots-and-Mount.md) §9.
+/ `attrs`. `render` accepts a view reference or a literal root form. The literal form
+uses the same top-region grammar `mount` takes, wrappers included, but Tier 1 tightens
+it to exactly one mounted internal view. Zero or two-plus views fail expansion with
+`:rf.ui.compile/bad-test-root`; wrap a multi-view composition in one `defview`. See
+[004C-Roots-and-Mount.md](004C-Roots-and-Mount.md) §9.
 `find`/`find-all` run the closed selector grammar over Tier-1 trees; `query` is the
 Tier-3 live-DOM counterpart (CSS). **Node reading is the ruled projection** — `attrs`
 merges attributes + events on elements and props on view-boundary nodes; `(:on-click

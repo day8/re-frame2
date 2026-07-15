@@ -177,12 +177,13 @@ authored invocation** — the manifest would falsely declare a sub-free view, pr
 would elide its ViewCell, and the hidden read would go stale or escape ownership. The
 expression grammar is therefore **closed**:
 
-- **Special / binder forms**, handled structurally with binder-aware traversal:
+- **Binder-aware structural forms**, handled with position-aware traversal:
   `quote` (never traversed — quoted data is not executable), `fn`/`fn*`, `let`/`let*`,
   `loop`/`loop*`, `letfn`/`letfn*`, `try`. Binding patterns and destructuring `:or`
   defaults may contain neither reactive calls nor unaudited macros — those positions
   are consumed by the host compiler, not expression rewriting, so they cannot own a
-  lexical render site (hoist the read into the view body and bind its value).
+  lexical render site (hoist the read into the view body and bind its value). This is
+  the binder-aware tier, not an exhaustive inventory of host special forms.
 - **The audited transparent macro set** — position-aware `clojure.core` / `cljs.core`
   macros whose arguments are host-independent expression slots with no user-authored
   binders: `or`, `and`, `when`, `when-not`, `cond`, `->`, `->>`, `some->`, `some->>`,
@@ -191,9 +192,11 @@ expression grammar is therefore **closed**:
   indexed site. A **bare** `sub`/`lease` **reference** below one is rejected: a
   threading step such as `(-> query sub)` would become an unindexed reactive call only
   after expansion, so the explicit `(sub query)` call is required.
-- **Ordinary function calls** — any function. A **simple** symbol/keyword head (a
-  plain fn/special-form name, a keyword lookup op) is not itself an evaluated
-  expression, so it is preserved verbatim and the arguments are analyzed. A
+- **Ordinary function calls and evaluated-only host special forms.** Any function call
+  uses this arm; so do `if`, `do`, `throw`, and interop `.`, `new`, and `set!`. A
+  **simple** symbol/keyword head (a plain fn/special-form name, a keyword lookup op) is
+  not itself an evaluated expression, so it is preserved verbatim and the arguments
+  are analyzed. A
   **computed callee** — a seq/vector/map/set in head position, e.g.
   `((if (sub [:op]) inc dec) 1)` — IS evaluated (Clojure evaluates the callee before
   its arguments), so it is analyzed under the same rules **before** the arguments: a
