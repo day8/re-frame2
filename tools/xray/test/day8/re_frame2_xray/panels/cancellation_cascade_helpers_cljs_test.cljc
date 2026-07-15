@@ -19,6 +19,7 @@
     4. Formatters."
   (:require #?(:clj  [clojure.test :refer [deftest is testing]]
                :cljs [cljs.test    :refer-macros [deftest is testing]])
+            [clojure.set]
             [day8.re-frame2-xray.panels.cancellation-cascade-helpers :as h]))
 
 ;; ---- fixtures -----------------------------------------------------------
@@ -36,6 +37,15 @@
                 :frame       frame}}))
 
 (defn- destroy-ev
+  "Build a destroy trace event. `op` defaults to the FX-substrate
+  channel and `reason` to `:explicit` — the emittable pair for a normal
+  teardown. Callers testing the registrar channel must pass BOTH
+  `:op :rf.machine.lifecycle/destroyed` and
+  `:reason :parent-frame-destroyed`: per Spec 009's channel/reason
+  matrix the channels are disjoint, so any other combination is a tuple
+  the runtime cannot emit. `lifecycle-destroy-ev` below builds the
+  registrar pair; `impossible-destroy-ev` deliberately builds tuples
+  that violate the matrix."
   [{:keys [machine-id reason dispatch-id time id op spawned-id parent-id]
     :or {reason       :explicit
          dispatch-id  1
@@ -51,6 +61,22 @@
                        :rf.trace/dispatch-id dispatch-id}
                 spawned-id (assoc :spawned-id spawned-id)
                 parent-id  (assoc :parent-id parent-id))})
+
+(defn- lifecycle-destroy-ev
+  "The REGISTRAR-substrate destroy — the frame-exit reap. This channel
+  carries exactly one reason (`:parent-frame-destroyed`), so the pair is
+  built together and the reason is not a caller knob."
+  [m]
+  (destroy-ev (assoc m
+                     :op     :rf.machine.lifecycle/destroyed
+                     :reason :parent-frame-destroyed)))
+
+(defn- impossible-destroy-ev
+  "Build a destroy event whose (channel, reason) tuple the disjoint
+  matrix FORBIDS — used only by the negative cross-product tests, which
+  assert the helpers decline to anchor on it."
+  [op reason]
+  (destroy-ev {:machine-id :x :op op :reason reason}))
 
 (defn- http-abort-ev
   [{:keys [request-id url actor-id dispatch-id time id sensitive?]
@@ -135,17 +161,68 @@
   (is (false? (h/abort-event? (dispatched-ev [:auth/logout]))))
   (is (false? (h/abort-event? (destroy-ev {:machine-id :x})))))
 
-(deftest cancellation-anchor?-true-for-cancel-reasons
-  ;; rf2-ee38b.2 — pinned to the destroy reasons the substrate actually
-  ;; stamps (:explicit / :parent-frame-destroyed / :actor-destroyed);
-  ;; the phantom :parent-unmount-cascade was never emitted.
-  (doseq [r [:explicit :parent-frame-destroyed :actor-destroyed]]
+(deftest cancellation-anchor?-true-for-each-emitted-family
+  ;; rf2-3uixf4 — the channels are DISJOINT (Spec 009 §op-type
+  ;; vocabulary), so each cancellation reason is asserted against the
+  ;; ONE channel that actually carries it, never a cross-product.
+  (testing "fx-substrate channel — the non-frame-exit teardowns"
     (is (true? (h/cancellation-anchor?
-                 (destroy-ev {:machine-id :x :reason r}))))))
+                 (destroy-ev {:machine-id :x :reason :explicit}))))
+    (testing ":parent-unmount-cascade is reserved but channel-admitted"
+      (is (true? (h/cancellation-anchor?
+                   (destroy-ev {:machine-id :x
+                                :reason :parent-unmount-cascade}))))))
+  (testing "registrar-substrate channel — the frame-exit reap"
+    (is (true? (h/cancellation-anchor?
+                 (lifecycle-destroy-ev {:machine-id :x}))))))
 
-(deftest cancellation-anchor?-false-for-natural-finish
-  (is (false? (h/cancellation-anchor?
-                (destroy-ev {:machine-id :x :reason :rf.machine/finished})))))
+(deftest cancellation-anchor?-false-for-non-cancellation-reasons
+  (testing "a natural :final? termination is not a cancellation"
+    (is (false? (h/cancellation-anchor?
+                  (destroy-ev {:machine-id :x
+                               :reason :rf.machine/finished})))))
+  (testing "post-terminal join cleanup is not a cancellation"
+    (is (false? (h/cancellation-anchor?
+                  (destroy-ev {:machine-id :x
+                               :reason :rf.machine/join-reaped}))))))
+
+(deftest cancellation-anchor?-rejects-impossible-channel-reason-tuples
+  ;; rf2-3uixf4 — the regression this bead fixes. Validating channel
+  ;; membership and reason membership INDEPENDENTLY accepted these
+  ;; cross-products; the runtime cannot emit any of them.
+  (testing "lifecycle + :explicit — :explicit is fx-substrate only"
+    (is (false? (h/cancellation-anchor?
+                  (impossible-destroy-ev :rf.machine.lifecycle/destroyed
+                                         :explicit)))))
+  (testing "fx + :parent-frame-destroyed — frame-exit is registrar only"
+    (is (false? (h/cancellation-anchor?
+                  (impossible-destroy-ev :rf.machine/destroyed
+                                         :parent-frame-destroyed)))))
+  (testing ":actor-destroyed is an HTTP abort cause, not a destroy reason"
+    (doseq [op [:rf.machine/destroyed :rf.machine.lifecycle/destroyed]]
+      (is (false? (h/cancellation-anchor?
+                    (impossible-destroy-ev op :actor-destroyed))))))
+  (testing "a destroy carrying no :reason at all anchors nothing"
+    (is (false? (h/cancellation-anchor?
+                  (update (destroy-ev {:machine-id :x})
+                          :tags dissoc :reason))))))
+
+(deftest emittable-destroy?-models-the-matrix-directly
+  (testing "every tuple the matrix admits is emittable"
+    (doseq [[op reasons] h/destroy-channel-reasons
+            reason       reasons]
+      (is (true? (h/emittable-destroy? (destroy-ev {:machine-id :x
+                                                    :op op
+                                                    :reason reason})))
+          (str op " + " reason " should be emittable"))))
+  (testing "the channels partition their reasons — no reason on both"
+    (let [[lifecycle-reasons fx-reasons]
+          [(get h/destroy-channel-reasons :rf.machine.lifecycle/destroyed)
+           (get h/destroy-channel-reasons :rf.machine/destroyed)]]
+      (is (empty? (clojure.set/intersection lifecycle-reasons fx-reasons)))))
+  (testing "non-destroy events are not emittable destroys"
+    (is (false? (h/emittable-destroy? (http-abort-ev {}))))
+    (is (false? (h/emittable-destroy? (dispatched-ev [:auth/logout]))))))
 
 (deftest classify-fx-maps-each-operation
   (is (= :http   (h/classify-fx (http-abort-ev {}))))
@@ -307,12 +384,15 @@
                             :spawned-id :parent
                             :parent-id nil
                             :reason :explicit})
+               ;; A parent-cascade child teardown is an fx-substrate
+               ;; `:explicit` destroy — `:parent-frame-destroyed` would
+               ;; be an impossible tuple on this channel (rf2-3uixf4).
                (destroy-ev {:machine-id :child-a :dispatch-id 1
                             :time 1011 :id 3
-                            :reason :parent-frame-destroyed})
+                            :reason :explicit})
                (destroy-ev {:machine-id :child-b :dispatch-id 1
                             :time 1012 :id 4
-                            :reason :parent-frame-destroyed})
+                            :reason :explicit})
                (http-abort-ev {:request-id :r1 :actor-id :child-a
                                :dispatch-id 1 :time 1020 :id 5})
                (http-abort-ev {:request-id :r2 :actor-id :child-b

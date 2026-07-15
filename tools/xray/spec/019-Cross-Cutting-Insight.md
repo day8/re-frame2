@@ -240,7 +240,10 @@ visible.
 **Bug class:** Parent state exits; child's `:spawn` destroyed; child had
 N in-flight HTTP requests; each aborts. The author sees a flurry of
 `:rf.http/aborted-on-actor-destroy` traces in the firehose and one
-`:rf.machine.lifecycle/destroyed`. They cannot reconstruct the cascade.
+`:rf.machine/destroyed` (a parent state-exit cascade is an fx-substrate
+teardown — `:reason :explicit`; the registrar-substrate
+`:rf.machine.lifecycle/destroyed` fires only on frame exit). They cannot
+reconstruct the cascade.
 
 **Example bug:** You clicked Cancel on a checkout flow. The Trace tab shows
 4 abort traces + 1 destroyed trace, scattered through 200 unrelated rows.
@@ -257,7 +260,7 @@ triggered a destroy:
 │         │     ├── :rf.http/aborted-on-actor-destroy  POST /finalize     │
 │         │     ├── :rf.http/aborted-on-actor-destroy  GET /cart/lock     │
 │         │     └── :rf.http/aborted-on-actor-destroy  POST /audit/log    │
-│         └── :rf.machine.lifecycle/destroyed → :http/post#347            │
+│         └── :rf.machine/destroyed :explicit → :http/post#347            │
 │  Total: 1 child destroyed · 3 requests aborted · 8ms elapsed            │
 └─────────────────────────────────────────────────────────────────────────┘
 ```

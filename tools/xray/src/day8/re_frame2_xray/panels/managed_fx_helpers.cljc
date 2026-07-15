@@ -232,11 +232,25 @@
     :rf.ws/received})
 
 (def machine-invoke-trace-operations
+  "Trace operations the machine-invoke surface emits.
+
+  Both DESTROY channels are listed, and both are required: per Spec 009
+  §op-type vocabulary they are disjoint, so neither alone is a complete
+  record of an actor going away. `:rf.machine/destroyed` is the
+  fx-substrate terminal — the normal teardown (`:explicit`,
+  `:rf.machine/finished`, `:rf.machine/join-reaped`);
+  `:rf.machine.lifecycle/destroyed` is the registrar-substrate
+  frame-exit reap (`:parent-frame-destroyed`, its sole reason).
+
+  Note `:rf.machine/destroy` (no trailing `-ed`) is deliberately NOT
+  here: it is the reserved fx-id — a COMMAND the runtime consumes — and
+  never appears as a trace `:operation`. Listing it collected nothing
+  while the real terminal went unread."
   #{:rf.machine/transition
     :rf.machine.transition/suppressed
     :rf.machine.lifecycle/spawned
     :rf.machine.lifecycle/destroyed
-    :rf.machine/destroy
+    :rf.machine/destroyed
     :rf.machine/invoke-failed
     :rf.machine.timer/scheduled
     :rf.machine.timer/fired
