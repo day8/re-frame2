@@ -39,6 +39,47 @@ const TIMEOUT_MS = parseInt(process.env.BROWSER_TEST_TIMEOUT_MS || '120000', 10)
 const POLL_MS = 200;
 const VERBOSE_TESTS = isVerboseTests();
 
+// One-purpose bridge for the ViewCell evidence retention fixture. Browser
+// JavaScript has no deterministic GC primitive, while Playwright exposes the
+// engine-supported `page.requestGC()` control. The cljs.test publishes a
+// token + in-page acknowledgement callback under this key; the runner serves
+// exactly that request and nothing else. Engines without requestGC receive a
+// supported=false acknowledgement so the fixture can skip cleanly instead of
+// hanging. This is intentionally NOT a general page RPC channel.
+const EVIDENCE_GC_REQUEST = '__RF2_TOOL_EVIDENCE_GC_REQUEST__';
+
+async function serviceEvidenceGcRequest(page, diagnostics) {
+  const request = await page.evaluate((key) => {
+    const value = globalThis[key];
+    return value && typeof value.token === 'string'
+      ? { token: value.token }
+      : null;
+  }, EVIDENCE_GC_REQUEST);
+  if (!request) return;
+
+  let supported = typeof page.requestGC === 'function';
+  let error = null;
+  if (supported) {
+    try {
+      await page.requestGC();
+    } catch (err) {
+      supported = false;
+      error = err && err.message ? err.message : String(err);
+    }
+  }
+  diagnostics.add(
+    `[browser:gc] tool-evidence token=${request.token} ` +
+      `${supported ? 'collected' : `unsupported${error ? ` (${error})` : ''}`}`,
+  );
+
+  await page.evaluate(({ key, token, supported: ok, error: message }) => {
+    const value = globalThis[key];
+    if (!value || value.token !== token) return;
+    delete globalThis[key];
+    if (typeof value.ack === 'function') value.ack({ supported: ok, error: message });
+  }, { key: EVIDENCE_GC_REQUEST, token: request.token, supported, error });
+}
+
 // rf2-mwx08: capture the `ran` + `failErr` lines as an ATOMIC pair from
 // a single source. summaryPartsFromText now only ever yields a non-null
 // `failErr` together with the `Ran ...` line it directly follows, so the
@@ -135,6 +176,11 @@ async function main() {
     };
 
     while (Date.now() - start < TIMEOUT_MS) {
+      // Serve a pending deterministic GC request before looking for the test
+      // summary: the requesting cljs.test is async and cannot finish until
+      // this acknowledgement arrives.
+      await serviceEvidenceGcRequest(page, diagnostics);
+
       // 1. window flag
       const winPayload = await page.evaluate(() => {
         return (typeof window !== 'undefined' && window.shadow$cljs_test_done) || null;

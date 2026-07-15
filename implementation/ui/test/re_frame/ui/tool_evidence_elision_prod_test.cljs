@@ -24,6 +24,12 @@
             [re-frame.ui.reactive :as reactive]
             [re-frame.ui.tool.evidence :as evidence]))
 
+(def ^:private ^:const registry-elision-control
+  ;; The companion bundle gate requires this marker to SURVIVE, proving that
+  ;; the compiled private-state assertion below is actually in the advanced
+  ;; artefact whose debug-only registry implementation must disappear.
+  "rf-ui-tool-evidence-registry-state-absent-v1")
+
 (use-fixtures :each
   (fn [f]
     (reactive/reset-scheduler!)
@@ -33,11 +39,25 @@
                (evidence/force-release!)))))
 
 (deftest advanced-production-elides-the-invalidation-evidence-projection
+  (testing "the compiled namespace allocated no registry state"
+    ;; This is a behavioural compiled-output control, not a source-string
+    ;; proxy. `#'` roots the private var in this exact :advanced artefact;
+    ;; its value must have folded to nil rather than an atom/registry. A
+    ;; mutant that retains the (Closure-minified) state allocation turns this
+    ;; assertion red even if every diagnostic/key string is renamed.
+    (is (nil? @#'evidence/state*)
+        registry-elision-control))
+
   (testing "the lifecycle is an inert no-op — nothing installs, nothing owns"
     (is (false? (evidence/install! ::probe)))
     (is (nil? (evidence/installed-owner)))
     (is (nil? (evidence/projection)) "the projection read is nil in production")
     (is (false? (evidence/uninstall! ::probe))))
+
+  (testing "cleanup remains constant-inert and cannot allocate a reset target"
+    (evidence/force-release!)
+    (is (nil? @#'evidence/state*)
+        "force-release! retained neither a registry atom nor reset path"))
 
   (testing "a driven flush accrues NO evidence anywhere"
     (let [cell (reactive/make-cell ::v)

@@ -9,7 +9,7 @@
   frame-epoch, occurrence `:count`, the cause set, a capped shown-target
   sample, and the honest `:dropped`/`:dropped-exact?` loss account from
   rf2-vxgfnd.74). This namespace ACCRETES those per-batch records into one
-  bounded per-cell accumulator keyed by stable identity — a projection ordinal
+  bounded per-cell accumulator indexed by stable identity — a projection ordinal
   (`:cell-id`), the authoring view (`:view-id`), and the owning client root
   (`:root-id`, resolved through the live-root registry at read time) — so a
   tool (Xray) can attribute coalesced renders to their contributing movement
@@ -22,12 +22,15 @@
   silently cleared), a same-owner re-install is an idempotent re-arm (the
   `:after-load` / Fast Refresh path — accumulated evidence survives), and
   `uninstall!` (owner-checked) releases the sink callback and every retained
-  entry. A tool absent or uninstalled retains ZERO ViewCells/evidence.
+  entry. The index is NON-OWNING: a weak cell key/ref preserves a row while
+  React retains an Activity-hidden cell, but cannot pin an ordinarily
+  unmounted cell. A tool absent or uninstalled retains ZERO ViewCells/evidence.
 
   LINEARIZED BY GENERATION (rf2-vxgfnd.147). Owner, generation, the armed
-  sink closure, the entries, and the ordinal mint live in ONE state atom
-  (`state*`), so install/uninstall/publication transitions are single
-  atomic swaps. Every ownership transition through the closed state bumps
+  sink closure, and the current weak registry live in ONE state atom
+  (`state*`). Registry publication and lifecycle transitions share the same
+  tiny transition gate. Every ownership transition through the closed state
+  bumps
   a monotonically unique GENERATION, the armed sink closure captures the
   generation current at arm time, and a delivery publishes ONLY while its
   captured generation exactly matches the current open one — so a delayed
@@ -36,19 +39,21 @@
   projection, and an uninstall/reinstall of the SAME logical owner id is
   ABA-safe (the old incarnation's callbacks are fenced out by generation,
   not by owner equality). On the JVM the lifecycle transitions additionally
-  serialize their raw-slot arm/disarm under a tiny transition lock — held
-  only across the swap + slot write, NEVER through a tool/user callback —
+  serialize state/registry mutation and raw-slot arm/disarm under a tiny
+  transition lock — never through a USER callback —
   so a stale A teardown can never disarm B's freshly installed sink. The
-  legal linearization: a publication linearizes at its state swap and takes
+  legal linearization: a publication linearizes at its registry mutation and takes
   effect iff the open generation it captured is still current; install and
   uninstall linearize in transition-lock order.
 
   OBSERVATIONAL ONLY. The scheduler stays authoritative: delivery runs inside
   the flush's containment (rf2-vxgfnd.73 — a throwing consumer can neither
   strand a cell nor abort a batch), the projection never acquires/releases or
-  computes, and dead (torn-down) cells are PRUNED at delivery and at read so
-  abandoned cells disappear from the projection. The whole operative surface
-  is gated on `interop/debug-enabled?` and DCEs out of `:advanced` +
+  computes. Explicitly dead cells are pruned at delivery/read; collected weak
+  references compact at read and through host finalization, so ordinary
+  unmounts disappear without a polling scan. The state atom, transition lock,
+  and every access are compile-time gated on `interop/debug-enabled?` and DCE
+  out of `:advanced` +
   goog.DEBUG=false production output (Spec 006 §The internal observation
   port; 03 §3)."
   (:require [re-frame.interop     :as interop]
@@ -136,11 +141,149 @@
 
 ;; ---- projection state --------------------------------------------------------
 
+(defrecord ^:private WeakCellEntries
+  [members by-cell next-ordinal reaper])
+
+(defn- new-weak-cell-entries
+  "Create one non-owning identity registry for an OPEN ownership span."
+  []
+  #?(:clj
+     (->WeakCellEntries (java.util.WeakHashMap.)
+                        nil
+                        (java.util.concurrent.atomic.AtomicLong. 0)
+                        nil)
+     :cljs
+     (let [members (js/Set.)]
+       (->WeakCellEntries
+        members
+        (js/WeakMap.)
+        (volatile! 0)
+        (when (exists? js/FinalizationRegistry)
+          (js/FinalizationRegistry.
+           (fn [holder]
+             ;; The holder contains only a WeakRef + bounded evidence record.
+             (.delete members holder))))))))
+
+(defn- weak-cell-entries?
+  [x]
+  (instance? WeakCellEntries x))
+
+(defn- store-next-ordinal!
+  [store]
+  #?(:clj  (.getAndIncrement
+            ^java.util.concurrent.atomic.AtomicLong (:next-ordinal store))
+     :cljs (let [next* (:next-ordinal store)
+                 n     @next*]
+             (vswap! next* inc)
+             n)))
+
+(defn- store-set-next-at-least!
+  [store n]
+  #?(:clj  (let [next* ^java.util.concurrent.atomic.AtomicLong
+                 (:next-ordinal store)]
+             (.set next* (max (.get next*) (long n))))
+     :cljs (let [next* (:next-ordinal store)]
+             (vreset! next* (max @next* n)))))
+
+(defn- store-seed-entry!
+  "Import an already-accreted reload entry without owning its cell."
+  [store cell entry]
+  #?(:clj
+     (let [members ^java.util.Map (:members store)]
+       (locking members
+         (.put members cell entry)
+         (store-set-next-at-least! store (inc (:cell-id entry)))))
+     :cljs
+     (let [members ^js (:members store)
+           by-cell ^js (:by-cell store)
+           holder  #js {:ref (js/WeakRef. cell) :entry entry}]
+       (.set by-cell cell holder)
+       (.add members holder)
+       (when-some [reaper (:reaper store)]
+         (.register ^js reaper cell holder holder))
+       (store-set-next-at-least! store (inc (:cell-id entry)))))
+  nil)
+
+(defn- store-upsert!
+  "Accrete one bounded batch under a weak key. The JVM monitor makes
+  concurrent deliveries exact; CLJS delivery is serial."
+  [store cell ev]
+  #?(:clj
+     (let [members ^java.util.Map (:members store)]
+       (locking members
+         (let [existing (.get members cell)
+               entry    (or existing
+                            {:cell-id  (store-next-ordinal! store)
+                             :view-id  (reactive/cell-view-id cell)
+                             :evidence nil})]
+           (.put members cell (update entry :evidence accrete-evidence ev)))))
+     :cljs
+     (let [members ^js (:members store)
+           by-cell ^js (:by-cell store)]
+       (if-some [holder (.get by-cell cell)]
+         (aset holder "entry"
+               (update (aget holder "entry") :evidence accrete-evidence ev))
+         (let [entry  {:cell-id  (store-next-ordinal! store)
+                       :view-id  (reactive/cell-view-id cell)
+                       :evidence (accrete-evidence nil ev)}
+               holder #js {:ref (js/WeakRef. cell) :entry entry}]
+           (.set by-cell cell holder)
+           (.add members holder)
+           (when-some [reaper (:reaper store)]
+             (.register ^js reaper cell holder holder))))))
+  nil)
+
+(defn- store-remove!
+  [store cell]
+  #?(:clj
+     (let [members ^java.util.Map (:members store)]
+       (locking members (.remove members cell)))
+     :cljs
+     (let [members ^js (:members store)
+           by-cell ^js (:by-cell store)]
+       (when-some [holder (.get by-cell cell)]
+         (.delete by-cell cell)
+         (.delete members holder)
+         (when-some [reaper (:reaper store)]
+           (.unregister ^js reaper holder)))))
+  nil)
+
+(defn- store-live-entries!
+  "Snapshot live `[cell entry]` pairs, pruning dead cells and cleared refs."
+  [store]
+  (if (nil? store)
+    []
+    #?(:clj
+       (let [members ^java.util.Map (:members store)]
+         (locking members
+           ;; Materialize first: mutating WeakHashMap during reduce iteration
+           ;; would invalidate its iterator.
+           (reduce (fn [out [cell entry]]
+                     (if (= :dead (reactive/lifecycle cell))
+                       (do (.remove members cell) out)
+                       (conj out [cell entry])))
+                   []
+                   (into [] members))))
+       :cljs
+       (let [members ^js (:members store)
+             by-cell ^js (:by-cell store)
+             out     (array)]
+         (.forEach members
+                   (fn [holder _ _]
+                     (if-some [cell (.deref ^js (aget holder "ref"))]
+                       (if (= :dead (reactive/lifecycle cell))
+                         (do
+                           (.delete by-cell cell)
+                           (.delete members holder)
+                           (when-some [reaper (:reaper store)]
+                             (.unregister ^js reaper holder)))
+                         (.push out [cell (aget holder "entry")]))
+                       (.delete members holder))))
+         (vec out)))))
+
 (defonce ^:private state*
-  ;; THE ONE AUTHORITATIVE projection state (rf2-vxgfnd.147) — owner,
-  ;; generation, the armed sink closure, the retained entries, and the
-  ;; ordinal mint transition TOGETHER in single atomic swaps, so the
-  ;; lifecycle is linearizable (no second store to race):
+  ;; THE ONE AUTHORITATIVE projection state (rf2-vxgfnd.147): owner,
+  ;; generation, armed sink closure and current ownership-span registry.
   ;;
   ;;   :owner        — the identity currently owning the projection (any
   ;;                   comparable value; a namespaced keyword by
@@ -158,39 +301,29 @@
   ;;                   reactive slot (nil when closed) — kept HERE per the
   ;;                   one-authoritative-state discipline, and the capture
   ;;                   door for race fixtures (`installed-sink`).
-  ;;   :entries      — `ViewCell -> {:cell-id ord :view-id vid :evidence
-  ;;                   accrual}` — the whole retained projection. Keyed by
-  ;;                   cell identity (the scheduler's own dedup axis); dead
-  ;;                   cells are pruned at every delivery and read, and the
-  ;;                   map clears atomically WITH the ownership transition
-  ;;                   on uninstall, so a tool absent or closed retains
-  ;;                   ZERO cells.
-  ;;   :next-ordinal — monotonic mint for `:cell-id` (a stable,
-  ;;                   developer-facing instance ordinal: two mounts of one
-  ;;                   view are two cells; the ordinal keeps their rows
-  ;;                   apart and stable across batches). Never reset while
-  ;;                   installed; reset with the entries when the
-  ;;                   projection closes (a closed tool retains no ordinal
-  ;;                   state).
+  ;;   :entries      — nil while closed; while open, WeakCellEntries whose
+  ;;                   values contain only cell-id/view-id/bounded evidence.
+  ;;                   No value points back to its weak cell key/ref. Its
+  ;;                   ordinal mint belongs to this ownership span and is
+  ;;                   discarded with the registry on close.
   ;;
-  ;; `defonce` (module-lived); note the var is NEW with this shape — a hot
-  ;; reload from the pre-.147 multi-atom representation initialises it
-  ;; fresh (the owning tool's `:after-load` re-install re-claims it), so
-  ;; no old-shape value can survive into the new code (the rf2-vxgfnd.168
-  ;; lesson applied at the source).
-  (atom {:owner nil :generation 0 :sink nil :entries {} :next-ordinal 0}))
+  ;; `defonce` is module-lived; normalize-state migrates a pre-weak strong map
+  ;; on the first post-reload install/read without losing retained Activity
+  ;; evidence or ordinals.
+  ;; In production the var root is literally nil: no atom, weak registry, or
+  ;; ordinal mint is allocated (rf2-vxgfnd.149).
+  (when interop/debug-enabled?
+    (atom {:owner nil :generation 0 :sink nil :entries nil})))
 
 #?(:clj
    (defonce ^:private transition-lock
      ;; Serialises LIFECYCLE transitions (install/uninstall/force-release)
      ;; with their raw-slot arm/disarm so the pair is one linearization
      ;; point: a stale A teardown can never disarm B's freshly armed sink.
-     ;; Held ONLY across the state swap + `set-evidence-sink!` write —
-     ;; never through a tool/user callback (`project-batch!` publication
-     ;; does not take it; the generation fence in its swap is its
-     ;; linearization). CLJS is single-threaded: transitions cannot
-     ;; interleave, so no lock exists there.
-     (Object.)))
+     ;; Publication takes the same lock for its bounded weak-map mutation;
+     ;; this is the tool's sink callback, never a user callback. CLJS is
+     ;; single-threaded, so no lock exists there.
+     (when interop/debug-enabled? (Object.))))
 
 (defn- transition!
   "Run lifecycle transition `f` (state swap + raw-slot effect) atomically
@@ -199,50 +332,50 @@
   #?(:clj  (locking transition-lock (f))
      :cljs (f)))
 
-(defn- prune-dead
-  "Drop every entry whose cell has been torn down (`:dead` — root/frame
-  teardown, rf2-vxgfnd.85). A disconnected (Activity-hidden) cell is still
-  retained and reconnectable, so its accumulated evidence stays."
-  [entries]
-  (reduce-kv (fn [m cell _]
-               (if (= :dead (reactive/lifecycle cell)) (dissoc m cell) m))
-             entries entries))
+(defn- normalize-state
+  "Migrate the pre-weak persistent ViewCell map preserved by `state*` across a
+  reload. Activity-retained rows and ordinals survive; closed state owns no
+  registry."
+  [{:keys [owner entries next-ordinal] :as s}]
+  (cond
+    (nil? owner)
+    (-> s (assoc :entries nil) (dissoc :next-ordinal))
+
+    (weak-cell-entries? entries)
+    (dissoc s :next-ordinal)
+
+    :else
+    (let [store (new-weak-cell-entries)]
+      (doseq [[cell entry] entries
+              :when (not= :dead (reactive/lifecycle cell))]
+        (store-seed-entry! store cell entry))
+      (store-set-next-at-least! store (or next-ordinal 0))
+      (-> s (assoc :entries store) (dissoc :next-ordinal)))))
 
 (defn- project-batch!
   "One generation-fenced delivery: accrete one flushed batch's bounded
-  record into `cell`'s accumulator and sweep dead cells — IFF `gen`, the
-  generation the armed sink closure captured, is still the current OPEN
+  record into `cell`'s accumulator (or remove an explicitly dead cell) — IFF
+  `gen`, the generation the armed sink closure captured, is still the current OPEN
   owner's generation. A callback whose generation has closed (uninstall,
   force-release, or a later reinstall — even of the same owner id) is a
   no-op: it can neither repopulate an ownerless projection nor contaminate
   a successor owner's fresh one (rf2-vxgfnd.147). The fence, the ordinal
-  mint, and the entry write are ONE swap, so publication linearizes at the
-  swap and a concurrent uninstall either precedes it (fence rejects) or
-  follows it (the transition clears the entry it just admitted).
+  mint, and the entry write share the lifecycle transition gate. A concurrent
+  uninstall either precedes it (fence rejects) or follows it (the transition
+  drops the whole registry it just admitted into).
 
   Runs inside the flush's rf2-vxgfnd.73 containment; constant-work per
   delivery (the record is already bounded). Never called in production
   (the flush's sink call is debug-gated); belt-gated here regardless."
   [gen cell ev]
   (when interop/debug-enabled?
-    (when-not (= :dead (reactive/lifecycle cell))
-      (swap! state*
-             (fn [{:keys [owner generation entries next-ordinal] :as s}]
-               (if-not (and (some? owner) (= gen generation))
-                 s
-                 (let [entries  (prune-dead entries)
-                       existing (get entries cell)
-                       entry    (or existing
-                                    {:cell-id  next-ordinal
-                                     :view-id  (reactive/cell-view-id cell)
-                                     :evidence nil})]
-                   (assoc s
-                          :entries (assoc entries cell
-                                          (update entry :evidence
-                                                  accrete-evidence ev))
-                          :next-ordinal (if existing
-                                          next-ordinal
-                                          (inc next-ordinal))))))))
+    (transition!
+     (fn []
+       (let [{:keys [owner generation entries]} @state*]
+         (when (and (some? owner) (= gen generation))
+           (if (= :dead (reactive/lifecycle cell))
+             (store-remove! entries cell)
+             (store-upsert! entries cell ev))))))
     nil))
 
 (defn- sink-for
@@ -305,23 +438,25 @@
        (fn []
          (let [[old new]
                (swap-vals! state*
-                           (fn [{:keys [owner generation] :as s}]
-                             (cond
-                               ;; fresh claim → NEW generation, fresh fenced
-                               ;; closure, empty projection
-                               (nil? owner)
-                               (let [g (inc generation)]
-                                 (assoc s :owner owner-id
-                                          :generation g
-                                          :sink (sink-for g)
-                                          :entries {}))
-                               ;; same-owner re-arm → the SAME ownership span
-                               ;; (generation kept, evidence kept), fresh
-                               ;; closure for the raw slot
-                               (= owner owner-id)
-                               (assoc s :sink (sink-for generation))
-                               ;; foreign owner → untouched
-                               :else s)))]
+                           (fn [s0]
+                             (let [{:keys [owner generation] :as s}
+                                   (normalize-state s0)]
+                               (cond
+                                 ;; fresh claim → NEW generation, fresh fenced
+                                 ;; closure, empty weak projection
+                                 (nil? owner)
+                                 (let [g (inc generation)]
+                                   (assoc s :owner owner-id
+                                            :generation g
+                                            :sink (sink-for g)
+                                            :entries (new-weak-cell-entries)))
+                                 ;; same-owner re-arm → the SAME ownership span
+                                 ;; (generation + weak registry kept), fresh
+                                 ;; closure for the raw slot
+                                 (= owner owner-id)
+                                 (assoc s :sink (sink-for generation))
+                                 ;; foreign owner → untouched
+                                 :else s))))]
            (if (or (nil? (:owner old)) (= (:owner old) owner-id))
              ;; Arm the raw slot with the closure the transition minted —
              ;; both writes sit inside the transition lock, so no stale
@@ -355,8 +490,7 @@
                                      {:owner        nil
                                       :generation   (inc generation)
                                       :sink         nil
-                                      :entries      {}
-                                      :next-ordinal 0}
+                                      :entries      nil}
                                      s)))]
          (if (= (:owner old) owner-id)
            (do (reactive/set-evidence-sink! nil)
@@ -371,22 +505,23 @@
   with `reactive/reset-scheduler!` between fixtures); production tools use
   the owner-checked `uninstall!`. Returns nil."
   []
-  (transition!
-   (fn []
-     (swap! state* (fn [{:keys [generation]}]
-                     {:owner        nil
-                      :generation   (inc generation)
-                      :sink         nil
-                      :entries      {}
-                      :next-ordinal 0}))
-     (when interop/debug-enabled?
-       (reactive/set-evidence-sink! nil))
-     nil)))
+  (when interop/debug-enabled?
+    (transition!
+     (fn []
+       (swap! state* (fn [{:keys [generation]}]
+                       {:owner      nil
+                        :generation (inc generation)
+                        :sink       nil
+                        :entries    nil}))
+       (reactive/set-evidence-sink! nil)
+       nil)))
+  nil)
 
 (defn installed-owner
   "The identity currently owning the projection, or nil (tool/test read)."
   []
-  (:owner @state*))
+  (when interop/debug-enabled?
+    (:owner @state*)))
 
 (defn installed-sink
   "The exact sink closure this tier last armed on the reactive slot, or
@@ -395,7 +530,8 @@
   to replay a DELAYED delivery against a projection whose generation has
   since closed and prove the fence holds."
   []
-  (:sink @state*))
+  (when interop/debug-enabled?
+    (:sink @state*)))
 
 ;; ---- the projection read -----------------------------------------------------
 
@@ -423,12 +559,16 @@
                         ;   not under a live client root — e.g. Tier-1/JVM)
      :evidence accrual} ; the bounded cumulative record (`accrete-evidence`)
 
-  Dead cells are pruned before the read, so abandoned/unmounted cells never
-  appear; an uninstalled (or never-installed) projection is empty. nil in a
+  Dead cells and GC-cleared ordinary-unmount refs are pruned before the read;
+  Activity-hidden cells remain while React owns them. An uninstalled (or
+  never-installed) projection is empty. nil in a
   production build, where the debug evidence plane is elided (tool read)."
   []
   (when interop/debug-enabled?
-    (let [entries (:entries (swap! state* update :entries prune-dead))
+    (let [entries (transition!
+                   (fn []
+                     (let [s (swap! state* normalize-state)]
+                       (store-live-entries! (:entries s)))))
           roots   (root-id-index)]
       (->> entries
            (map (fn [[cell {:keys [cell-id view-id evidence]}]]

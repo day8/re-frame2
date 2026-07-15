@@ -131,9 +131,15 @@ Xray ships **zero bytes** in production. The trace bus, the epoch
 history, the schema validation, the registrar trace emit — all
 gated on `re-frame.interop/debug-enabled?` (alias of `goog.DEBUG`).
 Production builds (`:advanced` + `goog.DEBUG=false`) elide all of it.
+That includes the `re-frame.ui.tool.evidence` state itself: its compiled
+private state var is nil, so production allocates no registry atom, weak
+membership, ordinal mint, transition lock, or cleanup/reset path. The
+advanced gate executes a private-state assertion in addition to bundle
+sentinels, making renamed/minified retained state a test failure.
 
 Per [Spec 009 §Production builds](../../../spec/009-Instrumentation.md#production-builds-zero-overhead-zero-code).
-CI's `npm run test:elision` job verifies the contract.
+CI's elision jobs (`npm run test:elision` and
+`npm run test:browser-prod-elision`) verify the contract.
 
 Xray contributes its own sentinels to the elision verifier; CI
 blocks any leak.
