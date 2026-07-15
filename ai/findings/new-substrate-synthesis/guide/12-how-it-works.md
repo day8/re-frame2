@@ -1,10 +1,11 @@
 # 12 — How it works
 
 The rest of the guide states contracts: `sub` is the value, props memoise by value,
-the two emitters cannot drift, production carries nothing it does not use. This page
-explains the machinery that keeps those promises — read it when you want to *trust*
-the claims, not just use them. Nothing here is required to build apps; everything
-here is why the other pages can be short.
+the browser and JVM-tree outputs stay aligned under one conversion contract and parity
+gates, production carries nothing it does not use. This page explains the machinery
+that keeps those promises — read it when you want to *trust* the claims, not just use
+them. Nothing here is required to build apps; everything here is why the other pages
+can be short.
 
 ## The compiler
 
@@ -36,7 +37,7 @@ interpreter to pay for, which is most of [10](10-performance.md)'s table.
 
 Every `defview` registers the view — its source coordinates, template fingerprint,
 and capability profile — and the compiler maintains one whole-build summary of all of
-them: the *build digest*. Hydration checks it; debugging surfaces trust it.
+them: the *build digest*. S3 debugging surfaces trust it; S5 hydration checks it.
 
 The two `shadow-cljs.edn` settings from [01](01-getting-started.md) exist to keep the
 digest truthful across a build daemon's lifetime: the build hook clears retained
@@ -89,7 +90,7 @@ elements. This is why the guide keeps insisting on data handlers: a closure prop
 not break memoisation mechanically; it breaks the *idiom* that makes memoisation mean
 something.
 
-## Events without closures
+## Events without closures *(committed callback wiring lands S3)*
 
 A literal vector in `:on-click` compiles to a *site*: the vector is retained as data
 (in the manifest, on the JVM tree, in dev tooling), and the client emits one stable
@@ -100,19 +101,25 @@ only work in literal vectors: they are compiled, not interpreted.
 Controlled inputs add the one deliberate exception to batching. Where the compiler
 can prove an element controlled — a literal `:value`/`:checked` beside a vector
 handler — dispatches from that site drain *synchronously inside the DOM event*:
-event → drain → commit → the new value is back in `:value` before React's re-render.
-That ordering is the entire caret/IME story; nothing about it is configurable because
-it is a proof obligation, not a preference.
+browser input event → synchronous drain/epoch commit → ViewCell snapshot advance →
+React's discrete render observes the matching value. React performs no restorative DOM
+write, so caret and IME state remain stable. The S3 G-8 real-browser fixture is the
+executable proof. Nothing about this ordering is configurable because it is a proof
+obligation, not a preference.
 
-## One template, two emitters
+## One template, two structural emitters
 
-The compiler's AST feeds two emitters: direct element construction for the browser,
-and a string emitter for the JVM. They share the single conversion and escaping rule
-table — the same code decides what `:style {:cursor :pointer}` means on both sides —
-so client and server output are structurally equivalent by construction, and a
-fingerprint of the emitted structure rides along so hydration can *check* rather than
-hope. This is why [11](11-ssr.md) can say "no dual-emitter drift" flatly: there is no
-second implementation to drift.
+The compiler's AST feeds direct React element construction for the browser and a
+versioned `re-frame.ui.tree` structural-data emitter for the JVM. They share a
+conversion contract — the same rules decide what `:style {:cursor :pointer}` means —
+and parity gates compare the two outputs so conversion drift fails loudly.
+
+Neither JVM emission nor that parity gate produces HTML. At S5,
+`re-frame.ssr/emit-ui-tree` is the separate serializer that turns the versioned tree
+into HTML; its conversion/escaping contract and parity gates control drift across that
+boundary. Until then, `render-to-string` remains the frozen Reagent/hiccup compatibility
+route. At S5 a fingerprint in the root manifest lets hydration check the delivered
+structure rather than hope.
 
 ## Hot reload, mechanically
 
@@ -126,7 +133,7 @@ preflight, finds the frame live on reload, and does not re-seed — which is exa
 the "your state survives edits" behaviour [01](01-getting-started.md) promises. The
 Pair's hot-swap is this same mechanism, invoked over nREPL.
 
-## The dev/prod split
+## The dev/prod split *(S3 adds causes/manifests and their elision gates)*
 
 Dev and prod run the same semantics with different amounts of evidence. In dev, every
 view carries its manifest, every commit its causes, every element its source

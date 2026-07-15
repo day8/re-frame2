@@ -1,9 +1,19 @@
 # 11 — Server rendering
 
-The same compiled views render on the JVM — no React on the server, no second
-serialiser. One compiled template, two emitters, one conversion/escaping rule table:
-client and server output are **structurally equivalent** (verified by fingerprint and
-a generative parity suite), so they cannot drift apart.
+A compiled `defview` has two outputs today: direct React element construction in the
+browser and versioned `re-frame.ui.tree` structural data on the JVM. The shared
+conversion contract and parity gates hold those outputs together.
+
+HTML is a separate S5 step: `re-frame.ssr/emit-ui-tree` serialises that structural tree.
+Until S5 lands, `render-to-string` remains the frozen Reagent/hiccup compatibility
+route; it is not the re-frame.ui tree pipeline.
+
+| Mechanism | Delivery stage |
+|---|---|
+| Compiled JVM `defview` → versioned `re-frame.ui.tree` data | S1 — ships on main |
+| Committed callbacks, `local`/effects, `client-only`, error boundaries, debug evidence | S3 |
+| Presence fallback | S4 |
+| `emit-ui-tree` → HTML, root manifests/fingerprints, hydration, `ssr-ring`, `render-static` | S5 |
 
 ## What renders on the server
 
@@ -19,12 +29,13 @@ a generative parity suite), so they cannot drift apart.
 Views that *are* their host behaviour (a canvas chart) wrap the leaf in `client-only`
 and keep the shared markup outside.
 
-## Rendering a page
+## Rendering a page *(re-frame.ui HTML and `ssr-ring` land S5)*
 
-Server lifecycle is standard re-frame2 SSR: per-request frames, drain
-`:initial-events`, render (a tree walk — fast, no JS engines), respond, teardown.
-Request-to-response glue ships as the `ssr-ring` ecosystem adapter; this page covers
-what the view layer itself owns.
+The current compatibility `render-to-string` path is the frozen Reagent/hiccup route.
+The S5 re-frame.ui path uses per-request frames: drain `:initial-events`, emit the
+versioned structural tree, serialise it with `re-frame.ssr/emit-ui-tree`, respond, and
+tear down. Request-to-response glue lands with the `ssr-ring` ecosystem adapter; this
+page covers what the view layer itself owns.
 
 ## Roots and frames — two different things
 
@@ -134,6 +145,8 @@ them without executing anything. On the client they become ordinary React handle
 
 ## What you do not manage
 
-No dual-emitter drift, no escaping decisions (everything escapes for its context
-except the explicit `ui/html` door), no per-root wiring beyond the mount — manifests,
-payload scoping, and teardown ride the frame and root contracts you already use.
+You do not hand-maintain browser/JVM conversion parity: the versioned conversion
+contract and parity gates guard it. At S5 the `emit-ui-tree` contract and serializer
+parity gates guard the separate tree-to-HTML boundary and its contextual escaping
+(except the explicit `ui/html` door). Manifests, payload scoping, and teardown then
+ride the frame and root contracts you already use.

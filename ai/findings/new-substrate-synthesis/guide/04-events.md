@@ -83,9 +83,11 @@ If the body merely wraps a literal vector, dev suggests the vector form instead.
 ```
 
 works without caret jumps or IME breakage: dispatches from controlled-input sites run
-**synchronously within the DOM event** — event → dispatch → commit → the new value is
-back in `:value` before React repaints. This is the one sanctioned synchronous door;
-everything else batches. You do not configure it; it is the law of those sites.
+**synchronously within the DOM event** — browser input event → synchronous drain and
+epoch commit → ViewCell snapshot advance → React's discrete render observes the same
+value. React therefore performs no restorative DOM write, preserving caret and IME
+state. This is the one sanctioned synchronous door; everything else batches. You do
+not configure it; it is the law of those sites.
 
 A whole form is fields over app-db — one event, one sub, every field:
 

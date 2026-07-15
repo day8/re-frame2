@@ -6,27 +6,21 @@ absent from production builds.
 
 ## "Why did this view just render?"
 
-Xray's render timeline, grouped by epoch:
-
-```
-epoch 912  ::message-arrived                     handler 0.2ms · 2 subs Δ · 3 commits
-  message-list (:app)   ← sub Δ [::messages 42]   v18→v19
-  unread-badge (:app)   ← sub Δ [::unread-count]  3→4
-  compose-box  (:app)   ← local Δ                 —
-```
+Xray's existing Views rows gain a cause vector for each committed render *(lands S3)*.
+A row names the view and frame, then shows cause chips for the subscription, prop,
+local, or foreign boundary that moved.
 
 Every commit carries its **causes** (a vector — one commit can have several): which
 subscription changed (from→to), which top-level prop slots differed, which local was
 set, or — honestly — `:foreign-or-react` when a raw React boundary caused it. Restore
-an epoch and the repaints carry an `:epoch-restore` cause — the timeline stays
-truthful through time travel without rewriting history.
+an epoch and the repaints carry an `:epoch-restore` cause on those same rows.
 
-"Something renders too much" stops being archaeology: sort by view, read causes.
+"Something renders too much" stops being archaeology: inspect the view's existing row
+and read its cause vector. S3 adds no render-timeline lane.
 
-The **heatmap overlay** tints views by render count since your last interaction. Cold
-UI should look cold; a hot corner is usually an identity-compared fn prop,
-freshly-rebuilt children, or a too-broad subscription — and its timeline rows say
-which.
+A heatmap is not an S3 surface. It remains conditional on a post-S3
+information-architecture review; the ruled S3 delivery is cause vectors and cause
+chips on the existing Views surface.
 
 *(Causes, manifests, interaction surface, DOM source coordinates, and Xray
 consumption of them land S3. Compile-time failures with file:line are Stage 1 —
