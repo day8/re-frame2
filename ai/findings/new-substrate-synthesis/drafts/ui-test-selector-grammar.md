@@ -7,7 +7,7 @@
 > earlier direct-keyword-lookup promise is removed; view-id selectors match the tree's
 > view-boundary node (OPEN-1 resolved). The one page for the `ui.test/find`/`query`
 > selector language, required before Stage 1. Contract context:
-> [07-testing §2](../07-testing.md), [guide/09-testing.md](../guide/09-testing.md).
+> [07-testing §2](../07-testing.md), [guide/08-testing.md](../guide/08-testing.md).
 > Demand bar per [08-delivery §3](../08-delivery.md): every form below names its
 > consumer; no speculative combinators.
 

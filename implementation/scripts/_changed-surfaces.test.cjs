@@ -528,6 +528,117 @@ test('implementation/package.json still arms cljs_node_test (regression — it d
   assert.equal(result.cljs_node_test, 'true');
 });
 
+// rf2-gzavkm — the standalone example-build compiler is intentionally NOT
+// coupled to the broad browser surface. Core changes keep their ordinary
+// browser proofs but defer the expensive all-examples compile to the nightly
+// safety net; surfaces that can directly change an example build still run it
+// at PR time.
+test('example compilation has a dedicated changed-surface output (rf2-gzavkm)', () => {
+  const directSurfaces = [
+    'examples/core/counter/core.cljs',
+    'implementation/shadow-cljs.edn',
+    'implementation/package.json',
+    'implementation/package-lock.json',
+    'implementation/deps.edn',
+    'implementation/adapters/uix/src/re_frame/adapter/uix.cljs',
+    'implementation/ui/src/re_frame/ui/rules.cljc',
+    'implementation/epoch/src/re_frame/epoch.cljc',
+    'implementation/schemas/src/re_frame/schemas.cljc',
+    'implementation/machines/src/re_frame/machines.cljc',
+    'implementation/routing/src/re_frame/routing.cljc',
+    'implementation/flows/src/re_frame/flows.cljc',
+    'implementation/http/src/re_frame/http.cljc',
+    'implementation/ssr/src/re_frame/ssr.cljc',
+    'implementation/ssr-ring/src/re_frame/ssr/ring.clj',
+    'implementation/resources/src/re_frame/resources.cljc',
+    'implementation/security/src/re_frame/security.cljc',
+    'implementation/scripts/check-examples-compile.cjs',
+    'tools/story/src/re_frame/story.cljs',
+    'tools/xray/src/day8/re_frame2_xray/preload.cljs',
+    'tools/machines-viz/src/day8/re_frame2_machines_viz/chart.cljs',
+  ];
+  for (const file of directSurfaces) {
+    assert.equal(
+      classify(file).examples_compile,
+      'true',
+      `${file} can change the compiled example closure`,
+    );
+  }
+
+  for (const file of [
+    'implementation/core/src/re_frame/core.cljc',
+    'implementation/scripts/check-elision.cjs',
+    'testbeds/tenant_switcher/core.cljs',
+    'tools/xray/test/day8/re_frame2_xray/core_test.clj',
+    'tools/xray/spec/017-Test-Coverage-Matrix.md',
+    'spec/006-ReactiveSubstrate.md',
+  ]) {
+    assert.equal(
+      classify(file).examples_compile,
+      'false',
+      `${file} cannot change a standalone example build`,
+    );
+  }
+});
+
+test('cljs-examples-compile job uses the dedicated output and nightly retains full coverage (rf2-gzavkm)', () => {
+  const prBlock = jobBlock(fs.readFileSync(WORKFLOW, 'utf8'), 'cljs-examples-compile');
+  assert.match(
+    prBlock,
+    /if: needs\.detect_changed_surfaces\.outputs\.examples_compile == 'true'/,
+  );
+  const nightly = fs.readFileSync(EXPENSIVE_WORKFLOW, 'utf8');
+  const nightlyBlock = jobBlock(nightly, 'browser-bundle-and-story-gates');
+  const compile = nightlyBlock.indexOf('npm run test:examples-compile');
+  const playwright = nightlyBlock.indexOf('npx playwright install --with-deps chromium');
+  assert.notEqual(compile, -1, 'nightly must retain the all-examples compile');
+  assert.notEqual(playwright, -1, 'nightly browser gate must install Chromium');
+  assert.ok(compile < playwright, 'example compilation should fail before the browser download');
+});
+
+// rf2-3kewru — G-12 Arm 2 shells out to `clojure -Stree`. The CLJS job
+// that owns `test:ui-isolation` must therefore provision the Clojure CLI;
+// Arm 1 alone cannot detect a declared-but-currently-unused adapter dep.
+test('cljs job provisions Clojure CLI before the G-12 isolation gate (rf2-3kewru)', () => {
+  const block = jobBlock(fs.readFileSync(WORKFLOW, 'utf8'), 'cljs');
+  const setup = block.indexOf('name: Set up Clojure CLI');
+  const gate = block.indexOf('npm run test:ui-isolation');
+  assert.notEqual(setup, -1, 'cljs job must install Clojure CLI for G-12 Arm 2');
+  assert.notEqual(gate, -1, 'cljs job must run the UI isolation gate');
+  assert.ok(setup < gate, 'Clojure CLI setup must precede the G-12 isolation gate');
+  assert.match(block, /DeLaGuardo\/setup-clojure@02f5a82b79a547523e664fe8a7a32ea14884d7b2/);
+});
+
+// rf2-vxgfnd.135 — the tracked synthesis guide/drafts are authoritative
+// working material but deliberately remain outside MkDocs until S6. They get
+// one narrow, non-vacuous link/anchor + guide-truth job instead.
+test('tracked synthesis guide and active drafts arm their focused docs gate only (rf2-vxgfnd.135)', () => {
+  assert.equal(
+    classify('ai/findings/new-substrate-synthesis/guide/09-debugging.md').synthesis_docs,
+    'true',
+  );
+  assert.equal(
+    classify('ai/findings/new-substrate-synthesis/drafts/guide-docs-move-plan.md').synthesis_docs,
+    'true',
+  );
+  assert.equal(classify('scripts/check_doc_slugs.py').synthesis_docs, 'true');
+  assert.equal(
+    classify('implementation/ui/test/re_frame/ui/guide_truth_jvm_test.clj').synthesis_docs,
+    'true',
+  );
+  assert.equal(classify('ai/findings/unrelated-scratch.md').synthesis_docs, 'false');
+});
+
+test('synthesis-docs job runs the opt-in link scan and focused guide truth fixture (rf2-vxgfnd.135)', () => {
+  const block = jobBlock(fs.readFileSync(WORKFLOW, 'utf8'), 'synthesis-docs');
+  assert.match(block, /if: needs\.detect_changed_surfaces\.outputs\.synthesis_docs == 'true'/);
+  assert.match(block, /check_doc_slugs\.py --synthesis-only/);
+  assert.match(block, /clojure -M:test -n re-frame\.ui\.guide-truth-jvm-test/);
+
+  const aggregator = jobBlock(fs.readFileSync(WORKFLOW, 'utf8'), 'all-required-passed');
+  assert.match(aggregator, /- synthesis-docs\r?\n/);
+});
+
 // rf2-f79t8 (a) — workflow-level shape: jvm-core + cljs must be
 // job-level gated (needs + if), NOT trigger-filtered, and the
 // pull_request trigger must stay unfiltered so the aggregator is always
