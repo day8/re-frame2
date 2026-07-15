@@ -328,7 +328,9 @@ token — moves through three states:
   claimed. The steady state of a mounted Root.
 - **`:tearing-down`** — `unmount!` marks the claim tearing-down BEFORE it drives the host React
   `.unmount`, identity-guarded to this exact Root. The claim keeps occupying id + container +
-  prefix; the incarnation's ViewCells and observation leases are not yet released.
+  prefix. This is a **host-ownership claim state**, not a promise that framework owners are still
+  live: a deferred teardown retains them until settlement, while a throwing cleanup force-deads
+  the exact incarnation immediately and leaves only the unproven host claim quarantined.
 - **`:released`** — the claim is dropped (identity-guarded, so a stale handle never evicts a newer
   claim), freeing id/container/prefix for reuse.
 
@@ -354,8 +356,29 @@ Which outcome applies is a **root-level settlement law**, independent of ViewCel
 teardown is deferred iff a committed root reporter for this incarnation has not yet torn down AND
 its mount-lifetime cleanup sentinel did not fire during the `.unmount`. Every rendered root —
 cell-bearing, compiled-static/cell-less, or entirely Activity-hidden — commits that reporter, so
-its deferral is observed regardless of whether the root owns any connected ViewCell. An unrendered
-/ pre-commit root committed no reporter, so nothing is pending and it settles synchronously.
+its deferral is observed regardless of whether the root owns any connected ViewCell. An explicit
+`unmount!` of an unrendered / pre-commit root committed no reporter, so nothing is pending and it
+settles synchronously. A failed-first-mount rollback is deliberately stricter, below.
+
+#### Failed-first-mount rollback is one teardown transaction
+
+If a fresh `mount` has allocated and registered its React Root but its first element/host render
+throws synchronously, rollback uses the same exact-incarnation teardown machinery as `unmount!`:
+
+1. mark the complete id/container/identifier-prefix claim `:tearing-down` **before** touching the
+   host Root;
+2. drive `.unmount` through the root-teardown window, so every framework owner attached to that
+   exact incarnation is force-dead if cleanup throws;
+3. preserve the mount error as the thrown primary value. If host cleanup also throws, attach that
+   exact secondary value as `rfUiRollbackCleanupError`; and
+4. on a normal cleanup return, release the identity-guarded predecessor claim at the **next FIFO
+   microtask**, not inline. No commit reporter exists for a failed first render, so the current
+   mount/error stack is the conservative settlement fence. Same-id and different-id/same-container
+   retries in that stack fail before successor allocation; retry after the microtask is admitted.
+
+If cleanup throws, no release is scheduled: the framework incarnation is dead but the host surface
+is unproven, so the claim remains quarantined `:tearing-down`. The exact-root identity guard means a
+late predecessor release can never evict a successfully mounted successor incarnation.
 
 #### Settlement independence
 
@@ -386,14 +409,15 @@ diagnostics ([Spec 009](009-Instrumentation.md)) each gain a tearing-down cause 
 - **`:rf.error/duplicate-root-id`** — a reentrant `mount` / `create-root` (and `hydrate-root`, once
   S5 wires it through the same pre-render admission check) claiming the same root-id. The message
   names the in-flight deferred unmount and directs the caller to re-mount after settlement or use a
-  distinct `:root-id` with a fresh container.
+  distinct `:root-id` with a fresh container. Client data carries `:existing` with the owner's
+  `:provenance`, `:site`, and `:tearing-down? true`, plus the ordinary `:arriving` evidence.
 - **`:rf.error/root-container-in-use`** — a mount whose container is still owned by a tearing-down
   root. The node frees once teardown settles; recovery is a fresh node or a re-mount after
-  settlement.
+  settlement. Data carries `:owner-root-id` and `:existing {:tearing-down? true}`.
 - **`:rf.error/root-not-live`** — a `render!` into a tearing-down Root. A tearing-down root is not
   live: its React tree is being unmounted, so rendering into it would drive a consumed/unmounting
   handle. It fails the same loud way as an unmounted or superseded root; recover by recreating the
-  root after settlement.
+  root after settlement. Data carries `:existing {:tearing-down? true}`.
 
 The effective-prefix arm (`:rf.error/duplicate-identifier-prefix`) is fenced the same way, since
 the prefix is quarantined as part of the one claim.
@@ -410,6 +434,25 @@ fail-closes reuse of the exact id/container until settlement, and the post-destr
 breadcrumb meanwhile rejects any fresh public-root creation with `:rf.error/adapter-disposed`. The
 exact id/container becomes reusable only once the deferred settlement releases the claim (or the
 adapter's container reclaim proves it free on the throwing path).
+
+### JavaScript host capability boundary
+
+The CLJS weak root-ownership registry requires the host's standard **`WeakRef`** constructor.
+Without it, the implementation has only two dishonest choices: strongly retain every ordinarily
+unmounted ViewCell for the Root's lifetime, or drop Activity-hidden cells that root/frame teardown
+must still discover. Root admission therefore probes and captures `WeakRef` exactly once, before
+frame preflight, React Root allocation, live-root registration, or ViewCell ownership mutation.
+The direct `attach-root!` seam applies the same gate before writing the cell or registry. An
+unsupported host throws `:rf.error/ui-platform-incompatible` with
+`:platform :javascript`, `:capability :js/WeakRef`, and recovery
+`:use-a-weakref-capable-javascript-runtime`; there is no strong-reference fallback, polling loop,
+or per-render capability check.
+
+`FinalizationRegistry` is **optional**. When present, one captured module-lifetime reaper removes
+collected WeakRef husks eagerly. When absent, every synchronous ownership scan compacts cleared
+refs and drops empty incarnation entries; deterministic `teardown!` removal remains the normal
+fast path on both arms. The JVM host uses its synchronized `WeakHashMap` membership and does not
+participate in this JavaScript capability gate.
 
 ## Revertibility constraints on adapters
 

@@ -52,6 +52,9 @@
 (defn- thrown-id [f]
   (try (f) nil (catch cljs.core/ExceptionInfo e (:rf.error/id (ex-data e)))))
 
+(defn- captured-error [f]
+  (try (f) nil (catch cljs.core/ExceptionInfo e e)))
+
 (deftest unmount-drives-the-cell-to-dead-and-releases-the-claim
   (rf/reg-sub :rtw/a (fn [db _] (:a db)))
   (live-frame/make-frame {:id :rtw/frame})
@@ -108,6 +111,80 @@
     (testing "the consumed root generation retains no framework owner"
       (is (= :dead (reactive/lifecycle cell)))
       (is (zero? (reactive/root-cell-count inc))))))
+
+(deftest tearing-down-root-diagnostics-carry-complete-ownership-evidence
+  ;; rf2-vxgfnd.277/.291: the three existing root diagnostics keep their IDs,
+  ;; but the transitional ownership state must be machine-readable on every
+  ;; admission/render arm. A throwing host gives a stable quarantined claim.
+  (let [container     (js-obj)
+        site          {:file "teardown.cljs" :line 11 :column 7}
+        arriving-site {:file "retry.cljs" :line 22 :column 3}
+        boom          (js/Error. "host cleanup failed")
+        react-root    #js {:unmount (fn [] (throw boom))}
+        root          (client/->Root react-root container :rtw/diagnostic)]
+    (client/register-live-root!
+     {:root-id :rtw/diagnostic :provenance :authored :site site}
+     container root)
+    (is (identical? boom
+                    (try (client/unmount!* root) nil
+                         (catch :default e e))))
+    (is (true? (:tearing-down?
+                (client/live-root-entry :rtw/diagnostic))))
+    (let [duplicate
+          (captured-error
+           #(client/check-root-claim!
+             'diagnostic/duplicate
+             {:root-id :rtw/diagnostic
+              :provenance :derived
+              :site arriving-site}
+             container))
+          container-use
+          (captured-error
+           #(client/check-root-claim!
+             'diagnostic/container
+             {:root-id :rtw/other
+              :provenance :authored
+              :site arriving-site}
+             container))
+          not-live
+          (captured-error
+           #(client/require-live-root! root 'diagnostic/render))]
+      (testing ":rf.error/duplicate-root-id exposes both owners + transition"
+        (is (= #{:rf.error/id :where :recovery :reason :root-id
+                 :existing :arriving}
+               (set (keys (ex-data duplicate)))))
+        (is (= {:rf.error/id :rf.error/duplicate-root-id
+                :where 'diagnostic/duplicate
+                :recovery :make-root-ids-unique
+                :root-id :rtw/diagnostic
+                :existing {:provenance :authored
+                           :site site
+                           :tearing-down? true}
+                :arriving {:provenance :derived :site arriving-site}}
+               (dissoc (ex-data duplicate) :reason)))
+        (is (re-find #"tearing down" (ex-message duplicate))))
+      (testing ":rf.error/root-container-in-use identifies fenced owner state"
+        (is (= #{:rf.error/id :where :recovery :reason :root-id
+                 :owner-root-id :existing}
+               (set (keys (ex-data container-use)))))
+        (is (= {:rf.error/id :rf.error/root-container-in-use
+                :where 'diagnostic/container
+                :recovery :unmount-the-owning-root-first
+                :root-id :rtw/other
+                :owner-root-id :rtw/diagnostic
+                :existing {:tearing-down? true}}
+               (dissoc (ex-data container-use) :reason)))
+        (is (re-find #"teardown is in flight" (ex-message container-use))))
+      (testing ":rf.error/root-not-live distinguishes an unmounting handle"
+        (is (= #{:rf.error/id :where :recovery :reason :root-id :existing}
+               (set (keys (ex-data not-live)))))
+        (is (= {:rf.error/id :rf.error/root-not-live
+                :where 'diagnostic/render
+                :recovery :recreate-the-root
+                :root-id :rtw/diagnostic
+                :existing {:tearing-down? true}}
+               (dissoc (ex-data not-live) :reason)))
+        (is (re-find #"root is tearing down" (ex-message not-live)))))))
 
 (deftest unmount-on-a-stale-root-is-a-noop
   ;; A superseded/already-torn-down handle must not run the teardown window at

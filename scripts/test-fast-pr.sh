@@ -184,6 +184,18 @@ run "thrown-error message gate self-test" "python scripts/check_thrown_error_mes
 run "thrown-error message gate (rf2-vvixub)" "python scripts/check_thrown_error_messages.py --verbose" \
   python "$repo_root/scripts/check_thrown_error_messages.py" --verbose
 
+# re-frame.ui Root lifecycle projection guard (rf2-vxgfnd.291): the exact
+# failed-first-mount rollback ordering, three-state settlement law, three
+# tearing-down diagnostics, WeakRef capability boundary, and their 004C/006/009
+# + API/guide projections are one atomic contract. Literal anchors are
+# intentional (not a general prose parser). Self-test first mutates every tooth
+# independently, then the live scan catches code/spec/doc drift.
+run "UI Root lifecycle drift self-test" "python scripts/check_ui_root_lifecycle_drift.py --self-test" \
+  python "$repo_root/scripts/check_ui_root_lifecycle_drift.py" --self-test
+
+run "UI Root lifecycle drift" "python scripts/check_ui_root_lifecycle_drift.py --ci" \
+  python "$repo_root/scripts/check_ui_root_lifecycle_drift.py" --ci
+
 # EP-0010 §Validation/Conformance ambient-durable-read gate (rf2-f2t151): a
 # direct ambient host read (clock / RNG / browser fact) written into a DURABLE
 # frame-state field inside a durable-write namespace (resource reducers,

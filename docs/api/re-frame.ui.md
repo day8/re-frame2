@@ -34,7 +34,13 @@ description says so.
   React observation substrate (no Reagent / UIx / Helix). JVM uses the headless atom
   realisation of the same closed adapter contract. Discriminator
   `:rf.adapter/ui`. Destroying the adapter tears down every public compiled Root,
-  then the generic React spine.
+  then the generic React spine. The JavaScript host must provide `WeakRef`; Root
+  admission probes/captures it once before any React/registry/ViewCell ownership
+  mutation and otherwise throws `:rf.error/ui-platform-incompatible` with
+  `:platform :javascript`, `:capability :js/WeakRef`, and recovery
+  `:use-a-weakref-capable-javascript-runtime`. `FinalizationRegistry` is optional;
+  synchronous WeakRef compaction covers hosts without it. There is no strong
+  fallback, polling, or per-render capability check.
 - **Example**:
   ```clojure
   (rf/init! ui/adapter)
@@ -157,6 +163,11 @@ from ordinary Clojure code fails loud** (they are not runtime helpers).
   re-seeded). `root-form` must be a **literal** vector. Identity opts
   (`:root-id`, `:disambiguator`, `:identifier-prefix`) are compile-time literals.
   Host error callbacks (`:on-uncaught-error`, …) are plain fns. Returns the Root.
+  If a first render throws after allocation, the exact id/container/prefix claim is
+  marked `:tearing-down` before cleanup. A normal cleanup releases at the next FIFO
+  microtask; a cleanup throw leaves the claim quarantined, force-deads framework
+  ownership for that incarnation, and rides the original mount error as
+  `rfUiRollbackCleanupError` secondary evidence (the mount error remains primary).
 - **Example**:
   ```clojure
   (ui/mount [ui/frame-root {:id :app :initial-events [[:app/init]]}
@@ -196,8 +207,15 @@ from ordinary Clojure code fails loud** (they are not runtime helpers).
 
 - **Kind**: function
 - **Signature**: `(unmount! root) → nil`
-- **Description**: Total teardown: unmount the React root and unregister the root-id.
-  Idempotent. Client-only; JVM host-op error.
+- **Description**: Total, exact-incarnation teardown. The root's complete
+  id/container/identifier-prefix claim moves `:live → :tearing-down → :released`;
+  release occurs at host settlement, not merely when `.unmount` returns. Synchronous
+  cleanup releases inline. A deferred React teardown retains the claim until its FIFO
+  settlement microtask, rejecting same-id/container reuse in the interim. A throwing
+  host cleanup force-deads that incarnation's framework owners but leaves the host
+  claim quarantined `:tearing-down` because the container is unproven; a second call
+  is a no-op and recovery uses a fresh container. Idempotent. Client-only; JVM
+  host-op error.
 
 ### `frame-root`
 

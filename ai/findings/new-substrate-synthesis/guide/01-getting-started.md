@@ -16,6 +16,15 @@ views, state, events, frames, then a real dashboard.
 `package.json` carries `react` and `react-dom` — nothing else. No Reagent, no UIx, no
 Helix.
 
+The browser/runtime must provide the standard JavaScript `WeakRef` constructor (all
+current evergreen browsers and supported modern Node runtimes do). re-frame.ui probes
+it once, before admitting the first Root or attaching ViewCell ownership. An older host
+fails loud with `:rf.error/ui-platform-incompatible`, data
+`{:platform :javascript :capability :js/WeakRef}`, and recovery
+`:use-a-weakref-capable-javascript-runtime`; it never falls back to a leaking strong
+registry. `FinalizationRegistry` is useful but optional — synchronous weak-registry
+compaction covers its absence.
+
 The compiler needs one whole-build view of your app. For Shadow CLJS, set these once
 (not once per build):
 
@@ -130,3 +139,13 @@ wants one. Full testing story: [08](08-testing.md).
 
 `mount` is idempotent per root; views re-register by name; the frame is reused; edited
 views repaint against live state. This is the default development loop.
+
+For deliberate shutdown, retain the Root returned by `mount` and call
+`(ui/unmount! root)`. The Root's id, container, and identifier prefix stay claimed
+until React teardown actually settles. That is normally synchronous; a deferred
+teardown releases at its settlement microtask. If host cleanup throws, re-frame.ui
+force-releases that exact incarnation's subscriptions but quarantines the unproven
+container claim, so mount into a fresh container rather than racing React's aborted
+cleanup. A first mount whose render throws follows the same transaction: its claim is
+fenced through cleanup and, on a normal cleanup return, frees on the next FIFO
+microtask before a retry is admitted.

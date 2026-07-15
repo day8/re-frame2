@@ -243,7 +243,7 @@ derive from**, so its identity set is `:root-id` / `:identifier-prefix` only; su
 (ui/render! root root-form)           ; render/re-render the literal root form into the Root.
 (ui/hydrate-root dom-node root-form)  ; ⇒ Root. Hydrating mount; identity comes FROM the manifest (§4).
 (ui/hydrate-root dom-node root-form opts)  ; opts: host-behaviour tier only (error callbacks).
-(ui/unmount! root)                    ; total teardown; unregisters the root-id (§7).
+(ui/unmount! root)                    ; total teardown; releases the root claim at settlement (§7).
 (ui/render-static root-form)          ; S5; proves + emits inert HTML; participates in identity (§7), emits no manifest/payload.
 ```
 
@@ -396,9 +396,19 @@ sharing a prefix would collide `use-id` output. The **default** prefix
 slug is injective (§1); this check therefore backstops **authored** `:identifier-prefix`
 opts, which can still collide.
 
-**Layer 3 — client runtime (S1).** A per-document live-root registry: `create-root`,
+**Layer 3 — client runtime (S1).** Before this layer admits any public Root, the CLJS host must
+provide `WeakRef`, probed/captured once for bounded ViewCell ownership. Absence fails before
+preflight/React/registry mutation with `:rf.error/ui-platform-incompatible` carrying
+`:platform :javascript`, `:capability :js/WeakRef`, and
+`:recovery :use-a-weakref-capable-javascript-runtime`. `FinalizationRegistry` is optional:
+synchronous WeakRef compaction is the correctness path when it is absent; there is no strong
+fallback, polling, or per-render probe (see Spec 006's JavaScript host capability boundary).
+
+A per-document live-root registry: `create-root`,
 `hydrate-root`, and `mount` register their root-id before any render; `unmount!`
-unregisters. Registering an id already live in the document throws
+holds the exact root-id/container/identifier-prefix claim through the three-state lifecycle
+`:live → :tearing-down → :released`, releasing it only at the host settlement boundary.
+Registering an id already live in the document throws
 `:rf.error/duplicate-root-id` (client tier) **before any render** — the existing root
 is untouched (failure isolation). This is the last line, catching fragments composed
 client-side by independently shipped bundles. It also asserts **identifier-prefix
@@ -406,16 +416,32 @@ uniqueness** across the document's live roots — the client-tier mirror of the 
 server check — so two live roots that share an effective `identifierPrefix` (only
 possible via an **authored** `:identifier-prefix`; the derived default is injective
 over root-id, §1) fail loud on the second claim rather than colliding `use-id` output;
-release frees the prefix. Two adjacent container/ownership faults and the
+release frees the prefix.
+
+A failed first mount that already allocated/registered its React Root is an exact-incarnation
+teardown transaction, not an inline registry delete: mark the whole claim `:tearing-down` before
+host cleanup; preserve the mount error as primary; attach a cleanup throw as
+`rfUiRollbackCleanupError`; force-dead that exact incarnation's framework owners on cleanup throw;
+and quarantine the claim fail-closed because the host container is unproven. A normally returning
+failed-first cleanup has no committed settlement reporter, so the exact predecessor claim releases
+at the next FIFO microtask. Same-stack same-id and different-id/same-container retries are rejected;
+a late predecessor release is root-identity-guarded and cannot evict a successor incarnation.
+
+During `:tearing-down`, the existing three root diagnostics retain their IDs and expose the state:
+`:rf.error/duplicate-root-id` carries owner `:provenance`/`:site` plus
+`:tearing-down? true` under `:existing`; `:rf.error/root-container-in-use` carries
+`:owner-root-id` plus `:existing {:tearing-down? true}`; and `:rf.error/root-not-live` carries
+`:existing {:tearing-down? true}`. Two adjacent container/ownership faults and the
 prefix-uniqueness backstop share the roster:
 
 | Id | When |
 |---|---|
-| `:rf.error/duplicate-root-id` | equal root-id at any layer above |
+| `:rf.error/ui-platform-incompatible` | required CLJS `WeakRef` absent at Root/ViewCell ownership admission |
+| `:rf.error/duplicate-root-id` | equal root-id at any layer above; client `:existing` includes `:tearing-down? true` while settlement is fenced |
 | `:rf.error/root-container-missing` | hydration locator resolves to no element (§4) |
-| `:rf.error/root-container-in-use` | `create-root`/`mount` on a node already owned by a different live root |
+| `:rf.error/root-container-in-use` | `create-root`/`mount` on a node already owned by a different live or tearing-down root |
 | `:rf.error/duplicate-identifier-prefix` | `create-root`/`mount` whose effective `identifierPrefix` is already claimed by a different live root — backstops authored `:identifier-prefix` aliasing (the derived default is injective over root-id, §1) |
-| `:rf.error/root-not-live` | `render!` on a `Root` whose id is no longer live — `unmount!`ed or superseded by a newer root claiming the same id (guarded like `unmount!`, but fails loud rather than no-op, before any side effect) |
+| `:rf.error/root-not-live` | `render!` on a `Root` whose id is no longer live — `unmount!`ed, tearing-down, or superseded by a newer root claiming the same id (guarded like `unmount!`, but fails loud rather than no-op, before any side effect) |
 | `:rf.error/root-manifest-invalid` | manifest missing/unreadable at hydrate, schema-version incompatible, identity opts passed client-side, unserialisable props at emit, prefix conflict |
 | `:rf.error/frame-payload-conflict` | below |
 | `:rf.error/root-hydration-mismatch` | fingerprint/digest disagreement (existing 03 §11 row — unchanged) |

@@ -9,14 +9,15 @@
   this file into the `:browser-test` build; `:node-test` /
   `:node-test-ui` still load it and every DOM-mounting test gates on
   `(browser?)` and exits early where `js/document` is absent."
-  (:require [cljs.test :refer [deftest is testing use-fixtures]]
+  (:require [cljs.test :refer [deftest is testing use-fixtures async]]
             [clojure.string :as str]
             ["react" :as react]
             ["react-dom" :as react-dom]
             [re-frame.error :as error]
             [re-frame.substrate.adapter :as substrate-adapter]
             [re-frame.ui :as ui :refer [defview frame-root]]
-            [re-frame.ui.client :as client]))
+            [re-frame.ui.client :as client]
+            [re-frame.ui.reactive :as reactive]))
 
 (defn- browser? [] (exists? js/document))
 
@@ -72,18 +73,24 @@
     (try (react-dom/flushSync thunk)
          (finally (set! (.-IS_REACT_ACT_ENVIRONMENT js/globalThis) prior)))))
 
+(def ^:private prior-act-env (atom nil))
+
+;; Map-form fixture because this namespace carries a real async settlement test.
 (use-fixtures :each
-  (fn [f]
-    ;; Enable React's act environment for this ns's DOM tests, then RESTORE the
-    ;; prior value so the fixture neither depends on nor leaks the shared-page
-    ;; flag.
-    (let [prior (when (browser?) (.-IS_REACT_ACT_ENVIRONMENT js/globalThis))]
-      (enable-react-act-env!)
-      (client/reset-live-roots!)
-      (try (f)
-           (finally (client/reset-live-roots!)
-                    (when (browser?)
-                      (set! (.-IS_REACT_ACT_ENVIRONMENT js/globalThis) prior)))))))
+  {:before (fn []
+             ;; Enable React's act environment for this ns's DOM tests, then
+             ;; RESTORE the prior value so the fixture neither depends on nor
+             ;; leaks the shared-page flag.
+             (reset! prior-act-env
+                     (when (browser?) (.-IS_REACT_ACT_ENVIRONMENT js/globalThis)))
+             (enable-react-act-env!)
+             (reactive/reset-scheduler!)
+             (client/reset-live-roots!))
+   :after  (fn []
+             (reactive/reset-scheduler!)
+             (client/reset-live-roots!)
+             (when (browser?)
+               (set! (.-IS_REACT_ACT_ENVIRONMENT js/globalThis) @prior-act-env)))})
 
 (defn- container []
   (js/document.createElement "div"))
@@ -93,7 +100,30 @@
        (catch cljs.core/ExceptionInfo e
          {:id (:rf.error/id (ex-data e))
           :msg (ex-message e)
-          :data (ex-data e)})))
+           :data (ex-data e)})))
+
+(defn- thrown-value
+  "Capture a throw without placing `try` inside a cljs.test `async` body.
+  The async macro lowers an inline try/catch to `await`, which would yield to
+  the very rollback microtask these same-stack fixtures must precede."
+  [f]
+  (try (f) nil
+       (catch :default e e)))
+
+(defn- mount-outcome
+  "Call the raw one-shot mount path and retain either its Root or its exact
+  thrown value. Used by rollback fixtures whose whole point is whether claim
+  admission reaches React allocation."
+  [info c element-thunk]
+  (try
+    {:root (client/mount* info c element-thunk nil nil)}
+    (catch :default e
+      {:error e})))
+
+(defn- cleanup-mounted-outcome!
+  [{:keys [root]}]
+  (when root
+    (flush-without-act! #(client/unmount!* root))))
 
 ;; ---------------------------------------------------------------------------
 ;; Fixtures
@@ -318,27 +348,149 @@
 ;; exception-safety: total teardown + idempotent mount retry (rf2-vxgfnd.18)
 ;; ---------------------------------------------------------------------------
 
-(deftest failed-first-mount-leaves-no-phantom-and-retries-clean
-  ;; criterion 2 — a throwing element thunk on a FIRST mount rolls back
-  ;; TOTALLY: no live-root/container claim, the host root best-effort
-  ;; unmounted, the ORIGINAL error rethrown, and a subsequent mount clean.
+(deftest failed-first-mount-fences-claim-until-normal-cleanup-settlement
+  ;; rf2-vxgfnd.291 RED-on-current: a throwing element thunk reaches the
+  ;; registered first-mount rollback path after React allocation. A normally
+  ;; returning host cleanup has no committed reporter from which to observe
+  ;; settlement, so the exact predecessor claim must remain :tearing-down
+  ;; until the next FIFO microtask. Same-id and different-id/same-container
+  ;; retries are rejected before either successor element thunk (and therefore
+  ;; before any successor React allocation can become a registered root).
   (when (browser?)
-    (let [c    (container)
-          info {:root-id :dom-throw/x :provenance :authored}
-          boom (fn [] (throw (ex-info "element thunk boom" {:tag :element})))]
-      (is (thrown-with-msg? cljs.core/ExceptionInfo #"element thunk boom"
-                            (flush-without-act! #(client/mount* info c boom nil nil)))
-          "the original mount error propagates")
-      (is (not (contains? (client/live-root-ids) :dom-throw/x))
-          "no phantom live root remains after the failed first mount")
-      (is (nil? (client/live-root-entry :dom-throw/x)))
-      ;; retry on the SAME container + root-id via the public API succeeds
-      (let [root (act!
-                  #(ui/mount [mini-app {:title "retry ok"}] c {:root-id :dom-throw/x}))]
-        (is (some? root))
-        (is (re-find #"retry ok" (.-innerHTML c))
-            "a clean retry mounts successfully into the freed container")
-        (act! #(ui/unmount! root))))))
+    (async
+     done
+     (let [c           (container)
+           info        {:root-id :dom-throw/x :provenance :authored
+                        :identifier-prefix "rf2-rollback-"}
+           primary     (ex-info "element thunk boom" {:tag :element})
+           predecessor (volatile! nil)
+           successor-renders (atom [])
+           boom        (fn []
+                         (vreset! predecessor
+                                  (:root (client/live-root-entry :dom-throw/x)))
+                         (throw primary))
+           ;; The element thunk throws before `.render` receives an element, so
+           ;; the raw mount call is the exact run-to-completion boundary under
+           ;; test. Keeping this off `flushSync` prevents React's test helper
+           ;; from inserting its own post-callback checkpoint between the
+           ;; rollback and the same-stack admission probes below.
+           thrown      (thrown-value
+                        #(client/mount* info c boom nil nil))
+           same        (mount-outcome
+                        info c
+                        (fn []
+                          (swap! successor-renders conj :same-id)
+                          (react/createElement "div" nil "same")))
+           ;; Current main admits `same`; clear that erroneous successor before
+           ;; independently probing the different-id/same-container arm.
+           _same-cleaned (cleanup-mounted-outcome! same)
+           other       (mount-outcome
+                        {:root-id :dom-throw/other :provenance :authored
+                         :identifier-prefix "rf2-rollback-other-"}
+                        c
+                        (fn []
+                          (swap! successor-renders conj :same-container)
+                          (react/createElement "div" nil "other")))
+           _other-cleaned (cleanup-mounted-outcome! other)]
+       (testing "the mount error stays primary and the exact claim is fenced"
+         (is (identical? primary thrown))
+         (is (true? (:tearing-down?
+                     (client/live-root-entry :dom-throw/x))))
+         (is (= :rf.error/duplicate-root-id
+                (:rf.error/id (ex-data (:error same)))))
+         (is (= :rf.error/root-container-in-use
+                (:rf.error/id (ex-data (:error other)))))
+         (is (= [] @successor-renders)
+             "both retries stop before their element/allocation boundary"))
+       ;; The assertion callback is FIFO-after the rollback's settlement job.
+       (js/queueMicrotask
+        (fn []
+          (try
+            (testing "the claim releases only at settlement, then is reusable"
+              (is (nil? (client/live-root-entry :dom-throw/x)))
+              (let [successor (act!
+                               #(ui/mount [mini-app {:title "retry ok"}]
+                                          c {:root-id :dom-throw/x
+                                             :identifier-prefix "rf2-rollback-"}))]
+                (is (some? successor))
+                (is (re-find #"retry ok" (.-innerHTML c)))
+                ;; Exact-incarnation/root fencing: even if a predecessor release
+                ;; signal is replayed late, it cannot evict the successor.
+                (client/release-root! :dom-throw/x @predecessor)
+                (is (identical? successor
+                                (:root (client/live-root-entry :dom-throw/x))))
+                (act! #(ui/unmount! successor))))
+            (finally (done)))))))))
+
+(deftest failed-first-mount-cleanup-throw-quarantines-and-force-deads
+  ;; rf2-vxgfnd.291 RED-on-current: make the exact allocated React Root's
+  ;; rollback cleanup throw deterministically. The original mount failure is
+  ;; primary; cleanup is canonical secondary evidence. Framework ownership is
+  ;; force-dead, but the host id/container/prefix claim remains fail-closed
+  ;; :tearing-down because the container was never proven settled.
+  (when (browser?)
+    (let [c           (container)
+          info        {:root-id :dom-throw/quarantine :provenance :authored
+                       :identifier-prefix "rf2-quarantine-"}
+          primary     (ex-info "first render failed" {:tag :primary})
+          cleanup     (js/Error. "rollback cleanup failed")
+          predecessor (volatile! nil)
+          cell*       (volatile! nil)
+          retry-renders (atom [])
+          boom        (fn []
+                        (let [entry (client/live-root-entry :dom-throw/quarantine)
+                              ^client/Root root (:root entry)
+                              cell  (reactive/make-cell ::rollback-owned)]
+                          (vreset! predecessor root)
+                          (vreset! cell* cell)
+                          (reactive/attach-root! cell (:root-incarnation entry))
+                          ;; The genuine mount path allocated this React Root;
+                          ;; replace only its cleanup edge to make the host throw.
+                          (set! (.-unmount (.-react-root root))
+                                (fn [] (throw cleanup)))
+                          (throw primary)))
+          thrown      (try
+                        (flush-without-act! #(client/mount* info c boom nil nil))
+                        nil
+                        (catch :default e e))
+          same        (flush-without-act!
+                       #(mount-outcome
+                         info c
+                         (fn []
+                           (swap! retry-renders conj :same-id)
+                           (react/createElement "div" nil "same"))))
+          ;; Current main wrongly released the predecessor before its throwing
+          ;; cleanup; clear the admitted same-id successor before the independent
+          ;; same-container probe.
+          _same-cleaned (cleanup-mounted-outcome! same)
+          other       (flush-without-act!
+                       #(mount-outcome
+                         {:root-id :dom-throw/quarantine-other :provenance :authored
+                          :identifier-prefix "rf2-quarantine-other-"}
+                         c
+                         (fn []
+                           (swap! retry-renders conj :same-container)
+                           (react/createElement "div" nil "other"))))
+          _other-cleaned (cleanup-mounted-outcome! other)]
+      (testing "primary/secondary error precedence is canonical"
+        (is (identical? primary thrown))
+        (is (identical? cleanup (.-rfUiRollbackCleanupError thrown))))
+      (testing "framework ownership is dead while the exact host claim is quarantined"
+        (is (= :dead (reactive/lifecycle @cell*)))
+        (is (zero? (reactive/root-cell-count
+                    (:root-incarnation
+                     (client/live-root-entry :dom-throw/quarantine)))))
+        (is (true? (:tearing-down?
+                    (client/live-root-entry :dom-throw/quarantine))))
+        (is (nil? (client/unmount!* @predecessor))
+            "double cleanup is a no-op against the consumed quarantine"))
+      (testing "neither same-id nor same-container retry can reopen quarantine"
+        (is (= :rf.error/duplicate-root-id
+               (:rf.error/id (ex-data (:error same)))))
+        (is (= :rf.error/root-container-in-use
+               (:rf.error/id (ex-data (:error other)))))
+        (is (= [] @retry-renders)))
+      )))
 
 ;; criterion 3 (a synchronous host `.render` throw AFTER host creation) is
 ;; covered by the SAME rollback catch as the thunk throw above: `mount*`

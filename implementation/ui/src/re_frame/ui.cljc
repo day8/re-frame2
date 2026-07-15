@@ -90,7 +90,10 @@
   the same closed adapter contract. Both report the canonical discriminator
   `:rf.adapter/ui`. Destroying it first tears down every public compiled Root
   and then the generic React spine, so no DOM/ViewCell/observation ownership
-  survives adapter disposal."
+  survives adapter disposal. CLJS Root/ViewCell ownership requires the host's
+  standard WeakRef constructor, probed once before admission; absence throws
+  :rf.error/ui-platform-incompatible before mutation. FinalizationRegistry is
+  optional because synchronous weak scans compact collected entries."
   #?(:clj  (assoc plain-atom/adapter :kind :rf.adapter/ui)
      :cljs (ui-substrate/adapter-with-client-roots
             client/with-root-admission-closed!
@@ -154,6 +157,12 @@
      :on-uncaught-error / :on-caught-error / :on-recoverable-error —
      plain fns handed to the React root (may be runtime expressions).
 
+     A failed first render retains the exact id/container/prefix claim as
+     :tearing-down before cleanup. Normal cleanup releases it at the next FIFO
+     microtask; a cleanup throw force-deads the exact framework incarnation,
+     stays quarantined fail-closed, and rides the original mount error as
+     rfUiRollbackCleanupError secondary evidence.
+
      Returns the Root."
      ([root-form dom-node]
       (root/mount-form &form &env root-form dom-node {}))
@@ -168,7 +177,8 @@
      form to derive from, an authored :root-id is REQUIRED (ui/mount is
      the derivation-default one-liner). opts (closed): :root-id (required)
      / :identifier-prefix + the host error callbacks. No render happens;
-     preflight runs before the first render!."
+     preflight runs before the first render!. On CLJS the one-shot WeakRef
+     capability gate runs before React allocation or live-root registration."
      [dom-node opts]
      (root/create-root-form &form &env dom-node opts)))
 
@@ -200,9 +210,12 @@
       (root/hydrate-root-form &form &env dom-node root-form opts))))
 
 (defn unmount!
-  "(unmount! root) — TOTAL teardown: unmount the React root and
-  unregister the root-id from the live-root registry (Layer 3).
-  Idempotent. Returns nil."
+  "(unmount! root) — TOTAL exact-incarnation teardown. The complete
+  root-id/container/identifier-prefix claim moves :live → :tearing-down →
+  :released and frees only at host settlement: inline for synchronous React
+  cleanup, or at the deferred settlement microtask. A throwing host cleanup
+  force-deads framework ownership but quarantines the unproven claim
+  :tearing-down; retry uses a fresh container. Idempotent. Returns nil."
   [root]
   #?(:clj  (tree/jvm-host-op!
             :ui/unmount!
