@@ -1336,10 +1336,11 @@ function classifyViaGitDiscovery(buildHistory) {
     for (const key of Object.keys(env)) {
       if (key.startsWith('GIT_')) delete env[key];
     }
-    const out = execFileSync('bash', [SCRIPT_PATH], {
+    const out = execFileSync('bash', ['-s'], {
       cwd: tmp,
       env,
       encoding: 'utf8',
+      input: fs.readFileSync(SCRIPT_PATH),
     });
     return Object.fromEntries(
       out
