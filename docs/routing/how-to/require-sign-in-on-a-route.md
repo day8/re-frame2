@@ -52,7 +52,10 @@ Guard `:rf.route/navigate` alone and the third row defeats you: a logged-out rea
   [[ev-id a b]]
   (case ev-id
     :rf.route/navigate
-    {:id a :params (or b {})}
+    (if (map? a)                                       ;; {:url ...} escape-hatch target
+      (when-let [{:keys [route-id params]} (routing/match-url (:url a))]
+        {:id route-id :params (or params {})})
+      {:id a :params (or b {})})                        ;; route-id target — unchanged
 
     :rf.route/url-requested
     (let [{:keys [to params url]} a]
@@ -69,7 +72,12 @@ Guard `:rf.route/navigate` alone and the third row defeats you: a logged-out rea
 ```
 
 `match-url` is pure: URL string → match map, or `nil` when nothing resolves (garbage
-URLs short-circuit the guard rather than crash it).
+URLs short-circuit the guard rather than crash it). Note the `:rf.route/navigate` branch
+also leans on it: navigate accepts a `{:url "/settings"}` **escape-hatch target** (deep
+links, server-side redirects, any URL the app didn't build itself), and a raw URL is not a
+route id — so the guard resolves it through `match-url` exactly as the runtime does before
+reading the route's `:tags`. Guard only the route-id form and a logged-out
+`[:rf.route/navigate {:url "/settings"}]` walks straight in.
 
 ## 3. Redirect with skip-and-dispatch
 

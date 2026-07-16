@@ -493,7 +493,7 @@ There's one trap here, and it's the kind that passes every casual test. Navigati
 
     If you gate only the programmatic `:rf.route/navigate`, the guard *fails open* the moment someone types `/settings` into the address bar — the protected route loads with no user. The fix is to normalise all three navigation events to one shape, then gate once.
 
-That normaliser is `nav-target` below. The link-click and URL-bar cases carry a raw URL string rather than a route id, so it leans on `routing/match-url` to turn that URL back into a route:
+That normaliser is `nav-target` below. The link-click and URL-bar cases carry a raw URL string rather than a route id — and so can `:rf.route/navigate`, whose `{:url "/settings"}` *escape-hatch* target (deep links, redirects) is a URL, not a route id. All three lean on `routing/match-url` to turn that URL back into a route before the guard reads its `:tags`; skip it on the navigate branch and a logged-out `[:rf.route/navigate {:url "/settings"}]` walks in:
 
 ```clojure
 (defn- nav-target
@@ -501,7 +501,10 @@ That normaliser is `nav-target` below. The link-click and URL-bar cases carry a 
    nil for non-navigation events (the guard stands aside)."
   [[event-id a b]]
   (case event-id
-    :rf.route/navigate          {:id a :params (or b {})}
+    :rf.route/navigate          (if (map? a)                          ;; {:url ...} escape-hatch target
+                                  (when-let [m (routing/match-url (:url a))]
+                                    {:id (:route-id m) :params (or (:params m) {})})
+                                  {:id a :params (or b {})})            ;; route-id target
     :rf.route/url-requested           (if-let [to (:to a)]
                                   {:id to :params (or (:params a) {})}
                                   (when-let [m (routing/match-url (:url a))]
