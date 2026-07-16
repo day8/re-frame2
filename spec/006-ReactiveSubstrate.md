@@ -444,6 +444,52 @@ breadcrumb meanwhile rejects any fresh public-root creation with `:rf.error/adap
 exact id/container becomes reusable only once the deferred settlement releases the claim (or the
 adapter's container reclaim proves it free on the throwing path).
 
+#### Successor-generation settlement fence
+
+`dispose-adapter!` returning synchronously while a predecessor teardown is still deferred, composed
+with an immediate `install-adapter!` / `rf/init!`, must not let the **successor** generation become
+usable before the predecessor's host cleanup authority has settled. The immediate `rf/init!` clears
+the disposed breadcrumb, so the breadcrumb alone no longer fences root creation; and a predecessor's
+deferred host `.unmount` runs its layout/effect cleanups **after** `rf/init!` returns — a cleanup
+that dispatches through a frame api captured before disposal would otherwise resolve the bare id at
+call time and mutate a **same-id successor frame** the new generation reseated. Two composed fences
+close this window; either is individually sufficient for its axis, and together they are exact:
+
+1. **Successor root-admission fence.** While any live-root claim registered under a **prior** adapter
+   generation is still `:tearing-down` (a deferred host teardown React has not settled), the pre-render
+   admission check rejects a fresh public compiled Root — under **any** id, not merely the exact
+   quarantined one — with the typed lifecycle error `:rf.error/adapter-teardown-in-flight` (Spec 009).
+   This is **distinct** from the pre-`init!` `:rf.error/adapter-disposed` breadcrumb: a fresh adapter
+   *is* installed, but the successor generation cannot admit a Root — and so cannot ENSURE a fresh
+   same-id frame — until the predecessor settles. Because the claim records the exact generation it
+   was admitted under, an ordinary **same-generation** deferred `unmount!` mid-settlement never blocks
+   a sibling mount; only an unsettled **predecessor** generation does. Once the deferred settlement
+   releases the predecessor claim (or the throwing-path container reclaim proves it free), admission
+   reopens and the exact id/container is reusable.
+
+2. **Incarnation-keyed frame-capture fence.** A frame api (`capture-frame`, and the `reg-view`
+   render-time injection) captured against a **live** frame pins that frame's exact incarnation (its
+   `:drain-lock`, per [002 §capture-frame](002-Frames.md)). If the captured incarnation is later
+   destroyed — the id unclaimed, **or** a same-id successor incarnation reseated under it — a dispatch
+   through the stale api RECOVERS (the event is never enqueued into the successor) and emits the
+   production-survivable `:rf.error/frame-destroyed`, exactly as a dispatch into a destroyed frame
+   does. This is the async-safe, recover-but-emit sibling of the synchronous **throwing** incarnation
+   fence the `(frame)` accessor bundle already applies; it is the last-line guard for a predecessor
+   cleanup — including a throwing-host quarantine React later self-completes — that fires after both
+   the successor adapter and a same-id successor frame are live. A capture whose id was **not** live
+   at capture (the `capture-frame` 1-arity lock-to-id form used from outside any scope) pins nothing
+   and stays address-directed.
+
+This is consistent with **"Disposal is total"** and **"no state survives"** (the adapter-revertibility
+contract above): the surviving `:tearing-down` claim is a **host-ownership quarantine** tracking a
+teardown React itself still owns, not adapter-internal observer/value state carried across
+`dispose-adapter!` / `install-adapter!`. The successor generation installs fresh and holds no
+predecessor state; it is merely **fenced from admitting Roots** until the host teardown it did not
+perform has settled. Cleanup failure remains **fail-closed** — a throwing host `.unmount` never fires
+`on-settled`, so its claim stays quarantined `:tearing-down` and continues to fence the successor
+until an explicit, exact-incarnation adapter container reclaim proves the surface free; re-`init!`
+alone never silently unblocks it.
+
 ### JavaScript host capability boundary
 
 The CLJS weak root-ownership registry requires the host's standard **`WeakRef`** constructor.

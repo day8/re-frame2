@@ -116,6 +116,25 @@
   (reset! disposing-live-roots? false)
   nil)
 
+(declare current-adapter-generation)
+
+(defn- predecessor-teardown-in-flight?
+  "True when a live-root claim from a PRIOR adapter generation is still
+  `:tearing-down` — a DEFERRED host root teardown scheduled by the predecessor
+  generation's `destroy-adapter!` drain that React (react-dom 19.2 refusing an
+  in-render unmount) has not yet settled (rf2-9pyles). Keyed to the EXACT adapter
+  generation each claim was registered under (`:adapter-generation`), so an
+  ordinary SAME-generation deferred `unmount!` mid-settlement does NOT block a
+  sibling mount — only an UNSETTLED PREDECESSOR generation does. A claim with no
+  recorded generation (a low-level test/tool seam that registered with no adapter
+  installed) is never counted."
+  [current-generation]
+  (some (fn [[_ entry]]
+          (and (:tearing-down? entry)
+               (some? (:adapter-generation entry))
+               (not (identical? (:adapter-generation entry) current-generation))))
+        @live-roots))
+
 (defn- require-root-creation-open!
   [where]
   ;; Probe/capture the required weak-ownership primitive once, before frame
@@ -128,7 +147,28 @@
      (str "the re-frame.ui adapter's current generation is tearing down or "
           "has been destroyed — no public compiled Root may be created until "
           "destroy-adapter! finishes and a fresh adapter is installed")
-     {:recovery :install-a-fresh-adapter})))
+     {:recovery :install-a-fresh-adapter}))
+  ;; rf2-9pyles — the HONEST generation boundary. `destroy-adapter!` returns
+  ;; SYNCHRONOUSLY while react-dom may still have DEFERRED each root's teardown
+  ;; (its layout/effect cleanups — which may dispatch through a stale frame
+  ;; capture — have not run). Re-`init!` clears the disposed breadcrumb, so the
+  ;; check above reopens; but a SUCCESSOR generation must not become USABLE (admit
+  ;; a public Root, whose preflight ENSUREs a fresh same-id frame the predecessor
+  ;; cleanup could then mutate) until every predecessor host teardown has SETTLED.
+  ;; Fail LOUD with a typed lifecycle error until then; the exact id/container is
+  ;; reusable once the deferred settlement releases each predecessor claim.
+  (when (predecessor-teardown-in-flight? (current-adapter-generation))
+    (error/throw-error!
+     :rf.error/adapter-teardown-in-flight where
+     (str "a predecessor re-frame.ui adapter generation's public Root teardown is "
+          "still in flight — react-dom deferred it (an in-render unmount that "
+          "returned but has not settled), so its host cleanup authority has not "
+          "yet released. A fresh adapter is installed, but the successor "
+          "generation cannot admit a public compiled Root until the predecessor "
+          "settles (else a deferred predecessor cleanup could mutate a same-id "
+          "frame the new Root reseats). Retry after settlement; the exact "
+          "id/container is reusable then")
+     {:recovery :retry-after-teardown-settles})))
 
 (defn- current-adapter-generation
   "The opaque token identifying the EXACT installed adapter generation, read
@@ -386,7 +426,14 @@
                                     :identifier-prefix identifier-prefix
                                     :site site
                                     :descriptor descriptor
-                                    :root-incarnation incarnation})
+                                    :root-incarnation incarnation
+                                    ;; rf2-9pyles — the EXACT adapter generation this
+                                    ;; claim was admitted under. A claim left
+                                    ;; `:tearing-down` by a PRIOR generation's disposal
+                                    ;; drain fences the successor generation's root
+                                    ;; admission until its deferred host teardown settles
+                                    ;; (`predecessor-teardown-in-flight?`).
+                                    :adapter-generation (current-adapter-generation)})
    nil))
 
 (defn- root-incarnation-of
