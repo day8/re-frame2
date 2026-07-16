@@ -494,9 +494,10 @@
     (testing "a SETTLED disconnect then reconnect proves a genuine Activity hide"
       ;; Model the host yield of a genuine reveal: the disconnect outlived its
       ;; synchronous commit (on CLJS a microtask settles it; headless we settle
-      ;; explicitly). Only a SETTLED disconnect, on reconnect, proves a hide —
-      ;; an UNSETTLED same-commit reconnect is a StrictMode replay (rf2-vxgfnd.44,
-      ;; see `lifecycle-strictmode-replay-does-not-fabricate-hide-proof`).
+      ;; explicitly). Only a SETTLED disconnect, on reconnect, proves a hide — an
+      ;; UNSETTLED reconnect is same-checkpoint evidence the host does not further
+      ;; discriminate (a StrictMode replay OR consecutive synchronous commits;
+      ;; rf2-vxgfnd.44, rf2-vxgfnd.164, see the two `-honestly-unknown` tests below).
       (reactive/settle-disconnect! cell)
       (render+commit! cell [[:r/a]])
       (is (= :connected (reactive/lifecycle cell)))
@@ -506,14 +507,17 @@
           "the PRIOR interval is annotated — never the present"))))
 
 (deftest lifecycle-strictmode-replay-does-not-fabricate-hide-proof
-  ;; rf2-vxgfnd.44 — React StrictMode's dev effect double-invoke is
-  ;; mount→cleanup→remount within ONE synchronous commit: connect → disconnect →
-  ;; reconnect with NO host yield between them, so the disconnect never settles.
-  ;; That reconnect is NOT an Activity hide — the runtime observed neither a hide
-  ;; nor an unmount — and it must NOT be annotated `:activity-hidden` (the pre-fix
-  ;; false proof). Headless model of the replay: drive the sequence with NO
-  ;; `settle-disconnect!` before the reconnect, exactly as the synchronous
-  ;; StrictMode replay leaves it (the settle microtask has not yet fired).
+  ;; rf2-vxgfnd.44 / rf2-vxgfnd.164 — a reconnect that beats the settle is
+  ;; UNSETTLED / same-checkpoint evidence. A React StrictMode dev double-invoke
+  ;; (effect mount→cleanup→remount within ONE synchronous commit) is ONE cause:
+  ;; connect → disconnect → reconnect with NO host yield, so the disconnect never
+  ;; settles. But it is not the ONLY cause — two REAL commits can complete in a
+  ;; single synchronous stack too (consecutive `flushSync` hide/reveal, see
+  ;; `consecutive-commits-without-a-yield-are-honestly-unknown`). The host gives
+  ;; no exact discriminator, so the runtime DECLINES to annotate: it must NOT
+  ;; fabricate an `:activity-hidden` proof it never observed. Headless model:
+  ;; drive the sequence with NO `settle-disconnect!` before the reconnect, exactly
+  ;; as the not-yet-fired settle microtask leaves it.
   (rf/reg-sub :r/a (fn [db _] (:a db)))
   (seed! {:a 1})
   (let [cell (reactive/make-cell ::v)]
@@ -521,15 +525,58 @@
     (is (= :connected (reactive/lifecycle cell)))
     (reactive/disconnect! cell)
     (is (= :disconnected (reactive/lifecycle cell)))
-    ;; NO settle — the replay reconnects within the same synchronous commit.
+    ;; NO settle — the reconnect beats the settle within the same synchronous stack.
     (render+commit! cell [[:r/a]])
-    (is (= :connected (reactive/lifecycle cell)) "the replay reconnects")
+    (is (= :connected (reactive/lifecycle cell)) "the reconnect lands")
     (is (= {:state :disconnected :reason :unknown}
            (peek (reactive/intervals cell)))
-        "the same-commit replay disconnect stays :unknown — NOT upgraded to
-         :activity-hidden; the runtime never observed a hide (rf2-vxgfnd.44)")
+        "the unsettled reconnect disconnect stays :unknown — NOT upgraded to
+         :activity-hidden; the host gave no hide-vs-replay discriminator
+         (rf2-vxgfnd.44, rf2-vxgfnd.164)")
     (is (not-any? #(= :activity-hidden (:reason %)) (reactive/intervals cell))
         "no interval carries a fabricated Activity-hide proof")))
+
+(deftest consecutive-commits-without-a-yield-are-honestly-unknown
+  ;; rf2-vxgfnd.164 — the microtask-vs-commit interleaving. A microtask separates
+  ;; JavaScript checkpoints, NOT React commits: two real commits can complete in
+  ;; one synchronous stack (`flushSync(hide); flushSync(reveal)`) with the leaf's
+  ;; layout effect torn down and recreated BEFORE the queued settle microtask
+  ;; runs. The reconnect therefore beats the settle exactly as a StrictMode replay
+  ;; would — indistinguishable at the host — so the honest floor is :unknown, not
+  ;; a fabricated `:activity-hidden`. Headless model of the two consecutive
+  ;; commits: disconnect then reconnect with NO settle (no host yield) between.
+  (rf/reg-sub :r/a (fn [db _] (:a db)))
+  (seed! {:a 1})
+  (let [cell (render+commit! (reactive/make-cell ::v) [[:r/a]])] ;; commit 0: connected
+    (is (= :connected (reactive/lifecycle cell)))
+    ;; commit 1 (flushSync hide): layout-effect cleanup disconnects, arming settle.
+    (reactive/disconnect! cell)
+    (is (= {:state :disconnected :reason :unknown}
+           (peek (reactive/intervals cell)))
+        "cleanup emits :disconnected {:reason :unknown} — no host signal yet")
+    ;; commit 2 (flushSync reveal): layout-effect setup reconnects in the SAME
+    ;; synchronous stack — the settle microtask has NOT run.
+    (render+commit! cell [[:r/a]])
+    (is (= :connected (reactive/lifecycle cell)) "the reveal reconnects")
+    (testing "two real commits in one stack are indistinguishable from a replay"
+      (is (= {:state :disconnected :reason :unknown}
+             (peek (reactive/intervals cell)))
+          "the unsettled reconnect honestly stays :unknown — the host supplied no
+           exact discriminator, so NO Activity-hide proof is fabricated for
+           consecutive synchronous commits (rf2-vxgfnd.164)")
+      (is (not-any? #(= :activity-hidden (:reason %)) (reactive/intervals cell))
+          "no interval carries a fabricated hide proof")))
+  ;; The delayed-reveal control: when the disconnect DOES outlive its checkpoint
+  ;; (a later task settles it), the reconnect honestly proves an Activity hide —
+  ;; the settled-evidence contract is unchanged.
+  (let [cell (render+commit! (reactive/make-cell ::w) [[:r/a]])]
+    (reactive/disconnect! cell)
+    (reactive/settle-disconnect! cell)                 ;; the settle fires (later task)
+    (render+commit! cell [[:r/a]])
+    (is (= {:state :disconnected :reason :activity-hidden :proof :reconnect}
+           (peek (reactive/intervals cell)))
+        "a SETTLED reconnect (delayed reveal) still proves :activity-hidden
+         {:proof :reconnect}")))
 
 (deftest lifecycle-host-teardown-proves-unmount
   (rf/reg-sub :r/a (fn [db _] (:a db)))

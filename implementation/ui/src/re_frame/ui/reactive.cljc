@@ -443,9 +443,12 @@
   ;;    :disconnect-provisional? bool ; DEV-only and ABSENT in production
   ;;                             ;   (rf2-vxgfnd.44): a just-emitted
   ;;                             ;   :disconnected interval that has NOT yet
-  ;;                             ;   settled past its synchronous commit. A
-  ;;                             ;   reconnect while still provisional is a
-  ;;                             ;   same-tick StrictMode dev replay (no hide);
+  ;;                             ;   settled past its synchronous checkpoint. A
+  ;;                             ;   reconnect while still provisional is
+  ;;                             ;   UNSETTLED/same-checkpoint evidence — a
+  ;;                             ;   StrictMode replay OR consecutive synchronous
+  ;;                             ;   commits, indistinguishable at the host, left
+  ;;                             ;   :unknown (rf2-vxgfnd.164);
   ;;                             ;   `settle-disconnect!` clears it. Production
   ;;                             ;   has no field, lookup, or provisional branch
   ;;    :committed {sid -> {:query exact-query :target target :value value
@@ -2314,15 +2317,20 @@
 ;; :reconnect}`); an explicit host/root teardown proves an unmount (`:unmounted
 ;; {:proof :host-teardown}`).
 ;;
-;; The settle qualifier is the rf2-vxgfnd.44 honesty fix: a reconnect within the
-;; SAME synchronous commit as its disconnect is NOT a hide — it is React
-;; StrictMode's dev mount→cleanup→remount replay, and asserting `:activity-hidden`
-;; for it would fabricate a proof the runtime never observed. So `disconnect!`
-;; marks each cleanup PROVISIONAL and `settle-disconnect!` (a microtask on CLJS)
-;; clears it once the disconnect outlives its commit; only a disconnect that
-;; survived a host yield can then be proven a hide. The field, lookup, settle,
-;; and reconnect branch are DEV-only; production has no StrictMode double-invoke
-;; and takes the ordinary reconnect-proof path directly.
+;; The settle qualifier is the rf2-vxgfnd.44 / rf2-vxgfnd.164 honesty fix: a
+;; reconnect that beats the settle is UNSETTLED / same-checkpoint evidence, and
+;; the runtime must NOT claim more than the host proves. It is consistent with a
+;; React StrictMode dev mount→cleanup→remount replay, but it does NOT identify
+;; one: two REAL commits can also complete in one synchronous stack (consecutive
+;; `flushSync` hide/reveal) before the settle microtask runs — the microtask
+;; separates JavaScript checkpoints, not React commits. With no exact host
+;; discriminator, asserting `:activity-hidden` would fabricate a proof never
+;; observed, so the interval honestly stays `:unknown`. So `disconnect!` marks
+;; each cleanup PROVISIONAL and `settle-disconnect!` (a microtask on CLJS) clears
+;; it once the disconnect outlives its checkpoint; only a disconnect that survived
+;; a host yield is then proven a hide. The field, lookup, settle, and reconnect
+;; branch are DEV-only; production has no StrictMode double-invoke and takes the
+;; ordinary reconnect-proof path directly.
 
 (defn lifecycle
   "The cell's current runtime state keyword."
@@ -2770,15 +2778,18 @@
 
 (defn settle-disconnect!
   "Settle `cell`'s open PROVISIONAL disconnect — mark it a disconnect that
-  outlived the synchronous commit that produced it, so a subsequent reconnect
-  honestly proves an Activity hide rather than a same-tick React StrictMode
-  replay (rf2-vxgfnd.44). No-op unless the cell is still `:disconnected` (a cell
-  already reconnected or torn down needs no settle). On CLJS `disconnect!` arms
-  this as a microtask — it fires after the synchronous commit unwinds and before
-  the next paint, so ONLY a same-commit StrictMode replay can reconnect ahead of
-  it; a genuine reveal (a later task) always finds the disconnect already
-  settled. A headless/JVM fixture calls this explicitly to model the host yield
-  of a real reveal. Returns nil."
+  outlived the synchronous CHECKPOINT that produced it, so a subsequent reconnect
+  can honestly prove an Activity hide (rf2-vxgfnd.44). No-op unless the cell is
+  still `:disconnected` (a cell already reconnected or torn down needs no settle).
+  On CLJS `disconnect!` arms this as a microtask — it fires after the synchronous
+  checkpoint unwinds and before the next paint. A reconnect that arrives BEFORE it
+  is UNSETTLED / same-checkpoint evidence the host does not further discriminate:
+  a StrictMode replay OR two real commits completing in one synchronous stack
+  (consecutive `flushSync` hide/reveal), so `connect!` leaves it `:unknown`. A
+  reconnect that arrives AFTER it is a settled disconnect — a genuine reveal
+  proven an Activity hide. The microtask separates JavaScript checkpoints, not
+  React commits (rf2-vxgfnd.164). A headless/JVM fixture calls this explicitly to
+  model the host yield of a real reveal. Returns nil."
   [^ViewCell cell]
   (when interop/debug-enabled?
     (let [st (state cell)]
@@ -2788,12 +2799,15 @@
 
 (defn- arm-disconnect-settle!
   "Arm the settle of `cell`'s provisional disconnect. On CLJS a host microtask
-  (`queue-microtask!`) that runs after the current synchronous commit unwinds
-  and before the next paint — so React StrictMode's synchronous
-  mount→cleanup→remount reconnects BEFORE it (a replay, un-annotated), while a
-  genuine reveal (a later task) reconnects after it (proven a hide). No
-  auto-settle on the JVM headless host (no StrictMode, no async render loop); a
-  fixture there settles explicitly."
+  (`queue-microtask!`) that runs after the current synchronous checkpoint unwinds
+  and before the next paint. A reconnect BEFORE it is UNSETTLED / same-checkpoint
+  — a StrictMode synchronous mount→cleanup→remount OR two real commits in one
+  synchronous stack (consecutive `flushSync` hide/reveal), indistinguishable at
+  the host, so it is left un-annotated (`:unknown`); a reconnect AFTER it is a
+  settled disconnect a genuine reveal proves a hide. The microtask separates
+  JavaScript checkpoints, not React commits (rf2-vxgfnd.164). No auto-settle on
+  the JVM headless host (no async render loop); a fixture there settles
+  explicitly."
   [^ViewCell cell]
   #?(:cljs (queue-microtask! (fn [] (settle-disconnect! cell)))
      :clj  nil))
@@ -2801,22 +2815,29 @@
 (defn- connect!
   "Commit-time lifecycle transition into `:connected`. A transition FROM
   `:disconnected` is a reconnect. A reconnect proves an Activity hide ONLY when
-  the prior disconnect had SETTLED — i.e. it outlived the synchronous commit
+  the prior disconnect had SETTLED — i.e. it outlived the synchronous checkpoint
   that produced it. A SETTLED-then-reconnected interval is a genuine hide→reveal
   and is annotated `:activity-hidden {:proof :reconnect}`. An UNSETTLED reconnect
-  is a React StrictMode dev replay — the same cell's effect
-  mount→cleanup→remount within ONE synchronous commit, where NO hide and NO
-  unmount happened — so it is NOT annotated: the runtime must not fabricate an
-  Activity-hide proof it never observed (rf2-vxgfnd.44). In production the
-  provisional field, lookup, and branch are elided (no StrictMode
-  double-invoke), so a reveal takes the reconnect-proof path directly."
+  is same-checkpoint evidence: it beat the settle. That is CONSISTENT WITH a React
+  StrictMode dev replay (mount→cleanup→remount within ONE synchronous commit), but
+  it is NOT PROOF of one — two real commits can also complete in a single
+  synchronous stack (consecutive `flushSync` hide/reveal) before the settle
+  microtask runs. The host supplies no exact discriminator, so the runtime
+  DECLINES to annotate: it fabricates no Activity-hide proof and claims no unique
+  StrictMode identity; the interval honestly stays `:disconnected {:reason
+  :unknown}` (rf2-vxgfnd.44, rf2-vxgfnd.164). In production the provisional field,
+  lookup, and branch are elided (no StrictMode double-invoke), so a reveal takes
+  the reconnect-proof path directly."
   [^ViewCell cell]
   (let [st @(state cell)]
     (when (= :disconnected (:lifecycle st))
       (if interop/debug-enabled?
         (if (:disconnect-provisional? st)
-          ;; same-tick StrictMode replay — the disconnect never settled; clear
-          ;; the provisional flag and DO NOT fabricate an Activity-hide proof.
+          ;; unsettled reconnect — beat the settle (a StrictMode replay OR two
+          ;; real commits in one synchronous stack; the host does not
+          ;; discriminate). Clear the provisional flag and DECLINE to annotate:
+          ;; fabricate no Activity-hide proof, claim no unique StrictMode identity
+          ;; (rf2-vxgfnd.164). The interval honestly stays :unknown.
           (swap! (state cell) assoc :disconnect-provisional? false)
           (annotate-open-disconnect! cell :activity-hidden :reconnect))
         (annotate-open-disconnect! cell :activity-hidden :reconnect)))
@@ -2852,11 +2873,13 @@
                   (-> m
                       (assoc :lifecycle :disconnected)
                       (update :intervals conj {:state :disconnected :reason :unknown}))))
-      ;; Same-tick StrictMode-replay guard (DEV-only — DCEs in production, which
-      ;; has no StrictMode double-invoke): mark this disconnect PROVISIONAL and
-      ;; arm its settle. A reconnect BEFORE the settle is a synchronous replay
-      ;; (mount→cleanup→remount in one commit — no hide); a reconnect AFTER it is
-      ;; a genuine reveal that `connect!` proves an Activity hide (rf2-vxgfnd.44).
+      ;; Unsettled-reconnect guard (DEV-only — DCEs in production, which has no
+      ;; StrictMode double-invoke): mark this disconnect PROVISIONAL and arm its
+      ;; settle. A reconnect BEFORE the settle is UNSETTLED/same-checkpoint (a
+      ;; StrictMode replay OR consecutive synchronous commits — the host does not
+      ;; discriminate, so `connect!` leaves it :unknown); a reconnect AFTER it is
+      ;; a genuine reveal `connect!` proves an Activity hide (rf2-vxgfnd.44,
+      ;; rf2-vxgfnd.164).
       (when interop/debug-enabled?
         (swap! st assoc :disconnect-provisional? true)
         (arm-disconnect-settle! cell))

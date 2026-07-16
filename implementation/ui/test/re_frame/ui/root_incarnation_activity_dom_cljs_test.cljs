@@ -67,6 +67,7 @@
 (defn- container [] (js/document.createElement "div"))
 
 (def ^:private Activity react/Activity)
+(def ^:private StrictMode react/StrictMode)
 
 (defview leaf [_] [:span.leaf (str (sub [:ract/n]))])
 
@@ -191,3 +192,79 @@
                       "proven :activity-hidden {:proof :reconnect} — the registry never killed it"))
                 (react-dom/flushSync #(ui/unmount! root))
                 (done))))))))))
+
+;; ===========================================================================
+;; rf2-vxgfnd.164 — TWO REAL COMMITS IN ONE SYNCHRONOUS STACK are honestly
+;; :unknown. A microtask separates JavaScript checkpoints, NOT React commits, so
+;; the existing reveal fixture above (which yields a microtask between hide and
+;; reveal, letting the settle fire → :activity-hidden) cannot expose the
+;; ambiguity. Here the two commits are CONSECUTIVE — the reconnect beats the
+;; settle exactly as a StrictMode replay would, so no exact discriminator exists
+;; and the honest floor is :unknown, never a fabricated Activity-hide proof.
+;; ===========================================================================
+
+(deftest consecutive-flushsync-hide-reveal-is-honestly-unknown
+  (if-not (browser?)
+    (is true ":node — no DOM; the :browser-test runner exercises the DOM body")
+    (do
+      (register-app!)
+      (rf/dispatch-sync [:ract/seed] {:frame frame-kw})
+      (let [c    (container)
+            root (react-dom/flushSync
+                  #(ui/mount [frame-provider {:frame frame-kw} [act-app {}]]
+                             c {:root-id :ract/root}))
+            cell (leaf-cell)]
+        (async done
+          (is (= "7" (.-textContent (.querySelector c ".leaf"))) "leaf mounted visible")
+          ;; commit 1 — HIDE (the proven dispatch → microtask → flushSync path):
+          ;; the reactive flush notifies React on its microtask, and flushSync
+          ;; commits the mode flip, firing the leaf's cleanup → disconnect! (which
+          ;; arms the settle microtask).
+          (rf/dispatch-sync [:ract/hide] {:frame frame-kw})
+          (js/queueMicrotask
+           (fn []
+             (react-dom/flushSync (fn []))
+             (is (= :disconnected (reactive/lifecycle cell))
+                 "the hide fired the leaf's cleanup — disconnected, settle armed")
+             ;; commit 2 — REVEAL, CONSECUTIVE in the SAME synchronous stack. No
+             ;; microtask yield: `flush-pending!` makes the notification synchronous
+             ;; and flushSync commits it BEFORE the settle microtask (armed at
+             ;; commit 1) has run.
+             (rf/dispatch-sync [:ract/show] {:frame frame-kw})
+             (reactive/flush-pending!)
+             (react-dom/flushSync (fn []))
+             (is (= :connected (reactive/lifecycle cell)) "the reveal reconnected")
+             ;; let the (now too-late) settle microtask run, then read the evidence.
+             (js/queueMicrotask
+              (fn []
+                (testing "consecutive commits are indistinguishable from a replay — honestly :unknown"
+                  (is (= :unknown (:reason (peek (reactive/intervals cell))))
+                      "the unsettled reconnect stays :unknown — no Activity hide fabricated
+                       for two real commits in one stack (rf2-vxgfnd.164)")
+                  (is (not-any? #(= :activity-hidden (:reason %)) (reactive/intervals cell))
+                      "no interval carries a fabricated :activity-hidden proof"))
+                (react-dom/flushSync #(ui/unmount! root))
+                (done))))))))))
+
+(deftest strictmode-replay-control-stays-unannotated
+  ;; The control (rf2-vxgfnd.164 AC2): a REAL React StrictMode dev double-invoke of
+  ;; the leaf's layout effect (setup→cleanup→setup within one mount commit) is a
+  ;; reconnect that also beats the settle. It must remain UNANNOTATED — same honest
+  ;; :unknown floor as the consecutive-commits case; the host cannot tell them
+  ;; apart, and NO :activity-hidden fact is fabricated.
+  (if-not (browser?)
+    (is true ":node — no DOM; the :browser-test runner exercises the DOM body")
+    (do
+      (register-app!)
+      (rf/dispatch-sync [:ract/seed] {:frame frame-kw})
+      (let [c    (container)
+            root (react-dom/flushSync
+                  #(ui/mount [StrictMode {} [frame-provider {:frame frame-kw} [leaf {}]]]
+                             c {:root-id :ract/root}))
+            cell (leaf-cell)]
+        (is (= "7" (.-textContent (.querySelector c ".leaf"))) "leaf mounted under StrictMode")
+        (is (= :connected (reactive/lifecycle cell))
+            "after the dev double-invoke the leaf is connected")
+        (is (not-any? #(= :activity-hidden (:reason %)) (reactive/intervals cell))
+            "the StrictMode replay disconnect (if any) is NOT annotated an Activity hide")
+        (react-dom/flushSync #(ui/unmount! root))))))
