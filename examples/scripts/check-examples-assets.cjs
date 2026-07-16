@@ -314,6 +314,22 @@ const BUILD_OUTPUTS = new Set(['main.js']);
 // shared asset from a showcase host page and stay green. (Before rf2-x48bp4
 // only the bare `index.html` name was enumerated, so the showcase pages carried
 // the assets but were never enforced.)
+//
+// STANDALONE example projects are pruned (rf2-vxgfnd.281). Every gallery example
+// is monorepo-STAGED: it is source-only, built from implementation/'s shadow
+// config with a central `:examples/*` build id, and the orchestrator copies
+// _shared into its output dir — so the shared-design-system contract (favicon +
+// OG card + style.css) applies. A standalone scaffold like
+// examples/ui/minimal-counter/ is the opposite: it carries its OWN
+// shadow-cljs.edn / package.json / deps.edn, serves its own host page from
+// resources/public/, and is deliberately NOT on the monorepo classpath (it is
+// "the tree you would have created yourself"). It links none of _shared — nor
+// should it, a minimal user-facing scaffold is not a gallery showcase — and its
+// host-page contract is owned end-to-end by its own scaffold smoke
+// (implementation/ui/scaffold-smoke). Enumerating it here would force the
+// gallery chrome onto a page that must stay minimal, so a project root bearing
+// its own shadow-cljs.edn is pruned from this walk (any future standalone
+// scaffold under examples/ is excluded by the same marker, no per-path list).
 // ---------------------------------------------------------------------------
 
 // True for the HTML host-page filenames the asset contract enumerates: the
@@ -321,6 +337,20 @@ const BUILD_OUTPUTS = new Set(['main.js']);
 // (e.g. `stories.index.html`).
 function isExampleHostPage(name) {
   return name === 'index.html' || name.endsWith('.index.html');
+}
+
+// True when `dir` is the root of a STANDALONE example project — one that carries
+// its own shadow-cljs.edn (a self-contained shadow build), as opposed to a
+// monorepo-staged gallery example built from implementation/'s central config.
+// The gallery shared-asset contract does not apply to a standalone scaffold
+// (see the enumeration note above), so its whole subtree is pruned from the
+// host-page walk. `io.existsSync` is used when the injected io provides it (the
+// real fs, and the fs-backed test io both do); the fail-closed readdir-only test
+// io does not, so this falls back to the real fs there — a standalone marker is
+// a property of the on-disk tree, never of a synthetic readdir fixture.
+function isStandaloneExampleProject(dir, io = fs) {
+  const exists = typeof io.existsSync === 'function' ? io.existsSync.bind(io) : fs.existsSync;
+  return exists(path.join(dir, 'shadow-cljs.edn'));
 }
 
 // Enumerate every example host page under `root`, FAIL-CLOSED. A directory that
@@ -334,7 +364,10 @@ function listExampleIndexHtml(root = EXAMPLES_ROOT, { io = fs } = {}) {
   const { items, walkErrors } = walkDir({
     roots: [root],
     io,
-    skipDir: (name) => name === 'node_modules' || name === '_shared',
+    skipDir: (name, full) =>
+      name === 'node_modules' ||
+      name === '_shared' ||
+      isStandaloneExampleProject(full, io),
     acceptFile: (name) => isExampleHostPage(name),
   });
   assertWalkComplete(walkErrors, 'check-examples-assets host-page enumeration');
@@ -1890,6 +1923,7 @@ module.exports = {
   BUILD_OUTPUTS,
   listExampleIndexHtml,
   isExampleHostPage,
+  isStandaloneExampleProject,
   isExternalRef,
   isNetworkRef,
   extractHtmlReferenceInventory,

@@ -37,6 +37,7 @@ const {
   EXTERNAL_IMPORT_ALLOWLIST,
   EXTERNAL_HTML_REF_ALLOWLIST,
   isExampleHostPage,
+  isStandaloneExampleProject,
   isExternalRef,
   isNetworkRef,
   extractHtmlReferenceInventory,
@@ -220,6 +221,41 @@ it('LIVE: the two Story showcase host pages are enumerated by the gate (rf2-x48b
         `is held to the shared-asset contract, got: ${rel.join(', ')}`,
     );
   }
+});
+
+// ---- STANDALONE example projects are pruned from the walk (rf2-vxgfnd.281) --
+//
+// A standalone scaffold (its own shadow-cljs.edn / package.json / deps.edn,
+// serving its own host page from resources/public/) is NOT a monorepo-staged
+// gallery example, so the shared-design-system contract (favicon + OG + style)
+// does not apply and its host-page contract is owned by its own scaffold smoke.
+// A project root bearing shadow-cljs.edn is pruned from the host-page walk.
+
+it('isStandaloneExampleProject is true iff the dir carries its own shadow-cljs.edn', () => {
+  const projectRoot = path.join(EXAMPLES_ROOT, 'ui', 'demo-scaffold');
+  const galleryDir = path.join(EXAMPLES_ROOT, 'core', 'counter');
+  const io = makeIo({
+    [path.join(projectRoot, 'shadow-cljs.edn')]: '{}',
+    // galleryDir has NO shadow-cljs.edn in the io — a staged gallery example.
+  });
+  assert.ok(
+    isStandaloneExampleProject(projectRoot, io),
+    'a dir with its own shadow-cljs.edn must be recognised as a standalone project',
+  );
+  assert.ok(
+    !isStandaloneExampleProject(galleryDir, io),
+    'a monorepo-staged gallery dir (no own shadow-cljs.edn) must NOT be standalone',
+  );
+});
+
+it('LIVE: the standalone minimal-counter scaffold host page is NOT enumerated (rf2-vxgfnd.281)', () => {
+  const rel = realIndexes.map((p) => path.relative(EXAMPLES_ROOT, p).split(path.sep).join('/'));
+  assert.ok(
+    !rel.some((p) => p.startsWith('ui/minimal-counter/')),
+    `the standalone re-frame.ui scaffold must be pruned from the gallery asset ` +
+      `walk (its host-page contract is owned by implementation/ui/scaffold-smoke), ` +
+      `got: ${rel.filter((p) => p.startsWith('ui/')).join(', ')}`,
+  );
 });
 
 // ---- FAIL-CLOSED host-page enumeration (rf2-3fc89f.31) -------------------

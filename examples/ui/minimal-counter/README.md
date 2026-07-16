@@ -59,7 +59,7 @@ exist). Nothing else in the tree is checkout-relative.
 
 ## What the CI gate proves
 
-[`scaffold_smoke_test.clj`](../../../implementation/ui/test-scaffold/scaffold_smoke_test.clj)
+[`scaffold_smoke_test.clj`](../../../implementation/ui/scaffold-smoke/test/scaffold_smoke_test.clj)
 copies exactly the manifest above into a temporary directory, runs a real
 `npm install`, and runs `npx shadow-cljs compile app` there. The manifest is
 read from *this file*, so the claim above and the tested contract are the same
