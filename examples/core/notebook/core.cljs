@@ -3,8 +3,8 @@
 
      [ documents list ]  [ markdown editor ]  [ live preview ]
 
-   The counter shows the dataflow loop with nothing in the way. This is
-   that same loop with more parts, and the lesson is that it doesn't
+   The counter shows the event pipeline with nothing in the way. This is
+   that same pipeline with more parts, and the lesson is that it doesn't
    change shape: one app-db holds the state, events are the only thing
    that change it, and the views are pure functions of subscriptions.
    Counter to multi-pane editor, same idea throughout.

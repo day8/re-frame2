@@ -274,7 +274,7 @@ All five failures have `:op-type :error` and `:recovery :no-recovery`. The close
     (rf/restore-epoch! :app/main (:epoch-id pre))))
 ```
 
-**What the injection surface is not.** It is **not** a substitute for `dispatch` — handlers, interceptors, fx, and the trace stream all stay quiet during a replace. Use it only when bypass-the-pipeline-run is *required* (the four use cases above); for any change you want the data loop to see, dispatch a real event. The synthetic epoch's empty `:sub-runs` / `:renders` / `:effects` projections are the visible signal that no pipeline run ran.
+**What the injection surface is not.** It is **not** a substitute for `dispatch` — handlers, interceptors, fx, and the trace stream all stay quiet during a replace. Use it only when bypass-the-pipeline-run is *required* (the four use cases above); for any change you want the event pipeline to see, dispatch a real event. The synthetic epoch's empty `:sub-runs` / `:renders` / `:effects` projections are the visible signal that no pipeline run ran.
 
 ## Surface behaviour against destroyed frames
 
