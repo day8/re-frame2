@@ -1039,7 +1039,8 @@
   EP-0002 — the wire-egress frame resolves from the CARRIED
   stamp: the explicit `:frame` opt (*override*) wins, else the in-effect
   carried-invariant scope (`frame/resolve-current-frame` — a `with-frame`
-  binding or an enclosing frame-provider). There is NO `:rf/default` floor:
+  binding, or the closest enclosing frame boundary: a `frame-provider`
+  (SCOPE) or a `frame-root` (ENSURE)). There is NO `:rf/default` floor:
   a frame's elision policy may be applied only when that frame is KNOWN
   (Spec 002 §Frame target resolution; EP-0002 §Trace, Projection, And
   Elision / §Privacy And Egress).
