@@ -282,19 +282,19 @@
 ;; [frames](../../../../docs/core/glossary.md#frame-identity-is-carried-not-found).
 #?(:cljs (def app-frame :rf/default))
 
-;; DOM setup lives in `mount!`, tagged `^:dev/after-load` so shadow-cljs re-runs
-;; it after each hot reload — edited views re-render into the same root and the
-;; already-hydrated frame. HYDRATE + streaming install stay in `run` (once), so
-;; a reload never re-seeds over the interactive state.
+;; Re-render the current view into the RETAINED root. Tagged `^:dev/after-load`
+;; so shadow-cljs re-runs it after each hot reload — edited views re-render into
+;; the same root and the already-hydrated frame. It never creates a root and
+;; never re-hydrates: the root is established once in `run` (via `hydrate-root`
+;; when the server painted the page, `create-root` otherwise), and HYDRATE plus
+;; the streaming install happen once there too, so a reload can't re-seed over
+;; the interactive state.
 #?(:cljs
-   (defn ^:dev/after-load mount! []
-     (when-let [el (and (exists? js/document)
-                        (js/document.getElementById "app"))]
-       (when-not @react-root
-         (reset! react-root (rdc/create-root el)))
-       ;; Wrap the mount in `frame-provider` so every `dispatch` and
-       ;; `subscribe` inside the tree resolves to the frame we just hydrated.
-       (rdc/render @react-root
+   (defn ^:dev/after-load render! []
+     (when-let [root @react-root]
+       ;; Wrap the render in `frame-provider` so every `dispatch` and
+       ;; `subscribe` inside the tree resolves to the frame we hydrated.
+       (rdc/render root
                    [rf/frame-provider {:frame app-frame}
                     [(rf/view :dashboard/root)]]))))
 
@@ -324,12 +324,31 @@
      ;; dispatch `:rf/hydrate` into the explicit `:frame`. This is the truth
      ;; the streamed deltas defer to. Hydrate BEFORE the first render so that
      ;; render runs against fully seeded app-db, not a half-filled one.
+     ;; `hydrate!` seeds STATE only — it never touches the DOM — and hands back
+     ;; the payload it applied, or nil on a plain client load with no server
+     ;; render to adopt.
      ;; (We leave out `:render-tree-fn` because this static demo's shell
      ;; carries a placeholder render-hash, so mismatch verification would warn
      ;; every time. A real streaming server stamps the genuine hash and passes
      ;; `:render-tree-fn` to switch mismatch detection on.)
-     (ssr/hydrate! {:frame app-frame})
-     (mount!)))
+     (let [el      (and (exists? js/document) (js/document.getElementById "app"))
+           payload (ssr/hydrate! {:frame app-frame})
+           tree    [rf/frame-provider {:frame app-frame} [(rf/view :dashboard/root)]]]
+       (when el
+         (if payload
+           ;; Server-streamed: ADOPT the painted DOM. Once the shell and every
+           ;; resolved chunk have landed, `hydrate-root` reconciles React
+           ;; against that server markup — same nodes, listeners attached, no
+           ;; re-paint — and returns the retained root. `create-root` + `render`
+           ;; would discard the server DOM and mount fresh, the bug this branch
+           ;; avoids.
+           (reset! react-root (rdc/hydrate-root el tree))
+           ;; No payload means the server never rendered this page — a plain
+           ;; first load. Mount a fresh root; the shell comes up from the
+           ;; client-side render alone.
+           (do
+             (reset! react-root (rdc/create-root el))
+             (rdc/render @react-root tree)))))))
 
 ;; The JVM headless test that walks the server stream end to end (shell →
 ;; per-card resolved chunks → final payload) lives over in
