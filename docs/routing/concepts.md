@@ -165,8 +165,18 @@ ranking cascade: [API `reg-route`](../api/re-frame.routing.md#reg-route).
 
 Real `<a href>` — hover, copy-link, cmd/middle-click work. Plain left-click becomes
 dispatch. `:target "_blank"` / `:download` are **not** SPA-intercepted (browser owns
-them). Plain `[:a {:href …}]` does a full navigation unless you install your own
-handler on `:rf.route/url-requested` (the policy seam every `route-link` uses).
+them). That interception is [`route-link`](#linking-from-views)'s job: its view body is
+the only thing that calls `.preventDefault` and dispatches `:rf.route/url-requested`,
+the seam the router listens on.
+
+A plain `[:a {:href …}]` you hand-write does **not** reach that seam — nothing dispatches
+`:rf.route/url-requested` for it, so it does a full page navigation. Installing a handler
+*on* `:rf.route/url-requested` can't change that: the event never fires for a plain anchor.
+Two honest ways to keep such a click in-app: render the link with
+[`route-link`](#linking-from-views) instead, or install one **document-level** click
+listener that decides eligibility itself — plain primary-button click, no modifier keys,
+no `:target`/`:download`, a same-origin in-app `href` — and dispatches
+`:rf.route/url-requested` on a match, letting the browser follow every click it rejects.
 
 ### Order of effects
 
