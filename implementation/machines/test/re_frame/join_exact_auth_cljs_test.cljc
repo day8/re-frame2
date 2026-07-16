@@ -15,13 +15,15 @@
 
   The fix is ONE exact-authority contract:
 
-    - fold side — a carrier folds only when the `:rf/join-auth` metadata the
-      member child's own handler boundary stamped
-      (`join/stamp-join-completion-fx`) matches the current join's
-      parent/invoke identity, logical child id, exact current actor id, and
-      exact per-attempt token (minted by `spawn-all-init-fx`). Unstamped /
-      superseded / duplicate carriers are suppressed stale
-      (`:rf.machine.spawn-all/stale-completion`) with zero mutation.
+    - fold side — a carrier folds only when the exact-authority `:rf/join-auth`
+      tuple the member child's own handler boundary stamped
+      (`join/stamp-join-completion-fx`), carried on the recordable `:rf.cofx`
+      transport (rf2-t154jx — event metadata is never an authority carrier,
+      rf2-nsbwft), matches the current join's parent/invoke identity, logical
+      child id, exact current actor id, and exact per-attempt token (minted by
+      `spawn-all-init-fx`). Unstamped / superseded / duplicate carriers are
+      suppressed stale (`:rf.machine.spawn-all/stale-completion`) with zero
+      mutation.
     - reap side — the cancellation-suppressing reap additionally requires
       the exact join attempt's `:resolved?` latch (`:cause :unresolved-join`
       refusal ahead of it).
@@ -106,13 +108,56 @@
   (join-state parent-kw))
 
 (defn- dispatch-forged!
-  "Hand-dispatch a completion carrier with a CRAFTED `:rf/join-auth` stamp
-  (nil `auth` dispatches the bare, unstamped public carrier)."
+  "Hand-dispatch a completion carrier presenting a CRAFTED `:rf/join-auth` stamp
+  on the protected recordable `:rf.cofx` transport (rf2-t154jx / rf2-nsbwft) —
+  the SINGLE authority carrier the parent reads (`carrier-auth`). This is how the
+  runtime's own `:rf.machine/join-dispatch` transport and a strict replay deliver
+  authority; event-vector metadata is NEVER an authority carrier (see
+  `public-metadata-tuple-is-never-authority`), so tests present crafted authority
+  on the coeffect, not on the event. nil `auth` dispatches the bare, unstamped
+  public carrier."
   [parent-kw inner auth]
-  (rf/dispatch-sync
-    [parent-kw (if auth
-                 (with-meta inner {:rf/join-auth auth})
-                 inner)]))
+  (if auth
+    (rf/dispatch-sync [parent-kw inner] {:rf.cofx {:rf.machine/join-auth auth}})
+    (rf/dispatch-sync [parent-kw inner])))
+
+;; ---------------------------------------------------------------------------
+;; rf2-nsbwft — event metadata is NEVER an authority carrier (freshness is not
+;; provenance). The SAME exact-current tuple is ignored on event metadata but
+;; folds through the protected recordable `:rf.cofx` transport.
+;; ---------------------------------------------------------------------------
+
+(deftest public-metadata-tuple-is-never-authority
+  (testing "rf2-nsbwft — a public dispatch carrying an EXACT-CURRENT
+            `:rf/join-auth` tuple on event-vector METADATA folds nothing
+            (`:attempt-unverified`), while the IDENTICAL tuple presented on the
+            protected recordable `:rf.cofx` transport authenticates and folds.
+            `carrier-auth` reads authority ONLY from the coeffect; event metadata
+            is never a fallback — freshness is not provenance."
+    (let [j (reg-join-parent! :jea/meta1 :jea/meta1a :jea/meta1b)
+          a (get-in j [:children :a])
+          ;; every field read straight off live runtime state.
+          exact {:parent-id  :jea/meta1
+                 :invoke-id  [:racing]
+                 :child-id   :a
+                 :spawned-id a
+                 :attempt    (:rf/attempt j)}]
+      ;; (1) exact-current tuple on METADATA — fails closed, folds nothing.
+      (mtest/reset-captured!)
+      (rf/dispatch-sync [:jea/meta1 (with-meta [:child/done :a] {:rf/join-auth exact})])
+      (is (= #{} (:done (join-state :jea/meta1)))
+          "the metadata-borne exact-current tuple folded nothing (fail-closed)")
+      (is (false? (:resolved? (join-state :jea/meta1))) "no resolution on the forgery")
+      (is (= [:rf.machine.spawn-all/attempt-unverified] (stale-reasons))
+          "event metadata is ignored — the carrier is unauthenticated")
+      ;; (2) the IDENTICAL tuple on the recordable cofx — authenticates + folds.
+      (mtest/reset-captured!)
+      (rf/dispatch-sync [:jea/meta1 [:child/done :a]]
+                        {:rf.cofx {:rf.machine/join-auth exact}})
+      (is (= #{:a} (:done (join-state :jea/meta1)))
+          "the SAME tuple on the protected coeffect authenticates and folds")
+      (is (empty? (stale-reasons))
+          "no stale suppression on the authenticated recordable channel"))))
 
 ;; ---------------------------------------------------------------------------
 ;; the P1 counterexample — stale prior-attempt completion after re-entry

@@ -17,12 +17,13 @@
    3b. Authenticates the carrier to the EXACT join attempt (rf2-nvxehu):
       the exact-authority tuple the member child's own handler boundary
       stamped must match the current join's parent/invoke identity, logical
-      child id, exact current actor id, and exact attempt token. The PRIMARY
-      durable/replayable carrier is the recordable `:rf.machine/join-auth`
+      child id, exact current actor id, and exact attempt token. The SINGLE
+      authority carrier is the recordable `:rf.machine/join-auth`
       causal-envelope fact on the completion's `:rf.cofx` (it survives both
-      the event/coeffect recording + strict-replay path and delayed dispatch);
-      event-vector `:rf/join-auth` metadata is only the narrow immediate
-      internal-handoff / test-forged fallback (an EDN round-trip drops it).
+      the event/coeffect recording + strict-replay path and delayed dispatch).
+      Event-vector `:rf/join-auth` metadata is NEVER an authority carrier
+      (rf2-nsbwft) — freshness is not provenance, so an exact-current metadata
+      tuple hand-authored onto an ordinary public event folds nothing.
       Unstamped / superseded / duplicate carriers are suppressed stale
       (`:rf.machine.spawn-all/stale-completion`) with zero mutation.
    4. Adds `<child-id>` to `:done` or `:failed`. A NON-DECISIVE fold (the
@@ -95,8 +96,9 @@
 ;; preserved through delayed dispatch — UNLIKE event-vector metadata, which an
 ;; EDN round-trip (strict replay) drops and which the retired `:dispatch-n` /
 ;; delayed paths never carried. The parent reads the auth back off its `:rf/cofx`
-;; (`carrier-auth`); metadata is accepted only as a test-forged / immediate
-;; internal handoff fallback. The public event value is untouched, no
+;; (`carrier-auth`) and NOWHERE ELSE; event-vector metadata is never an authority
+;; carrier (rf2-nsbwft — freshness is not provenance). The public event value is
+;; untouched, no
 ;; application control surface is added (a reserved-`:rf.machine/*` fx that
 ;; dispatches ONLY the pre-built carrier it was handed — never traversing
 ;; arbitrary effects), and only a dispatch that flowed through the member
@@ -327,20 +329,31 @@
 
 (defn- carrier-auth
   "The completion carrier's `:rf/join-auth` exact-authority tuple (rf2-nvxehu),
-  read from the recordable transport (rf2-t154jx). The runtime carries it as the
-  framework-owned recordable causal-envelope fact `:rf.machine/join-auth` on the
-  dispatching child's `:rf.cofx` (attached by the `:rf.machine/join-dispatch` fx,
-  threaded onto the machine def's `:rf/cofx` by `prepare-machine-ctx`). That
-  channel survives BOTH the event/coeffect recording + strict-replay path (the
-  event vector's METADATA does NOT — an EDN round-trip drops it) AND the
-  delayed-dispatch path. Event-vector metadata is accepted only as an immediate
-  internal handoff / test-forged fallback. The transport it arrived on is never
-  itself trusted — every clause is validated against runtime-owned join state
-  downstream (`join-auth-current?`), so a forged/tampered/replayed carrier that
-  does not match the live attempt is fail-closed regardless of channel."
-  [machine inner-event]
-  (or (get-in machine [:rf/cofx :rf.machine/join-auth])
-      (:rf/join-auth (meta inner-event))))
+  read from the SINGLE protected carrier: the recordable transport (rf2-t154jx).
+  The runtime carries it as the framework-owned recordable causal-envelope fact
+  `:rf.machine/join-auth` on the dispatching child's `:rf.cofx` (attached by the
+  `:rf.machine/join-dispatch` fx, threaded onto the machine def's `:rf/cofx` by
+  `prepare-machine-ctx`). That channel survives BOTH the event/coeffect recording
+  + strict-replay path AND the delayed-dispatch path, and only the internal
+  transport — or a faithful strict replay of a recorded completion + its causal
+  coeffects — populates it.
+
+  Event-vector metadata is NEVER an authority carrier (rf2-nsbwft): freshness is
+  not provenance. A `:rf/join-auth` hand-authored onto an ORDINARY public event
+  vector is ignored, so an ordinary `rf/dispatch` can never mint join-completion
+  authority — even when every tuple field matches live runtime state (an
+  exact-current metadata tuple fails closed as `:attempt-unverified`). Removing
+  the metadata read is a pure narrowing: the recordable cofx already carries the
+  authority on every legitimate path (the immediate `:dispatch` and delayed
+  `:dispatch-later` completions both flow through `child-dispatch!`'s `:rf.cofx`),
+  and metadata never survived recording/replay or delayed dispatch anyway.
+
+  The transport it arrived on is still never itself trusted — every clause is
+  validated against runtime-owned join state downstream (`join-auth-current?`),
+  so a stale/tampered/replayed carrier that does not match the live attempt is
+  fail-closed regardless."
+  [machine]
+  (get-in machine [:rf/cofx :rf.machine/join-auth]))
 
 (defn- join-auth-current?
   "True iff the carrier's `:rf/join-auth` stamp matches the CURRENT join
@@ -849,9 +862,10 @@
   (let [inner-id (first inner-event)
         child-id (second inner-event)
         matches  (find-active-spawn-alls machine snapshot inner-id)
-        ;; The completion carrier's exact-authority tuple, read from the
-        ;; recordable transport (nil for an unstamped / hand-crafted carrier).
-        auth     (carrier-auth machine inner-event)
+        ;; The completion carrier's exact-authority tuple, read from the SINGLE
+        ;; protected carrier — the recordable `:rf.cofx` transport (nil for an
+        ;; unstamped / hand-crafted carrier; event metadata is never read).
+        auth     (carrier-auth machine)
         ;; Select the candidate join by EXACT AUTHORITY, BEFORE the fold gate
         ;; (rf2-wsrtlw). When more than one active `:spawn-all` matches the
         ;; event id (two parallel regions legitimately reusing the SAME

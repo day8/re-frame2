@@ -78,17 +78,19 @@
    a bare hand-dispatched carrier is suppressed as :attempt-unverified.
    A headless test that bypasses the live children (dispatch-sync fires
    no :after timers) therefore reads the runtime-owned join state and
-   presents the equivalent `:rf/join-auth` metadata."
+   presents the equivalent `:rf/join-auth` on the protected recordable
+   `:rf.cofx` transport (rf2-nsbwft — the single authority carrier; event
+   metadata is never read)."
   [f shard]
   (let [js (join-state f)]
     (rf/dispatch-sync
-      [:work/flow (with-meta [:work/child-done shard]
-                    {:rf/join-auth {:parent-id  :work/flow
-                                    :invoke-id  [:working]
-                                    :child-id   shard
-                                    :spawned-id (get-in js [:children shard])
-                                    :attempt    (:rf/attempt js)}})]
-      {:frame f})))
+      [:work/flow [:work/child-done shard]]
+      {:frame   f
+       :rf.cofx {:rf.machine/join-auth {:parent-id  :work/flow
+                                        :invoke-id  [:working]
+                                        :child-id   shard
+                                        :spawned-id (get-in js [:children shard])
+                                        :attempt    (:rf/attempt js)}}})))
 
 ;; ============================================================================
 ;; (1) SPAWN CASCADE — :start spawns 3 children

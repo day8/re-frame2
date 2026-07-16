@@ -141,8 +141,8 @@
           ;; The unchanged PUBLIC completion event is delivered with the
           ;; framework's carried recordable authority for attempt A.
           (rf/dispatch-sync
-            [parent-id (with-meta [:child/done :only]
-                         {:rf/join-auth auth-a})])
+            [parent-id [:child/done :only]]
+            {:rf.cofx {:rf.machine/join-auth auth-a}})
           ;; Attempt B completes normally through the current fixed child.
           (rf/dispatch-sync [fixed-child [:go]])
 
@@ -197,8 +197,8 @@
           (is (true? (:resolved? (join-state))) "attempt B resolved")
           ;; NOW A's exact carrier drains, POST-resolution, with attempt-A auth.
           (rf/dispatch-sync
-            [parent-id (with-meta [:child/done :only]
-                         {:rf/join-auth auth-a})])
+            [parent-id [:child/done :only]]
+            {:rf.cofx {:rf.machine/join-auth auth-a}})
           ;; (1) the producer emits a stale-completion, NOT a late-completion.
           (let [ops (map :operation @traces)]
             (is (some #{:rf.machine.spawn-all/stale-completion} ops)

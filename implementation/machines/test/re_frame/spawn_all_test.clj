@@ -624,12 +624,12 @@
           ;; (rf2-ixjd48).
           (let [j (get-in (frame-db) [:rf.runtime/machines :spawned :sup/latek [:hydrating]])]
             (rf/dispatch-sync
-              [:sup/latek (with-meta [:asset/loaded :a]
-                            {:rf/join-auth {:parent-id  :sup/latek
-                                            :invoke-id  [:hydrating]
-                                            :child-id   :a
-                                            :spawned-id (:a ids)
-                                            :attempt    (:rf/attempt j)}})]))
+              [:sup/latek [:asset/loaded :a]]
+              {:rf.cofx {:rf.machine/join-auth {:parent-id  :sup/latek
+                                                :invoke-id  [:hydrating]
+                                                :child-id   :a
+                                                :spawned-id (:a ids)
+                                                :attempt    (:rf/attempt j)}}}))
           (let [j (get-in (frame-db) [:rf.runtime/machines :spawned :sup/latek [:hydrating]])]
             (is (= #{:a} (:done j))
                 "rf2-w8gxxz: the record stays frozen — no fold on late completion")

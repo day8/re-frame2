@@ -167,9 +167,11 @@
         (mtest/captured-events)))
 
 (defn- forged-completion! [parent-id auth]
+  ;; Authority rides the protected recordable `:rf.cofx` transport (rf2-nsbwft) —
+  ;; the single authority carrier the parent reads, never event metadata.
   (rf/dispatch-sync
-    [parent-id (with-meta [:child/done (:child-id auth)]
-                 {:rf/join-auth auth})]))
+    [parent-id [:child/done (:child-id auth)]]
+    {:rf.cofx {:rf.machine/join-auth auth}}))
 
 (defn- capture-dispatch! [sink f]
   (let [real (late-bind/get-fn :router/dispatch!)]
