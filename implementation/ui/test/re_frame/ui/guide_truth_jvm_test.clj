@@ -3,10 +3,44 @@
 
   These assertions protect the ruled lifecycle recipe, guide-wide rendering
   boundary, fixture-marker mechanics, Xray S3 surface, and S6 relocation plan
-  until the guide moves to docs/ui."
+  until the guide moves to docs/ui.
+
+  Guide 07 (`07-servers.md`) is additionally proven EXECUTABLE here (rf2-o6p1h6):
+  the chapter's server-data path is not string-matched but RUN. A real resource
+  is registered with the shipped 3-slot `reg-resource` grammar, the actual
+  `:rf.resource/ensure` → `:rf.http/managed` lower → reply-envelope settle path
+  drives the runtime cache, and a rendered `latency-tile` reads that same state
+  through `[:rf/resource …]` — so `:loading`, success (rendered value 42),
+  failure, and the retry intent are proven through the real transport/resource
+  path, and the app-db counterpart (raw `:rf.http/managed` with
+  `:on-success`/`:on-failure` handlers consuming the uniform reply envelope) is
+  proven too. A false claim in the chapter reddens a deftest below, so the
+  transport / resource / app-db seams cannot drift apart.
+
+  The managed-HTTP transport is exercised WITHOUT a network: `:rf.http/managed`
+  is overridden with a capturing stub and the test replays the transport's
+  reply-event-append shape (`(conj on-success {:status :ok :value …})`), exactly
+  as `re-frame.resources-managed-http-cljs-test` does — so the runtime's real
+  reply handlers run against the genuine 3-element event the live transport
+  produces."
   (:require [clojure.java.io :as io]
             [clojure.string :as str]
-            [clojure.test :refer [deftest is testing]]))
+            [clojure.test :refer [deftest is testing use-fixtures]]
+            [re-frame.core :as rf]
+            [re-frame.fx :as fx]
+            ;; load-bearing side-effecting requires: register the resource
+            ;; events/subs + the managed-HTTP fx + the Malli validator these
+            ;; tests drive. Optional artefacts, pulled onto the ui TEST classpath
+            ;; (deps.edn :test) — production re-frame.ui never :requires them.
+            [re-frame.resources]
+            [re-frame.resources.test-support]
+            [re-frame.http.managed]
+            [re-frame.http.registry :as http-registry]
+            [re-frame.schemas]
+            [re-frame.substrate.plain-atom :as plain-atom]
+            [re-frame.test-support :as test-support]
+            [re-frame.ui :refer [defview lease sub]]
+            [re-frame.ui.test :as uit]))
 
 (def chapter-files
   ["01-getting-started.md"
@@ -77,6 +111,185 @@
 (defn- one-line
   [text]
   (str/replace text #"\s+" " "))
+
+;; ===========================================================================
+;; Guide 07 — the EXECUTABLE server-data path (rf2-o6p1h6)
+;;
+;; Register a real resource, drive the actual ensure/reply + runtime-cache
+;; path, and read `[:rf/resource …]` in a rendered view. The transport is
+;; captured (no network); the test replays the transport's reply-envelope
+;; append shape so the runtime's genuine reply handlers settle the cache.
+;; ===========================================================================
+
+(def ^:private managed-args
+  "The last `:rf.http/managed` args the capturing stub recorded. Its runtime-
+  owned `:on-success` / `:on-failure` reply targets are replayed with the
+  transport's appended `{:status :ok :value …}` / `{:status :error :error …}`
+  envelope to settle the resource cache."
+  (atom nil))
+
+(defn- capturing-transport-fixture
+  "Override `:rf.http/managed` with a capturing no-op so the ensure/refetch
+  lower is inspectable and the reply is replayed explicitly — the resource
+  server-data path runs end-to-end without a live HTTP client."
+  [f]
+  (reset! managed-args nil)
+  (http-registry/clear-all-in-flight!)
+  (fx/reg-fx :rf.http/managed (fn [_ctx args] (reset! managed-args args) nil))
+  (f)
+  (http-registry/clear-all-in-flight!))
+
+;; ---- the two views the chapter shows, verbatim in shape --------------------
+
+;; §2 — the resource tile: declares liveness with `lease`, reads status with a
+;; passive `[:rf/resource …]` sub, and branches on the real status set.
+(defview latency-tile []
+  (lease {:resource :metrics/latency-feed})
+  (let [{:keys [status data]} (sub [:rf/resource {:resource :metrics/latency-feed}])]
+    (case status
+      (:idle :loading) [:div.tile.skeleton "…"]
+      :error   [:div.tile.error
+                "Feed unavailable"
+                [:button {:on-click [:rf.resource/refetch
+                                     {:resource :metrics/latency-feed}]}
+                 "Retry"]]
+      ;; :loaded and :fetching — prior data stays visible mid-refresh
+      [:div.tile
+       [:h3 "p95 latency"]
+       [:strong (str (:p95 data) "ms")]])))
+
+;; §Firing a request without a resource — the app-db counterpart: the view
+;; reads ordinary app-db that the envelope-consuming handlers wrote.
+(defview latency-plain-tile []
+  (let [{:keys [status p95]} (sub [:metrics/latency])]
+    (case status
+      :loading [:div.tile.skeleton "…"]
+      :error   [:div.tile.error "Feed unavailable"]
+      :loaded  [:div.tile [:strong (str p95 "ms")]]
+      [:div.tile.skeleton "…"])))
+
+;; use-fixtures is evaluated AFTER the defviews above so the reset fixture's
+;; ns-load registrar baseline includes them (they survive the per-test reset).
+(use-fixtures :each
+  (test-support/make-reset-runtime-fixture {:adapter plain-atom/adapter})
+  capturing-transport-fixture)
+
+(defn- reg-latency-feed!
+  "Register the `:metrics/latency-feed` resource with the exact shipped
+  3-slot grammar (id, metadata map, `:request` handler). The reset fixture
+  wipes the registry per test, so each test re-registers first."
+  []
+  (rf/reg-resource :metrics/latency-feed
+    {:doc           "Rolling p95 latency, refreshed on demand."
+     :scope         :rf.scope/global
+     :params-schema [:map]}
+    (fn [_params _ctx]
+      {:request {:method :get :url "/api/metrics/latency"}
+       :decode  :json})))
+
+(deftest guide07-resource-loading-and-success-render-the-real-cache
+  ;; §1–§2 + §Under the hood — the headline end-to-end: ensure → :loading, then
+  ;; the success reply envelope settles :loaded + data, rendered through
+  ;; `[:rf/resource …]` as 42.
+  (reg-latency-feed!)
+  (rf/with-new-frame
+    [frame (rf/make-frame {})]
+    ;; the cause the view's `lease` would drive at runtime
+    (uit/dispatch! frame [:rf.resource/ensure
+                          {:resource :metrics/latency-feed
+                           :owner    [:lease :metrics 1]}])
+    (testing "the resource lowered its :request into :rf.http/managed verbatim,
+              with runtime-owned reply addressing"
+      (let [req @managed-args]
+        (is (some? req) "the ensure reached the transport")
+        (is (= {:method :get :url "/api/metrics/latency"} (:request req)))
+        (is (= :json (:decode req)) "the Spec 014 :decode key rides through")
+        (is (= [:rf.resource.internal/succeeded]
+               (subvec (:on-success req) 0 1))
+            "reply addressing is runtime-owned, not app-authored")))
+    (testing ":loading — the tile branches to its skeleton"
+      (is (str/includes?
+            (uit/text (uit/render [latency-tile] {:frame frame})) "…")))
+    (testing "success — replay the {:status :ok :value …} envelope; the settled
+              cache value renders through the sub"
+      (uit/dispatch! frame (conj (:on-success @managed-args)
+                                 {:status :ok :value {:p95 42}}))
+      (let [tree (uit/render [latency-tile] {:frame frame})]
+        (is (str/includes? (uit/text tree) "42"))
+        (is (nil? (uit/find tree :button))
+            "the loaded tile carries no retry control")))))
+
+(deftest guide07-resource-failure-renders-error-and-retry-re-enters-the-path
+  ;; §2 retry intent — a first-load failure settles :error; the tile shows the
+  ;; error branch whose retry button carries a REAL refetch event; dispatching
+  ;; it re-enters the load path and the fresh reply recovers the value.
+  (reg-latency-feed!)
+  (rf/with-new-frame
+    [frame (rf/make-frame {})]
+    (uit/dispatch! frame [:rf.resource/ensure
+                          {:resource :metrics/latency-feed
+                           :owner    [:lease :metrics 1]}])
+    (testing "failure — replay the {:status :error :error …} envelope; the tile
+              branches to its error state and offers a real retry intent"
+      (uit/dispatch! frame (conj (:on-failure @managed-args)
+                                 {:status :error
+                                  :error  {:kind :rf.http/http-5xx :status 503}}))
+      (let [tree (uit/render [latency-tile] {:frame frame})]
+        (is (str/includes? (uit/text tree) "Feed unavailable"))
+        (is (= [:rf.resource/refetch {:resource :metrics/latency-feed}]
+               (:on-click (uit/attrs (uit/find tree :button))))
+            "the retry control carries a real refetch event as data")))
+    (testing "retry — the refetch the button intends re-enters :loading through
+              the same real transport path"
+      (reset! managed-args nil)
+      (uit/dispatch! frame [:rf.resource/refetch {:resource :metrics/latency-feed}])
+      (is (some? @managed-args) "the retry lowered a fresh fetch")
+      (is (str/includes?
+            (uit/text (uit/render [latency-tile] {:frame frame})) "…")
+          "the retry re-enters the skeleton"))
+    (testing "recovery — the retried fetch's own reply settles the value"
+      (uit/dispatch! frame (conj (:on-success @managed-args)
+                                 {:status :ok :value {:p95 42}}))
+      (is (str/includes?
+            (uit/text (uit/render [latency-tile] {:frame frame})) "42")))))
+
+(deftest guide07-raw-managed-http-writes-app-db-through-the-envelope
+  ;; §Firing a request without a resource — the app-db seam: a raw
+  ;; :rf.http/managed with :on-success/:on-failure whose handlers CONSUME the
+  ;; uniform reply envelope and write app-db, read back by an ordinary app sub.
+  (rf/reg-sub :metrics/latency (fn [db _] (:latency db)))
+  (rf/reg-event :metrics/latency-requested
+    (fn [{:keys [db]} _]
+      {:db (assoc-in db [:latency :status] :loading)
+       :fx [[:rf.http/managed
+             {:request    {:method :get :url "/api/metrics/latency"}
+              :decode     :json
+              :on-success [:metrics/latency-arrived]
+              :on-failure [:metrics/latency-failed]}]]}))
+  (rf/reg-event :metrics/latency-arrived
+    (fn [{:keys [db]} [_ {:keys [value]}]]      ; envelope: {:status :ok :value …}
+      {:db (assoc db :latency {:status :loaded :p95 (:p95 value)})}))
+  (rf/reg-event :metrics/latency-failed
+    (fn [{:keys [db]} [_ {:keys [error]}]]      ; envelope: {:status :error :error …}
+      {:db (assoc db :latency {:status :error :error error})}))
+  (rf/with-new-frame
+    [frame (rf/make-frame {})]
+    (uit/dispatch! frame [:metrics/latency-requested])
+    (testing "the raw :rf.http/managed carries the shipped contract keys"
+      (let [req @managed-args]
+        (is (= {:method :get :url "/api/metrics/latency"} (:request req)))
+        (is (= :json (:decode req)))
+        (is (= [:metrics/latency-arrived] (:on-success req)))
+        (is (= [:metrics/latency-failed] (:on-failure req)))))
+    (testing ":loading renders the skeleton from app-db"
+      (is (str/includes?
+            (uit/text (uit/render [latency-plain-tile] {:frame frame})) "…")))
+    (testing "the success handler consumes the envelope's :value into app-db;
+              the app sub reads it and the tile renders 42"
+      (uit/dispatch! frame (conj (:on-success @managed-args)
+                                 {:status :ok :value {:p95 42}}))
+      (is (str/includes?
+            (uit/text (uit/render [latency-plain-tile] {:frame frame})) "42")))))
 
 (deftest lifecycle-recipe-is-installed-and-owned
   (let [getting-started (slurp-guide "01-getting-started.md")
