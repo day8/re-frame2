@@ -371,6 +371,34 @@
 ;; metadata-only inline entry (no `:impl`) and every registered descriptor pass
 ;; through untouched.
 
+(defn- strip-descriptor-documentation
+  "Elide the registrar PURE-DOCUMENTATION keys (`registrar/pure-documentation-keys`
+  — `:doc`) from a lowered inline `descriptor` in PRODUCTION, at BOTH the
+  descriptor TOP LEVEL (where a kind's lowering spreads its authored metadata —
+  `lower-inline-event` hoists the run/enqueue-time flags, `lower-inline-sub` the
+  classification/schema slots) AND the descriptor's nested `:metadata` (the
+  introspection/dedupe copy EVERY inline kind carries). A `:metadata` that reduces
+  to empty is DROPPED rather than left as a bare `{}`, so a doc-ONLY inline entry
+  resurrects no stale nested map in production. Returns the normalized descriptor.
+
+  This is the ONE canonical, side-effect-free DOC-normalization boundary for every
+  supported inline kind — event, sub, fx, cofx (rf2-mt1cvi). It runs
+  `registrar/strip-pure-documentation` — the SAME primitive the public `reg-*`
+  registrar runs — so an inline registration pays no more production bytes than a
+  namespace-authored one, and inline registration semantics are kind-INDEPENDENT.
+  A NO-OP in dev (`interop/debug-enabled?` true), so development assembly retains
+  authored documentation for tooling / agent inspection. Idempotent — a descriptor
+  whose metadata its kind's lowering already normalized (the sub path) is
+  unchanged. Pure."
+  [descriptor]
+  (let [descriptor (registrar/strip-pure-documentation descriptor)]
+    (if (contains? descriptor :metadata)
+      (let [metadata (registrar/strip-pure-documentation (:metadata descriptor))]
+        (if (seq metadata)
+          (assoc descriptor :metadata metadata)
+          (dissoc descriptor :metadata)))
+      descriptor)))
+
 (defn lower-inline-descriptor
   "Lower ONE selected descriptor into its runnable shape when it is an inline
   descriptor carrying a real fn body (EP-0023 §Image Fragments).
@@ -381,40 +409,45 @@
   one), a metadata-only inline entry (no `:impl`), or a kind with no published
   lowering hook returns UNCHANGED. Pure modulo the late-bind lookup.
 
-  The `:sub` kind is the one kind whose lowering runs registrar-contract
-  metadata NORMALIZATION (validate retired/unknown keys + `:sensitive`/`:large`
-  classification, strip dev-only `:doc` in production — rf2-vxgfnd.219). It
-  ALONE therefore (a) needs the AUTHORED descriptor id so a retired/unknown-key
-  diagnostic names the author's subscription (e.g. `:counter/value`), never a
-  synthetic `:rf.image/inline-sub`, and (b) yields a NORMALIZED `:metadata` that
-  must REPLACE the descriptor's RAW nested `:metadata` — otherwise a production
-  image still carries dev-only `:doc` under `[:metadata …]` alongside the
-  doc-stripped top level, a second, divergent representation (rf2-vxgfnd.257).
-  Its return carries the metadata normalized ONCE (spread at top level AND under
-  `:metadata`); we let that normalized `:metadata` win over the descriptor's raw
-  copy. Selection/dedupe already ran (`lower-inline-descriptors` is a post-
-  selection map), so replacing `:metadata` here never decides a collision
-  winner. Other kinds keep the descriptor's own `:metadata` untouched."
+  DOC NORMALIZATION IS UNIFORM (rf2-mt1cvi). The registrar contract makes `:doc`
+  pure documentation stripped in production for every `reg-*` surface; this
+  boundary applies that SAME strip (`strip-descriptor-documentation`) to EVERY
+  lowered inline kind — at the descriptor TOP LEVEL and under the nested
+  `:metadata` — so a production image carries dev-only `:doc` for NO kind and
+  inline registration semantics are kind-independent. (Previously only `:sub`
+  was normalized: `:reg-event` leaked `:doc` at both the top level and under
+  `:metadata`, and `:reg-fx` / `:reg-cofx` under `:metadata` — rf2-mt1cvi.) The
+  strip is a no-op in dev, so authored documentation survives for inspection, and
+  it runs AFTER selection/dedupe (`lower-inline-descriptors` is a post-selection
+  map) so it never decides a collision winner.
+
+  The `:sub` lowering additionally validates retired/unknown registration keys +
+  `:sensitive`/`:large` classification (rf2-vxgfnd.219), so it ALONE needs the
+  AUTHORED descriptor id threaded in — a retired/unknown-key diagnostic then names
+  the author's subscription (e.g. `:counter/value`), never a synthetic
+  `:rf.image/inline-sub` (rf2-vxgfnd.257). Each kind keeps its own runnable slots
+  and metadata semantics (the descriptor wins every shared key — `:impl`,
+  provenance, `:kind` / `:id`); only the pure-documentation keys are elided."
   [descriptor]
   (if (and (:rf.provenance/inline descriptor)
            (contains? descriptor :impl))
     (if-let [lower (late-bind/get-fn
                      (keyword "image" (str "lower-inline-" (name (:kind descriptor)))))]
-      (if (= :sub (:kind descriptor))
-        ;; Thread the authored id; let the lowering's normalized :metadata win
-        ;; over the descriptor's raw copy (the descriptor otherwise wins every
-        ;; shared key — :impl / provenance / :kind / :id stay put). When the
-        ;; normalized metadata is empty (e.g. a doc-only map in production) the
-        ;; lowering omits :metadata, and the descriptor's raw copy is dropped
-        ;; rather than resurrected.
-        (let [lowered (lower (:id descriptor) (:metadata descriptor) (:impl descriptor))]
-          (-> (merge lowered descriptor)
-              (dissoc :metadata)
-              (merge (select-keys lowered [:metadata]))))
-        ;; Other kinds — merge runnable slots UNDER the descriptor's own keys
-        ;; (the descriptor wins on any shared key; the lowering only contributes
-        ;; :handler-fn + the per-kind runtime slots).
-        (merge (lower (:metadata descriptor) (:impl descriptor)) descriptor))
+      (strip-descriptor-documentation
+        (if (= :sub (:kind descriptor))
+          ;; Thread the AUTHORED id so the sub lowering's metadata diagnostics
+          ;; (retired/unknown key, bad classification) name the author's
+          ;; subscription. The lowering spreads its normalized metadata at top
+          ;; level; the descriptor wins every shared key (:impl / provenance /
+          ;; :kind / :id). The descriptor's raw nested :metadata wins the merge —
+          ;; `strip-descriptor-documentation` then elides its dev-only :doc,
+          ;; yielding the same doc-stripped nested map the lowering normalized.
+          (merge (lower (:id descriptor) (:metadata descriptor) (:impl descriptor))
+                 descriptor)
+          ;; Other kinds — merge runnable slots UNDER the descriptor's own keys
+          ;; (the descriptor wins on any shared key; the lowering only contributes
+          ;; :handler-fn + the per-kind runtime slots).
+          (merge (lower (:metadata descriptor) (:impl descriptor)) descriptor)))
       descriptor)
     descriptor))
 
