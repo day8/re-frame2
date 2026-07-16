@@ -3493,30 +3493,93 @@
                      A full destroy of the ACQUIRED incarnation + a fresh same-id
                      incarnation here proves the frame-close revalidation joins the
                      commit to the acquired incarnation's teardown, not the
-                     replacement id (rf2-vxgfnd.88)."
+                     replacement id (rf2-vxgfnd.88).
+    :pre-publish   — INSIDE `publish-commit!`, between that attempt's authority
+                     SAMPLE (the cell-state snapshot + the registered-slot token)
+                     and its publish CAS, fired exactly ONCE. An
+                     `advance-generation!` (cell-local axis) or a same-view
+                     re-registration (registry axis) here lands in EXACTLY the
+                     former check-to-use window and must be caught by the CAS /
+                     slot-token gate, never published (rf2-77pb08)."
   nil)
 
-(defn- stale-body-authority?
-  "DEV/HMR body-authority check (rf2-vxgfnd.214): true when `cap`'s captured
-  body generation no longer matches the cell's CURRENT authority — either the
-  cell-local revision `state-gen` (a FRESH read) or the authoritative registered
-  slot revision for `view-id`. A direct/headless caller with no registered slot
-  falls back to the cell-local contract (`registered-view-revision` nil ⇒ that
-  half no-ops).
+(defn- slot-body-revision
+  "The registered body revision carried by an ALREADY-SAMPLED HMR slot object
+  `slot` (nil when the slot is absent or was never registered). The publication
+  linearization captures the slot ONCE per attempt as its authority token and
+  reads the revision out of that exact sample, never re-derefing the live
+  registry between the token capture and the publish CAS."
+  [slot]
+  (when (:hmr-registered? slot)
+    (:hmr-body-revision slot)))
 
-  The commit's step-1 gate samples this authority ONCE, before the callback-
-  capable staging window; `commit*` re-consults it at the final publication
-  boundary so a re-registration landing mid-commit cannot publish under a stale
-  body. Callers gate the ENTIRE consult behind `interop/debug-enabled?`, so
-  production — where `use-cell` mints every cell at body revision 0 and never
-  advances it (the whole HMR slot is dev-only) — performs no registry lookup and
-  this predicate constant-folds away under goog.DEBUG=false."
-  [cap state-gen view-id]
-  (let [cap-gen (:generation cap)]
-    (or (not= cap-gen state-gen)
-        (boolean
-          (when-some [current (registered-view-revision view-id)]
-            (not= cap-gen current))))))
+(defn- publish-commit!
+  "Linearize the FINAL HMR body-authority validation WITH the state publication
+  as ONE operation (rf2-77pb08). Publishes `new-committed` (optionally
+  transformed by `accept-capture`) onto `cell` and returns `:published`, or
+  returns `:stale` having published NOTHING when the body authority moved.
+
+  ## The race this closes
+
+  The rf2-vxgfnd.214 fence sampled the cell generation + the registered-view
+  revision and THEN performed an INDEPENDENT `swap!` to publish — a check-to-use
+  gap. An `advance-generation!` (cell-local axis) or a same-view re-registration
+  (registry axis) landing AFTER the sample but BEFORE the swap published a
+  stale-generation capture that connected and owned leases while current
+  authority had already moved. Re-reading the authority a third time only MOVES
+  the race to between that read and the swap; it is not a linearization point.
+
+  ## The linearization
+
+  Validation and publication are ONE `compare-and-set!` transition over the
+  cell-state value read at the top of the loop (the `complete-flush!`
+  rf2-vxgfnd.180 idiom), so a pause interposed anywhere before the CAS cannot
+  publish a stale capture:
+
+    - CELL-LOCAL axis — the capture generation is compared to `(:generation s)`
+      of the SAME snapshot `s` the CAS commits. A racing `advance-generation!`
+      is either already visible in `s` (→ `:stale`) or lands after the sample
+      and FAILS the CAS (`st` ≠ `s`); the loop then re-reads and re-validates.
+    - REGISTRY axis — the view's HMR slot is sampled ONCE per attempt as an
+      authority TOKEN, and the publish CAS is GATED on that token still being
+      `identical?` to the live slot at the instant of the CAS. A same-view
+      re-registration swaps `view-generations` to a fresh slot object, so the
+      token gate fails and the loop re-reads a moved revision (→ `:stale`). The
+      publication never trusts a revision sampled earlier and gone stale; it
+      consults the slot IDENTITY at the linearization point, which a stale
+      revision read cannot fool.
+
+  The `*commit-barrier* :pre-publish` seam fires ONCE, between the first
+  attempt's authority sample and its CAS, so a fixture can interpose either
+  authority advance in EXACTLY that window and prove the gate holds.
+
+  DEV/HMR-only: production mints every cell at body revision 0 and never
+  advances it, so `interop/debug-enabled?` constant-folds the entire authority
+  arm — no `view-generations` deref, no token capture — leaving a single publish
+  CAS that succeeds first try on the single-threaded host."
+  [^ViewCell cell cap view-id new-committed accept-capture]
+  (let [st      (state cell)
+        cap-gen (:generation cap)
+        fired   (volatile! false)]
+    (loop []
+      (let [s     @st
+            token (when interop/debug-enabled? (get @view-generations view-id))]
+        (when (and (not @fired) (some? *commit-barrier*))
+          (vreset! fired true)
+          (*commit-barrier* :pre-publish cell))
+        (let [stale? (and interop/debug-enabled?
+                          (or (not= cap-gen (:generation s))
+                              (when-some [reg (slot-body-revision token)]
+                                (not= cap-gen reg))))]
+          (if stale?
+            :stale
+            (let [published (let [m* (assoc s :committed new-committed)]
+                              (if accept-capture (accept-capture m* cap) m*))]
+              (if (and (or (not interop/debug-enabled?)
+                           (identical? token (get @view-generations view-id)))
+                       (compare-and-set! st s published))
+                :published
+                (recur)))))))))
 
 (defn- commit*
   "Run the 8-step layout commit for `cell` against the exact immutable
@@ -3689,36 +3752,38 @@
           ;; joins this commit to the acquired incarnation's teardown, not the
           ;; replacement id (rf2-vxgfnd.88).
           (when-some [barrier *commit-barrier*] (barrier :post-acquire cell))
-          ;; FINAL HMR-authority fence (rf2-vxgfnd.214). Step 1 samples the body
+          ;; FINAL HMR-authority fence + publication as ONE linearized operation
+          ;; (rf2-77pb08, completing rf2-vxgfnd.214). Step 1 samples the body
           ;; authority ONCE — before the :pre-acquire barrier, the acquire/cache
           ;; callbacks, and the :post-acquire barrier, EVERY one of which can
           ;; synchronously advance the authoritative body revision (a same-shell
-          ;; re-registration landing in the render→commit gap). Re-read the
-          ;; authority at the narrowest publication boundary — after all
-          ;; callback-capable work, with nothing callback-capable between here and
-          ;; the step-6 publish — and refuse to publish a stale-authority capture:
-          ;; release ONLY the newly staged leases in reverse acquisition order,
-          ;; leave the prior committed set / values / lifecycle untouched, and
-          ;; return :stale exactly as step 1 does (the re-registration already
-          ;; notified the shell, so a fresh render at the new body is inbound;
-          ;; unlike the candidate-current? incarnation path this needs no
-          ;; advance-revision!). DEV/HMR-only: production mints every cell at body
-          ;; revision 0 and never advances it, so the whole fence DCEs under
-          ;; goog.DEBUG=false — no registry lookup, no hot-path bookkeeping.
-          (if (and interop/debug-enabled?
-                   (stale-body-authority? cap (:generation @st) (:view-id st0)))
+          ;; re-registration landing in the render→commit gap). The .214 fence
+          ;; re-read the authority HERE and then performed an INDEPENDENT `swap!`
+          ;; to publish — a check-to-use gap in which an `advance-generation!`
+          ;; (cell-local axis) or a same-view re-registration (registry axis) could
+          ;; land and let a stale-generation capture publish and connect. A third
+          ;; read only MOVES that gap. `publish-commit!` instead FUSES the final
+          ;; validation and the step-6 publication into ONE compare-and-set!
+          ;; transition (cell-local axis) gated on the registered-slot identity
+          ;; token (registry axis), so no pause interposed before the CAS can
+          ;; publish a stale capture. On rejection it publishes NOTHING; we release
+          ;; ONLY the newly staged leases in reverse acquisition order, leaving the
+          ;; prior committed set / values / lifecycle untouched, and return :stale
+          ;; exactly as step 1 does (the re-registration already notified the shell,
+          ;; so a fresh render at the new body is inbound; unlike the
+          ;; candidate-current? incarnation path this needs no advance-revision!).
+          ;; DEV/HMR-only: production mints every cell at body revision 0 and never
+          ;; advances it, so the authority arm DCEs under goog.DEBUG=false — no
+          ;; registry lookup, no hot-path bookkeeping.
+          (if (= :stale (publish-commit! cell cap (:view-id st0)
+                                         new-committed accept-capture))
             (do
               (doseq [[_ record] (rseq staged)]
                 (obs/release! (:lease record)))
               :stale)
             (do
-              ;; step 6 — publish exact per-site query/value + dependency set
-              (swap! st
-                     (fn [m]
-                       (let [m* (assoc m :committed new-committed)]
-                         (if accept-capture
-                           (accept-capture m* cap)
-                           m*))))
+              ;; step 6 (publish exact per-site query/value + dependency set)
+              ;; already completed atomically inside publish-commit!.
               ;; step 7 — release dropped + retargeted prior leases
               (doseq [[_ record] to-release]
                 (obs/release! (:lease record)))

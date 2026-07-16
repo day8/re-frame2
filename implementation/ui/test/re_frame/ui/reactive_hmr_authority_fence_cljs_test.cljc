@@ -422,3 +422,153 @@
             (is (= held0 (reactive/resource-held cell)) "held owners preserved")
             (is (= ev0 (reactive/resource-lease-evidence cell))
                 "the accepted desired plan is unchanged — capture-2 never overwrote it")))))))
+
+;; ===========================================================================
+;; rf2-77pb08 — LINEARIZE the final body-authority validation WITH publication.
+;;
+;; PR #5938 (.214/.260) proved the fence catches an authority change landing at
+;; or before the final SAMPLE. But that fence sampled the authority and then
+;; performed an INDEPENDENT `swap!` to publish — a check-to-use gap: a
+;; concurrent `advance-generation!` (cell-local axis) or same-view
+;; re-registration (registry axis) landing AFTER the sample but BEFORE the swap
+;; published a stale generation-0 capture that connected and owned leases.
+;;
+;; `publish-commit!` fuses validation and publication into ONE compare-and-set!
+;; transition (cell-local axis) gated on the registered-slot identity token
+;; (registry axis). The `:pre-publish` seam fires ONCE, in EXACTLY that former
+;; gap — between an attempt's authority sample and its publish CAS — so these
+;; fixtures land the advance where nothing could catch it before, on BOTH the
+;; cell-local and registry authority axes, and prove nothing publishes.
+;;
+;; MUTATION TOOTH: revert `publish-commit!` to a sample-then-independent-swap
+;; (so the `:pre-publish` advance lands between the two) and every assertion
+;; below flips red — the interposed advance then publishes and connects.
+;; `.cljc` ending `-cljs-test` runs on node (`test:cljs`) AND JVM
+;; (`clojure -M:test`); the accompanying `-race-jvm-test` exercises the same CAS
+;; under GENUINE two-thread concurrency.
+;; ===========================================================================
+
+;; ---- Registry axis: a re-registration in the sample→publish window ----------
+;; The view's HMR slot is the token; a mid-window `register-view-generation!`
+;; swaps `view-generations` to a fresh slot object, failing the `identical?`
+;; gate so the loop re-reads a MOVED revision and rejects.
+
+(deftest pre-publish-registration-is-linearized-registry-axis
+  (rf/reg-sub :r/a (fn [db _] (:a db)))
+  (seed! {:a 1})
+  (let [vid  ::linz-registry-view
+        _    (reactive/register-view-generation! vid hs0)
+        cell (reactive/make-cell vid 0)
+        cap  (capture-of cell [[::site [:r/a]]])]
+    (is (= 0 (:generation cap)) "capture formed at body revision 0")
+    (is (nil? (entry [:r/a])) "precondition: nothing owns the node yet")
+    (let [result (binding [reactive/*commit-barrier*
+                           (reregister-barrier vid :pre-publish hs0)]
+                   (reactive/commit! cell cap))]
+      (is (= :stale result)
+          "a re-registration interposed between the sample and the publish CAS is fenced")
+      (is (= :fresh (reactive/lifecycle cell)) "a fenced candidate never connects")
+      (is (empty? (reactive/committed-sites cell)) "no dependency set published")
+      (is (nil? (entry [:r/a])) "the staged lease was released — zero-owner node")
+      (is (= 0 (reactive/revision cell))
+          "no revision advance — the shell's re-registration drives the re-render"))))
+
+;; ---- Cell-local axis: an advance-generation! in the sample→publish window ---
+;; A direct/unregistered cell: the registry arm no-ops, so the publish CAS over
+;; the sampled cell state is the SOLE catch. The interposed advance swaps `st`,
+;; so the compare-and-set! over the stale snapshot fails and the loop re-reads a
+;; MOVED generation and rejects.
+
+(deftest pre-publish-generation-advance-is-linearized-cell-local-axis
+  (rf/reg-sub :r/a (fn [db _] (:a db)))
+  (seed! {:a 1})
+  (let [vid  ::linz-cell-local-view          ;; deliberately NEVER registered
+        cell (reactive/make-cell vid 0)
+        cap  (capture-of cell [[::a [:r/a]]])]
+    (is (= 0 (:generation cap)) "capture formed at cell body generation 0")
+    (is (nil? (reactive/registered-view-revision vid))
+        "precondition: no registered slot — the cell-local CAS is the sole catch")
+    (is (nil? (entry [:r/a])) "precondition: nothing owns the node yet")
+    (let [result (binding [reactive/*commit-barrier*
+                           (fn [phase c]
+                             (when (= phase :pre-publish)
+                               (reactive/advance-generation! c 1)))]
+                   (reactive/commit! cell cap))]
+      (is (= :stale result)
+          "the interposed advance fails the publish compare-and-set! → :stale")
+      (is (= :fresh (reactive/lifecycle cell)) "a fenced candidate never connects")
+      (is (empty? (reactive/committed-sites cell)) "no dependency set published")
+      (is (nil? (entry [:r/a])) "the staged lease was released — zero-owner node")
+      (is (= 1 (reactive/generation cell)) "the cell carries the advanced generation")
+      (is (= 0 (reactive/revision cell))
+          "no revision advance — the sync/remount drives the re-render"))))
+
+;; ---- Rollback in the sample→publish window: reverse order, exactly once -----
+;; A retained prior :a plus staged :b/:c: a mid-window re-registration must
+;; release ONLY :b/:c, in reverse acquisition order, exactly once, and preserve
+;; the retained :a and the prior committed set byte-for-byte.
+
+(deftest pre-publish-fence-releases-staged-in-reverse-exactly-once
+  (rf/reg-sub :r/a (fn [db _] (:a db)))
+  (rf/reg-sub :r/b (fn [db _] (:b db)))
+  (rf/reg-sub :r/c (fn [db _] (:c db)))
+  (seed! {:a 1 :b 2 :c 3})
+  (let [vid  ::linz-order-view
+        _    (reactive/register-view-generation! vid hs0)
+        cell (reactive/make-cell vid 0)]
+    (reactive/commit! cell (capture-of cell [[::a [:r/a]]]))   ;; connect owning :a
+    (let [lease-a      (reactive/committed-lease cell (tk [:r/a]))
+          rev0         (reactive/revision cell)
+          acq          (atom [])
+          rel          (atom [])
+          real-acquire obs/acquire!
+          real-release obs/release!
+          lease->query (fn [lease]
+                         (some (fn [[l q]] (when (identical? l lease) q)) @acq))
+          cap          (capture-of cell [[::a [:r/a]] [::b [:r/b]] [::c [:r/c]]])]
+      (is (= :connected (reactive/lifecycle cell)))
+      (is (= 1 (ref-count [:r/a])) "prior committed lease installed")
+      (with-redefs [obs/acquire! (fn [target on-change]
+                                   (let [lease (real-acquire target on-change)]
+                                     (swap! acq conj [lease (:query target)])
+                                     lease))
+                    obs/release! (fn [lease]
+                                   (swap! rel conj (lease->query lease))
+                                   (real-release lease))]
+        (let [result (binding [reactive/*commit-barrier*
+                               (reregister-barrier vid :pre-publish hs0)]
+                       (reactive/commit! cell cap))]
+          (is (= :stale result) "the interposed re-registration fences the publish")
+          (is (= [[:r/b] [:r/c]] (mapv second @acq))
+              "only the NEW sites acquire (:a retained, never re-acquired)")
+          (is (= [[:r/c] [:r/b]] @rel)
+              "the staged leases released in REVERSE acquisition order")
+          (is (= 2 (count @rel)) "each staged lease released EXACTLY once")
+          (is (not (some #{[:r/a]} @rel)) "the RETAINED prior :a was never released")))
+      (testing "prior committed :a survives byte-for-byte"
+        (is (identical? lease-a (reactive/committed-lease cell (tk [:r/a])))
+            "the retained lease keeps its exact identity")
+        (is (= 1 (ref-count [:r/a])) ":a never re-acquired or released")
+        (is (= #{(tk [:r/a])} (reactive/committed-target-keys cell))
+            "the published dependency set is unchanged — no staged site leaked")
+        (is (= :connected (reactive/lifecycle cell)) "lifecycle unchanged")
+        (is (= rev0 (reactive/revision cell)) "revision unchanged"))
+      (testing "BOTH staged leases were released"
+        (is (nil? (entry [:r/b])) ":b staged then released → zero-owner node")
+        (is (nil? (entry [:r/c])) ":c staged then released → zero-owner node")))))
+
+;; ---- The ordinary commit still publishes once through the linearized path ---
+
+(deftest pre-publish-clean-commit-publishes-once-through-cas
+  (rf/reg-sub :r/a (fn [db _] (:a db)))
+  (seed! {:a 1})
+  (let [vid  ::linz-clean-view
+        _    (reactive/register-view-generation! vid hs0)
+        cell (reactive/make-cell vid 0)]
+    (testing "no interposed authority advance ⇒ the compare-and-set! publishes once"
+      (let [result (reactive/commit! cell (capture-of cell [[::a [:r/a]]]))]
+        (is (identical? cell result) "a clean commit returns the cell, not :stale")
+        (is (= :connected (reactive/lifecycle cell)))
+        (is (= #{(tk [:r/a])} (reactive/committed-target-keys cell)))
+        (is (= 1 (ref-count [:r/a])) "exactly one owner acquired")
+        (is (= 1 (:value (reactive/committed-site cell ::a))))))))
