@@ -164,25 +164,43 @@
   `:rf.machine/join-auth` `:rf.cofx` fact and stamps `:source :machine-action`;
   the public completion event VALUE is unchanged.
 
-  CANONICAL DISPATCH OVERRIDES INTERCEPT FIRST (rf2-ulsbgr). #5881 lowered the
-  authored `:dispatch` / `:dispatch-later` completion to this PRIVATE id BEFORE
-  core override resolution, so `do-fx` looked up `:fx-overrides` under the
-  private id and a `{:fx-overrides {:dispatch capture-fn}}` never intercepted
-  the completion. Here we resolve the CANONICAL override FIRST: when the
-  completion's authored id (`:dispatch-later` for a numeric `:ms`, else
-  `:dispatch`) is overridden in the SAME effective override map `do-fx` used
-  (per-frame ⋈ per-call, per-call winning — `re-frame.router/apply-overrides`),
-  we route the canonical `[fx-id args]` back through the shared core seam
-  `re-frame.fx/handle-one-fx` (fn-value pre-empts / keyword-redirect / traces,
-  the identical resolution a normal dispatch flows through). The override
-  captures / redirects the completion, queues nothing, folds nothing, and NO
-  private join authority is minted — an application override can never forge or
-  replay the recordable authority into the normal transport. Only the
-  UNOVERRIDDEN completion is lowered to the recordable transport below.
+  CANONICAL DISPATCH OVERRIDES INTERCEPT FIRST (rf2-ulsbgr) — ONE EXPLICIT,
+  NON-REDIRECTABLE POLICY (rf2-2lzk8a). #5881 lowered the authored `:dispatch` /
+  `:dispatch-later` completion to this PRIVATE id BEFORE core override
+  resolution, so `do-fx` looked up `:fx-overrides` under the private id and a
+  `{:fx-overrides {:dispatch capture-fn}}` never intercepted the completion.
+  Here we resolve the CANONICAL override FIRST: when the completion's authored
+  id (`:dispatch-later` for a numeric `:ms`, else `:dispatch`) has an override
+  that GENUINELY APPLIES — a fn-value or a keyword redirect to a REGISTERED,
+  NON-PROTECTED fx, per `re-frame.fx/override-applies?` — in the SAME effective
+  override map `do-fx` used (per-frame ⋈ per-call, per-call winning), we route
+  the canonical `[fx-id args]` back through the shared core seam
+  `re-frame.fx/handle-one-fx` (the identical resolution a normal dispatch flows
+  through). The override captures / redirects the completion, queues nothing,
+  folds nothing, and NO private join authority is minted — an application
+  override can never forge or replay the recordable authority into the normal
+  transport.
+
+  Every OTHER disposition — no override, a nil/false noop, an UNREGISTERED
+  keyword, a MALFORMED value, or a redirect to a PROTECTED internal id — is NOT
+  an applied override: it falls through to the recordable authenticated
+  transport below, so the join still folds EXACTLY ONCE and authority never
+  leaks out of the authenticated path (the pre-fix `real-override?` gate routed
+  these to `handle-one-fx`, where the fall-through re-dispatched an UNAUTHENTICATED
+  `:dispatch` that the parent suppressed `:attempt-unverified`, hanging the join).
+  The canonical `:rf.error/override-fallthrough` diagnostic for a real-but-non-
+  applying override is still surfaced through the ONE override engine
+  (`re-frame.fx/resolve-fx-with-overrides`) before the transport runs.
 
   Not an application control surface — reserved-`:rf.machine/*` internal, it
   re-dispatches ONLY the pre-built completion carrier it was handed (never
-  traverses arbitrary / custom effect payloads).
+  traverses arbitrary / custom effect payloads). The transport id itself is
+  NON-AUTHORABLE and NON-REDIRECTABLE (rf2-2lzk8a): `:rf.machine/join-dispatch`
+  is a member of core's `rejected-reserved-fx-ids`, so a DIRECT override of it
+  is rejected (`:rf.error/reserved-fx-override`, real body runs — an app can
+  neither capture nor suppress the authenticated payload) and a REDIRECT whose
+  target is it is refused (no privilege escalation, no self-recursive
+  StackOverflowError).
 
   ctx carries `:frame`, `:envelope` (the emitting child's dispatch envelope),
   and `:event` (the originating event, threaded by `re-frame.fx/do-fx`). args:
@@ -204,13 +222,20 @@
         ;; per-call tier rides the emitting child's dispatch envelope.
         overrides    (merge (:fx-overrides (:config frame-record))
                             (:fx-overrides envelope))]
-    (if (fx/real-override? overrides canonical-id)
-      ;; OVERRIDDEN (rf2-ulsbgr): route the canonical `:dispatch` /
-      ;; `:dispatch-later` back through the shared core override-resolution seam
-      ;; so the override intercepts the completion exactly as it would a normal
-      ;; dispatch. `handle-one-fx` (not `do-fx`) keeps the single `:event/do-fx`
-      ;; boundary marker on the outer walk (the nav-token wrapper precedent). No
+    (if (fx/override-applies? overrides canonical-id)
+      ;; OVERRIDE GENUINELY APPLIES (rf2-ulsbgr / rf2-2lzk8a): a fn-value or a
+      ;; keyword redirect to a REGISTERED, NON-PROTECTED fx pre-empts the
+      ;; completion. Route the canonical `:dispatch` / `:dispatch-later` back
+      ;; through the shared core override-resolution seam so the override
+      ;; intercepts the completion exactly as it would a normal dispatch.
+      ;; `handle-one-fx` (not `do-fx`) keeps the single `:event/do-fx` boundary
+      ;; marker on the outer walk (the nav-token wrapper precedent). No
       ;; `child-dispatch!` → no fold, no queue, and no private authority minted.
+      ;; `override-applies?` (NOT the coarser `real-override?`) is the gate: a
+      ;; nil/false noop, an UNREGISTERED-keyword / MALFORMED value, and a
+      ;; redirect to a PROTECTED internal id all fall through to the
+      ;; authenticated transport below — so the join still folds and authority
+      ;; never leaks out of the authenticated path (rf2-2lzk8a).
       (fx/handle-one-fx
         frame-id
         (if (number? ms)
@@ -220,7 +245,22 @@
         overrides
         origin-event
         envelope)
-      ;; UNOVERRIDDEN: the normal recordable transport. The recordable causal-
+      ;; NON-APPLYING / UNOVERRIDDEN: the normal recordable transport. A REAL
+      ;; but non-applying override on the canonical id (an unregistered keyword,
+      ;; a malformed value, or a redirect to a protected internal id) must still
+      ;; surface its canonical `:rf.error/override-fallthrough` through the ONE
+      ;; override engine — but it does NOT strip the completion of authority.
+      ;; Drive the engine purely for that diagnostic (its resolved id, the
+      ;; canonical id, is discarded — we authenticate below), so a misconfigured
+      ;; override on a join completion is as visible as on any other dispatch,
+      ;; then the authenticated transport runs EXACTLY ONCE and the join folds
+      ;; (rf2-2lzk8a). nil/false noop emits nothing.
+      (do
+        (when (fx/real-override? overrides canonical-id)
+          (fx/resolve-fx-with-overrides
+            canonical-id overrides frame-id origin-event
+            (when (vector? origin-event) (first origin-event))))
+        ;; The normal recordable transport. The recordable causal-
       ;; envelope fact rides `:rf.cofx`; `:source :machine-action` matches the
       ;; child's original `:dispatch` stamp; the `:rf.machine/internal?`
       ;; front-of-queue ordering + override / lineage / mint-policy inheritance
@@ -236,7 +276,7 @@
         frame-id envelope event
         (cond-> {:source  :machine-action
                  :rf.cofx {:rf.machine/join-auth auth}}
-          (number? ms) (assoc :ms ms :source-detail {:ms ms})))))
+          (number? ms) (assoc :ms ms :source-detail {:ms ms}))))))
   nil)
 
 (defn- stamp-fx-entry
