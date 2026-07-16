@@ -259,9 +259,55 @@
         (cond-> (false? (:targets-exact? ev)) (assoc :targets-exact? false)
                 (false? (:dropped-exact? ev)) (assoc :dropped-exact? false)))))
 
+(defn- reproject-accrual
+  "Re-run one accrual retained across a reload through the CURRENT bounded
+  projection (rf2-vxgfnd.94.18).
+
+  A store built by an earlier head holds values its head's copier admitted —
+  at the pre-projection heads, RAW target keys including query→ViewCell cycles.
+  Recognizing such a store's host weak machinery is not enough: a migrated row
+  carrying a raw key still owns its own weak key and pins it forever. Every
+  retained value must go through TODAY's copier.
+
+  This IS the delivery path — `project-batch-evidence` then `fold-target` —
+  so a migrated row is indistinguishable from one accreted fresh: the same
+  bounded shown sample, the same distinct-loss partition, the same honesty.
+  Counters (`:count`, `:batches`, epochs, causes) are already bounded plain
+  data and carry over verbatim; `:targets` keeps its first-seen order.
+
+  Exactness only ever LOWERS. Re-projection can discover loss the legacy record
+  never marked, but it can never prove an exactness the legacy floor already
+  denied — the fold starts FROM the stored accrual, so a stored `false` stays
+  false. A row is never reset merely to simplify the migration, and an exact
+  value is never fabricated."
+  [acc]
+  (let [acc0 (merge empty-accrual acc)
+        ev   (project-batch-evidence acc0)]
+    (-> acc0
+        (assoc :targets [] :dropped #{})
+        (as-> a (reduce fold-target a (concat (:targets ev) (:dropped ev))))
+        (cond-> (false? (:targets-exact? ev)) (assoc :targets-exact? false)
+                (false? (:dropped-exact? ev)) (assoc :dropped-exact? false)))))
+
+(defn- sanitize-entry
+  "Re-project one retained row's accrual, preserving its `:cell-id` ordinal and
+  `:view-id` (stable identity axes, never target values)."
+  [entry]
+  (cond-> entry
+    (some? (:evidence entry)) (update :evidence reproject-accrual)))
+
 ;; ---- projection state --------------------------------------------------------
 
-(def ^:private ^:const weak-store-tag ::weak-cell-entries-v1)
+(def ^:private ^:const weak-store-tag
+  ;; The CURRENT retained-value contract version. A store carrying EXACTLY this
+  ;; tag has had every entry through today's `project-target-value`; any other
+  ;; shape — an older tag, or the untagged defrecord/strong-map stores left by
+  ;; earlier heads — is LEGACY, and its entries are re-projected on migration
+  ;; (rf2-vxgfnd.94.18). BUMP THIS whenever the copier changes what a retained
+  ;; value may hold: v1 admitted metadata-bearing symbols, whose metadata could
+  ;; hold the very ViewCell the entry is weak-keyed by (rf2-vxgfnd.94.17).
+  ::weak-cell-entries-v2)
+
 (def ^:private ^:const weak-store-tag-key ::weak-cell-entries)
 
 (defn- new-weak-cell-entries
@@ -287,12 +333,15 @@
                                (.delete members holder))))})))
 
 (defn- weak-cell-entries?
-  "Recognize the reload-stable tagged map AND the exact same host structure
-  left by the pre-tag defrecord implementation. Constructor identity is not
-  stable across a CLJS :after-load; these host fields are."
+  "Recognize a weak store of ANY vintage — a tagged map (current or older) and
+  the exact same host structure left by the pre-tag defrecord implementation.
+  Constructor identity is not stable across a CLJS :after-load; these host
+  fields are. Recognition means only that the HOST MACHINERY is reusable; it
+  says nothing about whether the retained VALUES meet the current contract —
+  that is `weak-store-current?`."
   [x]
   (and (map? x)
-       (or (= weak-store-tag (get x weak-store-tag-key))
+       (or (contains? x weak-store-tag-key)
            (and (contains? x :members)
                 (contains? x :by-cell)
                 (contains? x :next-ordinal)
@@ -304,13 +353,13 @@
                      (instance? js/WeakMap (:by-cell x))
                      (some? (:next-ordinal x))))))
 
-(defn- tag-weak-cell-entries
-  "Drop a reload-specific record constructor while preserving its exact host
-  weak maps, reaper and ordinal mint."
+(defn- weak-store-current?
+  "True when `store` carries EXACTLY the current retained-value contract tag —
+  its entries are already projected by today's copier and migration is a no-op.
+  A recognized store with an older tag, or none at all, is legacy: reuse its
+  host weak machinery, but trust none of its values."
   [store]
-  (if (= weak-store-tag (get store weak-store-tag-key))
-    store
-    (assoc (into {} store) weak-store-tag-key weak-store-tag)))
+  (= weak-store-tag (get store weak-store-tag-key)))
 
 (defn- store-next-ordinal!
   [store]
@@ -391,6 +440,47 @@
          (when-some [reaper (:reaper store)]
            (.unregister ^js reaper holder)))))
   nil)
+
+(defn- store-sanitize-entries!
+  "Re-project EVERY entry a legacy store retained, IN PLACE — same host weak
+  maps, same reaper registrations, same ordinal mint, same rows in the same
+  order. Only the retained VALUES change (rf2-vxgfnd.94.18).
+
+  In place is the point: rebuilding the store would re-register the reaper and
+  re-key the weak maps for rows this tier does not own, and rewrapping without
+  re-projecting would keep the raw query→cell back-edges the migration exists
+  to break."
+  [store]
+  #?(:clj
+     (let [members ^java.util.Map (:members store)]
+       (locking members
+         ;; Materialize first (see `store-live-entries!`), and skip a key that
+         ;; cleared in between — its row is already garbage.
+         (doseq [[cell entry] (into [] members)
+                 :when (some? cell)]
+           (.put members cell (sanitize-entry entry)))))
+     :cljs
+     (let [members ^js (:members store)]
+       (.forEach members
+                 (fn [holder _ _]
+                   (aset holder "entry" (sanitize-entry (aget holder "entry")))))))
+  nil)
+
+(defn- migrate-weak-store!
+  "Bring a recognized weak store up to the CURRENT retained-value contract,
+  reusing its exact host weak maps, reaper and ordinal mint, and drop any
+  reload-specific record constructor.
+
+  IDEMPOTENT: a store already carrying the current tag is returned untouched,
+  so repeated `:after-load` re-arms do no work. Anything older has its entries
+  re-projected before it is re-tagged — the tag is a claim about the values,
+  and promoting a legacy store without sanitizing it would make that claim a
+  lie (rf2-vxgfnd.94.18)."
+  [store]
+  (if (weak-store-current? store)
+    store
+    (do (store-sanitize-entries! store)
+        (assoc (into {} store) weak-store-tag-key weak-store-tag))))
 
 (defn- store-live-entries!
   "Snapshot live `[cell entry]` pairs, pruning dead cells and cleared refs.
@@ -496,7 +586,9 @@
   ;;
   ;; `defonce` is module-lived; normalize-state migrates both a pre-weak strong
   ;; map and the former defrecord-shaped weak store on first post-reload access
-  ;; without losing retained Activity evidence, host registrations or ordinals.
+  ;; without losing retained Activity evidence, host registrations or ordinals —
+  ;; and re-projects their pre-projection values on the way, so no legacy row
+  ;; migrates still owning its own weak key (rf2-vxgfnd.94.18).
   ;; In production the var root is literally nil: no atom, weak registry, or
   ;; ordinal mint is allocated (rf2-vxgfnd.149).
   (when interop/debug-enabled?
@@ -520,9 +612,19 @@
      :cljs (f)))
 
 (defn- normalize-state
-  "Migrate the pre-weak persistent ViewCell map preserved by `state*` across a
-  reload. Activity-retained rows and ordinals survive; closed state owns no
-  registry."
+  "Bring the value `defonce` preserved verbatim across a reload up to the
+  current contract. TWO legacy store shapes exist, and BOTH hold values an
+  earlier copier admitted — so recognizing a shape is where the migration
+  starts, not where it ends (rf2-vxgfnd.94.18):
+
+    - a recognized weak store from an earlier head (including the pre-tag
+      defrecord): its host weak machinery is REUSED and its entries are
+      re-projected in place;
+    - the pre-weak persistent ViewCell map: rebuilt into a fresh weak store,
+      seeding each still-live row's SANITIZED entry under a weak key.
+
+  Either way Activity-retained rows, their ordinals and their order survive,
+  and no raw target/query value does. Closed state owns no registry."
   [{:keys [owner entries next-ordinal] :as s}]
   (cond
     (nil? owner)
@@ -530,14 +632,14 @@
 
     (weak-cell-entries? entries)
     (-> s
-        (assoc :entries (tag-weak-cell-entries entries))
+        (assoc :entries (migrate-weak-store! entries))
         (dissoc :next-ordinal))
 
     :else
     (let [store (new-weak-cell-entries)]
       (doseq [[cell entry] entries
               :when (not= :dead (reactive/lifecycle cell))]
-        (store-seed-entry! store cell entry))
+        (store-seed-entry! store cell (sanitize-entry entry)))
       (store-set-next-at-least! store (or next-ordinal 0))
       (-> s (assoc :entries store) (dissoc :next-ordinal)))))
 
