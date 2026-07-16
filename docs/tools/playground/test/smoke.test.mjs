@@ -57,6 +57,28 @@
  *     inheriting the stale app-db. A fresh machine cell still resolves after the
  *     teardown, proving framework registrations (not page-owned) survive.
  *
+ * Asserts the rf2-gmjblu (edited Core live-cell Try-it variants) contract —
+ * the automated-coverage half of rf2-zp5ych / #6066, guarding that an edited
+ * cell re-runs on its OWNING frame, not :rf/default:
+ *   - views.md :demo two-stepper: the corrected Try-it edit keeps the :demo
+ *     frame-root and nests the two steppers in its child
+ *     [rf/frame-root {:id :demo …} [:div [qty-stepper] [qty-stepper]]]. BOTH
+ *     steppers resolve the :demo frame (seeded :views.qty/value 1) through the
+ *     context tier and read 1 — not blank, not inc-on-nil. Clicking one +
+ *     moves BOTH (one shared :demo value). The regression this guards: if the
+ *     edit dropped the frame-root (the pre-fix prose said "change the LAST
+ *     form to [:div …]"), the steppers mount on the harness default frame
+ *     where the seed never ran and read nil → blank.
+ *   - coeffects.md order-list injected-dispatch + :rf.cofx: the corrected
+ *     Try-it edit uses the reg-view-INJECTED (unqualified) dispatch with an
+ *     opts 2nd arg — #(dispatch [:demo.order/place {:id (random-uuid)}]
+ *     {:rf.cofx {:rf/time-ms N}}). The injected dispatch is locked to the
+ *     render frame (:orders via frame-provider), so the placed order lands on
+ *     :orders (the list updates) and the supplied :rf.cofx {:rf/time-ms N}
+ *     wins over the enqueue stamp (placed-at == N). The regression this
+ *     guards: the pre-fix prose used the ns-level rf/dispatch, which targets
+ *     :rf/default — the order would never land on the :orders sub, list empty.
+ *
  * Run: node test/smoke.test.mjs   (after both bundles are built + `npm run
  * browsers`)
  */
@@ -249,6 +271,67 @@ const PAGE = `<!DOCTYPE html>
   [rf/frame-root {:id :rf2smoke/app-b
                   :initial-events [[:rf2smoke.two/init 0]]}
    [two-counter "green"]]]]</pre>
+  <h2>edited :demo two-stepper (views.md Try-it, rf2-gmjblu)</h2>
+  <pre class="language-cljs-rf2">(require '[re-frame.core :as rf])
+;; The CORRECTED views.md Try-it variant (rf2-zp5ych / #6066): the edited last
+;; form KEEPS the :demo frame-root and nests the two steppers in its CHILD —
+;; [rf/frame-root {:id :demo …} [:div [qty-stepper] [qty-stepper]]] — so BOTH
+;; steppers resolve the :demo frame (seeded :views.qty/value 1) through the
+;; context tier and read 1. The regression this guards: the pre-fix prose said
+;; "change the LAST form to [:div [qty-stepper] [qty-stepper]]", which drops the
+;; frame-root; the steppers then mount on the harness default frame where the
+;; seed never ran, read nil, and render blank / inc-on-nil.
+(rf/reg-event :views.qty/initialise
+  (fn [{:keys [db]} _] {:db (assoc db :views.qty/value 1)}))
+(rf/reg-event :views.qty/inc
+  (fn [{:keys [db]} _] {:db (update db :views.qty/value inc)}))
+(rf/reg-event :views.qty/dec
+  (fn [{:keys [db]} _] {:db (update db :views.qty/value (fnil dec 1))}))
+(rf/reg-sub :views.qty/value
+  (fn [db _] (:views.qty/value db)))
+(rf/reg-view qty-stepper []
+  [:div
+   [:button.rf2-qty-dec {:on-click #(dispatch [:views.qty/dec])} "-"]
+   [:span.rf2-qty-val @(subscribe [:views.qty/value])]
+   [:button.rf2-qty-inc {:on-click #(dispatch [:views.qty/inc])} "+"]])
+[rf/frame-root {:id :demo :initial-events [[:views.qty/initialise]]}
+ [:div [qty-stepper] [qty-stepper]]]</pre>
+  <h2>edited order-list injected-dispatch + :rf.cofx (coeffects.md Try-it, rf2-gmjblu)</h2>
+  <pre class="language-cljs-rf2">(require '[re-frame.core :as rf])
+;; The CORRECTED coeffects.md Try-it variant (rf2-zp5ych / #6066): the button's
+;; on-click uses the reg-view-INJECTED (unqualified) dispatch with an opts 2nd
+;; arg — #(dispatch [:demo.order/place {:id (random-uuid)}]
+;;                   {:rf.cofx {:rf/time-ms 1735732800000}}).
+;; The injected dispatch is locked to the render frame (:orders via
+;; frame-provider), so the order lands on :orders (the list updates) and the
+;; supplied :rf.cofx {:rf/time-ms N} wins over the enqueue stamp. The regression
+;; this guards: the pre-fix prose used the ns-level rf/dispatch, which targets
+;; :rf/default — the order would never land on the :orders sub and the list
+;; would stay empty.
+(rf/reg-event :demo.order/place
+  {:rf.cofx/requires [:rf/time-ms]}
+  (fn [{:keys [db rf/time-ms]} [_ {:keys [id]}]]
+    {:db (assoc-in db [:demo.order/items id]
+                   {:id id
+                    :label (str "Order #" (inc (count (:demo.order/items db))))
+                    :placed-at time-ms})}))
+(rf/reg-event :demo.order/initialise
+  (fn [{:keys [db]} _event] {:db (assoc db :demo.order/items {})}))
+(rf/reg-sub :demo.order/items
+  (fn [db _query] (vals (:demo.order/items db))))
+(rf/reg-view order-list []
+  [:div
+   [:button#rf2-order-btn
+    {:on-click #(dispatch [:demo.order/place {:id (random-uuid)}]
+                          {:rf.cofx {:rf/time-ms 1735732800000}})}
+    "Place an order"]
+   [:ul#rf2-order-list
+    (for [{:keys [id label placed-at]} @(subscribe [:demo.order/items])]
+      ^{:key id}
+      [:li.rf2-order-item {:data-placed-at (str placed-at)} label])]])
+(rf/make-frame {:id :orders :initial-events [[:demo.order/initialise]]})
+[rf/frame-provider {:frame :orders}
+ [order-list]]</pre>
   <script src="/playground.js"></script>
 </body></html>`;
 
@@ -315,10 +398,11 @@ await page.waitForFunction(
 );
 await page.waitForSelector(".cljs-cell .cm-editor", { timeout: 20000 });
 
-// All cells mount (3 plain-eval + 3 rf2 render: counter + toggle-machine +
-// eager-start-machine).
+// All cells mount (3 plain-eval + 10 rf2 render: counter + toggle-machine +
+// eager-start-machine + reg-view + cofx + flow + program + mount +
+// two-stepper + order-list).
 const allCells = await page.$$(".cljs-cell");
-assert(allCells.length === 11, `11 cells mounted (got ${allCells.length})`);
+assert(allCells.length === 13, `13 cells mounted (got ${allCells.length})`);
 // The eval-cell helpers below index into the 3 plain-eval cells only
 // (rf2 render cells carry .cljs-cell--render, so this excludes them).
 const cells = await page.$$(".cljs-cell:not(.cljs-cell--render)");
@@ -374,7 +458,7 @@ await page.waitForFunction(
 assert(true, "bootstrap auto-loaded the re-frame2 SCI bundle (window.rf2sci)");
 
 const rf2Cells = await page.$$(".cljs-cell--rf2");
-assert(rf2Cells.length === 8, `8 re-frame2 cells mounted (got ${rf2Cells.length})`);
+assert(rf2Cells.length === 10, `10 re-frame2 cells mounted (got ${rf2Cells.length})`);
 
 // The reagent2 component renders into the result div as live DOM (auto-mount),
 // driven by re-frame2's OWN reg-event / reg-sub / dispatch-sync.
@@ -558,6 +642,106 @@ const twoB2 = (await page.locator("#rf2-two-b .two-val").innerText()).trim();
 console.log("after clicking frame a:", JSON.stringify({ a: "7", b: twoB2 }));
 assert(twoB2 === "0", `clicking frame :app-a leaves :app-b untouched (got ${JSON.stringify(twoB2)})`);
 
+// --- rf2-gmjblu: edited :demo two-stepper (views.md Try-it) -----------------
+//
+// The corrected views.md Try-it edit keeps the :demo frame-root and nests the
+// two steppers in its child [:div [qty-stepper] [qty-stepper]]. BOTH steppers
+// resolve :demo (seeded :views.qty/value 1) through the context tier, so both
+// read 1 — not blank, not inc-on-nil. Clicking one + moves BOTH (one shared
+// :demo value). Regression guard: dropping the frame-root would mount the
+// steppers on the harness default frame (no seed) and they would read blank.
+const rf2StepperErr = await rf2Cells[8].$eval(".cljs-result", (el) =>
+  el.classList.contains("cljs-result--err")
+);
+assert(!rf2StepperErr, "two-stepper cell not flagged error");
+// `attached` (not `visible`): a blank span (the dropped-frame-root regression)
+// IS in the DOM but has no box, so waiting for visibility would time out with a
+// crash instead of the legible "both steppers read blank" assert FAIL below.
+await page.waitForSelector(".cljs-cell--rf2 .rf2-qty-val", {
+  state: "attached",
+  timeout: 20000,
+});
+const stepperVals = await page.$$eval(".cljs-cell--rf2 .rf2-qty-val", (els) =>
+  els.map((el) => el.innerText.trim())
+);
+console.log("two-stepper values (initial):", JSON.stringify(stepperVals));
+assert(
+  stepperVals.length === 2,
+  `two steppers render under the :demo frame-root (got ${stepperVals.length})`
+);
+assert(
+  stepperVals.every((v) => v === "1"),
+  `both steppers read the seeded :demo value 1 — not blank (got ${JSON.stringify(stepperVals)})`
+);
+// Both are windows onto the SAME :demo value: click one +, both move to 2.
+await page.click(".cljs-cell--rf2 .rf2-qty-inc");
+await page
+  .waitForFunction(
+    () =>
+      Array.from(document.querySelectorAll(".cljs-cell--rf2 .rf2-qty-val")).every(
+        (el) => el.innerText.trim() === "2"
+      ),
+    null,
+    { timeout: 5000 }
+  )
+  .catch(() => {});
+const stepperAfter = await page.$$eval(".cljs-cell--rf2 .rf2-qty-val", (els) =>
+  els.map((el) => el.innerText.trim())
+);
+console.log("two-stepper values (after one +):", JSON.stringify(stepperAfter));
+assert(
+  stepperAfter.length === 2 && stepperAfter.every((v) => v === "2"),
+  `clicking one stepper's + moves BOTH to 2 (shared :demo value) (got ${JSON.stringify(stepperAfter)})`
+);
+
+// --- rf2-gmjblu: edited order-list injected-dispatch + :rf.cofx -------------
+//
+// The corrected coeffects.md Try-it edit uses the reg-view-injected dispatch
+// with an opts 2nd arg: #(dispatch [:demo.order/place {:id (random-uuid)}]
+// {:rf.cofx {:rf/time-ms 1735732800000}}). The injected dispatch is locked to
+// the render frame (:orders), so the placed order lands on :orders (the list
+// updates) and the supplied :rf.cofx {:rf/time-ms N} is honoured (placed-at ==
+// N). Regression guard: the ns-level rf/dispatch would target :rf/default and
+// the :orders list would never update.
+const rf2OrderErr = await rf2Cells[9].$eval(".cljs-result", (el) =>
+  el.classList.contains("cljs-result--err")
+);
+assert(!rf2OrderErr, "order-list cell not flagged error");
+await page.waitForSelector("#rf2-order-btn", { timeout: 20000 });
+const ordersBefore = await page.$$eval(".rf2-order-item", (els) => els.length);
+console.log("order-list items (initial):", ordersBefore);
+assert(
+  ordersBefore === 0,
+  `order list starts empty after :demo.order/initialise (got ${ordersBefore})`
+);
+await page.click("#rf2-order-btn");
+await page
+  .waitForFunction(
+    () => document.querySelectorAll(".rf2-order-item").length === 1,
+    null,
+    { timeout: 5000 }
+  )
+  .catch(() => {});
+const ordersAfter = await page.$$eval(".rf2-order-item", (els) =>
+  els.map((el) => ({
+    text: el.innerText.trim(),
+    placedAt: el.getAttribute("data-placed-at"),
+  }))
+);
+console.log("order-list items (after place):", JSON.stringify(ordersAfter));
+assert(
+  ordersAfter.length === 1,
+  `injected dispatch lands the order on the :orders render frame — list updates (got ${ordersAfter.length})`
+);
+assert(
+  !!ordersAfter[0] && ordersAfter[0].placedAt === "1735732800000",
+  `supplied :rf.cofx {:rf/time-ms} honoured — placed-at == 1735732800000 (got ${JSON.stringify(ordersAfter[0])})`
+);
+assert(
+  !!ordersAfter[0] && ordersAfter[0].text.includes("Order #1"),
+  `placed order renders on :orders with its label (got ${JSON.stringify(ordersAfter[0])})`
+);
+
 // A plain eval cell on the SAME page still works alongside the re-frame2 bundle
 // (Scittle + window.rf2sci coexist without interference).
 const c1afterRf2 = await evalCell(0);
@@ -593,8 +777,8 @@ assert(
 const rootsBeforeNav = await page.evaluate(() => window.rf2sci.liveRootCount());
 console.log("live roots before nav:", rootsBeforeNav);
 assert(
-  rootsBeforeNav === 8,
-  `page 1 holds one root per rf2 cell (8) before nav (got ${rootsBeforeNav})`
+  rootsBeforeNav === 10,
+  `page 1 holds one root per rf2 cell (10) before nav (got ${rootsBeforeNav})`
 );
 
 await page.evaluate(() => {
