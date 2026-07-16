@@ -197,6 +197,46 @@
       (is (= (header/slot-name (host 'id)) (slot-of 'id)))
       (is (= "acct/id" (slot-of 'id))))))
 
+(deftest qualified-group-name-collision-collapses-no-dead-slot
+  ;; rf2-7imr5y — the residual collision the `bes`-map collapse does NOT catch:
+  ;; a QUALIFIED :keys group local (`ns/x`) whose bare name collides an explicit
+  ;; local (`x :other`). The two never share a `bes` KEY (`ns/x` ≠ `x`), so
+  ;; `assoc-binding-units` emits TWO units binding the same name-stripped local
+  ;; `x` via host `let` last-wins. Uncollapsed, that left a DEAD `:other` slot in
+  ;; the comparator/manifest; `header/collapse-entries` now folds it to the one
+  ;; host-winning entry `x <- :ns/x`.
+  (testing "binding VALUE stays host-faithful (x resolves to :ns/x, not :other)"
+    (let [pat '{:keys [ns/x] x :other}
+          host (host-local->key pat)
+          {:keys [locals slot-of]} (emitted [pat])]
+      (is (= {'x :ns/x} host)
+          "host last-wins binds x <- :ns/x; the explicit :other is dead")
+      (is (= '[x] locals)
+          "x is emitted EXACTLY ONCE — no duplicate read")
+      (is (= "ns/x" (slot-of 'x))
+          "CLJS reads the host's winning slot \"ns/x\", never dead \"other\"")
+      (is (= (header/slot-name (host 'x)) (slot-of 'x)))))
+  (testing "the collapsed slot is the ONLY declared slot — no dead :other"
+    (let [h (header/parse-header '[{:keys [ns/x] x :other}])]
+      (is (= [{:key :ns/x :slot "ns/x" :pattern 'x}] (:entries h))
+          "ONE entry, the winning :ns/x — never two entries for one local")
+      (is (= [:ns/x] (:slots h))
+          "the dead-shadowed :other does NOT survive as a declared slot")
+      (is (not (some #{:other} (:slots h)))
+          "no :other in the comparator/manifest slot set")))
+  (testing "the :or default rides the winning entry, not the dead one"
+    (let [h (header/parse-header '[{:keys [ns/x] x :other :or {x 9}}])]
+      (is (= [{:key :ns/x :slot "ns/x" :pattern 'x :default 9}] (:entries h))
+          "one entry: winning slot :ns/x carrying the x default")
+      (is (= [:ns/x] (:slots h)))))
+  (testing "real JVM native destructuring agrees — :ns/x wins, :other is dead"
+    (let [f (eval (list 'fn '[{:keys [ns/x] x :other}] 'x))]
+      (is (= 1 (f {:ns/x 1 :other 2})) "present :ns/x wins; :other is dead")
+      (is (nil? (f {:other 2}))         ":other never reaches x — absent :ns/x → nil"))
+    (let [g (eval (list 'fn '[{:keys [ns/x] x :other :or {x 9}}] 'x))]
+      (is (= 1 (g {:ns/x 1 :other 2})) "present :ns/x wins over :other and the default")
+      (is (= 9 (g {:other 2}))         "absent :ns/x → the :or default, never :other"))))
+
 (deftest real-jvm-native-binding-agrees-present-absent-defaulted
   ;; The JVM emitter emits `(let [<raw pattern> props] …)` — native
   ;; destructuring. Eval it and confirm the collapsed slot + default behave

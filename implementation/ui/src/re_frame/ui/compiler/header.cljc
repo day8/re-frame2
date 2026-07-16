@@ -108,19 +108,45 @@
    b)
   nil)
 
+(defn- collapse-entries
+  "Keep exactly ONE entry per bound local (`:pattern`) — the host `bes`-order
+  WINNER, i.e. the LAST occurrence, the binding the host's `let` last-wins
+  actually establishes. `bp/assoc-binding-units` already collapses two units
+  that share a `bes` KEY (`{:keys [x] x :foo}` → the group's `assoc` overwrites
+  the explicit entry, one `x <- :x`). But a QUALIFIED group local whose bare
+  name collides an explicit local (`{:keys [ns/x] x :other}`) keeps two DISTINCT
+  `bes` keys (`ns/x`, `x`) that both name-strip to the same local `x`; those
+  arrive as two units binding one local via host last-wins. Left uncollapsed
+  they leave a DEAD slot (`:other` here) in the derived `:slots` — over-comparing
+  in the memo comparator (spurious re-renders), over-declaring in the manifest
+  `:prop-slots`, and silently accepting a never-bound key under CLOSED `:props`.
+  De-duping by `:pattern` here — keeping the last, host-winning entry — restores
+  the 'never two entries for one local' invariant so the derived slots carry no
+  key the view never binds. The winning entry stays in its `bes` position; a
+  same-key collision across DISTINCT locals (`{:keys [x] y :x}` — two locals,
+  one slot) is untouched (both patterns differ, so both survive; the slot
+  `distinct` folds the shared key)."
+  [entries]
+  (let [last-idx (into {} (map-indexed (fn [i e] [(:pattern e) i])) entries)]
+    (into [] (keep-indexed (fn [i e] (when (= i (last-idx (:pattern e))) e)))
+          entries)))
+
 (defn parse-header
   "argv -> {:mode :none|:named|:as, :as-sym, :entries [{:key :slot
   :pattern :default}...], :slots [kw...], :children? bool, :binding-form}
 
   The binding `:entries` and `:slots` are the CANONICAL, host-faithful binding
-  units (`bp/assoc-binding-units`): one entry per bound local, in host
-  `destructure` `bes` order, carrying the WINNING lookup key after collapse. Two
-  header entries that bind the same local (`{:keys [x] x :foo}`) COLLAPSE to a
-  single `x <- :x` entry — never two, never a silent last-wins — and a qualified
-  group local (`{:keys [acct/id]}`) keeps its qualified slot `:acct/id`. Both
-  emitters, the schema slot order, the memo comparator and the manifest metadata
-  read these same collapsed entries, so no downstream path can re-collide or
-  strip a qualified key."
+  units (`bp/assoc-binding-units`, then `collapse-entries`): one entry per bound
+  local, in host `destructure` `bes` order, carrying the WINNING lookup key after
+  collapse. Two header entries that bind the same local COLLAPSE to a single
+  entry — never two, never a silent last-wins — whether they collide in the host
+  `bes` map (`{:keys [x] x :foo}` → `x <- :x`) or only after the qualified group
+  local name-strips onto an explicit local (`{:keys [ns/x] x :other}` → the host
+  last-wins `x <- :ns/x`, the explicit `:other` dropped). A qualified group local
+  (`{:keys [acct/id]}`) keeps its qualified slot `:acct/id`. Both emitters, the
+  schema slot order, the memo comparator and the manifest metadata read these
+  same collapsed entries, so no downstream path can re-collide, strip a qualified
+  key, or inherit a dead slot."
   [argv]
   (when-not (vector? argv)
     (fail :rf.ui.compile/bad-defview-args
@@ -145,16 +171,20 @@
               or-map  (get b :or {})
               _       (validate-header-map! b or-map)
               ;; ONE canonical, de-collided binding plan — the host `bes` order
-              ;; with winning lookup keys. Every downstream consumer reads these
-              ;; same entries, so none can re-collide or strip a qualified key.
-              entries (mapv (fn [{:keys [local-pattern key]}]
-                              (cond-> {:key key
-                                       :slot (slot-name key)
-                                       :pattern local-pattern}
-                                (and (symbol? local-pattern)
-                                     (contains? or-map local-pattern))
-                                (assoc :default (get or-map local-pattern))))
-                            (bp/assoc-binding-units b))
+              ;; with winning lookup keys. `collapse-entries` folds any two units
+              ;; that bind the SAME local (including the qualified-group-name
+              ;; collision `bp/assoc-binding-units` leaves as two) to the single
+              ;; host-winning entry, so no downstream consumer inherits a dead
+              ;; slot, re-collides, or strips a qualified key.
+              entries (collapse-entries
+                       (mapv (fn [{:keys [local-pattern key]}]
+                               (cond-> {:key key
+                                        :slot (slot-name key)
+                                        :pattern local-pattern}
+                                 (and (symbol? local-pattern)
+                                      (contains? or-map local-pattern))
+                                 (assoc :default (get or-map local-pattern))))
+                             (bp/assoc-binding-units b)))
               _ (doseq [s (keys or-map)]
                   (when-not (some #(= s (:pattern %)) entries)
                     (fail :rf.ui.compile/bad-defview-args
