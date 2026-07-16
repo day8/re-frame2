@@ -393,7 +393,16 @@
   nil)
 
 (defn- store-live-entries!
-  "Snapshot live `[cell entry]` pairs, pruning dead cells and cleared refs."
+  "Snapshot live `[cell entry]` pairs, pruning dead cells and cleared refs.
+
+  TWO exits, not one (rf2-un54gv). `:dead` is the PROVEN end — a teardown path
+  said so, and the row goes immediately. But an ordinary React reconciliation
+  unmount proves nothing: the cell only ever reaches `:disconnected`, exactly as
+  an Activity hide does, so a lifecycle predicate can never distinguish them.
+  That cell leaves through the OTHER exit — its weak key is collected once React
+  drops the last owner, and the read compacts whatever the host has cleared.
+  Pruning on `:disconnected` would evict live Activity-hidden rows; pruning only
+  on `:dead` would pin every unmount forever. Both exits are load-bearing."
   [store]
   (if (nil? store)
     []
@@ -403,8 +412,21 @@
            ;; Materialize first: mutating WeakHashMap during reduce iteration
            ;; would invalidate its iterator.
            (reduce (fn [out [cell entry]]
-                     (if (= :dead (reactive/lifecycle cell))
+                     (cond
+                       ;; A WeakHashMap entry OUTLIVES its referent: the key
+                       ;; can clear between this materialization and the read
+                       ;; below (the iterator holds only the CURRENT key
+                       ;; strongly), so `getKey` hands back nil. That is the
+                       ;; ordinary-unmount exit — skip the row and let the map
+                       ;; expunge it, never `.remove` nil (which would target a
+                       ;; genuine null-key mapping).
+                       (nil? cell)
+                       out
+
+                       (= :dead (reactive/lifecycle cell))
                        (do (.remove members cell) out)
+
+                       :else
                        (conj out [cell entry])))
                    []
                    (into [] members))))
