@@ -2,11 +2,17 @@
   "Real CLJS-analyzer resolution proofs for the expression macro barrier."
   (:require [cljs.analyzer :as cljs-analyzer]
             [cljs.analyzer.api :as cljs-api]
+            [cljs.compiler :as cljs-comp]
             [cljs.core]
             [cljs.env :as cljs-env]
+            [clojure.string :as str]
             [clojure.test :refer [deftest is testing]]
+            [clojure.walk :as walk]
             [re-frame.ui.compiler.analyze :as analyze]
+            [re-frame.ui.compiler.emit-cljs :as emit-cljs]
+            [re-frame.ui.compiler.emit-jvm :as emit-jvm]
             [re-frame.ui.compiler.env :as env]
+            [re-frame.ui.compiler.header :as header]
             [re-frame.ui.compiler.root :as root]))
 
 (defmacro user-binder
@@ -228,3 +234,146 @@
       (testing "a legal element root still analyzes through the root compiler"
         (is (= :element
                (:op (:ast (root/analyze-root (referred-env aenv nil) 'ui/mount '[:div "x"])))))))))
+
+;; ---------------------------------------------------------------------------
+;; rf2-rr26cq — emit a recursive self head against the current-namespace Var
+;; ---------------------------------------------------------------------------
+;;
+;; The .274 analyzer proofs above stop at classification (the self head is an
+;; internal :view). But the CLJS emitter splits the render fn (`<v>$render`)
+;; from the view's own `(def <v> …)`, so the render fn FORWARD-references the
+;; view before its def. A self head emitted as the raw authored spelling
+;; therefore resolves through the same-named `:refer` — cljs.analyzer/resolve-var
+;; checks `:uses` (refers) BEFORE `:defs` — and captures the public authoring
+;; Var (`re-frame.ui/sub`) in the emitted JavaScript. The fix carries the
+;; canonical `:fqn` (the current-namespace Var) for the self component node and
+;; forward-`declare`s it. These rows drive the REAL emitters and compile the
+;; emitted self head to REAL JavaScript through cljs.compiler.
+
+(defn- self-emit-args
+  "Package emit args for `(defview <verb> [] [<verb> {}])` exactly as
+  `compiler/defview**` does — the self view named `verb` recurses on a bare
+  `[verb {}]` self head in the referred cljs.user namespace."
+  [aenv verb]
+  (let [e   (referred-env aenv verb)
+        ast (analyze/analyze e [verb {}])]
+    {:vname verb
+     :self-fqn (symbol "cljs.user" (name verb))
+     :view-id (keyword "cljs.user" (name verb))
+     :display-name (str "cljs.user/" (name verb))
+     :docstring nil
+     :header (header/parse-header [])
+     :slots []
+     :lease-declarations []
+     :ast ast
+     :manifest {:view-id (keyword "cljs.user" (name verb)) :sites {} :children? false}
+     :closed-keys nil
+     :children? false}))
+
+(defn- jsx-tag-syms
+  "The symbol component heads the CLJS emitter placed in jsx-runtime `js*`
+  calls (`(0,<rt>.jsx)(<tag>,<props>)`); the tag is the 3rd js* argument after
+  the template and the runtime alias."
+  [form]
+  (let [hits (atom [])]
+    (walk/postwalk
+     (fn [x]
+       (when (and (seq? x) (= 'js* (first x)) (string? (second x))
+                  (str/includes? (second x) ".jsx"))
+         (let [tag (nth x 3 nil)]
+           (when (symbol? tag) (swap! hits conj tag))))
+       x)
+     form)
+    @hits))
+
+(defn- call-head-syms
+  "Every seq head symbol whose NAME matches `verb` — on the JVM emit form the
+  only such head is the self component call `(cljs.user/<verb> {…})`."
+  [form verb]
+  (let [hits (atom [])]
+    (walk/postwalk
+     (fn [x]
+       (when (and (seq? x) (symbol? (first x)) (= (name (first x)) (name verb)))
+         (swap! hits conj (first x)))
+       x)
+     form)
+    @hits))
+
+(defn- emit-var-js
+  "Real cljs.compiler JavaScript for a var-reference symbol in cljs.user
+  (warnings silenced — the point is the munged target, not the diagnostic)."
+  [aenv sym]
+  (binding [cljs-analyzer/*cljs-warnings*
+            (zipmap (keys cljs-analyzer/*cljs-warnings*) (repeat false))]
+    (cljs-comp/emit-str
+     (cljs-analyzer/analyze (assoc aenv :context :expr) sym))))
+
+(deftest real-cljs-self-head-emits-against-current-namespace-var
+  ;; rf2-rr26cq accept rows. Reverting the emitter to the raw authored `:sym`
+  ;; re-captures `re-frame.ui/<verb>` in the emitted JavaScript and drops the
+  ;; forward declaration, failing every row below.
+  (with-referred-cljs-env
+    (fn [aenv]
+      (doseq [verb '[sub lease frame]]
+        (let [self-fqn  (symbol "cljs.user" (name verb))
+              args      (self-emit-args aenv verb)
+              cljs-form (emit-cljs/emit-defview args)
+              jvm-form  (emit-jvm/emit-defview args)
+              cljs-heads (jsx-tag-syms cljs-form)]
+          (testing (str "CLJS: the self head is the current-namespace fqn (" verb ")")
+            (is (seq cljs-heads) "a self component call is emitted")
+            (is (every? #(= self-fqn %) cljs-heads)
+                (str "every self head is cljs.user/" verb ", never the bare refer"))
+            (is (not-any? #(= verb %) cljs-heads)
+                "the raw authored spelling never reaches a jsx head"))
+          (testing (str "CLJS: the view forward-declares its own Var (" verb ")")
+            (is (some #(and (seq? %) (= 'clojure.core/declare (first %))
+                            (= verb (second %)))
+                      cljs-form)
+                "a (declare <verb>) precedes the render fn")
+            (is (some #(and (seq? %) (= 'def (first %)) (= verb (second %)))
+                      cljs-form)
+                "the def still targets the bare current-namespace name"))
+          (testing (str "CLJS: the emitted self head compiles to cljs.user." (name verb))
+            (doseq [h cljs-heads]
+              (let [js (emit-var-js aenv h)]
+                (is (= (str "cljs.user." (name verb)) js)
+                    (str "self head " h " munges to the current-namespace Var"))
+                (is (not (str/includes? js (str "re_frame.ui." (name verb))))
+                    "zero authoring-Var reference in the emitted JavaScript"))))
+          (testing (str "JVM: the self call targets the current-namespace fqn (" verb ")")
+            (let [jvm-heads (call-head-syms jvm-form verb)]
+              (is (seq jvm-heads) "a self component call is emitted")
+              (is (every? #(= self-fqn %) jvm-heads)
+                  (str "every JVM self call head is cljs.user/" verb)))))))))
+
+(deftest a-bare-authored-self-head-would-capture-the-authoring-var
+  ;; The counterfactual the fix defeats: were the emitter to keep the raw
+  ;; authored spelling, that bare head compiles to the REFERRED authoring Var —
+  ;; the exact defect rf2-rr26cq closes. This pins the JavaScript delta so a
+  ;; regression is legible, not silent.
+  (with-referred-cljs-env
+    (fn [aenv]
+      (doseq [verb '[sub lease frame]]
+        (is (= (str "re_frame.ui." (name verb)) (emit-var-js aenv verb))
+            (str "a bare " verb " head resolves through the refer to the authoring Var"))
+        (is (= (str "cljs.user." (name verb))
+               (emit-var-js aenv (symbol "cljs.user" (name verb))))
+            (str "the qualified " verb " head resolves to the current-namespace Var"))))))
+
+(deftest a-non-recursive-defview-emits-no-self-declaration
+  ;; Preserve unrelated behavior: a view that does NOT reference itself emits no
+  ;; forward declaration and no fqn rewrite — the self-head machinery is inert.
+  (with-referred-cljs-env
+    (fn [aenv]
+      (let [e    (referred-env aenv 'panel)
+            ast  (analyze/analyze e [:div "x"])
+            args {:vname 'panel :self-fqn 'cljs.user/panel :view-id :cljs.user/panel
+                  :display-name "cljs.user/panel" :docstring nil
+                  :header (header/parse-header []) :slots [] :lease-declarations []
+                  :ast ast
+                  :manifest {:view-id :cljs.user/panel :sites {} :children? false}
+                  :closed-keys nil :children? false}
+            form (emit-cljs/emit-defview args)]
+        (is (not-any? #(and (seq? %) (= 'clojure.core/declare (first %))) form)
+            "a non-recursive view emits no (declare …)")))))
