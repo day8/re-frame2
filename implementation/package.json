@@ -31,6 +31,7 @@
     "test:ui": "npm run test:ui-isolation && node out/node-test-ui.js",
     "test:ui-isolation": "node scripts/check-ui-adapter-isolation.cjs --self-test && shadow-cljs compile node-test-ui && node scripts/check-ui-adapter-isolation.cjs",
     "test:ui-digest-carrier": "node scripts/check-ui-digest-carrier.cjs",
+    "test:ui-final-schedule": "node scripts/check-ui-final-schedule.cjs",
     "test:ui-g1": "node scripts/run-ui-bench.cjs",
     "test:ui-g13": "node scripts/run-ui-g13.cjs",
     "test:cljs-perf-emit-nightly": "shadow-cljs compile node-test-perf-nightly && node out/node-test-perf-nightly.js",
