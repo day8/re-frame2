@@ -596,6 +596,56 @@ test('cljs-examples-compile job uses the dedicated output and nightly retains fu
   assert.ok(compile < playwright, 'example compilation should fail before the browser download');
 });
 
+// rf2-k8yl5f — the re-frame2-pair skill ships a dev-only preload
+// (skills/re-frame2-pair/preload/re_frame2_pair/{runtime.cljs,pure.cljc}).
+// shadow-cljs.edn adds ../skills/re-frame2-pair/preload as a :source-path and
+// wires re-frame2-pair.runtime into ~28 :examples/* dev builds via
+// `:devtools :preloads`. `shadow-cljs compile` (the examples-compile coverage
+// gate — unlike `release`) HONOURS :devtools/preloads, so a preload-only
+// change compiles into every example dev build that injects it and can break
+// that gate. Before this bead the classifier armed ONLY skills_structural on
+// the preload path, so examples_compile=false and a preload break surfaced
+// only in the unconditional nightly examples-compile net (rf2-gzavkm), never
+// at PR time. These assertions lock the examples_compile arming while keeping
+// skills_structural (the preload is still skill material) and holding scope:
+// non-preload skill files must NOT drag in the heavy example-compile sweep.
+test('re-frame2-pair PRELOAD change arms examples_compile (injected into ~28 example dev builds) (rf2-k8yl5f)', () => {
+  const result = classify('skills/re-frame2-pair/preload/re_frame2_pair/runtime.cljs');
+  assert.equal(
+    result.examples_compile,
+    'true',
+    'a preload change compiles into every :examples/* dev build that injects re-frame2-pair.runtime; it must run the examples-compile gate',
+  );
+});
+
+test('re-frame2-pair PRELOAD .cljc change also arms examples_compile (rf2-k8yl5f)', () => {
+  const result = classify('skills/re-frame2-pair/preload/re_frame2_pair/pure.cljc');
+  assert.equal(result.examples_compile, 'true');
+});
+
+test('re-frame2-pair PRELOAD change STILL arms skills_structural (regression — it is skill material) (rf2-k8yl5f)', () => {
+  const result = classify('skills/re-frame2-pair/preload/re_frame2_pair/runtime.cljs');
+  assert.equal(
+    result.skills_structural,
+    'true',
+    'the preload lives under skills/re-frame2-pair/ so the structural skill gate must still fire; examples_compile widens coverage, it does not replace it',
+  );
+});
+
+test('NON-preload re-frame2-pair skill file does NOT arm examples_compile (scope discipline) (rf2-k8yl5f)', () => {
+  // Only the shipped preload compiles into the example builds. Other skill
+  // material (SKILL.md, references, the redaction guides) must NOT drag the
+  // heavy all-examples compile sweep into an ordinary skill-doc PR — it keeps
+  // its existing skills_structural-only classification.
+  const result = classify('skills/re-frame2-pair/SKILL.md');
+  assert.equal(
+    result.examples_compile,
+    'false',
+    'a non-preload skill file cannot change an example build; it must NOT arm examples_compile',
+  );
+  assert.equal(result.skills_structural, 'true');
+});
+
 // rf2-3kewru — G-12 Arm 2 shells out to `clojure -Stree`. The CLJS job
 // that owns `test:ui-isolation` must therefore provision the Clojure CLI;
 // Arm 1 alone cannot detect a declared-but-currently-unused adapter dep.
