@@ -2587,15 +2587,24 @@ A frame owns two durable partitions held as one physical frame-state container (
    [:children  [:map-of :keyword :keyword]]                                   ;; child-id → spawned-id
    [:done      [:set :keyword]]                                               ;; user-ids that signalled :on-child-done
    [:failed    [:set :keyword]]                                               ;; user-ids that signalled :on-child-error
+   [:cancelled [:set :keyword]]                                               ;; REQUIRED on every live child-bearing join. The exact-attempt authenticated explicit-teardown TOMBSTONE set: user-ids the runtime durably closed by CANCELLATION for THIS attempt. `spawn-all-init-fx` ALWAYS seeds it `#{}` at the same instant it mints `:rf/attempt` (so a live join can never be tombstone-less — not a valid live shape); `destroy.cljc`'s `prepare-join-child-teardown!` conj's a logical child id here inside the exact durable write when an authenticated IN-PROGRESS child is explicitly torn down, BEFORE exit callbacks / snapshot removal / the terminal destroyed trace. `join.cljc`'s fold gate consults it (`(contains? (:cancelled join-state) child-id)`) to SUPPRESS an already-queued/delayed exact-auth completion as a duplicate terminal — so a late/rejoining authority can never RESURRECT or mis-attribute a cancelled child (rf2-y7venl). A new join attempt re-seeds a fresh `#{}`, so no tombstone crosses re-entry. The childless REJECT sentinel (`InvokeAllRejectedState`, below) carries NO `:cancelled` and NO `:children`, so it never validates as an InvokeAllJoinState; the tombstone set is required rather than optional. This map stays intentionally OPEN (no `{:closed true}`) — the runtime may carry additional bookkeeping keys — but every key enumerated here is a REQUIRED runtime-owned slot the authority proof guards by targeted mutation.
    [:resolved? :boolean]                                                      ;; latch flips once the join condition resolves
    [:spec      :map]                                                          ;; back-reference for the join intercept
    [:rf/attempt :int]])                                                       ;; REQUIRED on every live child-bearing join. Opaque monotonic per-attempt token minted at seed by spawn-all-init-fx; stamped into each child's :rf/join-child so the fold gate binds every completion carrier to the exact join attempt (rf2-nvxehu; 005 §Exact-authority fold gate). `spawn-all-init-fx` ALWAYS mints it before the per-child spawns run, and `join.cljc`'s fold gate requires a non-nil exact match, so a token-less join is permanently unable to accept a completion — not a valid live shape. The pre-per-child REJECT sentinel (an unregistered sibling TYPE) is a SEPARATE shape (`InvokeAllRejectedState`, below) carrying `:rf/spawn-all-rejected?` and NO `:children`, so it never validates as an InvokeAllJoinState; the token is required rather than optional. Treat as opaque — int today, per-session accident-gating.
 
 (def InvokeAllRejectedState
   ;; The pre-per-child REJECT SENTINEL `spawn-all-init-fx` seeds at the join
-  ;; slot `[:rf.runtime/machines :spawned <parent> <invoke>]` when a `:spawn-all`
-  ;; names an UNREGISTERED child TYPE. The whole invoke rejects ATOMICALLY
-  ;; before any live join-state is seeded (rf2-qb1j5z; 005 §Spawn-and-join via
+  ;; slot `[:rf.runtime/machines :spawned <parent> <invoke>]` when its
+  ;; invoke-level admission preflight fail-closes any child in the set. The
+  ;; preflight is authoritative for EVERY current fail-closed invoke-level
+  ;; admission cause — today two DISJOINT ones: (1) an UNREGISTERED child TYPE
+  ;; (no inline `:definition`; rf2-qb1j5z) — a never-running spec-less child
+  ;; would never dispatch `:on-child-done`, hanging an `:all` join forever; and
+  ;; (2) a spawn-time CHILD `[:schemas :data]` REJECTION (rf2-7u8gen) — a child
+  ;; whose materialised `:data` fails its own data-schema, which would otherwise
+  ;; publish a live join naming a child that has no snapshot and can never emit
+  ;; completion. Either cause rejects the WHOLE invoke ATOMICALLY
+  ;; before any live join-state is seeded (005 §Spawn-and-join via
   ;; `:spawn-all` §atomic reject): rather than a live `InvokeAllJoinState`, the
   ;; slot holds this CLOSED single-key marker carrying ONLY
   ;; `:rf/spawn-all-rejected? true` and — critically — NO `:children` and NO

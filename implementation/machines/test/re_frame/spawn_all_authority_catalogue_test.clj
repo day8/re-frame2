@@ -12,14 +12,21 @@
 
     1. SCHEMA — the `:spawned` slot union has THREE legal runtime arms
        (Spec-Schemas §`Machines`): the `:spawn` leaf keyword, the LIVE
-       child-bearing `InvokeAllJoinState` (with `:rf/attempt` REQUIRED — a
-       token-less join is not a valid live shape; `join.cljc`'s fold gate
-       requires a non-nil exact match), and the childless REJECT sentinel
-       `InvokeAllRejectedState` (`{:closed true}`, only `:rf/spawn-all-rejected?
-       true`). A real unregistered-child `:spawn-all` fixture validates the
-       COMPLETE `:rf.runtime/machines` runtime-db against the extracted
-       `Machines` form during the legal pre-parent-exit interval; a sentinel
-       carrying `:children`/authority, and a token-less live join, both fail.
+       child-bearing `InvokeAllJoinState` (with `:rf/attempt` AND the
+       `:cancelled` tombstone set REQUIRED — a token-less or tombstone-less join
+       is not a valid live shape; `join.cljc`'s fold gate requires a non-nil
+       exact match and consults `:cancelled` to suppress a resurrected
+       completion), and the childless REJECT sentinel `InvokeAllRejectedState`
+       (`{:closed true}`, only `:rf/spawn-all-rejected? true`). A real
+       unregistered-child `:spawn-all` fixture validates the COMPLETE
+       `:rf.runtime/machines` runtime-db against the extracted `Machines` form
+       during the legal pre-parent-exit interval; a sentinel carrying
+       `:children`/authority, and a token-less live join, both fail. Every
+       runtime-owned required join key is guarded by a compact key-completeness
+       plus targeted-mutation check, and the `:cancelled` tombstone is proven
+       end-to-end: an explicitly cancelled child leaves a tombstone the schema
+       REQUIRES and the runtime HONOURS, so a late authority cannot resurrect it
+       (rf2-y7venl).
 
     2. CATALOGUE — `:rf.machine.spawn-all/child-completed` emits
        `:rf.reply/correlation` (Spec 009 detailed row + `join.cljc`), carrying
@@ -115,6 +122,49 @@
   (rf/dispatch-sync [parent-kw [:start]])
   (join-state parent-kw [:racing]))
 
+(defn- reg-destroyable-join-parent!
+  "Like `reg-join-parent!` for an `:all` join, but the parent exposes a `:kill`
+  event that imperatively tears down a named spawned child WHILE IT IS STILL
+  IN-PROGRESS — an authenticated explicit teardown, so the runtime records a
+  cancellation TOMBSTONE. Returns the seeded live join state."
+  [parent-kw child-a-kw child-b-kw]
+  (rf/reg-machine child-a-kw (mk-child parent-kw))
+  (rf/reg-machine child-b-kw (mk-child parent-kw))
+  (rf/reg-machine parent-kw
+    {:initial :idle
+     :actions {:kill-child (fn [{ev :event}]
+                             {:fx [[:rf.machine/destroy (second ev)]]})}
+     :states  {:idle   {:on {:start :racing}}
+               :racing {:spawn-all
+                        {:children        [{:id :a :machine-id child-a-kw :start [:set-id :a]}
+                                           {:id :b :machine-id child-b-kw :start [:set-id :b]}]
+                         :join            :all
+                         :on-child-done   :child/done
+                         :on-child-error  :child/failed
+                         :on-all-complete [:all/done]}
+                        ;; runs after the join is seeded; internal transition
+                        ;; (action only, no target) so the join slot survives.
+                        :on {:kill {:action :kill-child}}}}})
+  (rf/dispatch-sync [parent-kw [:start]])
+  (join-state parent-kw [:racing]))
+
+;; The runtime-owned REQUIRED keys `spawn-all-init-fx` seeds on every live
+;; child-bearing join (Spec-Schemas §InvokeAllJoinState). Weakening any of these
+;; to `{:optional true}` in the authoritative document, or omitting one, must
+;; turn the key-completeness proof red.
+(def ^:private expected-runtime-owned-join-keys
+  #{:children :done :failed :cancelled :resolved? :spec :rf/attempt})
+
+(defn- schema-required-keys
+  "The set of REQUIRED (non-`{:optional true}`) map keys of an extracted malli
+  `:map` schema form — read straight off the compiled schema so the check
+  tracks the authoritative document, not a hand-copied key list."
+  [schema]
+  (->> (m/children (m/schema schema))
+       (remove #(:optional (second %)))
+       (map first)
+       set))
+
 ;; ---------------------------------------------------------------------------
 ;; 1. SCHEMA — `:rf/attempt` is REQUIRED on a live child-bearing join
 ;; ---------------------------------------------------------------------------
@@ -139,7 +189,95 @@
            required in the authoritative document, not optional"))))
 
 ;; ---------------------------------------------------------------------------
-;; 1b. SCHEMA — the childless REJECT sentinel is a THIRD legal `:spawned` arm,
+;; 1a. SCHEMA — EVERY runtime-owned join key is REQUIRED (key-completeness +
+;;     targeted mutation), while the map stays intentionally OPEN
+;; ---------------------------------------------------------------------------
+
+(deftest live-join-guards-every-runtime-owned-required-key
+  (testing "rf2-y7venl — the extracted `InvokeAllJoinState` requires EXACTLY the
+            runtime-owned seed keys `spawn-all-init-fx` writes (key-completeness:
+            weakening any to `{:optional true}` or omitting one shrinks the
+            required set and turns this red), a real runtime join carries every
+            one, dropping ANY single required key FAILS the extracted schema
+            (targeted mutation), and yet an EXTRA bookkeeping key still validates
+            — the join map is intentionally OPEN, not `{:closed true}`."
+    (let [j (reg-join-parent! :sac/pk :sac/pka :sac/pkb
+                              {:join :all :on-all-complete [:all/done]})]
+      ;; key-completeness: the authoritative schema's required set is exactly the
+      ;; runtime-owned seed key set — no drift in either direction.
+      (is (= expected-runtime-owned-join-keys (schema-required-keys InvokeAllJoinState))
+          (str "the extracted InvokeAllJoinState requires exactly the "
+               "runtime-owned seed keys; found: "
+               (schema-required-keys InvokeAllJoinState)))
+      (is (m/validate InvokeAllJoinState j)
+          (str "the runtime join validates; explain: " (m/explain InvokeAllJoinState j)))
+      ;; targeted mutation: the runtime seed carries every required key, and
+      ;; dropping any single one fails the extracted schema.
+      (doseq [k expected-runtime-owned-join-keys]
+        (is (contains? j k) (str "the runtime seed carries the required key " k))
+        (is (not (m/validate InvokeAllJoinState (dissoc j k)))
+            (str "dropping the required key " k " FAILS the extracted schema")))
+      ;; intentional open-map extensibility preserved.
+      (is (m/validate InvokeAllJoinState (assoc j :rf/future-bookkeeping 1))
+          "an extra runtime bookkeeping key still validates — the join stays open"))))
+
+;; ---------------------------------------------------------------------------
+;; 1b. SCHEMA + BEHAVIOUR — a cancelled child leaves a `:cancelled` TOMBSTONE the
+;;     schema REQUIRES and the runtime HONOURS (late authority cannot resurrect)
+;; ---------------------------------------------------------------------------
+
+(deftest cancelled-child-tombstone-is-required-and-honoured
+  (testing "rf2-y7venl — an authenticated IN-PROGRESS explicit teardown of a
+            spawned child durably records a `:cancelled` tombstone: the live
+            tombstoned join validates against the extracted `InvokeAllJoinState`,
+            dissociating `:cancelled` FAILS it (the tombstone set is REQUIRED,
+            not optional — an open map would otherwise accept the dissoc), and a
+            LATE exact-authenticated completion carrier for the cancelled child
+            is SUPPRESSED as a duplicate terminal. A late/rejoining authority can
+            never resurrect or mis-attribute a cancelled child."
+    (let [j         (reg-destroyable-join-parent! :sac/tomb :sac/tomba :sac/tombb)
+          spawned-a (get-in j [:children :a])
+          ;; the exact join authority a late carrier would present — captured
+          ;; from the LIVE attempt so it is genuinely exact-current, not forged.
+          auth      {:parent-id  :sac/tomb
+                     :invoke-id  [:racing]
+                     :child-id   :a
+                     :spawned-id spawned-a
+                     :attempt    (:rf/attempt j)}]
+      (is (= #{} (:cancelled j)) "the live seed carries an empty tombstone set")
+      ;; Tear child :a down while it is still IN-PROGRESS; :b keeps running so
+      ;; the `:all` join is unresolved and the slot stays live for probing.
+      (rf/dispatch-sync [:sac/tomb [:kill spawned-a]])
+      (let [tombstoned (join-state :sac/tomb [:racing])]
+        (is (= #{:a} (:cancelled tombstoned))
+            "the authenticated in-progress teardown durably tombstones child :a")
+        (is (false? (:resolved? tombstoned))
+            "the :all join is NOT resolved — :b is still live")
+        ;; the live TOMBSTONED join validates against the extracted schema ...
+        (is (m/validate InvokeAllJoinState tombstoned)
+            (str "the tombstoned join validates; explain: "
+                 (m/explain InvokeAllJoinState tombstoned)))
+        ;; ... and dissociating the tombstone FAILS it — the key is REQUIRED, so
+        ;; a runtime that stopped seeding `:cancelled` would be caught here.
+        (is (not (m/validate InvokeAllJoinState (dissoc tombstoned :cancelled)))
+            "dissociating :cancelled FAILS the extracted schema — the tombstone is required")
+        ;; a LATE exact-authenticated completion carrier for :a cannot resurrect it.
+        (mtest/reset-captured!)
+        (rf/dispatch-sync [:sac/tomb (with-meta [:child/done :a]
+                                       {:rf/join-auth auth})])
+        (let [after (join-state :sac/tomb [:racing])
+              stale (first (mtest/events-of :rf.machine.spawn-all/stale-completion))]
+          (is (= #{} (:done after))
+              "the late exact-auth carrier did NOT fold — :a is never marked done")
+          (is (= #{:a} (:cancelled after))
+              "the tombstone is unchanged — the cancelled child is not resurrected")
+          (is (some? stale) "a stale-completion suppression fired for the late carrier")
+          (is (= :rf.machine.spawn-all/duplicate-completion
+                 (:rf.reply/stale-reason (:tags stale)))
+              "the late carrier is classified a duplicate terminal against the tombstone"))))))
+
+;; ---------------------------------------------------------------------------
+;; 1c. SCHEMA — the childless REJECT sentinel is a THIRD legal `:spawned` arm,
 ;;     and the COMPLETE Machines runtime-db validates with it present
 ;; ---------------------------------------------------------------------------
 
