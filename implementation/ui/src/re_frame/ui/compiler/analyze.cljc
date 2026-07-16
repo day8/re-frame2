@@ -34,6 +34,7 @@
 (def ^:private ui-html-fqns   #{'re-frame.ui/html})
 (def ^:private ui-raw-fn-fqns #{'re-frame.ui/raw-fn})
 (def ^:private ui-spread-fqns #{'re-frame.ui/spread})
+(def ^:private ui-spread-safe-fqns #{'re-frame.ui/spread-safe})
 (def ^:private ui-event-fqns  #{'re-frame.ui/event})
 (def ^:private ui-render-fn-fqns #{'re-frame.ui/render-fn})
 (def ^:private ui-slot-fqns   #{'re-frame.ui/slot})
@@ -81,6 +82,7 @@
 (defn- html-form? [e f] (and (seq? f) (symbol? (first f)) (env/resolves-to? e (first f) ui-html-fqns)))
 (defn- raw-fn-form? [e f] (and (seq? f) (symbol? (first f)) (env/resolves-to? e (first f) ui-raw-fn-fqns)))
 (defn- spread-form? [e f] (and (seq? f) (symbol? (first f)) (env/resolves-to? e (first f) ui-spread-fqns)))
+(defn- spread-safe-form? [e f] (and (seq? f) (symbol? (first f)) (env/resolves-to? e (first f) ui-spread-safe-fqns)))
 (defn- ui-event-form? [e f] (and (seq? f) (symbol? (first f)) (env/resolves-to? e (first f) ui-event-fqns)))
 (defn- render-fn-form? [e f] (and (seq? f) (symbol? (first f)) (env/resolves-to? e (first f) ui-render-fn-fqns)))
 (defn- slot-form? [e f] (and (seq? f) (symbol? (first f)) (env/resolves-to? e (first f) ui-slot-fqns)))
@@ -1344,59 +1346,26 @@
     :foreign
     {:form (walk-expr e [:ref :foreign] form) :raw-fn? false}))
 
-(defn analyze-element-props
-  "Analyze a DOM/custom element's props position (literal map or
-  (ui/spread base overrides)). -> {:key {..} :class {..} :style {..}|nil
-  :attrs [..] :events [..] :spread form|nil :ref {..}|nil
-  :property-props #{kw} :static? bool}"
-  [e tag-info custom? props-form]
-  (let [tag        (:tag tag-info)
-        ;; Per-build compile-time property classification, read from the
-        ;; ambient build's `elements` slice (rf2-vxgfnd.91). This analysis
-        ;; runs under `cljs.env/*compiler*`, so `build/element-properties`
-        ;; resolves the CURRENT build's declarations — never a process-global
-        ;; last-writer-wins mirror that a sibling build could clobber between
-        ;; this tag's declaration and this classification read.
-        properties (when custom? (build/element-properties tag))
-        spread?    (spread-form? e props-form)]
-    (when (and (some? props-form) (not (map? props-form)) (not spread?))
-      (env/fail! e :rf.ui.compile/dynamic-props-map
-                 (str "props of " tag " must be a literal map or "
-                      "(ui/spread base overrides) — the one generic runtime "
-                      "prop-map conversion")
-                 {:form props-form}))
-    (if spread?
-      (let [[_ base overrides & extra] props-form]
-        (when (or (nil? base) (seq extra))
-          (env/fail! e :rf.ui.compile/bad-spread
-                     "(ui/spread base) or (ui/spread base overrides)"
-                     {:form props-form}))
-        (let [base*      (walk-expr e [:spread :base] base)
-              overrides* (when overrides
-                           (walk-expr e [:spread :overrides] overrides))
-              identity   (event-site-identity e :spread props-form)]
-          (add-event-site! e identity
-                           {:prop :spread :handler :opaque
-                            :classification :spread :serializable? false
-                            :sync? false})
-          {:key {:present? false} :class (analyze-class e (:classes tag-info) nil)
-           :style nil :attrs [] :events []
-           :spread (merge identity {:base base* :overrides overrides*})
-           :ref nil :property-props #{} :static? false}))
-      (let [m (or props-form {})]
-        (doseq [k (keys m)]
-          (when-not (keyword? k)
-            (env/fail! e :rf.ui.compile/non-keyword-prop
-                       (str "prop keys must be literal keywords; got " (pr-str k))
-                       {:key k}))
-          (check-rejected-spelling! e k))
-        (when (and (:id tag-info) (contains? m :id))
-          (env/fail! e :rf.ui.compile/id-sugar-conflict
-                     (str "#" (:id tag-info) " sugar AND an :id prop on " tag
-                          " — two id spellings on one element is an ambiguity, "
-                          "and this grammar removes ambiguities. Keep one")
-                     {:tag tag}))
-        (let [key-form   (get m :key)
+(defn- analyze-literal-props
+  "Analyze a DOM/custom element's LITERAL props map `m` (`properties` is the
+  build's custom-element property set for the tag, nil for plain DOM). The
+  owned map of a `(ui/spread-safe owned caller)` form rides this same path, so
+  a controlled owned site keeps the sync door. -> the props AST."
+  [e tag-info properties m]
+  (let [tag (:tag tag-info)]
+    (doseq [k (keys m)]
+      (when-not (keyword? k)
+        (env/fail! e :rf.ui.compile/non-keyword-prop
+                   (str "prop keys must be literal keywords; got " (pr-str k))
+                   {:key k}))
+      (check-rejected-spelling! e k))
+    (when (and (:id tag-info) (contains? m :id))
+      (env/fail! e :rf.ui.compile/id-sugar-conflict
+                 (str "#" (:id tag-info) " sugar AND an :id prop on " tag
+                      " — two id spellings on one element is an ambiguity, "
+                      "and this grammar removes ambiguities. Keep one")
+                 {:tag tag}))
+    (let [key-form   (get m :key)
               m*         (dissoc m :key :class :style :ref)
               ref-form   (get m :ref)
               on?        (fn [k] (str/starts-with? (name k) "on-"))
@@ -1490,7 +1459,106 @@
                          (empty? events)
                          (every? :literal? attrs)
                          (or (nil? class-a) (:static? class-a))
-                         (or (nil? style-a) (:static? style-a)))})))))
+                         (or (nil? style-a) (:static? style-a)))})))
+
+(defn- analyze-spread-safe-props
+  "Analyze `(ui/spread-safe owned caller)` in an element's props position (the
+  LITERAL safe-spread policy). `owned` is a LITERAL props map, analysed exactly
+  like an element's props (so a controlled owned site RETAINS the sync door);
+  `caller` is the forwarded runtime attr map, guarded by the every-build
+  owned-key deny law (`re-frame.ui.rules/assert-safe-caller!` at runtime; a
+  LITERAL offender is caught here at compile time). -> the owned props AST plus
+  a `:safe-spread` slot carrying the walked caller form + owned-handler keys."
+  [e tag-info properties props-form]
+  (let [[_ owned caller & extra] props-form]
+    (when (or (not (map? owned)) (not (= 3 (count props-form))))
+      (env/fail! e :rf.ui.compile/bad-spread-safe
+                 (str "(ui/spread-safe owned caller) — `owned` must be a LITERAL "
+                      "props map (the component's own props; the compiler proves "
+                      "the controlled site and keeps the sync door) and `caller` "
+                      "the forwarded runtime attr map")
+                 {:form props-form}))
+    (let [owned-props        (analyze-literal-props e tag-info properties owned)
+          owned-handler-keys (into #{}
+                                    (filter #(and (keyword? %)
+                                                  (str/starts-with? (name %) "on-")))
+                                    (keys owned))]
+      ;; A LITERAL caller map is compile-checked against the deny law now — a
+      ;; runtime map is guarded in every build by assert-safe-caller!.
+      (when (map? caller)
+        (doseq [k (keys caller)]
+          (when (rules/spread-safe-denied-key? k owned-handler-keys)
+            (env/fail! e :rf.ui.compile/spread-safe-owned-key
+                       (str "(ui/spread-safe owned caller) — the caller map may "
+                            "not carry the owned/structural key " (pr-str k)
+                            "; it is denied in every build so it can never clobber "
+                            "an owned prop. Forward it through the visible-cost "
+                            "(ui/spread base overrides) instead, or drop it")
+                       {:prop k :form props-form}))))
+      (let [caller*  (walk-expr e [:spread-safe :caller] caller)
+            identity (event-site-identity e :spread-safe props-form)]
+        ;; ONE opaque runtime site classifies the caller's allowed :on-* handlers
+        ;; (vector/fn/dynamic via the handler decision table) — exactly like a
+        ;; general spread's site, so allowed caller handlers batch. The owned
+        ;; handlers keep their own compiled per-site events (sync door intact).
+        (add-event-site! e identity
+                         {:prop :spread-safe :handler :opaque
+                          :classification :spread :serializable? false
+                          :sync? false})
+        (assoc owned-props
+               :safe-spread (merge identity {:base caller*
+                                             :owned-handler-keys owned-handler-keys})
+               :static? false)))))
+
+(defn analyze-element-props
+  "Analyze a DOM/custom element's props position — a literal map,
+  `(ui/spread base overrides)`, or `(ui/spread-safe owned caller)`.
+  -> {:key {..} :class {..} :style {..}|nil :attrs [..] :events [..]
+  :spread form|nil :safe-spread form|nil :ref {..}|nil :property-props #{kw}
+  :static? bool}"
+  [e tag-info custom? props-form]
+  (let [tag        (:tag tag-info)
+        ;; Per-build compile-time property classification, read from the
+        ;; ambient build's `elements` slice (rf2-vxgfnd.91). This analysis
+        ;; runs under `cljs.env/*compiler*`, so `build/element-properties`
+        ;; resolves the CURRENT build's declarations — never a process-global
+        ;; last-writer-wins mirror that a sibling build could clobber between
+        ;; this tag's declaration and this classification read.
+        properties (when custom? (build/element-properties tag))
+        spread?    (spread-form? e props-form)
+        spread-safe? (spread-safe-form? e props-form)]
+    (when (and (some? props-form) (not (map? props-form))
+               (not spread?) (not spread-safe?))
+      (env/fail! e :rf.ui.compile/dynamic-props-map
+                 (str "props of " tag " must be a literal map, "
+                      "(ui/spread base overrides), or (ui/spread-safe owned caller)")
+                 {:form props-form}))
+    (cond
+      spread?
+      (let [[_ base overrides & extra] props-form]
+        (when (or (nil? base) (seq extra))
+          (env/fail! e :rf.ui.compile/bad-spread
+                     "(ui/spread base) or (ui/spread base overrides)"
+                     {:form props-form}))
+        (let [base*      (walk-expr e [:spread :base] base)
+              overrides* (when overrides
+                           (walk-expr e [:spread :overrides] overrides))
+              identity   (event-site-identity e :spread props-form)]
+          (add-event-site! e identity
+                           {:prop :spread :handler :opaque
+                            :classification :spread :serializable? false
+                            :sync? false})
+          {:key {:present? false} :class (analyze-class e (:classes tag-info) nil)
+           :style nil :attrs [] :events []
+           :spread (merge identity {:base base* :overrides overrides*})
+           :safe-spread nil
+           :ref nil :property-props #{} :static? false}))
+
+      spread-safe?
+      (analyze-spread-safe-props e tag-info properties props-form)
+
+      :else
+      (analyze-literal-props e tag-info properties (or props-form {})))))
 
 ;; ---------------------------------------------------------------------------
 ;; Nodes
@@ -1511,7 +1579,8 @@
         tag       (:tag tag-info)
         custom?   (str/includes? (name tag) "-")
         second*   (nth form 1 nil)
-        has-props (or (map? second*) (spread-form? e second*))
+        has-props (or (map? second*) (spread-form? e second*)
+                      (spread-safe-form? e second*))
         props     (analyze-element-props e tag-info custom? (when has-props second*))
         child-fs  (vec (if has-props (drop 2 form) (drop 1 form)))
         html-kid? (and (= 1 (count child-fs)) (html-form? e (first child-fs)))]
@@ -1562,6 +1631,7 @@
        :children children
        :static? (and (:static? props)
                      (nil? (:spread props))
+                     (nil? (:safe-spread props))
                      (if html-kid? (:static? html-ast) (every? node-static? children))
                      true)
        :path (:path e)})))
@@ -2220,6 +2290,11 @@
         (spread-form? e form)
         (env/fail! e :rf.ui.compile/bad-spread
                    "(ui/spread ...) belongs in a DOM element's props position: [:div (ui/spread base overrides)]"
+                   {:form form})
+
+        (spread-safe-form? e form)
+        (env/fail! e :rf.ui.compile/bad-spread-safe
+                   "(ui/spread-safe ...) belongs in a DOM element's props position: [:input (ui/spread-safe {:value v :on-change …} caller)]"
                    {:form form})
 
         (and (symbol? head) (not (contains? (:locals e) head))

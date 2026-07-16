@@ -306,26 +306,14 @@
 ;; ui/spread — the ONE generic runtime prop-map conversion
 ;; ---------------------------------------------------------------------------
 
-(defn spread->props
-  "Runtime conversion of author-space prop maps for a DOM/custom element
-  (`ui/spread base overrides`): the same rule table as compiled props —
-  :class composition (`.sugar` classes first), :style px/name rules,
-  on-* runtime handler classification, custom-element property
-  classification by `tag`. `:key` inside a spread is structural and
-  ignored (dev warns)."
-  [tag sugar-classes base overrides event-site-key debug-site]
-  (let [m (merge base overrides)
-        property? (rules/custom-element-properties (keyword tag))
-        o (js-obj)]
-    (when interop/debug-enabled?
-      (when (and (or (contains? m :value) (contains? m :checked))
-                 (some #(contains? m %)
-                       [:on-input :on-change :on-before-input]))
-        (js/console.warn
-         "[re-frame.ui] a controlled :value/:checked and input handler came "
-         "through ui/spread. The controlled-input synchronous door requires "
-         "literal co-present props plus a literal event vector; this site "
-         "uses ordinary drain batching.")))
+(defn- convert-prop-map!
+  "Convert an author-space prop map `m` into the props object `o` via the one
+  rule table (shared by `spread->props` and `spread-safe->props`): :class
+  composes (`sugar-classes` first when supplied), :style px/name rules, on-*
+  runtime handler classification, custom-element property classification by
+  `tag`, all other names through the attr conversion table. Returns `o`."
+  [o tag sugar-classes m event-site-key debug-site]
+  (let [property? (rules/custom-element-properties (keyword tag))]
     (when (and (some? sugar-classes) (not (contains? m :class)))
       (unchecked-set o "className" sugar-classes))
     (doseq [[k v] m]
@@ -333,13 +321,13 @@
         (cond
           (= k :key)
           (when ^boolean js/goog.DEBUG
-            (js/console.warn "[re-frame.ui] :key inside (ui/spread ...) is"
+            (js/console.warn "[re-frame.ui] :key inside a spread form is"
                              "ignored — keys are structural and must be"
                              "literal at the site."))
 
           (= k :ref)
           (when ^boolean js/goog.DEBUG
-            (js/console.warn "[re-frame.ui] :ref inside (ui/spread ...) is"
+            (js/console.warn "[re-frame.ui] :ref inside a spread form is"
                              "not applied at S1 (refs land S3)."))
 
           (nil? v) nil
@@ -365,6 +353,58 @@
           :else
           (unchecked-set o (rules/react-prop-name n) (attr-val v)))))
     o))
+
+(defn spread->props
+  "Runtime conversion of author-space prop maps for a DOM/custom element
+  (`ui/spread base overrides`): the same rule table as compiled props —
+  :class composition (`.sugar` classes first), :style px/name rules,
+  on-* runtime handler classification, custom-element property
+  classification by `tag`. `:key` inside a spread is structural and
+  ignored (dev warns)."
+  [tag sugar-classes base overrides event-site-key debug-site]
+  (let [m (merge base overrides)]
+    (when interop/debug-enabled?
+      (when (and (or (contains? m :value) (contains? m :checked))
+                 (some #(contains? m %)
+                       [:on-input :on-change :on-before-input]))
+        (js/console.warn
+         "[re-frame.ui] a controlled :value/:checked and input handler came "
+         "through ui/spread. The controlled-input synchronous door requires "
+         "literal co-present props plus a literal event vector; this site "
+         "uses ordinary drain batching.")))
+    (convert-prop-map! (js-obj) tag sugar-classes m event-site-key debug-site)))
+
+;; ---------------------------------------------------------------------------
+;; ui/spread-safe — the literal safe-spread policy runtime (owned-key deny in
+;; EVERY build; the controlled owned site keeps its compiled sync-door handler)
+;; ---------------------------------------------------------------------------
+
+(defn spread-safe->props
+  "Build the CALLER attr object of a `(ui/spread-safe owned caller)` element.
+  `caller` is guarded FIRST by `rules/assert-safe-caller!` — a denied key (the
+  structural/controlled/identity set plus the component's `owned-handler-keys`)
+  throws in EVERY build (not goog.DEBUG-gated) — then converts through the one
+  rule table (allowed on-* classify via the handler decision table; aria-*/
+  data-*/title/:class/:style per the conversion table). Owned props ride their
+  own compiled object and are layered on top by `spread-safe-props`, so this
+  object carries NO sugar; :class here is the caller's alone."
+  [tag caller owned-handler-keys event-site-key debug-site]
+  (rules/assert-safe-caller! caller owned-handler-keys)
+  (convert-prop-map! (js-obj) tag nil caller event-site-key debug-site))
+
+(defn spread-safe-props
+  "Merge a `ui/spread-safe` element's CALLER object (`caller-obj`) and its
+  compiled OWNED object (`owned-obj`) into the final props object: owned props
+  WIN every collision (the caller can carry no owned/structural key — the guard
+  denied them), and `className` composes with the owned classes first. Returns
+  the merged object."
+  [caller-obj owned-obj]
+  (let [caller-class (unchecked-get caller-obj "className")
+        owned-class  (unchecked-get owned-obj "className")]
+    (js/Object.assign caller-obj owned-obj)
+    (when (and (some? caller-class) (some? owned-class))
+      (unchecked-set caller-obj "className" (str owned-class " " caller-class)))
+    caller-obj))
 
 (defn jsx-spread2
   "jsx over a runtime-built (spread) props object, children attached."

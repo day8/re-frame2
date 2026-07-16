@@ -167,6 +167,37 @@
                  (assoc m k (rules/css-val->str (name k) v))))
              {} style-map))
 
+(defn- fold-dyn-entry
+  "Fold one dynamic prop entry into the `[attr-map events prop-props]`
+  accumulator via the rule table shared by `ui/spread`, `ui/spread-safe`, and
+  the JVM tree builder: on-* -> events, :class merges, :style normalizes,
+  :key/:ref skipped, custom-element `properties` classified. `properties` is
+  the tag's property set (nil for plain DOM)."
+  [properties [m es pp] k v]
+  (let [n (name k)]
+    (cond
+      (nil? v)                   [m es pp]
+      (contains? #{:key :ref} k) [m es pp]
+      (= k :class)               [(let [c (rules/classes-str
+                                           [(get m :class) (rules/class-val v)])]
+                                    (if c (assoc m :class c) (dissoc m :class)))
+                                  es pp]
+      (= k :style)               (if (map? v)
+                                   [(let [s (style-semantic v)]
+                                      (if (seq s) (assoc m :style s) m))
+                                    es pp]
+                                   (error/throw-error!
+                                    :rf.error/ui-tree-malformed
+                                    're-frame.ui/render
+                                    "a dynamic :style value must be a map of style entries"
+                                    {:extra {:value v}}))
+      (str/starts-with? n "on-") [m (let [c (classify-event v)]
+                                      (if c (assoc es k c) es)) pp]
+      (and properties (properties k)) [(assoc m k v) es (conj pp k)]
+      :else                      [(let [v' (rules/attr-val-semantic k v)]
+                                    (if (nil? v') m (assoc m k v')))
+                                  es pp])))
+
 (defn element
   "Build an element node in canonical form from an opts map:
 
@@ -182,8 +213,12 @@
     :dyn-events {kw classified} — runtime-classified entries (nil drops)
     :key? :key-val  key presence + value
     :props   compile-time property-prop set (custom elements)
+    :spread-safe {:caller runtime-map :owned-handler-keys #{kw}} — the
+             ui/spread-safe caller map: guarded against owned/structural keys
+             in EVERY build, then folded UNDER the owned attrs (owned wins,
+             :class composes owned-first)
     :children thunk building the children vector (bound ns context)"
-  [tag {:keys [static norm dyn events dyn-events key? key-val props children]}]
+  [tag {:keys [static norm dyn events dyn-events key? key-val props children spread-safe]}]
   ;; Property classification for DYNAMIC (`ui/spread`) props needs the tag's
   ;; declared properties at RENDER time. This builder is emitted into the view
   ;; fn (emit-jvm), so it runs with NO `cljs.env/*compiler*` bound — a pure
@@ -199,34 +234,28 @@
                            (or static {})
                            (or norm {}))
         [attrs evts prop-props]
-        (reduce-kv
-         (fn [[m es pp] k v]
-           (let [n (name k)]
-             (cond
-               (nil? v)                 [m es pp]
-               (contains? #{:key :ref} k) [m es pp]
-               (= k :class)             [(let [c (rules/classes-str
-                                                  [(get m :class)
-                                                   (rules/class-val v)])]
-                                           (if c (assoc m :class c) (dissoc m :class)))
-                                         es pp]
-               (= k :style)             (if (map? v)
-                                          [(let [s (style-semantic v)]
-                                             (if (seq s) (assoc m :style s) m))
-                                           es pp]
-                                          (error/throw-error!
-                                           :rf.error/ui-tree-malformed
-                                           're-frame.ui/render
-                                           "a dynamic :style value must be a map of style entries"
-                                           {:extra {:value v}}))
-               (str/starts-with? n "on-") [m (let [c (classify-event v)]
-                                               (if c (assoc es k c) es)) pp]
-               (and properties (properties k)) [(assoc m k v) es (conj pp k)]
-               :else                    [(let [v' (rules/attr-val-semantic k v)]
-                                           (if (nil? v') m (assoc m k v')))
-                                         es pp])))
-         [base {} (set (or props #{}))]
-         (or dyn {}))
+        (reduce-kv (partial fold-dyn-entry properties)
+                   [base {} (set (or props #{}))]
+                   (or dyn {}))
+        ;; ui/spread-safe: the caller attr map is guarded (owned-key deny in
+        ;; EVERY build — not goog.DEBUG-gated) then folded UNDER the owned
+        ;; attrs. Owned props WIN every collision (the caller can carry no
+        ;; owned/structural key); :class composes owned-classes-first.
+        [attrs evts prop-props]
+        (if-let [{:keys [caller owned-handler-keys]} spread-safe]
+          (do
+            (rules/assert-safe-caller! caller owned-handler-keys)
+            (let [[c-attrs c-evts c-pp]
+                  (reduce-kv (partial fold-dyn-entry properties)
+                             [{} {} #{}]
+                             (or caller {}))
+                  merged (merge c-attrs attrs)
+                  merged (if (and (:class c-attrs) (:class attrs))
+                           (assoc merged :class
+                                  (rules/classes-str [(:class attrs) (:class c-attrs)]))
+                           merged)]
+              [merged (merge c-evts evts) (into prop-props c-pp)]))
+          [attrs evts prop-props])
         evts    (events* events (merge evts dyn-events))
         ctx     *ns-context*
         chs     (when children

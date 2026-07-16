@@ -144,6 +144,15 @@
   [:div.card (ui/spread {:tab-index 3 :class "base"} extra)
    [:span "inner"]])
 
+;; ui/spread-safe — the literal safe-spread policy (rf2-isdqjv). Owned props
+;; (:value / :on-change / :type) are literal; the caller attr map is forwarded
+;; safely: owned wins, :class composes owned-first, aria-*/data-*/title pass.
+(defview safe-spread-view
+  [{:keys [attr]}]
+  [:input.form-control
+   (ui/spread-safe {:value "owned" :on-change [:set :rf.ui/value] :type "text"}
+                   attr)])
+
 (defview trusted
   []
   [:div.content (ui/html "<b>bold & raw</b>")])
@@ -256,6 +265,48 @@
          (render (rt/jsx2 spread-view
                           (js-obj "extra" {:class "x"}))))
       "spread merges (overrides win), sugar-first classes, names via the table"))
+
+(deftest safe-spread-passthrough-and-conversion
+  (let [html (render (rt/jsx2 safe-spread-view
+                              (js-obj "attr" {:aria-label "Name"
+                                              :data-testid "n"
+                                              :title "t"
+                                              :class "extra"
+                                              :placeholder "p"})))]
+    ;; aria-*/data-*/title/placeholder pass through per the 004B rule table
+    (is (str/includes? html "aria-label=\"Name\"") "aria-* passes")
+    (is (str/includes? html "data-testid=\"n\"") "data-* passes")
+    (is (str/includes? html "title=\"t\"") ":title passes")
+    (is (str/includes? html "placeholder=\"p\"") "other attrs pass")
+    ;; :class composes — owned/sugar classes first, then the caller's
+    (is (str/includes? html "class=\"form-control extra\"") ":class composes owned-first")
+    ;; owned props render and are unclobbered
+    (is (str/includes? html "value=\"owned\"") "owned :value renders")
+    (is (str/includes? html "type=\"text\"") "owned :type renders")))
+
+(deftest safe-spread-owned-props-win-over-caller
+  ;; :type is not a denied key, so a caller may name it — but OWNED wins.
+  (let [html (render (rt/jsx2 safe-spread-view
+                              (js-obj "attr" {:type "password" :class "x"})))]
+    (is (str/includes? html "type=\"text\"") "owned :type wins over the caller's")
+    (is (str/includes? html "class=\"form-control x\"") "owned classes first")))
+
+(deftest safe-spread-denied-key-throws-in-every-build
+  ;; A runtime caller map carrying an owned/structural key is rejected — the
+  ;; guard is NOT goog.DEBUG-gated (the advanced-build proof rides the
+  ;; -elision-prod-test companion). :value is the controlled contract.
+  (doseq [[k v] [[:value "evil"] [:checked true] [:ref "r"]
+                 [:on-change [:hijack]]]]
+    (let [data (try (render (rt/jsx2 safe-spread-view
+                                     (js-obj "attr" {k v})))
+                    nil
+                    (catch :default e (ex-data e)))]
+      (is (= :rf.error/ui-tree-malformed (:rf.error/id data))
+          (str "caller " k " is denied in every build"))
+      (is (= 're-frame.ui/spread-safe (:where data)))))
+  ;; the same site through general ui/spread does NOT throw (visible-cost escape)
+  (is (string? (render (rt/jsx2 spread-view (js-obj "extra" {:value "ok"}))))
+      "general ui/spread accepts any key — it is the visible-cost escape"))
 
 (deftest trusted-html-single-bypass
   (is (= "<div class=\"content\"><b>bold & raw</b></div>"

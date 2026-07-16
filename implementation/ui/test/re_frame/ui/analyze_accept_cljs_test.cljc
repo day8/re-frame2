@@ -30,6 +30,7 @@
       html        {:fqn 're-frame.ui/html :meta {}}
       raw-fn      {:fqn 're-frame.ui/raw-fn :meta {}}
       spread      {:fqn 're-frame.ui/spread :meta {}}
+      spread-safe {:fqn 're-frame.ui/spread-safe :meta {}}
       event       {:fqn 're-frame.ui/event :meta {}}
       render-fn   {:fqn 're-frame.ui/render-fn :meta {}}
       slot        {:fqn 're-frame.ui/slot :meta {}}
@@ -666,6 +667,49 @@
   (let [el (ana* '[:div (spread base {:class "x"})])]
     (is (some? (get-in el [:props :spread])))))
 
+;; ---------------------------------------------------------------------------
+;; ui/spread-safe — the literal safe-spread policy (S3, rf2-isdqjv)
+;; ---------------------------------------------------------------------------
+
+(deftest spread-safe-lowers-owned-props-plus-guarded-caller
+  (let [el (ana* '[:input.form-control
+                   (spread-safe {:value v :on-change [:set :rf.ui/value] :type "text"}
+                                attr)])]
+    (is (= :element (:op el)))
+    (is (false? (:static? el)) "a runtime caller map is never static")
+    (testing "the OWNED map is analysed as normal element props"
+      (is (= "text" (:value (first (filter #(= :type (:k %)) (get-in el [:props :attrs]))))))
+      (is (some? (get-in el [:props :class])) "sugar + owned class present"))
+    (testing "the caller map rides a :safe-spread slot with the owned-handler keys"
+      (is (some? (get-in el [:props :safe-spread])))
+      (is (= #{:on-change} (get-in el [:props :safe-spread :owned-handler-keys])))
+      (is (contains? (get-in el [:props :safe-spread]) :base) "the walked caller form"))))
+
+(deftest spread-safe-retains-the-sync-door-general-spread-forfeits-it
+  (testing "policy form: the owned controlled handler keeps the sync door"
+    (let [el (ana* '[:input (spread-safe {:value v :on-change [:set :rf.ui/value]} attr)])]
+      (is (true? (get-in el [:props :events 0 :sync?]))
+          "the compiler-proven controlled owned site RETAINS the sync door")
+      (is (some? (get-in el [:props :safe-spread])))))
+  (testing "general spread at the SAME site forfeits it (one opaque site, no sync)"
+    (let [el (ana* '[:input (spread {:value v :on-change [:set :rf.ui/value]} attr)])]
+      (is (some? (get-in el [:props :spread])))
+      (is (empty? (get-in el [:props :events]))
+          "no compiled per-site handler — the site is opaque")
+      (is (not (true? (get-in el [:props :spread :sync?])))
+          "a general spread never opens the sync door")))
+  (testing "a ui/event owned handler also keeps the door under the policy form"
+    (let [el (ana* '[:input (spread-safe {:checked c
+                                          :on-change (event [e] [:set (.. e -target -checked)])}
+                                         attr)])]
+      (is (true? (get-in el [:props :events 0 :sync?]))))))
+
+(deftest spread-safe-non-controlled-carries-only-the-structural-deny
+  ;; No owned handler -> owned-handler-keys is empty; only the fixed four are denied.
+  (let [el (ana* '[:div.card (spread-safe {:role "region"} attr)])]
+    (is (= #{} (get-in el [:props :safe-spread :owned-handler-keys])))
+    (is (false? (:static? el)))))
+
 (deftest raw-and-raw-fn-props-mark
   (let [v (ana* '[ForeignComp {:el (raw host-el) :cb (raw-fn f)}])]
     (is (= [:foreign :ui/raw-fn]
@@ -686,6 +730,7 @@
     (let [x 1] (case x 1 [:p "one"] [:p "other"]))
     (letfn [(f [n] n)] [:p (f 1)])
     [:div (spread b o)]
+    [:input.form-control (spread-safe {:value v :on-change [:set :rf.ui/value]} attr)]
     (raw el)
     [:div.c (html "<hr/>")]
     [:ul (slot row-renderer 3 item) (slot (render-fn [x] [:li x]) item)]]  )

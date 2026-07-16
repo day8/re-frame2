@@ -140,6 +140,8 @@
                   :element (do (when (:custom? n) (vswap! caps conj :custom-element))
                                (when (get-in n [:props :spread])
                                  (vswap! caps conj :spread))
+                               (when (get-in n [:props :safe-spread])
+                                 (vswap! caps conj :spread-safe))
                                (when (:html n) (vswap! caps conj :html)))
                   nil)
                 ;; A compiled render slot callback (a component prop value or an
