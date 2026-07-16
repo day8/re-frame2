@@ -34,19 +34,22 @@
   `:rf/default`. Per Spec 002 §Frame target resolution — the carried
   invariant (EP-0002): the React-context default carries no framework
   privilege and the runtime never synthesises a frame from absence. A
-  component rendered with NO enclosing `frame-provider` observes this
-  sentinel; the resolver reads it as 'no frame in scope' and returns nil
-  (it is the reader's nil, not a `:rf/default` floor). A dedicated
-  namespaced keyword (rather than nil) so a raw `_currentValue` read can
-  positively distinguish 'no Provider above me' from a genuinely corrupted
-  context value (nil / false / a number / a JS object)."
+  component rendered beneath NO frame boundary — neither a `frame-provider`
+  (SCOPE) nor a `frame-root` (ENSURE), which both install this same
+  context — observes this sentinel; the resolver reads it as 'no frame in
+  scope' and returns nil (it is the reader's nil, not a `:rf/default`
+  floor). A dedicated namespaced keyword (rather than nil) so a raw
+  `_currentValue` read can positively distinguish 'no boundary above me'
+  from a genuinely corrupted context value (nil / false / a number / a JS
+  object)."
   :rf.frame/no-provider)
 
 (defonce frame-context
   ;; Default = the no-provider sentinel (NOT :rf/default). Components
-  ;; without an enclosing frame-provider observe this; the resolver maps it
-  ;; to nil (no scope) rather than to a synthesised default frame, per the
-  ;; EP-0002 carried invariant.
+  ;; beneath neither frame boundary — `frame-provider` (SCOPE) nor
+  ;; `frame-root` (ENSURE) — observe this; the resolver maps it to nil (no
+  ;; scope) rather than to a synthesised default frame, per the EP-0002
+  ;; carried invariant.
   (.createContext React no-provider-sentinel))
 
 ;; rf2-fa4ly: stamp a human-readable `displayName` on the React Context
@@ -245,7 +248,7 @@
                      {:received v
                       :type     (value-type-tag v)
                       :recovery :no-frame-context
-                      :reason   "React-context `_currentValue` is not a frame keyword and not the no-provider sentinel; check the closest `frame-provider` boundary (or whether the subtree was rendered through an unwrapped portal)."}))
+                      :reason   "React-context `_currentValue` is not a frame keyword and not the no-provider sentinel; check the closest frame boundary above this subtree — a `frame-provider` (SCOPE) or a `frame-root` (ENSURE) — or whether the subtree was rendered through an unwrapped portal."}))
 
 ;; ---- function-component current-frame (UIx / Helix; rf2-d4sf) ------------
 ;;
@@ -277,13 +280,15 @@
 
     1. `re-frame.frame/*current-frame*` (dynamic var) — set by
        `with-frame` / `bind-fn`.
-    2. The closest enclosing frame-provider via React context. Reads
-       `_currentValue` off the shared context object directly (the
-       substrate-portable path; UIx's `use-context` and Helix's
-       `use-context` are both sugar over this read).
+    2. The closest enclosing frame boundary via React context — either a
+       `frame-provider` (SCOPE) or a `frame-root` (ENSURE); both install
+       the same shared context, so a read resolves identically beneath
+       either. Reads `_currentValue` off the shared context object
+       directly (the substrate-portable path; UIx's `use-context` and
+       Helix's `use-context` are both sugar over this read).
 
-  Returns nil when neither tier names a frame — a component rendered with
-  no enclosing `frame-provider` observes the no-provider sentinel, which
+  Returns nil when neither tier names a frame — a component rendered
+  beneath neither frame boundary observes the no-provider sentinel, which
   resolves to nil ('no scope'). Public frame-scoped operations turn that
   nil into a loud `:rf.error/no-frame-context` via
   `frame/require-current-frame!`; low-level readers / tooling model 'no

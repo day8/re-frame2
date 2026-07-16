@@ -1535,11 +1535,12 @@
   ([query-v]
    ;; EP-0002 §Subscriptions And Read Helpers — the carried-invariant
    ;; read. The 1-arity ambient form resolves the frame through the
-   ;; scope/hold chain via `require-current-frame!`: a `with-frame` /
-   ;; frame-provider scope (`resolve-current-frame`) or a captured
+   ;; scope/hold chain via `require-current-frame!`: a `with-frame` scope,
+   ;; the closest enclosing frame boundary — `frame-provider` (SCOPE) or
+   ;; `frame-root` (ENSURE) — (`resolve-current-frame`), or a captured
    ;; `*current-frame*` stamp. There is NO `:rf/default` floor — a
    ;; subscribe issued under no established scope (no with-frame, no
-   ;; enclosing provider, no carried stamp) raises the always-on
+   ;; frame boundary, no carried stamp) raises the always-on
    ;; `:rf.error/no-frame-context` (with capture-site ancestry) rather
    ;; than silently reading the wrong frame's app-db. The `extra` threads
    ;; the sub-id into the error payload's `:event-id` slot so a frameless

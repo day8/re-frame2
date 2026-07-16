@@ -297,10 +297,11 @@
     :cause  — the `:cause` recorded on the ensure (observability; a
               free-form data value). Defaults to `[:lease :mount]`.
     :frame  — pin the lease to an explicit frame id, bypassing the ambient
-              frame-provider / dynamic-var resolution.
+              frame-boundary / dynamic-var resolution.
 
-  Frame resolution (1-arg / no `:frame`): the surrounding `frame-provider`'s
-  keyword via the carried-invariant chain (`frame/require-current-frame!`),
+  Frame resolution (1-arg / no `:frame`): the keyword named by the closest
+  enclosing frame boundary — a `frame-provider` (SCOPE) or a `frame-root`
+  (ENSURE) — via the carried-invariant chain (`frame/require-current-frame!`),
   raising `:rf.error/no-frame-context` when no frame is in scope — the same
   contract as `use-subscribe`.
 

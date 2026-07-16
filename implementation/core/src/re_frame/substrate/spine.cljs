@@ -1959,18 +1959,20 @@
           ;;   1. `use-current-frame` is the NARROW raw `use-context` read
           ;;      (React-context tier ONLY — it never consults the dynamic
           ;;      var). Passing its result straight into the 2-arg EXPLICIT
-          ;;      path let a surrounding provider beat a `with-frame` /
-          ;;      `bind-fn` dynamic scope — inverting the spec's tier
-          ;;      precedence (dynamic-var MUST win).
-          ;;   2. With no enclosing provider, `use-context` returns the
+          ;;      path let a surrounding frame boundary (`frame-provider` or
+          ;;      `frame-root`) beat a `with-frame` / `bind-fn` dynamic scope
+          ;;      — inverting the spec's tier precedence (dynamic-var MUST
+          ;;      win).
+          ;;   2. Beneath neither frame boundary, `use-context` returns the
           ;;      no-provider sentinel (`:rf.frame/no-provider`), NOT nil. The
           ;;      explicit 2-arg path then subscribed against that sentinel as
           ;;      a literal frame id — surfacing a bad-/destroyed-frame path
           ;;      instead of the specified `:rf.error/no-frame-context`.
           ;;
           ;; Fix: still CALL `use-current-frame` (the `use-context` hook) so
-          ;; the component stays subscribed to provider-value changes and
-          ;; re-renders when the surrounding `frame-provider` swaps frames —
+          ;; the component stays subscribed to context-value changes and
+          ;; re-renders when the surrounding frame boundary (`frame-provider`
+          ;; or `frame-root`) swaps frames —
           ;; a hook-safe, unconditional top-of-body call — but DISCARD its raw
           ;; value for resolution. Resolve the real frame via
           ;; `frame/require-current-frame!`, which delegates to
