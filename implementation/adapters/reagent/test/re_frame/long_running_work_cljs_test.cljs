@@ -208,7 +208,7 @@
              (-> snap :data :progress))))))
 
 ;; ============================================================================
-;; (4) PARENT-UNMOUNT CASCADE — :cancel dispatched from the view cleanup
+;; (4) VIEW-CLEANUP CANCEL — :cancel dispatched from the view cleanup
 ;; ============================================================================
 ;;
 ;; The view's r/with-let cleanup dispatches [:work/flow [:cancel]]
@@ -219,7 +219,7 @@
 ;; covered by the view code itself (`r/with-let` cleanup is a
 ;; Reagent idiom, not a re-frame2 contract).
 
-(defn- test-parent-unmount-cascade []
+(defn- test-view-cleanup-cancel []
   (with-new-frame [f (new-frame)]
     (rf/dispatch-sync [:work/flow [:start]] {:frame f})
     (is (= :working (:state (snapshot f))))
@@ -262,9 +262,9 @@
   (testing "mid-flight :cancel tears down every surviving child via the :spawn-all exit"
     (test-cancel-cascade)))
 
-(deftest long-running-work-parent-unmount-cascade
+(deftest long-running-work-view-cleanup-cancel
   (testing "view-unmount path: same :cancel dispatch from r/with-let cleanup"
-    (test-parent-unmount-cascade)))
+    (test-view-cleanup-cancel)))
 
 (deftest long-running-work-reset-round-trip
   (testing ":cancelled → :reset returns the parent to :idle with cleared :progress"

@@ -9,9 +9,8 @@
       `:reason` it carries is `:parent-frame-destroyed`.
     - `:rf.machine/destroyed` — the fx-substrate observation. Carries
       every non-frame-exit reason: `:rf.machine/finished`,
-      `:rf.machine/join-reaped`, `:explicit`, and the reserved
-      `:parent-unmount-cascade` (declared by 005 D6, no current emit
-      site — parent-cascade teardowns stamp `:explicit`).
+      `:rf.machine/join-reaped`, and `:explicit` (parent-cascade
+      teardowns stamp `:explicit`).
 
   A reason belongs to EXACTLY ONE channel — the (channel, reason) pair is
   the contract, not two independent sets. This test pins that matrix as
@@ -26,7 +25,8 @@
          3. Spec 005 §Final states D6 — the fx-channel enrichment vocab.
          4. Cross-Spec-Interactions §route-change teardown — the positive
             (fx-channel, `:explicit`) pair a view-unmount/route swap emits,
-            AND that the reserved reason is never reintroduced there.
+            AND that the retired `:parent-unmount-cascade` reason is never
+            reintroduced there.
 
     B. Emit sites (STRUCTURAL, fails closed) — every destroy emitter is
        enumerated by READING the source forms (not a text regex), so the
@@ -74,15 +74,12 @@
   #{:parent-frame-destroyed})
 
 (def ^:private expected-fx-reasons
-  "The fx channel's complete DOCUMENTED vocabulary (005 D6). Includes the
-  reserved `:parent-unmount-cascade` (no emit site — pinned separately).
-  Adding a reason means updating the 009 matrix, the Spec-Schemas rows,
-  005 D6, AND this literal — the co-edit is the point."
-  #{:rf.machine/finished :rf.machine/join-reaped :explicit :parent-unmount-cascade})
-
-(def ^:private expected-fx-emitted-reasons
-  "The subset of the fx vocabulary that is actually STAMPED at an emit site
-  (`:parent-unmount-cascade` is reserved and must never be emitted)."
+  "The fx channel's complete `:reason` vocabulary (005 D6) — now closed over
+  observable behaviour: every documented reason has an emit site and every
+  emit site stamps a documented reason (the doc-vocabulary == emit-census
+  equality below is the standing drift guard). Adding a reason means updating
+  the 009 matrix, the Spec-Schemas rows, 005 D6, AND this literal — the
+  co-edit is the point."
   #{:rf.machine/finished :rf.machine/join-reaped :explicit})
 
 (def ^:private forwarding-reason-sym
@@ -207,7 +204,7 @@
   (let [rows (parse-009-matrix)]
     (testing "sanity: the 009 matrix table parses"
       (is (.exists spec-009-file) (str "missing " spec-009-file))
-      (is (>= (count rows) 5) (str "matrix rows parsed: " (pr-str rows))))
+      (is (>= (count rows) 4) (str "matrix rows parsed: " (pr-str rows))))
     (testing "each reason appears exactly once (one channel per reason)"
       (let [dups (->> rows (map :reason) frequencies
                       (filter (fn [[_ n]] (> n 1))) (map first))]
@@ -220,7 +217,7 @@
         by-channel (fn [ch] (->> rows (filter #(= ch (:channel %))) (map :reason) set))]
     (testing "lifecycle channel = frame-exit only (rf2-hh1jhc ruling)"
       (is (= expected-lifecycle-reasons (by-channel lifecycle-channel))))
-    (testing "fx channel = the four non-frame-exit reasons (005 D6)"
+    (testing "fx channel = the three non-frame-exit reasons (005 D6)"
       (is (= expected-fx-reasons (by-channel fx-channel))))))
 
 (deftest spec-schemas-fx-row-matches-the-matrix
@@ -260,11 +257,12 @@
         (str "Cross-Spec's route-change teardown sentence must document the "
              "exact pair [" fx-channel " :explicit]; parsed: "
              (pr-str (cross-spec-route-teardown-tuple)))))
-  (testing "the reserved reason is never reintroduced on the lifecycle channel
-            here (the rf2-hh1jhc contradiction) — teardown-on-route-change is
-            the fx channel's `:explicit`, not a lifecycle `:parent-unmount-cascade`"
+  (testing "the retired `:parent-unmount-cascade` reason is never reintroduced
+            on the lifecycle channel here (the rf2-hh1jhc contradiction) —
+            teardown-on-route-change is the fx channel's `:explicit`, not a
+            lifecycle `:parent-unmount-cascade`"
     (is (not (str/includes? (slurp cross-spec-file) ":parent-unmount-cascade"))
-        "reintroducing the reserved reason into Cross-Spec-Interactions
+        "reintroducing the retired reason into Cross-Spec-Interactions
          requires the 009 matrix (and this test) to change first")))
 
 ;; ---------------------------------------------------------------------------
@@ -381,7 +379,7 @@
   `reason` or a documented, emitted fx keyword."
   [r]
   (or (= r forwarding-reason-sym)
-      (and (keyword? r) (contains? expected-fx-emitted-reasons r))))
+      (and (keyword? r) (contains? expected-fx-reasons r))))
 
 (defn- valid-lifecycle-reason? [r]
   (and (keyword? r) (contains? expected-lifecycle-reasons r)))
@@ -412,20 +410,20 @@
           (doseq [r reasons]
             (is (valid-fx-reason? r)
                 (str "fx-channel emit must stamp a documented fx literal "
-                     expected-fx-emitted-reasons " or forward `reason`; saw "
+                     expected-fx-reasons " or forward `reason`; saw "
                      (pr-str r) " at " (loc fnd)))))
 
         :emit-destroyed
         (doseq [r reasons]                         ; 0 reasons = the :explicit default
           (is (valid-fx-reason? r)
               (str "emit-destroyed! must pass a documented fx literal "
-                   expected-fx-emitted-reasons " or forward `reason`; saw "
+                   expected-fx-reasons " or forward `reason`; saw "
                    (pr-str r) " at " (loc fnd))))
 
         :destroy-resolved
-        (is (and (keyword? reason) (contains? expected-fx-emitted-reasons reason))
+        (is (and (keyword? reason) (contains? expected-fx-reasons reason))
             (str "destroy-resolved! must be called with a documented fx literal "
-                 expected-fx-emitted-reasons " (a dynamic reason here fails "
+                 expected-fx-reasons " (a dynamic reason here fails "
                  "closed); saw " (pr-str reason) " at " (loc fnd)))))
 
     ;; --- coverage: the emitted TUPLE SETS are exactly the matrix's.
@@ -454,26 +452,26 @@
                  expected-lifecycle-reasons "; saw " (pr-str lifecycle-reason-set))))
       (testing "the fx channel has its terminal emit"
         (is (seq fx-channel-emits) "the fx-channel `emit-destroyed!` terminal was found"))
-      (testing "the emitted fx reasons are EXACTLY the non-reserved fx set
-                (the reserved :parent-unmount-cascade never originates)"
-        (is (= expected-fx-emitted-reasons fx-origination)
+      (testing "the emitted fx reasons EXACTLY equal the documented fx
+                vocabulary — the standing drift guard now that the channel is
+                closed over observable behaviour (documented == emit census)"
+        (is (= expected-fx-reasons fx-origination)
             (str "fx reasons originated at emit sites must be exactly "
-                 expected-fx-emitted-reasons "; saw " (pr-str fx-origination)))))))
+                 expected-fx-reasons "; saw " (pr-str fx-origination)))))))
 
-(deftest reserved-reasons-are-not-emitted
-  (testing "a matrix row marked *reserved* must have NO emit site; stamping
-            it in source forces the matrix co-edit (flip the row to its
-            emit site) and a rethink of this pin"
+(deftest no-matrix-row-is-reserved
+  (testing "the fx-channel `:reason` vocabulary is closed over observable
+            behaviour — NO 009 matrix row may be marked *reserved* (a
+            reserved-but-never-emitted member is the phantom this matrix once
+            carried as `:parent-unmount-cascade`; reintroducing one forces an
+            emitter + fixtures in the same change, not a speculative slot)"
     (let [reserved (->> (parse-009-matrix)
                         (filter #(str/includes? (:emitted-by %) "reserved"))
                         (map :reason)
                         set)]
-      (is (contains? reserved :parent-unmount-cascade)
-          "the 009 matrix marks :parent-unmount-cascade reserved")
-      (doseq [r reserved
-              f (source-files)]
-        (is (not (str/includes? (slurp f) (str r)))
-            (str r " (reserved in the 009 matrix) appears in " (.getPath f)))))))
+      (is (empty? reserved)
+          (str "no 009 matrix row may be marked reserved; saw "
+               (pr-str reserved))))))
 
 ;; ---------------------------------------------------------------------------
 ;; C. Executable fixtures — drive the runtime, assert the exact emitted tuple

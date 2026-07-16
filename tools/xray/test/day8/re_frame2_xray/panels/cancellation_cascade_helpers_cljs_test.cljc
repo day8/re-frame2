@@ -167,11 +167,7 @@
   ;; ONE channel that actually carries it, never a cross-product.
   (testing "fx-substrate channel — the non-frame-exit teardowns"
     (is (true? (h/cancellation-anchor?
-                 (destroy-ev {:machine-id :x :reason :explicit}))))
-    (testing ":parent-unmount-cascade is reserved but channel-admitted"
-      (is (true? (h/cancellation-anchor?
-                   (destroy-ev {:machine-id :x
-                                :reason :parent-unmount-cascade}))))))
+                 (destroy-ev {:machine-id :x :reason :explicit})))))
   (testing "registrar-substrate channel — the frame-exit reap"
     (is (true? (h/cancellation-anchor?
                  (lifecycle-destroy-ev {:machine-id :x}))))))
