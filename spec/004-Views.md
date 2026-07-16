@@ -291,7 +291,7 @@ built on it is not v1).
 | Form | Invoker → phase | Identity | Sees | Serialisable | Use for |
 |---|---|---|---|---|---|
 | `[:event … :rf.ui/value]` | DOM → after commit | per-site stable | committed slots + frame | **yes** | intent (the 90%) |
-| `(ui/event [e] … [:vector …])` | DOM/foreign → after commit | per-site stable | committed slots + the live event | no | event mechanics, form/file payloads, filtering (`nil` ⇒ no dispatch) |
+| `(ui/event [e] … [:vector …])` | DOM/foreign → after commit (the synchronous door at a proven controlled-input site) | per-site stable | committed slots + the live event | no | event mechanics, form/file payloads, filtering (`nil` ⇒ no dispatch) |
 | `(ui/handler [x] …)` | foreign → after commit | per-site stable | committed slots | no | imperative work, stable-identity change-callbacks |
 | `(ui/render-fn [x] …)` | foreign → **during its render** | none promised | current render | no | item-key/comparator/render props; pure — no dispatch/sub/lease/hooks |
 | bare `#(…)` in a **known native event property** (`:on-*` on DOM/custom elements) | DOM → after commit | per-site stable | its closure (committed render's values) | no | shorthand for `ui/handler` — legal because invoker + phase are known. **Only there**: not refs, not arbitrary fn-valued props |
@@ -341,9 +341,15 @@ correctness gates first, latency second. **The trigger predicate (confirmed by t
 controlled-input door spike; the residual named gate is the G-8 real-browser input
 matrix, not the predicate):** the door applies where the compiler can *prove* the element
 controlled — a literal `:value`/`:checked` prop co-present on the element with the
-vector-handler site; dynamic props maps, `ui/spread`, and `ui/event`/bare-fn dispatches
-at such sites fall back to standard batching with a dev diagnostic naming the sync-door
-conditions.
+handler site — for a handler whose outcome the compiler *knows* to be an event vector:
+either a **literal vector**, or a **synchronous `ui/event`** whose result is an event
+vector (`nil` ⇒ no dispatch; any other synchronous result is a named runtime diagnostic).
+The site proof stays static while the prefix/payload stay runtime values — the shape a
+reusable library input uses to append its live payload to an event prefix received
+through props. Dynamic props maps, `ui/spread`, and bare-fn dispatches at such sites fall
+back to standard batching with a dev diagnostic naming the sync-door conditions; a
+placeholder keyword riding a runtime-produced vector remains ordinary data (the existing
+`:rf.warning/placeholder-in-dynamic-vector` dev warning).
 
 **Dev safety nets.** Data handlers with unregistered event ids warn at render with the
 element's coordinates (`:rf.warning/unregistered-event-id`). The registrar is

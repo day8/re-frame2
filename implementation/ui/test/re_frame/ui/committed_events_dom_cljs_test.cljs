@@ -10,6 +10,7 @@
             [re-frame.frame :as frame]
             [re-frame.test-support :as test-support]
             [re-frame.ui :as ui :refer [defview]]
+            [re-frame.ui.events :as events]
             [re-frame.ui.reactive :as reactive]
             [re-frame.ui.test :as uit]))
 
@@ -201,3 +202,125 @@
                    (rf/destroy-frame! f)
                    (is false (str "event batching fixture rejected: " e))
                    (done))))))))
+
+;; ---------------------------------------------------------------------------
+;; S3 sync-door widening (rf2-8k14ia): a compiler-proven controlled ui/event
+;; whose synchronous result is an event vector rides the same synchronous drain
+;; as a literal vector handler — the component-library reusable-input arm.
+;; ---------------------------------------------------------------------------
+
+(defview reusable-prefix-input [{:keys [on-value]}]
+  ;; A library control that cannot know the app's event grammar: it takes an
+  ;; event PREFIX through props and appends the live payload at dispatch time.
+  ;; The SITE proof is static (literal :value co-present); prefix/payload are
+  ;; runtime values.
+  [:input {:data-role "prefix"
+           :value (ui/sub [::text])
+           :on-input (ui/event [e] (conj on-value (.. e -target -value)))}])
+
+(deftest reusable-event-prefix-ui-event-rides-the-sync-door
+  (when (browser?)
+    (register-events!)
+    (let [f (rf/make-frame {:id ::prefix
+                            :initial-events [[:rf/set-db {:text "seed"}]]})]
+      (async done
+        (let [run
+              (uit/with-root
+                [root [ui/frame-provider {:frame f}
+                       [reusable-prefix-input {:on-value [::set-text]}]]]
+                (let [input     (uit/query root "[data-role='prefix']")
+                      text-cell (cell-observing ::prefix [::text])
+                      before    (reactive/revision text-cell)]
+                  (set! (.-value input) "typed-live")
+                  (dispatch-native! input (bubbling-event "input"))
+                  (is (= "typed-live" (:text (app-db ::prefix)))
+                      "the appended-prefix vector drains inside dispatchEvent")
+                  (is (= [[::set-text "typed-live"]] @delivered)
+                      "the runtime prefix and live payload compose into one event")
+                  (is (= (inc before) (reactive/revision text-cell))
+                      "the dirty ViewCell advances synchronously — caret/IME safe")
+                  (is (zero? (reactive/pending-cell-count)))
+                  (is (= "typed-live" (.-value input))
+                      "the controlled round-trip leaves the typed value in place")))]
+          (.then run
+                 (fn [] (rf/destroy-frame! f) (done))
+                 (fn [e]
+                   (rf/destroy-frame! f)
+                   (is false (str "reusable ui/event fixture rejected: " e))
+                   (done))))))))
+
+(defview filtering-input [_]
+  [:input {:data-role "filter"
+           :value (ui/sub [::text])
+           :on-input (ui/event [e]
+                       (when (= "GO" (.. e -target -value))
+                         [::set-text "went"]))}])       ; nil ⇒ dispatch nothing
+
+(deftest ui-event-nil-result-dispatches-nothing-then-a-vector-dispatches
+  (when (browser?)
+    (register-events!)
+    (let [f (rf/make-frame {:id ::filter
+                            :initial-events [[:rf/set-db {:text "x"}]]})]
+      (async done
+        (let [run
+              (uit/with-root
+                [root [ui/frame-provider {:frame f}
+                       [filtering-input {}]]]
+                (let [input (uit/query root "[data-role='filter']")]
+                  (set! (.-value input) "nope")
+                  (dispatch-native! input (bubbling-event "input"))
+                  (is (= [] @delivered)
+                      "a nil ui/event result dispatches nothing")
+                  (is (= "x" (:text (app-db ::filter)))
+                      "app-db is untouched when the body returns nil")
+                  (set! (.-value input) "GO")
+                  (dispatch-native! input (bubbling-event "input"))
+                  (is (= [[::set-text "went"]] @delivered)
+                      "a vector result on the same site dispatches, exactly once")
+                  (is (= "went" (:text (app-db ::filter))))))]
+          (.then run
+                 (fn [] (rf/destroy-frame! f) (done))
+                 (fn [e]
+                   (rf/destroy-frame! f)
+                   (is false (str "nil-filter ui/event fixture rejected: " e))
+                   (done))))))))
+
+(deftest ui-event-non-vector-non-nil-result-is-a-loud-didactic-diagnostic
+  ;; dispatchEvent swallows a listener exception, so the invalid-result throw is
+  ;; asserted at the host-agnostic commit! seam by invoking the stable callback
+  ;; directly (the exact function the DOM node would call).
+  (register-events!)
+  (let [owner      (events/make-owner ::invalid)
+        dispatched (atom [])
+        frame-ops  {:frame nil
+                    :dispatch      (fn [ev _] (swap! dispatched conj ev))
+                    :dispatch-sync (fn [ev _] (swap! dispatched conj ev))}
+        cbs        (atom {})
+        capture    (nth (events/with-capture
+                          owner nil
+                          (fn []
+                            (swap! cbs assoc :bad
+                                   (events/event-handler "bad" (fn [_] 42) 0 nil))
+                            (swap! cbs assoc :nil
+                                   (events/event-handler "nilf" (fn [_] nil) 0 nil))
+                            (swap! cbs assoc :vec
+                                   (events/event-handler
+                                    "vecf" (fn [_] [::set-text "seam"]) 0 nil))
+                            nil))
+                        1)]
+    (events/commit! owner capture frame-ops)
+    (testing "nil dispatches nothing"
+      ((:nil @cbs) #js {})
+      (is (= [] @dispatched)))
+    (testing "a vector dispatches"
+      ((:vec @cbs) #js {})
+      (is (= [[::set-text "seam"]] @dispatched)))
+    (testing "any other synchronous result is a named diagnostic"
+      (let [ex (try ((:bad @cbs) #js {}) nil
+                    (catch :default e e))]
+        (is (some? ex) "an invalid ui/event result throws")
+        (is (= :rf.error/ui-tree-malformed (:rf.error/id (ex-data ex))))
+        (is (re-find #"ui/event" (ex-message ex))
+            "the diagnostic names the ui/event contract")
+        (is (= [[::set-text "seam"]] @dispatched)
+            "the invalid result dispatched nothing")))))

@@ -12,6 +12,7 @@
                 :meta {:rf.ui/view true :rf.ui/children? true}}
     ForeignComp {:fqn 'app.interop/ForeignComp :meta {}}
     raw-fn {:fqn 're-frame.ui/raw-fn :meta {}}
+    event  {:fqn 're-frame.ui/event :meta {}}
     nil))
 
 (defn- emitted [form]
@@ -121,6 +122,32 @@
         "bit 3 carries the committed site's once policy")
     (is (some? dyn-call)
         "runtime-classified values still enter the per-site commit boundary")))
+
+(deftest controlled-ui-event-lowers-to-event-handler-through-the-sync-door
+  (let [controlled (emitted '[:input {:value value
+                                      :on-input (event [e]
+                                                  [:form/typed (.. e -target -value)])}])
+        uncontrolled (emitted '[:input {:on-input (event [e]
+                                                    [:log (.. e -target -value)])}])
+        ev-call    (first (filter #(and (seq? %)
+                                        (= 're-frame.ui.events/event-handler
+                                           (first %)))
+                                  (forms-of controlled)))
+        un-call    (first (filter #(and (seq? %)
+                                        (= 're-frame.ui.events/event-handler
+                                           (first %)))
+                                  (forms-of uncontrolled)))]
+    (is (some? ev-call)
+        "a ui/event handler lowers to the compiler-known event-handler seam")
+    (is (= 'fn (first (nth ev-call 2)))
+        "the compiled fn body is passed for invocation with the native event")
+    (is (odd? (nth ev-call 3))
+        "bit 0 rides the controlled-input synchronous door, as a literal vector does")
+    (is (some? un-call))
+    (is (even? (nth un-call 3))
+        "an uncontrolled ui/event site batches — no sync bit")
+    (is (not-any? #{'re-frame.ui.events/dynamic-handler} (forms-of controlled))
+        "ui/event is compiler-known, not runtime-classified like a dynamic value")))
 
 (deftest passive-handler-maps-lower-to-one-native-ref-not-a-react-handler
   (let [form (emitted

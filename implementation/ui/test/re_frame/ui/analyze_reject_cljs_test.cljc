@@ -430,8 +430,18 @@
   (is (= :rf.ui.compile/loop-capturing-handler
          (reject-id '(for [{:keys [id]} ts] [:li {:key id :on-click [::open id]} "x"])))
       "destructured loop bindings count")
+  (is (= :rf.ui.compile/loop-capturing-handler
+         (reject-id '(for [t ts]
+                       [:input {:key (:id t)
+                                :on-input (event [e] (conj [::set (:id t)]
+                                                           (.. e -target -value)))}])))
+      "a ui/event capturing the loop binding is a site too — extract a keyed child")
   (is (nil? (reject-id '(let [id 1] [:li {:on-click [::open id]} "x"])))
-      "non-loop locals in event vectors are the normal case"))
+      "non-loop locals in event vectors are the normal case")
+  (is (nil? (reject-id '[:input {:value v
+                                 :on-input (event [e] (conj on-value
+                                                            (.. e -target -value)))}]))
+      "a ui/event capturing a view-level prefix (not a loop var) is the reusable case"))
 
 (deftest handler-grammar
   (is (= :rf.ui.compile/bad-event-vector
@@ -442,7 +452,13 @@
       "the listener option vocabulary is closed")
   (is (= :rf.ui.compile/bad-handler-options
          (reject-id '[:button {:on-click {:prevent-default true}} "x"]))
-      "options maps need a literal :event vector"))
+      "options maps need a literal :event vector")
+  (is (= :rf.ui.compile/bad-ui-event
+         (reject-id '[:input {:on-input (event [] [:x])}]))
+      "ui/event binds exactly the native event")
+  (is (= :rf.ui.compile/bad-ui-event
+         (reject-id '[:input {:on-input (event [a b] [:x])}]))
+      "ui/event binds exactly one event arg, not several"))
 
 (deftest bare-fn-law
   (is (= :rf.ui.compile/bare-fn-prop

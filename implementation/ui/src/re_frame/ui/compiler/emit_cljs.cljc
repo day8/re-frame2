@@ -117,6 +117,14 @@
     (let [{:keys [event prevent-default stop-propagation]} (:form h)]
       (vector-handler-form h event prevent-default stop-propagation))
 
+    :ui-event
+    ;; The site proof is static (`handler-flags` carries the controlled-input
+    ;; sync bit exactly as a literal vector does); the compiled fn produces the
+    ;; event vector at invocation, so its outcome is classified there.
+    `(re-frame.ui.events/event-handler
+      ~(site-key-form h) ~(:form h) ~(handler-flags h false false)
+      ~(debug-site-form h))
+
     :fn
     `(re-frame.ui.events/dynamic-handler
       ~(site-key-form h) ~(:form h) ~(debug-site-form h))

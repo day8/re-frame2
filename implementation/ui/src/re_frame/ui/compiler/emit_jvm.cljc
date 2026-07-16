@@ -90,10 +90,13 @@
   [events]
   (reduce (fn [[stat dyn] {:keys [k classification form]}]
             (case classification
-              :vector  [(assoc stat k form) dyn]
-              :options [(assoc stat k form) dyn]
-              :fn      [(assoc stat k `re-frame.ui.tree/opaque-fn) dyn]
-              :dynamic [stat (assoc dyn k `(re-frame.ui.tree/classify-event ~form))]))
+              :vector   [(assoc stat k form) dyn]
+              :options  [(assoc stat k form) dyn]
+              ;; ui/event, like a bare fn, is an opaque committed callback whose
+              ;; body the JVM tree never evaluates (non-serialisable site).
+              :ui-event [(assoc stat k `re-frame.ui.tree/opaque-fn) dyn]
+              :fn       [(assoc stat k `re-frame.ui.tree/opaque-fn) dyn]
+              :dynamic  [stat (assoc dyn k `(re-frame.ui.tree/classify-event ~form))]))
           [{} {}]
           events))
 
