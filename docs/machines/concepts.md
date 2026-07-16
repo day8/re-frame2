@@ -1,5 +1,7 @@
 # The model
 
+<a id="state-machines"></a>
+
 This page is the **flat machine model** — everything you need for a single-level
 state machine. Nested states, parallel regions, history, and actors grow the same
 grammar; each has its own page.
@@ -15,6 +17,7 @@ contracts.
 
 ## The idea
 
+<a id="a-machine-at-a-glance"></a>
 <a id="the-same-flow-as-a-transition-table"></a>
 
 You already write state machines: a `:status` keyword in app-db plus informal rules
@@ -131,6 +134,7 @@ Click into the cell and press **`Ctrl-Enter`** (**`Cmd-Enter`** on macOS):
 ## Guards and actions
 
 <a id="guards-and-actions"></a>
+<a id="guards-actions-tags-and-after--the-recognition-kit"></a>
 
 Every callback receives one context map:
 
@@ -147,6 +151,8 @@ machine inside one snapshot for time-travel.
 
 ### Guards
 
+<a id="a-guard-is-a-yesno-gate"></a>
+
 Return truthy/falsey. No combinator DSL — compound logic is ordinary Clojure:
 
 ```clojure
@@ -156,12 +162,16 @@ Return truthy/falsey. No combinator DSL — compound logic is ordinary Clojure:
                       (and (seq (:email creds)) (seq (:password creds))))}
 ```
 
+<a id="name-them-or-inline-them"></a>
+
 Reference by id (`:guard :form-valid?`) or inline a one-liner. Prefer named ids —
 trace rows and Xray can address them.
 
 A list of transition candidates is tried in order; first guard that passes wins.
 
 ### Actions
+
+<a id="an-action-returns-effects"></a>
 
 Return **descriptions**, same idea as `reg-event`:
 
@@ -199,6 +209,8 @@ Unresolved `:guard` / `:action` / `:target` names throw at `reg-machine` time
 
 ## Strict encapsulation
 
+<a id="strict-encapsulation--a-machine-sees-only-its-own-data"></a>
+
 A guard or action gets only `{:data :event :state :meta}` — never app-db. That is
 what keeps a machine's whole state inside one snapshot for time-travel and SSR.
 
@@ -227,6 +239,8 @@ moves the machine.
 
 ## The snapshot
 
+<a id="the-snapshot--state-data-tags"></a>
+
 ```clojure
 {:state :submitting
  :data  {:attempts 1 :error nil}
@@ -246,6 +260,7 @@ Optional **`:schemas {:data …}`** (Malli) validates `:data` at commit in dev a
 rolls back a bad transition.
 
 <a id="validating-a-machines-data"></a>
+<a id="validating-a-machines-completion-output"></a>
 
 Full rules: see schemas section of
 [`re-frame.machines` API](../api/re-frame.machines.md) and Spec 005 (authors).
@@ -308,6 +323,8 @@ Nested finals and parent `:on-done` live in
 
 ## Tags and automatic moves (pointers)
 
+<a id="tags-and-timers"></a>
+
 - **Tags** — label intent on states (`:tags #{:auth/busy}`); views ask
   `[:rf.machine/has-tag? id :auth/busy]` instead of enumerating state names.
   → [Tags](tags.md)
@@ -317,6 +334,7 @@ Nested finals and parent `:on-done` live in
 ## When the table grows
 
 <a id="when-the-machine-grows"></a>
+<a id="testing-transitions-are-pure-function-calls"></a>
 
 Same model, more keys — each page assumes this one:
 
@@ -335,6 +353,8 @@ Eventless loops and raise storms are depth-bounded (default 16); tripping aborts
 macrostep with a loud error — not a silent no-op.
 
 ## When to reach for a machine
+
+<a id="when-to-reach-for-a-machine--and-when-not"></a>
 
 **Yes:** named mutually exclusive stages; conditional transitions scattered as
 `when`s; the flow is worth drawing on a whiteboard.

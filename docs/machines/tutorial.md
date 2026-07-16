@@ -22,6 +22,8 @@ Forget this and the first `reg-machine` throws
 
 ## Step 1 — a table and a registration
 
+<a id="step-1--your-first-machine"></a>
+
 A machine is data: named states and which triggers move where.
 
 ```clojure
@@ -68,6 +70,8 @@ Outer handlers stay ordinary. They only wrap the machine address:
 
 ## Step 2 — a guard
 
+<a id="step-2--a-guard-refuse-an-invalid-submit"></a>
+
 Refuse empty credentials. Name the guard once; reference it from every arrow that
 needs it:
 
@@ -93,6 +97,8 @@ The guard reads credentials from **`:event`**, not app-db —
 [encapsulation](concepts.md#strict-encapsulation).
 
 ## Step 3 — actions and candidate lists
+
+<a id="step-3--an-action-and-the-data-fx-it-returns"></a>
 
 An **action** returns `{:data … :fx …}` like a pure event handler — it never calls
 HTTP itself.
@@ -224,6 +230,8 @@ Add another in-flight state later with the same `:auth/busy` tag and this view k
 working. Pattern: [Tags](tags.md).
 
 ## Step 6 — test a transition as a pure function
+
+<a id="step-6--test-it-a-transition-is-a-pure-function"></a>
 
 No frame, no browser, no network:
 
