@@ -285,6 +285,48 @@ Ownership is nav-token keyed: leave or supersede → release; late replies
 **suppressed**. Per-user data uses a scope resolver (`{:from-db …}`) — fails closed
 when logged out. Full story: [Resources model](../resources/concepts.md).
 
+### A hand-rolled async loader — capture the nav-token
+
+<a id="a-hand-rolled-async-loader"></a>
+
+`:on-match` and `:resources` are the everyday loaders. Roll your own async fetch instead
+and you inherit the one race they close for you: a reader opens article A, navigates to B
+before A's reply lands, and A's late reply overwrites B's page. Guard it by capturing the
+**navigation token** — the epoch the current navigation minted — when the load starts, and
+gating delivery on it. Two framework hooks do the work: the `:rf.route/nav-token` **cofx**
+injects the live token into an `:on-match`-reached handler, and the
+`:rf.route/with-nav-token` **fx** delivers a reply only while that captured token still
+matches the current slice — otherwise it suppresses the reply and fires
+`:rf.route.nav-token/stale-suppressed`.
+
+```clojure
+;; The loader: capture the live token, kick off your own fetch, and carry the
+;; token into the reply event.
+(rf/reg-event :app/load-article
+  {:rf.cofx/requires [:rf.route/nav-token]}            ;; inject the current epoch token
+  (fn [{:rf.route/keys [nav-token] rt :rf.db/runtime} _]
+    (let [{:keys [id]} (get-in rt [:rf.runtime/routing :current :params])]
+      ;; :app/fetch-article is YOUR async effect; on reply it dispatches
+      ;; :app/article-arrived with the captured token + the fetched payload.
+      {:fx [[:app/fetch-article {:id id :on-reply [:app/article-arrived nav-token id]}]]})))
+
+;; The completion: hand the CAPTURED token to :rf.route/with-nav-token. Fresh
+;; token → the :rf/reply-to target runs; stale (a newer navigation superseded it)
+;; → the reply is dropped before it can touch app-db.
+(rf/reg-event :app/article-arrived
+  (fn [_ [_ captured-token id payload]]
+    {:fx [[:rf.route/with-nav-token
+           {:rf/reply-to [:app/article-loaded id payload]
+            :nav-token   captured-token}]]}))
+
+(rf/reg-event :app/article-loaded
+  (fn [{:keys [db]} [_ id payload]]
+    {:db (assoc db :article/current payload)}))
+```
+
+`:resources` already does all of this — declare it and the race is closed for you.
+Hand-roll only when you need something the resource layer doesn't give you.
+
 ## Blocking a navigation
 
 <a id="blocking-a-navigation"></a>
