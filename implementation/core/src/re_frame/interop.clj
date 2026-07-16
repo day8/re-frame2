@@ -15,7 +15,11 @@
 (defonce ^:private executor (Executors/newSingleThreadExecutor))
 
 (defn next-tick
-  "Schedule f for execution on the runtime's executor. Returns nil."
+  "Schedule f for execution on the runtime's executor — the JVM counterpart of
+  the CLJS macrotask (`goog.async.nextTick`). A next-turn TASK, not a microtask
+  (the JVM has no microtask checkpoint): f runs asynchronously on the
+  single-thread executor after the caller returns. See Spec 002 §Drain
+  scheduling. Returns nil."
   [f]
   (let [bound-f (bound-fn [& args] (apply f args))]
     (.execute ^Executor executor bound-f))

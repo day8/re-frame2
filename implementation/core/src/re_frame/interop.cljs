@@ -14,8 +14,23 @@
             [re-frame.late-bind :as late-bind]))
 
 ;; ---- next-tick scheduling -------------------------------------------------
+;;
+;; The router schedules its drain through `next-tick`. On CLJS this is
+;; `goog.async.nextTick`, a **macrotask** (a next-turn TASK — Closure realises
+;; it via `MessageChannel`/`postMessage`/`setImmediate`), NOT a microtask and
+;; NOT `setTimeout` (so no ≥4ms clamp). It fires after the current synchronous
+;; stack unwinds AND after the host has drained its microtask checkpoint, then
+;; yields to the event loop so rendering can interleave between drains. This is
+;; deliberate: the UI-render tear-correction flush is the one that rides a true
+;; microtask (`js/queueMicrotask`) — see Spec 006 §Render batching and Spec 002
+;; §Drain scheduling. Keep the two boundaries distinct.
 
-(def next-tick goog.async.nextTick)
+(def next-tick
+  "Schedule f as a next-turn TASK (macrotask) via `goog.async.nextTick`.
+  Fires after the current synchronous stack AND the host microtask checkpoint,
+  yielding to the event loop between drains — deliberately NOT a microtask and
+  NOT `setTimeout`. See Spec 002 §Drain scheduling."
+  goog.async.nextTick)
 
 ;; ---- adapter-published reactive hooks -------------------------------------
 ;;

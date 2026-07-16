@@ -1076,9 +1076,11 @@
 ;; now-complete source store. `next-tick` is the right boundary: every
 ;; synchronous `reg-*` of a reloaded namespace happens before control returns to
 ;; the event loop, so the single deferred flush sees the FULL new registration
-;; set, never a partial one. (CLJS: `goog.async.nextTick` microtask; JVM: the
-;; single-thread executor — async there too, which the dev hot-reload semantic
-;; tolerates; tests drive the synchronous `flush-pending-reprojection!`.)
+;; set, never a partial one. (CLJS: `goog.async.nextTick`, a macrotask — a
+;; next-turn task, deliberately NOT a microtask, matching the router's own
+;; `interop/next-tick` boundary; JVM: the single-thread executor — async there
+;; too, which the dev hot-reload semantic tolerates; tests drive the
+;; synchronous `flush-pending-reprojection!`.)
 ;;
 ;; ## Production elision
 ;;
@@ -1151,7 +1153,7 @@
   read-time consult exists to close. `locking` makes the consult WAIT for an
   in-flight sweep (then observe the freshly-swapped records), and the
   uncontended acquire is the only cost on the clean path. CLJS is
-  single-threaded — the consult and the scheduled microtask can never
+  single-threaded — the consult and the scheduled next-tick task can never
   interleave — so no lock exists there."}
      projection-flush-lock
      (Object.)))
@@ -1185,8 +1187,8 @@
 (defn- deferred-flush!
   "The fire-and-forget tick body the coalescing scheduler arms on
   `interop/next-tick`. A deferred background dev-hot-reload reprojection has
-  no caller to surface an exception to (it runs on a microtask / the JVM
-  executor thread, OUTSIDE any `reg-*` call frame), so this never lets a
+  no caller to surface an exception to (it runs on a next-tick macrotask / the
+  JVM executor thread, OUTSIDE any `reg-*` call frame), so this never lets a
   reprojection failure escape as an unhandled rejection that pollutes
   unrelated work.
 
@@ -1262,9 +1264,9 @@
     ;; observe the flag already true and add no second tick.
     (when (compare-and-set! pending-reprojection? false true)
       ;; The deferred tick is CLJS-ONLY (rf2-h1vqa4). In the browser the
-      ;; microtask boundary is the dev hot-reload seam: the flush runs after
-      ;; the reloaded namespace's synchronous reg-* burst and BEFORE the next
-      ;; user interaction, so tools observing generations between events see
+      ;; next-tick macrotask boundary is the dev hot-reload seam: the flush runs
+      ;; after the reloaded namespace's synchronous reg-* burst and BEFORE the
+      ;; next user interaction, so tools observing generations between events see
       ;; fresh projections without a dispatch. On the JVM there is no such
       ;; boundary to serve — the executor tick ran a CONCURRENT sweep racing
       ;; the caller thread's synchronous cascades (observed as
