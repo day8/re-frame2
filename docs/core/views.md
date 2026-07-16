@@ -162,9 +162,13 @@ macOS) to evaluate, then click the buttons:
  [qty-stepper]]
 ```
 
-Change the last form to `[:div [qty-stepper] [qty-stepper]]` and re-evaluate.
-Click either stepper: both move. Neither owns the number — each is a window onto
-the same app-db value. There is no local copy to fall out of sync.
+Keep the `:demo` `frame-root` and change its child from `[qty-stepper]` to
+`[:div [qty-stepper] [qty-stepper]]`, then re-evaluate. Click either stepper:
+both move. Both mount under the same seeded `:demo` [frame](glossary.md#frame),
+so neither owns the number — each is a window onto the one app-db value. There is
+no local copy to fall out of sync. (Replacing the whole `frame-root` with the
+bare `[:div …]` would drop the `:demo` seed and land the steppers on an
+uninitialised frame — keep the wrapper.)
 
 ### The pure pipeline is complete
 
