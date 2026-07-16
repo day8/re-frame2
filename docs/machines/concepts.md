@@ -208,11 +208,15 @@ what keeps a machine's whole state inside one snapshot for time-travel and SSR.
 | Write outside the machine | Return `:fx [[:dispatch […]]]` — a real, named event |
 | Clock / random / host fact | Declare a [coeffect](../core/coeffects.md) on the guard or action — do **not** call `(js/Date.now)` |
 
+A declared coeffect arrives under **`:rf.cofx`** on the callback map — the causal
+token the router recorded, so the decision replays deterministically. Read it there,
+`(:rf/time-ms (:rf.cofx ctx))`; it is *not* a top-level `rf/time-ms` key.
+
 ```clojure
 :guards
 {:within-retry-window?
  {:rf.cofx/requires [:rf/time-ms]
-  :fn (fn [{:keys [data rf/time-ms]}]
+  :fn (fn [{:keys [data] {:keys [rf/time-ms]} :rf.cofx}]
         (< (- time-ms (:first-attempt-at data)) 60000))}}
 ```
 
