@@ -85,3 +85,65 @@
     (let [scoped (:doc-api-known-unmanifested-scoped (gen/read-sidecar))]
       (is (map? scoped)
           "the scoped allowlist must be a {name -> #{files}} map"))))
+
+;; ---------------------------------------------------------------------------
+;; Page + member coverage reconciler (rf2-e5692s).
+;; ---------------------------------------------------------------------------
+
+(def ^:private cov-rows
+  ;; Synthetic eligible manifest rows spanning two namespaces.
+  [{:namespace "re-frame.ui"      :var "defview"}
+   {:namespace "re-frame.ui"      :var "sub"}
+   {:namespace "re-frame.ui.test" :var "render"}
+   {:namespace "re-frame.ui.test" :var "find"}])
+
+(deftest coverage-clean-when-every-eligible-var-has-a-member
+  (testing "a namespace with a page whose member set covers every eligible var
+            (bare or ns-qualified, both reduced to the bare name) reconciles clean"
+    (is (empty? (c/coverage-problems
+                  {:eligible-rows cov-rows
+                   :members {"re-frame.ui"      #{"defview" "sub"}
+                             "re-frame.ui.test" #{"render" "find"}}
+                   :exempt #{}})))))
+
+(deftest coverage-flags-a-namespace-with-no-page
+  (testing "an eligible namespace ABSENT from the members map (no docs/api page)
+            yields ONE :page-missing problem that subsumes its members"
+    (let [probs (c/coverage-problems
+                  {:eligible-rows cov-rows
+                   :members {"re-frame.ui" #{"defview" "sub"}} ; ui.test page absent
+                   :exempt #{}})]
+      (is (= [{:kind :page-missing :namespace "re-frame.ui.test"}] probs)))))
+
+(deftest coverage-flags-a-member-whose-heading-was-removed
+  (testing "deleting a member's heading (an eligible var not in its page's member
+            set) turns the check RED — the teeth proof"
+    (let [probs (c/coverage-problems
+                  {:eligible-rows cov-rows
+                   :members {"re-frame.ui"      #{"defview"} ; `sub` heading removed
+                             "re-frame.ui.test" #{"render" "find"}}
+                   :exempt #{}})]
+      (is (= [{:kind :member-missing :namespace "re-frame.ui" :var "sub"}] probs)))))
+
+(deftest coverage-exempt-silences-a-facade-pointer-member
+  (testing "an explicit :doc-api-coverage-exempt [namespace var] pair silences a
+            member that is intentionally documented only as a facade pointer"
+    (is (empty? (c/coverage-problems
+                  {:eligible-rows cov-rows
+                   :members {"re-frame.ui"      #{"defview"}
+                             "re-frame.ui.test" #{"render" "find"}}
+                   :exempt #{["re-frame.ui" "sub"]}})))))
+
+(deftest live-doc-api-coverage-reconciles-clean
+  (testing "the committed manifest reconciles against docs/api/ with full page +
+            member coverage (the CI contract — every eligible var has a page and
+            a member heading)"
+    (is (true? (c/check-coverage!))
+        "live coverage drift: an eligible manifest var has no docs/api page or member heading")))
+
+(deftest coverage-exempt-sidecar-key-defaults-empty
+  (testing "the coverage-exempt sidecar key, when present, is a collection of
+            [namespace var] pairs (absent today → the checker defaults to #{})"
+    (let [exempt (:doc-api-coverage-exempt (gen/read-sidecar))]
+      (is (or (nil? exempt) (coll? exempt))
+          "the coverage-exempt allowlist must be a collection of [ns var] pairs (or absent)"))))

@@ -106,9 +106,17 @@ from ordinary Clojure code fails loud** (they are not runtime helpers).
 
 - **Kind**: function (compile-time authoring form)
 - **Signature**: `(lease descriptor)`
-- **Description**: Declares resource interest while the view is mounted/visible. Does
-  not return data and does not fetch; read status via `(sub [:rf/resource …])`.
-  Leading declaration form in a `defview` body. Direct calls fail loud.
+- **Description**: Declares a mounted/visible view's interest in a resource, as a
+  declaration in the `defview` body (a `nil` descriptor is an inactive declaration).
+  Returns **no data** and does **no render-time work** — the render site only records
+  the desired ownership in the immutable render capture; it never mints an owner,
+  fetches, or dispatches during render. After the view's **connected, visible
+  commit**, the passive resource reconciler queues `:rf.resource/ensure` under an
+  app-minted `[:lease …]` owner, which **loads when the cache requires it** (a fetch
+  is a downstream consequence of that ensure, not render-time work). It **releases**
+  on disconnect / hide / unmount by dispatching `:rf.resource/release-owner`. Read the
+  resource's status and data passively with `sub` — `(sub [:rf/resource …])`. See the
+  [Resource lifecycle](../resources/concepts.md). Direct calls fail loud.
 
 ### `frame`
 
@@ -147,6 +155,74 @@ from ordinary Clojure code fails loud** (they are not runtime helpers).
 - **Description**: Runtime prop-map merge through the **same conversion rule table**
   as the compiler. Legal in a DOM element's props position only:
   `[:div (ui/spread base attrs)]`. Direct call → `:rf.error/ui-spread-outside-template`.
+
+### `spread-safe`
+
+- **Kind**: function (template interop form)
+- **Signature**: `(spread-safe owned caller)`
+- **Description**: The **literal safe-spread policy** — the one attr passthrough a
+  component library can forward onto an internal element without clobbering owned props
+  or forfeiting the controlled guarantee. `owned` is a **literal** map of the
+  component's own props (analysed like an element's props map, so a controlled owned
+  site — a literal `:value` / `:checked` co-present with a handler — retains the sync
+  door); `caller` is the runtime attr map forwarded from the consumer. The
+  compiler-visible deny law, enforced in **every** build (not dev-only): the
+  structural / controlled / identity keys `:key` `:ref` `:value` `:checked` and the
+  component's owned `:on-*` handlers may not appear in `caller` — a literal offender is
+  the compile error `:rf.ui.compile/spread-safe-owned-key`, a runtime offender throws
+  `:rf.error/ui-tree-malformed`. Everything else passes and converts per the 004B rule
+  table; owned props win any collision and `:class` composes (owned classes first).
+  General `spread` remains the visible-cost escape and still forfeits the sync door.
+  Legal only in a DOM / custom-element props position.
+- **Errors**: direct call → `:rf.error/ui-spread-outside-template`.
+
+### `event`
+
+- **Kind**: function (compile-time authoring form)
+- **Signature**: `(event [e] body…)`
+- **Description**: Committed `:on-*` handler form for a DOM / custom-element site whose
+  body needs the live native event. The body runs when the callback fires; its result
+  is the **event vector to dispatch**, or `nil` to dispatch nothing (a filter). The
+  callback sees the view's **committed** values and dispatches to the **committed**
+  frame — the same per-site-stable, retarget-safe machinery a literal event vector
+  rides. At a compiler-proven controlled site (a literal `:value` / `:checked`
+  co-present with the handler on `:on-input` / `:on-change` / `:on-before-input`) a
+  synchronous `event` whose result is a vector rides the **one synchronous door**
+  alongside a literal-vector handler. Any synchronous result other than a vector or
+  `nil` is a loud runtime diagnostic.
+- **Errors**: direct call → `:rf.error/ui-tree-malformed`.
+- **Example**:
+  ```clojure
+  [:input {:value (sub [:draft])
+           :on-input (ui/event [e] [:draft/set (.. e -target -value)])}]
+  ```
+
+### `render-fn`
+
+- **Kind**: function (compile-time authoring form)
+- **Signature**: `(render-fn [args…] template)`
+- **Description**: A **pure render callback** for an internal library seam. The body is
+  a template lexically visible at the consumer call site, so both emitters compile it
+  (closed grammar, no runtime hiccup); it renders from its arguments alone. A render-fn
+  value is legal in exactly two positions: a component call-site prop value
+  (`[list {:row (ui/render-fn [i x] …)}]`) and a `slot` argument; the library invokes
+  it through `slot`. A render-fn body is **pure render phase** — `sub` / `lease` /
+  `frame` are allowed, but `dispatch` / hooks / local state / effects inside are
+  compile errors (a stateful replacement part is a pure slot body that mounts a static
+  `defview`, which owns its state).
+- **Errors**: direct call → `:rf.error/ui-tree-malformed`.
+
+### `slot`
+
+- **Kind**: function (compile-time authoring form)
+- **Signature**: `(slot render-fn-value arg…)`
+- **Description**: The compiler-owned **invocation** of a `render-fn` value at a
+  library seam. `render-fn-value` is a `render-fn` (inline or carried through a prop)
+  or `nil`; any other value is a loud didactic error (`:rf.error/ui-tree-malformed`).
+  `nil` renders nothing; a render-fn renders with the supplied args, and its output
+  participates in the surrounding children exactly like any other child. Legal only in
+  a child position.
+- **Errors**: direct call → `:rf.error/ui-tree-malformed`.
 
 ## Roots and mounting
 

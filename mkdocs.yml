@@ -232,6 +232,7 @@ nav:
     - "re-frame.adapter.helix": api/re-frame.adapter.helix.md
     - "re-frame.test-support": api/re-frame.test-support.md
     - "re-frame.test-helpers": api/re-frame.test-helpers.md
+    - "re-frame.ui.test": api/re-frame.ui.test.md
 
   - Machines:
     # Landing routes; tutorial first (build), then the flat model, then

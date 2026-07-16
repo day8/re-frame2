@@ -104,14 +104,25 @@ own registrations again.
   ```
 - **Description**: Remove **one** app namespace's registration row for
   `(kind, id)` from the live registrar **and** the provenance source store.
-  Returns the captured source-store descriptor, or `nil` when absent. Reinstate
-  with `reinstate-app-registration!`.
+  `kind` is the **registrar kind** the id was registered under — `:route` for
+  routes, `:event` for events, `:sub` for subscriptions, and so on. The `(kind,
+  id)` pair must match the live registration: a mismatched kind captures nothing,
+  returns `nil`, and leaves the row registered. Returns the captured source-store
+  descriptor, or `nil` when absent. Reinstate with `reinstate-app-registration!`.
 - **Example**:
   ```clojure
-  ;; At ns load, after requiring the app under test:
+  ;; At ns load, after requiring the app under test. A per-app not-found route
+  ;; registers under registrar kind :route (NOT :event) — pass the kind the id
+  ;; was registered under.
   (defonce !not-found
-    (ts/sequester-app-registration! :event :rf.route/not-found
+    (ts/sequester-app-registration! :route :rf.route/not-found
                                     "my.app.routes"))
+
+  ;; A non-nil return is the captured descriptor — proof the route row was found
+  ;; and removed (a nil would mean the (kind, id) matched nothing). Reinstate it
+  ;; when this suite must see its own :rf.route/not-found again, e.g. from a
+  ;; per-test :init-fn:
+  ;;   (ts/reinstate-app-registration! !not-found)
   ```
 
 ### `reinstate-app-registration!`
