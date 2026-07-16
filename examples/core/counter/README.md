@@ -99,7 +99,7 @@ tool like Xray live in its own frame beside yours. The counter just
 uses exactly one.
 
 Everything else is left out on purpose: no schemas, no machines, no
-HTTP, no routing. Just the dataflow loop and the frame it runs in.
+HTTP, no routing. Just the event pipeline and the frame it runs in.
 
 ## Files
 

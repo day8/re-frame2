@@ -545,7 +545,7 @@
    record a synthetic `:rf/epoch-record` with `:event-id
    :rf.epoch/db-replaced` so that `restore-epoch` can rewind past the
    injection. Use sparingly — prefer `dispatch` for any change you want
-   the data loop to see.
+   the event pipeline to see.
 
    The `tap>` emission default-elides both `:previous`
    and `:next` slots when the raw-state gate is OFF (the published-

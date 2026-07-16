@@ -242,7 +242,7 @@ from ordinary Clojure code fails loud** (they are not runtime helpers).
 
 - [`re-frame.core`](re-frame.core.md) — events, subs, frames (`make-frame`,
   `capture-frame`), boot (`init!`)
-- [Introduction](../core/introduction.md) — the pure dataflow loop this substrate
+- [Introduction](../core/introduction.md) — the pure event pipeline this substrate
   plugs into
 - Substrate design / UI guide under the synthesis suite (force-tracked findings) when
   reader-facing `docs/ui/` is not yet landed

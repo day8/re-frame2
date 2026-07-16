@@ -41,7 +41,7 @@ This is the re-frame2 sibling of v1 [`re-frame-pair`](https://github.com/day8/re
 
 re-frame is a reactive dataflow system — a DAG of derived values rooted in mutable state. `app-db` is the single source of truth; events are the only legal writes; subscriptions recompute as derived values; views re-render when their subs change. A coding agent that only edits `.cljs` files works against the static shape of that system and has no view of its dynamics at runtime.
 
-re-frame2-pair inverts this. It operates on the live browser runtime *and* on source files — but deliberately, with a protocol: REPL changes are ephemeral probes; source edits are committed changes coordinated with shadow-cljs hot-reload (§4.5). Every read and write runs through re-frame2's own vocabulary, so the data loop, the trace stream, the assembled epoch records, and the user's own instincts about the app all see the same thing Claude sees.
+re-frame2-pair inverts this. It operates on the live browser runtime *and* on source files — but deliberately, with a protocol: REPL changes are ephemeral probes; source edits are committed changes coordinated with shadow-cljs hot-reload (§4.5). Every read and write runs through re-frame2's own vocabulary, so the event pipeline, the trace stream, the assembled epoch records, and the user's own instincts about the app all see the same thing Claude sees.
 
 ### Non-goals
 
