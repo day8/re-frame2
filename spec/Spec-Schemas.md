@@ -1898,9 +1898,17 @@ Common keys (`:category`, `:failing-id`, `:reason`, `:frame`) are inherited from
   ;; re-emit. The callback registration remains in place; eviction is
   ;; the consumer's call. Per Tool-Pair §Surface behaviour against
   ;; destroyed frames.
+  ;;
+  ;; :observed-gen is the reserved callback generation the silence is
+  ;; attributed to (a process-monotonic int token). The emit runs OUTSIDE the
+  ;; ledger locks, so this qualifier — not a lock — preserves generation
+  ;; authority: a receiver whose current generation for cb-id no longer equals
+  ;; the carried :observed-gen self-filters the superseded signal (rf2-8b9twg).
+  ;; Per 009 §The delayed-silence emission linearization law.
   [:map
    [:frame :keyword]
-   [:cb-id [:or :keyword :string]]])
+   [:cb-id [:or :keyword :string]]
+   [:observed-gen :int]])
 
 ;; --- warnings: SSR / authoring-time advisories ---
 
