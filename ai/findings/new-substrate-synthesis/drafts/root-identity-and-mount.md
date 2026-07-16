@@ -150,13 +150,17 @@ id" is closed here:
 | `:on-uncaught-error` `:on-caught-error` `:on-recoverable-error` | host | plain CLJS fns passed to the React root options. Host-tier option maps are **not** template positions — the §02 §3 handler boundary law does not apply here. Invoked by React outside the re-frame2 commit path; to dispatch they must go through a live frame handle. |
 
 Identity opts (`:root-id`, `:disambiguator`, `:identifier-prefix`) must be **compile-time
-literals** at `mount`/`create-root` sites — they feed the descriptor and build-time
-duplicate detection. Host-behaviour opts may be runtime values.
+literals** at the sites that accept them — they feed the descriptor and build-time
+duplicate detection. Host-behaviour opts may be runtime values. `:disambiguator` is a
+**`mount`-only** derivation opt: it changes what the root-id derives from, and
+`create-root` has no root form to derive from, so its identity set is `:root-id` /
+`:identifier-prefix` only. Supplying `:disambiguator` to `create-root` is a compile
+error (`:rf.ui.compile/bad-root-opts`) — see `spec/004C-Roots-and-Mount.md` §3.
 
 **The full host-tier signature set:**
 
 ```clojure
-(ui/create-root dom-node opts)        ; ⇒ Root. Identity fixed here, for the Root's lifetime.
+(ui/create-root dom-node opts)        ; ⇒ Root. Identity fixed here for the Root's lifetime; authored :root-id REQUIRED (no root form to derive from).
 (ui/render! root root-form)           ; render/re-render the literal root form into the Root.
 (ui/hydrate-root dom-node root-form)  ; ⇒ Root. Hydrating mount; identity comes FROM the manifest (§4).
 (ui/hydrate-root dom-node root-form opts)  ; opts: host-behaviour tier only (error callbacks).
@@ -177,12 +181,12 @@ duplicate detection. Host-behaviour opts may be runtime values.
 - **Every root-form-accepting entry point requires the literal root form at the call
   site** — `mount`, `render!`, `hydrate-root`, `render-static`, and `ui.test/render`
   (§8) alike; the same compile error rejects runtime-assembled vectors everywhere.
-  The CLJS realisation implements `render!`/`hydrate-root` as macros expanding to
-  underlying host fns over the compiled root template. `[S1-CONFIRM]` — the blessed
-  12 §2 table labels `create-root`/`render!`/`hydrate-root`/`unmount!` "fns"; the
-  physics above make `render!`/`hydrate-root` macros in realisation. This is a
-  **kind-label erratum only** (no name, arity, or surface change); route to Mike as a
-  row-level delta per the 12 §4 protocol.
+  `mount`, `create-root`, `render!`, and `hydrate-root` are all **macros** — they expand
+  to underlying host fns over the compiled root template — and `unmount!` is a plain
+  **function**, which needs no literal form. The kind-label erratum this section once
+  raised (the blessed 12 §2 table originally labelled the four verbs "fns") has since
+  been ruled and landed: 12 §2 and `spec/004C-Roots-and-Mount.md` §3 both carry the
+  macro classification, and 004C is the ratified home. No delta is outstanding.
 - Frame preflight (ENSURE + `:initial-events` drain, exactly once, before React) runs
   before the first `render!` on a Root and before `hydrate-root`'s hydration — timing
   and semantics owned by 03 §8 / Spec 002; this draft only pins *what is extracted*
@@ -412,7 +416,9 @@ unregisters (a leaked registration failing a later mount is a test-harness bug, 
 ## [S1-CONFIRM] register
 
 1. **§3** — `render!`/`hydrate-root` kind label in the blessed 12 §2 table ("fns" vs
-   macro realisation over host fns). Kind-label erratum only; row-level delta to Mike.
+   macro realisation over host fns). **RESOLVED** — the table and
+   `spec/004C-Roots-and-Mount.md` §3 now classify `mount`/`create-root`/`render!`/
+   `hydrate-root` as macros and `unmount!` as a fn. Nothing to route.
 2. **§4** — the manifest script element's concrete attribute/type convention; pin
    alongside the Spec 011 payload-encoding rows.
 3. **§7** — entry-point-closure scoping as the build-time projection of "one page" for
