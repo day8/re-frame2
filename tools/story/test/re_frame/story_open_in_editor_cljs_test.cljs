@@ -51,6 +51,33 @@
 (use-fixtures :each {:before reset-editor!
                      :after  reset-editor!})
 
+;; ---- navigator seam helpers (rf2-muvs8) ----------------------------------
+;;
+;; The click-time navigation seam (`set-navigator!`) is swappable so tests
+;; capture navigation without mutating `js/window.location`. These two
+;; helpers are shared across the whole file — including
+;; `open!-denylist-gates-pre-resolved-uri` below — so they live here, above
+;; their first use, rather than beside the click-time deftests (a forward
+;; reference would trip the CLJS `:undeclared-var` analyzer).
+
+(defn- with-stub-navigator
+  "Swap the navigator seam for `stub-fn` for the duration of `body-fn`.
+  Restores the original navigator afterward (even on throw)."
+  [stub-fn body-fn]
+  (let [prev (open-in-editor/set-navigator! stub-fn)]
+    (try
+      (body-fn)
+      (finally
+        (open-in-editor/set-navigator! prev)))))
+
+(defn- capturing-navigator
+  "Build a navigator fn that pushes its URI argument onto the shared
+  `calls` atom. Returns `[navigator-fn, calls-atom]`."
+  []
+  (let [calls (atom [])
+        nav   (fn [uri] (swap! calls conj uri))]
+    [nav calls]))
+
 ;; ---- chip rendering ------------------------------------------------------
 
 (deftest open-chip-renders-anchor-with-href
@@ -365,25 +392,10 @@
 ;; handlers) are diagnosable from devtools without a debugger break.
 ;;
 ;; These tests pin the click-time contract: clicking the chip invokes
-;; the navigator with the same URI carried in the :href.
-
-(defn- with-stub-navigator
-  "Swap the navigator seam for `stub-fn` for the duration of `body-fn`.
-  Restores the original navigator afterward (even on throw)."
-  [stub-fn body-fn]
-  (let [prev (open-in-editor/set-navigator! stub-fn)]
-    (try
-      (body-fn)
-      (finally
-        (open-in-editor/set-navigator! prev)))))
-
-(defn- capturing-navigator
-  "Build a navigator fn that pushes its URI argument onto the shared
-  `calls` atom. Returns `[navigator-fn, calls-atom]`."
-  []
-  (let [calls (atom [])
-        nav   (fn [uri] (swap! calls conj uri))]
-    [nav calls]))
+;; the navigator with the same URI carried in the :href. The
+;; `with-stub-navigator` / `capturing-navigator` seam helpers used here
+;; are defined in the helpers section near the top of the file (they are
+;; first used earlier, by `open!-denylist-gates-pre-resolved-uri`).
 
 (deftest click-handler-calls-navigator-with-uri
   (testing "rf2-muvs8 — clicking the chip invokes the navigator seam
