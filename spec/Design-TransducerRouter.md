@@ -38,7 +38,7 @@ The v1 router (`re-frame.router/drain-loop!`) bakes three concerns into one piec
   raised by 005's `:always` transitions), or into a derived list of states (for time-travel
   replay).
 - **Scheduling** — when the next event runs: synchronously under `dispatch-sync` (v1), under
-  the drain pump on the host's microtask queue (v1's default), or under an externally-driven
+  the drain pump on the host's macrotask queue (v1's default), or under an externally-driven
   pump (test harness, SSR loader fan-in).
 
 A transducer cleanly separates concern 1 (the transducer `xf`) from concerns 2-and-3 (the
@@ -53,7 +53,7 @@ reducing function and the driver). The same transducer pipes through:
   defer paint to the drain boundary (Spec 005's `:always` is the motivating case).
 
 The driver (when does the next event arrive?) is a third axis, orthogonal to the
-reducing function. v1 ships one driver, the host-microtask pump; a v1.1 transducer formulation
+reducing function. v1 ships one driver, the host-macrotask pump; a v1.1 transducer formulation
 makes the driver a parameter.
 
 ---
@@ -116,8 +116,9 @@ to fixed point before `sync-rf` returns. Equivalent to v1's `dispatch-sync`.
 ```
 
 **`queued-rf`** — the v1 drain shape. Commits `:db-after` on every step; the driver pump runs
-the next envelope on the host's microtask queue. Dispatched events are appended to the frame's
-FIFO. Equivalent to v1's `dispatch`.
+the next envelope on the host's macrotask queue (`goog.async.nextTick` — a next-turn task, per
+[Spec 002 §Drain scheduling](002-Frames.md#drain-scheduling--macrotask-not-timer)). Dispatched
+events are appended to the frame's FIFO. Equivalent to v1's `dispatch`.
 
 **`batch-rf`** — accumulator. Steps update an in-memory `db` value without writing through to
 the container. The reducing function commits the final accumulated value in a single
@@ -137,18 +138,21 @@ the envelope (`:rf/commit :batch` vs. `:eager` / `:sync`).
 A driver is a function `(driver pump-fn) → driver-handle`. The driver decides *when* `pump-fn`
 runs and returns a handle the runtime can use to schedule, pause, and tear down.
 
-- **`microtask-driver`** — v1's behaviour. `pump-fn` runs under `js/queueMicrotask` (CLJS) or
-  inline (JVM). Default.
+- **`macrotask-driver`** — v1's behaviour. `pump-fn` runs under `goog.async.nextTick` (CLJS) — a
+  next-turn **macrotask** (Closure realises it via `MessageChannel`/`postMessage`/`setImmediate`),
+  deliberately **not** a microtask (the microtask boundary is reserved for Spec 006's UI-render
+  correction flush) — or an executor task / inline (JVM). Default. Per [Spec 002 §Drain
+  scheduling](002-Frames.md#drain-scheduling--macrotask-not-timer).
 - **`raf-driver`** — `pump-fn` runs under `requestAnimationFrame`. For frame-locked drains.
 - **`manual-driver`** — test harness drives `pump-fn` explicitly via `(tick handle)`. Used by
   the conformance corpus and SSR loaders.
 - **`virtual-time-driver`** — a debug driver that advances under a controlled clock. Time-travel
   replay can use this to step through a recorded envelope-seq deterministically.
 
-The driver is per-frame, set at frame-construction time via `:driver` (default `:microtask`). Frame
+The driver is per-frame, set at frame-construction time via `:driver` (default `:macrotask`). Frame
 presets (per [002 §Frame presets](002-Frames.md#frame-presets--capability-bundles-for-common-configurations))
-fix the driver: `:default` → `:microtask`, `:test` → `:manual`, `:ssr-server` → `:manual`,
-`:story` → `:microtask`.
+fix the driver: `:default` → `:macrotask`, `:test` → `:manual`, `:ssr-server` → `:manual`,
+`:story` → `:macrotask`.
 
 ### 2.4 Public surface
 
@@ -164,7 +168,7 @@ Only three functions are exposed at the public substrate API:
 (re-frame.core/batch-rf      frame) → reducing-fn
 
 ;; Driver constructors (opaque handles).
-(re-frame.core/microtask-driver) → driver
+(re-frame.core/macrotask-driver) → driver
 (re-frame.core/manual-driver)    → driver
 ```
 
@@ -186,7 +190,7 @@ owns the default code path; the transducer primitives are a new surface for tool
 SSR loaders to consume. No runtime-internal call changes.
 
 **Stage B (v2.0 major)** — replacement. The drain loop becomes a thin shim that constructs the
-transducer + `queued-rf` + `microtask-driver` and runs them. The v1 `drain-loop!` /
+transducer + `queued-rf` + `macrotask-driver` and runs them. The v1 `drain-loop!` /
 `process-event!` decomposition disappears from the supported surface; its internals are
 re-expressed in transducer terms. No user-facing API change — `dispatch` / `dispatch-sync`
 behaviour is preserved bit-exact against the conformance corpus.
@@ -194,7 +198,7 @@ behaviour is preserved bit-exact against the conformance corpus.
 **What disappears.** `re-frame.router/drain-depth-default`, `mark-drainer!`, `clear-drainer!`,
 `take-event!`, `run-one-pass!`, `force-release-on-halt!`, `try-release-on-empty!` — all are
 specific to the v1 queue-pump shape. Under Stage B they collapse into a single `queued-rf` +
-`microtask-driver` definition.
+`macrotask-driver` definition.
 
 **What stays.** Spec 002's normative behaviour is unchanged: run-to-completion, FIFO ordering
 within a frame, depth-exceeded halt (per-event, **not** whole-drain rollback),
@@ -268,7 +272,7 @@ re-evaluated under the new code, but the envelope-seq is replayed verbatim.
 - Publish the transducer + driver primitives at `re-frame.core`. Document as opt-in.
 
 **Phase 3 — v2.0 replacement (separate bead, post-v1.1).**
-- Re-express `re-frame.router/drain-loop!` as `(queued-rf + microtask-driver)`. Run the full
+- Re-express `re-frame.router/drain-loop!` as `(queued-rf + macrotask-driver)`. Run the full
   conformance corpus on the rewrite; require bit-exact equivalence on trace event order,
   app-db value sequence, and epoch record shape. Remove the v1 drain-loop ad-hoc code.
 
