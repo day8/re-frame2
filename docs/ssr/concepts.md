@@ -59,7 +59,7 @@ In words:
 3. The runtime **drains**: it keeps processing events — and every event those events dispatch — until the queue settles and app-db stops changing (the [run-to-completion](../core/glossary.md#drain--run-to-completion) guarantee). The settled state is what gets rendered, never a half-loaded intermediate.
 4. The root view renders to hiccup; `render-to-string` turns it into HTML.
 5. The server ships the HTML **plus** a serialised state payload.
-6. The client boots, dispatches `:rf/hydrate` with that payload, and renders. Its first render matches the server's HTML, so the existing DOM is adopted, not replaced.
+6. The client boots: `ssr/hydrate!` installs the payload (dispatches `:rf/hydrate`) *before* the first render, then the substrate **hydrates** the existing DOM (React's `hydrateRoot`, via the adapter). Because the first render matches the server's HTML, the DOM is adopted, not replaced.
 7. The per-request frame is destroyed — in a `finally`, on every exit path.
 
 Steps 2–4 run the handlers, subs, and views you already wrote; there's no separate "server code" to keep in sync with the client. And the per-request frame is *exactly* the frame from [Frames: isolated worlds](../core/frames.md) — no SSR-only variant.
@@ -185,21 +185,30 @@ The client's job is to land in the state the server finished in, without redoing
 ```clojure
 ;; Adapted from examples/capabilities/ssr/ssr/core.cljc — requires, alongside rf and ssr:
 ;;   [reagent.dom.client :as rdc]  [re-frame.adapter.reagent :as reagent-adapter]
-(defonce react-root
-  (rdc/create-root (js/document.getElementById "app")))
-
 (defn ^:export run []
   (rf/init! reagent-adapter/adapter)          ;; installs the adapter — creates no frame
   (rf/make-frame {:id :app :platform :client})
-  (let [payload (ssr/hydrate! {:frame          :app
-                               :render-tree-fn (fn [] ((rf/view :app/root)))})]
-    (when-not payload
-      ;; No payload script — a client-only first load. Seed normally.
-      (rf/dispatch-sync [:app/client-bootstrap] {:frame :app})))
-  (rdc/render react-root
-    [rf/frame-provider {:frame :app}
-     [(rf/view :app/root)]]))
+  (let [el      (js/document.getElementById "app")
+        payload (ssr/hydrate! {:frame          :app
+                               :render-tree-fn (fn [] ((rf/view :app/root)))})
+        tree    [rf/frame-provider {:frame :app} [(rf/view :app/root)]]]
+    (if payload
+      ;; Server-rendered: ADOPT the existing DOM. `hydrate-root` reconciles
+      ;; React against the server markup — same nodes, listeners attached, no
+      ;; re-paint. (`create-root` + `render` would throw the server HTML away.)
+      (rdc/hydrate-root el tree)
+      ;; No payload script — a client-only first load. Fresh root, fresh render.
+      (do
+        (rf/dispatch-sync [:app/client-bootstrap] {:frame :app})
+        (rdc/render (rdc/create-root el) tree)))))
 ```
+
+`hydrate!` does the **state** half — read, install, verify — and returns the payload
+it applied (or `nil`). It deliberately does *not* touch the DOM mount. Adopting the
+server's painted DOM is the **substrate's** job and a separate call: hand the existing
+container to the adapter's `hydrate-root` (React's `hydrateRoot`), *not* `create-root`
++ `render`. The latter discards the server markup and mounts fresh — correct only for
+the no-payload, client-only branch.
 
 Two rules to hold onto:
 
@@ -355,7 +364,8 @@ Enforced by the platform gate and caught by the hash.
 ## A complete loop (server + client)
 
 Copy-paste shape. The adapter owns create / drain / render / payload / teardown;
-the client installs the payload before the first paint.
+the client installs the payload before the first paint, then `hydrate-root` adopts
+the server's DOM.
 
 ```clojure
 (ns app.ssr
@@ -385,19 +395,18 @@ the client installs the payload before the first paint.
         :root-view      [:app/root]                 ;; hiccup vector or 0-arity fn
         :payload        [:articles :session-user]})))  ;; required allowlist
 
-#?(:cljs (defonce react-root (rdc/create-root (js/document.getElementById "app"))))
-
 #?(:cljs
    (defn ^:export run []
      (rf/init! reagent-adapter/adapter)
      (rf/make-frame {:id :app :platform :client})
-     (let [payload (ssr/hydrate! {:frame          :app
-                                  :render-tree-fn (fn [] ((rf/view :app/root)))})]
-       (when-not payload
-         (rf/dispatch-sync [:app/client-bootstrap] {:frame :app})))
-     (rdc/render react-root
-                 [rf/frame-provider {:frame :app}
-                  [(rf/view :app/root)]])))
+     (let [el      (js/document.getElementById "app")
+           payload (ssr/hydrate! {:frame          :app
+                                  :render-tree-fn (fn [] ((rf/view :app/root)))})
+           tree    [rf/frame-provider {:frame :app} [(rf/view :app/root)]]]
+       (if payload
+         (rdc/hydrate-root el tree)                      ;; server-rendered: adopt the DOM
+         (do (rf/dispatch-sync [:app/client-bootstrap] {:frame :app})
+             (rdc/render (rdc/create-root el) tree)))))) ;; client-only: fresh root
 ```
 
 Same `:frame` on `hydrate!` and `frame-provider`. Full walk-through:

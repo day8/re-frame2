@@ -40,8 +40,8 @@
    a genuine server stamps; see the comment in index.html). The pre-rendered
    markup sits in `<div id='app'>`, and the baked
    `<script id='__rf_payload'>` carries the state. The browser-side `run`
-   reads that payload, hydrates, verifies, and renders on top of the seeded
-   state — no flash, no re-fetch."
+   reads that payload, hydrates + verifies the state, then adopts the server
+   markup with `hydrate-root` — no flash, no re-fetch."
   (:require [re-frame.core :as rf]
             ;; A handful of these requires are here purely for their side
             ;; effect: loading the namespace registers something we lean on
@@ -381,10 +381,11 @@
   {:doc "Client-side init that runs even when the server never rendered this page."}
   (fn [{:keys [db]} _] {:db db}))
 
-;; The React root lives in an atom and gets created lazily inside `run`, never
-;; at namespace-load. The rule is that loading a namespace must not touch the
-;; DOM — so if several example namespaces get required together, none of them
-;; can race the others to slap a `create-root` onto the shared `#app`.
+;; The retained React root lives in an atom and gets created lazily inside `run`,
+;; never at namespace-load. The rule is that loading a namespace must not touch
+;; the DOM — so if several example namespaces get required together, none of them
+;; can race the others to slap a root onto the shared `#app`. One root per
+;; container, reused across hot reloads.
 #?(:cljs (defonce react-root (atom nil)))
 
 ;; The client's app-frame id. The app names its frame out loud and threads the
@@ -397,20 +398,17 @@
 ;; hydration target, plain and simple (see the note over in `handle-request`).
 (def app-frame :rf/default)
 
-;; DOM setup lives in `mount!`, tagged `^:dev/after-load` so shadow-cljs re-runs
-;; it after each hot reload — edited views re-render into the same root and the
-;; already-hydrated frame. HYDRATE stays in `run` (once), so a reload never
-;; re-seeds over the interactive state.
+;; Re-render the current view into the RETAINED root. Tagged `^:dev/after-load`
+;; so shadow-cljs re-runs it after each hot reload — edited views re-render into
+;; the same root and the already-hydrated frame. It never creates a root and
+;; never re-hydrates: the root is established once in `run`, and HYDRATE happens
+;; once there too, so a reload can't re-seed over the interactive state.
 #?(:cljs
-   (defn ^:dev/after-load mount! []
-     (when-let [el (and (exists? js/document)
-                        (js/document.getElementById "app"))]
-       (when-not @react-root
-         (reset! react-root (rdc/create-root el)))
-       ;; Mount inside the app-frame's `frame-provider`, so every `dispatch` and
-       ;; `subscribe` down in the view tree resolves to the frame we just
-       ;; hydrated.
-       (rdc/render @react-root
+   (defn ^:dev/after-load render! []
+     (when-let [root @react-root]
+       ;; Render inside the app-frame's `frame-provider`, so every `dispatch` and
+       ;; `subscribe` down in the view tree resolves to the frame we hydrated.
+       (rdc/render root
                    [rf/frame-provider {:frame app-frame}
                     [(rf/view :app/root)]]))))
 
@@ -435,21 +433,33 @@
      ;; afterward, get validated on the client just as they were on the server.
      ;; (Also no-op-safe on hot-reload.)
      (rf/reg-app-schema [:articles] {:frame app-frame} ArticlesSchema)
-     ;; One call, all three steps — READ, HYDRATE, VERIFY — against the same
-     ;; `app-frame` the mount below will use. The one subtlety is `:render-tree-fn`:
-     ;; VERIFY has to hash the *exact* tree the server hashed, or it'll cry
-     ;; mismatch over a difference that was never real. The server hashed
-     ;; `((rf/view :app/root))` — the view fn *called* — so we call it the same
-     ;; way here, not the `[(rf/view :app/root)]` vector form Reagent mounts.
-     ;; `hydrate!` returns the payload it applied, or nil on a plain client load.
-     (let [payload (ssr/hydrate! {:frame          app-frame
-                                  :render-tree-fn (fn [] ((rf/view :app/root)))})]
-       (when-not payload
-         ;; No payload means no server render — a plain first load. Run the
-         ;; app's own bootstrap against the frame; the page comes up showing the
-         ;; empty-articles fallback.
-         (rf/dispatch-sync [:ssr/client-bootstrap] {:frame app-frame})))
-     (mount!)))
+     ;; READ, HYDRATE, VERIFY — all three against the same `app-frame` the mount
+     ;; below uses. The one subtlety is `:render-tree-fn`: VERIFY has to hash the
+     ;; *exact* tree the server hashed, or it'll cry mismatch over a difference
+     ;; that was never real. The server hashed `((rf/view :app/root))` — the view
+     ;; fn *called* — so we call it the same way here, not the
+     ;; `[(rf/view :app/root)]` vector form Reagent mounts. `hydrate!` seeds and
+     ;; verifies STATE only — it never touches the DOM — and returns the payload
+     ;; it applied, or nil on a plain client load.
+     (let [el      (and (exists? js/document) (js/document.getElementById "app"))
+           payload (ssr/hydrate! {:frame          app-frame
+                                  :render-tree-fn (fn [] ((rf/view :app/root)))})
+           tree    [rf/frame-provider {:frame app-frame} [(rf/view :app/root)]]]
+       (when el
+         (if payload
+           ;; Server-rendered: ADOPT the painted DOM. `hydrate-root` reconciles
+           ;; React against the server markup — same nodes, listeners attached,
+           ;; no re-paint — and returns the retained root. `create-root` +
+           ;; `render` would throw the server HTML away and mount fresh, which is
+           ;; the bug this branch avoids.
+           (reset! react-root (rdc/hydrate-root el tree))
+           ;; No payload means no server render — a plain first load. Run the
+           ;; app's own bootstrap against the frame, then mount a fresh root; the
+           ;; page comes up showing the empty-articles fallback.
+           (do
+             (rf/dispatch-sync [:ssr/client-bootstrap] {:frame app-frame})
+             (reset! react-root (rdc/create-root el))
+             (rdc/render @react-root tree)))))))
 
 ;; No tests in this file — and that's deliberate. The example tree stays
 ;; test-free so the source reads as pure demonstration; the headless tests that
