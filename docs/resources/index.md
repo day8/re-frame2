@@ -25,7 +25,16 @@ leak boundary. Views *read* — they never fetch.
     {:request {:method :get :url (str "/api/articles/" slug)}
      :decode  :json}))
 
-;; a view only reads — no fetch on mount
+;; a view only reads — a subscription NEVER fetches
+@(rf/subscribe [:rf/resource {:resource :article :params {:slug "hello"}}])
+;; => {:status :idle …}  — registered, but nothing has caused a load yet
+
+;; a route or an event is the cause; here, an explicit ensure
+(rf/dispatch [:rf.resource/ensure {:resource :article
+                                   :params   {:slug "hello"}
+                                   :owner    [:lease :article "hello"]}])
+
+;; now the same passive read progresses
 @(rf/subscribe [:rf/resource {:resource :article :params {:slug "hello"}}])
 ;; => {:status :loading …}  then  {:status :loaded :data …}
 ```
