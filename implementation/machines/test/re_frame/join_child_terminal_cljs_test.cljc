@@ -214,14 +214,15 @@
           b (get-in j [:children :b])]
       (rf/dispatch-sync [a [:go]])
       (is (= [:completed] (terminals-for a)))
-      ;; Authenticated duplicate, pre-resolution.
+      ;; Authenticated duplicate, pre-resolution — authority on the protected
+      ;; recordable `:rf.cofx` transport (rf2-nsbwft), never event metadata.
       (rf/dispatch-sync
-        [:jct/p5 (with-meta [:child/done :a]
-                   {:rf/join-auth {:parent-id  :jct/p5
-                                   :invoke-id  [:racing]
-                                   :child-id   :a
-                                   :spawned-id a
-                                   :attempt    (:rf/attempt (join-state :jct/p5))}})])
+        [:jct/p5 [:child/done :a]]
+        {:rf.cofx {:rf.machine/join-auth {:parent-id  :jct/p5
+                                          :invoke-id  [:racing]
+                                          :child-id   :a
+                                          :spawned-id a
+                                          :attempt    (:rf/attempt (join-state :jct/p5))}}})
       (is (= [:completed] (terminals-for a))
           "the duplicate added NO second terminal (suppressed, not re-published)")
       ;; Resolve, then :a's EXACT-CURRENT completion re-arrives post-resolution
@@ -229,12 +230,12 @@
       (rf/dispatch-sync [b [:go]])
       (is (true? (:resolved? (join-state :jct/p5))))
       (rf/dispatch-sync
-        [:jct/p5 (with-meta [:child/done :a]
-                   {:rf/join-auth {:parent-id  :jct/p5
-                                   :invoke-id  [:racing]
-                                   :child-id   :a
-                                   :spawned-id a
-                                   :attempt    (:rf/attempt (join-state :jct/p5))}})])
+        [:jct/p5 [:child/done :a]]
+        {:rf.cofx {:rf.machine/join-auth {:parent-id  :jct/p5
+                                          :invoke-id  [:racing]
+                                          :child-id   :a
+                                          :spawned-id a
+                                          :attempt    (:rf/attempt (join-state :jct/p5))}}})
       (is (= [:completed] (terminals-for a))
           "the post-resolution straggler stayed :stale — still one terminal")
       (is (some #(= :stale (:rf.reply/status (:tags %)))

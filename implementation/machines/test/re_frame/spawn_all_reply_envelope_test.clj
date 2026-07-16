@@ -210,12 +210,12 @@
           (let [j (get-in (mtest/runtime-db)
                           [:rf.runtime/machines :spawned :sup/relp3 [:hydrating]])]
             (rf/dispatch-sync
-              [:sup/relp3 (with-meta [:asset/loaded :a]
-                            {:rf/join-auth {:parent-id  :sup/relp3
-                                            :invoke-id  [:hydrating]
-                                            :child-id   :a
-                                            :spawned-id (:a ids)
-                                            :attempt    (:rf/attempt j)}})])))
+              [:sup/relp3 [:asset/loaded :a]]
+              {:rf.cofx {:rf.machine/join-auth {:parent-id  :sup/relp3
+                                                :invoke-id  [:hydrating]
+                                                :child-id   :a
+                                                :spawned-id (:a ids)
+                                                :attempt    (:rf/attempt j)}}})))
         (let [late (->> @captured
                         (filter #(= :rf.machine.spawn-all/late-completion (:operation %)))
                         first)]
