@@ -981,19 +981,62 @@
                       m)))
   nil)
 
-;; The silence ledger is read + written across three atoms (`listeners`,
-;; `observed-frames-by-cb`, `terminal-silence-marks`). `silence-lock` makes the
-;; eligibility-recheck + mark-reservation of `claim-delayed-silence!` — and the
-;; bracket bookkeeping — ONE linearizable critical section, mirroring
-;; `frame-owner-lock`. It serialises silence operations against each other; the
-;; registry/observation atoms keep their own lock-free swaps, so an ordinary
-;; fan-out never contends on it.
+;; The delayed-silence ledger spans three atoms — `listeners` (the
+;; callback+generation registry), `observed-frames-by-cb` (the observation
+;; ledger), and `terminal-silence-marks` (the lineage marks). Two ORDERED
+;; monitors serialise it, split by which atom each op mutates:
+;;
+;;   listener-registry-lock  guards the `listeners` generation publish/drop.
+;;   silence-lock            guards the observation ledger, the terminal-silence
+;;                           marks, and the outstanding-lineage brackets.
+;;
+;; GLOBAL LOCK ORDER: listener-registry-lock BEFORE silence-lock, never the
+;; reverse. Any path needing both (the delayed-silence claim, `drop-listener!`,
+;; `reset-listeners!`) acquires the registry lock first — `with-claim-locks`
+;; encodes that order once.
+;;
+;; Why TWO monitors and not one (rf2-9bhne6 deadlock follow-up): the single-lock
+;; predecessor put `put-listener!`'s `(swap! listeners …)` — and hence any atom
+;; WATCHER that swap fires — AND `record-observation!`'s re-arm on the SAME
+;; monitor. A listeners-atom watch that parked mid-`swap!` (a JVM deschedule, or
+;; a test barrier) then held that monitor while a concurrent `record-observation!`
+;; fan-out blocked on it forever — a hard deadlock CI reproduced. Splitting the
+;; domains keeps `put-listener!` on the registry lock ALONE, so a registration
+;; paused inside its swap can never block a fan-out re-arm (which takes only
+;; silence-lock).
+;;
+;; The generation-authority-through-emission guarantee (rf2-9bhne6) is unchanged:
+;; the claim (`eligible-and-reserve!` under `claim-and-publish-delayed-silence!`)
+;; holds BOTH locks across its eligibility recheck AND the external emit, so a
+;; concurrent `put-listener!` blocks on the registry lock and a concurrent
+;; `record-observation!` blocks on silence-lock — neither can make a fresh
+;; generation current, nor re-arm the observation, in the reserve→emit window.
+;; Ordinary fan-out never contends on either: the registry/observation atoms keep
+;; their own lock-free swaps for the common path.
+#?(:clj
+   (defonce ^:private listener-registry-lock (Object.)))
+
 #?(:clj
    (defonce ^:private silence-lock (Object.)))
+
+(defn- with-listener-registry-lock [f]
+  #?(:clj  (locking listener-registry-lock (f))
+     :cljs (f)))
 
 (defn- with-silence-lock [f]
   #?(:clj  (locking silence-lock (f))
      :cljs (f)))
+
+(defn- with-claim-locks
+  "Acquire BOTH ledger monitors in the global order (registry → silence) for the
+  delayed-silence claim and the registry+observation wipes (`drop-listener!` /
+  `reset-listeners!`). The claim reads the `listeners` generation AND the
+  observation/mark ledger and must exclude both `put-listener!` and
+  `record-observation!` across its eligibility recheck and emit; the wipes mutate
+  both domains. Encoding the order here keeps every both-locks caller consistent
+  so the registry→silence DAG can never invert."
+  [f]
+  (with-listener-registry-lock #(with-silence-lock f)))
 
 ;; frame-id → count of deferred predecessors of THAT frame whose terminal
 ;; evidence is currently outstanding (snapshotted but not yet published). A
@@ -1062,8 +1105,12 @@
          (= token (:generation (get @listeners cb-id))))))
 
 (defn- eligible-and-reserve!
-  "The caller MUST already hold `silence-lock`. Recheck delayed-silence
-  eligibility for `(frame-id, cb-id)` against the FRESHEST listener /
+  "The caller MUST already hold BOTH ledger locks (via `with-claim-locks`:
+  listener-registry-lock → silence-lock). Reading the `listeners` generation
+  under the registry lock and the observation / mark ledger under silence-lock is
+  what makes the recheck coherent against a concurrent `put-listener!` AND a
+  concurrent `record-observation!`. Recheck delayed-silence eligibility for
+  `(frame-id, cb-id)` against the FRESHEST listener /
   observation / mark state and, when eligible, RESERVE a fresh monotonic seq
   (writing the mark inside the caller's critical section) and return it; else
   return nil, writing nothing. Split out so both the reserve-only
@@ -1113,24 +1160,25 @@
   critical section. This reserve-only primitive remains for staged tests and any
   caller whose emit provably cannot race a registry mutation."
   [frame-id cb-id observed-gen baseline]
-  (with-silence-lock
+  (with-claim-locks
     #(eligible-and-reserve! frame-id cb-id observed-gen baseline)))
 
 (defn claim-and-publish-delayed-silence!
   "Reserve AND publish the one delayed silence for `(frame-id, cb-id)` inside a
-  SINGLE `silence-lock` critical section, so the winning `(cb-id, observed-gen)`
+  SINGLE critical section holding BOTH ledger locks (`with-claim-locks`:
+  listener-registry-lock → silence-lock), so the winning `(cb-id, observed-gen)`
   stays the authoritative generation THROUGH the signal's emission (rf2-9bhne6).
 
   `publish!` is a 0-arg thunk that performs the external
-  `:rf.epoch.cb/silenced-on-frame-destroy` emit. It runs INSIDE the lock, after
-  the reservation and BEFORE the lock is released. Because `put-listener!`,
-  `drop-listener!`, `reset-listeners!`, and the re-arm in `record-observation!`
-  all participate in the same `silence-lock`, a concurrent registrar cannot make
-  a fresh generation H current in the reserve→emit window: its mutation blocks
-  until publication completes, so either the silence is linearized before H
-  becomes current, or — if H landed first — the eligibility recheck fails and no
-  silence fires. The forbidden ordering (H current, THEN G's unqualified signal)
-  is impossible.
+  `:rf.epoch.cb/silenced-on-frame-destroy` emit. It runs INSIDE the locks, after
+  the reservation and BEFORE they are released. Because `put-listener!` takes the
+  registry lock, and `drop-listener!` / `reset-listeners!` / the re-arm in
+  `record-observation!` take silence-lock (the wipes take both), a concurrent
+  registrar cannot make a fresh generation H current in the reserve→emit window:
+  its mutation blocks on the lock this claim holds until publication completes, so
+  either the silence is linearized before H becomes current, or — if H landed
+  first — the eligibility recheck fails and no silence fires. The forbidden
+  ordering (H current, THEN G's unqualified signal) is impossible.
 
   Returns true when the silence was published, false when ineligible. If
   `publish!` throws, the reservation is rolled back (only while it still stands)
@@ -1139,17 +1187,21 @@
   inside one critical section.
 
   Deliberately-held critical section: `publish!` may fan an external trace out to
-  arbitrary listeners while the lock is held. This is deadlock-free — the only
-  cross-lock nesting is `silence-lock → frame-owner-lock` (a listener that
-  triggers a frame op during the emit); no path holds `frame-owner-lock` while
-  acquiring `silence-lock` (the destroy recipe releases `frame-owner-lock` in
+  arbitrary listeners while the locks are held. Splitting the registry and
+  observation domains (rf2-9bhne6 deadlock follow-up) is what makes this safe
+  against a registration paused inside the `listeners` swap: `put-listener!`
+  holds ONLY the registry lock, so a fan-out re-arm (`record-observation!`, which
+  takes ONLY silence-lock) is never blocked behind it — the single-monitor
+  predecessor deadlocked exactly there. The cross-lock nesting to
+  `frame-owner-lock` remains a strict DAG: no path holds `frame-owner-lock` while
+  acquiring either ledger lock (the destroy recipe releases `frame-owner-lock` in
   `cleanup-frame-owner!` before this fan, and the settle path's
   `notify-listeners!`/`record-observation!` run after `commit-frame-owner-record!`
-  returns), so the lock order is a strict DAG. Same-thread reentrant acquisition
-  (a listener calling `put-listener!`/`record-observation!` during the emit) is a
-  no-op on the JVM monitor and on the CLJS single thread."
+  returns). Same-thread reentrant acquisition (a listener calling
+  `put-listener!`/`record-observation!` during the emit) is a no-op on the JVM
+  monitors and on the CLJS single thread."
   [frame-id cb-id observed-gen baseline publish!]
-  (with-silence-lock
+  (with-claim-locks
     (fn []
       (when-let [reserved (eligible-and-reserve! frame-id cb-id observed-gen baseline)]
         (try
@@ -1196,16 +1248,20 @@
   new callback could be erased by a lagging second swap (rf2-j538f7.5), and its
   mirror in which a stale old callback could re-arm the new registration.
 
-  Participates in `silence-lock` (rf2-9bhne6): installing a fresh generation is
-  a registry mutation that `claim-and-publish-delayed-silence!` reads while
-  deciding+emitting a delayed silence, so it is serialized against that critical
-  section. A replacement therefore cannot make a fresh generation current
-  between a silence's reservation and its emission — it blocks until publication
-  completes, closing the claim→emit window.
+  Participates in `listener-registry-lock` (rf2-9bhne6): installing a fresh
+  generation is a `listeners`-atom mutation that `claim-and-publish-delayed-silence!`
+  reads (under the same registry lock) while deciding+emitting a delayed silence,
+  so it is serialized against that critical section. A replacement therefore
+  cannot make a fresh generation current between a silence's reservation and its
+  emission — it blocks on the registry lock until publication completes, closing
+  the claim→emit window. It holds ONLY the registry lock, NOT silence-lock, so a
+  watcher parked inside the `(swap! listeners …)` below can never block a
+  concurrent `record-observation!` fan-out re-arm (the single-monitor deadlock,
+  rf2-9bhne6 follow-up).
 
   Returns the id."
   [id f]
-  (with-silence-lock
+  (with-listener-registry-lock
     (fn []
       (let [g (next-listener-generation)]
         (swap! listeners assoc id {:generation g :callback f}))))
@@ -1213,12 +1269,14 @@
 
 (defn drop-listener!
   "Remove the listener registered under `id` and any observation
-  bookkeeping it carried. Participates in `silence-lock` (rf2-9bhne6) — an
-  unregister is a registry mutation the delayed-silence claim reads, so a drop
-  in the reserve→emit window blocks until publication completes rather than
-  making a stale generation current mid-signal."
+  bookkeeping it carried. Takes BOTH ledger locks (`with-claim-locks`,
+  rf2-9bhne6): it mutates the `listeners` registry (registry lock) AND the
+  observation ledger + terminal-silence marks (silence-lock). Holding both means
+  a drop in a delayed-silence claim's reserve→emit window blocks until
+  publication completes rather than making a stale generation current — or
+  clearing an observation the claim is deciding against — mid-signal."
   [id]
-  (with-silence-lock
+  (with-claim-locks
     (fn []
       (swap! listeners dissoc id)
       (swap! observed-frames-by-cb dissoc id)
@@ -1230,11 +1288,12 @@
   registry, observation stamps, AND the terminal-silence lineage. Leaving the
   silence marks behind stranded a tombstone per destroyed frame past a full
   listener wipe (rf2-vxgfnd.285); with every listener gone no predecessor can owe
-  a silence, so the whole ledger is cleared here too. Runs under `silence-lock`
-  (rf2-9bhne6) so a wipe cannot tear a concurrent silence claim's registry /
-  observation / mark reads."
+  a silence, so the whole ledger is cleared here too. Runs under BOTH ledger
+  locks (`with-claim-locks`, rf2-9bhne6) — it wipes the `listeners` registry
+  (registry lock) and the observation / mark ledger (silence-lock) — so a wipe
+  cannot tear a concurrent silence claim's registry / observation / mark reads."
   []
-  (with-silence-lock
+  (with-claim-locks
     (fn []
       (reset! listeners {})
       (reset! observed-frames-by-cb {})
@@ -1282,13 +1341,22 @@
 
   A genuine re-arm (the outer guard passed) runs under `silence-lock`
   (rf2-9bhne6): it mutates the observation ledger AND prunes the terminal-silence
-  mark, both of which `claim-and-publish-delayed-silence!` reads while deciding a
-  delayed silence. Participating in that lock makes the claim's eligibility reads
-  coherent against a concurrent re-arm — a re-arm cannot land between the claim's
+  mark, both of which `claim-and-publish-delayed-silence!` reads (under
+  silence-lock, the inner of its two claim locks) while deciding a delayed
+  silence. Participating in that lock makes the claim's eligibility reads coherent
+  against a concurrent re-arm — a re-arm cannot land between the claim's
   individual reads (or between its reservation and emit) and yield a stale-state
-  grant. The lock-free fast no-op above keeps the fan-out hot path uncontended;
-  only the rare genuine transition takes the lock (and re-checks its guards
-  inside, so the pre-lock read cannot weaken the decision)."
+  grant. Crucially it takes ONLY silence-lock, NOT the registry lock
+  `put-listener!` holds, so a re-arm is never blocked behind a registration
+  paused inside the `listeners` swap (the single-monitor deadlock this split
+  fixed, rf2-9bhne6 follow-up). The lock-free fast no-op above keeps the fan-out
+  hot path uncontended; only the rare genuine transition takes the lock (and
+  re-checks its guards inside, so the pre-lock read cannot weaken the decision).
+  The `(get @listeners cb-id)` generation reads here are lock-free w.r.t.
+  `put-listener!`: a stale read either matches `token` (records an observation
+  the token-scoped readers accept) or not (no-op) — and a since-replaced
+  generation self-invalidates because every reader compares the stamp to the live
+  generation."
   [cb-id token frame-id]
   (when (and frame-id
              ;; Lock-free fast no-op: an already-stamped (cb, generation, frame)
