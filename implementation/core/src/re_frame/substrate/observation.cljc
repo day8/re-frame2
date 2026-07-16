@@ -537,8 +537,10 @@
   inside it throw `:rf.error/reentrant-graph-op` (dev-asserted). Bound only
   under `interop/debug-enabled?`, so production builds carry neither the
   binding nor the check (the #5704 dev-only-machinery-must-DCE idiom).
-  React-driven acquire/release — renders and commits *caused by* the
-  epoch-close notify — run after the fan-out returns and never see it."
+  React-driven acquire/release — the calls inside the renders and commits
+  the owner-notification schedules via `mark-dirty` (flushed at a later
+  pending host checkpoint, coalesced across a batch and decoupled from
+  epoch count) — run after the fan-out returns and never see it."
   false)
 
 (defn- assert-not-in-fan-out!
