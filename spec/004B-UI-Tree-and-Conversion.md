@@ -119,6 +119,13 @@ above) and in view-boundary `:props` (a fn-valued or foreign prop). The `:rf.ui/
 namespace is reserved (Conventions ripple in the rewrite), so author data can never
 collide with the marker.
 
+`:ui/render-fn` is the compiled render-slot member (Spec 004 §Compiled render slots):
+a `ui/render-fn` value carried as a component-call-site prop is recorded on that
+view-boundary's `:props` as `{:rf.ui/opaque :ui/render-fn}`. The render-fn's *rendered
+output* is **not** a marker — a `ui/slot` invocation produces the ordinary child
+subtree the render-fn built, spliced into the enclosing children like any other
+child, so `ui.test` renders slotted trees headlessly with no special representation.
+
 ### Reserved `:rf.ui/*` keys — semantic vs diagnostic
 
 A closed v1 set of reserved-namespace keys. **Consumers MUST ignore *unknown*

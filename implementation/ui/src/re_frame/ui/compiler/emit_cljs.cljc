@@ -365,6 +365,17 @@
       (hoist! st :el call)
       call)))
 
+(defn- component-prop-pair
+  "One [slot value-form] pair for a component call-site prop. A compiled render
+  slot (`ui/render-fn`) emits its lexically-visible pure body as a marked
+  callback the seam invokes via ui/slot; every other prop carries its walked
+  value verbatim."
+  [{:keys [slot value render-fn]} st]
+  (if render-fn
+    [slot `(re-frame.ui.runtime/render-fn
+            (fn [~@(:params render-fn)] ~(emit-node (:body render-fn) st false)))]
+    [slot value]))
+
 (defn- emit-component [node st inline?]
   (let [key-info (get-in node [:props :key])
         chs      (children-forms st (:children node) false)
@@ -376,7 +387,7 @@
         entries  (get-in node [:props :entries])
         ref-a    (get-in node [:props :ref])
         props-form (ordered-literal-object
-                    (concat (map (fn [{:keys [slot value]}] [slot value]) entries)
+                    (concat (map #(component-prop-pair % st) entries)
                             (when (and ref-a (= :foreign (:op node)))
                               [["ref" (:form ref-a)]])
                             (when (some? children-form)
@@ -441,6 +452,21 @@
     ~(:frame node)
     (cljs.core/array ~@(children-forms st (:children node) inline?))))
 
+(defn- emit-slot
+  "A `ui/slot` invocation: gate the render-fn value (nil renders nothing; a
+  non-render-fn value is the didactic `invalid-slot!`), then invoke it with
+  the runtime args — a fixed-arity call whose args evaluate only when the slot
+  renders. The output joins the surrounding children like any other child."
+  [node st]
+  (let [rf      (gensym "rf-ui-slot")
+        slotval (if-let [{:keys [params body]} (:render-fn node)]
+                  `(re-frame.ui.runtime/render-fn
+                    (fn [~@params] ~(emit-node body st false)))
+                  (:slot-value node))]
+    `(let [~rf ~slotval]
+       (when (re-frame.ui.runtime/slot-ready? ~rf)
+         (~rf ~@(:args node))))))
+
 (defn emit-node
   "AST node -> CLJS form (nil for a statically-absent child)."
   [node st inline?]
@@ -456,6 +482,7 @@
     :frame-provider (emit-frame-provider node st inline?)
     :view     (emit-component node st inline?)
     :foreign  (emit-component node st inline?)
+    :slot     (emit-slot node st)
     :if       `(if ~(:test node)
                  ~(emit-node (:then node) st false)
                  ~(emit-node (:else node) st false))

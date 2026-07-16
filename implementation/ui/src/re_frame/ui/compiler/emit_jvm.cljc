@@ -147,10 +147,15 @@
 ;; Components
 ;; ---------------------------------------------------------------------------
 
-(defn- prop-value-form [{:keys [value marker]}]
+(defn- prop-value-form [{:keys [value marker render-fn]}]
   (case marker
     :foreign    `re-frame.ui.tree/opaque-foreign
     :ui/raw-fn  {:rf.ui/opaque :ui/raw-fn}
+    ;; A compiled render slot: the lexically-visible pure body compiles to a
+    ;; carrier the seam invokes via ui/slot. On the JVM its rendered output is
+    ;; a structural tree node.
+    :render-fn  `(re-frame.ui.tree/render-fn
+                  (fn [~@(:params render-fn)] ~(emit-node (:body render-fn))))
     value))
 
 (defn- emit-view [node]
@@ -180,6 +185,21 @@
 (defn- emit-for [node]
   `(re-frame.ui.tree/keyed-run
     (into [] (for [~@(:seq-exprs node)] ~(emit-node (:body node))))))
+
+(defn- emit-slot
+  "A `ui/slot` invocation: gate the render-fn value (nil renders nothing; a
+  non-render-fn value is the didactic `invalid-slot!`), then invoke the
+  carrier's compiled body with the runtime args — a fixed-arity call whose
+  args evaluate only when the slot renders. The rendered output is an
+  ordinary tree child."
+  [node]
+  (let [rf      (gensym "rf-ui-slot")
+        slotval (if-let [{:keys [params body]} (:render-fn node)]
+                  `(re-frame.ui.tree/render-fn (fn [~@params] ~(emit-node body)))
+                  (:slot-value node))]
+    `(let [~rf ~slotval]
+       (when (re-frame.ui.tree/slot-ready? ~rf)
+         ((:f ~rf) ~@(:args node))))))
 
 (defn emit-node
   "AST node -> JVM form (nil for a statically-absent child)."
@@ -218,6 +238,7 @@
                          false nil ~@(keep emit-node (:children node)))))
     :view     (emit-view node)
     :foreign  (emit-foreign node)
+    :slot     (emit-slot node)
     :if       `(if ~(:test node)
                  ~(emit-node (:then node))
                  ~(emit-node (:else node)))

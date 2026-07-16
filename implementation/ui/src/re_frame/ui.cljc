@@ -411,3 +411,49 @@
         "lexical handler form for a DOM/custom-element :on-* site, not a "
         "callable helper. Author it at the element's handler position")
    nil))
+
+;; ---------------------------------------------------------------------------
+;; Compiled render slots (S3) — the internal library-seam callback + invocation
+;; ---------------------------------------------------------------------------
+
+(defn render-fn
+  "(ui/render-fn [args…] template) — a compiler-owned PURE render callback for
+  an INTERNAL library seam. The body is a template lexically visible at the
+  consumer call site, so BOTH emitters COMPILE it (closed grammar, no runtime
+  hiccup); it renders from its arguments alone. A render-fn value is legal in
+  exactly two positions: a component call-site prop value ([list {:row (ui/
+  render-fn [i x] …)}]) — the parameterized markup a reusable view accepts —
+  and a ui/slot argument. The library invokes it through ui/slot.
+
+  A slot body is PURE render phase: sub / lease / frame (and dispatch / hooks /
+  local / effect) inside are compile errors. A STATEFUL replacement part is a
+  pure slot body that MOUNTS a static defview — the defview owns its state, so
+  the slot body stays pure.
+
+  This var exists for symbol resolution only; a direct call fails loudly."
+  [& _]
+  (error/throw-error!
+   :rf.error/ui-tree-malformed 're-frame.ui/render-fn
+   (str "(ui/render-fn [args…] template) executed outside compiler lowering — "
+        "it is a lexical render-slot callback, not a callable helper. Author "
+        "it as a component prop value or a ui/slot argument, and invoke it "
+        "with ui/slot")
+   nil))
+
+(defn slot
+  "(ui/slot render-fn-value arg…) — the compiler-owned invocation of a
+  ui/render-fn value at a library seam. `render-fn-value` is a ui/render-fn
+  (inline or carried through a prop) or nil; any other value is a loud
+  didactic error (`:rf.error/ui-tree-malformed`). nil renders nothing; a
+  render-fn renders with the supplied args, and its output participates in
+  the surrounding children exactly like any other child. A template form,
+  legal only in a child position — a direct call fails loud by design.
+
+  This var exists for symbol resolution only; a direct call fails loudly."
+  [& _]
+  (error/throw-error!
+   :rf.error/ui-tree-malformed 're-frame.ui/slot
+   (str "(ui/slot render-fn-value arg…) executed outside compiler lowering — "
+        "it is a template form invoking a ui/render-fn value in child "
+        "position, wired by the compiler; it is never called directly")
+   nil))
