@@ -1,9 +1,11 @@
 # The re-frame2 API
 
 This is the **complete public API reference** for the ClojureScript implementation of
-re-frame2. One page per public namespace. Entries use a fixed shape: **Kind**,
+re-frame2. One page per public namespace. Entries use a consistent shape: **Kind**,
 **Signature**, **Description** (contract, including error ids where they are part of
-the surface), **Example**.
+the surface), and an **Example** where a call is worth showing. The Example is
+optional — many contract-only surfaces (compile-time template forms, symbol-resolution
+vars) carry no runnable call — so its absence is not a gap.
 
 For the mental model, start with the [Core guide](../core/introduction.md). This
 corpus is deliberately terse: it states *what* you may call, not *why* the design
@@ -17,7 +19,7 @@ chose it.
 | Compiled views (`defview`, `mount`, `sub`) | [`re-frame.ui`](re-frame.ui.md) |
 | Optional capabilities | machines, routing, resources, flows, schemas, HTTP, SSR |
 | Substrate adapters | `re-frame.adapter.{reagent,uix,helix}` — or `re-frame.ui/adapter` |
-| Tests | [`re-frame.test-support`](re-frame.test-support.md), [`re-frame.test-helpers`](re-frame.test-helpers.md) |
+| Tests | [`re-frame.test-support`](re-frame.test-support.md), [`re-frame.test-helpers`](re-frame.test-helpers.md), [`re-frame.ui.test`](re-frame.ui.test.md) (compiled-view substrate) |
 | Production timing | [`re-frame.performance`](re-frame.performance.md) |
 
 **Facade vs owning namespace.** Many optional features re-export registration verbs
@@ -34,7 +36,12 @@ tracks vars.
 **Completeness.** Public vars in the manifest with tiers `:front-porch`,
 `:advanced`, `:adapter`, or `:testing` under `re-frame.*` are expected to appear on
 these pages (or as an explicit facade pointer). Tooling and implementation tiers are
-out of scope here.
+out of scope here. This is **enforced**: the api-manifest `doc-api-check` reconciles
+every eligible manifest namespace against `docs/api/`, so an eligible namespace with
+no page — or an eligible var with no member heading (`### \`var\``, or a
+`#### \`var\`` facade-pointer entry on the owning/facade page) — turns the CI check
+red. A member heading may be written bare (`### \`sub\``) or namespace-qualified
+(`### \`re-frame.machines/machine-transition\``).
 
 ## Namespaces
 
@@ -68,6 +75,7 @@ out of scope here.
 | [re-frame.adapter.helix](re-frame.adapter.helix.md) | Helix substrate |
 | [re-frame.test-support](re-frame.test-support.md) | Fixtures, registrar snapshot, poll, sequester |
 | [re-frame.test-helpers](re-frame.test-helpers.md) | Hiccup walkers, testids |
+| [re-frame.ui.test](re-frame.ui.test.md) | Compiled-view test surface: headless render + find/attrs/text, mounted DOM |
 | [re-frame.performance](re-frame.performance.md) | Compile-time User-Timing flags |
 
 ## Require patterns

@@ -50,8 +50,27 @@
   KEYWORD-DRIFT GUARDS. The EP-0017 / EP-0011 / EP-0015 keyword-drift guards
   (`projection/keyword-drift-problems-over-files`) are folded in over the same
   scanned files — `spec/Privacy.md` is the EP-0015 privacy surface, so a
-  reintroduced retired `:rf.egress/*` profile keyword goes RED here too."
-  (:require [re-frame.api-manifest.gen :as gen]
+  reintroduced retired `:rf.egress/*` profile keyword goes RED here too.
+
+  PAGE + MEMBER COVERAGE (rf2-e5692s). The call-position discipline above
+  catches a docs/api/ reference to a REMOVED surface, but it cannot catch the
+  opposite drift: a public var the manifest carries that NO page documents
+  (docs/api/README.md promises one page per public namespace and an entry per
+  eligible var, yet nothing enforced it — `re-frame.ui.test`'s testing surface
+  and four `re-frame.ui` vars had no page/member entry). `check-coverage!`
+  reconciles the manifest AGAINST the corpus: every manifest var at an
+  ELIGIBLE tier (`:front-porch` / `:advanced` / `:adapter` / `:testing`, per
+  the README completeness clause) must have a `docs/api/<namespace>.md` page
+  and a member heading on it. A member heading is any `##`-`####` whose text is
+  one back-ticked identifier, reduced to its final `/`-segment — so a bare
+  `### \\`sub\\``, a namespace-qualified `### \\`re-frame.machines/x\\``, and a
+  facade-pointer `#### \\`reg-machine\\`` on the owning/facade page all count.
+  Deleting an eligible namespace's page (PAGE-MISSING) or a member's heading
+  (MEMBER-MISSING) turns this RED. The `:doc-api-coverage-exempt` sidecar key
+  (a set of `[namespace var]` pairs, empty/absent today) is the explicit escape
+  hatch for a var intentionally documented only as a facade pointer elsewhere."
+  (:require [clojure.string :as str]
+            [re-frame.api-manifest.gen :as gen]
             [re-frame.api-manifest.projection :as proj]))
 
 ;; The reference trees scanned. Each is an EXPECTED surface (it exists today
@@ -118,6 +137,132 @@
         ref   (proj/alias-call-references alias (proj/numbered-lines file))]
     (assoc ref :file (proj/repo-relative file))))
 
+;; ---------------------------------------------------------------------------
+;; Page + member coverage (rf2-e5692s).
+;; ---------------------------------------------------------------------------
+
+(def ^:private eligible-tiers
+  "The tiers docs/api/ is expected to document (README completeness clause).
+   `:tooling`, `:implementation`, `:internal-public`, and `:deprecated` are out
+   of scope for the human API reference."
+  #{:front-porch :advanced :adapter :testing})
+
+(def ^:private coverage-min-rows
+  "Non-vacuous floor (rf2-utvst-style) for the coverage reconciler. The manifest
+   carries ~180 eligible-tier rows today; this floor sits well below that, so it
+   trips ONLY if the committed manifest itself collapsed (which the primary
+   `gen --check` also catches) — never on ordinary corpus churn. Below the floor
+   the coverage check refuses a vacuous OK."
+  100)
+
+(defn- member-heading-names
+  "The set of bare member-var names a docs/api page documents: every markdown
+   heading (`##`-`####`) whose text is exactly ONE back-ticked identifier,
+   reduced to its final `/`-separated segment. So a bare `### \\`sub\\``, an
+   owning-namespace-qualified `### \\`re-frame.machines/machine-transition\\``,
+   and a facade-pointer `#### \\`reg-machine\\`` all cover their bare var name."
+  [^java.io.File file]
+  (into #{}
+        (keep (fn [[_ line]]
+                (when-let [[_ ident] (re-matches #"#{2,4}\s+`([^`]+)`.*"
+                                                 (str/trim line))]
+                  (last (str/split ident #"/")))))
+        (proj/numbered-lines file)))
+
+(defn- page-members
+  "`{namespace-str -> #{covered-bare-var-name ...}}` for each namespace in
+   `namespaces` whose `docs/api/<namespace>.md` EXISTS. A namespace ABSENT from
+   the returned map has no page (→ a PAGE-MISSING problem downstream)."
+  [namespaces]
+  (reduce (fn [acc ns-str]
+            (let [f (proj/repo-file "docs" "api" (str ns-str ".md"))]
+              (if (.isFile ^java.io.File f)
+                (assoc acc ns-str (member-heading-names f))
+                acc)))
+          {} namespaces))
+
+(defn coverage-problems
+  "Pure coverage reconciler (extracted so the page/member contract is
+   unit-testable with synthetic inputs). Returns the seq of problem maps.
+
+   `eligible-rows` — `[{:namespace :var} ...]` (already filtered to eligible tiers).
+   `members`       — `{namespace-str -> #{covered-var-name}}`; a namespace absent
+                     from this map has NO docs/api page.
+   `exempt`        — `#{[namespace-str var-str] ...}` explicit facade-pointer
+                     exemptions (the `:doc-api-coverage-exempt` sidecar key).
+
+   A namespace carrying eligible vars but no page yields ONE `:page-missing`
+   problem (the page problem subsumes its members). Otherwise each eligible var
+   with neither a covering member heading nor an exempt entry yields a
+   `:member-missing` problem."
+  [{:keys [eligible-rows members exempt]}]
+  (mapcat
+    (fn [[ns-str rows]]
+      (if-not (contains? members ns-str)
+        [{:kind :page-missing :namespace ns-str}]
+        (let [covered (get members ns-str)]
+          (keep (fn [{:keys [var]}]
+                  (when-not (or (contains? covered var)
+                                (contains? exempt [ns-str var]))
+                    {:kind :member-missing :namespace ns-str :var var}))
+                rows))))
+    (sort-by key (group-by :namespace eligible-rows))))
+
+(defn- report-coverage!
+  "Print a uniform OK/DRIFT report for the coverage reconciler and return the
+   boolean verdict. Enforces the non-vacuous floor before trusting an empty
+   problem list."
+  [problems eligible-count]
+  (cond
+    (< eligible-count coverage-min-rows)
+    (do (binding [*out* *err*]
+          (println (format (str "DRIFT: docs/api coverage extracted only %d eligible "
+                                 "manifest rows, below the non-vacuous floor of %d — "
+                                 "the committed manifest likely collapsed. Investigate "
+                                 "before trusting GREEN (regenerate the manifest).")
+                           eligible-count coverage-min-rows)))
+        false)
+
+    (empty? problems)
+    (do (println (format (str "OK: docs/api page+member coverage in sync (%d eligible "
+                              "manifest vars each have a page + member entry).")
+                         eligible-count))
+        true)
+
+    :else
+    (do (binding [*out* *err*]
+          (println "DRIFT: docs/api is missing required namespace pages or member entries.")
+          (println "Every eligible manifest var (tier :front-porch/:advanced/:adapter/:testing")
+          (println "under re-frame.*) needs a docs/api/<namespace>.md page AND a member heading")
+          (println "(### `var`, or a #### `var` facade-pointer entry on the owning/facade page).")
+          (println "Add the page/heading, or an explicit :doc-api-coverage-exempt sidecar entry")
+          (println "for a var documented only as a facade pointer elsewhere. Problems:")
+          (doseq [{:keys [kind namespace var]} (sort-by (juxt :namespace :var) problems)]
+            (case kind
+              :page-missing
+              (println (format "  PAGE:   docs/api/%s.md is missing (its namespace has eligible manifest vars)"
+                               namespace))
+              :member-missing
+              (println (format "  MEMBER: %s/%s has no member heading on docs/api/%s.md"
+                               namespace var namespace)))))
+        false)))
+
+(defn check-coverage!
+  "Reconcile every eligible manifest var against docs/api/ page + member
+   coverage. Returns true when every eligible namespace has a page and every
+   eligible var has a member heading (or an explicit facade-pointer exemption);
+   false (with a printed report) otherwise."
+  []
+  (let [rows          (proj/manifest-rows)
+        eligible-rows (filter #(contains? eligible-tiers (:tier %)) rows)
+        namespaces    (distinct (map :namespace eligible-rows))
+        members       (page-members namespaces)
+        exempt        (set (:doc-api-coverage-exempt (gen/read-sidecar)))
+        problems      (coverage-problems {:eligible-rows eligible-rows
+                                          :members       members
+                                          :exempt        exempt})]
+    (report-coverage! problems (count eligible-rows))))
+
 (defn check!
   []
   (let [rows          (proj/manifest-rows)
@@ -151,10 +296,16 @@
         ;; the EP-0015 surface, so a reintroduced retired `:rf.egress/*`
         ;; profile keyword goes RED here alongside any var-resolution drift.
         kw-problems   (proj/keyword-drift-problems-over-files files)
-        problems      (concat var-problems kw-problems)]
-    (proj/report-with-floor!
-      "spec/Privacy.md + docs/api/ + docs/story/api/"
-      (count references) min-references problems)))
+        problems      (concat var-problems kw-problems)
+        ;; (1) Call-position reference discipline + keyword-drift over the
+        ;; reference trees (the original rf2-vzupmg contract).
+        refs-ok       (proj/report-with-floor!
+                        "spec/Privacy.md + docs/api/ + docs/story/api/"
+                        (count references) min-references problems)
+        ;; (2) Page + member coverage of the manifest by docs/api/ (rf2-e5692s).
+        ;; Both reports print; the check is RED if EITHER fails.
+        coverage-ok   (check-coverage!)]
+    (and refs-ok coverage-ok)))
 
 (defn -main [& _]
   (System/exit (if (check!) 0 1)))
