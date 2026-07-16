@@ -182,20 +182,35 @@
 ;; ---- render-to-string survives a dispose/reinstall cycle ------------------
 
 (deftest render-to-string-survives-dispose-reinstall
-  (testing "dispose-adapter! does NOT clear the chained hiccup emitter, so
-            render-to-string keeps working across a dispose/reinstall cycle"
+  (testing "render-to-string stays ARMED across a dispose/reinstall cycle.
+            Two independent forces keep it armed: test-react's dispose
+            deliberately does NOT clear its emitter atom (re-derivable
+            infrastructure, not a host resource), AND install-adapter! replays
+            the durable authoritative SSR emitter (:ssr/current-hiccup-emitter,
+            rf2-vxgfnd.204) whenever re-frame.ssr is loaded. Either way the
+            re-installed generation renders rather than throwing
+            :rf.error/no-hiccup-emitter-bound.
+
+            The emitter that WINS after reinstall is classpath-dependent, so
+            the assertion pins armed-ness (the tree still renders) rather than a
+            specific emitter's output: on the all-artefact :node-test classpath
+            re-frame.ssr is loaded, so the .204 replay overrides the transient
+            stub with the real SSR emitter (real HTML); on the standalone
+            test-react JVM run (core + test-quiet only, no re-frame.ssr) the
+            durable slot is unset, the replay no-ops, and test-react's own
+            un-cleared stub survives."
     (test-react/set-hiccup-emitter! (fn [tree _opts] (str "HTML:" (pr-str tree))))
     (try
       (is (= "HTML:[:div \"a\"]"
              (substrate-adapter/render-to-string [:div "a"] nil))
-          "emitter is bound before the dispose cycle")
-      ;; Dispose + reinstall (the standard fixture shape). The emitter must
-      ;; survive — it is re-derivable infrastructure, not a host resource.
+          "the transient emitter is bound before the dispose cycle")
+      ;; Dispose + reinstall (the standard fixture shape).
       (substrate-adapter/dispose-adapter!)
       (substrate-adapter/install-adapter! test-react/adapter)
-      (is (= "HTML:[:div \"b\"]"
-             (substrate-adapter/render-to-string [:div "b"] nil))
-          "emitter still bound after dispose + reinstall")
+      (let [html (substrate-adapter/render-to-string [:div "b"] nil)]
+        (is (and (string? html) (re-find #"b" html))
+            "render-to-string still armed after dispose + reinstall — it renders
+             the tree and never throws :rf.error/no-hiccup-emitter-bound"))
       (finally
         (test-react/set-hiccup-emitter! nil)))))
 
