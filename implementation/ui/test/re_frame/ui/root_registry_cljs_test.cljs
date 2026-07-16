@@ -425,6 +425,16 @@
         "the newer claim survives")
     (is (identical? newer (:root (client/live-root-entry :reg/id))))))
 
+;; The RUNTIME half of the Root lifecycle drift gate (rf2-vizyct) — asserting
+;; that each of the three claim/render diagnostics EMITS `:existing {…
+;; :tearing-down? true}` in its tearing-down arm — lives in
+;; `re-frame.ui.root-teardown-wiring-cljs-test`
+;; (`tearing-down-root-diagnostics-carry-complete-ownership-evidence`), which
+;; pins the full ex-data shape (key-set + message) for all three ids off one
+;; torn-down root. That is the implementation-side counterpart to the spec-009
+;; `:tearing-down? true` row-scoped drift teeth: strip the evidence from either
+;; the runtime emitters or the spec rows and a gate turns red.
+
 (deftest adapter-disposal-snapshots-one-root-generation-and-never-chases-a-replacement
   (let [c      (js-obj)
         old    (fake-root :reg/generation)
