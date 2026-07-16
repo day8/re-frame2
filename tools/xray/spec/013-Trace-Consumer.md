@@ -391,9 +391,14 @@ machines / timers:
   the machine `:rf.machine.timer/stale-after`, the HTTP-supersession
   `:rf.http/stale-suppressed`, and the `:spawn-all` join's two
   exact-authority stale rows `:rf.machine.spawn-all/stale-completion`
-  (PRE-resolution exact-authority suppression) +
-  `:rf.machine.spawn-all/late-completion` (POST-resolution `:resolved?`-latched
-  straggler) — rf2-waawic / rf2-azcmd3 / rf2-hj4skn; the suffix heuristic
+  (an authority-suppressed completion carrier — the exact-authority /
+  closed-attempt fold gate runs BEFORE the resolution classification, so this
+  op covers ownership/authority suppression on BOTH sides of resolution,
+  rf2-ixjd48) +
+  `:rf.machine.spawn-all/late-completion` (the POST-resolution
+  `:resolved?`-latched EXACT-CURRENT straggler — the only carrier that passes
+  authority yet still arrives after its own join resolved) — rf2-waawic /
+  rf2-azcmd3 / rf2-hj4skn; the suffix heuristic
   catches `stale-suppress` / `suppressed` but NOT `stale-after`, and NOT the
   spawn-all `*-completion` names (which end in `-completion`, not
   `-completed`), so those ops are enumerated explicitly. The NON-DECISIVE

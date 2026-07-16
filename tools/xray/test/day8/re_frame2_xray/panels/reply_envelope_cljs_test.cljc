@@ -269,13 +269,16 @@
     (is (= :stale-suppressed (re/phase-of :rf.route.nav-token/stale-suppressed)))
     ;; rf2-azcmd3 — HTTP supersession's superseded-attempt stale row.
     (is (= :stale-suppressed (re/phase-of :rf.http/stale-suppressed)))
-    ;; rf2-hj4skn — the `:spawn-all` join's TWO exact-authority stale rows.
-    ;; Neither name ends in a `-completed` / `stale-suppress` / `suppressed`
-    ;; suffix (`stale-completion` / `late-completion` end in `-completion`), so
-    ;; the heuristic returned nil for both until they were enumerated
-    ;; explicitly. `stale-completion` is the PRE-resolution exact-authority
-    ;; suppression; `late-completion` the POST-resolution `:resolved?`-latched
-    ;; straggler.
+    ;; rf2-hj4skn / rf2-ixjd48 — the `:spawn-all` join's TWO exact-authority
+    ;; stale rows. Neither name ends in a `-completed` / `stale-suppress` /
+    ;; `suppressed` suffix (`stale-completion` / `late-completion` end in
+    ;; `-completion`), so the heuristic returned nil for both until they were
+    ;; enumerated explicitly. The producer runs the exact-authority gate BEFORE
+    ;; the resolved-vs-unresolved classification, so the two ops split on
+    ;; AUTHORITY not resolution state: `stale-completion` is the
+    ;; authority-suppressed carrier on EITHER side of resolution;
+    ;; `late-completion` the POST-resolution `:resolved?`-latched EXACT-CURRENT
+    ;; straggler (the only carrier that passes authority yet arrives post-latch).
     (is (= :stale-suppressed (re/phase-of :rf.machine.spawn-all/stale-completion)))
     (is (= :stale-suppressed (re/phase-of :rf.machine.spawn-all/late-completion))))
   (testing "rf2-hj4skn — the NON-DECISIVE `:spawn-all` child terminal is a REAL
@@ -599,15 +602,22 @@
 
 ;; ---------------------------------------------------------------------------
 ;; (6b-spawn-all) The `:spawn-all` join's TWO exact-authority stale-completion
-;; operations (rf2-hj4skn). Both lower to `:stale-suppressed` and project the
-;; canonical `:rf.reply/*` work identity / status / work-status / stale-reason
-;; / correlation / completion time on the SAME uniform row a resource / HTTP
-;; suppression renders. The fixtures are RUNTIME-shaped per the 009 catalogue:
-;; `:tags {:actor-id :invoke-id :child-id :kind}` (the preserved public shape)
-;; PLUS the additive `:rf.reply/*` reply-envelope facts. Four `:rf.reply/
-;; stale-reason` classes: attempt-unverified / attempt-superseded /
-;; duplicate-completion (the PRE-resolution `stale-completion` classes) and
-;; join-resolved (the POST-resolution `late-completion` straggler).
+;; operations (rf2-hj4skn / rf2-ixjd48). Both lower to `:stale-suppressed` and
+;; project the canonical `:rf.reply/*` work identity / status / work-status /
+;; stale-reason / correlation / completion time on the SAME uniform row a
+;; resource / HTTP suppression renders. The fixtures are RUNTIME-shaped per the
+;; 009 catalogue: `:tags {:actor-id :invoke-id :child-id :kind}` (the preserved
+;; public shape) PLUS the additive `:rf.reply/*` reply-envelope facts.
+;;
+;; The producer runs the exact-authority / closed-attempt fold gate BEFORE the
+;; resolved-vs-unresolved classification (join.cljc — rf2-ixjd48), so the two
+;; ops split on AUTHORITY, not on resolution state. Four `:rf.reply/stale-reason`
+;; classes: attempt-unverified / attempt-superseded / duplicate-completion (the
+;; `stale-completion` authority-suppression classes, which fire on BOTH sides of
+;; resolution — see `spawn-all-post-resolution-authority-suppressed` below) and
+;; join-resolved (the `late-completion` EXACT-CURRENT post-resolution straggler,
+;; the only carrier that passes authority yet arrives after its own join
+;; resolved).
 ;; ---------------------------------------------------------------------------
 
 (defn- spawn-all-stale-row
@@ -628,8 +638,8 @@
           :rf.reply/completed-at completed-at}})
 
 (deftest spawn-all-stale-completions
-  (testing "rf2-hj4skn — a PRE-resolution `stale-completion` carrier that failed
-            the exact-authority fold gate (:attempt-unverified) projects the
+  (testing "rf2-hj4skn — a `stale-completion` carrier that failed the
+            exact-authority fold gate (:attempt-unverified) projects the
             full canonical reply identity on the uniform stale-suppressed row"
     (let [row (re/work-event-row
                 (spawn-all-stale-row
@@ -651,7 +661,7 @@
       (is (= 471 (:completed-at row)) "causal reply completion time surfaced")
       (is (some? (:correlation row)) "single-map correlation surfaced")
       (is (= "map" (:type (:correlation row))) "correlation summarized (PRIVACY)")))
-  (testing "rf2-hj4skn — the :attempt-superseded PRE-resolution class (a carrier
+  (testing "rf2-hj4skn — the :attempt-superseded authority class (a carrier
             bound to a prior attempt / wrong actor after respawn)"
     (let [row (re/work-event-row
                 (spawn-all-stale-row
@@ -663,7 +673,7 @@
       (is (= :rf.machine.spawn-all/attempt-superseded (:stale-reason row)))
       (is (= :stale (:status row)))
       (is (= :suppressed (:work-status row)))))
-  (testing "rf2-hj4skn — the :duplicate-completion PRE-resolution class (an
+  (testing "rf2-hj4skn — the :duplicate-completion authority class (an
             exact re-completion of an already-folded child)"
     (let [row (re/work-event-row
                 (spawn-all-stale-row
@@ -691,6 +701,81 @@
       (is (= :suppressed (:work-status row)))
       (is (= 474 (:completed-at row)))
       (is (some? (:correlation row))))))
+
+(deftest spawn-all-post-resolution-authority-suppressed
+  ;; rf2-ixjd48 / rf2-w82021 — the producer runs the exact-authority /
+  ;; closed-attempt fold gate BEFORE the resolved-vs-unresolved classification
+  ;; (join.cljc `intercept-spawn-all-event`: the `(nil? auth)` and
+  ;; `(not (join-auth-current? ...))` gates precede the `(:resolved? join-state)`
+  ;; branch). So a carrier that FAILS authority is emitted as
+  ;; `:rf.machine.spawn-all/stale-completion` REGARDLESS of resolution state —
+  ;; a post-resolution unstamped/superseded straggler is suppressed HERE, never
+  ;; as a `late-completion`. Only the EXACT-CURRENT post-resolution carrier
+  ;; reaches `late-completion` (`:join-resolved`). These fixtures are the
+  ;; RUNTIME-shaped traces the producer emits on the POST-resolution authority
+  ;; path — modelled on `join_exact_auth_cljs_test`'s
+  ;; `old-attempt-straggler-against-resolved-successor-is-superseded`
+  ;; counterexample (an old-attempt carrier draining AFTER its successor
+  ;; resolved). The projection must classify them as authority-suppression
+  ;; (`:stale-suppressed` + the authority reason), NOT as a `:join-resolved`
+  ;; late-completion, and must carry the CARRIER's OWN (prior-attempt) work
+  ;; identity rather than the current attempt's.
+  (testing "an old-attempt straggler draining AFTER the successor join resolved
+            is a `stale-completion` :attempt-superseded — NOT a late-completion.
+            The row carries attempt A's OWN spawned/generation identity (the
+            producer never borrows the current attempt B's)."
+    (let [;; attempt A (the superseded straggler) vs attempt B (current, resolved)
+          row (re/work-event-row
+                (spawn-all-stale-row
+                  {:id 74 :op :rf.machine.spawn-all/stale-completion
+                   :child-id :fetch-user :spawned-id :fetch-user#A :generation 1
+                   :stale-reason :rf.machine.spawn-all/attempt-superseded
+                   :completed-at 475}))]
+      (is (= :stale-suppressed (:phase row)))
+      (is (= :rf.machine.spawn-all/attempt-superseded (:stale-reason row))
+          "authority reason surfaced, NOT :join-resolved")
+      (is (not= :rf.machine.spawn-all/join-resolved (:stale-reason row))
+          "a post-resolution authority failure is NOT a late-completion straggler")
+      (is (= :stale (:status row)))
+      (is (= :suppression (:status-class row)))
+      (is (= :suppressed (:work-status row)))
+      (is (= [:rf.work/machine :fetch-user#A [:hydrating :spawn-all] 1] (:work-id row))
+          "the carrier's OWN (attempt-A) work identity rides — not the successor's")))
+  (testing "a post-resolution UNSTAMPED carrier (never flowed through the child
+            boundary — or a strict replay that stripped the recordable auth
+            fact) is a `stale-completion` :attempt-unverified, again NOT a
+            late-completion"
+    (let [row (re/work-event-row
+                (spawn-all-stale-row
+                  {:id 75 :op :rf.machine.spawn-all/stale-completion
+                   :child-id :fetch-prefs :spawned-id :fetch-prefs#1 :generation 1
+                   :stale-reason :rf.machine.spawn-all/attempt-unverified
+                   :completed-at 476}))]
+      (is (= :stale-suppressed (:phase row)))
+      (is (= :rf.machine.spawn-all/attempt-unverified (:stale-reason row)))
+      (is (not= :rf.machine.spawn-all/join-resolved (:stale-reason row)))
+      (is (= :stale (:status row)))
+      (is (= :suppressed (:work-status row)))))
+  (testing "both post-resolution authority-suppressed carriers flow into the
+            cross-family stale tally under :machine with NO panel-specific code —
+            the same uniform surface a pre-resolution suppression uses"
+    (let [trace [(spawn-all-stale-row
+                   {:id 76 :op :rf.machine.spawn-all/stale-completion
+                    :child-id :fetch-user :spawned-id :fetch-user#A :generation 1
+                    :stale-reason :rf.machine.spawn-all/attempt-superseded
+                    :completed-at 477})
+                 (spawn-all-stale-row
+                   {:id 77 :op :rf.machine.spawn-all/stale-completion
+                    :child-id :fetch-prefs :spawned-id :fetch-prefs#1 :generation 1
+                    :stale-reason :rf.machine.spawn-all/attempt-unverified
+                    :completed-at 478})]
+          sup   (re/stale-suppressions trace)]
+      (is (= 2 (count sup)))
+      (is (every? #(= :stale-suppressed (:phase %)) sup))
+      (is (= {:machine 2} (re/stale-tally-by-kind trace)))
+      (is (= #{:rf.machine.spawn-all/attempt-superseded
+               :rf.machine.spawn-all/attempt-unverified}
+             (into #{} (map :stale-reason) sup))))))
 
 ;; ---------------------------------------------------------------------------
 ;; (6b-spawn-all-races) The spawn-all stale rows flow into the cross-family

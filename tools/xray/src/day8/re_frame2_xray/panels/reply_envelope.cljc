@@ -451,15 +451,21 @@
    :rf.route.nav-token/stale-suppressed    :stale-suppressed
    :rf.machine.timer/stale-after           :stale-suppressed
    :rf.http/stale-suppressed               :stale-suppressed
-   ;; rf2-hj4skn — the `:spawn-all` join's TWO exact-authority stale rows
-   ;; (005 §`:spawn-all` join-child completion / 009 §op-type vocabulary):
-   ;;   - `:rf.machine.spawn-all/stale-completion` — the PRE-resolution
-   ;;     exact-authority suppression: a completion carrier that failed the
-   ;;     fold gate (`:rf.reply/stale-reason` one of
-   ;;     `:rf.machine.spawn-all/attempt-unverified` /
+   ;; rf2-hj4skn / rf2-ixjd48 — the `:spawn-all` join's TWO exact-authority
+   ;; stale rows (005 §`:spawn-all` join-child completion / 009 §op-type
+   ;; vocabulary). The producer runs the exact-authority / closed-attempt fold
+   ;; gate BEFORE the resolved-vs-unresolved classification (join.cljc), so the
+   ;; two ops split on AUTHORITY, not on resolution state:
+   ;;   - `:rf.machine.spawn-all/stale-completion` — an AUTHORITY-SUPPRESSED
+   ;;     completion carrier that failed the fold gate, on EITHER side of
+   ;;     resolution (a post-resolution unstamped/superseded carrier is
+   ;;     suppressed HERE, never as a late-completion) (`:rf.reply/stale-reason`
+   ;;     one of `:rf.machine.spawn-all/attempt-unverified` /
    ;;     `.../attempt-superseded` / `.../duplicate-completion`);
    ;;   - `:rf.machine.spawn-all/late-completion` — the POST-resolution
-   ;;     `:resolved?`-latched straggler (`:rf.reply/stale-reason
+   ;;     `:resolved?`-latched straggler that is EXACT-CURRENT for its own
+   ;;     attempt (the only carrier that passes authority yet still arrives
+   ;;     after its own join resolved) (`:rf.reply/stale-reason
    ;;     :rf.machine.spawn-all/join-resolved`).
    ;; Both carry the canonical `:status :stale` / `:rf.reply/work-status
    ;; :suppressed` reply facts additively on the public `:child-id` / `:kind`
