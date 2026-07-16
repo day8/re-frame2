@@ -267,6 +267,13 @@
                   :capabilities (capabilities ast)
                   :sites sites}
         args    {:vname vname
+                 ;; The canonical current-namespace Var a self-recursive head
+                 ;; must emit AGAINST — identical to the `:fqn` env/classify-head
+                 ;; stamps on an exact self component node (rf2-rr26cq). A bare
+                 ;; self head resolves through a same-named `:refer` on CLJS
+                 ;; (refers outrank local defs in cljs.analyzer/resolve-var), so
+                 ;; both emitters target THIS fqn, not the authored spelling.
+                 :self-fqn (symbol (str ns-sym) (str vname))
                  :view-id view-id
                  :display-name display-name
                  :docstring docstring

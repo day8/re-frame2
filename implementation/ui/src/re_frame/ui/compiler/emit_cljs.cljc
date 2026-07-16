@@ -421,8 +421,20 @@
                               [["ref" (:form ref-a)]])
                             (when (some? children-form)
                               [["children" children-form]])))
-        multi?   (> nch 1)]
-    (jsx-runtime-call multi? (:sym node) props-form key-info)))
+        multi?   (> nch 1)
+        ;; A self-recursive head (the exact view being compiled) MUST target the
+        ;; current-namespace Var (its canonical `:fqn`), never the authored
+        ;; spelling: the render fn is a separate `$render` def emitted BEFORE the
+        ;; view's own `(def …)`, so a bare self head would resolve through any
+        ;; same-named `:refer` (cljs.analyzer/resolve-var checks `:uses` ahead of
+        ;; `:defs`) and capture the public authoring Var. `emit-defview` reads the
+        ;; recorded flag to forward-`declare` the Var so the qualified reference
+        ;; is not undeclared. Unrelated foreign/view heads keep their spelling.
+        self-fqn (:self-fqn @st)
+        self?    (and (some? self-fqn) (= (:fqn node) self-fqn))
+        head-sym (if self? (:fqn node) (:sym node))]
+    (when self? (swap! st assoc :self-ref? true))
+    (jsx-runtime-call multi? head-sym props-form key-info)))
 
 (defn- row-key-expr [body]
   (or (get-in body [:props :key :expr]) (get-in body [:key :expr])))
@@ -606,8 +618,8 @@
 
 (defn emit-defview
   [{:keys [vname view-id display-name docstring header slots ast manifest
-           closed-keys children? lease-declarations]}]
-  (let [st         (new-state vname)
+           closed-keys children? lease-declarations self-fqn]}]
+  (let [st         (doto (new-state vname) (swap! assoc :self-fqn self-fqn))
         body       (->> (emit-node ast st false)
                         (hoist-literal-sub-queries st))
         leases     (mapv #(update % :descriptor
@@ -665,6 +677,12 @@
                      docstring   (assoc :doc docstring)
                      closed-keys (assoc :rf.ui/closed-prop-keys (vec closed-keys)))]
     `(do
+       ;; A self-recursive view forward-declares its Var so the `$render` fn
+       ;; (emitted before the view's own `(def …)`) may reference the
+       ;; current-namespace Var by its qualified name without an undeclared-Var
+       ;; warning — and so the declaration, not a same-named `:refer`, owns the
+       ;; name at the reference site. Non-recursive views emit unchanged.
+       ~@(when (:self-ref? @st) [`(declare ~vname)])
        ~@(:defs @st)
        (defn ~render-sym [~props-sym]
          ~inner)

@@ -14,6 +14,13 @@
 
 (def ^:private props-sym 'rf-ui-props)
 
+;; The canonical current-namespace Var of the view being emitted, bound by
+;; `emit-defview` around its body. A self-recursive component head targets THIS
+;; fqn (matching its `:fqn`) rather than the authored spelling, so the emitted
+;; call names the current-namespace Var explicitly instead of relying on the
+;; enclosing `defn`'s intern order to shadow a same-named `:refer` (rf2-rr26cq).
+(def ^:dynamic *self-fqn* nil)
+
 (declare emit-node)
 
 ;; ---------------------------------------------------------------------------
@@ -207,7 +214,9 @@
                              (some-> (re-frame.ui.tree/children ~@child-forms)
                                      re-frame.ui.tree/child-vec))
                      props-map)
-        call      `(~(:sym node) ~props-form)]
+        self?     (and (some? *self-fqn*) (= (:fqn node) *self-fqn*))
+        head-sym  (if self? (:fqn node) (:sym node))
+        call      `(~head-sym ~props-form)]
     (if (:present? key-info)
       `(assoc ~call :key ~(:expr key-info))
       call)))
@@ -294,8 +303,8 @@
 
 (defn emit-defview
   [{:keys [vname view-id docstring header ast manifest closed-keys children?
-           lease-declarations]}]
-  (let [body     (emit-node ast)
+           lease-declarations self-fqn]}]
+  (let [body     (binding [*self-fqn* self-fqn] (emit-node ast))
         bind     (:binding-form header)
         lease-binds
         (vec
