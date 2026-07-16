@@ -102,6 +102,34 @@ TEETH = (
         "spec/009-Instrumentation.md",
         "| `:rf.error/root-not-live` | `:error` | diagnostic |",
     ),
+    # Row-scoped `:tearing-down? true` evidence teeth (rf2-vizyct). The row-ID
+    # teeth above pin only that the diagnostic EXISTS; they leave the conditional
+    # `:tearing-down? true` ex-data evidence — the exact settlement contract
+    # .277/.291 required this gate to protect — unpinned, so an edit deleting the
+    # `:tearing-down? true` shape from any/all three rows stayed green. Each
+    # anchor is a row-UNIQUE literal that CONTAINS the evidence, so removing it
+    # from one row (or all rows) turns exactly that row's tooth red and cannot
+    # slip past a surviving generic anchor elsewhere. These are the CONTRACT
+    # side; the IMPLEMENTATION side is pinned by the CLJS test
+    # `tearing-down-root-diagnostics-carry-complete-ownership-evidence`
+    # (re-frame.ui.root-teardown-wiring-cljs-test), which asserts each
+    # diagnostic emits `:existing {… :tearing-down? true}`. Strip the evidence
+    # from either the spec rows or the runtime emitters and a gate turns red.
+    Tooth(
+        "spec-009-duplicate-tearing-evidence",
+        "spec/009-Instrumentation.md",
+        "optional `:tearing-down? true`) + `:arriving` (client)",
+    ),
+    Tooth(
+        "spec-009-container-tearing-evidence",
+        "spec/009-Instrumentation.md",
+        "`:owner-root-id`, optional `:existing {:tearing-down? true}`",
+    ),
+    Tooth(
+        "spec-009-not-live-tearing-evidence",
+        "spec/009-Instrumentation.md",
+        "`:root-id`, optional `:existing {:tearing-down? true}`, `:recovery`",
+    ),
     Tooth(
         "api-settlement-lifecycle",
         "docs/api/re-frame.ui.md",

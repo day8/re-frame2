@@ -116,6 +116,11 @@
   ;; rf2-vxgfnd.277/.291: the three existing root diagnostics keep their IDs,
   ;; but the transitional ownership state must be machine-readable on every
   ;; admission/render arm. A throwing host gives a stable quarantined claim.
+  ;; This is the IMPLEMENTATION-side tooth of the Root lifecycle drift gate
+  ;; (rf2-vizyct): it pins the runtime `:existing {… :tearing-down? true}`
+  ;; ex-data, paired with the CONTRACT-side spec-009 row anchors in
+  ;; scripts/check_ui_root_lifecycle_drift.py — strip the evidence from either
+  ;; and a gate turns red.
   (let [container     (js-obj)
         site          {:file "teardown.cljs" :line 11 :column 7}
         arriving-site {:file "retry.cljs" :line 22 :column 3}
