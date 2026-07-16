@@ -70,8 +70,10 @@ Audience column: **user** = an event apps dispatch or handle directly; **runtime
 
 ### Pure helpers
 
-- `(rf/match-url url)` → `{:route-id :params :query :fragment :validation-failed?}` or `nil`. Pure; JVM- and CLJS-runnable.
-- `(rf/route-url route-id path-params [query-params [fragment]])` → URL string. Pure; JVM- and CLJS-runnable.
+Both live in `re-frame.routing` — they are **not** on the `rf/` (`re-frame.core`) facade; callers require `[re-frame.routing :as routing]`.
+
+- `(routing/match-url url)` → `{:route-id :params :query :fragment :validation-failed?}` or `nil`. Pure; JVM- and CLJS-runnable.
+- `(routing/route-url route-id path-params [query-params [fragment]])` → URL string. Pure; JVM- and CLJS-runnable.
 
 ### Frame-level configuration
 
@@ -379,7 +381,7 @@ A **malformed** declaration (a non-vector axis, a non-sequential path entry, a n
     ;; §`resolve-target` below.
     (let [{:keys [route-id path-params query-params fragment]} (resolve-target target params opts rt)
           route-meta (rf/handler-meta :route route-id)
-          url        (rf/route-url route-id path-params query-params fragment)
+          url        (routing/route-url route-id path-params query-params fragment)
           push-fx-id (if (:replace? opts) :rf.nav/replace-url :rf.nav/push-url)
           nav-token  (rf/gen-nav-token)]
       {:rf.db/runtime (-> rt
@@ -513,7 +515,7 @@ Neither delegates to the other — they are sibling handlers over one shared sli
   {:doc       "Triggered by URL change (popstate or initial load). Sets the route slice in runtime-db from the URL."
    :platforms #{:client :server}}                 ;; same handler is used by SSR
   (fn handler-route-handle-url-change [{rt :rf.db/runtime} [_ url]]
-    (let [{:keys [route-id params query fragment validation-failed?]} (rf/match-url url)
+    (let [{:keys [route-id params query fragment validation-failed?]} (routing/match-url url)
           route-meta                                                  (rf/handler-meta :route route-id)
           prev-route                                                  (get-in rt [:rf.runtime/routing :current])
           fragment-only?                                              (and prev-route
@@ -645,14 +647,14 @@ Pattern: a single `case` (or equivalent) over the route id at the top of the tre
 
 ### Bidirectional URL ↔ params
 
-Two pure helpers, both registered, both queryable:
+Two pure helpers, both registered, both queryable. Both live in `re-frame.routing` (require `[re-frame.routing :as routing]`) — **not** on the `rf/` (`re-frame.core`) facade:
 
-- `(rf/match-url url)` → `{:route-id :keyword :params {...} :query {...} :fragment <string-or-nil> :validation-failed? boolean}` or `nil`.
+- `(routing/match-url url)` → `{:route-id :keyword :params {...} :query {...} :fragment <string-or-nil> :validation-failed? boolean}` or `nil`.
   - Returns `nil` when no path-pattern matches the URL at all.
   - Returns the match map when *some* route's path-pattern matches. The `:params` map carries the captured **path** params (post-coercion against the route's `:params` schema, when one is present). The `:query` map carries the parsed **query-string** params, with `:query-defaults` filled in for absent keys and the route's `:query` schema applied for coercion (e.g. `"2"` → `2` for an `:int` field). The `:fragment` field carries the URL's `#fragment` portion (string or `nil` if absent); see "Fragments" below.
   - If schema validation fails (path params don't conform to `:params`, or query params don't conform to `:query`), the map carries `:validation-failed? true` plus a `:validation-error` field with the schema-explanation (per [Spec 010](010-Schemas.md)). The runtime's `:rf.route/handle-url-change` event treats validation-failure the same as no-match: it routes to `:rf.route/not-found` with the URL in params.
   - Pure; runs on JVM and CLJS.
-- `(rf/route-url route-id path-params)` / `(rf/route-url route-id path-params query-params)` / `(rf/route-url route-id path-params query-params fragment)` → URL string. **Pure**; runs on JVM and CLJS.
+- `(routing/route-url route-id path-params)` / `(routing/route-url route-id path-params query-params)` / `(routing/route-url route-id path-params query-params fragment)` → URL string. **Pure**; runs on JVM and CLJS.
   - Builds the URL from the `:path` template, substituting path params, then appends `?key=value&...` for any `query-params`, then appends `#fragment` if the 4-arity `fragment` arg is supplied (and non-nil/non-empty). Ordinary path params, query keys/values, **and the fragment** are percent-encoded **per component** on emission (encodeURIComponent semantics) — symmetric with `match-url`, which decodes each portion the same way. A fragment carrying a literal `%` (`"50% done"`) emits as `#50%25%20done` and `match-url` reads it back as `"50% done"`; emitting the raw value would produce a `#fragment` that `match-url` rejects as malformed (the bare `%` fails to decode) → a route-miss, breaking the bidirectional contract. **Splat values are the one exception: they are encoded PER CHUNK.** A splat capture is a multi-segment string whose embedded `/` are structural separators, not data — so `route-url` splits the value on `/`, `encodeURIComponent`-encodes each chunk, and rejoins with raw `/` (a whole-value `encodeURIComponent` would emit `%2F` for every separator and break the round-trip). `route-url(:route/files, {:rest "a/b/c.txt"})` therefore emits `/files/a/b/c.txt`, and `route-url(:route/files, {:rest "my file/50%.txt"})` emits `/files/my%20file/50%25.txt` — each chunk encoded, the separators preserved. `match-url` is the exact inverse: it segments the raw URL first, then decodes each chunk, so an encoded slash inside a chunk can never change the route's structure.
   - **Keyword-enum values emit their declared token name** (path or query). A slot declared `[:enum :asc :desc]` carrying the keyword `:asc` emits the token `asc` — the exact inverse of `match-url`'s enum decode (which interns the declared name back to `:asc`), so `match-url(route-url(...))` recovers the canonical enum keyword. (Host `(str :asc)` would emit `%3Aasc`, which `match-url`'s enum decoder — keyed on the declared names `asc` / `desc` — reads as the string `":asc"`, not `:asc`, breaking the prism.) This also covers a `:query-retain` value carried as a keyword from a prior match into an outgoing `route-url`. An out-of-enum keyword fails `:rf.error/route-url-validation` rather than being stringified into a URL.
   - **Does not navigate.** It is a string-builder; there is no side-effect on `app-db`, no `pushState`, no dispatch. To navigate, dispatch `:rf.route/navigate` (which uses `route-url` internally).
@@ -935,7 +937,7 @@ An external classification emits `:rf.route/external-url-requested` (carrying `:
 ```clojure
 (rf/reg-view ^{:rf/id :route/link} route-link
   [{:keys [to params query fragment on-click] :as props} & children]
-  (let [base-url (rf/route-url to (or params {}) (or query {}))
+  (let [base-url (routing/route-url to (or params {}) (or query {}))
         url      (if (and fragment (not= "" fragment))
                    (str base-url "#" fragment)
                    base-url)
@@ -1393,21 +1395,24 @@ Fixture `route-entry-blocked.edn` exercises the enter mirror, through EACH of th
 A cross-cutting guard interceptor **must cover all three entry doors**, or it fails *open*: a policy that inspects only `:rf.route/navigate` lets a logged-out user in through a link click (`:rf.route/url-requested`) or a deep-link / Back-Forward (`:rf.route/handle-url-change`), neither of which dispatches `:rf.route/navigate`. So the interceptor resolves the target from *whichever* nav event drove it, then decides:
 
 ```clojure
+;; Requires: [re-frame.core :as rf] [re-frame.routing :as routing]
+;; `match-url` lives in re-frame.routing — NOT on the rf/ facade.
+
 ;; Resolve the target route + params from ANY of the three navigation
 ;; events (fail-closed coverage — do not guard only :rf.route/navigate).
 (defn- nav-target [event]
   (let [[ev-id a b] event]
     (case ev-id
       :rf.route/navigate          (if (map? a)                  ;; {:url ...} escape-hatch target
-                                    (when-let [{:keys [route-id params]} (rf/match-url (:url a))]
+                                    (when-let [{:keys [route-id params]} (routing/match-url (:url a))]
                                       {:id route-id :params (or params {})})
                                     {:id a :params (or b {})})  ;; a = route-id
       :rf.route/url-requested           (let [{:keys [to params url]} a]
                                     (cond
                                       to  {:id to :params (or params {})}
-                                      url (when-let [{:keys [route-id params]} (rf/match-url url)]
+                                      url (when-let [{:keys [route-id params]} (routing/match-url url)]
                                             {:id route-id :params (or params {})})))
-      :rf.route/handle-url-change (when-let [{:keys [route-id params]} (rf/match-url a)]
+      :rf.route/handle-url-change (when-let [{:keys [route-id params]} (routing/match-url a)]
                                     {:id route-id :params (or params {})})
       nil)))
 
