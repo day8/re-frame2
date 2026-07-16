@@ -747,15 +747,38 @@
 ;;                                thrown / aborted reload never commits — the last
 ;;                                known-good manifest survives.
 ;;
-;; Ownership is [build-id ns-sym] so two builds sharing one atom (a shared JVM /
-;; a test) reconcile independently — evicting one build's source can never drop
-;; another's rows. The emitted 3-arg registration uses ns-only ownership under
-;; the sole ::default build (one compiled bundle = one build, its own atoms); the
-;; explicit build-scoped arities exist for multi-build reconciliation and tests.
+;; Ownership is [build-id ns-sym] so two builds sharing one atom (two bundles in
+;; one JS realm, a shared JVM, a test) reconcile independently — evicting one
+;; build's source can never drop another's rows.
+;;
+;; That key is only worth its weight if `build-id` is a REAL identity, and every
+;; participant in a cycle agrees on it (rf2-vxgfnd.142). It used to be the
+;; placeholder `::default` on every real path — emitted registrations, both
+;; lifecycle hooks, the reset producer — with a second identity reachable only
+;; from a test-only arity. Two real builds sharing a realm therefore collapsed
+;; into one row at [::default ns], and reloading one could evict or replace the
+;; other's contribution. Now `current-build-id` resolves shadow's own build name
+;; and is the default for EVERY arity in the protocol, so an emitted registration
+;; and the cycle that reconciles it cannot key a row differently. The explicit
+;; build-scoped arities remain the seam for multi-build reconciliation and tests.
 ;;
 ;; Production never opens a cycle (`notify-reload!` is a dev-only hook), so every
 ;; registration writes through directly and classification stays a plain lookup —
 ;; all reconciliation machinery is reload-only.
+;;
+;; ## Bounded by shadow's reload surface (the honest edge)
+;;
+;; Per-build isolation reaches exactly as far as shadow's runtime seam allows.
+;; `before-load-src` calls each SHADOW_NS_RESET callback with the reloaded ns and
+;; NOTHING else, and lifecycle hooks are invoked with no arguments after being
+;; resolved by name off the SHARED `$CLJS` object. So a callback learns which
+;; build is reloading only from the identity BAKED INTO ITS OWN BUNDLE — which is
+;; exactly what `current-build-id` reads. Two bundles, each with their own copy of
+;; this namespace, are therefore isolated: each copy carries its own build's name
+;; and reconciles only its own rows. Two builds that share ONE copy of this
+;; namespace (one `$CLJS`, one set of atoms, one `defonce`d producer) cannot be
+;; told apart by any mechanism shadow exposes, because the hooks themselves are
+;; then a single shared singleton.
 ;; ---------------------------------------------------------------------------
 
 (defonce ^{:doc "tag keyword -> {:properties #{kebab-kw}}. The LIVE aggregate
@@ -784,7 +807,52 @@
   reload-cycles
   (atom {}))
 
-(def ^:private default-build ::default)
+(def ^:private default-build
+  "The owner token for a source registering outside any real Shadow build: the
+  JVM tree builder, a plain-JVM/REPL host, a `:node-test` bundle, and every
+  `:advanced` production bundle (which never reloads, so its ledger key is inert)."
+  ::default)
+
+#?(:cljs
+   (defn- shadow-build-id
+     "The REAL build identity of the bundle this code is running in, or nil when
+     there is no Shadow dev build (production, a bare node bundle, a test host).
+
+     shadow-cljs compiles `(name build-id)` into every devtools-enabled build as
+     the `shadow.cljs.devtools.client.env/build-id` closure-define, and PREPENDS
+     that namespace to the module entries — so it is already loaded and defined
+     before any app code (and therefore before any emitted
+     `register-custom-element!`) runs. It is a STABLE identity: the build's own
+     name, not the content/build digest, so it does not change when sources do.
+
+     Read by NAME off `$CLJS`, the way shadow reads its own reload lifecycle fns,
+     rather than by requiring the devtools client — the devtools client must never
+     be reachable from library code that ships to production. `js/goog.DEBUG` gates
+     the sole call site, so `:advanced` constant-folds this away entirely."
+     []
+     (let [root (or (unchecked-get js/goog.global "$CLJS") js/goog.global)
+           v    (js/goog.getObjectByName "shadow.cljs.devtools.client.env.build_id" root)]
+       (when (and (string? v) (seq v))
+         (keyword v)))))
+
+(defn current-build-id
+  "The build identity the ledger keys this host's sources under — ONE rule, shared
+  by every arity default in the reload protocol (`register-custom-element!`,
+  `notify-reload!`, `note-reloaded-sources!`, `commit-reload!`, and the installed
+  `reload-source-reset!` producer). Because they all resolve it the same way, an
+  emitted registration and the reload cycle that reconciles it can never disagree
+  about who owns a row (rf2-vxgfnd.142).
+
+  In a real Shadow dev build this is that build's OWN name (`:app`); everywhere
+  else — production, JVM, a bare node bundle — there is no Shadow build to name and
+  it is `::default`. Resolved per call rather than cached: it is dev-only, called
+  once per declaration at load and once per reload hook (never per render), and a
+  cache would only create a window in which an early miss became permanent."
+  []
+  #?(:cljs (if ^boolean js/goog.DEBUG
+             (or (shadow-build-id) default-build)
+             default-build)
+     :clj  default-build))
 
 (defn- rebuild-live!
   "Rebuild the live aggregate as the merge of every ledger source's map — the
@@ -804,7 +872,7 @@
   last-known-good until `commit-reload!`); otherwise — initial load, production —
   it writes through directly. Ownership is [build-id ns-sym]; the 3-arg emit uses
   the sole ::default build."
-  ([tag decl ns-sym] (register-custom-element! tag decl ns-sym default-build))
+  ([tag decl ns-sym] (register-custom-element! tag decl ns-sym (current-build-id)))
   ([tag decl ns-sym build-id]
    (let [source [build-id ns-sym]]
      (if (contains? @reload-cycles build-id)
@@ -820,7 +888,7 @@
   from here stage instead of mutating the live aggregate; opening a fresh cycle
   discards any staging left by a previously ABORTED reload. Production never hot-
   reloads, so this never fires there."
-  ([] (notify-reload! default-build))
+  ([] (notify-reload! (current-build-id)))
   ([build-id]
    (swap! reload-cycles assoc build-id {:staged {} :touched #{}})
    nil))
@@ -832,7 +900,7 @@
   rf2-vxgfnd.77). `sources` is a coll of ns-syms (paired with `build-id`) or
   ready-made [build ns] pairs. A no-op when no cycle is open; unions into the
   cycle so it can be called repeatedly."
-  ([sources] (note-reloaded-sources! sources default-build))
+  ([sources] (note-reloaded-sources! sources (current-build-id)))
   ([sources build-id]
    (when (contains? @reload-cycles build-id)
      (let [pairs (map (fn [s] (if (vector? s) s [build-id s])) sources)]
@@ -848,7 +916,7 @@
   in one swap. shadow-cljs runs after-load only on a SUCCESSFUL reload, so an
   aborted reload never reaches here and the last known-good manifest survives.
   A no-op when no cycle is open."
-  ([] (commit-reload! default-build))
+  ([] (commit-reload! (current-build-id)))
   ([build-id]
    (when-let [{:keys [staged touched]} (get @reload-cycles build-id)]
      (let [sources (into (set (keys staged)) touched)]
@@ -932,7 +1000,7 @@
      (initial load / production). `ns` is a CLJS ns symbol; a string is coerced.
      `build-id` is the build whose producer is calling (the installed trampoline
      passes its own owner); the 1-arg arity uses the ambient build."
-     ([ns] (reload-source-reset! ns default-build))
+     ([ns] (reload-source-reset! ns (current-build-id)))
      ([ns build-id]
       (note-reloaded-sources! [(cond-> ns (string? ns) symbol)] build-id)
       nil)))
@@ -984,7 +1052,7 @@
      []
      (when ^boolean js/goog.DEBUG
        (let [arr      (or js/goog.global.SHADOW_NS_RESET #js [])
-             build-id default-build]
+             build-id (current-build-id)]
          (set! (.-SHADOW_NS_RESET js/goog.global) arr)
          (let [i (tagged-producer-index arr build-id)
                f (make-reload-source-producer build-id)]
