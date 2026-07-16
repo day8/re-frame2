@@ -137,7 +137,8 @@ function assertBundleElision() {
     ownerMintSentinelAbsent: OWNER_MINT_SENTINEL,
     optionalResourcesSentinelAbsent: OPTIONAL_RESOURCES_SENTINEL,
     optionalResourcesManifestAbsent: 're_frame/resources.cljc and re_frame/resources/**',
-    uiDependencyBoundary: 'day8/re-frame2 present; day8/re-frame2-resources absent',
+    uiDependencyBoundary:
+      'production :deps: day8/re-frame2 present; day8/re-frame2-resources absent',
   };
 }
 
@@ -155,6 +156,28 @@ function assertNoProductionSentinels(blob) {
   for (const sentinel of SENTINELS) {
     if (blob.includes(sentinel)) fail(`advanced companion leaked ${sentinel}`);
   }
+}
+
+// Extract the PRODUCTION `:deps {…}` map text from a deps.edn string. The
+// dependency-boundary proof is scoped to this block: a `:test` alias's
+// `:extra-deps` never reaches the G-13 shadow builds (they resolve their
+// classpath from shadow-cljs.edn's own :source-paths, not ui/deps.edn's test
+// alias) and is out of scope. `:deps` occurs once at top level — `:extra-deps`
+// carries no `:deps` substring — so the first occurrence is the production map;
+// a balanced-brace scan returns exactly its text.
+function productionDepsBlock(depsEdn) {
+  const key = depsEdn.indexOf(':deps');
+  if (key < 0) fail('ui/deps.edn has no production :deps map');
+  const open = depsEdn.indexOf('{', key);
+  if (open < 0) fail('ui/deps.edn :deps is not a map');
+  let depth = 0;
+  for (let i = open; i < depsEdn.length; i += 1) {
+    const ch = depsEdn[i];
+    if (ch === '{') depth += 1;
+    else if (ch === '}' && (depth -= 1) === 0) return depsEdn.slice(open, i + 1);
+  }
+  fail('ui/deps.edn production :deps map is unbalanced');
+  return '';
 }
 
 function assertLeaseFreeAdvanced(blob, uiDepsOverride = null, mintControlBlob = null) {
@@ -206,10 +229,16 @@ function assertLeaseFreeAdvanced(blob, uiDepsOverride = null, mintControlBlob = 
   if (blob.includes(OPTIONAL_RESOURCES_SENTINEL)) {
     fail(`lease-free advanced companion retained optional Resources sentinel ${OPTIONAL_RESOURCES_SENTINEL}`);
   }
-  if (!/day8\/re-frame2\s+\{/.test(uiDeps)) {
+  // The dependency-boundary proof is about what production `re-frame.ui`
+  // pulls onto the classpath — NOT what a `:test` alias adds. The executable
+  // Guide-07 server-data fixture legitimately declares day8/re-frame2-resources
+  // under `:test` (it drives the real ensure/reply path), which never reaches
+  // the measured shadow builds. Scope the two checks to the production `:deps`.
+  const uiProdDeps = productionDepsBlock(uiDeps);
+  if (!/day8\/re-frame2\s+\{/.test(uiProdDeps)) {
     fail('UI dependency positive control omitted day8/re-frame2');
   }
-  if (/day8\/re-frame2-resources\s+\{/.test(uiDeps)) {
+  if (/day8\/re-frame2-resources\s+\{/.test(uiProdDeps)) {
     fail('UI artefact dependency boundary retained day8/re-frame2-resources');
   }
 }
@@ -396,9 +425,13 @@ function assertMutationTeeth(result) {
   }));
   const uiDeps = fs.readFileSync(path.join(IMPL, 'ui', 'deps.edn'), 'utf8');
   red.push(expectMutationFailure('optional Resources dependency leak', () => {
+    // Plant the forbidden dep INSIDE the production `:deps` map (not a test
+    // alias) — the boundary proof is scoped to production deps, so the tooth
+    // must inject the leak where the rule actually looks.
     assertLeaseFreeAdvanced(
       release.blob,
-      `${uiDeps}\nday8/re-frame2-resources {:local/root "../resources"}`,
+      uiDeps.replace(/(:deps\s*\{)/,
+        '$1day8/re-frame2-resources {:local/root "../resources"} '),
       mintControl.blob,
     );
   }));
