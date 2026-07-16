@@ -131,6 +131,7 @@ Other causes use the same entry with a different **cause** recorded for the trac
   (let [state @(rf/subscribe [:rf/resource {:resource :realworld/article
                                             :params   {:slug slug}}])]
     (cond
+      (= :idle (:status state))                      [article-placeholder]
       (:loading? state)                              [article-skeleton]
       (and (:error state) (not (:has-data? state)))  [article-error (:error state)]
       :else
@@ -292,8 +293,11 @@ remembered in `onSuccess`:
      :decode  :json}))
 ```
 
-Success plan arms (fixed order): `:populates` → `:patches` → `:removes` →
-`:invalidates`.
+Success plan arms (fixed order): `:patches` → `:populates` → `:removes` →
+`:invalidates`. Patches run *before* populates, so when the same key is both
+patched and populated the **populate wins** — it is applied last, overwriting the
+patch. Invalidation runs last of all, over the tags the patch/populate did not
+already freshen.
 
 Execute and watch (instance id is app-chosen — reuse it for the sub):
 
@@ -359,9 +363,17 @@ Register → route causes → view projects. Copy-paste skeleton:
         state @(rf/subscribe [:rf/resource {:resource :app/article
                                             :params   {:slug slug}}])]
     (cond
-      (:loading? state) [skeleton]
-      (:error state)    [error-panel (:error state)]
-      :else             [article-body (:data state)])))
+      ;; :idle — nothing has caused a load yet (no route :resources / ensure hit)
+      (= :idle (:status state))                     [placeholder]
+      ;; :loading — first load, no usable data yet
+      (:loading? state)                             [skeleton]
+      ;; :error — first load failed, still no data (a failed *refresh* keeps :loaded)
+      (and (:error state) (not (:has-data? state))) [error-panel (:error state)]
+      ;; :loaded / :fetching — usable data; a background refresh keeps it visible
+      :else
+      [:<>
+       (when (:fetching? state) [refresh-indicator])   ;; refetching with data
+       [article-body (:data state)]])))
 ```
 
 ## Advanced (elsewhere)
