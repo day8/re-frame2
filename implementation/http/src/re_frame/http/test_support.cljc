@@ -500,65 +500,116 @@
       (fx/clear-fx stub-fx-id)))
   nil)
 
-;; rf2-vn8qjv (issue 2) — `with-managed-request-stubs*` allocates a UNIQUE
-;; override fx-id per scope so nested scopes compose. The lower-level
-;; install/uninstall surface above keys off the single stable id (the
-;; documented `:fx-overrides` target); the scoped wrapper instead mints a
-;; fresh fx-id per invocation and binds the override to THAT id. An outer
-;; scope's fx and override therefore stay live and correctly-routed while a
-;; fully-nested inner scope installs, runs, and tears down its own distinct
-;; fx — no clobber, no order-dependence.
-(defonce ^:private scope-stub-counter (atom 0))
+;; rf2-bxc8kf — the scoped wrapper's override target is registered at
+;; NAMESPACE-LOAD time (below), NOT minted per scope, so it is present in the
+;; SEALED image generation of every frame created after this ns is required.
+;;
+;; The prior design (rf2-vn8qjv) minted a fresh `:rf.test/managed-http-stub-<n>`
+;; fx-id per invocation and registered it INSIDE `with-managed-request-stubs*`.
+;; That registration happened AFTER a pre-created frame had already sealed its
+;; image generation: `make-frame {}` resolves + seals a generation at
+;; construction, and a no-id/direct frame is deliberately EXCLUDED from `reg-*`
+;; auto-reprojection (`re-frame.frame/image-loaded-frame-ids` drops the reserved
+;; `:rf.frame/<gensym>` ids). So the bound `{:rf.http/managed <scope-id>}`
+;; override redirected to an fx-id the sealed generation could NOT resolve
+;; (`registrar/lookup` routes through the frame's generation, not the global
+;; registrar): the redirect fell through (`:rf.error/override-fallthrough`) and
+;; the REAL `:rf.http/managed` transport ran. The exact tutorial nesting
+;; `(with-new-frame [f (make-frame {})]
+;;    (with-managed-request-stubs … (dispatch-sync …)))`
+;; therefore escaped to the wire.
+;;
+;; The fix keeps ONE stable override target registered at load time — the same
+;; explicit-test-support-require gate the canned-stub fxs already ride — so it
+;; lands in the sealed generation of every frame created after this ns is
+;; required. The per-scope route map is carried by the dynamic var
+;; `*scope-stubs*` instead of by a per-scope fx-id: an inner scope's binding
+;; SHADOWS the outer's for its dynamic extent and restores it on exit, so nested
+;; scopes compose EXACTLY as the minted-id design did — an inner-scope dispatch
+;; keys off the inner route map; after the inner scope exits an outer-scope
+;; dispatch keys off the outer route map again — WITHOUT a per-scope registrar
+;; write the sealed generation cannot see. The lower-level install/uninstall
+;; surface above keeps its own separate stable `:rf.http/managed-test-stub` id
+;; (the documented hardcodable `:fx-overrides` target).
 
-(defn- next-scope-stub-id
-  "Mint a process-unique `:rf.test/managed-http-stub-<n>` fx-id for one
-  `with-managed-request-stubs*` scope. The id lives under the reserved
-  test-runner-internal `:rf.test/*` fx-stub family (Conventions §Reserved
-  namespaces) — NOT the fixed-and-additive `:rf.http/*` reserved namespace,
+(def ^:private ^:dynamic *scope-stubs*
+  "The route map (`{[method url] {:reply …}}`) the load-time scope-stub fx
+  (`scope-stub-fx-id`) consults for the current `with-managed-request-stubs*`
+  dynamic extent, or `::no-scope` outside any scope (rf2-bxc8kf). Bound —
+  SHADOWED for nesting — by `with-managed-request-stubs*`; read by the
+  `scope-stub-fx-id` handler. The override that routes to `scope-stub-fx-id` is
+  only ever bound ALONGSIDE this var, so `::no-scope` at fire time is a wiring
+  error (the internal target reached without the wrapper) — the handler fails
+  loud rather than synthesising a reply against a non-map route table."
+  ::no-scope)
+
+(def ^:private scope-stub-fx-id
+  "The STABLE `with-managed-request-stubs*` override target (rf2-bxc8kf).
+  Registered at ns-load (below), so it is resolvable through the SEALED image
+  generation of a frame created before the scope was entered. Lives under the
+  reserved test-runner-internal `:rf.test/*` fx-stub family (Conventions
+  §Reserved namespaces) — NOT the fixed-and-additive `:rf.http/*` namespace,
   whose member set is closed by Spec change and must never be minted into at
-  runtime. (The stable, documented `:fx-overrides` target keeps its own
-  `:rf.http/managed-test-stub` id; only this per-scope variant is minted.)"
-  []
-  (keyword "rf.test" (str "managed-http-stub-" (swap! scope-stub-counter inc))))
+  runtime."
+  :rf.test/managed-http-scope-stub)
+
+;; Registered at LOAD time (rf2-bxc8kf) alongside the canned-stub fxs — the same
+;; explicit-`re-frame.http.test-support`-require gate. The handler reads the
+;; current scope's route map from `*scope-stubs*` and delegates to the shared
+;; `stub-handler` (which runs the `:before` chain, keys the match off the
+;; post-`:before` url, and emits through the `:after` chain).
+(fx/reg-fx scope-stub-fx-id
+           {:doc "with-managed-request-stubs (scoped) synthesised stub — reads the
+                  current scope's route map from `*scope-stubs*` (rf2-bxc8kf).
+                  Registered at load time so a pre-created SEALED frame can
+                  resolve it as an `:fx-overrides` redirect target."}
+           (fn [frame-ctx args-map]
+             (when (= *scope-stubs* ::no-scope)
+               (throw (ex-info
+                        (str "`:rf.test/managed-http-scope-stub` fired outside a "
+                             "`with-managed-request-stubs` scope — this internal fx "
+                             "id is the wrapper's override target and must not be "
+                             "used as an `:fx-overrides` value directly. Wrap the "
+                             "dispatch in `with-managed-request-stubs` / "
+                             "`with-managed-request-stubs*` (or use the stable "
+                             "`:rf.http/managed-test-stub` id with "
+                             "`install-managed-request-stubs!`).")
+                        {:rf.fx/id scope-stub-fx-id})))
+             (stub-handler *scope-stubs* frame-ctx args-map)))
 
 (defn with-managed-request-stubs*
   "Function form: install stubs, route `:rf.http/managed` through them for
-  the dynamic extent of `thunk`, run `thunk`, then uninstall. Test-time
-  helper.
+  the dynamic extent of `thunk`, run `thunk`. Test-time helper.
 
-  `stubs` is `{[method url] {:reply <:ok|:failure>}}`. The wrapper mints a
-  process-unique stub fx-id for THIS scope (rf2-vn8qjv), registers the
-  route-map-consulting stub under it, and binds the lexical-scope
-  fx-override `{:rf.http/managed <scope-stub-id>}`
-  (`re-frame.router/*fx-overrides*`, the public `rf/with-fx-overrides`
-  seam) for the thunk's dynamic extent. So every `dispatch-sync` inside
-  the body auto-routes by `:request :method` + `:request :url` with NO
-  per-call `:fx-overrides` — matching the documented contract (Spec 014
-  §Testing). A dispatch that deliberately supplies its OWN `:fx-overrides`
-  still wins: the router merges the lexical default UNDER the per-call opt
-  (per-call > lexical > per-frame).
+  `stubs` is `{[method url] {:reply <:ok|:failure>}}`. The wrapper binds the
+  route map onto the dynamic var `*scope-stubs*` and binds the lexical-scope
+  fx-override `{:rf.http/managed <scope-stub-fx-id>}`
+  (`re-frame.router/*fx-overrides*`, the public `rf/with-fx-overrides` seam)
+  for the thunk's dynamic extent. `scope-stub-fx-id` is registered at ns-load
+  (rf2-bxc8kf), so it is resolvable through the SEALED image generation of a
+  frame created BEFORE the scope was entered — the exact tutorial nesting
+  `(with-new-frame [f (make-frame {})] (with-managed-request-stubs … …))` routes
+  through the stub instead of escaping to the real transport. Every
+  `dispatch-sync` inside the body auto-routes by `:request :method` +
+  `:request :url` with NO per-call `:fx-overrides` — matching the documented
+  contract (Spec 014 §Testing). A dispatch that deliberately supplies its OWN
+  `:fx-overrides` still wins: the router merges the lexical default UNDER the
+  per-call opt (per-call > lexical > per-frame).
 
-  Nesting composes: because each scope owns a distinct fx-id, an inner
-  `with-managed-request-stubs*` registers and tears down ITS id without
-  touching the outer scope's still-live fx + override. After the inner
-  scope exits, an outer-scope dispatch still routes to the outer stub."
+  Nesting composes: the stable override target reads the current scope's route
+  map from `*scope-stubs*`, and an inner `with-managed-request-stubs*` SHADOWS
+  that binding for its dynamic extent, restoring the outer scope's route map on
+  exit. So an inner-scope dispatch keys off the inner route map; after the inner
+  scope exits, an outer-scope dispatch keys off the outer route map again — no
+  per-scope registrar write, no order-dependence."
   [stubs thunk]
-  (let [scope-stub-id (next-scope-stub-id)]
-    (try
-      (fx/reg-fx scope-stub-id
-                 {:doc "with-managed-request-stubs (scoped) synthesised stub"}
-                 (fn [frame-ctx args-map]
-                   (stub-handler stubs frame-ctx args-map)))
-      ;; Bind the lexical-scope override so plain dispatches in the body
-      ;; route `:rf.http/managed` → this scope's route-map stub
-      ;; automatically. The thunk's dispatches run synchronously within
-      ;; this dynamic extent; per-call `:fx-overrides` still take
-      ;; precedence (router merge).
-      (binding [router/*fx-overrides* (merge router/*fx-overrides*
-                                             {:rf.http/managed scope-stub-id})]
-        (thunk))
-      (finally
-        (fx/clear-fx scope-stub-id)))))
+  ;; Both bindings unwind automatically on exit (normal OR exception) — no
+  ;; per-scope registration to tear down (rf2-bxc8kf). The `*scope-stubs*`
+  ;; binding SHADOWS an enclosing scope's route map for nesting.
+  (binding [*scope-stubs*             stubs
+            router/*fx-overrides*     (merge router/*fx-overrides*
+                                             {:rf.http/managed scope-stub-fx-id})]
+    (thunk)))
 
 #?(:clj
    (defmacro with-managed-request-stubs

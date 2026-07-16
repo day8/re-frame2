@@ -199,6 +199,52 @@
                 "the real :rf.http/managed fx was NEVER invoked — the helper
                  intercepted (pre-fix: this fired the real Fetch transport)")))))))
 
+;; ---- 6b. rf2-bxc8kf — stubs work inside a PRE-CREATED SEALED frame ---------
+;;
+;; CLJS counterpart of the JVM sealed-frame regression. `rf/make-frame {}`
+;; resolves + SEALS an image generation at construction; a dispatch into that
+;; frame value resolves `(kind, id)` through the frame's OWN sealed generation,
+;; NOT the global registrar. Pre-fix, `with-managed-request-stubs*` minted a
+;; fresh `:rf.test/managed-http-stub-<n>` fx-id and registered it INSIDE the
+;; scope — AFTER the frame had sealed — so the bound override redirected to an
+;; fx-id the sealed generation could not resolve, and the bare dispatch reached
+;; the real Fetch transport. The fix registers ONE stable override target at
+;; ns-load (in the sealed generation of every frame created after the require)
+;; and carries the per-scope route map on the `*scope-stubs*` dynamic var. A
+;; sentinel shadows `:rf.http/managed` — reaching it proves the override was
+;; absent. The dispatch targets the frame VALUE explicitly (`{:frame f}`), so
+;; the sealed-generation resolution path is exercised.
+
+(deftest stubs-intercept-inside-pre-created-sealed-frame-cljs-rf2-bxc8kf
+  (testing "rf2-bxc8kf — inside with-managed-request-stubs*, a dispatch-sync into
+            a PRE-CREATED sealed make-frame {} frame routes through the stub and
+            NEVER invokes the real :rf.http/managed transport"
+    (let [real-fx-invoked? (atom false)]
+      (fx/reg-fx :rf.http/managed
+                 (fn [_frame-ctx _args] (reset! real-fx-invoked? true) nil))
+      (rf/reg-event :bxc8kf/load
+        (fn [{:keys [db]} [_ msg reply]]
+          (if reply
+            {:db (assoc db :result reply)}
+            {:fx [[:rf.http/managed
+                   {:reply-to [:bxc8kf/load msg] :request {:method :get :url "/x"}
+                    :decode  :json}]]})))
+      ;; SEAL a generation at construction, THEN enter the stub scope.
+      (let [f (rf/make-frame {})]
+        (rf/with-managed-request-stubs*
+          {[:get "/x"] {:reply {:ok {:stubbed true}}}}
+          (fn []
+            (rf/dispatch-sync [:bxc8kf/load] {:frame f})
+            (let [db (rf/app-db-value f)]
+              (is (= :ok (get-in db [:result :status]))
+                  "the stubbed reply landed via the load-time-registered scope stub")
+              (is (= {:stubbed true} (get-in db [:result :value]))
+                  "the configured :ok value rode through the synthesised reply")
+              (is (false? @real-fx-invoked?)
+                  "the real :rf.http/managed fx was NEVER invoked in the sealed
+                   frame (pre-fix: the minted per-scope stub was unresolvable in
+                   the sealed generation, so this fired the real Fetch transport)"))))))))
+
 ;; ---- 7. with-managed-request-stubs* — failure mapping --------------------
 
 (deftest with-managed-request-stubs-failure-cljs
