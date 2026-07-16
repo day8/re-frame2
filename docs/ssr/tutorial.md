@@ -182,30 +182,34 @@ This hand-rolled version ships the *whole* app-db, which is fine for a demo and 
 
 ## Step 4 — wake it up: hydrate on the client
 
-The browser now has painted HTML and a payload sitting in the page. The client's job is to **adopt** both — install the state, attach listeners to the existing DOM — instead of throwing the HTML away and re-rendering from scratch. This step runs in the browser, so it needs the client build's requires; after that, one call does the work:
+The browser now has painted HTML and a payload sitting in the page. The client's job is to **adopt** both — install the state, attach listeners to the existing DOM — instead of throwing the HTML away and re-rendering from scratch. This step runs in the browser, so it needs the client build's requires; after that, the client boot installs the state and adopts the DOM:
 
 ```clojure
 ;; cf. examples/capabilities/ssr/ssr/core.cljc — the client entry point
 ;; client-side requires, alongside rf and ssr:
 ;;   #?(:cljs [reagent.dom.client :as rdc])
 ;;   #?(:cljs [re-frame.adapter.reagent :as reagent-adapter])
-#?(:cljs (defonce react-root (rdc/create-root (js/document.getElementById "app"))))
-
 #?(:cljs
    (defn run []
      (rf/init! reagent-adapter/adapter)      ;; the browser substrate this time
      (rf/make-frame {:id :app :platform :client}) ;; the client's own, named frame
-     (let [payload (ssr/hydrate! {:frame          :app
-                                  :render-tree-fn (fn [] ((rf/view :app/root)))})]
-       (when-not payload
-         ;; nil ⇒ nobody server-rendered this page — a plain client-only load
-         (rf/dispatch-sync [:app/client-bootstrap] {:frame :app})))
-     (rdc/render react-root
-                 [rf/frame-provider {:frame :app}
-                  [(rf/view :app/root)]])))
+     (let [el      (js/document.getElementById "app")
+           payload (ssr/hydrate! {:frame          :app
+                                  :render-tree-fn (fn [] ((rf/view :app/root)))})
+           tree    [rf/frame-provider {:frame :app} [(rf/view :app/root)]]]
+       (if payload
+         ;; server-rendered ⇒ ADOPT the painted DOM with hydrate-root
+         (rdc/hydrate-root el tree)
+         ;; nil ⇒ nobody server-rendered this page — a plain client-only load:
+         ;; seed, then mount a fresh root
+         (do
+           (rf/dispatch-sync [:app/client-bootstrap] {:frame :app})
+           (rdc/render (rdc/create-root el) tree))))))
 ```
 
 `hydrate!` does three steps in a fixed order: **read** the `__rf_payload` script, **hydrate** — dispatch `[:rf/hydrate payload]` before the first render, installing the server's app-db *and* its runtime-db slice in one atomic move — and **verify** (Step 5). It returns the payload it applied, or `nil` when there wasn't one, which is how the code above answers "was this page server-rendered?" without sniffing the DOM.
+
+Those three steps are all **state**: `hydrate!` never touches the DOM mount. Adopting the server's painted markup is a *separate* call — `rdc/hydrate-root` (React's `hydrateRoot`), which reconciles against the existing DOM. `rdc/create-root` + `render` would discard that markup and mount fresh, so it's right only for the client-only branch. That split is the whole point of the `if` above: a server-rendered page hydrates the DOM it was handed; a cold client load builds a fresh root.
 
 **What you see:** the page was already painted before your JS loaded. When `run` finishes, nothing flashes — the client's first render matches the HTML, the articles are in app-db without any re-fetch, and clicking things dispatches events like any other re-frame2 app. (To see it live without wiring a build: the worked example ships a hand-authored `index.html` — a frozen snapshot of what its `handle-request` serves — and its `run` hydrates it exactly this way.)
 
@@ -295,7 +299,7 @@ Everything above, as the two halves you ship:
 | Half | Surface | You supply |
 |---|---|---|
 | Server | `ssr-ring/ssr-handler` | `:initial-events`, `:root-view`, **`:payload` allowlist** |
-| Client | `ssr/hydrate!` then mount | Same `:frame` as `frame-provider`; `:render-tree-fn` that *calls* the root view |
+| Client | `ssr/hydrate!` then `hydrate-root` (fresh `create-root` when there's no payload) | Same `:frame` as `frame-provider`; `:render-tree-fn` that *calls* the root view |
 
 Hand-rolled lifecycle (Steps 2–3) is still the right mental model when something
 misbehaves — the adapter is that sequence, packaged. Full copy-paste with both
