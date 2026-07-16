@@ -726,7 +726,7 @@ Trace events emitted by epoch-history machinery:
 | `:rf.epoch/replace-schema-mismatch` | `:frame`, `:failing-paths` |
 | `:rf.epoch/replace-history-disabled` | `:frame` (a `replace-frame-state!` precondition failure when the history ring is disabled) |
 | `:rf.error/replace-frame-state-bad-keys` | `:frame`, `:reason` (`:no-recognized-keys` / `:unknown-keys`), `:keys` (a `replace-frame-state!` precondition failure — no recognized partition key, or an unrecognized key; checked before frame resolution) |
-| `:rf.epoch.cb/silenced-on-frame-destroy` | `:frame`, `:cb-id` |
+| `:rf.epoch.cb/silenced-on-frame-destroy` | `:frame`, `:cb-id`, `:observed-gen` (the reserved callback generation the silence is attributed to; a consumer on a newer generation for the cb-id ignores the superseded signal — per [009 §The delayed-silence emission linearization law](009-Instrumentation.md#the-delayed-silence-emission-linearization-law)) |
 | `:rf.epoch.cb/listener-exception` | `:frame`, `:cb-id`, `:rf.epoch/id`, `:message` (an `:epoch`-stream listener callback threw) |
 | `:rf.warning/epoch-redact-fn-exception` | `:frame`, `:rf.epoch/id`, `:ex-msg` (an installed `:redact-fn` threw at projection egress) |
 | `:rf.warning/restore-quiesce-hook-exception` | `:category`, `:hook`, `:frame`, `:exception` (a restore-time async-quiesce hook threw) |
