@@ -376,17 +376,16 @@
 ;; See docs/ssr/concepts.md#deploy-drift-checks-come-along-for-free.
 (def app-frame :rf/default)
 
-;; DOM setup lives in `mount!`, tagged `^:dev/after-load` so shadow-cljs re-runs
-;; it after each hot reload — edited views re-render into the same root and the
-;; already-hydrated frame. HYDRATE stays in `run` (once), so a reload never
-;; re-seeds over the interactive state.
+;; Re-render the current view into the RETAINED root. Tagged `^:dev/after-load`
+;; so shadow-cljs re-runs it after each hot reload — edited views re-render into
+;; the same root and the already-hydrated frame. It never creates a root and
+;; never re-hydrates: the root is established once in `run` (via `hydrate-root`
+;; when the server painted the page, `create-root` otherwise), and HYDRATE
+;; happens once there too, so a reload can't re-seed over the interactive state.
 #?(:cljs
-   (defn ^:dev/after-load mount! []
-     (when-let [el (and (exists? js/document)
-                        (js/document.getElementById "app"))]
-       (when-not @react-root
-         (reset! react-root (rdc/create-root el)))
-       (rdc/render @react-root
+   (defn ^:dev/after-load render! []
+     (when-let [root @react-root]
+       (rdc/render root
                    [rf/frame-provider {:frame app-frame}
                     [(rf/view :app/root)]]))))
 
@@ -394,6 +393,24 @@
    (defn run []
      (rf/init! reagent-adapter/adapter)
      (rf/make-frame {:id app-frame :doc "resources-ssr client app-frame" :platform :client})
-     (ssr/hydrate! {:frame          app-frame
-                    :render-tree-fn (fn [] ((rf/view :app/root)))})
-     (mount!)))
+     ;; READ, HYDRATE, VERIFY against the app-frame. `hydrate!` seeds STATE only
+     ;; — it never touches the DOM — and hands back the payload it applied, or
+     ;; nil on a plain client load with no server render to adopt.
+     (let [el      (and (exists? js/document) (js/document.getElementById "app"))
+           payload (ssr/hydrate! {:frame          app-frame
+                                  :render-tree-fn (fn [] ((rf/view :app/root)))})
+           tree    [rf/frame-provider {:frame app-frame} [(rf/view :app/root)]]]
+       (when el
+         (if payload
+           ;; Server-rendered: ADOPT the painted DOM. `hydrate-root` reconciles
+           ;; React against the server markup — same nodes, listeners attached,
+           ;; no re-paint — and returns the retained root. `create-root` +
+           ;; `render` would throw the server HTML away and mount fresh, the bug
+           ;; this branch avoids.
+           (reset! react-root (rdc/hydrate-root el tree))
+           ;; No payload means no server render — a plain first load. Mount a
+           ;; fresh root and render; a fresh entry serves from cache, a stale or
+           ;; absent one refetches per its policy.
+           (do
+             (reset! react-root (rdc/create-root el))
+             (rdc/render @react-root tree)))))))
