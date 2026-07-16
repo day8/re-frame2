@@ -59,6 +59,11 @@
     :rf.ui.compile/bad-handler-options
     :rf.ui.compile/contradictory-handler-options
     :rf.ui.compile/bad-ui-event
+    ;; compiled render slots (S3, rf2-ri0k6n)
+    :rf.ui.compile/bad-render-fn
+    :rf.ui.compile/bad-slot
+    :rf.ui.compile/render-fn-misplaced
+    :rf.ui.compile/impure-slot-body
     ;; props
     :rf.ui.compile/bad-class
     :rf.ui.compile/bad-style
@@ -184,6 +189,8 @@
       raw-fn      {:fqn 're-frame.ui/raw-fn :meta {}}
       spread      {:fqn 're-frame.ui/spread :meta {}}
       event       {:fqn 're-frame.ui/event :meta {}}
+      render-fn   {:fqn 're-frame.ui/render-fn :meta {}}
+      slot        {:fqn 're-frame.ui/slot :meta {}}
       frame-provider {:fqn 're-frame.ui/frame-provider :meta {}}
       child-view  {:fqn 'app.views/child-view
                    :meta {:rf.ui/view true :rf.ui/children? true}}
@@ -290,6 +297,34 @@
    [:rf.ui.compile/bad-ui-event
     '[:input {:on-input (event [a b] [:x])}]
     ["native event" "event vector" "ui/handler"]]
+   ;; compiled render slots (S3, rf2-ri0k6n)
+   [:rf.ui.compile/bad-render-fn
+    '[child-view {:row (render-fn [a] [:p "a"] [:p "b"])}]
+    ["ONE template" "(let"]]
+   [:rf.ui.compile/bad-render-fn
+    '[child-view {:row (render-fn xs [:p "a"])}]
+    ["parameter binding vector"]]
+   [:rf.ui.compile/bad-render-fn
+    '[child-view {:row (render-fn [& xs] [:p "a"])}]
+    ["FIXED arg list"]]
+   [:rf.ui.compile/bad-slot '(slot) ["render-fn value"]]
+   [:rf.ui.compile/bad-slot '[:div {:title (slot r 1)}] ["child position"]]
+   [:rf.ui.compile/render-fn-misplaced
+    '(render-fn [a] [:p a]) ["ui/slot" "prop value"]]
+   [:rf.ui.compile/render-fn-misplaced
+    '[:div {:title (render-fn [] [:p "x"])}] ["ui/slot"]]
+   [:rf.ui.compile/impure-slot-body
+    '(slot (render-fn [a] [:div (sub [:q])])) ["PURE render" "MOUNTS a defview"]]
+   [:rf.ui.compile/impure-slot-body
+    '(slot (render-fn [a] [:div (str (lease {:r a}))])) ["PURE render"]]
+   [:rf.ui.compile/impure-slot-body
+    '(slot (render-fn [a] [:div (:frame (frame))])) ["PURE render"]]
+   [:rf.ui.compile/impure-slot-body
+    '(slot (render-fn [a] [:button {:on-click [:x a]} "b"]))
+    ["DISPATCHES" "mount a defview"]]
+   [:rf.ui.compile/impure-slot-body
+    '(slot (render-fn [a] [:div {:ref r} "x"]))
+    ["commit-phase" "Mount a defview"]]
    ;; props
    [:rf.ui.compile/bad-class '[:div {:class {(kw) true}} "x"] ["literal names"]]
    [:rf.ui.compile/bad-style '[:div {:style {(kw) 1}} "x"] ["dynamic expression"]]

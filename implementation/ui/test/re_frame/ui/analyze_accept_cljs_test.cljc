@@ -31,6 +31,8 @@
       raw-fn      {:fqn 're-frame.ui/raw-fn :meta {}}
       spread      {:fqn 're-frame.ui/spread :meta {}}
       event       {:fqn 're-frame.ui/event :meta {}}
+      render-fn   {:fqn 're-frame.ui/render-fn :meta {}}
+      slot        {:fqn 're-frame.ui/slot :meta {}}
       ..          {:fqn 'clojure.core/.. :meta {:macro true}}
       if-let      {:fqn 'clojure.core/if-let :meta {:macro true}}
       ->          {:fqn 'clojure.core/-> :meta {:macro true}}
@@ -685,7 +687,8 @@
     (letfn [(f [n] n)] [:p (f 1)])
     [:div (spread b o)]
     (raw el)
-    [:div.c (html "<hr/>")]]  )
+    [:div.c (html "<hr/>")]
+    [:ul (slot row-renderer 3 item) (slot (render-fn [x] [:li x]) item)]]  )
 
 ;; ---------------------------------------------------------------------------
 ;; frame-provider (S2c) — the SCOPE form lowers to :frame-provider anywhere
@@ -706,6 +709,74 @@
                                           [:p "x"]])]
       (is (= :frame-provider (:op ast)))
       (is (= 1 (count (:subs sites))) "the (sub ...) in the target is a finite site"))))
+
+;; ---------------------------------------------------------------------------
+;; Compiled render slots (S3, rf2-ri0k6n) — ui/render-fn + ui/slot
+;; ---------------------------------------------------------------------------
+
+(deftest render-fn-prop-lowers-to-a-compiled-slot-callback
+  (testing "a ui/render-fn prop value compiles its body into a slot callback"
+    (let [v (ana* '[child-view {:row (render-fn [i x] [:li.item i x])}])
+          e (first (get-in v [:props :entries]))]
+      (is (= :render-fn (:marker e)) "the entry is marked a compiled render slot")
+      (is (= '[i x] (get-in e [:render-fn :params])) "params carried verbatim")
+      (is (= :element (get-in e [:render-fn :body :op]))
+          "the body is a COMPILED template node, not an opaque expression")
+      (is (nil? (:value e)) "a render-fn prop carries no plain :value")))
+  (testing "an ordinary function prop is still the bare-fn error (not a slot)"
+    (is (thrown? #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo)
+                 (ana* '[child-view {:row (fn [i x] [:li i x])}])))))
+
+(deftest ui-slot-lowers-and-indexes-its-site
+  (testing "ui/slot over a prop-carried render-fn value"
+    (let [{:keys [ast sites]}
+          (ana-full '[:ul (slot row-renderer 3 item)])
+          slot (first (get-in ast [:children]))]
+      (is (= :slot (:op slot)))
+      (is (= 'row-renderer (:slot-value slot)) "the runtime slot value is carried")
+      (is (= 2 (count (:args slot))) "the runtime args are carried")
+      (is (nil? (:render-fn slot)) "a prop-carried slot has no inline body")
+      (is (= 1 (count (:slots sites))) "the slot site indexes into the manifest")
+      (is (false? (:inline? (first (:slots sites)))))
+      (is (vector? (:path (first (:slots sites)))) "the site carries its template path")))
+  (testing "ui/slot over an INLINE ui/render-fn compiles the body here"
+    (let [{:keys [ast sites]}
+          (ana-full '[:ul (slot (render-fn [x] [:li x]) item)])
+          slot (first (get-in ast [:children]))]
+      (is (= :slot (:op slot)))
+      (is (= '[x] (get-in slot [:render-fn :params])))
+      (is (= :element (get-in slot [:render-fn :body :op])) "inline body is compiled")
+      (is (true? (:inline? (first (:slots sites)))))))
+  (testing "nil is a legal ui/slot value (renders nothing)"
+    (let [ast (ana* '[:ul (slot nil)])]
+      (is (= :slot (:op (first (:children ast)))))
+      (is (nil? (get-in ast [:children 0 :slot-value]))))))
+
+(deftest slot-args-are-not-deferred-so-the-owning-view-may-read-them
+  ;; A slot ARGUMENT is the LIBRARY view's own render-time expression — a
+  ;; (sub …) there is the library's finite read, indexed into ITS manifest.
+  (let [{:keys [ast sites]} (ana-full '[:ul (slot row-renderer (sub [:selected]))])]
+    (is (= :slot (:op (first (:children ast)))))
+    (is (= 1 (count (:subs sites)))
+        "the sub in a slot ARG is the owning view's finite site, not deferred")))
+
+(deftest static-defview-head-mounts-inside-a-slot-body
+  ;; THE grammar requirement (rf2-a62fje coverage): a slot body must permit a
+  ;; statically-referenced internal view head — a stateful replacement part is
+  ;; a PURE slot body mounting a static defview that owns its own state. If this
+  ;; regressed, the wave-2 registered-ui/view gate analysis would have to redo.
+  (let [ast (ana* '[:ul (slot (render-fn [x] [child-view {:v x} [:em "kid"]]))])
+        slot (first (:children ast))
+        body (get-in slot [:render-fn :body])]
+    (is (= :slot (:op slot)))
+    (is (= :view (:op body)) "the slot body mounts an internal view head")
+    (is (= :app.views/child-view (:view-id body)))
+    (testing "a slot body may also mount a static view under control flow / for"
+      (let [ast2 (ana* '[:ul (slot (render-fn [xs]
+                                     (for [x xs] [child-view {:key (:id x) :v x}])))])
+            body2 (get-in ast2 [:children 0 :render-fn :body])]
+        (is (= :for (:op body2)))
+        (is (= :view (get-in body2 [:body :op])) "the keyed for row is an internal view")))))
 
 (defn- ops-of [ast]
   (let [acc (atom #{})]

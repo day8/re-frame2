@@ -309,6 +309,38 @@
    [bool-attrs {:on? on? :dl "file.txt"}]])
 
 ;; ---------------------------------------------------------------------------
+;; Compiled render slots (S3, rf2-ri0k6n) — the v-table shape end to end
+;; ---------------------------------------------------------------------------
+
+(defview slot-table
+  "The LIBRARY seam: it owns the rows and iterates, invoking the caller's row
+  renderer per row through ui/slot. The renderer arrives as a compiled
+  ui/render-fn value (an opaque prop here); ui/slot proves it and renders its
+  output as an ordinary keyed child. A nil renderer renders an empty cell."
+  [{:keys [rows render]}]
+  [:table.slotted
+   [:tbody
+    (for [[i r] (map-indexed vector rows)]
+      [:tr {:key (:id r)}
+       [:td.idx (str i)]
+       [:td.body (ui/slot render i r)]])]])
+
+(defview slot-consumer
+  "The CONSUMER: supplies the row renderer as a compiled render-fn whose body
+  is lexically visible HERE and therefore compiled (both emitters). The body
+  is a PURE render fragment of its (index row) args — the v-table row-renderer
+  shape end to end."
+  [{:keys [rows]}]
+  [slot-table {:rows rows
+               :render (ui/render-fn [index row]
+                         [:span.cell (str index "=" (:name row))])}])
+
+(defview slot-empty
+  "A nil slot renders nothing (the empty-cell arm)."
+  [{:keys [rows]}]
+  [slot-table {:rows rows :render nil}])
+
+;; ---------------------------------------------------------------------------
 ;; Cases — pure data; the SINGLE corpus both hosts consume
 ;; ---------------------------------------------------------------------------
 
@@ -336,6 +368,8 @@
    :with-defaults   with-defaults
    :as-props        as-props
    :children-flow   children-flow
+   :slot-consumer   slot-consumer
+   :slot-empty      slot-empty
    :page            page})
 
 (def cases
@@ -375,4 +409,9 @@
    {:id :defaults-present-nil :view :with-defaults   :props {:a "x" :b nil}}
    {:id :as-props             :view :as-props        :props {:cart/item 7 :plain "p"}}
    {:id :children-flow        :view :children-flow   :props {:t "T"}}
+   {:id :slot-vtable          :view :slot-consumer   :props {:rows [{:id 1 :name "a & <b>"}
+                                                                    {:id 2 :name "second"}
+                                                                    {:id 3 :name "third"}]}}
+   {:id :slot-empty           :view :slot-empty      :props {:rows [{:id 1 :name "x"}
+                                                                    {:id 2 :name "y"}]}}
    {:id :page                 :view :page            :props {:items items-3 :on? true}}])

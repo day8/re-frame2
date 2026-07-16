@@ -279,7 +279,9 @@
   {:namespace "re-frame.ui" :var "frame-provider" :kind :fn    :facade? false :tier :front-porch :owner "004" :status "Spec-004 S2" :runtime-verified? true}
   {:namespace "re-frame.ui" :var "adapter"        :kind :var   :facade? false :tier :front-porch :owner "006" :status "Spec-004 S2" :runtime-verified? true}
   {:namespace "re-frame.ui" :var "frame"          :kind :fn    :facade? false :tier :advanced    :owner "004" :status "Spec-004 S2" :runtime-verified? true}
-  {:namespace "re-frame.ui" :var "event"          :kind :fn    :facade? false :tier :advanced    :owner "004" :status "Spec-004 S3" :runtime-verified? true}]
+  {:namespace "re-frame.ui" :var "event"          :kind :fn    :facade? false :tier :advanced    :owner "004" :status "Spec-004 S3" :runtime-verified? true}
+  {:namespace "re-frame.ui" :var "render-fn"      :kind :fn    :facade? false :tier :advanced    :owner "004" :status "Spec-004 S3" :runtime-verified? true}
+  {:namespace "re-frame.ui" :var "slot"           :kind :fn    :facade? false :tier :advanced    :owner "004" :status "Spec-004 S3" :runtime-verified? true}]
 
  ;; --------------------------------------------------------------------------
  ;; API.md var-rows that are KNOWINGLY absent from the manifest. The

@@ -181,6 +181,55 @@
   x)
 
 ;; ---------------------------------------------------------------------------
+;; Compiled render slots — `ui/render-fn` + `ui/slot`
+;;
+;; A `ui/render-fn` value is a compiled pure-render callback: the CONSUMER
+;; authors its body lexically at the call site, so both emitters COMPILE it
+;; (closed grammar, no runtime hiccup). The value is the raw closure marked
+;; with a string property so `ui/slot` can prove, at a library seam, that a
+;; prop-carried value is a render-fn (or nil) before invoking it. The property
+;; is a literal string key, so it survives `:advanced` renaming, and it is set
+;; unconditionally (render slots are core, not a DEV-only affordance).
+;; ---------------------------------------------------------------------------
+
+(def ^:private render-fn-mark "rf$render_fn")
+
+(defn render-fn
+  "Mark a compiled callback closure as a `ui/render-fn` value and return it.
+  The value is directly invocable; `slot` gates every invocation."
+  [f]
+  (unchecked-set f render-fn-mark true)
+  f)
+
+(defn render-fn?
+  "True when `x` is a compiled `ui/render-fn` value."
+  [x]
+  (and (fn? x) (true? (unchecked-get x render-fn-mark))))
+
+(defn invalid-slot!
+  "The didactic error for a `ui/slot` value that is neither `nil` nor a
+  `ui/render-fn`."
+  [x]
+  (error/throw-error!
+   :rf.error/ui-tree-malformed 're-frame.ui/slot
+   (str "a ui/slot received " (pr-str x) " — a slot accepts only a "
+        "ui/render-fn value (author it as (ui/render-fn [args…] template)) "
+        "or nil (renders nothing). Ordinary function props are opaque "
+        "identity-compared values and are never invoked as slots")
+   {:extra {:value x}}))
+
+(defn slot-ready?
+  "Gate a `ui/slot` value: `nil` renders nothing (false); a `ui/render-fn`
+  renders (true); anything else is the didactic `invalid-slot!` error. Keeps
+  the slot invocation fixed-arity at the call site — the args evaluate only
+  when the slot renders."
+  [x]
+  (cond
+    (nil? x)        false
+    (render-fn? x)  true
+    :else           (invalid-slot! x)))
+
+;; ---------------------------------------------------------------------------
 ;; Props ABI helpers (Q2/Q3)
 ;; ---------------------------------------------------------------------------
 

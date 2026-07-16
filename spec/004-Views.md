@@ -567,6 +567,64 @@ independent demand for platform-scale features). The seven wrappers of the forei
 React-interop tier — `re-frame.ui.react` — carry their own call-shape contract in
 §The React interop tier below.
 
+## Compiled render slots — `render-fn` and `slot`
+
+Parameterized markup a consumer supplies to a reusable view (row / item / cell /
+part renderers) has one conforming home: a **compiled render slot**. Dynamic
+element heads stay compile errors and an unparameterized template value cannot
+receive per-row args, so without this seam every component library reinvents an
+unanalyzable callback convention. `render-fn` + `slot` close that gap **without
+crossing the wall** — no arbitrary dynamic heads, no general `ui/element`, no
+runtime hiccup interpreter.
+
+**`(ui/render-fn [args…] template)`** is a compiler-owned PURE render callback for
+an **internal** library seam (`ui/render-fn` was foreign-boundary-only before S3).
+It is legal in exactly two positions, both of which make its body **lexically
+visible at the consumer call site** — so BOTH emitters COMPILE it (the closed
+template grammar, no runtime hiccup):
+
+1. a component call-site **prop value** — `[data-table {:row (ui/render-fn [i r]
+   [:td (:name r)])}]` — the parameterized markup a reusable view accepts;
+2. an inline **`ui/slot` argument** — `(ui/slot (ui/render-fn [] …))`.
+
+A `render-fn` value is a fixed-arity closure (no variadic `&`) with exactly one
+template body form. It renders from its arguments alone.
+
+**`(ui/slot render-fn-value arg…)`** is the compiler-owned INVOCATION of a slot at
+a library seam — a template form, legal only in a **child position**. Its first
+argument is an inline `render-fn` or a value carried through a prop; **only a
+`render-fn` value or `nil` is accepted** — `nil` renders nothing, any other value
+is the loud didactic `:rf.error/ui-tree-malformed`. The remaining arguments are the
+library's runtime values (the `(index row)` of the v-table shape), evaluated in the
+library view's own render scope and only when the slot renders. The slot's output
+**participates in the surrounding children exactly like any other child** (the same
+child-like memo cost; keys and occurrence identity are the enclosing keyed list's,
+so keyed reorder under slots preserves identity).
+
+**A slot body is pure render phase.** `sub` / `lease` / `frame` reads, dispatch
+(committed `:on-*` handlers), hooks, and refs inside a slot body are didactic
+compile errors (`:rf.ui.compile/impure-slot-body`) — the body executes deferred,
+inside a *different* view (the seam), so a reactive read there would be
+phase-divergent and owner-wrong, and a committed handler cannot own a stable
+per-site callback across per-row invocations. The reactive/interactive surface
+belongs to the **owning view** or to a **mounted defview**: a statically-referenced
+internal view head REMAINS legal inside a slot body, so a *stateful* replacement
+part is a pure slot body that MOUNTS a static `defview` which owns its own state.
+This is the load-bearing middle of the three-category library-customization
+taxonomy — **data props · pure render slots · registered stateful views** — and it
+is exactly why the runtime-**open** registered-`ui/view` form stays wave-2-gated:
+statefulness is expressible now; only runtime-chosen *identity* would need a
+registry.
+
+Capabilities and the template fingerprint propagate through the slot site (a
+`render-fn` body contributes its `:render-fn` capability; a `slot` contributes
+`:render-slot`); the compiler **manifest records every slot site** (source
+coordinate + template path + whether the render-fn was inline). In the versioned
+structural tree a `render-fn` prop is recorded on its view-boundary as the opaque
+marker `{:rf.ui/opaque :ui/render-fn}` (§004B), and a slot's rendered output appears
+as the ordinary child subtree it produced, so `ui.test` renders slotted trees
+headlessly (Tier-1).
+
 ## The React interop tier — `re-frame.ui.react`
 
 The `re-frame.ui.react` namespace (alias `react`, artifact `day8/re-frame2-ui`, per R-3

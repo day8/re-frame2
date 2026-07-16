@@ -285,7 +285,10 @@
             frame
             ;; S3 committed handler form: the compiler-owned ui/event site
             ;; whose synchronous vector result rides the sync door (rf2-8k14ia)
-            event}
+            event
+            ;; S3 internal compiled render slots: the pure render-slot callback
+            ;; and its compiler-owned invocation form (rf2-ri0k6n)
+            render-fn slot}
          (set (keys (ns-publics 're-frame.ui))))
       "no reg-view family, no Form-1/2/3 helpers, no h macro, no view
        lookup, no ratom/cursor/reaction — Spec 004 §Removed forms"))

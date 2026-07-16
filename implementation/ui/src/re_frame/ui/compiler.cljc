@@ -136,11 +136,15 @@
                   :raw     (vswap! caps conj :raw)
                   :html    (vswap! caps conj :html)
                   :foreign (vswap! caps conj :foreign)
+                  :slot    (vswap! caps conj :render-slot)
                   :element (do (when (:custom? n) (vswap! caps conj :custom-element))
                                (when (get-in n [:props :spread])
                                  (vswap! caps conj :spread))
                                (when (:html n) (vswap! caps conj :html)))
                   nil)
+                ;; A compiled render slot callback (a component prop value or an
+                ;; inline ui/slot argument) carries a :render-fn compiled body.
+                (when (:render-fn n) (vswap! caps conj :render-fn))
                 (doseq [[_ v] n]
                   (cond
                     (map? v) (scan v)

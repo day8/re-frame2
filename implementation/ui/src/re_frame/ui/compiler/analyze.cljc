@@ -25,7 +25,7 @@
   `:frame-provider` (S2c, rf2-vxgfnd.9) is the SCOPE form — legal anywhere,
   scoping a subtree to an already-live frame."
   #{:text :nothing :expr :element :fragment :view :foreign
-    :if :let :letfn :case :for :raw :html :frame-root :frame-provider})
+    :if :let :letfn :case :for :raw :html :frame-root :frame-provider :slot})
 
 (defn literal-scalar? [x]
   (or (string? x) (number? x) (keyword? x) (boolean? x) (nil? x)))
@@ -35,6 +35,8 @@
 (def ^:private ui-raw-fn-fqns #{'re-frame.ui/raw-fn})
 (def ^:private ui-spread-fqns #{'re-frame.ui/spread})
 (def ^:private ui-event-fqns  #{'re-frame.ui/event})
+(def ^:private ui-render-fn-fqns #{'re-frame.ui/render-fn})
+(def ^:private ui-slot-fqns   #{'re-frame.ui/slot})
 (def ^:private sub-fqns       #{'re-frame.ui/sub})
 (def ^:private lease-fqns     #{'re-frame.ui/lease})
 (def ^:private frame-fqns     #{'re-frame.ui/frame})
@@ -80,6 +82,8 @@
 (defn- raw-fn-form? [e f] (and (seq? f) (symbol? (first f)) (env/resolves-to? e (first f) ui-raw-fn-fqns)))
 (defn- spread-form? [e f] (and (seq? f) (symbol? (first f)) (env/resolves-to? e (first f) ui-spread-fqns)))
 (defn- ui-event-form? [e f] (and (seq? f) (symbol? (first f)) (env/resolves-to? e (first f) ui-event-fqns)))
+(defn- render-fn-form? [e f] (and (seq? f) (symbol? (first f)) (env/resolves-to? e (first f) ui-render-fn-fqns)))
+(defn- slot-form? [e f] (and (seq? f) (symbol? (first f)) (env/resolves-to? e (first f) ui-slot-fqns)))
 
 ;; ---------------------------------------------------------------------------
 ;; Expression rewriting — lexical site indexing + loop finiteness
@@ -558,6 +562,19 @@
   (when (map? binding-form)
     (mapv :local-pattern (assoc-binding-units binding-form))))
 
+(defn- impure-slot-fail!
+  "The didactic rejection for a reactive read inside a `ui/render-fn` slot
+  body — a slot body is a pure render fragment; the reactive/dispatch surface
+  belongs to the owning view or a mounted defview."
+  [e verb form]
+  (env/fail! e :rf.ui.compile/impure-slot-body
+             (str "(" verb " …) inside a ui/render-fn slot body — a slot body is "
+                  "a PURE render fragment; sub / lease / frame (and dispatch / "
+                  "hooks) are not permitted. Read the value in the OWNING view and "
+                  "pass its committed value into the slot's arguments; a stateful "
+                  "part MOUNTS a defview that owns its own state")
+             {:form form}))
+
 (defn rewrite-expr
   "Rewrite an opaque expression, lowering resolved unshadowed `(sub q)` calls
   to the serialized two-argument runtime shape and recording stable lexical
@@ -741,6 +758,24 @@
                      e*   (update e :locals into locals)]
                  (cond
                     (and (symbol? head) (not (contains? locals head))
+                         (env/resolves-to? e* head ui-render-fn-fqns))
+                    (env/fail! e :rf.ui.compile/render-fn-misplaced
+                               (str "(ui/render-fn …) is a render-slot callback "
+                                    "value — legal ONLY as a component call-site "
+                                    "prop value or a ui/slot argument, never as a "
+                                    "plain expression. The library invokes it "
+                                    "through ui/slot")
+                               {:form f})
+
+                    (and (symbol? head) (not (contains? locals head))
+                         (env/resolves-to? e* head ui-slot-fqns))
+                    (env/fail! e :rf.ui.compile/bad-slot
+                               (str "(ui/slot render-fn-value arg…) renders content "
+                                    "— it is legal only in a child position, not as "
+                                    "a plain expression. Put it where a child goes")
+                               {:form f})
+
+                    (and (symbol? head) (not (contains? locals head))
                          (env/resolves-to? e* head sub-fqns))
                     (do
                       (when-not (= 2 (count f))
@@ -750,14 +785,16 @@
                       (when (or (nil? (:self-id e))
                                 (:in-loop? e)
                                 (contains? locals deferred-scope))
-                        (env/fail! e :rf.ui.compile/sub-in-loop
-                                   (str "(sub ...) must be a finite render-time site in a "
-                                        "defview — it cannot run in a loop, deferred "
-                                        "callback, raw-fn/ref body, or root expression. "
-                                        "Hoist the read into the view body and let the "
-                                        "callback capture its committed value; for rows, "
-                                        "extract a keyed child view")
-                                   {:form f}))
+                        (if (:in-render-fn? e)
+                          (impure-slot-fail! e "sub" f)
+                          (env/fail! e :rf.ui.compile/sub-in-loop
+                                     (str "(sub ...) must be a finite render-time site in a "
+                                          "defview — it cannot run in a loop, deferred "
+                                          "callback, raw-fn/ref body, or root expression. "
+                                          "Hoist the read into the view body and let the "
+                                          "callback capture its committed value; for rows, "
+                                          "extract a keyed child view")
+                                     {:form f})))
                      (let [sid   (lexical-site-id e :sub f p)
                            query (rw (second f) locals (conj p :query))]
                        (env/add-site! e :subs {:sid sid :query (second f)
@@ -774,13 +811,15 @@
                       (if (or (nil? (:self-id e))
                               (:in-loop? e)
                               (contains? locals deferred-scope))
-                        (env/fail! e :rf.ui.compile/lease-in-loop
-                                   (str "(lease ...) must be a finite render-time site in "
-                                        "a defview — it cannot run in a loop, deferred "
-                                        "callback, raw-fn/ref body, or root expression. "
-                                        "Move it into the leading lease declaration prefix; for rows, "
-                                        "extract a keyed child view")
-                                   {:form f})
+                        (if (:in-render-fn? e)
+                          (impure-slot-fail! e "lease" f)
+                          (env/fail! e :rf.ui.compile/lease-in-loop
+                                     (str "(lease ...) must be a finite render-time site in "
+                                          "a defview — it cannot run in a loop, deferred "
+                                          "callback, raw-fn/ref body, or root expression. "
+                                          "Move it into the leading lease declaration prefix; for rows, "
+                                          "extract a keyed child view")
+                                     {:form f}))
                         (env/fail! e :rf.ui.compile/unsupported-form
                                    (str "(lease ...) is a declaration, not an expression — "
                                         "put direct lease forms before the view's one final "
@@ -800,13 +839,15 @@
                       (when (or (nil? (:self-id e))
                                 (:in-loop? e)
                                 (contains? locals deferred-scope))
-                        (env/fail! e :rf.ui.compile/frame-in-loop
-                                   (str "(frame) must be a finite render-time site in a "
-                                        "defview — it cannot run in a loop, deferred "
-                                        "callback, raw-fn/ref body, or root expression. "
-                                        "Hoist the read into the view body and let the "
-                                        "callback capture its committed ops bundle")
-                                   {:form f}))
+                        (if (:in-render-fn? e)
+                          (impure-slot-fail! e "frame" f)
+                          (env/fail! e :rf.ui.compile/frame-in-loop
+                                     (str "(frame) must be a finite render-time site in a "
+                                          "defview — it cannot run in a loop, deferred "
+                                          "callback, raw-fn/ref body, or root expression. "
+                                          "Hoist the read into the view body and let the "
+                                          "callback capture its committed ops bundle")
+                                     {:form f})))
                       (let [sid (lexical-site-id e :frame f p)]
                         (env/add-site! e :frame-ops {:sid sid
                                                      :path (:path e)
@@ -923,8 +964,13 @@
                                  " call site, or make the boundary its own defview")
                             {:form f :reactive-kind kind})
                  f)))]
+     ;; A `ui/render-fn` slot body is a DEFERRED render: it executes inside a
+     ;; DIFFERENT view (the library seam that invokes the slot), so every
+     ;; expression it walks is deferred — sub/lease/frame there would be
+     ;; phase-divergent and owner-wrong, exactly as in a fn/ui-event callback.
      (rw form (cond-> #{}
-                (deferred-expr-root? expr-root) (conj deferred-scope))
+                (or (deferred-expr-root? expr-root) (:in-render-fn? e))
+                (conj deferred-scope))
          (vec expr-root)))))
 
 ;; Transitional internal name used throughout the analyzer. Unlike its former
@@ -1062,6 +1108,14 @@
   :vector|:options|:fn|:dynamic :form form :capture? bool
   :hoistable? bool :serializable? bool}"
   [e k form]
+  (when (:in-render-fn? e)
+    (env/fail! e :rf.ui.compile/impure-slot-body
+               (str "an event handler (" k ") inside a ui/render-fn slot body — a "
+                    "slot body is a PURE render fragment; a committed handler "
+                    "DISPATCHES, which a slot body may not. Own the interactivity "
+                    "in the library view, or mount a defview that owns its handlers "
+                    "(a stateful part is a pure slot body mounting a defview)")
+               {:prop k :form form}))
   (let [nm       (name k)
         identity (event-site-identity e k form)]
     (cond
@@ -1262,6 +1316,12 @@
                {:prop k})))
 
 (defn- analyze-ref [e form context]
+  (when (:in-render-fn? e)
+    (env/fail! e :rf.ui.compile/impure-slot-body
+               (str ":ref inside a ui/render-fn slot body — a slot body is a PURE "
+                    "render fragment; a ref is a commit-phase host hook, which a "
+                    "slot body may not own. Mount a defview that owns the ref")
+               {:form form}))
   (case context
     :element
     (cond
@@ -1506,6 +1566,53 @@
                      true)
        :path (:path e)})))
 
+;; ---------------------------------------------------------------------------
+;; Compiled render slots — `ui/render-fn` callback + `ui/slot` invocation (S3)
+;; ---------------------------------------------------------------------------
+;;
+;; `ui/render-fn` is a compiler-owned PURE render callback authored at the
+;; consumer call site (a component prop value, or an inline ui/slot argument),
+;; so its body is COMPILED — the closed template grammar, no runtime hiccup.
+;; The body is a DEFERRED render (the library seam invokes it later, in a
+;; different view), so `:in-render-fn?` seeds the deferred scope: sub/lease/
+;; frame reads and the dispatch/hook surface (event handlers, refs) inside are
+;; didactic `impure-slot-body` errors. Statically-referenced internal view
+;; heads REMAIN legal — a stateful part is a pure slot body mounting a static
+;; defview that owns its own state (the wave-2 registered-`ui/view` coverage
+;; argument depends on exactly this).
+
+(defn analyze-render-fn
+  "Analyze `(ui/render-fn [args…] template)` → {:params <vec> :body <ast>}.
+  The params bind as locals over a pure deferred-render template body."
+  [e form]
+  (let [[_ params & body] form]
+    (when-not (vector? params)
+      (env/fail! e :rf.ui.compile/bad-render-fn
+                 (str "(ui/render-fn [args…] template) needs a literal parameter "
+                      "binding vector before its one template body; got "
+                      (pr-str params))
+                 {:form form}))
+    (when (some #{'&} params)
+      (env/fail! e :rf.ui.compile/bad-render-fn
+                 (str "ui/render-fn parameters are a FIXED arg list — variadic & "
+                      "is not permitted (a ui/slot passes a fixed number of args)")
+                 {:form form}))
+    (when (not= 1 (count body))
+      (env/fail! e :rf.ui.compile/bad-render-fn
+                 (str "(ui/render-fn [args…] template) has exactly ONE template "
+                      "body form — computation goes in (let …); siblings wrap in "
+                      "[:<> …]. Got " (count body) " body forms")
+                 {:form form}))
+    (reject-reactive-binding! e params)
+    (let [binders (env/binding-syms params)
+          e*      (-> e
+                      (env/with-locals binders)
+                      (assoc :in-render-fn? true :in-loop? false :loop-syms #{})
+                      (dissoc :top-region?)
+                      (update :path conj :render-fn))]
+      {:params params
+       :body   (analyze e* (first body))})))
+
 (defn- analyze-component-props
   "View/foreign call-site props (Q2/Q3/Q4): literal map required; :key
   extracted (never a prop); :children as an explicit key rejected
@@ -1538,35 +1645,47 @@
                                   (if (= :view (:kind head-info)) :view :foreign)))
           m*       (dissoc m :key :ref)
           entries  (mapv (fn [[k v]]
-                           (when (fn-form? v)
-                             (env/fail! e :rf.ui.compile/bare-fn-prop
-                                        (str "bare fn prop " k " at a "
-                                             (if (= :view (:kind head-info))
-                                               "view" "foreign-component")
-                                             " boundary — invoker and phase are "
-                                             "unknown there. Choose ui/raw-fn "
-                                             "(identity-as-protocol) now; "
-                                             "ui/event / ui/handler / ui/render-fn "
-                                             "land S3")
-                                        {:prop k :head (:sym head-info)}))
-                           ;; NOTE: vector/data props MAY capture loop bindings —
-                           ;; passing row data into a keyed child view is exactly
-                           ;; the extract-a-keyed-child-view fix; only HANDLER
-                           ;; sites are capture-checked.
-                            (let [raw?    (raw-form? e v)
-                                  raw-fn? (raw-fn-form? e v)
-                                  v*      (cond
-                                            raw? (walk-expr e [:component-prop k :raw]
-                                                            (second v))
-                                            raw-fn? (walk-expr e [:component-prop k :raw-fn]
+                           (if (render-fn-form? e v)
+                             ;; A compiled render slot: the body is a lexically
+                             ;; visible pure template compiled HERE (both emitters)
+                             ;; into a callback value the seam invokes via ui/slot.
+                             {:k k
+                              :slot (if-let [ns* (namespace k)] (str ns* "/" (name k)) (name k))
+                              :render-fn (analyze-render-fn
+                                          (update e :path into [:component-prop k]) v)
+                              :marker :render-fn
+                              :literal? false}
+                             (do
+                               (when (fn-form? v)
+                                 (env/fail! e :rf.ui.compile/bare-fn-prop
+                                            (str "bare fn prop " k " at a "
+                                                 (if (= :view (:kind head-info))
+                                                   "view" "foreign-component")
+                                                 " boundary — invoker and phase are "
+                                                 "unknown there. Choose ui/raw-fn "
+                                                 "(identity-as-protocol), ui/event (a "
+                                                 "committed :on-* handler), or "
+                                                 "ui/render-fn (a compiled render "
+                                                 "slot) — never a bare fn")
+                                            {:prop k :head (:sym head-info)}))
+                               ;; NOTE: vector/data props MAY capture loop bindings —
+                               ;; passing row data into a keyed child view is exactly
+                               ;; the extract-a-keyed-child-view fix; only HANDLER
+                               ;; sites are capture-checked.
+                               (let [raw?    (raw-form? e v)
+                                     raw-fn? (raw-fn-form? e v)
+                                     v*      (cond
+                                               raw? (walk-expr e [:component-prop k :raw]
                                                                (second v))
-                                            (literal-scalar? v) v
-                                            :else (walk-expr e [:component-prop k] v))]
-                              {:k k
-                               :slot (if-let [ns* (namespace k)] (str ns* "/" (name k)) (name k))
-                               :value v*
-                               :marker (cond raw? :foreign raw-fn? :ui/raw-fn :else nil)
-                               :literal? (literal-scalar? v)}))
+                                               raw-fn? (walk-expr e [:component-prop k :raw-fn]
+                                                                  (second v))
+                                               (literal-scalar? v) v
+                                               :else (walk-expr e [:component-prop k] v))]
+                                 {:k k
+                                  :slot (if-let [ns* (namespace k)] (str ns* "/" (name k)) (name k))
+                                  :value v*
+                                  :marker (cond raw? :foreign raw-fn? :ui/raw-fn :else nil)
+                                  :literal? (literal-scalar? v)}))))
                           m*)]
       (let [key-form* (if (and (contains? m :key) (not (literal-scalar? key-form)))
                         (walk-expr e [:component-key] key-form)
@@ -1625,6 +1744,45 @@
      :children children
      :static? false
      :path (:path e)}))
+
+(defn- analyze-slot
+  "Analyze `(ui/slot render-fn-value arg…)` — the compiler-owned invocation of
+  a compiled render slot in child position. The first argument is an inline
+  `(ui/render-fn …)` (compiled here) or an ordinary expression evaluating to a
+  render-fn value or nil (validated at the seam by `slot-ready?`); the
+  remaining args are the library's runtime values, walked in the ambient
+  (library-view) scope — a slot ARGUMENT is not deferred, so a `(sub …)` there
+  is the library's own render-time read. The slot's output participates in the
+  surrounding children exactly like any other child (child-like memo cost)."
+  [e form]
+  (when (< (count form) 2)
+    (env/fail! e :rf.ui.compile/bad-slot
+               (str "(ui/slot render-fn-value arg…) needs a render-fn value (or "
+                    "nil) as its first argument; got " (pr-str form))
+               {:form form}))
+  (let [slotval (nth form 1)
+        args    (drop 2 form)
+        sid     (lexical-site-id e :slot form (:path e))
+        args*   (into []
+                      (map-indexed (fn [i a] (walk-expr e [:slot :arg i] a)))
+                      args)
+        node    (cond-> {:op :slot
+                         :args args*
+                         :sid sid
+                         :static? false
+                         :path (:path e)}
+                  (render-fn-form? e slotval)
+                  (assoc :render-fn (analyze-render-fn
+                                     (update e :path conj :slot-fn) slotval))
+                  (not (render-fn-form? e slotval))
+                  (assoc :slot-value (if (literal-scalar? slotval)
+                                       slotval
+                                       (walk-expr e [:slot :value] slotval))))]
+    (env/add-site! e :slots {:sid sid
+                             :path (:path e)
+                             :source-coord (event-source-coord e form)
+                             :inline? (contains? node :render-fn)})
+    node))
 
 ;; ---------------------------------------------------------------------------
 ;; Reactive authoring verbs in head position (rf2-vxgfnd.266)
@@ -2047,6 +2205,16 @@
         (raw-fn-form? e form)
         (env/fail! e :rf.ui.compile/raw-fn-child
                    "(ui/raw-fn f) is a callback marker for prop positions, not renderable content"
+                   {:form form})
+
+        (slot-form? e form)
+        (analyze-slot e form)
+
+        (render-fn-form? e form)
+        (env/fail! e :rf.ui.compile/render-fn-misplaced
+                   (str "(ui/render-fn …) is a render-slot callback value, not "
+                        "renderable content — invoke it with (ui/slot render-fn "
+                        "arg…), or pass it as a component prop value")
                    {:form form})
 
         (spread-form? e form)

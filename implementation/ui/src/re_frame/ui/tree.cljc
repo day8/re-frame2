@@ -292,12 +292,65 @@
 (def opaque-foreign
   {:rf.ui/opaque :foreign})
 
+(def opaque-render-fn
+  "The structural marker for a `ui/render-fn` value recorded on a
+  view-boundary's :props — distinct from the plain opaque-fn so tools and
+  ui.test can read a slot-carrying prop as a render-fn (the pre-declared
+  `:ui/render-fn` member of the §004B opaque-marker set)."
+  {:rf.ui/opaque :ui/render-fn})
+
+;; ---------------------------------------------------------------------------
+;; Compiled render slots — `ui/render-fn` + `ui/slot`
+;;
+;; The JVM twin of `re-frame.ui.runtime`'s render-slot vocabulary. A
+;; `ui/render-fn` value wraps the compiled pure-render closure in a carrier
+;; that `ui/slot` proves before invoking (a bare fn is never a slot). The
+;; carrier is a plain record — NOT a node and NOT `fn?` — so it can neither
+;; masquerade as tree content nor be sanitized as an ordinary opaque fn.
+;; ---------------------------------------------------------------------------
+
+(defrecord RenderFn [f])
+
+(defn render-fn
+  "Wrap a compiled pure-render closure as a `ui/render-fn` value."
+  [f]
+  (->RenderFn f))
+
+(defn render-fn?
+  "True when `x` is a compiled `ui/render-fn` value."
+  [x]
+  (instance? RenderFn x))
+
+(defn invalid-slot!
+  "The didactic error for a `ui/slot` value that is neither nil nor a
+  `ui/render-fn`."
+  [x]
+  (error/throw-error!
+   :rf.error/ui-tree-malformed 're-frame.ui/slot
+   (str "a ui/slot received " (pr-str x) " — a slot accepts only a "
+        "ui/render-fn value (author it as (ui/render-fn [args…] template)) "
+        "or nil (renders nothing)")
+   {:extra {:value x}}))
+
+(defn slot-ready?
+  "Gate a `ui/slot` value: nil renders nothing (false); a `ui/render-fn`
+  renders (true); anything else is the didactic `invalid-slot!` error."
+  [x]
+  (cond
+    (nil? x)       false
+    (render-fn? x) true
+    :else          (invalid-slot! x)))
+
 (defn sanitize-prop
-  "View-boundary :props sanitization (top-level values only): fns ->
-  opaque :fn marker; ui/raw-marked and other host values pass through the
-  emitted call-site markers; data stays data."
+  "View-boundary :props sanitization (top-level values only): render-fn
+  values -> the opaque :render-fn marker; other fns -> opaque :fn marker;
+  ui/raw-marked and other host values pass through the emitted call-site
+  markers; data stays data."
   [v]
-  (if (fn? v) opaque-fn v))
+  (cond
+    (render-fn? v) opaque-render-fn
+    (fn? v)        opaque-fn
+    :else          v))
 
 (defn classify-event
   "Runtime classification of a DYNAMIC handler value for the :events map:
