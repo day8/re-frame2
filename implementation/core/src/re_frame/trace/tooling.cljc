@@ -694,7 +694,17 @@
   evidence into the successor's ring. The default `true` arity preserves the
   ordinary emit path. Retention is the ONLY thing gated; listener fan-out is
   unconditional so the required terminal fact reaches live consumers exactly
-  once either way."
+  once either way.
+
+  `continue?` (rf2-eaxnai) is the caller's exact-owner continuation SNAPSHOT.
+  The before/after checks below consult it so that if a listener destroys the
+  outer incarnation A, the remaining listener fan-out is suppressed. It is a
+  standalone snapshot rather than a live read of the (private, unreachable
+  here) `*continuation-predicate*` precisely because `re-frame.trace/deliver!`
+  neutralises that dynamic var around this whole call — a listener BODY's
+  nested authored work (dispatch / destroy / create + `:initial-events` seed)
+  must run under ordinary always-continue authority, not inherit A's fence.
+  So the callback runs neutral while these checks retain A's predicate."
   ([event continue?] (deliver-to-tooling! event continue? true))
   ([event continue? retain?]
    (when retain? (push-to-ring! event))

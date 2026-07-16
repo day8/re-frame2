@@ -110,6 +110,28 @@
   []
   (continuing?))
 
+(defn- snapshot-continuation
+  "Capture the CURRENT continuation predicate as a standalone thunk that
+  re-reads the caller's exact authority regardless of any later dynamic
+  rebinding of `*continuation-predicate*`.
+
+  `deliver!` hands this snapshot to the PUBLIC trace-listener fan-out as the
+  before/after `continue?` check, then rebinds `*continuation-predicate*` to
+  the neutral scope for the listener bodies themselves. That split is the whole
+  of rf2-eaxnai: a listener's nested authored work (dispatch / destroy /
+  create — e.g. a same-id successor's `:initial-events` seed) runs under the
+  ordinary always-continue authority, while the delivery loop's own checks
+  still consult the caller's exact incarnation predicate so destroying the
+  current incarnation still suppresses the REMAINING listener fan-out.
+
+  The captured predicate is the live incarnation closure, so the snapshot
+  re-checks the registry on each call — a listener that destroys the outer
+  incarnation flips a later `(snapshot)` call to false without the snapshot
+  ever reading the (now neutral) dynamic var."
+  []
+  (let [p *continuation-predicate*]
+    (fn [] (or (nil? p) (p)))))
+
 (defn ^:no-doc call-with-structural-delivery
   "Deliver a structural trace without bare-id epoch/policy attribution and
   without any per-frame ring retention.
@@ -562,10 +584,23 @@
   reacts to A's structural terminal fact by dispatching or emitting its OWN
   legitimate nested work into a same-id successor B or an unrelated frame C
   must run that work under NORMAL scope — normal epoch capture, its own
-  frame-no-emit policy, and normal per-frame ring retention — rather than
-  inheriting A's retentionless/no-capture/no-policy scope. A listener that
+  frame-no-emit policy, normal per-frame ring retention, AND the neutral
+  continuation scope (rf2-eaxnai) — rather than inheriting A's
+  retentionless/no-capture/no-policy/exact-owner scope. A listener that
   explicitly re-requests structural semantics via
-  `call-with-structural-delivery` re-binds the flags false and is honoured."
+  `call-with-structural-delivery` re-binds the flags false and is honoured.
+
+  The exact-owner continuation is the fourth axis restored to ordinary defaults
+  here (rf2-eaxnai): the outer envelope may be fenced to A's exact incarnation
+  (`call-with-continuation-predicate`), but that fence exists to suppress
+  A's own remaining framework-owned trace stages after A is lost — it must NOT
+  leak into a public listener's nested authored work. Before this fix a listener
+  that destroyed A and created same-id B with `:initial-events` had B's seed
+  `dispatch-sync!` consult `continuation-live?`, inherit A's now-false predicate,
+  and get silently dropped at `build-envelope` — leaving B live with `{}` and no
+  recovery (make-frame's reuse/no-reseed law). The neutral rebinding frees the
+  listener body; the `outer-continue?` snapshot below preserves the loop's exact
+  before/after suppression of A's remaining fan-out."
   [event]
   (when (and *epoch-capture-enabled?* (continuing?))
     (deliver-to-epoch-capture! event))
@@ -573,21 +608,29 @@
   ;; A, do not deliver the same stale event into tooling/rings/listeners.
   (when (continuing?)
     (when-let [deliver-tooling (late-bind/get-fn-cached :trace.tooling/deliver!)]
-      ;; Capture the outer envelope's ring-retention decision BEFORE restoring
-      ;; ordinary defaults, then pass it explicitly for the outer ring push. The
+      ;; Capture the outer envelope's ring-retention decision AND the caller's
+      ;; exact continuation predicate BEFORE restoring ordinary defaults. The
       ;; tooling hook (in the sibling ns, which cannot see these vars) reads
       ;; `retain?` from the argument, not the dynamic var — so restoring the
       ;; flags to their ordinary defaults around the whole call leaves the outer
       ;; ring push governed by the captured structural decision while any
       ;; listener-triggered nested emit runs under normal scope (rf2-vf2qke).
-      (let [retain? *ring-retention-enabled?*]
+      ;; `outer-continue?` (rf2-eaxnai) is the same idea for the exact-owner
+      ;; continuation: the loop's before/after `continue?` checks consult this
+      ;; snapshot (retaining A's predicate so A destruction suppresses A's
+      ;; remaining listeners), while `*continuation-predicate*` is neutralised in
+      ;; the binding below so each listener BODY's nested authored work is not
+      ;; strangled by A's now-false predicate.
+      (let [retain?         *ring-retention-enabled?*
+            outer-continue? (snapshot-continuation)]
         (binding [*epoch-capture-enabled?*  true
                   *frame-policy-enabled?*   true
-                  *ring-retention-enabled?* true]
+                  *ring-retention-enabled?* true
+                  *continuation-predicate*  nil]
           (try
-            (deliver-tooling event continuing? retain?)
+            (deliver-tooling event outer-continue? retain?)
             (catch #?(:clj Throwable :cljs :default) e
-              (when (continuing?) (throw e)))))))))
+              (when (outer-continue?) (throw e)))))))))
 
 (defn- hoist-projected-sensitive
   "Hoist a classification-projection-stamped `[:tags :sensitive?]` up to
