@@ -48,10 +48,19 @@ app-db.
   that want the same metadata name the same head id.
 - **No `:head` is fine.** Default: `<title>` from frame metadata, plus `charset` and
   `viewport`.
-- **Mismatch detector covers the head.** The head rides the same render-tree hash as
-  the body ([When the renders disagree](concepts.md#when-the-renders-disagree)). On
-  the client, the head recomputes from the hydrated app-db + route slice — SPA route
-  changes keep `<title>` / `<meta>` current.
+- **Body and head hashes are separate channels.** The body render-tree hash rides
+  `:rf/render-hash` ([when the renders disagree](concepts.md#when-the-renders-disagree));
+  a reconstructible head emits a *separate*, optional `:rf/head-hash` (stamped
+  `data-rf-head-hash` on `<head>`), omitted when the head can't be recomputed — an
+  explicit `:head` string, or a degraded head. The bundled runtime compares only the
+  body hash; it ships **no** automatic head comparison. The head *model* is
+  reconstructible, so a host that wants the check recomputes `(rf/active-head
+  frame-id)` from the hydrated app-db + route slice and compares it to `:rf/head-hash`
+  itself — that wiring is the host's, not automatic.
+- **Keeping the document head current is the app's job.** There is no DOM-head
+  reconciler in v1. The first byte carries the server-rendered head; refreshing
+  `<title>` / `<meta>` on an SPA route change needs an app- or host-level head
+  manager.
 
 !!! warning "JSON-LD escaping is handled for you"
 
