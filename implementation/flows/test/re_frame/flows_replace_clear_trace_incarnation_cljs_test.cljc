@@ -2,7 +2,9 @@
   "rf2-rxsldx — exact-incarnation fence for the flow REPLACEMENT and CLEAR
   lifecycle traces THROUGH the synchronous trace-emit callback pipeline
   (classification projection → epoch capture → ordered tooling listeners), plus
-  — for replacement — the preceding hot-reload dedup-by-shape consultation.
+  — for replacement — the preceding hot-reload dedup-by-shape decision, which
+  (rf2-soyqfn) is now taken from THIS frame's authoritative prior/new stored flow
+  values rather than the frame-blind process-global registrar dedup table.
 
   The sibling of rf2-pwum1g (first registration) and rf2-ytpeqf. Merged PR #5897
   made the flow-registry app-db / runtime-db / epoch writes exact, and pwum1g
@@ -10,7 +12,7 @@
   same fence to the two remaining direct lifecycle traces:
 
     - REPLACEMENT: re-registering a flow id emits `:rf.registry/handler-replaced`
-      (gated by the hot-reload `:trace.tooling/dedup-allow?` consultation).
+      (gated by a per-frame prior/new shape compare — rf2-soyqfn).
     - CLEAR: `clear-flow` emits `:rf.flow/cleared`.
 
   Before this fix the replacement dedup+emit ran under the always-true default
@@ -60,7 +62,6 @@
             [re-frame.flows :as flows]
             [re-frame.flows.registry :as registry]
             [re-frame.frame :as frame]
-            [re-frame.late-bind :as late-bind]
             [re-frame.substrate.plain-atom :as plain-atom]
             [re-frame.test-support :as test-support]
             [re-frame.trace :as trace]))
@@ -74,8 +75,9 @@
 ;; A's replacement emit reaches the ordered tooling listeners with A live; the
 ;; FIRST listener destroys A and publishes same-id B; the SUBSEQUENT listener
 ;; must NOT receive A's stale `:rf.registry/handler-replaced` after B owns the
-;; bare id. The dedup consultation is recorded so the fixture proves the
-;; trace/dedup pipeline ran for A (not merely app-db/cache state).
+;; bare id. The destroyer hit proves the trace/emit pipeline ran for A (not
+;; merely app-db/cache state); the per-frame shape dedup (rf2-soyqfn) allows the
+;; emit because the replacement carries a different derive.
 ;; ===========================================================================
 
 (deftest reg-flow-replacement-trace-listener-loss-fences-subsequent-listeners
@@ -93,19 +95,10 @@
         destroyer-hits   (atom 0)
         observer-a-repl  (atom [])          ;; A's replaced events the observer saw
         observer-repl    (atom [])          ;; every replaced event the observer saw
-        dedup-calls      (atom [])          ;; recorded [operation kind id] consultations
         armed?           (atom true)
         b-token          (atom nil)
         b-flow-registry  (atom ::unset)
-        b-commit         (atom ::unset)
-        orig-dedup       (late-bind/get-fn :trace.tooling/dedup-allow?)]
-    ;; Recording dedup hook: record every consultation and always allow, so the
-    ;; replacement emit proceeds and the consultation is observable evidence that
-    ;; the trace/dedup pipeline — not just app-db/cache state — ran for A.
-    (late-bind/set-fn! :trace.tooling/dedup-allow?
-                       (fn [operation kind the-id _meta]
-                         (swap! dedup-calls conj [operation kind the-id])
-                         true))
+        b-commit         (atom ::unset)]
     (rf/make-frame {:id id})
     ;; First registration establishes the prior so the next reg-flow is a
     ;; REPLACEMENT (emits :rf.registry/handler-replaced, not :rf.flow/registered).
@@ -150,10 +143,6 @@
       (is (some? @b-token) "the destroyer published a same-id B")
       (is (identical? @b-token (frame/frame-incarnation-token id))
           "B remains the live incarnation")
-      ;; The dedup pipeline WAS consulted for A's replacement — this fixture
-      ;; records trace/dedup consultation, not only app-db/cache state.
-      (is (some #(= [:rf.registry/handler-replaced :flow flow-id] %) @dedup-calls)
-          "A's replacement consulted the hot-reload dedup pipeline")
       ;; THE TOOTH: the subsequent listener never receives A's stale event.
       (is (empty? @observer-a-repl)
           "the SUBSEQUENT listener received ZERO A :rf.registry/handler-replaced
@@ -182,8 +171,7 @@
           "the sole post-loss replacement observed is B's own")
       (finally
         (trace/unregister-listener! ::destroyer)
-        (trace/unregister-listener! ::observer)
-        (late-bind/set-fn! :trace.tooling/dedup-allow? orig-dedup)))))
+        (trace/unregister-listener! ::observer)))))
 
 ;; ---------------------------------------------------------------------------
 ;; Green control / over-fence tooth — when A retains ownership through a
@@ -359,3 +347,117 @@
       (finally
         (trace/unregister-listener! ::live-touch)
         (trace/unregister-listener! ::live-observer)))))
+
+;; ===========================================================================
+;; PER-FRAME REPLACEMENT EVIDENCE (rf2-soyqfn) — CROSS-HOST (CLJ + CLJS)
+;;
+;; Flow replacement evidence must be scoped to the authoritative frame slot, not
+;; a frame-blind process-global registrar dedup key. Two live frames replacing
+;; the same flow-id are two independent definitions (Spec 013 §Frame-scoping);
+;; each genuine replacement must emit its OWN `:rf.registry/handler-replaced`,
+;; carrying `:frame`, and a subsequent identical reload / a same-id frame
+;; reincarnation must not inherit a sibling's or a predecessor's recorded shape.
+;; Each assertion below is RED on the pre-fix process-global path.
+;;
+;; These run on BOTH hosts (`*-cljs-test.cljc`), covering the DIRECT `reg-flow`
+;; and the reserved-effect `:rf.fx/reg-flow` entry points on CLJ and CLJS.
+;; ===========================================================================
+
+(deftest reg-flow-replacement-evidence-is-per-frame-cross-host
+  ;; DIRECT reg-flow. Two live frames replace the same flow-id from the SAME
+  ;; prior derive to the SAME new derive; each emits once, attributed to its
+  ;; frame. Pre-fix the process-global [:flow flow-id] key let the first frame's
+  ;; recorded shape suppress the second's genuine replacement (1 emit, no :frame).
+  (let [captured (atom [])
+        f1       (fn [n] (* 2 (or n 0)))
+        f2       (fn [n] (* 3 (or n 0)))]
+    (trace/register-listener!
+      ::repl-recorder
+      (fn [ev]
+        (when (= :rf.registry/handler-replaced (:operation ev))
+          (swap! captured conj ev))))
+    (try
+      (rf/make-frame {:id :left})
+      (rf/make-frame {:id :right})
+      (rf/reg-flow :shared {:frame :left  :inputs [[:n]] :output-path [:out]} f1)
+      (rf/reg-flow :shared {:frame :right :inputs [[:n]] :output-path [:out]} f1)
+      (is (empty? @captured) "first registrations emit no :rf.registry/handler-replaced")
+      (rf/reg-flow :shared {:frame :left  :inputs [[:n]] :output-path [:out]} f2)
+      (rf/reg-flow :shared {:frame :right :inputs [[:n]] :output-path [:out]} f2)
+      (is (= 2 (count @captured))
+          "each frame's genuine replacement emits once — no cross-frame suppression")
+      (is (= #{:left :right}
+             (set (map #(get-in % [:tags :frame]) @captured)))
+          "the two events are attributable to their distinct :frame slots")
+      ;; Independent per-frame suppression: an identical reload in each frame
+      ;; (same f2 object) is now suppressed within that frame.
+      (reset! captured [])
+      (rf/reg-flow :shared {:frame :left  :inputs [[:n]] :output-path [:out]} f2)
+      (rf/reg-flow :shared {:frame :right :inputs [[:n]] :output-path [:out]} f2)
+      (is (empty? @captured)
+          "identical reloads suppress independently within each frame")
+      (finally
+        (trace/unregister-listener! ::repl-recorder)))))
+
+(deftest fx-reg-flow-replacement-evidence-is-per-frame-cross-host
+  ;; RESERVED-EFFECT :rf.fx/reg-flow. The dispatching frame threads through as the
+  ;; flow's :frame, so dispatching the registering event into :left / :right
+  ;; registers/replaces in that frame. Each frame's effect-driven replacement
+  ;; emits its own :rf.registry/handler-replaced, attributed to its frame.
+  (let [captured (atom [])
+        f1       (fn [n] (* 2 (or n 0)))
+        f2       (fn [n] (* 3 (or n 0)))]
+    (trace/register-listener!
+      ::repl-recorder
+      (fn [ev]
+        (when (= :rf.registry/handler-replaced (:operation ev))
+          (swap! captured conj ev))))
+    (try
+      (rf/make-frame {:id :left})
+      (rf/make-frame {:id :right})
+      (rf/reg-event :reg-shared
+        (fn [_ [_ derive-fn]]
+          {:fx [[:rf.fx/reg-flow [:shared {:inputs [[:n]] :output-path [:out]} derive-fn]]]}))
+      ;; First registrations, one per frame (dispatch into the target frame).
+      (rf/dispatch-sync [:reg-shared f1] {:frame :left})
+      (rf/dispatch-sync [:reg-shared f1] {:frame :right})
+      (is (empty? @captured) "effect-driven first registrations do not emit handler-replaced")
+      ;; Real replacements f1→f2, one per frame, via the reserved effect.
+      (rf/dispatch-sync [:reg-shared f2] {:frame :left})
+      (rf/dispatch-sync [:reg-shared f2] {:frame :right})
+      (is (= 2 (count @captured))
+          "each frame's effect-driven replacement emits once — no cross-frame suppression")
+      (is (= #{:left :right}
+             (set (map #(get-in % [:tags :frame]) @captured)))
+          "the reserved-effect evidence is attributable to its frame")
+      (finally
+        (trace/unregister-listener! ::repl-recorder)))))
+
+(deftest reg-flow-replacement-reincarnation-does-not-inherit-cross-host
+  ;; Destroy + recreate a frame under the SAME id; the new incarnation's genuine
+  ;; replacement must emit. Pre-fix the process-global table persisted across
+  ;; destroy and suppressed the successor's real replacement.
+  (let [captured (atom [])
+        f1       (fn [n] (* 2 (or n 0)))
+        f2       (fn [n] (* 3 (or n 0)))]
+    (trace/register-listener!
+      ::repl-recorder
+      (fn [ev]
+        (when (= :rf.registry/handler-replaced (:operation ev))
+          (swap! captured conj ev))))
+    (try
+      (rf/make-frame {:id :host})
+      (rf/reg-flow :shared {:frame :host :inputs [[:n]] :output-path [:out]} f1)
+      (rf/reg-flow :shared {:frame :host :inputs [[:n]] :output-path [:out]} f2)
+      (is (= 1 (count @captured)) "incarnation A's real replacement emitted once")
+      (reset! captured [])
+      (frame/destroy-frame! :host)
+      (rf/make-frame {:id :host})
+      (rf/reg-flow :shared {:frame :host :inputs [[:n]] :output-path [:out]} f1)
+      (rf/reg-flow :shared {:frame :host :inputs [[:n]] :output-path [:out]} f2)
+      (is (= 1 (count @captured))
+          "the reincarnated frame's genuine replacement emits — no inherited shape")
+      (is (= :host (get-in (first @captured) [:tags :frame]))
+          "attributed to the reincarnated :host frame")
+      (finally
+        (trace/unregister-listener! ::repl-recorder)))))
