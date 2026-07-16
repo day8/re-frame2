@@ -148,6 +148,26 @@ else
       tools/story/src/*|tools/story/testbeds/*|tools/story/deps.edn|tools/xray/src/*|tools/xray/testbeds/*|tools/xray/deps.edn|tools/machines-viz/src/*|tools/machines-viz/deps.edn)
         examples_compile=true
         ;;
+      # rf2-k8yl5f — the re-frame2-pair skill ships a dev-only preload
+      # (skills/re-frame2-pair/preload/re_frame2_pair/{runtime.cljs,pure.cljc})
+      # that shadow-cljs.edn adds as a :source-path
+      # (../skills/re-frame2-pair/preload) and injects into ~28 :examples/*
+      # dev builds via `:devtools :preloads [re-frame2-pair.runtime ...]`. A
+      # `compile` (unlike `release`) HONOURS :devtools/preloads, so the
+      # examples-compile coverage gate (npm run test:examples-compile →
+      # shadow-cljs compile) actually compiles this preload for every build
+      # that wires it — a preload-only change can therefore break that gate.
+      # But the classifier previously armed ONLY skills_structural on this path
+      # (the skills/re-frame2-pair/* case below), leaving examples_compile=false
+      # so a preload break surfaced only in the unconditional nightly
+      # examples-compile net (rf2-gzavkm follow-up), never at PR time. Arm
+      # examples_compile so the PR-time gate recompiles the example dev builds
+      # that inject it. (skills_structural still fires via the later
+      # skills/re-frame2-pair/* case; this widens coverage, it does not narrow
+      # it.)
+      skills/re-frame2-pair/preload/*)
+        examples_compile=true
+        ;;
     esac
 
     # rf2-vxgfnd.135 — tracked, authoritative pre-publication UI guide
