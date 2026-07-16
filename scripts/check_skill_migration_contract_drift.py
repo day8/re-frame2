@@ -741,6 +741,77 @@ def run(*, verbose: bool, ci: bool) -> int:
 # corrected wording (and the unrelated live `:on-error` surfaces).
 # ---------------------------------------------------------------------------
 
+GUIDED_HANDLERS_MD = SKILL_DIR / "references" / "guided-handlers-state.md"
+
+# Live-corpus mutation teeth (rf2-vxgfnd.94.15). Each entry mutates the frame-
+# qualified form the skill actually teaches into the bare form the contract
+# forbids. The guard MUST notice every one of them.
+LIVE_FORM3_MUTATIONS = (
+    (
+        "one-shot lifecycle read drops its `{:frame frame}` opts",
+        "(rf/subscribe-once query-v {:frame frame})",
+        "(rf/subscribe-once query-v)",
+    ),
+    (
+        "lifecycle teardown drops its frame-first argument",
+        "(rf/unsubscribe frame query-v)",
+        "(rf/unsubscribe query-v)",
+    ),
+)
+
+
+def _rule5_dirty(text: str) -> bool:
+    """True when `text` trips Rule 5 through either reporting path."""
+    if form3_context_problems(text):
+        return True
+    return any(FORM3_BARE_LIFECYCLE_PROBLEM in p
+               for line in text.splitlines()
+               for p in line_problems(line))
+
+
+def _live_corpus_mutation_problems() -> list[str]:
+    """Run Rule 5 against MUTATIONS OF THE SHIPPED GUIDANCE, not hand-written prose.
+
+    The fixtures above are authored to match the corpus, which means they can
+    drift away from it silently: re-author the real recipe into a shape the
+    scanner cannot read and every fixture still passes while the live scan goes
+    vacuous. These teeth close that gap from the other side — they take the
+    actual guided-handlers-state.md lifecycle recipe, break it in the exact way
+    a careless edit would, and require the guard to catch it. If the recipe is
+    re-authored, the anchors below stop matching and this reports STALE rather
+    than quietly proving nothing.
+    """
+    if not GUIDED_HANDLERS_MD.is_file():
+        return [
+            f"SETUP: {GUIDED_HANDLERS_MD.name} missing — the live Form-3 "
+            "mutation teeth cannot run."
+        ]
+    text = _slurp(GUIDED_HANDLERS_MD)
+    if _rule5_dirty(text):
+        return [
+            "LIVE-CORPUS-DIRTY: the shipped guided-handlers-state.md lifecycle "
+            "guidance already trips Rule 5, so the mutation teeth below cannot "
+            "prove the guard has bite. Fix the guidance (or the rule) first."
+        ]
+    problems: list[str] = []
+    for label, qualified, bare in LIVE_FORM3_MUTATIONS:
+        if qualified not in text:
+            problems.append(
+                f"LIVE-MUTATION-STALE: guided-handlers-state.md no longer "
+                f"contains `{qualified}`, so the mutation teeth for '{label}' "
+                f"are vacuous — the Form-3 recipe was re-authored. Re-point "
+                f"LIVE_FORM3_MUTATIONS at the current recipe."
+            )
+            continue
+        if not _rule5_dirty(text.replace(qualified, bare)):
+            problems.append(
+                f"LIVE-MUTATION-UNDETECTED: mutating the LIVE Form-3 recipe so "
+                f"the {label} does not trip Rule 5. The guard is blind to the "
+                f"shape the corpus actually ships (rf2-vxgfnd.94.15)."
+            )
+    return problems
+
+
 def _self_test() -> int:
     failures = 0
 
@@ -1011,6 +1082,11 @@ def _self_test() -> int:
     # is the exact rf2-3fc89f.35 false-positive the corrected filter removes.
     for ns in ("re-frame.adapter.reagent", "re-frame.adapter.uix", "re-frame.spec"):
         m1_expect(ns, bad_invert, "flag", f"M1-regression-detected {ns}")
+
+    # --- Live-corpus mutation teeth (rf2-vxgfnd.94.15) --------------------------
+    for problem in _live_corpus_mutation_problems():
+        print(f"SELF-TEST FAIL (live-corpus mutation): {problem}")
+        failures += 1
 
     if failures:
         print(f"self-test: {failures} failure(s).")
