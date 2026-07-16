@@ -1,0 +1,19 @@
+;; scaffold-smoke — the CI teeth for examples/ui/minimal-counter.
+;;
+;; A focused JVM smoke, deliberately its OWN tiny project so it does not
+;; ride (or slow) the implementation/ui suite. It has no framework deps of
+;; its own: it materializes the scaffold's documented files into a temp
+;; directory and shells out to `npm install` + `npx shadow-cljs compile app`.
+;;
+;;   clojure -M:test        — structural checks only (fast, no Node needed)
+;;   RF2_UI_SCAFFOLD_COMPILE=1 clojure -M:test
+;;                          — plus the real install+compile proof and the
+;;                            per-file omission matrix (needs Node + a
+;;                            monorepo checkout; the CI job below sets this)
+{:deps {org.clojure/clojure {:mvn/version "1.12.0"}}
+
+ :aliases
+ {:test {:extra-paths ["test"]
+         :extra-deps  {io.github.cognitect-labs/test-runner
+                       {:git/tag "v0.5.1" :git/sha "dfb30dd"}}
+         :main-opts   ["-m" "cognitect.test-runner"]}}}

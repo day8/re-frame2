@@ -1899,6 +1899,67 @@ jobs:
       - name: Compile every declared standalone example build (coverage gate)
         run: npm run test:examples-compile
 
+  ui-scaffold-smoke:
+    name: UI scaffold smoke (materialize + install + compile minimal-counter)
+    # rf2-vxgfnd.281 — the CI teeth for examples/ui/minimal-counter, the
+    # minimal RUNNABLE re-frame.ui scaffold. Unlike cljs-examples-compile
+    # (which sweeps the monorepo :examples/* shadow builds), this scaffold is
+    # a STANDALONE project with its own deps.edn / package.json /
+    # shadow-cljs.edn. The smoke materializes ONLY the files the README's
+    # manifest documents into a temp dir, runs a real `npm install` +
+    # `npx shadow-cljs compile app`, and then an omission matrix that proves
+    # every documented file is genuinely load-bearing. RF2_UI_SCAFFOLD_COMPILE
+    # arms the install+compile tier (the structural tier runs unconditionally).
+    # Same examples_compile surface as the sibling gate: fires for the scaffold
+    # itself, the framework core/ui it compiles against, and the build config.
+    needs: detect_changed_surfaces
+    if: needs.detect_changed_surfaces.outputs.examples_compile == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    defaults:
+      run:
+        working-directory: implementation/ui/scaffold-smoke
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654  # v5.2.0
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Set up Node.js
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e  # v6.4.0
+        with:
+          node-version: '24'
+
+      - name: Set up Clojure CLI
+        uses: DeLaGuardo/setup-clojure@02f5a82b79a547523e664fe8a7a32ea14884d7b2  # 13.6.0
+        with:
+          cli: latest
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Cache Maven / gitlibs (framework + shadow-cljs deps)
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5.0.5
+        with:
+          path: |
+            ~/.m2/repository
+            ~/.gitlibs
+            ~/.deps.clj
+          key: ${{ runner.os }}-ui-scaffold-smoke-${{ hashFiles('examples/ui/minimal-counter/deps.edn', 'implementation/ui/deps.edn', 'implementation/core/deps.edn') }}
+          restore-keys: |
+            ${{ runner.os }}-ui-scaffold-smoke-
+            ${{ runner.os }}-cljs-
+
+      # The test shells out to `npm install` + `npx shadow-cljs compile app`
+      # in temp dirs, so it needs Node on PATH (above) but no job-level npm
+      # install of its own. RF2_UI_SCAFFOLD_COMPILE=1 turns on the real
+      # install+compile proof and the per-file omission matrix.
+      - name: Materialize + install + compile the minimal scaffold (+ omission matrix)
+        env:
+          RF2_UI_SCAFFOLD_COMPILE: '1'
+        run: clojure -M:test
+
   cljs-browser-schemas-boundary-prod:
     name: CLJS (shadow-cljs :browser-test-schemas-boundary-prod, :advanced + goog.DEBUG=false, rf2-84e9)
     needs: detect_changed_surfaces
@@ -3715,6 +3776,7 @@ jobs:
       - js-harness-self-tests
       - cljs-browser
       - cljs-examples-compile
+      - ui-scaffold-smoke
       - cljs-browser-schemas-boundary-prod
       - cljs-browser-prod-elision
       - cljs-elision
