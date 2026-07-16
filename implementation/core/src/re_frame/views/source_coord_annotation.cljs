@@ -81,10 +81,20 @@
   reagent-slim. Requiring `reagent.impl.component` here would therefore make a
   core-only compile fail and would pull Reagent into UIx/Helix release bundles.
 
-  Both stock Reagent 2.x and the frozen reagent-slim bridge mark a
-  `create-class` constructor with `prototype.reagentRender`; using the same
-  structural test keeps this dev-only Hiccup walk neutral without inventing a
-  second adapter hook for one predicate."
+  Scope: **stock Reagent only.** Stock Reagent 2.x marks a `create-class`
+  constructor with `prototype.reagentRender`, and testing for that structurally
+  keeps this dev-only Hiccup walk neutral without inventing a second adapter
+  hook for one predicate.
+
+  This predicate does NOT recognise a reagent-slim class: slim tags the
+  constructor itself (`cljsReagentClass` / `cljsReagentRender`) and installs
+  `prototype.render`, never `prototype.reagentRender`. A slim Form-3 class
+  therefore falls to the Form-2 `fn?` branch below — exactly as it did before
+  this predicate existed, so slim is unchanged rather than regressed. Left that
+  way deliberately: slim is scheduled for deletion, and this stock-Reagent
+  compatibility surface must not grow a slim-specific branch for it.
+  (`re-frame.test-helpers` carries its own slim-aware detection where the test
+  surface needs one.)"
   [x]
   (and (fn? x)
        (some? (some-> (gobj/get x "prototype")
