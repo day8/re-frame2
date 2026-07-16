@@ -106,10 +106,82 @@
   ;; registration — pollutes the dev console on every reload).
   (atom false))
 
+;; ---- registration-schema version + live-upgrade migration seam -----------
+;;
+;; The `registered?` boolean above gates the ONE-TIME bulk install. But a
+;; boolean alone cannot express "this process registered under OLD code and
+;; is now running NEW code that adds a handler the old install never ran":
+;; on `:after-load` the umbrella gate no-ops the whole leaf install, so a
+;; handler introduced by newer code (kept inside a per-panel `install!`)
+;; never reaches the already-registered process — it stays behind until a
+;; full page reload (rf2-ykaq4u: the ViewCell reactivity bridge stranded
+;; exactly this way). The schema version is the SECOND axis: it records the
+;; registration schema the process last installed, so a live-upgraded
+;; process runs the bounded migration for each version it is behind.
+
+(def ^:private schema-version
+  "Current registration-schema version. Bump when a code change adds a
+  handler that an ALREADY-registered older process would otherwise never
+  install (the umbrella `registered?` gate no-ops its whole leaf install
+  on `:after-load`); pair each bump with a `migrate-schema!` clause below.
+
+  Version history:
+    1 — ViewCell evidence REACTIVITY BRIDGE (rf2-vxgfnd.286 / rf2-ykaq4u):
+        the ownership event/sub/listener + the two-input
+        `:rf.xray/viewcell-evidence` sub. A pre-#5915 process has the
+        umbrella set but this bridge absent (its cached
+        `:rf.xray/viewcell-evidence` sub is the old epoch-only one input);
+        the migration installs the current bridge so an evidence
+        acquire/release invalidates a held Views subscription immediately,
+        without a page reload."
+  1)
+
+(defonce ^:private installed-schema
+  ;; The registration-schema version this process has installed, or nil
+  ;; when it registered BEFORE schema-versioning existed — i.e. a pre-#5915
+  ;; process: the umbrella `registered?` is set, but this sentinel was
+  ;; never created/stamped, so it reads nil after the new code loads and
+  ;; the migration seam treats it as schema 0 (pre-bridge). `defonce`
+  ;; (module-lived) so a shadow `:after-load` PRESERVES the stamp across
+  ;; reloads — a current process re-loading itself no-ops the migration.
+  (atom nil))
+
+(defn- migrate-schema!
+  "Bring an already-registered older-schema process up to `schema-version`
+  by installing EXACTLY the handlers newer schema versions add — the
+  bounded live-upgrade seam (rf2-ykaq4u). `from` is the process's installed
+  schema (0 ⇒ pre-schema-versioning, i.e. a pre-#5915 process). Each clause
+  is additive, idempotent (re-frame's registrar replaces in place), and
+  gated on `from` predating the version that introduced its handler — so
+  this is NOT an unconditional whole-registry re-registration; only the
+  missing delta is installed, and only for a process that is behind."
+  [from]
+  (when (< from 1)
+    ;; schema 1 — the ViewCell evidence REACTIVITY BRIDGE. A pre-#5915
+    ;; process cached the OLD epoch-only `:rf.xray/viewcell-evidence` sub
+    ;; and never installed the ownership event/sub/listener, so an evidence
+    ;; acquire/release could not invalidate a held Views subscription until
+    ;; an unrelated epoch pump. Install the current bridge (re-registering
+    ;; the evidence sub as the two-input shape) so the upgrade is immediate,
+    ;; no page reload. Routed through the `reactive-panel` facade the
+    ;; orchestrator already requires — the bridge stays panel-owned.
+    (reactive-panel/install-viewcell-evidence-bridge!)))
+
 (defn register-xray-handlers!
   "Idempotent registration of Xray's :rf.xray/* events, subs, fxs.
   Called from `day8.re-frame2-xray.preload` at load time. Safe to
-  call multiple times — second + subsequent calls are no-ops."
+  call multiple times — second + subsequent calls are no-ops.
+
+  Two gates cooperate (rf2-ykaq4u):
+
+    1. the `registered?` umbrella — the ONE-TIME bulk install; a fresh
+       boot runs the whole leaf install (the current bridge included) and
+       stamps the schema current, so a same-process `:after-load` no-ops.
+    2. the schema-version migration seam — INDEPENDENT of the umbrella, so
+       an already-registered process running OLDER-schema code (umbrella
+       already set, bulk block no-ops) still installs the bounded delta of
+       handlers newer schema versions add. Once at `schema-version` this
+       no-ops too — no handler-replaced flood on repeat reloads."
   []
   (when (compare-and-set! registered? false true)
     ;; ---- cross-panel primitives ---------------------------------
@@ -1000,13 +1072,44 @@
     ;; chains. Collapses by `:id` so each interceptor appears once
     ;; with a chain-count. No simulate — interceptors are composition
     ;; primitives, not independently simulable.
-    (static-interceptors-panel/install!))
+    (static-interceptors-panel/install!)
+    ;; Fresh boot ran the whole leaf install (the current bridge included),
+    ;; so stamp the schema CURRENT — the migration seam below then no-ops
+    ;; on this process and on its own `:after-load` reloads.
+    (reset! installed-schema schema-version))
+  ;; ---- live-upgrade migration seam (rf2-ykaq4u) ----------------------
+  ;;
+  ;; INDEPENDENT of the umbrella gate above. An already-registered process
+  ;; running OLDER-schema code left `registered?` set, so the fresh-install
+  ;; block no-ops — but it may lack handlers newer schema versions add.
+  ;; Bring it up to `schema-version`, then stamp current. Idempotent: once
+  ;; at `schema-version` (a fresh boot, or a completed upgrade) this
+  ;; no-ops, so a current process re-loading itself emits no handler-
+  ;; replaced flood and installs exactly one ownership listener.
+  (when (< (or @installed-schema 0) schema-version)
+    (migrate-schema! (or @installed-schema 0))
+    (reset! installed-schema schema-version))
   nil)
 
 (defn reset-for-test!
-  "Reset the registry's idempotency sentinel so test fixtures can drive
-  multiple registration cycles. Test-only — never call from production
-  code."
+  "Reset the registry's idempotency sentinel + schema stamp so test
+  fixtures can drive multiple registration cycles from a clean slate.
+  Test-only — never call from production code."
   []
   (reset! registered? false)
+  (reset! installed-schema nil)
+  nil)
+
+(defn simulate-legacy-registration!
+  "TEST-ONLY: pose the sentinels to model a pre-#5915 already-registered
+  process — the umbrella idempotency gate SET (as the old full install
+  left it) with NO schema stamp (schema-versioning did not exist in the
+  old code, so `installed-schema` reads nil). A subsequent
+  `register-xray-handlers!` then no-ops the umbrella and reaches ONLY the
+  migration seam, exactly as a live shadow `:after-load` of new code onto
+  an old process does. Poses only the sentinels; the fixture registers
+  whatever legacy handler shape it needs. Never call from production."
+  []
+  (reset! registered? true)
+  (reset! installed-schema nil)
   nil)

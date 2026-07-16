@@ -546,35 +546,30 @@
       (sequential? diff) (vec diff)
       :else [])))
 
-(defn install!
+(defn install-viewcell-evidence-bridge!
+  "Install the ViewCell evidence REACTIVITY BRIDGE — the ownership-
+  transition event, the ownership-revision sub, the evidence-ledger
+  listener that mirrors each transition into `:rf/xray` app-db, and the
+  two-input `:rf.xray/viewcell-evidence` query that reads the receipt-
+  fenced rows against an ownership-revision reactive input.
+
+  Extracted from `install!` (rf2-ykaq4u) so the registry's schema-
+  migration seam can install this bridge into an ALREADY-registered
+  pre-#5915 process. That process ran the umbrella idempotency gate under
+  the OLD code, so a subsequent `register-xray-handlers!` no-ops the whole
+  leaf install — a bridge reachable ONLY through `install!` would never
+  reach a live-upgraded process, leaving the old epoch-only evidence sub
+  cached and the ownership event/sub/listener absent. Registry
+  `migrate-schema!` calls this (via the `reactive-panel` facade) so the
+  live upgrade installs the current bridge without a page reload.
+
+  Idempotent: re-frame's registrar REPLACES each handler in place and
+  `set-ownership-listener!` is a single-sink `reset!`, so both a fresh
+  boot (via `install!`) and a migration re-arm leave EXACTLY ONE ownership
+  listener and the current two-input evidence sub — replacing the old
+  one-input sub emits at most one `:rf.warning/handler-replaced`, never a
+  flood."
   []
-  ;; -- panel-local UI state slot --------------------------------------
-  (rf/reg-sub :rf.xray/reactive-show-unchanged?
-    (fn [db _query]
-      (boolean (get db :reactive/show-unchanged?))))
-
-  ;; -- composite the view reads --------------------------------------
-  (rf/reg-sub :rf.xray/reactive-data
-    :<- [:rf.xray/focus]
-    :<- [:rf.xray/epoch-history]
-    (fn [[focus history] _query]
-      (let [record   (focused-epoch-record history (:epoch-id focus))
-            ;; Static topology snapshot — read once per event-bundle. Free
-            ;; (registry-only); used to partition L1 / L2+ subs and
-            ;; supply the inputs + code columns. Defensive try so a
-            ;; topology read never crashes the panel.
-            topology (try (subs-tooling/sub-topology) (catch :default _ nil))
-            proj     (project-record record topology)]
-        (merge proj
-               {:focus        focus
-                :frame        (:frame focus)
-                :dispatch-id  (:dispatch-id focus)
-                :triggered-by (when record (triggered-by record))
-                :seed-paths   (when record (seed-paths record))
-                :has-event-bundle? (some? record)}))))
-
-  ;; -- ViewCell evidence ownership reactivity bridge (rf2-vxgfnd.286) --
-  ;;
   ;; Ownership of the evidence projection is NOT app-db state, so an
   ;; acquire/release would not, on its own, invalidate the cumulative
   ;; evidence query below — a live subscription + rendered panel could
@@ -632,5 +627,57 @@
     :<- [:rf.xray/viewcell-evidence-ownership]
     (fn [[_history _ownership-rev] _query]
       (viewcell-evidence/rows)))
+  nil)
 
+(defn install!
+  []
+  ;; -- panel-local UI state slot --------------------------------------
+  (rf/reg-sub :rf.xray/reactive-show-unchanged?
+    (fn [db _query]
+      (boolean (get db :reactive/show-unchanged?))))
+
+  ;; -- composite the view reads --------------------------------------
+  (rf/reg-sub :rf.xray/reactive-data
+    :<- [:rf.xray/focus]
+    :<- [:rf.xray/epoch-history]
+    (fn [[focus history] _query]
+      (let [record   (focused-epoch-record history (:epoch-id focus))
+            ;; Static topology snapshot — read once per event-bundle. Free
+            ;; (registry-only); used to partition L1 / L2+ subs and
+            ;; supply the inputs + code columns. Defensive try so a
+            ;; topology read never crashes the panel.
+            topology (try (subs-tooling/sub-topology) (catch :default _ nil))
+            proj     (project-record record topology)]
+        (merge proj
+               {:focus        focus
+                :frame        (:frame focus)
+                :dispatch-id  (:dispatch-id focus)
+                :triggered-by (when record (triggered-by record))
+                :seed-paths   (when record (seed-paths record))
+                :has-event-bundle? (some? record)}))))
+
+  ;; -- ViewCell evidence ownership reactivity bridge (rf2-vxgfnd.286) --
+  ;; Registered via the extracted `install-viewcell-evidence-bridge!` so
+  ;; the registry schema-migration seam can install this same bridge into
+  ;; an already-registered pre-#5915 process where the umbrella idempotency
+  ;; gate no-ops the whole leaf install (rf2-ykaq4u).
+  (install-viewcell-evidence-bridge!)
+  nil)
+
+(defn install-legacy-viewcell-evidence-sub-for-test!
+  "TEST-ONLY (rf2-ykaq4u): register the PRE-#5915 epoch-only
+  `:rf.xray/viewcell-evidence` sub — the ONE-INPUT shape a pre-bridge
+  process cached (its only reactive axis was `:rf.xray/epoch-history`, so
+  an evidence acquire/release could not invalidate a held Views
+  subscription until an unrelated epoch pump). The live-upgrade fixture
+  installs this to model an already-registered old process whose bridge
+  the schema migration must install. Registered from THIS ns so its image-
+  assembly source coordinate matches the production sub the migration
+  re-registers (a different source ns would trip the duplicate-id image
+  guard). Never call from production. Returns nil."
+  []
+  (rf/reg-sub :rf.xray/viewcell-evidence
+    :<- [:rf.xray/epoch-history]
+    (fn [[_history] _query]
+      (viewcell-evidence/rows)))
   nil)

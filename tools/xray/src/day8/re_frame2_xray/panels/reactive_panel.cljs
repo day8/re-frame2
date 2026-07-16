@@ -55,6 +55,14 @@
   []
   (view/reactive-panel))
 
+(def install-viewcell-evidence-bridge!
+  "See `reactive-panel-subs/install-viewcell-evidence-bridge!`. Re-exported
+  through the panel facade so the registry's schema-migration seam
+  (`registry/migrate-schema!`, rf2-ykaq4u) installs the ViewCell
+  reactivity bridge into a live-upgraded pre-#5915 process WITHOUT
+  reaching past the facade into the subs ns."
+  subs/install-viewcell-evidence-bridge!)
+
 (defn install!
   "Idempotent install for the Reactive panel's Xray-side
   registrations. Returns nil per the facade convention."
