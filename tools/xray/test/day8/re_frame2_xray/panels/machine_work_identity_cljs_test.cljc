@@ -162,6 +162,73 @@
             (is (false? (:suppressed? arc-b))
                 "attempt A suppression never contaminates attempt B")))))))
 
+(deftest post-resolution-superseded-straggler-is-stale-completion-not-late
+  ;; rf2-ixjd48 / rf2-w82021 — THE POST-RESOLUTION AUTHORITY PATH, driven
+  ;; through the REAL producer (not a hand-authored trace). Attempt A's
+  ;; completion is held; the parent re-enters, attempt B is seeded and RESOLVES;
+  ;; THEN A's exact carrier drains against B's already-resolved join. The
+  ;; producer runs the exact-authority gate BEFORE the `:resolved?` branch
+  ;; (join.cljc), so A is classified `:attempt-superseded` `stale-completion` —
+  ;; NOT a `join-resolved` late-completion. This pins the behaviour the bead
+  ;; found the Xray docs/fixtures had framed as pre-resolution-only: authority
+  ;; suppression fires on the POST-resolution path too, and the Xray consumer
+  ;; must see an authority-suppression arc for attempt A, never a late-completion
+  ;; terminal.
+  (testing "a superseded straggler arriving AFTER the successor join resolved is
+            a stale-completion (:attempt-superseded), and NO late-completion fires"
+    (register-machines!)
+    (with-trace-recorder!
+      [traces {:pred #(contains?
+                       #{:rf.machine.spawn-all/stale-completion
+                         :rf.machine.spawn-all/late-completion
+                         :rf.machine.spawn-all/all-completed}
+                       (:operation %))}]
+      (rf/dispatch-sync [parent-id [:start]])
+      (let [attempt-a (:rf/attempt (join-state))
+            auth-a    (join-auth)]
+        (rf/dispatch-sync [parent-id [:abort]])
+        (rf/dispatch-sync [parent-id [:start]])
+        (let [attempt-b (:rf/attempt (join-state))]
+          (is (not= attempt-a attempt-b))
+          ;; Attempt B completes and RESOLVES first — the parent has no `:on`
+          ;; for `:join/done`, so it stays on `:racing` and the resolved join
+          ;; slot survives for the post-resolution probe.
+          (rf/dispatch-sync [fixed-child [:go]])
+          (is (true? (:resolved? (join-state))) "attempt B resolved")
+          ;; NOW A's exact carrier drains, POST-resolution, with attempt-A auth.
+          (rf/dispatch-sync
+            [parent-id (with-meta [:child/done :only]
+                         {:rf/join-auth auth-a})])
+          ;; (1) the producer emits a stale-completion, NOT a late-completion.
+          (let [ops (map :operation @traces)]
+            (is (some #{:rf.machine.spawn-all/stale-completion} ops)
+                "the superseded straggler emits stale-completion")
+            (is (not-any? #{:rf.machine.spawn-all/late-completion} ops)
+                "a post-resolution AUTHORITY failure is NOT a late-completion"))
+          ;; (2) the stale row carries the :attempt-superseded reason + attempt-A's
+          ;; OWN work identity (never attempt B's current one).
+          (let [stale  (->> @traces
+                            (filter #(= :rf.machine.spawn-all/stale-completion
+                                        (:operation %)))
+                            first)
+                work-a (get-in stale [:tags :rf.reply/work-id])]
+            (is (= :rf.machine.spawn-all/attempt-superseded
+                   (get-in stale [:tags :rf.reply/stale-reason]))
+                "post-resolution authority failure carries :attempt-superseded")
+            (is (= attempt-a (nth work-a 3))
+                "the superseded evidence carries attempt A's own token, not B's")
+            ;; (3) the Xray consumer classifies attempt A's arc as
+            ;; authority-suppression, and attempt B's resolved arc is untouched.
+            (let [arcs  (reply-envelope/races-by-work-id @traces)
+                  arc-a (get arcs work-a)]
+              (is (contains? (:phases arc-a) :stale-suppressed)
+                  "attempt A's arc is a stale-suppression in Xray")
+              (is (true? (:suppressed? arc-a)))
+              (is (some (fn [[wid arc]]
+                          (and (not= wid work-a) (= :ok (:terminal-status arc))))
+                        arcs)
+                  "attempt B resolved :ok, unaffected by A's post-resolution straggler"))))))))
+
 (deftest cancellation-only-attempt-closes-without-a-stale-carrier
   (testing "destroyed cancellation A and completed reuse B are two closed Xray arcs"
     (register-machines!)
