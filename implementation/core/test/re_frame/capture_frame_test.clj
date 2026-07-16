@@ -107,6 +107,81 @@
       (is (nil? (:touched? (rf/app-db-value :fh/other)))
           "the per-call :frame :fh/other was IGNORED — the handle is locked"))))
 
+;; ---- incarnation fence: a stale capture never retargets a same-id successor
+;;
+;; rf2-9pyles pinned the EXACT incarnation live at capture so a captured op
+;; cannot leak into a same-id successor reseated after the captured incarnation
+;; was destroyed. These pin the two consistency gaps closed on top of it:
+;;   - rf2-tdjv7p: the `:subscribe` op is fenced on the SAME pin as dispatch —
+;;     a superseded subscribe recover-but-emits (returns nil) rather than
+;;     silently resolving a reaction into the successor's sub-cache.
+;;   - rf2-vclh63: a capture over a frame VALUE pins the value's carried EXACT
+;;     incarnation token, so a value-capture fences identically to an id-capture
+;;     (before the fix the value path silently lost its pin).
+
+(deftest stale-capture-subscribe-does-not-retarget-same-id-successor
+  (testing "rf2-tdjv7p — a capture pinned to incarnation A, after A is destroyed
+            and a same-id successor B reseats, MUST NOT subscribe into B (reading
+            B's app-db, caching a reaction in B's sub-cache). It recover-but-
+            emits :rf.error/frame-destroyed and returns nil — the async-safe
+            sibling of the throwing synchronous (frame)-bundle subscribe fence."
+    (rf/reg-event :fh/seed (fn [{:keys [db]} [_ v]] {:db {:value v}}))
+    (rf/reg-sub :fh/value (fn [db _] (:value db)))
+    ;; Incarnation A of :fh/sub-stale, seeded with :A-value.
+    (rf/make-frame {:id :fh/sub-stale :doc "incarnation A"})
+    (rf/dispatch-sync [:fh/seed :A-value] {:frame :fh/sub-stale})
+    (let [{:keys [subscribe]} (rf/capture-frame :fh/sub-stale)] ; pins incarnation A
+      ;; Sanity: while A is live the captured subscribe reads A.
+      (is (= :A-value @(subscribe [:fh/value]))
+          "a LIVE capture's subscribe reads incarnation A")
+      ;; Destroy A; reseat a same-id successor B with DIFFERENT data.
+      (rf/destroy-frame! :fh/sub-stale)
+      (rf/make-frame {:id :fh/sub-stale :doc "incarnation B (successor)"})
+      (rf/dispatch-sync [:fh/seed :B-value] {:frame :fh/sub-stale})
+      (let [errs (atom [])]
+        (rf/register-listener! :trace ::sub-stale (fn [ev] (swap! errs conj ev)))
+        ;; Before the fix this returned a reaction reading B's :B-value; the
+        ;; fence makes it recover-but-emit and return nil.
+        (let [result (subscribe [:fh/value])]
+          (rf/unregister-listener! :trace ::sub-stale)
+          (is (nil? result)
+              "the superseded capture's subscribe returns nil — it did NOT
+               resolve a reaction into successor B")
+          (is (some #(= :rf.error/frame-destroyed (:operation %)) @errs)
+              "the superseded subscribe recover-but-emits :rf.error/frame-destroyed"))))))
+
+(deftest capture-frame-over-value-pins-exact-incarnation
+  (testing "rf2-vclh63 — (capture-frame <frame-value>) pins the value's EXACT
+            incarnation via its carried :rf.frame/incarnation-token, so a
+            dispatch through the capture after the frame is destroyed and a
+            same-id successor reseats recover-but-emits instead of mutating the
+            successor. A LIVE value-capture still dispatches into its frame — the
+            pin is exact, not a spurious supersession."
+    (rf/reg-event :fh/mark (fn [{:keys [db]} [_ v]] {:db (assoc db :mark v)}))
+    ;; Incarnation A — capture the construction VALUE (carries its exact token).
+    (let [frame-a (rf/make-frame {:id :fh/vpin :doc "incarnation A"})]
+      (is (some? (frame/frame-value-incarnation-token frame-a))
+          "precondition: a fresh make-frame VALUE carries its incarnation token (rf2-moftbs)")
+      (let [{:keys [dispatch-sync]} (rf/capture-frame frame-a)]
+        ;; Live path: the value-capture dispatches into incarnation A — the new
+        ;; pin must NOT spuriously supersede a live capture.
+        (dispatch-sync [:fh/mark :A-mark])
+        (is (= :A-mark (:mark (rf/app-db-value :fh/vpin)))
+            "a LIVE value-capture dispatches into its frame — the pin is exact, not spurious")
+        ;; Destroy A (incarnation-exact via the value) and reseat a same-id B.
+        (rf/destroy-frame! frame-a)
+        (rf/make-frame {:id :fh/vpin :doc "incarnation B (successor)"})
+        (let [errs (atom [])]
+          (rf/register-listener! :trace ::vpin (fn [ev] (swap! errs conj ev)))
+          ;; Before the fix the unpinned value-capture retargeted B and set
+          ;; :mark; the carried-token pin makes it recover-but-emit.
+          (dispatch-sync [:fh/mark :leaked])
+          (rf/unregister-listener! :trace ::vpin)
+          (is (nil? (:mark (rf/app-db-value :fh/vpin)))
+              "the stale value-capture did NOT mutate the same-id successor B")
+          (is (some #(= :rf.error/frame-destroyed (:operation %)) @errs)
+              "the superseded value-capture dispatch recover-but-emits :rf.error/frame-destroyed"))))))
+
 ;; ---- contract: (capture-frame) outside any scope RAISES (EP-0002) ---------
 ;;
 ;; rf2-jue6sp: the no-arg capture form captures ONLY when a real scope

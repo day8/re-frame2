@@ -1146,41 +1146,87 @@
 ;;
 ;; The fence PINS the incarnation live at capture and treats a superseded target
 ;; as destroyed (recover-but-emit `:rf.error/frame-destroyed`, NOT a throw — these
-;; ops fire from host cleanup where a throw would break the host teardown). When
-;; the captured id was NOT live at capture (`capture-frame`'s 1-arity lock-to-id
-;; form used from outside any scope, or a not-yet-mounted id) nothing is pinned
-;; and the op stays address-directed — the documented dynamic-id semantics. This
-;; is the async-safe, recover-but-emit sibling of the SYNCHRONOUS throwing
-;; incarnation fence `re-frame.ui.frames/mint-frame-ops` already wraps the
-;; `(frame)` accessor bundle in.
+;; ops fire from host cleanup where a throw would break the host teardown). It
+;; applies UNIFORMLY to every op that resolves the target — `:dispatch`,
+;; `:dispatch-sync` (rf2-9pyles) AND `:subscribe` (rf2-tdjv7p, closing the same
+;; silent cross-incarnation retarget for the read op so subscribe cannot read a
+;; successor's app-db or leak a persisted reaction into its sub-cache). The pin
+;; is EXACT even over a frame VALUE: the value carries its own construction token
+;; (`:rf.frame/incarnation-token`, rf2-moftbs), preferred before the id-keyed
+;; registry lookup so `(capture-frame <value>)` pins the same incarnation
+;; `(capture-frame <id>)` does (rf2-vclh63). When the captured id was NOT live at
+;; capture (`capture-frame`'s 1-arity lock-to-id form used from outside any scope,
+;; a not-yet-mounted id, or a derived-read value carrying no token) nothing is
+;; pinned and the op stays address-directed — the documented dynamic-id
+;; semantics. This is the async-safe, recover-but-emit sibling of the SYNCHRONOUS
+;; throwing incarnation fence `re-frame.ui.frames/mint-frame-ops` already wraps
+;; the `(frame)` accessor bundle in (dispatch AND subscribe).
 
 (defn- capture-target-incarnation
-  "The EXACT incarnation token (`:drain-lock`) of frame id `frame-id` if it is
-  LIVE at capture, else nil. A capture over a live frame pins its incarnation;
-  a capture over an absent/not-yet-mounted id pins nothing (stays address-
-  directed). Namespace-qualified `frame/…` is never shadowed by a local `frame`."
-  [frame-id]
-  (frame/frame-incarnation-token frame-id))
+  "The EXACT incarnation token (`:drain-lock`) pinning the capture TARGET's live
+  incarnation, else nil (unpinned / address-directed). `frame-target` is a
+  keyword id OR a frame VALUE.
+
+  A construction frame VALUE carries its own exact token
+  (`:rf.frame/incarnation-token`, rf2-moftbs) — PREFER it so `(capture-frame
+  <value>)` pins the SAME incarnation `(capture-frame <id>)` does. The id-keyed
+  registry lookup (`frame-incarnation-token`) returns nil for a value map (the
+  registry is keyed by id, not by the value), so without this the value path
+  silently lost its pin (rf2-vclh63). A keyword id — or a derived-read value that
+  carries no construction token — falls to the id-keyed lookup: a live id pins,
+  an absent/not-yet-mounted id (or a derived-read value, whose map is not a
+  registry key) pins nothing. Namespace-qualified `frame/…` is never shadowed by
+  a local `frame`."
+  [frame-target]
+  (or (frame/frame-value-incarnation-token frame-target)
+      (frame/frame-incarnation-token frame-target)))
 
 (defn- capture-target-superseded?
-  "True when a pinned `captured-incarnation` no longer identifies `frame-id`'s
-  live frame — the exact captured incarnation was destroyed, whether the id is
-  now unclaimed or a same-id successor incarnation reseated. nil `captured-
-  incarnation` (an unpinned capture) is never superseded."
-  [frame-id captured-incarnation]
+  "True when a pinned `captured-incarnation` no longer identifies the capture
+  TARGET's live frame — the exact captured incarnation was destroyed, whether the
+  id is now unclaimed or a same-id successor incarnation reseated. `frame-target`
+  is NORMALIZED to its frame id (`frame-target->id`) before the liveness lookup so
+  a frame VALUE's carried token is compared against the current live incarnation
+  under its id — the id-keyed token lookup does not accept a value map, so without
+  this a pinned value would read nil-live and be spuriously superseded on every
+  op (rf2-vclh63). nil `captured-incarnation` (an unpinned capture) is never
+  superseded."
+  [frame-target captured-incarnation]
   (and (some? captured-incarnation)
-       (not (frame/frame-incarnation-live? frame-id captured-incarnation))))
+       (not (frame/frame-incarnation-live?
+              (frame/frame-target->id frame-target) captured-incarnation))))
 
 (defn- capture-dispatch!
   "Route a captured `:dispatch`/`:dispatch-sync` op through the incarnation fence:
   when the pinned incarnation is superseded, recover-but-emit `:rf.error/frame-
   destroyed` (never enqueue into a same-id successor); otherwise delegate to
   `dispatch-fn` (the `dispatch-impl` / `dispatch-sync-impl` alias, preserving the
-  single `with-redefs` interception seam)."
-  [dispatch-fn frame-id captured-incarnation event opts]
-  (if (capture-target-superseded? frame-id captured-incarnation)
-    (router/emit-captured-frame-superseded! event frame-id opts)
+  single `with-redefs` interception seam). `frame-target` is a keyword id OR a
+  frame VALUE; the recover-but-emit stamps the normalized frame id (identity for
+  a keyword) so the diagnostic carries an id, never a value map (rf2-vclh63)."
+  [dispatch-fn frame-target captured-incarnation event opts]
+  (if (capture-target-superseded? frame-target captured-incarnation)
+    (router/emit-captured-frame-superseded!
+      event (frame/frame-target->id frame-target) opts)
     (dispatch-fn event opts)))
+
+(defn- capture-subscribe!
+  "Route a captured `:subscribe` op through the SAME incarnation fence as
+  `capture-dispatch!` (rf2-tdjv7p): when the pinned incarnation is superseded,
+  recover-but-emit `:rf.error/frame-destroyed` and return nil — never resolve a
+  reaction against a same-id successor (which would read the successor's app-db
+  and cache a reaction in its sub-cache). Otherwise delegate to `subscribe-thunk`
+  (the live read, which itself applies the dev-only `:rf.trace/call-site`
+  wrapper). The async-safe, recover-but-emit sibling of the SYNCHRONOUS throwing
+  `re-frame.ui.frames/fence-subscribe`; reuses the dispatch fence's emit seam,
+  passing `subscribe-call-site` as the `:rf.trace/call-site` so the drop is
+  attributed to the subscribe coord."
+  [subscribe-thunk frame-target captured-incarnation query-v subscribe-call-site]
+  (if (capture-target-superseded? frame-target captured-incarnation)
+    (router/emit-captured-frame-superseded!
+      query-v (frame/frame-target->id frame-target)
+      {:rf.trace/call-site subscribe-call-site})
+    (subscribe-thunk)))
 
 (defn make-capture-frame
   "INTERNAL constructor for `capture-frame` (and the `reg-view` injection
@@ -1243,12 +1289,19 @@
        ([event opts] (capture-dispatch! dispatch-sync-impl frame captured-incarnation
                                         event (merge dispatch-opts opts {:frame frame}))))
      :subscribe
+     ;; rf2-tdjv7p: fence subscribe on the SAME incarnation pin as dispatch — a
+     ;; capture pinned to incarnation A whose frame was destroyed and reseated as
+     ;; a same-id successor B must NOT subscribe into B (reading B's app-db,
+     ;; caching a reaction in B's sub-cache); it recover-but-emits and returns nil.
      (fn subscribe-fn
        [query-v]
-       (if (and subscribe-call-site interop/debug-enabled?)
-         (trace/with-call-site subscribe-call-site
-           (subscribe-impl query-v {:frame frame}))
-         (subscribe-impl query-v {:frame frame})))}))
+       (capture-subscribe!
+         (fn []
+           (if (and subscribe-call-site interop/debug-enabled?)
+             (trace/with-call-site subscribe-call-site
+               (subscribe-impl query-v {:frame frame}))
+             (subscribe-impl query-v {:frame frame})))
+         frame captured-incarnation query-v subscribe-call-site))}))
 
 (defn capture-frame
   "Return a frame api — the keystone affordance for
