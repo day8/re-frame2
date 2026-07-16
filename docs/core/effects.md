@@ -283,6 +283,27 @@ When a handler returns `{:db new-db :fx [[a 1] [b 2] [c 3]]}`, four rules hold. 
 
     Application handlers return those two keys — plus, when a write carries a privacy consequence, the commit-plane classification effects (`:sensitive`, `:large`, and their `clear-` counterparts) that [app-db](app-db.md) teaches. Anything else at the top level is a malformed effect map. The runtime doesn't throw — it [fails closed](glossary.md#fail-loud-not-silent): it emits `:rf.error/effect-map-shape` naming the offending key, **drops** that key, and applies the legal ones (so your `:db` still lands). This is the safety net under a typo (`:dn` for `:db`) and under the old v1 reflex of returning a top-level `[:dispatch …]` — which belongs in an `:fx` row.
 
+## Day-one checklist
+
+You can return `{:db … :fx [[id args] …]}`, chain follow-ups with `[:dispatch …]`,
+trust run-to-completion (one paint per drain), and describe HTTP instead of calling
+`js/fetch` in a handler. Impurity is data until the runtime performs it. That is the
+whole of the day-one grammar — you can ship on it.
+
+## When things go wrong
+
+| Symptom | Error / behaviour | Fix |
+|---|---|---|
+| Typo'd top-level key (`:dn`) | `:rf.error/effect-map-shape` — bad key dropped; legal keys still apply | Only `:db` and `:fx` (plus classification keys) at the top level |
+| Unknown fx id | `:rf.error/no-such-fx` — that row fails; siblings still run | Register or fix the id |
+| One fx throws | `:rf.error/fx-handler-exception` — later rows still run; `:db` already committed | Independent rows by design; chain via reply events if you need dependency |
+| Bare `dispatch` in a handler | Breaks purity and the ledger | Return `:fx [[:dispatch …]]` |
+| Async callback has no frame | `:rf.error/no-frame-context` | Capture `(:frame m)` in the fx handler (or use managed fx) |
+
+## Going further
+
+Everything above is enough to ship. The rest is here for when a need appears —
+registering your own effects, and swapping them out in tests.
 
 ### Your own effects: `reg-fx`
 
@@ -329,23 +350,7 @@ That `:frame` entry earns its keep the moment an effect needs to dispatch back. 
 
 Periodic and delayed work goes through that same door. An auto-dismissing notification rides a `[:dispatch-later {:ms 5000 :event [:notification/dismiss]}]` row — so there's no `js/setInterval` in app code, and the delayed dispatch is an ordinary recorded event that carries its frame.
 
-## Day-one checklist
-
-You can return `{:db … :fx [[id args] …]}`, chain follow-ups with `[:dispatch …]`,
-trust run-to-completion (one paint per drain), and describe HTTP instead of calling
-`js/fetch` in a handler. Impurity is data until the runtime performs it.
-
-## When things go wrong
-
-| Symptom | Error / behaviour | Fix |
-|---|---|---|
-| Typo'd top-level key (`:dn`) | `:rf.error/effect-map-shape` — bad key dropped; legal keys still apply | Only `:db` and `:fx` (plus classification keys) at the top level |
-| Unknown fx id | `:rf.error/no-such-fx` — that row fails; siblings still run | Register or fix the id |
-| One fx throws | `:rf.error/fx-handler-exception` — later rows still run; `:db` already committed | Independent rows by design; chain via reply events if you need dependency |
-| Bare `dispatch` in a handler | Breaks purity and the ledger | Return `:fx [[:dispatch …]]` |
-| Async callback has no frame | `:rf.error/no-frame-context` | Capture `(:frame m)` in the fx handler (or use managed fx) |
-
-## Stubbing effects in tests
+### Stubbing effects in tests
 
 Because a registered effect is addressable by id, a test can redirect the world
 without touching the handler under test: pass `:fx-overrides` in the dispatch opts

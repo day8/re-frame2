@@ -18,9 +18,11 @@ handlers and other machinery read. For that you want a **[flow](glossary.md#flow
 write the result into app-db."* You declare the rule once; the framework holds the
 pen for that path.
 
-This page builds flows one step at a time: the smallest possible flow, the
-registration map, a value that earns its place in app-db, then toggling, validating,
-and classifying output.
+**On this page — two speeds.** Day one: the smallest possible flow, the registration
+map, and the judgment of when a value earns its place in app-db (and when it
+doesn't). Going further: deriving from route or machine state, validating and
+classifying output, toggling flows at runtime, and testing. You can ship after the
+first stop.
 
 **When *not* a flow.** If only views read the derivation, keep a
 [subscription](subscriptions.md). Reach for a flow when a **handler** (or schema,
@@ -211,6 +213,20 @@ answer as plain app-db state. That is the whole bar.
     [derivation graph](glossary.md#the-derivation-graph) — same pure function,
     different *policy* (on-demand vs write into app-db after each event).
     [One graph: derivations and their algebra views](derivations-and-algebra-views.md).
+
+## Day-one checklist
+
+You can `reg-flow` a rule — `:inputs` to watch, an `:output-path` to write, a pure
+derive fn — and the framework recomputes it in the *same commit* whenever an input
+changes, so handlers read the answer as plain app-db data. Reach for one only when a
+handler, schema, or other write-side path needs the value; otherwise keep a
+[subscription](subscriptions.md). That is enough to ship a flow.
+
+## Going further
+
+The rest of the page is here for when a flow earns more: reading route or machine
+state, validating and classifying its output, toggling it at runtime, testing it,
+and the registration-time errors it fails loud with.
 
 ## Deriving from route or machine state
 
