@@ -535,13 +535,50 @@
     (not= root-id (record-root-id record)) :record-root-mismatch
     :else nil))
 
+(defn- superseding-index
+  "Index a superseding attempt's receipt writes by `frame-id →
+  {:root-id :rev}` for the benign-supersession check. A nil receipt / no
+  writes yields `{}`. Only the render-supersession abort path (a later
+  `render!*` seating a new attempt for the SAME root) supplies one; every
+  other abort/finalize path passes none, so out-of-band stale settlements stay
+  dev-loud."
+  [superseding-receipt]
+  (into {}
+        (map (fn [{:keys [frame-id root-id rev]}]
+               [frame-id {:root-id root-id :rev rev}]))
+        (:writes superseding-receipt)))
+
+(defn- benign-supersession?
+  "True when an aborted write was LEGITIMATELY overtaken by the superseding
+  same-root attempt, so its revision mismatch is EXPECTED SETTLEMENT rather than
+  an authority failure. Suppression is precise: the superseding attempt must own
+  this exact frame-id, under the SAME root as the aborted write, and the CURRENT
+  record must BE that superseding write (its rev, its root). Anything else — a
+  foreign-root receipt, a pruned/missing record, a reincarnation, or a divergence
+  the superseding attempt does not account for — is NOT benign and stays
+  dev-loud. `superseding` is the `superseding-index` map (empty for the
+  non-supersession settlement paths, so those never suppress)."
+  [superseding receipt-root-id {:keys [frame-id root-id]} record]
+  (when-some [{sup-root :root-id sup-rev :rev} (get superseding frame-id)]
+    (and (= receipt-root-id root-id)            ; the aborted write names its own root
+         (= sup-root root-id)                   ; the superseding write is the SAME root
+         (some? record)
+         (= sup-rev (:rev record))              ; current authority IS that attempt
+         (= root-id (record-root-id record))))) ; still owned by that same root
+
 (defn- settle-writes!
   "CAS-settle all authorized writes, then emit each rejected entry exactly once.
 
   `settle-one` is pure `(fn [registry write record] registry')`. Evidence is
   accumulated during the pure reduction and fanned only after the CAS wins, so
-  contention can retry without duplicate diagnostics."
-  [phase receipt-root-id writes settle-one]
+  contention can retry without duplicate diagnostics.
+
+  `superseding` is the `superseding-index` of a same-root attempt that has
+  legitimately overtaken this one (empty for every path but render-supersession
+  abort). A rejected write that is a `benign-supersession?` of that attempt is
+  EXPECTED SETTLEMENT — the newer same-root receipt already owns the record — so
+  it neither mutates nor emits. Every other rejection stays dev-loud."
+  [phase receipt-root-id writes superseding settle-one]
   (when (seq writes)
     (loop []
       (let [before @installed-plans
@@ -551,7 +588,10 @@
                (let [record (get m frame-id)]
                  (if-let [reason (settlement-mismatch-reason
                                   receipt-root-id write record)]
-                   [m (conj mismatches [write record reason])]
+                   (if (benign-supersession? superseding receipt-root-id
+                                             write record)
+                     [m mismatches]      ; expected settlement — no mutate, no emit
+                     [m (conj mismatches [write record reason])])
                    [(settle-one m write record) mismatches])))
              [before []]
              writes)]
@@ -566,15 +606,22 @@
   and root authority. A mismatch never mutates and emits
   `:rf.error/frame-preflight-evidence-mismatch`. :fresh →
   `:mount-incomplete`; :live → `:preflight-attempt-failed`; :found-live is left
-  untouched."
-  [receipt-root-id writes]
-  (settle-writes!
-   :abort receipt-root-id writes
-   (fn [m {:keys [frame-id provenance]} _record]
-     (case provenance
-       :fresh (assoc-in m [frame-id :mount-incomplete] true)
-       :live  (assoc-in m [frame-id :preflight-attempt-failed] true)
-       m))))
+  untouched.
+
+  `superseding-receipt` (optional) is the same-root attempt that overtook this
+  one on the render-supersession path: a write it legitimately overtook settles
+  silently (`benign-supersession?`) instead of raising a spurious
+  revision-mismatch. Omitted for the mid-run catch — those writes have no
+  overtaking receipt."
+  ([receipt-root-id writes] (abort-writes! receipt-root-id writes nil))
+  ([receipt-root-id writes superseding-receipt]
+   (settle-writes!
+    :abort receipt-root-id writes (superseding-index superseding-receipt)
+    (fn [m {:keys [frame-id provenance]} _record]
+      (case provenance
+        :fresh (assoc-in m [frame-id :mount-incomplete] true)
+        :live  (assoc-in m [frame-id :preflight-attempt-failed] true)
+        m)))))
 
 (defn- finalize-writes!
   "A host boundary COMMITTED: mark every record this attempt still owns
@@ -583,7 +630,7 @@
   `:rf.error/frame-preflight-evidence-mismatch`."
   [receipt-root-id writes]
   (settle-writes!
-   :finalize receipt-root-id writes
+   :finalize receipt-root-id writes nil
    (fn [m {:keys [frame-id]} record]
      (assoc m frame-id
             (-> record
@@ -885,11 +932,20 @@
   render failed reads as never-scoped; an already-committed refresh / adopted
   boot frame keeps its committed scope). REV+ROOT-GUARDED — never clobbers an
   overtaking write; mismatches emit typed evidence and mutate nothing. A nil
-  receipt is a no-op. Returns nil."
-  [receipt]
-  (when-let [writes (:writes receipt)]
-    (abort-writes! (:root-id receipt) writes))
-  nil)
+  receipt is a no-op. Returns nil.
+
+  On the render-SUPERSESSION path — a later `render!*` seating a NEW attempt for
+  the SAME root aborts the older uncommitted one — pass that newer attempt's
+  `superseding-receipt`. A write it legitimately overtook (its record now the
+  superseding same-root attempt's) is EXPECTED SETTLEMENT: it settles silently,
+  with no spurious `:rf.error/frame-preflight-evidence-mismatch`. Every other
+  divergence (foreign root, missing/pruned record, reincarnation, a write the
+  superseding attempt does not account for) stays dev-loud (rf2-5ep117)."
+  ([receipt] (abort-preflight-attempt! receipt nil))
+  ([receipt superseding-receipt]
+   (when-let [writes (:writes receipt)]
+     (abort-writes! (:root-id receipt) writes superseding-receipt))
+   nil))
 
 ;; ---------------------------------------------------------------------------
 ;; frame-provider scope validation (shared by both hosts)

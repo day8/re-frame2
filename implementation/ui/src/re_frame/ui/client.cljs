@@ -449,7 +449,13 @@
   to `incarnation`. A prior UNCOMMITTED attempt is a SUPERSESSION: its receipt is
   aborted (only the OLD receipt — the new attempt proceeds to commit). Seated
   BEFORE `.render`, and identity-guarded to the live incarnation, so a same-id
-  reincarnation's entry is never seated by a stale caller. Returns nil."
+  reincarnation's entry is never seated by a stale caller.
+
+  The overtaking `receipt` is handed to the abort as the SUPERSEDING attempt: a
+  same-root write the new preflight already refreshed (rev1 → rev2) settles as
+  EXPECTED supersession, not a spurious `frame-preflight-evidence-mismatch`
+  (rf2-5ep117). Disjoint old writes the new attempt does not cover still abort
+  terminally. Returns nil."
   [root-id receipt incarnation]
   (let [superseded (volatile! nil)]
     (swap! live-roots
@@ -460,7 +466,7 @@
                      (assoc m root-id (assoc entry :pending-attempt receipt)))
                  m))))
     (when-some [old @superseded]
-      (frames/abort-preflight-attempt! old)))
+      (frames/abort-preflight-attempt! old receipt)))
   nil)
 
 (defn- settle-committed-attempt!

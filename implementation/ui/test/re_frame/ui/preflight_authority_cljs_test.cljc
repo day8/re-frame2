@@ -307,3 +307,131 @@
       (is (nil? (:rf.error/id
                  (thrown #(frames/execute-frame-plans! :root/a [(plan boot "cfab-aaaaaaaaaaa")])))))
       (is (= :root/a (:adopted-by (frames/installed-plan-entry boot)))))))
+
+;; ---------------------------------------------------------------------------
+;; (E) render-supersession settlement (rf2-5ep117): a later same-root attempt
+;; that overtakes an earlier one settles the OLD receipt as EXPECTED
+;; supersession — no `frame-preflight-evidence-mismatch` — while disjoint old
+;; writes still abort terminally and genuine authority mismatches stay dev-loud.
+;; The client's `seat-pending-attempt!` aborts the superseded receipt handing
+;; the overtaking receipt as the SUPERSEDING attempt; this drives that exact
+;; receipt-settlement contract directly.
+;; ---------------------------------------------------------------------------
+
+(defn- capture-mismatches
+  "Run `thunk` with an error listener installed; return the vector of
+  `:rf.error/frame-preflight-evidence-mismatch` records it emitted."
+  [thunk]
+  (let [records     (atom [])
+        listener-id (keyword "test" (str (gensym "supersession-evidence")))]
+    (error-emit/register-error-listener! listener-id #(swap! records conj %))
+    (try (thunk)
+         (finally (error-emit/unregister-error-listener! listener-id)))
+    (filterv #(= :rf.error/frame-preflight-evidence-mismatch (:error %)) @records)))
+
+(deftest same-root-config-change-supersession-emits-no-mismatch
+  (testing "a same-root A→B config-change render supersession settles the OLD
+            receipt with ZERO evidence-mismatch, and B remains the authoritative
+            committed attempt"
+    (let [fid    :sup/config-change
+          rcpt-a (frames/execute-frame-plans! :root/a [(plan fid "cfa-aaaaaaaaaaaaaa")])]
+      (is (= [:root/a] (mapv :root-id (:writes rcpt-a))))
+      (let [rcpt-b (frames/execute-frame-plans! :root/a [(plan fid "cfb-bbbbbbbbbbbbbb")])]
+        ;; B refreshed the same-root frame to a NEW rev; the record is now B's.
+        (is (= "cfb-bbbbbbbbbbbbbb" (:config-fingerprint (frames/installed-plan-entry fid)))
+            "B's refresh is the live record before the OLD receipt aborts")
+        (let [mismatches (capture-mismatches
+                          #(frames/abort-preflight-attempt! rcpt-a rcpt-b))]
+          (is (empty? mismatches)
+              "the overtaken same-root write is EXPECTED settlement, not a mismatch")
+          (let [entry (frames/installed-plan-entry fid)]
+            (is (= :root/a (owner-root entry)) "B still owns the record")
+            (is (= "cfb-bbbbbbbbbbbbbb" (:config-fingerprint entry)) "…at B's config")
+            (is (nil? (:mount-incomplete entry))
+                "aborting the OLD receipt did not clobber B's live record")))
+        ;; B commits and finalizes normally: it is the authoritative attempt.
+        (frames/finalize-preflight-attempt! rcpt-b)
+        (is (true? (:committed (frames/installed-plan-entry fid)))
+            "B finalizes as the authoritative committed attempt")))))
+
+(deftest supersession-suppresses-only-overtaken-writes-disjoint-still-abort
+  (testing "in one supersession abort, the frame the new attempt refreshed
+            settles silently while a disjoint old write the new attempt does NOT
+            cover is still terminally aborted"
+    (let [overtaken :sup/overtaken
+          disjoint  :sup/disjoint
+          rcpt-a (frames/execute-frame-plans!
+                  :root/a [(plan overtaken "cfo-oooooooooooooo")
+                           (plan disjoint  "cfd-dddddddddddddd")])]
+      (is (= #{overtaken disjoint} (set (map :frame-id (:writes rcpt-a)))))
+      ;; B refreshes ONLY the overtaken frame; disjoint keeps its rev1 record.
+      (let [rcpt-b (frames/execute-frame-plans!
+                    :root/a [(plan overtaken "cfo2-ooooooooooooo")])
+            mismatches (capture-mismatches
+                        #(frames/abort-preflight-attempt! rcpt-a rcpt-b))]
+        (is (empty? mismatches) "no spurious mismatch on the overtaken write")
+        (let [ov (frames/installed-plan-entry overtaken)
+              dj (frames/installed-plan-entry disjoint)]
+          (is (= "cfo2-ooooooooooooo" (:config-fingerprint ov))
+              "the overtaken record is B's, untouched by the abort")
+          (is (nil? (:mount-incomplete ov)))
+          (is (true? (:mount-incomplete dj))
+              "the disjoint old write is still terminally aborted"))))))
+
+(deftest genuine-revision-mismatch-without-a-covering-superseder-stays-loud
+  (testing "a revision mismatch the SUPERSEDING receipt does NOT account for (it
+            covers a different frame) is a genuine stale settlement and stays
+            dev-loud — the guard is not over-relaxed to any newer same-root rev"
+    (let [fid    :sup/loud
+          other  :sup/other
+          rcpt-a (frames/execute-frame-plans! :root/a [(plan fid "cfl-llllllllllllll")])]
+      ;; the record advances to a NEW rev via a plain same-root refresh …
+      (frames/execute-frame-plans! :root/a [(plan fid "cfl2-lllllllllllll")])
+      ;; … but the superseding receipt handed to the abort covers a DIFFERENT
+      ;; frame, so it cannot legitimize fid's overtaken write.
+      (let [rcpt-other (frames/execute-frame-plans! :root/a [(plan other "cft-tttttttttttttt")])
+            mismatches (capture-mismatches
+                        #(frames/abort-preflight-attempt! rcpt-a rcpt-other))]
+        (is (= 1 (count mismatches))
+            "the uncovered revision mismatch stays dev-loud")
+        (is (= :record-revision-mismatch (:reason (first mismatches)))
+            "…as a record-revision-mismatch")
+        (is (= fid (:frame (first mismatches))))))))
+
+(deftest cross-root-superseder-cannot-suppress-a-foreign-write
+  (testing "a superseding receipt naming a DIFFERENT root than the aborted write
+            never legitimizes it: cross-root authority mismatches stay dev-loud"
+    (let [fid    :sup/foreign
+          rcpt-a (frames/execute-frame-plans! :root/owner [(plan fid "cff-ffffffffffffff")])]
+      ;; the owner refreshes to a new rev (record is owner's, rev2) …
+      (frames/execute-frame-plans! :root/owner [(plan fid "cff2-fffffffffffff")])
+      ;; … but a FOREIGN controller presents rcpt-a under its own root AND a
+      ;; superseding receipt that also names the foreign root for fid. The
+      ;; receipt-root ≠ the write's owner root, so nothing is benign.
+      (let [foreign-superseder {:root-id :root/foreign
+                                :writes  [{:frame-id fid :root-id :root/foreign :rev 999999}]}
+            mismatches (capture-mismatches
+                        #(frames/abort-preflight-attempt!
+                          (assoc rcpt-a :root-id :root/foreign)
+                          foreign-superseder))]
+        (is (= 1 (count mismatches)) "the foreign settlement stays dev-loud")
+        (is (= :receipt-root-mismatch (:reason (first mismatches)))
+            "…as a receipt-root-mismatch, never suppressed by a same-frame superseder")
+        (is (nil? (:mount-incomplete (frames/installed-plan-entry fid)))
+            "the foreign controller never mutates the owner's record")))))
+
+(deftest reincarnation-not-suppressed-even-under-a-superseding-receipt
+  (testing "if the frame is destroyed after the superseding attempt refreshed it,
+            the OLD receipt's abort finds no record for it and stays dev-loud —
+            a pruned/reincarnated record is never a benign supersession"
+    (let [fid    :sup/reincarnated
+          rcpt-a (frames/execute-frame-plans! :root/a [(plan fid "cfr-rrrrrrrrrrrrrr")])
+          rcpt-b (frames/execute-frame-plans! :root/a [(plan fid "cfr2-rrrrrrrrrrrr")])]
+      ;; the frame is destroyed AFTER B refreshed it (record pruned) …
+      (frame/destroy-frame! fid)
+      (is (nil? (frames/installed-plan-entry fid)) "sanity: the record is pruned")
+      (let [mismatches (capture-mismatches
+                        #(frames/abort-preflight-attempt! rcpt-a rcpt-b))]
+        (is (= 1 (count mismatches))
+            "a pruned record is not a benign supersession — stays loud")
+        (is (= :record-missing (:reason (first mismatches))))))))
