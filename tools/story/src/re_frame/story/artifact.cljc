@@ -422,17 +422,30 @@
 
   The replayed frame is allocated through `re-frame.core/make-frame` and —
   when this fn allocated it — torn down through `destroy-frame!` before
-  return, so a JVM test leaves no frame behind. A caller-supplied `:frame`
-  is left intact (the caller owns its lifecycle)."
+  return, so a JVM test leaves no frame behind. Teardown is INCARNATION-EXACT
+  (rf2-moftbs): it destroys the frame VALUE `make-frame` returned (which carries
+  the exact incarnation token), so a replay program that itself destroyed and
+  re-seated the same `frame-id` leaves the successor alive rather than reaping
+  it on exit. A caller-supplied `:frame` is left intact (the caller owns its
+  lifecycle)."
   ([artifact] (replay-run-artifact artifact nil))
   ([artifact {:keys [frame hooks frame-config] :as _opts}]
    (let [own-frame? (nil? frame)
          frame-id   (or frame (gen-replay-frame-id))
-         hooks      (or hooks boundary/headless-flush-hooks)]
-     (when own-frame?
-       (rf/make-frame (merge {:id  frame-id
-                              :doc "rf2-5x1wt.7 run-artifact replay frame"}
-                             frame-config)))
+         hooks      (or hooks boundary/headless-flush-hooks)
+         ;; When we allocate the replay frame, KEEP the frame VALUE `make-frame`
+         ;; returns: it carries the EXACT incarnation token (rf2-moftbs), so the
+         ;; `finally` teardown destroys ONLY the incarnation THIS replay created.
+         ;; The replay program may itself `destroy-frame!` and re-`make-frame`
+         ;; the SAME `frame-id` (a replayed reset composition); destroying by the
+         ;; bare `frame-id` keyword would then tear down the SUCCESSOR B while
+         ;; the run still reads `:pass`. Destroying the value no-ops against B
+         ;; (its carried token is stale), leaving B alive, while an ordinary
+         ;; A-only replay still tears A down.
+         own-frame-value (when own-frame?
+                           (rf/make-frame (merge {:id  frame-id
+                                                  :doc "rf2-5x1wt.7 run-artifact replay frame"}
+                                                 frame-config)))]
      (try
        ;; Re-install the artifact's `:network` route stubs (when any) for the
        ;; duration of the replay, so the `:fx-decisions` managed-stub redirect
@@ -450,5 +463,7 @@
                              :app-db     app-db}))))
        (finally
          (when own-frame?
-           (try (rf/destroy-frame! frame-id)
+           ;; Incarnation-EXACT teardown: destroy the VALUE we created, not the
+           ;; bare `frame-id` (rf2-moftbs).
+           (try (rf/destroy-frame! own-frame-value)
                 (catch #?(:clj Throwable :cljs :default) _ nil))))))))

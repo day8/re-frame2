@@ -68,24 +68,34 @@
       (default-on-error request t))))
 
 (defn destroy-frame-quietly!
-  "Best-effort frame teardown. Exceptions during destroy must not mask
-  a real handler error; swallow + emit a `:warning` trace is preferred
+  "Best-effort per-request frame teardown. Exceptions during destroy must not
+  mask a real handler error; swallow + emit a `:warning` trace is preferred
   over propagation.
+
+  `frame-target` is the DESTROY target: the frame VALUE `make-frame` returned
+  (carrying the EXACT incarnation token, so teardown is incarnation-EXACT and
+  never reaps a same-id successor a request drain reseated — rf2-moftbs), or a
+  frame-id keyword (the construction-failure path, where no value exists yet and
+  address-directed cleanup of any partial row is correct). The optional
+  `diag-frame-id` names the frame on the failure trace so the `:frame` slot stays
+  a clean keyword even when a value is the destroy target; it defaults to
+  `frame-target` for the keyword call shape.
 
   Surfaces any destroy-time throw on the trace bus rather than
   silently swallowing it — keeps the error visible to dev tooling
   without escalating to a user-visible 500 (the handler-side error has
   already been materialised by the time this fn runs)."
-  [frame-id]
-  (try
-    (rf/destroy-frame! frame-id)
-    (catch Throwable t
-      (trace/emit! :warning :rf.ssr/destroy-frame-failed
-                   {:frame    frame-id
-                    :reason   (or (.getMessage t) (.getName (class t)))
-                    :ex-class (.getName (class t))
-                    :recovery :warned-and-skipped})
-      nil)))
+  ([frame-target] (destroy-frame-quietly! frame-target frame-target))
+  ([frame-target diag-frame-id]
+   (try
+     (rf/destroy-frame! frame-target)
+     (catch Throwable t
+       (trace/emit! :warning :rf.ssr/destroy-frame-failed
+                    {:frame    diag-frame-id
+                     :reason   (or (.getMessage t) (.getName (class t)))
+                     :ex-class (.getName (class t))
+                     :recovery :warned-and-skipped})
+       nil))))
 
 (defn resolve-root-view
   "Resolve the caller's `:root-view` opt to a hiccup vector. Accepts

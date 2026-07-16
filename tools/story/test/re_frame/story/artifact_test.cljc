@@ -322,6 +322,40 @@
           "the caller-supplied frame is NOT destroyed"))))
 
 ;; ===========================================================================
+;; rf2-moftbs — exact-incarnation teardown of the replay-allocated frame
+;; ===========================================================================
+
+(deftest replay-teardown-is-incarnation-exact
+  (testing "replay-run-artifact tears down the frame VALUE it created (carrying
+            the exact incarnation token), NOT the bare frame-id keyword — so a
+            same-id successor seated before teardown is left alive rather than
+            reaped while the run still reads :pass (rf2-moftbs)"
+    (rf/reg-event :rep/noop (fn [{:keys [db]} _] {:db (assoc db :ran true)}))
+    (let [real-destroy    rf/destroy-frame!
+          teardown-target (atom ::none)]
+      ;; Spy on the facade destroy the replay's `finally` calls. A clean replay
+      ;; issues exactly ONE facade `rf/destroy-frame!` — the own-frame teardown —
+      ;; and (post-fix) it hands over the frame VALUE, not the bare gensym id.
+      (with-redefs [rf/destroy-frame!
+                    (fn [target & more]
+                      (when (and (= ::none @teardown-target)
+                                 (frame/frame-value? target))
+                        (reset! teardown-target target))
+                      (apply real-destroy target more))]
+        (let [a   (artifact/make-run-artifact {:event-program [[:dispatch [:rep/noop]]]})
+              res (artifact/replay-run-artifact a)
+              fid (:frame res)]
+          (is (= :pass (:status res)) "the replay ran clean")
+          (is (not (contains? @frame/frames fid))
+              "the replay-allocated incarnation is fully released (N released)")))
+      (is (frame/frame-value? @teardown-target)
+          "teardown targeted the make-frame VALUE, not a bare frame-id keyword")
+      (is (some? (frame/frame-value-incarnation-token @teardown-target))
+          "the teardown target carries the exact incarnation token — so the
+           two-argument destroy no-ops against any same-id successor (N+1),
+           leaving it alive (proven end-to-end by re-frame.frame-lifecycle-test)"))))
+
+;; ===========================================================================
 ;; EP-0017: recordable-coeffect envelopes survive run-artifact replay,
 ;; replayed under STRICT mint policy by default (rf2-srgvzp)
 ;; ===========================================================================

@@ -1607,3 +1607,95 @@
           "A is fully destroyed")
       (is (nil? (frame/frame :reent.b/worker))
           "B was successfully destroyed from inside A's :on-destroy"))))
+
+;; ---- rf2-moftbs — exact-incarnation cleanup via the frame VALUE ------------
+;;
+;; A fresh `make-frame` VALUE carries EXACT incarnation authority
+;; (`:rf.frame/incarnation-token` = the installed `:drain-lock`). The one-arg
+;; `destroy-frame!` of that value is incarnation-EXACT: it destroys ONLY the
+;; incarnation the value names, never a same-id successor reseated in between.
+;; A frame-id KEYWORD stays address-directed (destroys the current incarnation).
+
+(deftest make-frame-value-carries-exact-incarnation-token
+  (testing "the returned frame VALUE carries the live incarnation's token"
+    (let [va (rf/make-frame {:id :inc/tok :doc "A"})]
+      (is (frame/frame-value? va) "make-frame returns a frame VALUE")
+      (is (some? (frame/frame-value-incarnation-token va))
+          "the value carries an incarnation token")
+      (is (identical? (frame/frame-value-incarnation-token va)
+                      (frame/frame-incarnation-token :inc/tok))
+          "the carried token IS the live incarnation's :drain-lock")))
+  (testing "an idempotent re-make-frame carries the SAME (preserved) token"
+    (let [va (rf/make-frame {:id :inc/rereg :doc "A"})
+          vb (rf/make-frame {:id :inc/rereg :doc "A-refreshed"})]
+      (is (identical? (frame/frame-value-incarnation-token va)
+                      (frame/frame-value-incarnation-token vb))
+          "re-registration preserves :drain-lock, so both values name one incarnation"))))
+
+(deftest destroy-value-N-does-not-tear-down-successor-N+1
+  (testing "destroying a STALE frame VALUE (incarnation A) leaves a same-id
+            successor B alive, while ordinary cleanup of B's own value releases it"
+    (let [va      (rf/make-frame {:id :inc/x :doc "A"})
+          a-token (frame/frame-value-incarnation-token va)]
+      ;; Tear A down (address-directed) and re-seat a fresh incarnation B under
+      ;; the SAME id — a distinct incarnation with a distinct token.
+      (rf/destroy-frame! :inc/x)
+      (is (nil? (frame/frame :inc/x)) "A is gone after its address-directed destroy")
+      (let [vb      (rf/make-frame {:id :inc/x :doc "B"})
+            b-token (frame/frame-value-incarnation-token vb)]
+        (is (not (identical? a-token b-token)) "B is a distinct incarnation")
+        ;; The OWNER of the stale value A exits: destroying value-A must NOT
+        ;; reap B (the carried token is stale → the two-arg arity no-ops).
+        (rf/destroy-frame! va)
+        (is (some? (frame/frame :inc/x))
+            "B survives — the stale value-A teardown did not destroy incarnation N+1")
+        (is (identical? b-token (frame/frame-incarnation-token :inc/x))
+            "the live incarnation is still exactly B")
+        ;; Ordinary A-style cleanup still works: destroying B's OWN value fully
+        ;; releases B.
+        (rf/destroy-frame! vb)
+        (is (nil? (frame/frame :inc/x))
+            "B is fully released by destroying its own value")))))
+
+(deftest destroy-value-fully-releases-its-own-incarnation
+  (testing "destroying the LIVE value it was handed fully tears the frame down"
+    (let [va (rf/make-frame {:id :inc/solo :doc "solo"})]
+      (is (some? (frame/frame :inc/solo)) "the frame is live")
+      (rf/destroy-frame! va)
+      (is (nil? (frame/frame :inc/solo)) "destroying the value released the frame")
+      (is (nil? (frame/frame-incarnation-token :inc/solo)) "no incarnation remains"))))
+
+(deftest with-new-frame-exit-teardown-is-incarnation-exact
+  (testing "with-new-frame binds make-frame's VALUE; a body that destroys A and
+            reseats B under the same id must leave B alive on macro exit"
+    (let [b-token (atom nil)]
+      (rf/with-new-frame [f (rf/make-frame {:id :wnf/x :doc "A"})]
+        ;; Inside the scope: tear A down and re-seat a fresh B under the same id.
+        (rf/destroy-frame! :wnf/x)
+        (rf/make-frame {:id :wnf/x :doc "B"})
+        (reset! b-token (frame/frame-incarnation-token :wnf/x)))
+      ;; The macro's `finally (destroy-frame! f)` consumed value-A's stale token
+      ;; → a no-op against B.
+      (is (some? (frame/frame :wnf/x))
+          "B survives with-new-frame's exit teardown")
+      (is (identical? @b-token (frame/frame-incarnation-token :wnf/x))
+          "the surviving incarnation is exactly B")
+      (rf/destroy-frame! :wnf/x)))
+  (testing "ordinary with-new-frame cleanup releases exactly the incarnation it created"
+    (rf/with-new-frame [f (rf/make-frame {:id :wnf/y :doc "solo"})]
+      (is (some? (frame/frame :wnf/y)) "the frame is live inside the scope"))
+    (is (nil? (frame/frame :wnf/y))
+        "with-new-frame destroyed exactly the incarnation it created")))
+
+(deftest keyword-destroy-remains-address-directed
+  (testing "destroying by frame-id KEYWORD pins the CURRENT incarnation — the
+            address-directed semantics rf2-moftbs deliberately preserves"
+    (rf/make-frame {:id :addr/x :doc "A"})
+    (let [a-token (frame/frame-incarnation-token :addr/x)]
+      (rf/destroy-frame! :addr/x)                    ;; destroys A (the current one)
+      (rf/make-frame {:id :addr/x :doc "B"})         ;; reseat B under the same id
+      (let [b-token (frame/frame-incarnation-token :addr/x)]
+        (is (not (identical? a-token b-token)) "B is a distinct incarnation")
+        (rf/destroy-frame! :addr/x)                  ;; keyword → destroys CURRENT = B
+        (is (nil? (frame/frame :addr/x))
+            "a bare-id destroy targets whatever incarnation is currently live")))))

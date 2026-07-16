@@ -767,23 +767,33 @@
      ;; the record-config (presets, classification, fx-overrides, …). Default-realm
      ;; (the collapse supersedes the public realm dimension), so the record is
      ;; keyed by the bare id.
-     (frame/upsert-frame! runnable-id record-config)
-     ;; Record which pool this generation was resolved against AFTER the engine
-     ;; commit returns successfully — see §Generation PROVENANCE above
-     ;; (rf2-rf3zgt): a later reprojection reads this back so it re-resolves
-     ;; against the SAME pool (explicit or live) rather than always falling
-     ;; through to the live store. Recorded on every SUCCESSFUL call (creation +
-     ;; hot-reload re-construction), so a re-`make-frame` that changes arity
-     ;; keeps the record current — and ordered after `upsert-frame!` (rf2-ktmto9,
-     ;; the failure-atomicity completion) so a FAILED creation records nothing
-     ;; and a FAILED re-construction preserves the OLD provenance row, matching
-     ;; the engine's own no-residue-on-failure contract.
-     (record-frame-generation-pool! runnable-id descriptors)
-     ;; Return the frame VALUE — the lifecycle token (generation not embedded;
-     ;; read from the record by id).
-     (frame/make-frame-value {:id          id
-                              :runnable-id runnable-id
-                              :adapter     adapter}))))
+     ;;
+     ;; rf2-moftbs: pass a `token-box` OUT-channel so the engine hands back the
+     ;; EXACT installed incarnation token (the record's `:drain-lock`) from
+     ;; INSIDE the construction transaction. Embedding it on the returned frame
+     ;; VALUE (below) is what gives an owner exact teardown authority — with NO
+     ;; post-return `frame-incarnation-token` re-sample that a concurrent
+     ;; destroy + same-id reseat could race into a successor's token.
+     (let [token-box (volatile! nil)]
+       (frame/upsert-frame! runnable-id record-config token-box)
+       ;; Record which pool this generation was resolved against AFTER the engine
+       ;; commit returns successfully — see §Generation PROVENANCE above
+       ;; (rf2-rf3zgt): a later reprojection reads this back so it re-resolves
+       ;; against the SAME pool (explicit or live) rather than always falling
+       ;; through to the live store. Recorded on every SUCCESSFUL call (creation +
+       ;; hot-reload re-construction), so a re-`make-frame` that changes arity
+       ;; keeps the record current — and ordered after `upsert-frame!` (rf2-ktmto9,
+       ;; the failure-atomicity completion) so a FAILED creation records nothing
+       ;; and a FAILED re-construction preserves the OLD provenance row, matching
+       ;; the engine's own no-residue-on-failure contract.
+       (record-frame-generation-pool! runnable-id descriptors)
+       ;; Return the frame VALUE — the lifecycle token (generation not embedded;
+       ;; read from the record by id). It carries the exact incarnation token
+       ;; (`@token-box`) so `destroy-frame!` of this value is incarnation-EXACT.
+       (frame/make-frame-value {:id          id
+                                :runnable-id runnable-id
+                                :adapter     adapter
+                                :token       @token-box})))))
 
 ;; ===========================================================================
 ;; Image hot reload (EP-0023 §Hot Reload, rf2-32siq3.10)

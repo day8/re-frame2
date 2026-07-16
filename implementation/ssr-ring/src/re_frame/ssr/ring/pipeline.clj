@@ -142,9 +142,17 @@
 
 (defn setup-request-frame!
   "Register a per-request frame and populate the request slot. Returns
-  `{:frame-id frame-id}` on success, or `{:short-circuit ring-response}`
-  when setup fails (the caller short-circuits to that response, skipping
-  render).
+  `{:frame-id frame-id :frame frame-value}` on success, or
+  `{:short-circuit ring-response}` when setup fails (the caller short-circuits
+  to that response, skipping render).
+
+  `:frame` is the frame VALUE `make-frame` returns — it carries the EXACT
+  incarnation token, so the handler's teardown (`destroy-frame-quietly!`) is
+  incarnation-EXACT and can never reap a same-id successor a request drain
+  destroyed-and-reseated under the gensym id (rf2-moftbs). `:frame-id` (the bare
+  keyword) stays the address for every in-request operation (`with-frame`,
+  `flush-response-result!`, `app-db-value`, the writer thread name) — those are
+  correctly address-directed against the current incarnation.
 
   The slot is populated BEFORE `make-frame` so the synchronous
   `:initial-events` drain can resolve the `:rf.server/request` cofx (Spec
@@ -165,19 +173,25 @@
   (let [frame-id (keyword "rf.frame" (str (gensym "f")))]
     (ssr/set-request! frame-id request)
     (try
-      (rf/make-frame
-        (cond-> {:id        frame-id
-                 :doc       "ssr-ring per-request frame"
-                 :platform  :server
-                  ;; Resolve after `set-request!`: the function form can derive
-                  ;; durable event payloads while handlers use the request coeffect
-                  ;; for ambient reads.
-                 :initial-events (lifecycle/resolve-initial-events! initial-events request)}
-          fx-overrides (assoc :fx-overrides fx-overrides)
-          ssr          (assoc :ssr           ssr)))
-      {:frame-id frame-id}
+      ;; KEEP the frame VALUE — it carries the exact incarnation token the
+      ;; handler's teardown consumes for incarnation-EXACT cleanup (rf2-moftbs).
+      (let [frame-value
+            (rf/make-frame
+              (cond-> {:id        frame-id
+                       :doc       "ssr-ring per-request frame"
+                       :platform  :server
+                        ;; Resolve after `set-request!`: the function form can derive
+                        ;; durable event payloads while handlers use the request coeffect
+                        ;; for ambient reads.
+                       :initial-events (lifecycle/resolve-initial-events! initial-events request)}
+                fx-overrides (assoc :fx-overrides fx-overrides)
+                ssr          (assoc :ssr           ssr)))]
+        {:frame-id frame-id :frame frame-value})
       (catch Throwable t
         (ssr/clear-request! frame-id)
+        ;; Construction FAILED — no frame value was returned, so clean up any
+        ;; partial row address-directed by the gensym id (construction rollback
+        ;; is already exact internally, PR #5928).
         (lifecycle/destroy-frame-quietly! frame-id)
         ;; Setup runs outside the handler body's catch, so contain a failing
         ;; caller hook here as well.

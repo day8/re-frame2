@@ -120,6 +120,21 @@
   frame values are local-only tokens)."
   :rf.frame/runnable-id)
 
+(def ^:const incarnation-token-key
+  "Reserved key on a frame VALUE carrying the EXACT incarnation-identity token
+  (the winning construction's `:drain-lock`, see `frame-incarnation-token`) the
+  `make-frame` call that produced the value installed (rf2-moftbs). Present ONLY
+  on a value handed back by a fresh/idempotent construction — the opaque
+  lifecycle-token AUTHORITY an owner (`with-new-frame`, Story replay, SSR
+  per-request) consumes at cleanup so its teardown destroys EXACTLY the
+  incarnation it created, never a same-id successor reseated in between. Absent
+  on a derived-read value (`live-frame` / `image-view-frames`) and on a frame-id
+  keyword — both of which stay ADDRESS-directed (destroy whatever incarnation is
+  currently live under the id). Internal — the value's representation is not an
+  app-facing data contract; this token is opaque authority, compared only by
+  identity."
+  :rf.frame/incarnation-token)
+
 (defn frame-value?
   "True when `x` is a live frame VALUE (`make-frame`'s return token — carries the
   `:rf.frame/object` marker), as opposed to a frame-id keyword. The structural
@@ -139,6 +154,19 @@
   (if (frame-value? frame-value)
     (get frame-value runnable-id-key)
     frame-value))
+
+(defn frame-value-incarnation-token
+  "Return the EXACT incarnation-identity token a fresh-construction frame VALUE
+  carries (its `:rf.frame/incarnation-token` — the installed `:drain-lock`), or
+  nil when `x` is a frame-id keyword, a derived-read frame value, or any value
+  built without a construction token (rf2-moftbs). A non-nil result is the
+  opaque teardown AUTHORITY the one-argument `destroy-frame!` consumes so an
+  owner's cleanup destroys EXACTLY the incarnation it created; nil selects the
+  ADDRESS-directed path (destroy whatever incarnation is currently live under
+  the id). Pure."
+  [x]
+  (when (frame-value? x)
+    (get x incarnation-token-key)))
 
 (defn frame-target->id
   "Normalize a public frame TARGET — a frame-id KEYWORD or a frame VALUE — to the
@@ -2496,6 +2524,19 @@
     {:recovery :use-a-distinct-frame-id
      :extra    {:frame id}}))
 
+(defn- deliver-incarnation-token!
+  "Hand the EXACT installed incarnation token to an optional construction
+  `token-sink` (a `volatile!`) from INSIDE the construction transaction
+  (rf2-moftbs). `make-frame` passes a sink so it can embed the token on the
+  returned frame VALUE without a post-return `frame-incarnation-token` re-sample
+  of the registry — a re-sample a concurrent `destroy-frame!` + same-id reseat
+  could race into handing back a successor's token. No-op when the caller passed
+  no sink (`make-anon-frame-record!`, the `:rf/default` fixture, and the engine
+  tests, which take the id return unchanged). Returns nil."
+  [token-sink token]
+  (when token-sink (vreset! token-sink token))
+  nil)
+
 (defn ^:no-doc upsert-frame!
   "PRIVATE frame ENGINE — atomic create-or-REFRESH (upsert) of the frame
   record for `id` (rf2-h1vqa4). Called by `re-frame.live-frame/make-frame`
@@ -2522,8 +2563,18 @@
   member, so seating/reseating must never bump the registration source-store
   generation (which would invalidate the resolved-image-generation cache,
   EP-0023) nor surface in image assembly. Frame introspection is
-  `frame-meta` / `frame-ids`, not the registrar query API."
-  [id metadata]
+  `frame-meta` / `frame-ids`, not the registrar query API.
+
+  Returns the frame `id` on a successful create OR re-register (the documented
+  keyword return every existing caller + engine test relies on). The optional
+  3-arity `token-sink` (a `volatile!`) is an OUT-channel: on success the exact
+  installed incarnation token (the record's `:drain-lock`) is delivered into it
+  from INSIDE the construction transaction, so `make-frame` can embed exact
+  authority on the returned frame VALUE with no post-return registry re-sample
+  (rf2-moftbs). Passing no sink (the 2-arity) is byte-identical for every
+  existing caller."
+  ([id metadata] (upsert-frame! id metadata nil))
+  ([id metadata token-sink]
   (let [;; The registry is keyed by the bare frame-id.
         config       (expand-preset metadata)
         ;; INTERNAL create-exclusive mode (rf2-vxgfnd.76): when the caller
@@ -2749,7 +2800,12 @@
                                                         :rf.frame/initial-db)})
                 (fire-frame-registered-hook! id)
                 (if (finalize-frame-construction! id owner policy-token)
-                  id
+                  ;; Hand back this exact incarnation's token (the record's
+                  ;; `:drain-lock` `try-install-new-frame!` installed and
+                  ;; finalization preserved by identity) from inside the
+                  ;; transaction so `make-frame` embeds exact authority with no
+                  ;; post-return re-sample (rf2-moftbs).
+                  (do (deliver-incarnation-token! token-sink installed-token) id)
                   (throw-frame-construction-in-progress!
                     id :lifecycle-dead :destruction))
                 (catch #?(:clj Throwable :cljs :default) e
@@ -2832,7 +2888,13 @@
                              {:frame id :config stored-config})
                 (fire-frame-registered-hook! id)
                 (if (finalize-frame-construction! id owner policy-token)
-                  id
+                  ;; Idempotent re-registration PRESERVES the incarnation's
+                  ;; `:drain-lock` by identity (the surgical swap-vals only
+                  ;; replaces config/generation/trace-policy/construction), so the
+                  ;; staged record's token IS the still-live incarnation token —
+                  ;; hand it back so a re-`make-frame` value carries the SAME
+                  ;; authority as the original (rf2-moftbs).
+                  (do (deliver-incarnation-token! token-sink (:drain-lock staged)) id)
                   (throw-frame-construction-in-progress!
                     id :lifecycle-dead :destruction))
                 (catch #?(:clj Throwable :cljs :default) e
@@ -2849,7 +2911,7 @@
                            (:trace-policy-token prior)))
                       (catch #?(:clj Throwable :cljs :default) _ nil)))
                   (throw e)))
-              (recur))))))))))
+              (recur)))))))))))
 
 (defn make-anon-frame-record!
   "INTERNAL anonymous-instance creation (EP-0024): generate a
@@ -2884,12 +2946,20 @@
   EP-0027 retired `:initial-db`: app-db seeding is now a setup event
   (`:initial-events`), so the constructed value no longer carries an
   `:rf.frame/initial-db` slot. EP-0026 (rf2-dlvmpc) retired the
-  `:rf.frame/capabilities` slot with the image-capability feature."
-  [{:keys [id runnable-id adapter]}]
+  `:rf.frame/capabilities` slot with the image-capability feature.
+
+  rf2-moftbs: a fresh/idempotent construction threads its EXACT incarnation
+  `token` (the installed `:drain-lock`) through here so the returned value
+  carries `:rf.frame/incarnation-token` — the opaque lifecycle-token authority
+  an owner consumes so its `destroy-frame!` is incarnation-EXACT. A nil `token`
+  (a derived-read value from `live-frame` / `image-view-frames`) omits the slot,
+  leaving that value ADDRESS-directed."
+  [{:keys [id runnable-id adapter token]}]
   (cond-> {object-marker         true
            runnable-id-key       runnable-id}
     (some? id)      (assoc :rf.frame/id id)
-    (some? adapter) (assoc :rf.frame/adapter adapter)))
+    (some? adapter) (assoc :rf.frame/adapter adapter)
+    (some? token)   (assoc incarnation-token-key token)))
 
 ;; ---- destruction ----------------------------------------------------------
 ;;
@@ -3711,13 +3781,33 @@
   unless `expected-incarnation-token` is still the live frame's identity token.
   The check is revalidated after acquiring that incarnation's `:drain-lock`,
   and the liveness flip CAS-checks the same token under the same lifecycle gate,
-  so a stale teardown can never destroy a fresh same-id incarnation. The
-  one-argument arity preserves ordinary destroy semantics by pinning the live
-  token at invocation and delegating to the incarnation-owned arity."
+  so a stale teardown can never destroy a fresh same-id incarnation.
+
+  The one-argument arity chooses its authority from the TARGET (rf2-moftbs):
+  a fresh-construction frame VALUE carries its EXACT incarnation token
+  (`frame-value-incarnation-token`), so the arity delegates to the
+  incarnation-owned two-argument arity with it — an owner (`with-new-frame`,
+  Story replay, SSR per-request) that destroys the value it created tears down
+  ONLY that incarnation, never a same-id successor reseated in between (a stale
+  carried token no-ops). A frame-id KEYWORD, or a token-less derived-read VALUE,
+  carries no authority and stays ADDRESS-directed: it pins whatever incarnation
+  is currently live under the id at invocation and delegates. So keyword/ID
+  destruction remains explicitly address-directed while a returned frame value
+  gains coherent lifecycle-token semantics."
   ([target]
-   (let [id (frame-target->id target)]
-     (when-let [expected-token (frame-incarnation-token id)]
-       (destroy-frame! target expected-token))))
+   ;; rf2-moftbs: a fresh-construction frame VALUE carries EXACT incarnation
+   ;; authority (`:rf.frame/incarnation-token` — the installed `:drain-lock`).
+   ;; Consume it so an owner's cleanup (`with-new-frame`, Story replay, SSR
+   ;; per-request) destroys ONLY the incarnation it created; a stale carried
+   ;; token no-ops through the two-argument arity (which revalidates liveness),
+   ;; leaving a same-id successor reseated in between intact. A frame-id KEYWORD
+   ;; or a token-less derived-read VALUE has no carried authority, so it stays
+   ;; ADDRESS-directed — pin whatever incarnation is currently live under the id.
+   (if-let [carried (frame-value-incarnation-token target)]
+     (destroy-frame! target carried)
+     (let [id (frame-target->id target)]
+       (when-let [expected-token (frame-incarnation-token id)]
+         (destroy-frame! target expected-token)))))
   ([target expected-incarnation-token]
   ;; Accept a frame VALUE or a frame-id keyword. Normalize a value to its id so
   ;; every keyed teardown step below targets the record; a keyword passes
