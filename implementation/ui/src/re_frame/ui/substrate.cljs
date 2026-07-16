@@ -167,12 +167,19 @@
   microtask armed during the drain later finds the registry already drained and
   renders nothing.
 
-  Runaway convergence is NOT this loop's to bound: commit-triggered re-dirty is
-  always write-driven, so a genuinely non-quiescent cascade trips the EXISTING
-  diagnostics loudly — the router's `:rf.error/drain-depth-exceeded` for a
-  dispatch cascade, React's own maximum-update-depth guard for an update-in-effect
-  loop — each propagating out of `flushSync` and breaking this loop non-silently
-  (the same reliance `ui.test/flush!`'s loop-to-quiescence rests on).
+  Runaway convergence IS bounded here (rf2-0faipl): the re-dirty drain runs
+  through the SHARED `reactive/converge-flush!` law with a finite pass budget.
+  Ordinary write-driven re-dirty settles in a handful of passes, and the ambient
+  guards (the router's `:rf.error/drain-depth-exceeded` for a dispatch cascade,
+  React's maximum-update-depth for an update-in-effect loop) still break a
+  runaway that surfaces WITHIN one `flushSync` pass. But a re-enrolment that
+  lands ACROSS separate `flushSync` passes — which those single-pass guards
+  cannot see — would once have spun this synchronous adapter call forever; when
+  the registry cannot quiesce within `reactive/flush-convergence-budget` passes,
+  the driver now fails loud with the typed
+  `:rf.error/flush-convergence-exceeded` diagnostic (pass budget + residual
+  pending count) instead. `ui.test/flush!`'s loop-to-quiescence rests on the
+  SAME shared bound.
 
   An open router drain fails loud through the SHARED guard rather than publishing
   a partial read side. Exceptions from the thunk propagate unchanged (the pending
@@ -187,12 +194,14 @@
      ;; One React sync-commit boundary: run the write side, then publish the
      ;; pending ViewCell notifications so React commits them before returning.
      (spine-flush (fn [] (f) (reactive/flush-pending!)))
-     ;; Drain any commit-triggered re-dirty to a fixed point — each pass is its
-     ;; own sync-commit boundary; loud ambient diagnostics break a runaway.
-     (loop []
-       (when (pos? (reactive/pending-cell-count))
-         (spine-flush reactive/flush-pending!)
-         (recur))))
+     ;; Drain any commit-triggered re-dirty to a BOUNDED fixed point — each pass
+     ;; is its own sync-commit boundary. The bound is the shared
+     ;; `converge-flush!` law (rf2-0faipl): a non-quiescent cascade that
+     ;; re-dirties every pass fails loud with
+     ;; `:rf.error/flush-convergence-exceeded` rather than spinning this
+     ;; synchronous adapter call forever.
+     (reactive/converge-flush! 're-frame.ui.substrate/flush-render!
+                               (fn [] (spine-flush reactive/flush-pending!))))
    nil))
 
 (defn adapter-with-client-roots
