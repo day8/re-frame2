@@ -83,8 +83,10 @@
 (defn- mk-child
   "A dispatching child: on `:go` / `:fail` it transitions to a PLAIN
   (non-`:final?`) terminal and dispatches its completion back to
-  `parent-id` THROUGH its own handler boundary, so the runtime stamps the
-  `:rf/join-auth` attempt authentication (`stamp-join-completion-fx`)."
+  `parent-id` THROUGH its own handler boundary, so `stamp-join-completion-fx`
+  rewrites the completion into the `:rf.machine/join-dispatch` transport and
+  the runtime records its exact join authority on the recordable `:rf.cofx`
+  fact `:rf.machine/join-auth` (event metadata is never an authority carrier)."
   [parent-id]
   {:initial :running
    :data    {:id nil}

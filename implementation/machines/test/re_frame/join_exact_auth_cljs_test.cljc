@@ -67,8 +67,9 @@
 (defn- mk-child
   "A dispatching child: on `:go` / `:fail` it transitions to a PLAIN
   (non-`:final?`) terminal and dispatches its completion back to
-  `parent-id` — through its OWN handler boundary, so the runtime stamps the
-  `:rf/join-auth` attempt authentication."
+  `parent-id` — through its OWN handler boundary, so the runtime records its
+  exact join authority on the recordable `:rf.cofx` fact `:rf.machine/join-auth`
+  (via `stamp-join-completion-fx`; event metadata is never an authority carrier)."
   [parent-id]
   {:initial :running
    :data    {:id nil}
