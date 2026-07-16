@@ -79,12 +79,23 @@ user-facing implementor docs and asserts:
      the legacy reconfigured error) on a same-owner config change. This rule is a
      positive-PRESENCE scan (not the per-line denylist above): it fails if either
      realization disappears or collapses into the other, if a Spec-002 frame-root
-     / frame-provider heading link goes missing, if a boundary drops out of the
-     Conventions inventory, or if the synthesis §8 reverts preflight to future
-     work. It also holds a small source-backed assertion that the compiled client
-     invokes its frame preflight (`(run-preflight! …)` → `execute-frame-plans!`)
-     BEFORE it renders the host root (`(.render …)`) — no general Markdown parser
-     is added. (The Reagent-frozen / UIx+Helix-retiring *status* arm over
+     / frame-provider heading link goes missing OR no longer resolves to a real
+     Spec-002 heading, if either frame boundary drops out of the OWNING core
+     artifact inventory row in `spec/Conventions.md`, or if the synthesis §8
+     reverts preflight to future work. It also holds a CAUSAL, source-backed
+     assertion over the compiled client's THREE production render paths —
+     existing-root refresh, fresh mount, and the split `render!*` — that EACH host
+     render (`(.render …)`) is preceded by its OWN frame preflight
+     (`(run-preflight! …)` → `execute-frame-plans!`), and that the one-shot fresh
+     mount additionally preflights before it creates the React root
+     (`(run-preflight! …)` → `(rdc/createRoot …)` → `(.render …)`). The two honest
+     host paths are stated, not universalized: one-shot `mount*` preflights before
+     `createRoot` AND the first render, while the intentional split API's
+     `create-root*` allocates/registers the React root FIRST by design (no plans
+     yet) and `render!*` later preflights before every render — so the split path
+     is never falsely claimed to preflight before `create-root*`. The check is a
+     bounded token-order scan over the call forms; no general Markdown or Clojure
+     parser is added. (The Reagent-frozen / UIx+Helix-retiring *status* arm over
      `spec/Conventions.md` is a deliberate follow-up, not scanned here — see the
      rf2-vxgfnd.278 PR body.)
 
@@ -108,6 +119,7 @@ import argparse
 import os
 import re
 import sys
+import unicodedata
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -383,6 +395,7 @@ UI_FRAMES_FILE = (
     REPO_ROOT / "implementation" / "ui" / "src" / "re_frame" / "ui" / "frames.cljc"
 )
 CONVENTIONS_FILE = REPO_ROOT / "spec" / "Conventions.md"
+SPEC_002_FILE = REPO_ROOT / "spec" / "002-Frames.md"
 SYNTH_03_FILE = (
     REPO_ROOT
     / "ai"
@@ -394,16 +407,146 @@ SYNTH_03_FILE = (
 FRAME_ROOT_ANCHOR = "#frame-root--the-ensure-component-cljs-reference"
 FRAME_PROVIDER_ANCHOR = "#frame-provider--the-scope-only-component-cljs-reference"
 
+# The compiled client's frame-lifecycle CALL forms. Keyed on the leading paren so
+# docstring / backtick mentions (`(run-preflight! …)`, `` `.render` ``,
+# `` `createRoot` ``) never register as calls.
+PREFLIGHT_CALL = "(run-preflight!"
+CREATE_ROOT_CALL = "(rdc/createRoot"
+HOST_RENDER_CALL = "(.render "
 
-def _preflight_before_render(client_text: str) -> bool:
-    """Source-backed: the compiled client invokes its frame preflight
-    (`(run-preflight! …)`, which routes to `execute-frame-plans!`) BEFORE it
-    renders the host root (`(.render …)`). Keys on the CALL forms (leading paren)
-    so docstring / backtick mentions never match. True iff the first preflight
-    call precedes the first host render call."""
-    pi = client_text.find("(run-preflight!")
-    ri = client_text.find("(.render ")
-    return pi != -1 and ri != -1 and pi < ri
+
+def _client_call_order(client_text: str) -> list[str]:
+    """The ordered kinds of the compiled client's frame-lifecycle CALL forms:
+    `'pre'` (`(run-preflight!`), `'create'` (`(rdc/createRoot`), `'render'`
+    (`(.render `) — sorted by source position. A bounded, lexical token stream
+    (no Clojure parser); the three production render paths and the two root
+    allocations show up here in document order:
+
+        pre, render,  pre, create, render,  create,  pre, render
+        └ same-root ┘ └──── fresh mount ───┘ └split┘ └─ render!* ─┘
+
+    (`create-root*`'s allocation is the render-less `create` with a following
+    `pre` — the split API allocates the root before any plans exist.)"""
+    events: list[tuple[int, str]] = []
+    for kind, needle in (
+        ("pre", PREFLIGHT_CALL),
+        ("create", CREATE_ROOT_CALL),
+        ("render", HOST_RENDER_CALL),
+    ):
+        start = 0
+        while True:
+            i = client_text.find(needle, start)
+            if i == -1:
+                break
+            events.append((i, kind))
+            start = i + len(needle)
+    events.sort()
+    return [kind for _, kind in events]
+
+
+def _preflight_causal_problems(client_text: str) -> list[str]:
+    """CAUSAL source assertions over the compiled client's render paths (replaces
+    the old first-preflight-vs-first-render compare, which a correct first pair
+    followed by a render-only or render-before-preflight path silently satisfied).
+
+    A — render causality (per path): EVERY host render is preceded by its OWN
+        frame preflight — a preflight that occurs after the previous host render.
+        Walk the call stream arming one credit per preflight; each render must
+        spend a credit (and consumes any surplus, so one path's preflight can
+        never cover the next path's render). Fires if any render is uncredited
+        (a removed/reordered preflight on the existing-root, fresh-mount, or
+        `render!*` path).
+    B — one-shot allocation ordering: the fresh one-shot mount preflights BEFORE
+        it creates the React root — a contiguous `pre → create → render` triple in
+        the call stream. The split `create-root*` allocation is render-less (its
+        `create` is followed by a `pre`, not preceded by one), so it never forms
+        this triple and is never falsely claimed to preflight before
+        `create-root*`. Fires if the fresh mount's preflight moves after its
+        `createRoot` (or disappears)."""
+    seq = _client_call_order(client_text)
+    problems: list[str] = []
+
+    renders = sum(1 for k in seq if k == "render")
+    if renders == 0:
+        problems.append(
+            "LIFECYCLE-SOURCE-ORDER: implementation/ui/src/re_frame/ui/client.cljs "
+            "has no host render call (`(.render …)`) at all — the compiled "
+            "preflight-before-render source assertion cannot be proved."
+        )
+    else:
+        armed = 0
+        caused = 0
+        for kind in seq:
+            if kind == "pre":
+                armed += 1
+            elif kind == "render":
+                if armed > 0:
+                    caused += 1
+                    armed = 0  # a render consumes its path's pending preflight(s)
+        if caused != renders:
+            problems.append(
+                "LIFECYCLE-SOURCE-ORDER: implementation/ui/src/re_frame/ui/"
+                "client.cljs has a host render (`(.render …)`) NOT preceded by its "
+                "own frame preflight (`(run-preflight! …)` → `execute-frame-plans!`) "
+                "— each of the three production paths (existing-root refresh, fresh "
+                "mount, split `render!*`) must preflight before ITS render (the "
+                "compiled ENSURE-at-preflight contract, #5711). "
+                f"{caused} of {renders} renders are preflight-caused."
+            )
+
+    one_shot = any(
+        seq[i] == "pre" and seq[i + 1] == "create" and seq[i + 2] == "render"
+        for i in range(len(seq) - 2)
+    )
+    if not one_shot:
+        problems.append(
+            "LIFECYCLE-ONE-SHOT-ALLOC: implementation/ui/src/re_frame/ui/client.cljs "
+            "no longer shows the one-shot fresh mount preflighting BEFORE it "
+            "creates the React root (`(run-preflight! …)` → `(rdc/createRoot …)` → "
+            "`(.render …)`, contiguous). `mount*` must preflight before `createRoot`; "
+            "the split `create-root*` allocates first by design and is exempt."
+        )
+
+    return problems
+
+
+def _spec_heading_slug(heading_text: str) -> str:
+    """GitHub-style heading slug (pymdownx.slugs.slugify, case=lower,
+    unicode=False) for a Spec-002 heading's text — enough to check the two
+    canonical fragments RESOLVE to a real heading rather than merely appearing as
+    literal strings in the guide. Bounded + lexical: ASCII-fold, drop chars that
+    are not word/whitespace/hyphen (an em-dash between spaces is dropped, leaving
+    the DOUBLE hyphen the published anchors carry), then whitespace → hyphen with
+    NO run-collapsing. Not a Markdown parser."""
+    text = unicodedata.normalize("NFKD", heading_text).encode("ascii", "ignore").decode("ascii")
+    text = re.sub(r"[^\w\s-]", "", text).strip().lower()
+    return re.sub(r"\s", "-", text)
+
+
+def _spec_heading_slugs(spec_text: str) -> set[str]:
+    """The set of GitHub-style slugs of every ATX heading (`#`..`######`) in a
+    spec document — a lexical heading-line scan, not a parser."""
+    slugs: set[str] = set()
+    for line in spec_text.splitlines():
+        m = re.match(r"\s{0,3}#{1,6}\s+(.*\S)\s*$", line)
+        if m:
+            slugs.add(_spec_heading_slug(m.group(1)))
+    return slugs
+
+
+def _core_artifact_inventory_row(conventions_text: str) -> str | None:
+    """The `day8/re-frame2` CORE artifact inventory row from the Adapter-shipping
+    table — the OWNING row that inventories `frame-root` / `frame-provider` as core
+    surface. Matched by its exact first table cell so the `-reagent` / `-uix` /
+    `-helix` rows (which also mention the boundaries) can never stand in for it,
+    and so deleting a boundary from THIS row is caught even while unrelated
+    mentions survive elsewhere in the document. None if the row is gone."""
+    for line in conventions_text.splitlines():
+        cells = [c.strip() for c in line.split("|")]
+        # cells[0] is the empty pre-leading-pipe field; cells[1] is the first cell.
+        if len(cells) >= 2 and cells[1] == "`day8/re-frame2`":
+            return line
+    return None
 
 
 def lifecycle_realization_problems(
@@ -413,6 +556,7 @@ def lifecycle_realization_problems(
     frames: str | None,
     conventions: str | None,
     synth03: str | None,
+    spec002: str | None,
 ) -> list[str]:
     """Positive-presence assertions for the two frame-root lifecycles. Each arg
     is the file's text (or None to skip — the caller reports a missing required
@@ -451,24 +595,31 @@ def lifecycle_realization_problems(
                     "(commit-owned two-pass layout-effect ENSURE, discarded-render zero "
                     "writes, `:rf.error/frame-root-reconfigured` on mounted reconfig)."
                 )
-        # L4 — Spec-002 frame-root / frame-provider heading links resolvable.
+        # L4 — Spec-002 frame-root / frame-provider heading links present in the
+        # guide AND resolvable to a REAL Spec-002 heading (not merely a literal
+        # published fragment string). The anchor's fragment must slugify-match an
+        # ATX heading in spec/002-Frames.md.
+        spec_slugs = _spec_heading_slugs(spec002) if spec002 is not None else None
         for anchor in (FRAME_ROOT_ANCHOR, FRAME_PROVIDER_ANCHOR):
             if anchor not in phase2:
                 problems.append(
                     "LIFECYCLE-SPEC002-LINK: phase-2-impl-order.md is missing the "
                     f"Spec-002 heading anchor `{anchor}` — the frame-root / frame-"
-                    "provider component-contract links must stay resolvable."
+                    "provider component-contract links must stay present."
+                )
+            elif spec_slugs is not None and anchor.lstrip("#") not in spec_slugs:
+                problems.append(
+                    "LIFECYCLE-SPEC002-UNRESOLVED: phase-2-impl-order.md links "
+                    f"`{anchor}`, but no heading in spec/002-Frames.md slugifies to "
+                    f"`{anchor.lstrip('#')}` — the frame-root / frame-provider "
+                    "component-contract links must RESOLVE to a live Spec-002 "
+                    "heading, not merely appear as a literal fragment."
                 )
 
-    # L5 — source-backed: compiled client preflights before it renders.
-    if client is not None and not _preflight_before_render(client):
-        problems.append(
-            "LIFECYCLE-SOURCE-ORDER: implementation/ui/src/re_frame/ui/client.cljs "
-            "must invoke its frame preflight (`(run-preflight! …)` → "
-            "`execute-frame-plans!`) BEFORE it renders the host root (`(.render …)`) "
-            "— the compiled ENSURE-at-preflight contract (#5711). The first "
-            "preflight call no longer precedes the first host render call."
-        )
+    # L5 — CAUSAL source assertion: each production render path preflights before
+    # its host render, and the one-shot fresh mount preflights before createRoot.
+    if client is not None:
+        problems.extend(_preflight_causal_problems(client))
     if frames is not None:
         for token in (
             "execute-frame-plans!",
@@ -482,15 +633,28 @@ def lifecycle_realization_problems(
                     "executor + its commit-bound evidence surface must stay present."
                 )
 
-    # L6 — Conventions inventory keeps BOTH frame boundaries.
+    # L6 — the OWNING core artifact inventory row keeps BOTH frame boundaries.
+    # Scoped to the `day8/re-frame2` row so deleting a boundary from the row it
+    # inventories is caught even while unrelated mentions survive elsewhere.
     if conventions is not None:
-        for token in ("frame-root", "frame-provider"):
-            if token not in conventions:
-                problems.append(
-                    "LIFECYCLE-INVENTORY: spec/Conventions.md no longer names "
-                    f"`{token}` — neither frame boundary may disappear from the "
-                    "artifact inventory."
-                )
+        row = _core_artifact_inventory_row(conventions)
+        if row is None:
+            problems.append(
+                "LIFECYCLE-INVENTORY-ROW: spec/Conventions.md no longer has the "
+                "`day8/re-frame2` core artifact inventory row (Adapter-shipping "
+                "table) — the row that owns the frame-root / frame-provider "
+                "boundary inventory is gone."
+            )
+        else:
+            for token in ("frame-root", "frame-provider"):
+                if token not in row:
+                    problems.append(
+                        "LIFECYCLE-INVENTORY: spec/Conventions.md's "
+                        f"`day8/re-frame2` core artifact inventory row no longer "
+                        f"names `{token}` — neither frame boundary may disappear "
+                        "from the row that inventories it (unrelated mentions "
+                        "elsewhere do not count)."
+                    )
 
     # L7 — synthesis §8 keeps compiled preflight LANDED (not future work).
     if synth03 is not None and "ENSURE is host preflight" not in synth03:
@@ -515,6 +679,7 @@ def find_lifecycle_drift() -> list[str]:
         "frames": UI_FRAMES_FILE,
         "conventions": CONVENTIONS_FILE,
         "synth03": SYNTH_03_FILE,
+        "spec002": SPEC_002_FILE,
     }
     for key, path in required.items():
         if path.is_file():
@@ -756,10 +921,43 @@ def _self_test() -> int:
         "[§frame-provider](https://day8.github.io/re-frame2/spec/002-Frames/"
         "#frame-provider--the-scope-only-component-cljs-reference)."
     )
-    good_client = "  (let [receipt (run-preflight! root-id plans)]\n    (.render (.-react-root root) el))"
+    # good_client models all THREE production render paths + the split allocation
+    # in document order (pre, render, pre, create, render, create, pre, render),
+    # built from labeled segments so a mutation can target one path in isolation.
+    seg_same_root = (
+        "(let [receipt (run-preflight! root-id plans)]\n"
+        "  (.render (.-react-root root) el)) ;; same-root refresh\n"
+    )
+    seg_fresh = (
+        "(let [receipt (run-preflight! root-id plans)]\n"
+        "  (rdc/createRoot container opts)\n"
+        "  (.render react-root el)) ;; fresh mount\n"
+    )
+    seg_split_create = "(rdc/createRoot container opts) ;; create-root* — no preflight, by design\n"
+    seg_render_bang = (
+        "(let [receipt (run-preflight! rid plans)]\n"
+        "  (.render (.-react-root root) el)) ;; render!*\n"
+    )
+    good_client = seg_same_root + seg_fresh + seg_split_create + seg_render_bang
     good_frames = "(defn execute-frame-plans! [root-id plans]\n  ;; finalize-preflight-attempt! ... :mount-incomplete\n  nil)"
-    good_conv = "The `frame-root` (ENSURE) and `frame-provider` (SCOPE) inventory rows."
+    # A markdown Adapter-shipping table: the owning `day8/re-frame2` core row names
+    # BOTH boundaries; an unrelated `-uix` row also mentions them (so an
+    # inventory-row mutation must survive those unrelated mentions).
+    good_conv = (
+        "| Artefact | Contents |\n"
+        "|---|---|\n"
+        "| `day8/re-frame2` | Core: registry, drain, fx, dispatch, subscribe, "
+        "frame-root, frame-provider, trace, the substrate-adapter contract. |\n"
+        "| `day8/re-frame2-uix` | UIx adapter — the UIx-side frame-root / "
+        "frame-provider consuming the shared React context. |\n"
+    )
     good_synth = "**ENSURE is host preflight, never render (I-1).**"
+    # A Spec-002 doc whose ATX headings slugify to the two canonical fragments.
+    good_spec002 = (
+        "### frame-provider — the SCOPE-only component (CLJS reference)\n"
+        "some prose\n"
+        "### frame-root — the ENSURE component (CLJS reference)\n"
+    )
 
     base = dict(
         phase2=good_phase2,
@@ -767,6 +965,7 @@ def _self_test() -> int:
         frames=good_frames,
         conventions=good_conv,
         synth03=good_synth,
+        spec002=good_spec002,
     )
 
     def expect_lifecycle(overrides: dict, *, dirty: bool, label: str) -> None:
@@ -799,23 +998,90 @@ def _self_test() -> int:
     )
     expect_lifecycle(
         {"phase2": good_phase2.replace("#frame-root--the-ensure-component-cljs-reference", "#gone")},
-        dirty=True, label="G5 Spec-002 frame-root anchor missing",
+        dirty=True, label="G5 Spec-002 frame-root anchor missing from guide",
     )
+    # G5b — anchor present in the guide but NO longer resolves to a Spec-002
+    # heading (the fragment is now a dangling literal). Must fail (unresolved).
     expect_lifecycle(
-        {"client": "(.render (.-react-root root) el)\n  (run-preflight! root-id plans)"},
-        dirty=True, label="G6 host render before preflight",
+        {"spec002": good_spec002.replace(
+            "### frame-root — the ENSURE component (CLJS reference)",
+            "### frame-root moved elsewhere")},
+        dirty=True, label="G5b Spec-002 frame-root anchor no longer resolves",
     )
     expect_lifecycle(
         {"frames": "(defn something-else [] nil)"},
         dirty=True, label="G7 compiled executor/evidence surface gone",
     )
     expect_lifecycle(
-        {"conventions": "Only the `frame-provider` (SCOPE) row survives."},
-        dirty=True, label="G8 frame-root dropped from inventory",
-    )
-    expect_lifecycle(
         {"synth03": "Frame ENSURE preflight remains future R-7 work."},
         dirty=True, label="G9 synthesis preflight reverted to future work",
+    )
+
+    # --- Rule 7 causal source assertions (client) — remove/reorder EACH
+    # production preflight independently, and violate the one-shot allocation
+    # ordering; every mutation must fail.
+    same_root_no_pre = (
+        "(let []\n"
+        "  (.render (.-react-root root) el)) ;; same-root refresh (preflight removed)\n"
+    )
+    fresh_no_pre = (
+        "(let []\n"
+        "  (rdc/createRoot container opts)\n"
+        "  (.render react-root el)) ;; fresh mount (preflight removed)\n"
+    )
+    render_bang_no_pre = (
+        "(let []\n"
+        "  (.render (.-react-root root) el)) ;; render!* (preflight removed)\n"
+    )
+    same_root_reordered = (
+        "(.render (.-react-root root) el)\n"
+        "(let [receipt (run-preflight! root-id plans)]) ;; same-root render BEFORE preflight\n"
+    )
+    fresh_alloc_before_pre = (
+        "(rdc/createRoot container opts)\n"
+        "(let [receipt (run-preflight! root-id plans)]\n"
+        "  (.render react-root el)) ;; fresh mount: createRoot BEFORE preflight\n"
+    )
+    expect_lifecycle(
+        {"client": same_root_no_pre + seg_fresh + seg_split_create + seg_render_bang},
+        dirty=True, label="H1 same-root refresh preflight removed",
+    )
+    expect_lifecycle(
+        {"client": seg_same_root + fresh_no_pre + seg_split_create + seg_render_bang},
+        dirty=True, label="H2 fresh-mount preflight removed",
+    )
+    expect_lifecycle(
+        {"client": seg_same_root + seg_fresh + seg_split_create + render_bang_no_pre},
+        dirty=True, label="H3 render!* preflight removed",
+    )
+    expect_lifecycle(
+        {"client": same_root_reordered + seg_fresh + seg_split_create + seg_render_bang},
+        dirty=True, label="H4 same-root render reordered before preflight",
+    )
+    expect_lifecycle(
+        {"client": seg_same_root + fresh_alloc_before_pre + seg_split_create + seg_render_bang},
+        dirty=True, label="H5 one-shot allocation ordering violated (createRoot before preflight)",
+    )
+
+    # --- Rule 7 inventory-row scoping (conventions) — remove EACH boundary from
+    # the OWNING `day8/re-frame2` core row while leaving the unrelated `-uix`
+    # mention intact; every mutation must fail.
+    expect_lifecycle(
+        {"conventions": good_conv.replace(
+            "subscribe, frame-root, frame-provider, trace", "subscribe, frame-provider, trace")},
+        dirty=True, label="I1 frame-root dropped from core row (uix mention survives)",
+    )
+    expect_lifecycle(
+        {"conventions": good_conv.replace(
+            "subscribe, frame-root, frame-provider, trace", "subscribe, frame-root, trace")},
+        dirty=True, label="I2 frame-provider dropped from core row (uix mention survives)",
+    )
+    # I3 — the owning core row itself is gone.
+    expect_lifecycle(
+        {"conventions": (
+            "| Artefact | Contents |\n|---|---|\n"
+            "| `day8/re-frame2-uix` | UIx adapter — frame-root / frame-provider. |\n")},
+        dirty=True, label="I3 core artifact inventory row removed",
     )
 
     if failures:
