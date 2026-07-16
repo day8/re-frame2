@@ -171,7 +171,7 @@ dispatches as an ordinary keyword; dev warns). There is deliberately no
 | `[:event … :rf.ui/value]` | after commit | **yes** | intent — the 90% case |
 | `(ui/event [e] … [:vector …])` ⏳S3 | after commit, sees the live event | no | event mechanics, form/file payloads, filtering (`nil` ⇒ no dispatch) |
 | `(ui/handler [x] …)` ⏳S3 | after commit | no | imperative work, stable-identity change-callbacks |
-| `(ui/render-fn [x] …)` ⏳S3 | during the *foreign* render | no | item-key/comparator/render props; pure — no dispatch/sub/lease/hooks |
+| `(ui/render-fn [x] …)` ⏳S3 | during the *foreign* render — and (2026-07-16) the value an internal `ui/slot` accepts | no | item-key/comparator/render props + internal render slots; pure — no dispatch/sub/lease/hooks |
 | bare `#(…)` on a **known native event prop** (`:on-*` on DOM/custom elements) | after commit | no | legal shorthand for `ui/handler` — **only there** (not refs, not arbitrary fn-valued props) |
 | bare fn in any **other prop position** (foreign heads, internal-view props) | — | — | **compile error** — foreign: pick `ui/event`/`ui/handler`/`ui/render-fn`/`ui/raw-fn`; view props: forward intent as data (the child places the vector at its own DOM site) or pass `ui/handler`/`ui/raw-fn` |
 | `(ui/raw-fn f)` | identity passed through | no | identity-as-protocol APIs; **the callback-ref form** |
@@ -280,7 +280,7 @@ never from render.
 ## 6. Local state and effects ⏳S3 — and the placement LAW
 
 ```clojure
-(let [[text set-text] (local "")]              ; host component-local state
+(let [[text set-text update-text!] (local "")] ; host component-local state — 3-tuple (2026-07-16: update! = latest-host-state atomic)
   [:input {:value text :on-input #(set-text (.. % -target -value))}])  ; bare fn — legal on a native event prop
 
 (effect [node series] (draw! node series) #(destroy!))  ; rf= value deps; cleanup fn

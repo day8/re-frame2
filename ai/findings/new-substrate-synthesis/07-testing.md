@@ -125,7 +125,7 @@ including the multi-root failure-isolation fixture.
 | G-5 drain fan-in | Eight queued write-side epochs in one run-to-completion drain all execute and settle to quiescence, followed by **one** read/render batch — coalescing never drops, merges, or skips writes. A real host yield separates drains and therefore produces a separate batch; epoch count alone is never evidence for render or commit count. |
 | G-6 abandonment/disposal | 10k headless abandoned renders and cold probes ⇒ baseline ownership/cache state; bounded real-browser StrictMode mount/unmount and Activity hide/reveal cycles ⇒ exact root/ViewCell/owner/cache/DOM/scheduler baselines |
 | G-7 dev/prod equivalence | per generated shape + pairwise capabilities + high-risk triples (not powersets); committed DOM/events/owners/cleanup/hydration agree, debug off; StrictMode-dev settles to prod outcomes |
-| G-8 input latency & correctness | **caret/IME correctness first** under the sync door; then event→commit within 10% of hand-written React p95; one commit per input; the real-browser matrix (Chromium/WebKit IME, caret-on-restore, paint timing) is a named open gate — S-5's evidence is jsdom-only |
+| G-8 input latency & correctness | **caret/IME correctness first** under the sync door; then event→commit within 10% of hand-written React p95; one commit per input; the real-browser matrix (Chromium/WebKit IME, caret-on-restore, paint timing) is a named open gate — S-5's evidence is jsdom-only. **[2026-07-16 — readiness P0-2]** the matrix gains a **reusable event-prefix component arm** (a library-shaped control receiving its event vector through props, dispatching via the `ui/event` vector-outcome door) — passing only toy literal fixtures does not close this gate |
 | G-9 list updates | keyed 1k rows: one entity change renders its row + true dependents; stable handler identity; no retained lazy seqs |
 | G-10 bundle | kernel ≤ 4 KB gz; counter ≤ React + 6 KB gz; relative targets vs UIx-adapter / slim; symbol-reachability evidence |
 | G-11 elision | exact absence of debug + absence rosters, including `re-frame.ui.test` and its direct React-`act` boundary from an advanced production bundle |
@@ -135,6 +135,22 @@ including the multi-root failure-isolation fixture.
 
 Methodology: identical fixtures, distributions not best runs, pinned browsers,
 cold+warm, dev overhead separate, no precomputed-props cheating.
+
+**Component-library readiness gates [ADDED 2026-07-16 — directed; owning doc:
+`drafts/component-library-readiness.md`; wire into CI with their S3 features per the
+standing every-stage-wires-its-gates rule]:**
+
+| Gate | Asserts |
+|---|---|
+| G-15 atomic-local writer matrix | two (and N) same-turn host writers through `update!` both land — key+pointer, timer+listener, observer+handler arms; fn-value `set!` stores exactly; mixed `update!`+dispatch; StrictMode replay; JVM typed failure; `:local-state` cause-evidence rows emitted; HMR hook-signature ride |
+| G-16 render-slot parity | slotted output (client emitter vs JVM tree) normalized-structurally equivalent; keyed reorder under slots; purity diagnostics fire for `sub`/`lease`/`local`/`effect`/dispatch/hooks inside a slot body; manifest slot sites present |
+| G-17 safe-spread ownership | the policy form rejects owned keys (`:key` `:ref` `:value` `:checked` owned `:on-*`) in dev **and** advanced builds; `aria-*`/`data-*` pass; a controlled site under the policy form **retains** the sync door; general `spread` at the same site still forfeits it |
+| G-18 library façade isolation | advanced build importing **one** view from a multi-view library namespace retains no unused sibling views, schemas, docs projections, or dev registration (fixture-first per the readiness §4 DCE row — a substrate packaging change is justified only if this fails structurally) |
+
+The component-library **proof pack** (readiness §7 — controlled input, selection
+controller, slotted list cell, safe-attrs form control, schema-described component,
+inline popover, single-view import) lands in the conformance/parity corpus as the
+rolling consumer; the substrate takes no build dependency on re-com.
 
 ## 6. Debug-quality fixtures
 

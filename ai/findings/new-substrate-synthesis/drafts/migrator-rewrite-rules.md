@@ -166,6 +166,13 @@ no call site computes the argument list dynamically (`apply` — flag MANUAL).
      [MachineChart ...]]))
 ```
 
+> **[SUPERSEDED IN PART — 2026-07-16, readiness P0-1 (`drafts/component-library-readiness.md`).]**
+> `local` is now the three-tuple `[value set! update!]`. The `swap!` rewrite below
+> retargets to the atomic updater — `(swap! a f args)` → `(update-a! f args)` reading
+> the **latest host state** — and the MANUAL flag on multi-writer `swap!` idioms is
+> retired: multi-writer *ephemera* are now expressible in `local`; only genuinely
+> product-state values still move to app-db.
+
 Mechanics (all mechanical): outer/inner arg vectors unify (the migrator flags a
 Form-2 whose inner fn ignores the outer args — a live Reagent footgun — and unifies
 on the inner vector); each `(r/atom init)` binding becomes the `[value set!]` tuple

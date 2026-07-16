@@ -64,6 +64,13 @@ implementation).
    evidence schema: manifests, instance records, causes, integrated into existing Xray
    surfaces** (04 §5 — debuggability is a product goal, so Xray consumes before alpha,
    not after). Counter + dashboard must feel complete here, hot reload included.
+   *[AMENDED 2026-07-16 — component-library readiness (directed): this stage also
+   carries the P0 triad (atomic `local` updater · `ui/event` vector-outcome sync-door
+   arm · internal render slots) plus the safe-spread policy, the native-library
+   layout/ref blessing, and the docs/slot manifest projection — 12 §3 has the per-bead
+   fold-in; `drafts/component-library-readiness.md` is the owning delta doc. Rationale:
+   re-com is the first, most important consumer test; these amend S3-owned semantics
+   before their enforcement hardens, per the stage-boundary absorption doctrine.]*
 4. **Presence and web boundaries** — presence, custom elements, head policy, forms/IME
    guidance, high-confidence a11y diagnostics. Bounded; not an animation/form/a11y
    framework.
@@ -137,8 +144,10 @@ story becomes the **two-step migration**: (1) a v1 Reagent/re-com app moves its 
 to re-frame2 keeping its views on the compat tier — gaining Xray/epochs/Story/schemas/
 machines immediately; (2) views migrate to `ui` per subtree, later, with the migrator
 ([10-migration-from-reagent.md](10-migration-from-reagent.md)); re-com widgets are the
-last movers (Reagent islands / foreign heads until a `ui`-native answer is a separate,
-deferrable decision). **The repo's own migration** (examples, testbeds, Story/Xray
+last movers (Reagent islands / foreign heads until the `ui`-native answer lands — that
+answer is now a **directed program**: the re-com native-port epic `rf2-6ajm6z`, Wave 0
+gated on the `ai/decisions/re-com-readiness.product-rulings.md` register; substrate
+readiness rides S3 per `drafts/component-library-readiness.md`, 2026-07-16). **The repo's own migration** (examples, testbeds, Story/Xray
 scenes, guides — all primary surfaces to `ui`) remains the budgeted Stage-6 workstream.
 Every process still installs exactly one adapter; those rendering boundaries are React
 interop, not per-subtree adapter selection.

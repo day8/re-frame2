@@ -88,6 +88,12 @@ dev-with-StrictMode settles to prod's committed outcome.
 
 ## 5. Dependency and bundle discipline
 
+*[2026-07-16 — readiness pointer: the library-façade advanced-build isolation proof
+(one-view import retains no unused siblings) lands as gate **G-18** in 07 §5;
+fixture-first — ordinary registration is already `goog.DEBUG`-gated in the emitter
+(`emit_cljs.cljc:529-537`), so no new elision mode unless that fixture fails
+structurally.]*
+
 re-frame2 core + patched React/React DOM **19.2.4+** peers. No Reagent/UIx/Helix/slim
 anywhere in the graph — asserted at the Maven/npm level (G-12). Advanced-compilation
 clean: no dynamic requires; registry ids compile to compact constants (production

@@ -127,7 +127,7 @@ into HTML and no resumability is claimed — see 06 §4.*
 | `[:event … :rf.ui/value]` | DOM → after commit | per-site stable | committed slots + frame | **yes** | intent (the 90%) |
 | `(ui/event [e] … [:vector …])` | DOM/foreign → after commit | per-site stable | committed slots + the live event | no | event mechanics, form/file payloads, filtering (`nil` ⇒ no dispatch) |
 | `(ui/handler [x] …)` | foreign → after commit | per-site stable | committed slots | no | imperative work, stable-identity change-callbacks |
-| `(ui/render-fn [x] …)` | foreign → **during its render** | none promised | current render | no | item-key/comparator/render props; pure — no dispatch/sub/lease/hooks |
+| `(ui/render-fn [x] …)` | foreign → **during its render**; **[AMENDED 2026-07-16]** also the value an *internal* compiled render slot accepts (`ui/slot`, below) | none promised | current render | no | item-key/comparator/render props; pure — no dispatch/sub/lease/hooks |
 | bare `#(…)` in a **known native event property** (`:on-*` on DOM/custom elements) | DOM → after commit | per-site stable | its closure (committed render's values) | no | shorthand for `ui/handler` — legal because invoker+phase are known. **Only there**: not refs, not arbitrary fn-valued props |
 | bare fn at a **foreign-component** boundary | unknown | unknown | unknown | no | **compile error** — choose `ui/event`/`ui/handler`/`ui/render-fn`/`ui/raw-fn` |
 | `(ui/raw-fn f)` | foreign, identity-as-protocol | passed through | its closure | no | APIs that treat callback identity as data; **also the callback-ref form** (below) |
@@ -179,16 +179,60 @@ else batches per I-6. G-8 (07 §5) pins caret/IME correctness first, latency sec
 **The trigger predicate (S-5-confirmed, 2026-07-12):** the door applies where the
 compiler can *prove* the element controlled — a literal `:value`/`:checked` prop
 co-present on the same element as the vector-handler site. Dynamic props maps,
-`ui/spread`, and `ui/event`/bare-fn dispatches at such sites fall back to standard
-batching with a dev diagnostic naming the sync-door conditions. The S-5 spike confirmed
-this predicate is sufficient and it is kept unchanged; what remains open is the named
-gate G-8 (07 §5) — the real-browser matrix (Chromium/WebKit IME, caret restore, event
-ordering, pre-paint) has not yet run.
+`ui/spread`, and bare-fn dispatches at such sites fall back to standard
+batching with a dev diagnostic naming the sync-door conditions (`ui/event`: see the
+2026-07-16 amendment below — its synchronous *vector-result* form now rides the door;
+its other uses still batch). The S-5 spike confirmed the **controlled-proof clause**
+of this predicate (literal `:value`/`:checked` co-presence) is sufficient and that
+clause is kept unchanged; the handler-form clause widens by the one amendment arm
+below. What remains open is the named gate G-8 (07 §5) — the real-browser matrix
+(Chromium/WebKit IME, caret restore, event ordering, pre-paint) has not yet run.
+
+**[AMENDED 2026-07-16 — component-library readiness (directed; owning delta doc:
+`drafts/component-library-readiness.md` P0-2).]** The door **widens by one arm**: at a
+compiler-proven controlled site (same S-5 predicate), a **synchronous `ui/event` body
+whose result is an event vector** enters the same synchronous drain; `nil` still means
+no dispatch; any other synchronous result is invalid (diagnostic). The site proof stays
+static — the event prefix and payload are runtime values. This is the reusable-input
+arm: a library control receives an application event prefix through props and appends
+the live payload (`(ui/event [e] (conj on-change (.. e -target -value)))`); under the
+literal-only law exactly those controls forfeit the IME/caret guarantee. Ordinary
+dynamic handler values (bare fns, dynamic maps, `ui/spread` at the site) still batch
+with the existing diagnostic. G-8 gains a **reusable event-prefix component arm** —
+the matrix must pass through a library-shaped API, not only toy literals. The
+`.95.1`-implemented literal-only behaviour is corrected by a follow-up child before S3
+conformance; a compiled event-template projection form stays **rejected** (a second
+handler language) unless JVM/Xray evidence from this arm proves materially inadequate.
+
+**Internal fn props + the library event convention (ruled with the same amendment).**
+Ordinary function props between internal views are **legal opaque values,
+identity-compared, with no implicit invocation phase** — special phases require
+`ui/handler` or `ui/render-fn`. Component libraries accept event vectors/prefixes and
+dispatch `(conj prefix payload…)`; placeholders are compile-time and are never expanded
+inside vectors received through props (the existing placeholder-in-dynamic-vector
+warning is the citation). Any `dispatch-conj`-style helper belongs to generic
+library-authoring code, never this artifact.
 
 Dev safety nets: data handlers with unregistered event ids warn at render with the
 element's coordinates (the registrar is **process-global** — frames isolate state, not
 behaviour; a lazily-loaded module that registers later can produce a false positive, so
 the warning names that possibility).
+
+**Internal compiled render slots — `ui/slot` [AMENDED 2026-07-16 — component-library
+readiness P0-3; owning delta doc: `drafts/component-library-readiness.md`].**
+Parameterized markup a consumer supplies to a reusable view (row/item/cell/part
+renderers) gets a compiler-owned invocation form: `ui/slot` accepts **only**
+`ui/render-fn` values or `nil`; the callback body is lexically visible at the
+consumer's call site and therefore **compiled** (both emitters, closed grammar
+inside); it is pure render phase — `sub`/`lease`/`local`/`effect`/dispatch/hooks
+inside are didactic errors; keys/occurrence identity are preserved; capability and
+fingerprint information propagate through the slot site; slotted output has a
+structural `ui.test` representation and participates in memo like child output. This
+is the load-bearing primitive for the three-category library customization taxonomy —
+data props · pure slots · registered stateful views (the third stays wave-2-gated) —
+and the reason arbitrary dynamic heads stay rejected: v-table-class renderer injection
+becomes analyzable instead of impossible. Row-level API delta recorded in 12 §2
+(delta protocol).
 
 ## 4. Reactive reads (contract in 03)
 
@@ -198,11 +242,24 @@ binding. Conditional reads legal; loops rejected (finite sites).
 ## 5. Local state, effects, leases (contract in 03)
 
 ```clojure
-(let [[text set-text] (local "")] …)     ; host component-local state — precisely that
+(let [[text set-text update-text!] (local "")] …)  ; host component-local state — precisely that
 (effect [node series] (draw! node series) #(destroy!))   ; rf= value deps; cleanup fn
 (effect :connect (subscribe-external!) )  ; runs at each connect; cleanup at disconnect
 (lease {:resource :article/by-slug :params {:slug slug}})
 ```
+
+**[AMENDED 2026-07-16 — component-library readiness P0-1 (directed; owning delta doc:
+`drafts/component-library-readiness.md`).]** `local` returns a **three-tuple**
+`[value set! update!]`. `set!` stores its argument *exactly* — a stored function is a
+value, never an updater (no `useState`-style fn overload). `update!` applies
+`(f current & args)` to the **latest host state**, not the committed render's value, so
+several same-turn host writers (key + pointer + timer + observer callbacks batched
+before the next render) compose instead of losing updates. Legal in committed handlers
+and effect callbacks; render-phase use stays the existing dev error; participates in
+`:local-state` cause evidence; JVM raises the same typed host-op error as the setter.
+The migrator's `(swap! a f)` → `(set-a! (f a))` rewrite retargets to `update!` and its
+MANUAL flag on multi-writer idioms is retired. Reset-key/derived local remains **out**
+— a scheduled spike with an explicit-revision-key constraint (readiness doc §4).
 
 `local` is **host component-local state, deliberately outside re-frame2 epochs** — not a
 future frame feature wearing a substrate name (there is no frame-resident variant and
@@ -230,6 +287,13 @@ subscription-derived computation — those belong in app-db behind an event.
   head meanwhile, and `ui/view` in production requires production registry entries —
   dev-only string ids can't serve dynamic prod lookup).
 - `(ui/spread base overrides)` — the one generic runtime prop-map conversion (v1).
+  **[AMENDED 2026-07-16 — readiness P1-4]** A **literal safe-policy form** joins it
+  (exact spelling decided at spec landing): compiler-visible allow/deny where denied
+  structural/controlled/identity keys (`:key` `:ref` `:value` `:checked` owned
+  `:on-*`) fail in **every build**, allowed `:on-*` values classify through the §3
+  decision table, and `aria-*`/`data-*`/ordinary attrs pass through. The policy form
+  is what lets an `:attr`-style passthrough coexist with the controlled-input proof —
+  general `spread` at a controlled site still disqualifies the sync door.
 - `(ui/portal node child)` — React portal; frame context passes through (**wave-2** —
   not in the v1 surface).
 - `(ui/client-only {:fallback tpl} client-tpl)` — browser-only subtree with a mandatory

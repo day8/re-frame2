@@ -10,8 +10,14 @@ compiler diagnostics, and tests — tools consume the schema, not private React 
 **Compiler manifest — what *can* happen.** Per view, dev: source coords, prop slots +
 schema, template fingerprint, hook signature, capability bits, and every site (subs with
 query shapes; events with event shapes + a `:serializable?`/`:dynamic` flag; leases;
-effects; presence sites) with source + template path. No runtime values; useful before
-mount — to Xray, Story, editors, and agents (the AI-ergonomics goal rides this surface).
+effects; presence sites; **render-slot sites [2026-07-16]**) with source + template
+path. No runtime values; useful before mount — to Xray, Story, editors, and agents (the
+AI-ergonomics goal rides this surface). **[AMENDED 2026-07-16 — readiness P1-5, owning
+doc `drafts/component-library-readiness.md`]:** the dev/test projection of this
+manifest is a **versioned public shape** additionally carrying per-prop docs/defaults
+and declared slot metadata — one source of truth replacing parallel args-description
+systems (re-com maintains ~57 such Vars); Story/docs/Xray/agents consume it; its
+production absence is proven with G-7/G-11.
 
 **Committed instance record — what *did* happen.** Published only at connected commit;
 speculative renders publish nothing. Shape (versioned):

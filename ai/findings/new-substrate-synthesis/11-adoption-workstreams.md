@@ -2,6 +2,11 @@
 
 **Status:** final · 2026-07-11. 08 §2 budgets "migrate the repo" as a Stage-6
 workstream; this doc decomposes the full adoption surface so it can become stage epics.
+*[2026-07-16: the **re-com native port** is deliberately NOT a W-row here — it is a
+separate directed epic (`rf2-6ajm6z`, Wave 0 gated on
+`ai/decisions/re-com-readiness.product-rulings.md`) so component migration never
+blocks a substrate stage; its substrate prerequisites ride S3 per
+`drafts/component-library-readiness.md`.]*
 Each row: what, when it starts, what gates it. Rule of thumb throughout: nothing here
 starts before the thing it documents/teaches/tests exists — but *none of it is optional*,
 and several items (ui.test, the migrator, skills) are on the critical path, not trailing
