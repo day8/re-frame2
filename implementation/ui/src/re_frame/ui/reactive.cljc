@@ -3529,25 +3529,37 @@
   authority had already moved. Re-reading the authority a third time only MOVES
   the race to between that read and the swap; it is not a linearization point.
 
-  ## The linearization
+  ## The linearization — two axes, two strengths
 
-  Validation and publication are ONE `compare-and-set!` transition over the
-  cell-state value read at the top of the loop (the `complete-flush!`
-  rf2-vxgfnd.180 idiom), so a pause interposed anywhere before the CAS cannot
-  publish a stale capture:
+  Validation and publication settle against the cell-state value read at the top
+  of the loop (the `complete-flush!` rf2-vxgfnd.180 idiom), but the two authority
+  axes do NOT carry the same guarantee — a distinction that matters for a future
+  maintainer or async-host author, so it is stated precisely:
 
-    - CELL-LOCAL axis — the capture generation is compared to `(:generation s)`
-      of the SAME snapshot `s` the CAS commits. A racing `advance-generation!`
+    - CELL-LOCAL axis — a GENUINE single-atom CAS linearization. The capture
+      generation is compared to `(:generation s)` of the SAME snapshot `s` the
+      `compare-and-set! st s published` commits. A racing `advance-generation!`
       is either already visible in `s` (→ `:stale`) or lands after the sample
       and FAILS the CAS (`st` ≠ `s`); the loop then re-reads and re-validates.
-    - REGISTRY axis — the view's HMR slot is sampled ONCE per attempt as an
-      authority TOKEN, and the publish CAS is GATED on that token still being
-      `identical?` to the live slot at the instant of the CAS. A same-view
-      re-registration swaps `view-generations` to a fresh slot object, so the
-      token gate fails and the loop re-reads a moved revision (→ `:stale`). The
-      publication never trusts a revision sampled earlier and gone stale; it
-      consults the slot IDENTITY at the linearization point, which a stale
-      revision read cannot fool.
+      Airtight even under genuine concurrency.
+    - REGISTRY axis — a BEST-EFFORT slot-IDENTITY gate, NOT a single-atom
+      linearization. The view's HMR slot is sampled ONCE per attempt as an
+      authority TOKEN; the publish gate is `(and (identical? token (get
+      @view-generations view-id)) (compare-and-set! st s published))` — TWO reads
+      of TWO different atoms (`view-generations` for the token, `st` for the
+      CAS). The token is checked IMMEDIATELY BEFORE the CAS, not fused atomically
+      WITH it. A same-view re-registration swaps `view-generations` to a fresh
+      slot object, so the token gate fails and the loop re-reads a moved revision
+      (→ `:stale`). A residual two-expression window remains (the `identical?`
+      read → the `st` CAS) in which a re-registration would leave `st` untouched
+      and let the CAS publish a stale-revision capture. That window is
+      UNREACHABLE on the single-threaded CLJS render host where HMR/registry
+      authority lives — JS never preempts between two non-yielding expressions
+      and no application/framework callback runs in it (`published` is computed
+      before the `if`) — and the whole authority arm is DCE'd in production (see
+      below). It reopens ONLY under genuinely unsynchronized multi-threaded
+      concurrent commit-of-the-same-view + re-registration, which is outside
+      re-frame2's per-frame single-threaded contract.
 
   The `*commit-barrier* :pre-publish` seam fires ONCE, between the first
   attempt's authority sample and its CAS, so a fixture can interpose either
