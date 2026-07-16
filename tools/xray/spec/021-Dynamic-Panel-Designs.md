@@ -661,29 +661,35 @@ ninth L4 tab. The L4 set is locked at 8.
 **Decision: collapsed disclosure by default, dim when expanded.**
 
 - Default: footer line `[Show N unchanged subs ▾]` collapsed.
-- Expanded: rendered inline within step 7 at 60% text opacity
+- Expanded: the memo-hit subs render dim at 60% text opacity
   (`:text-tertiary` token).
-- Operator can pin "always expand unchanged" via Settings → View → "Show
-  unchanged subs in cascade" (default OFF).
+- Operator can pin "always expand unchanged" via the
+  `:show-unchanged-subs?` Settings pin (`:general` section; default OFF).
 
 Rationale: unchanged subs are coverage signal, not signal-of-the-moment.
 Hiding by default keeps the dense view scannable; the toggle preserves
 the "I want to see what DIDN'T fire" affordance.
 
-**Data-availability (rf2-vxgfnd.22).** The projection tier
-(`reactive-panel-subs/project-record`) carries NO `subs-skipped` slot. A
-memo-hit (input-unchanged short-circuit) emits NO `:sub-runs` row — the
-substrate's `sub-run-row` hardcodes `:recomputed? true`, and a
-`:rf.sub/skip` memo-hit rides only `:trace-events` — so `:subs-ran` is
-the whole run-set. Surfacing *skipped* subs (the "what DIDN'T fire"
-coverage above) awaits the `:rf.sub/skipped` attribution op (§12, not yet
-landed); it MUST NOT be reconstructed by filtering `:sub-runs` on
-`(complement :recomputed?)`, which is structurally always empty — a
-projected slot that shape produced was doubly-dead (unproducible AND
-consumed by no panel: the §3.2 flow graph reads `:level-1/2-subs` /
-`:view-rows` / `:sub-readers`). The graph's `unchanged` (dashed,
-short-circuited) nodes are subs that RAN with `:value-changed? false`,
-NOT memo-hit skips.
+**Data-availability (rf2-ty5r5o).** The disclosure is fed by the
+canonical `:rf.sub/skip` op the substrate ALREADY emits — a memo-hit
+(input-value-equal short-circuit) emits NO `:sub-runs` row (the
+substrate's `sub-run-row` hardcodes `:recomputed? true`) but rides
+`:trace-events` as a `:rf.sub/skip` (`re-frame.subs.memo/emit-sub-skip!`,
+tags `:rf.sub/id` / `:rf.sub/query-v` / `:rf.sub/reason` `:input-value-equal`
+/ `:rf.sub/input-paths-unchanged`). `reactive-panel-subs/project-record`
+reads those ops off `:trace-events` into a distinct `:subs-skipped` slice
+(`skipped-subs`), de-duplicated by sub-id and EXCLUDING any sub that also
+recomputed this epoch — so `:subs-skipped` stays cleanly distinct from
+`:subs-ran`. It is NOT reconstructed by filtering `:sub-runs` on
+`(complement :recomputed?)`, which is structurally always empty. The
+graph's `unchanged` (dashed, short-circuited) nodes are subs that RAN with
+`:value-changed? false` (a recompute that produced the same value) — a
+DIFFERENT category from a memo-hit skip, and the panel never conflates the
+two. The disclosure open-state (`:show-unchanged?` on `:rf.xray/reactive-
+data`) is the OR of the panel-local quick-toggle
+(`:rf.xray/reactive-show-unchanged?`, flipped by
+`:rf.xray/reactive-toggle-unchanged`) and the `:show-unchanged-subs?`
+Settings pin.
 
 ### §3.4.1 ViewCell invalidation evidence (re-frame.ui substrate · rf2-vxgfnd.146)
 
@@ -808,7 +814,7 @@ general JavaScript heap claim (rf2-vxgfnd.149). Tool absence stays zero-cost.
 
 | From | Reads |
 |---|---|
-| Focused epoch record | `:rf.sub/run`, `:rf.sub/skipped` (new — §11), `:rf.view/render` / `:rf.view/rendered` — read from the focused epoch record's `:trace-events` (rf2-rly4a — same `focus.epoch-id` scope as Trace, so Reactive + Trace stay correlated) |
+| Focused epoch record | `:rf.sub/run`, `:rf.sub/skip` (memo hit → `:subs-skipped`, §3.4), `:rf.view/render` / `:rf.view/rendered` — read from the focused epoch record's `:trace-events` (rf2-rly4a — same `focus.epoch-id` scope as Trace, so Reactive + Trace stay correlated) |
 | Registries | Sub metadata (input-paths, signal-fn), view metadata (file:line) |
 | App-db | Seed-path resolution from the epoch's diff (§4) |
 | re-frame.ui evidence projection | `:rf.xray/viewcell-evidence` → `viewcell-evidence/rows` — the CUMULATIVE bounded per-ViewCell invalidation accumulators Xray owns via `re-frame.ui.tool.evidence` (§3.4.1; NOT epoch-scoped) |
@@ -842,9 +848,10 @@ SUBSCRIPTIONS** sections read the view-unmount / sub-dispose ops from the same e
    given sub) need the deref-subs sink (spec'd, absent in the current build) or sub-cache
    reader introspection. Until it lands, the `×N (shared)` annotation + the precise
    "reactive vs parent re-render" tag render only for edges the triggering-view key resolves.
-3. **`:rf.sub/skipped`** ("considered, didn't recompute") appears only when skips happen;
-   `:rf.sub/value-changed? false` carries the changed/not story regardless, so the dashed
-   `no change` node renders from the run-set alone.
+3. **`:rf.sub/skip`** ("considered, didn't recompute" — the memo hit) appears only when skips
+   happen; it feeds the §3.4 `:subs-skipped` disclosure, NOT the graph. `:rf.sub/value-changed?
+   false` carries the changed/not story regardless, so the dashed `no change` graph node renders
+   from the run-set alone.
 
 ### §3.6 Cross-panel navigation
 
@@ -5131,7 +5138,7 @@ What the panel design needs from the substrate (per §1.4 captured-not-replayed)
 | Bounded per-epoch capture | Cap at **50 subs + 100 views per epoch**. The substrate enforces at capture time; the panel shows `+N more` overflow indicator (existing component, `panels/overflow_indicator.cljc`). |
 | Buffer retention | Substrate-owned. Xray documents the operator surface as **Settings → Buffer → Epoch history** (current ~100; configurable). |
 | Evicted-epoch UX | Per §10.7 — placeholder string in every panel. |
-| Sub `:skipped` op | New trace op needed (`:rf.sub/skipped`) — current trace has `:rf.sub/run` only. Without `:skipped`, the "unchanged subs" disclosure in §3.4 cannot render coverage. |
+| Sub skip op | **Landed** — the substrate emits `:rf.sub/skip` on a memo hit (`re-frame.subs.memo/emit-sub-skip!`); it rides `:trace-events` and feeds the §3.4 "unchanged subs" disclosure via `:subs-skipped` (rf2-ty5r5o). No new op needed. |
 
 ### §11.4 B.10 Open sub-decisions
 
@@ -5181,7 +5188,7 @@ prerequisites.
 | Contract | Op key | Payload sketch | Used by |
 |---|---|---|---|
 | **View re-render attribution** | `:rf.view/rendered` | `{:rf.view/id :ns/Component :file ".../X.cljs" :line N :rf.view/cause-event-id <id> :caused-by-paths [...] :rf.trace/dispatch-id <id>}` | Reactive panel · Trace panel · §3.5 |
-| **Sub skip attribution** | `:rf.sub/skipped` | `{:rf.sub/id :s/foo :reason :input-unchanged :rf.trace/dispatch-id <id>}` | Reactive panel "unchanged subs" disclosure · §3.4 |
+| **Sub skip attribution** (rf2-ty5r5o) | `:rf.sub/skip` | `{:rf.sub/id :s/foo :rf.sub/query-v [...] :rf.sub/reason :input-value-equal :rf.sub/input-paths-unchanged [...]}` — **Landed** (`re-frame.subs.memo/emit-sub-skip!`); rides `:trace-events`, projected to `:subs-skipped`. | Reactive panel "unchanged subs" disclosure · §3.4 |
 | **Sub value-change + cascade attribution** (rf2-l1jz8) | `:rf.sub/run` | `{:rf.sub/id :s/foo :query-v [...] :value-changed? <bool> :prev-value <v> :value <v> :cascade? <bool> :cause-sub [query-id args]-or-nil}` — value slots redacted at the marks chokepoint; threaded onto the epoch record's `:sub-runs` projection. **Landed** in the framework substrate (Spec 009 §`:rf.sub/run`, Spec-Schemas §`:rf/epoch-record` `:sub-runs`). | Reactive panel "SUBS WHOSE VALUE CHANGED" (§3.1.1.2) + "SUBS THAT CASCADED" (§3.1.1.3) |
 | **Cascade aggregate** | `:rf.cascade/captured` | `{:rf.trace/dispatch-id <id> :subs-ran N :subs-skipped N :views-rendered N :flows-recomputed N}` | Optional — emitted at end-of-epoch for fast L2 badge / Reactive summary line |
 | **Dispatch-origin tag** | (on existing `:rf.event/dispatched`) | `:tags :rf.event/origin <origin-kw>` per §1.5 taxonomy (landed) | Epoch panel DISPATCH step · L2 row prefix · filter pills |
@@ -5225,10 +5232,12 @@ real beads after approving this doc.
   §1.5 taxonomy. All call sites in `re-frame.core` + adapter mounts.
   Gates: Epoch panel DISPATCH step, L2 row prefix, B.10 dispatch-origin display.
 
-- **rf2-?????** — *Substrate: add `:rf.sub/skipped` trace op.* Emit at
-  sub-evaluation skip site (input-unchanged short-circuit). Carries
-  `:rf.sub/id` + `:reason` + `:rf.trace/dispatch-id`. Gates: Reactive panel
-  "unchanged subs" disclosure (§3.4).
+- **DONE (rf2-ty5r5o)** — *Substrate: `:rf.sub/skip` trace op.* The memo
+  wrappers emit `:rf.sub/skip` at the input-value-equal short-circuit
+  (`re-frame.subs.memo/emit-sub-skip!`), carrying `:rf.sub/id` /
+  `:rf.sub/query-v` / `:rf.sub/reason` / `:rf.sub/input-paths-unchanged`; it
+  rides `:trace-events`. The Reactive panel's §3.4 "unchanged subs"
+  disclosure consumes it via `:subs-skipped` (rf2-ty5r5o).
 
 - **rf2-?????** — *Substrate: add `:rf.view/rendered` trace op per
   substrate adapter.* One per Reagent / UIx / Helix; instrumented at the
@@ -5239,9 +5248,9 @@ real beads after approving this doc.
   of-epoch summary op with subs/views/flows counts. Cheap; emitted every
   epoch. Gates: L2 badge "cascade size", Reactive header summary line.
 
-- **rf2-?????** — *Substrate: add `:rf.flow/skipped` trace op.* Mirror
-  `:rf.sub/skipped` for flows. Gates: Epoch panel FLOW step dim-row
-  rendering.
+- **rf2-?????** — *Substrate: add `:rf.flow/skipped` trace op.* Mirror the
+  landed `:rf.sub/skip` (rf2-ty5r5o) for flows. Gates: Epoch panel FLOW
+  step dim-row rendering.
 
 - **rf2-?????** — *Substrate: focused-event-only attribution gate.*
   Runtime extension reads a per-frame `:rf.xray/focused-dispatch-id`
@@ -5270,7 +5279,7 @@ real beads after approving this doc.
 - **rf2-?????** — *Xray: Reactive panel rebuild + rename.* Rename L3
   tab display label `Views` → `Reactive` (key stays `:views`). Replace
   panel content with sub cascade + view re-render (§3). Depends on
-  substrate `:rf.sub/skipped` + `:rf.view/rendered`.
+  substrate `:rf.sub/skip` (landed, rf2-ty5r5o) + `:rf.view/rendered`.
 
 - **rf2-?????** — *Xray: App-db panel — downstream-subs overlay.* Add
   the hover popover at §4.4 that lists subs/views downstream of each

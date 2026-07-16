@@ -31,8 +31,14 @@
   - **shared subscription** → a sub read by ≥2 views fans out to N view
     nodes; the node carries a `×N` annotation.
 
-  Below the graph two list sections complete the panel:
+  Below the graph a collapsed disclosure + two list sections complete the
+  panel:
 
+  - **Show N unchanged subs** (§3.4) — the memo-hit coverage: subs
+    reactively considered this epoch whose input was value-equal, so they
+    short-circuited without recomputing (canonical `:rf.sub/skip` →
+    `:subs-skipped`). Collapsed by default; the per-panel toggle / Settings
+    pin expands it to the dim rows.
   - **UNMOUNTED VIEWS** — views whose component unmounted this epoch.
   - **DESTROYED SUBSCRIPTIONS** — subs cleaned up when their last reader
     unmounted (data-availability honest: empty until the sub-dispose op
@@ -452,6 +458,66 @@
           :style destroyed-caption-style}
       "Subscriptions cleaned up when their last reader unmounted"]]))
 
+;; ---- unchanged subs disclosure (spec/021 §3.4) ------------------------
+;;
+;; The memo-hit coverage — subs reactively considered this epoch whose
+;; input was value-equal, so they short-circuited without recomputing
+;; (the canonical `:rf.sub/skip` evidence, projected to `:subs-skipped`).
+;; Coverage signal, not signal-of-the-moment, so it is collapsed by
+;; default behind a footer `[Show N unchanged subs ▾]` line; the open-
+;; state (`:show-unchanged?`) is the OR of the panel-local quick-toggle
+;; and the Settings always-expand pin, resolved in the composite sub.
+
+(def ^:private unchanged-toggle-style
+  {:appearance "none" :border "none" :background "none"
+   :padding "6px 0" :cursor "pointer"
+   :font-family sans-stack :font-size "11px" :font-weight 600
+   :letter-spacing "0.4px"
+   :color (:text-tertiary tokens)})
+
+(def ^:private unchanged-row-style
+  {:display "flex" :align-items "center" :gap "12px"
+   :padding "6px 14px"
+   :border-top (str "1px solid " (:border-subtle tokens))
+   :font-family mono-stack :font-size "12px"
+   ;; §3.4 — rendered at 60% opacity (:text-tertiary): coverage, dimmed.
+   :color (:text-tertiary tokens)})
+
+(defn- unchanged-subs-section
+  "The 'Show N unchanged subs' footer disclosure (spec/021 §3.4).
+
+  Renders nothing when no sub was memo-hit this epoch. Otherwise a footer
+  toggle button; collapsed by default, expanded (per-panel toggle OR the
+  `:show-unchanged-subs?` Settings pin — both fold into `:show-unchanged?`)
+  it lists the memo-hit subs dim. The button dispatches the panel-local
+  `:rf.xray/reactive-toggle-unchanged` quick-toggle."
+  [data]
+  (let [rows  (:subs-skipped data)
+        n     (count rows)
+        open? (boolean (:show-unchanged? data))]
+    (when (pos? n)
+      [:section {:data-testid "rf-xray-reactive-unchanged-section"
+                 :style section-margin-top-style}
+       [:button {:data-testid "rf-xray-reactive-unchanged-toggle"
+                 :data-open   (str open?)
+                 :aria-expanded (str open?)
+                 :on-click    (fn [_e]
+                                (rf/dispatch [:rf.xray/reactive-toggle-unchanged]))
+                 :style       unchanged-toggle-style}
+        (str (if open? "Hide" "Show") " " n " unchanged sub" (when (not= 1 n) "s")
+             " " (if open? "▴" "▾"))]
+       (when open?
+         (into [:div {:data-testid "rf-xray-reactive-unchanged-list"
+                      :style       list-card-style}]
+               (for [{:keys [sub-id]} rows]
+                 ^{:key (str sub-id)}
+                 [:div {:data-testid (str "rf-xray-reactive-unchanged-row-"
+                                          (id-slug sub-id))
+                        :style       unchanged-row-style}
+                  [:span {:style {:flex 1}} (format-id sub-id)]
+                  [:span {:style {:font-family sans-stack :font-size "10px"}}
+                   "input unchanged · memo hit"]])))])))
+
 ;; EP-0025: the STANDING `:public`-claim declassification audit section is
 ;; REMOVED — classification no longer propagates input → output, so there is no
 ;; `:rf.egress/output-sensitivity :rf.egress/public` declassify claim to surface.
@@ -601,6 +667,7 @@
          [:section {:data-testid "rf-xray-reactive-flow-section"}
           (section-label "flow" "Reactive Flow" {:title-case? true})
           (flow-graph data)]
+         (unchanged-subs-section data)
          (unmounted-views-section data)
          (destroyed-subs-section data)
          (viewcell-evidence-section)

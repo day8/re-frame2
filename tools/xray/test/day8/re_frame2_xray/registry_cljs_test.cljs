@@ -468,8 +468,8 @@
    :rf.xray.trace/focused-event-bundle
    ;; Reactive panel (rf2-wyvf2 · spec/021 §3 · renamed from Views per
    ;; §11.5; tab key stays `:views`, display label rebases). Reads the
-   ;; focused cascade's `:trace-events` for the substrate ops landed in
-   ;; PRs #1728 + #1729 (`:rf.view/rendered`, `:rf.sub/skipped`,
+   ;; focused cascade's `:trace-events` for the substrate ops
+   ;; (`:rf.view/rendered`, `:rf.sub/skip` memo-hit → `:subs-skipped`,
    ;; `:rf.cascade/captured`).
    :rf.xray/reactive-data
    :rf.xray/reactive-show-unchanged?
@@ -1445,11 +1445,36 @@
     (rf/with-frame :rf/xray
       (let [data @(rf/subscribe [:rf.xray/reactive-data])]
         (is (contains? data :subs-ran))
-        ;; rf2-vxgfnd.22 — no `:subs-skipped` slot: the substrate emits no
-        ;; memo-hit `:sub-runs` row, so `:subs-ran` is the whole run-set.
-        (is (not (contains? data :subs-skipped)))
+        ;; rf2-ty5r5o — the memo-hit `:subs-skipped` slice is a real slot
+        ;; (fed by canonical `:rf.sub/skip` ops); empty when no cascade is
+        ;; focused, DISTINCT from `:subs-ran`.
+        (is (contains? data :subs-skipped))
+        (is (= [] (:subs-skipped data)))
         (is (contains? data :views-rendered))
         (is (false? (:has-event-bundle? data)))))))
+
+(deftest sub-reactive-data-show-unchanged-resolves-both-axes
+  (testing "rf2-ty5r5o — the §3.4 disclosure open-state (`:show-unchanged?`
+            on :rf.xray/reactive-data, the flag the panel view reads) is the
+            OR of the panel-local quick-toggle
+            (:rf.xray/reactive-toggle-unchanged) AND the
+            :show-unchanged-subs? Settings pin. Either axis visibly changes
+            it; collapsed by default."
+    (setup-xray-frame!)
+    (rf/with-frame :rf/xray
+      (is (false? (:show-unchanged? @(rf/subscribe [:rf.xray/reactive-data])))
+          "collapsed by default")
+      ;; panel-local quick-toggle axis
+      (rf/dispatch-sync [:rf.xray/reactive-toggle-unchanged])
+      (is (true? (:show-unchanged? @(rf/subscribe [:rf.xray/reactive-data])))
+          "the per-panel toggle expands the disclosure")
+      (rf/dispatch-sync [:rf.xray/reactive-toggle-unchanged])
+      (is (false? (:show-unchanged? @(rf/subscribe [:rf.xray/reactive-data])))
+          "toggling back collapses it")
+      ;; Settings always-expand pin axis
+      (rf/dispatch-sync [:rf.xray/settings-update :general :show-unchanged-subs? true])
+      (is (true? (:show-unchanged? @(rf/subscribe [:rf.xray/reactive-data])))
+          "the Settings pin expands the disclosure independently"))))
 
 ;; ---- (4) high-value event contracts -------------------------------------
 
