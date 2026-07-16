@@ -3107,6 +3107,47 @@
       (vreset! (:fired sig) true)))
   nil)
 
+(defn retire-root-reporter!
+  "Terminally retire `incarnation`'s reporter authority at a SUCCESSFUL exact
+  adapter/manual quarantine recovery (rf2-nd7z9h). A throwing host `.unmount`
+  aborts before React runs the reporter's mount-lifetime cleanup, so
+  `report-root-teardown!` never fires and the incarnation stays STRONGLY held in
+  `live-reporters`. Adapter-wide recovery then reclaims the consumed container and
+  releases the client's `live-roots` claim — but `release-root!` alone touches
+  only `live-roots`, so WITHOUT this retirement the reporter ledger keeps one dead
+  token per recovery cycle plus stale reporter-deferred teardown authority (a
+  later `teardown-root!` for the retired incarnation would be classified DEFERRED
+  off a reporter that can never settle).
+
+  Call ONLY once the terminal container reclaim has completed: the reporter
+  authority is then spent, so retiring it lets a subsequent `teardown-root!` for
+  this incarnation settle SYNCHRONOUSLY and returns the ledger to BASELINE across
+  repeated recovery cycles. Reuses the exact identity-keyed strong set — no second
+  registry. Idempotent (`disj`), and — unlike `report-root-teardown!` — it does
+  NOT touch the in-flight teardown-settle signal, because recovery runs after the
+  throwing thunk has already unwound. A late real-React `report-root-teardown!`
+  for this same incarnation is thereafter a harmless no-op whose identity check
+  still cannot settle a same-id SUCCESSOR incarnation. Returns nil."
+  [incarnation]
+  (when (some? incarnation)
+    (swap! live-reporters disj incarnation))
+  nil)
+
+(defn live-reporter-count
+  "The number of root incarnations whose committed reporter is still live
+  (tool/test read). A cleanup-failure quarantine whose container reclaim has
+  completed is retired (`retire-root-reporter!`), so repeated
+  mount → throwing-cleanup → adapter-reclaim cycles return this to baseline
+  instead of accreting one strong token per cycle (rf2-nd7z9h)."
+  []
+  (count @live-reporters))
+
+(defn live-reporter?
+  "Whether `incarnation`'s committed reporter is still live (tool/test read).
+  A retired predecessor reads false while a same-id successor reads true."
+  [incarnation]
+  (contains? @live-reporters incarnation))
+
 (defn- settle-deferred-root!
   "Settle a DEFERRED host teardown (rf2-vxgfnd.182). The host `.unmount` returned
   but scheduled this root's teardown for a later microtask, so its cells are

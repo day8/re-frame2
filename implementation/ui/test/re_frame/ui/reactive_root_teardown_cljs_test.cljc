@@ -587,3 +587,78 @@
        (reactive/disconnect! outer)))
     (is (= :dead (reactive/lifecycle outer))
         "the outer window survived the nested one and proved its own cell")))
+
+;; ===========================================================================
+;; rf2-nd7z9h — retire the exact root-reporter authority after a SUCCESSFUL
+;; manual/adapter quarantine recovery.
+;;
+;; A throwing host `.unmount` aborts before React runs the reporter's cleanup,
+;; so `report-root-teardown!` never fires and the committed incarnation stays
+;; STRONGLY held in `live-reporters`. Adapter-wide recovery reclaims the consumed
+;; container and releases the client claim, but `release-root!` touches only the
+;; client registry — so WITHOUT `retire-root-reporter!` the reporter ledger keeps
+;; one dead token per recovery cycle plus stale reporter-DEFERRED teardown
+;; authority for the old token. These reactive-level proofs run on node
+;; (`test:cljs`) AND JVM (`clojure -M:test`); the end-to-end adapter-drain wiring
+;; is pinned by the browser `adapter-public-root-disposal-dom-cljs-test`.
+;; ===========================================================================
+
+(deftest retire-root-reporter-flips-a-deferred-teardown-to-synchronous
+  ;; A committed reporter makes a subsequent no-signal `teardown-root!` DEFERRED
+  ;; (the cell-less deferral pinned above). After the terminal reclaim retires the
+  ;; reporter authority, the SAME no-signal teardown for that old token settles
+  ;; SYNCHRONOUSLY — there is no live reporter left to await, on every host.
+  (let [inc     (reactive/make-root-incarnation)
+        settled (atom false)]
+    (reactive/report-root-commit! inc)
+    (is (true? (reactive/live-reporter? inc)) "the committed root holds reporter authority")
+    (reactive/retire-root-reporter! inc)
+    (is (false? (reactive/live-reporter? inc))
+        "successful reclaim retired the incarnation's reporter authority")
+    (reactive/teardown-root! inc
+                             (fn [] nil)                 ;; no cleanup, no sentinel
+                             (fn [] (reset! settled true)))
+    (is (true? @settled)
+        "a no-signal teardown of the RETIRED old token is synchronously terminal —
+         never reporter-deferred (a registry-only recovery would hold it)")))
+
+(deftest retiring-committed-incarnations-returns-the-reporter-ledger-to-baseline
+  ;; Repeated commit → throwing-cleanup → reclaim must return the strong ledger to
+  ;; baseline rather than accreting one token per recovery cycle. Retirement is
+  ;; idempotent, so a late real-React cleanup for an already-retired token is safe.
+  (let [base (reactive/live-reporter-count)
+        incs (vec (repeatedly 5 reactive/make-root-incarnation))]
+    (doseq [i incs] (reactive/report-root-commit! i))
+    (is (= (+ base 5) (reactive/live-reporter-count))
+        "five committed roots each add one reporter token")
+    (doseq [i incs] (reactive/retire-root-reporter! i))
+    (is (= base (reactive/live-reporter-count))
+        "every retired incarnation left the ledger — back to baseline, not grown")
+    (doseq [i incs] (reactive/retire-root-reporter! i))
+    (is (= base (reactive/live-reporter-count)) "retirement is idempotent")))
+
+(deftest a-late-reporter-cleanup-for-a-retired-predecessor-cannot-affect-a-successor
+  ;; After recovery retires the predecessor, a same-id successor commits fresh. A
+  ;; LATE real-React `report-root-teardown!` for the retired predecessor must be a
+  ;; harmless no-op: idempotent (`disj`) and identity-checked, it clears nothing of
+  ;; the distinct successor incarnation.
+  (let [pred (reactive/make-root-incarnation)
+        succ (reactive/make-root-incarnation)]
+    (reactive/report-root-commit! pred)
+    (reactive/retire-root-reporter! pred)                ;; the terminal reclaim retires pred
+    (reactive/report-root-commit! succ)                  ;; the same-id successor commits
+    (is (not (identical? pred succ)) "the successor is a distinct incarnation")
+    (is (false? (reactive/live-reporter? pred)))
+    (is (true? (reactive/live-reporter? succ)))
+    ;; the retired predecessor's late real-React cleanup eventually fires
+    (reactive/report-root-teardown! pred)
+    (is (false? (reactive/live-reporter? pred)) "idempotent — predecessor stays retired")
+    (is (true? (reactive/live-reporter? succ))
+        "the successor's reporter authority is untouched by the late predecessor cleanup")
+    (testing "the successor still settles through its OWN reporter signal"
+      (let [settled (atom false)]
+        (reactive/teardown-root! succ
+                                 (fn [] (reactive/report-root-teardown! succ))
+                                 (fn [] (reset! settled true)))
+        (is (true? @settled) "its own synchronous reporter teardown settles it")
+        (is (false? (reactive/live-reporter? succ)) "…and clears its authority")))))

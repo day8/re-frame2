@@ -561,3 +561,262 @@
             (.then (fn [] (done))
                    (fn [e]
                      (unexpected! done "commit-phase adapter disposal rejected" e))))))))
+
+;; ===========================================================================
+;; rf2-nd7z9h — retire the exact root-reporter authority after a SUCCESSFUL
+;; manual/adapter quarantine recovery.
+;;
+;; PR #5911 added `live-reporters`, a STRONG set of committed root-incarnation
+;; tokens. A throwing host `.unmount` never runs the reporter's mount-lifetime
+;; cleanup, so `report-root-teardown!` never fires; adapter-wide recovery clears
+;; the consumed container and calls `release-root!` (which dissociates
+;; `live-roots` only), STRONGLY RETAINING the dead incarnation in
+;; `live-reporters` — one leaked token per recovery cycle, plus stale
+;; reporter-deferred teardown authority for the old token. These fixtures pin
+;; that a SUCCESSFUL terminal reclaim now also retires the reporter authority,
+;; while a FAILED reclaim (and an isolated `unmount!`) keeps both quarantine and
+;; reporter authority fail-closed.
+;; ===========================================================================
+
+(defn- mount-retire-probe!
+  "Mount a public compiled Root (every root render commits a `root-commit-reporter`,
+  so its incarnation enrols in `live-reporters`) under a LITERAL root-id — the
+  `ui/mount` macro validates :root-id at expansion, so each id must be a literal."
+  [container which]
+  (case which
+    :sync         (ui/mount [admission-probe] container
+                            {:root-id :adapter-public/retire-sync})
+    :baseline     (ui/mount [admission-probe] container
+                            {:root-id :adapter-public/retire-baseline})
+    :succ         (ui/mount [admission-probe] container
+                            {:root-id :adapter-public/retire-succ})
+    :fail-closed  (ui/mount [admission-probe] container
+                            {:root-id :adapter-public/retire-fail-closed})
+    :reclaim-fail (ui/mount [admission-probe] container
+                            {:root-id :adapter-public/retire-reclaim-fail})))
+
+(deftest recovered-throwing-root-old-token-teardown-settles-synchronously
+  (when (browser?)
+    (async done
+      (let [container (js/document.createElement "div")
+            root*     (volatile! nil)
+            old-inc   (volatile! nil)
+            cleanup   (js/Error. "retire-sync host cleanup failed")]
+        (-> (act-promise
+             #(vreset! root* (mount-retire-probe! container :sync)))
+            (.then
+             (fn []
+               (vreset! old-inc
+                        (:root-incarnation
+                         (client/live-root-entry :adapter-public/retire-sync)))
+               (is (some? @old-inc))
+               (is (true? (reactive/live-reporter? @old-inc))
+                   "a committed root holds live reporter authority")
+               ;; Replace only this exact host handle's unmount seam so the
+               ;; adapter's synchronous failure fallback (reclaim + release) runs.
+               (let [^client/Root root @root*]
+                 (set! (.-unmount (.-react-root root)) (fn [] (throw cleanup))))
+               (is (identical? cleanup
+                               (thrown-value #((:dispose-adapter! ui/adapter))))
+                   "the throwing host cleanup error still propagates")))
+            (.then
+             (fn []
+               (is (= #{} (client/live-root-ids)))
+               (is (false? (reactive/live-reporter? @old-inc))
+                   "successful reclaim retired the old incarnation's reporter")
+               ;; A no-signal `teardown-root!` for the RETIRED old token settles
+               ;; SYNCHRONOUSLY — no live reporter to await. Before the fix the
+               ;; retained token classifies it reporter-DEFERRED, so `on-settled`
+               ;; would fire a microtask later and this volatile stay false here.
+               (let [settled (volatile! false)]
+                 (reactive/teardown-root! @old-inc (fn [] nil)
+                                          (fn [] (vreset! settled true)))
+                 (is (true? @settled)
+                     "a teardown of the retired old token is synchronously terminal"))))
+            (.then (fn [] (done))
+                   (fn [e]
+                     (unexpected! done "sync-teardown proof rejected" e))))))))
+
+(deftest repeated-throwing-recovery-returns-reporter-ledger-to-baseline
+  (when (browser?)
+    (async done
+      (let [reporter-base (reactive/live-reporter-count)
+            root-base     (client/live-root-ids)
+            cleanup       (js/Error. "retire-baseline host cleanup failed")
+            run-cycle
+            (fn run-cycle [n]
+              (if (zero? n)
+                (js/Promise.resolve nil)
+                (let [container (js/document.createElement "div")
+                      root*     (volatile! nil)]
+                  (-> (act-promise
+                       #(vreset! root* (mount-retire-probe! container :baseline)))
+                      (.then
+                       (fn []
+                         (is (= (inc reporter-base) (reactive/live-reporter-count))
+                             "a committed root adds exactly one reporter token")
+                         (let [^client/Root root @root*]
+                           (set! (.-unmount (.-react-root root))
+                                 (fn [] (throw cleanup))))
+                         (is (identical?
+                              cleanup
+                              (thrown-value #((:dispose-adapter! ui/adapter)))))
+                         ;; The dead incarnation's reporter authority is retired at
+                         ;; the successful reclaim — the ledger is back to baseline,
+                         ;; not one strong token heavier.
+                         (is (= reporter-base (reactive/live-reporter-count))
+                             "adapter reclaim retired the reporter — ledger at baseline")
+                         (is (= root-base (client/live-root-ids)))
+                         (run-cycle (dec n))))))))]
+        (-> (run-cycle 4)
+            (.then
+             (fn []
+               (is (= reporter-base (reactive/live-reporter-count))
+                   "after many recovery cycles the reporter ledger is at baseline,
+                    not grown one strong token per cycle")))
+            (.then (fn [] (done))
+                   (fn [e]
+                     (unexpected! done "reporter-ledger baseline proof rejected" e))))))))
+
+(deftest late-predecessor-reporter-cleanup-cannot-affect-successor
+  (when (browser?)
+    (async done
+      (let [container (js/document.createElement "div")
+            pred*     (volatile! nil)
+            pred-inc  (volatile! nil)
+            succ-inc  (volatile! nil)
+            cleanup   (js/Error. "retire-succ predecessor cleanup failed")]
+        (-> (act-promise
+             #(vreset! pred* (mount-retire-probe! container :succ)))
+            (.then
+             (fn []
+               (vreset! pred-inc
+                        (:root-incarnation
+                         (client/live-root-entry :adapter-public/retire-succ)))
+               (is (true? (reactive/live-reporter? @pred-inc)))
+               (let [^client/Root root @pred*]
+                 (set! (.-unmount (.-react-root root)) (fn [] (throw cleanup))))
+               ;; isolated unmount! quarantines fail-closed; adapter destroy then
+               ;; reclaims (the `quarantined?` recovery branch, seam 1).
+               (is (identical? cleanup (thrown-value #(client/unmount!* @pred*))))
+               (is (true? (:cleanup-failure?
+                           (client/live-root-entry :adapter-public/retire-succ))))
+               (act-promise rf/destroy-adapter!)))
+            (.then
+             (fn []
+               (is (= #{} (client/live-root-ids)))
+               (is (false? (reactive/live-reporter? @pred-inc))
+                   "the reclaimed quarantine retired the predecessor reporter")
+               (rf/init! ui/adapter)
+               ;; the exact id + container re-mounts a fresh incarnation
+               (act-promise #(mount-retire-probe! container :succ))))
+            (.then
+             (fn []
+               (vreset! succ-inc
+                        (:root-incarnation
+                         (client/live-root-entry :adapter-public/retire-succ)))
+               (is (not (identical? @pred-inc @succ-inc))
+                   "the same-id successor is a distinct incarnation")
+               (is (true? (reactive/live-reporter? @succ-inc)))
+               ;; A LATE real-React reporter cleanup for the RETIRED predecessor:
+               ;; idempotent (`disj`) + identity-checked, so it clears nothing of
+               ;; the same-id successor.
+               (reactive/report-root-teardown! @pred-inc)
+               (is (false? (reactive/live-reporter? @pred-inc))
+                   "the retired predecessor stays retired (idempotent)")
+               (is (true? (reactive/live-reporter? @succ-inc))
+                   "the successor's reporter authority is untouched")
+               (act-promise rf/destroy-adapter!)))
+            (.then (fn [] (done))
+                   (fn [e]
+                     (unexpected! done "late-predecessor idempotency proof rejected" e))))))))
+
+(deftest public-unmount-alone-fails-closed-and-retains-reporter-authority
+  (when (browser?)
+    (async done
+      (let [container (js/document.createElement "div")
+            root*     (volatile! nil)
+            inc*      (volatile! nil)
+            cleanup   (js/Error. "retire-fail-closed host cleanup failed")]
+        (-> (act-promise
+             #(vreset! root* (mount-retire-probe! container :fail-closed)))
+            (.then
+             (fn []
+               (vreset! inc*
+                        (:root-incarnation
+                         (client/live-root-entry :adapter-public/retire-fail-closed)))
+               (is (true? (reactive/live-reporter? @inc*)))
+               (let [^client/Root root @root*]
+                 (set! (.-unmount (.-react-root root)) (fn [] (throw cleanup))))
+               (is (identical? cleanup (thrown-value #(client/unmount!* @root*))))
+               ;; No reclaim proof: the container is not advertised free, the claim
+               ;; stays quarantined, AND the reporter authority is RETAINED —
+               ;; retirement belongs only at a SUCCESSFUL exact recovery.
+               (let [entry (client/live-root-entry :adapter-public/retire-fail-closed)]
+                 (is (true? (:tearing-down? entry)))
+                 (is (true? (:cleanup-failure? entry))))
+               (is (contains? (client/live-root-ids)
+                              :adapter-public/retire-fail-closed)
+                   "the unproven container is not advertised free")
+               (is (true? (reactive/live-reporter? @inc*))
+                   "isolated unmount! retains reporter authority (no reclaim proof)")
+               ;; adapter destroy then reclaims + retires, leaving a clean registry.
+               (act-promise rf/destroy-adapter!)))
+            (.then
+             (fn []
+               (is (= #{} (client/live-root-ids)))
+               (is (false? (reactive/live-reporter? @inc*))
+                   "the later adapter reclaim retired the reporter authority")))
+            (.then (fn [] (done))
+                   (fn [e]
+                     (unexpected! done "unmount-alone fail-closed proof rejected" e))))))))
+
+(deftest failed-container-reclaim-retains-quarantine-and-reporter-authority
+  (when (browser?)
+    (async done
+      (let [container    (js/document.createElement "div")
+            root*        (volatile! nil)
+            inc*         (volatile! nil)
+            cleanup      (js/Error. "retire-reclaim-fail host cleanup failed")
+            reclaim-boom (js/Error. "container reclaim failed")]
+        (-> (act-promise
+             #(vreset! root* (mount-retire-probe! container :reclaim-fail)))
+            (.then
+             (fn []
+               (vreset! inc*
+                        (:root-incarnation
+                         (client/live-root-entry :adapter-public/retire-reclaim-fail)))
+               (is (true? (reactive/live-reporter? @inc*)))
+               (let [^client/Root root @root*]
+                 (set! (.-unmount (.-react-root root)) (fn [] (throw cleanup)))
+                 ;; Force the adapter's terminal container reclaim to FAIL: the
+                 ;; surface is never proven free, so recovery must retain BOTH the
+                 ;; quarantine AND the reporter authority. Retiring the reporter
+                 ;; BEFORE a proven reclaim is the mutation this fixture pins.
+                 (set! (.-replaceChildren (.-container root))
+                       (fn [] (throw reclaim-boom))))
+               (is (identical? cleanup
+                               (thrown-value #((:dispose-adapter! ui/adapter))))
+                   "the primary host cleanup error still surfaces")))
+            (.then
+             (fn []
+               (let [entry (client/live-root-entry :adapter-public/retire-reclaim-fail)]
+                 (is (true? (:tearing-down? entry))
+                     "a failed reclaim keeps the claim quarantined")
+                 (is (true? (:cleanup-failure? entry))))
+               (is (contains? (client/live-root-ids)
+                              :adapter-public/retire-reclaim-fail))
+               (is (true? (reactive/live-reporter? @inc*))
+                   "a failed reclaim retains reporter authority (never retire before
+                    a reclaim proves the surface free)")
+               ;; Repair the reclaim seam and recover cleanly, so the fixture
+               ;; teardown starts from an empty registry (and prove a subsequent
+               ;; successful reclaim now retires the reporter).
+               (js/Reflect.deleteProperty (.-container @root*) "replaceChildren")
+               (thrown-value #((:dispose-adapter! ui/adapter)))
+               (is (= #{} (client/live-root-ids)))
+               (is (false? (reactive/live-reporter? @inc*))
+                   "the repaired reclaim finally retired the reporter authority")))
+            (.then (fn [] (done))
+                   (fn [e]
+                     (unexpected! done "failed-reclaim fail-closed proof rejected" e))))))))

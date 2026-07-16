@@ -1375,6 +1375,14 @@
           quarantined?
           (try
             (reclaim-consumed-container! root)
+            ;; rf2-nd7z9h — the terminal reclaim proved this consumed surface
+            ;; free, so this exact incarnation's reporter authority is spent:
+            ;; retire it BEFORE releasing the claim so `live-reporters` cannot
+            ;; strongly retain a dead incarnation across recovery cycles (nor
+            ;; leave stale reporter-deferred teardown authority for its old
+            ;; token). A FAILED reclaim throws above and skips both retirement and
+            ;; release, keeping quarantine AND reporter authority fail-closed.
+            (reactive/retire-root-reporter! (:root-incarnation current))
             (release-root! root-id root)
             (catch :default recovery-error
               (vswap! errors conj recovery-error)))
@@ -1400,6 +1408,11 @@
                   ;; `unmount!*` just classified this exact root as cleanup-failed.
                   ;; Successful adapter reclaim proves the surface free; the
                   ;; identity fence prevents a stale snapshot releasing a successor.
+                  ;; rf2-nd7z9h — retire this incarnation's reporter authority too,
+                  ;; between the successful reclaim and the claim release, so the
+                  ;; reporter ledger returns to baseline (a failed reclaim throws
+                  ;; above and retains both quarantine and reporter authority).
+                  (reactive/retire-root-reporter! (root-incarnation-of root-id))
                   (release-root! root-id root)
                   (catch :default recovery-error
                     (vswap! errors conj recovery-error)))))))))
