@@ -17,8 +17,10 @@
       re-frame.ui already observed the schedule) and rewrite its in-memory source
       to a VIEWLESS namespace (its final ui/defview removed). re-frame.ui saw
       app-a as an output-present cache hit and did NOT pre-touch it; only
-      `reconcile-final-schedule` at :compile-finish — reading Shadow's advanced
-      per-source :compiled-at stamp — can evict its now-absent accepted view.
+      `reconcile-final-schedule` at :compile-finish — reading Shadow's causal
+      per-source compile evidence (app-a's fresh, `:cached false` recompiled
+      output carries a new `:js` artifact object) — can evict its now-absent
+      accepted view.
 
     blind-provenance — model a hook that destroys the per-pass compile-schedule
       evidence: drop re-frame.ui's :pass-output snapshot from the open scratch.

@@ -38,8 +38,9 @@
 
   ;; SEQUENTIAL compile schedule (:parallel-build false). re-frame.ui's prepare
   ;; pre-touch takes its (nil? prior-output)/warnings branch here. The
-  ;; final-schedule reconciliation, keyed on Shadow's authoritative :compiled-at
-  ;; stamp, must evict identically in both modes.
+  ;; final-schedule reconciliation, keyed on Shadow's causal per-source compile
+  ;; evidence (a :cached false finish output whose fresh :js artifact differs from
+  ;; the prepare snapshot), must evict identically in both modes.
   :ui-final-schedule-seq
   {:target :browser
    :output-dir "../../../../../../out/ui-final-schedule-seq"
