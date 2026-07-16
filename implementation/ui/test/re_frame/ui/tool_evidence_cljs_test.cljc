@@ -326,6 +326,83 @@
            (first (:targets (:evidence (entry-for ::ordinary)))))
         "ordinary bounded EDN remains exact")))
 
+(deftest metadata-bearing-symbol-targets-are-stripped-and-marked-inexact
+  ;; rf2-vxgfnd.94.17. A symbol is the only metadata-capable scalar leaf, and
+  ;; its metadata can hold the ViewCell the entry is weak-keyed by. The copier
+  ;; must return a metadata-free value (no back-edge) AND stop claiming exact.
+  (is (true? (evidence/install! ::xray)))
+  (let [sink          (evidence/installed-sink)
+        direct-cell   (reactive/make-cell ::meta-direct)
+        nested-cell   (reactive/make-cell ::meta-nested)
+        coll-cell     (reactive/make-cell ::meta-coll)
+        ordinary-cell (reactive/make-cell ::sym-ordinary)]
+    ;; DIRECT: the query IS a metadata-bearing symbol whose meta holds the cell
+    (publish-target! sink direct-cell [:sub fid (with-meta 'q {:cell direct-cell})])
+    ;; NESTED: the metadata-bearing symbol sits two collections deep
+    (publish-target! sink nested-cell
+                     [:sub fid [::q [(with-meta 'deep {:cell nested-cell})]]])
+    ;; ADVERSARIAL: metadata on the COLLECTION itself (reconstruction must drop it)
+    (publish-target! sink coll-cell
+                     [:sub fid (with-meta [::q 1] {:cell coll-cell})])
+    ;; CONTROL: an ordinary metadata-free symbol stays semantically exact
+    (publish-target! sink ordinary-cell [:sub fid [::q 'plain]])
+
+    (testing "a DIRECT metadata-bearing symbol is stripped to a bare value"
+      (let [ev  (:evidence (entry-for ::meta-direct))
+            sym (get-in ev [:targets 0 2])]
+        (is (= 'q sym) "value semantics preserved (symbol equality ignores meta)")
+        (is (nil? (meta sym)) "…but no metadata/back-reference is retained")
+        (is (false? (:targets-exact? ev)) "dropped metadata is marked as loss")
+        (is (false? (:dropped-exact? ev)))))
+
+    (testing "a NESTED metadata-bearing symbol is stripped in place"
+      (let [ev  (:evidence (entry-for ::meta-nested))
+            sym (get-in ev [:targets 0 2 1 0])]
+        (is (= 'deep sym))
+        (is (nil? (meta sym)) "the nested symbol carries no metadata")
+        (is (false? (:targets-exact? ev)))))
+
+    (testing "collection-level metadata never survives reconstruction"
+      (let [ev  (:evidence (entry-for ::meta-coll))
+            tk  (get-in ev [:targets 0])
+            q   (get tk 2)]
+        (is (= [::q 1] q) "the collection value is preserved")
+        (is (nil? (meta q)) "…without its metadata")
+        (is (nil? (meta tk)) "nor does the target vector keep metadata")))
+
+    (testing "an ordinary metadata-free symbol remains exact"
+      (let [ev (:evidence (entry-for ::sym-ordinary))]
+        (is (= [:sub fid [::q 'plain]] (get-in ev [:targets 0]))
+            "ordinary bounded EDN with a plain symbol is verbatim")
+        (is (nil? (meta (get-in ev [:targets 0 2 1]))))
+        (is (true? (:targets-exact? ev)) "…and honestly exact")
+        (is (true? (:dropped-exact? ev)))))))
+
+#?(:clj
+   (deftest metadata-bearing-symbol-does-not-defeat-weak-keys
+     ;; The retention proof for rf2-vxgfnd.94.17. `(with-meta 'q {:cell cell})`
+     ;; is a back-edge from the target VALUE, through symbol metadata, to the
+     ;; ViewCell the entry is weak-keyed by — exactly the shape a bounded copier
+     ;; is supposed to make impossible. RED at PR #5998's head, which returned
+     ;; the symbol (and its metadata) unchanged.
+     (is (true? (evidence/install! ::xray)))
+     (let [sink (evidence/installed-sink)
+           refs (mapv
+                 (fn [[vid query-fn]]
+                   (let [cell (connect-empty! (reactive/make-cell vid))]
+                     (publish-target! sink cell [:sub fid (query-fn cell)])
+                     (reactive/disconnect! cell)
+                     (java.lang.ref.WeakReference. cell)))
+                 [[::meta-weak-direct (fn [cell] (with-meta 'q {:cell cell}))]
+                  [::meta-weak-nested
+                   (fn [cell] [::q [(with-meta 'deep {:cell cell})]])]])]
+       (is (true? (gc-until #(every?
+                              (fn [^java.lang.ref.WeakReference ref]
+                                (nil? (.get ref)))
+                              refs)))
+           "symbol metadata roots neither a direct nor a nested weak key")
+       (is (= [] (evidence/projection))))))
+
 #?(:clj
    (deftest direct-and-nested-query-cycles-do-not-defeat-weak-keys
      (is (true? (evidence/install! ::xray)))

@@ -99,7 +99,20 @@
   ViewCells, host values, records and arbitrary sequences become an opaque
   marker. That is deliberately a COPY, not a serializer: no metadata,
   identity-bearing object or query→cell back-edge can enter the long-lived
-  weak-registry value. Ordinary bounded EDN remains exact."
+  weak-registry value. Ordinary bounded EDN remains exact.
+
+  METADATA is the subtle leak (rf2-vxgfnd.94.17). Among the scalar leaves only
+  the SYMBOL is metadata-capable — `(with-meta 'q {:cell cell})` is a legal
+  target value whose metadata can hold the very ViewCell the entry is
+  weak-keyed by, so returning the symbol verbatim roots the key. (nil, boolean,
+  number, char and string are not `IMeta`; a keyword is interned and rejects
+  metadata on both hosts; a record is already opaque.) A metadata-bearing
+  symbol is REBUILT from its ns/name — value-equal, provably free of any hidden
+  field — and marked inexact, because dropping the metadata changed what the
+  original carried. Collection metadata needs no special case: every collection
+  branch reconstructs a fresh value, so container-level metadata never
+  survives; a metadata-bearing symbol NESTED in one is stripped by the same leaf
+  rule on the recursion."
   ([x] (project-target-value x 0 (volatile! target-node-cap)))
   ([x depth budget]
    (if-not (pos? @budget)
@@ -119,13 +132,20 @@
            [bounded-marker false])
 
          (keyword? x)
+         ;; Interned, not IMeta on either host — no back-edge possible.
          (if (<= (count (str x)) target-string-cap)
            [x true]
            [bounded-marker false])
 
          (symbol? x)
          (if (<= (count (str x)) target-string-cap)
-           [x true]
+           (if (nil? (meta x))
+             [x true]
+             ;; Metadata-bearing: rebuild from ns/name so no metadata map (and
+             ;; thus no ViewCell it may hold) enters the retained value, and
+             ;; mark the loss — the projected symbol is value-equal but no
+             ;; longer carries what the original did.
+             [(symbol (namespace x) (name x)) false])
            [bounded-marker false])
 
          (reactive/cell? x)
