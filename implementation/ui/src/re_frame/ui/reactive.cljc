@@ -136,8 +136,16 @@
   a thread-local per-render scope (`with-slice-memo`, discarded on return); CLJS
   shares the synchronous render pass through a module holder released at the
   MICROTASK checkpoint (`queue-microtask!`, aligned with the port's own table
-  clear). The memo is an ECONOMY, never an authority — the commit evidence
-  comparison (step 5) corrects any staleness before paint."
+  clear). How a slice is BOUNDED is per-host, so the CLJS slice's MAXIMUM
+  lifetime is that microtask checkpoint: within one host-microtask window — even
+  when an inverse microtask FIFO ordering lets a later synchronous render pass
+  (or a caught-render retry) interpose before the clear drains — a probe may
+  reuse the still-installed holder, but NO holder or table survives PAST the
+  checkpoint into the next window (rf2-2g7pxq). The memo is an ECONOMY, never an
+  authority — the commit evidence comparison (step 5) corrects any staleness
+  before paint, and the exact `(frame, frame-epoch, registry-epoch)` +
+  incarnation tag re-validates every reused table so an interposed later render
+  at a MOVED epoch mints a fresh table rather than serving a stale value."
   (:require [re-frame.error :as error]
             [re-frame.features :as features]
             [re-frame.frame :as frame]
@@ -342,8 +350,9 @@
 ;;
 ;; ONE memo handle per top-level render/execution slice, shared by every probe
 ;; in the slice so sibling rows compute shared derivation parents once (the
-;; first-mount fan-out mitigation). The handle DIES WITH ITS SLICE — the prior
-;; slice's table never survives into the next (rf2-vxgfnd.174):
+;; first-mount fan-out mitigation). The handle DIES WITH ITS SLICE — no handle or
+;; table survives into a LATER render slice (rf2-vxgfnd.174). How a slice is
+;; BOUNDED is per-host because the hosts' scheduling models genuinely differ:
 ;;
 ;;   - JVM: a THREAD-LOCAL render-slice scope (`*slice*`, opened by
 ;;     `with-slice-memo`). EVERY public Tier-1 JVM render entry opens one around
@@ -363,6 +372,18 @@
 ;;     aligned with the port's own table clear — NOT the `interop/next-tick`
 ;;     macrotask, which would leave a dead slice's holder live for one more
 ;;     host turn) under a CAS guard so a stale clear cannot erase a newer holder.
+;;     That checkpoint is the CLJS slice's HONEST boundary — its MAXIMUM
+;;     lifetime. queue-microtask! is FIFO, so a microtask enqueued BEFORE the
+;;     first probe drains BEFORE our clear (an inverse ordering): if it performs
+;;     a later synchronous render, that render's probes see the still-installed
+;;     holder and REUSE it. This reuse is a bounded, safe economy, not a leak —
+;;     the whole host-microtask window IS one CLJS slice, and the exact
+;;     `(frame, frame-epoch, registry-epoch)` + incarnation tag re-validates
+;;     every table hit, so an interposed later render at a MOVED epoch installs a
+;;     fresh table (never a stale value). A caught-render retry is the same case:
+;;     synchronous, before the checkpoint, so it too is within-window sharing.
+;;     What the checkpoint guarantees is the LAW: no holder or table survives
+;;     PAST it into the next window (rf2-2g7pxq).
 ;;
 ;; The memo is an ECONOMY only — commit step 5 corrects any staleness before
 ;; paint, and the incarnation-complete tag (rf2-vxgfnd.160) keeps a commit-free
@@ -413,12 +434,19 @@
   thread-local `*slice*` box and is discarded when the scope returns
   (rf2-vxgfnd.174) — so the prior JVM table is unreachable with no reset/tag
   dependency. Outside any scope: on CLJS the module holder shares the synchronous
-  render pass and a MICROTASK releases it; on the JVM a bare probe gets a fresh
-  per-call handle (no cross-call/cross-render retention). The handle's own
+  render pass and a MICROTASK checkpoint releases it — that checkpoint is the
+  holder's MAXIMUM lifetime, so a later render interposing within the same
+  host-microtask window (an inverse microtask FIFO drains a pre-enqueued
+  callback before our clear) reuses the still-installed holder as a bounded, safe
+  economy, but nothing survives PAST the checkpoint into the next window
+  (rf2-2g7pxq); on the JVM a bare probe gets a fresh per-call handle (no
+  cross-call/cross-render retention). The handle's own
   `(frame, frame-epoch, registry-epoch)` tag PLUS the exact frame-incarnation
-  token (rf2-vxgfnd.160) still invalidate a stale table within a slice. The memo
-  is an ECONOMY — commit step 5 corrects staleness before paint, and the
-  incarnation-complete tag keeps a commit-free reader correct on its own."
+  token (rf2-vxgfnd.160) still invalidate a stale table within a slice — so even
+  the interposed within-window reuse mints a fresh table at a moved epoch rather
+  than serving a stale value. The memo is an ECONOMY — commit step 5 corrects
+  staleness before paint, and the incarnation-complete tag keeps a commit-free
+  reader correct on its own."
   []
   (if-some [box *slice*]
     (or @box (let [h (obs/make-slice-memo)] (vreset! box h) h))
@@ -426,9 +454,13 @@
        (or @slice-memo*
            (let [h (obs/make-slice-memo)]
              (reset! slice-memo* h)
-             ;; Release OUR handle at the microtask checkpoint (aligned with the
-             ;; port's table clear); a later slice may already have installed a
-             ;; newer one, so clear only while ours is still current.
+             ;; Release OUR handle at the microtask checkpoint — the CLJS slice's
+             ;; MAXIMUM lifetime. queue-microtask! is FIFO, so a callback enqueued
+             ;; before this probe drains before this clear; if it renders, its
+             ;; probes reuse `h` (within-window bounded economy, tag-guarded).
+             ;; CAS so a stale clear cannot erase a NEWER holder a later window
+             ;; installed; the clear itself is what stops `h` surviving PAST the
+             ;; checkpoint into the next window (rf2-2g7pxq).
              (queue-microtask! (fn [] (compare-and-set! slice-memo* h nil)))
              h))
        :clj
