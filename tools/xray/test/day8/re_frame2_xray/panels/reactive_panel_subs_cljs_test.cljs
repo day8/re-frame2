@@ -11,10 +11,12 @@
   spec/018):
 
   - `:sub-runs` entry → `{:sub-id _ :query-v _ :recomputed? true}`; the
-    substrate's `sub-run-row` hardcodes `:recomputed? true` and a
-    `:rf.sub/skip` memo-hit projects NO `:sub-runs` row, so `:subs-ran`
-    IS the run-set — there is no producible memo-hit / `subs-skipped`
-    split (see the `project-record` fabrication note below).
+    substrate's `sub-run-row` hardcodes `:recomputed? true`, so `:subs-ran`
+    IS the run-set.
+  - `:rf.sub/skip` op on `:trace-events` → the memo-hit evidence
+    (`re-frame.subs.memo/emit-sub-skip!`), projected to the distinct
+    `:subs-skipped` slice (spec/021 §3.4) — a sub reactively considered
+    whose input was value-equal, so it did NOT recompute.
   - `:renders`  entry → `{:render-key [view-id idx] ...}`.
   - flow ops on `:trace-events` → `:rf.flow/computed` / `:rf.flow/skip`.
 
@@ -39,6 +41,18 @@
   {:render-key [view-id 0] :triggered-by nil :elapsed-ms nil})
 
 (defn- flow-ev [op] {:operation op})
+
+(defn- skip-ev
+  "A `:rf.sub/skip` memo-hit trace event as the substrate emits it
+  (`re-frame.subs.memo/emit-sub-skip!`) — rides `:trace-events`, NOT
+  `:sub-runs`."
+  ([sub-id] (skip-ev sub-id []))
+  ([sub-id input-paths-unchanged]
+   {:operation :rf.sub/skip
+    :tags      {:rf.sub/id                    sub-id
+                :rf.sub/query-v               [sub-id]
+                :rf.sub/reason                :input-value-equal
+                :rf.sub/input-paths-unchanged input-paths-unchanged}}))
 
 ;; ---- focused-epoch-record ---------------------------------------------
 
@@ -100,16 +114,72 @@
           "order preserved from :sub-runs")
       (is (= 3 (-> p :counts :subs-ran))))))
 
-;; NOTE (rf2-vxgfnd.22): the deleted `project-subs-skipped` +
-;; `project-subs-split-by-recomputed` deftests fabricated `:recomputed?
-;; false` `:sub-runs` rows — a shape the SUBSTRATE NEVER EMITS
-;; (`sub-run-row` hardcodes `:recomputed? true`; a `:rf.sub/skip` memo-hit
-;; projects no `:sub-runs` row). The projected `:subs-skipped` slot they
-;; asserted on was doubly-dead — permanently `[]` (unproducible) AND
-;; consumed by no panel (the flow graph reads `:level-1/2-subs` /
-;; `:view-rows` / `:sub-readers`). Surfacing memo-hit subs awaits the real
-;; `:rf.sub/skipped` attribution op (spec/021 §12); it must NOT be
-;; reconstructed by filtering `:sub-runs` on `(complement :recomputed?)`.
+;; ---- project-record: subs skipped (memo-hit :rf.sub/skip) -------------
+;;
+;; The canonical `:rf.sub/skip` evidence (rf2-ty5r5o) — the substrate
+;; emits it on `:trace-events` (NOT `:sub-runs`) on a memo hit; the
+;; projection reads it into the distinct `:subs-skipped` slice. This
+;; replaces the deleted fabricated `:recomputed? false` sub-run tests
+;; (a shape the substrate never emits).
+
+(deftest skipped-subs-reads-rf-sub-skip-ops
+  (testing "skipped-subs projects each :rf.sub/skip op off :trace-events —
+            de-duplicated by sub-id — carrying the memo-hit tags."
+    (let [events [(skip-ev :user/name)
+                  (skip-ev :cart/eligibility [[:cart/state]])
+                  (skip-ev :user/name)] ; dup → once
+          rows   (subs/skipped-subs events #{})]
+      (is (= [:user/name :cart/eligibility] (mapv :sub-id rows))
+          "distinct memo-hit subs, first-seen order")
+      (is (= :input-value-equal (-> rows first :reason)))
+      (is (= [] (-> rows first :input-paths-unchanged))
+          "layer-1 skip carries [] input-paths-unchanged")
+      (is (= [[:cart/state]] (-> rows second :input-paths-unchanged))
+          "layer-2 skip names its upstream query-vectors"))))
+
+(deftest skipped-subs-excludes-subs-that-also-ran
+  (testing "rf2-ty5r5o — a sub that RECOMPUTED this epoch DID fire, so it is
+            a :subs-ran row and MUST NOT also appear in :subs-skipped (the
+            two categories stay distinct); a pure memo-hit survives."
+    (let [events [(skip-ev :read-a)     ; also ran (below) → excluded
+                  (skip-ev :derived-a)] ; pure skip → kept
+          rows   (subs/skipped-subs events #{:read-a})]
+      (is (= [:derived-a] (mapv :sub-id rows))
+          ":read-a is excluded (it ran); :derived-a survives"))))
+
+(deftest skipped-subs-nil-safe
+  (is (= [] (subs/skipped-subs nil nil)))
+  (is (= [] (subs/skipped-subs [] #{}))
+      "no skip ops → empty")
+  (is (= [] (subs/skipped-subs [(flow-ev :rf.flow/skip)] #{}))
+      "a :rf.flow/skip is NOT a sub skip"))
+
+(deftest project-record-surfaces-subs-skipped-distinct-from-ran
+  (testing "rf2-ty5r5o — project-record reads the memo-hit :rf.sub/skip
+            evidence into :subs-skipped, kept DISTINCT from :subs-ran even
+            when a :subs-ran row carries :value-changed? false (a recompute
+            that produced the same value is NOT a memo-hit skip)."
+    (let [record {:sub-runs     [{:sub-id :read-a :query-v [:read-a]
+                                  :recomputed? true :value-changed? false}] ; RAN, value unchanged
+                  :trace-events [(skip-ev :read-a)              ; also skipped → excluded
+                                 (skip-ev :derived-a [[:read-a]])]}
+          p      (subs/project-record record)]
+      ;; :read-a ran with :value-changed? false → a subs-ran row.
+      (is (= [:read-a] (mapv :sub-id (:subs-ran p))))
+      (is (= [false] (mapv :value-changed? (:subs-ran p)))
+          "a value-changed? false recompute stays in subs-ran (NOT skipped)")
+      ;; only the pure memo-hit lands in :subs-skipped.
+      (is (= [:derived-a] (mapv :sub-id (:subs-skipped p)))
+          ":subs-skipped names only the sub that skipped without running")
+      (is (= 1 (-> p :counts :subs-ran)))
+      (is (= 1 (-> p :counts :subs-skipped))))))
+
+(deftest project-empty-record-zeroes-subs-skipped
+  (testing "rf2-ty5r5o — empty / nil record → [] :subs-skipped + 0 count."
+    (doseq [r [nil {}]]
+      (let [p (subs/project-record r)]
+        (is (= [] (:subs-skipped p)))
+        (is (= 0 (-> p :counts :subs-skipped)))))))
 
 ;; ---- project-record: views rendered -----------------------------------
 

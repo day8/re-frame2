@@ -12,14 +12,23 @@
   emits (`:rf.sub/computed` / `:rf.sub/skipped`), pinning subs-ran to
   zero regardless of how many subs actually ran.
 
-  - `:sub-runs` → subs-ran; every `:sub-runs` row is a genuine recompute
-    (the substrate's `sub-run-row` hardcodes `:recomputed? true` and a
-    `:rf.sub/skip` memo-hit projects NO `:sub-runs` row — it rides only
-    `:trace-events`), so there is no memo-hit / `subs-skipped` split to
-    surface here. Each row carries `:value-changed?`. Surfacing skipped
-    (memo-hit) subs awaits the `:rf.sub/skipped` attribution op (spec/021
-    §12) — it MUST NOT be reconstructed by filtering `:sub-runs` on
-    `(complement :recomputed?)`, which is structurally always empty.
+  - `:sub-runs`  → subs-ran; every `:sub-runs` row is a genuine recompute
+    (the substrate's `sub-run-row` hardcodes `:recomputed? true`). Each
+    row carries `:value-changed?` — a `:value-changed? false` recompute is
+    a sub that RAN but produced the same value (a dashed, short-circuited
+    graph node), which is DISTINCT from a memo-hit skip below.
+  - `:subs-skipped` → the memo-hit `:rf.sub/skip` evidence (spec/021 §3.4).
+    The substrate emits a canonical `:rf.sub/skip` op on `:trace-events`
+    (NOT a `:sub-runs` row) when a reaction was reactively considered but
+    its input was value-equal to last-seen, so the user body did NOT
+    recompute (`re-frame.subs.memo/emit-sub-skip!`). `project-record`
+    reads those ops off `:trace-events` — de-duplicated by sub-id and
+    excluding any sub that ALSO recomputed this epoch (a sub that ran DID
+    fire; it is a `:subs-ran` row, not an unchanged/short-circuited one),
+    so `:subs-skipped` stays cleanly distinct from `:subs-ran`. This is the
+    'what DIDN'T fire' coverage the panel's collapsed unchanged-subs
+    disclosure surfaces. It is NOT reconstructed by filtering `:sub-runs`
+    on `(complement :recomputed?)` — that shape is structurally empty.
   - `:renders`  → views-rendered (`:render-key` → top-level `:view-id`)
   - flow counts → tallied from `:trace-events` (`:rf.flow/computed` /
     `:rf.flow/skip`), the one slice with no structured projection.
@@ -76,6 +85,9 @@
          :level-1-subs    [{:sub-id _ :changed? _ :coord _ :readers [...]} ...]
          :level-2-subs    [{:sub-id _ :changed? _ :inputs [...] :coord _
                             :readers [...]} ...]
+         :subs-skipped    [{:sub-id _ :query-v _ :reason _
+                            :input-paths-unchanged [...]} ...]
+         :show-unchanged? <bool>        ; disclosure open-state (§3.4)
          :sub-readers     {<sub-id> [<view-id> ...] ...}
          :view-rows       [{:view-id _ :action _ :reason {...} :coord _} ...]
          :counts          {:subs-ran N
@@ -99,9 +111,13 @@
   truncates the `:subs` list honestly with a `+N more` overflow per the
   Spec 009 event-bundle-cap posture.
 
-  Per spec/021 §3.4 the panel's 'Show unchanged subs' disclosure is
-  view-local (panel UI state); the always-expand override lives in
-  Settings (`:rf.xray/show-unchanged-subs?` · `:general` section).
+  Per spec/021 §3.4 the panel's 'Show N unchanged subs' disclosure is
+  collapsed by default. Its open-state (`:show-unchanged?`) is the OR of
+  two axes composed into `:rf.xray/reactive-data`: the panel-local
+  quick-toggle (`:rf.xray/reactive-show-unchanged?`, flipped by
+  `:rf.xray/reactive-toggle-unchanged`) and the always-expand Settings pin
+  (`[:rf.xray/setting :general :show-unchanged-subs?]`). Either axis
+  visibly expands the disclosure to the dim memo-hit rows.
 
   ## Install
 
@@ -465,6 +481,53 @@
        {:level-1 [] :level-2 []}
        (or subs-ran [])))))
 
+;; ---- memo-hit skip evidence (spec/021 §3.4) -------------------------------
+
+(defn skipped-subs
+  "Project the epoch's memo-hit `:rf.sub/skip` evidence into distinct
+  'unchanged sub' rows for the §3.4 disclosure.
+
+  The substrate emits a canonical `:rf.sub/skip` op on `:trace-events`
+  (NOT a `:sub-runs` row) when a reaction was reactively considered but
+  its input was value-equal to last-seen, so the user body did NOT
+  recompute (`re-frame.subs.memo/emit-sub-skip!`). Each op's tags carry
+  `:rf.sub/id` / `:rf.sub/query-v` / `:rf.sub/reason` (`:input-value-equal`)
+  / `:rf.sub/input-paths-unchanged` (`[]` for a layer-1 sub; the upstream
+  `:<-` query-vectors for a layer-n sub).
+
+  Each projected row `{:sub-id _ :query-v _ :reason _ :input-paths-unchanged
+  [...]}`. De-duplicated by sub-id (first-seen — a post-settle deref burst
+  can memo-hit the same sub repeatedly) and EXCLUDING any sub-id present in
+  `ran-ids` (a sub that recomputed this epoch DID fire — it is a
+  `:subs-ran` row, so it must not ALSO appear in the 'what DIDN'T fire'
+  coverage; this keeps `:subs-skipped` cleanly distinct from `:subs-ran`,
+  the two categories the panel must never conflate).
+
+  `ran-ids` is the set of `:sub-id`s in `:subs-ran`. nil-safe on both args."
+  [trace-events ran-ids]
+  (let [ran (or ran-ids #{})]
+    (:rows
+     (reduce
+      (fn [{:keys [seen] :as acc} ev]
+        (if (= :rf.sub/skip (op-kw ev))
+          (let [tags   (:tags ev)
+                sub-id (or (:rf.sub/id tags) (:sub-id tags))]
+            (if (or (nil? sub-id)
+                    (contains? seen sub-id)
+                    (contains? ran sub-id))
+              acc
+              (-> acc
+                  (update :seen conj sub-id)
+                  (update :rows conj
+                          {:sub-id                sub-id
+                           :query-v               (:rf.sub/query-v tags)
+                           :reason                (:rf.sub/reason tags)
+                           :input-paths-unchanged (or (:rf.sub/input-paths-unchanged tags)
+                                                      [])}))))
+          acc))
+      {:seen #{} :rows []}
+      (or trace-events [])))))
+
 ;; ---- record projection ----------------------------------------------------
 
 (defn project-record
@@ -483,10 +546,12 @@
 
   `:sub-runs` entries carry `:sub-id` / `:query-v` / `:recomputed?` /
   `:value-changed?`. Every `:sub-runs` row is a genuine recompute
-  (`:recomputed? true` — the substrate's `sub-run-row` hardcodes it; a
-  `:rf.sub/skip` memo-hit emits NO `:sub-runs` row), so there is no
-  memo-hit / `subs-skipped` split — `:subs-ran` IS the run-set. The view
-  rows ride the phase-A rf2-9hoos fields on the view-render ops.
+  (`:recomputed? true` — the substrate's `sub-run-row` hardcodes it), so
+  `:subs-ran` IS the run-set. Memo-hit skips are a SEPARATE slice
+  (`:subs-skipped`), projected from the canonical `:rf.sub/skip` ops on
+  `:trace-events` by `skipped-subs` (excluding subs that also ran, so the
+  two slices never conflate). The view rows ride the phase-A rf2-9hoos
+  fields on the view-render ops.
 
   Returns the map shape documented in the ns docstring (sans the
   focus / frame / dispatch-id keys; those come from the spine sub)."
@@ -501,12 +566,15 @@
          flows-comp    (count (get grouped :rf.flow/computed []))
          flows-skipped (count (get grouped :rf.flow/skip []))
          changed-set   (changed-sub-id-set ran)
+         ran-ids       (into #{} (map :sub-id) ran)
+         skipped       (skipped-subs trace-events ran-ids)
          readers       (sub-readers trace-events)
          {:keys [level-1 level-2]} (partition-subs-by-level ran topology readers)
          v-rows        (view-rows trace-events changed-set)
          unmounted     (unmounted-views trace-events)
          destroyed     (destroyed-subscriptions trace-events)]
      {:subs-ran        ran
+      :subs-skipped    skipped
       :views-rendered  renders
       :level-1-subs    level-1
       :level-2-subs    level-2
@@ -515,6 +583,7 @@
       :unmounted-views unmounted
       :destroyed-subs  destroyed
       :counts          {:subs-ran         (count ran)
+                        :subs-skipped     (count skipped)
                         :views-rendered   (count renders)
                         :view-rows        (count v-rows)
                         :unmounted-views  (count unmounted)
@@ -637,10 +706,20 @@
       (boolean (get db :reactive/show-unchanged?))))
 
   ;; -- composite the view reads --------------------------------------
+  ;;
+  ;; The two `show-unchanged` inputs resolve the §3.4 disclosure open-state
+  ;; reactively: the panel-local quick-toggle
+  ;; (`:rf.xray/reactive-show-unchanged?`) OR the always-expand Settings
+  ;; pin (`[:rf.xray/setting :general :show-unchanged-subs?]`). Composing
+  ;; them here (rather than reading them in the view) keeps the disclosure
+  ;; a pure reactive function of app-db — flipping either axis recomputes
+  ;; the composite and re-renders the panel.
   (rf/reg-sub :rf.xray/reactive-data
     :<- [:rf.xray/focus]
     :<- [:rf.xray/epoch-history]
-    (fn [[focus history] _query]
+    :<- [:rf.xray/reactive-show-unchanged?]
+    :<- [:rf.xray/setting :general :show-unchanged-subs?]
+    (fn [[focus history panel-unchanged? config-unchanged?] _query]
       (let [record   (focused-epoch-record history (:epoch-id focus))
             ;; Static topology snapshot — read once per event-bundle. Free
             ;; (registry-only); used to partition L1 / L2+ subs and
@@ -654,6 +733,7 @@
                 :dispatch-id  (:dispatch-id focus)
                 :triggered-by (when record (triggered-by record))
                 :seed-paths   (when record (seed-paths record))
+                :show-unchanged?   (boolean (or panel-unchanged? config-unchanged?))
                 :has-event-bundle? (some? record)}))))
 
   ;; -- ViewCell evidence ownership reactivity bridge (rf2-vxgfnd.286) --

@@ -107,9 +107,9 @@
 (deftest reactive-data-composite-shape-holds-through-real-pipeline
   (testing "rf2-vxgfnd.22 — the composite `:rf.xray/reactive-data` resolves
             its documented shape over a REAL cascade: the flow-graph slots
-            (`:level-1-subs` / `:view-rows` / `:sub-readers`) are present
-            and `:subs-ran` is the whole run-set (no `:subs-skipped` slot —
-            Finding A)."
+            (`:level-1-subs` / `:view-rows` / `:sub-readers`) are present,
+            `:subs-ran` is the run-set, and the `:subs-skipped` memo-hit
+            slice is present (rf2-ty5r5o — empty here, no memo hit driven)."
     (e2e/with-host-and-xray-frames
       {:install-host counter/install-and-init!}
       (fn []
@@ -119,10 +119,79 @@
           (is (contains? d :level-1-subs))
           (is (contains? d :view-rows))
           (is (contains? d :sub-readers))
-          (is (not (contains? d :subs-skipped))
-              "Finding A — no doubly-dead :subs-skipped slot survives")
+          (is (contains? d :subs-skipped)
+              "rf2-ty5r5o — the :subs-skipped memo-hit slice is a real slot")
+          (is (= [] (:subs-skipped d))
+              "no memo hit driven → empty (a run alone is not a skip)")
           ;; :counter/value reads app-db directly → a Level-1 sub.
           (is (some #(= :counter/value (:sub-id %)) (:level-1-subs d))
               (str ":counter/value should partition to Level 1 (reads "
                    "app-db directly). level-1-subs: "
                    (pr-str (:level-1-subs d)))))))))
+
+;; ---- causal memo-hit → :subs-skipped (rf2-ty5r5o) ----------------------
+
+(defn- install-ab-host!
+  "A tiny host whose LAYER-2 sub (`:ab/derived-a`) composes a LAYER-1 sub
+  (`:ab/read-a`) — the shape that lets a real cascade drive BOTH categories
+  the panel must keep distinct in ONE epoch: bumping the UNRELATED `:b`
+  path forces `:ab/read-a` to RECOMPUTE (db changed) but its VALUE is
+  unchanged (`:a` held), so its layer-2 reader `:ab/derived-a` sees a
+  value-equal input and MEMO-HITS — the substrate emits a canonical
+  `:rf.sub/skip` for it.
+
+  Dispatches `[:ab/init]` at install (like the counter fixture's
+  `install-and-init!`) so a cascade EXISTS when Xray installs — that seeds
+  Xray's target frame to this host frame (`default-target-frame` is nil /
+  UNSELECTED, so an install with no cascade would leave the epoch-history
+  mirror empty)."
+  []
+  (rf/reg-event :ab/init   (fn [_ _] {:db {:a 0 :b 0}}))
+  (rf/reg-event :ab/bump-b (fn [{:keys [db]} _] {:db (update db :b inc)}))
+  (rf/reg-sub :ab/read-a (fn [db _] (:a db)))
+  (rf/reg-sub :ab/derived-a :<- [:ab/read-a] (fn [a _] (* 10 a)))
+  (rf/dispatch-sync [:ab/init])
+  nil)
+
+(deftest reactive-data-subs-skipped-names-real-memo-hit
+  (testing "rf2-ty5r5o — a REAL memo hit (the layer-2 `:ab/derived-a` whose
+            layer-1 input `:ab/read-a` recomputed to the SAME value after an
+            unrelated `:b` bump) emits a canonical `:rf.sub/skip` that
+            back-fills into the epoch and reaches `:rf.xray/reactive-data`'s
+            `:subs-skipped` — kept DISTINCT from `:subs-ran` (which carries
+            the value-changed? false recompute of `:ab/read-a`). No injection
+            seam; drives the substrate's real emit-skip path."
+    (e2e/with-host-and-xray-frames
+      {:install-host install-ab-host!}
+      (fn []
+        (rf/with-frame e2e/default-host-frame
+          (let [r (rf/subscribe [:ab/derived-a])]
+            @r                                  ; prime the memo (first-run)
+            (rf/dispatch-sync [:ab/bump-b] {:frame e2e/default-host-frame})
+            @r                                  ; read-a recomputes (value 0, unchanged)
+            @r))                                ; derived-a memo-hits → :rf.sub/skip
+        (e2e/sync-xray-trace-mirror!)
+        (e2e/sync-xray-epoch-history!)
+        (let [d       (e2e/sub-xray [:rf.xray/reactive-data])
+              skipped (:subs-skipped d)
+              ran     (:subs-ran d)
+              ran-ids (into #{} (map :sub-id) ran)
+              skip-ids (into #{} (map :sub-id) skipped)]
+          (is (contains? skip-ids :ab/derived-a)
+              (str ":subs-skipped must name the real memo-hit sub "
+                   ":ab/derived-a — the :rf.sub/skip evidence the panel "
+                   "drops today. reactive-data: "
+                   (pr-str (select-keys d [:subs-ran :subs-skipped :counts]))))
+          (let [row (some #(when (= :ab/derived-a (:sub-id %)) %) skipped)]
+            (is (= :input-value-equal (:reason row))
+                "the skip row carries the canonical :input-value-equal reason")
+            (is (= [[:ab/read-a]] (:input-paths-unchanged row))
+                "the layer-2 skip names its upstream :ab/read-a query-vector"))
+          ;; distinctness: the memo-hit sub is NOT in the run-set, and the
+          ;; recompute that produced the same value stays in the run-set.
+          (is (not (contains? ran-ids :ab/derived-a))
+              ":ab/derived-a skipped — it must NOT appear in :subs-ran")
+          (is (not (contains? skip-ids :ab/read-a))
+              ":ab/read-a recomputed (it fired) — it must NOT appear in :subs-skipped")
+          (is (pos? (-> d :counts :subs-skipped))
+              ":counts :subs-skipped tallies the real memo-hit set"))))))

@@ -15,15 +15,17 @@
   `project-record` reads:
 
     - `:sub-runs`     — `[{:sub-id :query-v :recomputed? :value-changed?
-                           :value :prev-value} ...]`; drives the L1/L2
+                           :value :prev-value} ...]`; every row is a genuine
+                        recompute (`:recomputed? true`). Drives the L1/L2
                         sub tables + the `changed-set` that classifies
                         each view's render reason.
-    - `:trace-events` — the view-side capture ops the flow graph reads:
-                        `:rf.view/rendered` (with `:rf.view/id` /
-                        `:rf.view/render-key` / `:rf.view/mount?` /
-                        `:rf.view/deref-subs` / `:rf.view/triggered-by`
-                        / `:rf.view/elapsed-ms`) + `:rf.view/unmounted`
-                        + `:rf.sub/dispose`.
+    - `:trace-events` — the capture ops the panel reads off the raw stream:
+                        the view-side `:rf.view/rendered` (with `:rf.view/id`
+                        / `:rf.view/render-key` / `:rf.view/mount?` /
+                        `:rf.view/deref-subs` / `:rf.view/triggered-by` /
+                        `:rf.view/elapsed-ms`) + `:rf.view/unmounted` +
+                        `:rf.sub/dispose`, AND the memo-hit `:rf.sub/skip`
+                        evidence the §3.4 'unchanged subs' disclosure reads.
     - `:event`        — the trigger event (the cascade's seed).
 
   ## Render-cause chips (rf2-bhi3t)
@@ -51,9 +53,13 @@
 ;; substrate emit-site shape `reactive_panel_subs` reads.
 
 (defn- sub-run
-  "One `:sub-runs` entry. `recomputed?` splits genuine recomputes
-  (subs-ran) from memo-hit skips (subs-skipped); `value-changed?`
-  feeds the per-view render-reason `changed-set`."
+  "One `:sub-runs` entry — a genuine RECOMPUTE, exactly as the substrate's
+  `sub-run-row` emits it (`:recomputed? true` is hardcoded there; a
+  memo-hit projects NO `:sub-runs` row — it rides `:trace-events` as a
+  `:rf.sub/skip`, built by `skip-ev` below). `value-changed?` feeds the
+  per-view render-reason `changed-set`; a `:value-changed? false` recompute
+  is a sub that ran but produced the same value (a dashed, short-circuited
+  graph node) — DISTINCT from a memo-hit skip."
   [sub-id recomputed? value-changed? prev-value value]
   {:sub-id         sub-id
    :query-v        [sub-id]
@@ -61,6 +67,20 @@
    :value-changed? value-changed?
    :prev-value     prev-value
    :value          value})
+
+(defn- skip-ev
+  "A `:rf.sub/skip` memo-hit trace event in the exact shape the substrate
+  emits (`re-frame.subs.memo/emit-sub-skip!`) — the canonical evidence the
+  Reactive panel's 'unchanged subs' disclosure (spec/021 §3.4) reads off
+  `:trace-events`. `input-paths-unchanged` is `[]` for a layer-1 sub, the
+  upstream `:<-` query-vectors for a layer-n sub."
+  ([sub-id] (skip-ev sub-id []))
+  ([sub-id input-paths-unchanged]
+   {:operation :rf.sub/skip
+    :tags      {:rf.sub/id                    sub-id
+                :rf.sub/query-v               [sub-id]
+                :rf.sub/reason                :input-value-equal
+                :rf.sub/input-paths-unchanged input-paths-unchanged}}))
 
 (defn- rendered-ev
   "A `:rf.view/rendered` trace event in the shape `view-rows` reads.
@@ -128,11 +148,14 @@
      [(sub-run :cart/state       true  true  {:phase :idle} {:phase :submitting})
       (sub-run :cart/can-submit? true  true  false true)
       (sub-run :cart/items       true  false [{:id :apple}] [{:id :apple}])
-      (sub-run :cart/total       true  false 195 195)
-      (sub-run :user/name        false false "Ada" "Ada")
-      (sub-run :cart/eligibility false false true true)]
+      (sub-run :cart/total       true  false 195 195)]
      :trace-events
-     [(rendered-ev :checkout/CheckoutButton [:CheckoutButton 0] false
+     [;; Two memo-hit skips — the canonical `:rf.sub/skip` evidence the
+      ;; §3.4 disclosure surfaces (real trace-event shape, NOT a fabricated
+      ;; `:recomputed? false` sub-run the substrate never emits).
+      (skip-ev :user/name)
+      (skip-ev :cart/eligibility)
+      (rendered-ev :checkout/CheckoutButton [:CheckoutButton 0] false
                    [[:cart/can-submit?]] 0.9 :cart/can-submit?)
       (rendered-ev :cart.banner/StateBanner [:StateBanner 0] false
                    [[:cart/state]] 0.7 :cart/state)
