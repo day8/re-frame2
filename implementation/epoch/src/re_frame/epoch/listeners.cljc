@@ -452,28 +452,29 @@
              #(assembly/emit-snapshotted+outcome! frame-id (:epoch-id record)
                                                   (:event-id record) :halted-destroy))
            (deliver-listener-snapshot! record listener-snapshot))
-         ;; PER-IDENTITY atomic-claim silencing (rf2-vxgfnd.285). Iterate the owed
-         ;; identities in a deterministic cb-id order so the linearizable claim
-         ;; sees a stable sequence. `claim-delayed-silence!` reserves the one
-         ;; signal atomically — rechecking current generation, FRESH live
-         ;; observers, and any existing mark, then writing the monotonic mark —
-         ;; BEFORE external delivery. Only a granted reservation emits; if the
-         ;; external delivery throws, the reservation is rolled back.
+         ;; PER-IDENTITY atomic-claim-AND-PUBLISH silencing (rf2-vxgfnd.285 /
+         ;; rf2-9bhne6). Iterate the owed identities in a deterministic cb-id
+         ;; order so the linearizable claim sees a stable sequence.
+         ;; `claim-and-publish-delayed-silence!` reserves the one signal AND runs
+         ;; the external emit inside the SAME `silence-lock` critical section —
+         ;; rechecking current generation, FRESH live observers, and any existing
+         ;; mark, writing the monotonic mark, then emitting, all before the lock
+         ;; releases. Because listener replacement / drop / reset and the
+         ;; observation re-arm also take `silence-lock`, the winning
+         ;; `(cb-id, observed-gen)` stays the authoritative generation THROUGH the
+         ;; emission: a concurrent registrar cannot make a fresh generation
+         ;; current in the reserve→emit window (rf2-9bhne6). Only a granted
+         ;; reservation emits; if the external delivery throws, the reservation is
+         ;; rolled back inside the same section and the fault propagates.
          (doseq [[cb-id observed-gen] (sort-by (comp str key) silenced-cbs)]
-           (when-let [reserved (state/claim-delayed-silence!
-                                 frame-id cb-id observed-gen baseline-silence-seq)]
-             (try
-               ;; The silencing fact belongs to destroyed A too; never let a
-               ;; same-id successor's trace policy suppress or capture it.
-               (trace/call-with-structural-delivery
-                 #(trace/emit! :rf.epoch.cb :rf.epoch.cb/silenced-on-frame-destroy
-                               {:frame frame-id :cb-id cb-id}))
-               (catch #?(:clj Throwable :cljs :default) ex
-                 ;; Envelope delivery failed — release the reservation so the one
-                 ;; signal can be legitimately re-attempted, and let the fault
-                 ;; propagate contained.
-                 (state/rollback-delayed-silence! frame-id cb-id reserved)
-                 (throw ex))))))
+           (state/claim-and-publish-delayed-silence!
+             frame-id cb-id observed-gen baseline-silence-seq
+             ;; The silencing fact belongs to destroyed A too; never let a
+             ;; same-id successor's trace policy suppress or capture it.
+             #(trace/call-with-structural-delivery
+                (fn []
+                  (trace/emit! :rf.epoch.cb :rf.epoch.cb/silenced-on-frame-destroy
+                               {:frame frame-id :cb-id cb-id}))))))
         (finally
           ;; Close the deferred-silence window opened at snapshot time. When the
           ;; frame's last outstanding predecessor resolves, its marks are reclaimed.
