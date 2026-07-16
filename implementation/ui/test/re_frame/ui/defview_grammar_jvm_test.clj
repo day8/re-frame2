@@ -288,7 +288,10 @@
             event
             ;; S3 internal compiled render slots: the pure render-slot callback
             ;; and its compiler-owned invocation form (rf2-ri0k6n)
-            render-fn slot}
+            render-fn slot
+            ;; S3 literal safe-spread policy — attr passthrough that cannot
+            ;; clobber owned props or forfeit the sync door (rf2-isdqjv)
+            spread-safe}
          (set (keys (ns-publics 're-frame.ui))))
       "no reg-view family, no Form-1/2/3 helpers, no h macro, no view
        lookup, no ratom/cursor/reaction — Spec 004 §Removed forms"))

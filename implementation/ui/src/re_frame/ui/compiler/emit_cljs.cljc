@@ -331,8 +331,10 @@
         inner-inline? (or inline? static?)
         tag-str       (name (:tag node))
         key-info      (get-in node [:props :key])]
-    (if-let [spread (get-in node [:props :spread])]
-      (let [sugar (get-in node [:props :class :base-str])
+    (cond
+      (get-in node [:props :spread])
+      (let [spread (get-in node [:props :spread])
+            sugar (get-in node [:props :class :base-str])
             props-form `(re-frame.ui.runtime/spread->props
                          ~tag-str
                          ~(when (seq sugar) sugar)
@@ -348,6 +350,33 @@
                                             (cljs.core/array ~@chs))
           `(re-frame.ui.runtime/jsx-spread2 ~tag-str ~props-form
                                             (cljs.core/array ~@chs))))
+
+      (get-in node [:props :safe-spread])
+      ;; ui/spread-safe: the OWNED props compile normally (their :on-* handlers
+      ;; keep the compiled per-site sync-door callback), and the CALLER attrs
+      ;; are a runtime-built object layered UNDER them — owned props win any
+      ;; collision, :class composes (owned classes first), and the owned-key
+      ;; deny law is enforced at runtime by spread-safe->props in EVERY build.
+      (let [ss          (get-in node [:props :safe-spread])
+            owned-pairs (element-prop-pairs st node inner-inline?)
+            owned-obj   (ordered-literal-object
+                         (map (fn [{:keys [name form]}] [name form]) owned-pairs))
+            caller-obj  `(re-frame.ui.runtime/spread-safe->props
+                          ~tag-str
+                          ~(:base ss)
+                          ~(:owned-handler-keys ss)
+                          ~(site-key-form ss)
+                          ~(debug-site-form (assoc ss :classification :spread)))
+            props-form  `(re-frame.ui.runtime/spread-safe-props ~caller-obj ~owned-obj)
+            chs         (children-forms st (:children node) inner-inline?)]
+        (if (:present? key-info)
+          `(re-frame.ui.runtime/jsx-spread3 ~tag-str ~props-form
+                                            ~(:expr key-info)
+                                            (cljs.core/array ~@chs))
+          `(re-frame.ui.runtime/jsx-spread2 ~tag-str ~props-form
+                                            (cljs.core/array ~@chs))))
+
+      :else
       (let [pairs (element-prop-pairs st node inner-inline?)
             chs   (children-forms st (:children node) inner-inline?)
             ;; prebuilt static props object under a dynamic key

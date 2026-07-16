@@ -109,8 +109,10 @@
                       (into [] (keep emit-node) (:children node)))
         child-thunk (when (seq child-forms)
                       `(fn [] (re-frame.ui.tree/children ~@child-forms)))]
-    (if-let [spread (:spread props)]
-      (let [sugar (get-in props [:class :base-str])]
+    (cond
+      (:spread props)
+      (let [spread (:spread props)
+            sugar (get-in props [:class :base-str])]
         `(re-frame.ui.tree/element
           ~tag
           {:static ~(when (seq sugar) {:class sugar})
@@ -118,6 +120,41 @@
            :key?   ~(:present? key-info)
            :key-val ~(:expr key-info)
            :children ~child-thunk}))
+
+      ;; ui/spread-safe: the OWNED props emit exactly as a normal element's do
+      ;; (from the same analysed props); the CALLER map rides a `:spread-safe`
+      ;; opt that `tree/element` guards (owned-key deny in EVERY build) and
+      ;; folds UNDER the owned attrs (owned wins, :class composes).
+      (:safe-spread props)
+      (let [ss      (:safe-spread props)
+            [stat-ev dyn-ev] (event-entries (:events props))
+            cls     (class-entry (:class props))
+            [style-slot style-form] (style-entry (:style props))
+            static  (cond-> (static-attr-entries (:attrs props))
+                      (string? cls) (assoc :class cls))
+            norm    (cond-> (dyn-property-entries (:attrs props))
+                      (and cls (not (string? cls))) (assoc :class cls)
+                      (= :norm style-slot)          (assoc :style style-form))
+            dyn     (cond-> (dyn-attr-entries (:attrs props))
+                      (= :dyn style-slot) (assoc :style style-form))
+            pp      (into #{}
+                          (comp (filter #(= :property (:kind %))) (map :k))
+                          (:attrs props))]
+        `(re-frame.ui.tree/element
+          ~tag
+          {:static ~(when (seq static) static)
+           :norm   ~(when (seq norm) norm)
+           :dyn    ~(when (seq dyn) dyn)
+           :events ~(when (seq stat-ev) stat-ev)
+           :dyn-events ~(when (seq dyn-ev) dyn-ev)
+           :key?   ~(:present? key-info)
+           :key-val ~(:expr key-info)
+           :props  ~(when (seq pp) pp)
+           :spread-safe {:caller ~(:base ss)
+                         :owned-handler-keys ~(:owned-handler-keys ss)}
+           :children ~child-thunk}))
+
+      :else
       (let [[stat-ev dyn-ev] (event-entries (:events props))
             cls     (class-entry (:class props))
             [style-slot style-form] (style-entry (:style props))

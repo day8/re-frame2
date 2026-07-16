@@ -386,6 +386,40 @@
          "the conversion rule table")
     nil)))
 
+(defn spread-safe
+  "(ui/spread-safe owned caller) — the LITERAL safe-spread policy: the ONE
+  attr-passthrough a component library can forward onto an internal element
+  without clobbering owned props or forfeiting the controlled guarantee.
+
+  `owned` is a LITERAL map of the component's own props (the compiler sees it
+  and analyses it exactly like an element's props map — a controlled owned
+  site, a literal `:value`/`:checked` co-present with a literal-vector or
+  `ui/event` handler, therefore RETAINS the sync door). `caller` is the
+  runtime attr map forwarded from the consumer.
+
+  The compiler-visible deny law, enforced in EVERY build (not dev-only): the
+  structural/controlled/identity keys `:key` `:ref` `:value` `:checked` and
+  the component's OWNED `:on-*` handlers may not appear in `caller` — a literal
+  offender is a compile error (`:rf.ui.compile/spread-safe-owned-key`), a
+  runtime offender throws (`:rf.error/ui-tree-malformed`), neither elided in an
+  advanced build. Everything else passes: allowed `:on-*` values classify
+  through the handler decision table, `aria-*`/`data-*`/`title`/`:class`/
+  `:style` convert per the 004B rule table. Owned props win any collision;
+  `:class` composes (owned classes first). General `(ui/spread base overrides)`
+  remains the visible-cost escape and still forfeits the sync door.
+
+  A template form, legal only in a DOM/custom element's props position; a
+  direct call fails loud by design.
+
+  This var exists for symbol resolution only; a direct call fails loudly."
+  ([_owned _caller]
+   (error/throw-error!
+    :rf.error/ui-spread-outside-template 're-frame.ui/spread-safe
+    (str "(ui/spread-safe owned caller) is a template form — it is legal only "
+         "in a DOM/custom element's props position, where the compiler wires "
+         "it through the safe-spread policy and the conversion rule table")
+    nil)))
+
 (defn event
   "(ui/event [e] body…) — a compiler-owned committed handler form for a
   DOM/custom-element `:on-*` site whose body needs the live native event.

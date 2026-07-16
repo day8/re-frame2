@@ -281,7 +281,16 @@
   {:namespace "re-frame.ui" :var "frame"          :kind :fn    :facade? false :tier :advanced    :owner "004" :status "Spec-004 S2" :runtime-verified? true}
   {:namespace "re-frame.ui" :var "event"          :kind :fn    :facade? false :tier :advanced    :owner "004" :status "Spec-004 S3" :runtime-verified? true}
   {:namespace "re-frame.ui" :var "render-fn"      :kind :fn    :facade? false :tier :advanced    :owner "004" :status "Spec-004 S3" :runtime-verified? true}
-  {:namespace "re-frame.ui" :var "slot"           :kind :fn    :facade? false :tier :advanced    :owner "004" :status "Spec-004 S3" :runtime-verified? true}]
+  {:namespace "re-frame.ui" :var "slot"           :kind :fn    :facade? false :tier :advanced    :owner "004" :status "Spec-004 S3" :runtime-verified? true}
+  ;; spread-safe (rf2-isdqjv) — the S3 literal safe-spread policy: a component
+  ;; library forwards a consumer's runtime attr map onto an internal element
+  ;; without clobbering owned props or forfeiting the sync door. `owned` is a
+  ;; LITERAL props map; the structural/controlled/identity keys + owned :on-*
+  ;; are denied to `caller` in EVERY build. A resolution-only `defn`; its live
+  ;; public var + the `export-surface-is-exactly-the-blessed-set` JVM row landed
+  ;; with this feature — this row + the spec/API.md §Compiled views row are the
+  ;; projection reconciliation.
+  {:namespace "re-frame.ui" :var "spread-safe"    :kind :fn    :facade? false :tier :advanced    :owner "004" :status "Spec-004 S3" :runtime-verified? true}]
 
  ;; --------------------------------------------------------------------------
  ;; API.md var-rows that are KNOWINGLY absent from the manifest. The

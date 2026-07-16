@@ -349,7 +349,11 @@ reusable library input uses to append its live payload to an event prefix receiv
 through props. Dynamic props maps, `ui/spread`, and bare-fn dispatches at such sites fall
 back to standard batching with a dev diagnostic naming the sync-door conditions; a
 placeholder keyword riding a runtime-produced vector remains ordinary data (the existing
-`:rf.warning/placeholder-in-dynamic-vector` dev warning).
+`:rf.warning/placeholder-in-dynamic-vector` dev warning). The one dynamic-map form that
+does **not** forfeit the door is `(ui/spread-safe owned caller)` (§The safe-spread
+policy): the owned controlled props are a LITERAL map that carries the proof, and the
+caller map is provably barred from `:value`/`:checked`/owned handlers in every build, so
+the owned handler keeps the synchronous drain while the caller's attrs pass through.
 
 **Dev safety nets.** Data handlers with unregistered event ids warn at render with the
 element's coordinates (`:rf.warning/unregistered-event-id`). The registrar is
@@ -555,6 +559,7 @@ enter/exit retention is out of scope):
 | `(ui/element type props & children)` | runtime-chosen element/component **[WAVE-2]** |
 | `(ui/view id)` | registry-addressed component; production use requires production registry entries (dev-only string ids cannot serve prod lookup) **[WAVE-2]** |
 | `(ui/spread base overrides)` | the one generic runtime prop-map conversion — **v1**; the conversion architecture's single dynamic-map path, driven by the owning rule table |
+| `(ui/spread-safe owned caller)` | the **literal safe-spread policy** (S3) — a component library forwards a consumer's runtime attr map onto an internal element without clobbering owned props or forfeiting the sync door. `owned` is a LITERAL props map (analysed as element props, so a controlled owned site keeps the door); the structural/controlled/identity keys `:key`/`:ref`/`:value`/`:checked` and the owned `:on-*` handlers are denied to `caller` in **every build** (§The safe-spread policy) |
 | `(ui/portal node child)` | React portal; frame context passes through **[WAVE-2]** |
 | `(ui/client-only {:fallback tpl} client-tpl)` | browser-only subtree; the fallback is mandatory and MUST be capability-free (compiler-checked); the JVM and first hydration render the fallback, then one root phase-flip swaps all sites in a single update (per [011](011-SSR.md)) |
 | `(ui/html string)` | **trusted markup, low-friction.** Renders the string as HTML, explicitly. The spelling *is* the contract: the visible call marks the one place escaping is bypassed; manifests record the site; both emitters treat it identically. Strings anywhere else always escape. |
@@ -624,6 +629,50 @@ structural tree a `render-fn` prop is recorded on its view-boundary as the opaqu
 marker `{:rf.ui/opaque :ui/render-fn}` (§004B), and a slot's rendered output appears
 as the ordinary child subtree it produced, so `ui.test` renders slotted trees
 headlessly (Tier-1).
+
+## The safe-spread policy — `spread-safe`
+
+A component library forwards a consumer's runtime attr map onto an internal
+element — re-com's `:attr` passthrough, thirty-six files of it. Through general
+`ui/spread` that map could override `:value`/`:checked`, an owned handler, or
+`:ref`, and the mere *presence* of a dynamic map at a controlled site disqualifies
+the sync-door proof (§Controlled inputs). Libraries need attr passthrough that
+**provably** cannot clobber owned props and does not forfeit the controlled
+guarantee. `(ui/spread-safe owned caller)` is that form — the literal safe-spread
+policy, the sibling of `ui/spread` (a distinct contract deserves a distinct,
+call-site-visible spelling, so the safety is not hidden behind an arity).
+
+**`owned` is a LITERAL props map** — the component's own props. The compiler
+analyses it *exactly* as an element's props map, so a controlled owned site (a
+literal `:value`/`:checked` co-present with a literal-vector or `ui/event`
+handler) **retains the sync door** on its owned handler. Its `:on-*` keys are the
+component's **owned handlers**.
+
+**`caller` is the forwarded runtime attr map.** The compiler-visible deny law,
+enforced in **every build** (never dev-only): the structural/controlled/identity
+keys `:key` `:ref` `:value` `:checked`, joined by the component's owned `:on-*`
+handler keys, may not appear in `caller`. A LITERAL offender is the compile error
+`:rf.ui.compile/spread-safe-owned-key`; a RUNTIME offender throws
+`:rf.error/ui-tree-malformed` (the guard is not `goog.DEBUG`-gated — it survives an
+advanced build exactly like the compiled lease-descriptor grammar guard). Every
+other key passes: allowed `:on-*` values classify through the handler decision
+table (vector → dispatch, bare fn per the bare-fn law), and `aria-*`/`data-*`/
+`title`/`:class`/`:style` convert per the [004B](004B-UI-Tree-and-Conversion.md)
+rule table. Owned props **win** any collision (the caller can carry no owned or
+structural key, so a collision is only possible on a non-owned attr like `:type`);
+`:class` **composes**, owned/sugar classes first.
+
+**The controlled split, both asserted.** At a controlled owned site the policy
+form **retains** the sync door — the caller map provably introduces no
+`:value`/`:checked`/owned-handler, so the proof stands. General `ui/spread` at the
+same site still **forfeits** it (its dynamic map is opaque). `ui/spread` remains
+the visible-cost escape: it accepts any key and pays for it by losing the door.
+
+The malformed form (`owned` not a literal map, or a missing `caller`) is
+`:rf.ui.compile/bad-spread-safe`. A `spread-safe` element contributes a
+`:spread-safe` capability to the template fingerprint; on the JVM the caller map
+is guarded then folded under the owned attrs, so the structural tree and `ui.test`
+see the same merged element both hosts produce.
 
 ## The React interop tier — `re-frame.ui.react`
 
@@ -1049,6 +1098,7 @@ order and is a defect in this table.
 | §Interop — `ui/error-boundary` | **S3** | phase semantics; `:reset-key`; server-policy contrast |
 | §Interop — `ui/client-only` | **S3** → completes **S5** | capability-free fallback check (S3); SSR phase flip (S5) |
 | §Interop — `ui/spread` | **S1** | with the conversion-table row above |
+| §The safe-spread policy — `ui/spread-safe` | **S3** | owned-key deny in dev AND advanced builds (G-17); `aria-*`/`data-*`/`title`/`:class`/`:style` passthrough per the 004B table; allowed `:on-*` classify through the handler table; the controlled split — policy retains the sync door, general spread forfeits it (both asserted) |
 | §Interop — `ui/->react` | **S6** | compat-boundary fixtures, both nesting directions (the compat-boundary contract) |
 | §The React interop tier — `re-frame.ui.react` | **S3** | the seven wrappers' call shapes; the position law (finite-site analyzer extension — conditional/inside-fn rejection); the hook-signature-hash `:react` extension + the one-time remount wave; JVM host-render rows; HMR remount/preservation. Declared until then |
 | §Interop — `element` / `view` / `portal` / `re-frame.ui.data` | — | [WAVE-2]: no stage, no assertion, no v1 existence |

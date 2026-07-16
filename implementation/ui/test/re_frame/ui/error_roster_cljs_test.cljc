@@ -73,6 +73,9 @@
     :rf.ui.compile/ref-on-view-s1
     :rf.ui.compile/dynamic-props-map
     :rf.ui.compile/bad-spread
+    ;; literal safe-spread policy (S3, rf2-isdqjv)
+    :rf.ui.compile/bad-spread-safe
+    :rf.ui.compile/spread-safe-owned-key
     :rf.ui.compile/non-keyword-prop
     :rf.ui.compile/id-sugar-conflict
     :rf.ui.compile/collection-attr-value
@@ -188,6 +191,7 @@
       html        {:fqn 're-frame.ui/html :meta {}}
       raw-fn      {:fqn 're-frame.ui/raw-fn :meta {}}
       spread      {:fqn 're-frame.ui/spread :meta {}}
+      spread-safe {:fqn 're-frame.ui/spread-safe :meta {}}
       event       {:fqn 're-frame.ui/event :meta {}}
       render-fn   {:fqn 're-frame.ui/render-fn :meta {}}
       slot        {:fqn 're-frame.ui/slot :meta {}}
@@ -337,6 +341,16 @@
    [:rf.ui.compile/ref-on-view-s1 '[child-view {:ref r}] ["S3"]]
    [:rf.ui.compile/bad-spread '[:div (spread)] ["(ui/spread base"]]
    [:rf.ui.compile/bad-spread '(spread base) ["props position"]]
+   ;; literal safe-spread policy (S3, rf2-isdqjv): malformed form + owned-key deny
+   [:rf.ui.compile/bad-spread-safe '[:div (spread-safe dynmap caller)] ["LITERAL"]]
+   [:rf.ui.compile/bad-spread-safe '[:div (spread-safe {})] ["owned caller"]]
+   [:rf.ui.compile/bad-spread-safe '(spread-safe {} caller) ["props position"]]
+   [:rf.ui.compile/spread-safe-owned-key
+    '[:input (spread-safe {:value v :on-change [:x]} {:value 5})] ["ui/spread base"]]
+   [:rf.ui.compile/spread-safe-owned-key
+    '[:input (spread-safe {:on-change [:x]} {:on-change [:evil]})] ["denied in every build"]]
+   [:rf.ui.compile/spread-safe-owned-key
+    '[:div (spread-safe {} {:ref r})] ["denied in every build"]]
    [:rf.ui.compile/non-keyword-prop '[:div {"str-key" 1} "x"] ["literal keywords"]]
    [:rf.ui.compile/non-keyword-prop '[child-view {"k" 1}] ["literal keywords"]]
    [:rf.ui.compile/id-sugar-conflict '[:div#a {:id "b"}] ["Keep one"]]

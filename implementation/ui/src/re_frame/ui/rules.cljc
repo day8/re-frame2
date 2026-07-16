@@ -1194,3 +1194,65 @@
                         " (React would render \"[object Object]\" garbage)")
                    {:extra {:attr attr-kw :value v}})
     :else         (str v)))
+
+;; ---------------------------------------------------------------------------
+;; ui/spread-safe — the literal safe-spread policy (owned-key deny, EVERY build)
+;;
+;; A component library forwards a consumer's runtime attr map onto an internal
+;; element through `(ui/spread-safe owned caller)`. `owned` is the component's
+;; LITERAL props (the compiler proves the controlled site and keeps the sync
+;; door); `caller` is the forwarded runtime map. The structural/controlled/
+;; identity keys below, PLUS the component's owned `:on-*` handler keys, are
+;; denied to `caller` in every build — a runtime offender throws here, never
+;; goog.DEBUG-gated, so the guarantee survives an advanced build (the same
+;; production-reachability the compiled lease-descriptor grammar guard has).
+;; ---------------------------------------------------------------------------
+
+(def spread-safe-denied-structural
+  "The structural / controlled / identity keys a `ui/spread-safe` CALLER map
+  may never carry. `:key`/`:ref` are structural identity slots (keys are
+  literal at the site, refs are a reserved React slot); `:value`/`:checked`
+  are the controlled-input contract the sync-door proof depends on. A caller
+  that could set them would clobber owned state, so they are denied in every
+  build (not dev-only). The component's own `:on-*` handler keys JOIN this set
+  per call."
+  #{:key :ref :value :checked})
+
+(defn spread-safe-denied-key?
+  "Is `k` denied to a `ui/spread-safe` caller map, given the component's
+  `owned-handler-keys` (the literal `:on-*` keys of its owned map)?"
+  [k owned-handler-keys]
+  (or (contains? spread-safe-denied-structural k)
+      (contains? owned-handler-keys k)))
+
+(defn- spread-safe-denial-reason [k owned-handler-keys]
+  (cond
+    (= :key k)                       "a structural identity slot (keys are literal at the site)"
+    (= :ref k)                       "a reserved React ref slot"
+    (contains? #{:value :checked} k) "the controlled-input contract the sync door proves"
+    (contains? owned-handler-keys k) "an owned event handler the component controls"
+    :else                            "owned by the component"))
+
+(defn assert-safe-caller!
+  "EVERY-BUILD guard for `(ui/spread-safe owned caller)`: throw
+  `:rf.error/ui-tree-malformed` if the runtime `caller` map names a denied key
+  (the structural/controlled/identity set plus the component's
+  `owned-handler-keys`). NOT `goog.DEBUG`-gated — the denial is a production
+  invariant a component library relies on, so it survives an advanced build
+  exactly like the compiled lease-descriptor grammar guard. Returns `caller`."
+  [caller owned-handler-keys]
+  (when (map? caller)
+    (reduce-kv
+     (fn [_ k _]
+       (when (spread-safe-denied-key? k owned-handler-keys)
+         (error/throw-error!
+          :rf.error/ui-tree-malformed 're-frame.ui/spread-safe
+          (str "(ui/spread-safe owned caller) — the caller attr map may not "
+               "carry " (pr-str k) ": it is "
+               (spread-safe-denial-reason k owned-handler-keys)
+               ", denied in every build so it can never clobber an owned prop. "
+               "Forward it through the visible-cost (ui/spread base overrides) "
+               "instead, or drop it from the caller map")
+          {:extra {:key k}})))
+     nil caller))
+  caller)
