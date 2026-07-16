@@ -35,7 +35,8 @@
 (defn- mk-worker
   "A worker child that dispatches `done-kw` / `err-kw` back to `parent-id`
   carrying its own `:worker` logical id — through its OWN handler boundary, so
-  the runtime stamps the exact `:rf/join-auth` for its region's attempt."
+  the runtime records the exact join authority on the recordable `:rf.cofx` fact
+  `:rf.machine/join-auth` for its region's attempt."
   [parent-id done-kw err-kw]
   {:initial :running
    :data    {:id nil}
