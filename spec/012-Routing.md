@@ -1398,7 +1398,10 @@ A cross-cutting guard interceptor **must cover all three entry doors**, or it fa
 (defn- nav-target [event]
   (let [[ev-id a b] event]
     (case ev-id
-      :rf.route/navigate          {:id a :params (or b {})}     ;; a = route-id
+      :rf.route/navigate          (if (map? a)                  ;; {:url ...} escape-hatch target
+                                    (when-let [{:keys [route-id params]} (rf/match-url (:url a))]
+                                      {:id route-id :params (or params {})})
+                                    {:id a :params (or b {})})  ;; a = route-id
       :rf.route/url-requested           (let [{:keys [to params url]} a]
                                     (cond
                                       to  {:id to :params (or params {})}
@@ -1433,6 +1436,8 @@ A cross-cutting guard interceptor **must cover all three entry doors**, or it fa
 (rf/make-frame {:id :app
                 :interceptors [:app/section-lockout]})
 ```
+
+The `:rf.route/navigate` door itself carries **two target forms** (per [§Target form](#target-form--route-id-url-string-or-reserved)): a route-id, and the `{:url …}` escape hatch (deep links, redirects). A raw URL is not a route id, so the normaliser routes the `{:url …}` form through `match-url` exactly as the runtime does before the guard reads `handler-meta` — otherwise `[:rf.route/navigate {:url "/admin"}]` resolves `handler-meta` on a map, sees no tags, and slips past the gate. This is the target-union mirror of the three-door rule: cover both forms of the door too.
 
 Guards are interceptors, not a special routing mechanism. They are registered once and referenced by id; they compose — list multiple refs in the `:interceptors` chain and they layer in order. Prefer `:can-enter` when the policy belongs to one route; reach for a frame-`:interceptors` guard when it spans many routes uniformly, and cover all three doors when you do.
 
