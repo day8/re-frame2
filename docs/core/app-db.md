@@ -19,9 +19,10 @@ Almost everything else in re-frame2 stays simple *because* of that.
 
 ## A complete live counter
 
-The intro counter started at `0` via a fallback when `:value` was missing. Here we
-make the initial value **explicit**, then put a second fact — `:step-size` — in the
-same map. Still one store. Click the buttons (edit the cell and press
+The intro counter already seeded `:value 0` through its `:initialise` event; the
+`(:value db 0)` in its subscription was a defensive display fallback, not the
+initializer. Here we extend that same initial map with a second fact — `:step-size` —
+so both begin explicit in one store. Click the buttons (edit the cell and press
 **`Ctrl-Enter`** / **`Cmd-Enter`** if you change the code):
 
 ```cljs-rf2
