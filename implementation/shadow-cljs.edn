@@ -1068,7 +1068,21 @@
   {:target     :browser
    :output-dir "out/examples/counter"
    :asset-path "."
-   :compiler-options {:closure-defines {goog.DEBUG false}}
+   ;; goog.DEBUG=false is pinned for RELEASE ONLY, not shared
+   ;; :compiler-options. The bundle-isolation gate greps the `release`
+   ;; counter bundle (scripts/check-bundle-isolation.cjs, out/examples/
+   ;; counter) and wants goog.DEBUG=false explicit there, matching the
+   ;; sibling :bundle-isolation-positive-control build. But the SAME
+   ;; build also serves the Xray feature browser gate
+   ;; (scripts/serve-and-run-xray-feature-gate.cjs), which compiles it in
+   ;; `compile`/dev with the :devtools Xray preload below and needs
+   ;; goog.DEBUG at its dev default (true) so Xray's dev instrumentation
+   ;; is NOT elided and the shell mounts. Pinning goog.DEBUG=false in the
+   ;; shared :compiler-options leaked into that dev compile and elided
+   ;; Xray, so the counter smoke scenarios could not open the shell —
+   ;; scoping it to :release keeps both gates green. (release always
+   ;; defaults goog.DEBUG=false, so this stays explicit, never weaker.)
+   :release    {:compiler-options {:closure-defines {goog.DEBUG false}}}
    :modules    {:main {:init-fn counter.core/run}}
    ;; Xray Phase 1 smoke (rf2-n6x4q). Pulling the preload here is the
    ;; convention-anchoring path standing rule: every Phase-2+ panel
