@@ -3575,13 +3575,19 @@
                                       trace when the machines artefact is
                                       absent.
     4. :ui/on-frame-destroyed!      — detach the compiled-view
-                                      (day8/re-frame2-ui) observers: every
-                                      currently-connected ViewCell observing
-                                      this frame transitions to :dead (03 §4)
-                                      and releases its leases against the
-                                      still-live sub-cache, so a later
-                                      read/probe follows the dead-cell
-                                      lifecycle rather than throwing
+                                      (day8/re-frame2-ui) observers: a bounded
+                                      victim set transitions to :dead (03 §4) —
+                                      every currently-connected ViewCell
+                                      observing this frame PLUS every still-
+                                      disconnected but React-retained
+                                      root-owned ViewCell whose last published
+                                      site values name it (an Activity-hidden
+                                      cell holds no live observers yet must
+                                      still be reaped). The union is deduped +
+                                      incarnation-scoped; each releases its
+                                      leases against the still-live sub-cache,
+                                      so a later read/probe follows the
+                                      dead-cell lifecycle rather than throwing
                                       :rf.error/frame-destroyed. No-op when
                                       the artefact is absent (rf2-vxgfnd.42).
     5. mark-frame-destroyed!        — CAS-flip :lifecycle :destroyed? only
@@ -3791,13 +3797,17 @@
         (safe-teardown-step! :frame/notify-machine-destruction!
                              (fn [] (notify-machine-destruction! id)))
         ;; Detach the compiled-view (day8/re-frame2-ui) observers BEFORE the
-        ;; liveness flip / sub-cache teardown, so every currently-connected
-        ;; ViewCell observing this frame transitions to :dead (03 §4 dead-cell
-        ;; lifecycle) and releases its leases against the still-live sub-cache —
-        ;; instead of being left live to throw :rf.error/frame-destroyed off the
-        ;; observation port on its next read. Symmetric with the machine cascade
-        ;; above (observers torn down against a live container). No-op when the
-        ;; re-frame2-ui artefact is absent (the hook is unbound) — rf2-vxgfnd.42.
+        ;; liveness flip / sub-cache teardown. The hook sweeps a bounded victim
+        ;; set to :dead (03 §4 dead-cell lifecycle): every currently-connected
+        ;; ViewCell observing this frame PLUS every still-disconnected but
+        ;; React-retained root-owned ViewCell whose last published site values
+        ;; name it (a hidden cell holds no live observers yet must still be
+        ;; reaped) — deduped + incarnation-scoped. Each releases its leases
+        ;; against the still-live sub-cache instead of being left live to throw
+        ;; :rf.error/frame-destroyed off the observation port on its next read.
+        ;; Symmetric with the machine cascade above (observers torn down against
+        ;; a live container). No-op when the re-frame2-ui artefact is absent
+        ;; (the hook is unbound) — rf2-vxgfnd.42.
         (safe-call-hook! :ui/on-frame-destroyed! id)
         ;; Flip the liveness bit under the frame's OWN `:drain-lock` (the ONE
         ;; frame-owned lifecycle gate, via the same `call-serialized-with-drain!`

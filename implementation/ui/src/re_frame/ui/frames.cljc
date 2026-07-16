@@ -1327,12 +1327,23 @@
 ;; `:ui/on-frame-destroyed!` — exactly like `:machines/on-frame-destroyed!`,
 ;; `:schemas/on-frame-destroyed!`, `:routing/on-frame-destroyed!`, … — one
 ;; per optional artefact that owns frame-scoped teardown. The compiled-view
-;; substrate answers it by transitioning every currently-connected ViewCell
-;; observing the destroyed frame to `:dead` (`reactive/teardown-frame!`), so a
-;; subsequent read/probe follows the 03 §4 dead-cell lifecycle instead of
-;; throwing `:rf.error/frame-destroyed` off the observation port. Late-bound so
-;; core never statically requires this artefact — the hook is simply unbound
-;; (a no-op) when day8/re-frame2-ui is absent from the classpath.
+;; substrate answers it through `reactive/teardown-frame!`, which sweeps a
+;; bounded victim set to `:dead`: every currently-connected ViewCell observing
+;; the destroyed frame, PLUS every still-disconnected but React-retained
+;; root-owned ViewCell whose last published site values (retained subscription
+;; targets / resource reservations) name it. The disconnected arm is the
+;; non-obvious half and the reason the hook can never be connected-only — an
+;; Activity-hidden cell holds no live observers yet must not survive its frame
+;; to throw on reveal. The union is deduplicated and incarnation-scoped (a
+;; same-id successor frame is never reaped); a cell whose retained React fiber
+;; was already collected has left the weak-live `root-cells` registry and is
+;; not scanned. A `:dead` cell's later read/probe follows the 03 §4 dead-cell
+;; lifecycle instead of throwing `:rf.error/frame-destroyed` off the observation
+;; port. Late-bound so core never statically requires this artefact — the hook
+;; is simply unbound (a no-op) when day8/re-frame2-ui is absent from the
+;; classpath. The disconnected-cell obligation is pinned by
+;; `reactive-frame-teardown-cljs-test`'s
+;; `frame-destroy-reaps-an-activity-hidden-cell`.
 ;;
 ;; The hook ALSO prunes the destroyed id's install record (rf2-vxgfnd.30 (a)):
 ;; `installed-plan-entry` only HID a dead record behind a liveness guard, so a
