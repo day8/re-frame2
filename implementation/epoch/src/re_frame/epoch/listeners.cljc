@@ -456,14 +456,15 @@
          ;; rf2-9bhne6). Iterate the owed identities in a deterministic cb-id
          ;; order so the linearizable claim sees a stable sequence.
          ;; `claim-and-publish-delayed-silence!` reserves the one signal AND runs
-         ;; the external emit inside the SAME `silence-lock` critical section —
-         ;; rechecking current generation, FRESH live observers, and any existing
-         ;; mark, writing the monotonic mark, then emitting, all before the lock
-         ;; releases. Because listener replacement / drop / reset and the
-         ;; observation re-arm also take `silence-lock`, the winning
-         ;; `(cb-id, observed-gen)` stays the authoritative generation THROUGH the
-         ;; emission: a concurrent registrar cannot make a fresh generation
-         ;; current in the reserve→emit window (rf2-9bhne6). Only a granted
+         ;; the external emit inside ONE critical section holding BOTH ledger locks
+         ;; (registry → silence) — rechecking current generation, FRESH live
+         ;; observers, and any existing mark, writing the monotonic mark, then
+         ;; emitting, all before the locks release. Because listener replacement
+         ;; takes the registry lock, and drop / reset / the observation re-arm take
+         ;; silence-lock (the split that broke the single-monitor deadlock, rf2-9bhne6),
+         ;; the winning `(cb-id, observed-gen)` stays the authoritative generation
+         ;; THROUGH the emission: a concurrent registrar cannot make a fresh
+         ;; generation current in the reserve→emit window (rf2-9bhne6). Only a granted
          ;; reservation emits; if the external delivery throws, the reservation is
          ;; rolled back inside the same section and the fault propagates.
          (doseq [[cb-id observed-gen] (sort-by (comp str key) silenced-cbs)]
