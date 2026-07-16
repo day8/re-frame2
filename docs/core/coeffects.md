@@ -279,7 +279,7 @@ A live order-placer. The durable facts — *when* each order was placed, *what* 
 
 Notice that `:demo.order/place` never calls `js/Date.` or `random-uuid`. The only ambient host read left — the locale formatting the displayed time — lives at the view, a render-time choice that never touches durable state.
 
-**Try it:** change the button's dispatch to `#(rf/dispatch [:demo.order/place {:id (random-uuid)}] {:rf.cofx {:rf/time-ms 1735732800000}})` (the ns-level `rf/dispatch`, which takes the opts map directly) and re-evaluate. Every order is now stamped that exact instant, because you handed the runtime the fact instead of letting it stamp the wall clock. And if you have an app running with [Xray](glossary.md#xray) open, focus the event's epoch and read its recordable coeffects — the exact facts this run folded, sitting right above the handler step.
+**Try it:** change the button's dispatch to `#(dispatch [:demo.order/place {:id (random-uuid)}] {:rf.cofx {:rf/time-ms 1735732800000}})` (the injected `dispatch` takes the opts map as its second argument, and it stays locked to this view's `:orders` [frame](glossary.md#frame) — so the order still lands where the list is subscribed) and re-evaluate. Every order is now stamped that exact instant, because you handed the runtime the fact instead of letting it stamp the wall clock. And if you have an app running with [Xray](glossary.md#xray) open, focus the event's epoch and read its recordable coeffects — the exact facts this run folded, sitting right above the handler step.
 
 ## Supplying facts in tests
 
