@@ -222,6 +222,75 @@ _FENCE_RE = re.compile(r"^(```|~~~)")
 _INLINE_CODE_RE = re.compile(r"(`+)(?:.+?)\1(?!`)")
 
 
+# rf2-t0ituo — Machines handbook compatibility-anchor manifest + source-comment
+# link gate.
+#
+# PR #5916 reorganized the Machines handbook and dropped ~20 generated heading
+# IDs. External bookmarks and in-repo source comments (`.clj` / `.cljs`
+# walkthroughs) still target them, but neither is a markdown link, so the corpus
+# scan above never sees the break. Two additions close the hole:
+#
+#   1. MACHINES_COMPAT_ANCHORS — the manifest of stable anchors that MUST resolve
+#      on their page. A reorg that drops one fails here even when nothing in the
+#      markdown corpus links to it (an external bookmark has no in-repo linker to
+#      catch the break).
+#   2. SOURCE_COMMENT_LINK_GLOBS — non-markdown source files whose comments point
+#      readers at handbook anchors. Every `docs/machines/<page>.md#anchor`
+#      substring is resolved and validated against the target page's slug index,
+#      so a stale comment link (or a reorg removing its target) fails here too.
+#
+# Both run only in the default (docs-corpus) scope, never under --synthesis-only.
+MACHINES_COMPAT_ANCHORS = {
+    "docs/machines/concepts.md": (
+        "state-machines",
+        "a-machine-at-a-glance",
+        "a-guard-is-a-yesno-gate",
+        "an-action-returns-effects",
+        "name-them-or-inline-them",
+        "strict-encapsulation--a-machine-sees-only-its-own-data",
+        "the-snapshot--state-data-tags",
+        "tags-and-timers",
+        "validating-a-machines-completion-output",
+        "testing-transitions-are-pure-function-calls",
+        "when-to-reach-for-a-machine--and-when-not",
+        # Also referenced by the nine_states / websocket example comments.
+        "guards-actions-tags-and-after--the-recognition-kit",
+    ),
+    "docs/machines/tutorial.md": (
+        "step-1--your-first-machine",
+        "step-2--a-guard-refuse-an-invalid-submit",
+        "step-3--an-action-and-the-data-fx-it-returns",
+        "step-6--test-it-a-transition-is-a-pure-function",
+    ),
+    "docs/machines/tags.md": (
+        "querying-with-machine-has-tag",
+    ),
+    "docs/machines/examples.md": (
+        "machines-examples",
+    ),
+    "docs/machines/index.md": (
+        "theyre-everywhere",
+        "first-class-support",
+        "deeply-integrated",
+    ),
+}
+
+# Source trees whose comments carry `docs/machines/<page>.md#anchor` references.
+SOURCE_COMMENT_LINK_GLOBS = (
+    "examples/**/*.clj",
+    "examples/**/*.cljs",
+    "examples/**/*.cljc",
+)
+
+# A `docs/machines/<page>.md#anchor` substring, however it is embedded (bare in a
+# `;;` comment, inside a markdown `[text](../../docs/...)` link, or in parens).
+# Any leading path segments (`../../../`) are ignored — the captured `docs/...`
+# tail is resolved repo-root-relative.
+_MACHINES_DOC_LINK_RE = re.compile(
+    r"(docs/machines/[A-Za-z0-9_-]+\.md)#([A-Za-z0-9_-]+)"
+)
+
+
 def _is_excluded(
     path: Path,
     repo_root: Path,
@@ -488,6 +557,60 @@ def _scan_retired_synthesis_ops(
     return hits
 
 
+def _check_machines_compat_anchors(
+    repo_root: Path,
+    slugs_for,
+) -> list[tuple[str, str]]:
+    """Validate every manifest compat anchor resolves on its page (rf2-t0ituo).
+
+    Returns (page-rel, anchor) for each manifest anchor absent from its page's
+    slug index. Pages missing from the working tree are skipped, so the
+    fixture-based self-tests — whose mini-repos carry no docs/machines tree —
+    stay unaffected.
+    """
+    missing: list[tuple[str, str]] = []
+    for page_rel, anchors in MACHINES_COMPAT_ANCHORS.items():
+        page = repo_root / page_rel
+        if not page.is_file():
+            continue
+        page_slugs = slugs_for(page)
+        for anchor in anchors:
+            if anchor not in page_slugs:
+                missing.append((page_rel, anchor))
+    return missing
+
+
+def _check_source_comment_links(
+    repo_root: Path,
+    slugs_for,
+) -> list[tuple[Path, int, str, str]]:
+    """Validate `docs/machines/*.md#anchor` links in source comments (rf2-t0ituo).
+
+    Scans SOURCE_COMMENT_LINK_GLOBS line by line for the handbook-anchor
+    substring and resolves each against the target page's slug index. Returns
+    (source-file, line-no, `page#anchor`, reason) for every broken reference.
+    A repo with no matching source files (the self-test fixtures) yields none.
+    """
+    broken: list[tuple[Path, int, str, str]] = []
+    for pattern in SOURCE_COMMENT_LINK_GLOBS:
+        for src in sorted(repo_root.glob(pattern)):
+            text = src.read_text(encoding="utf-8", errors="replace")
+            for line_no, line in enumerate(text.splitlines(), start=1):
+                for m in _MACHINES_DOC_LINK_RE.finditer(line):
+                    doc_rel, anchor = m.group(1), m.group(2)
+                    target = (repo_root / doc_rel).resolve()
+                    if not target.is_file():
+                        broken.append(
+                            (src, line_no, f"{doc_rel}#{anchor}", "missing target file")
+                        )
+                        continue
+                    if anchor not in slugs_for(target):
+                        broken.append(
+                            (src, line_no, f"{doc_rel}#{anchor}", "missing anchor")
+                        )
+    return broken
+
+
 def check(
     repo_root: Path,
     verbose: bool = False,
@@ -507,6 +630,13 @@ def check(
                               active synthesis instruction still asserts the
                               retired local-only / copy-from-mayor model for the
                               force-tracked synthesis subtree.
+        * MISSING COMPAT ANCHOR — (default scope, rf2-t0ituo) a manifest anchor
+                              in MACHINES_COMPAT_ANCHORS no longer resolves on
+                              its page (external bookmarks / source comments
+                              depend on it).
+        * BROKEN SOURCE-COMMENT LINK — (default scope, rf2-t0ituo) a
+                              `docs/machines/*.md#anchor` reference embedded in a
+                              non-markdown source comment does not resolve.
     """
     files = list(_iter_markdown(repo_root, synthesis_only=synthesis_only))
     if synthesis_only:
@@ -610,11 +740,21 @@ def check(
     if synthesis_only:
         retired_ops = _scan_retired_synthesis_ops(files, repo_root)
 
+    # rf2-t0ituo — the Machines compat-anchor manifest + source-comment link gate
+    # run only in the default docs scope (never under --synthesis-only).
+    compat_missing: list[tuple[str, str]] = []
+    source_comment_broken: list[tuple[Path, int, str, str]] = []
+    if not synthesis_only:
+        compat_missing = _check_machines_compat_anchors(repo_root, slugs_for)
+        source_comment_broken = _check_source_comment_links(repo_root, slugs_for)
+
     total = (
         len(broken_anchor)
         + len(broken_target)
         + len(ai_findings)
         + len(retired_ops)
+        + len(compat_missing)
+        + len(source_comment_broken)
     )
 
     if broken_target:
@@ -682,6 +822,39 @@ def check(
             "revision being implemented/reviewed -- not to copy it from the mayor "
             "checkout. If the line is genuinely historical, move it into a "
             "blockquote whose opener is marked HISTORICAL / non-operative.\n"
+        )
+
+    if compat_missing:
+        sys.stderr.write(
+            f"\n{len(compat_missing)} missing Machines compat anchor(s) "
+            "found (rf2-t0ituo):\n\n"
+        )
+        for page_rel, anchor in compat_missing:
+            sys.stderr.write(
+                f"  MISSING COMPAT ANCHOR: {page_rel}#{anchor}\n"
+            )
+        sys.stderr.write(
+            "\nFix: these anchors back external bookmarks and in-repo source "
+            "comments. Restore an `<a id=\"...\"></a>` for each on its page "
+            "(without duplicating a visible heading), or update "
+            "MACHINES_COMPAT_ANCHORS if the anchor is intentionally retired.\n"
+        )
+
+    if source_comment_broken:
+        sys.stderr.write(
+            f"\n{len(source_comment_broken)} broken source-comment link(s) into "
+            "the Machines handbook found (rf2-t0ituo):\n\n"
+        )
+        for src, line_no, dest, reason in source_comment_broken:
+            rel = src.relative_to(repo_root.resolve())
+            sys.stderr.write(
+                f"  BROKEN SOURCE-COMMENT LINK: {rel}:{line_no} -> {dest}\n"
+                f"      ({reason})\n"
+            )
+        sys.stderr.write(
+            "\nFix: point the comment at a live canonical heading, or restore a "
+            "compatibility anchor on the target page (and list it in "
+            "MACHINES_COMPAT_ANCHORS).\n"
         )
 
     if total == 0 and verbose:

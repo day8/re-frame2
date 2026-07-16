@@ -1,5 +1,7 @@
 # Examples
 
+<a id="machines-examples"></a>
+
 Runnable apps that exercise the machine grammar. Build a machine yourself first
 ([tutorial](tutorial.md) — ends with a complete login table), then skim
 [the model](concepts.md). Work these apps in order — each adds machinery.

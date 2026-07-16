@@ -71,6 +71,8 @@ How the union is computed depends on the machine's shape:
 
 ## Querying with `[:rf.machine/has-tag? …]`
 
+<a id="querying-with-machine-has-tag"></a>
+
 The framework ships one **derived subscription** for the containment question — *does this machine's snapshot carry this tag?* There is no separate function sugar; every runtime-db read is a subscription vector:
 
 ```clojure

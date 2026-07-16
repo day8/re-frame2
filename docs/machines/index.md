@@ -1,9 +1,13 @@
 # Hierarchical state machines
 
+<a id="theyre-everywhere"></a>
+
 Some state is not a number in app-db — it is **which named stage you are in**, and
 which events may legally leave it. Login is idle, then submitting, then authed or
 error or locked-out. A websocket is connecting, open, reconnecting, closed. Those
 flows usually hide as enums and booleans scattered across handlers.
+
+<a id="first-class-support"></a>
 
 A **machine** makes that shape first-class: one data table of states and
 transitions, driven by ordinary `dispatch`, read by ordinary `subscribe`, living in
@@ -42,6 +46,8 @@ Optional later: [examples](examples.md), [XState mapping](coming-from-xstate.md)
 @(rf/subscribe [:rf/machine :door])
 ;; => {:state :open :data {}}
 ```
+
+<a id="deeply-integrated"></a>
 
 `reg-machine` is sugar over `reg-event`. The snapshot rides runtime-db — undo, Xray,
 SSR, and tests share the same pipeline as the rest of the app.
