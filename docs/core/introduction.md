@@ -160,20 +160,21 @@ One formula, applied one event at a time.
 
 ## How the Core track is organised
 
-The left nav is the learning order. Each concept page opens a **day-one** path and
-marks optional depth so you can stop and ship.
+The left nav is the learning order, and it owns the page roster — this page won't
+restate it. What's worth saying is the *shape* of that order, because each stage
+leans only on the one before it.
 
-| Stage | Pages | What you can build after |
-|---|---|---|
-| **Pure pipeline** | [Events](events.md) → [app-db](app-db.md) → [Subscriptions](subscriptions.md) → [Views](views.md) | Real screens: intent in, one map, named conclusions, pure UI — same event pipeline, without impurity yet |
-| **Impurity** | [Effects](effects.md) → [Coeffects](coeffects.md) | HTTP, storage, timers, recorded world facts — handlers stay pure |
-| **Structure** | [Frames](frames.md) → [Flows](flows.md) → [Interceptors](interceptors.md) (rare) | Isolation, write-side derivations; interceptors only when a chore is truly shared |
-| **Operations** | [Errors](errors.md) → [Observability](observability.md) | Named dossiers and the one trace wire when something breaks |
-| **Advanced** | [Images](images.md) | Different registration sets per frame (rare) |
+You start with the **pure pipeline** — the whole model, no impurity yet, and enough
+to build real screens. Then **impurity** lets handlers reach the world (HTTP,
+storage, timers, recorded facts) and stay pure doing it. **Structure** arrives once
+an app grows — isolating worlds, and moving derivations to the write side.
+**Operations** is for when something breaks. The **advanced** corners come last, and
+most apps never reach for them.
 
-How-to recipes (including [boot](how-to/boot-and-mount-an-app.md)), testing, and
-"why it's built this way" essays sit under those headings — use them when you have
-a task or a design question, not as the first read-through.
+Every concept page opens a **day-one** path and marks its optional depth, so you can
+stop and ship at any stage. How-to recipes, testing, and the "why it's built this
+way" essays sit alongside those concepts — reach for them when you have a task or a
+design question, not as a first read-through.
 
 ### Happy path and unhappy path
 
