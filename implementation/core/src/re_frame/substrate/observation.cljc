@@ -292,13 +292,26 @@
 ;; map's class (`PersistentArrayMap`) is stable across reloads, so version
 ;; recognition is stable and repeated reloads stay idempotent.
 ;;
-;; A `WeakReference`-subclass identity-key ([[weak-identity-key]]) → `EmissionProvenance`.
-;; The inner `by-throwable` is a plain `HashMap` guarded by `locking` on that map
-;; (the node-records lock discipline); NOT a `WeakHashMap` — weakness comes from the
-;; `WeakReference` KEYS + ReferenceQueue expunge, IDENTITY from the keys' own
-;; `hashCode`/`equals`. `js/WeakMap` on CLJS is genuinely identity-keyed with
-;; ephemeron semantics and NO reload hazard (a page reload is a fresh JS realm), so
-;; CLJS keeps the bare `defonce` unchanged.
+;; A `WeakReference`-subclass identity-key ([[weak-identity-key]]) → a RELOAD-STABLE
+;; channel SET (rf2-kia9st). The inner `by-throwable` is a plain `HashMap` guarded by
+;; `locking` on that map (the node-records lock discipline); NOT a `WeakHashMap` —
+;; weakness comes from the `WeakReference` KEYS + ReferenceQueue expunge, IDENTITY
+;; from the keys' own `hashCode`/`equals`. `js/WeakMap` on CLJS is genuinely
+;; identity-keyed with ephemeron semantics and NO reload hazard (a page reload is a
+;; fresh JS realm), so CLJS keeps the bare `defonce` unchanged.
+;;
+;; The stored VALUE on the JVM is the [[EmissionProvenance]] token's raw channel SET
+;; (`#{:always-on :trace}` / `#{:trace}`), NOT the deftype instance (rf2-kia9st). The
+;; SAME reason the version carrier is a plain map, not a deftype, applies to the
+;; stored value: a namespace reload REDEFINES the deftype's class, so a retained
+;; old-class `EmissionProvenance` VALUE reads `(instance? EmissionProvenance …)` FALSE
+;; after a same-version reload and its throwable silently flips covered→uncovered.
+;; A persistent set's class (`PersistentHashSet`) and its interned keyword members are
+;; stable across reloads, so an entry attested before a reload stays covered after it.
+;; Two operations reading the map + queue through SEPARATE Var reads could also pair
+;; one holder's map with another holder's queue if a reload reconciliation interleaved
+;; between them; [[provenance-holder]] is the single coherent snapshot that closes that
+;; desync. CLJS stores the token unchanged.
 #?(:clj (def ^:private provenance-storage-version
           ;; Representation version of the private JVM provenance storage. BUMP when
           ;; the holder shape changes so a reload over an older root REPLACES it. v2
@@ -356,17 +369,21 @@
 #?(:clj (ensure-current-provenance-storage!))
 
 #?(:clj
-   (defn- provenance-map
-     "The current identity-keyed provenance `HashMap` (rf2-qqvgk1)."
-     ^java.util.Map []
-     (:by-throwable provenance-storage)))
-
-#?(:clj
-   (defn- provenance-ref-queue
-     "The current provenance `ReferenceQueue` — bundled with [[provenance-map]] in
-     the one holder so the two can never desync across a reload (rf2-qqvgk1)."
-     ^java.lang.ref.ReferenceQueue []
-     (:queue provenance-storage)))
+   (defn- provenance-holder
+     "ONE coherent snapshot of the reconciled provenance storage holder — a SINGLE
+     read of the `provenance-storage` Var (rf2-kia9st). Every attest / lookup /
+     expunge operation binds this ONCE and pulls BOTH its `:by-throwable` map and
+     its paired `:queue` ReferenceQueue from the returned value, NEVER through two
+     separate Var reads. `alter-var-root` publishes a holder replacement
+     atomically, so a single read always sees ONE complete holder — even if a
+     reload reconciliation ([[ensure-current-provenance-storage!]]) runs
+     concurrently or reentrantly. This closes the desync where the map came from
+     one holder and the queue from another: a key registered on holder B's queue
+     but installed in holder A's map is never enqueued to A's queue, so A never
+     expunges it (a weak leak) and it is undiscoverable from the live holder if B
+     wins. Callers must not re-read the Var mid-operation."
+     []
+     provenance-storage))
 
 #?(:clj
    (defn- weak-identity-key
@@ -413,14 +430,28 @@
   minted-and-bound is covered. A no-op-safe identity write; the entry dies with
   the throwable."
   [t provenance]
-  #?(:clj  (let [m (provenance-map)
-                 q (provenance-ref-queue)]
+  #?(:clj  (let [holder (provenance-holder)      ;; ONE coherent snapshot (rf2-kia9st)
+                 m      ^java.util.Map (:by-throwable holder)
+                 q      ^java.lang.ref.ReferenceQueue (:queue holder)]
              (locking m
                (expunge-stale-provenance! m q)
                ;; Store under a WEAK IDENTITY key (rf2-fs99nq): keyed by t's object
                ;; identity, never its own hashCode/equals; the key is registered on
-               ;; the ReferenceQueue so the entry is reclaimed once t is collected.
-               (.put ^java.util.Map m (weak-identity-key t q) provenance)))
+               ;; THIS holder's ReferenceQueue so the entry is reclaimed once t is
+               ;; collected. Map + queue come from the one `holder` snapshot, so the
+               ;; key can never be registered on a different holder's queue than the
+               ;; map it lands in (rf2-kia9st).
+               ;;
+               ;; The stored VALUE is the RELOAD-STABLE channels SET, NOT the
+               ;; `EmissionProvenance` deftype instance (rf2-kia9st): a real
+               ;; namespace reload REDEFINES the deftype's class, so a retained
+               ;; old-class instance reads `(instance? EmissionProvenance …)` FALSE
+               ;; afterward and its throwable flips covered→uncovered — an
+               ;; exact-once-coverage violation. A plain persistent set's class
+               ;; (`PersistentHashSet`) and its interned keyword members are stable
+               ;; across reloads, so the retained value still reads correctly. CLJS
+               ;; stores the token unchanged (a page reload is a fresh JS realm).
+               (.put m (weak-identity-key t q) (.-channels ^EmissionProvenance provenance))))
      :cljs (.set provenance-by-throwable t provenance))
   t)
 
@@ -439,31 +470,40 @@
   false, so trace coverage is never mistaken for always-on coverage
   (rf2-w55bh0)."
   [t]
-  (let [prov #?(:clj  (let [m (provenance-map)
-                            q (provenance-ref-queue)]
-                        (locking m
-                          (expunge-stale-provenance! m q)
-                          ;; A transient IDENTITY LOOKUP key (nil queue) — HashMap.get
-                          ;; discriminates by our key's `System/identityHashCode` +
-                          ;; referent `identical?`, NEVER t's own hashCode/equals
-                          ;; (rf2-fs99nq). So a distinct application throwable that is
-                          ;; `.equals`/hash-collides with a bound one reads uncovered,
-                          ;; and a throwable whose hashCode/equals THROWS cannot make
-                          ;; this lookup escape the drain's catch.
-                          (.get ^java.util.Map m (weak-identity-key t nil))))
-                ;; `WeakMap.prototype.get` returns undefined (never throws) for a
-                ;; non-object key, so a raw thrown value (CLJS permits
-                ;; `(throw :kw)` / `(throw "x")`) simply reads uncovered — NO guard
-                ;; is needed here. `js/WeakMap` is genuinely identity-keyed (reference
-                ;; keys), so CLJS carries none of the JVM `.equals`/`.hashCode`
-                ;; collision hazard (rf2-fs99nq). In particular do NOT guard with cljs
-                ;; `object?`: it is `(identical? (.-constructor x) js/Object)`, which
-                ;; is FALSE for an `ExceptionInfo` (its constructor is not
-                ;; `js/Object`), so it would wrongly exclude every real framework
-                ;; throwable and make the covered path never fire on CLJS.
-                :cljs (.get provenance-by-throwable t))]
-    (and (instance? EmissionProvenance prov)
-         (contains? (.-channels ^EmissionProvenance prov) :always-on))))
+  ;; `channels` is the reload-stable channel SET the source covered, or nil when t
+  ;; has no binding. On the JVM the stored VALUE already IS that set (rf2-kia9st);
+  ;; on CLJS the stored value is the `EmissionProvenance` token, so its channels are
+  ;; extracted here (belt-and-braces `instance?` — an app cannot write the private
+  ;; WeakMap anyway).
+  (let [channels
+        #?(:clj  (let [holder (provenance-holder)      ;; ONE coherent snapshot (rf2-kia9st)
+                       m      ^java.util.Map (:by-throwable holder)
+                       q      ^java.lang.ref.ReferenceQueue (:queue holder)]
+                   (locking m
+                     (expunge-stale-provenance! m q)
+                     ;; A transient IDENTITY LOOKUP key (nil queue) — HashMap.get
+                     ;; discriminates by our key's `System/identityHashCode` +
+                     ;; referent `identical?`, NEVER t's own hashCode/equals
+                     ;; (rf2-fs99nq). So a distinct application throwable that is
+                     ;; `.equals`/hash-collides with a bound one reads uncovered,
+                     ;; and a throwable whose hashCode/equals THROWS cannot make
+                     ;; this lookup escape the drain's catch. Map + queue are the
+                     ;; paired members of the ONE `holder` snapshot (rf2-kia9st).
+                     (.get m (weak-identity-key t nil))))
+           ;; `WeakMap.prototype.get` returns undefined (never throws) for a
+           ;; non-object key, so a raw thrown value (CLJS permits
+           ;; `(throw :kw)` / `(throw "x")`) simply reads uncovered — NO guard
+           ;; is needed here. `js/WeakMap` is genuinely identity-keyed (reference
+           ;; keys), so CLJS carries none of the JVM `.equals`/`.hashCode`
+           ;; collision hazard (rf2-fs99nq). In particular do NOT guard with cljs
+           ;; `object?`: it is `(identical? (.-constructor x) js/Object)`, which
+           ;; is FALSE for an `ExceptionInfo` (its constructor is not
+           ;; `js/Object`), so it would wrongly exclude every real framework
+           ;; throwable and make the covered path never fire on CLJS.
+           :cljs (let [prov (.get provenance-by-throwable t)]
+                   (when (instance? EmissionProvenance prov)
+                     (.-channels ^EmissionProvenance prov))))]
+    (boolean (and channels (contains? channels :always-on)))))
 
 ;; ---- ABI version guard -----------------------------------------------------
 

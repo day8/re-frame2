@@ -3318,6 +3318,132 @@
              "the cleared entry was expunged — private storage returned to baseline")))))
 
 ;; ===========================================================================
+;; rf2-kia9st — the JVM provenance is TRULY reload-safe: a REAL namespace reload
+;; (not merely the reconciliation helper) keeps a pre-reload attestation covered,
+;; and every operation reads its map + queue from ONE coherent holder snapshot.
+;;
+;; #5910 preserved a versioned holder but two hazards remained on current main:
+;;   1. A real `(require … :reload)` REDEFINES the `EmissionProvenance` deftype's
+;;      class. The defonce'd holder retained the provenance VALUE as an OLD-class
+;;      instance, so `(instance? EmissionProvenance …)` read FALSE afterward and a
+;;      throwable attested before the reload silently flipped covered→uncovered —
+;;      an exact-once-coverage violation the reconciliation-helper-only test never
+;;      exercised. The fix stores the reload-STABLE channel SET.
+;;   2. `attest-provenance!` / `source-covered-always-on?` fetched the map and the
+;;      ReferenceQueue through SEPARATE Var reads; a reload reconciliation
+;;      interleaving between them paired one holder's map with another's queue,
+;;      orphaning the entry / mismatching the queue. The fix takes ONE coherent
+;;      holder snapshot per operation ([[provenance-holder]]).
+;; JVM-only: CLJS uses `js/WeakMap` (ephemeron, fresh realm per page reload).
+;; ===========================================================================
+
+#?(:clj
+   (deftest jvm-provenance-survives-a-real-namespace-reload-covered-exactly-once
+     ;; rf2-kia9st acceptance 1 + 3: attest a REAL port-minted throwable, perform a
+     ;; REAL `(require … :reload)` (redefining the EmissionProvenance class), and prove
+     ;; the SAME throwable still reads covered afterward + the disposal drain adds NO
+     ;; duplicate wrapper (exact-once). Reverting the stored value to the deftype
+     ;; instance reddens this: the retained old-class instance reads instance? FALSE
+     ;; after the reload, flipping covered→uncovered.
+     (reg-items!)
+     (seed-items! [:a])
+     (let [setup         (obs/acquire! (items-target) (fn [_]))
+           _             (obs/release! setup)
+           ;; A REAL port-minted always-on throwable, bound #{:always-on :trace} by
+           ;; read-after-release's emit-then-throw. Held STRONGLY across the reload so
+           ;; only the class-redefinition — never GC — can flip its coverage.
+           a-throwable   (try (obs/read setup) (catch Throwable e e))
+           holder-before @#'obs/provenance-storage]
+       (is (= :rf.error/read-after-release (error-id a-throwable)))
+       (is (true? (#'obs/source-covered-always-on? a-throwable))
+           "covered before the reload")
+       ;; THE RELOAD — redefines EmissionProvenance's class; defonce keeps the holder
+       ;; and its entries, ensure-current-provenance-storage! reconciles (a no-op).
+       (require 're-frame.substrate.observation :reload)
+       (is (identical? holder-before @#'obs/provenance-storage)
+           "a same-version reload keeps the defonce'd holder — entries preserved")
+       (is (#'obs/current-provenance-storage? @#'obs/provenance-storage)
+           "the reload-reconciled holder is current-version")
+       (is (true? (#'obs/source-covered-always-on? a-throwable))
+           (str "the throwable attested BEFORE the reload STILL reads covered AFTER "
+                "it — the reload-stable channel-set value survives the deftype-class "
+                "redefinition (a retained EmissionProvenance instance would read "
+                "instance? FALSE against the new class and flip covered→uncovered)"))
+       (is (false? (#'obs/source-covered-always-on? (ex-info "unbound post-reload" {})))
+           "an unbound throwable still reads uncovered after the reload")
+       ;; Exact-once across the reload: a former owner whose on-change throws the
+       ;; pre-reload-attested throwable during a disposal drain must NOT add a
+       ;; duplicate callback-failure wrapper — its source coverage survived the reload.
+       (with-redefs [interop/next-tick (fn [_f] nil)]
+         (let [notes (atom [])
+               la    (obs/acquire! (items-target) (fn [_n] (throw a-throwable)))
+               lc    (obs/acquire! (items-target) (fn [n] (swap! notes conj n)))]
+           (force-dispose-node! [:obs/items])
+           (let [[_ records] (with-error-records
+                               #(obs/drain-pending-disposals! :disposed))
+                 wrapped     (filterv #(= :rf.error/observation-on-change-failed
+                                          (:error %))
+                                      records)]
+             (is (= 1 (count @notes)) "the healthy sibling was still notified")
+             (is (zero? (count wrapped))
+                 "the covered source stands across the reload — NO duplicate wrapper"))
+           (obs/release! la) (obs/release! lc))))))
+
+#?(:clj
+   (deftest jvm-attest-takes-one-coherent-holder-snapshot-under-a-reconciliation-interleave
+     ;; rf2-kia9st acceptance 2 + 4: attest reads its map + queue from ONE holder
+     ;; snapshot. Here a reconciliation is forced to interleave EXACTLY at attest's
+     ;; single holder read — the stub returns the live holder A and, as its side
+     ;; effect, moves the live storage Var forward to a fresh B. With one coherent
+     ;; snapshot the entry AND its weak-identity key both belong to A, so A expunges
+     ;; the entry when the throwable dies. The pre-fix two-read shape (map via one Var
+     ;; read, queue via a second) would read A then B — registering the key on B's
+     ;; queue while the entry landed in A's map, an orphan A can never expunge; that
+     ;; reversion reddens both the single-read count and the expunge-from-A proof.
+     (let [saved @#'obs/provenance-storage]
+       (try
+         (let [holder-a ^clojure.lang.IPersistentMap (#'obs/fresh-provenance-storage)
+               holder-b ^clojure.lang.IPersistentMap (#'obs/fresh-provenance-storage)
+               a-map    ^java.util.Map (:by-throwable holder-a)
+               a-queue  ^java.lang.ref.ReferenceQueue (:queue holder-a)
+               reads    (atom 0)]
+           (alter-var-root #'obs/provenance-storage (constantly holder-a))
+           (let [t-box (volatile! (ex-info "coherent-snapshot boom" {}))
+                 t-ref (java.lang.ref.WeakReference. ^Object @t-box)]
+             (with-redefs [obs/provenance-holder
+                           (fn []
+                             (swap! reads inc)
+                             ;; whichever holder is LIVE at this read (A on the first
+                             ;; read); then interleave a reconciliation to a fresh B.
+                             (let [live @#'obs/provenance-storage]
+                               (alter-var-root #'obs/provenance-storage
+                                               (constantly holder-b))
+                               live))]
+               (#'obs/attest-provenance! @t-box @#'obs/provenance-both-channels))
+             (is (= 1 @reads)
+                 "attest read the holder EXACTLY once — one coherent snapshot")
+             (is (= 1 (.size a-map))
+                 "the entry landed in the snapshotted holder A (no orphan)")
+             (is (zero? (.size ^java.util.Map (:by-throwable holder-b)))
+                 "the concurrently-installed live holder B never received this attest")
+             ;; No mismatched queue: the key was registered on A's OWN queue, so
+             ;; collecting the throwable + expunging A reclaims it. A key on B's queue
+             ;; (the pre-fix split) would leave a-map at size 1 forever.
+             (vreset! t-box nil)
+             (is (gc-until-cleared? t-ref)
+                 "the throwable is collectable — stored via neither key nor value")
+             (is (loop [i 0]
+                   (#'obs/expunge-stale-provenance! a-map a-queue)
+                   (cond
+                     (zero? (.size a-map)) true
+                     (>= i 40)             false
+                     :else (do (System/gc) (System/runFinalization) (recur (inc i)))))
+                 (str "expunge from the OWNING holder A reclaims the entry — its key "
+                      "was registered on A's queue, not B's (no mismatched queue)"))))
+         (finally
+           (alter-var-root #'obs/provenance-storage (constantly saved)))))))
+
+;; ===========================================================================
 ;; ABI guard
 ;; ===========================================================================
 
