@@ -964,18 +964,27 @@
   listener is contained in its own try/catch so one throwing consumer cannot
   starve its sibling listeners on the same cell (mirroring the observation
   port's per-lease disposal containment); the FIRST escape is rethrown AFTER
-  every listener has been delivered — surfaced, never starving (rf2-owwbyl)."
+  every listener has been delivered — surfaced, never starving (rf2-owwbyl).
+
+  Escape PRESENCE is tracked independently of the escape's own value: JavaScript
+  permits throwing falsy values (`throw null`, `throw false`), so the first
+  escape is captured in a truthy wrapper `{:escaped? true :error e}` rather than
+  as the raw value. Using the value's truthiness as the presence test would lose
+  a thrown `nil` and let a later truthy escape overwrite a first thrown `false`,
+  violating the first-escape order/identity contract (rf2-vxgfnd.172). The
+  wrapper is allocated only when a listener actually throws, so the happy path
+  carries no overhead."
   [^ViewCell cell]
   (let [escape (reduce (fn [acc f]
                          (try
                            (f)
                            acc
                            (catch #?(:clj Throwable :cljs :default) e
-                             (or acc e))))
+                             (or acc {:escaped? true :error e}))))
                        nil
                        (vals (:listeners @(state cell))))]
-    (when (some? escape)
-      (throw escape))))
+    (when escape
+      (throw (:error escape)))))
 
 (defn- advance-revision!
   "Advance the cell's revision and notify subscribers — the host re-reads
