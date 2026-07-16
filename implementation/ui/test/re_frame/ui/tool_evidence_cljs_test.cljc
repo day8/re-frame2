@@ -382,6 +382,176 @@
              "hosts without FinalizationRegistry compact on read")))))
 
 ;; ===========================================================================
+;; Compatible HMR migration — legacy stores are SANITIZED, not just re-homed
+;; ===========================================================================
+
+(defn- legacy-accrual
+  "The exact accrual a PRE-projection head accreted: RAW target keys, claimed
+  exact — its copier did not exist yet, so it had nothing to be inexact about."
+  [targets dropped]
+  {:first-epoch    1
+   :latest-epoch   2
+   :count          3
+   :batches        1
+   :causes         #{:value}
+   :targets        (vec targets)
+   :targets-exact? true
+   :dropped        (set dropped)
+   :dropped-exact? true})
+
+(defn- legacy-entry
+  [ord vid evidence]
+  {:cell-id ord :view-id vid :evidence evidence})
+
+(deftest compatible-hmr-sanitizes-a-legacy-strong-map-store
+  ;; The pre-weak head kept `:entries` as a STRONG persistent map keyed by
+  ;; ViewCell, whose values retained raw query→cell cycles. A compatible reload
+  ;; rebuilds that into the weak store — and must run every retained value
+  ;; through TODAY's copier on the way. Seeding the rows verbatim would migrate
+  ;; each cycle intact, and a weak key its own value reaches is pinned forever.
+  (is (true? (evidence/install! ::tool-a)))
+  (let [state* @#'evidence/state*
+        direct (connect-empty! (reactive/make-cell ::legacy-direct))
+        nested (connect-empty! (reactive/make-cell ::legacy-nested))
+        plain  (connect-empty! (reactive/make-cell ::legacy-plain))]
+    (swap! state* assoc
+           :entries      {direct (legacy-entry
+                                  7 ::legacy-direct
+                                  (legacy-accrual [[:sub fid [::q direct]]] []))
+                          nested (legacy-entry
+                                  9 ::legacy-nested
+                                  (legacy-accrual
+                                   [[:sub fid [::q {:nested {:cell nested}}]]] []))
+                          plain  (legacy-entry
+                                  11 ::legacy-plain
+                                  (legacy-accrual [[:sub fid [::q 1]]] []))}
+           :next-ordinal 12)
+
+    (is (true? (evidence/install! ::tool-a)) "the reload is a compatible re-arm")
+
+    (testing "raw direct/nested cycles are RE-PROJECTED, not rewrapped"
+      (doseq [vid [::legacy-direct ::legacy-nested]]
+        (let [ev (:evidence (entry-for vid))]
+          (is (= {:rf.ui.evidence/opaque :dynamic} (get-in ev [:targets 0 2 1]))
+              "the retained query is opaque — no cell survives the migration")
+          (is (false? (:targets-exact? ev))
+              "…and the legacy `exact` claim is corrected, not carried over")
+          (is (false? (:dropped-exact? ev))))))
+
+    (testing "ordinals and order survive; bounded counters carry over verbatim"
+      (is (= [7 9 11] (mapv :cell-id (evidence/projection))))
+      (is (= [::legacy-direct ::legacy-nested ::legacy-plain]
+             (mapv :view-id (evidence/projection))))
+      (let [ev (:evidence (entry-for ::legacy-direct))]
+        (is (= 3 (:count ev)) "occurrence counters are already bounded plain data")
+        (is (= 1 (:batches ev)))
+        (is (= 1 (:first-epoch ev)))
+        (is (= 2 (:latest-epoch ev)))
+        (is (= #{:value} (:causes ev))))
+      (is (= bounded-evidence-keys
+             (set (keys (:evidence (entry-for ::legacy-direct)))))
+          "migration adds no keys"))
+
+    (testing "an already-bounded legacy row is NOT reset, nor falsely degraded"
+      (let [ev (:evidence (entry-for ::legacy-plain))]
+        (is (= [[:sub fid [::q 1]]] (:targets ev)) "its exact value survives")
+        (is (true? (:targets-exact? ev)) "…and its exactness is not thrown away")
+        (is (true? (:dropped-exact? ev)))))
+
+    (testing "the preserved ordinal mint advances past the legacy high-water mark"
+      (let [fresh (reactive/make-cell ::legacy-fresh)]
+        (reactive/mark-dirty! fresh 1)
+        (reactive/flush-pending!)
+        (is (<= 12 (:cell-id (entry-for ::legacy-fresh))))))
+
+    (testing "repeated HMR is idempotent — the store now carries the current tag"
+      (let [before (evidence/projection)]
+        (is (true? (evidence/install! ::tool-a)))
+        (is (true? (evidence/install! ::tool-a)))
+        (is (= before (evidence/projection))
+            "re-projecting an already-projected row changes nothing")))))
+
+(deftest compatible-hmr-sanitizes-a-recognized-but-legacy-weak-store
+  ;; The shape the prior head left behind: a store recognized by host structure
+  ;; (the pre-tag defrecord) or by an OLDER tag. Recognition proves the weak
+  ;; MACHINERY is reusable; it proves nothing about the retained VALUES, which
+  ;; an earlier copier admitted raw. Re-tagging such a store without
+  ;; re-projecting it promotes a lie — the tag is a claim about the values.
+  (is (true? (evidence/install! ::tool-a)))
+  (let [state* @#'evidence/state*
+        cell   (connect-empty! (reactive/make-cell ::legacy-weak))
+        store  (:entries @state*)]
+    (#'evidence/store-seed-entry!
+     store cell
+     (legacy-entry 5 ::legacy-weak
+                   (legacy-accrual [[:sub fid [::q cell]]]
+                                   [[:sub fid [::dropped cell]]])))
+    (swap! state* assoc :entries
+           (->PreReloadWeakCellEntries (:members store) (:by-cell store)
+                                       (:next-ordinal store) (:reaper store)))
+
+    (is (true? (evidence/install! ::tool-a)) "constructor churn is compatible")
+
+    (testing "the raw entry is re-projected IN PLACE"
+      (let [row (entry-for ::legacy-weak)
+            ev  (:evidence row)]
+        (is (= {:rf.ui.evidence/opaque :dynamic} (get-in ev [:targets 0 2 1]))
+            "the shown target's cycle is broken")
+        (is (every? (fn [tk] (not (reactive/cell? (get-in tk [2 1]))))
+                    (:dropped ev))
+            "…and so is the OMITTED target's — the loss set retains no cell")
+        (is (false? (:targets-exact? ev)))
+        (is (false? (:dropped-exact? ev)))
+        (is (= 5 (:cell-id row)) "the ordinal survives the migration")))
+
+    (testing "the existing host machinery is REUSED, not rebuilt"
+      (let [after (:entries @state*)]
+        (is (identical? (:members store) (:members after)))
+        (is (identical? (:by-cell store) (:by-cell after)))
+        (is (identical? (:next-ordinal store) (:next-ordinal after)))
+        (is (identical? (:reaper store) (:reaper after))
+            "the existing reaper is retained, not double-armed")))
+
+    (testing "repeated HMR is idempotent"
+      (let [before (evidence/projection)]
+        (is (true? (evidence/install! ::tool-a)))
+        (is (= before (evidence/projection)))))))
+
+#?(:clj
+   (deftest legacy-migration-releases-the-raw-cycle-weak-key
+     ;; The retention proof (rf2-vxgfnd.94.18). A legacy row's raw query→cell
+     ;; cycle is a back-edge from the entry VALUE to its own weak KEY, and a
+     ;; WeakHashMap whose value reaches its key never collects that entry. So a
+     ;; migration that merely re-homes the rows keeps pinning every one of them
+     ;; for the projection's lifetime — the exact retention the weak store was
+     ;; built to end. RED when migration seeds entries unchanged.
+     (is (true? (evidence/install! ::tool-a)))
+     (let [state* @#'evidence/state*
+           _      (swap! state* assoc :entries {} :next-ordinal 0)
+           refs   (mapv
+                   (fn [[vid ord query-fn]]
+                     ;; the cell stays inside this lambda: only a WeakReference
+                     ;; escapes, so the store is its last strong referent
+                     (let [cell (connect-empty! (reactive/make-cell vid))]
+                       (reactive/disconnect! cell)
+                       (swap! state* update :entries assoc cell
+                              (legacy-entry
+                               ord vid
+                               (legacy-accrual [[:sub fid (query-fn cell)]] [])))
+                       (java.lang.ref.WeakReference. cell)))
+                   [[::legacy-weak-direct 3 (fn [c] [::q c])]
+                    [::legacy-weak-nested 4 (fn [c] [::q {:nested {:cell c}}])]])]
+       (is (true? (evidence/install! ::tool-a))
+           "the compatible reload migrates the legacy strong map")
+       (is (= 2 (count (evidence/projection))) "both legacy rows migrated")
+       (is (true? (gc-until #(every?
+                              (fn [^java.lang.ref.WeakReference ref]
+                                (nil? (.get ref)))
+                              refs)))
+           "no migrated raw query→cell path survives to own its own weak key")
+       (is (= [] (evidence/projection))))))
+
+;; ===========================================================================
 ;; Cross-batch loss honesty (the rf2-vxgfnd.74 axis, cumulative tier)
 ;; ===========================================================================
 
