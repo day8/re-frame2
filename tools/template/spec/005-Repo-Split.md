@@ -118,10 +118,31 @@ the hook fns by the `:data-fn` / `:template-fn` / `:post-process-fn`
 ns-qualified symbols inside `template.edn` (independent of the
 template-body path), so only the `resources/` body moves.
 
+#### §2.1.1 The `:template` override grammar (two fields, one separator)
+
+deps-new parses `:template` as `repo[%deps-root]%template-sym[#tag]`
+(`org.corfield.new.impl/preprocess-options`). The separator count — not
+the field content — decides what each field means:
+
+| Spelling | `repo` | `deps-root` | template resolved by `find-root` |
+|---|---|---|---|
+| `template-sym` | — | — | `template-sym` |
+| `repo%template-sym` | `repo` | — | `template-sym` |
+| `repo%deps-root%template-sym` | `repo` | `deps-root` | `template-sym` |
+
+The form this doc mandates is the **two-component `repo%template-sym`**:
+one separator, the single field after it being the template symbol. The
+three-component `repo%deps-root%template-sym` is a *different* grammar
+whose middle field is a classpath-relative deps-root inside the resolved
+repo. This template needs no deps-root, so a second separator is always
+wrong — and wrong *quietly*: deps-new would reinterpret the intended
+template-sym as a deps-root and still parse `:template` to the same
+symbol, so only an exact-token check catches it (see §2.1.2).
+
 **Single canonical path, no second copy.** Pre-alpha posture: the
 external repo ships the `io/github/day8/…` body *only*. The local-dev
 `:local/root` smoke (§4) resolves that same single body **without**
-auto-clone by using deps-new's `repo%root%template-sym` override form
+auto-clone by using deps-new's `repo%template-sym` override form
 (`day8/re-frame2-template%io.github.day8/re-frame2-template`): the
 `day8/re-frame2-template` repo part bypasses `auto-git-url` (no
 `io.github.*` prefix → no clone, the `:local/root` override stands),
@@ -130,6 +151,38 @@ while the `io.github.day8/re-frame2-template` template-sym part drives
 second on-disk copy and no compatibility alias to keep in sync. The
 test harness (`run-template!`) updates in lockstep with this retarget
 (see §3.4.1).
+
+#### §2.1.2 One exact token, guarded
+
+Every `%`-bearing spelling of the override in this document must be the
+complete, exact token
+
+```
+day8/re-frame2-template%io.github.day8/re-frame2-template
+```
+
+— repository half included, one separator, no fragments. `repo-split_spec_test.clj`
+extracts each such spelling **whole** and asserts it equals that token
+verbatim; it never supplies the repository half itself.
+
+The rule is deliberately about the *token*, not about what deps-new makes
+of it, because deps-new is a **weak oracle** here — asking "does deps-new
+resolve the right template?" misses two of the three defect classes:
+
+- **A wrong repository half** parses to the *exact* canonical `:template`
+  symbol. Nothing in the parse betrays it — but at run time the wrong
+  half sends deps-new through `auto-git-url` and clones a repo instead of
+  honouring `:local/root`.
+- **A tripled separator** also parses to the *exact* canonical
+  `:template` symbol, silently promoting the intended template-sym to a
+  deps-root and leaving `deps-root` set to a stray `%` (§2.1.1).
+- **A doubled separator** is the only class deps-new itself rejects; it
+  mangles the parsed symbol.
+
+Because two classes are invisible to a parse-only assertion, the guard
+compares the extracted token against the canonical spelling verbatim.
+The negative cases live as explicit mutations in the test, not in this
+document — every `%`-bearing spelling *here* is the real thing.
 
 ## §3 Migration sequence (operator-side)
 
@@ -384,9 +437,9 @@ the split:
 
 The local-dev fallback (`:local/root` against a checkout of the
 external repo) continues to work post-split, but the coord changes
-shape: it uses the `repo%root%template-sym` override form so it both
-bypasses auto-clone **and** resolves the canonical `io/github/day8/…`
-body (see §2.1):
+shape: it uses the two-component `repo%template-sym` override form
+(§2.1.1) so it both bypasses auto-clone **and** resolves the canonical
+`io/github/day8/…` body (see §2.1):
 
 ```bash
 git clone https://github.com/day8/re-frame2-template.git
@@ -402,7 +455,7 @@ clojure -Sdeps '{:deps {day8/re-frame2-template
 `io.github.day8/re-frame2-template` — bypasses auto-clone: the
 `io.github.*` prefix would trigger a git-clone before classpath
 lookup, losing the local override. The trailing
-`%io.github.day8/re-frame2-template` template-sym part drives
+`io.github.day8/re-frame2-template` template-sym part drives
 `find-root` to the single canonical `io/github/day8/…` body that the
 published coord also uses, so there is no second on-disk copy.)
 
