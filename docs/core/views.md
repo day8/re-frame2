@@ -114,11 +114,15 @@ A static screen isn't much use. A view needs to read live application state, and
 
 This declares "I depend on this derived value. Re-run me when it changes." That's the only way a view learns application state. It doesn't read [app-db](glossary.md#app-db) directly, and it doesn't receive the value as an argument threaded down through ten ancestors. It asks the [derivation graph](glossary.md#the-derivation-graph) for exactly the slice it needs, *by name* — via a [query vector](glossary.md#query-vector), the `[id & args]` shape that names the subscription and keys its cache. (More on subscriptions in [Subscriptions](subscriptions.md).)
 
-**Sending events out: the view [dispatches](glossary.md#dispatch).** Wire a `dispatch` to an [event handler](glossary.md#event-handler):
+**Sending events out: the view [dispatches](glossary.md#dispatch).** Wire the view's `dispatch` to an [event handler](glossary.md#event-handler):
 
 ```clojure
-[:button {:on-click #(rf/dispatch [:cart/add id])} "Add"]
+[:button {:on-click #(dispatch [:cart/add id])} "Add"]
 ```
+
+(`dispatch` here is the local `reg-view` injects — bound to the view's
+[frame](glossary.md#frame), and captured so it still routes correctly when the
+click fires, *after* the render. More on that [below](#the-trap-a-callback-that-fires-after-render-has-no-frame).)
 
 A dispatch *announces that something happened* by handing the framework an [event](glossary.md#event) — a plain vector naming what occurred — and returns immediately. It does not change state. It does not know or care what the handler will do with it. The [event pipeline](glossary.md#event-pipeline) takes it from there: the handler runs, `app-db` moves, subscriptions repropagate, and at the very end this view re-renders to match. (The whole traversal is the [Introduction](introduction.md)'s subject.)
 
@@ -342,7 +346,7 @@ subs, and seed setup via `:initial-events`. That closes the pure pipeline stages
 |---|---|---|
 | Screen shows wrong data | Bad event or sub, not the view | Inspect data with [Xray](../xray/index.md); test handler/sub without a browser |
 | View re-renders too often | Sort/filter in the view, or too-coarse sub | Move work into a sub; [slow-view recipe](how-to/fix-a-slow-view.md) |
-| `:rf.error/no-frame-context` from a click path | Imperative listener / bare `defn` | Use `:on-*` attrs; register state-touching views |
+| `:rf.error/no-frame-context` from a click path | Bare `rf/dispatch` in a handler that fires after render, or an unregistered `defn` that dispatches | `reg-view` it and use the injected `dispatch`; for detached callbacks capture with `rf/capture-frame` |
 | List flickers or duplicates | Missing / colliding `^{:key …}` | Stable keys from data |
 | Anonymous noise in the trace | Unregistered state-touching children | House rule: `reg-view` for anything that subscribes |
 
@@ -354,25 +358,46 @@ what triggered it — that is how you answer "why did this re-render?" Registere
 views have names; plain helpers fall under `[:rf.view/anonymous nil]`. Dev-only;
 [elided](glossary.md#elide) in production.
 
-## The trap: imperative listeners lose the frame
+## The trap: a callback that fires after render has no frame
 
-Hiccup's `:on-*` attrs are wrapped so a `dispatch` inside them carries the frame.
-Anything you attach *imperatively* from a render body is not:
+A view's `:on-*` handler runs *later* — when the user clicks, not when the view
+renders. By then the render is over: the dynamic [frame](glossary.md#frame) scope
+has unwound and the [frame-provider](glossary.md#frame-provider)'s React context
+has been popped. The adapter does **not** re-wrap `:on-*` callbacks to restore it —
+[frame identity is carried, not found](glossary.md#frame-identity-is-carried-not-found).
+What survives that boundary is capturing the frame *at render time*, which is
+exactly what `reg-view`'s injected `dispatch` / `subscribe` do: each is a
+[`capture-frame`](glossary.md#capture-frame) op bound to the render frame. So reach
+for the injected `dispatch` — not a fresh, fully-qualified `rf/dispatch`:
 
 ```clojure
-;; WRONG — fires later with no frame → :rf.error/no-frame-context
+;; WRONG — `rf/dispatch` resolves the frame when the event fires, and by then
+;; there is none → :rf.error/no-frame-context
+[:div {:on-animation-end #(rf/dispatch [:tile/finished])}]
+
+;; RIGHT — the injected `dispatch` captured the frame at render, so it
+;; dispatches correctly after the render boundary
+[:div {:on-animation-end #(dispatch [:tile/finished])}]
+```
+
+Attaching a listener *imperatively* from a render body fails the same way, and
+worse: the callback still fires with no frame, **and** every re-render stacks
+another listener.
+
+```clojure
+;; WRONG — fires later with no frame, and leaks a listener per render
 [:div {:ref (fn [el]
               (when el
                 (.addEventListener el "animationend"
                   #(rf/dispatch [:tile/finished]))))}]
-
-;; RIGHT — synthetic prop; the adapter wraps the callback
-[:div {:on-animation-end #(rf/dispatch [:tile/finished])}]
 ```
 
 If there is no `:on-*` for what you need (`setTimeout`, `fetch`, observers,
 sockets), that work belongs in a registered [effect](effects.md), not the view.
-Even inside `reg-view`, imperative attach is wrong: re-renders stack listeners.
+When you must hold a `dispatch` for a genuinely detached callback — a socket
+message, a timer you own — capture it explicitly:
+`(:dispatch (rf/capture-frame))` returns a dispatch locked to the render frame
+that survives any async hop. [Frames](frames.md) is that pattern's home.
 
 ---
 
