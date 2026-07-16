@@ -680,6 +680,63 @@
 ;; of any reference to the rings state or listener atom — so a
 ;; production build that never `:requires` this ns DCEs the whole body.
 
+;; ---- reentrant fan-out ordering (rf2-1zxlsm) ------------------------------
+;;
+;; A listener callback may reentrantly emit a trace (dispatch, re-register a
+;; flow, create/destroy a frame — all emit). If that nested emit fanned out
+;; IMMEDIATELY, it would reach the still-unvisited listeners of the OUTER
+;; event before the outer loop resumed — so a later listener would observe the
+;; inner event B before the outer event A, reversing runtime emission order.
+;; Spec 009 §The listener contract (point 4) requires every listener to see
+;; events in the order the runtime fired them.
+;;
+;; The fix defers a reentrant fan-out: while an outer fan-out is in progress on
+;; this thread (`*listener-fanout-queue*` bound), a nested `deliver-to-tooling!`
+;; ENQUEUES `[event continue?]` instead of looping, and the outermost fan-out
+;; drains the queue — FIFO, transitively — after its own listener loop. Every
+;; listener therefore observes A before B, and B before any C a B-listener
+;; emits, and so on.
+;;
+;; This defers ONLY the listener fan-out. The nested `emit!` still returns
+;; synchronously and its other effects run inline in emission order: the ring
+;; push below happens immediately (so the ring, too, holds A before B), epoch
+;; capture already fired in `re-frame.trace/deliver!` before this hook, and the
+;; classification projection ran in `emit!`. So the documented
+;; synchronous-return contract for a nested `emit!` is unchanged — no queue
+;; alters what `emit!` returns; only the ORDER listeners are notified is fixed.
+;;
+;; The queue is a plain vector consumed by an advancing index (never mutated
+;; mid-drain except by append), so appends made by a draining callback extend
+;; it and are picked up in FIFO order. Thread-local by dynamic binding: a
+;; concurrent JVM emit on another thread has its own outermost fan-out and
+;; queue. Composes with rf2-eaxnai: the deferred item carries its OWN
+;; `continue?`, and the listener body already ran under the neutral
+;; continuation scope `re-frame.trace/deliver!` established.
+
+(def ^:private ^:dynamic *listener-fanout-queue*
+  "When bound (an outermost listener fan-out is in progress on this thread), a
+  volatile holding a FIFO vector of `[event continue?]` deferrals. A trace
+  emitted reentrantly from inside a listener body enqueues here rather than
+  fanning out immediately, so every listener observes the outer event before
+  the reentrant one. nil at the top of the stack."
+  nil)
+
+(defn- fan-out-to-listeners!
+  "Deliver `event` to every registered listener in registration order, isolating
+  per-listener throws and honouring the caller's exact-owner `continue?`
+  snapshot — a listener that destroys the outer incarnation flips `continue?`
+  false and suppresses the remaining fan-out (rf2-eaxnai). The single shared
+  fan-out body used by both the outer delivery and each drained deferral."
+  [event continue?]
+  (loop [entries (seq @listeners)]
+    (when (and entries (continue?))
+      (let [[_ f] (first entries)]
+        (try
+          (f event)
+          (catch #?(:clj Throwable :cljs :default) _ nil))
+        (when (continue?)
+          (recur (next entries)))))))
+
 (defn- deliver-to-tooling!
   "Push `event` onto its in-flight frame's run-keyed ring (when the
   run has a `:dispatch-id` and a `:frame`; frameless emits skip the
@@ -697,25 +754,40 @@
   once either way.
 
   `continue?` (rf2-eaxnai) is the caller's exact-owner continuation SNAPSHOT.
-  The before/after checks below consult it so that if a listener destroys the
+  The before/after checks consult it so that if a listener destroys the
   outer incarnation A, the remaining listener fan-out is suppressed. It is a
   standalone snapshot rather than a live read of the (private, unreachable
   here) `*continuation-predicate*` precisely because `re-frame.trace/deliver!`
   neutralises that dynamic var around this whole call — a listener BODY's
   nested authored work (dispatch / destroy / create + `:initial-events` seed)
   must run under ordinary always-continue authority, not inherit A's fence.
-  So the callback runs neutral while these checks retain A's predicate."
+  So the callback runs neutral while these checks retain A's predicate.
+
+  Reentrant fan-out is DEFERRED to preserve per-listener event order
+  (rf2-1zxlsm): a nested emit from inside a listener body enqueues on
+  `*listener-fanout-queue*` and is drained after the outer event has reached
+  every listener. The ring push still happens inline (emission order), so only
+  the listener fan-out is ordered here — see the section note above."
   ([event continue?] (deliver-to-tooling! event continue? true))
   ([event continue? retain?]
    (when retain? (push-to-ring! event))
-   (loop [entries (seq @listeners)]
-     (when (and entries (continue?))
-       (let [[_ f] (first entries)]
-         (try
-           (f event)
-           (catch #?(:clj Throwable :cljs :default) _ nil))
-         (when (continue?)
-           (recur (next entries))))))))
+   (if-let [q *listener-fanout-queue*]
+     ;; Reentrant emit from inside a listener body: defer so every listener
+     ;; observes the outer event before this one. The outermost fan-out (below)
+     ;; drains us. Ring retention already ran above, in emission order.
+     (do (vswap! q conj [event continue?]) nil)
+     ;; Outermost fan-out: deliver this event, then drain every fan-out that
+     ;; listeners deferred while it ran — and, transitively, any THEY defer —
+     ;; in FIFO emission order. The index re-reads `(count @q)` each step so
+     ;; appends made mid-drain are picked up.
+     (let [q (volatile! [])]
+       (binding [*listener-fanout-queue* q]
+         (fan-out-to-listeners! event continue?)
+         (loop [i 0]
+           (when (< i (count @q))
+             (let [[ev cont] (nth @q i)]
+               (fan-out-to-listeners! ev cont))
+             (recur (inc i)))))))))
 
 (late-bind/set-fn! :trace.tooling/deliver! deliver-to-tooling!)
 
