@@ -361,12 +361,17 @@
   ;; render-depth guard and records a distinct lifecycle phase.
   ;;
   ;; The hiccup-emitter is deliberately NOT cleared: it holds no host
-  ;; resource, is re-derivable infrastructure installed once via the
-  ;; `:reagent/set-hiccup-emitter!` chain at SSR ns-load, and is NOT
-  ;; re-published on re-install. Nilling it here would make render-to-string
-  ;; throw :rf.error/no-hiccup-emitter-bound across a dispose/reinstall
-  ;; cycle. Matches plain-atom's dispose-adapter! (a no-op that leaves the
-  ;; emitter alone).
+  ;; resource and is re-derivable infrastructure installed via the
+  ;; `:reagent/set-hiccup-emitter!` chain at SSR ns-load. When re-frame.ssr is
+  ;; loaded, install-adapter! ALSO replays the durable emitter on re-install
+  ;; (rf2-vxgfnd.204), but this adapter is the LOCAL-TEST fixture and is often
+  ;; exercised WITHOUT re-frame.ssr on the classpath (the standalone
+  ;; `clojure -M:test` run depends on core + test-quiet only) — there the
+  ;; durable slot is unset and the replay no-ops, so leaving this atom intact
+  ;; is the only thing keeping render-to-string armed across a dispose/reinstall
+  ;; cycle. Nilling it here would make render-to-string throw
+  ;; :rf.error/no-hiccup-emitter-bound in that case. Matches plain-atom's
+  ;; dispose-adapter! (a no-op that leaves the emitter alone).
   ;;
   ;; Derived values have no CLJS disposal protocol, but their cache entries and
   ;; ref-counts live on frames. Clear every frame cache so reinstalling the

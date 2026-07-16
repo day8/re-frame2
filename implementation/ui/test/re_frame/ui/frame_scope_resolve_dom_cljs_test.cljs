@@ -1,6 +1,6 @@
 (ns re-frame.ui.frame-scope-resolve-dom-cljs-test
-  "rf2-vxgfnd.24 + rf2-vxgfnd.25 — the KEYSTONE, proven end to end on a REAL
-  react-dom root through a REAL ViewCell: a compiled `(sub …)` mounted
+  "rf2-vxgfnd.24 + rf2-vxgfnd.25 (+ .138) — the KEYSTONE, proven end to end on a
+  REAL react-dom root through a REAL ViewCell: a compiled `(sub …)` mounted
   inside a `frame-provider` / `frame-root` subtree resolves the scoped
   frame's app-db on the AMBIENT React-context path — no explicit pin, no
   dynamic `with-frame` binding.
@@ -8,9 +8,21 @@
     - .24 publishes the `:adapter/current-frame` reader (re-frame.ui.substrate),
       so core's `require-current-frame!` — reached by the compiled sub-read
       (`reactive/sub-read` → `observation/resolve-target`) — sees the
-      React-context tier under the plain-atom runtime.
+      React-context tier.
     - .25 makes `frame-root` EMIT that scope (frames/scope-element), so a sub
       under a bare `frame-root` (no enclosing `frame-provider`) resolves too.
+    - .138 extends .24 past the mount-time seed to a GENUINE post-mount
+      compiled-`sub` update — dispatch → drain → observation → microtask
+      reactive flush → useSyncExternalStore → React rerender — and proves it
+      stays inside awaited React `act()` (zero 'not wrapped in act(...)'
+      warnings escape).
+
+  Runs on the re-frame.ui REACTIVE adapter (`ui/adapter`). .24/.25 resolve the
+  scoped frame identically under any substrate (the `:adapter/current-frame`
+  reader ships in re-frame.ui, not the substrate adapter); .138's post-mount
+  RERENDER is the reason the reactive adapter is required — a headless substrate
+  (e.g. plain-atom) renders the mount seed but wires no reactive→React rerender,
+  so a post-mount dispatch would never repaint.
 
   The `(sub …)` lives in a DESCENDANT view boundary (`n-view`), not the
   provider's own body — React-context semantics scope descendants, and a
@@ -18,16 +30,16 @@
 
   Browser-only bodies — `-dom-cljs-test$` opts this file into `:browser-test`;
   under `:node-test` every DOM body gates on `(browser?)` and exits early."
-  (:require [cljs.test :refer [deftest is testing use-fixtures]]
+  (:require [cljs.test :refer [async deftest is testing use-fixtures]]
             ["react" :as React]
             ["react-dom" :as react-dom]
             [re-frame.core :as rf]
-            [re-frame.substrate.plain-atom :as plain-atom]
             [re-frame.test-support :as test-support]
             [re-frame.ui :as ui :refer [defview frame-root frame-provider sub]]
             [re-frame.ui.client :as client]
             [re-frame.ui.frames :as frames]
-            [re-frame.ui.reactive :as reactive]))
+            [re-frame.ui.reactive :as reactive]
+            [re-frame.ui.test :as uit]))
 
 (defn- browser? [] (exists? js/document))
 
@@ -38,8 +50,8 @@
 ;; get-act / enable-react-act-env! shape as re-frame.adapter's shared React
 ;; suite (core/.../react_shared_suite.cljs `with-browser-act`) and the
 ;; machines-viz `*-dom-cljs-test` namespaces. It uses React's OWN `act()`, NOT
-;; UIx/Helix/Reagent machinery, so this fixture stays native re-frame.ui +
-;; plain-atom.
+;; UIx/Helix/Reagent machinery, so this fixture stays native re-frame.ui on the
+;; reactive adapter.
 ;;
 ;; `flushSync` is NOT an act substitute: React's test contract treats any
 ;; update committed outside an act scope as "not wrapped in act(...)". The
@@ -98,19 +110,23 @@
 ;; --- bounded namespace-local act-warning capture (rf2-vxgfnd.138) -------------
 ;;
 ;; The post-mount compiled-`sub` update below drives a real dispatch → queued-
-;; write drain → observation callback → reactive flush → useSyncExternalStore
-;; listener → React rerender. Committed OUTSIDE an act scope while
-;; IS_REACT_ACT_ENVIRONMENT is true (this ns enables it per test), React emits
-;; its "An update to … was not wrapped in act(...)" console.error. The browser
-;; runner records console output but does NOT fail on a mere warning
-;; (`scripts/run-browser-tests.cjs`), so without a capture the obligation could
-;; stay false-green. `with-console-error-capture` gives the zero-warning
-;; assertion its teeth: it FORWARDS every console.error line to the original
-;; console (diagnostics are never suppressed) and, bounded to the wrapped
-;; operation, COUNTS the act-discipline warning so removing the update's `act!`
-;; makes the assertion go RED (not merely print). No global console suppression
-;; and no broad unrelated-warning policy — only the act warning is counted, and
-;; the original console.error is restored on every exit.
+;; write drain → observation callback → microtask reactive flush →
+;; useSyncExternalStore listener → React rerender, through the framework's
+;; canonical awaited-act flush idiom (`ui.test/flush!`). Because that idiom
+;; commits the rerender INSIDE awaited React `act`, React emits NO "An update to
+;; … was not wrapped in act(...)" warning. Drive the same update through a
+;; non-awaited path — or drop the awaited act — and the commit escapes act while
+;; IS_REACT_ACT_ENVIRONMENT is true (this ns enables it per test), so React
+;; DOES emit that console.error. The browser runner records console output but
+;; does NOT fail on a mere warning (`scripts/run-browser-tests.cjs`), so without
+;; a capture the zero-warning obligation could stay false-green.
+;; `with-console-error-capture` gives it teeth: it FORWARDS every console.error
+;; line to the original console (diagnostics are never suppressed) and, bounded
+;; to the wrapped operation, COUNTS the act-discipline warning. No global
+;; console suppression and no broad unrelated-warning policy — only the act
+;; warning is counted, and the original console.error is restored on every exit
+;; (synchronously for a plain thunk; after the Promise settles for the awaited
+;; flush, so the capture spans the async React commit).
 
 (defn- act-warning?
   "True iff `text` is React's 'not wrapped in act(...)' console diagnostic — the
@@ -124,42 +140,61 @@
 (defn- with-console-error-capture
   "Run `thunk` with `console.error` intercepted for its dynamic extent: every
   call is FORWARDED to the original console, and any act-discipline warning
-  increments `counter`. The original `console.error` is restored on every exit
-  (bounded to this call — nothing global changes)."
+  increments `counter`. Returns the thunk's value. The original `console.error`
+  is restored on exit (bounded to this call — nothing global changes): for a
+  synchronous thunk immediately, and for a thunk that returns a Promise (the
+  awaited-act flush idiom) only after that Promise settles, so the capture spans
+  the async React commit and the original returned value is preserved."
   [counter thunk]
-  (let [orig (.-error js/console)]
+  (let [orig     (.-error js/console)
+        restore! (fn [] (set! (.-error js/console) orig))]
     (set! (.-error js/console)
           (fn [& args]
             (when (some act-warning? args)
               (swap! counter inc))
             (.apply orig js/console (into-array args))))
-    (try (thunk) (finally (set! (.-error js/console) orig)))))
+    (let [result (try (thunk) (catch :default e (restore!) (throw e)))]
+      (if (instance? js/Promise result)
+        (.finally result restore!)
+        (do (restore!) result)))))
 
 ;; reset-live-roots! / reset-installed-plans! / reset-scheduler! are BOOKKEEPING
 ;; resets — a clean framework slate between tests. They are NOT host teardown:
 ;; each test OWNS the React root it mounts and `ui/unmount!`s it in a `finally`
 ;; (see `assert-torn-down!`). This fixture is only the belt-and-suspenders slate,
 ;; not a substitute for `.unmount()`.
+;; MAP-form fixtures. cljs.test requires EVERY fixture in a namespace with an
+;; async test to be a `{:before :after}` map — a wrapping fn-fixture calls the
+;; test synchronously and cannot host an async `done` (it aborts with "Async
+;; tests require fixtures to be specified as maps"). rf2-vxgfnd.138's post-mount
+;; rerender proof awaits a real react-dom commit, so both fixtures below are
+;; map-form; the synchronous tests in this ns run under them unchanged. cljs.test
+;; runs tests sequentially (each async `done` gates the next), so the single
+;; `prior-act-env` atom safely threads the restore context between :before and
+;; :after — the same pattern `make-reset-runtime-fixture`'s `:async?` map uses.
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture {:adapter plain-atom/adapter
-                                            :ambient-frame nil})
-  (fn [t]
-    ;; Enable React's act environment for this ns's DOM tests (act() warns /
-    ;; no-ops unless IS_REACT_ACT_ENVIRONMENT is set), then RESTORE the prior
-    ;; value so the fixture neither depends on nor leaks the shared-page flag.
-    (let [prior (when (browser?) (.-IS_REACT_ACT_ENVIRONMENT js/globalThis))]
-      (enable-react-act-env!)
-      (reactive/reset-scheduler!)
-      (client/reset-live-roots!)
-      (frames/reset-installed-plans!)
-      (try
-        (t)
-        (finally
-          (reactive/reset-scheduler!)
-          (client/reset-live-roots!)
-          (frames/reset-installed-plans!)
-          (when (browser?)
-            (set! (.-IS_REACT_ACT_ENVIRONMENT js/globalThis) prior)))))))
+  (test-support/make-reset-runtime-fixture {:adapter ui/adapter
+                                            :ambient-frame nil
+                                            :async? true})
+  ;; Enable React's act environment for this ns's DOM tests (act() warns /
+  ;; no-ops unless IS_REACT_ACT_ENVIRONMENT is set), then RESTORE the prior
+  ;; value so the fixture neither depends on nor leaks the shared-page flag.
+  (let [prior-act-env (atom nil)]
+    {:before
+     (fn []
+       (when (browser?)
+         (reset! prior-act-env (.-IS_REACT_ACT_ENVIRONMENT js/globalThis)))
+       (enable-react-act-env!)
+       (reactive/reset-scheduler!)
+       (client/reset-live-roots!)
+       (frames/reset-installed-plans!))
+     :after
+     (fn []
+       (reactive/reset-scheduler!)
+       (client/reset-live-roots!)
+       (frames/reset-installed-plans!)
+       (when (browser?)
+         (set! (.-IS_REACT_ACT_ENVIRONMENT js/globalThis) @prior-act-env)))}))
 
 (defn- container [] (js/document.createElement "div"))
 
@@ -201,39 +236,52 @@
           warnings (atom 0)
           root     (act!
                     #(ui/mount [provider-wrap {:frame-id :app/live}] c {:root-id :dom-scope/prov}))]
-      (try
-        (is (re-find #"n=42" (.-innerHTML c))
-            (str "the ambient (sub …) resolved the frame-provider-scoped frame "
-                 "through the React-context tier — the :adapter/current-frame "
-                 "reader is live on the compiled sub-read path (rf2-vxgfnd.24)"))
-        ;; rf2-vxgfnd.138 — a GENUINE post-mount compiled-`sub` update: dispatch
-        ;; n=43 against the ALREADY-MOUNTED frame and settle the pending
-        ;; framework/reactive work. This exercises the real runtime path the
-        ;; mount-time seed never reaches — dispatch → drain → observation
-        ;; callback → reactive flush → useSyncExternalStore → React rerender —
-        ;; which has its own act boundary and scheduling behaviour. The dispatch
-        ;; AND the explicit pending-work settlement (`flush-pending!`, which
-        ;; forces the microtask-armed coalesced flush synchronously) run inside
-        ;; the canonical `act!`, so React commits the rerender under act and
-        ;; emits no warning. Removing this `act!` boundary commits the update
-        ;; outside act while the env flag is true → React's
-        ;; "not wrapped in act(...)" warning → the capture counts it → the
-        ;; zero-warning assertion below goes RED.
-        (with-console-error-capture warnings
-          (fn []
-            (act!
-             #(do
-                (rf/dispatch-sync [:test/set-db {:n 43}] {:frame :app/live})
-                (reactive/flush-pending!)))))
-        (is (re-find #"n=43" (.-innerHTML c))
-            (str "the post-mount dispatch drove the compiled ambient (sub …) "
-                 "through observation → reactive flush → React rerender; the "
-                 "mounted ViewCell repainted the scoped frame's new value"))
-        (is (zero? @warnings)
-            (str "the post-mount dispatch + explicit reactive settlement stayed "
-                 "inside act() — zero 'not wrapped in act(...)' warnings escaped"))
-        (finally
-          (assert-torn-down! root))))))
+      (is (re-find #"n=42" (.-innerHTML c))
+          (str "the ambient (sub …) resolved the frame-provider-scoped frame "
+               "through the React-context tier — the :adapter/current-frame "
+               "reader is live on the compiled sub-read path (rf2-vxgfnd.24)"))
+      ;; rf2-vxgfnd.138 — a GENUINE post-mount compiled-`sub` update: dispatch
+      ;; n=43 against the ALREADY-MOUNTED frame and settle the pending
+      ;; framework/reactive work through the framework's canonical awaited-act
+      ;; flush idiom (`ui.test/flush!`, 07 §2 "act + epoch drain + commit").
+      ;; This exercises the real runtime path the mount-time seed never reaches
+      ;; — dispatch → drain → observation callback → microtask reactive flush →
+      ;; useSyncExternalStore → React rerender — where framework notifications
+      ;; and React commits alternate to a fixed point INSIDE awaited React act.
+      ;; The whole rerender commits under act, so React emits no warning and the
+      ;; capture counts zero. A non-awaited path (an `act!` wrapping dispatch +
+      ;; a synchronous `flush-pending!`) flushes BEFORE the coalesced microtask
+      ;; marks the cell, never commits the rerender (the DOM stays n=42), and —
+      ;; were the commit forced outside awaited act — would leak the
+      ;; "not wrapped in act(...)" warning the capture (teeth proven by
+      ;; `act-warning-detector-has-teeth`) is here to catch. Async because a
+      ;; real react-dom commit under React 19 `act` settles on a Promise.
+      (async done
+        (-> (js/Promise.resolve)
+            (.then
+             (fn []
+               (with-console-error-capture warnings
+                 (fn []
+                   (uit/flush! #(uit/dispatch! :app/live [:test/set-db {:n 43}]))))))
+            (.then
+             (fn []
+               (is (re-find #"n=43" (.-innerHTML c))
+                   (str "the post-mount dispatch drove the compiled ambient "
+                        "(sub …) through observation → reactive flush → React "
+                        "rerender; the mounted ViewCell repainted the scoped "
+                        "frame's new value"))
+               (is (zero? @warnings)
+                   (str "the post-mount dispatch + reactive settlement stayed "
+                        "inside awaited act() — zero 'not wrapped in act(...)' "
+                        "warnings escaped"))))
+            (.catch
+             (fn [e]
+               (is false (str "post-mount flush! rejected: "
+                              (some-> e .-message)))))
+            (.then
+             (fn []
+               (assert-torn-down! root)
+               (done))))))))
 
 (deftest act-warning-detector-has-teeth
   ;; rf2-vxgfnd.138 proof discipline — the zero-warning assertion above is only
