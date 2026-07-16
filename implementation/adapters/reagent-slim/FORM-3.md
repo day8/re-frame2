@@ -353,8 +353,25 @@ Three variations worth knowing:
   `re-frame.core/reg-view*` and capture the frame **once in the outer callable**
   (`(rf/capture-frame)` — the one live-resolver site in a Form-3); deref the
   captured `:subscribe` inside `:reagent-render`, never in a lifecycle callback
-  (reactive reads have no owner there, and the scope has already unwound). See
-  `guided-handlers-state.md` §M-11 Form-3 route 2 for the full recipe.
+  (reactive reads have no owner there, and the scope has already unwound).
+
+  **Capture-once is a locked handle — safe only when the mount's frame is
+  invariant.** `(rf/capture-frame)` locks to the **one** frame that is live when
+  the outer callable runs (once per mount) and never re-resolves — every op it
+  hands you closes over that frame permanently. So capture-once is correct only
+  while the instance stays under that frame for its whole life. It goes **stale**
+  if a *surviving* instance is **retargeted from provider A to provider B** — the
+  subtree re-parented under a different `frame-provider`, or a provider whose
+  `:frame` prop changes without unmounting the child. React keeps the instance
+  mounted, so the outer callable does **not** re-run, and the locked handle keeps
+  sending render/lifecycle actions to the stale **A**, never **B**. Two
+  frame-safe remedies (no mutable-capture machinery, which is not warranted here):
+  **force a remount** with a frame-derived React `key`
+  (`^{:key (str frame-id)} [chart series]`) so a frame change remounts the
+  component and the capture re-locks to **B**; or **use the registered `reg-view`
+  child** (route 1), which reads its frame from React context on **every** render
+  and so follows A→B with no remount and no re-capture. See
+  `guided-handlers-state.md` §M-11 Form-3 routes 1 & 2 for the full recipe.
 - **DOM measurement during commit.** If you need to capture a measurement
   *before* React commits a re-render (typical for scroll preservation),
   use `:get-snapshot-before-update`. See §5 below.
