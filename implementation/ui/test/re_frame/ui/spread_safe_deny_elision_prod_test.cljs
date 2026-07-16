@@ -38,7 +38,7 @@
           "the deny throw survives :advanced + goog.DEBUG=false")
       (is (= 're-frame.ui/spread-safe (:where data))
           "thrown as the spread-safe deny guard")
-      (is (= :value (get-in data [:extra :key]))
+      (is (= :value (:key data))
           "the offending key is carried through in production too")))
   (testing "an owned :on-* is denied in production as well"
     (let [data (try
@@ -46,7 +46,7 @@
                  nil
                  (catch :default e (ex-data e)))]
       (is (= :rf.error/ui-tree-malformed (:rf.error/id data)))
-      (is (= :on-change (get-in data [:extra :key])))))
+      (is (= :on-change (:key data)))))
   (testing "an allowed caller passes in production (no false-positive throw)"
     (is (= {:aria-label "x"}
            (rules/assert-safe-caller! {:aria-label "x"} @runtime-owned-handlers)))))
