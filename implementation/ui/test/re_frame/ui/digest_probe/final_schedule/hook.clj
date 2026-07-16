@@ -1,0 +1,109 @@
+(ns re-frame.ui.digest-probe.final-schedule.hook
+  "Test-only build-local hook for the final-schedule reconciliation fixture
+  (rf2-vxgfnd.195).
+
+  This hook is deep-merged AFTER the inherited re-frame.ui compile hook (the one
+  configured in :build-defaults), so at every stage Shadow runs re-frame.ui's
+  hook first and this one second — the real deep-merge/order the production
+  `reconcile-final-schedule` defends against, proven by config rather than by a
+  hand-built build-state.
+
+  Its behaviour at :compile-prepare is driven by runner-controlled marker files,
+  so one warm Shadow watch daemon can be walked through several passes with no
+  config edits:
+
+    force-recompile-app-a — model a later prepare hook that MUTATES build state:
+      remove app-a's retained output (so Shadow reschedules it to compile AFTER
+      re-frame.ui already observed the schedule) and rewrite its in-memory source
+      to a VIEWLESS namespace (its final ui/defview removed). re-frame.ui saw
+      app-a as an output-present cache hit and did NOT pre-touch it; only
+      `reconcile-final-schedule` at :compile-finish — reading Shadow's advanced
+      per-source :compiled-at stamp — can evict its now-absent accepted view.
+
+    blind-provenance — model a hook that destroys the per-pass compile-schedule
+      evidence: drop re-frame.ui's :pass-output snapshot from the open scratch.
+      `reconcile-final-schedule` must then FAIL LOUD at :compile-finish rather
+      than silently reconcile against an assumed-empty schedule.
+
+  The :compile-finish arm records the accepted snapshot Shadow retained (version,
+  digest, full accepted view aggregate) plus a prepare-time observation of
+  whether re-frame.ui pre-touched app-a — the evidence the runner uses to prove
+  the eviction came from FINAL-schedule reconciliation, not the prepare-time
+  pre-touch. Pure JVM dev-build tooling; never part of any CLJS bundle."
+  (:require [clojure.java.io :as io]
+            [re-frame.ui.compiler.build :as build]))
+
+;; Shadow runs with CWD = this fixture directory (the runner spawns it there),
+;; so climb back to implementation/target — the same gitignored tree the
+;; :cache-root uses — rather than littering target under the test source tree.
+(def ^:private out-dir
+  (io/file "../../../../../../target" "ui-final-schedule"))
+(def ^:private force-marker (io/file out-dir "force-recompile-app-a"))
+(def ^:private blind-marker (io/file out-dir "blind-provenance"))
+
+(def ^:private app-a-ns 're-frame.ui.digest-probe.final-schedule.app-a)
+(def ^:private a-view-id :re-frame.ui.digest-probe.final-schedule.app-a/a-view)
+(def ^:private b-view-id :re-frame.ui.digest-probe.final-schedule.app-b/b-view)
+
+(defn- app-a-rid [{:keys [build-sources sources]}]
+  (some (fn [rid] (when (= app-a-ns (get-in sources [rid :ns])) rid))
+        build-sources))
+
+(defn- observe-file [build-id]
+  (io/file out-dir (str "observe-" (name build-id) ".jsonl")))
+
+(defn- record! [build-id m]
+  (let [f (observe-file build-id)]
+    (io/make-parents f)
+    (spit f (str (pr-str (assoc m :build-id (name build-id))) "\n") :append true)))
+
+(defn hook
+  {:shadow.build/stages #{:compile-prepare :compile-finish}}
+  [{build-id :shadow.build/build-id
+    stage    :shadow.build/stage
+    :as      build-state}]
+  (case stage
+    :compile-prepare
+    (let [rid     (app-a-rid build-state)
+          scratch (get-in build-state [:compiler-env build/scratch-key])
+          touched (:touched scratch)
+          force?  (.exists force-marker)
+          blind?  (.exists blind-marker)]
+      (record! build-id
+               {:stage :prepare
+                :app-a-output-present (some? (get-in build-state [:output rid]))
+                :app-a-pretouched (boolean (contains? (set touched) app-a-ns))
+                :force force?
+                :blind blind?})
+      (cond-> build-state
+        ;; A later prepare hook forcing a viewless recompile of an output-present
+        ;; cache-hit source: remove its output AND remove its final ui/defview.
+        (and rid force?)
+        (-> (update :output dissoc rid)
+            (assoc-in [:sources rid :source]
+                      (str "(ns " app-a-ns
+                           " (:require [re-frame.ui :as ui]))\n"
+                           ";; final-schedule fixture: viewless forced recompile\n")))
+
+        ;; A later hook that destroys the per-pass provenance re-frame.ui needs to
+        ;; reconcile: drop the :pass-output snapshot from the open scratch.
+        (and blind? scratch)
+        (update-in [:compiler-env build/scratch-key] dissoc :pass-output)))
+
+    :compile-finish
+    (let [snap  (build/accepted-snapshot build-state)
+          views (build/accepted-aggregate build/views build-state)]
+      (record! build-id
+               {:stage :finish
+                :version (:version snap)
+                :digest (:digest snap)
+                :view-count (count views)
+                :a-present (contains? views a-view-id)
+                :b-present (contains? views b-view-id)
+                ;; A stable string image of app-b's accepted row, so the runner
+                ;; can prove the cache-hit sibling stayed byte-identical (output
+                ;; marker retained) across app-a's forced recompile.
+                :b-fp (pr-str (get views b-view-id))})
+      build-state)
+
+    build-state))

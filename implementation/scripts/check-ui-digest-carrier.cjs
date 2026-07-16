@@ -821,7 +821,18 @@ async function main() {
   }
 }
 
-main().catch((error) => {
-  console.error(error.stack || error.message || String(error));
-  process.exitCode = 1;
-});
+// rf2-vxgfnd.195 — the fifth real-host arm. Runs after the browser proof has
+// torn down its own Shadow daemon, so the two never contend. It drives its OWN
+// self-contained Shadow config (no browser) proving final-schedule
+// reconciliation: an inherited re-frame.ui hook running before a build-local
+// :compile-prepare hook that forces a viewless recompile, evicting the accepted
+// row in both sequential and parallel modes, and failing loud when the per-pass
+// schedule evidence is unavailable.
+const { run: runFinalSchedule } = require('./check-ui-final-schedule.cjs');
+
+main()
+  .then(runFinalSchedule)
+  .catch((error) => {
+    console.error(error.stack || error.message || String(error));
+    process.exitCode = 1;
+  });
