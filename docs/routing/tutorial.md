@@ -132,7 +132,9 @@ Now the loader itself. It's a normal event handler, with one new thing to learn:
   (fn [{:keys [db] rt :rf.db/runtime} _]
     (let [{:keys [id]} (get-in rt [:rf.runtime/routing :current :params])]
       ;; A real app starts an HTTP fetch here and lets a later event write the
-      ;; reply — see Managed HTTP (../async/http.md). We'll "load" locally.
+      ;; reply — see Managed HTTP (../async/http.md). If you hand-roll the fetch,
+      ;; capture the nav-token so a slow reply can't overwrite a newer page
+      ;; (concepts.md#a-hand-rolled-async-loader). We'll "load" locally.
       {:db (assoc db :article/current (get sample-articles id))})))
 
 (rf/reg-sub :article/current (fn [db _] (:article/current db)))
@@ -150,7 +152,7 @@ There's no special "loader data" hook, because the loader just wrote to [app-db]
 
 **What you see:** click through to `/articles/intro` and the title appears. Navigate to another article and the loader fires again with the new id; re-navigate to the *same* one and it doesn't. Open [Xray](../xray/index.md) and you'll see exactly those dispatches on the wire.
 
-> **This is the loader — as data.** Because `:on-match` is a vector of event vectors rather than a function, you can read it, test it, and draw a route's data-dependency graph from it without running it: `(rf/handler-meta :route :app/article)` hands you the list. The same events run on the server during [SSR](../ssr/concepts.md) — there's no separate server loader to keep in sync. For server *state* (cached, deduplicated fetches with a built-in click-away race fix), declare `:resources` instead — see [The model → Loaders](concepts.md#loaders-declaring-a-pages-data).
+> **This is the loader — as data.** Because `:on-match` is a vector of event vectors rather than a function, you can read it, test it, and draw a route's data-dependency graph from it without running it: `(rf/handler-meta :route :app/article)` hands you the list. The same events run on the server during [SSR](../ssr/concepts.md) — there's no separate server loader to keep in sync. For server *state* (cached, deduplicated fetches with a built-in click-away race fix), declare `:resources` instead — see [The model → Loaders](concepts.md#loaders-declaring-a-pages-data). Hand-rolling your own async fetch means owning that race yourself: capture the navigation token when the load starts and gate delivery on it, or a slow reply for one article overwrites the one you navigated to next — see [a hand-rolled async loader](concepts.md#a-hand-rolled-async-loader).
 
 ## Step 5 — when nothing matches: the 404
 
@@ -207,12 +209,17 @@ Declaring it also does two jobs automatically, the moment the frame is created �
 
 Our article pages should sit inside a shell — a section header, a "back to all articles" nav — without each page repeating it. In re-frame2, nesting is **data**: a child route names a `:parent`, and a subscription hands you the chain so you compose the shells yourself.
 
-Point the detail page at a parent:
+Point the detail page at a parent — and **carry the whole metadata map forward**.
+`reg-route` is full replacement, not a merge: re-registering `:app/article` with only
+`:parent` and `:params` would silently drop the `:on-match` loader you added in Step 4.
+Keep every key you still want:
 
 ```clojure
 (rf/reg-route :app/articles {} "/articles")
-(rf/reg-route :app/article  {:parent :app/articles
-                             :params [:map [:id :string]]} "/articles/:id")
+(rf/reg-route :app/article  {:parent   :app/articles
+                             :params   [:map [:id :string]]
+                             :on-match [[:app/load-article]]}   ;; kept from Step 4
+  "/articles/:id")
 ```
 
 Now `@(subscribe [:rf.route/chain])` returns the active route's ancestry, **root-most first** — on `/articles/intro` it's `[:app/articles :app/article]`. Two jobs fall out of that vector:
