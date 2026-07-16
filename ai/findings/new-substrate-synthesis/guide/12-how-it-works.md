@@ -13,19 +13,38 @@ can be short.
 macro-expand / compile time it runs a pipeline:
 
 ```text
-defview body (hiccup + control forms)
-        │
-        ▼
-   analyze  ──►  closed template AST
-        │
-        ├──────────────┬──────────────┐
-        ▼              ▼              ▼
-   emit-cljs      emit-jvm      manifest / fingerprint
-  (jsx / jsxs)  (tree nodes)   (sites, capabilities)
+          defview body (hiccup + control forms)
+                one source, compiled twice
+          ┌──────────────┴───────────────┐
+     CLJS build                      JVM build
+          │                              │
+       analyze                        analyze        ← the same analyzer code
+          ▼                              ▼
+     template AST                   template AST     ← one per build, not one shared
+          │                              │
+     ┌────┴─────┐                  ┌─────┴────┐
+     ▼          ▼                  ▼          ▼
+ emit-cljs   manifest /        emit-jvm   manifest /
+(jsx / jsxs) fingerprint      (tree nodes) fingerprint
+     │                              │
+     └────────  parity corpus ──────┘
+        compares normalized output
 ```
 
-**One parse → one AST → per-host emitters.** No emitter re-reads raw source or the other
-host's output. That is the portability law behind dual-host parity.
+**One analyzer, one conversion contract, two emitters.** A build runs the analyzer over
+the source and hands the resulting AST to exactly one emitter — `emit-cljs` or
+`emit-jvm`, never both. Within a build the discipline is strict, and it is worth
+stating precisely because it is easy to overread: an emitter consumes the AST, never
+raw source and never the other host's output. That is a rule about *one* compilation,
+and it does not reach across hosts. The analysis is itself parameterized by host — a
+symbol resolving to `cljs.core/map` here and `clojure.core/map` there lands differently
+in the tree — so the two ASTs are not guaranteed to be equal values, let alone one
+value. The hosts never meet as ASTs at all.
+
+What holds them together is a written conversion contract plus a check. A parity corpus
+compiles one fixture set through both emitters and compares the results once each side
+is fully lowered and projected into a common semantic space, so divergence is *detected*
+rather than prevented.
 
 Contrast the frozen stock-Reagent path: `reg-view` is registration and frame injection
 only — the body is spliced **verbatim** and still interpreted by Reagent. It is not
@@ -114,17 +133,27 @@ in production.
 built once at load. The counter cannot fully hoist (the sub and `n` vary), but a pure
 `[:footer "© 2026"]` can.
 
-### 3. Emit for each host
+### 3. Emit — one host per build
 
 **Browser (CLJS).** The AST lowers to direct React construction — conceptually
 `jsx` / `jsxs` (the same family as hand-written JSX), with props already converted.
 There is no `[:div.card …]` vector left at runtime.
 
-**JVM.** The same AST lowers to versioned structural nodes
-(`re-frame.ui.tree` — tag / attrs / events / children …) under the **same** conversion
-rules. That tree is what headless `ui.test` and (at S5) SSR consumption see. Neither
-this emit nor the parity gate produces HTML by itself; HTML serialization is a later,
-separate step (`re-frame.ssr/emit-ui-tree` at S5).
+**JVM.** Compiling the same view as Clojure runs the analyzer again and lowers *that*
+build's AST to versioned `re-frame.ui.tree` structural data (tag / attrs / events /
+children …) under the same specified conversion contract. That tree is what headless
+`ui.test` and (at S5) SSR consumption see. Neither this emit nor the parity gate
+produces HTML by itself; HTML serialization is a later, separate step
+(`re-frame.ssr/emit-ui-tree` at S5).
+
+The two emitters are separate implementations that a shared analyzer and a written
+contract keep aligned — so they *can* diverge, and the contract is what makes
+divergence a bug rather than a surprise. Parity is defined as normalized structural
+equivalence over a common semantic space, not byte-identical output, and the corpus
+records the places the hosts legitimately differ (React's own server renderer treats
+custom-element property props differently, so the comparator excludes them). This is
+why [11](11-ssr.md) says the conversion contract and parity gates detect drift: they
+are a check on two implementations, not proof that only one exists.
 
 ### 4. Side products from the same analysis
 
