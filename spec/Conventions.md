@@ -1622,10 +1622,15 @@ Other post-v1 per-feature artefacts follow this same convention as their coordin
 | Artefact | Spec | Adapter (substrate it covers) |
 |---|---|---|
 | `re-frame2-reagent` | [006](006-ReactiveSubstrate.md) | Reagent (browser default) |
+| `reagent-slim` [^slim-coord] | [006](006-ReactiveSubstrate.md) | The `reagent2.*` Reagent-compatible rewrite for React 19 |
 | `re-frame2-uix` | [006](006-ReactiveSubstrate.md) | UIx |
 | `re-frame2-helix` | [006](006-ReactiveSubstrate.md) | Helix |
 
-In the repository layout the three adapters live under `implementation/adapters/<name>/` (one directory per adapter); per-feature artefacts stay flat under `implementation/<name>/`. The canonical directory name is `adapters/`, not `substrates/` — the directory holds the per-substrate **adapter** implementations of [Spec 006's substrate contract](006-ReactiveSubstrate.md), not the substrates themselves. Maven artefact names are unchanged — the on-disk grouping is a CLJS-reference repo concern; consumers of the published jars see the same coordinates as before.
+[^slim-coord]: `day8/reagent-slim` is the one adapter artefact that drops the `re-frame2-` prefix. It publishes its adapter at the same canonical `re-frame.adapter.reagent` namespace as the full variant, so an app selects slim or full by Maven coordinate rather than by its require or its `init!` line.
+
+Two further adapters ship outside this naming scheme, each inside an artefact it shares with other surfaces: the **plain-atom** adapter (`:rf.adapter/plain-atom` — JVM and headless tests) in the core `day8/re-frame2`, and the **SSR** adapter (`:rf.adapter/ssr`) in `day8/re-frame2-ssr`. The first-party compiled-view adapter is the sibling exception to both the coordinate scheme and the directory rule below: namespace `re-frame.ui` in `day8/re-frame2-ui` (`:kind :rf.adapter/ui`), living at `implementation/ui/`. The full `:kind` roster is the [`:rf.adapter/*` reserved-namespace row](#reserved-namespaces-framework-owned) above.
+
+In the repository layout the four `re-frame.adapter.<name>` adapters live under `implementation/adapters/<name>/` (one directory per adapter); per-feature artefacts stay flat under `implementation/<name>/`. The canonical directory name is `adapters/`, not `substrates/` — the directory holds the per-substrate **adapter** implementations of [Spec 006's substrate contract](006-ReactiveSubstrate.md), not the substrates themselves. Maven artefact names are unchanged — the on-disk grouping is a CLJS-reference repo concern; consumers of the published jars see the same coordinates as before.
 
 ### Independence rule
 
@@ -1723,7 +1728,8 @@ Adapters ship as **separate Maven artefacts** alongside the core (per [§Packagi
 | Artefact | Contents |
 |---|---|
 | `day8/re-frame2` | Core: registry, drain, fx, dispatch, subscribe, frame-root, frame-provider, trace, the substrate-adapter contract, the headless plain-atom adapter. Seven per-feature surfaces ship as separate artefacts alongside core: `day8/re-frame2-schemas`, `day8/re-frame2-machines`, `day8/re-frame2-routing`, `day8/re-frame2-flows`, `day8/re-frame2-http`, `day8/re-frame2-ssr`, `day8/re-frame2-epoch`. The per-feature split set is closed. |
-| `day8/re-frame2-reagent` | Reagent adapter (`re-frame.adapter.reagent`) |
+| `day8/re-frame2-reagent` | Reagent adapter (`re-frame.adapter.reagent`) — the full variant, carrying stock Reagent (`reagent.core`, `reagent.dom.client`, `reagent.dom.server`). |
+| `day8/reagent-slim` | Reagent-slim adapter — the `reagent2.*` Reagent-compatible rewrite for React 19, with static HTML export via a pure-CLJS `reagent2.dom.server` and no `react-dom/server` dependency. Publishes at the same canonical `re-frame.adapter.reagent` namespace as the full variant (the in-tree `re-frame.adapter.reagent-slim` ns is renamed at publication, because the monorepo carries both on one classpath); an app selects the variant by coordinate, and depends on exactly one. The lone adapter coordinate without the `re-frame2-` prefix. |
 | `day8/re-frame2-schemas` | Schemas (Spec 010) — `re-frame.schemas`, the Malli-backed schema-attachment surface (`reg-app-schema`, `app-schema-at`, `app-schemas`, the validation hot-path entry points). |
 | `day8/re-frame2-machines` | State machines (Spec 005) — `re-frame.machines`, the machine grammar surface (`reg-machine`, `make-machine-handler`, `machine-transition`, the `:rf/machine` framework sub, the `:rf.machine/spawn` / `:rf.machine/destroy` actor-lifecycle fxs, the in-snapshot `:rf/spawn-counter` allocator (per-machine-id, lives inside each machine's snapshot for pure-functional allocation)). |
 | `day8/re-frame2-routing` | Routing (Spec 012) — `re-frame.routing`, the route grammar (`reg-route`, `match-url`, `route-url`), the `:rf.route/navigate` / `:rf.route/transitioned` / `:rf.route/url-requested` / `:rf.route/handle-url-change` / `:rf.route/continue` / `:rf.route/cancel` events, the `:rf.nav/push-url` / `:rf.nav/replace-url` / `:rf.nav/scroll` reserved fxs, and the `:rf/route` / `:rf.route/{id,params,query,transition,error}` framework reg-subs. |
