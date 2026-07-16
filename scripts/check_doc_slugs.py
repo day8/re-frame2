@@ -103,6 +103,41 @@ DRAFT_LANDING_TARGETS = {
 # Tools live one tier deeper: tools/<tool-name>/spec/**/*.md.
 TOOLS_ROOT = "tools"
 
+# rf2-vxgfnd.136 — retired copy-from-mayor / local-only language guard.
+#
+# The synthesis subtree is force-tracked (see .gitignore's temporary exception):
+# a worker reads it directly in their own worktree at the exact revision being
+# implemented or reviewed. Operational instructions that still tell a worker the
+# tree is gitignored/absent and must be copied from the mayor checkout are stale
+# and dangerous — following them replaces the exact-head input with a divergent
+# newer copy, or stalls a clean-clone worker on an impossible prerequisite.
+#
+# This guard runs only under --synthesis-only (it must never widen the default
+# docs corpus) and rejects the retired IMPERATIVE directives. The patterns are
+# deliberately narrow: they match the copy-from-mayor commands, not the word
+# "local-only" on its own — the correct prose "the surrounding ai/ tree stays
+# local-only, so the pages are already in-repo" and "a local-only script"
+# (a CI-wiring status) are legitimate and must pass. Clearly historical prose is
+# also allowed: a match inside a blockquote whose opener is marked HISTORICAL /
+# RETIRED / non-operative is exempt (a dated audit may quote the old model).
+RETIRED_SYNTHESIS_OP_PATTERNS = (
+    ("MAYOR_CHECKOUT_ONLY", re.compile(r"mayor checkout only", re.IGNORECASE)),
+    ("DISPATCHER_COPIES", re.compile(r"dispatcher copies", re.IGNORECASE)),
+    ("ABSENT_FROM_WORKTREES",
+     re.compile(r"absent from worker worktrees", re.IGNORECASE)),
+    ("COPY_FROM_MAYOR",
+     re.compile(r"cop(?:y|ies)\b[^.\n]*\b(?:into the worktree|from the mayor)",
+                re.IGNORECASE)),
+    ("LOCAL_ONLY_NEVER_ADD",
+     re.compile(r"local-only working artefact\s*\(never\s*`?git add`?", re.IGNORECASE)),
+)
+
+# A blockquote line whose opener carries one of these tokens marks a historical,
+# non-operative block; retired-language matches inside it are quoted history.
+_HISTORICAL_MARKER_RE = re.compile(
+    r"\bHISTORICAL\b|\bRETIRED\b|non-operative", re.IGNORECASE
+)
+
 # Paths whose markdown should never be scanned.
 EXCLUDE_DIR_NAMES = frozenset({
     "findings",      # default excludes exploratory work; synthesis opt-in is exact
@@ -416,21 +451,62 @@ def _is_ai_findings_link(path_part: str) -> bool:
     return False
 
 
+def _scan_retired_synthesis_ops(
+    files: Iterable[Path],
+    repo_root: Path,
+) -> list[tuple[Path, int, str, str]]:
+    """Flag retired copy-from-mayor / local-only directives (rf2-vxgfnd.136).
+
+    Returns (path, line_no, classification, line-text) for each retired
+    imperative. Fenced code is stripped first so a sample never trips the
+    guard, and a match inside a HISTORICAL/RETIRED-marked blockquote is
+    treated as quoted history and skipped.
+    """
+    hits: list[tuple[Path, int, str, str]] = []
+    for path in files:
+        text = path.read_text(encoding="utf-8", errors="replace")
+        in_historical_quote = False
+        for line_no, line in _strip_fences(text.splitlines()):
+            stripped = line.lstrip()
+            if stripped.startswith(">"):
+                # Track a historical blockquote: it opens with a marker token
+                # and runs until the blockquote ends (a non-`>` line).
+                if _HISTORICAL_MARKER_RE.search(line):
+                    in_historical_quote = True
+            elif stripped == "":
+                # Blank lines continue a blockquote in CommonMark lazy form
+                # only when followed by more `>`; treat blank as a soft break
+                # but keep the marker until a real non-quote content line.
+                pass
+            else:
+                in_historical_quote = False
+            if in_historical_quote:
+                continue
+            for classification, pattern in RETIRED_SYNTHESIS_OP_PATTERNS:
+                if pattern.search(line):
+                    hits.append((path, line_no, classification, line.strip()))
+    return hits
+
+
 def check(
     repo_root: Path,
     verbose: bool = False,
     *,
     synthesis_only: bool = False,
 ) -> int:
-    """Validate every in-repo markdown link.  Return broken-link count.
+    """Validate every in-repo markdown link.  Return the total defect count.
 
-    Flags three distinct defects:
+    Flags these distinct defects:
         * BROKEN TARGET     — link points at an .md file that doesn't exist.
         * BROKEN ANCHOR     — file exists but the #anchor doesn't resolve.
         * AI_FINDINGS_LINK  — link points into the gitignored ai/findings/ tree
                               (rf2-l7yj8).  Committed files must not reference
                               gitignored working artefacts; inline a sentence
                               summary instead.
+        * RETIRED_SYNTHESIS_OP — (synthesis scope only, rf2-vxgfnd.136) an
+                              active synthesis instruction still asserts the
+                              retired local-only / copy-from-mayor model for the
+                              force-tracked synthesis subtree.
     """
     files = list(_iter_markdown(repo_root, synthesis_only=synthesis_only))
     if synthesis_only:
@@ -528,7 +604,18 @@ def check(
                     (path, line_no, dest, str(target.relative_to(repo_root.resolve())))
                 )
 
-    total = len(broken_anchor) + len(broken_target) + len(ai_findings)
+    # rf2-vxgfnd.136 — the retired copy-from-mayor guard runs only in the
+    # synthesis scope. It never touches the default docs corpus.
+    retired_ops: list[tuple[Path, int, str, str]] = []
+    if synthesis_only:
+        retired_ops = _scan_retired_synthesis_ops(files, repo_root)
+
+    total = (
+        len(broken_anchor)
+        + len(broken_target)
+        + len(ai_findings)
+        + len(retired_ops)
+    )
 
     if broken_target:
         sys.stderr.write(
@@ -576,6 +663,25 @@ def check(
             "summary of the finding (and a date) so the committed prose is "
             "self-contained and mkdocs strict's link validator doesn't trip "
             "on a missing target in CI.\n"
+        )
+
+    if retired_ops:
+        sys.stderr.write(
+            f"\n{len(retired_ops)} retired synthesis operation instruction(s) "
+            "found (rf2-vxgfnd.136):\n\n"
+        )
+        for src, line_no, classification, snippet in retired_ops:
+            rel = src.relative_to(repo_root.resolve())
+            sys.stderr.write(
+                f"  RETIRED_SYNTHESIS_OP [{classification}]: {rel}:{line_no}\n"
+                f"      {snippet}\n"
+            )
+        sys.stderr.write(
+            "\nFix: the new-substrate-synthesis subtree is force-tracked. Tell "
+            "workers to read the tracked path in their own worktree at the exact "
+            "revision being implemented/reviewed -- not to copy it from the mayor "
+            "checkout. If the line is genuinely historical, move it into a "
+            "blockquote whose opener is marked HISTORICAL / non-operative.\n"
         )
 
     if total == 0 and verbose:
@@ -717,6 +823,12 @@ def _run_self_tests(verbose: bool = False) -> int:
         ("synthesis_broken_target", 1),
         ("synthesis_broken_anchor", 1),
         ("synthesis_valid_narrow_scope", 0),
+        # rf2-vxgfnd.136 — the retired copy-from-mayor guard has teeth in the
+        # synthesis scope, stays invisible to the default corpus, and exempts
+        # correct "surrounding ai/ stays local-only" prose + HISTORICAL-marked
+        # quotes of the old model.
+        ("synthesis_retired_op", 1),
+        ("synthesis_retired_op_allowed", 0),
     ]
     for fixture, expected in synthesis_cases:
         root = _SELF_TEST_FIXTURE_ROOT / fixture

@@ -1,5 +1,13 @@
 # Spec-004 rewrite — merge-readiness audit
 
+> **HISTORICAL — EXECUTED (non-operative).** This is a dated point-in-time audit; its
+> recommendations have all landed. The rewrite merged as PR #5712 (bead `rf2-vxgfnd.13`,
+> closed), and the three cited contract drafts were promoted to `spec/004B-UI-Tree-and-Conversion.md`,
+> `spec/004C-Roots-and-Mount.md`, and `spec/004D-UI-Test-Selectors.md`. References below to
+> the drafts being "gitignored" record the state on 2026-07-12; the synthesis subtree was
+> force-tracked on 2026-07-13 and is now read directly in-worktree. Nothing here is a live
+> instruction.
+
 **Audited:** 2026-07-12 12:26 AUSEST · read-only audit against `main` @ `16c62a95ac`
 (post-#5703, post-#5704, S2 wave dispatched, zero open PRs at audit time).
 **Subject:** `drafts/spec-004-rewrite-draft.md` (903 lines) vs the ratified R-1 merge
