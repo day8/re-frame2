@@ -2073,6 +2073,29 @@
   [event frame]
   (emit-frame-destroyed! (first event) event frame))
 
+(defn ^:no-doc emit-captured-frame-superseded!
+  "rf2-9pyles — the recover-but-emit seam for a `capture-frame` op whose CAPTURED
+  frame incarnation has been SUPERSEDED. A frame api built by
+  `re-frame.core/make-capture-frame` pins the EXACT incarnation live at capture
+  (its `:drain-lock`); if that incarnation is later destroyed — whether the id is
+  now unclaimed OR a same-id successor incarnation B has reseated under it — the
+  captured op must NOT leak into B. It RECOVERS (the event is never enqueued into
+  the successor) and emits the production-survivable `:rf.error/frame-destroyed`,
+  exactly like a dispatch into a destroyed frame (the rf2-2hvga = recover-but-emit
+  ruling): the runtime cannot distinguish a benign teardown/hot-reload race from a
+  real use-after-destroy bug, so it recovers AND stays observable.
+
+  `opts` carries the dev-only `:rf.trace/call-site` (the capture's dispatch coord),
+  bound around the emit so the trace attributes the drop to the dispatch site.
+  Called from `make-capture-frame`'s incarnation-fenced dispatch / dispatch-sync
+  ops; the bare-id `frame-destroyed` emit `dispatch!` / `dispatch-sync!` already
+  raise for a fully-unclaimed id is unchanged (an unpinned 1-arity capture stays
+  address-directed)."
+  [event frame-id opts]
+  (trace/with-call-site (when interop/debug-enabled? (:rf.trace/call-site opts))
+    (emit-frame-destroyed! (first event) event frame-id))
+  nil)
+
 ;; EP-0015 §8 (rf2-d2r3um): the former per-dispatch
 ;; `refresh-elision-from-schemas!` is removed — schemas no longer feed the
 ;; app-db egress registry. Durable app-db classification is frame-owned and

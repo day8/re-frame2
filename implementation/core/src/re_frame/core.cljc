@@ -1131,6 +1131,57 @@
   (frame/require-current-frame! :current-frame-id
                                 {:where 're-frame.core/current-frame-id}))
 
+;; ---- capture-frame incarnation fence (rf2-9pyles) -------------------------
+;;
+;; A frame api is LOCKED to one frame, and moftbs (rf2-moftbs) made a frame's
+;; identity its EXACT incarnation (the record's `:drain-lock`), distinct across a
+;; `destroy-frame!` + same-id reconstruction. So a frame api captured against a
+;; LIVE frame A must stay bound to incarnation A: if A is later destroyed and a
+;; same-id successor incarnation B reseats under the id, an op fired from a stale
+;; async closure (the motivating case: a predecessor React root's DEFERRED
+;; layout/effect cleanup, firing after `destroy-adapter!` returned and a fresh
+;; generation reseated frame B) must NOT dispatch into B. The bare-id resolution
+;; `dispatch!`/`dispatch-sync!` perform at call time would otherwise silently
+;; retarget the successor.
+;;
+;; The fence PINS the incarnation live at capture and treats a superseded target
+;; as destroyed (recover-but-emit `:rf.error/frame-destroyed`, NOT a throw — these
+;; ops fire from host cleanup where a throw would break the host teardown). When
+;; the captured id was NOT live at capture (`capture-frame`'s 1-arity lock-to-id
+;; form used from outside any scope, or a not-yet-mounted id) nothing is pinned
+;; and the op stays address-directed — the documented dynamic-id semantics. This
+;; is the async-safe, recover-but-emit sibling of the SYNCHRONOUS throwing
+;; incarnation fence `re-frame.ui.frames/mint-frame-ops` already wraps the
+;; `(frame)` accessor bundle in.
+
+(defn- capture-target-incarnation
+  "The EXACT incarnation token (`:drain-lock`) of frame id `frame-id` if it is
+  LIVE at capture, else nil. A capture over a live frame pins its incarnation;
+  a capture over an absent/not-yet-mounted id pins nothing (stays address-
+  directed). Namespace-qualified `frame/…` is never shadowed by a local `frame`."
+  [frame-id]
+  (frame/frame-incarnation-token frame-id))
+
+(defn- capture-target-superseded?
+  "True when a pinned `captured-incarnation` no longer identifies `frame-id`'s
+  live frame — the exact captured incarnation was destroyed, whether the id is
+  now unclaimed or a same-id successor incarnation reseated. nil `captured-
+  incarnation` (an unpinned capture) is never superseded."
+  [frame-id captured-incarnation]
+  (and (some? captured-incarnation)
+       (not (frame/frame-incarnation-live? frame-id captured-incarnation))))
+
+(defn- capture-dispatch!
+  "Route a captured `:dispatch`/`:dispatch-sync` op through the incarnation fence:
+  when the pinned incarnation is superseded, recover-but-emit `:rf.error/frame-
+  destroyed` (never enqueue into a same-id successor); otherwise delegate to
+  `dispatch-fn` (the `dispatch-impl` / `dispatch-sync-impl` alias, preserving the
+  single `with-redefs` interception seam)."
+  [dispatch-fn frame-id captured-incarnation event opts]
+  (if (capture-target-superseded? frame-id captured-incarnation)
+    (router/emit-captured-frame-superseded! event frame-id opts)
+    (dispatch-fn event opts)))
+
 (defn make-capture-frame
   "INTERNAL constructor for `capture-frame` (and the `reg-view` injection
   sugar) — `:tier :implementation` (EP-0024 Open Issue #8, rf2-5vla7c).
@@ -1175,22 +1226,29 @@
                           `trace/with-call-site` wrapper; subscriptions
                           carry no `:source` axis. DCEs in production."
   [frame {:keys [dispatch-opts subscribe-call-site]}]
-  {:frame frame
-   :dispatch
-   (fn dispatch-fn
-     ([event]      (dispatch-impl event (merge dispatch-opts {:frame frame})))
-     ([event opts] (dispatch-impl event (merge dispatch-opts opts {:frame frame}))))
-   :dispatch-sync
-   (fn dispatch-sync-fn
-     ([event]      (dispatch-sync-impl event (merge dispatch-opts {:frame frame})))
-     ([event opts] (dispatch-sync-impl event (merge dispatch-opts opts {:frame frame}))))
-   :subscribe
-   (fn subscribe-fn
-     [query-v]
-     (if (and subscribe-call-site interop/debug-enabled?)
-       (trace/with-call-site subscribe-call-site
-         (subscribe-impl query-v {:frame frame}))
-       (subscribe-impl query-v {:frame frame})))})
+  ;; rf2-9pyles: pin the EXACT incarnation live at capture so a later op cannot
+  ;; leak into a same-id successor. nil (id not live at capture) ⇒ address-directed.
+  (let [captured-incarnation (capture-target-incarnation frame)]
+    {:frame frame
+     :dispatch
+     (fn dispatch-fn
+       ([event]      (capture-dispatch! dispatch-impl frame captured-incarnation
+                                        event (merge dispatch-opts {:frame frame})))
+       ([event opts] (capture-dispatch! dispatch-impl frame captured-incarnation
+                                        event (merge dispatch-opts opts {:frame frame}))))
+     :dispatch-sync
+     (fn dispatch-sync-fn
+       ([event]      (capture-dispatch! dispatch-sync-impl frame captured-incarnation
+                                        event (merge dispatch-opts {:frame frame})))
+       ([event opts] (capture-dispatch! dispatch-sync-impl frame captured-incarnation
+                                        event (merge dispatch-opts opts {:frame frame}))))
+     :subscribe
+     (fn subscribe-fn
+       [query-v]
+       (if (and subscribe-call-site interop/debug-enabled?)
+         (trace/with-call-site subscribe-call-site
+           (subscribe-impl query-v {:frame frame}))
+         (subscribe-impl query-v {:frame frame})))}))
 
 (defn capture-frame
   "Return a frame api — the keystone affordance for
