@@ -104,9 +104,9 @@
 (deftest redirected-managed-honours-dynamic-sensitive-flag
   (testing "the rf2-2siusz scenario shape: a :sensitive? true managed args map
             on a redirected stub's handled slot redacts through the ORIGINAL
-            :rf.http/managed id's DYNAMIC classification (the stub id — here a
-            per-scope minted :rf.test/* id — is unregistered and matches no
-            dynamic case)"
+            :rf.http/managed id's DYNAMIC classification (the stub id — an
+            unregistered :rf.test/* id here — matches no dynamic case, so the
+            :rf.fx/from :rf.http/managed provenance is what classifies)"
     (let [t (project {:operation :rf.fx/handled
                       :tags {:frame      :rf/default
                              :rf.fx/id   :rf.test/managed-http-stub-1

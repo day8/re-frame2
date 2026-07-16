@@ -1299,6 +1299,123 @@
         (is (= {:from :outer-a} (get-in db [:result-a :value]))
             "outer A scope still routed to the A stub — not cleared by inner B teardown")))))
 
+;; ---- 11a-bxc8kf. stubs work inside a PRE-CREATED SEALED frame --------------
+;;
+;; rf2-bxc8kf — the exact tutorial nesting creates a frame FIRST, then enters
+;; `with-managed-request-stubs`:
+;;   (with-new-frame [f (make-frame {})]
+;;     (with-managed-request-stubs … (dispatch-sync …)))
+;; `make-frame {}` resolves + SEALS an image generation at construction, and a
+;; no-id (direct) frame is deliberately EXCLUDED from `reg-*` auto-reprojection
+;; (`frame/image-loaded-frame-ids` drops the reserved `:rf.frame/<gensym>` ids).
+;; Pre-fix, `with-managed-request-stubs*` MINTED a fresh `:rf.test/managed-http-
+;; stub-<n>` fx-id and registered it INSIDE the scope — AFTER the frame had
+;; sealed. So the bound `{:rf.http/managed <scope-id>}` override redirected to an
+;; fx-id the sealed generation could not resolve (`registrar/lookup` routes
+;; through the frame's generation): the redirect fell through and the REAL
+;; `:rf.http/managed` transport ran (a `/x` dispatch produced an immediate
+;; `:rf.http/transport` error). The fix registers ONE STABLE override target at
+;; ns-load, so it lands in the sealed generation of every frame created after
+;; the require; the per-scope route map rides the dynamic var `*scope-stubs*`.
+;;
+;; These tests use a `with-new-frame` frame and read app-db off the frame VALUE
+;; (`app-db-value f`), not `:rf/default`, so the SEALED-generation resolution
+;; path is exercised. Adversarial reach-check: a sentinel shadows the real
+;; `:rf.http/managed` fx — reaching it proves the override was absent.
+
+(defn- await-frame-reply!
+  "Poll `f`'s app-db for `(pred db)`, returning the settling db. Mirrors
+  `await-reply!` but keyed to a `with-new-frame` frame VALUE rather than
+  `:rf/default`, so a SEALED-generation frame's reply is observable."
+  [f pred]
+  (test-support/poll-until
+    #(let [db (rf/app-db-value f)] (when (pred db) db))
+    {:timeout-ms 2000 :label "sealed-frame http-managed reply"}))
+
+(deftest stubs-intercept-inside-pre-created-sealed-frame-rf2-bxc8kf
+  (testing "rf2-bxc8kf — a plain dispatch-sync inside with-managed-request-stubs,
+            in a PRE-CREATED sealed `with-new-frame` frame, routes through the
+            configured stub and NEVER invokes the real :rf.http/managed transport"
+    (let [real-fx-invoked? (atom false)]
+      ;; Shadow the production fx slot with a sentinel — reaching it proves the
+      ;; override was absent (the pre-fix sealed-frame bug). Registered BEFORE
+      ;; make-frame so it is in the sealed generation either way.
+      (fx/reg-fx :rf.http/managed
+                 (fn [_frame-ctx _args] (reset! real-fx-invoked? true) nil))
+      (rf/reg-event :bxc8kf/load
+        (fn [{:keys [db]} [_ msg reply]]
+          (if reply
+            {:db (assoc db :result reply)}
+            {:fx [[:rf.http/managed
+                   {:reply-to [:bxc8kf/load msg] :request {:method :get :url "/x"}
+                    :decode  :json}]]})))
+      (rf/with-new-frame [f (rf/make-frame {})]
+        (rf/with-managed-request-stubs
+          {[:get "/x"] {:reply {:ok {:stubbed true}}}}
+          ;; Bare wrapper form — no per-call :fx-overrides.
+          (rf/dispatch-sync [:bxc8kf/load]))
+        (let [db (await-frame-reply! f #(some? (:result %)))]
+          (is (= :ok (get-in db [:result :status]))
+              "the stubbed reply landed via the load-time-registered scope stub")
+          (is (= {:stubbed true} (get-in db [:result :value]))
+              "the configured :ok value rode through the synthesised reply")
+          (is (false? @real-fx-invoked?)
+              "the real :rf.http/managed fx was NEVER invoked in the sealed frame
+               (pre-fix: the minted per-scope stub was unresolvable in the sealed
+               generation, so this fired the real transport)"))))))
+
+(deftest sealed-frame-nesting-isolation-rf2-bxc8kf
+  (testing "rf2-bxc8kf — nested scopes still isolate inside a sealed frame: the
+            inner B scope's route map shadows the outer A's for its extent, and
+            the outer A route map is restored when the inner scope exits (the
+            dynamic-var replacement for the minted-per-scope fx-id preserves the
+            rf2-vn8qjv nesting contract in the sealed-frame case)"
+    (rf/reg-event :bxc8kf/load-a
+      (fn [{:keys [db]} [_ msg reply]]
+        (if reply
+          {:db (assoc db :result-a reply)}
+          {:fx [[:rf.http/managed {:reply-to [:bxc8kf/load-a msg] :request {:method :get :url "/a"} :decode :json}]]})))
+    (rf/reg-event :bxc8kf/load-b
+      (fn [{:keys [db]} [_ msg reply]]
+        (if reply
+          {:db (assoc db :result-b reply)}
+          {:fx [[:rf.http/managed {:reply-to [:bxc8kf/load-b msg] :request {:method :get :url "/b"} :decode :json}]]})))
+    (rf/with-new-frame [f (rf/make-frame {})]
+      (rf/with-managed-request-stubs
+        {[:get "/a"] {:reply {:ok {:from :outer-a}}}}
+        (rf/with-managed-request-stubs
+          {[:get "/b"] {:reply {:ok {:from :inner-b}}}}
+          (rf/dispatch-sync [:bxc8kf/load-b])
+          (let [db (await-frame-reply! f #(some? (:result-b %)))]
+            (is (= {:from :inner-b} (get-in db [:result-b :value]))
+                "inner B scope routed to the B stub inside the sealed frame")))
+        ;; Inner scope exited — the outer A route map must be live again.
+        (rf/dispatch-sync [:bxc8kf/load-a])
+        (let [db (await-frame-reply! f #(some? (:result-a %)))]
+          (is (= {:from :outer-a} (get-in db [:result-a :value]))
+              "outer A scope route map restored after the inner B scope exit"))))))
+
+(deftest sealed-frame-per-call-override-still-wins-rf2-bxc8kf
+  (testing "rf2-bxc8kf — precedence (per-call > lexical > per-frame) is preserved
+            in a sealed frame: a per-call :fx-overrides on the dispatch beats the
+            wrapper-installed lexical default"
+    (let [chosen (atom nil)]
+      (rf/reg-fx :bxc8kf/explicit-override
+                 (fn [_frame-ctx _args] (reset! chosen :explicit) nil))
+      (rf/reg-event :bxc8kf/load-explicit
+        (fn [_ _]
+          {:fx [[:rf.http/managed
+                 {:request {:method :get :url "/explicit"} :decode :json}]]}))
+      (rf/with-new-frame [f (rf/make-frame {})]
+        (rf/with-managed-request-stubs
+          {[:get "/explicit"] {:reply {:ok {:via :stub}}}}
+          ;; The per-call override must beat the wrapper's lexical default.
+          (rf/dispatch-sync [:bxc8kf/load-explicit]
+                            {:fx-overrides {:rf.http/managed :bxc8kf/explicit-override}})
+          (is (= :explicit @chosen)
+              "the per-call :fx-overrides won over the wrapper's lexical default
+               in the sealed frame"))))))
+
 ;; ---- 11a-vn8qjv (lower-level). install/uninstall stack + no fx leak --------
 ;;
 ;; rf2-vn8qjv (issue 2) — the lower-level install/uninstall surface keeps the
