@@ -306,6 +306,33 @@
                    (some? sub-vec)      (assoc :rf.sub/id      (first sub-vec)
                                                :rf.sub/query-v (vec sub-vec))))))
 
+(defn- successor-published?-fn
+  "Build the same-id-successor detection predicate for `frame-id`, captured at
+  the cancellation entry BEFORE the callback-bearing `:rf.machine.timer/cancelled`
+  trace (rf2-rbxdxa). Returns a 0-arity predicate true once a `destroy-frame!` +
+  same-id reconstruction — a cancellation listener re-arming the SAME
+  subscription-vector query in successor B — has replaced the captured
+  incarnation. When the frame is absent at capture (nil token) the predicate is
+  `(constantly false)`, so an ordinary cancellation with no successor releases its
+  shared `(frame,query-v)` subscription ref fully.
+
+  Precise BY CONSTRUCTION: `frame-incarnation-token` mints a DISTINCT token per
+  construction, so the predicate flips only on a genuine A→B incarnation swap,
+  never on a mere frame-close — no ordinary state-exit / supersede / resolution /
+  frame-destroy / restore cancellation leaks its subscription. It reads no bound
+  event owner, so it fences the non-destroy reasons uniformly (INCLUDING the
+  eventless frame-destroy / restore paths) without the wrongful-skip a
+  closing-frame `owner-continuation` gate would inflict on a frame torn down under
+  an unrelated event owner. The explicit-`owner-gone?` 4-arity keeps the stronger
+  destroy-tail gate its callers already captured (the actor — not the frame — is
+  destroyed there, so the frame incarnation is stable and the token check would be
+  too weak)."
+  [frame-id]
+  (let [captured (frame/frame-incarnation-token frame-id)]
+    (if (some? captured)
+      (fn [] (not (frame/frame-incarnation-live? frame-id captured)))
+      (constantly false))))
+
 (defn- cancel-after-timer-entry!
   "Cancel and clear a single :after timer-table entry under `frame-id`,
   emitting one `:rf.machine.timer/cancelled` trace stamped with
@@ -331,11 +358,16 @@
   incarnation A and re-arm the SAME subscription-vector query in same-id B on
   that trace's own stack. The optional `owner-gone?` predicate is threaded into
   `release-entry-resources!` so the shared `subs/unsubscribe` decrement is
-  skipped once A is lost — A's release cannot dispose B's fresh reaction. The
-  2-arity keeps the historical unfenced release for the non-destroy cancellation
-  reasons (`:on-exit` / `:on-resolution` / `:on-supersede` / `:on-frame-destroy`
-  / `:on-restore`)."
-  ([frame-id k reason] (cancel-after-timer-entry! frame-id k reason (constantly false)))
+  skipped once A is lost — A's release cannot dispose B's fresh reaction.
+
+  rf2-rbxdxa — the 3-arity is NO LONGER unfenced: it captures its own
+  same-id-successor predicate (`successor-published?-fn`) BEFORE `emit-cancelled!`,
+  so EVERY non-destroy cancellation reason (`:on-exit` / `:on-resolution` /
+  `:on-supersede` / `:on-frame-destroy` / `:on-restore`) also skips the shared
+  decrement when a cancellation listener republishes same-id B, while an ordinary
+  cancellation (no successor) still releases fully. The 4-arity carries the
+  stronger destroy-tail `owner-gone?` its callers captured at the effect entry."
+  ([frame-id k reason] (cancel-after-timer-entry! frame-id k reason (successor-published?-fn frame-id)))
   ([frame-id k reason owner-gone?]
    (when-let [entry (get-in @after-timers [frame-id k])]
      (when-let [claimed (claim-entry! frame-id k (:token entry))]

@@ -264,11 +264,17 @@
         (spawn-order/forget! frame-id actor-id))
       ;; (8) when the projection landed, emit `:rf.machine/system-id-released`
       ;; (callback-bearing) and clear any registrar entry (`:rf.registry/handler-
-      ;; cleared`, callback-bearing). Fenced on both the swap outcome and live
-      ;; ownership.
+      ;; cleared`, callback-bearing). rf2-rbxdxa — the system-id-released trace is
+      ;; ITSELF a callback boundary: a listener can destroy A and publish same-id
+      ;; B, registering B's fresh event handler at `actor-id` ON THAT TRACE's own
+      ;; stack. The trace + `registrar/unregister!` must NOT share one precheck —
+      ;; recheck ownership AFTER the trace, so A's teardown never clears B's
+      ;; just-registered handler (the ordinary-destroy terminal-fence law, Spec
+      ;; 005 §Destroy is silent-idempotent).
       (when (and db-swapped? (not (owner-gone?)))
         (traces/emit-system-id-released! frame-id @sid actor-id)
-        (registrar/unregister! :event actor-id))
+        (when-not (owner-gone?)
+          (registrar/unregister! :event actor-id)))
       ;; (9) release the actor's resource leases once it is gone, so
       ;; a `[:machine actor-id]`-owned resource does not outlive the actor and
       ;; keep refetching/polling. Rechecked after the unregister callback: a lost
@@ -302,12 +308,15 @@
   requests, logs, dispatches) execute against the live snapshot.
 
   Silent-idempotent guard: an already-destroyed actor
-  (all liveness signals gone) is a no-op. Returns `true` iff the actor
-  was live and torn down this call, and `nil` (the `when`'s falsey value)
-  for the silent no-op — so callers (notably `destroy-spawn-all-children!`)
-  can gate their `:rf.machine/destroyed` emit on the truthy live-and-torn-down
-  return, preventing a double-destroyed trace for join-cancelled survivors
-  the resolution cascade already tore down. Mirrors the `live?` gate
+  (all liveness signals gone) is a no-op. Returns the teardown's own
+  `db-swapped?` commit flag when the actor was live — `true` when the teardown
+  projection committed while authority remained exact, `false` when the exact
+  owner was lost mid-tail (rf2-rbxdxa) — and `nil` (the `when`'s falsey value)
+  for the silent no-op. So callers (notably `destroy-spawn-all-children!`)
+  can gate their `:rf.machine/destroyed` emit / slot clear / iteration on a
+  GENUINE teardown, preventing a double-destroyed trace for join-cancelled
+  survivors the resolution cascade already tore down AND a phantom destroyed for
+  a child whose teardown aborted on owner loss. Mirrors the `live?` gate
   `destroy-resolved!` carries.
 
   rf2-i4aj9c — the 2-arity is the EVENTLESS entry (frame-destroy walker) — it
@@ -321,12 +330,15 @@
      ;; (`destroy-spawn-all-children!`, the frame-destroy walker) own that
      ;; emit, gating it on this fn's truthy return so each actor's destroyed
      ;; trace fires exactly once. So no emit-destroyed callback.
-     (teardown-live-actor! frame-id actor-id {:actor-id actor-id} nil fence)
-     ;; Signal to callers (`destroy-spawn-all-children!`) that
-     ;; this actor was live and torn down this call, so they emit
-     ;; `:rf.machine/destroyed` exactly once. The `when` returns nil for
-     ;; an already-destroyed actor (silent no-op).
-     true)))
+     ;;
+     ;; rf2-rbxdxa — return `teardown-live-actor!`'s own `db-swapped?` flag
+     ;; rather than an unconditional `true`: `false` when the exact owner was
+     ;; lost mid-teardown (a callback destroyed A / published same-id B before
+     ;; the durable write), so a `:spawn-all` caller emits `:rf.machine/destroyed`
+     ;; ONLY for a genuinely-torn-down child — never a phantom for one whose
+     ;; teardown aborted on owner loss. The `when` still returns nil for an
+     ;; already-destroyed actor (the silent-idempotent no-op).
+     (teardown-live-actor! frame-id actor-id {:actor-id actor-id} nil fence))))
 
 (defn- authenticated-join-child
   "Return a private join-child teardown context only when the actor snapshot's

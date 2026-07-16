@@ -727,6 +727,16 @@
         ;; install itself is already exact; this closes the sibling classification
         ;; write the earlier fences ran ahead of).
         (classification/lower-at-spawn! frame-id spawned-id spec'' owner-token)
+        ;; rf2-rbxdxa — `lower-at-spawn!` writes through the EXACT elision swap, a
+        ;; container-write boundary: a synchronous watch can destroy A / publish
+        ;; same-id B DURING the classification lowering. Recheck `(continue?)`
+        ;; AFTER it before the spawn-order record / lifecycle trace / `:start`
+        ;; dispatch tail — otherwise the bare-id `spawn-order/record!` records A's
+        ;; ghost child into B's spawn-order channel and the lifecycle-spawned
+        ;; trace / bootstrap dispatch land against B. The install itself is already
+        ;; exact (`install-spawn!`); this fences the classification-lowering seam
+        ;; the earlier `(= :committed installed) (continue?)` gate ran ahead of.
+        (when (continue?)
         ;; Record the spawned actor in the frame's spawn-order channel so
         ;; frame-destroy can walk in reverse-creation order per Spec 005
         ;; §Cross-Spec Interactions §1.
@@ -778,7 +788,7 @@
                      :source             :machine-spawn}]
           (if (some? start)
             (dispatch! [spawned-id start] opts)
-            (dispatch! [spawned-id [:rf.machine.spawn/spawned]] opts)))))))))
+            (dispatch! [spawned-id [:rf.machine.spawn/spawned]] opts))))))))))
     spawned-id))
 
 ;; ---- :rf.machine/spawn-all-init -------------------------------------------

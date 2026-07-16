@@ -653,7 +653,17 @@
           ;; entry added at spawn dies with the instance (no leak). rf2-i4aj9c —
           ;; thread `owner-token` so the drop rides the EXACT elision write (a
           ;; mid-write watch cannot re-root the removal onto same-id B).
-          (classification/drop-at-destroy! frame-id machine-id machine owner-token)
+          (classification/drop-at-destroy! frame-id machine-id machine owner-token))
+        ;; rf2-rbxdxa — `drop-at-destroy!` writes through the EXACT elision swap, a
+        ;; container-write boundary: a synchronous watch can destroy A / publish
+        ;; same-id B DURING the drop. Recheck ownership AFTER it before the
+        ;; spawn-order forget + system-id release — grouping them under the SAME
+        ;; precheck let a mid-drop successor B see the bare-id `spawn-order/forget!`
+        ;; erase B's freshly-recorded entry and the system-id-released trace resolve
+        ;; against B (the finalize sibling of the ordinary-destroy drop seam). The
+        ;; drop write is already exact; this fences the forget/release the grouped
+        ;; precheck ran ahead of.
+        (when-not (owner-gone?)
           ;; Forget the finished actor from the per-frame spawn-order channel — the
           ;; ONE synchronous teardown side-effect the `:final?`-auto-destroy path
           ;; shares with `destroy/teardown-live-actor!` (destroy.cljc step 7).
