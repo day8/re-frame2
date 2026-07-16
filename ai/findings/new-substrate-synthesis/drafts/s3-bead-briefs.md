@@ -1,5 +1,14 @@
 # S3 bead briefs — paste-ready for the S2-boundary filing
 
+> **[SUPERSEDED NOTE — 2026-07-16.]** The S3 children were filed as
+> `rf2-vxgfnd.95.1`–`.95.10` (different granularity from the .14–.20 proposal below);
+> the **live beads are authoritative** over this draft. Additionally, the
+> component-library readiness package (directed by Mike 2026-07-16; owning doc
+> `drafts/component-library-readiness.md`) amended `.95.2`/`.95.4`/`.95.6`/`.95.10`
+> and added S3 children for render slots, the safe-spread policy, and the `ui/event`
+> sync-door widening — none of which appear in the drafts below. Do not brief from
+> this file without checking the live beads.
+
 **Status:** draft · 2026-07-12 12:22:40 AUSEST (completeness pass additions
 2026-07-12: S3g brief, §S4 filing notes, §Coverage note; correctness pass 2026-07-12:
 renumbered .13–.19 → .14–.20 — **rf2-vxgfnd.13 is already taken** by the Spec-004

@@ -64,9 +64,13 @@ Views do presentation math only.
      [:button {:on-click [:search/run text]} "Search"]]))
 ```
 
-`(local initial)` returns the current value and a setter. Setting it re-renders
-**this view only**. The value lives in host state underneath — deliberately outside
-app-db, so it is never time-travelled.
+`(local initial)` returns the current value, a setter, and — *(added 2026-07-16,
+readiness P0-1)* — an atomic updater: `[text set-text update-text!]`. `set-text`
+stores its argument exactly (functions included); `update-text!` applies
+`(f current & args)` to the **latest host state**, so several same-turn callbacks
+(key + pointer + timer) compose instead of losing writes. Two-element destructuring,
+as above, stays valid. Setting it re-renders **this view only**. The value lives in
+host state underneath — deliberately outside app-db, so it is never time-travelled.
 
 > **Doctrine:** `local` is for keystroke-latency ephemera — uncommitted input text, an
 > open/closed disclosure, hover. The moment a value needs cross-view observation,

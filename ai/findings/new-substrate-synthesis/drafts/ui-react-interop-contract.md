@@ -19,8 +19,16 @@ The seven wrappers are the **interop tier of the foreign boundary**: they exist 
 views that must participate in a *foreign* React world — an exported `defview` living
 inside a legacy/foreign parent (`ui/->react`, doc 10's per-subtree migration), or a
 foreign widget embedded inside a `defview` whose API demands refs, contexts, ids, or
-code-splitting. They are **not** a second state or reactivity model, and the roster of
-absences is deliberate ⟨rewrite §Removed forms⟩:
+code-splitting. **[AMENDED 2026-07-16 — readiness C-6, owning doc
+`drafts/component-library-readiness.md`]:** `use-ref` + `use-layout-effect` carry a
+second sanctioned audience — **native component-library infrastructure** doing
+measure-before-paint (popover/dropdown positioning, table viewport geometry): measure
+in the layout effect, compute placement with pure `.cljc` geometry, apply, clean up
+exactly; passive `effect` stays the home for listeners and deferrable work. The S3
+slice adds a guide recipe + StrictMode/reconnect/HMR/JVM-metadata fixtures for this
+audience; **no second layout-effect spelling ships** unless repeated native demand
+proves out, and `component-did-*` never returns. They are **not** a second state or
+reactivity model, and the roster of absences is deliberate ⟨rewrite §Removed forms⟩:
 
 | Absent | Because |
 |---|---|

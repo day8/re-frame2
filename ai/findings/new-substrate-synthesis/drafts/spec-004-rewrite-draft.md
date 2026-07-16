@@ -1,5 +1,15 @@
 # Spec 004 — full normative rewrite draft (R-1, merges with the first conforming Stage-1 slice)
 
+> **[DELTA BANNER — 2026-07-16, component-library readiness (directed; owning doc
+> `drafts/component-library-readiness.md`).]** Three contracts below are amended and
+> land with their S3 beads, not from this draft: `local` is the three-tuple
+> `[value set! update!]` (this draft still shows `[value set!]`); the controlled-input
+> door admits synchronous `ui/event` **vector results** (this draft states the
+> literal-vector-only law); `ui/render-fn` is also the value internal `ui/slot`
+> accepts (this draft shows foreign-only). The live `spec/004-Views.md` updates
+> atomically with `rf2-vxgfnd.95.2` / `rf2-8k14ia` / `rf2-ri0k6n` fixtures per Q61 —
+> do not copy the three superseded passages out of this draft.
+
 **Status:** final draft · 2026-07-11 · **codex2 fold-in applied 2026-07-12** (§Stage
 conformance profiles added — the merge condition is now profile-defined; compat-tier
 live home → `spec/004A-Reagent-Compat.md`; the JVM tree/conversion and root/mount

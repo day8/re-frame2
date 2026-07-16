@@ -8,8 +8,9 @@
 > see §Step 1, precisely), and immediately gains Xray, epochs/time-travel, Story,
 > schemas, machines, and resources. The view migration below is **step 2**: per-subtree,
 > on your schedule, with the migrator. re-com widgets are the last movers (embedded
-> Reagent subtrees / foreign heads until a `ui`-native answer exists — a separate,
-> deferrable decision).
+> Reagent subtrees / foreign heads until the `ui`-native answer lands — *[2026-07-16:
+> now a directed program, epic `rf2-6ajm6z`; see `drafts/component-library-readiness.md`;
+> the compat-embedding mechanics below stay the migration-time answer unchanged]*).
 
 **One adapter still boots the process.** Incremental/co-mount below describes React
 rendering boundaries, not adapter selection. The process installs exactly one of

@@ -278,10 +278,18 @@ disposal follows the same ordering, every step idempotent.
 
 ## 5. Local state
 
-`(local init)` → `[value set!]`; host `useState`; re-renders this view only. Doctrine
+`(local init)` → `[value set! update!]` **[AMENDED 2026-07-16 — component-library
+readiness P0-1; owning delta doc: `drafts/component-library-readiness.md`]**; host
+`useState` underneath; re-renders this view only. `set!` stores its argument exactly
+(function values included — no updater overload); `update!` applies `(f current & args)`
+to the **latest host state** so several same-turn host writers compose — the
+multi-writer contract a component library (drag + key + timer + observer paths) cannot
+build soundly itself. Legal in committed handlers and effect callbacks; cause evidence
+and HMR signature ride like the setter; JVM raises the typed host-op error. Doctrine
 (unchanged, rf2-5sjbg lineage): product-meaning state lives in app-db; `local` is for
 keystroke-latency ephemera; when field text *is* product state, dispatch placeholders
-instead. `set!` during render is a dev error.
+instead. `set!`/`update!` during render is a dev error. Reset-key/derived local stays
+out — a scheduled spike (explicit caller revision, never the model value).
 
 ## 6. Effects
 

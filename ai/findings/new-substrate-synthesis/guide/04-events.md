@@ -137,10 +137,14 @@ Every field is inspectable, replayable, and headlessly testable after installing
              (-> tree (ui.test/find :select) ui.test/attrs :on-change))))))
 ```
 
-**When the door applies.** The compiler proves an element controlled by seeing a
-literal `:value`/`:checked` prop co-present with the vector-handler site. A dynamic
-props map, `ui/spread`, or a `ui/event`/bare-fn dispatch at such a site falls back to
-ordinary batching, and dev tells you so. Keep controlled fields literal.
+**When the door applies** *(widened 2026-07-16 — readiness P0-2)*. The compiler proves
+an element controlled by seeing a literal `:value`/`:checked` prop co-present with the
+handler site. Two handler shapes then ride the synchronous drain: a **literal event
+vector**, and a **synchronous `ui/event` body whose result is an event vector** (`nil`
+= no dispatch; any other synchronous result is a named diagnostic) — the shape a
+reusable control uses to append its payload to a prefix it received through props. A
+dynamic props map, general `ui/spread`, or a bare-fn dispatch at such a site still
+falls back to ordinary batching, and dev tells you so. Keep controlled fields literal.
 
 **Uncommitted drafts stay in `local`.** When another view must react to every
 keystroke, the keystroke *is* product state — dispatch placeholders. When only this
@@ -160,6 +164,23 @@ Parents pass data; the child's site dispatches in its committed frame. Placehold
 belong at the literal site, so a reusable *input* control takes the field id and
 builds `[:form/typed field :rf.ui/value]` itself.
 
+**The component-library convention *(added 2026-07-16 — readiness C-13)*.** A library
+control that cannot know your event grammar takes an **event prefix** and appends its
+payload at dispatch time:
+
+```clojure
+[rc/text-input {:value email :on-value [:form/set-email]}]
+;; inside the control: (ui/event [e] (conj on-value (.. e -target -value)))
+```
+
+Three rules keep this honest: **(1)** placeholders are never expanded in a vector
+received through props — build literals at your own DOM sites, hand libraries a
+prefix; **(2)** at a compiler-proven controlled site, the control's synchronous
+`ui/event` vector result rides the same sync door as a literal vector (the caret/IME
+guarantee reaches library inputs); **(3)** ordinary fn props between internal views
+are legal opaque values — identity-compared, no implicit invocation phase; reach for
+`ui/handler`/`ui/render-fn` when a phase must be promised.
+
 ## The decision table
 
 | You need | Write | Notes |
@@ -167,7 +188,7 @@ builds `[:form/typed field :rf.ui/value]` itself.
 | Dispatch intent (the 90%) | `[:event … :rf.ui/value]` | data; canonical |
 | The live event — forms, files, filtering | `(ui/event [e] … [:vector …])` | stable; committed values + the event |
 | Imperative work, stable identity | `(ui/handler [x] …)` | foreign change-callbacks in memoised children |
-| Callback a foreign component calls **while rendering** | `(ui/render-fn [x] …)` | pure; current render; no identity promise |
+| Callback a foreign component calls **while rendering** — or an internal `ui/slot` value *(2026-07-16)* | `(ui/render-fn [x] …)` | pure; current render; no identity promise |
 | Quick local work in a **native** `:on-*` | bare `#(…)` | legal there only — shorthand for `ui/handler` |
 | Any callback prop on a **foreign component** | one of the forms above, explicitly | bare fn is a compile error |
 | Identity-as-protocol foreign APIs | `(ui/raw-fn f)` | passes identity through untouched |
