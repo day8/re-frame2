@@ -444,6 +444,36 @@
       (is (= [] (evidence/projection))))))
 
 #?(:clj
+   (deftest cleared-weak-key-compaction-drops-the-row-and-spares-the-survivor
+     ;; The OTHER prune exit (rf2-un54gv). `:dead` is the proven end, but an
+     ;; ordinary unmount is never proven — it leaves through weak collection,
+     ;; and a WeakHashMap entry OUTLIVES its referent: the read materializes
+     ;; entries whose keys can clear before `getKey` runs (the iterator holds
+     ;; only the CURRENT key strongly), handing back nil. Model that exactly,
+     ;; the way the CLJS sibling fakes a cleared WeakRef — a null-keyed mapping
+     ;; beside a live one. RED before the fix: `lifecycle` NPEs on the cleared
+     ;; key and takes the whole projection read down with it.
+     (is (true? (evidence/install! ::xray)))
+     (let [state*   @#'evidence/state*
+           base     (:entries @state*)
+           survivor (reactive/make-cell ::survivor)
+           members  (doto (java.util.HashMap.)
+                      (.put nil {:cell-id  0
+                                 :view-id  ::cleared
+                                 :evidence one-target-evidence})
+                      (.put survivor {:cell-id  1
+                                      :view-id  ::survivor
+                                      :evidence one-target-evidence}))]
+       (swap! state* assoc :entries (assoc base :members members))
+       (is (= [::survivor] (mapv :view-id (evidence/projection)))
+           "a collected weak key prunes the row — it does not throw")
+       (is (true? (.containsKey members nil))
+           "the cleared mapping is left for the host map to expunge; a nil-key
+            `.remove` would target a genuine null-key mapping instead")
+       (is (true? (.containsKey members survivor))
+           "…and the live row is untouched"))))
+
+#?(:clj
    (deftest ordinary-unmount-churn-is-weak-while-activity-retention-survives
      ;; The exact ambiguity that forbids pruning merely on :disconnected:
      ;; React runs the same cleanup for an ordinary conditional/keyed unmount
