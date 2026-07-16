@@ -11,6 +11,7 @@
   here is a match on both hosts — the `.cljc` reject table pins the CLJS path
   end to end."
   (:require [clojure.test :refer [deftest is testing]]
+            [clojure.walk :as walk]
             [re-frame.ui.compiler.analyze :as ana]
             [re-frame.ui.compiler.emit-cljs :as emit-cljs]
             [re-frame.ui.compiler.header :as header]))
@@ -107,3 +108,113 @@
           cljs (emit-local-order argv)]
       (is (= host cljs)
           (str "JVM host order == CLJS emission order for " (pr-str argv))))))
+
+;; ---------------------------------------------------------------------------
+;; rf2-qa5wkd — colliding headers COLLAPSE through the one canonical plan
+;;
+;; The order tests above use DISTINCT locals, so they cannot catch a header
+;; whose entries bind the SAME local (`{:keys [x] x :foo}`) or a qualified
+;; group local (`{:keys [acct/id]}`). Those are where a plan that only reorders
+;; parse-order entries (or re-derives them, stripping the namespace) diverges
+;; from the host: CLJS would emit two bindings (silent last-wins on :foo) or
+;; read a bare :id, while the JVM native destructuring collapses to one winning
+;; slot. These fixtures pin the collapse against REAL `clojure.core/destructure`
+;; and a REAL eval'd native binding (what the JVM emitter emits).
+;; ---------------------------------------------------------------------------
+
+(defn- host-local->key
+  "{simple-local -> host lookup KEYWORD} from real `clojure.core/destructure`
+  (the ground truth both emitters must reproduce; gensym scaffolding dropped)."
+  [pat]
+  (->> (destructure [pat 'the-map])
+       (partition 2)
+       (keep (fn [[l init]]
+               (when (and (symbol? l)
+                          (not (re-find #"^(map__|vec__|seq__|first__|p__|the-map)"
+                                        (name l)))
+                          (seq? init) (= 'clojure.core/get (first init)))
+                 [l (nth init 2)])))
+       (into {})))
+
+(defn- read-slot
+  "The props slot STRING a CLJS header binding `read` fetches — the sole
+  `cljs.core/unchecked-get` in either the plain or the `:or`-defaulted shape."
+  [read]
+  (let [found (volatile! nil)]
+    (walk/postwalk
+     (fn [x]
+       (when (and (seq? x) (= 'cljs.core/unchecked-get (first x)))
+         (vreset! found (nth x 2)))
+       x)
+     read)
+    @found))
+
+(defn- emitted
+  "{:locals [sym...] :slot-of {sym slot-str}} the CLJS header emitter produces —
+  `:locals` in emission order so a DUPLICATE emission of one local is visible."
+  [argv]
+  (let [pairs (partition 2 (emit-cljs/header-bindings (header/parse-header argv)))]
+    {:locals  (mapv first pairs)
+     :slot-of (into {} (keep (fn [[l r]] (when (symbol? l) [l (read-slot r)])) pairs))}))
+
+(deftest explicit-keys-collision-collapses-to-one-host-slot
+  (testing "same local from :keys and an explicit entry collapses to ONE binding, both source orders"
+    (doseq [pat '[{:keys [x] x :foo}     ; :keys before explicit
+                  {x :foo :keys [x]}]]   ; explicit before :keys
+      (let [host (host-local->key pat)
+            {:keys [locals slot-of]} (emitted [pat])]
+        (is (= {'x :x} host)
+            (str ":keys wins the host lookup slot for " (pr-str pat)))
+        (is (= '[x] locals)
+            (str "x is bound EXACTLY ONCE — not duplicated for " (pr-str pat)))
+        (is (= (header/slot-name (host 'x)) (slot-of 'x))
+            (str "CLJS reads the host's winning slot :x, NEVER a silent "
+                 "last-wins on :foo, for " (pr-str pat)))
+        (is (= "x" (slot-of 'x))
+            (str "the one read targets slot \"x\" for " (pr-str pat))))))
+  (testing "the collapsed slot is the ONLY declared slot (no dead :foo in the comparator/manifest)"
+    (is (= [:x] (:slots (header/parse-header '[{:keys [x] x :foo}])))
+        "the dead explicit :foo entry does not survive as a declared slot")))
+
+(deftest qualified-keys-local-keeps-the-host-lookup-key
+  (testing "a qualified :keys symbol reads its QUALIFIED slot, never the bare name"
+    (let [pat '{:keys [acct/id]}
+          host (host-local->key pat)
+          {:keys [locals slot-of]} (emitted [pat])]
+      (is (= {'id :acct/id} host) "host reads :acct/id")
+      (is (= '[id] locals) "binds the name-only local id")
+      (is (= "acct/id" (slot-of 'id))
+          "CLJS reads slot \"acct/id\", NEVER bare \"id\"")
+      (is (= (header/slot-name (host 'id)) (slot-of 'id)))
+      (is (= [:acct/id] (:slots (header/parse-header [pat])))
+          "the declared slot keeps the qualified key")))
+  (testing "namespaced group vs explicit collision keeps the host's winning slot"
+    (let [pat '{:acct/keys [id] id :other}
+          host (host-local->key pat)
+          {:keys [locals slot-of]} (emitted [pat])]
+      (is (= {'id :acct/id} host) ":acct/keys wins over the explicit :other")
+      (is (= '[id] locals) "collapsed to one binding")
+      (is (= (header/slot-name (host 'id)) (slot-of 'id)))
+      (is (= "acct/id" (slot-of 'id))))))
+
+(deftest real-jvm-native-binding-agrees-present-absent-defaulted
+  ;; The JVM emitter emits `(let [<raw pattern> props] …)` — native
+  ;; destructuring. Eval it and confirm the collapsed slot + default behave
+  ;; exactly as the CLJS-side entry (winning key :x, default 9) claims.
+  (let [pat '{:keys [x] x :foo :or {x 9}}
+        f   (eval (list 'fn [pat] 'x))   ; (fn [<pattern>] x) — native destructuring
+        en  (first (:entries (header/parse-header [pat])))]
+    (testing "the CLJS-side entry names the collapsed winning slot + default"
+      (is (= :x (:key en)))
+      (is (= "x" (:slot en)))
+      (is (= 9 (:default en))))
+    (testing "real native destructuring reads :x (never the collapsed-away :foo)"
+      (is (= 1 (f {:x 1 :foo 2})) "present :x wins; :foo is dead")
+      (is (= 9 (f {:foo 2}))      "absent :x → the :or default, not :foo")
+      (is (nil? (f {:x nil}))     "present-nil :x stays nil (default is absent-only")
+      (is (= 5 (f {:x 5})))))
+  (testing "a genuine collision with no :keys shadow still reads the host slot"
+    (let [pat '{:keys [x] x :foo}
+          f   (eval (list 'fn [pat] 'x))]
+      (is (= :a (f {:x :a :foo :b})) "reads :x")
+      (is (nil? (f {:foo :b}))       "absent :x, no default → nil, never :foo"))))

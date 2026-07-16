@@ -24,7 +24,8 @@
     `:children` in the header declares child acceptance (Q4); `:ref`
     declaration is the S3 forwarding spelling and is rejected at S1.
   - `:strs`/`:syms` are outside the props ABI (slots are keywords)."
-  (:require [re-frame.ui.compiler.env :as env]))
+  (:require [re-frame.ui.compiler.binding-plan :as bp]
+            [re-frame.ui.compiler.env :as env]))
 
 (defn- fail [id msg data]
   (throw (env/compile-error id msg data)))
@@ -36,7 +37,13 @@
   [k]
   (if-let [ns* (namespace k)] (str ns* "/" (name k)) (name k)))
 
-(defn- entry [k pattern]
+(defn- reserved-slot-check!
+  "A view prop keyword may not be a reserved React slot. `:key` feeds React's
+  key slot; `:ref` forwarding is the S3 spelling. Both are rejected wherever the
+  author names them — a `:keys [key]` group symbol or an explicit `{p :key}`
+  value alike — judged on what was WRITTEN, so the canonical collapse can never
+  hide a reserved declaration."
+  [k]
   (when (= k :key)
     (fail :rf.ui.compile/key-prop-declared
           (str ":key cannot be a view prop — it is reserved (it feeds React's "
@@ -47,11 +54,73 @@
     (fail :rf.ui.compile/ref-prop-declared-s1
           ":ref forwarding is declared per view and lands S3 — remove the :ref binding (conservative S1 pin)"
           {:key k}))
-  {:key k :slot (slot-name k) :pattern pattern})
+  k)
+
+(defn- validate-header-map!
+  "Judge a header map's SHAPE on what the author wrote, before the canonical
+  plan collapses it: `:or` must be a map; `:strs`/`:syms` are outside the props
+  ABI; a group needs a vector of symbols; a non-group keyword key is
+  unsupported; an explicit entry's lookup value must be a prop keyword; and no
+  produced slot may be a reserved `:key`/`:ref`. Collapse must never SUPPRESS a
+  diagnostic, so these run on the raw entries, not the de-collided units."
+  [b or-map]
+  (when-not (map? or-map)
+    (fail :rf.ui.compile/bad-defview-args
+          ":or needs a map of binding-symbol -> default"
+          {:or or-map}))
+  (reduce-kv
+   (fn [_ k v]
+     (cond
+       (= k :as) nil
+       (= k :or) nil
+
+       (and (keyword? k) (contains? #{"strs" "syms"} (name k)))
+       (fail :rf.ui.compile/bad-defview-args
+             (str k " is outside the props ABI — prop slots are keywords; use "
+                  ":keys")
+             {:key k})
+
+       (and (keyword? k) (= "keys" (name k)))
+       (do (when-not (and (vector? v) (every? symbol? v))
+             (fail :rf.ui.compile/bad-defview-args
+                   (str k " needs a vector of symbols") {:form v}))
+           (doseq [s v]
+             (reserved-slot-check! (if-let [ns* (namespace k)]
+                                     (keyword ns* (name s))
+                                     (keyword (name s))))))
+
+       (keyword? k)
+       (fail :rf.ui.compile/bad-defview-args
+             (str "unsupported header key " k " — supported: :keys,"
+                  " :<ns>/keys, :or, :as, and {pattern :prop-key} entries")
+             {:key k})
+
+       :else
+       ;; {pattern :prop-key} — pattern may itself destructure
+       (do (when-not (keyword? v)
+             (fail :rf.ui.compile/bad-defview-args
+                   (str "header entry {" (pr-str k) " " (pr-str v)
+                        "} — the right side must be a prop keyword")
+                   {:entry [k v]}))
+           (reserved-slot-check! v)))
+     nil)
+   nil
+   b)
+  nil)
 
 (defn parse-header
   "argv -> {:mode :none|:named|:as, :as-sym, :entries [{:key :slot
-  :pattern :default}...], :slots [kw...], :children? bool, :binding-form}"
+  :pattern :default}...], :slots [kw...], :children? bool, :binding-form}
+
+  The binding `:entries` and `:slots` are the CANONICAL, host-faithful binding
+  units (`bp/assoc-binding-units`): one entry per bound local, in host
+  `destructure` `bes` order, carrying the WINNING lookup key after collapse. Two
+  header entries that bind the same local (`{:keys [x] x :foo}`) COLLAPSE to a
+  single `x <- :x` entry — never two, never a silent last-wins — and a qualified
+  group local (`{:keys [acct/id]}`) keeps its qualified slot `:acct/id`. Both
+  emitters, the schema slot order, the memo comparator and the manifest metadata
+  read these same collapsed entries, so no downstream path can re-collide or
+  strip a qualified key."
   [argv]
   (when-not (vector? argv)
     (fail :rf.ui.compile/bad-defview-args
@@ -74,68 +143,23 @@
         (map? b)
         (let [as-sym  (get b :as)
               or-map  (get b :or {})
-              _       (when-not (map? or-map)
-                        (fail :rf.ui.compile/bad-defview-args
-                              ":or needs a map of binding-symbol -> default"
-                              {:or or-map}))
-              entries
-              (reduce-kv
-               (fn [acc k v]
-                 (cond
-                   (= k :as) acc
-                   (= k :or) acc
-
-                   (and (keyword? k) (contains? #{"strs" "syms"} (name k)))
-                   (fail :rf.ui.compile/bad-defview-args
-                         (str k " is outside the props ABI — prop slots are "
-                              "keywords; use :keys")
-                         {:key k})
-
-                   (and (keyword? k) (= "keys" (name k)))
-                   (do (when-not (and (vector? v) (every? symbol? v))
-                         (fail :rf.ui.compile/bad-defview-args
-                               (str k " needs a vector of symbols") {:form v}))
-                       (into acc
-                             (map (fn [s]
-                                    (entry (if-let [ns* (namespace k)]
-                                             (keyword ns* (name s))
-                                             (keyword (name s)))
-                                           (symbol (name s)))))
-                             v))
-
-                   (keyword? k)
-                   (fail :rf.ui.compile/bad-defview-args
-                         (str "unsupported header key " k " — supported: :keys,"
-                              " :<ns>/keys, :or, :as, and {pattern :prop-key}"
-                              " entries")
-                         {:key k})
-
-                   :else
-                   ;; {pattern :prop-key} — pattern may itself destructure
-                   (do (when-not (keyword? v)
-                         (fail :rf.ui.compile/bad-defview-args
-                               (str "header entry {" (pr-str k) " " (pr-str v)
-                                    "} — the right side must be a prop keyword")
-                               {:entry [k v]}))
-                       (conj acc (entry v k)))))
-               []
-               b)
-              defaults (into {}
-                             (keep (fn [{:keys [pattern] :as en}]
-                                     (when (and (symbol? pattern)
-                                                (contains? or-map pattern))
-                                       [(:key en) (get or-map pattern)])))
-                             entries)
+              _       (validate-header-map! b or-map)
+              ;; ONE canonical, de-collided binding plan — the host `bes` order
+              ;; with winning lookup keys. Every downstream consumer reads these
+              ;; same entries, so none can re-collide or strip a qualified key.
+              entries (mapv (fn [{:keys [local-pattern key]}]
+                              (cond-> {:key key
+                                       :slot (slot-name key)
+                                       :pattern local-pattern}
+                                (and (symbol? local-pattern)
+                                     (contains? or-map local-pattern))
+                                (assoc :default (get or-map local-pattern))))
+                            (bp/assoc-binding-units b))
               _ (doseq [s (keys or-map)]
                   (when-not (some #(= s (:pattern %)) entries)
                     (fail :rf.ui.compile/bad-defview-args
                           (str ":or key " s " does not match any bound slot symbol")
                           {:or or-map})))
-              entries (mapv (fn [en]
-                              (if (contains? defaults (:key en))
-                                (assoc en :default (get defaults (:key en)))
-                                en))
-                            entries)
               slots   (into [] (distinct) (map :key entries))]
           {:mode (if as-sym :as :named)
            :as-sym as-sym

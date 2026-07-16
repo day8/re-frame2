@@ -1,0 +1,105 @@
+(ns re-frame.ui.compiler.binding-plan
+  "The ONE canonical, host-faithful associative-destructuring binding plan.
+
+  A map destructuring pattern (`{:keys [x] x :foo}`, `{:keys [acct/id]}`, …)
+  has EXACTLY ONE meaning: whatever `clojure.core/destructure` binds. Both hosts
+  run `destructure` on the JVM at macro-expansion time, so reproducing its
+  remaining-bindings transformation here — rather than invoking a general
+  macroexpander — yields a plan that is faithful to CLJ and CLJS alike.
+
+  This plan is the SINGLE authority every consumer routes through, so none can
+  drift from another or from the host:
+
+  - the analyzer's reactive-binding scope walk (`analyze/check-binding-scope!`);
+  - the defview header parser (`header/parse-header`), whose emitted binding
+    units, schema slots, comparator inputs and manifest metadata are all read
+    off these collapsed entries;
+  - and, transitively, both emitters — the JVM emitter destructures the raw
+    pattern natively; the CLJS emitter lowers exactly these units to property
+    reads. Because the units are the host's collapse, the two emitters agree.
+
+  The critical property is COLLAPSE: when two entries bind the SAME local
+  (`{:keys [x] x :foo}`), the host's map-destructuring overwrite semantics keep
+  ONE binding with ONE winning lookup key (`x <- :x`), and so does this plan —
+  never two bindings, never a silent last-wins. Likewise a qualified group local
+  (`{:keys [acct/id]}`) keeps its qualified lookup key (`:acct/id`), never a bare
+  `:id`.")
+
+(defn key-group-kw?
+  "True for a `:keys`/`:strs`/`:syms` map-destructuring group directive (any
+  namespace: `:person/keys` too). Its map-entry VALUE is a vector of symbols;
+  its keys are keyword/string/symbol LITERALS, never evaluated expressions."
+  [k]
+  (and (keyword? k) (contains? #{"keys" "strs" "syms"} (name k))))
+
+(defn key-group-directive-fn
+  "The lookup-key transform host `destructure` applies to a `:keys`/`:strs`/
+  `:syms` group directive `mk` (any namespace). This is the SHARED CLJ/CLJS
+  transform — both hosts run `destructure` on the JVM at macro-expansion time —
+  reproduced verbatim so the produced key (and, through it, the map's iteration
+  order) matches the host exactly."
+  [mk]
+  (let [mkns (namespace mk)]
+    (case (name mk)
+      "keys" #(keyword (or mkns (namespace %)) (name %))
+      "syms" #(list 'quote (symbol (or mkns (namespace %)) (name %)))
+      "strs" str)))
+
+(defn assoc-binding-units
+  "The associative-destructuring binding units of map `pattern`, in the EXACT
+  host `destructure` `bes` order — the ONE canonical, host-faithful binding
+  plan every consumer shares, so none can drift from another or from the host.
+
+  It reproduces `destructure`'s remaining-bindings transformation rather than
+  invoking a general macroexpander: start from `(dissoc pattern :as :or)`, then
+  for each group directive — in the order it appears in the pattern's keys —
+  `dissoc` the directive and `assoc` each expanded local exactly as the host
+  does, and read the units off `(seq bes)` in the resulting map-iteration order.
+  Small patterns stay a `PersistentArrayMap` (insertion order); at nine or more
+  remaining bindings the host promotes to a `PersistentHashMap` and the order
+  becomes hash-driven. Because every host computes this on the JVM the 8→9
+  threshold and the hash order are identical on CLJ and CLJS, so reproducing the
+  transform here is faithful to both.
+
+  Two entries binding the SAME local COLLAPSE, exactly as the host's `bes` map
+  collapses them: `{:keys [x] x :foo}` yields the single unit `x <- :x` (the
+  group directive's `assoc` overwrites the explicit entry's value), never two
+  bindings and never a silent last-wins. A group local keeps its QUALIFIED
+  lookup key: `{:keys [acct/id]}` yields `id <- :acct/id`, never bare `:id`.
+
+  `:as` is NOT included — it binds first, before `bes`, so the caller seeds it
+  into scope. Each unit is `{:local-pattern p :key k :explicit? bool}`:
+  `:local-pattern` is the bound local (a simple symbol for a group local, or the
+  written local pattern — possibly nested — for an explicit `{p key}` entry);
+  `:key` is the WINNING lookup key after collapse (an EVALUATED expression for an
+  explicit entry, or the produced literal keyword/string/quoted-symbol for a
+  group local); `:explicit?` marks the units whose `:key` is a user-written
+  expression (a scope walk must judge those for a reactive-authoring escape; a
+  group literal never is). The units are consumed in order so each binding's
+  default/lookup-key is judged against the scope established BEFORE it — never
+  against a symbol the same pattern binds later, and never in an order the host
+  would not use."
+  [pattern]
+  (let [start      (dissoc pattern :as :or)
+        transforms (reduce (fn [t k] (if (key-group-kw? k) (assoc t k true) t))
+                           {} (keys pattern))
+        explicit   (set (keys (reduce dissoc start (keys transforms))))
+        bes        (reduce
+                    (fn [bes [mk _]]
+                      (let [f (key-group-directive-fn mk)]
+                        (reduce (fn [b s] (assoc b s (f s)))
+                                (dissoc bes mk)
+                                (get bes mk))))
+                    start
+                    transforms)]
+    (for [[bb bk] bes]
+      (if (contains? explicit bb)
+        {:local-pattern bb :key bk :explicit? true}
+        {:local-pattern (symbol (name bb)) :key bk :explicit? false}))))
+
+(defn binding-order
+  "The local-patterns of map `pattern`, in host `destructure` `bes` order
+  (`:as` excluded — it binds first). One plan (`assoc-binding-units`), so a
+  dependent `:or` default resolves to the same symbol on every host."
+  [pattern]
+  (mapv :local-pattern (assoc-binding-units pattern)))
