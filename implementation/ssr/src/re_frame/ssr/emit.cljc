@@ -668,6 +668,23 @@
 (when-let [reagent-set-emitter! (late-bind/get-fn :reagent/set-hiccup-emitter!)]
   (reagent-set-emitter! render-to-string))
 
+;; rf2-vxgfnd.204 — retain the current SSR emitter durably so a substrate
+;; adapter can RE-ARM its render-to-string slot at EVERY install, not only the
+;; one-time ns-load publications above. The React-shaped adapters (re-frame.ui,
+;; UIx, Helix) clear their per-generation `emitter-cell` on `dispose-adapter!`
+;; (spine `dispose-active-roots-and-caches!`), so a public destroy → re-init
+;; cycle — or an SSR-loaded-before-adapter load order, where the chain lookup
+;; above finds no adapter yet — would otherwise leave `render-to-string`
+;; unarmed (`:rf.error/no-hiccup-emitter-bound`). This slot is the single
+;; authoritative source `re-frame.substrate.adapter/install-adapter!` replays
+;; from at each install; disposal still clears each adapter's own slot, and the
+;; emitter is never retained inside a disposed adapter. Host-neutral: the
+;; JVM/plain-atom adapter retains its emitter across its no-op dispose, so its
+;; install replay is a harmless idempotent re-apply. Load-order symmetric with
+;; the publications above — whichever of ssr / adapter loads last, the durable
+;; slot plus the install replay converge on the same armed state.
+(late-bind/set-fn! :ssr/current-hiccup-emitter render-to-string)
+
 (defn install-render-to-string!
   "Install this ns's render-to-string into a substrate adapter's
   :render-to-string slot. Called by adapter namespaces that ship in

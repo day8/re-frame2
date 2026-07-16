@@ -711,6 +711,10 @@
    {:key         :ssr/render-to-string
     :producer-ns 're-frame.ssr
     :description "Render a view tree to an HTML string for SSR."}
+   {:key         :ssr/current-hiccup-emitter
+    :producer-ns 're-frame.ssr.emit
+    :design-bead "rf2-vxgfnd.204"
+    :description "The retained current SSR hiccup → HTML emitter (`re-frame.ssr.emit/render-to-string`), published durably at SSR ns-load. `re-frame.substrate.adapter/install-adapter!` replays it into each freshly-installed adapter generation via the `:reagent/set-hiccup-emitter!` chain, so a public destroy → re-init cycle (or an SSR-before-adapter load order) re-arms `render-to-string` after disposal cleared the React-shaped adapter's per-generation emitter-cell. Idempotent and stale-safe: always the same current emitter, never cleared. Absent (no re-frame.ssr loaded) the replay is a no-op and `render-to-string` throws `:rf.error/no-hiccup-emitter-bound`."}
    {:key         :ssr/reg-error-projector
     :producer-ns 're-frame.ssr
     :description "Register a fn projecting SSR render errors to user-facing markup."}

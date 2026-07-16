@@ -74,12 +74,41 @@
   adapter-lifecycle-state
   (atom {:installed nil :disposed? false}))
 
+(defn- rearm-hiccup-emitter!
+  "Replay the retained SSR hiccup emitter (rf2-vxgfnd.204) into the freshly-
+  installed adapter generation. `re-frame.ssr.emit` publishes the current
+  emitter durably under `:ssr/current-hiccup-emitter` at ns-load; the React-
+  shaped adapters (re-frame.ui, UIx, Helix) clear their per-generation
+  `emitter-cell` on `dispose-adapter!`, so a public destroy → re-init cycle —
+  or an SSR-before-adapter load order — would otherwise leave `render-to-string`
+  unarmed (`:rf.error/no-hiccup-emitter-bound`).
+
+  Re-applies through the adapter-agnostic `:reagent/set-hiccup-emitter!` chain
+  (the same mechanism a single `(require 're-frame.ssr)` uses to auto-wire every
+  loaded adapter's slot), so the installed adapter's slot is re-armed from the
+  single authoritative source rather than from any adapter-retained state.
+  Idempotent and stale-safe: it always applies the SAME current emitter and
+  never clears, so it cannot overwrite a replacement generation's slot with a
+  disposed generation's emitter. A no-op when re-frame.ssr is not loaded (the
+  durable slot is unset) — `render-to-string` then throws the honest
+  `:rf.error/no-hiccup-emitter-bound` — and on hosts whose adapters do not chain
+  the hook (the JVM/plain-atom emitter is retained across its no-op dispose)."
+  []
+  (when-let [emitter (late-bind/get-fn :ssr/current-hiccup-emitter)]
+    (when-let [apply-emitter! (late-bind/get-fn :reagent/set-hiccup-emitter!)]
+      (apply-emitter! emitter))))
+
 (defn install-adapter!
   "Install the adapter for this process. Once. A second call without an
   intervening dispose-adapter! raises :rf.error/adapter-already-installed
   (per Spec 006 §Single adapter per process). Clears the disposed
   breadcrumb so subsequent delegation calls see a fresh adapter rather
-  than `:rf.error/adapter-disposed`."
+  than `:rf.error/adapter-disposed`.
+
+  Re-arms the retained SSR hiccup emitter for the fresh generation
+  (`rearm-hiccup-emitter!`, rf2-vxgfnd.204) so a destroy → re-init cycle — or an
+  SSR-before-adapter load order — leaves `render-to-string` correctly armed
+  after disposal cleared the previous generation's emitter slot."
   [adapter]
   (let [entry {:adapter adapter :generation (fresh-adapter-generation)}]
     (swap! adapter-lifecycle-state
@@ -92,6 +121,7 @@
                 {:extra {:installed (:adapter installed)
                          :attempted adapter}}))
              (assoc state :installed entry :disposed? false))))
+  (rearm-hiccup-emitter!)
   adapter)
 
 (defn current-adapter
