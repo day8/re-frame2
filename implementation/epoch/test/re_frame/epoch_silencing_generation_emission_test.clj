@@ -1,42 +1,44 @@
 (ns re-frame.epoch-silencing-generation-emission-test
-  "rf2-9bhne6 — the delayed-silence generation must stay AUTHORITATIVE THROUGH the
-  trace emission that publishes it.
+  "rf2-9bhne6 / rf2-8b9twg — the delayed-silence generation stays AUTHORITATIVE
+  through the trace emission that publishes it, WITHOUT holding a ledger lock
+  across the external fan-out.
 
-  ## The defect
+  ## Background
 
-  `on-frame-destroyed!` reserved a `(cb-id, generation)` silence under
-  `silence-lock`, RELEASED that lock, and only then called the external
-  `trace/emit!`. `put-listener!`, `drop-listener!`, `reset-listeners!` and the
-  observation re-arm in `record-observation!` did not participate in the lock at
-  all. So a registrar (a real JVM thread, or the deterministic seam these tests
-  drive) could replace generation G with a fresh generation H in the window
-  between the reservation and the emit. The unqualified `{:frame :cb-id}` silence
-  then fired for a cb whose current generation is H — a fresh generation that
-  never observed the destroyed frame. The forbidden ordering: H current FIRST,
-  THEN G's unqualified signal. The claim's three eligibility reads were likewise
-  not coherent against a concurrent registry mutation, because the lock excluded
-  those mutations.
+  rf2-9bhne6 kept the winning `(cb-id, observed-gen)` authoritative by running the
+  external `:rf.epoch.cb/silenced-on-frame-destroy` emit INSIDE both ledger locks
+  (`claim-and-publish-delayed-silence!` under `with-claim-locks`). That closed the
+  reserve→emit window in which a same-id replacement G→H could make a fresh
+  generation current before an UNQUALIFIED `{:frame :cb-id}` signal fired — but it
+  ran arbitrary listener code (which may `dispatch-sync` and acquire a frame's
+  `:drain-lock`) under the ledger locks, an AB-BA deadlock against a draining
+  thread (rf2-8b9twg; the dedicated regression lives in
+  `re-frame.epoch-silencing-emit-deadlock-test`).
 
-  ## The fix
+  ## The rf2-8b9twg mechanism (what these tests now pin)
 
-  `claim-and-publish-delayed-silence!` reserves AND runs the external emit inside
-  ONE `silence-lock` critical section, and `put-listener!` / `drop-listener!` /
-  `reset-listeners!` / the `record-observation!` re-arm now take that same lock.
-  So the winning `(cb-id, observed-gen)` stays authoritative through the emission
-  linearization point: a replacement in the reserve→emit window BLOCKS until
-  publication completes (silence linearized before H becomes current), or — if H
-  landed first — the eligibility recheck fails and no stale silence fires.
+  `claim-and-publish-delayed-silence!` reserves the mark under both ledger locks,
+  RELEASES them, then emits OUTSIDE them. Generation authority is preserved not by
+  the lock but by a DATA QUALIFIER: the emit carries `:observed-gen` (the reserved
+  generation G). A same-id replacement H landing in the reserve→emit window can no
+  longer be mistaken as the silence's subject — the signal is attributed to G, and
+  a receiver whose CURRENT generation for `cb-id` != the carried `:observed-gen`
+  SELF-FILTERS it. The forbidden ordering (H current, THEN a signal attributed to
+  H) is impossible: no unqualified signal is ever emitted.
 
-  JVM-only by intent (`silence-lock` is a no-op on the single CLJS thread; the
-  synchronous CLJS peers are covered by `re-frame.epoch-cljs-test`). The seam is
-  a `publish!` thunk that parks inside the critical section, letting a concurrent
-  registrar prove — via the lock — whether it can land before the emit.
+  Two invariants, both JVM-only (`silence-lock` / `registry-lock` are no-ops on
+  the single CLJS thread; the synchronous CLJS peers live in
+  `re-frame.epoch-cljs-test`):
 
-  Mutation teeth (red under the mutation, green with the fix):
-    * emit OUTSIDE the lock (the pre-fix shape) → a replacement lands in the
-      window → the sampled generation at emit is H, not G.
-    * drop `put-listener!` / `record-observation!` lock participation → the
-      mutation completes immediately instead of blocking on the held claim."
+    * TEST A — the emit runs OUTSIDE the ledger locks: while a claim's `publish!`
+      is parked, a concurrent `put-listener!` AND a concurrent `record-observation!`
+      re-arm complete IMMEDIATELY (they are NOT blocked). This is the direct
+      inverse of the old emit-under-lock behaviour and the unit-level proof that
+      the foreign-code-under-lock edge (the deadlock source) is gone.
+    * TEST B — the emitted signal is GENERATION-QUALIFIED: even when a same-id
+      replacement H lands DURING the emit window (concurrently, unblocked), the
+      wire signal carries `:observed-gen == G`, and the now-current generation is
+      H != G — so a receiver self-filters it. No G→H window is reopened."
   (:require [clojure.test :refer [deftest is use-fixtures]]
             [re-frame.core :as rf]
             ;; Side-effect: publishes the `:epoch/*` late-bind hooks.
@@ -65,65 +67,16 @@
   (epoch.listeners/notify-listeners! {:frame frame :epoch-id 1})
   (epoch-state/drop-frame-observation! frame))
 
-;; ---- generation authoritative THROUGH the emission -------------------------
+;; ---- TEST A: the emit runs OUTSIDE the ledger locks ------------------------
 
-(deftest generation-stays-authoritative-through-the-emission-linearization-point
-  ;; A registrar replaces cb's generation (G→H) in the window between the
-  ;; reservation and the external emit. Because `claim-and-publish` runs the emit
-  ;; INSIDE the same `silence-lock` section AND `put-listener!` participates in
-  ;; that lock, H cannot become current before G's signal is out: the registrar
-  ;; blocks until publication completes, so the generation sampled AT the emit is
-  ;; always G. TOOTH: emitting outside the lock lets H land first → sampled H.
-  (let [frame       :bhne6/thru-emit
-        cb          ::bhne6-thru-emit-cb
-        token       (Object.)
-        reached-emit (CountDownLatch. 1)
-        h-installed  (CountDownLatch. 1)
-        gen-at-emit  (atom ::unset)
-        published?   (atom ::unset)]
-    (owe-silence! frame token cb)
-    (try
-      (let [g        (cb-generation cb)
-            publish! (fn []
-                       ;; Inside the critical section, mark reserved. Signal the
-                       ;; registrar to attempt its replace, then wait (bounded)
-                       ;; for it to install H. Under the FIX the registrar's
-                       ;; put-listener! is blocked on the held lock, so this times
-                       ;; out and we sample G. Under an emit-outside-lock
-                       ;; regression H lands and we sample H.
-                       (.countDown reached-emit)
-                       (.await h-installed 1 TimeUnit/SECONDS)
-                       (reset! gen-at-emit (cb-generation cb)))
-            publisher (future
-                        (reset! published?
-                                (epoch-state/claim-and-publish-delayed-silence!
-                                  frame cb g 0 publish!)))
-            registrar (future
-                        (.await reached-emit 5 TimeUnit/SECONDS)
-                        ;; put-listener! participates in silence-lock → blocks
-                        ;; until the publisher releases it (after the emit).
-                        (rf/register-listener! :epoch cb (fn [_] nil))
-                        (.countDown h-installed))]
-        (is (not= ::timeout (deref publisher 5000 ::timeout)) "publisher completed")
-        (is (true? @published?) "the silence was published")
-        (is (= g @gen-at-emit)
-            "the winning generation G is still current at the emission point — a replacement could not land first")
-        (is (not= ::timeout (deref registrar 5000 ::timeout)) "registrar completed")
-        (is (not= g (cb-generation cb))
-            "the registrar's replacement H landed only AFTER publication completed"))
-      (finally
-        (rf/unregister-listener! :epoch cb)))))
-
-;; ---- registry + observation mutations serialize with the claim -------------
-
-(deftest registry-and-observation-mutations-serialize-with-the-silence-claim
-  ;; While a `claim-and-publish` holds `silence-lock` (parked in publish!), a
+(deftest emit-runs-outside-the-ledger-locks-so-a-concurrent-registrar-and-rearm-are-not-blocked
+  ;; While a `claim-and-publish` is parked in `publish!` (the external emit), a
   ;; concurrent registry replacement AND a concurrent observation re-arm both
-  ;; BLOCK until it releases. This is the coherence the eligibility reads rely on
-  ;; — no registry/observation mutation can interleave between the claim's
-  ;; individual reads. TEETH: dropping put-listener!'s (resp. record-observation!'s)
-  ;; lock lets the mutation complete immediately, so the "blocked" assertions
-  ;; flip.
+  ;; COMPLETE IMMEDIATELY — because the ledger locks were RELEASED before the emit
+  ;; (rf2-8b9twg). This is the inverse of rf2-9bhne6's emit-under-lock behaviour,
+  ;; and the unit-level proof that the fan-out reaches no ledger lock (so it can
+  ;; never invert against a frame's :drain-lock). TOOTH: putting the emit back
+  ;; under the locks re-blocks both mutations and flips these assertions to RED.
   (let [frame      :bhne6/serialize
         cb         ::bhne6-serialize-cb        ; the parked claim's subject
         other      ::bhne6-serialize-other     ; observation re-arm subject (owed)
@@ -135,7 +88,7 @@
         obs-done   (CountDownLatch. 1)]
     (owe-silence! frame token cb)
     ;; `other` also observes and is dropped, so a re-arm is a genuine transition
-    ;; that takes the lock (not the lock-free no-op fast path).
+    ;; that takes silence-lock (not the lock-free no-op fast path).
     (rf/register-listener! :epoch other (fn [_] nil))
     (epoch.listeners/notify-listeners! {:frame frame :epoch-id 2})
     (epoch-state/drop-frame-observation! frame)
@@ -154,20 +107,83 @@
             observer  (future (.await in-claim 5 TimeUnit/SECONDS)
                               (epoch-state/record-observation! other other-gen frame)
                               (.countDown obs-done))]
-        (is (.await in-claim 5 TimeUnit/SECONDS) "the claim is parked inside silence-lock")
-        (is (false? (.await put-done 500 TimeUnit/MILLISECONDS))
-            "put-listener! is blocked on silence-lock while the claim holds it")
-        (is (false? (.await obs-done 500 TimeUnit/MILLISECONDS))
-            "the record-observation! re-arm is blocked on silence-lock too")
+        (is (.await in-claim 5 TimeUnit/SECONDS) "the claim is parked inside publish!")
+        ;; The rf2-8b9twg guarantee: NO ledger lock is held during the emit, so
+        ;; both mutations proceed at once. (Under the pre-fix emit-under-lock code
+        ;; these awaits return false — the mutations block until `release`.)
+        (is (.await put-done 2 TimeUnit/SECONDS)
+            "put-listener! is NOT blocked — the emit holds no registry lock")
+        (is (.await obs-done 2 TimeUnit/SECONDS)
+            "the record-observation! re-arm is NOT blocked — the emit holds no silence-lock")
         (.countDown release)
         (is (not= ::timeout (deref claimer 5000 ::timeout)) "the claim completed")
-        (is (.await put-done 5000 TimeUnit/MILLISECONDS)
-            "put-listener! completes once the claim releases the lock")
-        (is (.await obs-done 5000 TimeUnit/MILLISECONDS)
-            "record-observation! completes once the claim releases the lock")
         (is (not= ::timeout (deref registrar 5000 ::timeout)) "registrar completed")
         (is (not= ::timeout (deref observer 5000 ::timeout)) "observer completed"))
       (finally
         (rf/unregister-listener! :epoch cb)
         (rf/unregister-listener! :epoch other)
         (rf/unregister-listener! :epoch reg-target)))))
+
+;; ---- TEST B: the emitted signal is generation-qualified --------------------
+
+(deftest silence-signal-is-generation-qualified-and-self-filters-a-replacement-in-the-emit-window
+  ;; A registrar replaces cb's generation (G→H) DURING the emit window — and,
+  ;; because the emit now runs outside the locks, it is NOT blocked, so H DOES
+  ;; become current before the emit returns. Yet the wire signal carries
+  ;; `:observed-gen == G` (the reserved generation, baked into the payload before
+  ;; the fan-out), and the current generation is H != G — so a receiver's
+  ;; `current-gen == observed-gen?` check drops it. The signal is attributed to G,
+  ;; never to H: no G→H window is reopened (rf2-8b9twg supersedes the
+  ;; emit-under-lock mechanism of rf2-9bhne6). TOOTH: dropping `:observed-gen` from
+  ;; the payload (the unqualified signal) removes the discriminator entirely.
+  (let [frame        :bhne6/thru-emit
+        cb           ::bhne6-thru-emit-cb
+        token        (Object.)
+        reached-emit (CountDownLatch. 1)  ; the silence emit reached the trace listener
+        h-installed  (CountDownLatch. 1)  ; the registrar's replacement H is current
+        captured     (atom [])            ; every silence event seen for cb
+        silence-key  ::bhne6-thru-emit-silencing]
+    ;; Register cb and let it OBSERVE the frame so the destroy snapshot owes it a
+    ;; silence under generation G (the real listeners path bakes G onto the wire).
+    (rf/register-listener! :epoch cb (fn [_] nil))
+    (epoch-state/claim-frame-owner! frame token)
+    (epoch.listeners/notify-listeners! {:frame frame :epoch-id 1})
+    ;; The trace listener captures the silence AND parks the emit open (outside the
+    ;; locks) so a concurrent registrar can land H before the emit returns.
+    (rf/register-listener! :trace silence-key
+      (fn [ev]
+        (when (and (= :rf.epoch.cb/silenced-on-frame-destroy (:operation ev))
+                   (= cb (:cb-id (:tags ev))))
+          (swap! captured conj (:tags ev))
+          (.countDown reached-emit)
+          (.await h-installed 5 TimeUnit/SECONDS))))
+    (try
+      (let [g   (cb-generation cb)
+            ;; Snapshot the terminal evidence WHILE cb still observes, so the
+            ;; per-identity claim owes cb→G. `on-frame-destroyed!` then drops the
+            ;; observation (compare-owned cleanup), reserves under the locks,
+            ;; releases, and emits the generation-qualified signal.
+            a-ev (epoch.listeners/snapshot-terminal-destroy-evidence! frame nil nil nil)
+            registrar (future
+                        (.await reached-emit 5 TimeUnit/SECONDS)
+                        ;; put-listener! is NOT blocked (the emit holds no lock),
+                        ;; so H becomes current DURING the emit window.
+                        (rf/register-listener! :epoch cb (fn [_] nil))
+                        (.countDown h-installed))
+            ;; Runs the real emit; blocks (in the trace listener) until H lands.
+            destroyer (future (epoch.listeners/on-frame-destroyed! frame token a-ev))]
+        (is (not= ::timeout (deref registrar 5000 ::timeout))
+            "the registrar installed H — put-listener! was not blocked by the emit")
+        (is (not= ::timeout (deref destroyer 5000 ::timeout)) "the destroy/emit completed")
+        (is (= 1 (count @captured)) "exactly one silence fired for cb")
+        (let [tags (first @captured)]
+          (is (= g (:observed-gen tags))
+              "the wire signal carries the RESERVED generation G, not the replacement H")
+          (is (= frame (:frame tags)) "and the frame it was silenced for")
+          (is (not= g (cb-generation cb))
+              "H became current DURING the emit window (the emit did not block the registrar)")
+          (is (not= (:observed-gen tags) (cb-generation cb))
+              "current-gen != carried observed-gen — a receiver SELF-FILTERS this stale signal (no G→H window)")))
+      (finally
+        (rf/unregister-listener! :epoch cb)
+        (rf/unregister-listener! :trace silence-key)))))
