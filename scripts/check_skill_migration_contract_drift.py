@@ -118,6 +118,7 @@ rf2-h9yfsm.
 from __future__ import annotations
 
 import argparse
+import bisect
 import os
 import re
 import sys
@@ -290,10 +291,97 @@ FORM3_LIFECYCLE_RE = re.compile(
     r"|lifecycle",
     re.IGNORECASE,
 )
-FORM3_BARE_LIFECYCLE_CALL_RE = re.compile(
-    r"\((?:rf/)?(?:subscribe-once|unsubscribe)\s+[^\s()]+\)",
+# The bare form is an ARITY fact, not a spelling (rf2-vxgfnd.94.19).
+# `subscribe-once` carries the frame as a `{:frame frame}` opts map and
+# `unsubscribe` is frame-first, so a ONE-argument call is exactly the bare form
+# lifecycle guidance must never recommend; two-or-more is frame-qualified and
+# legal. Reading that needs balanced-form scanning rather than a token match:
+# real guidance writes vector queries (`[:todos/all :active]`) and splits calls
+# over lines, and a same-line whitespace-free-token pattern misses both — which
+# let realistic unsafe recipes through the gate.
+#
+# This is deliberately NOT a Clojure parser. It matches a known head symbol,
+# walks brackets to the closing paren inside a bounded window, and counts
+# top-level arguments; it understands strings and character literals only as far
+# as it takes to keep the bracket count honest. An excerpt that does not close
+# inside the window is skipped, never guessed at.
+FORM3_CALL_HEAD_RE = re.compile(
+    r"\((?:rf/)?(?:subscribe-once|unsubscribe)(?![\w.$/-])",
     re.IGNORECASE,
 )
+FORM3_CALL_SCAN_LIMIT = 600  # chars — a lifecycle call form never runs longer
+FORM3_BARE_ARITY = 1
+_OPENERS = "([{"
+_CLOSERS = ")]}"
+
+
+def _read_form(text: str, start: int, body_start: int) -> tuple[int, int, int] | None:
+    """Read the balanced form at `text[start] == '('`.
+
+    `body_start` is the index just past the head symbol. Returns
+    `(start, end, arity)` — `end` just past the closing paren, `arity` the count
+    of top-level argument forms — or None if the form does not close within
+    `FORM3_CALL_SCAN_LIMIT`.
+    """
+    limit = min(len(text), start + FORM3_CALL_SCAN_LIMIT)
+    depth = 0
+    arity = 0
+    in_arg = False
+    i = start
+    while i < limit:
+        ch = text[i]
+        counts = depth == 1 and i >= body_start and not in_arg
+
+        if ch == '"':  # string literal — opaque to the bracket counter
+            if counts:
+                arity += 1
+                in_arg = True
+            i += 1
+            while i < limit and text[i] != '"':
+                i += 2 if text[i] == "\\" else 1
+            i += 1
+            continue
+        if ch == "\\":  # character literal — `\(` must not move the counter
+            if counts:
+                arity += 1
+                in_arg = True
+            i += 2
+            continue
+        if ch in _OPENERS:
+            if counts:
+                arity += 1
+                in_arg = True
+            depth += 1
+            i += 1
+            continue
+        if ch in _CLOSERS:
+            depth -= 1
+            i += 1
+            if depth == 0:
+                return (start, i, arity)
+            if depth == 1:
+                in_arg = False
+            continue
+        if ch.isspace() or ch == ",":
+            if depth == 1:
+                in_arg = False
+            i += 1
+            continue
+        if counts:  # ordinary atom character
+            arity += 1
+            in_arg = True
+        i += 1
+    return None
+
+
+def _form3_call_sites(text: str) -> list[tuple[int, int, int]]:
+    """`(start, end, arity)` for every balanced subscribe-once/unsubscribe form."""
+    sites = []
+    for m in FORM3_CALL_HEAD_RE.finditer(text):
+        site = _read_form(text, m.start(), m.end())
+        if site is not None:
+            sites.append(site)
+    return sites
 FORM3_BARE_LIFECYCLE_NEGATION_RE = re.compile(
     r"\bbare\b|raise(?:s|d)?|throw(?:s|n)?|no-frame-context|do not|don't"
     r"|must not|never|invalid|wrong|omit(?:s|ted)?|instead",
@@ -314,6 +402,19 @@ FORM3_BARE_LIFECYCLE_PROBLEM = (
 )
 
 
+def _sentence_around(line: str, start: int, end: int) -> str:
+    """The sentence of `line` containing the span `start`..`end`."""
+    sentence_start = 0
+    sentence_end = len(line)
+    for boundary in FORM3_SENTENCE_BOUNDARY_RE.finditer(line):
+        if boundary.end() <= start:
+            sentence_start = boundary.end()
+        elif boundary.start() >= end:
+            sentence_end = boundary.end()
+            break
+    return line[sentence_start:sentence_end]
+
+
 def _has_unnegated_form3_bare_call(line: str) -> bool:
     """True when `line` contains a bare call that is itself affirmative.
 
@@ -321,19 +422,43 @@ def _has_unnegated_form3_bare_call(line: str) -> bool:
     long line. Negation therefore applies to the sentence containing each call;
     a later "omits the frame" sentence must not bless an earlier bare recipe.
     """
-    for match in FORM3_BARE_LIFECYCLE_CALL_RE.finditer(line):
-        sentence_start = 0
-        sentence_end = len(line)
-        for boundary in FORM3_SENTENCE_BOUNDARY_RE.finditer(line):
-            if boundary.end() <= match.start():
-                sentence_start = boundary.end()
-            elif boundary.start() >= match.end():
-                sentence_end = boundary.end()
-                break
-        sentence = line[sentence_start:sentence_end]
-        if not FORM3_BARE_LIFECYCLE_NEGATION_RE.search(sentence):
+    for start, end, arity in _form3_call_sites(line):
+        if arity != FORM3_BARE_ARITY:
+            continue
+        if not FORM3_BARE_LIFECYCLE_NEGATION_RE.search(
+            _sentence_around(line, start, end)
+        ):
             return True
     return False
+
+
+def _block_bare_calls(lines: list[str]) -> list[tuple[int, str]]:
+    """`(line_offset, excerpt)` for every unnegated bare call in one block.
+
+    Scans the joined block so a call split across lines is still read as a
+    single balanced form. Negation stays anchored to the sentence on the call's
+    own line: a neighbouring paragraph explaining that a bare call throws must
+    not bless an affirmative recipe further down.
+    """
+    text = "\n".join(lines)
+    starts: list[int] = []
+    pos = 0
+    for line in lines:
+        starts.append(pos)
+        pos += len(line) + 1
+
+    found: list[tuple[int, str]] = []
+    for start, end, arity in _form3_call_sites(text):
+        if arity != FORM3_BARE_ARITY:
+            continue
+        idx = bisect.bisect_right(starts, start) - 1
+        line = lines[idx]
+        col = start - starts[idx]
+        sentence = _sentence_around(line, col, min(end - starts[idx], len(line)))
+        if FORM3_BARE_LIFECYCLE_NEGATION_RE.search(sentence):
+            continue
+        found.append((idx, line.strip()))
+    return found
 
 
 def _slurp(path: Path) -> str:
@@ -469,15 +594,13 @@ def form3_context_problems(text: str) -> list[tuple[int, str, str]]:
             or (recent and FORM3_NEGATIVE_EXAMPLE_RE.search(recent[-1]))
         )
         if FORM3_LIFECYCLE_RE.search(context) and not negative_example:
-            for offset, line in enumerate(lines):
-                if (
-                    _has_unnegated_form3_bare_call(line)
-                    # Same-line cases are already reported by line_problems.
-                    and not FORM3_LIFECYCLE_RE.search(line)
-                ):
-                    found.append(
-                        (start + offset, FORM3_BARE_LIFECYCLE_PROBLEM, line.strip())
-                    )
+            for offset, excerpt in _block_bare_calls(lines):
+                # Same-line cases are already reported by line_problems.
+                if FORM3_LIFECYCLE_RE.search(lines[offset]):
+                    continue
+                found.append(
+                    (start + offset, FORM3_BARE_LIFECYCLE_PROBLEM, excerpt)
+                )
         recent.append(block)
     return found
 
@@ -1041,6 +1164,99 @@ def _self_test() -> int:
         "`:rf.error/no-frame-context`.",
         dirty=True,
         label="E9 later warning cannot bless earlier bare teardown",
+    )
+
+    # --- Rule 5 realistic call shapes (rf2-vxgfnd.94.19) ------------------------
+    # The pre-fix pattern only saw a one-argument call whose argument was a
+    # single whitespace-free token on the call's own line. Guidance does not
+    # look like that: queries are vectors and calls wrap. Each F-case below
+    # passed the pre-fix gate while teaching an unsafe recipe.
+    expect(
+        "In `:component-did-mount` read `(rf/subscribe-once [:todos/all :active])`.",
+        dirty=True, label="F1 same-line vector query arg is bare",
+    )
+    expect_text(
+        "**Form-3 lifecycle.** A hook has no ambient frame.\n\n"
+        "```clojure\n:component-did-mount\n(fn [_]\n"
+        "  (rf/subscribe-once [:todos/all :active]))\n```",
+        dirty=True, label="F2 vector query arg inside a lifecycle hook",
+    )
+    expect_text(
+        "**Form-3 lifecycle.** A hook has no ambient frame.\n\n"
+        "```clojure\n:component-did-mount\n(fn [_]\n"
+        "  (rf/subscribe-once\n    query-v))\n```",
+        dirty=True, label="F3 call split across lines",
+    )
+    expect_text(
+        "**Form-3 lifecycle.** Teardown must name the frame.\n\n"
+        "```clojure\n:component-will-unmount\n(fn [_]\n"
+        "  (rf/unsubscribe\n    [:todos/all :active]))\n```",
+        dirty=True, label="F4 split-line teardown with a vector query",
+    )
+    expect_text(
+        "**Form-3 lifecycle.** Seed the chart at mount.\n\n"
+        "```clojure\n:component-did-mount\n(fn [_]\n"
+        "  (rf/subscribe-once (build-query-v id)))\n```",
+        dirty=True, label="F5 list-expression query arg is still one argument",
+    )
+    # Frame-qualified equivalents of every shape above MUST pass — the opts map
+    # / frame-first argument is what makes the call legal, and arity is how the
+    # scanner sees it.
+    expect_text(
+        "**Form-3 lifecycle.** A hook has no ambient frame.\n\n"
+        "```clojure\n:component-did-mount\n(fn [_]\n"
+        "  (rf/subscribe-once [:todos/all :active] {:frame frame}))\n```",
+        dirty=False, label="G1 vector query + explicit frame opts is clean",
+    )
+    expect_text(
+        "**Form-3 lifecycle.** A hook has no ambient frame.\n\n"
+        "```clojure\n:component-did-mount\n(fn [_]\n"
+        "  (rf/subscribe-once\n    [:todos/all :active]\n    {:frame frame}))\n```",
+        dirty=False, label="G2 split-line call with explicit frame opts is clean",
+    )
+    expect_text(
+        "**Form-3 lifecycle.** Teardown is frame-first.\n\n"
+        "```clojure\n:component-will-unmount\n(fn [_]\n"
+        "  (rf/unsubscribe\n    frame\n    [:todos/all :active]))\n```",
+        dirty=False, label="G3 split-line frame-first teardown is clean",
+    )
+    # Adversarial parser cases — the scanner must not mis-count arity.
+    expect(
+        "In `:component-did-mount` call `(rf/subscribe-once [:msg \"a b c\"])`.",
+        dirty=True, label="G4 string with spaces inside a vector is one argument",
+    )
+    expect(
+        "In `:component-did-mount` call "
+        "`(rf/subscribe-once [:msg \"}{)(\"] {:frame frame})`.",
+        dirty=False, label="G5 brackets inside a string do not break the counter",
+    )
+    expect(
+        "A lifecycle hook may call `(rf/subscribe-once-ish query-v)` — a "
+        "different fn entirely.",
+        dirty=False, label="G6 head-symbol prefix match is not a subscribe-once call",
+    )
+    expect(
+        "A lifecycle note mentioning `(rf/unsubscribe-all frame)` is unrelated.",
+        dirty=False, label="G7 unsubscribe-all is not unsubscribe",
+    )
+    expect(
+        "An unbalanced `:component-did-mount` excerpt `(rf/subscribe-once query-v` "
+        "is never guessed at.",
+        dirty=False, label="G8 unbalanced excerpt is skipped, not assumed bare",
+    )
+    # The arity rule must not become a global ban: a bare one-argument call is
+    # CORRECT wherever a real resolver scope exists. Only lifecycle context
+    # makes it drift. (These mirror the shapes the live corpus ships at
+    # breaking-changes.md O-6 and README O-13/O-14.)
+    expect_text(
+        "Drop the type checks; use `(rf/subscribe-once [:todos/all :active])` if "
+        "you need the value outside a reactive context.",
+        dirty=False, label="G9 bare vector call with no lifecycle context is legal",
+    )
+    expect_text(
+        "Outside of views (event handlers, fx, REPL) the substrate-agnostic "
+        "`(rf/subscribe [:foo])` and `(rf/subscribe-once [:foo])` still work.",
+        dirty=False, label="G10 ambient bare call in the O-13 shape is legal",
     )
 
     # --- M-1 classifier fixtures (rf2-3fc89f.35) --------------------------------
