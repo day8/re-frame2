@@ -226,7 +226,7 @@
                         (assoc :on-error (lifecycle/resolve-on-error raw-opts)))
         {:keys [on-error]} opts]
     (fn ring-handler [request]
-      (let [{:keys [frame-id short-circuit]}
+      (let [{:keys [frame-id frame short-circuit]}
             (pipeline/setup-request-frame! opts request)]
         (if short-circuit
           short-circuit
@@ -262,7 +262,9 @@
               (lifecycle/safe-on-error on-error request t))
             (finally
               ;; Frame teardown also clears its per-request side channels.
-              (lifecycle/destroy-frame-quietly! frame-id))))))))
+              ;; Destroy the VALUE (incarnation-EXACT, rf2-moftbs); the keyword
+              ;; `frame-id` names the frame on any failure trace.
+              (lifecycle/destroy-frame-quietly! frame frame-id))))))))
 
 ;; ---- ssr-middleware -------------------------------------------------------
 

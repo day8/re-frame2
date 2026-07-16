@@ -430,12 +430,15 @@
   contract). The 2-arg `ssr-response->ring-response` (no `content-type`)
   matches the non-streaming redirect path — a bodiless redirect has no
   meaningful Content-Type to default; `ssr-response->ring-response` ignores the
-  body arg on its `:redirect` branch (pipeline.clj)."
-  [resp frame-id]
+  body arg on its `:redirect` branch (pipeline.clj).
+
+  `frame` is the per-request frame VALUE (incarnation-EXACT teardown authority,
+  rf2-moftbs); `frame-id` remains the keyword for the failure trace."
+  [resp frame-id frame]
   (try
     (pipeline/ssr-response->ring-response resp nil)
     (finally
-      (lifecycle/destroy-frame-quietly! frame-id))))
+      (lifecycle/destroy-frame-quietly! frame frame-id))))
 
 (defn- stream-projected-error!
   "Materialise a projected 5xx as a plain-String error response on the
@@ -447,12 +450,16 @@
   continuations / `__rf_payload` / app-db. Shared by the drain-time 5xx branch
   and the post-shell recovered-to-nil 5xx branch of `stream-handler`. Per
   Spec 011 §Drain-time error classification + §Streaming pre-commit rule
-  (rf2-oytx7j)."
-  [frame-id resp public-error opts]
+  (rf2-oytx7j).
+
+  `frame` is the per-request frame VALUE (incarnation-EXACT teardown authority,
+  rf2-moftbs); `frame-id` remains the keyword the address-directed materialise +
+  the failure trace use."
+  [frame-id resp public-error opts frame]
   (try
     (pipeline/materialise-projected-error frame-id resp public-error opts)
     (finally
-      (lifecycle/destroy-frame-quietly! frame-id))))
+      (lifecycle/destroy-frame-quietly! frame frame-id))))
 
 (defn- render-shell-or-projected-error
   "Render the streaming shell on THIS (request) thread, BEFORE the chunked
@@ -478,13 +485,17 @@
   drains that buffer, and a projected 5xx then diverts to the non-streamed
   projected-error arm (`stream-projected-error!`) — no writer thread, no
   partial-state shell — rather than streaming the degraded shell under a 500
-  (rf2-oytx7j)."
-  [frame-id opts]
+  (rf2-oytx7j).
+
+  `frame` is the per-request frame VALUE (incarnation-EXACT teardown authority,
+  rf2-moftbs); `frame-id` remains the keyword the address-directed render +
+  projector + failure trace use."
+  [frame-id opts frame]
   (try
     (render-streaming-shell! frame-id opts)
     (catch Throwable t
       (let [err-resp (pipeline/project-render-throw->ring-response frame-id t opts)]
-        (lifecycle/destroy-frame-quietly! frame-id)
+        (lifecycle/destroy-frame-quietly! frame frame-id)
         (reduced err-resp)))))
 
 (defn- stream-rendered-response
@@ -519,8 +530,12 @@
   The writer runs on a daemon thread: one blocked on `.write` to the
   bounded 16 KiB pipe of a slow-loris client must NOT keep the JVM alive at
   shutdown. Its `finally` tears the frame down (off the response-close path,
-  via the slower destroy)."
-  [frame-id rendered resp2 content-type opts]
+  via the slower destroy).
+
+  `frame` is the per-request frame VALUE (incarnation-EXACT teardown authority,
+  rf2-moftbs); `frame-id` remains the keyword the address-directed materialise,
+  writer, thread name, and failure trace use."
+  [frame-id rendered resp2 content-type opts frame]
   (let [;; No body default-stamp here (we pass our own InputStream); `:body` is
         ;; assoc'd after the writer is wired below. Content-Length is already
         ;; stripped by the shared materialiser.
@@ -539,8 +554,9 @@
             (finally
               ;; The writer's own finally closes the pipe; the frame teardown
               ;; happens here so it does NOT block the response close on the
-              ;; slower destroy path.
-              (lifecycle/destroy-frame-quietly! frame-id))))
+              ;; slower destroy path. Destroy the VALUE (incarnation-EXACT,
+              ;; rf2-moftbs); the keyword names the frame on any failure trace.
+              (lifecycle/destroy-frame-quietly! frame frame-id))))
         ^String (str "rf2-ssr-streaming-" (name frame-id)))
       (.setDaemon true)
       (.start))
@@ -671,7 +687,7 @@
                         (assoc :on-error (lifecycle/resolve-on-error raw-opts)))
         {:keys [on-error content-type]} opts]
     (fn ring-handler [request]
-      (let [{:keys [frame-id short-circuit]}
+      (let [{:keys [frame-id frame short-circuit]}
             (pipeline/setup-request-frame! opts request)]
         (if short-circuit
           short-circuit
@@ -689,16 +705,16 @@
               (cond
                 ;; Redirect precedence FIRST (Spec 011 §Redirect precedence).
                 (some? (:redirect response))
-                (redirect-response! response frame-id)
+                (redirect-response! response frame-id frame)
 
                 ;; A drain-time projected 5xx — NO shell, NO writer thread; a
                 ;; plain-String projected-error body on the request thread
                 ;; (Spec 011 §Streaming pre-commit rule, rf2-oytx7j).
                 (pipeline/projected-5xx? public-error)
-                (stream-projected-error! frame-id response public-error opts)
+                (stream-projected-error! frame-id response public-error opts frame)
 
                 :else
-                (let [rendered (render-shell-or-projected-error frame-id opts)]
+                (let [rendered (render-shell-or-projected-error frame-id opts frame)]
                   (if (reduced? rendered)
                     ;; Shell render threw — return the projected error page
                     ;; (frame already torn down inline).
@@ -718,7 +734,7 @@
                         ;; non-streaming handler's redirect-ignores-body parity
                         ;; for a future render-phase fx that learns to redirect.
                         (some? (:redirect resp2))
-                        (redirect-response! resp2 frame-id)
+                        (redirect-response! resp2 frame-id frame)
 
                         ;; A recovered-to-nil sub during the shell render
                         ;; buffered a fail-closed 5xx — take the NON-STREAMED
@@ -727,11 +743,11 @@
                         ;; shell-under-500 behaviour: a 5xx before the chunked
                         ;; head commits never ships a partial-state shell.
                         (pipeline/projected-5xx? err2)
-                        (stream-projected-error! frame-id resp2 err2 opts)
+                        (stream-projected-error! frame-id resp2 err2 opts frame)
 
                         :else
                         (stream-rendered-response
-                          frame-id rendered resp2 content-type opts)))))))
+                          frame-id rendered resp2 content-type opts frame)))))))
             (catch Throwable t
               ;; A get-response, redirect-materialisation, or head-materialisation
               ;; throw raised before the
@@ -742,6 +758,8 @@
               ;; it falls back to the locked `default-on-error` rather
               ;; than escaping as a raw container 500 with leaked
               ;; internals.
-              (try (lifecycle/destroy-frame-quietly! frame-id)
+              ;; Destroy the VALUE (incarnation-EXACT, rf2-moftbs); the keyword
+              ;; `frame-id` names the frame on any failure trace.
+              (try (lifecycle/destroy-frame-quietly! frame frame-id)
                    (catch Throwable _ nil))
               (lifecycle/safe-on-error on-error request t))))))))

@@ -457,6 +457,51 @@
         (is (nil? (ssr/get-request fid))
             (str "no request slot leaks for frame " fid))))))
 
+;; ===========================================================================
+;; rf2-moftbs — the streaming terminal cleanup is incarnation-EXACT.
+;;
+;; The redirect branch is the deterministic inline-teardown path (no writer
+;; thread to wait on), so it is the clean seam to prove that a streaming
+;; terminal cleanup destroys the frame VALUE make-frame returned (carrying the
+;; exact incarnation token), not the bare gensym frame-id.
+;; ===========================================================================
+
+(deftest stream-handler-terminal-teardown-is-incarnation-exact
+  (testing "a streaming terminal cleanup (redirect inline teardown) destroys the
+            per-request frame VALUE — carrying the exact incarnation token — not
+            the bare gensym id, so it is incarnation-EXACT (rf2-moftbs)"
+    (rf/reg-event :rf.test.stream/redirect2
+      {:platforms #{:server}}
+      (fn [_ _]
+        {:fx [[:rf.server/redirect {:status 302 :location "/login"}]]}))
+    (rf/reg-view ^{:rf/id :test/should-not-stream2} should-not-stream2 []
+      [:div "should not render under redirect"])
+    (let [real-destroy    rf/destroy-frame!
+          teardown-target (atom ::none)
+          handler         (ssr-ring/stream-handler
+                            {:initial-events [[:rf.test.stream/redirect2]]
+                             :root-view [:test/should-not-stream2]
+                             :payload :rf.ssr.payload/whole-app-db})
+          baseline-fids   (disj (frame/frame-ids) :rf/default)]
+      (with-redefs [rf/destroy-frame!
+                    (fn [target & more]
+                      (when (and (= ::none @teardown-target)
+                                 (frame/frame-value? target))
+                        (reset! teardown-target target))
+                      (apply real-destroy target more))]
+        (let [response (handler {:uri "/secret" :request-method :get})]
+          (is (= 302 (:status response)) "redirect short-circuit on the wire")))
+      ;; N released: no per-request frame leaks after the inline teardown.
+      (is (empty? (clojure.set/difference (disj (frame/frame-ids) :rf/default)
+                                          baseline-fids))
+          "the per-request incarnation is fully released on the streaming redirect path")
+      ;; N+1 protected: the terminal teardown targeted the incarnation VALUE.
+      (is (frame/frame-value? @teardown-target)
+          "streaming terminal teardown targeted the make-frame VALUE, not the bare id")
+      (is (some? (frame/frame-value-incarnation-token @teardown-target))
+          "the teardown target carries the exact incarnation token — so a same-id
+           successor (N+1) is left intact by the two-argument destroy"))))
+
 (deftest stream-handler-redirect-no-content-type-stamped
   (testing "rf2-ee38b.11: the streaming redirect path does NOT stamp a
             default Content-Type on the bodiless 302 — it agrees with the

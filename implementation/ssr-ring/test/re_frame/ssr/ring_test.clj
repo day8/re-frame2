@@ -411,6 +411,43 @@
       (is (seq @destroyed)
           ":rf.frame/destroyed trace fired for the per-request frame"))))
 
+(deftest handler-per-request-teardown-is-incarnation-exact
+  (testing "the per-request frame teardown destroys the frame VALUE make-frame
+            returned (carrying the exact incarnation token), NOT the bare gensym
+            frame-id — so teardown is incarnation-EXACT and cannot reap a same-id
+            successor reseated in between while the request still returns 200
+            (rf2-moftbs)"
+    (register-articles-app! [{:id "x" :title "Article X"}])
+    (let [real-destroy    rf/destroy-frame!
+          teardown-target (atom ::none)
+          handler (ssr-ring/ssr-handler
+                    {:initial-events [[:rf/server-init]]
+                     :root-view      [:pages/articles]
+                     :fx-overrides   {:http/get :http/get.canned}
+                     :payload        :rf.ssr.payload/whole-app-db})
+          frames-before (set (rf/frame-ids))]
+      ;; Spy on the facade destroy the handler's `finally` calls. A clean request
+      ;; issues exactly ONE per-request-frame teardown, and (post-fix) it hands
+      ;; over the frame VALUE — not the bare gensym id.
+      (with-redefs [rf/destroy-frame!
+                    (fn [target & more]
+                      (when (and (= ::none @teardown-target)
+                                 (frame/frame-value? target))
+                        (reset! teardown-target target))
+                      (apply real-destroy target more))]
+        (let [response (handler {:uri "/" :request-method :get})]
+          (is (= 200 (:status response)) "the request rendered a 200")))
+      ;; N released: no per-request frame leaks into the registry.
+      (is (= frames-before (set (rf/frame-ids)))
+          "the per-request incarnation is fully released — no frame leak")
+      ;; N+1 protected: teardown targets the incarnation-carrying VALUE.
+      (is (frame/frame-value? @teardown-target)
+          "per-request teardown targeted the make-frame VALUE, not the bare gensym id")
+      (is (some? (frame/frame-value-incarnation-token @teardown-target))
+          "the teardown target carries the exact incarnation token, so the
+           two-argument destroy no-ops against any same-id successor (N+1)
+           (proven end-to-end by re-frame.frame-lifecycle-test)"))))
+
 ;; ===========================================================================
 ;; ssr-handler — redirect short-circuit
 ;; ===========================================================================
