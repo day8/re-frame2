@@ -115,6 +115,16 @@
   emitted by `ui.test/flush!`, before this registry is touched, with the
   Spec 009 catalogue row carrying the active frame + frame epoch.
 
+  A synchronous forcing call re-drains to a fixed point (a commit-triggered
+  re-dirty can enrol a cell AFTER the pass that flushed it), so that re-drain is
+  BOUNDED by `converge-flush!` / `flush-convergence-budget` (rf2-0faipl): an
+  unstable commit→re-dirty cycle that the single-pass ambient guards (dispatch
+  drain-depth, React update-depth) cannot see across separate `flushSync`
+  passes fails loud with the typed `:rf.error/flush-convergence-exceeded`
+  diagnostic (pass + pending counts) instead of spinning forever. The
+  first-party adapter's `flush-render!` and the test `flush!` rest on this ONE
+  shared bound.
+
   ## The slice-scoped probe memo (S2d item 3 — 03 §3; Spec 006 §The
   slice-scoped probe memo)
 
@@ -1705,6 +1715,86 @@
   "The number of cells with a pending notification (tool/test read)."
   []
   (count @dirty-cells))
+
+;; ---- bounded flush convergence (rf2-0faipl) ---------------------------------
+;;
+;; A synchronous forcing caller (the first-party adapter's render-commit; the
+;; test all-roots flush) drains the registry, then RE-DRAINS to a fixed point
+;; because a commit-triggered re-dirty — a layout effect that dispatches, a
+;; useSyncExternalStore listener that re-marks — can enrol a cell AFTER the
+;; pass that flushed it. That re-drain must terminate. The ambient dispatch
+;; drain-depth (`:rf.error/drain-depth-exceeded`) and React maximum-update-depth
+;; guards bound a SINGLE synchronous pass; neither can see a re-enrolment that
+;; lands across two SEPARATE `flushSync` passes, so an unstable
+;; commit→re-dirty cycle could once spin the synchronous forcing call forever.
+;; `converge-flush!` gives that re-drain a LOCAL finite pass budget and fails
+;; loud with one typed diagnostic when it cannot quiesce.
+
+(def ^:const flush-convergence-budget
+  "The finite ceiling on synchronous re-flush passes a `converge-flush!` driver
+  runs before declaring the ViewCell registry NON-QUIESCENT and failing loud.
+  Ordinary commit-triggered convergence settles in a handful of passes (React's
+  own maximum-update-depth guard sits near 50); this ceiling is deliberately
+  well above any legitimate multi-pass settle, so tripping it means a commit
+  path is re-dirtying cells EVERY pass — an unstable effect/notification cycle,
+  never slow-but-terminating convergence. The bound is LOCAL to the flush
+  driver: it does NOT rely on the ambient dispatch drain-depth or React
+  update-depth guards, which cover a single synchronous pass and cannot see a
+  re-enrolment across two separate `flushSync` passes (rf2-0faipl)."
+  100)
+
+(defn flush-nonconvergence!
+  "Throw the SHARED `:rf.error/flush-convergence-exceeded` diagnostic — the one
+  typed non-quiescence signal for a flush that will not settle within
+  `flush-convergence-budget` synchronous passes. `pending` is the residual
+  pending-cell count; `where` names the forcing site
+  (`re-frame.ui.substrate/flush-render!` / `rf.ui.test/flush!`). Carries
+  `:passes` (the exhausted budget) + `:pending` so the diagnostic locates the
+  runaway. Shared by the synchronous `converge-flush!` loop AND the CLJS async
+  `ui.test/flush!` cycle so there is ONE diagnostic, not two copies drifting
+  apart (rf2-0faipl)."
+  [where pending]
+  (error/throw-error!
+    :rf.error/flush-convergence-exceeded where
+    (str where " could not converge the compiled-view flush registry within "
+         flush-convergence-budget " synchronous passes — " pending
+         " cell(s) still pending. A commit path is re-dirtying cells every "
+         "pass (an unstable layout-effect or notification cycle); this is a "
+         "non-quiescent flush, not slow convergence — fix the effect/listener "
+         "that keeps re-marking.")
+    {:recovery :no-recovery
+     :extra    {:passes  flush-convergence-budget
+                :pending pending}}))
+
+(defn converge-flush!
+  "Drive `flush-pass!` (a zero-arg thunk performing ONE synchronous flush of the
+  caller's scope) to a BOUNDED fixed point: while the dirty registry is
+  non-quiescent, run one more pass — but never more than
+  `flush-convergence-budget` of them. The CALLER runs the INITIAL write+flush
+  pass; this drains any commit-triggered re-dirty (a dispatching layout effect,
+  a re-marking listener) that follows it.
+
+  Ordinary multi-pass convergence and the no-op case are preserved exactly: a
+  registry already quiescent on entry loops ZERO times and never touches
+  `flush-pass!`; a one-shot commit-triggered re-dirty drains in one further
+  pass. When the registry is STILL non-quiescent after the budget is spent,
+  fail loud through `flush-nonconvergence!` with
+  `:rf.error/flush-convergence-exceeded` (pass budget + residual pending count)
+  — the LOCAL non-quiescence signal the single-pass ambient guards do not
+  guarantee (rf2-0faipl). `where` names the forcing site. Returns nil.
+
+  This is the SHARED bound both synchronous loop-to-quiescence sites rest on —
+  the first-party adapter's `flush-render!` and the JVM test `flush!` — so
+  there is ONE convergence law, not two copies drifting apart."
+  [where flush-pass!]
+  (loop [pass 0]
+    (let [pending (pending-cell-count)]
+      (when (pos? pending)
+        (when (>= pass flush-convergence-budget)
+          (flush-nonconvergence! where pending))
+        (flush-pass!)
+        (recur (inc pass)))))
+  nil)
 
 (defn last-evidence-sink-escape
   "The most recent CONTAINED `evidence-sink` throw as `{:cell cell :error e}`,

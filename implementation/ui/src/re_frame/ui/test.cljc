@@ -765,16 +765,25 @@
      the JVM Tier-1 host. There is no React tree to settle. Returns nil."
      []
      (guard-open-drain!)
-     (loop []
-       (reactive/flush-pending!)
-       (when (pos? (reactive/pending-cell-count))
-         (recur)))
+     ;; Initial drain, then the SHARED bounded convergence law (rf2-0faipl): a
+     ;; non-quiescent registry fails loud with
+     ;; :rf.error/flush-convergence-exceeded rather than spinning forever.
+     (reactive/flush-pending!)
+     (reactive/converge-flush! 'rf.ui.test/flush! reactive/flush-pending!)
      nil)
    :cljs
    (do
      (defn- flush-async!
        [thunk]
-       (letfn [(cycle! [run-thunk]
+       ;; The async twin of the JVM `converge-flush!` loop: framework
+       ;; notifications and React commits alternate to a fixed point, BOUNDED by
+       ;; the same `reactive/flush-convergence-budget` (rf2-0faipl). The happy
+       ;; path (a registry that quiesces in a handful of passes) is unchanged; a
+       ;; commit path that re-dirties every pass rejects the returned Promise
+       ;; with :rf.error/flush-convergence-exceeded — via the shared
+       ;; `reactive/flush-nonconvergence!` diagnostic — instead of chaining
+       ;; passes forever.
+       (letfn [(cycle! [run-thunk pass]
                  (-> (act! 'rf.ui.test/flush!
                            (fn []
                              (-> (promise-call run-thunk)
@@ -782,10 +791,13 @@
                                           (reactive/flush-pending!)
                                           nil)))))
                      (.then (fn []
-                              (if (pos? (reactive/pending-cell-count))
-                                (cycle! (fn [] nil))
-                                nil)))))]
-         (cycle! thunk)))
+                              (let [pending (reactive/pending-cell-count)]
+                                (when (pos? pending)
+                                  (if (>= pass reactive/flush-convergence-budget)
+                                    (reactive/flush-nonconvergence!
+                                      'rf.ui.test/flush! pending)
+                                    (cycle! (fn [] nil) (inc pass)))))))))]
+         (cycle! thunk 0)))
 
      (defn flush!
        "The sole public compiled-view test flush.
