@@ -51,12 +51,19 @@
 
 (def cases
   "Every gated workload names a memo-matched hand baseline (`:gate-hand`) that
-  carries the SAME React.memo boundary + an equivalent per-slot rf= comparator
-  the compiled `defview` emits (emit-cljs `comparator-form`), so each ratio
-  isolates the compiler's lowering overhead rather than the cost of the
-  always-memo policy. `:hand` is the unwrapped baseline (kept for byte-equality);
-  where `:policy-hand` names it the unwrapped comparison is reported separately
-  as explicit NON-GATING product-policy evidence."
+  carries the SAME re-frame2 runtime policies the compiled `defview` emits, so
+  each ratio isolates the compiler's LOWERING overhead rather than a policy
+  cost. Two policies apply: (1) the always-memo React.memo boundary + an
+  equivalent per-slot rf= comparator (emit-cljs `comparator-form`), and (2) for
+  every EVENT-BEARING view, committed-event ownership — the per-instance
+  EventOwner, per-render capture, and per-site stable committed callback the
+  `viewcell/render-events` wrapper + `events/data-handler` provide. The
+  denominators run the REAL primitives so they pay the identical unavoidable
+  cost; only the element tree stays hand-written. `:hand` is the fully unwrapped
+  baseline (naive raw-jsx: plain closures, no memo, no committed events), kept
+  for byte-equality; where `:policy-hand` names it the unwrapped comparison is
+  reported separately as explicit NON-GATING product-policy evidence — the total
+  cost of BOTH runtime policies over naive raw jsx-runtime."
   [{:id "static-tree"  :compiled v/static-tree  :hand hand/static-tree*
     :gate-hand hand/static-tree*-memo
     :props {}}
@@ -276,7 +283,7 @@
              (when policy-r
                (println
                 (str "  INFO " id
-                     " always-memo SSR policy cost [non-gating]"
+                     " re-frame2 runtime-policy SSR cost (always-memo + committed-event) [non-gating]"
                      "  compiled p50=" (round2 (:p50 policy-c)) "us p95=" (round2 (:p95 policy-c)) "us"
                      "  unwrapped-hand p50=" (round2 (:p50 policy-h)) "us p95=" (round2 (:p95 policy-h)) "us"
                      "  ratio p50=" (fixed4 policy-r50) " p95=" (fixed4 policy-r95))))
@@ -291,7 +298,7 @@
                :rounds   (:rounds r)}
                policy-r
                (assoc :always-memo-ssr-policy-cost
-                      {:label "always-memo SSR policy cost"
+                      {:label "re-frame2 runtime-policy SSR cost (always-memo + committed-event)"
                        :gating? false
                        :hand-baseline "unwrapped hand JSX"
                        :compiled {:p50-us (round2 (:p50 policy-c))
@@ -325,10 +332,10 @@
         (fs/appendFileSync
          summary-path
          (str "\n### G-1 policy evidence (non-gating)\n\n"
-              "- always-memo SSR policy cost: p50 `"
+              "- re-frame2 runtime-policy SSR cost (always-memo + committed-event): p50 `"
               (fixed4 (get-in policy [:ratio :p50]))
               "`, p95 `" (fixed4 (get-in policy [:ratio :p95]))
-              "` (compiled / unwrapped hand JSX; non-gating)\n"))))
+              "` (compiled / unwrapped naive-jsx hand; non-gating)\n"))))
     (if (and (every? :ok? results)
              (:detected? lowering-control))
       (println "G-1: PASS — every component within"
