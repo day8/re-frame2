@@ -737,15 +737,23 @@
 ;;                                cannot emit for itself (absence cannot
 ;;                                self-report). Optional: absent, only the
 ;;                                staged sources are reconciled.
-;;   (commit-reload! [build?])    ^:dev/after-load — COMMIT atomically: every
-;;                                staged source REPLACES its whole prior
+;;   (commit-reload! [build?])    ^:dev/after-load — COMMIT: reconcile the ledger
+;;                                (every staged source REPLACES its whole prior
 ;;                                contribution, every reloaded-but-unstaged /
 ;;                                removed source is EVICTED, untouched sources are
-;;                                kept, and the live aggregate is rebuilt from the
-;;                                reconciled ledger in ONE swap. shadow-cljs runs
+;;                                kept) AND close the cycle in ONE atomic swap,
+;;                                then publish the aggregate. shadow-cljs runs
 ;;                                after-load only on a SUCCESSFUL reload, so a
 ;;                                thrown / aborted reload never commits — the last
 ;;                                known-good manifest survives.
+;;
+;; The whole protocol reads and writes ONE authoritative value (`ledger-state`:
+;; live `:sources` + in-flight `:cycles`), so the reload cycle is a LINEARIZABLE
+;; state transition (rf2-vxgfnd.144). The public `custom-elements` aggregate is a
+;; pure projection published AFTER each transition, never interleaved with it —
+;; so a watch that reentrantly registers during publication observes an already-
+;; closed cycle and write-through's into the next generation instead of staging
+;; into a cycle the commit is about to discard.
 ;;
 ;; Ownership is [build-id ns-sym] so two builds sharing one atom (two bundles in
 ;; one JS realm, a shared JVM, a test) reconcile independently — evicting one
@@ -789,23 +797,28 @@
   (atom {}))
 
 (defonce ^{:private true
-           :doc "[build-id ns-sym] -> {tag decl} — the per-source committed
-  contribution ledger (the runtime mirror of the compile-side build ledger). The
-  live aggregate is the merge of every source's map, so a source whose file is
-  deleted, or whose last declaration is dropped, vanishes the moment its ledger
-  row is reconciled away — no surviving declaration required."}
-  element-sources
-  (atom {}))
+           :doc "The ONE authoritative ledger value (rf2-vxgfnd.144). A single
+  atom so cycle open/close, staged-row ownership and the ledger transition are a
+  LINEARIZABLE state change — check-then-act on the reload cycle can never be
+  split across two atoms and interleaved:
 
-(defonce ^{:private true
-           :doc "build-id -> {:staged {[build ns] {tag decl}} :touched #{[build ns]}}
-  for each build whose reload cycle is IN FLIGHT (absent = no cycle → direct
-  write-through). `:staged` accumulates this cycle's re-registrations, held back
-  from the live aggregate until commit; `:touched` is the reloaded/removed source
-  set `note-reloaded-sources!` records — the sources to reconcile even when they
-  staged nothing (zero-declaration / deletion)."}
-  reload-cycles
-  (atom {}))
+    {:sources {[build-id ns-sym] {tag decl}}   ; the per-source committed ledger
+     :cycles  {build-id {:staged {[b ns] {tag decl}} :touched #{[b ns]}}}}
+
+  `:sources` is the runtime mirror of the compile-side build ledger — a source
+  whose file is deleted, or whose last declaration is dropped, vanishes the
+  moment its row is reconciled away, no surviving declaration required. `:cycles`
+  holds each build's IN-FLIGHT reload (absent = no cycle → direct write-through):
+  `:staged` accumulates the cycle's re-registrations, held back from the live
+  aggregate until commit; `:touched` is the reloaded/removed source set
+  `note-reloaded-sources!` records — the sources to reconcile even when they
+  staged nothing (zero-declaration / deletion).
+
+  The public `custom-elements` aggregate is a pure PROJECTION of `:sources`,
+  published (one `reset!`) AFTER each authoritative transition completes — never
+  interleaved with it."}
+  ledger-state
+  (atom {:sources {} :cycles {}}))
 
 (def ^:private default-build
   "The owner token for a source registering outside any real Shadow build: the
@@ -854,32 +867,74 @@
              default-build)
      :clj  default-build))
 
-(defn- rebuild-live!
-  "Rebuild the live aggregate as the merge of every ledger source's map — the
-  live registry is a PURE FUNCTION of the ledger. One `reset!` (sources merged in
-  a stable order), so consumers never observe a partial manifest."
+(defn- aggregate
+  "The public aggregate as the merge of every ledger source's map — the live
+  registry is a PURE FUNCTION of `:sources`. Sources merged in a stable order so
+  the projection is deterministic regardless of ledger insertion order."
+  [sources]
+  (reduce (fn [agg src] (merge agg (get sources src)))
+          {}
+          (sort-by str (keys sources))))
+
+(defn- publish!
+  "Republish the public aggregate as a pure projection of the CURRENT ledger
+  `:sources`. Called AFTER an authoritative `ledger-state` transition, never
+  interleaved with it, so a reentrant `register-custom-element!` a watch fires
+  during this publish sees the already-transitioned ledger.
+
+  Uses `swap!` reading the LIVE ledger (not a captured snapshot) so that under JVM
+  contention the projection retries and recomputes from the latest `:sources` —
+  it can never overwrite a concurrent write-through's row with a stale aggregate.
+  On CLJS it is a single uncontended recompute."
   []
-  (reset! custom-elements
-          (reduce (fn [agg src] (merge agg (get @element-sources src)))
-                  {}
-                  (sort-by str (keys @element-sources))))
+  (swap! custom-elements (fn [_] (aggregate (:sources @ledger-state))))
   nil)
+
+(defn- reconcile-sources
+  "Fold one build's committed cycle into `:sources`: every STAGED source replaces
+  its whole prior contribution; every reconciled source that staged NOTHING (a
+  zero-declaration edit or a removed/deleted file flagged via `:touched`) is
+  evicted; untouched sources are kept."
+  [sources staged touched]
+  (reduce (fn [l src]
+            (if-let [decls (get staged src)]
+              (assoc l src decls)     ; re-declared: replace whole contribution
+              (dissoc l src)))        ; zero-declaration / removed: evict
+          sources
+          (into (set (keys staged)) touched)))
 
 (defn register-custom-element!
   "Register `tag`'s runtime property classification under its declaring source.
   Emitted top-level by `ui/custom-element`, so it re-runs on every ns hot-reload.
   While a reload cycle is open for the build it STAGES (the live aggregate stays
   last-known-good until `commit-reload!`); otherwise — initial load, production —
-  it writes through directly. Ownership is [build-id ns-sym]; the 3-arg emit uses
-  the sole ::default build."
+  it writes through directly. Ownership is [build-id ns-sym]; the 3-arg emit
+  resolves the ambient build via `current-build-id`.
+
+  The stage-vs-write-through decision and the ledger write are ONE atomic
+  transition on `ledger-state` (rf2-vxgfnd.144): a registration can never read
+  'cycle open' and then have its stage recreate a cycle a concurrent commit just
+  removed. A write-through additionally publishes its one row; because it decided
+  against staging atomically, a commit that closed the cycle first cannot delete
+  this row (the closed cycle no longer names it), and a commit still open cannot
+  see it as staged (it went to `:sources`, not `:staged`) — the generation rule
+  the reentrancy fix relies on."
   ([tag decl ns-sym] (register-custom-element! tag decl ns-sym (current-build-id)))
   ([tag decl ns-sym build-id]
-   (let [source [build-id ns-sym]]
-     (if (contains? @reload-cycles build-id)
-       (swap! reload-cycles update-in [build-id :staged source]
-              (fnil assoc {}) tag decl)
-       (do (swap! element-sources update source (fnil assoc {}) tag decl)
-           (swap! custom-elements assoc tag decl))))
+   (let [source [build-id ns-sym]
+         [old _new]
+         (swap-vals! ledger-state
+                     (fn [{:keys [cycles] :as st}]
+                       (if (contains? cycles build-id)
+                         (update-in st [:cycles build-id :staged source]
+                                    (fnil assoc {}) tag decl)
+                         (update-in st [:sources source]
+                                    (fnil assoc {}) tag decl))))]
+     ;; The winning transition saw `old`; if `old` had no open cycle it was a
+     ;; write-through, so publish this row incrementally. (Staged registrations
+     ;; stay invisible until commit.)
+     (when-not (contains? (:cycles old) build-id)
+       (swap! custom-elements assoc tag decl)))
    tag))
 
 (defn ^:dev/before-load notify-reload!
@@ -890,7 +945,7 @@
   reloads, so this never fires there."
   ([] (notify-reload! (current-build-id)))
   ([build-id]
-   (swap! reload-cycles assoc build-id {:staged {} :touched #{}})
+   (swap! ledger-state assoc-in [:cycles build-id] {:staged {} :touched #{}})
    nil))
 
 (defn note-reloaded-sources!
@@ -902,34 +957,51 @@
   cycle so it can be called repeatedly."
   ([sources] (note-reloaded-sources! sources (current-build-id)))
   ([sources build-id]
-   (when (contains? @reload-cycles build-id)
-     (let [pairs (map (fn [s] (if (vector? s) s [build-id s])) sources)]
-       (swap! reload-cycles update-in [build-id :touched] (fnil into #{}) pairs)))
+   (swap! ledger-state
+          (fn [{:keys [cycles] :as st}]
+            (if (contains? cycles build-id)
+              (let [pairs (map (fn [s] (if (vector? s) s [build-id s])) sources)]
+                (update-in st [:cycles build-id :touched] (fnil into #{}) pairs))
+              st)))
    nil))
 
 (defn ^:dev/after-load commit-reload!
   "shadow-cljs hot-reload hook (dev only): COMMIT the open reload cycle for
-  `build-id` atomically. Every STAGED source replaces its whole prior
-  contribution; every source flagged by `note-reloaded-sources!` that staged
-  NOTHING (a zero-declaration edit or a deleted file) is evicted; untouched
-  sources are kept; then the live aggregate is rebuilt from the reconciled ledger
-  in one swap. shadow-cljs runs after-load only on a SUCCESSFUL reload, so an
-  aborted reload never reaches here and the last known-good manifest survives.
-  A no-op when no cycle is open."
+  `build-id`. The reconciliation AND the cycle close are ONE atomic transition on
+  `ledger-state`: `:sources` is reconciled (staged sources replace their whole
+  contribution; touched-but-unstaged sources are evicted; untouched sources are
+  kept) and the cycle is removed in the SAME swap. Only then is the aggregate
+  published.
+
+  This linearizes the commit against a reentrant registration (rf2-vxgfnd.144).
+  Publishing can synchronously fire a watch on `custom-elements` that calls
+  `register-custom-element!`; by then the cycle is ALREADY gone from
+  `ledger-state`, so that registration write-through's into a new generation and
+  survives, instead of staging into a cycle this commit then discards. The old
+  snapshot-then-`dissoc` shape published while the cycle was still open, so such a
+  registration staged and was dropped by the following `dissoc`.
+
+  shadow-cljs runs after-load only on a SUCCESSFUL reload, so an aborted reload
+  never reaches here and the last known-good manifest survives. A no-op when no
+  cycle is open."
   ([] (commit-reload! (current-build-id)))
   ([build-id]
-   (when-let [{:keys [staged touched]} (get @reload-cycles build-id)]
-     (let [sources (into (set (keys staged)) touched)]
-       (swap! element-sources
-              (fn [ledger]
-                (reduce (fn [l src]
-                          (if-let [decls (get staged src)]
-                            (assoc l src decls)   ; re-declared: replace whole contribution
-                            (dissoc l src)))      ; zero-declaration / removed: evict
-                        ledger
-                        sources)))
-       (rebuild-live!)
-       (swap! reload-cycles dissoc build-id)))
+   (let [[old _new]
+         (swap-vals! ledger-state
+                     (fn [{:keys [sources cycles] :as st}]
+                       (if-let [{:keys [staged touched]} (get cycles build-id)]
+                         (-> st
+                             (assoc :sources
+                                    (reconcile-sources sources staged touched))
+                             (update :cycles dissoc build-id))
+                         st)))]
+     ;; Publish only when THIS commit closed a cycle (the winning transition saw
+     ;; one in `old`). The cycle is gone from the ledger, so a reentrant
+     ;; registration during the publish takes the write-through path — it cannot
+     ;; be recaptured or dropped by this commit. `publish!` recomputes from the
+     ;; LIVE ledger, so a concurrent write-through's row is never clobbered.
+     (when (contains? (:cycles old) build-id)
+       (publish!)))
    nil))
 
 ;; ---------------------------------------------------------------------------
@@ -1075,9 +1147,24 @@
   ledger, and any in-flight reload cycles."
   []
   (reset! custom-elements {})
-  (reset! element-sources {})
-  (reset! reload-cycles {})
+  (reset! ledger-state {:sources {} :cycles {}})
   nil)
+
+(defn in-flight-cycles
+  "Test support: the set of build-ids with a reload cycle currently OPEN. A
+  quiescent ledger has none; a lingering entry after a commit settles is an
+  orphan cycle. Observability only — not a consumer API (classification reads
+  `custom-element-properties`)."
+  []
+  (set (keys (:cycles @ledger-state))))
+
+(defn projected-aggregate
+  "Test support: the aggregate the public `custom-elements` atom MUST equal — the
+  pure projection of the current ledger `:sources`. A settled ledger's published
+  aggregate always equals this; a divergence is a torn or clobbered projection.
+  Observability only."
+  []
+  (aggregate (:sources @ledger-state)))
 
 (defn custom-element-properties [tag]
   (get-in @custom-elements [tag :properties] #{}))
