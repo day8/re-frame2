@@ -211,8 +211,9 @@ Unresolved `:guard` / `:action` / `:target` names throw at `reg-machine` time
 
 <a id="strict-encapsulation--a-machine-sees-only-its-own-data"></a>
 
-A guard or action gets only `{:data :event :state :meta}` — never app-db. That is
-what keeps a machine's whole state inside one snapshot for time-travel and SSR.
+A guard or action gets `{:data :event :state :meta}` (plus `:rf.cofx` when it
+declares a coeffect, below) — never app-db. That is what keeps a machine's whole
+state inside one snapshot for time-travel and SSR.
 
 | Need | How |
 |---|---|
