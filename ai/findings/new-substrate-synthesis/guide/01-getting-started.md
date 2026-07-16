@@ -44,8 +44,15 @@ the *build digest* advances when you save and the next watch pass completes. Why
 matters is [12 — How it works](12-how-it-works.md). None of this machinery reaches
 advanced production output.
 
-A minimal project is four files: `deps.edn` and `shadow-cljs.edn` at the root, your app
-namespace under `src/`, and an `index.html` with a `<div id="root">`.
+A minimal project is **five** load-bearing files: `deps.edn`, `package.json`, and
+`shadow-cljs.edn` at the root, your app namespace under `src/`, and an `index.html` with
+a `<div id="root">`. The complete, checked, runnable tree — full dependency
+coordinates, the two Shadow settings above, and the exact non-interactive install and
+compile commands — is
+[`examples/ui/minimal-counter`](../../../../examples/ui/minimal-counter/README.md). A CI
+smoke materializes exactly those files, runs `npm install` + `shadow-cljs compile app`,
+and drops any one of them to prove it is genuinely required — so this count cannot quietly
+drift.
 
 ## The whole app
 

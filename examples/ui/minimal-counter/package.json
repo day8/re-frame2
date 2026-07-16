@@ -1,0 +1,17 @@
+{
+  "name": "minimal-counter",
+  "version": "0.0.1",
+  "private": true,
+  "description": "The smallest runnable re-frame.ui project.",
+  "devDependencies": {
+    "shadow-cljs": "3.4.10"
+  },
+  "dependencies": {
+    "react": "19.2.0",
+    "react-dom": "19.2.0"
+  },
+  "scripts": {
+    "watch": "shadow-cljs watch app",
+    "release": "shadow-cljs release app"
+  }
+}

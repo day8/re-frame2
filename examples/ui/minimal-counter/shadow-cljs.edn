@@ -1,0 +1,39 @@
+;; minimal-counter — shadow-cljs build config.
+;;
+;; The Clojure classpath comes from deps.edn via the :shadow alias (which
+;; supplies shadow-cljs's own JVM side). Source paths live in deps.edn's
+;; :paths — shadow IGNORES :source-paths here whenever :deps is used, so
+;; setting it in this file would be silently dead config.
+;;
+;; npm deps (react, react-dom) come from package.json.
+{:deps     {:aliases [:shadow]}
+
+ ;; Serves resources/public on http://localhost:8280 during `watch`.
+ :dev-http {8280 "resources/public"}
+
+ ;; ---------------------------------------------------------------------
+ ;; The two load-bearing re-frame.ui settings (spec/004C-Roots-and-Mount.md
+ ;; §2.1.1, Shadow 3.4.10). Set them ONCE here, not once per build.
+ ;;
+ ;; :cache-blockers  — re-frame.ui's registries are built by macro
+ ;;                    expansion, so a warm disk cache that skips
+ ;;                    re-expansion yields incomplete registries. Blocking
+ ;;                    the cache keeps them a pure function of current
+ ;;                    build inputs.
+ ;; :build-defaults  — the build hook supplies the accepted-build
+ ;;                    transaction and publishes the whole-build digest.
+ ;;
+ ;; Together they make every macro-contributed member present after a warm
+ ;; daemon start. Drop either and the dev build's identity is false.
+ ;; ---------------------------------------------------------------------
+ :cache-blockers #{re-frame.ui}
+ :build-defaults {:build-hooks [(re-frame.ui.compiler.build-hook/hook)]}
+
+ :builds
+ {:app
+  {:target     :browser
+   :output-dir "resources/public/js"
+   :asset-path "/js"
+   ;; shadow's :browser target re-runs :init-fn after each hot reload —
+   ;; no separate ^:dev/after-load hook is needed.
+   :modules    {:main {:init-fn my.app/run}}}}}
