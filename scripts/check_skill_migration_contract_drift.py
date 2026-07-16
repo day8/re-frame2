@@ -65,6 +65,22 @@ Two contract facts, each pinned against the shipped spec:
     ambient calls and lets an AFTER recipe hide behind a BEFORE example
     (rf2-vxgfnd.94.20).
 
+  * **Form-3 capture-once retarget invariance — a POSITIVE-presence + cross-owner
+    alignment check (rf2-aalo4n).** The reagent-slim FORM-3.md is the adopter-
+    facing owner of the Form-3 capture-once recipe; guided-handlers-state.md §M-11
+    is the canonical migration recipe. FORM-3.md recommends capturing the frame
+    once in the outer `reg-view*` callable, but that handle is a LOCKED value that
+    never re-resolves (`make-capture-frame` closes the captured frame over every
+    op — core.cljc), so capture-once is safe ONLY while the mount's provider frame
+    is invariant: a *surviving* instance retargeted from provider A to provider B
+    keeps sending to the stale A. The adopter owner must state the invariant (the
+    A→B stale case, a supported remedy — a frame-derived React `key` remount or the
+    registered `reg-view` child, and a canonical-recipe pointer), and the canonical
+    recipe must still carry the aligned invariance, so the two owners cannot drift
+    apart. Unlike the M-11/M-13 line rules (which KILL stale claims), this asserts
+    a thing must be PRESENT — the same shape as the M-1 anchor pins
+    (`form3_capture_once_retarget_problems`).
+
   * **Boot-smoke Pair partition mismatch (rf2-j538f7.33) — an app-db-only Pair
     read aimed at a runtime-db path.** The boot smoke-test (references/runtime-
     smoke-test.md) must read the two runtime partitions with the right tool.
@@ -152,17 +168,26 @@ ADAPTER_READMES = (
     REPO_ROOT / "implementation" / "adapters" / "reagent" / "README.md",
     REPO_ROOT / "implementation" / "adapters" / "reagent-slim" / "README.md",
 )
+# The reagent-slim Form-3 adopter owner (rf2-aalo4n). FORM-3.md is the
+# adopter-facing companion to the canonical migration recipe (guided-handlers-
+# state.md §M-11); it carries the same lifecycle-frame contract the READMEs do,
+# so it belongs on the same stale-claim scan surface, and its capture-once
+# retarget invariance is pinned by `form3_capture_once_retarget_problems`.
+FORM3_MD = REPO_ROOT / "implementation" / "adapters" / "reagent-slim" / "FORM-3.md"
 
 
 def _scanned_files() -> list[Path]:
     """User-facing migration-skill leaves (SKILL.md + references/*.md), globbed so
     a new reference leaf is covered automatically, plus the migration corpus the
-    skill treats as source of truth. The skill's spec/ meta-docs are excluded
-    (re-authoring material, not loaded during normal operation)."""
+    skill treats as source of truth, the two Reagent adapter READMEs, and the
+    reagent-slim Form-3 adopter owner (FORM-3.md — rf2-aalo4n). The skill's spec/
+    meta-docs are excluded (re-authoring material, not loaded during normal
+    operation)."""
     files = [SKILL_DIR / "SKILL.md"]
     files.extend(sorted((SKILL_DIR / "references").glob("*.md")))
     files.append(MIGRATION_MD)
     files.extend(ADAPTER_READMES)
+    files.append(FORM3_MD)
     return files
 
 
@@ -867,6 +892,125 @@ def m1_anchor_problems() -> list[str]:
     return problems
 
 
+# ---------------------------------------------------------------------------
+# Form-3 capture-once retarget invariance (rf2-aalo4n).
+#
+# The reagent-slim FORM-3.md is the ADOPTER-facing owner of the Form-3
+# capture-once recipe; guided-handlers-state.md §M-11 is the CANONICAL migration
+# recipe. FORM-3.md §4 recommends capturing the frame-aware bundle *once in the
+# outer `reg-view*` callable* (`(rf/capture-frame)`), but that handle is a LOCKED
+# value: the frame is captured at mount and never re-resolves (implementation:
+# `make-capture-frame` closes the captured frame over every op — core.cljc). So
+# capture-once is safe ONLY while the mount's provider frame is invariant. A
+# *surviving* instance retargeted from provider A to provider B keeps sending to
+# the stale A, because React keeps it mounted and the outer callable does not
+# re-run. The canonical recipe records this A→B footgun and its two frame-safe
+# remedies (a frame-derived React `key` remount, or the registered `reg-view`
+# child route); PR #5922 shipped the FORM-3.md capture-once advice WITHOUT the
+# invariance, so the two owners could drift. This guard makes the adopter owner
+# carry the invariant and keeps it aligned with the canonical recipe
+# (rf2-aalo4n; historical rf2-vxgfnd.272/.288).
+#
+# Unlike the M-11/M-13 line rules above (which KILL stale claims), this is a
+# POSITIVE-presence + cross-owner alignment check — the same shape as
+# `m1_anchor_problems`: the invariant is a thing that must be PRESENT, and a
+# future edit must not delete it from one owner while the other still carries it.
+# ---------------------------------------------------------------------------
+
+# capture-once / locked-value framing — the subject the invariance attaches to.
+FORM3_CAPTURE_ONCE_RE = re.compile(
+    r"capture-once|captur(?:e|ed|ing)\s+(?:the\s+frame\s+)?once"
+    r"|locked\s+(?:value|handle)|locks?\s+to\s+(?:the\s+)?one\s+frame",
+    re.IGNORECASE,
+)
+# The A→B retarget footgun — the SAME shape both owners must carry. Tolerant of
+# spelling: "provider A to provider B" / "provider A to B" / "A→B" / "A -> B".
+FORM3_RETARGET_RE = re.compile(
+    r"provider\s+A\s+to\s+(?:provider\s+)?B|(?<![\w])A\s*(?:→|->)\s*B",
+    re.IGNORECASE,
+)
+# At least one supported remedy: a frame-derived React key remount, or the
+# registered `reg-view` child route (route 1).
+FORM3_REMEDY_RE = re.compile(
+    r"frame-derived\s+(?:react\s+)?`?key`?|`?key`?[^.\n]*frame[- ]id"
+    r"|remount|reg-view`?\s+child|route\s+1",
+    re.IGNORECASE,
+)
+# The pointer back to the canonical migration recipe.
+FORM3_RECIPE_POINTER_RE = re.compile(r"guided-handlers-state\.md", re.IGNORECASE)
+
+
+def _form3_capture_once_problems(f3_text: str, g_text: str | None) -> list[str]:
+    """Pure presence + cross-owner alignment check over the two owners' text.
+
+    Kept text-pure (no disk read) so the self-test can exercise it against
+    fixtures and live mutations, mirroring the M-1 classifier / live-corpus teeth.
+    `g_text` is the canonical guided-handlers-state.md text; None skips the
+    cross-owner alignment leg (a SETUP problem is reported separately)."""
+    problems: list[str] = []
+    if not FORM3_CAPTURE_ONCE_RE.search(f3_text):
+        problems.append(
+            "FORM3-CAPTURE-ONCE-MISSING: FORM-3.md no longer frames the "
+            "outer-callable `(rf/capture-frame)` as capture-once / a locked handle "
+            "— the retarget invariance has no subject to attach to (rf2-aalo4n)."
+        )
+    if not FORM3_RETARGET_RE.search(f3_text):
+        problems.append(
+            "FORM3-RETARGET-MISSING: FORM-3.md omits the capture-once retarget "
+            "invariance — it must state that a *surviving* instance retargeted "
+            "from provider A to provider B keeps sending render/lifecycle actions "
+            "to the stale A (the locked handle does not re-resolve; the outer "
+            "callable does not re-run). (rf2-aalo4n; canonical: "
+            "guided-handlers-state.md §M-11.)"
+        )
+    if not FORM3_REMEDY_RE.search(f3_text):
+        problems.append(
+            "FORM3-REMEDY-MISSING: FORM-3.md states the provider A→B stale case "
+            "but points at no supported remedy — name the frame-derived React "
+            "`key` remount or the registered `reg-view` child (route 1). Do NOT "
+            "reach for a mutable / re-pointable capture (rf2-aalo4n)."
+        )
+    if not FORM3_RECIPE_POINTER_RE.search(f3_text):
+        problems.append(
+            "FORM3-RECIPE-POINTER-MISSING: FORM-3.md does not point at the "
+            "canonical migration recipe (guided-handlers-state.md §M-11) for the "
+            "full capture-once retarget routes (rf2-aalo4n)."
+        )
+    if g_text is not None and not (
+        FORM3_RETARGET_RE.search(g_text) and FORM3_CAPTURE_ONCE_RE.search(g_text)
+    ):
+        problems.append(
+            "FORM3-CANONICAL-DRIFT: guided-handlers-state.md no longer carries the "
+            "capture-once provider A→B retarget invariance that FORM-3.md mirrors "
+            "— the adopter owner and the canonical recipe have drifted "
+            "(rf2-aalo4n). Re-align both owners, or re-point this guard's anchors."
+        )
+    return problems
+
+
+def form3_capture_once_retarget_problems() -> list[str]:
+    """Pin the Form-3 capture-once retarget invariance in BOTH owners (rf2-aalo4n).
+
+    The adopter owner (FORM-3.md) must state when capture-once is safe, the
+    provider A→B stale-bundle case, at least one supported remedy, and a pointer
+    to the canonical recipe. The canonical recipe (guided-handlers-state.md §M-11)
+    must still carry the aligned invariance, so the two owners cannot drift
+    apart."""
+    if not FORM3_MD.is_file():
+        return [
+            f"SETUP: Form-3 adopter owner missing: {FORM3_MD.relative_to(REPO_ROOT)}"
+        ]
+    g_text = _slurp(GUIDED_HANDLERS_MD) if GUIDED_HANDLERS_MD.is_file() else None
+    problems = _form3_capture_once_problems(_slurp(FORM3_MD), g_text)
+    if g_text is None:
+        problems.append(
+            f"SETUP: canonical recipe missing: "
+            f"{GUIDED_HANDLERS_MD.relative_to(REPO_ROOT)} — the Form-3 capture-once "
+            "cross-owner alignment leg cannot run."
+        )
+    return problems
+
+
 def find_drift(files: list[Path]) -> tuple[list[str], int]:
     problems: list[str] = []
     lines_checked = 0
@@ -904,12 +1048,14 @@ def run(*, verbose: bool, ci: bool) -> int:
     problems, lines_checked = find_drift(files)
     problems.extend(m1_classifier_problems())
     problems.extend(m1_anchor_problems())
+    problems.extend(form3_capture_once_retarget_problems())
 
     if verbose:
         print(
             f"migration contract-drift guard: scanned {len(files)} files "
             f"({lines_checked} lines) + ran the M-1 classifier over "
-            f"{len(M1_FLAG_NSES) + len(M1_EXEMPT_NSES)} representative requires."
+            f"{len(M1_FLAG_NSES) + len(M1_EXEMPT_NSES)} representative requires "
+            "+ pinned the Form-3 capture-once retarget invariance in both owners."
         )
 
     if not problems:
@@ -918,7 +1064,8 @@ def run(*, verbose: bool, ci: bool) -> int:
                 "contract-drift: no plain-fn-inherits-frame (M-11), "
                 "moved-to-frame-level-:on-error (M-13), boot-smoke Pair "
                 "partition-mismatch (Rule 4), Form-3 bare-lifecycle targeting "
-                "(Rule 5), or M-1 classifier / kickoff-anchor drift found."
+                "(Rule 5), Form-3 capture-once retarget-invariance drift "
+                "(rf2-aalo4n), or M-1 classifier / kickoff-anchor drift found."
             )
         return 0
 
@@ -933,7 +1080,9 @@ def run(*, verbose: bool, ci: bool) -> int:
         "`get-path`/`snapshot {path:}` CANNOT read runtime-db; use "
         "`read-sub [:rf/machine <id>]`), and the M-1 classifier (public "
         "destinations exempt, private internals flagged) / kickoff anchors, plus "
-        "Form-3 lifecycle explicit-frame targeting, to the shipped contract."
+        "Form-3 lifecycle explicit-frame targeting and the Form-3 capture-once "
+        "retarget invariance (FORM-3.md + guided-handlers-state.md §M-11 aligned "
+        "— rf2-aalo4n), to the shipped contract."
     )
     return 1
 
@@ -1485,6 +1634,100 @@ def _self_test() -> int:
     for problem in _live_corpus_mutation_problems():
         print(f"SELF-TEST FAIL (live-corpus mutation): {problem}")
         failures += 1
+
+    # --- Form-3 capture-once retarget invariance (rf2-aalo4n) -------------------
+    # Fixtures for the pure presence + cross-owner alignment helper. A complete
+    # adopter owner carries: capture-once framing, the provider A→B stale case, a
+    # supported remedy, and the canonical-recipe pointer; a canonical owner
+    # carrying the aligned invariance clears the drift leg.
+    K_OWNER = (
+        "Capture-once is a locked handle. It goes stale if a surviving instance "
+        "is retargeted from provider A to provider B — the outer callable does "
+        "not re-run, so the locked handle keeps sending to the stale A, never B. "
+        "Remedy: a frame-derived React `key` remount, or the registered "
+        "`reg-view` child (route 1). See `guided-handlers-state.md` §M-11."
+    )
+    K_CANON = (
+        "Capture-once is locked to one frame; if a surviving instance is "
+        "retargeted from provider A to provider B the locked handle keeps sending "
+        "to the stale A. Force a remount with a frame-derived React key, or use "
+        "route 1."
+    )
+
+    def expect_form3(f3: str, g: str | None, *, dirty: bool, label: str) -> None:
+        nonlocal failures
+        got = bool(_form3_capture_once_problems(f3, g))
+        if got != dirty:
+            print(
+                f"SELF-TEST FAIL ({label}): expected dirty={dirty}, got {got}."
+            )
+            failures += 1
+
+    expect_form3(K_OWNER, K_CANON, dirty=False, label="K1 complete owner + aligned canonical is clean")
+    expect_form3(
+        K_OWNER.replace("retargeted from provider A to provider B", "kept on one frame"),
+        K_CANON, dirty=True, label="K2 owner without the A→B retarget case is dirty",
+    )
+    expect_form3(
+        "It goes stale if a surviving instance is retargeted from provider A to "
+        "provider B. Remedy: a frame-derived React `key` remount, or the "
+        "registered `reg-view` child (route 1). See `guided-handlers-state.md` "
+        "§M-11.",
+        K_CANON, dirty=True, label="K3 owner without capture-once framing is dirty",
+    )
+    expect_form3(
+        K_OWNER.replace(
+            "a frame-derived React `key` remount, or the registered "
+            "`reg-view` child (route 1)", "some other approach"),
+        K_CANON, dirty=True, label="K4 owner naming no supported remedy is dirty",
+    )
+    expect_form3(
+        K_OWNER.replace("See `guided-handlers-state.md` §M-11.", "See below."),
+        K_CANON, dirty=True, label="K5 owner without the canonical pointer is dirty",
+    )
+    expect_form3(
+        K_OWNER,
+        K_CANON.replace("retargeted from provider A to provider B", "kept on one frame"),
+        dirty=True, label="K6 canonical drifting off the A→B invariance is dirty",
+    )
+
+    # Live-corpus teeth: the SHIPPED owners must both carry the invariant, and a
+    # mutation that drops the A→B sentence from either owner must be caught — so a
+    # careless re-author of the real docs cannot make this guard go vacuous.
+    if not FORM3_MD.is_file():
+        print(f"SELF-TEST FAIL (form3 live): {FORM3_MD.name} missing.")
+        failures += 1
+    elif not GUIDED_HANDLERS_MD.is_file():
+        print(f"SELF-TEST FAIL (form3 live): {GUIDED_HANDLERS_MD.name} missing.")
+        failures += 1
+    else:
+        f3_live = _slurp(FORM3_MD)
+        g_live = _slurp(GUIDED_HANDLERS_MD)
+        live = _form3_capture_once_problems(f3_live, g_live)
+        if live:
+            print(
+                "SELF-TEST FAIL (form3 live clean): the shipped Form-3 owners "
+                "already trip the capture-once retarget guard:"
+            )
+            for p in live:
+                print(f"  {p}")
+            failures += 1
+        f3_broken = FORM3_RETARGET_RE.sub("under one steady frame", f3_live)
+        if not _form3_capture_once_problems(f3_broken, g_live):
+            print(
+                "SELF-TEST FAIL (form3 owner mutation): dropping the provider A→B "
+                "retarget sentence from FORM-3.md did not trip the guard — it is "
+                "blind to the shape the adopter owner actually ships."
+            )
+            failures += 1
+        g_broken = FORM3_RETARGET_RE.sub("under one steady frame", g_live)
+        if not _form3_capture_once_problems(f3_live, g_broken):
+            print(
+                "SELF-TEST FAIL (form3 canonical mutation): dropping the provider "
+                "A→B retarget sentence from guided-handlers-state.md did not trip "
+                "the cross-owner drift leg."
+            )
+            failures += 1
 
     if failures:
         print(f"self-test: {failures} failure(s).")
