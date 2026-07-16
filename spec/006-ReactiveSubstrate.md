@@ -1224,7 +1224,9 @@ would misread as unchanged.
 - **`current?`** ≡ not released ∧ node not disposed ∧ same frame ∧ same stabilized
   query. It is the single commit kept-check: an unchanged live lease is **retained
   untouched**; a disposed node (HMR), a frame swap, or a restabilized query fails the
-  check and classifies the site as retargeted.
+  check and classifies the site as retargeted. It is a **pure no-throw predicate** — a
+  value that is not a lease reads `false`, not an error (per
+  [§Error contract](#error-contract--internally-fail-loud-publicly-recover-to-nil)).
 - **Read-after-release** throws typed `:rf.error/read-after-release`, always — it is a
   substrate bug, never an app error. It costs nothing: the commit path checks
   `current?` first and the render path falls back to `probe`, so the throw is
@@ -1351,7 +1353,14 @@ implementation ⟨09 codex2 F1⟩:
 
 The port and the public read API split deliberately ⟨09 codex2 F1 — binding⟩:
 
-- **The port is fail-loud.** Every port operation throws typed on failure:
+- **The port is fail-loud everywhere except its two predicates.** Every port operation
+  that can fail throws typed, with one deliberate exception: the kept-check predicates
+  **`current?` and `owned?` are total and never throw**. Handed a released lease, a
+  disposed node, or a value that is not a lease at all, each returns `false` rather than
+  field-accessing the lease state and leaking a raw host error (a JVM `NullPointerException`,
+  a CLJS `TypeError`) — a value that is not a live node lease is simply not current, and
+  owns no node. They are the commit path's cheap guard, so they answer rather than fail.
+  Every other operation names its typed rejection:
   - `:rf.error/no-such-sub` — the target's own query names an unregistered sub, at
     `probe` or `acquire!`. This is the **same catalogue id** the public surface records
     ([§What happens when a sub references an unknown sub](#what-happens-when-a-sub-references-an-unknown-sub));
@@ -1360,8 +1369,28 @@ The port and the public read API split deliberately ⟨09 codex2 F1 — binding�
   - `:rf.error/frame-destroyed` — `probe`/`acquire!` against a destroyed frame. Again
     the existing always-on catalogue id; its 009 row carries the port's **throwing**
     emit surface (public recovery column unchanged).
-  - `:rf.error/read-after-release` (always) and `:rf.error/reentrant-graph-op` (dev) —
-    catalogued per [009 §Error event catalogue](009-Instrumentation.md#error-event-catalogue).
+  - `:rf.error/observation-malformed-target` — a target violating the port's closed
+    grammar, at `probe` or `acquire!`. `resolve-target` throws the same id for a
+    malformed query-vector, validating the query's shape before it inspects the query
+    or mints a target: the port's only resolution point cannot hand back a target its
+    own consumers would reject.
+  - `:rf.error/observation-malformed-lease` — a value that is not an `ObservationLease`,
+    at `read` or `release!` — the two operations that deref the lease state. This is the
+    lease-side sibling of the malformed-target category, and the boundary the predicates
+    above are exempt from.
+  - `:rf.error/read-after-release` (always), `:rf.error/reentrant-graph-op` (dev),
+    `:rf.error/observation-retry-exhausted` (`acquire!` exhausting its bounded
+    displacement-retry budget against a verifiably live frame), and
+    `:rf.error/observation-port-version-mismatch` (the ABI load guard).
+
+  The two `observation-malformed-*` categories are **diagnostic-channel only**: a
+  malformed target or lease is a substrate bug unreachable in correct generated code,
+  not a production condition an off-box shipper acts on, so neither fans the always-on
+  error-emit axis the way the entry-condition categories do. Both carry bounded,
+  normalized structural evidence — a kind class, a key count, an offending host type —
+  never the field values. Every id above is catalogued with its exact throwing
+  operations and evidence per
+  [009 §Error event catalogue](009-Instrumentation.md#error-event-catalogue).
 - **The public API is untouched.** `subscribe` and `subscribe-once` keep their
   checked-in recovery-to-`nil` semantics (`:replaced-with-default`) for unknown subs
   and destroyed frames — nothing in this section changes
