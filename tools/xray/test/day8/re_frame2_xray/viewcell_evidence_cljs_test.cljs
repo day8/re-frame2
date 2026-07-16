@@ -34,11 +34,14 @@
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.frame :as frame]
+            [re-frame.registrar :as registrar]
             [re-frame.subs.tooling :as subs-tooling]
             [re-frame.ui.reactive :as reactive]
             [re-frame.ui.tool.evidence :as evidence]
             [day8.re-frame2-xray.core :as core]
+            [day8.re-frame2-xray.epoch :as epoch]
             [day8.re-frame2-xray.mount :as mount]
+            [day8.re-frame2-xray.panels.reactive-panel-subs :as reactive-panel-subs]
             ;; The REAL preload — its debug-gated boot block runs at load,
             ;; acquiring the evidence projection under Xray's identity.
             [day8.re-frame2-xray.preload]
@@ -438,3 +441,104 @@
     (xray-test-support/reset-all!)
     (is (= ::another-tool (evidence/installed-owner))
         "owner-checked reset never clobbers a foreign owner")))
+
+;; ===========================================================================
+;; LIVE UPGRADE — the reactivity bridge migrates into an ALREADY-registered
+;; pre-#5915 process (rf2-ykaq4u)
+;; ===========================================================================
+
+(defn- evidence-sub-input-ids
+  "The static `:<-` input sub-ids of `:rf.xray/viewcell-evidence`, read off
+  the live `sub-topology`. `[]` when the sub is unregistered."
+  []
+  (let [inputs (:inputs (get (subs-tooling/sub-topology) :rf.xray/viewcell-evidence))]
+    (map #(if (vector? %) (first %) %) (or inputs []))))
+
+(deftest live-upgrade-from-a-pre-bridge-process-installs-the-reactivity-bridge
+  ;; Model a pre-#5915 already-registered Xray process the way a live shadow
+  ;; `:after-load` of new code onto an old process presents it:
+  ;;   - the umbrella idempotency gate is SET (the OLD full install ran),
+  ;;   - the OLD epoch-only `:rf.xray/viewcell-evidence` sub is cached (its
+  ;;     `:rf.xray/epoch-history` input registered by the old full install),
+  ;;   - the ownership event/sub/listener + two-input evidence sub are ABSENT,
+  ;;   - NO schema stamp (schema-versioning did not exist in the old code).
+  ;;
+  ;; The runtime fixture restores a registrar SNAPSHOT that already carries
+  ;; the current bridge (the preload boot registered it before the snapshot
+  ;; was taken), so modelling the pre-bridge shape means actively
+  ;; DOWNGRADING: re-register the epoch-only evidence sub (replacing the
+  ;; two-input one) and remove the ownership event + sub. Both the
+  ;; epoch-history input and the old evidence sub come from their CANONICAL
+  ;; owner namespaces (never the test ns) so `make-frame`'s image assembly
+  ;; sees a single source coordinate per id, not a duplicate.
+  (epoch/install!)
+  (reactive-panel-subs/install-legacy-viewcell-evidence-sub-for-test!)
+  (registrar/unregister! :event :rf.xray/viewcell-evidence-ownership-changed)
+  (registrar/unregister! :sub :rf.xray/viewcell-evidence-ownership)
+  (viewcell-evidence/set-ownership-listener! nil)
+  (registry/simulate-legacy-registration!)
+  (rf/make-frame {:id :rf/xray})
+
+  (testing "PRECONDITION — the legacy shape lacks the reactivity bridge"
+    (is (nil? (registrar/handler :event :rf.xray/viewcell-evidence-ownership-changed))
+        "no ownership-transition event")
+    (is (nil? (registrar/handler :sub :rf.xray/viewcell-evidence-ownership))
+        "no ownership-revision sub")
+    (is (not (some #{:rf.xray/viewcell-evidence-ownership} (evidence-sub-input-ids)))
+        "the cached evidence sub is epoch-only — one input"))
+
+  ;; The live upgrade: the reloaded preload re-runs register-xray-handlers!.
+  ;; Under the pre-fix boolean-only gate this no-ops entirely (umbrella set)
+  ;; and the bridge stays absent; the schema-migration seam installs it.
+  (registry/register-xray-handlers!)
+
+  (testing "the migration installed the ownership event + revision sub, callable in :rf/xray"
+    (is (some? (registrar/handler :event :rf.xray/viewcell-evidence-ownership-changed)))
+    (is (some? (registrar/handler :sub :rf.xray/viewcell-evidence-ownership)))
+    (is (= 0 (rf/with-frame :rf/xray
+               @(rf/subscribe [:rf.xray/viewcell-evidence-ownership])))
+        "the ownership-revision sub reads its default in the :rf/xray frame"))
+
+  (testing "TOPOLOGY — :rf.xray/viewcell-evidence now depends on the ownership axis"
+    ;; The bead's registration-topology proof: the re-registered two-input
+    ;; sub replaced the cached epoch-only one.
+    (is (some #{:rf.xray/viewcell-evidence-ownership} (evidence-sub-input-ids))
+        "an acquire/release now recomputes the query without an epoch pump"))
+
+  (testing "acquire then release IMMEDIATELY invalidate a held Views subscription"
+    ;; The immediate-reactivity claim the PR made and the bug broke: on the
+    ;; plain-atom node adapter every deref recomputes, so this is the live
+    ;; held-subscription surface — the receipt fence keeps it honest.
+    (let [receipt (viewcell-evidence/acquire!)
+          cell    (reactive/make-cell ::live)
+          sub     (rf/with-frame :rf/xray
+                    (rf/subscribe [:rf.xray/viewcell-evidence]))]
+      (is (some? receipt) "Xray claimed a fresh span on the upgraded process")
+      (reactive/mark-dirty! cell 1)
+      (reactive/flush-pending!)
+      (is (seq @sub) "non-empty while Xray owns the span")
+      (viewcell-evidence/release-current!)
+      (is (= [] @sub)
+          "empty immediately after release — the migrated ownership axis
+           recomputed it, not a later epoch pump (no stale row)"))))
+
+(deftest live-upgrade-migration-is-idempotent-and-installs-one-listener
+  ;; A completed upgrade (or a fresh boot) must NOT re-migrate on the next
+  ;; `:after-load`: repeated register-xray-handlers! calls leave exactly one
+  ;; ownership listener and never re-replace the bridge in a flood.
+  (boot-xray!)
+  (is (some? (viewcell-evidence/acquire!)) "Xray owns a fresh span")
+  (let [rev-after-acquire (viewcell-evidence/ownership-revision)]
+    ;; Re-run register twice — the shadow `:after-load` shape on a
+    ;; current-schema process. The umbrella no-ops AND the migration seam
+    ;; no-ops (already at schema-version), so neither the ledger nor the
+    ;; listener is touched: the revision does not move.
+    (registry/register-xray-handlers!)
+    (registry/register-xray-handlers!)
+    (is (= rev-after-acquire (viewcell-evidence/ownership-revision))
+        "no re-migration on a current-schema reload — the ledger is untouched")
+    ;; The single wired listener drives exactly one revision bump per
+    ;; ownership transition: releasing the owned span bumps once.
+    (is (true? (viewcell-evidence/release-current!)))
+    (is (= (inc rev-after-acquire) (viewcell-evidence/ownership-revision))
+        "exactly one ownership listener — one transition, one revision bump")))

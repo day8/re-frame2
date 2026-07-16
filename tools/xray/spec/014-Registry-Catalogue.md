@@ -89,6 +89,53 @@ NOT call `reset-for-test!`. Per-panel `install!` helpers run inside
 the same gate so panel-owned registrations inherit idempotency
 without re-doing the dance.
 
+### Schema version + live-upgrade migration seam (rf2-ykaq4u)
+
+The `compare-and-set!` boolean gate handles the ONE-TIME bulk install,
+but a boolean alone cannot express *"this process registered under OLD
+code and is now running NEW code that adds a handler the old install
+never ran"*. On `:after-load` the umbrella gate no-ops the whole leaf
+install, so a handler introduced by newer code — kept inside a per-panel
+`install!` — never reaches the already-registered process; it stays
+behind until a full page reload. The ViewCell evidence reactivity bridge
+stranded exactly this way in a pre-#5915 → current live upgrade: the
+umbrella was set, so the reloaded preload's `register-xray-handlers!`
+no-op'd, leaving the old epoch-only `:rf.xray/viewcell-evidence` sub
+cached and the ownership event/sub/listener + two-input evidence sub
+uninstalled — an evidence acquire/release could not invalidate a held
+Views subscription until an unrelated epoch pump.
+
+The fix is a SECOND axis alongside the boolean gate — a
+`schema-version` integer plus an `installed-schema` `defonce` stamp:
+
+- A **fresh boot** runs the whole leaf install (the current bridge
+  included) and stamps `installed-schema` CURRENT.
+- The **migration seam** runs INDEPENDENTLY of the umbrella gate: when
+  `installed-schema` is behind `schema-version` (nil ⇒ a
+  pre-schema-versioning process reads as schema 0), `migrate-schema!`
+  installs EXACTLY the bounded delta of handlers each newer version adds,
+  then stamps CURRENT. Each clause is additive, idempotent (re-frame's
+  registrar replaces in place), and gated on the process predating the
+  version that introduced its handler — so this is **NOT** an
+  unconditional whole-registry re-registration, only the missing delta,
+  and only for a process that is behind.
+- Once at `schema-version` (a fresh boot, or a completed upgrade) the
+  seam no-ops, so a current process re-loading itself emits no
+  handler-replaced flood and installs exactly one of each singleton sink
+  (e.g. the evidence ownership listener).
+
+Bump `schema-version` and pair it with a `migrate-schema!` clause
+whenever a change adds a handler an already-registered older process
+would otherwise never install. Version `1` is the ViewCell evidence
+reactivity bridge (see [spec/021 §3.4.1](./021-Dynamic-Panel-Designs.md)),
+installed via `reactive-panel/install-viewcell-evidence-bridge!` so the
+bridge stays panel-owned; `migrate-schema!` reaches it through the
+`reactive-panel` facade the orchestrator already requires. Tests drive
+the upgrade via `registry/simulate-legacy-registration!` (test-only:
+poses the umbrella-set / no-schema-stamp sentinels of a pre-#5915
+process); `reset-for-test!` clears both the boolean gate and the schema
+stamp.
+
 ### Production registration carries no test seams (rf2-e8330v / xxo3zz F3)
 
 `register-xray-handlers!` (and the per-panel `install!` helpers it
