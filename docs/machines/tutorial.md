@@ -100,12 +100,13 @@ HTTP itself.
 - `:clear-error` — wipe the last error on a fresh submit
 - `:record-error` — bump `:attempts` and store a message
 - `:store-session` — dispatch an ordinary effect on success
-- **Candidate list** on failure — under three attempts → error UI; otherwise lock out
+- **Candidate list** on failure — the first two failures show the error; the third
+  records it and locks out (three attempts total)
 
 ```clojure
 :guards
 {:form-valid?       …
- :under-retry-limit (fn [{data :data}] (< (:attempts data) 3))}
+ :under-retry-limit (fn [{data :data}] (< (:attempts data) 2))}
 
 :actions
 {:clear-error
@@ -125,11 +126,14 @@ HTTP itself.
       :auth.login/failure [{:target :error-shown
                             :guard  :under-retry-limit
                             :action :record-error}
-                           {:target :locked-out}]}}
+                           {:target :locked-out
+                            :action :record-error}]}}
 ```
 
-A **vector of candidates** is tried in order; first guard that passes wins. After
-three failures, `:under-retry-limit` fails and the unguarded candidate locks out.
+A **vector of candidates** is tried in order; first guard that passes wins. The
+guard reads the *pre-action* `:attempts`, so it passes for the first two failures;
+on the third it fails and the fallback candidate records that final error before
+locking out — so the terminal failure is counted, not discarded.
 
 !!! note "`:data` merges"
 
@@ -146,7 +150,9 @@ three failures, `:under-retry-limit` fails and the unguarded candidate locks out
 
 Add an **`:entry`** action on `:submitting` that fires [managed HTTP](../async/http.md),
 and an **`:after`** deadline if the server stalls. Tag the state so views can ask
-"busy?" without naming it:
+"busy?" without naming it. Managed HTTP is its own artefact — require
+`[re-frame.http.managed]` at boot (it registers `:rf.http/managed`), or the effect
+resolves to `:rf.error/no-such-fx`:
 
 ```clojure
 :issue-request
@@ -165,7 +171,11 @@ and an **`:after`** deadline if the server stalls. Tag the state so views can as
 :submitting
 {:tags  #{:auth/busy}
  :entry :issue-request
- :after {8000 {:target :error-shown :action :record-timeout}}
+ :after {8000 [{:target :error-shown
+                :guard  :under-retry-limit
+                :action :record-timeout}
+               {:target :locked-out
+                :action :record-timeout}]}
  :on    {…}}   ;; success / failure as in step 3
 ```
 
@@ -174,7 +184,10 @@ on purpose — managed HTTP **appends** the [canonical reply envelope](../async/
 onto the inner event, so `:store-session` sees
 `[:auth.login/success {:status :ok :value {:token "…"} …}]`.
 
-`:after` arms on entry and cancels on exit. Deeper timer grammar:
+`:after` arms on entry and cancels on exit. A stall counts as an attempt too: the
+timeout carries the **same guarded candidate list** as a rejected login (an `:after`
+value takes the same shape as an `:on` clause), so the third stall — or the third
+failure — records its error and locks out. Deeper timer grammar:
 [Automatic transitions](automatic-transitions.md).
 
 ## Step 5 — render every state
@@ -230,14 +243,18 @@ No frame, no browser, no network:
     (is (= :submitting (:state (result/snap r))))
     (is (= :rf.http/managed (ffirst (result/fx r)))))   ;; :entry ran :issue-request
 
+  ;; Two failures already recorded (:attempts 2); the third is terminal.
   (let [r (machines/machine-transition
             login-flow
-            {:state :submitting :data {:attempts 3 :error nil}}
+            {:state :submitting :data {:attempts 2 :error nil}}
             ;; Pure-table test: invent the failure shape the action expects.
             ;; Live HTTP would append {:status :error :error …} instead.
             [:auth.login/failure {:error {:message "bad creds"}}])]
     (is (result/ok? r))
-    (is (= :locked-out (:state (result/snap r))))))
+    (is (= :locked-out (:state (result/snap r))))
+    ;; the terminal failure is still counted — attempts bumped, message stored
+    (is (= 3 (get-in (result/snap r) [:data :attempts])))
+    (is (= "bad creds" (get-in (result/snap r) [:data :error])))))
 ```
 
 More on Result accessors and Xray: [Inspecting and testing](inspecting-machines.md).
@@ -249,7 +266,8 @@ Everything above in one registration — the form you copy into a real app:
 ```clojure
 (ns app.login
   (:require [re-frame.core :as rf]
-            [re-frame.machines]))
+            [re-frame.machines]
+            [re-frame.http.managed]))   ;; registers :rf.http/managed — the :issue-request fx
 
 (rf/defmachine login-flow
   {:initial :idle
@@ -260,7 +278,7 @@ Everything above in one registration — the form you copy into a real app:
     (fn [{[_ creds] :event}]
       (and (seq (:email creds)) (seq (:password creds))))
     :under-retry-limit
-    (fn [{data :data}] (< (:attempts data) 3))}
+    (fn [{data :data}] (< (:attempts data) 2))}
 
    :actions
    {:clear-error
@@ -301,12 +319,17 @@ Everything above in one registration — the form you copy into a real app:
     :submitting
     {:tags  #{:auth/busy}
      :entry :issue-request
-     :after {8000 {:target :error-shown :action :record-timeout}}
+     :after {8000 [{:target :error-shown
+                    :guard  :under-retry-limit
+                    :action :record-timeout}
+                   {:target :locked-out
+                    :action :record-timeout}]}
      :on    {:auth.login/success {:target :authed :action :store-session}
              :auth.login/failure [{:target :error-shown
                                    :guard  :under-retry-limit
                                    :action :record-error}
-                                  {:target :locked-out}]}}
+                                  {:target :locked-out
+                                   :action :record-error}]}}
 
     :error-shown
     {:on {:auth.login/dismiss {:target :idle}
