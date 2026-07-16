@@ -109,18 +109,13 @@
   A consumer that wants the complete \"an actor went away\" record must
   therefore read BOTH channels — neither alone is complete.
 
-  `:parent-unmount-cascade` is reserved by 005 §Final states D6 with no
-  current emit site (the reference implementation stamps `:explicit`
-  for parent-cascade teardowns); it is admitted on the fx channel so a
-  runtime that starts discriminating the two does not read as corrupt
-  here. `:actor-destroyed` is deliberately ABSENT: it is an HTTP/WS
-  abort `:cancel-cause`, never a machine-destroy `:reason` — see
-  `cancel-cause` below."
+  `:actor-destroyed` is deliberately ABSENT: it is an HTTP/WS abort
+  `:cancel-cause`, never a machine-destroy `:reason` — see `cancel-cause`
+  below."
   {:rf.machine.lifecycle/destroyed #{:parent-frame-destroyed}
    :rf.machine/destroyed           #{:rf.machine/finished
                                      :rf.machine/join-reaped
-                                     :explicit
-                                     :parent-unmount-cascade}})
+                                     :explicit}})
 
 (def ^:private destroy-operations
   "The destroy trace channels — the key set of the matrix above."
@@ -152,8 +147,7 @@
   "The subset of the matrix's reasons that classify a destroy as a
   CANCELLATION — the actor was torn down before reaching a `:final?`
   leaf. Spans both channels: `:parent-frame-destroyed` rides the
-  registrar channel, `:explicit` / `:parent-unmount-cascade` the fx
-  channel.
+  registrar channel, `:explicit` the fx channel.
 
   Excluded (emittable, but NOT cancellations):
 
@@ -166,8 +160,7 @@
   (channel, reason) tuple must also be emittable. See
   `cancellation-anchor?`."
   #{:parent-frame-destroyed
-    :explicit
-    :parent-unmount-cascade})
+    :explicit})
 
 (def ^:const default-actor-destroy-window-ms
   "Best-effort wall-clock window (ms) around the anchor's `:time` for
