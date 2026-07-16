@@ -18,12 +18,21 @@
     pattern natively; the CLJS emitter lowers exactly these units to property
     reads. Because the units are the host's collapse, the two emitters agree.
 
-  The critical property is COLLAPSE: when two entries bind the SAME local
-  (`{:keys [x] x :foo}`), the host's map-destructuring overwrite semantics keep
-  ONE binding with ONE winning lookup key (`x <- :x`), and so does this plan —
-  never two bindings, never a silent last-wins. Likewise a qualified group local
-  (`{:keys [acct/id]}`) keeps its qualified lookup key (`:acct/id`), never a bare
-  `:id`.")
+  The critical property is COLLAPSE at the host `bes` map: when two entries share
+  a `bes` KEY (`{:keys [x] x :foo}` — the group directive's `assoc` overwrites the
+  explicit `x`), the host keeps ONE binding with ONE winning lookup key
+  (`x <- :x`), and so does this plan — never two bindings, never a silent
+  last-wins. A qualified group local (`{:keys [acct/id]}`) keeps its qualified
+  lookup key (`:acct/id`), never a bare `:id`.
+
+  One residual case does NOT collapse here, deliberately: a qualified group local
+  whose bare NAME collides an explicit local (`{:keys [ns/x] x :other}`) keeps two
+  DISTINCT `bes` keys (`ns/x`, `x`) that both name-strip to the same local `x`. The
+  host binds it once via `let` last-wins (`x <- :ns/x`), but the two units must
+  stay separate HERE so the analyzer's scope walk judges each unit's lookup-key /
+  `:or` default against the scope live at ITS binding point. The defview header
+  parser (`header/collapse-entries`) folds these two units to the single winning
+  entry for its derived slots; the general scope walk keeps both.")
 
 (defn key-group-kw?
   "True for a `:keys`/`:strs`/`:syms` map-destructuring group directive (any
@@ -61,11 +70,15 @@
   threshold and the hash order are identical on CLJ and CLJS, so reproducing the
   transform here is faithful to both.
 
-  Two entries binding the SAME local COLLAPSE, exactly as the host's `bes` map
+  Two entries that share a `bes` KEY COLLAPSE, exactly as the host's `bes` map
   collapses them: `{:keys [x] x :foo}` yields the single unit `x <- :x` (the
   group directive's `assoc` overwrites the explicit entry's value), never two
   bindings and never a silent last-wins. A group local keeps its QUALIFIED
-  lookup key: `{:keys [acct/id]}` yields `id <- :acct/id`, never bare `:id`.
+  lookup key: `{:keys [acct/id]}` yields `id <- :acct/id`, never bare `:id`. A
+  qualified group local whose bare name collides an explicit local
+  (`{:keys [ns/x] x :other}`) keeps DISTINCT `bes` keys and so stays TWO units
+  binding one local via host last-wins — consumed in order by the scope walk;
+  the header parser (`collapse-entries`) folds them for its derived slots.
 
   `:as` is NOT included — it binds first, before `bes`, so the caller seeds it
   into scope. Each unit is `{:local-pattern p :key k :explicit? bool}`:

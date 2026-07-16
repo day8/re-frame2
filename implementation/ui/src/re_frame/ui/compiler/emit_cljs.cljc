@@ -571,10 +571,13 @@
   native destructuring the JVM emitter uses — then ONE property-read per
   collapsed binding unit. The entries are already the host `bes` order with
   winning lookup slots (`parse-header` routed them through the ONE canonical
-  binding plan, `bp/assoc-binding-units`), so there is NOTHING left to sort or
-  de-collide here: two header entries binding the same local emit exactly one
-  read of the host's winning slot (never two, never a silent last-wins), and a
-  qualified `:keys` local reads its qualified slot. Emitting `:as` last, or the
+  binding plan, `bp/assoc-binding-units`, then `header/collapse-entries`), so
+  there is NOTHING left to sort or de-collide here: two header entries binding
+  the same local — whether they collided in the `bes` map or only after a
+  qualified group local name-strips onto an explicit local — already collapsed
+  in `parse-header` to one entry, so this emits exactly one read of the host's
+  winning slot (never two, never a silent last-wins), and a qualified `:keys`
+  local reads its qualified slot. Emitting `:as` last, or the
   entries in parse order, could resolve a dependent `:or` default to a different
   symbol on CLJS than on the JVM — including a public reactive authoring var."
   [header]

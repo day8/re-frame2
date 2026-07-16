@@ -252,6 +252,37 @@
   (is (nil? (header/props-schema-keys 'SomeSchemaVar))
       "non-literal schemas cannot be introspected — no closed-map enforcement"))
 
+(deftest qualified-group-name-collision-drops-the-dead-declared-slot
+  ;; rf2-7imr5y — header `{:keys [ns/x] x :other}`: the qualified group local
+  ;; `ns/x` name-strips onto the explicit local `x`; the host binds `x <- :ns/x`
+  ;; (last-wins) and the explicit `:other` lookup is DEAD (never bound). The
+  ;; collapse now drops `:other` from the declared slots, so it no longer
+  ;; over-declares in the manifest / over-compares in the memo comparator.
+  (testing "the dead-shadowed :other is not a declared slot; :ns/x is"
+    (let [hdr (header/parse-header '[{:keys [ns/x] x :other}])]
+      (is (= [:ns/x] (:slots hdr)) "only the host-winning :ns/x is declared")
+      (is (= [:ns/x] (header/declared-slots hdr nil)))))
+  ;; The observable BEHAVIOUR CHANGE (flagged in the PR): under a CLOSED :props
+  ;; schema the dead `:other` was silently ACCEPTED as a declared prop; after the
+  ;; collapse it is NOT declared, so passing it at a literal call site is a
+  ;; compile error. Correct — `:other` is never bound, so declaring it was the
+  ;; bug. Pinned via a self-render call site (exercises :self-closed-keys).
+  (testing "CLOSED :props now REJECTS the dead :other at a call site"
+    (is (nil? (expand-error
+               '(re-frame.ui/defview v {:props [:map [:ns/x :any]]}
+                  [{:keys [ns/x] x :other}] [v {:ns/x 1}])))
+        "the declared, host-winning :ns/x prop is accepted")
+    (is (= :rf.ui.compile/undeclared-prop
+           (expand-error
+            '(re-frame.ui/defview v {:props [:map [:ns/x :any]]}
+               [{:keys [ns/x] x :other}] [v {:other 1}])))
+        "the dead :other is no longer a declared prop — closed-map rejects it"))
+  (testing "OPEN :props (no schema) is unchanged — extra props stay legal"
+    (is (nil? (expand-error
+               '(re-frame.ui/defview v
+                  [{:keys [ns/x] x :other}] [v {:other 1}])))
+        "an open map accepts undeclared props, dead-shadowed or not")))
+
 ;; ---------------------------------------------------------------------------
 ;; custom-element (RULED grammar, closed)
 ;; ---------------------------------------------------------------------------
