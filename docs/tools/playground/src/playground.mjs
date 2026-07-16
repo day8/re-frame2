@@ -447,6 +447,18 @@ function ensureRf2(onReady) {
 }
 
 function loadPlayground() {
+  // Instant-nav teardown (rf2-io9mdr). Material's navigation.instant has
+  // already swapped <main>, discarding the OUTGOING page's live cells. Release
+  // that page's re-frame2 resources — every detached React root plus every
+  // page-owned frame — BEFORE mounting this page's cells, so roots don't
+  // accumulate and a colliding frame id can't reuse the prior page's state
+  // (its :initial-events seed skipped). Run it unconditionally when the bundle
+  // is present — INCLUDING when navigating to a cell-less page (which returns
+  // just below): a no-op on first load (bundle not yet injected) and whenever
+  // nothing was created.
+  if (window.rf2sci && window.rf2sci.disposePage) {
+    window.rf2sci.disposePage();
+  }
   if (!hasCells()) return;
   // The re-frame2 bundle is independent of Scittle (it carries its own SCI +
   // React). Plain ```cljs cells still need Scittle.
@@ -482,3 +494,7 @@ if (window.document$ && typeof window.document$.subscribe === "function") {
 window.__rf2PlaygroundMountAll = mountAll;
 window.__rf2PlaygroundEvalCljs = evalCljs;
 window.__rf2PlaygroundRenderRf2 = renderComponentRf2;
+// The instant-nav entrypoint (rf2-io9mdr): the smoke drives a simulated
+// navigation.instant swap by replacing the cell DOM then calling this, exactly
+// as Material's document$ subscription does on a real page swap.
+window.__rf2PlaygroundLoad = loadPlayground;

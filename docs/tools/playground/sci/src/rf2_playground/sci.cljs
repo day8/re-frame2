@@ -227,23 +227,42 @@
 ;; subscribe-in-component render works. Install the reagent-slim adapter
 ;; once, the first time the bundle is asked to eval/render anything.
 
-(defonce ^:private inited? (atom false))
+;; The reagent-slim adapter install (`rf/init!`) is PROCESS-GLOBAL: once per
+;; bundle load, never torn down. `dispose-page!` (below) reaps page-owned frames
+;; on every instant nav but must NOT un-install the adapter, so its guard is
+;; kept separate from the (page-owned) app-frame creation.
+(defonce ^:private adapter-inited? (atom false))
+
+(defn- ensure-adapter! []
+  (when-not @adapter-inited?
+    (rf/init! reagent-slim-adapter/adapter)
+    (reset! adapter-inited? true)))
 
 ;; EP-0002 (carried-frame invariant): `rf/init!` installs the adapter but the
 ;; runtime never synthesises a frame from absence. The playground is a
 ;; consumer app, so it establishes its own app frame — `app-frame`,
-;; `:rf/default` (defined up top) — once, here. Cells then dispatch/subscribe
-;; against it without any per-cell frame boilerplate: `renderLast` evaluates
-;; each cell's source under a `with-frame :rf/default` scope (so a top-level
-;; `dispatch-sync` in the cell resolves), mounts the cell's component under a
-;; `frame-provider` (so the render-time `subscribe` resolves), and the SCI-
-;; bound `dispatch`/`dispatch-sync`/`subscribe` wrappers default to `app-frame`
-;; (so a DEFERRED `:on-click` dispatch resolves too).
+;; `:rf/default` (defined up top). Cells then dispatch/subscribe against it
+;; without any per-cell frame boilerplate: `renderLast` evaluates each cell's
+;; source under a `with-frame :rf/default` scope (so a top-level `dispatch-sync`
+;; in the cell resolves), mounts the cell's component under a `frame-provider`
+;; (so the render-time `subscribe` resolves), and the SCI-bound
+;; `dispatch`/`dispatch-sync`/`subscribe` wrappers default to `app-frame` (so a
+;; DEFERRED `:on-click` dispatch resolves too).
+;;
+;; The app frame is PAGE-OWNED (rf2-io9mdr): `dispose-page!` destroys it on each
+;; Material instant nav so the incoming page starts from `:rf/default`'s
+;; documented initial (empty) app-db, not the outgoing page's accumulated
+;; state. It is therefore (re)created ON DEMAND — whenever a render runs and the
+;; frame is not currently live — rather than once behind a boot flag. `frame-ids`
+;; is the live, non-destroyed set, so a `contains?` miss means a prior dispose
+;; reaped it (or it was never made) and we recreate it fresh.
+(defn- ensure-app-frame! []
+  (when-not (contains? (rf/frame-ids) app-frame)
+    (rf/make-frame {:id app-frame})))
+
 (defn- ensure-init! []
-  (when-not @inited?
-    (rf/init! reagent-slim-adapter/adapter)
-    (rf/make-frame {:id app-frame})
-    (reset! inited? true)))
+  (ensure-adapter!)
+  (ensure-app-frame!))
 
 ;; ---------------------------------------------------------------------------
 ;; JS entry points
@@ -323,11 +342,70 @@
     nil))
 
 ;; ---------------------------------------------------------------------------
+;; Instant-navigation teardown (rf2-io9mdr)
+;; ---------------------------------------------------------------------------
+
+(defn ^:export disposePage
+  "Release every PAGE-OWNED resource this bundle created for the OUTGOING
+  document. The JS bootstrap calls it on each Material `navigation.instant`
+  page swap (a `window.document$` emission) BEFORE the incoming page's cells
+  mount. Two process-global leaks close here:
+
+    1. Detached React roots. `roots` is a cache keyed by each cell's result
+       element. An instant nav discards the whole `<main>` (and every cell in
+       it) WITHOUT telling React, so those roots stay mounted — holding
+       component instances, effects, and live Reactions/subscriptions — on
+       now-detached DOM, accumulating one dead root per cell per visited page.
+       We `unmount` every cached root (React runs its teardown, releasing the
+       Reactions) and drop the cache.
+
+    2. Stale frames. Cells author their OWN frames with page-agnostic ids
+       (`:app`, `:demo`, `:orders`, the shared `:rf/default`, …), and those
+       live in the process-global frame registry. A new page's
+       `make-frame` / `frame-root` for a colliding id is IDEMPOTENT REPLACEMENT
+       (Spec 002 §Duplicate id policy): durable app-db is PRESERVED and
+       `:initial-events` is re-recorded but NEVER REPLAYED — so the incoming
+       page inherits the prior page's app-db and its intended seed is skipped.
+       Destroying every live frame here (the `destroy-frame!` half of the
+       spec's `destroy-frame!` + re-seat full-replace idiom) forces the next
+       page's cells to recreate + RE-SEED their frames from scratch, so
+       navigating between pages can't reuse another cell's frame state and
+       returning to a page reproduces its documented initial state.
+
+  NOT reset: the adapter install (process-global, reused across pages) and the
+  framework registrations the machines/flows artefacts install at bundle init
+  (the `:rf/machine` sub, `:rf.machine/*` fxs, `:rf/flow` slots — global, not
+  page-owned; a machine/flow cell on a later page still resolves them). A cell's
+  OWN `reg-event`/`reg-sub`/`reg-view` registrations are re-established by that
+  cell's re-eval on mount (registration is by-id overwrite), so no page-owned
+  registration survives into a colliding id on the next page.
+
+  Idempotent + defensive: safe to call when nothing was created (empty cache,
+  no frames) and each teardown is guarded so one failure can't strand the rest.
+  Returns nil."
+  []
+  ;; 1. Unmount + forget every cached root (releases detached roots + Reactions).
+  (doseq [[_el root] @roots]
+    (try (rdc/unmount root) (catch :default _ nil)))
+  (reset! roots {})
+  ;; 2. Destroy every live frame so the next page re-seeds from scratch.
+  ;;    `frame-ids` is evaluated ONCE (a snapshot set), so destroying — which
+  ;;    mutates the live registry — can't disturb the iteration.
+  (doseq [id (rf/frame-ids)]
+    (try (rf/destroy-frame! id) (catch :default _ nil)))
+  nil)
+
+;; ---------------------------------------------------------------------------
 ;; Install the JS-visible global the bootstrap reads.
 ;; ---------------------------------------------------------------------------
 
 (defn ^:export init []
   (set! (.-rf2sci js/window)
-        #js {:renderLast renderLast}))
+        #js {:renderLast   renderLast
+             :disposePage  disposePage
+             ;; Test-only introspection (rf2-io9mdr): the count of live cached
+             ;; roots, so the instant-nav smoke can prove `disposePage` released
+             ;; the outgoing page's detached roots rather than leaking them.
+             :liveRootCount (fn [] (count @roots))}))
 
 (init)

@@ -48,6 +48,15 @@
  *     no-op the start kick and stick at :booting. The static half is
  *     scripts/check-playground-sci-freshness.sh.
  *
+ * Asserts the rf2-io9mdr (instant-navigation isolation) contract:
+ *   - Simulating a Material navigation.instant swap (tear out the mounted
+ *     cells, inject a "page 2", re-fire the bootstrap's document$ entrypoint)
+ *     RELEASES the outgoing page's detached React roots (live root count is
+ *     page-2's cell count, not the accumulated sum) and DESTROYS its frames, so
+ *     a page-2 cell reusing a page-1 frame id re-seeds from scratch rather than
+ *     inheriting the stale app-db. A fresh machine cell still resolves after the
+ *     teardown, proving framework registrations (not page-owned) survive.
+ *
  * Run: node test/smoke.test.mjs   (after both bundles are built + `npm run
  * browsers`)
  */
@@ -555,6 +564,100 @@ const c1afterRf2 = await evalCell(0);
 assert(
   c1afterRf2.text.includes("=> 6"),
   `plain cell still evals to 6 alongside rf2 cell (got ${JSON.stringify(c1afterRf2.text)})`
+);
+
+// --- rf2-io9mdr: instant-navigation isolation + detached-root release --------
+//
+// Material's navigation.instant swaps <main> and re-fires window.document$
+// WITHOUT reloading the page, so the playground bootstrap re-scans the fresh
+// DOM but every prior page's React root + re-frame2 frame is still alive
+// process-globally. This section simulates one such nav: it (1) records the
+// live root count from page 1, (2) tears the page-1 cell DOM out and injects a
+// "page 2" whose cells REUSE a page-1 frame id (:rf2smoke/frame) with a fresh
+// seed and register a fresh machine, then (3) drives the SAME entrypoint a real
+// document$ emission would (window.__rf2PlaygroundLoad).
+//
+// Proves the fix (rf2-io9mdr):
+//   - Detached roots released: post-nav live root count is page-2's cell count
+//     (2), NOT the accumulated 8 + 2 = 10. Without disposePage the roots leak.
+//   - Frame isolation / seed replay: :rf2smoke/frame carried {:rv 2} from
+//     page 1; page 2 re-`make-frame`s the SAME id with :initial-events. Idempotent
+//     replacement PRESERVES durable app-db and never REPLAYS the seed (Spec 002
+//     §Duplicate id policy), so without the destroy-frame! in disposePage the
+//     :label seed is skipped and the cell renders "label: ". With the fix the
+//     frame is destroyed on nav, recreated fresh, and the seed replays.
+//   - Framework registrations survive: a fresh machine cell resolves reg-machine
+//     + the :rf/machine sub after dispose destroyed every frame (incl.
+//     :rf/default) — disposePage reaps page-owned frames but NOT the machines
+//     artefact's bundle-init framework registrations.
+const rootsBeforeNav = await page.evaluate(() => window.rf2sci.liveRootCount());
+console.log("live roots before nav:", rootsBeforeNav);
+assert(
+  rootsBeforeNav === 8,
+  `page 1 holds one root per rf2 cell (8) before nav (got ${rootsBeforeNav})`
+);
+
+await page.evaluate(() => {
+  // Mimic navigation.instant: discard every mounted cell (Material replaces the
+  // whole <main>), then inject page 2's cells as fresh, unmounted <pre> nodes.
+  document.querySelectorAll(".cljs-cell").forEach((el) => el.remove());
+  const host = document.createElement("div");
+  const cellA = document.createElement("pre");
+  cellA.className = "language-cljs-rf2";
+  cellA.textContent = [
+    "(ns rf2nav.p2 (:require [re-frame.core :as rf]))",
+    "(rf/reg-event :rf2nav/seed (fn [_ _] {:db {:label \"page2-fresh\"}}))",
+    "(rf/reg-sub :rf2nav/label (fn [db _] (:label db)))",
+    "(rf/reg-view nav-view []",
+    "  [:div [:span#rf2-nav-label \"label: \" (str @(subscribe [:rf2nav/label]))]])",
+    "(rf/make-frame {:id :rf2smoke/frame :initial-events [[:rf2nav/seed]]})",
+    "[rf/frame-provider {:frame :rf2smoke/frame}",
+    " [nav-view]]",
+  ].join("\n");
+  const cellB = document.createElement("pre");
+  cellB.className = "language-cljs-rf2";
+  cellB.textContent = [
+    "(require '[re-frame.core :as rf])",
+    "(rf/reg-machine :rf2nav/toggle2",
+    "  {:initial :off",
+    "   :states  {:off {:on {:flip {:target :on}}}",
+    "             :on  {:on {:flip {:target :off}}}}})",
+    "(rf/dispatch-sync [:rf2nav/toggle2 [:flip]])",
+    "(defn tog2 []",
+    "  (let [snap @(rf/subscribe [:rf/machine :rf2nav/toggle2])]",
+    "    [:div [:span#rf2-nav-tog \"tog: \" (str (:state snap))]]))",
+    "[tog2]",
+  ].join("\n");
+  host.appendChild(cellA);
+  host.appendChild(cellB);
+  document.body.appendChild(host);
+  // Drive the same path Material's document$ subscription drives on a page swap.
+  window.__rf2PlaygroundLoad();
+});
+
+// Page 2's cells auto-mount (rf2 render cells run on mount).
+await page.waitForSelector("#rf2-nav-label", { timeout: 20000 });
+await page.waitForSelector("#rf2-nav-tog", { timeout: 20000 });
+
+const navLabel = (await page.locator("#rf2-nav-label").innerText()).trim();
+console.log("page 2 reused-frame cell:", JSON.stringify(navLabel));
+assert(
+  navLabel === "label: page2-fresh",
+  `nav destroys the reused frame so its seed replays (got ${JSON.stringify(navLabel)})`
+);
+
+const navTog = (await page.locator("#rf2-nav-tog").innerText()).trim();
+console.log("page 2 machine cell:", JSON.stringify(navTog));
+assert(
+  navTog === "tog: :on",
+  `machine framework registrations survive dispose (got ${JSON.stringify(navTog)})`
+);
+
+const rootsAfterNav = await page.evaluate(() => window.rf2sci.liveRootCount());
+console.log("live roots after nav:", rootsAfterNav);
+assert(
+  rootsAfterNav === 2,
+  `detached page-1 roots released — count is page-2 cells only, not accumulated (got ${rootsAfterNav})`
 );
 
 assert(pageErrors.length === 0, `no uncaught page errors (saw: ${JSON.stringify(pageErrors)})`);
