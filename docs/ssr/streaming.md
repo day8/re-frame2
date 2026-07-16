@@ -32,10 +32,14 @@ Runnable tree:
      [:article/author-feed]]]])
 ```
 
-The streaming walker emits the shell with each `:fallback` in place and flushes
-immediately — first byte. Each boundary's subtree then streams as its own chunk,
-carrying a per-subtree app-db delta so that region's subscriptions see the right
-state on arrival.
+The streaming walker emits the shell on the first byte, with each boundary's
+`:fallback` markup carried inside an **inert** `<template data-rf2-suspense-fallback>`
+marker. A `<template>`'s content is inert by the HTML spec — a detached
+`DocumentFragment` that never paints — so the fallbacks are *not* visible first-byte
+UI. They become visible only once the client runtime (`ssr/streaming-install!`,
+below) materialises each inert `<template>` into a live, painted mount. Each
+boundary's subtree then streams as its own chunk, carrying a per-subtree app-db delta
+so that region's subscriptions see the right state when its resolved content swaps in.
 
 ## Failure isolation
 
@@ -58,7 +62,12 @@ Use the streaming Ring constructor (re-exported on `re-frame.ssr.ring`):
 ```
 
 On the client, opt in with `ssr/streaming-install!` (same carried `:frame` as
-`hydrate!`) so fallbacks swap for resolved chunks as they arrive.
+`hydrate!`). It does two jobs: it materialises the inert fallback `<template>`s into
+visible mounts, then swaps each mount's content for its resolved chunk — merging that
+chunk's delta — as the chunks arrive. A streaming page therefore *requires* the
+client runtime to paint fallbacks at all: a non-JS client sees the shell structure
+but no skeletons until the final payload lands and `hydrate!` renders everything at
+once.
 
 ??? note "Correctness lock"
 
