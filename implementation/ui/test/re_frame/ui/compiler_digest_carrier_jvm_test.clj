@@ -12,6 +12,17 @@
 (def ^:private app-a-rid [:cljs "app/a.cljs"])
 (def ^:private app-b-rid [:cljs "app/b.cljs"])
 
+(defn- fresh-js
+  "A DISTINCT String instance carrying `s`, modelling Shadow's
+  `(.toString StringWriter)`: every real `do-compile-cljs-resource` allocates a
+  brand-new `:js` object — never an interned literal — even when the emitted
+  bytes are byte-identical to a prior compile. `identical?` on that object is
+  precisely the causal recompile signal `compiled-this-pass?` keys on, so a test
+  literal (interned, shared across every occurrence) would falsely read as a warm
+  cache hit. Use this for the `:js` of any output that models a fresh compile."
+  ^String [^String s]
+  (String. s))
+
 (defn- shadow-state [build-id js]
   {:shadow.build/build-id build-id
    :shadow.build/stage :compile-prepare
@@ -212,13 +223,20 @@
         "zero carrier output cannot be mistaken for an accepted publication")))
 
 (deftest later-prepare-hook-forced-recompile-evicts-removed-view
-  ;; rf2-vxgfnd.194: a build-local :compile-prepare hook running AFTER the
-  ;; inherited re-frame.ui hook removes a source's retained output, forcing
-  ;; Shadow to recompile it after re-frame.ui observed the schedule. If that
-  ;; source removed its final ui/defview it contributes nothing, and — pre-fix —
-  ;; its accepted row survived as a ghost view because it was never pre-touched.
-  ;; The :compile-finish reconcile against Shadow's authoritative per-source
-  ;; compile stamp (`:compiled-at` advanced past the prepare snapshot) evicts it.
+  ;; rf2-vxgfnd.194 / rf2-ialoij: a build-local :compile-prepare hook running
+  ;; AFTER the inherited re-frame.ui hook removes a source's retained output,
+  ;; forcing Shadow to recompile it after re-frame.ui observed the schedule. If
+  ;; that source removed its final ui/defview it contributes nothing, and —
+  ;; pre-fix — its accepted row survived as a ghost view because it was never
+  ;; pre-touched. The :compile-finish reconcile against Shadow's CAUSAL per-source
+  ;; compile evidence (a `:cached false` finish output whose `:js` artifact is a
+  ;; fresh object) evicts it.
+  ;;
+  ;; The forced recompile here carries a `:compiled-at` stamp EQUAL to the prepare
+  ;; snapshot (a same-millisecond `System/currentTimeMillis`) and byte-identical
+  ;; `:js`, so nothing but Shadow's fresh-object provenance distinguishes it from a
+  ;; warm hit. A `(> now then)` stamp test would read it as untouched and leave the
+  ;; ghost; the causal test evicts it.
   (doseq [parallel? [true false]]
     (testing (str (if parallel? "parallel" "sequential") " compilation")
       (let [good (-> (two-source-state :ghost parallel?)
@@ -231,23 +249,26 @@
             "the accepted build declares both sources' views")
         ;; Warm pass: app.a + app.b both retain a stamped output, so re-frame.ui
         ;; pre-touches neither. A later prepare hook then removes app.a's output;
-        ;; app.a recompiles this pass — Shadow ADVANCES its `:compiled-at` stamp
-        ;; — contributing NO declaration. app.b stays a cache hit: its EXACT
-        ;; output object (and stamp) is retained unchanged across the pass.
-        (let [warm-b-output {:resource-id app-b-rid :js "app.b = {};"
+        ;; app.a recompiles this pass — Shadow allocates a FRESH `:js` object —
+        ;; contributing NO declaration, at the SAME `:compiled-at` stamp (1000).
+        ;; app.b stays a cache hit: its EXACT output object (same `:js`) is
+        ;; retained unchanged across the pass.
+        (let [warm-b-output {:resource-id app-b-rid :js (fresh-js "app.b = {};")
                              :compiled-at 1000 :cached false}
               warm-input (-> good
                              (assoc-in [:output carrier-rid :js]
                                        build-hook/digest-sentinel)
                              (assoc-in [:output app-a-rid]
-                                       {:resource-id app-a-rid :js "app.a = {};"
+                                       {:resource-id app-a-rid
+                                        :js (fresh-js "app.a = {};")
                                         :compiled-at 1000 :cached false})
                              (assoc-in [:output app-b-rid] warm-b-output))
               prepared (prepare warm-input)
               finished (-> prepared
                            (assoc-in [:output app-a-rid]
-                                     {:resource-id app-a-rid :js "app.a = {};"
-                                      :compiled-at 2000 :cached false})
+                                     {:resource-id app-a-rid
+                                      :js (fresh-js "app.a = {};")
+                                      :compiled-at 1000 :cached false})
                            finish)]
           (is (not (contains?
                     (get-in prepared [:compiler-env build/scratch-key :touched])
@@ -258,24 +279,27 @@
               "the forced-recompile ghost is evicted; the cache-hit sibling stays")
           (is (not (contains? (build/accepted-aggregate build/views finished)
                               :app/a-view))
-              "no ghost view survives the source's zero-declaration recompile")
+              "no ghost view survives the source's same-stamp zero-declaration recompile")
           (is (not= (build/accepted-build-digest good)
                     (build/accepted-build-digest finished))
               "evicting the ghost changes the accepted whole-build digest"))))))
 
-(deftest exact-provenance-distinguishes-colliding-warm-hit-from-real-recompile
-  ;; rf2-vxgfnd.255: final-schedule membership is decided by exact per-pass
-  ;; provenance — output-object identity — not a wall-clock `compiled-at >=
-  ;; pass-start` test. In ONE warm pass, under the SAME optimizer/compile
-  ;; controls (sequential + parallel):
-  ;;   * app.b is a genuine cache hit whose retained output object is unchanged,
-  ;;     yet carries a `:compiled-at` stamp that EXCEEDS any pass start (the
-  ;;     adversarial collision the bead reproduces) — it must stay accepted and
-  ;;     digest-stable;
-  ;;   * app.a is genuinely recompiled (a fresh output object) with the SAME
-  ;;     colliding stamp and removed its final view — it must be evicted.
-  ;; Restoring the timestamp-only membership test would flag app.b too (its
-  ;; stamp >= pass-start) and wrongly evict it, failing the survival assertion.
+(deftest causal-membership-survives-colliding-and-backwards-stamps
+  ;; rf2-vxgfnd.255 / rf2-ialoij: final-schedule membership is decided by Shadow's
+  ;; CAUSAL compile evidence — a `:cached false` finish output whose `:js` artifact
+  ;; is a fresh object — never a `:compiled-at` wall-clock relationship. Shadow
+  ;; stamps `:compiled-at` with `System/currentTimeMillis`, which can EQUAL or
+  ;; DECREASE across genuine compiles (same-ms, clock skew, a non-monotonic clock),
+  ;; so any `>`/`>=`/`!=` stamp test misclassifies. In ONE warm pass, under the
+  ;; SAME optimizer/compile controls (sequential + parallel):
+  ;;   * app.b is a genuine cache hit whose retained output object (same `:js`) is
+  ;;     unchanged, yet carries the maximal `:compiled-at` — it must stay accepted
+  ;;     and digest-stable;
+  ;;   * app.a is genuinely recompiled (a fresh `:js` object) and removed its final
+  ;;     view, but its stamp went BACKWARDS (Long/MAX_VALUE snapshot -> 1 finish) —
+  ;;     it must still be evicted.
+  ;; A `(> now then)` test reads app.a's backwards stamp as untouched (ghost
+  ;; survives) and would evict the max-stamp app.b; the causal test does neither.
   (doseq [parallel? [true false]]
     (testing (str (if parallel? "parallel" "sequential") " compilation")
       (let [good (-> (two-source-state :collide parallel?)
@@ -288,22 +312,24 @@
                (build/accepted-aggregate build/views good))
             "the accepted build declares both sources' views")
         ;; The EXACT same retained object stands in for app.b across prepare and
-        ;; finish (a true cache hit) even though its stamp collides with a fresh
-        ;; compile. app.a is replaced with a fresh output object.
-        (let [warm-b-output {:resource-id app-b-rid :js "app.b = {};"
+        ;; finish (a true cache hit at the maximal stamp). app.a is replaced with a
+        ;; fresh output object whose stamp is LOWER than its snapshot.
+        (let [warm-b-output {:resource-id app-b-rid :js (fresh-js "app.b = {};")
                              :compiled-at Long/MAX_VALUE :cached false}
               warm-input (-> good
                              (assoc-in [:output carrier-rid :js]
                                        build-hook/digest-sentinel)
                              (assoc-in [:output app-a-rid]
-                                       {:resource-id app-a-rid :js "app.a = {};"
-                                        :compiled-at 1 :cached true})
+                                       {:resource-id app-a-rid
+                                        :js (fresh-js "app.a = {};")
+                                        :compiled-at Long/MAX_VALUE :cached true})
                              (assoc-in [:output app-b-rid] warm-b-output))
               prepared (prepare warm-input)
               finished (-> prepared
                            (assoc-in [:output app-a-rid]
-                                     {:resource-id app-a-rid :js "app.a = {};"
-                                      :compiled-at Long/MAX_VALUE :cached false})
+                                     {:resource-id app-a-rid
+                                      :js (fresh-js "app.a = {};")
+                                      :compiled-at 1 :cached false})
                            (assoc-in [:output app-b-rid] warm-b-output)
                            finish)
               views-after (build/accepted-aggregate build/views finished)]
@@ -315,27 +341,27 @@
                     'app.b))
               "neither output-present warm source is pre-touched at prepare")
           (is (= {:app/b-view ["tfb-1" "hsb-1"]} views-after)
-              "the colliding-stamp warm hit survives; only the real recompile is evicted")
+              "the max-stamp warm hit survives; only the real recompile is evicted")
           (is (= b-before (get views-after :app/b-view))
               "app.b's accepted row is digest-stable across the warm pass")
           (is (not (contains? views-after :app/a-view))
-              "the genuinely recompiled zero-declaration source is evicted"))))))
+              "the genuinely recompiled zero-declaration source is evicted despite its backwards stamp"))))))
 
 (deftest metadata-only-output-mutation-is-not-a-recompile
-  ;; rf2-vxgfnd.282: output-object identity is NOT compile provenance. Shadow
-  ;; deep-merges build-local hooks after the inherited re-frame.ui hook, so a
-  ;; later :compile-prepare hook can annotate or normalize a source's
-  ;; STILL-VALID retained output with assoc/update-in — producing a NEW output
-  ;; object WITHOUT scheduling any compilation. Under raw `identical?`-of-output
-  ;; provenance re-frame.ui misreads that fresh object as a recompile,
-  ;; pre-touches the source, sees no registry macro, and silently EVICTS its
-  ;; accepted view — changing the whole-build digest. Shadow's authoritative
-  ;; fresh-compile evidence is the `:compiled-at` stamp it writes inside
-  ;; do-compile-cljs-resource: a metadata-only mutation preserves it, a real
-  ;; recompile advances it. Membership keys on the stamp, not the reference —
-  ;; so restoring the `identical?` test makes the survival arm below fail (the
-  ;; mutated object is not identical to the snapshot, so app.b is wrongly
-  ;; evicted). Both arms run in sequential and parallel compile modes.
+  ;; rf2-vxgfnd.282 / rf2-ialoij: a fresh output MAP is NOT compile provenance.
+  ;; Shadow deep-merges build-local hooks after the inherited re-frame.ui hook, so
+  ;; a later :compile-prepare hook can annotate or normalize a source's STILL-VALID
+  ;; retained output with assoc/update-in — producing a NEW output MAP (but, assoc
+  ;; preserving nested values, the SAME `:js` object) WITHOUT scheduling any
+  ;; compilation. Under raw whole-output `identical?` provenance re-frame.ui
+  ;; misread that fresh map as a recompile, pre-touched the source, saw no registry
+  ;; macro, and silently EVICTED its accepted view. Shadow's causal fresh-compile
+  ;; evidence is the fresh `:js` artifact object its compile path allocates: a
+  ;; metadata-only mutation preserves the SAME `:js` object, a real recompile
+  ;; allocates a new one. Membership keys on `:cached false` plus that `:js` object,
+  ;; NOT the whole-map reference and NOT the `:compiled-at` stamp — so the survival
+  ;; and eviction arms below are distinguished with the stamp held EQUAL. Both arms
+  ;; run in sequential and parallel compile modes.
   (doseq [parallel? [true false]]
     (let [mode (if parallel? "parallel" "sequential")
           good (-> (two-source-state :meta parallel?)
@@ -345,11 +371,12 @@
                    finish)
           digest-before (build/accepted-build-digest good)
           views-before  (build/accepted-aggregate build/views good)
-          ;; A warm accepted generation: both app.a and app.b retain a stamped
-          ;; output object; the carrier sentinel is reset so finish re-projects.
-          warm-a {:resource-id app-a-rid :js "app.a = {};"
+          ;; A warm accepted generation: both app.a and app.b retain a compiled
+          ;; output object (each with its own fresh `:js`); the carrier sentinel is
+          ;; reset so finish re-projects.
+          warm-a {:resource-id app-a-rid :js (fresh-js "app.a = {};")
                   :compiled-at 1000 :cached false}
-          warm-b {:resource-id app-b-rid :js "app.b = {};"
+          warm-b {:resource-id app-b-rid :js (fresh-js "app.b = {};")
                   :compiled-at 1000 :cached false}
           warm-input (-> good
                          (assoc-in [:output carrier-rid :js]
@@ -362,8 +389,8 @@
 
       (testing (str mode " — later hook only annotates app.b's retained output")
         ;; No source is scheduled this warm pass. A later build-local prepare hook
-        ;; replaces app.b's still-valid output with a NEW object that ONLY adds
-        ;; metadata; its `:compiled-at` stamp is untouched, so Shadow skips app.b.
+        ;; replaces app.b's still-valid output with a NEW map that ONLY adds
+        ;; metadata; assoc preserves the SAME `:js` object, so Shadow skips app.b.
         ;; app.b must survive byte-identical and the digest must not move.
         (let [prepared  (prepare warm-input)
               mutated-b (assoc warm-b :shadow.build/annotation :normalized)
@@ -371,9 +398,9 @@
                             (assoc-in [:output app-b-rid] mutated-b)
                             finish)]
           (is (not (identical? mutated-b warm-b))
-              "the later hook produced a fresh output object for app.b")
-          (is (= (:compiled-at warm-b) (:compiled-at mutated-b))
-              "but the metadata-only mutation preserved Shadow's compile stamp")
+              "the later hook produced a fresh output MAP for app.b")
+          (is (identical? (:js warm-b) (:js mutated-b))
+              "but the metadata-only mutation preserved Shadow's `:js` artifact object")
           (is (not (contains?
                     (get-in prepared [:compiler-env build/scratch-key :touched])
                     'app.b))
@@ -387,16 +414,19 @@
               "the whole-build digest is unchanged")))
 
       (testing (str mode " — companion: app.b output removed and recompiled")
-        ;; Same evidence, opposite verdict: the later hook instead REMOVES app.b's
-        ;; output and app.b genuinely recompiles (an ADVANCED `:compiled-at`)
-        ;; after its final defview was removed, contributing nothing. app.b is
-        ;; evicted; app.a stays a cache hit. Object identity would have flagged
-        ;; BOTH arms' app.b as recompiled; the stamp evidence distinguishes them.
+        ;; Same stamp (1000), opposite verdict: the later hook instead REMOVES
+        ;; app.b's output and app.b genuinely recompiles — a FRESH `:js` object at
+        ;; the SAME `:compiled-at` — after its final defview was removed,
+        ;; contributing nothing. app.b is evicted; app.a stays a cache hit. Whole-
+        ;; map identity would have flagged BOTH arms' app.b as recompiled and a
+        ;; stamp test would have missed this same-ms recompile; the fresh-`:js`
+        ;; evidence distinguishes them.
         (let [prepared (prepare warm-input)
               finished (-> prepared
                            (assoc-in [:output app-b-rid]
-                                     {:resource-id app-b-rid :js "app.b = {};"
-                                      :compiled-at 2000 :cached false})
+                                     {:resource-id app-b-rid
+                                      :js (fresh-js "app.b = {};")
+                                      :compiled-at 1000 :cached false})
                            finish)]
           (is (= {:app/a-view ["tfa-1" "hsa-1"]}
                  (build/accepted-aggregate build/views finished))

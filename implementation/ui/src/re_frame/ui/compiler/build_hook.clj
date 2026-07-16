@@ -12,24 +12,26 @@
 
   0. reconcile against Shadow's FINAL authoritative compile schedule — every
      CLJS source actually compiled THIS pass is pre-touched too. Membership is
-     read from Shadow's AUTHORITATIVE per-source compile evidence, never
-     output-object identity and never wall-clock ordering: a source counts as
-     recompiled iff its finish-time output `:compiled-at` stamp advanced past
-     the stamp in the prepare snapshot. Shadow writes `:compiled-at` EXACTLY
-     inside `do-compile-cljs-resource`, so the stamp advances iff Shadow really
-     (re)compiled the source this pass; a warm cache hit keeps its retained
-     object and stamp. Keying on the stamp — not the object reference — is
-     immune to a later non-scheduling hook that replaces a retained output's
-     object (via assoc/update-in) while PRESERVING its stamp, and — because it
-     compares each source's own before/after stamp, never a pass boundary —
-     immune to the millisecond collision where a retained warm output's stamp
-     equals the next pass start. A later `:compile-prepare` hook (Shadow
-     deep-merges build-local hooks after `:build-defaults` and lets them mutate
-     build state) can force a source to recompile AFTER re-frame.ui observed the
-     schedule; reading the finish-time compile stamps, not the intermediate
-     prepare schedule, closes that hook-order gap so a forced recompile that
-     removed a source's final `ui/defview` evicts its accepted row instead of
-     leaving a ghost view;
+     read from Shadow's CAUSAL per-source compile evidence, never output-map
+     identity and never a wall-clock stamp relationship: a source counts as
+     recompiled iff Shadow marked its finish output freshly compiled (`:cached
+     false`) carrying a `:js` artifact object distinct from the one snapshotted
+     at prepare. Shadow allocates that fresh `:js` string and stamps `:cached
+     false` EXACTLY inside its `do-compile-cljs-resource` compile path, so both
+     facts hold iff Shadow really (re)compiled the source this pass; a warm cache
+     hit keeps its retained output object (same `:js`), and a disk-cache load is
+     `:cached true`. Keying on the fresh `:js` object — not the whole output map
+     — is immune to a later non-scheduling hook that replaces a retained output's
+     MAP (via assoc/update-in) while PRESERVING its nested `:js`, and — because it
+     reads Shadow's own compile provenance rather than comparing `:compiled-at`
+     milliseconds — immune to the same-/backwards-millisecond stamp a `>` test
+     misreads as untouched (leaving a ghost accepted view). A later
+     `:compile-prepare` hook (Shadow deep-merges build-local hooks after
+     `:build-defaults` and lets them mutate build state) can force a source to
+     recompile AFTER re-frame.ui observed the schedule; reading the finish-time
+     compile evidence, not the intermediate prepare schedule, closes that
+     hook-order gap so a forced recompile that removed a source's final
+     `ui/defview` evicts its accepted row instead of leaving a ghost view;
   1. derive the candidate finalized slice (commit staged sources, evict sources
      absent from authoritative membership) and its whole-build digest;
   2. purely validate and project that digest into exactly one compiled
@@ -114,46 +116,57 @@
      build-sources)))
 
 (defn- compiled-this-pass?
-  "Shadow's AUTHORITATIVE fresh-compile evidence for one source, robust to
-  output-object replacement.
+  "Shadow's CAUSAL fresh-compile evidence for one source, free of any wall-clock
+  stamp comparison.
 
-  Shadow writes `:compiled-at` (`System/currentTimeMillis`) EXACTLY inside
-  `do-compile-cljs-resource` — the actual compile path — so the stamp advances
-  iff Shadow really (re)compiled the source THIS pass. A warm cache hit keeps
-  its prior output object and stamp; a later non-scheduling `:compile-prepare`
-  hook that only annotates or normalizes a retained output (assoc/update-in)
-  yields a NEW object but PRESERVES `:compiled-at`. So the source was compiled
-  this pass iff its finish-time stamp advanced past the prepare-snapshot stamp
-  (a missing snapshot stamp — a freshly scheduled or output-reset source —
-  counts as advanced; Shadow's clock only ever moves forward for a real
-  compile). Keying on the stamp — never the object reference — is immune to the
-  metadata-mutation false positive that raw `identical?` produced, and — because
-  it compares the source's own before/after stamp, never a wall-clock pass
-  boundary — immune to the collision where a retained warm output's stamp equals
-  the next pass start."
+  Shadow's compile path — `do-compile-cljs-resource`, reached ONLY through
+  `maybe-compile-cljs` — is the sole producer of a freshly compiled output: it
+  allocates a brand-new `:js` artifact string (its own `StringWriter`) and stamps
+  `:cached false` on it. A disk-cache load stamps `:cached true` with a distinct
+  deserialized `:js`. A warm cache HIT keeps the prior output object untouched
+  (`generate-output-for-source` returns it; par-compile's `already-compiled`
+  skips it), so the SAME `:js` object survives the pass. A later non-scheduling
+  `:compile-prepare` hook that only annotates or normalizes a retained output
+  (assoc/update-in) yields a NEW output MAP but — assoc preserving nested values —
+  PRESERVES the identical `:js` object.
+
+  So a source was (re)compiled THIS pass iff Shadow marked its finish output
+  freshly compiled (`:cached` is `false` — never a cache load, never a retained
+  annotation of one) AND that output carries a DIFFERENT `:js` artifact object
+  than the one re-frame.ui snapshotted at `:compile-prepare`:
+
+  - `:cached false` rejects a disk-cache load (fresh `:js`, but no macro rerun);
+  - a fresh `:js` object rejects both a warm cache hit (same output object, same
+    `:js`) and a metadata-only mutation (new map, but the nested `:js` is the
+    same object) — the two false positives raw whole-output `identical?` produced.
+
+  Neither test is `>`, `>=`, `!=`, `not=`, or any other relationship on the
+  `:compiled-at` wall clock, so a genuine EQUAL-stamp or BACKWARDS-stamp recompile
+  (same-millisecond `System/currentTimeMillis`, clock skew, a non-monotonic clock)
+  is still classified as a recompile, while a metadata annotation and a warm cache
+  hit are never misread as one."
   [final-output snapshot-output]
-  (let [now  (:compiled-at final-output)
-        then (:compiled-at snapshot-output)]
-    (and (integer? now)
-         (or (not (integer? then))
-             (> now then)))))
+  (and (false? (:cached final-output))
+       (not (identical? (:js final-output) (:js snapshot-output)))))
 
 (defn- actually-recompiled-member-nss
   "Declaring namespaces of every CLJS source Shadow ACTUALLY (re)compiled in
   THIS pass, read from the FINAL build-state at `:compile-finish` — after every
   schedule-mutating `:compile-prepare` hook and after compilation ran —
-  distinguished by Shadow's AUTHORITATIVE per-source compile stamp, never
-  output-object identity or wall-clock ordering.
+  distinguished by Shadow's CAUSAL per-source compile evidence, never output-map
+  identity and never a wall-clock stamp relationship.
 
   `pass-output` is the `:output` map re-frame.ui snapshotted at
   `:compile-prepare` (the outputs Shadow was about to compile from). See
-  `compiled-this-pass?`: a source counts as recompiled iff its finish-time
-  `:compiled-at` advanced past its snapshot stamp — the evidence Shadow's own
-  compile path carries. This is immune both to a later hook replacing a retained
-  output's OBJECT while preserving its stamp (raw `identical?` misread the fresh
-  object as a recompile and evicted an untouched accepted view) and to the
-  millisecond stamp collision with a pass boundary, and it does not depend on
-  the build-local hook merge order re-frame.ui cannot control."
+  `compiled-this-pass?`: a source counts as recompiled iff Shadow marked its
+  finish output freshly compiled (`:cached false`) with a `:js` artifact object
+  distinct from its snapshot — the evidence Shadow's own compile path carries.
+  This is immune to a later hook replacing a retained output's whole MAP while
+  preserving its nested `:js` (raw whole-output `identical?` misread the fresh
+  map as a recompile and evicted an untouched accepted view), to a same- or
+  backwards-millisecond compile stamp (which a `>`/`>=` stamp test misreads as
+  untouched, leaving a ghost accepted view), and to the build-local hook merge
+  order re-frame.ui cannot control."
   [{:keys [build-sources sources output]} pass-output]
   (reduce
    (fn [acc resource-id]
@@ -410,10 +423,13 @@
       (let [build-state (reset-cold-ui-consumer-output build-state)]
         ;; Snapshot the `:output` map Shadow handed us BEFORE any compilation, so
         ;; `:compile-finish` can identify the sources Shadow actually recompiled
-        ;; this pass by their `:compiled-at` compile stamp — Shadow's own
-        ;; per-source compile evidence, robust to a later prepare hook mutating a
-        ;; retained output's OBJECT and immune to the millisecond stamp collision
-        ;; (rf2-vxgfnd.194, rf2-vxgfnd.255, rf2-vxgfnd.282).
+        ;; this pass by Shadow's own causal compile evidence — a `:cached false`
+        ;; finish output whose `:js` artifact object differs from this snapshot —
+        ;; robust to a later prepare hook mutating a retained output's whole MAP
+        ;; while preserving its nested `:js`, and free of any `:compiled-at`
+        ;; wall-clock comparison so same-/backwards-millisecond recompiles are
+        ;; still caught (rf2-vxgfnd.194, rf2-vxgfnd.255, rf2-vxgfnd.282,
+        ;; rf2-ialoij).
         (-> (build/prepare-shadow-build build-state
                                         build-id
                                         (member-nss build-state)
