@@ -1153,68 +1153,98 @@
 
   NOTE the reserve-then-emit-later split leaves a claim→emit window: a
   replacement landing after this returns but before the caller's external emit
-  makes a fresh generation current at the emission point, contrary to the
-  exact-generation contract (rf2-9bhne6). Callers that must keep the winning
-  generation authoritative THROUGH the emission use
-  `claim-and-publish-delayed-silence!`, which runs the emit inside this same
-  critical section. This reserve-only primitive remains for staged tests and any
-  caller whose emit provably cannot race a registry mutation."
+  makes a fresh generation current at the emission point. This reserve-only
+  primitive emits an UNQUALIFIED signal, so it remains only for staged tests and
+  any caller whose emit provably cannot race a registry mutation. Callers whose
+  emit CAN race a registry mutation use `claim-and-publish-delayed-silence!`,
+  which reserves here (under both locks), then emits a GENERATION-QUALIFIED
+  signal OUTSIDE the locks so a superseded generation's late emit self-filters at
+  the receiver (rf2-8b9twg)."
   [frame-id cb-id observed-gen baseline]
   (with-claim-locks
     #(eligible-and-reserve! frame-id cb-id observed-gen baseline)))
 
 (defn claim-and-publish-delayed-silence!
-  "Reserve AND publish the one delayed silence for `(frame-id, cb-id)` inside a
-  SINGLE critical section holding BOTH ledger locks (`with-claim-locks`:
-  listener-registry-lock → silence-lock), so the winning `(cb-id, observed-gen)`
-  stays the authoritative generation THROUGH the signal's emission (rf2-9bhne6).
+  "Reserve the one delayed silence for `(frame-id, cb-id)` under BOTH ledger locks
+  (`with-claim-locks`: listener-registry-lock → silence-lock), RELEASE the locks,
+  then run the external `publish!` OUTSIDE them (rf2-8b9twg).
 
   `publish!` is a 0-arg thunk that performs the external
-  `:rf.epoch.cb/silenced-on-frame-destroy` emit. It runs INSIDE the locks, after
-  the reservation and BEFORE they are released. Because `put-listener!` takes the
-  registry lock, and `drop-listener!` / `reset-listeners!` / the re-arm in
-  `record-observation!` take silence-lock (the wipes take both), a concurrent
-  registrar cannot make a fresh generation H current in the reserve→emit window:
-  its mutation blocks on the lock this claim holds until publication completes, so
-  either the silence is linearized before H becomes current, or — if H landed
-  first — the eligibility recheck fails and no silence fires. The forbidden
-  ordering (H current, THEN G's unqualified signal) is impossible.
+  `:rf.epoch.cb/silenced-on-frame-destroy` emit. It runs with NO ledger lock
+  held, so a same-id replacement CAN make a fresh generation H current in the
+  reserve→emit window. `publish!` MUST therefore qualify its emit with
+  `observed-gen` (the caller bakes it into the payload): the resulting
+  GENERATION-QUALIFIED signal SELF-FILTERS at the receiver — an observer whose
+  current generation for `cb-id` no longer equals the carried `observed-gen`
+  discards it. So the forbidden ordering (H current, THEN a signal attributed to
+  H) is impossible: the signal is attributed to G, and a receiver that sees G is
+  no longer current drops it. This SUPERSEDES the emit-under-lock mechanism of
+  rf2-9bhne6 — the generation stays authoritative through a data qualifier, not
+  through holding a lock across foreign code.
 
-  Returns true when the silence was published, false when ineligible. If
-  `publish!` throws, the reservation is rolled back (only while it still stands)
-  and the throw propagates — identical failed-delivery semantics to the
-  reserve-only `claim-delayed-silence!` + `rollback-delayed-silence!` pair, now
-  inside one critical section.
+  ## Why the emit MUST run OUTSIDE the ledger locks (rf2-8b9twg)
 
-  Deliberately-held critical section: `publish!` may fan an external trace out to
-  arbitrary listeners while the locks are held. Splitting the registry and
-  observation domains (rf2-9bhne6 deadlock follow-up) is what makes this safe
-  against a registration paused inside the `listeners` swap: `put-listener!`
-  holds ONLY the registry lock, so a fan-out re-arm (`record-observation!`, which
-  takes ONLY silence-lock) is never blocked behind it — the single-monitor
-  predecessor deadlocked exactly there. The cross-lock nesting to
-  `frame-owner-lock` remains a strict DAG: no path holds `frame-owner-lock` while
-  acquiring either ledger lock (the destroy recipe releases `frame-owner-lock` in
-  `cleanup-frame-owner!` before this fan, and the settle path's
-  `notify-listeners!`/`record-observation!` run after `commit-frame-owner-record!`
-  returns). Same-thread reentrant acquisition (a listener calling
-  `put-listener!`/`record-observation!` during the emit) is a no-op on the JVM
-  monitors and on the CLJS single thread."
+  `publish!` fans an external `trace/emit!` to ARBITRARY trace listeners, and a
+  framework-blessed listener may `dispatch-sync` (the rf2-1zxlsm contract; Xray
+  dispatch-syncs from its collector). `dispatch-sync` enters `drain-block!` /
+  `call-serialized-with-drain!`, which spin-CAS-acquires the target frame's
+  `:drain-lock` (`re-frame.router`, `re-frame.frame`). Meanwhile a thread DRAINING
+  a frame holds that frame's `:drain-lock` for the whole pass and, via
+  `settle!` → `notify-listeners!` → `record-observation!` re-arm (or a mid-drain
+  `drop-listener!` / destroy), acquires `silence-lock`/`registry-lock` UNDER the
+  held `:drain-lock`. Holding a ledger lock across the emit therefore inverts the
+  ledger locks against `:drain-lock`: hold-silence-lock → want-drain-lock (this
+  path) vs hold-drain-lock → want-silence-lock (the drainer) — an AB-BA HARD HANG.
+  rf2-9bhne6's deadlock-freedom argument reasoned ONLY about `frame-owner-lock`
+  and never considered `:drain-lock` / the router, so it missed this cycle.
+  Emitting OUTSIDE both ledger locks removes the foreign-code-under-lock edge
+  entirely: the fan-out may reach `:drain-lock` freely because no ledger lock is
+  held.
+
+  ## What the reservation-under-lock still buys
+
+  `eligible-and-reserve!` runs under BOTH locks so its three eligibility reads
+  (current generation == `observed-gen`, not-a-live-observer, mark-above-baseline)
+  stay coherent against a concurrent `put-listener!` (registry lock) and
+  `record-observation!` / wipe (silence-lock), and it writes the monotonic mark
+  that makes the claim the single linearization point — two overlapping
+  publishers can never both reserve. `observed-gen` is validated equal to the
+  current generation AT reservation time, and that is the generation `publish!`
+  qualifies the emit with.
+
+  Returns true when the silence was reserved+published, false when ineligible. If
+  `publish!` throws, the reservation is rolled back under `silence-lock` (only
+  while it still stands) — acquiring silence-lock ALONE keeps the global
+  registry→silence order (no inversion) — and the throw propagates.
+
+  Lock-order safety: the cross-lock nesting to `frame-owner-lock` remains a strict
+  DAG (no path holds `frame-owner-lock` while acquiring either ledger lock — the
+  destroy recipe releases it in `cleanup-frame-owner!` before this fan, and the
+  settle path's `notify-listeners!`/`record-observation!` run after
+  `commit-frame-owner-record!` returns), AND — the rf2-8b9twg correction — NO path
+  now holds either ledger lock while the emit fans to a listener that can acquire
+  `:drain-lock`, so the ledger↔`:drain-lock` cycle is gone."
   [frame-id cb-id observed-gen baseline publish!]
-  (with-claim-locks
-    (fn []
-      (when-let [reserved (eligible-and-reserve! frame-id cb-id observed-gen baseline)]
-        (try
-          (publish!)
-          true
-          (catch #?(:clj Throwable :cljs :default) ex
-            ;; External delivery failed — release OUR reservation (only while it
-            ;; still stands) so the one signal can be legitimately re-attempted,
-            ;; then propagate contained. Still under the lock, so no concurrent
-            ;; claim can interleave with the rollback.
+  (when-let [reserved (with-claim-locks
+                        (fn []
+                          (eligible-and-reserve! frame-id cb-id observed-gen baseline)))]
+    ;; Locks RELEASED. Emit the generation-qualified signal OUTSIDE both ledger
+    ;; locks so the foreign trace fan-out cannot reach a frame's :drain-lock while
+    ;; we hold a ledger lock — the ledger↔drain-lock AB-BA deadlock (rf2-8b9twg).
+    (try
+      (publish!)
+      true
+      (catch #?(:clj Throwable :cljs :default) ex
+        ;; External delivery failed — release OUR reservation (only while it still
+        ;; stands) so the one signal can be legitimately re-attempted, then
+        ;; propagate contained. Re-acquire silence-lock ALONE (registry→silence
+        ;; order preserved) for the prune; no concurrent claim can interleave with
+        ;; the compare-and-prune because it is a single silence-lock section.
+        (with-silence-lock
+          (fn []
             (when (= reserved (get-in @terminal-silence-marks [frame-id cb-id]))
-              (prune-terminal-silence-mark! frame-id cb-id))
-            (throw ex)))))))
+              (prune-terminal-silence-mark! frame-id cb-id))))
+        (throw ex)))))
 
 (defn rollback-delayed-silence!
   "Undo a `claim-delayed-silence!` reservation `reserved-seq` for `(frame, cb)`

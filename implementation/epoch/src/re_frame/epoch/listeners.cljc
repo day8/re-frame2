@@ -376,15 +376,18 @@
   before A resumes (A must NOT re-emit the silence B already fired, even though A
   now wins the comparison); a cb re-registered to a fresh generation (must
   receive no stale signal). Each owed identity is published iff
-  `state/claim-delayed-silence!` grants it — a single atomic operation that
-  rechecks the CURRENT generation, the CURRENT live observers (read fresh, not a
-  stale pre-loop set), and any existing mark, then RESERVES a fresh monotonic seq
-  BEFORE external delivery. The seq is the total order the observer relies on;
-  two overlapping same-id publishers can never both claim. A reservation is
-  rolled back only if the external envelope delivery itself throws. The owed
-  identities are fanned in a deterministic (cb-id-ordered) sequence so a trace
-  listener re-arming a LATER identity during an EARLIER silence sees a stable,
-  linearizable order.
+  `state/claim-and-publish-delayed-silence!` grants it — the eligibility recheck
+  (CURRENT generation, CURRENT live observers read fresh not a stale pre-loop set,
+  any existing mark) plus the monotonic-seq RESERVATION run as ONE atomic claim
+  under both ledger locks; the claim then RELEASES the locks and emits the
+  GENERATION-QUALIFIED signal OUTSIDE them (rf2-8b9twg — the emit fans to
+  arbitrary listeners, one of which may `dispatch-sync` and acquire a frame's
+  `:drain-lock`, so it must not run under a ledger lock). The seq is the total
+  order the observer relies on; two overlapping same-id publishers can never both
+  claim. A reservation is rolled back only if the external envelope delivery
+  itself throws. The owed identities are fanned in a deterministic (cb-id-ordered)
+  sequence so a trace listener re-arming a LATER identity during an EARLIER
+  silence sees a stable, linearizable order.
 
   The id-keyed store DROP is compare-owned (`state/cleanup-frame-owner!`): it
   runs only while `owner-token` still owns the stores, so stale A can never
@@ -452,30 +455,37 @@
              #(assembly/emit-snapshotted+outcome! frame-id (:epoch-id record)
                                                   (:event-id record) :halted-destroy))
            (deliver-listener-snapshot! record listener-snapshot))
-         ;; PER-IDENTITY atomic-claim-AND-PUBLISH silencing (rf2-vxgfnd.285 /
-         ;; rf2-9bhne6). Iterate the owed identities in a deterministic cb-id
-         ;; order so the linearizable claim sees a stable sequence.
-         ;; `claim-and-publish-delayed-silence!` reserves the one signal AND runs
-         ;; the external emit inside ONE critical section holding BOTH ledger locks
-         ;; (registry → silence) — rechecking current generation, FRESH live
-         ;; observers, and any existing mark, writing the monotonic mark, then
-         ;; emitting, all before the locks release. Because listener replacement
-         ;; takes the registry lock, and drop / reset / the observation re-arm take
-         ;; silence-lock (the split that broke the single-monitor deadlock, rf2-9bhne6),
-         ;; the winning `(cb-id, observed-gen)` stays the authoritative generation
-         ;; THROUGH the emission: a concurrent registrar cannot make a fresh
-         ;; generation current in the reserve→emit window (rf2-9bhne6). Only a granted
-         ;; reservation emits; if the external delivery throws, the reservation is
-         ;; rolled back inside the same section and the fault propagates.
+         ;; PER-IDENTITY atomic-claim-THEN-PUBLISH silencing (rf2-vxgfnd.285 /
+         ;; rf2-9bhne6 / rf2-8b9twg). Iterate the owed identities in a
+         ;; deterministic cb-id order so the linearizable claim sees a stable
+         ;; sequence. `claim-and-publish-delayed-silence!` reserves the one signal
+         ;; under BOTH ledger locks (rechecking current generation, FRESH live
+         ;; observers, and any existing mark, then writing the monotonic mark),
+         ;; RELEASES the locks, and only THEN runs this external emit — so the
+         ;; foreign trace fan-out (a blessed listener may `dispatch-sync`,
+         ;; acquiring a frame's :drain-lock) never runs while a ledger lock is
+         ;; held. That is what breaks the ledger↔:drain-lock AB-BA deadlock
+         ;; rf2-9bhne6 introduced by emitting UNDER the locks (rf2-8b9twg).
+         ;; Generation authority survives WITHOUT the lock by QUALIFYING the emit
+         ;; with `observed-gen`: the reserved generation G is carried on the
+         ;; payload, so a same-id replacement H landing in the reserve→emit window
+         ;; is never mistaken as the silence's subject — a receiver whose current
+         ;; generation for cb-id != the carried `:observed-gen` self-filters the
+         ;; stale signal. Only a granted reservation emits; if the external
+         ;; delivery throws, the reservation is rolled back (under silence-lock)
+         ;; and the fault propagates.
          (doseq [[cb-id observed-gen] (sort-by (comp str key) silenced-cbs)]
            (state/claim-and-publish-delayed-silence!
              frame-id cb-id observed-gen baseline-silence-seq
              ;; The silencing fact belongs to destroyed A too; never let a
-             ;; same-id successor's trace policy suppress or capture it.
+             ;; same-id successor's trace policy suppress or capture it. The
+             ;; `:observed-gen` qualifier is what lets the emit run outside the
+             ;; ledger locks without reopening the G→H window (rf2-8b9twg).
              #(trace/call-with-structural-delivery
                 (fn []
                   (trace/emit! :rf.epoch.cb :rf.epoch.cb/silenced-on-frame-destroy
-                               {:frame frame-id :cb-id cb-id}))))))
+                               {:frame frame-id :cb-id cb-id
+                                :observed-gen observed-gen}))))))
         (finally
           ;; Close the deferred-silence window opened at snapshot time. When the
           ;; frame's last outstanding predecessor resolves, its marks are reclaimed.
