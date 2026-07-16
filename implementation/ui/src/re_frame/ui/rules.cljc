@@ -896,6 +896,31 @@
 ;;
 ;; Dev-only: the whole install is `js/goog.DEBUG`-gated, so `:advanced`
 ;; production carries no producer and never references SHADOW_NS_RESET.
+;;
+;; ## Why the installed callback is a TRAMPOLINE (rf2-vxgfnd.145)
+;;
+;; `SHADOW_NS_RESET` holds CALLBACK OBJECTS, and the install is `defonce`d (it
+;; must be: re-running it on every reload of this ns would append a duplicate).
+;; Pushing the `reload-source-reset!` fn OBJECT therefore pinned the object
+;; realized at FIRST load forever: hot-reloading rules.cljc rebinds the var to a
+;; new object, but the array kept calling the old one. That stayed invisible only
+;; while the old object delegated to other rebound vars — any fix to the
+;; callback's OWN coercion, build routing or source filtering silently needed a
+;; full page reload to take effect.
+;;
+;; So what is installed is one stable TRAMPOLINE that resolves the CURRENT
+;; `reload-source-reset!` on every call (the same late-lookup discipline shadow
+;; itself applies to lifecycle fns — it re-resolves `fn-str` off `$CLJS` per
+;; reload "in case it gets reloaded"). The trampoline object is stable, so
+;; `defonce` still guarantees exactly one entry, while the BEHAVIOUR it runs is
+;; always the freshly loaded code.
+;;
+;; The trampoline is TAGGED with its owning build identity, so the install can
+;; REPLACE its own previous entry instead of appending, and never touches an
+;; entry owned by shadow or another library. The tag carries the build id
+;; because `SHADOW_NS_RESET` lives on `goog.global` — SHARED across every build
+;; in one realm — so two builds' producers must coexist rather than evict each
+;; other.
 ;; ---------------------------------------------------------------------------
 
 #?(:cljs
@@ -904,33 +929,77 @@
      `js/goog.global.SHADOW_NS_RESET`) for every namespace it reloads this cycle:
      record `ns` as a source that re-ran, so `commit-reload!` evicts it when it
      staged no declaration this cycle. A no-op when no reload cycle is open
-     (initial load / production). `ns` is a CLJS ns symbol; a string is coerced."
-     [ns]
-     (note-reloaded-sources! [(cond-> ns (string? ns) symbol)])
-     nil))
+     (initial load / production). `ns` is a CLJS ns symbol; a string is coerced.
+     `build-id` is the build whose producer is calling (the installed trampoline
+     passes its own owner); the 1-arg arity uses the ambient build."
+     ([ns] (reload-source-reset! ns default-build))
+     ([ns build-id]
+      (note-reloaded-sources! [(cond-> ns (string? ns) symbol)] build-id)
+      nil)))
+
+#?(:cljs
+   (def ^:private producer-tag
+     "The JS property re-frame.ui stamps on its own `SHADOW_NS_RESET` entry. Its
+     value is the owning build id, so a re-install replaces exactly this build's
+     producer and every other owner's callback is left alone."
+     "reFrameUiReloadSourceReset"))
+
+#?(:cljs
+   (defn- tagged-producer-index
+     "Index of `build-id`'s re-frame.ui producer in `arr`, or -1 when absent.
+     Identifies by TAG, never by position or object identity — other owners'
+     callbacks sit in the same shared array."
+     [arr build-id]
+     (let [want (str build-id)]
+       (loop [i 0]
+         (cond
+           (>= i (alength arr))                             -1
+           (= want (unchecked-get (aget arr i) producer-tag)) i
+           :else                                            (recur (inc i)))))))
+
+#?(:cljs
+   (defn- make-reload-source-producer
+     "One stable callback object owned by `build-id` that resolves the CURRENT
+     `reload-source-reset!` on every call. `reload-source-reset!` compiles to a
+     namespace-global read, so a hot-reload of rules.cljc — which re-assigns that
+     global — is picked up here without a page refresh."
+     [build-id]
+     (let [f (fn [ns] (reload-source-reset! ns build-id))]
+       (unchecked-set f producer-tag (str build-id))
+       f)))
 
 #?(:cljs
    (defn install-reload-source-producer!
      "Wire the runtime reload ledger to shadow-cljs's real reload machinery — the
      PRODUCER that feeds `note-reloaded-sources!` in the shipped browser reload
-     path (rf2-vxgfnd.77). Pushes `reload-source-reset!` onto
+     path (rf2-vxgfnd.77). Installs this build's tagged trampoline on
      `js/goog.global.SHADOW_NS_RESET` (ensuring the array `||`-style, so it
      neither clobbers nor is clobbered by shadow's own init), so shadow calls it
-     with each reloaded source's ns from `before-load-src`. Dev-only (gated on
-     `js/goog.DEBUG`, elided from `:advanced` production) and installed exactly
-     once via the `defonce` below (a hot-reload of THIS ns never double-registers)."
+     with each reloaded source's ns from `before-load-src`.
+
+     IDEMPOTENT per build identity: an existing entry tagged with this build is
+     REPLACED in place, never appended to, and entries owned by shadow or other
+     libraries/builds are never inspected for anything but their tag. Dev-only
+     (gated on `js/goog.DEBUG`, elided from `:advanced` production)."
      []
      (when ^boolean js/goog.DEBUG
-       (let [arr (or js/goog.global.SHADOW_NS_RESET #js [])]
+       (let [arr      (or js/goog.global.SHADOW_NS_RESET #js [])
+             build-id default-build]
          (set! (.-SHADOW_NS_RESET js/goog.global) arr)
-         (.push arr reload-source-reset!)
+         (let [i (tagged-producer-index arr build-id)
+               f (make-reload-source-producer build-id)]
+           (if (neg? i)
+             (.push arr f)
+             (aset arr i f)))
          true))))
 
 #?(:cljs
    (defonce ^:private _reload-source-producer
      ;; Install at client load so the shipped reload path has a producer the
      ;; moment this ns is present; `defonce` survives a hot-reload of rules.cljc
-     ;; itself, so the callback is registered exactly once.
+     ;; itself, so exactly one entry is registered — and because that entry is a
+     ;; trampoline, it runs the RELOADED implementation rather than the object
+     ;; realized here (rf2-vxgfnd.145).
      (install-reload-source-producer!)))
 
 (defn reset-custom-elements!

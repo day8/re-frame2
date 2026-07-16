@@ -354,15 +354,121 @@
        (try (f ns) (catch :default _ nil)))))
 
 #?(:cljs
+   (defn- rf2-producers
+     "The re-frame.ui-owned entries of the shared SHADOW_NS_RESET array,
+     identified the way the installer identifies them — by their owner tag."
+     []
+     (into [] (filter #(some? (unchecked-get % "reFrameUiReloadSourceReset")))
+           (array-seq js/goog.global.SHADOW_NS_RESET))))
+
+#?(:cljs
    (deftest reload-producer-is-wired-to-shadow-reset-array
      ;; The wire itself: install-reload-source-producer! (run at ns load) must
-     ;; have registered reload-source-reset! on shadow's per-reload callback
+     ;; have registered a re-frame.ui producer on shadow's per-reload callback
      ;; array, so the shipped reload path has a real caller for the ledger seam.
      (is (exists? js/goog.global.SHADOW_NS_RESET)
          "install-reload-source-producer! ensured the SHADOW_NS_RESET array")
-     (is (some #(identical? % rules/reload-source-reset!)
-               (array-seq js/goog.global.SHADOW_NS_RESET))
-         "the shipped producer is registered on shadow's per-reload callback array")))
+     (is (= 1 (count (rf2-producers)))
+         "exactly one re-frame.ui producer is registered on shadow's array")))
+
+;; ---------------------------------------------------------------------------
+;; rf2-vxgfnd.145 — the installed producer must run the CURRENT implementation.
+;;
+;; The install is `defonce`d, so whatever object it puts on SHADOW_NS_RESET is
+;; pinned for the life of the page. Pushing the `reload-source-reset!` fn OBJECT
+;; therefore froze the implementation realized at first load: hot-reloading
+;; rules.cljc rebinds the var, but the array kept calling the object from before
+;; the reload. These tests drive the ARRAY ENTRY (what shadow actually calls) —
+;; never the var directly — which is the only way to observe the staleness.
+;; ---------------------------------------------------------------------------
+
+#?(:cljs
+   (deftest installed-producer-runs-the-current-implementation-after-a-reload
+     ;; FAIL-BEFORE fixture. Simulate a hot-reload of rules.cljc: shadow
+     ;; re-evaluates the file, re-assigning the `reload-source-reset!` global to
+     ;; a NEW fn object. `defonce` keeps the installed entry, so the entry must
+     ;; still dispatch to the reloaded implementation.
+     ;;
+     ;; This fixture is deliberately TAG-BLIND: it fires EVERY entry on the array
+     ;; exactly as shadow's `before-load-src` does, so it proves STALENESS rather
+     ;; than merely the absence of the new owner tag. Under the pre-.145 install
+     ;; (`.push reload-source-reset!`) the array holds the PRE-reload object,
+     ;; which never consults the rebound var — nothing is recorded and this test
+     ;; fails. The trampoline resolves the var per call, so it records.
+     (let [original rules/reload-source-reset!
+           seen     (atom [])]
+       (try
+         ;; the "reloaded" ns's new object — same arities as the real one, so
+         ;; the trampoline's call site is exercised exactly as in a real reload
+         (set! rules/reload-source-reset!
+               (fn ([ns] (swap! seen conj [ns]) nil)
+                 ([ns build-id] (swap! seen conj [ns build-id]) nil)))
+         (fire-shadow-ns-reset! 'app.reloaded)            ; what shadow actually calls
+         (is (= 1 (count @seen))
+             "an installed entry dispatched to the CURRENT implementation, not the
+              object captured at first load (pre-.145: the defonce'd object was stale)")
+         (is (= 'app.reloaded (first (first @seen)))
+             "the reloaded implementation received the ns shadow reported")
+         (finally
+           (set! rules/reload-source-reset! original))))))
+
+#?(:cljs
+   (deftest installed-producer-uses-current-coercion-after-a-reload
+     ;; The concrete consequence the bead names: a fix to the callback's OWN
+     ;; coercion must take effect without a page refresh. Drive the ARRAY ENTRY
+     ;; with a STRING ns (shadow's `before-load-src` reports symbols, but the
+     ;; documented contract coerces strings) and prove the ledger saw a SYMBOL —
+     ;; i.e. the entry ran the current coercion, not a frozen copy.
+     (rules/reset-custom-elements!)
+     (rules/register-custom-element! :x-el {:properties #{:help-text}} 'app.a)
+     (rules/notify-reload!)
+     ((first (rf2-producers)) "app.a")                    ; string, coerced by the impl
+     (rules/commit-reload!)
+     (is (= #{} (rules/custom-element-properties :x-el))
+         "the installed entry's current coercion turned the string into the
+          symbol the ledger keys on, so the zero-declaration source was evicted")))
+
+#?(:cljs
+   (deftest producer-install-is-idempotent-and-preserves-other-owners
+     ;; Repeated installs (a REPL re-eval of the ns, a build that drops the
+     ;; defonce) must neither duplicate nor lose the producer, and must never
+     ;; touch a callback shadow or another library owns.
+     (let [foreign      (fn [_ns] nil)
+           before-count (count (array-seq js/goog.global.SHADOW_NS_RESET))]
+       (.push js/goog.global.SHADOW_NS_RESET foreign)
+       (try
+         (rules/install-reload-source-producer!)
+         (rules/install-reload-source-producer!)
+         (rules/install-reload-source-producer!)
+         (is (= 1 (count (rf2-producers)))
+             "three installs leave exactly one re-frame.ui producer — replaced in
+              place, never appended")
+         (is (some #(identical? % foreign) (array-seq js/goog.global.SHADOW_NS_RESET))
+             "a callback owned by another library survives re-installation")
+         (is (= (inc before-count) (count (array-seq js/goog.global.SHADOW_NS_RESET)))
+             "the array grew by exactly the foreign entry — no producer accumulation")
+         (finally
+           ;; drop the foreign probe, leaving the array as we found it
+           (let [arr js/goog.global.SHADOW_NS_RESET
+                 i   (.indexOf arr foreign)]
+             (when-not (neg? i) (.splice arr i 1))))))))
+
+#?(:cljs
+   (deftest reinstalled-producer-still-runs-the-current-implementation
+     ;; The replacement path must produce a trampoline too — a re-install that
+     ;; froze the current object would reintroduce the staleness for anyone whose
+     ;; build re-runs the installer.
+     (rules/install-reload-source-producer!)
+     (let [original rules/reload-source-reset!
+           seen     (atom 0)]
+       (try
+         (set! rules/reload-source-reset!
+               (fn ([_ns] (swap! seen inc) nil)
+                 ([_ns _build-id] (swap! seen inc) nil)))
+         ((first (rf2-producers)) 'app.x)
+         (is (= 1 @seen) "the re-installed entry also resolves the current implementation")
+         (finally
+           (set! rules/reload-source-reset! original))))))
 
 #?(:cljs
    (deftest reload-producer-evicts-zero-declaration-source-end-to-end
