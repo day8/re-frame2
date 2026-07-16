@@ -334,6 +334,101 @@
         "incremental reload equals a clean full-page-reload rebuild")))
 
 ;; ---------------------------------------------------------------------------
+;; rf2-vxgfnd.144 — the commit is linearizable against a REENTRANT registration.
+;;
+;; Counterexample: a watch on the public `custom-elements` aggregate calls
+;; `register-custom-element!` when the aggregate is published during a commit. The
+;; watch is the deterministic barrier — it fires synchronously in the middle of
+;; the commit, on BOTH hosts. Under the old snapshot-then-`dissoc` shape the
+;; commit published (firing the watch) while the cycle was STILL open, so the
+;; reentrant registration staged into that cycle and the following `dissoc`
+;; discarded it. The single-atom commit closes the cycle in the same swap that
+;; reconciles the ledger and publishes only after, so the reentrant registration
+;; observes a closed cycle and write-through's — surviving exactly once.
+;; ---------------------------------------------------------------------------
+
+(defn- with-publication-reentry
+  "Run `body` with a one-shot watch on `custom-elements` that, the first time the
+  aggregate changes, reentrantly runs `reentrant`. Returns after cleanup. The
+  guard makes it fire ONCE, so the reentrant write-through's own publish does not
+  recurse."
+  [reentrant body]
+  (let [fired (atom false)
+        k     (keyword (gensym "reentry"))]
+    (add-watch rules/custom-elements k
+               (fn [_ _ _ _]
+                 (when (compare-and-set! fired false true)
+                   (reentrant))))
+    (try (body)
+         (finally (remove-watch rules/custom-elements k)))))
+
+(deftest reentrant-registration-during-commit-publication-survives-once
+  ;; The headline counterexample. Commit publishes -> watch fires -> a NEW
+  ;; declaration registers reentrantly. It must become live exactly once.
+  (rules/reset-custom-elements!)
+  (rules/register-custom-element! :seed-el {:properties #{:s}} 'app.seed)
+  (with-publication-reentry
+    #(rules/register-custom-element! :reentrant-el {:properties #{:r}} 'app.reentry)
+    (fn []
+      (rules/notify-reload!)
+      (rules/register-custom-element! :seed-el {:properties #{:s2}} 'app.seed) ; a real reload
+      (rules/commit-reload!)))                                                  ; publishes -> reentry
+  (is (= #{:r} (rules/custom-element-properties :reentrant-el))
+      "the reentrant registration survived the commit — old snapshot-then-dissoc
+       staged it into the still-open cycle, which commit then discarded")
+  (is (= #{:s2} (rules/custom-element-properties :seed-el))
+      "the committing source's own reload still applied")
+  ;; and it is a real ledger row, not a transient aggregate patch: a later clean
+  ;; reload of an unrelated source must preserve it.
+  (rules/notify-reload!)
+  (rules/register-custom-element! :seed-el {:properties #{:s3}} 'app.seed)
+  (rules/commit-reload!)
+  (is (= #{:r} (rules/custom-element-properties :reentrant-el))
+      "the reentrant row is in :sources, so a subsequent unrelated reload keeps it"))
+
+(deftest reentrant-registration-applies-exactly-once-never-doubled
+  ;; The reentrant registration must not be applied twice (once as a stray
+  ;; aggregate patch and once as a ledger row) — assert the FINAL aggregate is
+  ;; exactly the legal serial result: commit fully applies, then the reentrant
+  ;; registration write-through's.
+  (rules/reset-custom-elements!)
+  (rules/register-custom-element! :keep-el {:properties #{:k}} 'app.keep)
+  (with-publication-reentry
+    #(rules/register-custom-element! :new-el {:properties #{:n}} 'app.new)
+    (fn []
+      (rules/notify-reload!)
+      (rules/register-custom-element! :keep-el {:properties #{:k2}} 'app.keep)
+      (rules/commit-reload!)))
+  (is (= {:keep-el {:properties #{:k2}}
+          :new-el  {:properties #{:n}}}
+         @rules/custom-elements)
+      "the published aggregate equals the legal serial execution exactly — the
+       reentrant row appears once, the committing source's reload applied"))
+
+(deftest reentrant-registration-into-an-open-foreign-cycle-still-stages
+  ;; Generation rule: a reentrant registration whose OWN build still has an open
+  ;; cycle must stage into it (it belongs to that live generation), not leak live.
+  ;; Here build :a commits (firing the watch) while build :b's cycle is open, and
+  ;; the reentrant registration targets build :b.
+  (rules/reset-custom-elements!)
+  (rules/register-custom-element! :a-el {:properties #{:a}} 'app.a :a)
+  (rules/register-custom-element! :b-el {:properties #{:b}} 'app.b :b)
+  (rules/notify-reload! :a)
+  (rules/notify-reload! :b)                                   ; build :b cycle stays open
+  (rules/register-custom-element! :a-el {:properties #{:a2}} 'app.a :a)
+  (with-publication-reentry
+    #(rules/register-custom-element! :b-el {:properties #{:b2}} 'app.b :b) ; :b cycle open -> stages
+    (fn [] (rules/commit-reload! :a)))                        ; commit :a -> publish -> reentry
+  (is (= #{:a2} (rules/custom-element-properties :a-el))
+      "build :a committed")
+  (is (= #{:b} (rules/custom-element-properties :b-el))
+      "the reentrant :b registration STAGED into build :b's still-open cycle —
+       last-known-good until :b commits, not leaked live by :a's commit")
+  (rules/commit-reload! :b)
+  (is (= #{:b2} (rules/custom-element-properties :b-el))
+      "and it commits with build :b's own cycle"))
+
+;; ---------------------------------------------------------------------------
 ;; The production producer (rf2-vxgfnd.77) — the reload ledger's zero-declaration
 ;; eviction fired THROUGH the shipped browser reload path, not a direct
 ;; `note-reloaded-sources!` call. `reload-source-reset!` is what shadow-cljs's
