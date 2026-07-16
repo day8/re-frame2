@@ -2533,31 +2533,44 @@
   "Snapshot the still-LIVE cells of one incarnation's weak membership set
   (nil-safe — an absent entry is no members). The teardown-discovery read:
   a cleared ref is a collected — therefore unreachable, therefore never
-  reconnectable — cell with nothing left to reap; on CLJS its husk is
-  compacted away as it is encountered."
+  reconnectable — cell with nothing left to reap.
+
+  Every such READ also COMPACTS the outer registry, on BOTH hosts: neither host
+  removes the enclosing incarnation entry on its own — the CLJS
+  FinalizationRegistry is an OPTIONAL accelerator, and the JVM WeakHashMap
+  expunges the collected member (on `.isEmpty`/`.size`) but never the registry
+  entry that held it. So when the snapshot leaves the membership empty, the
+  now-empty incarnation entry is dropped here (rf2-vxgfnd.169) — the read is the
+  correctness path for both hosts, not just an accelerator on CLJS."
   ([members] (weak-live members nil))
   ([members incarnation]
    (if (nil? members)
      []
-     #?(:clj  (locking members (into [] members))
-        :cljs (let [refs ^js (:refs members)
-                    out  (array)]
-                (.forEach refs
-                          (fn [ref _ _]
-                            (if-some [cell (.deref ^js ref)]
-                              (.push out cell)
-                              (.delete refs ref))))
-                ;; FinalizationRegistry is only an accelerator. A host without
-                ;; it still converges synchronously whenever ownership is read.
-                (when (some? incarnation)
-                  (drop-root-entry-if-empty! incarnation members))
-                (vec out))))))
+     (let [snapshot
+           #?(:clj  (locking members (into [] members))
+              :cljs (let [refs ^js (:refs members)
+                          out  (array)]
+                      (.forEach refs
+                                (fn [ref _ _]
+                                  (if-some [cell (.deref ^js ref)]
+                                    (.push out cell)
+                                    (.delete refs ref))))
+                      (vec out)))]
+       (when (some? incarnation)
+         (drop-root-entry-if-empty! incarnation members))
+       snapshot))))
 
 (defn- weak-live-count
   [members incarnation]
   (if (nil? members)
     0
-    #?(:clj  (.size ^java.util.Set members)
+    #?(:clj  (let [n (.size ^java.util.Set members)]
+               ;; `.size` expunges the collected member from the WeakHashMap but
+               ;; not the enclosing registry entry — compact it too, so a count of
+               ;; a fully-collected incarnation also prunes it (rf2-vxgfnd.169).
+               (when (some? incarnation)
+                 (drop-root-entry-if-empty! incarnation members))
+               n)
        :cljs (count (weak-live members incarnation)))))
 
 ;; ---- reload migration (rf2-vxgfnd.168) ---------------------------------------
@@ -2718,11 +2731,12 @@
   empty incarnations drop on final teardown (rf2-vxgfnd.85 AC5), and a
   collected member simply stops counting (rf2-mc62sp)."
   ([]
-   ;; Synchronous compaction is the correctness path when the optional
-   ;; FinalizationRegistry accelerator is unavailable.
-   #?(:cljs (doseq [[incarnation members] @root-cells]
-              (weak-live members incarnation))
-      :clj nil)
+   ;; Read = compact, on BOTH hosts: the optional CLJS FinalizationRegistry only
+   ;; accelerates husk reaping, and the JVM WeakHashMap expunges collected members
+   ;; but never the now-empty incarnation entry. Compacting here makes a
+   ;; fully-collected generation stop being tracked (rf2-vxgfnd.169).
+   (doseq [[incarnation members] @root-cells]
+     (weak-live members incarnation))
    (count @root-cells))
   ([incarnation]
    (weak-live-count (get @root-cells incarnation) incarnation)))

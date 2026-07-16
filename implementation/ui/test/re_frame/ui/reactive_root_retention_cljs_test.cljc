@@ -124,6 +124,32 @@
                  (swap! created conj ref)
                  ref))}))))
 
+#?(:cljs
+   (defn- controlled-finalization-registry
+     "A constructable FinalizationRegistry MODEL whose queued finalizers fire
+     only when the test invokes them explicitly — modelling a DELAYED finalizer
+     (rf2-vxgfnd.169). `register` records `{:held :token :callback}` into
+     `pending`; `unregister` removes by token and returns true (so the substrate
+     probe accepts it). The probe registers+unregisters a keyword-held sentinel,
+     so real member finalizers are exactly the map-held entries."
+     [pending]
+     (js/Proxy.
+      host-finalization-registry
+      #js {:construct
+           (fn [_ args _]
+             (let [callback (aget args 0)
+                   reg      (js-obj)]
+               (aset reg "register"
+                     (fn [_target held token]
+                       (swap! pending conj {:held held :token token
+                                            :callback callback})))
+               (aset reg "unregister"
+                     (fn [token]
+                       (swap! pending
+                              (fn [ps] (vec (remove #(identical? (:token %) token) ps))))
+                       true))
+               reg))})))
+
 ;; ===========================================================================
 ;; rf2-vxgfnd.170 — the three-arm JavaScript capability matrix
 ;; ===========================================================================
@@ -464,3 +490,128 @@
          (reactive/teardown-root! incarnation (fn [] nil))
          (is (= :dead (reactive/lifecycle hidden)))
          (is (= 0 (reactive/root-cell-count incarnation)))))))
+
+;; ===========================================================================
+;; rf2-vxgfnd.169 — the ALL-MEMBERS-COLLECTED path: after the LAST member of an
+;; incarnation collects, the now-empty OUTER registry entry must be pruned too,
+;; on BOTH hosts. The hidden-sibling fixture above keeps one member alive, so it
+;; only ever exercises last-EXPLICIT-departure — it masks this path.
+;; ===========================================================================
+
+#?(:clj
+   (deftest all-members-collected-drops-the-empty-incarnation-entry
+     ;; Forced-GC JVM coverage (the deterministic weak-clearing host): an
+     ;; incarnation whose SOLE cell is collected must leave the outer registry,
+     ;; and the global tracked count must return to baseline (rf2-vxgfnd.169).
+     (rf/reg-sub :ret/a (fn [db _] (:a db)))
+     (let [fid         (make-frame! :ret/frame {:a 1})
+           base        (reactive/root-cell-count)
+           incarnation (reactive/make-root-incarnation)
+           ;; the SOLE cell, held only WEAKLY — no hidden sibling, no strong ref.
+           ref         (let [cell (mount! ::solo incarnation fid [[:ret/a]])]
+                         (reactive/disconnect! cell)
+                         (java.lang.ref.WeakReference. cell))]
+       (is (= (inc base) (reactive/root-cell-count))
+           "precondition: the incarnation is tracked pre-GC")
+       (is (= 1 (reactive/root-cell-count incarnation)))
+       (testing "after the LAST cell collects, the empty incarnation entry is pruned"
+         (is (true? (gc-until #(nil? (.get ^java.lang.ref.WeakReference ref))))
+             "the sole member was collected — nothing strong retains it")
+         (is (= base (reactive/root-cell-count))
+             "the 0-arg GLOBAL tracked count returned to baseline — the now-empty
+              outer entry was pruned, not retained forever. RED pre-fix: the JVM
+              `weak-live` / `root-cell-count[]` never removed the outer entry")
+         (is (= 0 (reactive/root-cell-count incarnation))
+             "…and the per-incarnation live count is zero")))))
+
+#?(:cljs
+   (deftest all-members-collected-drops-empty-entry-without-a-reaper
+     ;; Compiled-CLJS coverage with FinalizationRegistry UNAVAILABLE: the
+     ;; opportunistic synchronous scan must compact the cleared husk AND drop the
+     ;; now-empty incarnation entry (rf2-vxgfnd.169).
+     (let [created     (atom [])
+           deref-calls (atom 0)
+           weak-ref    (controlled-weak-ref-constructor created deref-calls)]
+       (with-platform-capabilities!
+         weak-ref js/undefined                       ;; FinalizationRegistry ABSENT
+         (fn []
+           (reactive/ensure-platform-compatible! 'retention/prune)
+           (reset! created [])
+           (let [base        (reactive/root-cell-count)
+                 incarnation (reactive/make-root-incarnation)
+                 cell        (reactive/make-cell ::solo)]
+             (reactive/attach-root! cell incarnation)
+             (is (= (inc base) (reactive/root-cell-count)))
+             (is (= 1 (reactive/root-cell-count incarnation)))
+             ;; Model ordinary reconciliation collection: the sole member's weak
+             ;; ref clears, but NO deterministic teardown and NO reaper ran.
+             (.clearForTest (first @created))
+             (testing "opportunistic compaction drops the husk AND the empty entry"
+               (is (= base (reactive/root-cell-count))
+                   "the 0-arg global scan compacted the now-empty incarnation entry")
+               (is (= 0 (reactive/root-cell-count incarnation))))))))))
+
+#?(:cljs
+   (deftest explicit-teardown-of-a-member-empty-incarnation-removes-it
+     ;; The entry is present but its membership is already empty (collected):
+     ;; explicit root teardown must remove it deterministically (rf2-vxgfnd.169).
+     (let [created     (atom [])
+           deref-calls (atom 0)
+           weak-ref    (controlled-weak-ref-constructor created deref-calls)]
+       (with-platform-capabilities!
+         weak-ref js/undefined
+         (fn []
+           (reactive/ensure-platform-compatible! 'retention/empty-teardown)
+           (reset! created [])
+           (let [base        (reactive/root-cell-count)
+                 incarnation (reactive/make-root-incarnation)
+                 cell        (reactive/make-cell ::solo)]
+             (reactive/attach-root! cell incarnation)
+             ;; the member collects, leaving the entry PRESENT but member-empty
+             (.clearForTest (first @created))
+             (testing "explicit teardown of an already member-empty incarnation removes it"
+               (reactive/teardown-root! incarnation (fn [] nil))
+               (is (= base (reactive/root-cell-count)))
+               (is (= 0 (reactive/root-cell-count incarnation))))))))))
+
+#?(:cljs
+   (deftest delayed-finalizer-after-synchronous-removal-is-harmless
+     ;; A late FinalizationRegistry callback that fires AFTER synchronous
+     ;; compaction already removed the incarnation must not delete a replacement
+     ;; entry / new incarnation (rf2-vxgfnd.169).
+     (let [created     (atom [])
+           deref-calls (atom 0)
+           pending     (atom [])
+           weak-ref    (controlled-weak-ref-constructor created deref-calls)
+           final-reg   (controlled-finalization-registry pending)]
+       (with-platform-capabilities!
+         weak-ref final-reg
+         (fn []
+           (reactive/ensure-platform-compatible! 'retention/delayed)
+           (reset! created [])
+           (reset! pending [])
+           (let [inc-x  (reactive/make-root-incarnation)
+                 base   (reactive/root-cell-count)
+                 cell-a (reactive/make-cell ::a)]
+             (reactive/attach-root! cell-a inc-x)
+             (is (= 1 (reactive/root-cell-count inc-x)))
+             (let [fin (first (filter #(map? (:held %)) @pending))]
+               (is (some? fin) "the reaper registered A's collection finalizer")
+               ;; A collects; a SYNCHRONOUS scan removes X's now-empty entry NOW,
+               ;; BEFORE the (delayed) finalizer runs.
+               (.clearForTest (first @created))
+               (is (= base (reactive/root-cell-count))
+                   "synchronous compaction already dropped the empty incarnation")
+               ;; A NEW cell B re-attaches to X, re-creating the entry with a
+               ;; DIFFERENT membership set.
+               (let [cell-b (reactive/make-cell ::b)]
+                 (reactive/attach-root! cell-b inc-x)
+                 (is (= 1 (reactive/root-cell-count inc-x)))
+                 (testing "the DELAYED finalizer for A is harmless — identity-guarded"
+                   ((:callback fin) (:held fin))
+                   (is (= 1 (reactive/root-cell-count inc-x))
+                       "the late finalizer did NOT remove the replacement entry")
+                   (is (identical? inc-x (reactive/cell-root cell-b))
+                       "…nor the new incarnation's live member"))
+                 (reactive/teardown! cell-b)
+                 (is (= base (reactive/root-cell-count)))))))))))
