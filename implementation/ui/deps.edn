@@ -28,5 +28,16 @@
 
  :aliases
  {:test {:extra-paths ["test"]
-         :extra-deps  {day8/re-frame2-test-quiet {:local/root "../test-quiet"}}
+         :extra-deps  {day8/re-frame2-test-quiet {:local/root "../test-quiet"}
+                       ;; TEST-ONLY deps for the executable Guide 07 server-data
+                       ;; fixture (re-frame.ui.guide-truth-jvm-test): it registers
+                       ;; a real resource, drives the actual ensure/reply +
+                       ;; runtime-cache path, and reads `[:rf/resource …]` in a
+                       ;; rendered view — so the optional resources + managed-HTTP
+                       ;; + schemas artefacts must be on the TEST classpath.
+                       ;; Production `re-frame.ui` never `:require`s any of them
+                       ;; (they depend on core; ui depends on core — no cycle).
+                       day8/re-frame2-resources {:local/root "../resources"}
+                       day8/re-frame2-http      {:local/root "../http"}
+                       day8/re-frame2-schemas   {:local/root "../schemas"}}
          :main-opts   ["-m" "re-frame.test-quiet.runner"]}}}
