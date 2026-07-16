@@ -86,9 +86,9 @@ all three MERGED, not just closed). NORMATIVE SOURCES:
 ai/findings/new-substrate-synthesis/02-programming-model.md §3 (handler decision table,
 placeholder vocabulary, the sync-door law + S-5-CONFIRMED trigger predicate),
 03-reactivity-and-ownership.md §3 (committed-frame resolution), 12-implementation-plan.md
-§2b event rows, and drafts/spec-009-ui-catalogue-rows.md §2.3 (the paste batch) — mayor
-checkout only; ai/ is gitignored and absent from worker worktrees; the dispatcher copies
-these docs into the worktree or pastes them into the brief. Deliver in
+§2b event rows, and drafts/spec-009-ui-catalogue-rows.md §2.3 (the paste batch) — all
+tracked: read them in your own worktree at the revision you are implementing, and do
+not replace them with a copy from another checkout. Deliver in
 implementation/ui (+ one spec/009 dwell): (1) Replace the S1 dispatch-hook seam
 (re_frame/ui/runtime.cljs `set-dispatch-hook!`/`dispatch-event!`, default hook throws
 `:rf.error/ui-dispatch-unwired`) with real committed-frame dispatch: an event vector in
@@ -149,8 +149,9 @@ dispatch is the substrate). NORMATIVE SOURCES:
 ai/findings/new-substrate-synthesis/02-programming-model.md §5 (local/effect semantics +
 the ruled placement law), 03-reactivity-and-ownership.md §6 (effect contract), 06 §1
 (JVM subset rows), 12-implementation-plan.md §2b (local·effect / dispatch-fn / lease
-rows), drafts/spec-009-ui-catalogue-rows.md §2.3 — mayor checkout only; ai/ is
-gitignored; dispatcher copies docs into the worktree. Deliver in implementation/ui
+rows), drafts/spec-009-ui-catalogue-rows.md §2.3 — all tracked; read them in your own
+worktree at the revision you are implementing, and do not replace them with a copy from
+another checkout. Deliver in implementation/ui
 (+ one spec/009 dwell, sequenced behind S3a's merge): (1) `local` live: host
 component-local state deliberately outside re-frame2 epochs; `[value set-fn]` binding;
 set re-renders (contrast use-ref); NARROW placement-law fixtures (the F8 ruling):
@@ -205,8 +206,9 @@ S3 boundary components + foreign callback tier (epic rf2-vxgfnd; blocked by S3a 
 `:on-error` and `ui/event` ride committed dispatch). NORMATIVE SOURCES:
 ai/findings/new-substrate-synthesis/02-programming-model.md §3 (decision table) + §6
 (error-boundary semantics, client-only, refs), 06 §1/§3 (server failure policy,
-capability-free fallbacks), 07 §3 (the interop conformance set) — mayor checkout only;
-ai/ is gitignored; dispatcher copies docs into the worktree. Deliver in
+capability-free fallbacks), 07 §3 (the interop conformance set) — all tracked; read
+them in your own worktree at the revision you are implementing, and do not replace them
+with a copy from another checkout. Deliver in
 implementation/ui: (1) `ui/error-boundary {:fallback view :reset-key val :on-error
 [:ev …]}` per the 02 §6 phase semantics: catches render/lifecycle throws below it (NOT
 event-handler or async errors — those keep their typed paths); `:on-error` dispatches
@@ -281,8 +283,9 @@ shepherd RULING). NORMATIVE CONTRACT:
 ai/findings/new-substrate-synthesis/drafts/ui-react-interop-contract.md — per rf2-kvtn97
 this draft IS the normative contract for the tier; confirm-or-correct each of its eight
 [S3-CONFIRM] roster items in the PR body; a genuine semantics fork returns as a Mike
-delta per the blessed-table protocol. Mayor checkout only; ai/ is gitignored; dispatcher
-copies the draft into the worktree. Deliver in implementation/ui, namespace
+delta per the blessed-table protocol. The draft is tracked: read it in your own worktree
+at the revision you are implementing, and do not replace it with a copy from another
+checkout. Deliver in implementation/ui, namespace
 `re-frame.ui.react`: (1) The seven wrappers per contract §2: `use-ref`, `use-effect`,
 `use-layout-effect`, `use-effect-event`, `use-context`, `use-id` (host hooks;
 fixed-shape lowering with the kernel-held rf=-per-slot deps comparison of §2.0) +
@@ -357,8 +360,9 @@ rf2-vxgfnd.8 — instance records ride ViewCell commits). NORMATIVE SOURCES:
 ai/findings/new-substrate-synthesis/drafts/xray-ui-consumption-ia.md (THE concrete IA
 this bead implements — taste decisions are made there, not in the branch),
 04-debugging.md §1/§2/§5/§7/§8, 03 §4 (lifecycle facts + qualified retroactive
-annotations) — mayor checkout only; ai/ is gitignored; dispatcher copies the IA page +
-04 into the worktree. Shipped-Xray ground truth: tools/xray/spec/* at dispatch time.
+annotations) — all tracked; read the IA page + 04 in your own worktree at the revision
+you are implementing, and do not replace them with a copy from another checkout.
+Shipped-Xray ground truth: tools/xray/spec/* at dispatch time.
 Deliver, STRICTLY ORDERED (the IA page's checklist row 0 gates everything):
 (1) FRAMEWORK-SIDE FIRST — the evidence schema emits in implementation/ui + their
 Spec 009 catalogue rows (HOT-ZONE dwell, sequenced behind S3a/S3b's dwells; the
@@ -431,8 +435,9 @@ shipped surfaces; every stage wires its gates into CI IN that stage). NORMATIVE
 SOURCES: ai/findings/new-substrate-synthesis/07-testing.md §5 (gate table),
 12-implementation-plan.md §2b residual gates + §3 S3 line,
 drafts/guide-fixture-pipeline.md §3/§6 (bridge-phase activation design), 08 §5 proof-app
-ruling — mayor checkout only; ai/ is gitignored; dispatcher copies docs into the
-worktree. Deliver: (1) G-7 dev/prod equivalence wired into CI: per generated shape +
+ruling — all tracked; read them in your own worktree at the revision you are
+implementing, and do not replace them with a copy from another checkout.
+Deliver: (1) G-7 dev/prod equivalence wired into CI: per generated shape +
 pairwise capabilities + high-risk triples (not powersets); committed
 DOM/events/owners/cleanup agree with debug off; StrictMode-dev settles to prod
 outcomes. (2) G-11 elision wired: exact absence of debug + absence rosters — including
@@ -508,8 +513,9 @@ and evidence schema must exist — and rf2-vxgfnd.11 + .8). NORMATIVE SOURCES:
 ai/findings/new-substrate-synthesis/04-debugging.md §5 (the Story and Pair bullets are
 the contract), 03-reactivity-and-ownership.md §3 (override-lease honesty) + §10
 (REPL=HMR one path), 07-testing.md §2 (the JVM override door),
-drafts/ui-test-selector-grammar.md (the assertion vocabulary) — mayor checkout only;
-ai/ is gitignored; dispatcher copies docs into the worktree. Shipped ground truth at
+drafts/ui-test-selector-grammar.md (the assertion vocabulary) — all tracked; read them
+in your own worktree at the revision you are implementing, and do not replace them with
+a copy from another checkout. Shipped ground truth at
 dispatch: tools/story/, tools/re-frame2-pair-mcp/, tools/mcp-conformance/. Deliver:
 (1) STORY sub-override rung for substrate views: Story's `:sub-overrides` resolves
 through the observation-target protocol's static override lease (landed S2b — Story
