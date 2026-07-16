@@ -11,7 +11,6 @@
             [re-frame.flows.topo :as topo]
             [re-frame.frame :as frame]
             [re-frame.interop :as interop]
-            [re-frame.late-bind :as late-bind]
             [re-frame.path :as path]
             [re-frame.source-coords :as source-coords]
             [re-frame.trace :as trace]))
@@ -537,6 +536,29 @@
   [(-> metadata (dissoc :frame) (assoc :id flow-id :derive derive-fn))
    (:frame metadata)])
 
+(defn- flow-reload-shape
+  "The observable shape of a stored flow definition, for deciding whether a
+  re-registration is a genuine hot-reload edit or an idempotent replay.
+
+  rf2-soyqfn: flow replacement evidence must be deduped from THIS frame's
+  authoritative slot — the prior/new stored flow values — NOT the generic
+  process-global `[:flow flow-id]` registrar dedup table, which is frame-blind.
+  Two live frames replacing the same flow-id are two independent definitions
+  (Spec 013 §Frame-scoping); a frame-blind key lets one frame's recorded shape
+  suppress another frame's genuine replacement, and lets a destroyed frame's
+  shape bleed into its same-id successor. Comparing the prior and new stored
+  values of the SAME frame slot dedups each frame independently.
+
+  Strips the source-coord keys (`:ns`/`:file`/`:line`/`:column`), which drift on
+  every re-eval and are not a user-visible change — mirroring the generic
+  registrar `handler-shape`. The remaining fields (`:derive` fn identity,
+  `:inputs`, `:output-path`, plus any documentation/classification metadata)
+  compare by value; a fresh `:derive` instance from a namespace re-eval, a
+  changed body, or moved inputs/path all differ and emit, while a same-object
+  identical replay is suppressed."
+  [flow]
+  (dissoc flow :ns :file :line :column))
+
 (defn reg-flow
   "Register a flow against a frame:
 
@@ -669,8 +691,8 @@
            ;; registry mutation, or dedup-and-trace pipeline reaches B.
            (when (frame/event-continuation-live? frame-id pinned-incarnation)
              ;; A replacement invalidates the cache even when inputs are equal.
-             ;; Hot-reload trace dedup uses the derive function as handler
-             ;; identity.
+             ;; Hot-reload trace dedup compares the prior and new stored flow
+             ;; shapes of THIS frame slot (`flow-reload-shape`, rf2-soyqfn).
              (when (some? @prior-on-frame)
                (drop-frame-flow-row! frame-id flow-id)
                ;; rf2-rxsldx: the replacement dedup consultation and the
@@ -697,19 +719,30 @@
                  (trace/call-with-continuation-predicate
                    #(frame/event-continuation-live? frame-id pinned-incarnation)
                    (fn []
-                     (let [prior      @prior-on-frame
-                           different? (not= (:derive prior) (:derive flow))
-                           ;; The shared dedup projector expects handler identity
-                           ;; under `:handler-fn`.
-                           shape-meta (assoc flow :handler-fn (:derive flow))
-                           dedup-ok?  (if-let [f (late-bind/get-fn-cached
-                                                   :trace.tooling/dedup-allow?)]
-                                        (f :rf.registry/handler-replaced :flow flow-id shape-meta)
-                                        true)]
-                       (when dedup-ok?
+                     (let [prior          @prior-on-frame
+                           different?     (not= (:derive prior) (:derive flow))
+                           ;; rf2-soyqfn: decide replacement suppression from THIS
+                           ;; frame's authoritative slot — the prior/new stored
+                           ;; values — not the generic process-global
+                           ;; `[:flow flow-id]` dedup table. The generic table is
+                           ;; frame-blind: two live frames replacing the same
+                           ;; flow-id to the same shape collide on one key, so the
+                           ;; second frame's genuine replacement was suppressed and
+                           ;; left unattributable, and a same-id frame
+                           ;; reincarnation could inherit its predecessor's recorded
+                           ;; shape. A per-frame prior/new shape compare suppresses
+                           ;; only a true idempotent hot reload WITHIN this frame,
+                           ;; and lets each frame emit its own event (Spec 013
+                           ;; §independent frame ownership). Generic registrar dedup
+                           ;; for process-scoped kinds is untouched; no parallel
+                           ;; flow registry is introduced.
+                           shape-changed? (not= (flow-reload-shape prior)
+                                                (flow-reload-shape flow))]
+                       (when shape-changed?
                          (trace/emit! :rf.registry :rf.registry/handler-replaced
                                       {:kind          :flow
                                        :id            flow-id
+                                       :frame         frame-id
                                        :different-fn? different?})))))))
              ;; rf2-ytpeqf: first-registration evidence, kept INSIDE the exact-
              ;; owner postcheck. Registration is first-time per frame; replacements

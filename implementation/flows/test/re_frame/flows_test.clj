@@ -1640,25 +1640,25 @@
 ;;
 ;; Two layered contracts converge here:
 ;;
-;;   (1) `:handler-fn` is stamped on the flow registry metadata so the
-;;       registrar's `:different-fn?` calculation compares the flow body
-;;       across re-registrations. `reg-flow` stamps `:handler-fn` alongside
-;;       `:derive`, so the cross-kind registrar trace surface (Spec 001) works
-;;       for flows too. (Storing the body only under `:derive` would leave both
-;;       `:handler-fn` reads nil and `:different-fn?` always `false`.)
+;;   (1) `:different-fn?` is computed from THIS frame's authoritative prior/new
+;;       stored `:derive` values, so a real body swap tags `:different-fn? true`
+;;       and an unchanged body tags `false`.
 ;;
-;;   (2) Spec 009 B4 hot-reload dedup by shape. The registrar consults the
-;;       trace.tooling dedup-by-shape table on every emit: identical shape on
-;;       re-register emits ZERO `:rf.registry/handler-replaced` events; a real
-;;       body change emits exactly one.
+;;   (2) Hot-reload dedup by shape (rf2-soyqfn) — decided per FRAME from the
+;;       prior/new stored flow values, NOT the frame-blind process-global
+;;       registrar dedup table (which would let one frame's shape suppress
+;;       another's genuine replacement). Identical shape on re-register within a
+;;       frame emits ZERO `:rf.registry/handler-replaced` events; a real body
+;;       change emits exactly one. `flow-reload-shape` strips only source-coord
+;;       drift, so a same-object identity reload is suppressed and a changed
+;;       derive / inputs / output-path emits.
 ;;
-;; Together: identity reload → 0 emits (B4 dedup-suppressed); real
-;; `:derive` body swap → 1 emit with `:different-fn? true` (the `:handler-fn`
-;; stamp makes the comparison meaningful).
+;; Together: identity reload → 0 emits (shape-dedup-suppressed); real
+;; `:derive` body swap → 1 emit with `:different-fn? true`.
 ;; ---------------------------------------------------------------------------
 
 (deftest flow-hot-reload-different-fn?-reflects-real-body-swap
-  (testing "Per rf2-v5ttb (`:handler-fn` stamping) + rf2-g1b2m B4 dedup-by-shape: a real `:derive` swap emits one `:rf.registry/handler-replaced` with `:different-fn? true`; an identity reload is suppressed (0 emits)."
+  (testing "Per rf2-soyqfn per-frame shape dedup: a real `:derive` swap emits one `:rf.registry/handler-replaced` with `:different-fn? true`; an identity reload is suppressed (0 emits)."
     (let [captured (atom [])]
       (re-frame.trace/register-listener!
         ::handler-replaced-recorder
@@ -1668,34 +1668,153 @@
       (try
         (let [body-v1 (fn [n] (* 2 n))]
           (rf/reg-flow :double {:inputs [[:n]] :output-path [:doubled]} body-v1)
-          ;; (a) Real body swap — different `:handler-fn` identity, so
-          ;; the B4 dedup table sees a shape change and allows the emit.
-          ;; Exactly one `:rf.registry/handler-replaced` fires with
-          ;; `:different-fn? true` (the `:handler-fn` stamp on the flow
-          ;; metadata makes the comparison meaningful).
+          ;; (a) Real body swap — the frame's prior/new `:derive` differ, so the
+          ;; per-frame shape compare (rf2-soyqfn) sees a change and allows the
+          ;; emit. Exactly one `:rf.registry/handler-replaced` fires with
+          ;; `:different-fn? true`.
           (rf/reg-flow :double {:inputs [[:n]] :output-path [:doubled]} (fn [n] (* 100 n)))
           (is (= 1 (count @captured))
               "one :rf.registry/handler-replaced fired for the body-swap registration")
           (is (true? (-> @captured first :tags :different-fn?))
-              ":different-fn? true on real body change (rf2-v5ttb fix)")
-          ;; (b) Idempotent reload — re-register with the SAME fn
-          ;; identity as the previous registration. The B4 dedup table
-          ;; has already recorded that shape, so the re-emit is suppressed:
-          ;; ZERO `:rf.registry/handler-replaced` events.
+              ":different-fn? true on real body change")
+          ;; (b) Idempotent reload — re-register with the SAME fn identity as the
+          ;; previous registration. The frame's prior/new stored shapes match, so
+          ;; the re-emit is suppressed: ZERO `:rf.registry/handler-replaced`.
           (reset! captured [])
           (let [body-v2 (fn [n] (* 3 n))]
             (rf/reg-flow :double {:inputs [[:n]] :output-path [:doubled]} body-v2)
-            ;; First registration of `body-v2` shape is genuine — allow.
+            ;; Prior derive differs from body-v2 — genuine change, allow.
             (is (= 1 (count @captured))
-                "baseline emit for the new shape so the dedup table records it")
+                "baseline emit for the new shape recorded in this frame's slot")
             (reset! captured [])
-            ;; Now re-register IDENTICALLY — same fn identity, same
-            ;; meta. B4 dedup must suppress.
+            ;; Now re-register IDENTICALLY — same fn identity, same meta. The
+            ;; per-frame prior/new shape compare must suppress.
             (rf/reg-flow :double {:inputs [[:n]] :output-path [:doubled]} body-v2)
             (is (empty? @captured)
-                "B4 dedup-by-shape (rf2-g1b2m) suppresses the re-emit for an identity reload — 0 :rf.registry/handler-replaced events")))
+                "per-frame shape dedup (rf2-soyqfn) suppresses the re-emit for an identity reload — 0 :rf.registry/handler-replaced events")))
         (finally
           (re-frame.trace/unregister-listener! ::handler-replaced-recorder))))))
+
+;; ---------------------------------------------------------------------------
+;; 9c-ii. rf2-soyqfn: flow replacement evidence is scoped to the AUTHORITATIVE
+;;        frame slot, not the frame-blind process-global registrar dedup table.
+;;
+;; The same flow-id is an INDEPENDENT definition per frame (Spec 013
+;; §Frame-scoping). Deciding replacement suppression from a process-global
+;; `[:flow flow-id]` dedup key (PR #5912) let one frame's recorded shape suppress
+;; a sibling frame's genuine replacement, emitted one unattributable event (no
+;; `:frame`), and let a destroyed frame's shape bleed into its same-id successor.
+;; These tests pin the per-frame decision and the `:frame` attribution — each is
+;; RED on the pre-fix process-global path and GREEN after.
+;; ---------------------------------------------------------------------------
+
+(deftest flow-replacement-evidence-is-per-frame-not-process-global
+  (testing "rf2-soyqfn: two LIVE frames replacing the same flow-id from the SAME
+            prior derive to the SAME new derive each emit their OWN
+            :rf.registry/handler-replaced, attributed to their frame. Pre-fix the
+            process-global [:flow flow-id] dedup key let :left's recorded shape
+            suppress :right's genuine replacement — 1 unattributable emit."
+    (let [captured (atom [])
+          f1       (fn [n] (* 2 (or n 0)))
+          f2       (fn [n] (* 3 (or n 0)))]
+      (re-frame.trace/register-listener!
+        ::repl-recorder
+        (fn [ev]
+          (when (= :rf.registry/handler-replaced (:operation ev))
+            (swap! captured conj ev))))
+      (try
+        (rf/make-frame {:id :left  :doc "left frame"})
+        (rf/make-frame {:id :right :doc "right frame"})
+        ;; First registrations (emit :rf.flow/registered, not handler-replaced).
+        (rf/reg-flow :shared {:frame :left  :inputs [[:n]] :output-path [:out]} f1)
+        (rf/reg-flow :shared {:frame :right :inputs [[:n]] :output-path [:out]} f1)
+        (is (empty? @captured)
+            "no :rf.registry/handler-replaced from the first-time registrations")
+        ;; Two REAL replacements f1→f2, one per frame — identical prior and
+        ;; identical new derive object, so their observable shapes coincide. Each
+        ;; is nonetheless a genuine replacement in its OWN frame.
+        (rf/reg-flow :shared {:frame :left  :inputs [[:n]] :output-path [:out]} f2)
+        (rf/reg-flow :shared {:frame :right :inputs [[:n]] :output-path [:out]} f2)
+        (is (= 2 (count @captured))
+            "each frame's genuine replacement emits once — no cross-frame
+             suppression from a shared process-global dedup key")
+        (is (= #{:left :right}
+               (set (map #(get-in % [:tags :frame]) @captured)))
+            "the two events are attributable to their distinct :frame slots")
+        (is (every? #(= :shared (get-in % [:tags :id])) @captured)
+            "both name the :shared flow-id")
+        (is (every? #(true? (get-in % [:tags :different-fn?])) @captured)
+            "both are real body swaps (:different-fn? true)")
+        (finally
+          (re-frame.trace/unregister-listener! ::repl-recorder))))))
+
+(deftest flow-replacement-identical-reload-suppresses-independently-per-frame
+  (testing "rf2-soyqfn: after both frames record their real replacement, an
+            IDENTICAL subsequent reload (same derive object, same inputs/path)
+            suppresses within EACH frame independently — 0 further emits."
+    (let [captured (atom [])
+          f1       (fn [n] (* 2 (or n 0)))
+          f2       (fn [n] (* 3 (or n 0)))]
+      (re-frame.trace/register-listener!
+        ::repl-recorder
+        (fn [ev]
+          (when (= :rf.registry/handler-replaced (:operation ev))
+            (swap! captured conj ev))))
+      (try
+        (rf/make-frame {:id :left  :doc "left frame"})
+        (rf/make-frame {:id :right :doc "right frame"})
+        (rf/reg-flow :shared {:frame :left  :inputs [[:n]] :output-path [:out]} f1)
+        (rf/reg-flow :shared {:frame :right :inputs [[:n]] :output-path [:out]} f1)
+        ;; Real replacements f1→f2 on both frames — 2 emits.
+        (rf/reg-flow :shared {:frame :left  :inputs [[:n]] :output-path [:out]} f2)
+        (rf/reg-flow :shared {:frame :right :inputs [[:n]] :output-path [:out]} f2)
+        (is (= 2 (count @captured)) "both real replacements emitted once each")
+        (reset! captured [])
+        ;; Identical reload: re-register the SAME f2 object on each frame. Each
+        ;; frame's own prior/new shapes now coincide → suppress, independently.
+        (rf/reg-flow :shared {:frame :left  :inputs [[:n]] :output-path [:out]} f2)
+        (is (empty? @captured) ":left's identical reload is suppressed")
+        (rf/reg-flow :shared {:frame :right :inputs [[:n]] :output-path [:out]} f2)
+        (is (empty? @captured)
+            ":right's identical reload is suppressed INDEPENDENTLY of :left")
+        (finally
+          (re-frame.trace/unregister-listener! ::repl-recorder))))))
+
+(deftest flow-replacement-reincarnation-does-not-inherit-predecessor-shape
+  (testing "rf2-soyqfn: destroying a frame and recreating it under the SAME id
+            does not let the dead incarnation's recorded replacement shape
+            suppress the new incarnation's genuine replacement. Pre-fix the
+            process-global [:flow flow-id] table persisted across destroy and
+            suppressed the successor's real replacement."
+    (let [captured (atom [])
+          f1       (fn [n] (* 2 (or n 0)))
+          f2       (fn [n] (* 3 (or n 0)))]
+      (re-frame.trace/register-listener!
+        ::repl-recorder
+        (fn [ev]
+          (when (= :rf.registry/handler-replaced (:operation ev))
+            (swap! captured conj ev))))
+      (try
+        (rf/make-frame {:id :host :doc "host frame"})
+        (rf/reg-flow :shared {:frame :host :inputs [[:n]] :output-path [:out]} f1)
+        (rf/reg-flow :shared {:frame :host :inputs [[:n]] :output-path [:out]} f2)
+        (is (= 1 (count @captured)) "incarnation A's real replacement emitted once")
+        (reset! captured [])
+        ;; Destroy and recreate under the SAME id — a fresh incarnation with an
+        ;; empty per-frame flow registry.
+        (frame/destroy-frame! :host)
+        (rf/make-frame {:id :host :doc "host reincarnated"})
+        ;; The new incarnation registers f1 first-time (:rf.flow/registered), then
+        ;; genuinely replaces it with f2.
+        (rf/reg-flow :shared {:frame :host :inputs [[:n]] :output-path [:out]} f1)
+        (rf/reg-flow :shared {:frame :host :inputs [[:n]] :output-path [:out]} f2)
+        (is (= 1 (count @captured))
+            "the reincarnated frame's genuine replacement emits once — the dead
+             incarnation's shape did not carry over and suppress it")
+        (is (= :host (get-in (first @captured) [:tags :frame]))
+            "and it is attributed to the reincarnated :host frame")
+        (finally
+          (re-frame.trace/unregister-listener! ::repl-recorder))))))
 
 (deftest flow-hot-reload-invalidates-last-inputs
   (testing "re-registering a flow re-evaluates even when inputs are unchanged"
