@@ -34,6 +34,7 @@
 (def ^:private ui-html-fqns   #{'re-frame.ui/html})
 (def ^:private ui-raw-fn-fqns #{'re-frame.ui/raw-fn})
 (def ^:private ui-spread-fqns #{'re-frame.ui/spread})
+(def ^:private ui-event-fqns  #{'re-frame.ui/event})
 (def ^:private sub-fqns       #{'re-frame.ui/sub})
 (def ^:private lease-fqns     #{'re-frame.ui/lease})
 (def ^:private frame-fqns     #{'re-frame.ui/frame})
@@ -78,6 +79,7 @@
 (defn- html-form? [e f] (and (seq? f) (symbol? (first f)) (env/resolves-to? e (first f) ui-html-fqns)))
 (defn- raw-fn-form? [e f] (and (seq? f) (symbol? (first f)) (env/resolves-to? e (first f) ui-raw-fn-fqns)))
 (defn- spread-form? [e f] (and (seq? f) (symbol? (first f)) (env/resolves-to? e (first f) ui-spread-fqns)))
+(defn- ui-event-form? [e f] (and (seq? f) (symbol? (first f)) (env/resolves-to? e (first f) ui-event-fqns)))
 
 ;; ---------------------------------------------------------------------------
 ;; Expression rewriting — lexical site indexing + loop finiteness
@@ -833,6 +835,18 @@
                               (map-indexed #(rw %2 locals (conj p (inc %1)))
                                            (rest f)))))
 
+                   ;; A DEFERRED callback body (fn / ui/event / raw-fn / event-arg)
+                   ;; hosts no render-time reactive site — sub/lease/frame are
+                   ;; already illegal here (rejected above) — so there is nothing
+                   ;; for lexical site analysis to protect. Opaque host macros
+                   ;; (`..`, `doto`, `case`, `if-let`, …) are ordinary callback
+                   ;; code: pass the form through verbatim. A reactive call
+                   ;; smuggled inside one stays illegal in deferred scope and fails
+                   ;; loud at its resolution-only var when the callback runs.
+                   (and (macro-info e* head locals)
+                        (contains? locals deferred-scope))
+                   f
+
                    (macro-info e* head locals)
                    (env/fail! e :rf.ui.compile/unsupported-form
                               (str "macro " head " is outside the compiler's "
@@ -1010,13 +1024,16 @@
 (defn- controlled-event-sync?
   "The deliberately narrow controlled-input sync door.  It is a property of
   the whole native element, not of the handler in isolation, so it is applied
-  after every prop has been classified."
+  after every prop has been classified.  The SITE proof is static: a literal
+  vector handler, or a `ui/event` handler whose runtime result the invocation
+  classifies as an event vector.  Both ride the one synchronous drain; the
+  prefix/payload stay runtime values."
   [controlled? handler]
   (boolean
    (and controlled?
         (contains? #{"on-input" "on-change" "on-before-input"}
                    (:name handler))
-        (= :vector (:classification handler)))))
+        (contains? #{:vector :ui-event} (:classification handler)))))
 
 (defn- record-event-sync!
   [e sid sync?]
@@ -1096,6 +1113,33 @@
                                            (contains? rules/placeholders %))
                                       event*)
                   :serializable? true})))
+
+      (ui-event-form? e form)
+      (let [[_ bindings & body] form]
+        (when-not (and (vector? bindings) (= 1 (count bindings)))
+          (env/fail! e :rf.ui.compile/bad-ui-event
+                     (str "(ui/event [e] body…) at " k " binds exactly the "
+                          "native event and returns an event vector (or nil to "
+                          "dispatch nothing); got " (pr-str bindings)
+                          ". For imperative work with no dispatch, S3 adds "
+                          "ui/handler")
+                     {:prop k :form form}))
+        ;; A ui/event handler is a SITE, like a literal vector: capturing a loop
+        ;; binding needs per-row committed slots (its own bindings shadow, so they
+        ;; are excluded from the capture check). Its body is a deferred callback,
+        ;; so render-time sub/lease/frame inside it are rejected by the fn walk.
+        (let [binders (set (env/binding-syms bindings))
+              form*   (walk-expr e [:handler k :ui-event]
+                                 (with-meta (apply list 'fn bindings body)
+                                   (meta form)))]
+          (check-loop-capture! (update e :loop-syms #(reduce disj % binders))
+                               (str "ui/event handler at " k) form)
+          (add-event-site! e identity
+                           {:prop k :handler :opaque
+                            :classification :ui-event :serializable? false})
+          (merge identity
+                 {:k k :name nm :classification :ui-event :form form*
+                  :capture? false :hoistable? false :serializable? false})))
 
       (fn-form? form)
       (do (when (:in-loop? e)

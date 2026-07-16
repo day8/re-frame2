@@ -282,7 +282,10 @@
             ;; S2 public boot substrate (12 §2 frozen row)
             adapter
             ;; S2 ops-bundle body form (rf2-vxgfnd.184)
-            frame}
+            frame
+            ;; S3 committed handler form: the compiler-owned ui/event site
+            ;; whose synchronous vector result rides the sync door (rf2-8k14ia)
+            event}
          (set (keys (ns-publics 're-frame.ui))))
       "no reg-view family, no Form-1/2/3 helpers, no h macro, no view
        lookup, no ratom/cursor/reaction — Spec 004 §Removed forms"))

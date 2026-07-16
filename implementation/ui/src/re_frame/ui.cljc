@@ -385,3 +385,29 @@
          "element's props position, where the compiler wires it through "
          "the conversion rule table")
     nil)))
+
+(defn event
+  "(ui/event [e] body…) — a compiler-owned committed handler form for a
+  DOM/custom-element `:on-*` site whose body needs the live native event.
+  The body runs when the callback fires; its result is the EVENT VECTOR to
+  dispatch, or `nil` to dispatch nothing (a filter). The callback sees the
+  view's COMMITTED values and dispatches to the committed frame — the same
+  per-site-stable, retarget-safe machinery a literal event vector rides.
+
+  At a compiler-proven controlled DOM site (a literal `:value`/`:checked`
+  prop co-present with the handler on `:on-input`/`:on-change`/
+  `:on-before-input`) a synchronous `ui/event` whose result is a vector rides
+  the ONE synchronous door alongside a literal vector handler — the shape a
+  reusable input control uses to append its live payload to an event prefix
+  received through props. Any synchronous result other than a vector or `nil`
+  is a loud runtime diagnostic; placeholder keywords inside the runtime result
+  are ordinary data (dev warns).
+
+  This var exists for symbol resolution only; a direct call fails loudly."
+  [& _]
+  (error/throw-error!
+   :rf.error/ui-tree-malformed 're-frame.ui/event
+   (str "(ui/event [e] …) executed outside compiler lowering — it is a "
+        "lexical handler form for a DOM/custom-element :on-* site, not a "
+        "callable helper. Author it at the element's handler position")
+   nil))

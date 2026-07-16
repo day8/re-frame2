@@ -74,7 +74,8 @@ For payloads that need the live event — form contents, files, coordinates, fil
 ```
 
 The body runs when the callback fires; the last form is the event vector (or `nil`).
-If the body merely wraps a literal vector, dev suggests the vector form instead.
+When the body is *only* a literal vector, prefer the plain vector handler — `ui/event`
+earns its keep when the payload needs the live event or a `nil` filter.
 
 ## Forms and controlled inputs *(lands S3 — sync-input door)*
 

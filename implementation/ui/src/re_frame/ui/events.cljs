@@ -188,53 +188,6 @@
      :rf.trace/call-site source-coord}
     {:source :ui}))
 
-(defn- invoke-site!
-  [^js owner site-key native-event]
-  (when-some [committed (.-committed owner)]
-    (when-some [^js desc (unchecked-get committed site-key)]
-      (let [flags (.-flags desc)]
-        (when-not (and (pos? (bit-and flags once-flag))
-                       (unchecked-get (.-onceFired owner) site-key))
-          (when (pos? (bit-and flags once-flag))
-            (unchecked-set (.-onceFired owner) site-key true))
-          (when (pos? (bit-and flags prevent-default-flag))
-            (.preventDefault native-event))
-          (when (pos? (bit-and flags stop-propagation-flag))
-            (.stopPropagation native-event))
-          (case (.-kind desc)
-            :data
-            (let [frame-ops (.-frameOps owner)
-                  event (project-event (.-value desc) native-event)
-                  opts  (debug-dispatch-opts (.-debugSite desc))]
-              (if (pos? (bit-and flags sync-flag))
-                (do
-                  ((:dispatch-sync frame-ops) event opts)
-                  ;; The write-side drain has reached quiescence. Advance each
-                  ;; dirty ViewCell once; React owns the one host batch.
-                  (reactive/flush-frame! (:frame frame-ops)))
-                ((:dispatch frame-ops) event opts)))
-
-            :fn
-            ((.-value desc) native-event)
-
-            nil)))))
-  nil)
-
-(defn- stable-site-callback!
-  "The stable callback for `site-key`: the one already committed for this site
-  (kept stable across commits while the site stays mounted), or one already
-  published earlier in THIS render, else a freshly minted callback. An abandoned
-  render only ever writes its own `candidate.sites` and never the owner, so it
-  can seed no callback — the candidate/owner split holds."
-  [^js owner ^js sites site-key]
-  (let [committed (.-committed owner)
-        prior     (or (when (some? committed) (unchecked-get committed site-key))
-                      (unchecked-get sites site-key))]
-    (if (some? prior)
-      (.-callback ^js prior)
-      (fn [native-event]
-        (invoke-site! owner site-key native-event)))))
-
 (defn- debug-site-tags
   [{:keys [view-id sid source-coord path]}]
   {:view-id view-id
@@ -275,6 +228,86 @@
                :recovery :warned-and-continued}
               (debug-site-tags debug-site))))))
 
+(defn- dispatch-committed!
+  "Dispatch a committed handler's event vector to the owner's frame. The one
+  sync door drains inside the native event and advances the dirty ViewCells
+  before React's discrete re-render; every other site batches."
+  [^js owner flags event debug-site]
+  (let [frame-ops (.-frameOps owner)
+        opts      (debug-dispatch-opts debug-site)]
+    (if (pos? (bit-and flags sync-flag))
+      (do
+        ((:dispatch-sync frame-ops) event opts)
+        ;; The write-side drain has reached quiescence. Advance each dirty
+        ;; ViewCell once; React owns the one host batch.
+        (reactive/flush-frame! (:frame frame-ops)))
+      ((:dispatch frame-ops) event opts))))
+
+(defn- invoke-site!
+  [^js owner site-key native-event]
+  (when-some [committed (.-committed owner)]
+    (when-some [^js desc (unchecked-get committed site-key)]
+      (let [flags (.-flags desc)]
+        (when-not (and (pos? (bit-and flags once-flag))
+                       (unchecked-get (.-onceFired owner) site-key))
+          (when (pos? (bit-and flags once-flag))
+            (unchecked-set (.-onceFired owner) site-key true))
+          (when (pos? (bit-and flags prevent-default-flag))
+            (.preventDefault native-event))
+          (when (pos? (bit-and flags stop-propagation-flag))
+            (.stopPropagation native-event))
+          (case (.-kind desc)
+            :data
+            (dispatch-committed! owner flags
+                                 (project-event (.-value desc) native-event)
+                                 (.-debugSite desc))
+
+            ;; A compiler-proven ui/event site: the body runs synchronously with
+            ;; the live native event and NAMES its outcome. A vector dispatches
+            ;; (through the sync door when this is a controlled-input site, else
+            ;; batched); nil dispatches nothing; anything else is a loud didactic
+            ;; diagnostic. Placeholder keywords in the runtime result are ordinary
+            ;; data (dev warns), exactly as for a runtime-forwarded vector.
+            :event-fn
+            (let [result ((.-value desc) native-event)]
+              (cond
+                (nil? result) nil
+
+                (vector? result)
+                (do
+                  (warn-dynamic-placeholder! result (.-debugSite desc))
+                  (warn-unregistered! result (.-debugSite desc))
+                  (dispatch-committed! owner flags result (.-debugSite desc)))
+
+                :else
+                (error/throw-error!
+                 :rf.error/ui-tree-malformed 're-frame.ui/event
+                 (str "a (ui/event …) body produced " (pr-str result)
+                      " — a committed ui/event handler must return an event "
+                      "vector to dispatch, or nil to dispatch nothing")
+                 {:extra {:value result}})))
+
+            :fn
+            ((.-value desc) native-event)
+
+            nil)))))
+  nil)
+
+(defn- stable-site-callback!
+  "The stable callback for `site-key`: the one already committed for this site
+  (kept stable across commits while the site stays mounted), or one already
+  published earlier in THIS render, else a freshly minted callback. An abandoned
+  render only ever writes its own `candidate.sites` and never the owner, so it
+  can seed no callback — the candidate/owner split holds."
+  [^js owner ^js sites site-key]
+  (let [committed (.-committed owner)
+        prior     (or (when (some? committed) (unchecked-get committed site-key))
+                      (unchecked-get sites site-key))]
+    (if (some? prior)
+      (.-callback ^js prior)
+      (fn [native-event]
+        (invoke-site! owner site-key native-event)))))
+
 (defn- publish-candidate-site!
   [site-key ^js descriptor]
   (let [^js candidate (capture-or-throw!)
@@ -290,6 +323,18 @@
   (warn-unregistered! template debug-site)
   (publish-candidate-site!
    site-key #js {:kind :data :value template :flags flags :debugSite debug-site
+                 :callback nil}))
+
+(defn event-handler
+  "Return the stable callback for a compiler-proven `ui/event` site. `f` is the
+  compiled `(fn [native-event] -> event-vector | nil)` body; `flags` carries the
+  controlled-input sync bit exactly as a literal vector site does. Its outcome is
+  classified at invocation (vector ⇒ dispatch, nil ⇒ no dispatch, anything else ⇒
+  loud diagnostic), so the SITE proof is static while the prefix/payload stay
+  runtime values."
+  [site-key f flags debug-site]
+  (publish-candidate-site!
+   site-key #js {:kind :event-fn :value f :flags flags :debugSite debug-site
                  :callback nil}))
 
 ;; ---------------------------------------------------------------------------

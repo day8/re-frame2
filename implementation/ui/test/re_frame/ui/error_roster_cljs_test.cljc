@@ -58,6 +58,7 @@
     :rf.ui.compile/bad-event-vector
     :rf.ui.compile/bad-handler-options
     :rf.ui.compile/contradictory-handler-options
+    :rf.ui.compile/bad-ui-event
     ;; props
     :rf.ui.compile/bad-class
     :rf.ui.compile/bad-style
@@ -182,6 +183,7 @@
       html        {:fqn 're-frame.ui/html :meta {}}
       raw-fn      {:fqn 're-frame.ui/raw-fn :meta {}}
       spread      {:fqn 're-frame.ui/spread :meta {}}
+      event       {:fqn 're-frame.ui/event :meta {}}
       frame-provider {:fqn 're-frame.ui/frame-provider :meta {}}
       child-view  {:fqn 'app.views/child-view
                    :meta {:rf.ui/view true :rf.ui/children? true}}
@@ -285,6 +287,9 @@
    [:rf.ui.compile/contradictory-handler-options
     '[:button {:on-click {:event [:a/b] :passive true :prevent-default true}} "x"]
     ["preventDefault" "Drop one"]]
+   [:rf.ui.compile/bad-ui-event
+    '[:input {:on-input (event [a b] [:x])}]
+    ["native event" "event vector" "ui/handler"]]
    ;; props
    [:rf.ui.compile/bad-class '[:div {:class {(kw) true}} "x"] ["literal names"]]
    [:rf.ui.compile/bad-style '[:div {:style {(kw) 1}} "x"] ["dynamic expression"]]

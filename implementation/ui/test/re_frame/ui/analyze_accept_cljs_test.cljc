@@ -30,6 +30,8 @@
       html        {:fqn 're-frame.ui/html :meta {}}
       raw-fn      {:fqn 're-frame.ui/raw-fn :meta {}}
       spread      {:fqn 're-frame.ui/spread :meta {}}
+      event       {:fqn 're-frame.ui/event :meta {}}
+      ..          {:fqn 'clojure.core/.. :meta {:macro true}}
       if-let      {:fqn 'clojure.core/if-let :meta {:macro true}}
       ->          {:fqn 'clojure.core/-> :meta {:macro true}}
       frame-provider {:fqn 're-frame.ui/frame-provider :meta {}}
@@ -253,6 +255,14 @@
   (let [el (ana* '[:button {:on-click (fn [e] e)} "x"])]
     (is (= :fn (:classification (first (get-in el [:props :events]))))
         "bare fns are legal in known native event properties"))
+  (let [el (ana* '[:input {:on-input (event [e] [:form/typed (.. e -target -value)])}])
+        h  (first (get-in el [:props :events]))]
+    (is (= :ui-event (:classification h))
+        "a ui/event handler is its own compiler-known committed-callback class")
+    (is (false? (:serializable? h)))
+    (is (false? (:hoistable? h)))
+    (is (= 'fn (first (:form h)))
+        "the ui/event body lowers to a fn the runtime calls with the native event"))
   (let [el (ana* '[:button {:on-click (if a [:x/a] [:x/b])} "x"])]
     (is (= :dynamic (:classification (first (get-in el [:props :events]))))))
   (let [{:keys [ast sites]}
@@ -260,6 +270,26 @@
     (is (= :dynamic (:classification (first (get-in ast [:props :events])))))
     (is (= 1 (count (:subs sites)))
         "dynamic handler classification runs at render, so its sub is finite")))
+
+(deftest deferred-callback-bodies-accept-opaque-host-macros
+  ;; A deferred callback (ui/event / bare fn) is opaque host code: interop and
+  ;; binder macros (.. , if-let, …) that a RENDER body rejects pass through here
+  ;; verbatim, because sub/lease/frame — the only things lexical analysis
+  ;; protects — are already illegal in deferred scope. The canonical ui/event
+  ;; payload `(.. e -target -value)` therefore compiles.
+  (testing "a ui/event body keeps its interop macro verbatim"
+    (let [el (ana* '[:input {:on-input
+                             (event [e] (conj on-value (.. e -target -value)))}])
+          h  (first (get-in el [:props :events]))]
+      (is (= :ui-event (:classification h)))
+      (is (= '(conj on-value (.. e -target -value)) (last (:form h)))
+          "the interop macro survives into the compiled fn body")))
+  (testing "a bare fn handler body keeps its interop macro verbatim"
+    (let [el (ana* '[:button {:on-click (fn [e] (.. e -target -value))} "x"])]
+      (is (= :fn (:classification (first (get-in el [:props :events])))))))
+  (testing "a render-body opaque macro is still rejected (the deferred/render split)"
+    (is (thrown? #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo)
+                 (ana* '[:div {:title (.. x -y -z)}])))))
 
 (deftest event-sites-index-into-the-manifest
   (let [{:keys [sites]} (ana-full '[:div
@@ -299,6 +329,27 @@
     (is (true? (-> (ana* '[:input {:checked checked?
                                     :on-before-input [:form/check]}])
                    (get-in [:props :events 0 :sync?])))))
+  (testing "a synchronous ui/event body rides the same door as a literal vector"
+    ;; The widening (readiness P0-2): the site proof stays static (literal
+    ;; controlled prop co-present); the appended prefix/payload stay runtime.
+    (let [{:keys [ast warnings]}
+          (ana-full '[:input {:value value
+                              :on-input (event [e]
+                                          (conj on-value (.. e -target -value)))}])]
+      (is (= :ui-event (get-in ast [:props :events 0 :classification])))
+      (is (true? (get-in ast [:props :events 0 :sync?]))
+          "a controlled ui/event site opens the one sync door")
+      (is (empty? warnings)
+          "a proven ui/event door emits no async-handler fallback warning"))
+    (is (true? (-> (ana* '[:input {:checked checked?
+                                   :on-change (event [e] [:prefs/set (.. e -target -checked)])}])
+                   (get-in [:props :events 0 :sync?])))))
+  (testing "an uncontrolled ui/event site simply batches, with no diagnostic"
+    (let [{:keys [ast warnings]}
+          (ana-full '[:input {:on-input (event [e] [:log (.. e -target -value)])}])]
+      (is (= :ui-event (get-in ast [:props :events 0 :classification])))
+      (is (false? (get-in ast [:props :events 0 :sync?])))
+      (is (empty? warnings))))
   (testing "ordinary sites and non-data handlers stay batched"
     (is (false? (-> (ana* '[:button {:value value :on-click [:form/go]}])
                     (get-in [:props :events 0 :sync?]))))
@@ -308,7 +359,13 @@
       (is (false? (get-in ast [:props :events 0 :sync?])))
       (is (= [:rf.ui.compile/controlled-input-async-handler]
              (mapv :id warnings))
-          "a fallback site names the exact conditions it failed to prove"))))
+          "a fallback site names the exact conditions it failed to prove"))
+    (testing "a bare fn at a controlled site still batches with the diagnostic"
+      (let [{:keys [ast warnings]}
+            (ana-full '[:input {:value value :on-input (fn [e] (js/console.log e))}])]
+        (is (false? (get-in ast [:props :events 0 :sync?])))
+        (is (= [:rf.ui.compile/controlled-input-async-handler]
+               (mapv :id warnings)))))))
 
 (deftest sub-sites-index
   (let [{:keys [sites]} (ana-full '[:div
