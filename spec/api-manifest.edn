@@ -6,7 +6,7 @@
  {:doc
  "GENERATED public-API manifest — do NOT hand-edit the :vars list. Regenerate with: clojure -M -m re-frame.api-manifest.gen (run from implementation/scripts/api-manifest/). The tier/owner/status axes are curated in spec/api-manifest-metadata.edn; existence + kind + facade? are derived from live public vars. See that generator ns for the design.",
  :keystone "rf2-3nbl5.2",
- :var-count 494,
+ :var-count 495,
  :tier-vocab
  [:front-porch
   :advanced
@@ -489,6 +489,7 @@
   {:namespace "re-frame.ui", :var "create-root", :tier :advanced, :kind :macro, :owner "004", :status "Spec-004 S1", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.ui", :var "custom-element", :tier :advanced, :kind :macro, :owner "004", :status "Spec-004 S1", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.ui", :var "defview", :tier :front-porch, :kind :macro, :owner "004", :status "Spec-004 S1", :facade? false, :runtime-verified? true}
+  {:namespace "re-frame.ui", :var "event", :tier :advanced, :kind :fn, :owner "004", :status "Spec-004 S3", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.ui", :var "frame", :tier :advanced, :kind :fn, :owner "004", :status "Spec-004 S2", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.ui", :var "frame-provider", :tier :front-porch, :kind :fn, :owner "004", :status "Spec-004 S2", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.ui", :var "frame-root", :tier :front-porch, :kind :fn, :owner "004", :status "Spec-004 S1", :facade? false, :runtime-verified? true}

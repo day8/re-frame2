@@ -207,8 +207,8 @@
   ;;     the Spec-004 `export-surface-is-exactly-the-blessed-set` JVM conformance):
   ;;     defview / custom-element / sub / lease / raw / html / raw-fn / spread /
   ;;     mount / create-root / render! / hydrate-root / unmount! / frame-root /
-  ;;     frame-provider / adapter / frame — all SEVENTEEN live public vars, so
-  ;;     re-frame.ui is now
+  ;;     frame-provider / adapter / frame / event — all EIGHTEEN live public vars,
+  ;;     so re-frame.ui is now
   ;;     :FULLY-ROWED (BOTH directions checked — see the probe note below).
   ;;     `frame-root` (rf2-vxgfnd.71) is NAMESPACE-SPECIFIC — the compiled-view
   ;;     ENSURE root-form marker (a compile-marker `defn`, :kind :fn), rowed
@@ -250,6 +250,18 @@
   ;;     behaviour, diagnostics, production cost), asserted by the S2
   ;;     conformance-profile row; spec/API.md §Compiled views carries the
   ;;     projected Fn row (`:owner "004"`).
+  ;;     `event` (rf2-8k14ia) is the S3 compiler-owned COMMITTED HANDLER form —
+  ;;     `(ui/event [e] … [:vector …])` at a DOM/custom-element `:on-*` site whose
+  ;;     body needs the live native event; the body's result IS the event vector
+  ;;     to dispatch (`nil` ⇒ no dispatch, a filter). At a compiler-proven
+  ;;     controlled-input site a synchronous `ui/event` returning a vector rides
+  ;;     the ONE synchronous door beside a literal vector handler (Spec 004
+  ;;     §Controlled inputs — the synchrony law). A resolution-only `defn` that throws
+  ;;     on a direct call; tiered :advanced beside the literal `[:event …]`
+  ;;     front-porch vector (the 90% intent form). Its live public var + the
+  ;;     `export-surface-is-exactly-the-blessed-set` JVM row landed with the S3
+  ;;     sync-door widening; this row + the spec/API.md §Compiled views row are
+  ;;     the projection reconciliation.
   {:namespace "re-frame.ui" :var "defview"        :kind :macro :facade? false :tier :front-porch :owner "004" :status "Spec-004 S1" :runtime-verified? true}
   {:namespace "re-frame.ui" :var "custom-element" :kind :macro :facade? false :tier :advanced    :owner "004" :status "Spec-004 S1" :runtime-verified? true}
   {:namespace "re-frame.ui" :var "sub"            :kind :fn    :facade? false :tier :front-porch :owner "004" :status "Spec-004 S1" :runtime-verified? true}
@@ -266,7 +278,8 @@
   {:namespace "re-frame.ui" :var "frame-root"     :kind :fn    :facade? false :tier :front-porch :owner "004" :status "Spec-004 S1" :runtime-verified? true}
   {:namespace "re-frame.ui" :var "frame-provider" :kind :fn    :facade? false :tier :front-porch :owner "004" :status "Spec-004 S2" :runtime-verified? true}
   {:namespace "re-frame.ui" :var "adapter"        :kind :var   :facade? false :tier :front-porch :owner "006" :status "Spec-004 S2" :runtime-verified? true}
-  {:namespace "re-frame.ui" :var "frame"          :kind :fn    :facade? false :tier :advanced    :owner "004" :status "Spec-004 S2" :runtime-verified? true}]
+  {:namespace "re-frame.ui" :var "frame"          :kind :fn    :facade? false :tier :advanced    :owner "004" :status "Spec-004 S2" :runtime-verified? true}
+  {:namespace "re-frame.ui" :var "event"          :kind :fn    :facade? false :tier :advanced    :owner "004" :status "Spec-004 S3" :runtime-verified? true}]
 
  ;; --------------------------------------------------------------------------
  ;; API.md var-rows that are KNOWINGLY absent from the manifest. The
