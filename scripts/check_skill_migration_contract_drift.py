@@ -54,6 +54,17 @@ Two contract facts, each pinned against the shipped spec:
     query-v)`. The stale affirmative recipe this gate kills is a lifecycle hook
     that recommends the bare one-argument form for either operation.
 
+    Unlike the rules above this one is NOT a line rule — a bare call is legal
+    wherever a real resolver scope exists, so the rule is only as good as the
+    context it reads (`form3_context_problems`). It reads balanced call forms
+    (vector queries and calls split over lines are ordinary in guidance, and
+    arity is what separates the bare form from the frame-qualified one), bounds
+    lifecycle context to the enclosing Markdown section, and applies BEFORE /
+    AFTER example exemptions per call. Those bounds are the rule: without them
+    it either misses realistic recipes (rf2-vxgfnd.94.19) or rejects legal
+    ambient calls and lets an AFTER recipe hide behind a BEFORE example
+    (rf2-vxgfnd.94.20).
+
   * **Boot-smoke Pair partition mismatch (rf2-j538f7.33) — an app-db-only Pair
     read aimed at a runtime-db path.** The boot smoke-test (references/runtime-
     smoke-test.md) must read the two runtime partitions with the right tool.
@@ -72,7 +83,7 @@ Two contract facts, each pinned against the shipped spec:
     "confirm the boot machine via `get-path`/`snapshot {path:}` on
     `[:rf.runtime/machines :snapshots]`" / "`snapshot {path: [:rf.db/runtime]}`".
 
-All of these line rules are written to fire ONLY on the stale ASSERTION / bad-command
+All of these rules are written to fire ONLY on the stale ASSERTION / bad-command
 shape, never on the corrected wording that states the negation — and never on the
 unrelated, still-live `:on-error` *surfaces* (a machine `:spawn :on-error`
 transition, a route `:on-error` lifecycle event), which are NOT frame-level
@@ -387,10 +398,25 @@ FORM3_BARE_LIFECYCLE_NEGATION_RE = re.compile(
     r"|must not|never|invalid|wrong|omit(?:s|ted)?|instead",
     re.IGNORECASE,
 )
+# Example-polarity markers (rf2-vxgfnd.94.20). A BEFORE / negative-example
+# marker exempts the calls that FOLLOW it; an AFTER / corrected marker ends that
+# exemption. Both are matched by POSITION, not per block, so a historical BEFORE
+# example cannot hide an affirmative recipe sitting beside it in the same fence.
 FORM3_NEGATIVE_EXAMPLE_RE = re.compile(
     r"\bBEFORE\b|(?i:bad example|negative example|anti-pattern|do not copy)",
 )
+FORM3_POSITIVE_EXAMPLE_RE = re.compile(
+    r"\bAFTER\b|(?i:recommended|good example|do this instead"
+    r"|correct(?:ed)?\s+(?:example|recipe|form|shape|version))",
+)
 FORM3_SENTENCE_BOUNDARY_RE = re.compile(r"[.!?](?:[*_`]+)?\s+")
+
+# Structural Markdown boundaries (rf2-vxgfnd.94.20). Lifecycle context must not
+# leak past a heading or thematic break, else a `## Form-3 lifecycle` section
+# makes every legal ambient call in later sections a false failure.
+ATX_HEADING_RE = re.compile(r"^ {0,3}#{1,6}(?:\s|$)")
+THEMATIC_BREAK_RE = re.compile(r"^ {0,3}(?:-{3,}|\*{3,}|_{3,})\s*$")
+FENCE_RE = re.compile(r"^ {0,3}(`{3,}|~{3,})")
 
 FORM3_BARE_LIFECYCLE_PROBLEM = (
     "FORM3-BARE-LIFECYCLE: a Form-3 lifecycle callback has no ambient "
@@ -415,30 +441,14 @@ def _sentence_around(line: str, start: int, end: int) -> str:
     return line[sentence_start:sentence_end]
 
 
-def _has_unnegated_form3_bare_call(line: str) -> bool:
-    """True when `line` contains a bare call that is itself affirmative.
-
-    Markdown guidance often puts a positive recipe and a later warning on one
-    long line. Negation therefore applies to the sentence containing each call;
-    a later "omits the frame" sentence must not bless an earlier bare recipe.
-    """
-    for start, end, arity in _form3_call_sites(line):
-        if arity != FORM3_BARE_ARITY:
-            continue
-        if not FORM3_BARE_LIFECYCLE_NEGATION_RE.search(
-            _sentence_around(line, start, end)
-        ):
-            return True
-    return False
-
-
-def _block_bare_calls(lines: list[str]) -> list[tuple[int, str]]:
-    """`(line_offset, excerpt)` for every unnegated bare call in one block.
+def _block_bare_calls(lines: list[str]) -> list[tuple[int, str, int]]:
+    """`(line_offset, excerpt, block_offset)` for unnegated bare calls in a block.
 
     Scans the joined block so a call split across lines is still read as a
     single balanced form. Negation stays anchored to the sentence on the call's
     own line: a neighbouring paragraph explaining that a bare call throws must
-    not bless an affirmative recipe further down.
+    not bless an affirmative recipe further down. `block_offset` lets the caller
+    apply example-polarity exemptions per call rather than per block.
     """
     text = "\n".join(lines)
     starts: list[int] = []
@@ -447,7 +457,7 @@ def _block_bare_calls(lines: list[str]) -> list[tuple[int, str]]:
         starts.append(pos)
         pos += len(line) + 1
 
-    found: list[tuple[int, str]] = []
+    found: list[tuple[int, str, int]] = []
     for start, end, arity in _form3_call_sites(text):
         if arity != FORM3_BARE_ARITY:
             continue
@@ -457,7 +467,7 @@ def _block_bare_calls(lines: list[str]) -> list[tuple[int, str]]:
         sentence = _sentence_around(line, col, min(end - starts[idx], len(line)))
         if FORM3_BARE_LIFECYCLE_NEGATION_RE.search(sentence):
             continue
-        found.append((idx, line.strip()))
+        found.append((idx, line.strip(), start))
     return found
 
 
@@ -537,71 +547,143 @@ def line_problems(line: str) -> list[str]:
             "INCONCLUSIVE, never absence). (rf2-j538f7.33.)"
         )
 
-    # Rule 5 — affirmative Form-3 lifecycle advice using a bare frame-scoped
-    # one-shot read or teardown after the resolver scope has unwound.
-    if (
-        FORM3_LIFECYCLE_RE.search(line)
-        and _has_unnegated_form3_bare_call(line)
-    ):
-        problems.append(FORM3_BARE_LIFECYCLE_PROBLEM)
+    # Rule 5 is NOT here: it needs Markdown context (section bounds + example
+    # polarity) that a single line cannot supply, and a line-local copy would
+    # miss split-line calls while double-reporting same-line ones. It lives in
+    # `form3_context_problems`, which `find_drift` runs over the whole text.
 
     return problems
 
 
-def _markdown_blocks(text: str) -> list[tuple[int, list[str]]]:
-    """Return non-blank Markdown blocks with their one-based start line.
+def _markdown_sections(text: str) -> list[list[tuple[int, list[str]]]]:
+    """Split `text` into heading-delimited sections of non-blank blocks.
 
     Rule 5 needs bounded context because user-facing prose and fenced examples
-    routinely place `:component-did-mount` and its call on adjacent lines. A
-    block is the smallest useful unit: blank lines keep unrelated sections from
-    being treated as one global Form-3 context.
+    routinely place `:component-did-mount` and its call on adjacent lines. Two
+    structures bound it:
+
+    * A **block** (blank-line separated) is the smallest useful unit, so
+      unrelated paragraphs are not treated as one global Form-3 context. A
+      fenced code block is atomic — a blank line inside a fence does not split
+      it, so a hook body stays a single unit.
+    * A **section** ends at a Markdown heading or thematic break. Lifecycle
+      context must not cross one: a `## Form-3 lifecycle` section does not make
+      a legal ambient call three headings later illegal (rf2-vxgfnd.94.20). The
+      heading line itself opens the new section, so a `## Form-3 lifecycle`
+      heading still establishes context for the prose beneath it.
     """
-    blocks: list[tuple[int, list[str]]] = []
+    sections: list[list[tuple[int, list[str]]]] = []
+    section: list[tuple[int, list[str]]] = []
     current: list[str] = []
     start = 1
+    fence: str | None = None
+
+    def end_block() -> None:
+        nonlocal current
+        if current:
+            section.append((start, current))
+            current = []
+
+    def end_section() -> None:
+        nonlocal section
+        end_block()
+        if section:
+            sections.append(section)
+            section = []
+
     for lineno, line in enumerate(text.splitlines(), start=1):
+        fence_m = FENCE_RE.match(line)
+
+        if fence is not None:  # inside a fence: everything is content
+            current.append(line)
+            if fence_m and fence_m.group(1)[0] == fence:
+                fence = None
+            continue
+
+        if fence_m:
+            if not current:
+                start = lineno
+            current.append(line)
+            fence = fence_m.group(1)[0]
+            continue
+
+        if ATX_HEADING_RE.match(line) or THEMATIC_BREAK_RE.match(line):
+            end_section()
+            if ATX_HEADING_RE.match(line):
+                start = lineno
+                current = [line]
+                end_block()
+            continue
+
         if line.strip():
             if not current:
                 start = lineno
             current.append(line)
-        elif current:
-            blocks.append((start, current))
-            current = []
-    if current:
-        blocks.append((start, current))
-    return blocks
+        else:
+            end_block()
+
+    end_section()
+    return sections
+
+
+def _example_polarity_events(block: str) -> list[tuple[int, bool]]:
+    """`(offset, exempt?)` for every example-polarity marker in `block`."""
+    events = [(m.start(), True) for m in FORM3_NEGATIVE_EXAMPLE_RE.finditer(block)]
+    events += [(m.start(), False) for m in FORM3_POSITIVE_EXAMPLE_RE.finditer(block)]
+    events.sort()
+    return events
+
+
+def _polarity_at(events: list[tuple[int, bool]], pos: int, carried: bool) -> bool:
+    """Exemption state at `pos`: the last marker at or before it, else `carried`."""
+    state = carried
+    for offset, value in events:
+        if offset > pos:
+            break
+        state = value
+    return state
 
 
 def form3_context_problems(text: str) -> list[tuple[int, str, str]]:
-    """Find multiline Rule-5 drift using at most four Markdown blocks.
+    """Find Rule-5 drift inside bounded, structurally-delimited context.
 
-    Bare one-argument forms are valid in a real ambient render scope, so this is
-    deliberately not a file-wide search. A call is dirty only when its current
-    block or one of the three immediately preceding blocks establishes Form-3 /
-    lifecycle context. Negation remains call-line local: a nearby paragraph
-    explaining that a bare call throws must not accidentally bless a later
-    affirmative recipe. An explicit BEFORE/negative-example marker exempts only
-    the call's own block or its immediately preceding label block; an older
-    negative example must not suppress a later positive recipe.
+    Bare one-argument forms are valid wherever a real ambient render scope
+    exists, so this is deliberately not a file-wide search. Three bounds apply
+    (rf2-vxgfnd.94.20):
+
+    * **Structural.** Lifecycle context never crosses a Markdown heading or
+      thematic break. Within a section, a call is dirty only when its own block
+      or one of the three immediately preceding blocks establishes Form-3 /
+      lifecycle context. Without the section bound a single `## Form-3
+      lifecycle` heading poisons every later legal ambient call.
+    * **Exemption.** A BEFORE / negative-example marker exempts the calls that
+      FOLLOW it, up to the next AFTER / corrected marker or the end of the
+      section. Applying it per block instead let an affirmative AFTER recipe
+      hide beside a historical BEFORE example in the same fence.
+    * **Negation.** Stays call-line local: a nearby paragraph explaining that a
+      bare call throws must not bless a later affirmative recipe.
+
+    This is the single reporting path for Rule 5 — `line_problems` deliberately
+    does not carry it, so the same-line case gets the same bounds as every other
+    (a `BEFORE` label must exempt a same-line call too).
     """
     found: list[tuple[int, str, str]] = []
-    recent: list[str] = []
-    for start, lines in _markdown_blocks(text):
-        block = "\n".join(lines)
-        context = "\n\n".join([*recent[-3:], block])
-        negative_example = (
-            FORM3_NEGATIVE_EXAMPLE_RE.search(block)
-            or (recent and FORM3_NEGATIVE_EXAMPLE_RE.search(recent[-1]))
-        )
-        if FORM3_LIFECYCLE_RE.search(context) and not negative_example:
-            for offset, excerpt in _block_bare_calls(lines):
-                # Same-line cases are already reported by line_problems.
-                if FORM3_LIFECYCLE_RE.search(lines[offset]):
-                    continue
-                found.append(
-                    (start + offset, FORM3_BARE_LIFECYCLE_PROBLEM, excerpt)
-                )
-        recent.append(block)
+    for section in _markdown_sections(text):
+        recent: list[str] = []
+        exempt = False
+        for start, lines in section:
+            block = "\n".join(lines)
+            context = "\n\n".join([*recent[-3:], block])
+            events = _example_polarity_events(block)
+            if FORM3_LIFECYCLE_RE.search(context):
+                for offset, excerpt, pos in _block_bare_calls(lines):
+                    if _polarity_at(events, pos, exempt):
+                        continue  # a BEFORE / negative example — historical
+                    found.append(
+                        (start + offset, FORM3_BARE_LIFECYCLE_PROBLEM, excerpt)
+                    )
+            exempt = _polarity_at(events, len(block), exempt)
+            recent.append(block)
     return found
 
 
@@ -884,12 +966,8 @@ LIVE_FORM3_MUTATIONS = (
 
 
 def _rule5_dirty(text: str) -> bool:
-    """True when `text` trips Rule 5 through either reporting path."""
-    if form3_context_problems(text):
-        return True
-    return any(FORM3_BARE_LIFECYCLE_PROBLEM in p
-               for line in text.splitlines()
-               for p in line_problems(line))
+    """True when `text` trips Rule 5 (`form3_context_problems` is its one path)."""
+    return bool(form3_context_problems(text))
 
 
 def _live_corpus_mutation_problems() -> list[str]:
@@ -1110,17 +1188,17 @@ def _self_test() -> int:
     )
 
     # --- Rule 5 fixtures — stock-Reagent Form-3 lifecycle targeting ------------
-    expect(
+    expect_text(
         "In :component-did-mount read `(rf/subscribe-once query-v)` and in "
         ":component-will-unmount call `(rf/unsubscribe query-v)`.",
         dirty=True, label="E1 Form-3 lifecycle recommends bare read/teardown",
     )
-    expect(
+    expect_text(
         "In a Form-3 hook use `(rf/subscribe-once query-v {:frame frame})`; "
         "teardown is `(rf/unsubscribe frame query-v)`.",
         dirty=False, label="E2 Form-3 lifecycle targets captured frame",
     )
-    expect(
+    expect_text(
         "A bare `(rf/subscribe-once query-v)` in a lifecycle hook throws "
         "`:rf.error/no-frame-context`.",
         dirty=False, label="E3 negative bare lifecycle example",
@@ -1157,7 +1235,7 @@ def _self_test() -> int:
         dirty=True,
         label="E8 older negative example cannot bless a later positive recipe",
     )
-    expect(
+    expect_text(
         "**Form-3 lifecycle.** Acquire in `:component-did-mount`. Pair it "
         "with `(rf/unsubscribe query-v)` in "
         "`:component-will-unmount`. A teardown that omits the frame throws "
@@ -1171,7 +1249,7 @@ def _self_test() -> int:
     # single whitespace-free token on the call's own line. Guidance does not
     # look like that: queries are vectors and calls wrap. Each F-case below
     # passed the pre-fix gate while teaching an unsafe recipe.
-    expect(
+    expect_text(
         "In `:component-did-mount` read `(rf/subscribe-once [:todos/all :active])`.",
         dirty=True, label="F1 same-line vector query arg is bare",
     )
@@ -1221,25 +1299,25 @@ def _self_test() -> int:
         dirty=False, label="G3 split-line frame-first teardown is clean",
     )
     # Adversarial parser cases — the scanner must not mis-count arity.
-    expect(
+    expect_text(
         "In `:component-did-mount` call `(rf/subscribe-once [:msg \"a b c\"])`.",
         dirty=True, label="G4 string with spaces inside a vector is one argument",
     )
-    expect(
+    expect_text(
         "In `:component-did-mount` call "
         "`(rf/subscribe-once [:msg \"}{)(\"] {:frame frame})`.",
         dirty=False, label="G5 brackets inside a string do not break the counter",
     )
-    expect(
+    expect_text(
         "A lifecycle hook may call `(rf/subscribe-once-ish query-v)` — a "
         "different fn entirely.",
         dirty=False, label="G6 head-symbol prefix match is not a subscribe-once call",
     )
-    expect(
+    expect_text(
         "A lifecycle note mentioning `(rf/unsubscribe-all frame)` is unrelated.",
         dirty=False, label="G7 unsubscribe-all is not unsubscribe",
     )
-    expect(
+    expect_text(
         "An unbalanced `:component-did-mount` excerpt `(rf/subscribe-once query-v` "
         "is never guessed at.",
         dirty=False, label="G8 unbalanced excerpt is skipped, not assumed bare",
@@ -1257,6 +1335,110 @@ def _self_test() -> int:
         "Outside of views (event handlers, fx, REPL) the substrate-agnostic "
         "`(rf/subscribe [:foo])` and `(rf/subscribe-once [:foo])` still work.",
         dirty=False, label="G10 ambient bare call in the O-13 shape is legal",
+    )
+
+    # --- Rule 5 structural bounds (rf2-vxgfnd.94.20) ----------------------------
+    # H-cases: a heading ENDS lifecycle context. Without this a single Form-3
+    # section falsely rejects every legal ambient call below it.
+    expect_text(
+        "## Form-3 lifecycle\n\n"
+        "A hook has no ambient frame; use `(rf/subscribe-once query-v "
+        "{:frame frame})`.\n\n"
+        "## Ambient reads in a registered view\n\n"
+        "A `reg-view` body runs under a live resolver scope, so "
+        "`(rf/subscribe-once query-v)` resolves against the provider frame.",
+        dirty=False, label="H1 heading ends lifecycle context; ambient call legal",
+    )
+    expect_text(
+        "## Form-3 lifecycle\n\n"
+        "Capture the frame in the outer callable.\n\n"
+        "---\n\n"
+        "In an ordinary registered view, `(rf/subscribe-once [:todos/all])` "
+        "reads the provider frame.",
+        dirty=False, label="H2 thematic break ends lifecycle context",
+    )
+    expect_text(
+        "## Form-3 lifecycle\n\n"
+        "A hook has no ambient frame.\n\n"
+        "Seed the library with `(rf/subscribe-once query-v)` at mount.",
+        dirty=True, label="H3 context still carries WITHIN its own section",
+    )
+    expect_text(
+        "### Form-3 lifecycle\n\n"
+        "Capture the frame in the outer callable.\n\n"
+        "```clojure\n:component-did-mount\n(fn [_]\n"
+        "  (rf/subscribe-once query-v))\n```",
+        dirty=True, label="H4 heading itself establishes context for its section",
+    )
+    # I-cases: BEFORE/AFTER polarity is per call, not per block. The pre-fix
+    # block-wide exemption let an affirmative AFTER recipe hide beside a
+    # historical BEFORE example in the same fence.
+    expect_text(
+        "**Form-3 lifecycle.** Capture the frame in the outer callable.\n\n"
+        "```clojure\n"
+        ";; BEFORE (v1) — no frame to name\n"
+        "(rf/subscribe-once old-query)\n"
+        ";; AFTER (v2) — this is the recipe to copy\n"
+        "(rf/subscribe-once query-v)\n"
+        "```",
+        dirty=True,
+        label="I1 BEFORE cannot hide an AFTER recipe in the same fence",
+    )
+    expect_text(
+        "**Form-3 lifecycle.** Capture the frame in the outer callable.\n\n"
+        "```clojure\n"
+        ";; BEFORE (v1) — no frame to name\n"
+        "(rf/subscribe-once old-query)\n"
+        ";; AFTER (v2) — this is the recipe to copy\n"
+        "(rf/subscribe-once query-v {:frame frame})\n"
+        "```",
+        dirty=False,
+        label="I2 BEFORE exempt + frame-qualified AFTER is wholly clean",
+    )
+    expect_text(
+        "**Form-3 lifecycle — BEFORE.** Do not copy this.\n\n"
+        "```clojure\n:component-did-mount\n(fn [_]\n"
+        "  (rf/subscribe-once [:todos/all :active]))\n```",
+        dirty=False,
+        label="I3 BEFORE label exempts the fence that follows it",
+    )
+    expect_text(
+        "## Form-3 lifecycle — BEFORE\n\n"
+        "`(rf/subscribe-once old-query)`\n\n"
+        "## Form-3 lifecycle — the current recipe\n\n"
+        "`(rf/subscribe-once query-v)`",
+        dirty=True,
+        label="I4 exemption does not survive a heading into the next section",
+    )
+    expect_text(
+        "**Form-3 lifecycle.** BEFORE: `(rf/subscribe-once old-query)` was the "
+        "v1 shape.",
+        dirty=False,
+        label="I5 same-line BEFORE label exempts the call after it",
+    )
+    # J-cases: fences are atomic, so a blank line inside a hook body neither
+    # splits the block nor loses the surrounding lifecycle context.
+    expect_text(
+        "**Form-3 lifecycle.** Capture the frame in the outer callable.\n\n"
+        "```clojure\n"
+        ":component-did-mount\n"
+        "(fn [_]\n"
+        "  (do-some-setup!)\n"
+        "\n"
+        "  ;; a blank line above must not split this fence\n"
+        "  (rf/subscribe-once query-v))\n"
+        "```",
+        dirty=True, label="J1 blank line inside a fence keeps the block atomic",
+    )
+    expect_text(
+        "## Form-3 lifecycle\n\n"
+        "A hook has no ambient frame.\n\n"
+        "```markdown\n"
+        "## An example heading, quoted inside a fence\n"
+        "```\n\n"
+        "Seed the library with `(rf/subscribe-once query-v)` at mount.",
+        dirty=True,
+        label="J2 a heading inside a fence does not reset context",
     )
 
     # --- M-1 classifier fixtures (rf2-3fc89f.35) --------------------------------
