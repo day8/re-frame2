@@ -67,8 +67,11 @@
 
 (defn canonical-invoke-all-join-schema
   "The canonical `InvokeAllJoinState` `[:map …]` form, extracted from
-  Spec-Schemas.md. `:rf/attempt` is REQUIRED here (the authoritative document);
-  a token-less child-bearing join is not a valid live shape."
+  Spec-Schemas.md. Every enumerated key is REQUIRED here (the authoritative
+  document): `:rf/attempt` (a token-less child-bearing join is not a valid live
+  shape) and the `:cancelled` explicit-teardown TOMBSTONE set (a tombstone-less
+  live join cannot honour a cancellation, so a late authority could resurrect a
+  cancelled child — rf2-y7venl)."
   []
   (extract-def-form (spec-schemas-text) 'InvokeAllJoinState))
 
