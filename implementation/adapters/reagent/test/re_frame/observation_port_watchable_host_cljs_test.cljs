@@ -282,8 +282,14 @@
               (ratom/flush!)
               (is (= 1 (count @notes)) "exactly one {:cause :value} for a real move")
               (is (= :value (:cause (first @notes))))
-              (is (> (:version (lease-last lease)) v0)
-                  "the real value movement advanced the node version")))
+              ;; EXACT `inc`, not merely `> v0`: `advance-node-record!` advances
+              ;; the node version by exactly `(inc (:version rec))` per real
+              ;; movement (observation.cljc), and between `v0` and this single
+              ;; real move only the NO-move NaN→NaN recompute intervened (version
+              ;; held at `v0`, asserted above). A +2 seam increment — the mutation
+              ;; the loose `> v0` waves through — fails this assertion.
+              (is (= (inc v0) (:version (lease-last lease)))
+                  "the real value movement advanced the node version EXACTLY once")))
           (finally
             (nan-rm)
             (obs/release! lease)
@@ -292,6 +298,44 @@
 ;; ===========================================================================
 ;; rf2-r09qj — NaN moves NaN-STABLY through an integrated ViewCell
 ;; ===========================================================================
+;;
+;; WHY THE "render" IS A HEADLESS `reactive/subscribe` LISTENER, NOT A REACT
+;; MOUNT (rf2-en6qm). An audit (rf2-en6qm) asked to re-establish this fact at a
+;; REAL mounted render (a live React component's render count) rather than a
+;; `useSyncExternalStore` listener. That is architecturally UNREACHABLE for THIS
+;; fact without a runtime change, because the two properties the proof needs are
+;; mutually exclusive across every supported adapter:
+;;
+;;   1. HOST WATCH FIRES ON NaN→NaN. Only the ratom Reaction (Reagent /
+;;      reagent-slim) notifies on NaN→NaN — its notify gate is raw `=`
+;;      (`(= ##NaN ##NaN)` is false). That firing on a NO-move is the whole
+;;      point: it is what makes the observation port's `node-value=` suppression
+;;      (make-watch-handler) LOAD-BEARING. The first-party re-frame.ui / UIx /
+;;      Helix watchable substrate gates notify on `rf=`
+;;      (`Object.is(##NaN,##NaN)` is true — `re_frame/substrate/spine.cljs`
+;;      `rf=`), so its host watch does NOT fire on NaN→NaN and the
+;;      make-watch-handler is never even reached.
+;;   2. DRIVES A ViewCell AT A REAL MOUNT. Only re-frame.ui / UIx / Helix render
+;;      through the observation port → ViewCell → `useSyncExternalStore`. Reagent
+;;      and reagent-slim render NATIVELY through `re-frame.views` /
+;;      `create-class`; a mounted Reagent view never touches the observation port
+;;      or a ViewCell. And `re-frame.ui.client/mount!` refuses a non-`re-frame.ui`
+;;      adapter generation, so "Reagent host + ViewCell real mount" is not a
+;;      supported configuration.
+;;
+;; So the ONLY host that fires on NaN→NaN (property 1) is exactly the family that
+;; never drives a ViewCell (property 2). At a real mounted render on the ui
+;; adapter a NaN→NaN produces zero renders too — but for the WRONG reason (the
+;; host's own `rf=` gate suppresses at source; the sentinel would NOT fire), so
+;; it would prove the spine's notify gate, not make-watch-handler suppression.
+;; This integrated ViewCell (real `re-frame.ui.reactive` cell, driven by
+;; `with-capture`/`commit!` and observed via the SAME `useSyncExternalStore`
+;; `subscribe` seam React calls) is therefore the HIGHEST-fidelity SUPPORTED
+;; proof of the make-watch-handler NaN suppression over a Reagent watchable host;
+;; the render is the listener-notification count that a mounted React component
+;; would consume. Moving it to a live React mount would require either a runtime
+;; change to the ui substrate notify gate or an unsupported Reagent+ViewCell
+;; bridge — both out of scope for a proof.
 
 (deftest viewcell-over-watchable-host-nan-to-nan-is-version-revision-render-stable
   (testing "an integrated observation→ViewCell path over a WATCHABLE (Reagent)
@@ -345,8 +389,12 @@
               (rf/dispatch-sync [:obs/set-n 5])
               (ratom/flush!)
               (reactive/flush-dirty! cell)
-              (is (> (:version (obs/read lease)) ver0)
-                  "the real move advanced the node version")
+              ;; EXACT `inc`, matching the revision assertion just below: only
+              ;; the NO-move NaN→NaN recompute(s) intervened between `ver0` and
+              ;; this single real move, so `advance-node-record!` advanced the
+              ;; node version by exactly one. A +2 seam increment fails here.
+              (is (= (inc ver0) (:version (obs/read lease)))
+                  "the real move advanced the node version EXACTLY once")
               (is (= (inc rev0) (reactive/revision cell))
                   "the real move advanced the cell revision exactly once")
               (is (= 1 @renders)
