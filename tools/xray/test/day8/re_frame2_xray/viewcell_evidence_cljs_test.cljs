@@ -37,6 +37,7 @@
             [re-frame.registrar :as registrar]
             [re-frame.subs.tooling :as subs-tooling]
             [re-frame.ui.reactive :as reactive]
+            [re-frame.ui.tool :as tool]
             [re-frame.ui.tool.evidence :as evidence]
             [day8.re-frame2-xray.core :as core]
             [day8.re-frame2-xray.epoch :as epoch]
@@ -132,12 +133,12 @@
     (rf/reg-sub :vce/a (fn [db _] (:a db)))
     (reactive/flush-pending!)
 
-    (testing "the consumer projection carries the bounded row"
+    (testing "the consumer projection carries the bounded S3 row"
       (let [rows (viewcell-evidence/rows)
             row  (first rows)]
         (is (= 1 (count rows)))
         (is (= ::v (:view-id row)) "stable view identity")
-        (is (number? (:cell-id row)) "stable per-instance ordinal")
+        (is (number? (:occurrence row)) "OCCURRENCE identity — stable ordinal")
         (is (nil? (:root-id row)) "no live client root owns a graft cell")
         (is (= 1 (:count row)))
         (is (= 1 (:batches row)))
@@ -145,7 +146,20 @@
         (is (= [[:sub fid [:vce/a]]] (:targets row))
             "…with the moving target key")
         (is (= 0 (:dropped-count row)))
-        (is (true? (:dropped-exact? row)) "the honest loss account")))
+        (is (true? (:dropped-exact? row)) "the honest loss account")
+        ;; S3 fields sourced from the versioned public `explain-render`
+        ;; projection (rf2-vxgfnd.95.7) — NOT the raw tier read.
+        (is (= :connected (:connection row))
+            "the committed incarnation reads its LIVE connection state")
+        (is (true? (:targets-exact? row))
+            "observation-identity fidelity — the shown targets kept exact identity")
+        (is (contains? row :lifecycle)
+            "the honest hide-vs-unmount lifecycle log rides the row")))
+
+    (testing "the version-status read reports the supported public-tier version"
+      (let [{:keys [version supported?]} (viewcell-evidence/version-status)]
+        (is (= tool/schema-version version) "the producer's evidence-schema version")
+        (is (true? supported?) "…recognised by this Xray build")))
 
     (testing "the SAME row surfaces through Xray's query path — the
               `:rf.xray/viewcell-evidence` sub the Views panel reads"
@@ -153,15 +167,15 @@
         (is (= (viewcell-evidence/rows) rows))
         (is (= ::v (:view-id (first rows))))))
 
-    (testing "identity is stable across further batches"
-      (let [id-before (:cell-id (first (viewcell-evidence/rows)))]
+    (testing "occurrence identity is stable across further batches"
+      (let [id-before (:occurrence (first (viewcell-evidence/rows)))]
         ;; a real re-render re-acquires fresh leases on the re-registered
         ;; nodes before any further movement can fan out to this cell
         (rc! cell [[:vce/a]])
         (rf/reg-sub :vce/a (fn [db _] (:a db)))
         (reactive/flush-pending!)
         (let [row (first (viewcell-evidence/rows))]
-          (is (= id-before (:cell-id row)))
+          (is (= id-before (:occurrence row)))
           (is (= 2 (:count row)))
           (is (= 2 (:batches row))))))
 
@@ -172,6 +186,104 @@
       ;; cached composite recomputes before the re-query
       (frame/replace-app-db! :rf/xray {:epoch-history [::pumped]})
       (is (= [] (xray-query))))))
+
+;; ===========================================================================
+;; S3 counterexamples (rf2-vxgfnd.95.7) — the projection honours the versioned
+;; envelope, the honest loss account, and the hide-vs-unmount lifecycle labels;
+;; nothing inferred is presented as exact
+;; ===========================================================================
+
+(deftest stale-evidence-version-degrades-honestly-never-mis-parses
+  ;; A producer stamping an evidence-schema version this Xray build does not
+  ;; understand must NOT be parsed as exact — `rows` degrades to empty and
+  ;; `version-status` surfaces the mismatch (the panel renders the honest
+  ;; banner, not a silent empty section).
+  (is (some? (viewcell-evidence/acquire!)) "Xray owns the span")
+  (with-redefs [tool/explain-render
+                (fn ([] (tool/explain-render nil))
+                  ([_view-id]
+                   {:rf.ui.tool/version 9999
+                    :view-id nil
+                    :occurrences [{:occurrence 1 :view-id ::v :connection :connected
+                                   :render-count 3 :batches 1}]}))]
+    (is (= [] (viewcell-evidence/rows))
+        "an unrecognised producer version suppresses rows (no mis-parse)")
+    (is (= {:version 9999 :supported? false} (viewcell-evidence/version-status))
+        "…and the version-status read reports the mismatch honestly")))
+
+(deftest disconnected-truncated-and-inexact-project-without-fabrication
+  ;; Occurrence identity, the LIVE connection state, the honest hide-vs-unmount
+  ;; lifecycle log, the two DISTINCT loss axes (observation-identity fidelity
+  ;; vs omitted-count completeness) all pass through truthfully.
+  (is (some? (viewcell-evidence/acquire!)))
+  (with-redefs [tool/explain-render
+                (fn ([] (tool/explain-render nil))
+                  ([_view-id]
+                   {:rf.ui.tool/version tool/schema-version
+                    :view-id nil
+                    :occurrences
+                    [{:occurrence 7 :view-id ::hidden :root-id :page/shop
+                      :connection :disconnected
+                      :lifecycle {:intervals [{:state :disconnected
+                                               :reason :activity-hidden
+                                               :proof :reconnect}]
+                                  :dropped 0 :exact? true}
+                      :causes #{:value} :render-count 4 :batches 2
+                      :first-epoch 10 :latest-epoch 14
+                      :observations {:targets [[:sub :rf/app [:a]]]
+                                     :identity-exact? false}
+                      :loss {:dropped 70 :exact? false}}]}))]
+    (let [row (first (viewcell-evidence/rows))]
+      (is (= 7 (:occurrence row)) "occurrence identity preserved")
+      (is (= :disconnected (:connection row)) "the LIVE connection state")
+      (is (= :activity-hidden (:reason (last (:intervals (:lifecycle row)))))
+          "the qualified retroactive Activity-hidden label rides the lifecycle log")
+      (is (false? (:targets-exact? row))
+          "observation-identity fidelity is honest — targets went opaque")
+      (is (= 70 (:dropped-count row)) "the omitted-target count")
+      (is (false? (:dropped-exact? row))
+          "…flagged a FLOOR, never presented as a complete count"))))
+
+(deftest view-sites-project-the-static-manifest-with-dynamic-and-opaque-honesty
+  ;; The event-site provenance + dependency sites read from the versioned
+  ;; public manifest projections: literal queries verbatim, `:dynamic` queries
+  ;; and opaque handlers labelled — never fabricated.
+  (registrar/register! :view ::compiled
+    {:rf.ui/manifest
+     {:view-id      ::compiled
+      :display-name "Compiled"
+      :source       {:file "src/cart.cljs" :line 12 :column 3}
+      :capabilities #{:html}
+      :prop-slots   []
+      :props-schema nil
+      :sites {:subs   [{:sid 1 :query [:cart/total] :path []}
+                       {:sid 2 :query '[:cart/item qty] :path []}]
+              :leases []
+              :events [{:sid 3 :prop :on-click :classification :vector
+                        :serializable? true :handler [:cart/add 3] :path []}
+                       {:sid 4 :prop :on-blur :classification :dynamic
+                        :serializable? false :handler :opaque :path []}]
+              :slots [] :react [] :effects [] :dispatch-fns []
+              :frame-ops [] :locals [] :htmls []}}})
+  (let [[site] (viewcell-evidence/view-sites [::compiled ::compiled :legacy/unregistered])]
+    (is (= ::compiled (:view-id site)) "de-duplicated + skips the unregistered id")
+    (is (= {:file "src/cart.cljs" :line 12 :column 3} (:source site)))
+    (is (= #{:html} (:capabilities site)))
+    (let [subs (:subscriptions (:dependencies site))]
+      (is (= 2 (count subs)))
+      (is (false? (:dynamic? (first subs))) "literal query is projected verbatim")
+      (is (= [:cart/total] (:query (first subs))))
+      (is (true? (:dynamic? (second subs)))
+          "a query carrying a captured local is honestly :dynamic"))
+    (let [events (:event-sites site)]
+      (is (= [:cart/add 3] (:handler (first events)))
+          "a serializable literal handler vector IS its inspectable shape")
+      (is (= :literal (:site-kind (first events))))
+      (is (= :opaque (:handler (second events)))
+          "an opaque handler is never claimed inspectable")
+      (is (= :dynamic (:site-kind (second events))))))
+  (is (= [] (viewcell-evidence/view-sites [:legacy/unregistered]))
+      "an id with no compiled-view manifest yields NO fabricated row"))
 
 ;; ===========================================================================
 ;; EXACT — same-key ABA: a superseded span reads no successor and cannot
@@ -326,14 +438,16 @@
 (deftest foreign-owner-evidence-never-surfaces-through-any-xray-read
   ;; A foreign tool owns the shared projection AND has accumulated evidence
   ;; in it — the case the never-clobber test omits (it installs a foreign
-  ;; owner but delivers nothing). Drive a real flush so `evidence/projection`
-  ;; is non-empty.
+  ;; owner but delivers nothing). Drive a real flush so the shared slot,
+  ;; observed through the versioned public projection, is non-empty.
   (is (true? (evidence/install! ::another-tool)))
   (let [cell (reactive/make-cell ::foreign-v)]
     (reactive/mark-dirty! cell 1)
     (reactive/flush-pending!)
-    (is (= 1 (count (evidence/projection)))
-        "the FOREIGN owner accumulated a row in the shared projection")
+    (is (= 1 (count (:views (tool/mounted-views))))
+        "the FOREIGN owner accumulated a row in the shared projection
+         (visible through the public tier, which is owner-agnostic — hence
+         the receipt fence)")
     ;; Xray's own claim is rejected — Xray does not own the projection.
     (is (nil? (viewcell-evidence/acquire!)))
     (is (false? (viewcell-evidence/installed?)))
@@ -347,7 +461,7 @@
     ;; Xray neither released nor read the foreign owner's projection.
     (is (= ::another-tool (evidence/installed-owner))
         "the foreign registration is untouched")
-    (is (= 1 (count (evidence/projection)))
+    (is (= 1 (count (:views (tool/mounted-views))))
         "…and its evidence still lives in the shared projection")))
 
 ;; ===========================================================================

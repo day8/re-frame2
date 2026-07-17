@@ -473,14 +473,24 @@
    ;; `:rf.cascade/captured`).
    :rf.xray/reactive-data
    :rf.xray/reactive-show-unchanged?
-   ;; rf2-vxgfnd.146 — the ViewCell Invalidation Evidence section's query
-   ;; over Xray's OWNED `re-frame.ui.tool.evidence` projection
-   ;; (spec/021 §3.4.1); registered by `reactive-panel-subs/install!`.
+   ;; rf2-vxgfnd.146/.95.7 — the Mounted View Evidence section's query over
+   ;; Xray's OWNED projection, sourced from the VERSIONED PUBLIC
+   ;; `re-frame.ui.tool/explain-render` projection (spec/021 §3.4.1);
+   ;; registered by `reactive-panel-subs/install!`.
    :rf.xray/viewcell-evidence
    ;; rf2-vxgfnd.286 — the ownership-REVISION reactive input to the query
    ;; above: `viewcell-evidence` bumps it on every acquire/release so a live
    ;; query recomputes to empty immediately (not on the next epoch pump).
-   :rf.xray/viewcell-evidence-ownership))
+   :rf.xray/viewcell-evidence-ownership
+   ;; rf2-vxgfnd.95.7 — the evidence-schema version honesty read: when the
+   ;; `re-frame.ui.tool` producer stamps a version this build does not
+   ;; understand, rows degrade and the panel renders the honest banner.
+   :rf.xray/viewcell-evidence-version
+   ;; rf2-vxgfnd.95.7 — the static per-view manifest sites (event-site
+   ;; provenance + dependency sites) for the compiled views in the evidence,
+   ;; read from the versioned `view-manifest`/`view-dependencies`/
+   ;; `view-event-sites` projections.
+   :rf.xray/view-evidence-sites))
 
 (def ^:private all-event-names
   "Every Xray-namespaced event registered by `register-xray-handlers!`.

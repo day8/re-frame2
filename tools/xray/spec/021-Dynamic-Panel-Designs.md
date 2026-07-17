@@ -691,13 +691,37 @@ data`) is the OR of the panel-local quick-toggle
 `:rf.xray/reactive-toggle-unchanged`) and the `:show-unchanged-subs?`
 Settings pin.
 
-### §3.4.1 ViewCell invalidation evidence (re-frame.ui substrate · rf2-vxgfnd.146)
+### §3.4.1 Mounted view evidence (re-frame.ui substrate · S3 · rf2-vxgfnd.146/.95.7)
 
-Xray is the OWNING native consumer of the `re-frame.ui.tool.evidence`
-projection (framework rf2-vxgfnd.75/.74/.46 — the bounded per-ViewCell
-invalidation-evidence accumulators the reactive scheduler's evidence-sink
-seam was built for). The Views panel renders it as the **VIEWCELL
-INVALIDATION EVIDENCE** section below the teardown lists.
+Xray is the OWNING consumer of the re-frame.ui view-evidence plane. It owns
+the projection (install / span receipt / ownership — below), but it reads the
+DEV-ONLY VERSIONED PUBLIC tier `re-frame.ui.tool` (rf2-vxgfnd.95.6), NOT the
+raw `re-frame.ui.tool.evidence/projection` interim shape it consumed pre-S3.
+The Views panel renders it as the **MOUNTED VIEW EVIDENCE** section below the
+teardown lists, plus a **COMPILED VIEW SITES** section (§3.4.2) for the static
+per-view manifest sites.
+
+**What it consumes (rf2-vxgfnd.95.7).** The five frozen read-only projections
+a debugging consumer reads WITHOUT touching private React state, leases, or the
+scheduler — each stamped `:rf.ui.tool/version`:
+
+- `explain-render` → the per-INCARNATION render evidence: OCCURRENCE IDENTITY
+  (`:occurrence`), the live `:connection` state, the honest hide-vs-unmount
+  `:lifecycle` labels, the cause set, first/latest movement epoch, the moving
+  `:observations` (with `:identity-exact?` observation-identity fidelity), and
+  EXPLICIT `:loss` accounting. This is the row substrate of the MOUNTED VIEW
+  EVIDENCE section.
+- `view-manifest` / `view-dependencies` / `view-event-sites` → the static
+  registrar-manifest sites (source, capability bits, site counts, dependency
+  sites with literal-vs-`:dynamic` honesty, event-handler sites classified
+  `:literal` / `:normalized` / `:dynamic` with `:serializable?`) — the COMPILED
+  VIEW SITES section (§3.4.2), available BEFORE mount.
+
+The epoch-restore render cause is a named EP-0033 cause, but the S3 producer
+(.95.6) emits no epoch-restore evidence op, so Xray does NOT fabricate one —
+absent evidence is tolerated explicitly (the cause renders only when a future
+framework emit lands). Likewise a legacy `reg-view` adapter host (no compiled
+manifests / no ViewCell substrate) renders exactly today's zero-row state.
 
 **Ownership + span receipt (rf2-vxgfnd.286).** The stable id
 `:rf.xray/viewcell-evidence` is the tier registration KEY, but it is a
@@ -735,10 +759,11 @@ authorized by the receipt, not by owner-id equality.
 → `viewcell-evidence/rows`. Every read is gated on BOTH the exact span
 receipt AND that Xray is still the installed tier owner: rows — and
 therefore the sub, the panel section, and any derived Xray query — observe
-evidence ONLY for Xray's current span. The evidence tier's `projection`
-read exposes the shared slot's entries REGARDLESS of owner, so an ownership
-rejection (a foreign tool installed first) or a superseded span must — and
-does — mean zero observation through Xray, never another span's rows.
+evidence ONLY for Xray's current span. The public tier's read
+(`explain-render` → `evidence/instance-records`) exposes the shared slot's
+entries REGARDLESS of owner, so an ownership rejection (a foreign tool
+installed first) or a superseded span must — and does — mean zero observation
+through Xray, never another span's rows.
 Because ownership is not app-db state, the query carries an
 ownership-REVISION reactive input alongside `:rf.xray/epoch-history`:
 `viewcell-evidence` bumps a monotonic revision on every acquire/release and
@@ -748,13 +773,31 @@ rendered panel recomputes to empty the instant Xray releases (or a foreign
 owner takes the slot) — WITHOUT waiting for an unrelated epoch pump. The
 revision only TRIGGERS the recompute; the recompute's `rows` call still
 checks the exact receipt, so reactivity can never authorize a stale reader.
-When Xray owns the span, one row per live ViewCell instance in stable
-`:cell-id` order —
+When Xray owns the span, one row per live incarnation in stable `:occurrence`
+order, projected from `re-frame.ui.tool/explain-render` (rf2-vxgfnd.95.7) —
 
-    {:cell-id ord :view-id vid :root-id rid|nil
+    {:occurrence ord :view-id vid :root-id rid|nil
+     :connection :connected|:disconnected
+     :lifecycle {:intervals [{:state _ :reason _ :proof _} …] :dropped n :exact? b}
      :first-epoch e0 :latest-epoch eN :count n :batches b
-     :causes #{:value :hmr :disposed} :targets [tk …]
+     :causes #{:value :hmr :disposed}
+     :targets [tk …] :targets-exact? bool
      :dropped-count d :dropped-exact? bool}
+
+`:occurrence` is the S3 occurrence identity — the stable per-incarnation
+ordinal, so two instances of one view are distinguishable. `:connection` is the
+LIVE runtime lifecycle keyword; `:lifecycle` carries the bounded serializable
+interval log with the qualified retroactive hide-vs-unmount labels (03 §4 —
+`:activity-hidden` / `:unmounted` render only with their proof token; an
+unproven disconnect stays `disconnected · unknown`, NEVER fabricated).
+
+**Version honesty (rf2-vxgfnd.95.7).** Every `re-frame.ui.tool` projection
+stamps `:rf.ui.tool/version`. `version-status` (receipt-fenced) reads it; when
+the producer's version is not this Xray build's, `rows` degrades to `[]`
+(rather than mis-parse an evolved shape) and the
+`:rf.xray/viewcell-evidence-version` sub drives the honest
+`rf-xray-reactive-viewcell-evidence-version-banner` so a stale-version
+deployment reads truthfully instead of looking substrate-free.
 
 `:targets` is the bounded shown sample. Before a target crosses the evidence
 boundary, the tier copies bounded plain EDN and replaces a ViewCell, host
@@ -791,12 +834,44 @@ globalThis sentinel behind — process-global state the sentinel/ring resets
 do not otherwise touch. The release is owner-checked (never
 `force-release!`): a FOREIGN owner survives the reset intact.
 
-**Render.** One `list-row` per cell under
-`rf-xray-reactive-viewcell-evidence-section` (rows
-`…-row-<cell-id>`, empty state `…-empty`, caption `…-caption`):
-primary = view name · `cell #<ordinal>` · root-id (when under a live
-client root); trailing tag = occurrences · batches · epoch span
-`e0→eN` · cause union · shown-target count · `[≥]N dropped`.
+**Render.** One `list-row` per incarnation under
+`rf-xray-reactive-viewcell-evidence-section` (rows `…-row-<occurrence>`, empty
+state `…-empty`, caption `…-caption`, version banner `…-version-banner`):
+primary = view name · `occ #<occurrence>` · root-id (when under a live client
+root) · the honest hide-vs-unmount lifecycle label (only for a `:disconnected`
+incarnation); trailing tag = renders · batches · epoch span `e0→eN` · cause
+union · shown-target count (`~N` when observation identity went opaque) ·
+`[≥]N dropped`.
+
+### §3.4.2 Compiled view sites (static manifest projection · rf2-vxgfnd.95.7)
+
+Below the MOUNTED VIEW EVIDENCE section, a **COMPILED VIEW SITES** section
+(`rf-xray-reactive-view-sites-section`, rows
+`rf-xray-reactive-view-site-row-<slug>`) surfaces the STATIC per-view manifest
+sites — the event-site provenance + dependency sites a debugging consumer reads
+BEFORE mount — for the compiled views present in the evidence (evidence-keyed:
+the `:rf.xray/view-evidence-sites` sub keys off the receipt-fenced evidence
+rows' distinct view-ids, so a substrate-free host renders no section at all,
+the silent-when-zero grammar). Each row is shaped from `view-manifest`,
+`view-dependencies`, and `view-event-sites`:
+
+- **Source** — the manifest `:source` `[code]` chip (`…-view-site-code-<slug>`),
+  jumping to the view's registration.
+- **Dependencies** — sub + lease counts with a `:dynamic` tally; a fully-literal
+  query is projected verbatim, a query carrying a captured local is honestly
+  `:dynamic?` (never fabricated as a literal value).
+- **Event sites** (`…-view-site-events-<slug>`) — each `:on-*` handler classified
+  `:literal` / `:normalized` (its inspectable event vector shown) or `:dynamic`
+  (shown `(opaque)` — the tier never claims a raw callback's internals are
+  inspectable, 04 §3).
+- **Capabilities** — the manifest capability bits (`:raw`/`:html`/`:foreign`/…),
+  the "why does this view carry a client runtime?" absence story.
+
+This is the S3 event-site provenance surface: EP-0033's static interaction
+surface ("the inspector shows any element's event vector before it is clicked")
+lands here as manifest data, NOT as a dispatch-envelope join (the S3 producer
+emits no per-dispatch view-site tag, so the Epoch DISPATCH SITE join in the S3
+IA §2A awaits a later framework emit and is not fabricated).
 
 **Boundary.** tools/xray depends on the ui artefact's tool tier
 (`day8/re-frame2-ui` in deps.edn); `re-frame.ui` never depends on Xray;
@@ -817,7 +892,7 @@ general JavaScript heap claim (rf2-vxgfnd.149). Tool absence stays zero-cost.
 | Focused epoch record | `:rf.sub/run`, `:rf.sub/skip` (memo hit → `:subs-skipped`, §3.4), `:rf.view/render` / `:rf.view/rendered` — read from the focused epoch record's `:trace-events` (rf2-rly4a — same `focus.epoch-id` scope as Trace, so Reactive + Trace stay correlated) |
 | Registries | Sub metadata (input-paths, signal-fn), view metadata (file:line) |
 | App-db | Seed-path resolution from the epoch's diff (§4) |
-| re-frame.ui evidence projection | `:rf.xray/viewcell-evidence` → `viewcell-evidence/rows` — the CUMULATIVE bounded per-ViewCell invalidation accumulators Xray owns via `re-frame.ui.tool.evidence` (§3.4.1; NOT epoch-scoped) |
+| re-frame.ui view-evidence projections | `:rf.xray/viewcell-evidence` → `viewcell-evidence/rows` — the CUMULATIVE per-incarnation render evidence Xray owns, sourced from the versioned public `re-frame.ui.tool/explain-render` (§3.4.1; NOT epoch-scoped). `:rf.xray/view-evidence-sites` → `viewcell-evidence/view-sites` — the static per-view manifest sites from `view-manifest`/`view-dependencies`/`view-event-sites` (§3.4.2). `:rf.xray/viewcell-evidence-version` → `version-status` — the evidence-schema version honesty read |
 
 Recompute edges resolve from `:rf.sub/run`: **`:rf.sub/cause-sub`** is the sub→sub edge
 (nil ⇒ Level-1, non-nil ⇒ Level-2) and **`:rf.sub/reader-render-key`** is the sub→view edge;

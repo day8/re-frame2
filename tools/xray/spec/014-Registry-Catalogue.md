@@ -127,10 +127,14 @@ The fix is a SECOND axis alongside the boolean gate — a
 Bump `schema-version` and pair it with a `migrate-schema!` clause
 whenever a change adds a handler an already-registered older process
 would otherwise never install. Version `1` is the ViewCell evidence
-reactivity bridge (see [spec/021 §3.4.1](./021-Dynamic-Panel-Designs.md)),
-installed via `reactive-panel/install-viewcell-evidence-bridge!` so the
-bridge stays panel-owned; `migrate-schema!` reaches it through the
-`reactive-panel` facade the orchestrator already requires. Tests drive
+reactivity bridge; version `2` (rf2-vxgfnd.95.7) adds the S3 view-evidence
+consumption subs `:rf.xray/viewcell-evidence-version` +
+`:rf.xray/view-evidence-sites` to that same bridge (see
+[spec/021 §3.4.1–§3.4.2](./021-Dynamic-Panel-Designs.md)), both installed via
+`reactive-panel/install-viewcell-evidence-bridge!` so the bridge stays
+panel-owned; `migrate-schema!` reaches it through the `reactive-panel` facade
+the orchestrator already requires (the idempotent re-install adds only the
+missing delta of subs). Tests drive
 the upgrade via `registry/simulate-legacy-registration!` (test-only:
 poses the umbrella-set / no-schema-stamp sentinels of a pre-#5915
 process); `reset-for-test!` clears both the boolean gate and the schema

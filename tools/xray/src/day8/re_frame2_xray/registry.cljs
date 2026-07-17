@@ -133,8 +133,14 @@
         `:rf.xray/viewcell-evidence` sub is the old epoch-only one input);
         the migration installs the current bridge so an evidence
         acquire/release invalidates a held Views subscription immediately,
-        without a page reload."
-  1)
+        without a page reload.
+    2 — S3 view-evidence consumption (rf2-vxgfnd.95.7): the bridge gained
+        two subs — `:rf.xray/viewcell-evidence-version` (evidence-schema
+        version honesty) and `:rf.xray/view-evidence-sites` (static per-view
+        manifest sites). A schema-1 process has the bridge but not these two,
+        so the migration re-runs the bridge install (idempotent — reg-sub
+        replaces in place) to add exactly the missing delta."
+  2)
 
 (defonce ^:private installed-schema
   ;; The registration-schema version this process has installed, or nil
@@ -165,6 +171,14 @@
     ;; the evidence sub as the two-input shape) so the upgrade is immediate,
     ;; no page reload. Routed through the `reactive-panel` facade the
     ;; orchestrator already requires — the bridge stays panel-owned.
+    (reactive-panel/install-viewcell-evidence-bridge!))
+  (when (< from 2)
+    ;; schema 2 — the S3 view-evidence consumption subs (rf2-vxgfnd.95.7):
+    ;; the bridge now also registers `:rf.xray/viewcell-evidence-version`
+    ;; and `:rf.xray/view-evidence-sites`. A schema-1 process installed the
+    ;; bridge without them; re-running the (idempotent) bridge install adds
+    ;; exactly the missing two subs — reg-sub replaces in place, so the
+    ;; already-present bridge handlers are untouched.
     (reactive-panel/install-viewcell-evidence-bridge!)))
 
 (defn register-xray-handlers!
