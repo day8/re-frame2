@@ -10,13 +10,19 @@
   data, so 'what does this button do' is an equality check — no click
   simulation, no DOM, no flake:
 
-      (let [frame (rf/make-frame {:initial-events [[:rf/set-db {:cart #{}}]]})
-            tree  (ui.test/render [product-card {:product p}]
-                                  {:frame frame})]
-        (is (= [:cart/add 42]
-               (-> tree (ui.test/find :button) ui.test/attrs :on-click)))
-        (is (= \"Add to cart\"
-               (-> tree (ui.test/find :button) ui.test/text))))
+      (rf/with-new-frame [frame (rf/make-frame {:initial-events [[:rf/set-db {:cart #{}}]]})]
+        (let [tree (ui.test/render [product-card {:product p}] {:frame frame})]
+          (is (= [:cart/add 42]
+                 (-> tree (ui.test/find :button) ui.test/attrs :on-click)))
+          (is (= \"Add to cart\"
+                 (-> tree (ui.test/find :button) ui.test/text)))))
+
+  A frame supplied through `{:frame f}` stays CALLER-OWNED: `render` binds it
+  for the render but never creates or destroys it. `rf/with-new-frame` is the
+  eval-bind-run-destroy form — it destroys the `make-frame` VALUE on body exit
+  (success OR throw), incarnation-exact on the value it created, so the frame
+  never leaks into `rf/frame-ids` to contaminate later tests. A bare
+  `make-frame` left unreleased is a residue bug, not a frame `render` reclaims.
 
   ## The selector grammar (closed — drafts/ui-test-selector-grammar.md)
 
@@ -733,7 +739,10 @@
 ;; ---------------------------------------------------------------------------
 ;; Frames (07 §2 — `dispatch!`). A test frame is minted with the canonical
 ;; `rf/make-frame` + `:initial-events` (seed via `[:rf/set-db {…}]`) — one
-;; frame-init grammar, shared with production.
+;; frame-init grammar, shared with production. A `make-frame` frame is
+;; CALLER-OWNED: nothing here destroys it (a `{:frame f}` opt only binds it for
+;; the render), so wrap it in `rf/with-new-frame` — eval-bind-run-destroy,
+;; incarnation-exact on the value it created — or it leaks into `rf/frame-ids`.
 ;; ---------------------------------------------------------------------------
 
 (defn dispatch!
@@ -1199,9 +1208,13 @@
     1. A VIEW REFERENCE — the compile-resolved defview var/symbol:
        `(render product-card {:props {:product p} :frame f})`.
        Props ride `{:props p}`; a frame rides `{:frame f}` (mint it
-       with `rf/make-frame` + `:initial-events`). With no frame,
-       structural rendering proceeds frameless and any frame-scoped
-       read raises honestly.
+       with `rf/make-frame` + `:initial-events`). A frame supplied via
+       `{:frame f}` stays CALLER-OWNED — `render` binds it for the
+       render but never creates or destroys it; release it with
+       `rf/with-new-frame` (eval-bind-run-destroy) or an explicit
+       `rf/destroy-frame!`, or it leaks into `rf/frame-ids`. With no
+       frame, structural rendering proceeds frameless and any
+       frame-scoped read raises honestly.
 
     2. A LITERAL ROOT FORM — the SAME root grammar `mount` takes
        (`root/analyze-root`): the top-region wrappers (element / fragment /

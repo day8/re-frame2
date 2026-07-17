@@ -25,9 +25,12 @@ the other tier.
 ```
 
 Test frames are minted with the canonical `rf/make-frame` + `:initial-events` (seed
-via `[:rf/set-db {…}]`) — one frame-init grammar, shared with production. The
-events and subs a view touches must be `.cljc` (the standard re-frame discipline) so
-the JVM render can resolve them.
+via `[:rf/set-db {…}]`) — one frame-init grammar, shared with production. A supplied
+frame stays **caller-owned**: `render` binds a `{:frame f}` frame for the render but
+never creates or destroys it, so wrap it in `rf/with-new-frame` (eval-bind-run-destroy,
+incarnation-exact on the value it created) — or an unreleased `make-frame` value leaks
+into `rf/frame-ids` and contaminates later tests. The events and subs a view touches
+must be `.cljc` (the standard re-frame discipline) so the JVM render can resolve them.
 
 ## Tier 1 — headless structural render
 
@@ -53,15 +56,20 @@ the JVM render can resolve them.
   honestly. Tier-1 renders the JVM structural subset — no effects, no host ops; `sub`
   is the one-shot headless read. Expanding this macro in a CLJS build is a didactic
   compile error (the client emitter targets React directly; mounted CLJS tests use the
-  Tier-3 surface).
+  Tier-3 surface). A frame supplied via `{:frame …}` stays **caller-owned** — `render`
+  binds it for the render but never creates or destroys it; release it with
+  `rf/with-new-frame` or `rf/destroy-frame!` (a plan-bearing `frame-root` form, by
+  contrast, owns and tears down its own frames).
 - **Example**:
   ```clojure
-  (let [frame (rf/make-frame {:initial-events [[:rf/set-db {:cart #{}}]]})
-        tree  (ui.test/render [product-card {:product p}] {:frame frame})]
-    (is (= [:cart/add 42]
-           (-> tree (ui.test/find :button) ui.test/attrs :on-click)))
-    (is (= "Add to cart"
-           (-> tree (ui.test/find :button) ui.test/text))))
+  ;; with-new-frame owns the lifecycle — the frame is destroyed on exit (even on
+  ;; throw), so nothing leaks into rf/frame-ids to contaminate later tests:
+  (rf/with-new-frame [frame (rf/make-frame {:initial-events [[:rf/set-db {:cart #{}}]]})]
+    (let [tree (ui.test/render [product-card {:product p}] {:frame frame})]
+      (is (= [:cart/add 42]
+             (-> tree (ui.test/find :button) ui.test/attrs :on-click)))
+      (is (= "Add to cart"
+             (-> tree (ui.test/find :button) ui.test/text)))))
   ```
 
 ### `find`
