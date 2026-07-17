@@ -156,6 +156,13 @@
                 ;; :ui-g8 build below (npm run test:ui-g8, run in Chromium AND
                 ;; WebKit by run-ui-g8.cjs); nothing else :requires it.
                 "ui/g8"
+                ;; rf2-vxgfnd.95.10 — the component-library PROOF PACK (readiness
+                ;; §7) + the G-18 facade-isolation subject. A small multi-view
+                ;; library and its single-view / all-views advanced-build
+                ;; consumers. Consumed ONLY by :proof-pack-single /
+                ;; :proof-pack-all (npm run test:ui-facade-isolation); nothing
+                ;; under a production build or another test build :requires it.
+                "ui/proof-pack"
                 ;; rf2-3cfvt — adversarial-property SECURITY tier. A small
                 ;; cross-artefact test tree probing the three security
                 ;; boundaries the pin-and-assert regime missed: SSR escaping
@@ -847,6 +854,32 @@
    :asset-path "."
    :modules {:main {:entries [re-frame.ui.g8.dev]
                     :init-fn re-frame.ui.g8.dev/-main}}}
+
+  ;; rf2-vxgfnd.95.10 — G-18 library-facade isolation (fixture-first; EP-0035).
+  ;; :proof-pack-single imports EXACTLY ONE view from the multi-view proof-pack
+  ;; library; check-ui-facade-isolation.cjs greps this advanced bundle and
+  ;; asserts the five unimported siblings' sentinels are ABSENT (whole-view DCE)
+  ;; while the imported view's sentinel is PRESENT. :proof-pack-all imports every
+  ;; view as the non-vacuity positive control (all sentinels present). Both are
+  ;; :advanced + goog.DEBUG=false, so the ordinary defview registration arm folds
+  ;; to a direct React.memo (emit_cljs.cljc) and an unimported view can DCE.
+  :proof-pack-single
+  {:target :browser
+   :output-dir "out/proof-pack-single"
+   :asset-path "."
+   :compiler-options {:optimizations :advanced
+                      :infer-externs :auto
+                      :closure-defines {goog.DEBUG false}}
+   :modules {:main {:init-fn re-frame.ui.proof-pack.single-view/-main}}}
+
+  :proof-pack-all
+  {:target :browser
+   :output-dir "out/proof-pack-all"
+   :asset-path "."
+   :compiler-options {:optimizations :advanced
+                      :infer-externs :auto
+                      :closure-defines {goog.DEBUG false}}
+   :modules {:main {:init-fn re-frame.ui.proof-pack.all-views/-main}}}
 
   ;; rf2-2hrj8 — `:browser-test` is narrowed to DOM-dependent tests only.
   ;; The ns-regexp `-dom-cljs-test$` matches files whose namespace ends in
