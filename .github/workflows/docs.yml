@@ -180,10 +180,22 @@ jobs:
           node-version: '24'
 
       - name: Set up Clojure CLI (SCI bundle build)
-        uses: DeLaGuardo/setup-clojure@02f5a82b79a547523e664fe8a7a32ea14884d7b2  # 13.6.0
-        with:
-          cli: latest
-          github-token: ${{ secrets.GITHUB_TOKEN }}
+        # rf2-9sgj8 — resilient Clojure CLI install. setup-clojure's internal
+        # linux-install.sh curl has no retry, so a transient curl-35 / socket-
+        # hang-up reds the JVM job in setup before any test runs. Reuses the
+        # repo's clj-kondo curl-retry idiom (lint.yml) + a 3x backoff loop over
+        # the whole download+install (no github-token needed — the
+        # releases/latest/download redirect hits no GitHub API).
+        run: |
+          set -euo pipefail
+          for attempt in 1 2 3; do
+            curl -fsSL --retry 5 --retry-all-errors --retry-delay 3 -o /tmp/linux-install.sh \
+              https://github.com/clojure/brew-install/releases/latest/download/linux-install.sh \
+              && sudo bash /tmp/linux-install.sh && break
+            echo "Clojure CLI install attempt ${attempt}/3 failed; retrying in $((attempt * 10))s"
+            sleep "$((attempt * 10))"
+          done
+          clojure --version
 
       - name: Cache Maven / gitlibs (playground SCI bundle deps)
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5.0.5
