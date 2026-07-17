@@ -27,7 +27,18 @@
  :deps  {day8/re-frame2 {:local/root "../core"}}
 
  :aliases
- {:test {:extra-paths ["test"]
+ {:test {:extra-paths ["test"
+                       ;; rf2-vxgfnd.95.9 — the S3 ergonomic-proof native views
+                       ;; (realworld-resources.ui-editor / ui-counter /
+                       ;; ui-dashboard, all `.cljc`) live in the example tree but
+                       ;; are exercised by the Tier-1 structural coherence test in
+                       ;; this artefact's `test/`. Listing the examples path here
+                       ;; only widens the JVM classpath so those view namespaces
+                       ;; RESOLVE — the cognitect runner still discovers tests in
+                       ;; `test/` alone, and the views require nothing but
+                       ;; `re-frame.ui` / `re-frame.core` (no `.cljs` example
+                       ;; sources are loaded on the JVM). Examples stay test-free.
+                       "../../examples/real-apps"]
          :extra-deps  {day8/re-frame2-test-quiet {:local/root "../test-quiet"}
                        ;; TEST-ONLY deps for the executable Guide 07 server-data
                        ;; fixture (re-frame.ui.guide-truth-jvm-test): it registers
