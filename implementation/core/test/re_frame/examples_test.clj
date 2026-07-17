@@ -845,19 +845,21 @@
                                                         [:walkthrough.login/success {:value {:token "t"}}])]
           (is (= :authed (:state s2))))))
 
-    (testing "pure lockout — at the retry limit the second :failure clause's :locked-out target wins"
-      ;; Once :data :attempts reaches the retry limit, the
-      ;; :under-retry-limit guard fails and the :locked-out target wins.
-      ;; The guard checks the snapshot BEFORE the action runs;
-      ;; :record-error then bumps the counter on hits, so attempts=3 is
-      ;; the first counter value at which the guard rejects.
-      (let [snapshot {:state :submitting :data {:attempts 3 :error nil}}
+    (testing "pure lockout — the third failure fails the retry guard, records the terminal error, and locks out (three attempts total)"
+      ;; Two failures already recorded (:attempts 2); the third is terminal.
+      ;; The :under-retry-limit guard checks the snapshot BEFORE :record-error
+      ;; runs, so attempts=2 is the first counter value at which the guard
+      ;; rejects — the fallback candidate then runs :record-error too, so the
+      ;; locking-out failure is counted (attempts → 3) and its message stored.
+      (let [snapshot {:state :submitting :data {:attempts 2 :error nil}}
             {s ::result/snap}
             (machines/machine-transition login-flow snapshot
                                    [:walkthrough.login/failure
-                                    {:failure {:kind :rf.http/http-4xx
-                                               :message "bad creds"}}])]
-        (is (= :locked-out (:state s)) "expected :locked-out at attempts=3")))
+                                    {:error {:message "bad creds"}}])]
+        (is (= :locked-out (:state s)) "expected :locked-out on the third failure")
+        ;; the terminal failure is still counted — attempts bumped, message stored
+        (is (= 3 (get-in s [:data :attempts])) "the third failure records count 3")
+        (is (= "bad creds" (get-in s [:data :error])) "the terminal error is retained")))
 
     (testing "drain happy path — full drain lands the app-db at :authed via the canned-success stub"
       ;; Full drain: registers the machine, dispatches into it, asserts the
@@ -871,14 +873,14 @@
         (is (= :authed (rf/compute-sub [:walkthrough.login/state] (rf/frame-state-value f)))
             "expected :authed after canned success")))
 
-    (testing "drain retry-then-lockout — three failures cycle, the fourth :submit lands at :locked-out"
-      ;; Three failures cycle :submitting → :error-shown → :idle ×3, then
-      ;; a fourth :submit fails the guard and lands at :locked-out. Uses
+    (testing "drain retry-then-lockout — two failures cycle, the third :submit lands at :locked-out (three attempts total)"
+      ;; Two failures cycle :submitting → :error-shown → :idle ×2, then a
+      ;; third :submit fails the guard and lands at :locked-out. Uses
       ;; `rf/with-fx-overrides` — the lexical-scope counterpart to the
       ;; per-frame `:fx-overrides` opt on `make-frame`.
       (let [f (frame/make-anon-frame-record! {})]
         (rf/with-fx-overrides {:rf.http/managed :walkthrough.login/canned-failure}
-          (dotimes [_ 3]
+          (dotimes [_ 2]
             (rf/dispatch-sync [:walkthrough.login/flow [:walkthrough.login/submit
                                                   {:email "x@y.z" :password "wrong"}]]
                               {:frame f})
@@ -887,4 +889,4 @@
                                                 {:email "x@y.z" :password "wrong"}]]
                             {:frame f}))
         (is (= :locked-out (rf/compute-sub [:walkthrough.login/state] (rf/frame-state-value f)))
-            "expected :locked-out on 4th attempt")))))
+            "expected :locked-out on the third submit")))))

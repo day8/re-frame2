@@ -209,13 +209,20 @@ Project the snapshot; ask **tags** for shared intent:
   :<- [:rf/machine :auth.login/flow]
   (fn [m _] (get-in m [:data :error])))
 
+;; The credential draft is ordinary app-db form state — read through a plain
+;; sub, never reached out of the view. The inputs that WRITE it are a form-slice
+;; concern; build one in [Build a form](../core/how-to/build-a-form.md).
+(rf/reg-sub :auth.login/draft
+  (fn [db _] (get-in db [:auth :login-form :draft])))
+
 (rf/reg-view login-view []
   (let [state @(subscribe [:auth.login/state])
         error @(subscribe [:auth.login/error])
+        draft @(subscribe [:auth.login/draft])
         busy? @(rf/subscribe [:rf.machine/has-tag? :auth.login/flow :auth/busy])]
     (case state
       :idle        [:button {:disabled busy?
-                             :on-click #(dispatch [:login/submit @draft-creds])}
+                             :on-click #(dispatch [:login/submit draft])}
                     "Sign in"]
       :submitting  [:p "Signing in…"]
       :error-shown [:div [:p error]
