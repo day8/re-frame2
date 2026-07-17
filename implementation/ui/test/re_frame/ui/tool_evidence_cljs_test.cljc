@@ -368,7 +368,10 @@
             q   (get tk 2)]
         (is (= [::q 1] q) "the collection value is preserved")
         (is (nil? (meta q)) "…without its metadata")
-        (is (nil? (meta tk)) "nor does the target vector keep metadata")))
+        (is (nil? (meta tk)) "nor does the target vector keep metadata")
+        (is (false? (:targets-exact? ev))
+            "dropped container metadata is loss, so exactness is lowered (rf2-1hob1)")
+        (is (false? (:dropped-exact? ev)))))
 
     (testing "an ordinary metadata-free symbol remains exact"
       (let [ev (:evidence (entry-for ::sym-ordinary))]
@@ -377,6 +380,71 @@
         (is (nil? (meta (get-in ev [:targets 0 2 1]))))
         (is (true? (:targets-exact? ev)) "…and honestly exact")
         (is (true? (:dropped-exact? ev)))))))
+
+(deftest container-metadata-is-dropped-and-lowers-exactness
+  ;; rf2-1hob1 gap 2. Every collection branch reconstructs a fresh, metadata-free
+  ;; value (no leak), but derived `exact?` from its CHILDREN alone — so a
+  ;; container that DROPPED its own metadata still reported exact, making
+  ;; `:targets-exact?`/`:dropped-exact?` lie. Dropping container metadata is
+  ;; information loss exactly like dropping a symbol's, and must lower exactness.
+  (let [project #'evidence/project-target-value]
+    (testing "a metadata-bearing vector keeps its value but is marked inexact"
+      (let [[copy exact?] (project (with-meta [:q 1] {:hidden :lost}))]
+        (is (= [:q 1] copy) "the value is reconstructed")
+        (is (nil? (meta copy)) "…without its metadata (no back-edge)")
+        (is (false? exact?) "…and is no longer claimed exact")))
+    (testing "a metadata-bearing list is marked inexact"
+      (let [[copy exact?] (project (with-meta (list :q 1) {:hidden :lost}))]
+        (is (= (list :q 1) copy))
+        (is (nil? (meta copy)))
+        (is (false? exact?))))
+    (testing "a metadata-bearing map is marked inexact"
+      (let [[copy exact?] (project (with-meta {:q 1} {:hidden :lost}))]
+        (is (= {:q 1} copy))
+        (is (nil? (meta copy)))
+        (is (false? exact?))))
+    (testing "a metadata-bearing set is marked inexact"
+      (let [[copy exact?] (project (with-meta #{:q 1} {:hidden :lost}))]
+        (is (= #{:q 1} copy))
+        (is (nil? (meta copy)))
+        (is (false? exact?))))
+    (testing "a metadata-FREE container of exact leaves stays exact (control)"
+      (is (= [[:q 1] true] (project [:q 1])))
+      (is (= [(list :q 1) true] (project (list :q 1))))
+      (is (= [{:q 1} true] (project {:q 1})))
+      (is (= [#{:q 1} true] (project #{:q 1}))))
+    (testing "nested container metadata lowers the outer projection's exactness"
+      (let [[copy exact?] (project [::q (with-meta [1 2] {:hidden :lost})])]
+        (is (= [::q [1 2]] copy) "the values reconstruct")
+        (is (false? exact?)
+            "the outer vector is exact only if every child projected exact")))))
+
+#?(:clj
+   (deftest jvm-number-subclass-holding-a-cell-is-projected-opaque
+     ;; rf2-1hob1 gap 3. `(number? x)` admits ANY `Number`, but on the JVM a
+     ;; `Number` subclass can ALSO be `IObj`: a `proxy [Number IObj]` holding a
+     ;; ViewCell in its metadata is `number?`, so the leaf rule returned it
+     ;; verbatim as EXACT and rooted the weak key. Admission must be a closed set
+     ;; of immutable platform numeric classes; a subclass takes the opaque path.
+     (let [cell   (reactive/make-cell ::rogue-number)
+           rogue  (proxy [java.lang.Number clojure.lang.IObj] []
+                    (intValue    [] 0)
+                    (longValue   [] 0)
+                    (floatValue  [] (float 0))
+                    (doubleValue [] 0.0)
+                    (meta        [] {:cell cell})
+                    (withMeta    [_] this))
+           [copy exact?] (#'evidence/project-target-value rogue)]
+       (is (number? rogue) "the rogue really IS a Number (it defeats `number?`)")
+       (is (false? exact?) "a Number subclass is never claimed exact")
+       (is (= {:rf.ui.evidence/opaque :dynamic} copy)
+           "…and is projected opaque, retaining no reference to the cell")
+       (testing "the ordinary immutable numeric leaves still project exact"
+         (doseq [n [0 -3 (long 7) (int 7) (short 7) (byte 7)
+                    1.5 (float 1.5) 1N 1/2 3.14M
+                    (bigint 9) (biginteger 9)]]
+           (is (= [n true] (#'evidence/project-target-value n))
+               (str n " (" (class n) ") is an admitted platform number")))))))
 
 #?(:clj
    (deftest metadata-bearing-symbol-does-not-defeat-weak-keys
@@ -421,6 +489,30 @@
                                 (nil? (.get ref)))
                               refs)))
            "neither a direct nor nested query→cell path owns the weak key")
+       (is (= [] (evidence/projection))))))
+
+#?(:clj
+   (deftest rogue-number-target-does-not-defeat-weak-keys
+     ;; The retention proof for rf2-1hob1 gap 3. The rogue Number holds the
+     ;; ViewCell the entry is weak-keyed by; before the closed-set admission the
+     ;; copier returned it verbatim as exact, so the store VALUE reached its own
+     ;; KEY and a WeakHashMap never collects such an entry — the row pinned
+     ;; forever. RED before the fix; the projected opaque marker holds nothing.
+     (is (true? (evidence/install! ::xray)))
+     (let [ref (let [cell  (connect-empty! (reactive/make-cell ::rogue-weak))
+                     rogue (proxy [java.lang.Number clojure.lang.IObj] []
+                             (intValue    [] 0)
+                             (longValue   [] 0)
+                             (floatValue  [] (float 0))
+                             (doubleValue [] 0.0)
+                             (meta        [] {:cell cell})
+                             (withMeta    [_] this))
+                     sink  (evidence/installed-sink)]
+                 (publish-target! sink cell [:sub fid rogue])
+                 (reactive/disconnect! cell)
+                 (java.lang.ref.WeakReference. cell))]
+       (is (true? (gc-until #(nil? (.get ^java.lang.ref.WeakReference ref))))
+           "a rogue Number target roots no weak key once projected opaque")
        (is (= [] (evidence/projection))))))
 
 #?(:cljs
@@ -479,6 +571,13 @@
 (defn- legacy-entry
   [ord vid evidence]
   {:cell-id ord :view-id vid :evidence evidence})
+
+(def ^:private tag-key @#'evidence/weak-store-tag-key)
+
+;; The intermediate contract tag (`::weak-cell-entries-v2`) — minted while the
+;; copier still returned metadata-bearing symbols verbatim, then kept over the
+;; copier fix. A store stamped with it must be treated as legacy (rf2-1hob1).
+(def ^:private v2-tag :re-frame.ui.tool.evidence/weak-cell-entries-v2)
 
 (deftest compatible-hmr-sanitizes-a-legacy-strong-map-store
   ;; The pre-weak head kept `:entries` as a STRONG persistent map keyed by
@@ -626,6 +725,66 @@
                                 (nil? (.get ref)))
                               refs)))
            "no migrated raw query→cell path survives to own its own weak key")
+       (is (= [] (evidence/projection))))))
+
+(deftest compatible-hmr-reprojects-a-v2-tagged-store
+  ;; rf2-1hob1 gap 1 [the P1]. `::weak-cell-entries-v2` was minted at an
+  ;; intermediate head whose copier still returned metadata-bearing symbols
+  ;; verbatim; the copier was FIXED under the same v2 tag. So a store
+  ;; HMR-migrated at that head carries the v2 tag over a symbol whose metadata
+  ;; holds a ViewCell — and `weak-store-current?` trusted ANY v2 store, skipping
+  ;; sanitization forever. The current tag must reject v2 and re-project it.
+  (is (true? (evidence/install! ::tool-a)))
+  (let [state* @#'evidence/state*
+        cell   (connect-empty! (reactive/make-cell ::v2-legacy))
+        store  (:entries @state*)]
+    (#'evidence/store-seed-entry!
+     store cell
+     (legacy-entry 5 ::v2-legacy
+                   (legacy-accrual [[:sub fid (with-meta 'q {:cell cell})]] [])))
+    ;; stamp the intermediate v2 tag over the seeded (metadata-bearing) store
+    (swap! state* assoc-in [:entries tag-key] v2-tag)
+
+    (is (true? (evidence/install! ::tool-a)) "the reload re-arms the same owner")
+
+    (testing "the v2 store is treated as legacy and re-projected"
+      (let [ev  (:evidence (entry-for ::v2-legacy))
+            sym (get-in ev [:targets 0 2])]
+        (is (= 'q sym) "value semantics preserved")
+        (is (nil? (meta sym)) "…but the metadata/back-reference is gone")
+        (is (false? (:targets-exact? ev)) "the dropped metadata is marked loss")
+        (is (false? (:dropped-exact? ev)))
+        (is (= 5 (:cell-id (entry-for ::v2-legacy))) "the ordinal survives")))
+
+    (testing "the store is now re-tagged current, so repeat HMR is idempotent"
+      (let [before (evidence/projection)]
+        (is (true? (evidence/install! ::tool-a)))
+        (is (true? (evidence/install! ::tool-a)))
+        (is (= before (evidence/projection))
+            "re-projecting an already-current row changes nothing")))))
+
+#?(:clj
+   (deftest v2-tagged-store-migration-releases-the-metadata-symbol-weak-key
+     ;; The retention proof for rf2-1hob1 gap 1. A v2-tagged store's
+     ;; metadata-bearing symbol is a back-edge from the entry VALUE, through the
+     ;; symbol's metadata, to its own weak KEY — and a WeakHashMap entry whose
+     ;; value reaches its key never collects. Trusting the v2 tag skipped
+     ;; re-projection, so the row pinned forever. RED before the tag bump.
+     (is (true? (evidence/install! ::tool-a)))
+     (let [state* @#'evidence/state*
+           ref    (let [cell  (connect-empty! (reactive/make-cell ::v2-weak))
+                        store (:entries @state*)]
+                    (#'evidence/store-seed-entry!
+                     store cell
+                     (legacy-entry 5 ::v2-weak
+                                   (legacy-accrual
+                                    [[:sub fid (with-meta 'q {:cell cell})]] [])))
+                    (swap! state* assoc-in [:entries tag-key] v2-tag)
+                    (reactive/disconnect! cell)
+                    (java.lang.ref.WeakReference. cell))]
+       (is (true? (evidence/install! ::tool-a)) "the compatible reload migrates")
+       (is (true? (gc-until #(nil? (.get ^java.lang.ref.WeakReference ref))))
+           "the re-projected v2 store no longer roots its own weak key")
        (is (= [] (evidence/projection))))))
 
 ;; ===========================================================================
