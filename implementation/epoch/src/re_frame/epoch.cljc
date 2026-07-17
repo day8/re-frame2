@@ -368,10 +368,15 @@
     :rf.error/no-such-handler          (kind :frame) — frame not registered,
                                          OR the resolved incarnation was
                                          destroyed / replaced by a same-id
-                                         successor between validation and the
-                                         write (the restore is fenced to the
-                                         EXACT incarnation it resolved — a
-                                         successor is left untouched; rf2-bjh6y)
+                                         successor at ANY point in the restore
+                                         transaction — during precondition
+                                         sampling, between validation and the
+                                         write, or across the post-write
+                                         anchoring/telemetry tail (the whole
+                                         restore is one EXACT-incarnation
+                                         transaction — a successor is left
+                                         byte-for-byte untouched; rf2-bjh6y,
+                                         rf2-qfrh4)
     :rf.epoch/restore-during-drain     — called while drain is in flight
     :rf.epoch/restore-unknown-epoch    — epoch-id not in current history
     :rf.epoch/restore-non-ok-record    — target epoch's :outcome is not :ok
