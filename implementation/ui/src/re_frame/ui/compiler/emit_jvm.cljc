@@ -134,6 +134,14 @@
       ;; (from the same analysed props); the CALLER map rides a `:spread-safe`
       ;; opt that `tree/element` guards (owned-key deny in EVERY build) and
       ;; folds UNDER the owned attrs (owned wins, :class composes).
+      ;;
+      ;; EVALUATION ORDER (rf2-m5h0f) is LOAD-BEARING: the opts-map literal below
+      ;; lists the owned `:norm`/`:dyn`/`:dyn-events` slots BEFORE the
+      ;; `:spread-safe :caller` slot, so — a Clojure map literal evaluating its
+      ;; value expressions left-to-right, once each — the owned prop expressions
+      ;; run BEFORE the caller's, matching the authored `(spread-safe owned
+      ;; caller)` order. The CLJS emitter forces the same owned-then-caller order
+      ;; with `let` temporaries. Do NOT reorder these keys.
       (:safe-spread props)
       (let [ss      (:safe-spread props)
             [stat-ev dyn-ev] (event-entries (:events props))

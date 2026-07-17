@@ -9,7 +9,7 @@
   tests publish an ownership-free candidate through the internal EventOwner
   test seam, then invoke the same stable committed callback a DOM node gets."
   (:require [clojure.string :as str]
-            [clojure.test :refer [deftest is use-fixtures]]
+            [clojure.test :refer [deftest is testing use-fixtures]]
             ["react-dom/server" :as rds]
             [re-frame.registrar :as registrar]
             [re-frame.trace :as trace]
@@ -152,6 +152,32 @@
   [:input.form-control
    (ui/spread-safe {:value "owned" :on-change [:set :rf.ui/value] :type "text"}
                    attr)])
+
+;; rf2-m5h0f — evaluation-order probes. The mark helpers append to `eval-order`
+;; and return an ordinary attr value, so a rendered `ui/spread-safe` records the
+;; ACTUAL order (and count) its owned + caller expressions ran in. The authored
+;; order is owned-then-caller; both hosts must observe exactly that.
+(defonce ^:private eval-order (atom []))
+(defn- omark! [v] (swap! eval-order conj [:owned v]) v)
+(defn- cmark! [v] (swap! eval-order conj [:caller v]) v)
+(defn- oboom! [] (swap! eval-order conj [:owned :boom]) (throw (ex-info "owned boom" {})))
+(defn- cboom! [] (swap! eval-order conj [:caller :boom]) (throw (ex-info "caller boom" {})))
+
+;; owned + caller both literal-at-site so their value expressions ride the
+;; compiled spread-safe path (not the caller's construction site).
+(defview order-probe []
+  [:input.op (ui/spread-safe {:title (omark! "t")} {:data-x (cmark! "c")})])
+(defview order-owned-throws []
+  [:input.op (ui/spread-safe {:title (omark! "t") :lang (oboom!)}
+                             {:data-x (cmark! "c")})])
+(defview order-caller-throws []
+  [:input.op (ui/spread-safe {:title (omark! "t")} {:data-x (cboom!)})])
+;; a runtime caller carrying a denied key: the owned expr must have already run
+;; when the every-build deny throws.
+(defview order-denial [{:keys [attr]}]
+  [:input.op (ui/spread-safe {:title (omark! "t") :value "owned"
+                              :on-change [:set :rf.ui/value]}
+                             attr)])
 
 (defview trusted
   []
@@ -319,6 +345,32 @@
   ;; the same site through general ui/spread does NOT throw (visible-cost escape)
   (is (string? (render (rt/jsx2 spread-view (js-obj "extra" {:value "ok"}))))
       "general ui/spread accepts any key — it is the visible-cost escape"))
+
+(deftest safe-spread-authored-owned-then-caller-eval-order
+  ;; rf2-m5h0f — the authored (spread-safe owned caller) order is owned-then-
+  ;; caller on CLJS (matching the JVM). Each expression runs EXACTLY once.
+  (testing "success: owned before caller, once each"
+    (reset! eval-order [])
+    (is (string? (render (rt/jsx2 order-probe (js-obj)))))
+    (is (= [[:owned "t"] [:caller "c"]] @eval-order)
+        "owned evaluates before caller, each exactly once"))
+  (testing "owned throws: the caller is never reached"
+    (reset! eval-order [])
+    (try (render (rt/jsx2 order-owned-throws (js-obj))) (catch :default _))
+    (is (= [[:owned "t"] [:owned :boom]] @eval-order)
+        "owned ran (and threw) before any caller expression"))
+  (testing "caller throws: owned already ran"
+    (reset! eval-order [])
+    (try (render (rt/jsx2 order-caller-throws (js-obj))) (catch :default _))
+    (is (= [[:owned "t"] [:caller :boom]] @eval-order)
+        "owned evaluated first, then the caller expression threw"))
+  (testing "caller denial throws: owned already ran"
+    (reset! eval-order [])
+    (let [data (try (render (rt/jsx2 order-denial (js-obj "attr" {:ref "r"})))
+                    nil (catch :default e (ex-data e)))]
+      (is (= :rf.error/ui-tree-malformed (:rf.error/id data)) "the deny fired")
+      (is (= [[:owned "t"]] @eval-order)
+          "owned evaluated before the every-build caller deny threw"))))
 
 (deftest trusted-html-single-bypass
   (is (= "<div class=\"content\"><b>bold & raw</b></div>"

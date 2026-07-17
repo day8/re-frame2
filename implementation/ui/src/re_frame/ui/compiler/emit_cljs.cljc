@@ -369,6 +369,19 @@
       ;; are a runtime-built object layered UNDER them — owned props win any
       ;; collision, :class composes (owned classes first), and the owned-key
       ;; deny law is enforced at runtime by spread-safe->props in EVERY build.
+      ;;
+      ;; EVALUATION ORDER (rf2-m5h0f): the AUTHORED argument order is
+      ;; `(ui/spread-safe owned caller)`, so BOTH hosts evaluate the OWNED prop
+      ;; expressions BEFORE the CALLER ones. The JVM emitter already forces this
+      ;; — its `tree/element` opts-map literal lists the owned `:norm`/`:dyn`/
+      ;; `:dyn-events` slots ahead of the `:spread-safe :caller` slot, and a
+      ;; Clojure map literal evaluates its value expressions left-to-right, once
+      ;; each. CLJS matches it here with single-evaluation `let` temporaries:
+      ;; the owned object is bound first, then the caller object; each authored
+      ;; expression runs exactly once, in owned-then-caller order (a bare
+      ;; `(spread-safe-props caller-obj owned-obj)` would evaluate the caller
+      ;; argument first — the pre-fix CLJS-vs-JVM divergence). Under :advanced
+      ;; the temporaries fold away.
       (let [ss          (get-in node [:props :safe-spread])
             owned-pairs (element-prop-pairs st node inner-inline?)
             owned-obj   (ordered-literal-object
@@ -379,7 +392,11 @@
                           ~(:owned-handler-keys ss)
                           ~(site-key-form ss)
                           ~(debug-site-form (assoc ss :classification :spread)))
-            props-form  `(re-frame.ui.runtime/spread-safe-props ~caller-obj ~owned-obj)
+            owned-sym   (gensym "rf-ui-owned")
+            caller-sym  (gensym "rf-ui-caller")
+            props-form  `(let [~owned-sym ~owned-obj
+                               ~caller-sym ~caller-obj]
+                           (re-frame.ui.runtime/spread-safe-props ~caller-sym ~owned-sym))
             chs         (children-forms st (:children node) inner-inline?)]
         (if (:present? key-info)
           `(re-frame.ui.runtime/jsx-spread3 ~tag-str ~props-form
