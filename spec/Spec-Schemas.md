@@ -767,6 +767,14 @@ Note the schema is **closed** — unlike most spec-internal shapes which are ope
 Universal trace event shape, including error events.
 
 ```clojure
+;; The closed recovery vocabulary — the framework's built-in, non-app-steerable
+;; recovery dispositions (per [009 §Error event catalogue](009-Instrumentation.md#error-event-catalogue)).
+;; Defined ONCE here and referenced by both `TraceEvent` and its `:rf/error-event`
+;; refinement below, so the two envelope shapes cannot drift out of agreement
+;; (single-source, not a schema framework).
+(def Recovery
+  [:enum :no-recovery :replaced-with-default :retried :skipped :warned-and-replaced :warned-and-continued :logged-and-skipped :ignored])
+
 (def TraceEvent
   [:map
    [:id        :any]                                                       ;; auto-incrementing per-process counter
@@ -775,7 +783,7 @@ Universal trace event shape, including error events.
    [:time      :any]                                                       ;; emit timestamp (host clock)
    [:tags      {:optional true} [:map-of :keyword :any]]                   ;; op-type-specific payload
    [:source    {:optional true} :keyword]                                  ;; (when present) the trigger source
-   [:recovery  {:optional true} [:enum :no-recovery :replaced-with-default :retried :skipped :warned-and-replaced :warned-and-continued :logged-and-skipped :ignored]]
+   [:recovery  {:optional true} Recovery]                                  ;; hoisted to the envelope top-level (build-event strips it from :tags); shared vocab
    [:rf.trace/trigger-handler {:optional true}                              ;; (when present) the in-scope handler at emit time
                               [:map
                                [:kind         [:enum :event :sub :fx :cofx :view]]
@@ -845,7 +853,7 @@ A refinement of `:rf/trace-event` for the unified error/warning envelope. Every 
    [:op-type   [:enum :error :warning]]         ;; :error for failures; :warning for advisories
    [:time      :any]                            ;; emit timestamp (host clock)
    [:source    {:optional true} :keyword]
-   [:recovery  {:optional true} [:enum :no-recovery :replaced-with-default :retried :skipped :warned-and-replaced :warned-and-continued :logged-and-skipped :ignored]]
+   [:recovery  {:optional true} Recovery]       ;; top-level (build-event hoists it out of :tags); the shared `Recovery` vocab from the TraceEvent block above
    [:rf.trace/trigger-handler {:optional true}
                               [:map
                                [:kind         [:enum :event :sub :fx :cofx :view]]
@@ -1995,9 +2003,18 @@ Common keys (`:category`, `:failing-id`, `:reason`, `:frame`) are inherited from
 ;; frame and does not warn). Dev-only — the whole check (ambient read, comparison,
 ;; reason string, emit) is `interop/debug-enabled?`-gated wholesale and DCEs under
 ;; `:advanced` + `goog.DEBUG=false` (pinned by `check-elision.cjs`; the emit is
-;; sourced by `re-frame.elision-probe/touch-carried-op-cross-frame!`). `:recovery`
-;; rides the envelope top-level after the emit-time hoist (per §`:rf/trace-event`);
-;; pinned here to `:warned-and-continued` for the per-category contract. Emitted by
+;; sourced by `re-frame.elision-probe/touch-carried-op-cross-frame!`).
+;;
+;; ENVELOPE PLACEMENT (rf2-orbg6). The warning rides the canonical dev-only seam
+;; `trace/emit! :warning`, so `re-frame.trace/build-event` shapes it: the category
+;; is carried by the top-level `:operation` (`:rf.warning/cross-frame-carried-op`) —
+;; `build-event` synthesizes `{:category operation}` into `:tags` only on the
+;; `:error` branch, NEVER for a `:warning`, so there is no `:tags :category`; and
+;; `:recovery :warned-and-continued` is HOISTED to the envelope top-level and
+;; STRIPPED from `:tags` (per §`:rf/trace-event`). `:tags` therefore carries ONLY
+;; origin/ambient/query/reason. `CrossFrameCarriedOpEvent` below is the canonical
+;; category contract that validates the full warning (envelope + `:tags`);
+;; `CrossFrameCarriedOpTags` describes the surviving `:tags` payload alone. Emitted by
 ;; `re-frame.ui.frames/maybe-warn-cross-frame-carried-subscribe!`. Per the [009 error
 ;; catalogue row](009-Instrumentation.md#error-event-catalogue), [002 §Frame target
 ;; resolution](002-Frames.md#frame-target-resolution--the-carried-invariant), and
@@ -2005,12 +2022,22 @@ Common keys (`:category`, `:failing-id`, `:reason`, `:frame`) are inherited from
 
 (def CrossFrameCarriedOpTags
   [:map
-   [:category       [:= :rf.warning/cross-frame-carried-op]]
    [:origin-frame   :keyword]                        ;; the captured (committed) frame the bundle was minted under
    [:ambient-frame  :keyword]                        ;; the foreign ambient frame the carried `:subscribe` ran beneath
    [:rf.sub/query-v [:vector :any]]                  ;; the attempted subscription query vector (the read that CONTINUED against origin)
-   [:reason         :string]
-   [:recovery       [:= :warned-and-continued]]])     ;; the read proceeds against the CAPTURED origin frame — advisory only
+   [:reason         :string]])                       ;; NO :category (a :warning synthesizes none) and NO :recovery (hoisted top-level) under :tags
+
+;; The full-event category contract: the `:rf/error-event` envelope specialised to
+;; this warning's real placement — category on `:operation` (no `:tags :category`),
+;; severity `:warning`, `:recovery` hoisted top-level, `:tags` the four surviving
+;; fields. Validates the actual emitted event end to end (pinned by the runtime
+;; conformance test `re-frame.ui.frame-ops-cljs-test`).
+(def CrossFrameCarriedOpEvent
+  [:map
+   [:operation [:= :rf.warning/cross-frame-carried-op]] ;; the category rides the ENVELOPE :operation, not :tags
+   [:op-type   [:= :warning]]
+   [:recovery  [:= :warned-and-continued]]              ;; TOP-LEVEL (build-event hoisted it out of :tags)
+   [:tags      CrossFrameCarriedOpTags]])
 
 (def DecodeDefaultedTags
   [:map
