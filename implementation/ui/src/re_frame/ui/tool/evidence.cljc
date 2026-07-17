@@ -101,6 +101,28 @@
 (def ^:private dynamic-marker {:rf.ui.evidence/opaque :dynamic})
 (def ^:private bounded-marker {:rf.ui.evidence/opaque :bounded})
 
+#?(:clj
+   (def ^:private exact-number-classes
+     "The closed set of immutable platform numeric classes admitted VERBATIM.
+     Each is a value-typed leaf that is NOT `IObj`, so an admitted number can
+     carry no hidden ViewCell — unlike an arbitrary `Number` subclass, which may
+     ALSO implement `IObj` and hold a cell in metadata or a field. Membership is
+     by EXACT class, so any subclass (a `proxy [Number IObj]` included) is
+     excluded and takes the opaque/inexact path (rf2-1hob1)."
+     #{java.lang.Long    java.lang.Integer    java.lang.Short   java.lang.Byte
+       java.lang.Double  java.lang.Float
+       java.math.BigInteger java.math.BigDecimal
+       clojure.lang.BigInt  clojure.lang.Ratio}))
+
+(defn- exact-number?
+  "True for a number safe to admit verbatim: a JS primitive number on CLJS
+  (never `IMeta`), or one of the closed set of immutable platform numeric
+  classes on the JVM (`exact-number-classes`), matched by exact class so no
+  `Number`/`IObj` subclass can root a ViewCell through metadata or a field."
+  [x]
+  #?(:clj  (contains? exact-number-classes (class x))
+     :cljs (number? x)))
+
 (defn- project-target-value
   "Copy one target value into bounded plain EDN, returning `[copy exact?]`.
 
@@ -109,17 +131,26 @@
   identity-bearing object or query→cell back-edge can enter the long-lived
   weak-registry value. Ordinary bounded EDN remains exact.
 
-  METADATA is the subtle leak (rf2-vxgfnd.94.17). Among the scalar leaves only
-  the SYMBOL is metadata-capable — `(with-meta 'q {:cell cell})` is a legal
-  target value whose metadata can hold the very ViewCell the entry is
-  weak-keyed by, so returning the symbol verbatim roots the key. (nil, boolean,
-  number, char and string are not `IMeta`; a keyword is interned and rejects
-  metadata on both hosts; a record is already opaque.) A metadata-bearing
-  symbol is REBUILT from its ns/name — value-equal, provably free of any hidden
-  field — and marked inexact, because dropping the metadata changed what the
-  original carried. Collection metadata needs no special case: every collection
-  branch reconstructs a fresh value, so container-level metadata never
-  survives; a metadata-bearing symbol NESTED in one is stripped by the same leaf
+  METADATA is the subtle leak (rf2-vxgfnd.94.17). The metadata-capable scalar
+  leaf is the SYMBOL — `(with-meta 'q {:cell cell})` is a legal target value
+  whose metadata can hold the very ViewCell the entry is weak-keyed by, so
+  returning the symbol verbatim roots the key. (nil, boolean, char and string
+  are not `IMeta`; a keyword is interned and rejects metadata on both hosts; a
+  record is already opaque.) A metadata-bearing symbol is REBUILT from its
+  ns/name — value-equal, provably free of any hidden field — and marked inexact,
+  because dropping the metadata changed what the original carried.
+
+  NUMBERS are admitted verbatim ONLY from a closed set of immutable platform
+  numeric classes (`exact-number?`). On the JVM `number?` alone is not enough: a
+  `Number` subclass can ALSO be `IObj`, so a `proxy [Number IObj]` holding a
+  ViewCell in metadata or a field is `number?` and would slip through as exact
+  and root the key (rf2-1hob1). Any class outside the set takes the opaque path.
+
+  COLLECTION metadata does not LEAK — every collection branch reconstructs a
+  fresh, metadata-free value — but dropping it is still information loss, so a
+  reconstructed vector/list/map/set whose original carried metadata is marked
+  INEXACT, the same honesty the symbol rule applies (rf2-1hob1). A
+  metadata-bearing symbol NESTED in a collection is stripped by the same leaf
   rule on the recursion."
   ([x] (project-target-value x 0 (volatile! target-node-cap)))
   ([x depth budget]
@@ -131,7 +162,7 @@
          (> depth target-depth-cap)
          [bounded-marker false]
 
-         (or (nil? x) (boolean? x) (number? x) (char? x))
+         (or (nil? x) (boolean? x) (char? x) (exact-number? x))
          [x true]
 
          (string? x)
@@ -166,13 +197,17 @@
          (if (> (count x) target-value-cap)
            [bounded-marker false]
            (let [parts (mapv #(project-target-value % (inc depth) budget) x)]
-             [(mapv first parts) (every? second parts)]))
+             ;; A reconstructed container drops its own metadata (no back-edge);
+             ;; that dropped metadata is loss, so it lowers exactness too.
+             [(mapv first parts)
+              (and (every? second parts) (nil? (meta x)))]))
 
          (list? x)
          (if (> (count x) target-value-cap)
            [bounded-marker false]
            (let [parts (mapv #(project-target-value % (inc depth) budget) x)]
-             [(apply list (map first parts)) (every? second parts)]))
+             [(apply list (map first parts))
+              (and (every? second parts) (nil? (meta x)))]))
 
          (map? x)
          (if (> (count x) target-value-cap)
@@ -182,11 +217,13 @@
                                 (project-target-value v (inc depth) budget)])
                              x)]
              ;; A partial map could misstate which value belonged to which key.
-             ;; Preserve it only when every copied association is exact.
+             ;; Preserve it only when every copied association is exact — and
+             ;; even then, dropping the map's own metadata lowers exactness.
              (if (every? (fn [[[_ k-exact?] [_ v-exact?]]]
                            (and k-exact? v-exact?))
                          parts)
-               [(into {} (map (fn [[[k _] [v _]]] [k v])) parts) true]
+               [(into {} (map (fn [[[k _] [v _]]] [k v])) parts)
+                (nil? (meta x))]
                [dynamic-marker false])))
 
          (set? x)
@@ -195,7 +232,7 @@
            (let [parts (mapv #(project-target-value % (inc depth) budget) x)
                  copy  (into #{} (map first) parts)]
              (if (and (every? second parts) (= (count copy) (count x)))
-               [copy true]
+               [copy (nil? (meta x))]
                [dynamic-marker false])))
 
          :else
@@ -333,8 +370,13 @@
   ;; earlier heads — is LEGACY, and its entries are re-projected on migration
   ;; (rf2-vxgfnd.94.18). BUMP THIS whenever the copier changes what a retained
   ;; value may hold: v1 admitted metadata-bearing symbols, whose metadata could
-  ;; hold the very ViewCell the entry is weak-keyed by (rf2-vxgfnd.94.17).
-  ::weak-cell-entries-v2)
+  ;; hold the very ViewCell the entry is weak-keyed by (rf2-vxgfnd.94.17). v2 was
+  ;; minted at an intermediate head whose copier ALSO returned those symbols
+  ;; verbatim, and the copier was then FIXED under the same v2 tag — so a store
+  ;; HMR-migrated at that head carries a v2 tag over metadata-bearing values and
+  ;; would be trusted forever. v3 rejects every pre-final store and re-projects
+  ;; it (rf2-1hob1).
+  ::weak-cell-entries-v3)
 
 (def ^:private ^:const weak-store-tag-key ::weak-cell-entries)
 
