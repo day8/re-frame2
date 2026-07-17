@@ -1005,13 +1005,22 @@
 ;; paused inside its swap can never block a fan-out re-arm (which takes only
 ;; silence-lock).
 ;;
-;; The generation-authority-through-emission guarantee (rf2-9bhne6) is unchanged:
-;; the claim (`eligible-and-reserve!` under `claim-and-publish-delayed-silence!`)
-;; holds BOTH locks across its eligibility recheck AND the external emit, so a
-;; concurrent `put-listener!` blocks on the registry lock and a concurrent
-;; `record-observation!` blocks on silence-lock — neither can make a fresh
-;; generation current, nor re-arm the observation, in the reserve→emit window.
-;; Ordinary fan-out never contends on either: the registry/observation atoms keep
+;; The generation-authority guarantee (rf2-9bhne6, as CORRECTED by rf2-8b9twg):
+;; `eligible-and-reserve!` (under `claim-and-publish-delayed-silence!`) holds BOTH
+;; locks across its eligibility recheck AND the mark RESERVATION — so a concurrent
+;; `put-listener!` (registry lock) and a concurrent `record-observation!`
+;; (silence-lock) are excluded from THAT window and can neither corrupt the three
+;; eligibility reads nor let two publishers both reserve. The external emit then
+;; runs OUTSIDE both locks (see `claim-and-publish-delayed-silence!` for why: the
+;; foreign trace fan-out can reach a frame's `:drain-lock`, and holding a ledger
+;; lock across it is an AB-BA deadlock). Generation authority survives the
+;; lock-free emit through a DATA QUALIFIER, not a lock: a replacement, an
+;; `unregister-epoch-listener!` drop, a fresh frame destroy, or a
+;; `record-observation!` re-arm MAY all land BETWEEN the reservation and the
+;; publication and make a fresh generation current — but the emit carries
+;; `:observed-gen` (the reserved generation), so a superseded late emit
+;; self-filters at the receiver rather than depending on a held lock. Ordinary
+;; fan-out never contends on either lock: the registry/observation atoms keep
 ;; their own lock-free swaps for the common path.
 #?(:clj
    (defonce ^:private listener-registry-lock (Object.)))
@@ -1032,9 +1041,10 @@
   delayed-silence claim and the registry+observation wipes (`drop-listener!` /
   `reset-listeners!`). The claim reads the `listeners` generation AND the
   observation/mark ledger and must exclude both `put-listener!` and
-  `record-observation!` across its eligibility recheck and emit; the wipes mutate
-  both domains. Encoding the order here keeps every both-locks caller consistent
-  so the registry→silence DAG can never invert."
+  `record-observation!` across its eligibility recheck and mark RESERVATION (NOT
+  the external emit, which the claim runs after releasing both locks — rf2-8b9twg);
+  the wipes mutate both domains. Encoding the order here keeps every both-locks
+  caller consistent so the registry→silence DAG can never invert."
   [f]
   (with-listener-registry-lock #(with-silence-lock f)))
 
@@ -1151,15 +1161,17 @@
   cannot both reserve: the first writes the mark, the second sees it above
   baseline and returns nil.
 
-  NOTE the reserve-then-emit-later split leaves a claim→emit window: a
-  replacement landing after this returns but before the caller's external emit
-  makes a fresh generation current at the emission point. This reserve-only
-  primitive emits an UNQUALIFIED signal, so it remains only for staged tests and
-  any caller whose emit provably cannot race a registry mutation. Callers whose
-  emit CAN race a registry mutation use `claim-and-publish-delayed-silence!`,
-  which reserves here (under both locks), then emits a GENERATION-QUALIFIED
-  signal OUTSIDE the locks so a superseded generation's late emit self-filters at
-  the receiver (rf2-8b9twg)."
+  NOTE this primitive RESERVES ONLY — it EMITS NOTHING. It returns the reserved
+  seq; the CALLER performs the external emit later, which leaves a claim→emit
+  window: a replacement / drop / re-arm landing after this returns but before the
+  caller's emit makes a fresh generation current at the emission point. Because
+  this path does NOT hand the caller the reserved generation to qualify that emit
+  with, a caller wiring it to a bare `{:frame :cb-id}` emit produces an UNQUALIFIED
+  signal — so this primitive remains only for staged tests and any caller whose
+  emit provably cannot race a registry mutation. Callers whose emit CAN race a
+  registry mutation use `claim-and-publish-delayed-silence!`, which reserves here
+  (under both locks), then emits a GENERATION-QUALIFIED signal OUTSIDE the locks so
+  a superseded generation's late emit self-filters at the receiver (rf2-8b9twg)."
   [frame-id cb-id observed-gen baseline]
   (with-claim-locks
     #(eligible-and-reserve! frame-id cb-id observed-gen baseline)))
@@ -1171,9 +1183,12 @@
 
   `publish!` is a 0-arg thunk that performs the external
   `:rf.epoch.cb/silenced-on-frame-destroy` emit. It runs with NO ledger lock
-  held, so a same-id replacement CAN make a fresh generation H current in the
-  reserve→emit window. `publish!` MUST therefore qualify its emit with
-  `observed-gen` (the caller bakes it into the payload): the resulting
+  held, so any registry/observation mutation MAY land BETWEEN the reservation and
+  the emit — a same-id replacement (making a fresh generation H current), an
+  `unregister-epoch-listener!` drop, a fresh same-id frame destroy, or a
+  `record-observation!` re-arm on a live successor. That window is intended and
+  race-coherent: `publish!` MUST qualify its emit with `observed-gen` (the caller
+  bakes it into the payload): the resulting
   GENERATION-QUALIFIED signal SELF-FILTERS at the receiver — an observer whose
   current generation for `cb-id` no longer equals the carried `observed-gen`
   discards it. The receiver reads that current generation through the supported
@@ -1280,16 +1295,20 @@
   new callback could be erased by a lagging second swap (rf2-j538f7.5), and its
   mirror in which a stale old callback could re-arm the new registration.
 
-  Participates in `listener-registry-lock` (rf2-9bhne6): installing a fresh
-  generation is a `listeners`-atom mutation that `claim-and-publish-delayed-silence!`
-  reads (under the same registry lock) while deciding+emitting a delayed silence,
-  so it is serialized against that critical section. A replacement therefore
-  cannot make a fresh generation current between a silence's reservation and its
-  emission — it blocks on the registry lock until publication completes, closing
-  the claim→emit window. It holds ONLY the registry lock, NOT silence-lock, so a
-  watcher parked inside the `(swap! listeners …)` below can never block a
-  concurrent `record-observation!` fan-out re-arm (the single-monitor deadlock,
-  rf2-9bhne6 follow-up).
+  Participates in `listener-registry-lock` (rf2-9bhne6, as corrected by
+  rf2-8b9twg): installing a fresh generation is a `listeners`-atom mutation that
+  `claim-and-publish-delayed-silence!` reads (under the same registry lock) while
+  RESERVING a delayed silence, so it is serialized against that reservation's
+  eligibility recheck — a replacement cannot make a fresh generation current
+  DURING the reservation; it blocks on the registry lock until the reservation
+  completes. It does NOT block the silence's external EMIT: that emit runs OUTSIDE
+  the ledger locks (rf2-8b9twg), so a replacement MAY land between the reservation
+  and the emit and make a fresh generation current. That is sound because the emit
+  is generation-qualified (`:observed-gen`): a superseded late emit self-filters at
+  the receiver rather than depending on a held lock. It holds ONLY the registry
+  lock, NOT silence-lock, so a watcher parked inside the `(swap! listeners …)`
+  below can never block a concurrent `record-observation!` fan-out re-arm (the
+  single-monitor deadlock, rf2-9bhne6 follow-up).
 
   Returns the id."
   [id f]
@@ -1304,9 +1323,13 @@
   bookkeeping it carried. Takes BOTH ledger locks (`with-claim-locks`,
   rf2-9bhne6): it mutates the `listeners` registry (registry lock) AND the
   observation ledger + terminal-silence marks (silence-lock). Holding both means
-  a drop in a delayed-silence claim's reserve→emit window blocks until
-  publication completes rather than making a stale generation current — or
-  clearing an observation the claim is deciding against — mid-signal."
+  a drop is serialized against a delayed-silence claim's RESERVATION — it cannot
+  retire a generation, or clear an observation the claim is deciding against,
+  WHILE the claim's eligibility recheck+reserve runs under those locks. It does
+  NOT block the claim's external EMIT (that runs after the locks are released,
+  rf2-8b9twg): a drop MAY land between the reservation and the emit, and the
+  generation-qualified signal stays correct because a receiver self-filters an
+  `:observed-gen` that no longer names a live registration."
   [id]
   (with-claim-locks
     (fn []
@@ -1386,11 +1409,14 @@
   A genuine re-arm (the outer guard passed) runs under `silence-lock`
   (rf2-9bhne6): it mutates the observation ledger AND prunes the terminal-silence
   mark, both of which `claim-and-publish-delayed-silence!` reads (under
-  silence-lock, the inner of its two claim locks) while deciding a delayed
+  silence-lock, the inner of its two claim locks) while RESERVING a delayed
   silence. Participating in that lock makes the claim's eligibility reads coherent
   against a concurrent re-arm — a re-arm cannot land between the claim's
-  individual reads (or between its reservation and emit) and yield a stale-state
-  grant. Crucially it takes ONLY silence-lock, NOT the registry lock
+  individual reads (they run under the lock) and yield a stale-state grant. A
+  re-arm MAY still land between the reservation and the claim's external emit
+  (which runs lock-free, rf2-8b9twg); that window is race-coherent because the
+  emit is generation-qualified, so a re-armed successor's live callback is never
+  mistaken for the reserved generation's silence. Crucially it takes ONLY silence-lock, NOT the registry lock
   `put-listener!` holds, so a re-arm is never blocked behind a registration
   paused inside the `listeners` swap (the single-monitor deadlock this split
   fixed, rf2-9bhne6 follow-up). The lock-free fast no-op above keeps the fan-out
