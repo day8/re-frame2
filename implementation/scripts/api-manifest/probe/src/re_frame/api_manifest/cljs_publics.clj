@@ -77,22 +77,25 @@
 ;; ---------------------------------------------------------------------------
 
 (defn- strip-implicit-macro-params
-  "Drop a macro's compiler-supplied `&form` / `&env` positional params so only
-   PROGRAMMER-VISIBLE params are counted (bead AC: compiler-internal
-   parameters must not leak). Mirrors the JVM lane's
-   `re-frame.api-manifest.api-md-check/strip-implicit-macro-params`."
+  "Drop a MACRO's compiler-supplied `&form` / `&env` positional params so only
+   PROGRAMMER-VISIBLE params are counted (bead AC: compiler-internal parameters
+   must not leak). Applied ONLY to macros (rf2-d7sso) — for an ordinary function
+   `&form`/`&env` are legal programmer parameter names and are counted. Mirrors
+   the JVM lane's `re-frame.api-manifest.api-md-check/strip-implicit-macro-params`."
   [arglist]
   (remove (fn [p] (and (symbol? p) (contains? #{"&form" "&env"} (name p))))
           arglist))
 
 (defn arglist->arity
-  "Normalize one arglist to a PROGRAMMER-VISIBLE arity vector: `[n]` for a
-   fixed n-arg call, `[n :&]` for a variadic call with n fixed args. A nested
+  "Normalize one arglist to a PROGRAMMER-VISIBLE arity vector, KIND-AWARE
+   (rf2-d7sso): `[n]` for a fixed n-arg call, `[n :&]` for a variadic call with
+   n fixed args. For a `:macro` the compiler-supplied `&form` / `&env` slots are
+   stripped; for a `:fn` they are ordinary parameters and COUNTED. A nested
    destructuring vector counts as ONE positional. Mirrors the JVM lane's
-   `re-frame.api-manifest.api-md-check/arglist->arity` exactly so the two
-   hosts normalize identically."
-  [arglist]
-  (let [al        (strip-implicit-macro-params arglist)
+   `re-frame.api-manifest.api-md-check/arglist->arity` exactly so the two hosts
+   normalize identically."
+  [kind arglist]
+  (let [al        (if (= kind :macro) (strip-implicit-macro-params arglist) arglist)
         fixed     (count (take-while #(not= '& %) al))
         variadic? (boolean (some #(= '& %) al))]
     (if variadic? [fixed :&] [fixed])))
@@ -108,24 +111,36 @@
 
 (defn info->arities
   "The set of programmer-visible arity vectors for a CLJS analyzer var-info
-   map, or nil when the analyzer surfaces no `:arglists` for it (a plain
-   value `:var`, or a macro whose arglists the analyzer erases — the probe
-   treats an unobserved FUNCTION as drift, but never a macro, whose grammar
-   is host-invariant and pinned on the JVM lane)."
+   map, normalized for its live `kind-of` (rf2-d7sso — a function's `&form`/
+   `&env` params are counted, a macro's are stripped), or nil when the analyzer
+   surfaces no `:arglists` for it (a plain value `:var`, or a macro whose
+   arglists the analyzer erases — the probe treats an unobserved FUNCTION as
+   drift, but never a macro, whose grammar is host-invariant and pinned on the
+   JVM lane)."
   [info]
   (when-let [arglists (or (unwrap-arglists (:arglists info))
                           (unwrap-arglists (:arglists (:meta info))))]
-    (into #{} (map arglist->arity) arglists)))
+    (let [kind (kind-of info)]
+      (into #{} (map #(arglist->arity kind %)) arglists))))
 
-(defn ns-public-signatures
-  "Return `{var-name-string (#{arity-vector ...} | nil)}` for every public
-   var of `ns-sym` in the analyzer compilation env `state`, minus the
-   `^:no-doc` carve-outs. The driver behind `emit-ns-signatures`; exposed as
-   a plain fn so it can be unit-tested off a synthetic compiler-state atom."
+(defn ns-public-surface
+  "Return `{var-name-string {:kind kw :arities (#{arity-vector ...} | nil)}}`
+   for every public var of `ns-sym` in the analyzer compilation env `state`,
+   minus the `^:no-doc` carve-outs — the live CLJS classification (`:kind`) and
+   host arities in ONE map (rf2-d7sso). The driver behind `emit-ns-surface`;
+   exposed as a plain fn so it can be unit-tested off a synthetic compiler-state
+   atom.
+
+   `:kind` is the AUTHORITATIVE live classification the sidecar's declared kind
+   is reconciled against on the CLJS lane. For the ui.test surface the analyzer
+   classifies its real `defn`s (`:fn`) and `defmacro`s (`:macro`) reliably —
+   there are no fn-valued value-defs here (the analyzer limitation the
+   `:cljs-only` kind carve-out documents does not reach this surface)."
   [state ns-sym]
   (->> (ana-api/ns-publics state ns-sym)
        (remove (fn [[_ info]] (:no-doc (:meta info))))
-       (map (fn [[sym info]] [(name sym) (info->arities info)]))
+       (map (fn [[sym info]] [(name sym) {:kind    (kind-of info)
+                                          :arities (info->arities info)}]))
        (into {})))
 
 ;; ---------------------------------------------------------------------------
@@ -206,22 +221,24 @@
         pairs (ns-public-pairs env/*compiler* sym)]
     `[~@(map (fn [[v k]] [v k]) pairs)]))
 
-(defmacro emit-ns-signatures
-  "Expand to a literal `{var-name #{arity-vector ...}}` map for the public
-   vars of `ns-sym` (a quoted symbol), read from the CLJS analyzer's
-   compilation environment at macro-expansion time (rf2-5bcdi). A var the
-   analyzer surfaces no arglists for maps to `nil`. The target namespace must
-   already be analysed — `:require` it from the calling namespace first.
+(defmacro emit-ns-surface
+  "Expand to a literal `{var-name {:kind kw :arities #{arity-vector ...}|nil}}`
+   map for the public vars of `ns-sym` (a quoted symbol), read from the CLJS
+   analyzer's compilation environment at macro-expansion time (rf2-5bcdi;
+   kind-aware rf2-d7sso). A var the analyzer surfaces no arglists for maps to
+   `:arities nil`. The target namespace must already be analysed — `:require`
+   it from the calling namespace first.
 
-   The emitted map is self-evaluating data (strings → sets of vectors of
-   numbers / the `:&` keyword), so — like `emit-cljs-only-rows` — the value
-   is returned directly. It is the live CLJS arity surface the probe
-   reconciles against the `:cljs` signature contract."
+   The emitted map is self-evaluating data (strings → `{:kind <keyword>
+   :arities <set of vectors of numbers / the :& keyword>}`), so — like
+   `emit-cljs-only-rows` — the value is returned directly. It is the live CLJS
+   classification + arity surface the probe reconciles the sidecar signature
+   contract against."
   [ns-sym]
   (let [sym (if (and (seq? ns-sym) (= 'quote (first ns-sym)))
               (second ns-sym)
               ns-sym)]
-    (ns-public-signatures env/*compiler* sym)))
+    (ns-public-surface env/*compiler* sym)))
 
 (defmacro emit-ui-test-signature-contract
   "Expand to the sidecar's `:ui-test-signatures` authority map

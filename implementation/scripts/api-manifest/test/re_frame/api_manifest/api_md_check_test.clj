@@ -377,16 +377,19 @@
         "live drift: create-root row lost :root-id-required or :disambiguator-invalid")))
 
 ;; ---------------------------------------------------------------------------
-;; re-frame.ui.test HOST-ARITY guard — JVM (:clj) lane (rf2-5bcdi).
+;; re-frame.ui.test HOST-SIGNATURE guard — JVM (:clj) lane (rf2-5bcdi;
+;; kind-aware + exact rf2-d7sso).
 ;;
 ;; The generated manifest reduces every var to [namespace var tier kind]; it
 ;; carries NO arity. So a re-frame.ui.test fn/macro can keep its name and :kind
 ;; while losing / adding / reshaping a supported arity, and every ordinary
 ;; manifest / projection / gen --check gate stays green. `ui-test-arity-problems`
-;; reconciles the live JVM :arglists against the sidecar :ui-test-signatures
-;; authority; these fixtures prove a reshaped / removed / uncontracted arity
-;; goes RED and the in-sync state stays green, and that the normalization
-;; strips a macro's compiler-internal &form/&env (bead AC).
+;; reconciles the live JVM surface (kind + :arglists) against the sidecar
+;; :ui-test-signatures authority; these fixtures prove a reshaped / removed /
+;; uncontracted arity — AND a sidecar :kind flipped :fn→:macro (the rf2-d7sso
+;; seam the JVM lane once IGNORED) — go RED while the in-sync state stays green,
+;; and that the normalization strips a MACRO's compiler-internal &form/&env but
+;; COUNTS an ordinary function's &form/&env params (bead AC).
 ;; ---------------------------------------------------------------------------
 
 ;; The :clj projection of the nine blessed vars' signature contract (mirrors
@@ -402,32 +405,45 @@
    "render"    {:kind :macro :clj #{[1] [2]}}
    "with-root" {:kind :macro :clj #{[1 :&]}}})
 
-;; The matching live-JVM arity map for an in-sync tree.
+;; The matching live-JVM SURFACE for an in-sync tree: {var {:kind :arities}}.
 (def ^:private ui-test-live-in-sync
-  {"attrs"     #{[1]}
-   "text"      #{[1]}
-   "find"      #{[2]}
-   "find-all"  #{[2]}
-   "query"     #{[2]}
-   "dispatch!" #{[2]}
-   "flush!"    #{[0]}
-   "render"    #{[1] [2]}
-   "with-root" #{[1 :&]}})
+  {"attrs"     {:kind :fn    :arities #{[1]}}
+   "text"      {:kind :fn    :arities #{[1]}}
+   "find"      {:kind :fn    :arities #{[2]}}
+   "find-all"  {:kind :fn    :arities #{[2]}}
+   "query"     {:kind :fn    :arities #{[2]}}
+   "dispatch!" {:kind :fn    :arities #{[2]}}
+   "flush!"    {:kind :fn    :arities #{[0]}}
+   "render"    {:kind :macro :arities #{[1] [2]}}
+   "with-root" {:kind :macro :arities #{[1 :&]}}})
 
 (deftest arglist->arity-normalizes-fixed-variadic-and-strips-implicit
-  (testing "a plain arglist yields [n]"
-    (is (= [0] (c/arglist->arity '[])))
-    (is (= [1] (c/arglist->arity '[node])))
-    (is (= [2] (c/arglist->arity '[tree selector]))))
+  (testing "a plain arglist yields [n] (kind-agnostic when no &form/&env present)"
+    (is (= [0] (c/arglist->arity :fn '[])))
+    (is (= [1] (c/arglist->arity :fn '[node])))
+    (is (= [2] (c/arglist->arity :macro '[tree selector]))))
   (testing "a variadic arglist yields [n :&]; a nested destructuring vector is
             ONE positional (with-root's [[binding root-form] & body])"
-    (is (= [1 :&] (c/arglist->arity '[[binding root-form :as binding-form] & body])))
-    (is (= [2 :&] (c/arglist->arity '[a b & more]))))
-  (testing "compiler-internal macro params &form/&env do not leak into the
+    (is (= [1 :&] (c/arglist->arity :macro '[[binding root-form :as binding-form] & body])))
+    (is (= [2 :&] (c/arglist->arity :fn '[a b & more]))))
+  (testing "a MACRO's compiler-internal &form/&env do not leak into the
             programmer-visible arity (bead AC)"
-    (is (= [1] (c/arglist->arity '[&form &env root-or-view])))
-    (is (= [2] (c/arglist->arity '[&form &env root-or-view opts])))
-    (is (= [1 :&] (c/arglist->arity '[&form &env [binding root-form] & body])))))
+    (is (= [1] (c/arglist->arity :macro '[&form &env root-or-view])))
+    (is (= [2] (c/arglist->arity :macro '[&form &env root-or-view opts])))
+    (is (= [1 :&] (c/arglist->arity :macro '[&form &env [binding root-form] & body]))))
+  (testing "an ORDINARY FUNCTION's &form/&env are legal programmer parameters and
+            are COUNTED, never stripped (rf2-d7sso) — [x], [&env x] and
+            [&form &env x] are three DISTINCT function arities"
+    (is (= [1] (c/arglist->arity :fn '[x])))
+    (is (= [2] (c/arglist->arity :fn '[&env x])))
+    (is (= [3] (c/arglist->arity :fn '[&form &env x])))
+    (is (= [2 :&] (c/arglist->arity :fn '[&env x & more])))))
+
+(deftest arglists->arities-is-kind-aware
+  (testing "arglists->arities threads the kind: a function counts &env/&form,
+            a macro strips them (rf2-d7sso)"
+    (is (= #{[2]} (c/arglists->arities :fn '([&env x]))))
+    (is (= #{[1]} (c/arglists->arities :macro '([&form &env x]))))))
 
 (deftest ui-test-arities-in-sync-produce-no-problems
   (testing "the committed :clj contract reconciles clean against the matching
@@ -440,7 +456,7 @@
             (a :fn) are unchanged"
     (let [problems (c/ui-test-arity-problems
                     ui-test-clj-contract
-                    (assoc ui-test-live-in-sync "flush!" #{[1]}))]
+                    (assoc-in ui-test-live-in-sync ["flush!" :arities] #{[1]}))]
       (is (= 1 (count problems)))
       (is (= :arity-mismatch (:kind (first problems))))
       (is (= "flush!" (:var (first problems))))
@@ -452,7 +468,7 @@
             :clj #{[1] [2]} even though the manifest :kind stays :macro"
     (let [problems (c/ui-test-arity-problems
                     ui-test-clj-contract
-                    (assoc ui-test-live-in-sync "render" #{[1]}))]
+                    (assoc-in ui-test-live-in-sync ["render" :arities] #{[1]}))]
       (is (= [:arity-mismatch] (map :kind problems)))
       (is (= "render" (:var (first problems))))
       (is (= #{[1] [2]} (:expected (first problems)))))))
@@ -462,7 +478,7 @@
             the '& body' grammar drift the tier/kind reconcile cannot see"
     (let [problems (c/ui-test-arity-problems
                     ui-test-clj-contract
-                    (assoc ui-test-live-in-sync "with-root" #{[1]}))]
+                    (assoc-in ui-test-live-in-sync ["with-root" :arities] #{[1]}))]
       (is (= [:arity-mismatch] (map :kind problems)))
       (is (= "with-root" (:var (first problems))))
       (is (= #{[1 :&]} (:expected (first problems))))
@@ -473,9 +489,22 @@
             is drift, not a pass"
     (let [problems (c/ui-test-arity-problems
                     ui-test-clj-contract
-                    (assoc ui-test-live-in-sync "query" #{[2] [3]}))]
+                    (assoc-in ui-test-live-in-sync ["query" :arities] #{[2] [3]}))]
       (is (= [:arity-mismatch] (map :kind problems)))
       (is (= "query" (:var (first problems)))))))
+
+(deftest jvm-sidecar-kind-flip-goes-red
+  (testing "THE rf2-d7sso BUG: a sidecar entry whose :kind was flipped :fn→:macro
+            is REJECTED against the live JVM Var kind (:fn) — the JVM lane no
+            longer IGNORES the sidecar :kind (its arities still match, so ONLY the
+            kind mismatch fires)"
+    (let [problems (c/ui-test-arity-problems
+                    (assoc-in ui-test-clj-contract ["flush!" :kind] :macro)
+                    ui-test-live-in-sync)]
+      (is (= [:kind-mismatch] (map :kind problems)))
+      (is (= "flush!" (:var (first problems))))
+      (is (= :macro (:declared (first problems))))
+      (is (= :fn (:live-kind (first problems)))))))
 
 (deftest removed-var-flagged-absent
   (testing "a contract var whose live var no longer resolves is :var-absent
@@ -491,26 +520,30 @@
             — a fresh export cannot escape arity coverage silently"
     (let [problems (c/ui-test-arity-problems
                     ui-test-clj-contract
-                    (assoc ui-test-live-in-sync "brand-new!" #{[0]}))]
+                    (assoc ui-test-live-in-sync "brand-new!" {:kind :fn :arities #{[0]}}))]
       (is (= [:uncontracted-var] (map :kind problems)))
       (is (= "brand-new!" (:var (first problems)))))))
 
-(deftest live-ui-test-jvm-arities-match-contract
-  (testing "the committed :ui-test-signatures :clj contract reconciles clean
-            against the LIVE re-frame.ui.test JVM :arglists (no live drift), and
-            the enumeration actually covers the nine blessed vars"
+(deftest live-ui-test-jvm-signature-matches-contract
+  (testing "the committed :ui-test-signatures contract reconciles clean against
+            the LIVE re-frame.ui.test JVM surface (kind + :clj arities; no live
+            drift), and the enumeration actually covers the nine blessed vars"
     (let [contract (:vars (c/read-ui-test-signatures))
-          live     (c/live-ui-test-arities)]
+          surface  (c/live-ui-test-surface)]
       (is (= 9 (count contract))
           "the signature authority must carry all nine blessed vars")
-      (is (= (set (keys contract)) (set (keys live)))
+      (is (= (set (keys contract)) (set (keys surface)))
           "live blessed vars and the contract must cover exactly the same names")
-      (is (empty? (c/ui-test-arity-problems contract live))
-          "live drift: a ui.test var's JVM arity disagrees with :ui-test-signatures")
+      (is (empty? (c/ui-test-arity-problems contract surface))
+          "live drift: a ui.test var's JVM signature disagrees with :ui-test-signatures")
       ;; The host-specific facts the bead names, pinned against LIVE metadata.
-      (is (= #{[0]} (get live "flush!"))
+      (is (= :fn (get-in surface ["flush!" :kind]))
+          "flush! is classified :fn by the live JVM Var — the kind authority")
+      (is (= #{[0]} (get-in surface ["flush!" :arities]))
           "flush! is 0-arity on the JVM")
-      (is (= #{[1 :&]} (get live "with-root"))
+      (is (= :macro (get-in surface ["with-root" :kind])))
+      (is (= #{[1 :&]} (get-in surface ["with-root" :arities]))
           "with-root is a variadic macro ([binding] & body)")
-      (is (= #{[1] [2]} (get live "render"))
+      (is (= :macro (get-in surface ["render" :kind])))
+      (is (= #{[1] [2]} (get-in surface ["render" :arities]))
           "render is a 1/2-arity macro"))))

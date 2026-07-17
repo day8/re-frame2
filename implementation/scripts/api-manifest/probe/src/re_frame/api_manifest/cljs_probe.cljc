@@ -44,6 +44,15 @@
   the JVM side; for CLJS-only value-defs the sidecar's curated `:kind`
   stands.
 
+  This EXISTENCE-only rule is the `reconcile` fn's — it covers the
+  `:cljs-only` ADAPTER/Xray surfaces, which bind fn-valued value-defs the
+  analyzer cannot tell from a plain `:var`. The re-frame.ui.test host-signature
+  reconciler below (`signature-problems`) DOES reconcile `:kind` (rf2-d7sso):
+  that surface is real `defn`s + `defmacro`s (no value-defs), so the analyzer
+  classifies it reliably, and the sidecar's declared kind is VALIDATED against
+  the live analyzer kind rather than trusted — closing the seam where the JVM
+  lane once ignored the sidecar kind while this lane trusted it to select checks.
+
   ## Why the adapters are `:fully-rowed` but the Xray mount surface is not
 
   spec/API.md tiers the Xray `mount-*!` family `internal-public` (the
@@ -117,51 +126,89 @@
 ;; ---------------------------------------------------------------------------
 
 (defn signature-problems
-  "Pure host-arity reconciler for the CLJS (:cljs) lane (rf2-5bcdi). Compares
-   the declared `:cljs` signature contract against the live CLJS analyzer
-   arities. Returns a sorted problems vector; empty ⇒ in sync.
+  "Pure host-signature reconciler for the CLJS (:cljs) lane (rf2-5bcdi; made
+   KIND-AWARE + EXACT — rf2-d7sso). Reconciles the sidecar signature contract
+   against the live CLJS analyzer surface. Returns a sorted problems vector;
+   empty ⇒ in sync.
 
-   `contract` — the `:vars` map `{var {:kind :fn|:macro :clj #{..} :cljs #{..}}}`.
-   `live`     — `{var (#{arity} | nil)}` from `cljs-publics/emit-ns-signatures`.
+   `contract` — the sidecar `:vars` map
+                `{var {:kind :fn|:macro :clj #{..} :cljs #{..}}}`.
+   `surface`  — `{var {:kind kw :arities (#{arity} | nil)}}` from
+                `cljs-publics/emit-ns-surface` — the live CLJS classification
+                (`:kind`) + host arities.
 
-   Only FUNCTION vars are reconciled: a re-frame.ui.test function can carry a
-   host-specific runtime arity, so the CLJS surface is where a CLJS-only arity
-   reshape must go RED (the reader-conditional `:clj`/`:cljs` difference is
-   represented intentionally, never forced equal). MACROS are host-invariant
-   (one `.cljc` definition expanded on both hosts), so their programmer-visible
-   call grammar is pinned once on the JVM lane, and the analyzer does not
-   reliably surface their arglists anyway. A FUNCTION the analyzer surfaces no
-   arity for is itself drift (`:arity-unobserved`)."
-  [contract live]
-  (->> contract
-       (keep (fn [[var {:keys [kind cljs]}]]
-               (when (= kind :fn)
-                 (let [got (get live var)]
-                   (cond
-                     (nil? got)      {:kind :arity-unobserved :var var :expected cljs}
-                     (not= cljs got) {:kind :arity-mismatch   :var var :expected cljs :got got})))))
-       (sort-by :var)
-       vec))
+   The sidecar's declared `:kind` is NOT trusted to SELECT checks (the
+   rf2-d7sso seam): it is RECONCILED against the live analyzer kind and a
+   disagreement is REJECTED (`:kind-mismatch`) — so a sidecar kind flipped
+   `:fn`→`:macro` reddens this lane instead of silently skipping the entry.
+   Arity checks are then selected by the AUTHORITATIVE live kind:
+
+     - FUNCTIONS are arity-checked against `:cljs` (a re-frame.ui.test function
+       can carry a host-specific runtime arity, so a CLJS-only reshape goes RED
+       here; the reader-conditional `:clj`/`:cljs` difference is represented
+       intentionally, never forced equal). A function the analyzer surfaces no
+       arity for is itself drift (`:arity-unobserved`).
+     - MACROS are host-invariant (one `.cljc` definition expanded on both
+       hosts) — their call grammar is pinned once on the JVM lane and the
+       analyzer does not reliably surface their arglists, so they are not
+       arity-checked here.
+
+   Names are reconciled exactly: a contract var the live surface does not
+   expose → `:var-absent`; a live blessed var with no contract entry →
+   `:uncontracted-var` (so a classified CLJS-only function with no host-arity
+   contract, or an omitted entry, goes RED)."
+  [contract surface]
+  (->>
+   (concat
+    (mapcat
+     (fn [[var {:keys [kind cljs]}]]
+       (if-let [{live-kind :kind live-arities :arities} (get surface var)]
+         (concat
+          (when (not= kind live-kind)
+            [{:kind :kind-mismatch :var var :declared kind :live-kind live-kind}])
+          (when (= live-kind :fn)
+            (cond
+              (nil? live-arities)      [{:kind :arity-unobserved :var var :expected cljs}]
+              (not= cljs live-arities) [{:kind :arity-mismatch :var var :expected cljs :got live-arities}])))
+         [{:kind :var-absent :var var :expected cljs}]))
+     contract)
+    (keep (fn [[var _]]
+            (when-not (contains? contract var)
+              {:kind :uncontracted-var :var var}))
+          surface))
+   (sort-by :var)
+   vec))
 
 (defn signature-report
   "Render a `signature-problems` seq to an actionable multi-line string — the
-   message the probe's failing arity assertion prints."
+   message the probe's failing signature assertion prints."
   [problems]
   (str/join
    "\n"
    (concat
-    ["CLJS ui.test host-arity DRIFT (rf2-5bcdi): a re-frame.ui.test FUNCTION's"
-     "live CLJS arity no longer matches the :cljs signature contract in"
-     "spec/api-manifest-metadata.edn (:ui-test-signatures). Reshape the source"
-     "or reconcile the contract until this is green. Problems:"]
-    (map (fn [{:keys [kind var expected got]}]
+    ["CLJS ui.test host-signature DRIFT (rf2-5bcdi/rf2-d7sso): a re-frame.ui.test"
+     "public var's live CLJS classification/arity no longer matches the signature"
+     "contract in spec/api-manifest-metadata.edn (:ui-test-signatures). The"
+     "sidecar's declared :kind is reconciled against the live analyzer kind, so a"
+     "stale/flipped kind is rejected here. Reshape the source or reconcile the"
+     "contract until this is green. Problems:"]
+    (map (fn [{:keys [kind var expected got declared live-kind]}]
            (case kind
+             :kind-mismatch
+             (str "    " var ": sidecar declares " (pr-str declared)
+                  " ; live CLJS analyzer is " (pr-str live-kind))
              :arity-mismatch
              (str "    " var ": live CLJS " (pr-str got)
                   " ; contract :cljs " (pr-str expected))
              :arity-unobserved
              (str "    " var ": the analyzer surfaced NO arity (expected :cljs "
-                  (pr-str expected) ") — a function must be observable")))
+                  (pr-str expected) ") — a function must be observable")
+             :var-absent
+             (str "    " var ": the contract names it but the live CLJS surface "
+                  "does not expose it")
+             :uncontracted-var
+             (str "    " var ": live CLJS public var with no :ui-test-signatures "
+                  "entry")))
          problems))))
 
 (defn report
