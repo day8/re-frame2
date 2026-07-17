@@ -29,10 +29,11 @@ leak boundary. Views *read* — they never fetch.
 @(rf/subscribe [:rf/resource {:resource :article :params {:slug "hello"}}])
 ;; => {:status :idle …}  — registered, but nothing has caused a load yet
 
-;; a route or an event is the cause; here, an explicit ensure
+;; a route or an event is the cause; here, a one-shot ownerless ensure
+;; (supply a :cause, not an :owner — nothing pins the entry alive)
 (rf/dispatch [:rf.resource/ensure {:resource :article
                                    :params   {:slug "hello"}
-                                   :owner    [:lease :article "hello"]}])
+                                   :cause    [:event :article/opened]}])
 
 ;; now the same passive read progresses
 @(rf/subscribe [:rf/resource {:resource :article :params {:slug "hello"}}])
