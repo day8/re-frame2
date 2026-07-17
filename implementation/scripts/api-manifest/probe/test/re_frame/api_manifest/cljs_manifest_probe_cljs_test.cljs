@@ -64,7 +64,7 @@
   mechanism for it (see rf2-2mtte PR notes)."
   (:require-macros [re-frame.api-manifest.cljs-publics
                     :refer [emit-ns-publics emit-cljs-only-rows
-                            emit-classification-rows emit-ns-signatures
+                            emit-classification-rows emit-ns-surface
                             emit-ui-test-signature-contract]])
   (:require [cljs.test :refer-macros [deftest is testing]]
             [re-frame.api-manifest.cljs-probe :as probe]
@@ -230,46 +230,55 @@
 ;; turns this RED. Macros are host-invariant (pinned once on the JVM lane).
 ;; ---------------------------------------------------------------------------
 
-(def live-ui-test-signatures
-  "`{var-name (#{arity} | nil)}` for re-frame.ui.test's live CLJS public
-   surface, enumerated off the analyzer at compile time."
-  (emit-ns-signatures re-frame.ui.test))
+(def live-ui-test-surface
+  "`{var-name {:kind kw :arities (#{arity} | nil)}}` for re-frame.ui.test's live
+   CLJS public surface, enumerated off the analyzer at compile time — the live
+   classification (kind) + host arities the sidecar signature contract is
+   reconciled against (rf2-d7sso)."
+  (emit-ns-surface re-frame.ui.test))
 
 (def ui-test-signature-contract
   "The sidecar `:ui-test-signatures` authority, embedded at compile time
    (no runtime filesystem). `:vars` is the per-var host-aware contract."
   (emit-ui-test-signature-contract))
 
-(deftest ui-test-cljs-arities-in-sync
-  (testing "the live CLJS function arities of re-frame.ui.test match the :cljs
-            signature contract (the reader-conditional flush! 0/1-arity pinned)"
+(deftest ui-test-cljs-signatures-in-sync
+  (testing "the live CLJS classification + function arities of re-frame.ui.test
+            match the signature contract (kind reconciled; flush! 0/1-arity pinned)"
     (let [problems (probe/signature-problems (:vars ui-test-signature-contract)
-                                             live-ui-test-signatures)]
+                                             live-ui-test-surface)]
       (is (empty? problems) (probe/signature-report problems)))))
 
 (deftest ui-test-signature-contract-is-non-vacuous
   (testing "the embedded contract carries the nine blessed ui.test vars and the
-            analyzer surfaced flush!'s live CLJS 0/1-arity (guards against a
+            analyzer surfaced flush!'s live CLJS :fn 0/1-arity (guards against a
             vacuous green from an unread sidecar or un-analysed namespace)"
     (is (= "re-frame.ui.test" (:namespace ui-test-signature-contract)))
     (is (= 9 (count (:vars ui-test-signature-contract))))
-    (is (= #{[0] [1]} (get live-ui-test-signatures "flush!"))
+    (is (= :fn (get-in live-ui-test-surface ["flush!" :kind]))
+        "flush! must be classified :fn by the live analyzer — the kind authority")
+    (is (= #{[0] [1]} (get-in live-ui-test-surface ["flush!" :arities]))
         "flush! must be observed 0/1-arity on CLJS — the blessed host difference")))
 
 ;; Synthetic reconciler contracts — the mutation proof, exercised directly on
-;; the pure `signature-problems` so a reshape goes RED and the in-sync state
-;; stays green regardless of the live analyzer.
+;; the pure `signature-problems` so a reshape / kind flip goes RED and the
+;; in-sync state stays green regardless of the live analyzer.
 (def ^:private synthetic-contract
   {"attrs"     {:kind :fn    :cljs #{[1]}}
    "flush!"    {:kind :fn    :cljs #{[0] [1]}}
    "render"    {:kind :macro :cljs #{[1] [2]}}
    "with-root" {:kind :macro :cljs #{[1 :&]}}})
 
+;; The live SURFACE fixture: {var {:kind :arities}}. A macro's analyzer arities
+;; may be nil (host-invariant, never arity-checked here).
 (def ^:private synthetic-live-in-sync
-  {"attrs" #{[1]} "flush!" #{[0] [1]} "render" #{[1] [2]} "with-root" #{[1 :&]}})
+  {"attrs"     {:kind :fn    :arities #{[1]}}
+   "flush!"    {:kind :fn    :arities #{[0] [1]}}
+   "render"    {:kind :macro :arities #{[1] [2]}}
+   "with-root" {:kind :macro :arities #{[1 :&]}}})
 
 (deftest cljs-arities-in-sync-produce-no-problems
-  (testing "the matching live CLJS arities reconcile clean"
+  (testing "the matching live CLJS surface reconciles clean"
     (is (empty? (probe/signature-problems synthetic-contract synthetic-live-in-sync)))))
 
 (deftest cljs-flush-arity-drop-goes-red
@@ -277,7 +286,7 @@
             against :cljs #{[0] [1]} — a CLJS-only reshape the manifest cannot see"
     (let [problems (probe/signature-problems
                     synthetic-contract
-                    (assoc synthetic-live-in-sync "flush!" #{[0]}))]
+                    (assoc-in synthetic-live-in-sync ["flush!" :arities] #{[0]}))]
       (is (= [:arity-mismatch] (map :kind problems)))
       (is (= "flush!" (:var (first problems))))
       (is (= #{[0] [1]} (:expected (first problems))))
@@ -288,7 +297,7 @@
             is drift, not a pass"
     (let [problems (probe/signature-problems
                     synthetic-contract
-                    (assoc synthetic-live-in-sync "attrs" #{[1] [2]}))]
+                    (assoc-in synthetic-live-in-sync ["attrs" :arities] #{[1] [2]}))]
       (is (= [:arity-mismatch] (map :kind problems)))
       (is (= "attrs" (:var (first problems)))))))
 
@@ -297,16 +306,48 @@
             :arity-unobserved (never a vacuous pass)"
     (let [problems (probe/signature-problems
                     synthetic-contract
-                    (assoc synthetic-live-in-sync "attrs" nil))]
+                    (assoc-in synthetic-live-in-sync ["attrs" :arities] nil))]
       (is (= [:arity-unobserved] (map :kind problems)))
+      (is (= "attrs" (:var (first problems)))))))
+
+(deftest cljs-sidecar-kind-flip-goes-red
+  (testing "THE rf2-d7sso BUG: a sidecar entry whose :kind was flipped :fn→:macro
+            is REJECTED against the live analyzer kind (:fn) — the CLJS lane no
+            longer silently SKIPS the entry on the unvalidated sidecar kind (its
+            arities still match, so ONLY the kind mismatch fires)"
+    (let [problems (probe/signature-problems
+                    (assoc-in synthetic-contract ["flush!" :kind] :macro)
+                    synthetic-live-in-sync)]
+      (is (= [:kind-mismatch] (map :kind problems)))
+      (is (= "flush!" (:var (first problems))))
+      (is (= :macro (:declared (first problems))))
+      (is (= :fn (:live-kind (first problems)))))))
+
+(deftest cljs-classified-var-without-signature-goes-red
+  (testing "a live blessed var with no :ui-test-signatures entry (an omitted
+            contract entry, or a classified CLJS-only function added without a
+            host-arity contract) is :uncontracted-var — cannot escape coverage"
+    (let [problems (probe/signature-problems
+                    (dissoc synthetic-contract "attrs")
+                    synthetic-live-in-sync)]
+      (is (= [:uncontracted-var] (map :kind problems)))
+      (is (= "attrs" (:var (first problems)))))))
+
+(deftest cljs-contract-var-not-live-goes-red
+  (testing "a contract var the live CLJS surface no longer exposes is :var-absent"
+    (let [problems (probe/signature-problems
+                    synthetic-contract
+                    (dissoc synthetic-live-in-sync "attrs"))]
+      (is (= [:var-absent] (map :kind problems)))
       (is (= "attrs" (:var (first problems)))))))
 
 (deftest cljs-macros-are-not-arity-checked
   (testing "macros (render / with-root) are host-invariant — the CLJS lane does
-            NOT flag them even when the analyzer surfaces no arity for them
-            (their grammar is pinned on the JVM lane)"
+            NOT arity-flag them even when the analyzer surfaces no arity for them
+            (their grammar is pinned on the JVM lane), as long as they are
+            present with the :macro classification"
     (is (empty? (probe/signature-problems
                  synthetic-contract
                  (-> synthetic-live-in-sync
-                     (assoc "render" nil)
-                     (dissoc "with-root")))))))
+                     (assoc-in ["render" :arities] nil)
+                     (assoc-in ["with-root" :arities] nil)))))))
