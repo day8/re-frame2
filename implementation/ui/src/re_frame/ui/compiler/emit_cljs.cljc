@@ -451,9 +451,22 @@
         ;; is not undeclared. Unrelated foreign/view heads keep their spelling.
         self-fqn (:self-fqn @st)
         self?    (and (some? self-fqn) (= (:fqn node) self-fqn))
-        head-sym (if self? (:fqn node) (:sym node))]
+        head-sym (if self? (:fqn node) (:sym node))
+        ;; DEV bare-view-alias diagnostic (rf2-vxgfnd.95.15): a foreign-
+        ;; classified head whose runtime VALUE is a registered view shell is a
+        ;; bare `(def alias other/view)` var copy — the compiler saw a foreign
+        ;; React component and dropped the view's closed-props/children checks +
+        ;; manifest identity. `warn-bare-view-alias!` consults the DEV shell
+        ;; marker and warns once (deduped) at render. goog.DEBUG-gated so
+        ;; `:advanced` folds straight to the bare head — no residue, no cost.
+        ;; View heads resolve the stamped var (classified :view) and stay quiet.
+        head-form (if (= :foreign (:op node))
+                    `(if ~(with-meta 'js/goog.DEBUG {:tag 'boolean})
+                       (re-frame.ui.runtime/warn-bare-view-alias! ~head-sym)
+                       ~head-sym)
+                    head-sym)]
     (when self? (swap! st assoc :self-ref? true))
-    (jsx-runtime-call multi? head-sym props-form key-info)))
+    (jsx-runtime-call multi? head-form props-form key-info)))
 
 (defn- row-key-expr [body]
   (or (get-in body [:props :key :expr]) (get-in body [:key :expr])))

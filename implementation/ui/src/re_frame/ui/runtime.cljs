@@ -36,6 +36,64 @@
 (def Fragment jsxrt/Fragment)
 
 ;; ---------------------------------------------------------------------------
+;; DEV bare-view-alias diagnostic (rf2-vxgfnd.95.15, EP-0035 / rf2-ho1iba)
+;;
+;; `(def alias other/view)` copies the shell VALUE but not the var's
+;; `:rf.ui/view` metadata (def never copies var meta), so the compiler
+;; classifies the aliased head as a FOREIGN React component and silently drops
+;; the view's closed-props / children compile-time checks and its manifest view
+;; identity (Spec 004 Q5, env docstring §var-copies). The runtime VALUE at that
+;; head is still the registered view SHELL, which `register-view!` stamps with
+;; `view-shell-mark`; a foreign head consults the marker (DEV only, emitter-
+;; gated) and warns ONCE per aliased view.
+;;
+;; This is a `:rf.ui.compile/*` COMPILE-TIER diagnostic (no Spec 009 catalogue
+;; row; delivered by console.warn, never `error/throw-error!`). Every arm below
+;; is referenced only from goog.DEBUG-gated emitted code (the emitter's foreign
+;; head) or the DEV-only `register-view!`, so `:advanced` + goog.DEBUG=false
+;; elides the marker set, the dedup set, and this warning entirely — no
+;; production cost.
+;; ---------------------------------------------------------------------------
+
+(def ^:private view-shell-mark "rf$view_shell")
+
+;; Process-lifetime one-shot dedup keyed by view id (see
+;; `clear-bare-view-alias-warned!`, used by the diagnostic's test fixtures).
+(def ^:private bare-view-alias-warned (js/Set.))
+
+(defn clear-bare-view-alias-warned!
+  "Reset the one-shot bare-view-alias diagnostic cache so a test fixture starts
+  from a clean slate. DEV/test only."
+  []
+  (.clear bare-view-alias-warned))
+
+(defn warn-bare-view-alias!
+  "DEV diagnostic (`:rf.ui.compile/bare-view-alias`) for a foreign-classified
+  component head whose runtime VALUE is a registered re-frame.ui view shell —
+  i.e. a bare `(def alias other/view)` var copy, which drops the view's
+  closed-props / children compile-time checks and its manifest view identity.
+  Warns ONCE per aliased view (deduplicated by view id) and returns `head`
+  unchanged; genuine foreign components, plain function props, and canonical /
+  namespace-aliased view heads (which resolve the stamped var and never reach
+  here) stay quiet. Referenced only from the emitter's goog.DEBUG-gated foreign
+  head, so `:advanced` + goog.DEBUG=false elides it."
+  [head]
+  (when (some? head)
+    (when-some [id (unchecked-get head view-shell-mark)]
+      (when-not (.has bare-view-alias-warned id)
+        (.add bare-view-alias-warned id)
+        (js/console.warn
+         (str "[re-frame.ui] the component head " (pr-str id) " is a bare var "
+              "alias of a registered view. `(def alias other/view)` copies the "
+              "value but NOT the view metadata, so the compiler treated it as a "
+              "foreign React component and dropped this view's closed-props and "
+              "children compile-time checks and its manifest view identity. "
+              "Refer to the view by its canonical name, or alias the NAMESPACE "
+              "(:require [... :as x] / :refer) so the head resolves the stamped "
+              "view var. [:rf.ui.compile/bare-view-alias]")))))
+  head)
+
+;; ---------------------------------------------------------------------------
 ;; Memo + registration
 ;; ---------------------------------------------------------------------------
 
@@ -112,6 +170,11 @@
     (set! (.-displayName render-fn) display-name)
     (set! (.-displayName inner) (str display-name "$Body"))
     (set! (.-displayName outer) display-name)
+    ;; Stamp the DEV shell so a foreign-classified head whose runtime value is
+    ;; this shell (a bare `(def alias other/view)` var copy) is caught by
+    ;; `warn-bare-view-alias!`. register-view! is DEV-only (the emitter's
+    ;; production arm is direct React.memo), so the marker DCEs in production.
+    (unchecked-set outer view-shell-mark id)
     (let [publication
           (reactive/prepare-view-descriptor!
            id (:hook-signature manifest) descriptor)]

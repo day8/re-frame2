@@ -10,6 +10,8 @@
   (case sym
     child-view {:fqn 'app.views/child-view
                 :meta {:rf.ui/view true :rf.ui/children? true}}
+    ;; a NAMESPACE alias resolving a stamped view var (`:require [app.views :as v]`)
+    v/card     {:fqn 'app.views/card :meta {:rf.ui/view true}}
     ForeignComp {:fqn 'app.interop/ForeignComp :meta {}}
     raw-fn {:fqn 're-frame.ui/raw-fn :meta {}}
     event  {:fqn 're-frame.ui/event :meta {}}
@@ -231,3 +233,41 @@
                '("__proto__" value))
              (drop 2 props-form))
           (str (name surface) " retains the authored own property and value")))))
+
+;; ---------------------------------------------------------------------------
+;; DEV bare-view-alias diagnostic (rf2-vxgfnd.95.15) — the emit-side wiring.
+;; The COMPILE stage cannot tell a bare `(def alias other/view)` copy from a
+;; genuine foreign React component (both resolve without `:rf.ui/view` meta), so
+;; EVERY foreign head carries the DEV-gated runtime guard; the runtime shell-
+;; marker check does the discrimination. View heads (canonical + namespace
+;; alias) resolve the stamped var, classify :view, and stay quiet — zero cost.
+;; ---------------------------------------------------------------------------
+
+(defn- bare-alias-guard [form]
+  (first (filter #(and (seq? %)
+                       (= 'if (first %))
+                       (some #{'re-frame.ui.runtime/warn-bare-view-alias!}
+                             (forms-of %)))
+                 (forms-of form))))
+
+(deftest foreign-head-carries-the-dev-gated-bare-view-alias-guard
+  (let [form  (emitted '[ForeignComp {:x 1}])
+        guard (bare-alias-guard form)]
+    (is (some? guard)
+        "a foreign-classified head is consulted at runtime for a bare view-alias")
+    (is (= 'js/goog.DEBUG (second guard))
+        "the guard is goog.DEBUG-gated so :advanced elides it in production")
+    (is (= '(re-frame.ui.runtime/warn-bare-view-alias! ForeignComp) (nth guard 2))
+        "the dev arm consults the shell marker, passing the authored head")
+    (is (= 'ForeignComp (nth guard 3))
+        "the production arm is the bare head verbatim — no residue")))
+
+(deftest canonical-and-namespace-alias-view-heads-stay-quiet
+  (testing "a canonical defview head emits no guard (compile-time quiet)"
+    (is (nil? (bare-alias-guard (emitted '[child-view {:label label}])))))
+  (testing "a namespace-aliased view head resolves the stamped var and stays quiet"
+    (is (nil? (bare-alias-guard (emitted '[v/card {:x 1}])))))
+  (testing "no view head ever routes through the runtime bare-view-alias guard"
+    (is (not-any? #{'re-frame.ui.runtime/warn-bare-view-alias!}
+                  (forms-of (emitted '[:div [child-view {:label l}]
+                                       [v/card {:x 1}]]))))))

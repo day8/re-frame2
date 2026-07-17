@@ -888,6 +888,32 @@
 (defn ^:export touch-ui-hmr-shell! []
   (react/createElement hmr-shell-elision-probe nil))
 
+;; ---- rf2-vxgfnd.95.15: DEV bare-view-alias diagnostic DCE ------------------
+;;
+;; A bare `(def alias other/view)` var copy does NOT carry the view's
+;; `:rf.ui/view` metadata (def never copies var meta), so the compiler
+;; classifies `[alias …]` as a FOREIGN head even though the runtime value is the
+;; registered view SHELL. The emitter wraps EVERY foreign head in
+;; `(if goog.DEBUG (re-frame.ui.runtime/warn-bare-view-alias! head) head)`; the
+;; DEV guard consults the shell marker `register-view!` stamps and warns once.
+;; Under :advanced + goog.DEBUG=false the wrapper folds to the bare head,
+;; `warn-bare-view-alias!` becomes unreferenced, and its message string, the
+;; `view-shell-mark` marker, and the dedup set all DCE.
+;;
+;; This touch roots a REAL bare-alias foreign head (a defview consuming a plain
+;; `(def …)` copy of another defview) so the control build (DEBUG=true) contains
+;; the `bare var alias of a registered view` message sentinel and the production
+;; build (DEBUG=false) must NOT — giving the elision assertion teeth. The
+;; element is never host-rendered here (createElement roots the compiled render
+;; fn's foreign-head wrapper without a frame), same idiom as touch-ui-hmr-shell!.
+
+(defview bare-view-alias-canonical-probe [{:keys [x]}] [:span x])
+(def bare-view-alias-probe-copy bare-view-alias-canonical-probe)
+(defview bare-view-alias-consumer-probe [] [bare-view-alias-probe-copy {:x "probe"}])
+
+(defn ^:export touch-bare-view-alias! []
+  (react/createElement bare-view-alias-consumer-probe nil))
+
 ;; ---- rf2-fagk6: cross-frame carried-op honesty warning DCE ----------------
 ;;
 ;; A `(frame)` operation bundle captured under frame A can be CARRIED across a
@@ -935,6 +961,7 @@
   (touch-drain-depth!)
   (touch-ui-sub-overrides!)
   (touch-ui-hmr-shell!)
+  (touch-bare-view-alias!)
   (touch-trace!)
   (touch-schemas!)
   (touch-registrar!)
