@@ -160,6 +160,26 @@
   [id]
   (state/drop-listener! id))
 
+(defn epoch-listener-generation
+  "Return the opaque, process-unique GENERATION token identifying the CURRENT
+  registration of the epoch listener under `id`, or nil when no listener is
+  registered under `id`.
+
+  Each `register-epoch-listener!` — including a same-id replacement — mints a
+  fresh, never-reused generation. This is the SUPPORTED authority a consumer of
+  a generation-qualified `:rf.epoch.cb/silenced-on-frame-destroy` signal uses to
+  SELF-FILTER a superseded signal: the signal carries `:observed-gen` G, and the
+  consumer discards it when `(not= G (epoch-listener-generation cb-id))` — its
+  registration has since been replaced (or dropped), so G's silence no longer
+  describes the current callback. Before this query the current generation was
+  reachable only through the private listener registry, so the consumer rule the
+  signal documents was not implementable through any supported API.
+
+  The token is OPAQUE: compare it for equality only; never derive ordering or any
+  identity beyond 'same registration or not'."
+  [id]
+  (state/current-listener-generation id))
+
 (defn clear-epoch-listeners!
   []
   (state/reset-listeners!))
@@ -598,6 +618,11 @@
    ;; ---- listener + config surface ----------------------------------
    :epoch/register-epoch-listener!   register-epoch-listener!
    :epoch/unregister-epoch-listener! unregister-epoch-listener!
+   ;; The supported registration-generation authority: a consumer of a
+   ;; generation-qualified `:rf.epoch.cb/silenced-on-frame-destroy` signal reads
+   ;; the CURRENT generation for a cb-id here to self-filter a superseded signal
+   ;; without touching the private listener registry (rf2-6ys5n).
+   :epoch/epoch-listener-generation  epoch-listener-generation
    :epoch/configure!                 configure!
    ;; Test-support config-isolation hook. `re-frame.test-
    ;; support`'s reset-hook table fires this to restore epoch config to

@@ -1075,6 +1075,13 @@
   ;; Epoch history re-exports (canonical home: re-frame.epoch) — §Tool-Pair.
   ["re-frame.core" "epoch-history"]              {:tier :tooling :owner "Tool-Pair" :status "v1 (dev-only)"}
   ["re-frame.core" "restore-epoch!"]             {:tier :tooling :owner "Tool-Pair" :status "v1 (dev-only)"}
+  ;; rf2-6ys5n — the SUPPORTED registration-generation authority a consumer of a
+  ;; generation-qualified `:rf.epoch.cb/silenced-on-frame-destroy` signal reads
+  ;; to self-filter a superseded signal (current generation != carried
+  ;; `:observed-gen`) without touching the private listener registry. A dev-only
+  ;; Tool-Pair observation surface, tiered exactly like its `epoch-history` /
+  ;; `restore-epoch!` re-export siblings; :facade? true is generator-derived.
+  ["re-frame.core" "epoch-listener-generation"] {:tier :tooling :owner "Tool-Pair" :status "v1 (dev-only)"}
   ;; EP-0001 two-partition mutators (rf2-q4i9ko / bead 3 + rf2-tfepxu /
   ;; bead 9) originally shipped as a four-mutator family. rf2-t3lftq
   ;; (API-shrink #3) consolidated replace-app-db! / reset-app-db! /
@@ -1527,6 +1534,11 @@
   ;; tier rule".
   ["re-frame.epoch" "register-epoch-listener!"]   {:tier :tooling :owner "Tool-Pair" :status "v1 (dev-only; :epoch home verb — tool-embedding form, cf. rf/register-listener! :epoch facade)"}
   ["re-frame.epoch" "unregister-epoch-listener!"] {:tier :tooling :owner "Tool-Pair" :status "v1 (dev-only; :epoch home verb)"}
+  ;; rf2-6ys5n — home-namespace form of the registration-generation authority
+  ;; the `re-frame.core` facade re-exports (rowed above). The supported way a
+  ;; `:rf.epoch.cb/silenced-on-frame-destroy` consumer reads a cb-id's CURRENT
+  ;; generation to self-filter a superseded (`:observed-gen` != current) signal.
+  ["re-frame.epoch" "epoch-listener-generation"]  {:tier :tooling :owner "Tool-Pair" :status "v1 (dev-only)"}
   ["re-frame.epoch" "clear-epoch-listeners!"]     {:tier :tooling :owner "Tool-Pair" :status "v1 (dev-only)"}
   ["re-frame.epoch" "clear-history!"]             {:tier :tooling :owner "Tool-Pair" :status "v1 (dev-only)"}
   ["re-frame.epoch" "projected-history"]          {:tier :tooling :owner "Tool-Pair" :status "v1 (dev-only)"}

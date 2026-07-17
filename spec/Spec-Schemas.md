@@ -820,7 +820,7 @@ The `:op-type` vocabulary is **open** — implementations and tools may add new 
 | `:rf.registry` | Registrar-mutation family — `:rf.registry/handler-registered`, `:rf.registry/handler-cleared`, `:rf.registry/handler-replaced` (handler hot-reload paths). Spans every kind in the registry model (`:event`, `:sub`, `:fx`, `:cofx`, `:view`, `:machine`, `:flow`, …) | 001 / 009 |
 | `:flow` | Flow lifecycle and evaluation events (per [013 §Flow tracing](013-Flows.md#flow-tracing)) — `:rf.flow/registered`, `:rf.flow/computed`, `:rf.flow/skip`, `:rf.flow/cleared`, `:rf.flow/failed`. All five carry `:tags :flow-id` and `:tags :frame` so tools can attribute and route per-frame; consumers filter `:op-type :flow` to subscribe to the whole stream | 013 |
 | `:rf.epoch` | Epoch-history family — `:rf.epoch/snapshotted`, `:rf.epoch/outcome` (consumer-facing `{:ok :blocked :error}` summary paired with `-snapshotted`'s detailed cause), `:rf.epoch/restored`, `:rf.epoch/db-replaced` (the latter is the pair-tool write surface; see [Tool-Pair §Pair-tool writes](Tool-Pair.md#pair-tool-writes--state-injection)). `:tags {:frame <id> :rf.epoch/id <id> :rf.trace/event-id <id>? :outcome <enum>?}` | Tool-Pair |
-| `:rf.epoch.cb` | Epoch-callback listener-silencing notifications — `:rf.epoch.cb/silenced-on-frame-destroy`. Emitted once per `(frame, cb-id)` pair when a frame previously observed by a `register-epoch-listener!` callback is destroyed so a tool whose previously-firing cb has gone silent learns *why* without polling registry state. Per [Tool-Pair §Surface behaviour against destroyed frames](Tool-Pair.md#surface-behaviour-against-destroyed-frames). | Tool-Pair |
+| `:rf.epoch.cb` | Epoch-callback listener-silencing notifications — `:rf.epoch.cb/silenced-on-frame-destroy`. Emitted once per destroy-continuum for a `(frame, cb-id)` pair when a frame previously observed by a `register-epoch-listener!` callback is destroyed so a tool whose previously-firing cb has gone silent learns *why*. Carries `:observed-gen` — the generation the silence is attributed to; a consumer self-filters a superseded signal by comparing it against `re-frame.epoch/epoch-listener-generation`. Per [Tool-Pair §Surface behaviour against destroyed frames](Tool-Pair.md#surface-behaviour-against-destroyed-frames). | Tool-Pair |
 | `:ssr` | Generic SSR-context family — server-render boundary traces (per [011](011-SSR.md)). Distinct from `:rf.ssr/*` operations under `:op-type :warning` (`:rf.ssr/hydration-mismatch` etc.) which ride the severity channel | 011 |
 
 **Per-operation rows** carry their own `:op-type` membership — e.g. `:rf.machine/transition` is an `:operation` whose `:op-type` is `:machine`; `:rf.route.nav-token/stale-suppressed` is an `:operation` whose `:op-type` is `:error`; `:rf.fx/handled` is an `:operation` whose `:op-type` is `:fx`. The [009 §Error event catalogue](009-Instrumentation.md#error-event-catalogue) is the single normative cross-reference: every emit site is enumerated there with its `:operation`, `:op-type`, trigger, default `:recovery`, and `:tags` payload.
@@ -1892,9 +1892,10 @@ Common keys (`:category`, `:failing-id`, `:reason`, `:frame`) are inherited from
 
 (def EpochCbSilencedOnFrameDestroyTags
   ;; :rf.epoch.cb/silenced-on-frame-destroy — emitted once per
-  ;; (frame, cb-id) pair when a frame previously observed by a
-  ;; register-epoch-listener! callback is destroyed. :op-type :rf.epoch.cb (not
-  ;; :error). One-shot; subsequent destroys of the same frame do not
+  ;; destroy-continuum for a (frame, cb-id) pair (exactly once per single
+  ;; destroy) when a frame previously observed by a register-epoch-listener!
+  ;; callback is destroyed. :op-type :rf.epoch.cb (not
+  ;; :error). Subsequent destroys of the same frame do not
   ;; re-emit. The callback registration remains in place; eviction is
   ;; the consumer's call. Per Tool-Pair §Surface behaviour against
   ;; destroyed frames.
@@ -1904,7 +1905,9 @@ Common keys (`:category`, `:failing-id`, `:reason`, `:frame`) are inherited from
   ;; ledger locks, so this qualifier — not a lock — preserves generation
   ;; authority: a receiver whose current generation for cb-id no longer equals
   ;; the carried :observed-gen self-filters the superseded signal (rf2-8b9twg).
-  ;; Per 009 §The delayed-silence emission linearization law.
+  ;; The receiver reads that current generation through the supported
+  ;; re-frame.epoch/epoch-listener-generation query (rf2-6ys5n), not the private
+  ;; registry. Per 009 §The delayed-silence emission linearization law.
   [:map
    [:frame :keyword]
    [:cb-id [:or :keyword :string]]
