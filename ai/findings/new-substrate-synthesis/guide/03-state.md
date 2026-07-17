@@ -127,9 +127,12 @@ Deps are values — a rebuilt-but-equal vector is the same dep. No identity trap
 alive. First lease in → the resource is ensured; last lease out → it can wind down.
 
 **Lease never returns data and never fetches during render.** Reading is always the
-passive `(sub [:rf/resource …])`. Conditional leases follow the same rule as
-conditional reads: `(when live? (lease …))` is legal; a `lease` inside a loop is a
-compile error (extract a keyed child view).
+passive `(sub [:rf/resource …])`. Unlike a conditional read, a `lease` is a *leading
+declaration*, not an expression — so you make liveness conditional inside the
+descriptor: `(lease (when live? descriptor))`, where the descriptor evaluates to `nil`
+(lease nothing) or a map (lease that resource). A `lease` in expression position —
+inside a `when`, a prop, or a template — is a compile error, and a `lease` inside a
+loop is too (extract a keyed child view).
 
 Rule of thumb: loading that belongs to navigation or workflow rides route/event
 resource plans; `lease` is for liveness that genuinely follows visible UI — dashboard
