@@ -4034,9 +4034,14 @@
   (testing "a throwing :epoch/snapshot-frame-destroyed hook yields nil terminal-
             evidence (#5939), but the destroyed incarnation's id-keyed epoch stores
             are STILL dropped — cleanup authority is the frame-id + owner-token, not
-            the snapshot bundle — so a same-id successor B inherits nothing (rf2-hclxos)"
+            the snapshot bundle — so a same-id successor B inherits nothing (rf2-hclxos).
+            Directly SEEDS and ASSERTS each of the FIVE exact-owner stores the
+            cleanup-fn drops — observation stamps, history, capture buffer,
+            last-settled epoch, mount attribution — so neutering ANY single drop
+            fails exactly its assertion (rf2-oh1y8)."
     (let [id            :test/nil-evidence-cleanup
           cb            ::nil-evidence-cb
+          render-key    ::nil-evidence-view   ; mount-attribution key for store #5
           records       (atom [])
           traces        (record-trace!)
           original-snap (late-bind/get-fn :epoch/snapshot-frame-destroyed)]
@@ -4048,10 +4053,31 @@
       (rf/register-listener! :epoch cb (fn [r] (swap! records conj r)))
       (rf/dispatch-sync [:seed] {:frame id})
       (reset! records [])                          ; drop the :seed :ok record
-      (let [a-token (frame/frame-incarnation-token id)]
-        ;; A settled one epoch: its id-keyed history holds the [:audit/seed] record.
-        (is (= 1 (count (rf/epoch-history id)))
-            "A settled one epoch before destroy")
+      (let [a-token   (frame/frame-incarnation-token id)
+            a-epoch-id (:epoch-id (first (rf/epoch-history id)))]
+        ;; A settled one epoch: the cascade already seeded three of the five stores
+        ;; — history (the [:audit/seed] record), last-settled-epoch (the settle
+        ;; anchor), and cb's observation stamp (fanning the settled record to the
+        ;; :epoch listener). The synchronous JVM cascade cannot populate the other
+        ;; two: the in-flight capture buffer is harvested empty at settle, and there
+        ;; is no React commit to record mount attribution. SEED those two directly so
+        ;; every one of the five exact-owner stores holds A's state before destroy.
+        (state/buffer-event! id {:operation :rf.event/run-start
+                                 :tags {:rf.trace/dispatch-id ::seed-dispatch}})
+        (state/record-mount-epoch! id render-key a-epoch-id)
+        (state/record-render-deps! id render-key ::a-sub)
+
+        ;; PRE-DESTROY: all five exact-owner stores are non-empty for A's id.
+        (is (contains? (set (state/cbs-observing-frame id)) cb)
+            "observation stamp seeded — cb observed A's settled record")
+        (is (= 1 (count (state/history-for id)))
+            "history seeded — A settled one epoch")
+        (is (seq (state/buffer-for id))
+            "capture buffer seeded — an in-flight event is buffered")
+        (is (some? (state/last-settled-epoch-id id))
+            "last-settled epoch seeded — A's settle anchored it")
+        (is (some? (state/mount-epoch-for id render-key))
+            "mount attribution seeded — render-key anchored to A's epoch")
         (is (= :from-A (get-in (first (rf/epoch-history id)) [:db-after :audit/seed]))
             "A's settled record carries [:audit/seed] :from-A")
         (try
@@ -4066,8 +4092,24 @@
                 (when original-snap (apply original-snap args)))))
           (rf/destroy-frame! id)
 
-          ;; (1) EXACT-OWNER STORE CLEANUP ran despite the nil bundle — the destroyed
-          ;;     id's history is [] (it still equalled A's [:audit/seed] before fix).
+          ;; (1) EXACT-OWNER STORE CLEANUP ran despite the nil bundle. Each of the
+          ;;     FIVE id-keyed stores the cleanup-fn drops is asserted directly, so
+          ;;     re-nesting cleanup under the evidence guard — or removing ANY single
+          ;;     drop call — fails exactly the matching assertion (rf2-oh1y8).
+          (is (empty? (state/cbs-observing-frame id))
+              "observation stamps dropped (drop-frame-observation!)")
+          (is (= [] (state/history-for id))
+              "history dropped (drop-frame-history!)")
+          (is (empty? (state/buffer-for id))
+              "capture buffer dropped (drop-frame-buffer!)")
+          (is (nil? (state/last-settled-epoch-id id))
+              "last-settled epoch dropped (drop-last-settled-epoch!)")
+          (is (nil? (state/mount-epoch-for id render-key))
+              "mount attribution dropped (drop-frame-mount-attribution!)")
+          (is (nil? (state/render-deps-for id render-key))
+              "mount attribution read-set dropped with the frame's entry")
+          ;; The public projection agrees with the raw store, and the incarnation
+          ;; is gone.
           (is (= [] (rf/epoch-history id))
               "destroyed id's epoch-history is [] even though the snapshot threw")
           (is (nil? (frame/frame-incarnation-token id))
