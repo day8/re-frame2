@@ -179,6 +179,11 @@
                               :on-change [:set :rf.ui/value]}
                              attr)])
 
+;; rf2-j4len — owned :class + :title are DYNAMIC (from props) so they can be nil.
+(defview nil-owned-probe
+  [{:keys [oc ot caller]}]
+  [:input (ui/spread-safe {:class oc :title ot} caller)])
+
 (defview trusted
   []
   [:div.content (ui/html "<b>bold & raw</b>")])
@@ -371,6 +376,28 @@
       (is (= :rf.error/ui-tree-malformed (:rf.error/id data)) "the deny fired")
       (is (= [[:owned "t"]] @eval-order)
           "owned evaluated before the every-build caller deny threw"))))
+
+(deftest safe-spread-nil-owned-prop-absent-and-host-parity
+  ;; rf2-j4len — a nil-normalized owned DYNAMIC prop is ABSENT before layering,
+  ;; so the caller value survives; a non-nil owned value wins; class composes
+  ;; owned-first. General for dynamic owned props (:class AND :title). This is
+  ;; the CLJS half; the JVM half (already correct) pins the same result.
+  (let [caller {:class "cc" :title "ct"}]
+    (testing "nil owned dynamic prop is absent: the caller value survives"
+      (let [html (render (rt/jsx2 nil-owned-probe
+                                  (js-obj "oc" nil "ot" nil "caller" caller)))]
+        (is (str/includes? html "class=\"cc\"") "nil owned :class -> caller :class survives")
+        (is (str/includes? html "title=\"ct\"") "nil owned :title -> caller :title survives")))
+    (testing "non-nil owned wins; class composes owned-first"
+      (let [html (render (rt/jsx2 nil-owned-probe
+                                  (js-obj "oc" "oc" "ot" "ot" "caller" caller)))]
+        (is (str/includes? html "class=\"oc cc\"") "class composes owned-first")
+        (is (str/includes? html "title=\"ot\"") "non-nil owned :title wins")))
+    (testing "owned present, caller absent: owned renders"
+      (let [html (render (rt/jsx2 nil-owned-probe
+                                  (js-obj "oc" "ocls" "ot" "otitle" "caller" {})))]
+        (is (str/includes? html "class=\"ocls\""))
+        (is (str/includes? html "title=\"otitle\""))))))
 
 (deftest trusted-html-single-bypass
   (is (= "<div class=\"content\"><b>bold & raw</b></div>"
