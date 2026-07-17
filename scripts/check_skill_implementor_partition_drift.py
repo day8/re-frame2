@@ -94,8 +94,15 @@ user-facing implementor docs and asserts:
      `create-root*` allocates/registers the React root FIRST by design (no plans
      yet) and `render!*` later preflights before every render — so the split path
      is never falsely claimed to preflight before `create-root*`. The check is a
-     bounded token-order scan over the call forms; no general Markdown or Clojure
-     parser is added. (The Reagent-frozen / UIx+Helix-retiring *status* arm over
+     bounded, PER-FUNCTION token-order scan (rf2-8cncz): the client is partitioned
+     into its top-level `(defn ...)` bodies and preflight credit is scoped to the
+     SAME body as the render it covers, so one function's preflight can never
+     credit another's render (a preflight migrated into `create-root*` cannot
+     silence `render!*`'s uncredited render), and reader-discarded (`#_`) /
+     dead-conditional (`(when false ...)`) preflights are neutralized before the
+     scan and never count. It stays a bounded lexical bracket-matcher; no general
+     Markdown or full Clojure parser is added. (The Reagent-frozen /
+     UIx+Helix-retiring *status* arm over
      `spec/Conventions.md` is a deliberate follow-up, not scanned here — see the
      rf2-vxgfnd.278 PR body.)
 
@@ -416,17 +423,20 @@ HOST_RENDER_CALL = "(.render "
 
 
 def _client_call_order(client_text: str) -> list[str]:
-    """The ordered kinds of the compiled client's frame-lifecycle CALL forms:
-    `'pre'` (`(run-preflight!`), `'create'` (`(rdc/createRoot`), `'render'`
-    (`(.render `) — sorted by source position. A bounded, lexical token stream
-    (no Clojure parser); the three production render paths and the two root
-    allocations show up here in document order:
+    """The ordered kinds of a text chunk's frame-lifecycle CALL forms: `'pre'`
+    (`(run-preflight!`), `'create'` (`(rdc/createRoot`), `'render'` (`(.render `)
+    — sorted by source position. A bounded, lexical token stream (no Clojure
+    parser). Called PER top-level function body (see `_top_level_form_regions`), so
+    the returned order is that ONE function's calls — never a file-wide pool.
+
+    Over the whole compiled client the three production render paths and the two
+    root allocations show up, in document order, as:
 
         pre, render,  pre, create, render,  create,  pre, render
         └ same-root ┘ └──── fresh mount ───┘ └split┘ └─ render!* ─┘
 
-    (`create-root*`'s allocation is the render-less `create` with a following
-    `pre` — the split API allocates the root before any plans exist.)"""
+    but `_preflight_causal_problems` scopes credit to each owning function, so
+    `create-root*`'s lone `create` can never donate to `render!*`'s `render`."""
     events: list[tuple[int, str]] = []
     for kind, needle in (
         ("pre", PREFLIGHT_CALL),
@@ -444,67 +454,227 @@ def _client_call_order(client_text: str) -> list[str]:
     return [kind for _, kind in events]
 
 
+# --- Per-function partition + dead-form neutralization (rf2-8cncz) -----------
+# The causal preflight assertion is scoped to each top-level function body and
+# ignores statically-dead preflights (reader-discarded `#_…` / dead-conditional
+# `(when false …)`). Both are bounded lexical passes — a bracket-matcher that
+# honours strings / char literals / `;` comments — NOT a general Clojure parser.
+
+_TOP_FORM_OPEN_RE = re.compile(r"^\(", re.MULTILINE)
+_WHEN_FALSE_RE = re.compile(r"\(when\s+false(?![\w!?*+./<>=-])")
+
+
+def _skip_form(text: str, i: int) -> int:
+    """Index just past the balanced bracketed form OPENING at text[i] (`([{`).
+    Honours `"..."` strings (with `\\"` escapes), `\\x` char literals, and `;` line
+    comments — enough to balance the small dead regions this guard neutralizes.
+    Returns len(text) on an unbalanced tail. Not a Clojure parser."""
+    close = {"(": ")", "[": "]", "{": "}"}
+    stack = [close[text[i]]]
+    j, n = i + 1, len(text)
+    while j < n and stack:
+        c = text[j]
+        if c == "\\":                       # char literal \x — skip the escaped char
+            j += 2
+            continue
+        if c == '"':                        # string — skip to its close
+            j += 1
+            while j < n:
+                if text[j] == "\\":
+                    j += 2
+                    continue
+                if text[j] == '"':
+                    j += 1
+                    break
+                j += 1
+            continue
+        if c == ";":                        # line comment — skip to EOL
+            k = text.find("\n", j)
+            j = n if k == -1 else k
+            continue
+        if c in close:
+            stack.append(close[c])
+        elif c == stack[-1]:
+            stack.pop()
+        j += 1
+    return j
+
+
+def _skip_datum(text: str, j: int) -> int:
+    """Index just past ONE datum starting at/after text[j] (leading whitespace
+    skipped): a bracket form, a string, a char literal, or a bare atom/symbol/
+    keyword. Used to bound the form a `#_` reader-discard drops."""
+    n = len(text)
+    while j < n and text[j].isspace():
+        j += 1
+    if j >= n:
+        return j
+    c = text[j]
+    if c in "([{":
+        return _skip_form(text, j)
+    if c == '"':
+        k = j + 1
+        while k < n:
+            if text[k] == "\\":
+                k += 2
+                continue
+            if text[k] == '"':
+                return k + 1
+            k += 1
+        return n
+    if c == "\\":                           # char literal \x
+        return min(j + 2, n)
+    while j < n and not text[j].isspace() and text[j] not in '()[]{};"':
+        j += 1
+    return j
+
+
+def _neutralize_dead_forms(text: str) -> str:
+    """Blank out statically-dead preflight forms so they cannot earn credit:
+    reader-discarded `#_<form>` and dead-conditional `(when false …)` blocks. A
+    two-pass bounded lexical rewrite that copies strings / char literals / `;`
+    comments verbatim (so a literal `#_` or `(when false` inside a docstring is
+    never mistaken for code). Live forms are returned unchanged."""
+
+    def _copy_or(src: str, drop) -> str:
+        out: list[str] = []
+        i, n = 0, len(src)
+        while i < n:
+            c = src[i]
+            if c == '"':                    # copy a string datum verbatim
+                end = _skip_datum(src, i)
+                out.append(src[i:end])
+                i = end
+                continue
+            if c == ";":                    # copy a line comment verbatim
+                k = src.find("\n", i)
+                k = n if k == -1 else k
+                out.append(src[i:k])
+                i = k
+                continue
+            if c == "\\":                   # copy a char literal verbatim
+                out.append(src[i:i + 2])
+                i += 2
+                continue
+            handled, i2 = drop(src, i)
+            if handled:
+                i = i2
+                continue
+            out.append(c)
+            i += 1
+        return "".join(out)
+
+    def _drop_discard(src: str, i: int):
+        if src[i] == "#" and i + 1 < len(src) and src[i + 1] == "_":
+            return True, _skip_datum(src, i + 2)   # drop `#_` + the discarded datum
+        return False, i
+
+    def _drop_when_false(src: str, i: int):
+        if src[i] == "(" and _WHEN_FALSE_RE.match(src, i):
+            return True, _skip_form(src, i)        # drop the whole dead block
+        return False, i
+
+    return _copy_or(_copy_or(text, _drop_discard), _drop_when_false)
+
+
+def _form_label(region_text: str) -> str:
+    """Best-effort name of a top-level form for diagnostics — the symbol after
+    `defn` / `defn-` / `def…`, skipping `^meta`. Falls back to a short prefix."""
+    m = re.match(r"\((?:defn-?|def\w*)\s+(?:\^\S+\s+)*([^\s()\[\]{}]+)", region_text)
+    return m.group(1) if m else region_text.split("\n", 1)[0][:40].strip()
+
+
+def _top_level_form_regions(text: str) -> list[tuple[str, str]]:
+    """Partition the client into its top-level forms — one `(name, body)` per
+    column-0 `(` opener (well-formatted Clojure indents every nested form, so a
+    line-initial `(` reliably marks a NEW top-level form). Each needle-bearing
+    body is thus scoped to its owning function; credit never crosses the boundary.
+    A bounded lexical split, not a reader."""
+    opens = [m.start() for m in _TOP_FORM_OPEN_RE.finditer(text)]
+    regions: list[tuple[str, str]] = []
+    for idx, s in enumerate(opens):
+        e = opens[idx + 1] if idx + 1 < len(opens) else len(text)
+        body = text[s:e]
+        regions.append((_form_label(body), body))
+    return regions
+
+
 def _preflight_causal_problems(client_text: str) -> list[str]:
-    """CAUSAL source assertions over the compiled client's render paths (replaces
-    the old first-preflight-vs-first-render compare, which a correct first pair
-    followed by a render-only or render-before-preflight path silently satisfied).
+    """CAUSAL source assertions over the compiled client's render paths, scoped
+    PER top-level function body (rf2-8cncz — the old whole-file substring pool let
+    a preflight in one function credit another's render, and a reader-discarded /
+    dead-conditional preflight still counted as live).
 
-    A — render causality (per path): EVERY host render is preceded by its OWN
-        frame preflight — a preflight that occurs after the previous host render.
-        Walk the call stream arming one credit per preflight; each render must
-        spend a credit (and consumes any surplus, so one path's preflight can
-        never cover the next path's render). Fires if any render is uncredited
-        (a removed/reordered preflight on the existing-root, fresh-mount, or
-        `render!*` path).
+    A — render causality (per function): within EACH function body, every host
+        render is preceded by its OWN LIVE frame preflight. Dead forms (`#_…`,
+        `(when false …)`) are neutralized first, then a per-function credit walk
+        arms one credit per preflight; each render spends a credit (and consumes
+        any surplus). Fires if any function has a render its own body does not
+        preflight — a removed / reordered / reader-discarded / dead-conditional
+        preflight on the existing-root, fresh-mount, or `render!*` path, OR a
+        preflight migrated into `create-root*` (which cannot credit `render!*`).
     B — one-shot allocation ordering: the fresh one-shot mount preflights BEFORE
-        it creates the React root — a contiguous `pre → create → render` triple in
-        the call stream. The split `create-root*` allocation is render-less (its
-        `create` is followed by a `pre`, not preceded by one), so it never forms
-        this triple and is never falsely claimed to preflight before
-        `create-root*`. Fires if the fresh mount's preflight moves after its
-        `createRoot` (or disappears)."""
-    seq = _client_call_order(client_text)
+        it creates the React root — a contiguous `pre → create → render` triple
+        WITHIN one function body (`mount*`). The split `create-root*` allocation is
+        a render-less lone `create`, so it never forms this triple and is never
+        falsely claimed to preflight before `create-root*`. Fires if the fresh
+        mount's preflight moves after its `createRoot` (or disappears)."""
     problems: list[str] = []
+    total_renders = 0
+    total_caused = 0
+    one_shot = False
+    uncredited: list[str] = []
 
-    renders = sum(1 for k in seq if k == "render")
-    if renders == 0:
+    for name, body in _top_level_form_regions(client_text):
+        seq = _client_call_order(_neutralize_dead_forms(body))
+        armed = 0
+        caused = 0
+        renders = 0
+        for kind in seq:
+            if kind == "pre":
+                armed += 1
+            elif kind == "render":
+                renders += 1
+                if armed > 0:
+                    caused += 1
+                    armed = 0  # a render consumes its function's pending preflight(s)
+        total_renders += renders
+        total_caused += caused
+        if caused != renders:
+            uncredited.append(name)
+        if any(
+            seq[i] == "pre" and seq[i + 1] == "create" and seq[i + 2] == "render"
+            for i in range(len(seq) - 2)
+        ):
+            one_shot = True
+
+    if total_renders == 0:
         problems.append(
             "LIFECYCLE-SOURCE-ORDER: implementation/ui/src/re_frame/ui/client.cljs "
             "has no host render call (`(.render …)`) at all — the compiled "
             "preflight-before-render source assertion cannot be proved."
         )
-    else:
-        armed = 0
-        caused = 0
-        for kind in seq:
-            if kind == "pre":
-                armed += 1
-            elif kind == "render":
-                if armed > 0:
-                    caused += 1
-                    armed = 0  # a render consumes its path's pending preflight(s)
-        if caused != renders:
-            problems.append(
-                "LIFECYCLE-SOURCE-ORDER: implementation/ui/src/re_frame/ui/"
-                "client.cljs has a host render (`(.render …)`) NOT preceded by its "
-                "own frame preflight (`(run-preflight! …)` → `execute-frame-plans!`) "
-                "— each of the three production paths (existing-root refresh, fresh "
-                "mount, split `render!*`) must preflight before ITS render (the "
-                "compiled ENSURE-at-preflight contract, #5711). "
-                f"{caused} of {renders} renders are preflight-caused."
-            )
+    elif total_caused != total_renders:
+        problems.append(
+            "LIFECYCLE-SOURCE-ORDER: implementation/ui/src/re_frame/ui/"
+            "client.cljs has a host render (`(.render …)`) NOT preceded by its "
+            "own LIVE frame preflight (`(run-preflight! …)` → `execute-frame-plans!`) "
+            "in the SAME function body — each production path (existing-root "
+            "refresh, fresh mount, split `render!*`) must preflight before ITS "
+            "render, and a reader-discarded / dead-conditional / cross-function "
+            "preflight does not count (the compiled ENSURE-at-preflight contract, "
+            f"#5711). Uncredited function(s): {', '.join(uncredited)}. "
+            f"{total_caused} of {total_renders} renders are preflight-caused."
+        )
 
-    one_shot = any(
-        seq[i] == "pre" and seq[i + 1] == "create" and seq[i + 2] == "render"
-        for i in range(len(seq) - 2)
-    )
     if not one_shot:
         problems.append(
             "LIFECYCLE-ONE-SHOT-ALLOC: implementation/ui/src/re_frame/ui/client.cljs "
             "no longer shows the one-shot fresh mount preflighting BEFORE it "
             "creates the React root (`(run-preflight! …)` → `(rdc/createRoot …)` → "
-            "`(.render …)`, contiguous). `mount*` must preflight before `createRoot`; "
-            "the split `create-root*` allocates first by design and is exempt."
+            "`(.render …)`, contiguous within one function body). `mount*` must "
+            "preflight before `createRoot`; the split `create-root*` allocates "
+            "first by design and is exempt."
         )
 
     return problems
@@ -922,23 +1092,48 @@ def _self_test() -> int:
         "#frame-provider--the-scope-only-component-cljs-reference)."
     )
     # good_client models all THREE production render paths + the split allocation
-    # in document order (pre, render, pre, create, render, create, pre, render),
-    # built from labeled segments so a mutation can target one path in isolation.
-    seg_same_root = (
-        "(let [receipt (run-preflight! root-id plans)]\n"
-        "  (.render (.-react-root root) el)) ;; same-root refresh\n"
+    # as REAL top-level `defn` bodies (rf2-8cncz) so the PER-FUNCTION scoping is
+    # genuinely exercised: `mount*` carries both render paths (pre, render, pre,
+    # create, render), `create-root*` is an allocation-only lone `createRoot`, and
+    # `render!*` preflights before its render. Built from labeled fragments so a
+    # mutation can target ONE path — or migrate a preflight ACROSS a function
+    # boundary — in isolation. (The old whole-file substring scan pooled credit
+    # across these bodies and counted reader-discarded / dead-conditional tokens;
+    # the J* / K* cases below were GREEN under it and must now be RED.)
+    same_root_ok = (
+        "  (let [receipt (run-preflight! root-id plans)]  ;; same-root refresh\n"
+        "    (.render (.-react-root root) (element-thunk)))\n"
     )
-    seg_fresh = (
-        "(let [receipt (run-preflight! root-id plans)]\n"
-        "  (rdc/createRoot container opts)\n"
-        "  (.render react-root el)) ;; fresh mount\n"
+    fresh_ok = (
+        "  (let [receipt (run-preflight! root-id plans)]  ;; fresh mount\n"
+        "    (rdc/createRoot container opts)\n"
+        "    (.render react-root (element-thunk)))\n"
     )
-    seg_split_create = "(rdc/createRoot container opts) ;; create-root* — no preflight, by design\n"
-    seg_render_bang = (
-        "(let [receipt (run-preflight! rid plans)]\n"
-        "  (.render (.-react-root root) el)) ;; render!*\n"
+    create_root_ok = (
+        "  (rdc/createRoot container opts)  ;; create-root* — no preflight, by design\n"
     )
-    good_client = seg_same_root + seg_fresh + seg_split_create + seg_render_bang
+    render_bang_ok = (
+        "  (let [receipt (run-preflight! rid plans)]\n"
+        "    (.render (.-react-root root) (element-thunk)))\n"
+    )
+
+    def client_of(*, same=same_root_ok, fresh=fresh_ok,
+                  create_body=create_root_ok, render_bang=render_bang_ok):
+        """Assemble a client from per-function fragments, each a real column-0
+        `defn` body so the partition scopes credit per function."""
+        return (
+            "(defn mount* [info container element-thunk react-opts plans-thunk]\n"
+            + same + fresh
+            + "  root)\n\n"
+            + "(defn create-root* [info container react-opts]\n"
+            + create_body
+            + "  root)\n\n"
+            + "(defn render!* [root element-thunk plans-thunk descriptor-base]\n"
+            + render_bang
+            + "  root)\n"
+        )
+
+    good_client = client_of()
     good_frames = "(defn execute-frame-plans! [root-id plans]\n  ;; finalize-preflight-attempt! ... :mount-incomplete\n  nil)"
     # A markdown Adapter-shipping table: the owning `day8/re-frame2` core row names
     # BOTH boundaries; an unrelated `-uix` row also mentions them (so an
@@ -1020,47 +1215,93 @@ def _self_test() -> int:
     # --- Rule 7 causal source assertions (client) — remove/reorder EACH
     # production preflight independently, and violate the one-shot allocation
     # ordering; every mutation must fail.
-    same_root_no_pre = (
-        "(let []\n"
-        "  (.render (.-react-root root) el)) ;; same-root refresh (preflight removed)\n"
+    same_no_pre = (
+        "  (let []  ;; same-root refresh (preflight removed)\n"
+        "    (.render (.-react-root root) (element-thunk)))\n"
     )
     fresh_no_pre = (
-        "(let []\n"
-        "  (rdc/createRoot container opts)\n"
-        "  (.render react-root el)) ;; fresh mount (preflight removed)\n"
+        "  (let []  ;; fresh mount (preflight removed)\n"
+        "    (rdc/createRoot container opts)\n"
+        "    (.render react-root (element-thunk)))\n"
     )
     render_bang_no_pre = (
-        "(let []\n"
-        "  (.render (.-react-root root) el)) ;; render!* (preflight removed)\n"
+        "  (.render (.-react-root root) (element-thunk))  ;; render!* (preflight removed)\n"
     )
-    same_root_reordered = (
-        "(.render (.-react-root root) el)\n"
-        "(let [receipt (run-preflight! root-id plans)]) ;; same-root render BEFORE preflight\n"
+    same_reordered = (
+        "  (.render (.-react-root root) (element-thunk))  ;; render BEFORE preflight\n"
+        "  (run-preflight! root-id plans)\n"
     )
     fresh_alloc_before_pre = (
-        "(rdc/createRoot container opts)\n"
-        "(let [receipt (run-preflight! root-id plans)]\n"
-        "  (.render react-root el)) ;; fresh mount: createRoot BEFORE preflight\n"
+        "  (rdc/createRoot container opts)  ;; createRoot BEFORE preflight\n"
+        "  (let [receipt (run-preflight! root-id plans)]\n"
+        "    (.render react-root (element-thunk)))\n"
     )
     expect_lifecycle(
-        {"client": same_root_no_pre + seg_fresh + seg_split_create + seg_render_bang},
+        {"client": client_of(same=same_no_pre)},
         dirty=True, label="H1 same-root refresh preflight removed",
     )
     expect_lifecycle(
-        {"client": seg_same_root + fresh_no_pre + seg_split_create + seg_render_bang},
+        {"client": client_of(fresh=fresh_no_pre)},
         dirty=True, label="H2 fresh-mount preflight removed",
     )
     expect_lifecycle(
-        {"client": seg_same_root + seg_fresh + seg_split_create + render_bang_no_pre},
+        {"client": client_of(render_bang=render_bang_no_pre)},
         dirty=True, label="H3 render!* preflight removed",
     )
     expect_lifecycle(
-        {"client": same_root_reordered + seg_fresh + seg_split_create + seg_render_bang},
+        {"client": client_of(same=same_reordered)},
         dirty=True, label="H4 same-root render reordered before preflight",
     )
     expect_lifecycle(
-        {"client": seg_same_root + fresh_alloc_before_pre + seg_split_create + seg_render_bang},
+        {"client": client_of(fresh=fresh_alloc_before_pre)},
         dirty=True, label="H5 one-shot allocation ordering violated (createRoot before preflight)",
+    )
+
+    # --- Rule 7 dead-call bypass (rf2-8cncz, class 1) — a preflight that is
+    # reader-discarded (`#_`) or wrapped in `(when false ...)` is textually
+    # present (the old whole-file substring scan counted it, staying GREEN) but is
+    # STATICALLY DEAD, so `render!*`'s render is really uncredited. Neutralization
+    # must drop it and trip the guard.
+    render_bang_discarded = (
+        "  (let [receipt #_(run-preflight! rid plans) nil]\n"
+        "    (.render (.-react-root root) (element-thunk)))\n"
+    )
+    render_bang_when_false = (
+        "  (let [receipt (when false (run-preflight! rid plans))]\n"
+        "    (.render (.-react-root root) (element-thunk)))\n"
+    )
+    render_bang_live_plus_discard = (
+        "  #_(run-preflight! rid stale-plans)  ;; a discarded UNRELATED datum\n"
+        "  (let [receipt (run-preflight! rid plans)]\n"
+        "    (.render (.-react-root root) (element-thunk)))\n"
+    )
+    expect_lifecycle(
+        {"client": client_of(render_bang=render_bang_discarded)},
+        dirty=True, label="J1 render!* preflight reader-discarded (#_) — now trips",
+    )
+    expect_lifecycle(
+        {"client": client_of(render_bang=render_bang_when_false)},
+        dirty=True, label="J2 render!* preflight wrapped in (when false ...) — now trips",
+    )
+    expect_lifecycle(
+        {"client": client_of(render_bang=render_bang_live_plus_discard)},
+        dirty=False, label="J3 a discarded UNRELATED datum leaves the LIVE preflight (surgical)",
+    )
+
+    # --- Rule 7 cross-function credit migration (rf2-8cncz, class 2) — moving
+    # `render!*`'s preflight into allocation-only `create-root*` preserved the
+    # whole-file token sequence (old scan GREEN) while `render!*`'s render reached
+    # `.render` with no preflight. Per-function scoping means `create-root*` cannot
+    # donate its credit to `render!*`.
+    create_root_with_migrated_pre = (
+        "  (run-preflight! root-id (constantly nil))  ;; MIGRATED from render!*\n"
+        "  (rdc/createRoot container opts)\n"
+    )
+    expect_lifecycle(
+        {"client": client_of(create_body=create_root_with_migrated_pre,
+                             render_bang=render_bang_no_pre)},
+        dirty=True,
+        label="K1 preflight migrated into create-root*; render!* render uncredited — now trips",
     )
 
     # --- Rule 7 inventory-row scoping (conventions) — remove EACH boundary from
