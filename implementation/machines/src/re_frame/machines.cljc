@@ -297,7 +297,7 @@
   dispatch-to-system-fx)
 
 (fx/reg-fx :rf.machine/join-dispatch
-  {:doc "Machine-internal (rf2-t154jx): the recordable transport for a `:spawn-all` child's completion carrier. The runtime rewrites a member child's own outbound `:dispatch` / `:dispatch-later` completion into this fx so the exact-authority tuple rides the recordable `:rf.cofx` `:rf.machine/join-auth` fact (surviving strict replay + delayed dispatch), not event metadata. Not for direct application use. Per Spec 005 §Spawn-and-join via :spawn-all."}
+  {:doc "Machine-internal (rf2-t154jx): the recordable transport for a `:spawn-all` child's completion carrier. The runtime rewrites a member child's own outbound `:dispatch` / `:dispatch-later` completion into this fx so the exact-attempt coordinate rides the recordable `:rf.cofx` `:rf.machine/join-attempt` fact (surviving strict replay + delayed dispatch), not event metadata. The coordinate is a recordable correlation record, not authentication; the fold gate accepts it only on exact-current equality (rf2-cpbjfp). Reserved / non-overridable / non-redirectable to protect the framework path from capture or suppression; direct app emission is UNSUPPORTED but not security-prohibited. Per Spec 005 §Spawn-and-join via :spawn-all."}
   join/join-dispatch-fx)
 
 ;; ---- framework-shipped subs -----------------------------------------------

@@ -621,7 +621,7 @@
   completed child of a still-waiting `:all` join can never be reaped early
   through the public reserved-fx boundary. Because the fold side binds every
   `:done` / `:failed` entry to the exact current child attempt (the
-  `:rf/join-auth` gate in `join.cljc`), membership in `:done ∪ :failed` IS
+  exact-attempt fence in `join.cljc`), membership in `:done ∪ :failed` IS
   proof the terminal belongs to this attempt. The actor-id is then RESOLVED
   from the live join state (`(get-in join-state [:children child-id])`),
   never carried by the caller — so the reap can neither point

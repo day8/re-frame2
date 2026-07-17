@@ -1,6 +1,6 @@
 (ns re-frame.join-exact-auth-cljs-test
-  "rf2-nvxehu — join folds and reaps are authenticated to the EXACT child
-  attempt and resolved join.
+  "rf2-nvxehu — join folds and reaps are FENCED to the EXACT child attempt and
+  resolved join (a fail-closed correlation record, not authentication).
 
   The completion carrier `[<parent> [<done-kw> <child-id> & extra]]` carries
   no actor or attempt identity, so pre-fix a STALE completion from a prior
@@ -13,17 +13,19 @@
   app could invoke the internal cancellation-suppressing reap early during a
   still-waiting `:all` join.
 
-  The fix is ONE exact-authority contract:
+  The fix is ONE exact-attempt fence (rf2-cpbjfp: a fail-closed correlation
+  record, NOT authentication — single-trust-domain, gate accidents):
 
-    - fold side — a carrier folds only when the exact-authority `:rf/join-auth`
-      tuple the member child's own handler boundary stamped
-      (`join/stamp-join-completion-fx`), carried on the recordable `:rf.cofx`
-      transport (rf2-t154jx — event metadata is never an authority carrier,
-      rf2-nsbwft), matches the current join's parent/invoke identity, logical
-      child id, exact current actor id, and exact per-attempt token (minted by
-      `spawn-all-init-fx`). Unstamped / superseded / duplicate carriers are
-      suppressed stale (`:rf.machine.spawn-all/stale-completion`) with zero
-      mutation.
+    - fold side — a carrier folds only when its exact-attempt `:rf/join-attempt`
+      COORDINATE (stamped by the member child's own handler boundary,
+      `join/stamp-join-completion-fx`, and carried on the recordable `:rf.cofx`
+      slot, rf2-t154jx — the metadata slot is not read, rf2-nsbwft) EQUALS the
+      current join's parent/invoke identity, logical child id, exact current
+      actor id, and exact per-attempt token (minted by `spawn-all-init-fx`). A
+      missing / superseded / duplicate coordinate is suppressed stale
+      (`:rf.machine.spawn-all/stale-completion`) with zero mutation. An
+      exact-current coordinate is accepted regardless of source — including
+      deliberate app authoring (unsupported, not prohibited).
     - reap side — the cancellation-suppressing reap additionally requires
       the exact join attempt's `:resolved?` latch (`:cause :unresolved-join`
       refusal ahead of it).
@@ -67,9 +69,9 @@
 (defn- mk-child
   "A dispatching child: on `:go` / `:fail` it transitions to a PLAIN
   (non-`:final?`) terminal and dispatches its completion back to
-  `parent-id` — through its OWN handler boundary, so the runtime records its
-  exact join authority on the recordable `:rf.cofx` fact `:rf.machine/join-auth`
-  (via `stamp-join-completion-fx`; event metadata is never an authority carrier)."
+  `parent-id` — through its OWN handler boundary, so the runtime stamps its
+  exact-attempt coordinate on the recordable `:rf.cofx` fact `:rf.machine/join-attempt`
+  (via `stamp-join-completion-fx`; the metadata slot is not read)."
   [parent-id]
   {:initial :running
    :data    {:id nil}
@@ -109,56 +111,70 @@
   (join-state parent-kw))
 
 (defn- dispatch-forged!
-  "Hand-dispatch a completion carrier presenting a CRAFTED `:rf/join-auth` stamp
-  on the protected recordable `:rf.cofx` transport (rf2-t154jx / rf2-nsbwft) —
-  the SINGLE authority carrier the parent reads (`carrier-auth`). This is how the
-  runtime's own `:rf.machine/join-dispatch` transport and a strict replay deliver
-  authority; event-vector metadata is NEVER an authority carrier (see
-  `public-metadata-tuple-is-never-authority`), so tests present crafted authority
-  on the coeffect, not on the event. nil `auth` dispatches the bare, unstamped
-  public carrier."
+  "Hand-dispatch a completion carrier presenting a HAND-AUTHORED `:rf/join-attempt`
+  coordinate on the recordable `:rf.cofx` slot (rf2-t154jx / rf2-nsbwft) — the ONE
+  coordinate slot the parent reads (`carrier-attempt`). This is the slot the
+  runtime's own `:rf.machine/join-dispatch` transport and a strict replay
+  populate, and deliberate app authoring lands here too; the metadata slot is not
+  read (see `exact-current-coordinate-accepted-from-any-source-metadata-slot-not-read`),
+  so tests present crafted coordinates on the coeffect, not on the event. A
+  MISMATCHED coordinate fails closed; an EXACT-CURRENT one folds regardless of
+  source. nil `auth` dispatches the bare, coordinate-less public carrier."
   [parent-kw inner auth]
   (if auth
-    (rf/dispatch-sync [parent-kw inner] {:rf.cofx {:rf.machine/join-auth auth}})
+    (rf/dispatch-sync [parent-kw inner] {:rf.cofx {:rf.machine/join-attempt auth}})
     (rf/dispatch-sync [parent-kw inner])))
 
 ;; ---------------------------------------------------------------------------
-;; rf2-nsbwft — event metadata is NEVER an authority carrier (freshness is not
-;; provenance). The SAME exact-current tuple is ignored on event metadata but
-;; folds through the protected recordable `:rf.cofx` transport.
+;; rf2-nsbwft / rf2-cpbjfp — the fence is fail-closed-on-mismatch + accept-on-
+;; exact, NOT a "protected channel". The metadata slot is not read (a pure
+;; narrowing); the recordable `:rf.cofx` slot accepts an EXACT-CURRENT
+;; coordinate regardless of source — including a coordinate the app author
+;; deliberately hand-crafts onto the coeffect (unsupported, not prohibited).
+;; The honesty: an exact-current tuple is not "forged" — it is what the fence
+;; is defined to accept; a MISMATCHED tuple is what fails closed.
 ;; ---------------------------------------------------------------------------
 
-(deftest public-metadata-tuple-is-never-authority
-  (testing "rf2-nsbwft — a public dispatch carrying an EXACT-CURRENT
-            `:rf/join-auth` tuple on event-vector METADATA folds nothing
-            (`:attempt-unverified`), while the IDENTICAL tuple presented on the
-            protected recordable `:rf.cofx` transport authenticates and folds.
-            `carrier-auth` reads authority ONLY from the coeffect; event metadata
-            is never a fallback — freshness is not provenance."
+(deftest exact-current-coordinate-accepted-from-any-source-metadata-slot-not-read
+  (testing "rf2-nsbwft / rf2-cpbjfp — accept-on-exact + fail-closed-on-mismatch.
+            (1) The EXACT-CURRENT coordinate on the recordable `:rf.cofx` slot is
+            ACCEPTED and folds — even though the app author hand-crafted every
+            field here (an exact-current coordinate is accepted regardless of
+            source; deliberate authoring is unsupported, not prohibited).
+            (2) The IDENTICAL tuple on event-vector METADATA folds nothing
+            (`:attempt-unverified`): the metadata slot is not read — a pure
+            narrowing, not a secrecy boundary. `carrier-attempt` reads the
+            coordinate ONLY from the coeffect."
     (let [j (reg-join-parent! :jea/meta1 :jea/meta1a :jea/meta1b)
           a (get-in j [:children :a])
-          ;; every field read straight off live runtime state.
+          ;; every field read straight off live runtime state — an EXACT-CURRENT
+          ;; coordinate the app author assembles deliberately.
           exact {:parent-id  :jea/meta1
                  :invoke-id  [:racing]
                  :child-id   :a
                  :spawned-id a
                  :attempt    (:rf/attempt j)}]
-      ;; (1) exact-current tuple on METADATA — fails closed, folds nothing.
-      (mtest/reset-captured!)
-      (rf/dispatch-sync [:jea/meta1 (with-meta [:child/done :a] {:rf/join-auth exact})])
-      (is (= #{} (:done (join-state :jea/meta1)))
-          "the metadata-borne exact-current tuple folded nothing (fail-closed)")
-      (is (false? (:resolved? (join-state :jea/meta1))) "no resolution on the forgery")
-      (is (= [:rf.machine.spawn-all/attempt-unverified] (stale-reasons))
-          "event metadata is ignored — the carrier is unauthenticated")
-      ;; (2) the IDENTICAL tuple on the recordable cofx — authenticates + folds.
+      ;; (1) exact-current coordinate on the recordable cofx — ACCEPTED + folds,
+      ;;     from deliberate app authoring.
       (mtest/reset-captured!)
       (rf/dispatch-sync [:jea/meta1 [:child/done :a]]
-                        {:rf.cofx {:rf.machine/join-auth exact}})
+                        {:rf.cofx {:rf.machine/join-attempt exact}})
       (is (= #{:a} (:done (join-state :jea/meta1)))
-          "the SAME tuple on the protected coeffect authenticates and folds")
+          "the hand-authored EXACT-CURRENT coordinate on the coeffect folds — accepted regardless of source")
       (is (empty? (stale-reasons))
-          "no stale suppression on the authenticated recordable channel"))))
+          "no stale suppression — an exact-current coordinate is what the fence accepts, not a forgery")
+      ;; (2) the IDENTICAL tuple on METADATA — folds nothing (the slot is not read).
+      (reg-join-parent! :jea/meta2 :jea/meta2a :jea/meta2b)
+      (let [j2 (join-state :jea/meta2)
+            a2 (get-in j2 [:children :a])
+            exact2 (assoc exact :parent-id :jea/meta2 :spawned-id a2 :attempt (:rf/attempt j2))]
+        (mtest/reset-captured!)
+        (rf/dispatch-sync [:jea/meta2 (with-meta [:child/done :a] {:rf/join-attempt exact2})])
+        (is (= #{} (:done (join-state :jea/meta2)))
+            "the metadata-borne exact-current tuple folded nothing (metadata slot not read)")
+        (is (false? (:resolved? (join-state :jea/meta2))) "no resolution")
+        (is (= [:rf.machine.spawn-all/attempt-unverified] (stale-reasons))
+            "the metadata slot is not read — coordinate-less carrier")))))
 
 ;; ---------------------------------------------------------------------------
 ;; the P1 counterexample — stale prior-attempt completion after re-entry
@@ -298,7 +314,7 @@
       (rf/dispatch-sync [a [:go]])
       (is (= #{:a} (:done (join-state :jea/p7))) ":a folded")
       (mtest/reset-captured!)
-      ;; Exact duplicate, correctly authenticated for the CURRENT attempt.
+      ;; Exact duplicate: an exact-current coordinate for the CURRENT attempt.
       (dispatch-forged! :jea/p7 [:child/done :a]
                         {:parent-id  :jea/p7
                          :invoke-id  [:racing]
@@ -454,7 +470,7 @@
           (is (= (:children j2) (:children j2')) "B's children mapping unchanged"))))))
 
 (deftest exact-current-carrier-after-resolution-is-late-completion
-  (testing "rf2-ixjd48 — THE PRESERVED PATH. An EXACT-CURRENT authenticated
+  (testing "rf2-ixjd48 — THE PRESERVED PATH. An EXACT-CURRENT
             carrier arriving after its OWN join resolved (a genuine current
             survivor draining post-latch) still takes the join-resolved
             `:late-completion` path — the fix gates late-completion on exact
@@ -489,7 +505,7 @@
     (mtest/reset-captured!)
     (dispatch-forged! :jea/pr3 [:child/done :a] nil)
     (is (empty? (late-completions))
-        "no late-completion for an unauthenticated carrier")
+        "no late-completion for a coordinate-less carrier")
     (is (= [:rf.machine.spawn-all/attempt-unverified] (stale-reasons))
         "an unstamped post-resolution carrier is attempt-unverified")
     (is (= #{:a :b} (:done (join-state :jea/pr3))) "record frozen")))

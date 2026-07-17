@@ -30,7 +30,7 @@
   (get-in (frame/frame-runtime-db-value :rf/default)
           [:rf.runtime/machines :spawned parent-id [:racing]]))
 
-(defn- join-auth []
+(defn- join-attempt []
   (get-in (frame/frame-runtime-db-value :rf/default)
           [:rf.runtime/machines :snapshots fixed-child :data :rf/join-child]))
 
@@ -132,7 +132,7 @@
       ;; authority to model a delayed completion arriving after re-entry.
       (rf/dispatch-sync [parent-id [:start]])
       (let [attempt-a (:rf/attempt (join-state))
-            auth-a    (join-auth)]
+            auth-a    (join-attempt)]
         (rf/dispatch-sync [parent-id [:abort]])
         (rf/dispatch-sync [parent-id [:start]])
         (let [attempt-b (:rf/attempt (join-state))]
@@ -142,7 +142,7 @@
           ;; framework's carried recordable authority for attempt A.
           (rf/dispatch-sync
             [parent-id [:child/done :only]]
-            {:rf.cofx {:rf.machine/join-auth auth-a}})
+            {:rf.cofx {:rf.machine/join-attempt auth-a}})
           ;; Attempt B completes normally through the current fixed child.
           (rf/dispatch-sync [fixed-child [:go]])
 
@@ -185,7 +185,7 @@
                        (:operation %))}]
       (rf/dispatch-sync [parent-id [:start]])
       (let [attempt-a (:rf/attempt (join-state))
-            auth-a    (join-auth)]
+            auth-a    (join-attempt)]
         (rf/dispatch-sync [parent-id [:abort]])
         (rf/dispatch-sync [parent-id [:start]])
         (let [attempt-b (:rf/attempt (join-state))]
@@ -198,7 +198,7 @@
           ;; NOW A's exact carrier drains, POST-resolution, with attempt-A auth.
           (rf/dispatch-sync
             [parent-id [:child/done :only]]
-            {:rf.cofx {:rf.machine/join-auth auth-a}})
+            {:rf.cofx {:rf.machine/join-attempt auth-a}})
           ;; (1) the producer emits a stale-completion, NOT a late-completion.
           (let [ops (map :operation @traces)]
             (is (some #{:rf.machine.spawn-all/stale-completion} ops)

@@ -214,11 +214,11 @@
           b (get-in j [:children :b])]
       (rf/dispatch-sync [a [:go]])
       (is (= [:completed] (terminals-for a)))
-      ;; Authenticated duplicate, pre-resolution — authority on the protected
-      ;; recordable `:rf.cofx` transport (rf2-nsbwft), never event metadata.
+      ;; Exact-current duplicate, pre-resolution — the coordinate on the
+      ;; recordable `:rf.cofx` slot (rf2-nsbwft); the metadata slot is not read.
       (rf/dispatch-sync
         [:jct/p5 [:child/done :a]]
-        {:rf.cofx {:rf.machine/join-auth {:parent-id  :jct/p5
+        {:rf.cofx {:rf.machine/join-attempt {:parent-id  :jct/p5
                                           :invoke-id  [:racing]
                                           :child-id   :a
                                           :spawned-id a
@@ -231,7 +231,7 @@
       (is (true? (:resolved? (join-state :jct/p5))))
       (rf/dispatch-sync
         [:jct/p5 [:child/done :a]]
-        {:rf.cofx {:rf.machine/join-auth {:parent-id  :jct/p5
+        {:rf.cofx {:rf.machine/join-attempt {:parent-id  :jct/p5
                                           :invoke-id  [:racing]
                                           :child-id   :a
                                           :spawned-id a

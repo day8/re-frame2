@@ -739,17 +739,17 @@
                       :before     snapshot
                       :after      next-snapshot
                       :frame      frame-id}))
-      ;; Exact-authority stamping (rf2-nvxehu / rf2-t154jx): when THIS actor is a
+      ;; Exact-attempt stamping (rf2-nvxehu / rf2-t154jx): when THIS actor is a
       ;; `:spawn-all` join child (its `:data` carries the framework-reserved
       ;; `:rf/join-child` membership record the spawn stamped), rewrite each
       ;; outbound completion carrier in the returned `:fx` into the
-      ;; `:rf.machine/join-dispatch` transport, which carries the exact-authority
-      ;; tuple on the recordable `:rf.cofx` `:rf.machine/join-auth` fact (NOT
-      ;; event metadata — rf2-nsbwft) — action fx, bootstrap-entry fx, and the
-      ;; finalize path all flow through this single return seam.
+      ;; `:rf.machine/join-dispatch` transport, which carries the exact-attempt
+      ;; coordinate on the recordable `:rf.cofx` `:rf.machine/join-attempt` fact
+      ;; (NOT event metadata — rf2-nsbwft) — action fx, bootstrap-entry fx, and
+      ;; the finalize path all flow through this single return seam.
       ;; A non-join-child actor (record nil — the common case) rides through
-      ;; untouched. The parent's join interceptor refuses to fold any carrier
-      ;; that did not pass through its member child's own boundary here.
+      ;; untouched. The framework-produced path always stamps the coordinate; the
+      ;; parent's fold gate then folds only on exact-current equality.
       (join/stamp-join-completion-fx
         (if finished?
           (finalize/finalize-machine machine machine-id frame-id

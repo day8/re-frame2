@@ -625,7 +625,7 @@
           (let [j (get-in (frame-db) [:rf.runtime/machines :spawned :sup/latek [:hydrating]])]
             (rf/dispatch-sync
               [:sup/latek [:asset/loaded :a]]
-              {:rf.cofx {:rf.machine/join-auth {:parent-id  :sup/latek
+              {:rf.cofx {:rf.machine/join-attempt {:parent-id  :sup/latek
                                                 :invoke-id  [:hydrating]
                                                 :child-id   :a
                                                 :spawned-id (:a ids)

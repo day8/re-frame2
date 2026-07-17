@@ -44,7 +44,7 @@
 (defn- mk-child
   "A dispatching child: on `:go` transitions to a terminal and dispatches its
   completion back to `parent-id` via `:dispatch` (through its OWN boundary, so
-  the runtime attaches the recordable `:rf.machine/join-auth`)."
+  the runtime attaches the recordable `:rf.machine/join-attempt`)."
   [parent-id]
   {:initial :running
    :data    {:id nil}

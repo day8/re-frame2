@@ -211,7 +211,7 @@
                           [:rf.runtime/machines :spawned :sup/relp3 [:hydrating]])]
             (rf/dispatch-sync
               [:sup/relp3 [:asset/loaded :a]]
-              {:rf.cofx {:rf.machine/join-auth {:parent-id  :sup/relp3
+              {:rf.cofx {:rf.machine/join-attempt {:parent-id  :sup/relp3
                                                 :invoke-id  [:hydrating]
                                                 :child-id   :a
                                                 :spawned-id (:a ids)

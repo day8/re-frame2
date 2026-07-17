@@ -6,12 +6,12 @@
   active `:spawn-all` join owns an inbound completion. That selection was by
   child-id ownership (first owning match in declaration order). When two active
   parallel regions legitimately reuse BOTH the completion event keyword AND the
-  logical child id, a later region's authenticated carrier is mis-routed to the
+  logical child id, a later region's exact-current carrier is mis-routed to the
   first region's join, rejected there as `:attempt-superseded`, and its own join
   hangs.
 
   The fix routes the completion to the region whose LIVE join-state IS the exact
-  attempt the carrier's `:rf/join-auth` names (parent/invoke identity + attempt
+  attempt the carrier's `:rf/join-attempt` names (parent/invoke identity + attempt
   token + spawned instance), BEFORE the fold gate; child-id ownership is only a
   fallback for unstamped / unknown carriers (which the fold gate then suppresses
   fail-closed).
@@ -36,7 +36,7 @@
   "A worker child that dispatches `done-kw` / `err-kw` back to `parent-id`
   carrying its own `:worker` logical id — through its OWN handler boundary, so
   the runtime records the exact join authority on the recordable `:rf.cofx` fact
-  `:rf.machine/join-auth` for its region's attempt."
+  `:rf.machine/join-attempt` for its region's attempt."
   [parent-id done-kw err-kw]
   {:initial :running
    :data    {:id nil}
@@ -117,13 +117,13 @@
           "each region minted its own per-attempt token")
       (mtest/reset-captured!)
       ;; Complete :r2's worker first — through its own boundary, so its carrier
-      ;; is authenticated for :r2's exact attempt. Non-decisive (the two-child
+      ;; carries an exact-current coordinate for :r2's attempt. Non-decisive (the two-child
       ;; :all join still awaits :helper), so both joins persist to assert on.
       (rf/dispatch-sync [(get-in r2-join [:children :worker]) [:go]])
       (let [r1' (join-for [:r1/done])
             r2' (join-for [:r2/done])]
         (is (= #{:worker} (:done r2'))
-            ":r2's join folded :worker on its OWN authenticated completion")
+            ":r2's join folded :worker on its OWN exact-current completion")
         (is (false? (:resolved? r2')) ":r2 stays open (awaiting :helper)")
         (is (= #{} (:done r1'))
             ":r1's join is UNTOUCHED — the completion did not mis-route to it")
