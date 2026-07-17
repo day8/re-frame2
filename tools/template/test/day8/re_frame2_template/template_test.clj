@@ -112,7 +112,20 @@
           ;; Xray preload.
           (is (some #{'day8.re-frame2-xray.preload}
                     (get-in app [:devtools :preloads]))
-              "shadow-cljs :app :devtools/preloads wires Xray"))
+              "shadow-cljs :app :devtools/preloads wires Xray")
+          ;; re-frame.ui build-hook + cache-blockers — REQUIRED for any
+          ;; browser build to boot. re-frame.ui compiles the views and its
+          ;; runtime asserts the whole-build digest was finalized; without
+          ;; the hook the :app bundle throws "re-frame.ui build digest was
+          ;; not finalized ..." at load, and without the cache-blocker a
+          ;; warm-cache start leaves the macro-driven registries incomplete
+          ;; (rf2-w1k3i).
+          (is (contains? (set (:cache-blockers scs)) 're-frame.ui)
+              "shadow-cljs.edn blocks re-frame.ui from the compile cache")
+          (is (some #{'(re-frame.ui.compiler.build-hook/hook)}
+                    (get-in scs [:build-defaults :build-hooks]))
+              "shadow-cljs.edn wires the re-frame.ui compiler build-hook into
+               every build (else a browser build boots into the digest error)"))
 
         ;; -- Xray coord in deps.edn --
         (let [deps (read-edn (io/file root "deps.edn"))]

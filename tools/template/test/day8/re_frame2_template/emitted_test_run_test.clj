@@ -280,6 +280,72 @@
         (zero? (.waitFor (.start pb))))
       (catch Throwable _ false))))
 
+;; --- SSR DOM-adoption browser proof ---------------------------------------
+;;
+;; A short Clojure script that renders the REAL `/` response through the emitted
+;; `server/make-handler` (server-painted `#app` markup + the `__rf_payload`
+;; script + the matching `data-rf-render-hash`), rewrites the `/main.js`
+;; bootstrap to the static `/js/main.js` path, and spits it to
+;; `resources/public/_ssr_proof.html`. The `ssr-hydration-dom-proof.cjs` driver
+;; then serves that public root and drives Chromium to prove the scaffold's
+;; client boot ADOPTS the server DOM (hydrate-root) rather than mounting a fresh
+;; tree (create-root). The test always scaffolds `acme/my-app`, so the server
+;; namespace is fixed. `/main.js` occurs only in the emitted bootstrap, so the
+;; unquoted replace is unambiguous.
+;;
+;; The form is written to a `.clj` script and run as `clojure -M <file>`, NOT
+;; passed via `-e`: a quoted `-e` form does not survive Windows ProcessBuilder
+;; argument escaping (the inner string quotes get mangled), whereas a script
+;; file reaches clojure.main byte-for-byte.
+(def ^:private ssr-proof-capture-script
+  (str "(require '[re-frame.core :as rf] '[re-frame.ssr :as ssr] 'acme.my-app.server)\n"
+       "(rf/init! ssr/adapter)\n"
+       "(let [h ((resolve (symbol \"acme.my-app.server\" \"make-handler\")) \"resources/public\")\n"
+       "      body (str (:body (h {:uri \"/\" :request-method :get})))\n"
+       "      html (clojure.string/replace body \"/main.js\" \"/js/main.js\")]\n"
+       "  (spit \"resources/public/_ssr_proof.html\" html)\n"
+       "  (println \"PROOF_HTML_BYTES\" (count html)))\n"))
+
+(defn- run-ssr-dom-adoption-proof!
+  "Stage the real server-painted `/` page, then drive Chromium to prove the
+  generated scaffold adopts the server DOM. Assumes `shadow compile app`
+  already built the bundle and the deps are `:local/root`-rewritten. Node-gated:
+  records a passing skip assertion when `node` is unavailable."
+  [^java.io.File root ^java.io.File proj]
+  (testing "reagent-ssr — browser DOM-adoption proof (hydrate-root adopts server DOM)"
+    (if-not @node-available?
+      (is true
+          "`node` unavailable — skipping the SSR DOM-adoption browser proof
+           (static-parse + hydrate-root/create-root shape coverage still applies)")
+      (do
+        ;; Render the real `/` response through the emitted server and stage it.
+        (let [script (io/file proj "_ssr_proof_capture.clj")
+              _      (spit script ssr-proof-capture-script)
+              {:keys [exit out]}
+              (run-process! ["clojure" "-M" (.getName script)] proj)]
+          (is (zero? exit)
+              (str "capturing the server-painted SSR page (clojure -M script over "
+                   "server/make-handler on `/`) exited " exit ". Output:\n" out))
+          (is (.isFile (io/file proj "resources/public/_ssr_proof.html"))
+              "the captured _ssr_proof.html was written for the browser proof"))
+        ;; Drive Chromium: the exact server node must be ADOPTED (its expando
+        ;; survives) and its handler must go live. Reverting the payload branch
+        ;; to create-root makes this fail — a fresh node with no expando.
+        (let [driver    (.getCanonicalPath
+                          (io/file root "tools/template/test-support/ssr-hydration-dom-proof.cjs"))
+              pub-root  (.getCanonicalPath (io/file proj "resources/public"))
+              impl-root (.getCanonicalPath (io/file root "implementation"))
+              node-path (.getCanonicalPath (io/file root "implementation/node_modules"))
+              {:keys [exit out]}
+              (run-process! ["node" driver pub-root impl-root]
+                            proj {"NODE_PATH" node-path})]
+          (is (zero? exit)
+              (str "the SSR DOM-adoption browser proof exited " exit
+                   " — the generated scaffold did not adopt the server-painted "
+                   "DOM (hydrate-root) on a payload-backed boot: the live #app "
+                   "node was not the server node, or its handler was dead. "
+                   "Output:\n" out)))))))
+
 ;; --- The orchestration -----------------------------------------------------
 
 (defn- variant-label
@@ -493,9 +559,15 @@
 
    Running BOTH css modes (plain + Tailwind) through the real make-handler is
    what proves the documented `:css` + `:include-ssr?` combination composes on
-   the actual SSR response (rf2-3fc89f.26)."
-  ([] (run-ssr-emitted-test! nil))
-  ([css]
+   the actual SSR response (rf2-3fc89f.26).
+
+   `browser-proof?` (plain css only) additionally drives the compiled bundle in
+   Chromium to prove the client boot ADOPTS the server-painted DOM
+   (`hydrate-root`) rather than mounting a fresh `create-root` tree (rf2-w1k3i).
+   DOM adoption is css-invariant, so the Tailwind cell skips it."
+  ([] (run-ssr-emitted-test! nil true))
+  ([css] (run-ssr-emitted-test! css false))
+  ([css browser-proof?]
    (let [root (repo-root)
          tmp  (tmp-dir (str "rf2-template-run-reagent-ssr-"
                             (if css (name css) "plain") "-"))]
@@ -552,7 +624,15 @@
                        "zero-test run would otherwise pass. Got:\n" out))
               (is (re-find #"0 failures, 0 errors" out)
                   (str "expected '0 failures, 0 errors' line in output. "
-                       "Got:\n" out))))))
+                       "Got:\n" out))))
+
+          ;; --- browser proof (DOM adoption) -------------------------------
+          ;; Prove the payload-backed client boot ADOPTS the server-painted
+          ;; DOM (hydrate-root), not a fresh create-root mount. Reuses the
+          ;; just-built bundle + the real server render. Plain css only —
+          ;; DOM adoption is css-invariant (rf2-w1k3i).
+          (when browser-proof?
+            (run-ssr-dom-adoption-proof! root proj))))
       (finally
         (delete-recursively tmp))))))
 

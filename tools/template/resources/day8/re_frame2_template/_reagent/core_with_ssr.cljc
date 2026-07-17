@@ -4,7 +4,8 @@
    Events, subscriptions, schema, and view run on both platforms. The Ring
    host creates a short-lived frame per request; the browser creates a
    client frame, applies the embedded payload with `ssr/hydrate!`, verifies
-   the render hash, and mounts the same view."
+   the render hash, and then ADOPTS the server-painted DOM with `hydrate-root`
+   (a plain client load with no payload mounts a fresh root instead)."
   (:require [re-frame.core :as rf]
             ;; Installs the default Malli validator before schema attachment.
             [re-frame.schemas]
@@ -105,6 +106,8 @@
 ;; hydrate! reads and applies the embedded payload before the first render,
 ;; then compares the client render-tree hash with the server marker.
 
+;; The retained React root. `defonce` so it survives hot reload — one root
+;; owns `#app` for the life of the page, created once on first boot below.
 #?(:cljs (defonce ^:private react-root (atom nil)))
 
 ;; Hydration and the view tree must target the same client frame.
@@ -113,26 +116,56 @@
 #?(:cljs
    (defn ^:export init
      "Called by shadow-cljs (see :init-fn in shadow-cljs.edn). Idempotent —
-      shadow's hot-reload pipeline re-invokes it on each rebuild."
+      shadow's `:browser` target re-invokes it on every hot reload, so the
+      boot ceremony (frame -> schema -> hydrate -> root) runs exactly ONCE and
+      later reruns only re-render the edited views into the one retained root."
      []
      (rf/init! reagent-adapter/adapter)
-     ;; Create the frame before attaching its schema or hydrating state.
-     ;; Programmatic `rf/make-frame` (not the view-owned `rf/frame-root`):
-     ;; `ssr/hydrate!` must run against the live frame BEFORE React mounts.
-     (rf/make-frame {:id       app-frame
-                     :doc      "{{name}} SSR client app-frame"
-                     :platform :client})
-     (register-schema! app-frame)
-     ;; Hash the realised view value, matching the server render input.
-     (let [payload (ssr/hydrate! {:frame          app-frame
-                                  :render-tree-fn (fn [] ((rf/view :app/root)))})]
-       (when-not payload
-         ;; A plain client load has no server state to apply.
-         (rf/dispatch-sync [:counter/initialise] {:frame app-frame})))
-     (when (exists? js/document)
-       (when-not @react-root
-         (reset! react-root (rdc/create-root (js/document.getElementById "app"))))
-       ;; Resolve view registrations and dispatches against the hydrated frame.
+     (if @react-root
+       ;; HOT RELOAD — the boot already ran (the frame exists). Re-render the
+       ;; edited views into the SAME retained root. Never re-hydrate (that would
+       ;; re-seed the server slice over live interactive state) and never create
+       ;; a second root over the container.
        (rdc/render @react-root
                    [rf/frame-provider {:frame app-frame}
-                    [(rf/view :app/root)]]))))
+                    [(rf/view :app/root)]])
+       ;; FIRST BOOT — create the frame before attaching its schema or hydrating
+       ;; state. Programmatic `rf/make-frame` (not the view-owned
+       ;; `rf/frame-root`): `ssr/hydrate!` must run against the live frame BEFORE
+       ;; React touches the DOM.
+       (do
+         (rf/make-frame {:id       app-frame
+                         :doc      "{{name}} SSR client app-frame"
+                         :platform :client})
+         (register-schema! app-frame)
+         ;; hydrate! seeds STATE and verifies the render-tree hash against the
+         ;; server marker BEFORE the mount; it never touches the DOM. It hands
+         ;; back the payload it applied (nil on a plain client load), which is
+         ;; what lets the mount below adopt-or-create correctly.
+         (let [el      (and (exists? js/document) (js/document.getElementById "app"))
+               payload (ssr/hydrate!
+                         {:frame          app-frame
+                          ;; The verify step renders the view to hash it. The
+                          ;; view's injected `subscribe` is frame-scoped, and
+                          ;; hydrate! calls this fn OUTSIDE any frame scope — so
+                          ;; pin the ambient frame here, or the render raises
+                          ;; :rf.error/no-frame-context.
+                          :render-tree-fn (fn []
+                                            (rf/with-frame app-frame
+                                              ((rf/view :app/root))))})
+               tree    [rf/frame-provider {:frame app-frame}
+                        [(rf/view :app/root)]]]
+           (when el
+             (if payload
+               ;; SERVER-RENDERED — ADOPT the server-painted DOM. `hydrate-root`
+               ;; reconciles React against the existing markup: the same nodes,
+               ;; handlers wired live, no re-paint and no flash. `create-root` +
+               ;; `render` here would throw the server HTML away and mount a
+               ;; fresh tree — the bug this branch exists to avoid.
+               (reset! react-root (rdc/hydrate-root el tree))
+               ;; PLAIN CLIENT LOAD — no server payload to adopt. Seed the
+               ;; app-db, then mount a fresh root.
+               (do
+                 (rf/dispatch-sync [:counter/initialise] {:frame app-frame})
+                 (reset! react-root (rdc/create-root el))
+                 (rdc/render @react-root tree)))))))))
