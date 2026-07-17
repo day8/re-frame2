@@ -38,9 +38,10 @@ ratoms silently creating a second reactivity model. Each is an unresolved
 alternative the synthesis had to close — which components exist, what a handler
 *is*, what the compiler may see through, where ephemeral state may live, how the
 foreign-React world is admitted. Those are feature-level public-contract decisions
-with real rejected alternatives: an EP, not a bead. The full design study is
-`ai/findings/new-substrate-synthesis/02-programming-model.md` (final 2026-07-11,
-codex2 fold-in 2026-07-12, component-library amendments 2026-07-16); this EP records
+with real rejected alternatives: an EP, not a bead. The full design study graduated into
+this EP and the normative `spec/004-Views.md`; the original working study
+(`02-programming-model.md`, final 2026-07-11, codex2 fold-in 2026-07-12, component-library
+amendments 2026-07-16) is tombstoned in the synthesis tree (rf2-mgy7pz). This EP records
 its decision surface durably.
 
 ## Goals / Non-Goals
@@ -59,7 +60,8 @@ Non-goals (owned elsewhere; one EP, one decision surface): reactivity, ownership
 and the observation port (**EP-0032**); evidence, manifests, and instrumentation
 (**EP-0033**); the readiness deltas' own design records (**EP-0035** — summarized
 here only where they amend this surface); SSR/roots/hydration mechanics beyond the
-authoring seam (Specs 004C/011); Reagent migration mechanics (doc 10; S6/S7).
+authoring seam (Specs 004C/011); Reagent migration mechanics (the S6/S7 migration wave —
+the W1 migrator + the `spec/004A` Reagent-compat appendix).
 
 ## Relationships
 
@@ -254,7 +256,8 @@ Pre-alpha: clean breaks, no shims. The Reagent, UIx, and reagent-slim adapters l
 as first-class shipping surfaces under Spec 004's [TRANSITION] markers; the Reagent-tier
 forms are retained (not deleted), with their live home `spec/004A-Reagent-Compat.md`
 landing at S7. Only Helix is removed, at the S7 removal wave. Migration rides
-`ui/->react` per-subtree co-mounting (S6; mechanics in doc 10).
+`ui/->react` per-subtree co-mounting (S6; mechanics land with the S6 migration wave —
+the W1 migrator + the `spec/004A` Reagent-compat appendix).
 
 ## Bead Plan / Reference Implementation
 

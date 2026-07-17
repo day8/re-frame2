@@ -78,8 +78,10 @@ evidence; no production telemetry — the always-on error channel is EP-0008's.
   catalogue row there.
 - **`spec/004-Views.md`** §View identity and the instrumentation surface — the
   primary normative home (see banner).
-- Design record: `ai/findings/new-substrate-synthesis/04-debugging.md` (amended
-  2026-07-16) + its sibling `drafts/xray-ui-consumption-ia.md` (the S3 Xray IA).
+- Design record: graduated into this EP + the normative `spec/009-Instrumentation.md`
+  and `spec/004-Views.md` §View identity (from `04-debugging.md`, amended 2026-07-16);
+  the S3 Xray consumption IA (`drafts/xray-ui-consumption-ia.md`) lands with W7a under
+  `tools/xray/spec/`. Both synthesis-tree sources are tombstoned per rf2-mgy7pz.
 
 ## Specification
 

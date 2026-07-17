@@ -1,71 +1,52 @@
-# re-frame2 UI — the unified substrate specification
+# new-substrate-synthesis — TOMBSTONE (source-folder retirement, step 1)
 
-**Status:** final · 2026-07-11
+**Tombstoned 2026-07-18 (rf2-mgy7pz, at the S3→S4 boundary).** This tree was the design
+study for the `re-frame.ui` compiled-view substrate. Its decision surface has been
+**distilled into the EP family (`docs/EP/EP-0030`…`EP-0035`) and promoted into the
+normative `spec/` tree**; those are now the source of record. The tree stays force-tracked
+in place until the S7 cleanup (rf2-vxgfnd.99.1), which git-rm's everything here **except
+the permanent survivors** below.
 
-## The proposal in one paragraph
+This file is a pointer map, not an index — follow the graduated / relocated home for each
+path. It replaces the former document index.
 
-One first-party view library for re-frame2 — the optimized, default, and only *taught*
-view layer — replacing Helix and reagent-slim outright, with **stock Reagent and UIx
-retained as frozen compatibility adapters**. Each remains correct under a pinned
-contract suite plus one browser smoke, but neither receives new capabilities or a
-parity promise. The Reagent tier enables the two-step v1 migration — dataflow first on
-existing Reagent/re-com views, `ui` rendering boundaries later. Adapter selection
-remains one explicit boot-time choice per process (`re-frame.ui`, Reagent, or UIx);
-React-component interop does not select another adapter. Views
-are hiccup with **event vectors as handlers**; a compiler lowers them to one normalized
-AST and emits direct React code for the browser and a structural render tree for the JVM
-— no interpreter ships. A view's reads share **one** React bridge under a committed
-push-ownership protocol (render probes; commit acquires; observation targets carry Story
-overrides honestly), making abandoned renders retain nothing and concurrent rendering
-tear-proof. Frames are created at **host preflight** (never from render) and are distinct
-from **roots** (React hydration units) — a page is N roots referencing M frames, each
-with precise failure isolation. Dev builds are a glass cockpit — per-commit cause
-vectors, occurrence-level identity, static interaction surfaces, source coordinates,
-loss-accounted histories — consumed by the Xray that already exists, and erased from
-production by proven absence. Hot reload is a designed contract (stable shells, hook
-signatures, no frame re-seeding). Controlled inputs get a designed synchrony law, not a
-benchmark hope.
+## Permanent survivors (kept at S7 per rf2-vxgfnd.99.1)
 
-## Documents
+These three paths are durable historical evidence; the `.gitignore` force-track exception
+is narrowed to them at S7:
 
-| Doc | Contents |
-|---|---|
-| [01-goals-and-invariants.md](01-goals-and-invariants.md) | Ranked goals, non-goals, sixteen unconditional invariants, the decision rule |
-| [02-programming-model.md](02-programming-model.md) | `defview`, templates, props ABI, the handler law, presence, `ui/html`, interop, REPL story |
-| [03-reactivity-and-ownership.md](03-reactivity-and-ownership.md) | Observation targets, probe/acquire + commit algorithm, observed lifecycle (three runtime states; hide/unmount as qualified retroactive annotations), frames & preflight ENSURE, **HMR contract**, error taxonomy |
-| [04-debugging.md](04-debugging.md) | Two evidence layers, cause vectors, occurrence identity, Xray integration (enrich-first), privacy, elision proof |
-| [05-production.md](05-production.md) | Capability vocabulary, honest cost claims, absence roster, packaging, budgets |
-| [06-ssr-islands.md](06-ssr-islands.md) | Roots vs frames, the root manifest, the JVM subset, hydration + failure isolation, static-root policy |
-| [07-testing.md](07-testing.md) | The `ui.test` contract, fixture matrix, generative parity (scoped), gate roster G-1…G-14 |
-| [08-delivery.md](08-delivery.md) | Rulings-first Stage 0, spikes, demand bar (pre-Stage-1), risks, **the decision record (§5)** |
-| [09-review-disposition.md](09-review-disposition.md) | Decision log and provenance — history lives there |
-| [10-migration-from-reagent.md](10-migration-from-reagent.md) | The Reagent path: ~80–90% mechanical, incremental by co-mounting, verdict per construct |
-| [11-adoption-workstreams.md](11-adoption-workstreams.md) | Everything beyond the library — migrator, docs, tools, CI, deletion wave — as stage epics |
-| [12-implementation-plan.md](12-implementation-plan.md) | Where the artifact lands, the **blessed** public API table + demand-bar audit, the stage→bead plan |
-| [drafts/](drafts/) | Diff-ready spec amendment drafts (004 interim + rewrite, 006 observation port, `ui.test` selector grammar) |
-| [guide/](guide/README.md) | The user tutorial (14 chapters: main track 01–07, depth 08–14) |
-| [reviews/](reviews/) | The review archive |
+- [`reviews/`](reviews/) — the review archive (codex1/codex2/fable1/fable2 + the staged
+  guide review) **and** the relocated decision log `reviews/09-review-disposition.md`.
+- [`spikes/`](spikes/) — the S-1/S-3 spike reports (feasibility evidence).
+- `README.md` — this tombstone.
 
-## Naming
+Everything else in this tree is a tombstone pointer: it is scheduled for deletion at S7,
+after its owning stage has consumed it. Between S4 and S7, read the graduated home, not
+the tombstoned source.
 
-**`re-frame.ui`** (artifact `day8/re-frame2-ui`, alias `ui/`) — R-3.
+## Pointer map (old path → graduated / relocated home)
 
-## Standing-ruling conformance
+| Old path | Graduated / relocated home | Disposition at S7 |
+|---|---|---|
+| `01-goals-and-invariants.md` | `docs/EP/EP-0030-the-compiled-view-substrate-program.md` (program goals + invariants) | deleted |
+| `02-programming-model.md` | `docs/EP/EP-0031-re-frame-ui-programming-model.md` + `spec/004-Views.md` | deleted |
+| `03-reactivity-and-ownership.md` | `docs/EP/EP-0032-re-frame-ui-reactivity-and-ownership.md` + `spec/006-ReactiveSubstrate.md` §The internal observation port | deleted |
+| `04-debugging.md` | `docs/EP/EP-0033-re-frame-ui-view-evidence.md` + `spec/009-Instrumentation.md` + `spec/004-Views.md` §View identity | deleted |
+| `05-production.md` | `docs/EP/EP-0034-re-frame-ui-production-ssr-testing.md` (production posture) | deleted |
+| `06-ssr-islands.md` | `docs/EP/EP-0034-re-frame-ui-production-ssr-testing.md` + `spec/011-SSR.md` | deleted |
+| `07-testing.md` | `docs/EP/EP-0034-re-frame-ui-production-ssr-testing.md` + `spec/008-Testing.md` | deleted |
+| `08-delivery.md` | `docs/EP/EP-0030-the-compiled-view-substrate-program.md` §The program decision record + §Stage plan | deleted |
+| `09-review-disposition.md` | **relocated** → [`reviews/09-review-disposition.md`](reviews/09-review-disposition.md) (pointer left at old path) | **survivor** (under `reviews/`) |
+| `10-migration-from-reagent.md` | `docs/EP/EP-0031-re-frame-ui-programming-model.md` (migration mechanics; lands with the S6 W1 migrator + the `spec/004A` Reagent-compat appendix) | deleted |
+| `11-adoption-workstreams.md` | `docs/EP/EP-0030-the-compiled-view-substrate-program.md` §Stage plan (S6/S7 adoption workstreams) | deleted |
+| `12-implementation-plan.md` | §1/§3/§4 remain as the handoff plan (tree-local); **§2/§2b blessed API tables graduated** → `spec/API.md` §"re-frame.ui — blessed public-surface freeze" | deleted (§2/§2b already graduated) |
+| `drafts/` | diff-ready spec amendment drafts — consumed by their owning stage into `spec/004`, `spec/004A`, `spec/006`, `spec/009`, `spec/011` | deleted (after consumption) |
+| `guide/` | the user tutorial — moves to `docs/guide/` at S6 (W3) | deleted (after move) |
+| `prep/` | per-workstream prep tables — consumed by rf2-gria2b / rf2-nwgzha / rf2-3339ri / rf2-nojiwy | deleted (after consumption) |
+| `skill/` | the skill drafts — move to `skills/` at S6 (W6) | deleted (after move) |
+| `reviews/` | — | **survivor** (historical evidence) |
+| `spikes/` | — | **survivor** (historical evidence) |
 
-Follows rf2-nyea0r (the frame-root/frame-provider split and the compiled substrate's
-host-preflight ENSURE both landed — the split in the shipping adapters (#5691) and
-ENSURE-at-host-preflight in `re-frame.ui` (#5711); the frozen legacy adapters keep
-commit-owned two-pass ENSURE for their lifetime, and R-7 now carries only the spec
-promotion of that already-live contract), rf2-y6dz8t
-(capture-frame hold), frames-isolated doctrine (no
-cross-frame spelling; carried-op misuse gets a dev diagnostic), rf2-5sjbg local-state
-doctrine, Story-as-CLJS-unit-tests, and the one-catalogue rule (rf2-cs0kd1) for all new
-trace/error vocabulary. Spec amendments R-1 (Spec 004 rewrite) and R-2 (Spec 006
-observation port) land as diff-ready PRs in Stage 0–1; promotion of this suite to
-`spec/` rides Stage 0–1 per R-1/R-2.
-
-## Status and provenance
-
-Final; the decisions were ratified 2026-07-11 by Mike (the 08 §5 decision record). The
-decision log is [09-review-disposition.md](09-review-disposition.md); the review archive
-is [reviews/](reviews/).
+Owning record: `docs/EP/EP-0030-the-compiled-view-substrate-program.md` §Bead Plan
+("Source-folder retirement"). Step 1 (this tombstone + the two relocations + the citation
+repoint) is rf2-mgy7pz; step 2 (the S7 git-rm) is rf2-vxgfnd.99.1.
