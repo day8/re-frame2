@@ -150,6 +150,12 @@
                 ;; rf2-vxgfnd.12.3 — isolated G-13 browser push-economics
                 ;; fixture + advanced instrumentation-elision companion.
                 "ui/g13"
+                ;; rf2-vxgfnd.95.10 — isolated G-8 real-browser controlled-input
+                ;; correctness fixture (IME / caret / ordering / pre-paint through
+                ;; the reusable event-prefix control). Consumed ONLY by the
+                ;; :ui-g8 build below (npm run test:ui-g8, run in Chromium AND
+                ;; WebKit by run-ui-g8.cjs); nothing else :requires it.
+                "ui/g8"
                 ;; rf2-3cfvt — adversarial-property SECURITY tier. A small
                 ;; cross-artefact test tree probing the three security
                 ;; boundaries the pin-and-assert regime missed: SSR escaping
@@ -827,6 +833,20 @@
    {:optimizations :advanced
     :infer-externs :auto
     :closure-defines {goog.DEBUG false}}}
+
+  ;; rf2-vxgfnd.95.10 — G-8 real-browser controlled-input correctness matrix.
+  ;; A single un-optimized :browser build mounting the reusable event-prefix
+  ;; control (sync door) and the async-door regression; the run-ui-g8.cjs runner
+  ;; serves this bundle and drives the SAME page in real Chromium AND real
+  ;; WebKit, asserting the matrix passes under the sync door and FAILS under the
+  ;; async door (the tooth). Correctness only — no advanced/elision companion
+  ;; (that surface is G-11's).
+  :ui-g8
+  {:target :browser
+   :output-dir "out/ui-g8"
+   :asset-path "."
+   :modules {:main {:entries [re-frame.ui.g8.dev]
+                    :init-fn re-frame.ui.g8.dev/-main}}}
 
   ;; rf2-2hrj8 — `:browser-test` is narrowed to DOM-dependent tests only.
   ;; The ns-regexp `-dom-cljs-test$` matches files whose namespace ends in

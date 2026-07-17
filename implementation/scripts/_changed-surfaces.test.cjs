@@ -1353,6 +1353,28 @@ test('all-required-passed aggregator needs jvm-ui + cljs-ui-g1 (rf2-vxgfnd.6)', 
   assert.match(block, /- cljs-ui-g13\r?\n/, 'aggregator must list cljs-ui-g13 in needs:');
 });
 
+test('cljs-ui-g8 is job-level gated and runs the dual-engine controlled-input gate (rf2-vxgfnd.95.10)', () => {
+  const block = jobBlock(fs.readFileSync(WORKFLOW, 'utf8'), 'cljs-ui-g8');
+  assert.match(block, /needs: detect_changed_surfaces/);
+  assert.match(
+    block,
+    /if: needs\.detect_changed_surfaces\.outputs\.ui_gates == 'true'/,
+  );
+  assert.match(block, /npm run test:ui-g8/);
+  // G-8 is the only gate that MUST install BOTH real engines.
+  assert.match(block, /playwright install --with-deps chromium webkit/);
+  assert.match(block, /implementation\/out\/ui-g8\.json/);
+});
+
+test('all-required-passed aggregator needs cljs-ui-g8 (rf2-vxgfnd.95.10)', () => {
+  const block = jobBlock(fs.readFileSync(WORKFLOW, 'utf8'), 'all-required-passed');
+  assert.match(block, /- cljs-ui-g8\r?\n/, 'aggregator must list cljs-ui-g8 in needs:');
+});
+
+test('run-ui-g8.cjs launcher change arms ui_gates (rf2-vxgfnd.95.10)', () => {
+  assert.equal(classify('implementation/scripts/run-ui-g8.cjs').ui_gates, 'true');
+});
+
 // rf2-vxgfnd.90 — re-frame.ui now ships REAL DOM tests
 // (`*-dom-cljs-test.{cljs,cljc}`) in the `:browser-test` build (the S1c/S2
 // mount + reactivity + frame-scope keystone fixtures — the ONLY place
