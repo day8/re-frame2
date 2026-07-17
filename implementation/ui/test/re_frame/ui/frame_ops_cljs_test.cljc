@@ -382,6 +382,58 @@
         (is (= :ops/foreign (:ambient-frame tags))  ":ambient-frame is the foreign frame")
         (is (= [:ops/n] (:rf.sub/query-v tags))     ":rf.sub/query-v is the attempted query")))))
 
+(deftest carried-subscribe-warning-conforms-to-emitted-envelope
+  ;; rf2-orbg6 — the CONFORMANCE FIXTURE that pins the REAL emitted envelope.
+  ;; The warning rides the canonical dev-only seam `trace/emit! :warning`, so
+  ;; `re-frame.trace/build-event` (Spec 009 §Core fields) shapes it: it HOISTS
+  ;; `:recovery` out of the caller's payload up to the envelope top-level and
+  ;; STRIPS it from `:tags`, and it synthesizes `{:category operation}` into
+  ;; `:tags` ONLY on the `:error` branch — never for a `:warning`. So the
+  ;; category rides `:operation` (top-level) and `:tags` carries ONLY
+  ;; origin/ambient/query/reason. This test validates BOTH the envelope (the
+  ;; category contract) AND the category-specific `:tags` payload, and asserts
+  ;; the two hoisted/synthesized slots are ABSENT from the wrong level — the
+  ;; exact mismatch the pre-rf2-orbg6 `CrossFrameCarriedOpTags` (which required
+  ;; `:category` + `:recovery` under `:tags`) misdescribed.
+  (testing "the emitted :rf.warning/cross-frame-carried-op event conforms to the
+            established trace envelope: :operation carries the category,
+            :recovery rides the top level, and :tags is exactly the four
+            surviving fields"
+    (reg!)
+    (make-frame! :ops/origin {:n 11})
+    (make-frame! :ops/foreign {:n 22})
+    (let [b (rf/with-frame :ops/origin (frames/frame-ops))
+          {:keys [warnings]}
+          (capture-cross-frame-warnings
+           #(rf/with-frame :ops/foreign (deref ((:subscribe b) [:ops/n]))))
+          ev   (first warnings)
+          tags (:tags ev)]
+      (is (= 1 (count warnings)) "exactly one warning captured")
+      ;; --- ENVELOPE — the canonical category contract ---
+      (is (= :rf.warning/cross-frame-carried-op (:operation ev))
+          ":operation carries the category (a :warning synthesizes no :tags :category)")
+      (is (= :warning (:op-type ev))
+          ":op-type is the warning severity discriminator")
+      (is (= :warned-and-continued (:recovery ev))
+          ":recovery rides the ENVELOPE top-level after build-event's hoist")
+      ;; --- TAGS — only the fields that actually remain under :tags ---
+      (is (= #{:origin-frame :ambient-frame :rf.sub/query-v :reason}
+             (set (keys tags)))
+          ":tags carries EXACTLY origin/ambient/query/reason")
+      (is (= :ops/origin (:origin-frame tags)))
+      (is (= :ops/foreign (:ambient-frame tags)))
+      (is (= [:ops/n] (:rf.sub/query-v tags)))
+      (is (string? (:reason tags)))
+      ;; --- ABSENCE FROM THE WRONG LEVEL — the schema-vs-reality bug ---
+      (is (not (contains? tags :recovery))
+          "build-event HOISTED :recovery to the envelope — it is NOT a :tags key")
+      (is (not (contains? tags :category))
+          "category synthesis is the :error branch only — a :warning has no :tags :category")
+      (is (not (contains? tags :operation))
+          ":operation is an envelope slot, never a :tags key")
+      (is (not (contains? ev :category))
+          "no :category slot is synthesized anywhere for a :warning envelope"))))
+
 (deftest carried-subscribe-same-frame-is-quiet
   (testing "A-under-A: a carried :subscribe invoked under its OWN captured frame
             (ambient == origin) emits no warning"
