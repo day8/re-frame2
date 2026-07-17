@@ -75,8 +75,13 @@
   `frame-target` is the DESTROY target: the frame VALUE `make-frame` returned
   (carrying the EXACT incarnation token, so teardown is incarnation-EXACT and
   never reaps a same-id successor a request drain reseated — rf2-moftbs), or a
-  frame-id keyword (the construction-failure path, where no value exists yet and
-  address-directed cleanup of any partial row is correct). The optional
+  frame-id keyword (address-directed — it destroys whichever incarnation
+  currently holds the id). The per-request handlers always pass the VALUE so
+  teardown is exact. The bare-id form is for callers that genuinely own the id's
+  current incarnation (SSR test teardown, streaming edge paths). It is NOT for
+  the setup-FAILURE path: core construction is the exact-token owner of a failed
+  incarnation's rollback, so an address-directed reap there could destroy a
+  same-id successor (rf2-c6lp3). The optional
   `diag-frame-id` names the frame on the failure trace so the `:frame` slot stays
   a clean keyword even when a value is the destroy target; it defaults to
   `frame-target` for the keyword call shape.
