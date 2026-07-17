@@ -2,42 +2,56 @@
 /*
  * re-frame.ui focused-build dependency isolation (G-12).
  *
- * The artefact `day8/re-frame2-ui` must be wrapper-free: independent of the
- * retiring view stacks (stock Reagent, reagent-slim, UIx, Helix) AND of the
- * four retiring `re-frame.adapter.<reagent|reagent-slim|uix|helix>`
- * namespaces. This gate proves that property along two arms.
+ * The artefact `day8/re-frame2-ui` is the WRAPPER-FREE core: it must stay
+ * independent of every view-stack wrapper AND of the four
+ * `re-frame.adapter.<reagent|reagent-slim|uix|helix>` adapter namespaces. The
+ * view stacks themselves are not all "retiring" — Reagent, UIx, and
+ * reagent-slim remain SUPPORTED SIBLING artefacts (`day8/re-frame2-reagent`,
+ * `day8/re-frame2-uix`, `day8/reagent-slim`); only Helix is retired. What the
+ * gate forbids is any of those wrappers being baked into the wrapper-free core:
+ * re-frame.ui pulls in NONE of them, so a consumer picks a substrate as a
+ * separate sibling dependency. This is a bounded artefact-isolation contract —
+ * NOT a denylist of "bad" libraries and NOT a general supply-chain policy.
+ *
+ * The property is proven along two arms.
  *
  * Arm 1 — compiler-selected module closure.
  *   `out/node-test-ui.js` is Shadow's loader for the focused `:node-test-ui`
  *   build. Its SHADOW_IMPORT rows are the compiler-computed transitive
  *   dependency closure, a stronger and more truthful boundary than a runtime
  *   assertion inside a `*-cljs-test` namespace (that same namespace is also
- *   loaded by the consolidated `:node-test` build, where the retiring
- *   adapters are intentionally present because their own tests still run).
+ *   loaded by the consolidated `:node-test` build, where the sibling adapters
+ *   are intentionally present because their own tests still run).
  *
  *   The closure is rejected against namespace ROOTS, not only the four
  *   `re_frame.adapter.*` adapter roots. A DIRECT wrapper import such as
- *   `uix.core`, `reagent.core`, or `helix.core` is munged to a module name
- *   (`uix.core.js`, ...) that does NOT begin with `re_frame.adapter.*`, so a
- *   prefix-only check let it through. Adding the wrapper roots closes that
- *   false-green. Note: the adapter-NEUTRAL core namespaces
- *   `re_frame.adapter.context`, `re_frame.adapter.resource_lease`, and
- *   `re_frame.adapter.sub_override_context` are the shared substrate spine
- *   and are legitimately present — only the four retiring VIEW-STACK adapter
- *   roots are forbidden.
+ *   `uix.core`, `reagent.core`, `reagent2.core` (reagent-slim's real module
+ *   root — the Maven coord is `day8/reagent-slim` but the import paths are
+ *   `reagent2.*`), or `helix.core` is munged to a module name (`uix.core.js`,
+ *   `reagent2.core.js`, ...) that does NOT begin with `re_frame.adapter.*`, so
+ *   a prefix-only check let it through. Listing the wrapper roots — INCLUDING
+ *   `reagent2` — closes that false-green. Note: the adapter-NEUTRAL core
+ *   namespaces `re_frame.adapter.context`, `re_frame.adapter.resource_lease`,
+ *   and `re_frame.adapter.sub_override_context` are the shared substrate spine
+ *   and are legitimately present — only the four VIEW-STACK adapter roots are
+ *   forbidden.
  *
  * Arm 2 — resolved dependency graph.
  *   The module closure only sees code Closure SELECTED. A forbidden
  *   coordinate that the artefact DECLARES but does not yet use is invisible
  *   to Arm 1 (Closure never selects it, so no SHADOW_IMPORT row changes) yet
  *   still bloats every consumer's classpath. Arm 2 resolves the published
- *   `ui/deps.edn` graph with `clojure -Stree` and rejects any retiring
- *   wrapper coordinate. Resolving the JVM/Clojure graph also proves the
- *   JVM/headless emitter entry stays browser-wrapper-free without forcing
- *   browser-only libraries onto the JVM classpath.
+ *   `ui/deps.edn` graph with `clojure -Stree` and rejects any wrapper
+ *   coordinate. Resolving the JVM/Clojure graph also proves the JVM/headless
+ *   emitter entry stays browser-wrapper-free without forcing browser-only
+ *   libraries onto the JVM classpath.
  *
- * This is a bounded artefact-isolation contract for the known retiring view
- * stacks — NOT a general supply-chain policy framework.
+ *   Arm 2 needs the Clojure CLI. A full G-12 pass REQUIRES Arm 2, so the
+ *   default command FAILS CLOSED when `clojure` is unavailable or Arm 2 cannot
+ *   execute — an absent/unverifiable toolchain is never a silent green. A
+ *   reduced Arm-1-only run is available, but ONLY when explicitly requested
+ *   with `--modules-only`, and it is reported as a reduced diagnostic, never
+ *   as a full G-12 PASS.
  */
 
 'use strict';
@@ -52,16 +66,20 @@ const requiredImport = 're_frame.ui.substrate.js';
 
 // --- Arm 1: compiler-selected module closure -------------------------------
 
-// Forbidden module-namespace roots: the four retiring adapter namespaces PLUS
+// Forbidden module-namespace roots: the four view-stack adapter namespaces PLUS
 // the direct wrapper libraries they wrap. A direct `uix.core` / `reagent.core`
-// / `helix.core` import does not begin with `re_frame.adapter.*`; listing the
-// bare wrapper roots is what a prefix-only check was missing.
+// / `reagent2.core` / `helix.core` import does not begin with
+// `re_frame.adapter.*`; listing the bare wrapper roots is what a prefix-only
+// check was missing. `reagent2` is the real module root of `day8/reagent-slim`
+// (its Maven coord carries the brand; its import paths are `reagent2.*`) and is
+// listed alongside stock Reagent's `reagent`.
 const forbiddenModuleRoots = [
   're_frame.adapter.reagent',
   're_frame.adapter.reagent_slim',
   're_frame.adapter.uix',
   're_frame.adapter.helix',
   'reagent',
+  'reagent2',
   'uix',
   'helix',
 ];
@@ -70,10 +88,11 @@ function importsFrom(loader) {
   return [...loader.matchAll(/SHADOW_IMPORT\("([^"]+)"\);/g)].map((match) => match[1]);
 }
 
-// A module name (e.g. `uix.core.js`) is forbidden when its namespace equals a
-// forbidden root or sits under one on a dotted boundary. The boundary check
-// keeps `reagent`/`uix`/`helix` from matching an unrelated
-// `re_frame.adapter.context.js` and keeps a hypothetical `uixfoo.js` clear.
+// A module name (e.g. `reagent2.core.js`) is forbidden when its namespace
+// equals a forbidden root or sits under one on a dotted boundary. The boundary
+// check keeps `reagent`/`reagent2`/`uix`/`helix` from matching an unrelated
+// `re_frame.adapter.context.js`, keeps `reagent` from swallowing the distinct
+// `reagent2` root, and keeps a lookalike (`reagent2foo.js`, `uixfoo.js`) clear.
 function isForbiddenModule(importName) {
   const ns = importName.replace(/\.js$/, '');
   return forbiddenModuleRoots.some((root) => ns === root || ns.startsWith(`${root}.`));
@@ -85,9 +104,10 @@ function forbiddenModules(imports) {
 
 // --- Arm 2: resolved dependency graph --------------------------------------
 
-// Forbidden Maven/Clojars coordinates: the retiring view-stack wrapper
-// libraries and their adapter artefacts. `day8/re-frame2` (core) and
-// `day8/re-frame2-ui` itself deliberately do NOT match.
+// Forbidden Maven/Clojars coordinates: the view-stack wrapper libraries and
+// their adapter artefacts. `day8/re-frame2` (core) and `day8/re-frame2-ui`
+// itself deliberately do NOT match. `day8/reagent-slim` is the reagent-slim
+// coordinate (its import root is `reagent2.*`, caught by Arm 1).
 const forbiddenCoordinatePatterns = [
   /^reagent\/reagent$/,
   /^day8\/reagent-slim$/,
@@ -118,8 +138,7 @@ function forbiddenCoordinates(treeText) {
 // carries no hijack risk itself. This is the authoritative discriminator
 // between the two failure modes of a `clojure` resolution: a candidate that
 // exists but resolves untrusted (hijack — must hard-fail) versus no candidate
-// at all (the CLI is genuinely absent from this environment — Arm 2 cannot
-// apply here).
+// at all (the CLI is genuinely absent from this environment).
 function clojureOnPath() {
   const pathStr = process.env.PATH || process.env.Path || process.env.path || '';
   const dirs = pathStr.split(path.delimiter).filter(Boolean);
@@ -145,72 +164,136 @@ function clojureOnPath() {
   return false;
 }
 
+// Default trusted resolution of the `clojure` executable (rf2-wn4o1 /
+// rf2-33vvc): a single TRUSTED absolute path OUTSIDE the workspace, gating the
+// Windows command-hijack accident class. Split out so the self-test can inject
+// a fake without a real toolchain or a real PATH walk.
+function defaultResolveClojureExe() {
+  const { resolveTrustedExe } = require(
+    path.join(repoRoot, 'tools', 'mcp-conformance', 'lib', 'exec-safety.cjs')
+  );
+  return resolveTrustedExe('clojure', { workspaceRoot: repoRoot });
+}
+
 // Resolve the re-frame.ui artefact's dependency graph via `clojure -Stree`,
-// returning one of three shapes for main() to interpret:
+// returning one of three shapes for classifyArm2()/main() to interpret:
 //
 //   { skipped: true, reason }  — `clojure` is genuinely absent from this
-//     environment (e.g. the node-test CI job sets up JDK + Node but no
-//     setup-clojure). Arm 2 cannot apply; main() emits a LOUD notice and lets
-//     Arm 1 (module closure) still pass/fail the gate. NOT a silent pass.
-//   { error }                  — a hard failure that must exit 2: a `clojure`
-//     candidate exists but resolves only to an untrusted/workspace path (the
-//     rf2-33vvc hijack accident class), or cross-spawn is not installed.
+//     environment (no candidate on PATH at all). Arm 2 cannot apply; the FULL
+//     gate fails closed on this (Arm 2 is mandatory for a full pass), while an
+//     explicit `--modules-only` run degrades to Arm 1 only. Never a silent
+//     pass.
+//   { error }                  — a hard failure: a `clojure` candidate exists
+//     but resolves only to an untrusted/workspace path (the rf2-33vvc hijack
+//     accident class), cross-spawn is not installed, or the spawn itself
+//     failed. Always exit 2.
 //   a cross-spawn result        — Arm 2 ran; `status`/`stdout` carry the graph.
 //
-// Hardened, shell-free spawn posture (rf2-wn4o1 / rf2-33vvc, mirroring
+// Hardened, shell-free spawn posture (mirroring
 // scripts/test-mcp-conformance.cjs): resolve the bare name to a single TRUSTED
 // absolute path OUTSIDE the workspace, then dispatch it via cross-spawn with an
 // args ARRAY and NO shell — gating the Windows command-hijack accident class
 // and avoiding the DEP0190 args-concatenation warning. cross-spawn is lazily
-// required only when we will actually spawn, so the absent-clojure path (and
-// the hermetic `--self-test`) needs neither cross-spawn nor a toolchain.
-function resolveDependencyTree(cwd) {
-  const { resolveTrustedExe } = require(
-    path.join(repoRoot, 'tools', 'mcp-conformance', 'lib', 'exec-safety.cjs')
-  );
+// required only when we will actually spawn.
+//
+// `deps` seams (all defaulted; the self-test injects them to exercise the
+// absent-CLI, present-but-untrusted-CLI, and spawn-failure paths WITHOUT ever
+// spawning a shell or touching a real toolchain):
+//   deps.resolveExe()   -> trusted absolute path, or throws if none is trusted.
+//   deps.onPath()       -> boolean: is a `clojure` candidate present at all?
+//   deps.spawnSync(...)  -> cross-spawn.sync-shaped result.
+function resolveDependencyTree(cwd, deps = {}) {
+  const resolveExe = deps.resolveExe || defaultResolveClojureExe;
+  const onPath = deps.onPath || clojureOnPath;
 
   let clojureExe;
   try {
-    clojureExe = resolveTrustedExe('clojure', { workspaceRoot: repoRoot });
+    clojureExe = resolveExe();
   } catch (err) {
     // A trusted `clojure` could not be resolved. Distinguish the two cases:
-    //   - genuinely absent  -> Arm 2 is N/A here; degrade to Arm-1-only.
+    //   - genuinely absent  -> Arm 2 is N/A; the FULL gate fails closed on it,
+    //     `--modules-only` degrades to Arm 1.
     //   - present-but-untrusted (a workspace-relative candidate existed) ->
     //     the hijack accident the trust check exists to catch; hard-fail.
-    if (!clojureOnPath()) {
+    if (!onPath()) {
       return { skipped: true, reason: err.message };
     }
     return { error: err };
   }
 
-  let crossSpawn;
-  try {
-    crossSpawn = require('cross-spawn');
-  } catch (err) {
-    if (err && err.code === 'MODULE_NOT_FOUND') {
-      return {
-        error: new Error(
-          'cross-spawn is not installed — run `npm install`/`npm ci` in ' +
-            'implementation/ first (it is the devDependency used for the ' +
-            'shell-free clojure spawn).'
-        ),
-      };
+  let spawnSync = deps.spawnSync;
+  if (!spawnSync) {
+    try {
+      spawnSync = require('cross-spawn').sync;
+    } catch (err) {
+      if (err && err.code === 'MODULE_NOT_FOUND') {
+        return {
+          error: new Error(
+            'cross-spawn is not installed — run `npm install`/`npm ci` in ' +
+              'implementation/ first (it is the devDependency used for the ' +
+              'shell-free clojure spawn).'
+          ),
+        };
+      }
+      throw err;
     }
-    throw err;
   }
 
-  return crossSpawn.sync(clojureExe, ['-Stree'], {
+  return spawnSync(clojureExe, ['-Stree'], {
     cwd,
     encoding: 'utf8',
     maxBuffer: 16 * 1024 * 1024,
   });
 }
 
-// --- self-test (hermetic; no build artefacts, no JVM) ----------------------
+// Interpret a resolveDependencyTree() result into an Arm-2 outcome. Pure — no
+// I/O, no toolchain — so the self-test can drive every branch with synthetic
+// results:
+//   { outcome: 'unavailable', reason }        — clojure genuinely absent.
+//   { outcome: 'error', tree }                — a hard failure (exit 2).
+//   { outcome: 'ran', leaks, graphSize }      — Arm 2 ran; inspect leaks.
+function classifyArm2(tree) {
+  if (tree.skipped) {
+    return { outcome: 'unavailable', reason: tree.reason };
+  }
+  if (tree.error || tree.status !== 0 || typeof tree.stdout !== 'string') {
+    return { outcome: 'error', tree };
+  }
+  return {
+    outcome: 'ran',
+    leaks: forbiddenCoordinates(tree.stdout),
+    graphSize: coordinatesFrom(tree.stdout).length,
+  };
+}
+
+// Read the focused loader's SHADOW_IMPORT closure. Split out (and injectable
+// via main's io seam) so the self-test can drive main() end-to-end with a
+// synthetic closure — no shadow-cljs build artefact required.
+function readFocusedLoaderImports() {
+  if (!fs.existsSync(loaderPath)) return { missing: true };
+  return { imports: importsFrom(fs.readFileSync(loaderPath, 'utf8')) };
+}
+
+// --- self-test (hermetic; no build artefacts, no JVM, no shell) ------------
+
+function withSilencedConsole(fn) {
+  const saved = { log: console.log, warn: console.warn, error: console.error };
+  console.log = console.warn = console.error = () => {};
+  try {
+    return fn();
+  } finally {
+    Object.assign(console, saved);
+  }
+}
 
 function selfTest() {
-  // The legacy prefix-only check, reconstructed to prove the false-green it let
-  // through and that the strengthened arm now reds on it.
+  const fail = (msg) => {
+    console.error(`[ui-adapter-isolation] self-test: ${msg}`);
+    return 1;
+  };
+
+  // The legacy prefix-only check, reconstructed to prove the false-greens it
+  // let through and that the strengthened arm now reds on them.
   const legacyPrefixes = [
     're_frame.adapter.reagent',
     're_frame.adapter.reagent_slim',
@@ -220,52 +303,67 @@ function selfTest() {
   const legacyForbidden = (imports) =>
     imports.filter((name) => legacyPrefixes.some((prefix) => name.startsWith(prefix)));
 
-  // Arm 1 — clean closure (incl. the legitimate adapter-neutral spine module).
   const clean = [requiredImport, 're_frame.core.js', 're_frame.adapter.context.js'];
-  if (forbiddenModules(clean).length !== 0) {
-    console.error('[ui-adapter-isolation] self-test: clean closure was rejected');
-    return 1;
-  }
-
-  // Arm 1 (a) — retiring adapter module is rejected.
-  const adapterLeak = [...clean, 're_frame.adapter.uix.js'];
-  if (!forbiddenModules(adapterLeak).includes('re_frame.adapter.uix.js')) {
-    console.error('[ui-adapter-isolation] self-test: forbidden adapter module was not detected');
-    return 1;
-  }
-
-  // Arm 1 (b) — direct wrapper module is rejected. This is the leak a
-  // prefix-only check MISSED: assert the legacy check is blind to it while the
-  // strengthened check reds.
-  const wrapperLeak = [...clean, 'uix.core.js'];
-  if (legacyForbidden(wrapperLeak).length !== 0) {
-    console.error('[ui-adapter-isolation] self-test: legacy control invalid (prefix check should be blind to uix.core.js)');
-    return 1;
-  }
-  if (!forbiddenModules(wrapperLeak).includes('uix.core.js')) {
-    console.error('[ui-adapter-isolation] self-test: direct wrapper module was not detected');
-    return 1;
-  }
-
-  // Arm 2 — clean resolved graph passes; each forbidden coordinate reds.
   const cleanTree = [
     'org.clojure/clojure 1.12.4',
     'day8/re-frame2 /repo/implementation/core',
     '  . org.clojure/clojurescript 1.12.145',
   ].join('\n');
-  if (forbiddenCoordinates(cleanTree).length !== 0) {
-    console.error('[ui-adapter-isolation] self-test: clean dependency graph was rejected');
-    return 1;
+
+  // --- Arm 1 (module closure) ---------------------------------------------
+
+  // Clean closure (incl. the legitimate adapter-neutral spine module) passes.
+  if (forbiddenModules(clean).length !== 0) return fail('clean closure was rejected');
+
+  // Retiring adapter module is rejected.
+  if (!forbiddenModules([...clean, 're_frame.adapter.uix.js']).includes('re_frame.adapter.uix.js')) {
+    return fail('forbidden adapter module was not detected');
   }
 
-  // Arm 2 (a) — an unused forbidden coordinate (Closure never selects it) reds.
-  const coordLeak = `${cleanTree}\n  com.pitch/uix.core 1.4.4`;
-  if (!forbiddenCoordinates(coordLeak).includes('com.pitch/uix.core')) {
-    console.error('[ui-adapter-isolation] self-test: forbidden coordinate was not detected');
-    return 1;
+  // Direct wrapper module is rejected — the leak a prefix-only check MISSED.
+  const uixLeak = [...clean, 'uix.core.js'];
+  if (legacyForbidden(uixLeak).length !== 0) {
+    return fail('legacy control invalid (prefix check should be blind to uix.core.js)');
+  }
+  if (!forbiddenModules(uixLeak).includes('uix.core.js')) {
+    return fail('direct wrapper module was not detected');
   }
 
-  // Arm 2 (b) — the full retiring denylist is covered.
+  // reagent-slim's REAL module root `reagent2.*` is rejected — the central
+  // false-green this bead closes (rf2-o3a93). Stock Reagent's `reagent.core.js`
+  // was already caught; `reagent2.core.js` slipped through because `reagent2`
+  // does not sit under the `reagent` root. Prove: caught by stock reagent,
+  // MISSED by the pre-fix roots, now caught.
+  if (!forbiddenModules(['reagent.core.js']).includes('reagent.core.js')) {
+    return fail('stock reagent module root regressed');
+  }
+  for (const mod of ['reagent2.core.js', 'reagent2.ratom.js', 'reagent2.dom.client.js']) {
+    if (legacyForbidden([mod]).length !== 0) {
+      return fail(`legacy control invalid (prefix check should be blind to ${mod})`);
+    }
+    if (!forbiddenModules([mod]).includes(mod)) {
+      return fail(`reagent-slim real module root ${mod} was not detected`);
+    }
+  }
+
+  // Exact-boundary matching — lookalikes stay green (no `reagent2` swallowing
+  // `reagent2foo`, no `reagent` swallowing `reagent2`).
+  for (const lookalike of ['reagent2foo.core.js', 'reagentx.core.js', 'uixfoo.js', 'helixir.js']) {
+    if (forbiddenModules([lookalike]).length !== 0) {
+      return fail(`lookalike ${lookalike} was wrongly rejected (boundary match broken)`);
+    }
+  }
+
+  // --- Arm 2 (resolved coordinate graph) ----------------------------------
+
+  if (forbiddenCoordinates(cleanTree).length !== 0) return fail('clean dependency graph was rejected');
+
+  // An unused forbidden coordinate (Closure never selects it) reds.
+  if (!forbiddenCoordinates(`${cleanTree}\n  com.pitch/uix.core 1.4.4`).includes('com.pitch/uix.core')) {
+    return fail('forbidden coordinate was not detected');
+  }
+
+  // The full wrapper denylist is covered.
   const everyWrapper = [
     'reagent/reagent 2.0.1',
     'day8/reagent-slim /repo/implementation/adapters/reagent-slim',
@@ -274,28 +372,138 @@ function selfTest() {
   ].join('\n');
   const wrapperCoords = forbiddenCoordinates(everyWrapper);
   if (wrapperCoords.length !== 4) {
-    console.error('[ui-adapter-isolation] self-test: retiring-wrapper coordinate denylist incomplete');
     console.error(`  detected: ${wrapperCoords.join(', ') || '(none)'}`);
-    return 1;
+    return fail('wrapper coordinate denylist incomplete');
   }
 
-  console.log('[ui-adapter-isolation] self-test PASS (module-closure + resolved-graph controls red on synthetic leaks)');
+  // --- Subprocess resolution fixtures (no shell, no toolchain) -------------
+  // The three `clojure` resolution outcomes, driven with injected fakes.
+
+  // (a) absent CLI: nothing on PATH -> Arm 2 is N/A (skipped), NOT an error.
+  const absent = resolveDependencyTree('/x', {
+    resolveExe: () => {
+      throw new Error('resolveTrustedExe: could not find "clojure" on PATH.');
+    },
+    onPath: () => false,
+  });
+  if (!absent.skipped || absent.error) return fail('absent CLI must classify as skipped, not error');
+
+  // (b) present-but-untrusted CLI: a candidate exists but resolves untrusted
+  // (workspace-relative hijack) -> HARD error, never a skip.
+  const untrusted = resolveDependencyTree('/x', {
+    resolveExe: () => {
+      throw new Error('resolveTrustedExe: no candidate for "clojure" could be trusted.');
+    },
+    onPath: () => true,
+  });
+  if (untrusted.skipped || !untrusted.error) {
+    return fail('present-but-untrusted CLI must classify as error, not skipped');
+  }
+
+  // (c) spawn failure: a trusted path resolves but the spawn itself fails
+  // (ENOENT / spawn error) -> error result, mapped to a hard fail.
+  const spawnFail = resolveDependencyTree('/x', {
+    resolveExe: () => '/host/bin/clojure',
+    spawnSync: () => ({ error: Object.assign(new Error('spawn ENOENT'), { code: 'ENOENT' }), status: null }),
+  });
+  if (!spawnFail.error) return fail('spawn failure must surface an error result');
+  if (classifyArm2(spawnFail).outcome !== 'error') return fail('spawn-failure result must classify as error');
+
+  // classifyArm2 branch coverage.
+  if (classifyArm2({ skipped: true, reason: 'absent' }).outcome !== 'unavailable') {
+    return fail('classifyArm2 must map skipped -> unavailable');
+  }
+  if (classifyArm2({ status: 1, stdout: '' }).outcome !== 'error') {
+    return fail('classifyArm2 must map non-zero status -> error');
+  }
+  if (classifyArm2({ status: 0, stdout: cleanTree }).outcome !== 'ran') {
+    return fail('classifyArm2 must map clean tree -> ran');
+  }
+
+  // --- End-to-end gate decisions (main() with injected IO) -----------------
+  // Prove the previously-false-green conditions now go RED, and that genuinely
+  // passing conditions stay green. Console is silenced for the intentional
+  // red-path probes so the self-test output stays clean.
+
+  const runMain = (argv, io) => withSilencedConsole(() => main(argv, io));
+
+  // MUTATION 1 — a direct `reagent2.core` import in the focused first-party UI
+  // closure reds the gate (exit 1) EVEN WHEN no forbidden coordinate is
+  // declared (Arm 2 graph is clean). This is the central mutation class the
+  // old coordinate-only self-test never exercised.
+  const reagent2Mutation = runMain([], {
+    readLoaderImports: () => ({ imports: [requiredImport, 're_frame.core.js', 'reagent2.core.js'] }),
+    resolveTree: () => ({ status: 0, stdout: cleanTree }),
+  });
+  if (reagent2Mutation !== 1) {
+    return fail(`reagent2.core closure leak must red the gate (exit 1), got exit ${reagent2Mutation}`);
+  }
+
+  // MUTATION 2 — the default full command FAILS CLOSED (exit 2) when the
+  // clojure CLI is unavailable, even with a clean Arm 1 closure. The old gate
+  // printed PASS and exited 0 here.
+  const missingCli = runMain([], {
+    readLoaderImports: () => ({ imports: [requiredImport, 're_frame.core.js'] }),
+    resolveTree: () => ({ skipped: true, reason: 'clojure absent' }),
+  });
+  if (missingCli !== 2) {
+    return fail(`missing clojure CLI must fail closed (exit 2), got exit ${missingCli}`);
+  }
+
+  // A present-but-untrusted CLI also fails closed (exit 2) via main().
+  const untrustedMain = runMain([], {
+    readLoaderImports: () => ({ imports: [requiredImport, 're_frame.core.js'] }),
+    resolveTree: () => ({ error: new Error('untrusted clojure candidate') }),
+  });
+  if (untrustedMain !== 2) {
+    return fail(`present-but-untrusted CLI must fail closed (exit 2), got exit ${untrustedMain}`);
+  }
+
+  // CONTROL — an explicit `--modules-only` run over a clean Arm 1 closure exits
+  // 0 (green) WITHOUT invoking Arm 2 (resolveTree throws if touched), and is
+  // NOT reported as a full G-12 pass.
+  const modulesOnly = runMain(['--modules-only'], {
+    readLoaderImports: () => ({ imports: [requiredImport, 're_frame.core.js'] }),
+    resolveTree: () => {
+      throw new Error('modules-only must not invoke Arm 2');
+    },
+  });
+  if (modulesOnly !== 0) {
+    return fail(`explicit --modules-only over a clean closure must exit 0, got exit ${modulesOnly}`);
+  }
+
+  // CONTROL — a genuinely clean full run (clean closure + clean graph) exits 0.
+  const fullPass = runMain([], {
+    readLoaderImports: () => ({ imports: clean }),
+    resolveTree: () => ({ status: 0, stdout: cleanTree }),
+  });
+  if (fullPass !== 0) {
+    return fail(`clean full run must pass (exit 0), got exit ${fullPass}`);
+  }
+
+  console.log(
+    '[ui-adapter-isolation] self-test PASS (module-closure incl. reagent2 + resolved-graph ' +
+      'controls red on synthetic leaks; missing/untrusted clojure fails closed; --modules-only is explicit)'
+  );
   return 0;
 }
 
 // --- main ------------------------------------------------------------------
 
-function main(argv) {
+function main(argv, io = {}) {
   if (argv.includes('--self-test')) return selfTest();
 
-  let failed = false;
+  const modulesOnly = argv.includes('--modules-only');
+  const readLoaderImports = io.readLoaderImports || readFocusedLoaderImports;
+  const resolveTree = io.resolveTree || ((cwd) => resolveDependencyTree(cwd));
 
   // Arm 1 — compiler-selected module closure.
-  if (!fs.existsSync(loaderPath)) {
+  const loader = readLoaderImports();
+  if (loader.missing) {
     console.error(`[ui-adapter-isolation] missing focused loader: ${loaderPath}`);
     return 2;
   }
-  const imports = importsFrom(fs.readFileSync(loaderPath, 'utf8'));
+  const imports = loader.imports;
   if (imports.length === 0) {
     console.error('[ui-adapter-isolation] focused loader contains no SHADOW_IMPORT rows');
     return 2;
@@ -306,60 +514,65 @@ function main(argv) {
   }
   const moduleLeaks = forbiddenModules(imports);
 
-  // Arm 2 — resolved dependency graph. Three outcomes:
-  //   - skipped: `clojure` genuinely absent from this environment (e.g. the
-  //     node-test CI job has JDK + Node but no setup-clojure). Arm 2 cannot
-  //     apply; emit a LOUD, auditable notice and let Arm 1 decide the gate.
-  //     This is NOT a silent pass — Arm 1 still enforces isolation, and the
-  //     resolved-graph arm runs wherever `clojure` IS present (local + any
-  //     clojure-provisioned job).
-  //   - error / non-zero: a hard failure (exit 2) — a workspace-relative
-  //     `clojure` hijack candidate, a missing cross-spawn, or a `clojure`
-  //     invocation error. An unverifiable-but-present toolchain is never a
-  //     silent pass.
-  //   - ran: inspect the resolved coordinates against the denylist.
-  const tree = resolveDependencyTree(uiArtefactDir);
+  // Arm 2 — resolved dependency graph. A full G-12 pass REQUIRES Arm 2; the
+  // default command therefore fails closed if Arm 2 cannot run. `--modules-only`
+  // is an EXPLICIT reduced diagnostic that skips Arm 2 entirely and is never
+  // reported as a full pass.
   let coordinateLeaks = [];
   let arm2Ran = false;
-  if (tree.skipped) {
-    console.warn(
-      '[ui-adapter-isolation] G-12 Arm 2 skipped: clojure CLI not available in ' +
-        'this environment; module-closure Arm 1 enforced'
-    );
-    if (tree.reason) {
-      console.warn(`  (${String(tree.reason).split('\n')[0]})`);
+  let graphSize = 0;
+  if (!modulesOnly) {
+    const arm2 = classifyArm2(resolveTree(uiArtefactDir));
+    if (arm2.outcome === 'unavailable') {
+      console.error(
+        '[ui-adapter-isolation] G-12 FAIL-CLOSED: the Clojure CLI is unavailable, so the ' +
+          'resolved-graph Arm 2 could not run — a full G-12 pass REQUIRES Arm 2. Provision the ' +
+          'Clojure CLI, or re-run with --modules-only for an EXPLICIT Arm-1-only diagnostic ' +
+          '(a reduced check, NOT a full G-12 pass).'
+      );
+      if (arm2.reason) console.error(`  (${String(arm2.reason).split('\n')[0]})`);
+      return 2;
     }
-  } else if (tree.error || tree.status !== 0 || typeof tree.stdout !== 'string') {
-    console.error(`[ui-adapter-isolation] could not resolve ${uiArtefactDir} dependency graph (clojure -Stree)`);
-    if (tree.stderr) console.error(String(tree.stderr).trim());
-    if (tree.error) console.error(String(tree.error.message || tree.error));
-    return 2;
-  } else {
-    coordinateLeaks = forbiddenCoordinates(tree.stdout);
+    if (arm2.outcome === 'error') {
+      console.error(
+        `[ui-adapter-isolation] could not resolve ${uiArtefactDir} dependency graph (clojure -Stree)`
+      );
+      const t = arm2.tree || {};
+      if (t.stderr) console.error(String(t.stderr).trim());
+      if (t.error) console.error(String(t.error.message || t.error));
+      return 2;
+    }
+    coordinateLeaks = arm2.leaks;
+    graphSize = arm2.graphSize;
     arm2Ran = true;
+  } else {
+    console.warn(
+      '[ui-adapter-isolation] --modules-only: resolved-graph Arm 2 intentionally NOT run; this ' +
+        'is a REDUCED Arm-1-only diagnostic, NOT a full G-12 pass.'
+    );
   }
 
+  let failed = false;
   if (moduleLeaks.length > 0) {
-    console.error('[ui-adapter-isolation] retiring adapter/wrapper code entered the focused UI module closure:');
+    console.error('[ui-adapter-isolation] view-stack adapter/wrapper code entered the focused UI module closure:');
     for (const name of moduleLeaks) console.error(`  ${name}`);
     failed = true;
   }
   if (coordinateLeaks.length > 0) {
-    console.error('[ui-adapter-isolation] retiring wrapper coordinate resolved in the re-frame.ui dependency graph:');
+    console.error('[ui-adapter-isolation] view-stack wrapper coordinate resolved in the re-frame.ui dependency graph:');
     for (const coord of coordinateLeaks) console.error(`  ${coord}`);
     failed = true;
   }
   if (failed) return 1;
 
   if (arm2Ran) {
-    const graphSize = coordinatesFrom(tree.stdout).length;
     console.log(
       `[ui-adapter-isolation] PASS (${imports.length} compiler-selected imports, ${graphSize} resolved coordinates; wrapper-free)`
     );
   } else {
     console.log(
-      `[ui-adapter-isolation] PASS (${imports.length} compiler-selected imports; ` +
-        'module-closure Arm 1 enforced, resolved-graph Arm 2 skipped — clojure CLI absent)'
+      `[ui-adapter-isolation] MODULES-ONLY OK (${imports.length} compiler-selected imports; Arm 1 ` +
+        'enforced, resolved-graph Arm 2 NOT run — reduced diagnostic, NOT a full G-12 pass)'
     );
   }
   return 0;
@@ -377,6 +590,9 @@ module.exports = {
   forbiddenCoordinates,
   clojureOnPath,
   resolveDependencyTree,
+  classifyArm2,
+  readFocusedLoaderImports,
+  main,
   forbiddenModuleRoots,
   forbiddenCoordinatePatterns,
 };
