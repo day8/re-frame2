@@ -318,7 +318,7 @@ NOTES block is authoritative over any summary here.
 
 | # | Ruling |
 |---|---|
-| R-1 packaging | same repo; native `re-com/re-com-ui` with `re-com.ui.*`; frozen Reagent legacy keeps `re-com.*` |
+| R-1 packaging | same repo; native `re-com/re-com-ui` with `re-com.ui.*`; the coexisting Reagent legacy keeps `re-com.*` |
 | R-2 parts ceiling | data/style values + pure compiled slots only; slots receive the component's declared state; no registered stateful replacements in v1 |
 | R-3 uncontrolled tier | narrow, per-component `:default-value`; `:value` XOR `:default-value` validated; type-based ownership inference rejected permanently |
 | R-4 theme transport | explicit props + frame subscriptions; theme values plain data only (context graduation stays non-breaking) |

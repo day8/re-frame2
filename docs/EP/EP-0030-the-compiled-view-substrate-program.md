@@ -14,12 +14,15 @@ Type: standards-track
 > atomically with that stage's conformance fixtures, never ahead of them.
 
 > This is the umbrella EP of the compiled-view substrate program. It records **one
-> decision surface**: replace the adapter trio (Reagent / UIx / Helix) with a single
-> first-party compiled view library, **`re-frame.ui`**, delivered as staged conformance
-> slices S1–S7 behind a demand-bar-gated public surface. The program-level decision,
-> delivery plan, and operator rulings live here; the per-domain contracts live in the
-> sibling EPs (EP-0031–EP-0035). Normative home: the Spec 004 family, Spec 006, and the
-> Spec 008/009/011 rows each stage amends.
+> decision surface**: add a first-party compiled view library, **`re-frame.ui`**, as a
+> **new, experimental view substrate offered alongside the existing adapters**, delivered
+> as staged conformance slices S1–S7 behind a demand-bar-gated public surface.
+> `re-frame.ui` is an additional option, **not** a mandated replacement and **not** the
+> only taught view layer: **Reagent, UIx, and reagent-slim live on as first-class,
+> actively-supported adapters; only Helix is removed** (Resolved Decisions, 2026-07-17).
+> The program-level decision, delivery plan, and operator rulings live here; the
+> per-domain contracts live in the sibling EPs (EP-0031–EP-0035). Normative home: the
+> Spec 004 family, Spec 006, and the Spec 008/009/011 rows each stage amends.
 
 ## Abstract
 
@@ -28,9 +31,10 @@ handlers; a compiler lowers them to one normalized AST and emits direct React co
 the browser and a structural render tree for the JVM — no interpreter ships. A view's
 reads share one React bridge under a committed push-ownership protocol, frames are
 created at host preflight (never from render), dev builds are a glass cockpit that
-provably vanishes from production. `re-frame.ui` becomes the optimized, default, and
-only *taught* view layer; stock Reagent and UIx freeze as compatibility adapters; Helix
-and reagent-slim are removed once the S7 soak gates pass.
+provably vanishes from production. `re-frame.ui` ships as a **new, experimental,
+first-party view substrate** — an additional option, not a mandated replacement; stock
+Reagent, UIx, and reagent-slim live on as first-class, actively-supported adapters; only
+Helix is removed once the S7 soak gates pass.
 
 ## Motivation
 
@@ -100,15 +104,16 @@ EP-0031–EP-0034 — nor the component-library readiness package (EP-0035).
 
 ### The decision
 
-`re-frame.ui` (artifact `day8/re-frame2-ui`, alias `ui` — ruling R-3) is the optimized,
-default, and only taught view layer of re-frame2, and the only recipient of new
-capabilities, performance work, debugging integration, examples, and templates. **Stock
-Reagent and UIx are retained as frozen compatibility adapters** — correct under a pinned
-contract suite plus one browser smoke each, receiving bug fixes that preserve the pinned
-contract but no new capabilities and no parity promise. **Helix and reagent-slim are
-removed** after the proof/default/soak gates (S7). The v1 runtime law is unchanged:
-exactly one adapter is installed per process, chosen at boot; foreign React interop
-(`ui/raw`, `ui/->react`) never selects a second adapter.
+`re-frame.ui` (artifact `day8/re-frame2-ui`, alias `ui` — ruling R-3) is a **new,
+experimental, first-party view substrate** of re-frame2 — an additional option, **not** a
+mandated replacement and **not** the only taught view layer. It is the focus of the
+program's new compiled-substrate capability, performance, and debugging-integration work.
+**Stock Reagent, UIx, and reagent-slim live on as first-class, actively-supported
+adapters** — they are not frozen and are not scheduled for removal, keeping their
+contract suites plus one browser smoke each. **Only Helix is removed** after the
+proof/soak gates (S7). The v1 runtime law is unchanged: exactly one adapter is installed
+per process, chosen at boot; foreign React interop (`ui/raw`, `ui/->react`) never selects
+a second adapter.
 
 ### The program decision record (ratified 2026-07-11)
 
@@ -125,10 +130,12 @@ The full record is `ai/findings/new-substrate-synthesis/08-delivery.md` §5; the
 
 Named companion rulings from the same record: the **presence** contract (`ui/presence`
 wrapper, no reserved nodes, mandatory timeout safety bound); the **adapters** ruling
-(the freeze/removal shape above — Reagent + re-com enable the two-step v1 migration;
-UIx apps keep a correct boot choice); the **proof app** (RealWorld-resources — one
-vertical page at S3, the full app at S6); the **budget** (B-lite: never saturate all
-worker slots on the substrate pre-proof); and the **frame chain** (R-7 — the staged
+(the coexistence shape above — Reagent + re-com enable the two-step v1 migration; UIx
+apps keep a correct boot choice; **the original "frozen compatibility adapters" /
+"reagent-slim removed" shape is superseded on the adapter-disposition point by the
+2026-07-17 reframing — see Resolved Decisions**); the **proof app** (RealWorld-resources
+— one vertical page at S3, the full app at S6); the **budget** (B-lite: never saturate
+all worker slots on the substrate pre-proof); and the **frame chain** (R-7 — the staged
 frame-root/provider split, since landed).
 
 ### Stages S1–S7
@@ -153,9 +160,10 @@ spikes feasibility-PASS before any production code.
 6. **S6 — production specialization + repo adoption:** capability-specialized output,
    absence/equivalence/budget gates, migrator, examples/docs/skills/template/CI
    rewrite; RealWorld-resources + Story + Xray green is the proof.
-7. **S7 — alpha + freeze/deletion wave:** every gate green, demand-bar prune, Reagent +
-   UIx frozen, Helix + reagent-slim deleted — strictly behind the soak gates (two
-   consecutive green nightlies + one week of repo work with no fallback).
+7. **S7 — alpha + Helix-removal wave:** every gate green, demand-bar prune, **only Helix
+   removed** — strictly behind the soak gates (two consecutive green nightlies + one week
+   of repo work with no fallback). Reagent, UIx, and reagent-slim live on as first-class
+   adapters; `re-frame.ui` remains a new experimental substrate, not their replacement.
 
 ### The demand-bar-gated public surface
 
@@ -163,7 +171,9 @@ Every public name needed a named consumer **before Stage 1**, recorded in the bl
 API table — `ai/findings/new-substrate-synthesis/12-implementation-plan.md` §2, with the
 §2b authoritative surface matrix (name → stage / owner / proof fixture / spec home).
 This EP references those tables rather than duplicating them; **anything not in the
-table does not exist**. The table was **blessed as-is by Mike on 2026-07-12 00:39
+table is not part of `re-frame.ui`'s public surface** (the demand bar disciplines the new
+substrate's own API — it says nothing about the retained adapters). The table was
+**blessed as-is by Mike on 2026-07-12 00:39
 AUSEST as the API freeze for v1**, with a delta protocol: findings that touch the table
 return as row-level deltas for re-ruling; the freeze itself is not reopened. Five deltas
 are ruled under it: **#1** `ui/custom-element` to v1 (2026-07-12), **#2** `ui/->react`
@@ -182,17 +192,17 @@ with the `substrates/` deletion (W4), the hot-zone spec-tree waves (W5), tool ev
 consumption into Xray/Story/Pair (W7a, S3 — debugging is the *first* consumer, not the
 last), the tools' own UIs migrating as the dogfood proof (W7b), template collapse (W8),
 the CI rewrite ending at three named causal suites (W9), SSR hosts (W10), one-time
-benchmarks against the legacy trio before removal (W11), repo meta-docs (W12), the
-freeze/deletion wave (W13), conformance corpus (W14), and program management (W15).
+benchmarks against the legacy adapters before Helix removal (W11), repo meta-docs (W12),
+the Helix-removal wave (W13), conformance corpus (W14), and program management (W15).
 None are optional; `ui.test`, the migrator, and the skills are critical path.
 
 ### Migration posture
 
 The external story is a **two-step migration** (`10-migration-from-reagent.md`): step 1
 moves a v1 Reagent/re-com app's *dataflow* to re-frame2 with views unchanged on the
-frozen compat tier — gaining Xray, epochs, Story, schemas, machines immediately; step 2
-migrates views to `ui` per subtree, on the app's schedule, with the migrator (~80–90%
-mechanical). re-com widgets are the last movers; their `ui`-native answer is now a
+coexisting Reagent adapter — gaining Xray, epochs, Story, schemas, machines immediately;
+step 2 optionally migrates views to `ui` per subtree, on the app's schedule, with the
+migrator (~80–90% mechanical). re-com widgets are the last movers; their `ui`-native answer is now a
 **directed program** — epic `rf2-6ajm6z`, with substrate readiness riding S3 per EP-0035.
 
 ### Risks
@@ -223,19 +233,23 @@ surface sprawl. Freezing the table before Stage 1 — then admitting change only
 ruled row-level deltas — keeps the surface honest while staying amendable where real
 consumers (re-com being the first) demonstrate need.
 
-**Freeze, don't delete, Reagent and UIx** because both have named consumers: the
-two-step migration for existing v1/re-com apps and a correct boot choice for existing
-UIx apps. Helix and reagent-slim have none once `ui` ships — they exit.
+**Keep Reagent, UIx, and reagent-slim as first-class adapters, and offer `re-frame.ui`
+alongside them** rather than as their replacement. All three have named consumers: the
+two-step migration for existing v1/re-com apps, a correct boot choice for existing UIx
+apps, and the slim-bundle option. They stay actively supported — `re-frame.ui` is the new
+experimental substrate, not a mandate to leave them. **Only Helix is removed** once `ui`
+ships; the others cover its niche.
 
 ## Backwards Compatibility
 
-Pre-alpha: no compatibility shims. Within this repo, the trio's surfaces migrate over
-S6–S7 (examples, testbeds, tools, template, docs). For external apps the compatibility
-surface is deliberate: the frozen Reagent and UIx tiers keep pinned contract suites and
-smokes in CI, `reg-view` freezes with stock Reagent, and the removal wave touches only
-Helix and reagent-slim, behind the S7 soak gates. Benchmarks against the legacy trio
-run once before removal; the results, fixtures, and a git tag of the removed surfaces
-survive.
+Pre-alpha: no compatibility shims. Within this repo, view surfaces gain `re-frame.ui` as
+a new option over S6–S7 (examples, testbeds, tools, template, docs) while the retained
+adapters keep working. For external apps the compatibility surface is deliberate: the
+Reagent, UIx, and reagent-slim adapters stay first-class and actively supported, keeping
+their contract suites and smokes in CI (`reg-view` stays with stock Reagent), and the
+removal wave touches **only Helix**, behind the S7 soak gates. Benchmarks against the
+legacy adapters run once before Helix removal; the results, fixtures, and a git tag of
+the removed surface survive.
 
 ## Bead Plan / Reference Implementation
 
@@ -271,17 +285,21 @@ survives until its PREP-ANCHORED beads consume it (`rf2-gria2b`, `rf2-nwgzha`,
 to `skills/` at S6 (W6); `spikes/` and `reviews/` remain as historical evidence
 referenced from this EP.
 
-**Guide-impact assessment (EP-0009 rule 5):** the program rewrites every `docs/core`
-view surface (W3) — views, frames, the introduction counter, forms — deletes the
-substrate-choice teaching page, retains one minimum compatibility reference for the
-frozen boot choices, and rebuilds the playground. Sibling EPs name per-domain impacts.
+**Guide-impact assessment (EP-0009 rule 5):** the program adds `re-frame.ui` coverage
+across the `docs/core` view surface (W3) — views, frames, the introduction counter,
+forms — keeps the substrate-choice teaching (now presenting `re-frame.ui` as a new
+experimental option alongside the retained Reagent/UIx/reagent-slim boot choices), and
+rebuilds the playground. Sibling EPs name per-domain impacts.
 
 ## Resolved Decisions
 
 - **Program ratification (2026-07-11, Mike).** The 08 §5 decision record — R-1…R-6 plus
   the presence, adapters, proof-app, budget, and frame-chain rulings — is the ruled
   decision surface this EP records. Its provenance log is
-  `ai/findings/new-substrate-synthesis/09-review-disposition.md`.
+  `ai/findings/new-substrate-synthesis/09-review-disposition.md`. *(The adapters ruling's
+  original "frozen compatibility adapters" / "reagent-slim removed" shape is superseded on
+  the adapter-disposition point by the 2026-07-17 reframing below; all other rulings
+  stand.)*
 - **API freeze (2026-07-12 00:39 AUSEST, Mike).** The 12 §2 public-surface table is
   blessed as-is as the v1 API freeze, governed by the row-level delta protocol; deltas
   #1–#5 (custom-element, `->react`, `spread`, `slot`/internal `render-fn`, safe-policy
@@ -298,12 +316,23 @@ frozen boot choices, and rebuilds the playground. Sibling EPs name per-domain im
   slots) plus the safe-spread policy, native-library layout/ref blessing, and the
   docs/slot manifest projection — full contract in **EP-0035**; the port itself is epic
   `rf2-6ajm6z`.
+- **Adapter disposition reframed (2026-07-17, Mike).** `re-frame.ui` is a **new,
+  experimental view substrate offered as an additional option** — not a mandated
+  replacement of the adapter trio and not the only taught view layer. Stock **Reagent,
+  UIx, and reagent-slim live on as first-class, actively-supported adapters** (not frozen,
+  not scheduled for removal); **only Helix is removed** at S7, behind the soak gates. This
+  supersedes the adapter-disposition point of the 2026-07-11 ratification (the "frozen
+  compatibility adapters" and "reagent-slim removed" shape). The technical interop-boundary
+  contract for legacy Reagent embedded in a `ui` host is **unchanged** — the coexistence
+  mechanism (shared React context object, `frame-provider`, HMR-inward, sibling/inward/
+  outward granularities) stays valid because Reagent still coexists with `re-frame.ui`;
+  only the "frozen tier" *labeling* is retired in favour of "compatibility/interop tier."
 
 ## Recommendation
 
 Keep EP-0030 `accepted` while the stages land; it moves to `final` when S7 completes —
-every gate green, the demand-bar prune done, Helix and reagent-slim removed behind the
-soak gates, and the compatibility freezes recorded in their spec homes. The program's
-shape is already proving itself: two stages merged under adversarial boundary reviews,
-the third in flight, and the first external consumer (re-com) driving real contract
-work through the freeze's own delta protocol rather than around it.
+every gate green, the demand-bar prune done, **Helix removed** behind the soak gates, and
+the retained adapters' continued-support posture recorded in their spec homes. The
+program's shape is already proving itself: two stages merged under adversarial boundary
+reviews, the third in flight, and the first external consumer (re-com) driving real
+contract work through the API freeze's own delta protocol rather than around it.

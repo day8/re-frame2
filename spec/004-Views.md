@@ -1020,6 +1020,18 @@ There is exactly **one** component form. The following do not exist in this cont
   frameworks, resumability machinery** — non-goals (resumability is research-tier per
   R-5).
 
+> **[SUPERSEDED — adapter disposition reframed 2026-07-17, Mike; EP-0030 Resolved
+> Decisions.]** The freeze/deletion framing in the [TRANSITION] block below is superseded
+> on the adapter-disposition point. **Reagent, UIx, and reagent-slim live on as
+> first-class, actively-supported adapters** (not frozen, not removed), and **only Helix
+> is removed** at S7. `re-frame.ui` is a *new experimental* substrate offered alongside
+> them, so `ui/defview` is **not** the only taught component form. The technical mechanics
+> below — the [TRANSITION] carriers, the `spec/004A-Reagent-Compat.md` appendix as the
+> Reagent tier's live home, the two-direction boundary contract, and old/new co-mounting —
+> remain valid; only the "frozen / adapters removed" labeling is retired. Read "deletion
+> wave" as "Helix-removal wave." A follow-up bead will fold this reframing into the annex
+> prose.
+
 **[TRANSITION] Until the adapter deletion wave** (proof/default/soak gates per the
 08 §5 Adapters decision: RealWorld-resources green · Story + Xray green ·
 SSR/hydration + HMR matrices green · production-specialization + bundle-absence gates

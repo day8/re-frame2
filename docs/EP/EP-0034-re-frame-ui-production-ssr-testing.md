@@ -65,13 +65,13 @@ gate roster and its stage-wiring rule.
   criteria), RSC (the JVM SSR path is the canonical server story), and streaming sugar
   (the tree emitter is chunkable; policy stays host-side per Spec 011);
 - a dev-bundle size budget (the production claim about debug machinery is *absence*);
-- any ongoing performance-parity promise for the frozen Reagent/UIx compatibility
-  adapters (the trio comparison is a one-time S6 table, then an archive).
+- any ongoing performance-parity promise for the coexisting Reagent/UIx compatibility
+  adapters (the comparison is a one-time S6 table, then an archive).
 
 ## Relationships
 
-- **EP-0030** — the program umbrella (stages, demand bar, compatibility freeze);
-  stage wiring and the one-time S6 trio comparison follow its schedule.
+- **EP-0030** — the program umbrella (stages, demand bar, adapter disposition);
+  stage wiring and the one-time S6 adapter comparison follow its schedule.
 - **EP-0031** — the programming model (compiled `defview`, event-vector handlers,
   capability grammar): 0031 promises, 0034 verifies.
 - **EP-0032** — reactivity and ownership (observation port, ViewCell, commit
@@ -248,10 +248,11 @@ the design rather than toggling a fork — the roster is honesty, not marketing.
 
 ## Backwards Compatibility
 
-Pre-alpha; no compatibility surface is preserved. The legacy shared-adapter parity
-matrix collapses into three causal owners (new-UI conformance + smoke; frozen-Reagent
-and frozen-UIx compatibility suites + one smoke each); only Helix/slim arms retire, at
-S7. The frozen adapters keep a pinned correctness contract — never a parity promise.
+Pre-alpha; no back-compat shims. The legacy shared-adapter parity
+matrix collapses into three causal owners (new-UI conformance + smoke; Reagent
+and UIx compatibility suites + one smoke each); only the Helix arm retires, at
+S7 (reagent-slim is kept). The coexisting adapters keep a pinned correctness contract —
+a distinct compiled substrate makes no automatic parity promise.
 Spec 008's adapter-era testing surface (`flush-views!`, `re-frame.test-helpers`) keeps
 governing the compatibility tier until the `ui.test` contract graduates into 008.
 
@@ -263,7 +264,7 @@ G-3/4/5/6/13 wired. **S3** — elision gates G-7/G-11; G-8 including the widened
 G-15..G-18 + the proof pack. **S5** — root manifests, multi-root hydration, failure
 isolation, `render-static`, the `client-only` phase flip; Spec 011 edits sequenced
 behind any in-flight Spec-011 PR (hot zone). **S6** — G-10/G-12 and residual budget
-gates; the one-time G-10/W11 trio tables + archive tag before the S7 freeze/removal
+gates; the one-time G-10/W11 comparison tables + archive tag before the S7 Helix-removal
 wave. Guide-impact assessment: guide 08 (SSR/hydration), 09 (testing/debugging), and 10
 (performance) teach these postures; the guide-fixtures corpus is itself a test surface
 — every example compiles and runs as a fixture; one needing internals explained is an
