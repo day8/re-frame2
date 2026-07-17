@@ -622,8 +622,13 @@
   require this ns — `error-emit` → `elision` → `frame` is a load cycle).
 
   `hook-failures` is a non-empty vector of
-  `{:hook <late-bind-hook-key> :exception <ex> :where :safe-call-hook!}`
-  entries — one per failed hook, accumulated during the teardown walk.
+  `{:hook <step-key> :exception <ex> :where <catch-boundary>}` entries — one
+  per failed teardown step, accumulated during the teardown walk through the
+  shared `record-teardown-failure!` boundary. `:hook` names the late-bound
+  cleanup-hook key that threw OR the guarded direct-step key (e.g.
+  `:frame/notify-machine-destruction!`); `:where` is the catch boundary that
+  recorded it — `:safe-call-hook!` for a late-bound hook, `:safe-teardown-step!`
+  for a guarded direct step.
   Returns nil; a no-op when `hook-failures` is empty (no failures, no
   report)."
   ([frame-id hook-failures time]
