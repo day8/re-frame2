@@ -180,6 +180,18 @@ else
         ;;
     esac
 
+    # rf2-vs60jg — the authoritative re-frame.ui program plan
+    # (12-implementation-plan.md) carries the durable, one-time S0 coverage-pass
+    # disposition. Its guard (scripts/check_synthesis_plan_authority.py) runs in
+    # the synthesis-docs job, so a change to the plan OR to the guard itself must
+    # fire that job — otherwise a status-drift edit (or a guard edit that removes
+    # the pin) could avoid its own check.
+    case "$file" in
+      ai/findings/new-substrate-synthesis/12-implementation-plan.md|scripts/check_synthesis_plan_authority.py)
+        synthesis_docs=true
+        ;;
+    esac
+
     case "$file" in
       .github/workflows/test.yml|.github/workflows/expensive-tests.yml|.github/scripts/report-changed-surfaces.sh|TESTING.md)
         mark_all

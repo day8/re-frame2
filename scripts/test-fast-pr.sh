@@ -272,6 +272,23 @@ if [ "$markdown_changed" = "true" ]; then
   run "runtime-subsystem grading drift" "python scripts/check_runtime_subsystem_grading.py" \
     python "$repo_root/scripts/check_runtime_subsystem_grading.py"
 
+  # Synthesis-plan S0-authority guard (rf2-vs60jg, from rf2-vxgfnd.235): the
+  # authoritative re-frame.ui program plan
+  # (ai/findings/new-substrate-synthesis/12-implementation-plan.md) carries a
+  # one-time, durable "S0 COVERAGE PASS (2026-07-12) — SHIP" disposition whose
+  # authority is the epic rf2-vxgfnd NOTES.  Pins the checked anchor + its
+  # authority + the named implementer-question → bead mappings, and forbids an
+  # unqualified live-stage progress claim (e.g. "S3–S7 not started") re-entering
+  # the plan (the epic + its beads own live stage state).  Self-test first
+  # (proves the guard fires on an unchecked/missing anchor, a dropped mapping,
+  # and a reintroduced drift claim), then the live scan.  See
+  # scripts/check_synthesis_plan_authority.py.
+  run "synthesis-plan S0-authority self-test" "python scripts/check_synthesis_plan_authority.py --self-test" \
+    python "$repo_root/scripts/check_synthesis_plan_authority.py" --self-test
+
+  run "synthesis-plan S0-authority guard" "python scripts/check_synthesis_plan_authority.py" \
+    python "$repo_root/scripts/check_synthesis_plan_authority.py"
+
   run_soft "mkdocs --strict build" "mkdocs build --strict" mkdocs \
     bash -lc "cd '$repo_root' && mkdocs build --strict"
 else
