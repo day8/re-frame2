@@ -105,6 +105,65 @@
   [result]
   (every? empty? (vals result)))
 
+;; ---------------------------------------------------------------------------
+;; Host-arity reconciliation (rf2-5bcdi — the CLJS lane of the ui.test
+;; host-arity guard; the JVM lane lives in api-md-check).
+;;
+;; The manifest carries name + :kind but NO arity, so a re-frame.ui.test
+;; FUNCTION can reshape a supported arity and stay green — and its contract is
+;; host-specific (`flush!` is 0-arity on the JVM, 0/1-arity on CLJS). This
+;; reconciles the live CLJS analyzer arities against the `:cljs` half of the
+;; sidecar signature authority.
+;; ---------------------------------------------------------------------------
+
+(defn signature-problems
+  "Pure host-arity reconciler for the CLJS (:cljs) lane (rf2-5bcdi). Compares
+   the declared `:cljs` signature contract against the live CLJS analyzer
+   arities. Returns a sorted problems vector; empty ⇒ in sync.
+
+   `contract` — the `:vars` map `{var {:kind :fn|:macro :clj #{..} :cljs #{..}}}`.
+   `live`     — `{var (#{arity} | nil)}` from `cljs-publics/emit-ns-signatures`.
+
+   Only FUNCTION vars are reconciled: a re-frame.ui.test function can carry a
+   host-specific runtime arity, so the CLJS surface is where a CLJS-only arity
+   reshape must go RED (the reader-conditional `:clj`/`:cljs` difference is
+   represented intentionally, never forced equal). MACROS are host-invariant
+   (one `.cljc` definition expanded on both hosts), so their programmer-visible
+   call grammar is pinned once on the JVM lane, and the analyzer does not
+   reliably surface their arglists anyway. A FUNCTION the analyzer surfaces no
+   arity for is itself drift (`:arity-unobserved`)."
+  [contract live]
+  (->> contract
+       (keep (fn [[var {:keys [kind cljs]}]]
+               (when (= kind :fn)
+                 (let [got (get live var)]
+                   (cond
+                     (nil? got)      {:kind :arity-unobserved :var var :expected cljs}
+                     (not= cljs got) {:kind :arity-mismatch   :var var :expected cljs :got got})))))
+       (sort-by :var)
+       vec))
+
+(defn signature-report
+  "Render a `signature-problems` seq to an actionable multi-line string — the
+   message the probe's failing arity assertion prints."
+  [problems]
+  (str/join
+   "\n"
+   (concat
+    ["CLJS ui.test host-arity DRIFT (rf2-5bcdi): a re-frame.ui.test FUNCTION's"
+     "live CLJS arity no longer matches the :cljs signature contract in"
+     "spec/api-manifest-metadata.edn (:ui-test-signatures). Reshape the source"
+     "or reconcile the contract until this is green. Problems:"]
+    (map (fn [{:keys [kind var expected got]}]
+           (case kind
+             :arity-mismatch
+             (str "    " var ": live CLJS " (pr-str got)
+                  " ; contract :cljs " (pr-str expected))
+             :arity-unobserved
+             (str "    " var ": the analyzer surfaced NO arity (expected :cljs "
+                  (pr-str expected) ") — a function must be observable")))
+         problems))))
+
 (defn report
   "Render a `reconcile` result to an actionable multi-line string —
    the message the probe's failing assertion prints. Mirrors the tone of

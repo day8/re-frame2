@@ -35,6 +35,58 @@
   :keystone "rf2-3nbl5.2"}
 
  ;; --------------------------------------------------------------------------
+ ;; HOST-AWARE SIGNATURE AUTHORITY for the blessed re-frame.ui.test surface
+ ;; (rf2-5bcdi).
+ ;;
+ ;; The manifest reduces every public var to [namespace var tier kind]; it
+ ;; carries NO arity facts. So a re-frame.ui.test fn/macro can keep its name
+ ;; AND its :kind while losing / adding / reshaping a supported arity, and
+ ;; every ordinary manifest / projection / `gen --check` gate stays green.
+ ;; That is the exact false-green this key closes. It matters here because
+ ;; the public contract is HOST-SPECIFIC: `flush!` is 0-arity on the JVM but
+ ;; 0/1-arity on CLJS; `render` / `with-root` are macros with blessed call
+ ;; grammars. This is the ONE machine-readable signature authority for the
+ ;; nine blessed vars — not a second namespace inventory (the same nine are
+ ;; classified below) and not prose.
+ ;;
+ ;; SHAPE. `:vars` maps each bare var-name to
+ ;;   {:kind :fn|:macro :clj #{arity ...} :cljs #{arity ...}}
+ ;; where an arity is a vector: `[n]` = a fixed n-arg call; `[n :&]` = a
+ ;; variadic call with n fixed args (n-or-more). Arities are the
+ ;; PROGRAMMER-VISIBLE call shapes: a macro's implicit &form/&env are
+ ;; normalized away (they never leak into the contract).
+ ;;
+ ;; ENFORCEMENT (two lanes, one authority):
+ ;;   - JVM (:clj) — api-md-check reads live Var :arglists via ns-publics and
+ ;;     reconciles them against :clj here (re-frame.ui.test's Tier-1 surface
+ ;;     loads headless on the JVM). A reshaped :clj arity turns api-md-check
+ ;;     RED while name + :kind stay put.
+ ;;   - CLJS (:cljs) — the api-manifest CLJS probe (probe/, run by
+ ;;     `npm run test:cljs`) reads the live analyzer arities of the
+ ;;     reader-conditional CLJS surface and reconciles the FUNCTION arities
+ ;;     against :cljs here. A CLJS-only reshape (e.g. dropping `flush!`'s
+ ;;     1-arity) turns the probe RED. Macros are host-invariant (one .cljc
+ ;;     definition expanded on both hosts), so their grammar is pinned once
+ ;;     on the JVM lane; the reader-conditional :clj/:cljs difference for a
+ ;;     function is represented intentionally rather than forced equal.
+ ;; --------------------------------------------------------------------------
+ :ui-test-signatures
+ {:namespace "re-frame.ui.test"
+  :vars
+  {"attrs"     {:kind :fn    :clj #{[1]}     :cljs #{[1]}}
+   "text"      {:kind :fn    :clj #{[1]}     :cljs #{[1]}}
+   "find"      {:kind :fn    :clj #{[2]}     :cljs #{[2]}}
+   "find-all"  {:kind :fn    :clj #{[2]}     :cljs #{[2]}}
+   "query"     {:kind :fn    :clj #{[2]}     :cljs #{[2]}}
+   "dispatch!" {:kind :fn    :clj #{[2]}     :cljs #{[2]}}
+   ;; The blessed reader-conditional difference: 0-arity headless drain on
+   ;; the JVM; 0-arity or 1-arity (thunk) awaited drain on CLJS.
+   "flush!"    {:kind :fn    :clj #{[0]}     :cljs #{[0] [1]}}
+   ;; Macros — host-invariant call grammars (single .cljc definition).
+   "render"    {:kind :macro :clj #{[1] [2]} :cljs #{[1] [2]}}
+   "with-root" {:kind :macro :clj #{[1 :&]}  :cljs #{[1 :&]}}}}
+
+ ;; --------------------------------------------------------------------------
  ;; CLJS-ONLY surfaces — public vars in ClojureScript-only namespaces that
  ;; cannot be `require`d on the JVM, so the generator carries them verbatim.
  ;; Each row is the FULL manifest row, and carries its own

@@ -409,6 +409,111 @@
       (conj {:kind :disambiguator-admitted :line line}))
     [{:kind :create-root-row-missing :line nil}]))
 
+;; ---------------------------------------------------------------------------
+;; re-frame.ui.test HOST-ARITY guard (rf2-5bcdi).
+;;
+;; The generated manifest reduces every public var to [namespace var tier
+;; kind]; it carries NO arity facts (gen/kind-of collapses a var to
+;; :macro/:fn/:var). So a re-frame.ui.test fn/macro can keep its public NAME
+;; and its :kind while losing, adding, or reshaping a supported arity, and the
+;; ordinary manifest / projection / `gen --check` gates all stay green — the
+;; exact false-green this guard closes. It matters because the ui.test contract
+;; is HOST-SPECIFIC: `flush!` is 0-arity on the JVM but 0/1-arity on CLJS;
+;; `render` / `with-root` are macros with blessed call grammars.
+;;
+;; This is the JVM (:clj) half. It reads the live Var :arglists of the nine
+;; blessed vars via `ns-publics` (re-frame.ui.test's Tier-1 surface loads
+;; headless on the JVM, so it is on this generator classpath) and reconciles
+;; them against the machine-readable signature authority in the sidecar
+;; (`:ui-test-signatures`). The CLJS (:cljs) half is enforced by the
+;; api-manifest CLJS probe (probe/, run by `npm run test:cljs`).
+;; ---------------------------------------------------------------------------
+
+(def ui-test-namespace
+  "The blessed testing namespace whose public-var ARITIES this guard pins
+   against the sidecar signature authority (rf2-5bcdi)."
+  "re-frame.ui.test")
+
+(defn- strip-implicit-macro-params
+  "Drop a macro's compiler-supplied `&form` / `&env` positional params from an
+   arglist so only PROGRAMMER-VISIBLE params are counted (bead AC: compiler-
+   internal parameters must not leak into the contract). `defmacro` already
+   keeps them out of `:arglists` metadata on the JVM; the strip is defensive
+   and keeps the normalization identical to the CLJS analyzer lane."
+  [arglist]
+  (remove (fn [p] (and (symbol? p) (contains? #{"&form" "&env"} (name p))))
+          arglist))
+
+(defn arglist->arity
+  "Normalize one arglist to a PROGRAMMER-VISIBLE arity vector: `[n]` for a
+   fixed n-arg call, `[n :&]` for a variadic call with n fixed args. A nested
+   destructuring vector counts as ONE positional (e.g. with-root's
+   `[[binding root-form] & body]` → `[1 :&]`). Mirrors the CLJS lane's
+   `re-frame.api-manifest.cljs-publics/arglist->arity`."
+  [arglist]
+  (let [al        (strip-implicit-macro-params arglist)
+        fixed     (count (take-while #(not= '& %) al))
+        variadic? (boolean (some #(= '& %) al))]
+    (if variadic? [fixed :&] [fixed])))
+
+(defn arglists->arities
+  "The set of programmer-visible arity vectors for a var's `:arglists`
+   (nil / empty → `#{}`)."
+  [arglists]
+  (into #{} (map arglist->arity) arglists))
+
+(defn live-ui-test-arities
+  "Live JVM `{var-name-string -> #{arity-vector ...}}` for the public,
+   non-^:no-doc vars of `re-frame.ui.test` (mirrors gen/public-vars-of's
+   `^:no-doc` carve-out, so the nine blessed vars are exactly the set). Arity
+   is derived from each Var's `:arglists`; a macro's `:arglists` already
+   excludes `&form`/`&env`."
+  []
+  (let [ns-sym (symbol ui-test-namespace)]
+    (require ns-sym)
+    (into {}
+          (for [[sym v] (ns-publics ns-sym)
+                :when (not (:no-doc (meta v)))]
+            [(name sym) (arglists->arities (:arglists (meta v)))]))))
+
+(defn read-ui-test-signatures
+  "The sidecar's `:ui-test-signatures` authority `{:namespace :vars {...}}`
+   (rf2-5bcdi) — the ONE machine-readable host-aware signature source for the
+   blessed ui.test surface."
+  []
+  (:ui-test-signatures (gen/read-sidecar)))
+
+(defn ui-test-arity-problems
+  "Pure host-arity reconciler for the JVM (:clj) lane (rf2-5bcdi). Compares the
+   declared `:clj` signature contract against the live JVM arities of the
+   blessed ui.test vars. Returns the seq of problem maps; empty when every var
+   is present with EXACTLY its declared `:clj` arities.
+
+   `signatures` — the `:vars` map `{var {:kind :clj #{arities} :cljs #{..}}}`.
+   `live`       — `{var #{live-jvm-arities}}` (from `live-ui-test-arities`).
+
+   Two directions, mirroring the generator's missing/stale existence guard:
+     - every CONTRACT var must resolve live with matching `:clj` arities (a
+       reshaped arity → `:arity-mismatch`; a var the contract names but that no
+       longer resolves → `:var-absent`);
+     - every LIVE blessed var must be in the contract (a new public var with no
+       arity contract → `:uncontracted-var`), so a fresh export cannot escape
+       arity coverage silently."
+  [signatures live]
+  (sort-by
+   :var
+   (concat
+    (keep (fn [[var {:keys [clj]}]]
+            (if-let [got (get live var)]
+              (when (not= clj got)
+                {:kind :arity-mismatch :var var :expected clj :got got})
+              {:kind :var-absent :var var :expected clj}))
+          signatures)
+    (keep (fn [[var got]]
+            (when-not (contains? signatures var)
+              {:kind :uncontracted-var :var var :got got}))
+          live))))
+
 (defn check!
   "Validate spec/API.md var-rows against the manifest. Returns true when
    every API.md var-row resolves to a manifest row with a MATCHING tier;
@@ -448,7 +553,14 @@
         kind-probs (root-verb-kind-problems {:rows rows :api-rows api-rows})
         ;; Literal-option guard for the create-root row (rf2-e9q33): authored
         ;; :root-id REQUIRED and :disambiguator INVALID must both stay pinned.
-        opt-probs  (create-root-option-problems api-md-lines)]
+        opt-probs  (create-root-option-problems api-md-lines)
+        ;; Host-arity guard for the blessed re-frame.ui.test surface (rf2-5bcdi):
+        ;; the manifest carries name + :kind but NO arity, so a fn/macro can
+        ;; reshape a supported arity and stay green. Pin each var's live JVM
+        ;; (:clj) arities against the sidecar signature authority.
+        arity-probs (ui-test-arity-problems
+                     (:vars (read-ui-test-signatures))
+                     (live-ui-test-arities))]
     (cond
       ;; Vacuity-floor violation: extraction collapsed — refuse a green.
       floor
@@ -499,6 +611,26 @@
                                  (str line)))
                 :create-root-row-missing
                 (println "  create-root var-row not found in spec/API.md"))))
+          false)
+
+      (seq arity-probs)
+      (do (binding [*out* *err*]
+            (println "DRIFT: a re-frame.ui.test public var's JVM arity disagrees with the signature contract.")
+            (println "The nine blessed ui.test vars carry a HOST-AWARE arity contract in")
+            (println "spec/api-manifest-metadata.edn (:ui-test-signatures); the manifest carries")
+            (println "name + :kind but no arity, so a fn/macro can reshape a supported arity and")
+            (println "stay green. Reconcile the source or the contract. Problems:")
+            (doseq [{:keys [kind var expected got]} arity-probs]
+              (case kind
+                :arity-mismatch
+                (println (format "  %-12s ARITY:  live JVM %s; contract :clj %s"
+                                 var (pr-str got) (pr-str expected)))
+                :var-absent
+                (println (format "  %-12s ABSENT: contract expects :clj %s but the var did not resolve"
+                                 var (pr-str expected)))
+                :uncontracted-var
+                (println (format "  %-12s UNCONTRACTED: live JVM %s but no :ui-test-signatures entry"
+                                 var (pr-str got))))))
           false)
 
       (empty? problems)
