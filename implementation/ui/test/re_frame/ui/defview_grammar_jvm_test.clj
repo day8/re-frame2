@@ -231,6 +231,44 @@
          (expand-error '(re-frame.ui/defview v [{:keys [a] :or {b 1}}] [:div a])))
       ":or keys must match bound slot symbols"))
 
+(deftest qualified-key-ref-props-accepted-in-every-keys-spelling
+  ;; rf2-wix0o — the raw reserved-slot `:keys` arm derived each group key with
+  ;; `(keyword (name s))`, DROPPING a qualified symbol's namespace: the legal
+  ;; `{:keys [acct/key]}` was wrongly rejected as reserved React `:key` and
+  ;; `{:keys [acct/ref]}` as bare `:ref`, while the EQUIVALENT `{:acct/keys …}`
+  ;; and explicit `{p :acct/key}` spellings preserved the namespace and
+  ;; compiled. Raw diagnostics now reuse the canonical group-key transform
+  ;; (`bp/key-group-directive-fn`) — the SAME one the binding plan uses — so
+  ;; every equivalent host spelling derives the same qualified slots, while a
+  ;; genuinely bare `:key`/`:ref` group symbol still fails before collapse.
+  (testing "all equivalent host spellings derive the SAME qualified slots"
+    (let [group  (:slots (header/parse-header '[{:keys [acct/key acct/ref]}]))
+          nsgrp  (:slots (header/parse-header '[{:acct/keys [key ref]}]))
+          explct (:slots (header/parse-header '[{k :acct/key r :acct/ref}]))]
+      (is (= [:acct/key :acct/ref] group)
+          "bare :keys keeps each qualified symbol's namespace, not bare :key/:ref")
+      (is (= group nsgrp)   ":acct/keys spelling derives the same slots")
+      (is (= group explct)  "explicit qualified-lookup spelling derives the same slots")))
+  (testing "the qualified slots match REAL clojure.core/destructure lookup keys"
+    ;; native destructure binds local `key` via `(get m :acct/key)` — ground truth
+    (let [f (eval (list 'fn '[{:keys [acct/key acct/ref]}] '[key ref]))]
+      (is (= [1 2] (f {:acct/key 1 :acct/ref 2}))
+          "native destructure reads the QUALIFIED slots into locals key/ref")))
+  (testing "all three spellings COMPILE as real defviews (not emitter-form inspection)"
+    (is (nil? (expand-error '(re-frame.ui/defview v [{:keys [acct/key acct/ref]}] [:div "x"])))
+        "the bare :keys spelling with qualified symbols compiles")
+    (is (nil? (expand-error '(re-frame.ui/defview v [{:acct/keys [key ref]}] [:div "x"])))
+        "the :acct/keys spelling compiles")
+    (is (nil? (expand-error '(re-frame.ui/defview v [{k :acct/key r :acct/ref}] [:div "x"])))
+        "the explicit qualified-lookup spelling compiles"))
+  (testing "genuinely BARE :key / :ref group symbols stay rejected before collapse"
+    (is (= :rf.ui.compile/key-prop-declared
+           (expand-error '(re-frame.ui/defview v [{:keys [key]}] [:div "x"])))
+        "a bare `:keys [key]` still feeds the reserved React key slot")
+    (is (= :rf.ui.compile/ref-prop-declared-s1
+           (expand-error '(re-frame.ui/defview v [{:keys [ref]}] [:div "x"])))
+        "a bare `:keys [ref]` is still the S3 forwarding spelling — rejected at S1")))
+
 (deftest q3-slot-encoding-table
   ;; the encode function E — the props-ABI freeze's normative core
   (is (= "product"    (header/slot-name :product)))
