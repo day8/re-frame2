@@ -204,11 +204,11 @@
   ;;     are carried HERE (not JVM-introspected by the generator) so the curated
   ;;     order + tiers stay verbatim from spec/API.md §Compiled views. The rows
   ;;     below ARE the COMPLETE blessed export set (spec/API.md §Compiled views +
-  ;;     the Spec-004 `export-surface-is-exactly-the-blessed-set` JVM conformance):
-  ;;     defview / custom-element / sub / lease / raw / html / raw-fn / spread /
-  ;;     mount / create-root / render! / hydrate-root / unmount! / frame-root /
-  ;;     frame-provider / adapter / frame / event — all EIGHTEEN live public vars,
-  ;;     so re-frame.ui is now
+  ;;     the Spec-004 `export-surface-is-exactly-the-blessed-set` JVM conformance).
+  ;;     The rows themselves are the authoritative roster (defview through
+  ;;     spread-safe) — no hand-maintained count is kept here; the probe
+  ;;     reconciles these rows against the live `re-frame.ui` publics in both
+  ;;     directions, so the rows are the truth. re-frame.ui is now
   ;;     :FULLY-ROWED (BOTH directions checked — see the probe note below).
   ;;     `frame-root` (rf2-vxgfnd.71) is NAMESPACE-SPECIFIC — the compiled-view
   ;;     ENSURE root-form marker (a compile-marker `defn`, :kind :fn), rowed
