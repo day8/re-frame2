@@ -1341,6 +1341,16 @@
     to emit post-install. The host-side-transient clear runs regardless
     (idempotent; the only failure path is an already-destroyed frame whose
     transients were already released).
+  - `:owner-token` (rf2-qfrh4 seam 2) — the EXACT incarnation token (the
+    captured frame record's `:drain-lock`) the restore resolved against. The
+    host-side-transient clear addresses the frame by BARE id and runs BEFORE the
+    atomic install, so a callback that churns incarnation A to a same-id
+    successor B mid-reconcile could otherwise make it release B's live host
+    handles. When present, the clear fires ONLY while that exact incarnation is
+    still live (`frame/frame-incarnation-live?`); once it is lost the clear is
+    skipped — B is untouched, and A's transients were already released by
+    `destroy-frame!`. nil (the pure-unit 1-/2-arity) has no incarnation to fence
+    and clears unconditionally, as before.
   - `:restore-time-ms` (rf2-wshzsp) — the restore's CAUSAL time: the restored
     epoch's `:committed-at` (the committing token's `:rf.cofx`
     `:rf/time-ms`, replay-stable per EP-0010 §Time). It is the source of the
@@ -1357,7 +1367,7 @@
   touches it."
   ([runtime-db] (reconcile-on-restore runtime-db nil nil))
   ([runtime-db frame-id] (reconcile-on-restore runtime-db frame-id nil))
-  ([runtime-db frame-id {:keys [defer-traces? restore-time-ms]}]
+  ([runtime-db frame-id {:keys [defer-traces? restore-time-ms owner-token]}]
    (let [resources (get runtime-db state/resources-key)
          entries   (:entries resources)
          ledger    (get runtime-db state/work-ledger-key)
@@ -1523,7 +1533,20 @@
          ;; pure-unit 1-arity passes nil and has no live host tables to clear).
          ;; NOT deferred (rf2-obi8rr): idempotent, and the only failed-install
          ;; path is an already-destroyed frame whose transients were released.
-         (when frame-id
+         ;;
+         ;; FENCED to the exact incarnation (rf2-qfrh4 seam 2). This clear
+         ;; addresses the frame by BARE id and runs BEFORE `perform-restore!`'s
+         ;; atomic write; a callback that churns incarnation A to a same-id
+         ;; successor B mid-reconcile would otherwise make it release B's live
+         ;; host handles. When epoch passes the captured `:owner-token` we clear
+         ;; ONLY while that exact incarnation is still live — once it is lost the
+         ;; clear is skipped, so B is untouched (and if A was destroyed to seat
+         ;; B, `destroy-frame!` already released A's transients). nil owner-token
+         ;; (the pure-unit 1-/2-arity) has no incarnation to fence and clears
+         ;; unconditionally, as before.
+         (when (and frame-id
+                    (or (nil? owner-token)
+                        (frame/frame-incarnation-live? frame-id owner-token)))
            (clear-host-transients-on-restore! frame-id))
          (if defer-traces?
            ;; rf2-obi8rr — ride the intents back as metadata; the epoch

@@ -796,6 +796,50 @@
             handles but is a no-op on an unarmed frame (idempotent)"
     (is (nil? (ssr/clear-host-transients-on-restore! :restore/unarmed)))))
 
+(deftest reconcile-host-transient-clear-fenced-to-exact-incarnation
+  (testing "rf2-qfrh4 seam 2 — the pre-write host-transient clear fires only when
+            the threaded :owner-token still names the live incarnation. A STALE
+            token (a churned / destroyed incarnation) SKIPS the clear so a same-id
+            successor's armed host handles are spared — the reconcile runs BEFORE
+            the atomic write and addresses the frame by bare id, so without this
+            fence a callback that churned A to B mid-reconcile would release B's
+            live handles. A LIVE token clears as before; a nil token (the
+            pure-unit path) clears unconditionally."
+    (let [fid  :restore/fence
+          rkey gkey
+          wid  [:rf.work/resource gkey 7]
+          arm! (fn []
+                 (timers/schedule! fid rkey timers/stale-kind 600000)
+                 (work-ledger/put-handle! fid wid {:transport :rf.http/managed :request-id wid}))
+          e    (entry {:resource-id :article/by-slug :status :fetching :data {:x 1}
+                       :loaded-at 1 :stale-at 9.0e15 :current-work wid})]
+      (rf/make-frame {:id fid})
+      (let [live-token  (frame/frame-incarnation-token fid)
+            ;; a unique reference that never names fid's live incarnation — an
+            ;; incarnation token is a `:drain-lock` atom, so a fresh atom stands
+            ;; in for a destroyed / successor incarnation's token (cross-host:
+            ;; `(Object.)` is not a CLJS constructor).
+            stale-token (atom :stale-incarnation)]
+        ;; STALE token — the clear is fenced out; armed handles survive.
+        (arm!)
+        (is (seq (frame-timer-keys fid)) "armed a stale timer for the frame")
+        (is (seq (work-handle-keys fid)) "recorded a work handle for the frame")
+        (ssr/reconcile-on-restore (runtime-db-with {gkey e}) fid {:owner-token stale-token})
+        (is (seq (frame-timer-keys fid))
+            "a stale incarnation token SKIPS the timer clear (successor's handle spared)")
+        (is (seq (work-handle-keys fid))
+            "a stale incarnation token SKIPS the work-handle clear")
+        ;; LIVE token — clears as before.
+        (ssr/reconcile-on-restore (runtime-db-with {gkey e}) fid {:owner-token live-token})
+        (is (empty? (frame-timer-keys fid)) "the live incarnation token clears the timer")
+        (is (empty? (work-handle-keys fid)) "the live incarnation token clears the work handle")
+        ;; nil token (pure-unit path) — clears unconditionally, as before.
+        (arm!)
+        (ssr/reconcile-on-restore (runtime-db-with {gkey e}) fid {:owner-token nil})
+        (is (empty? (frame-timer-keys fid)) "nil token clears the timer unconditionally")
+        (is (empty? (work-handle-keys fid)) "nil token clears the work handle unconditionally")
+        (timers/cancel-for-key! fid rkey)))))
+
 ;; ===========================================================================
 ;; 5. The generation allocator is monotonic across restore (part 1)
 ;; ===========================================================================

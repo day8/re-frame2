@@ -374,20 +374,26 @@
   See `restore-epoch!` for the refusal catalogue."
   [frame-id epoch-id]
   (let [frame-result      (frame-exists-or-fail frame-id)
-        ;; The EXACT incarnation identity token (the live record's
-        ;; `:drain-lock`, per `frame-incarnation-token`) of the frame these
-        ;; checks are resolving against. Carried out on the `:ok` result so the
-        ;; write boundary can reject a stale install after a destroy + same-id
-        ;; reconstruction (rf2-bjh6y). nil when the frame is absent — the (1)
-        ;; frame-registered branch fails first in that case.
-        incarnation-token (frame/frame-incarnation-token frame-id)]
+        frame-record      (:frame-record frame-result)
+        ;; The EXACT incarnation identity token (the record's `:drain-lock`, per
+        ;; `frame-incarnation-token`) DERIVED FROM THE SAME captured record — NOT
+        ;; an independent bare-id re-resolve. A same-id successor B seated between
+        ;; the record capture above and here can therefore never supply the
+        ;; token: the ticket pairs THIS record's resolved epoch/history with THIS
+        ;; record's own incarnation, closing seam 1 (rf2-qfrh4 — the prior
+        ;; independent `frame-incarnation-token` re-resolve could pair A's
+        ;; retained epoch/history with B's live token). Carried out on the `:ok`
+        ;; result so the write boundary can reject a stale install after a
+        ;; destroy + same-id reconstruction (rf2-bjh6y). nil when the frame is
+        ;; absent — the (1) frame-registered branch fails first in that case.
+        incarnation-token (some-> frame-record :drain-lock)]
     (cond
       ;; (1) Frame registered?
       (= :fail (:outcome frame-result))
       frame-result
 
       ;; (2) In-flight drain?
-      (drain-in-flight? (:frame-record frame-result))
+      (drain-in-flight? frame-record)
       {:outcome :fail
        :op      :rf.epoch/restore-during-drain
        :tags    {:frame       frame-id
@@ -397,6 +403,22 @@
       (let [history (state/history-for frame-id)
             epoch   (find-epoch-in history epoch-id)]
         (cond
+          ;; Exact-owner gate on the history/validation snapshot (rf2-qfrh4
+          ;; seam 1). `state/history-for` above (and every validator below)
+          ;; resolves by BARE frame-id; a same-id successor seated DURING this
+          ;; precondition sampling means the captured incarnation is no longer
+          ;; live, so the history/validation snapshot may belong to — or would
+          ;; be paired against — the successor. Refuse with the SAME canonical
+          ;; no-such-handler failure the write boundary uses rather than resolve
+          ;; or validate against a stale incarnation. (Belt-and-braces with the
+          ;; record-derived token above: even if a race slips past here the
+          ;; ticket still carries A's token, so the exact write rejects B.)
+          (not (frame/event-continuation-live? frame-id incarnation-token))
+          {:outcome :fail
+           :op      :rf.error/no-such-handler
+           :tags    {:kind  :frame
+                     :frame frame-id}}
+
           ;; (3) Epoch present in current history?
           (nil? epoch)
           {:outcome :fail
@@ -617,15 +639,30 @@
   (`now-ms`). A durable frame-state field MUST come from a causal input, never
   an ambient world read at install (EP-0010 §Restore/Replay). The 2-arity
   passes a nil causal time (a frame-state with no mutation instances to stamp;
-  the reconcile then falls back to its own clock for the no-token case)."
-  ([frame-id frame-state] (reconcile-runtime-db-on-restore frame-id frame-state nil))
+  the reconcile then falls back to its own clock for the no-token case).
+
+  The EXACT incarnation `owner-token` (the captured record's `:drain-lock`) is
+  threaded through `:owner-token` so the reconcile fences its non-deferred host-
+  table clearing (stale/GC timer + work-ledger host handles) to the exact
+  incarnation the restore resolved against (rf2-qfrh4 seam 2). The reconcile
+  runs BEFORE the atomic write and addresses the frame by BARE id; without the
+  token, a callback that churns A to B mid-reconcile would let the bare-id clear
+  touch same-id successor B. Passing the token lets the reconcile skip the clear
+  once the exact incarnation is lost, so no B host handle is released — B's
+  transients belong to B and, if A was destroyed to seat B, `destroy-frame!`
+  already released A's. nil owner-token (the 2-/3-arity pure-unit path) has no
+  incarnation to fence and clears unconditionally, as before."
+  ([frame-id frame-state] (reconcile-runtime-db-on-restore frame-id frame-state nil nil))
   ([frame-id frame-state restore-time-ms]
+   (reconcile-runtime-db-on-restore frame-id frame-state restore-time-ms nil))
+  ([frame-id frame-state restore-time-ms owner-token]
    (if-let [reconcile (late-bind/get-fn :resources/reconcile-on-restore)]
      (if (contains? frame-state frame/runtime-partition-key)
        (update frame-state frame/runtime-partition-key
                (fn [rdb] (when (some? rdb)
                            (reconcile rdb frame-id {:defer-traces?   true
-                                                    :restore-time-ms restore-time-ms}))))
+                                                    :restore-time-ms restore-time-ms
+                                                    :owner-token     owner-token}))))
        frame-state)
      frame-state)))
 
@@ -723,25 +760,34 @@
   current host state before install, deferring success traces until the write
   lands.
 
-  The write boundary is fenced to the EXACT incarnation, not the bare id
-  (rf2-bjh6y). A same-id SUCCESSOR frame reseated between the precondition pass
-  and this write must not receive the resolved epoch's state. Two guards, both
-  keyed on `incarnation-token`:
+  The WHOLE restore is one EXACT-incarnation transaction, keyed on
+  `incarnation-token`, not the bare id (rf2-bjh6y + rf2-qfrh4). A same-id
+  SUCCESSOR frame reseated at ANY seam must not receive the resolved epoch's
+  state, touch host tables, or be anchored. Four fences, all on the token:
 
     - an early `event-continuation-live?` gate refuses BEFORE running the
       subsystem reconcile, so nothing is reconciled against a stale incarnation;
+    - the reconcile carries `incarnation-token` (seam 2) so its non-deferred
+      pre-write host-table clear is fenced — a callback that churns A to B
+      mid-reconcile cannot make the bare-id clear release B's host handles;
     - the physical install goes through the EXACT-INCARNATION
       `replace-frame-state!` arity, which returns nil unless the token still
       names the live record — so even the write itself can never redirect into a
-      same-id successor.
+      same-id successor;
+    - each post-write bare-id tail op (last-settled anchor, deferred subsystem
+      trace commit, host-work quiesce) re-checks `event-continuation-live?`
+      (seam 3) — the `:rf.epoch/restored` emit and the commit/quiesce fan-outs
+      are callback boundaries that can churn A to B, so a lost incarnation STOPS
+      the remaining A-only tail work rather than RETARGETING it onto B.
 
-  Both losses resolve to ONE coherent typed failure — `:rf.error/no-such-handler`
-  (kind `:frame`), the same shape a destroyed-frame write race produces — and
-  leave any successor frame byte-for-byte untouched with no success telemetry.
-  The write's non-nil return (a changed-key set, possibly empty) is success;
-  only the success branch emits restore telemetry, re-anchors post-settle
-  attribution, commits deferred subsystem traces, and cancels host-transient
-  work from the abandoned timeline.
+  Every incarnation loss resolves to ONE coherent typed failure —
+  `:rf.error/no-such-handler` (kind `:frame`), the same shape a destroyed-frame
+  write race produces — and leaves any successor frame byte-for-byte untouched
+  with no success telemetry. The write's non-nil return (a changed-key set,
+  possibly empty) is success; the public result then stays TRUE even if a tail
+  callback churns the incarnation. Only the success branch emits restore
+  telemetry, re-anchors post-settle attribution, commits deferred subsystem
+  traces, and cancels host-transient work from the abandoned timeline.
 
   The whole gate → reconcile → write → bookkeeping runs under the
   frame's `:drain-lock` (`serialize-tool-write!`), so no event transition can
@@ -779,8 +825,13 @@
               ;; `:rf/time-ms`) so the reconcile stamps a dangled-on-restore
               ;; mutation instance's durable `:settled-at` from a replay-stable
               ;; causal input, not the live install clock (EP-0010 §Restore/Replay).
+              ;; Thread the EXACT incarnation token too, so the reconcile's
+              ;; pre-write host-table clear is fenced to this incarnation — a
+              ;; callback that churns A to B mid-reconcile cannot make the bare-id
+              ;; clear release B's host handles (rf2-qfrh4 seam 2).
               frame-state-target (reconcile-runtime-db-on-restore
-                                   frame-id frame-state-target (:committed-at epoch))
+                                   frame-id frame-state-target
+                                   (:committed-at epoch) incarnation-token)
               ;; Write both partitions through the one physical frame container,
               ;; via the EXACT-INCARNATION arity: it resolves through the
               ;; validated incarnation's own record and returns nil if a same-id
@@ -798,14 +849,31 @@
             (do (trace/emit! :rf.epoch :rf.epoch/restored
                              {:frame       frame-id
                               :rf.epoch/id (:epoch-id epoch)})
-                ;; Restore triggers no ordinary event, so explicitly anchor its
-                ;; repaint/subscription/unmount back-fill to the restored epoch.
-                (state/set-last-settled-epoch! frame-id (:epoch-id epoch))
-                ;; Deferred subsystem success traces are valid only after install.
-                (commit-resources-restore-traces! frame-state-target)
-                ;; Host timers and HTTP handles are not frame state; cancel the
-                ;; abandoned timeline only after the new state is installed.
-                (quiesce-orphaned-async-host-work! frame-id)
+                ;; The exact-incarnation install committed, so the public result
+                ;; is TRUE and stays truthful regardless of what follows. But the
+                ;; `:rf.epoch/restored` emit above is a synchronous callback
+                ;; boundary: a trace listener can destroy A and seat a same-id
+                ;; successor B. Every framework-owned tail op below addresses the
+                ;; frame by BARE id (`set-last-settled-epoch!`, the resources
+                ;; trace commit, the machines/http host-work quiesce chain), so
+                ;; each is fenced to the EXACT incarnation the restore installed
+                ;; (rf2-qfrh4 seam 3). Re-check liveness before each — the trace
+                ;; commit and the quiesce chain themselves fan out to
+                ;; listeners/hooks that may churn — so once A is lost the
+                ;; remaining A-only tail work is STOPPED rather than RETARGETED
+                ;; onto B: no B anchor is stamped, no B resource trace committed,
+                ;; no B host handle released or aborted.
+                (when (frame/event-continuation-live? frame-id incarnation-token)
+                  ;; Restore triggers no ordinary event, so explicitly anchor its
+                  ;; repaint/subscription/unmount back-fill to the restored epoch.
+                  (state/set-last-settled-epoch! frame-id (:epoch-id epoch)))
+                (when (frame/event-continuation-live? frame-id incarnation-token)
+                  ;; Deferred subsystem success traces are valid only after install.
+                  (commit-resources-restore-traces! frame-state-target))
+                (when (frame/event-continuation-live? frame-id incarnation-token)
+                  ;; Host timers and HTTP handles are not frame state; cancel the
+                  ;; abandoned timeline only after the new state is installed.
+                  (quiesce-orphaned-async-host-work! frame-id))
                 true)))))))
 
 ;; ---- replace-frame-state! preconditions ------------------------------------

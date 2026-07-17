@@ -962,8 +962,8 @@
           (is (= {:rf.runtime/resources {:entries {}}} (:rdb @seen))
               "the hook receives the runtime-db PARTITION value")
           (is (= :test/x (:frame-id @seen)) "the hook receives the carried frame-id")
-          (is (= {:defer-traces? true :restore-time-ms nil} (:opts @seen))
-              "rf2-obi8rr — the hook is consulted with :defer-traces? true so it does not emit success rows before the install; rf2-wshzsp — and a :restore-time-ms slot (nil here, the 2-arity no-token path)")
+          (is (= {:defer-traces? true :restore-time-ms nil :owner-token nil} (:opts @seen))
+              "rf2-obi8rr — the hook is consulted with :defer-traces? true so it does not emit success rows before the install; rf2-wshzsp — and a :restore-time-ms slot (nil here, the 2-arity no-token path); rf2-qfrh4 — and an :owner-token slot (nil here, the 2-arity no-incarnation path) so the reconcile can fence its bare-id host-table clear to the exact incarnation")
           (is (true? (get-in out [:rf.db/runtime :rf.runtime/reconciled?]))
               "the hook's reconciled runtime-db is installed back into the frame-state")
           (is (= {:n 1} (:rf.db/app out)) "the app-db partition is untouched"))
@@ -5175,6 +5175,199 @@
         (is (= {:n 1} (rf/app-db-value :test/ctl)) "app-db rewound to the target epoch")
         (is (some #(= :rf.epoch/restored (:operation %)) @recorded)
             ":rf.epoch/restored success trace fired for the live-incarnation restore")))))
+
+;; rf2-qfrh4 — bjh6y fenced only the PHYSICAL write. Three further seams could
+;; still cross from incarnation A into a same-id successor B across the rest of
+;; the restore transaction. Each test below interposes a deterministic churn at
+;; ONE seam and asserts the exact-incarnation fence now holds end to end:
+;;
+;;   seam 1 — precondition sampling re-resolves history (and, pre-fix, the token)
+;;            by bare id;
+;;   seam 2 — the pre-write reconcile does a bare-id host-table clear;
+;;   seam 3 — the post-write bare-id tail (anchor / trace commit / quiesce) runs
+;;            after the synchronous :rf.epoch/restored callback boundary.
+;;
+;; The control (`restore-through-all-fences-still-succeeds`) drives the same
+;; token-threaded seams with NO churn and confirms an ordinary restore succeeds.
+
+(deftest restore-preconditions-refuse-successor-seated-during-history-sampling
+  (testing "rf2-qfrh4 seam 1 — a same-id successor B seated DURING precondition
+            sampling (interposed on the bare-id history re-resolve) must NOT
+            yield an :ok ticket that pairs A's retained epoch with a stale
+            incarnation. `check-restore-preconditions!` exact-owner-gates the
+            history/validation snapshot and refuses with :rf.error/no-such-handler
+            (kind :frame); B is byte-for-byte unchanged. Before the fix the
+            checks resolved history / re-resolved the token independently by bare
+            id and returned :ok."
+    (rf/make-frame {:id :test/seam1})
+    (rf/reg-event :set-owner (fn [_ [_ o n]] {:db {:owner o :n n}}))
+    (rf/dispatch-sync [:set-owner :A 1] {:frame :test/seam1})
+    (rf/dispatch-sync [:set-owner :A 2] {:frame :test/seam1})
+    (let [a-target-id (some (fn [r] (when (= {:owner :A :n 1} (:db-after r)) (:epoch-id r)))
+                            (rf/epoch-history :test/seam1))
+          a-token     (frame/frame-incarnation-token :test/seam1)
+          real-hist   state/history-for
+          churned?    (atom false)]
+      (is (some? a-target-id) "seeded an A epoch whose db-after is {:owner :A :n 1}")
+      (let [result (with-redefs [state/history-for
+                                 (fn [fid]
+                                   ;; Interpose the churn on the bare-id history
+                                   ;; re-resolve the checks perform: capture A's
+                                   ;; retained history, destroy A + seat a same-id
+                                   ;; successor B, then hand back A's RETAINED
+                                   ;; history (the documented late-cleanup overlap).
+                                   (if (and (= fid :test/seam1) (not @churned?))
+                                     (let [a-hist (real-hist fid)]
+                                       (reset! churned? true)
+                                       (rf/destroy-frame! :test/seam1)
+                                       (rf/make-frame {:id :test/seam1})
+                                       (rf/dispatch-sync [:set-owner :B 99] {:frame :test/seam1})
+                                       a-hist)
+                                     (real-hist fid)))]
+                     (tool-pair/check-restore-preconditions! :test/seam1 a-target-id))]
+        (is (true? @churned?) "the successor was interposed during sampling")
+        (is (= :fail (:outcome result))
+            "the checks refuse rather than pair A's epoch against the seated successor")
+        (is (= :rf.error/no-such-handler (:op result))
+            "the refusal is the canonical no-such-handler typed failure (reused, not new)")
+        (is (= :frame (:kind (:tags result))) "the typed failure carries :kind :frame")
+        (is (nil? (:incarnation-token result))
+            "no :ok ticket — so no A epoch is ever paired with the successor's token")
+        (is (not (identical? a-token (frame/frame-incarnation-token :test/seam1)))
+            "successor B is a fresh incarnation (distinct token)")
+        (is (= {:owner :B :n 99} (rf/app-db-value :test/seam1))
+            "successor B is byte-for-byte unchanged")))))
+
+(deftest restore-reconcile-fenced-to-exact-incarnation-spares-successor
+  (testing "rf2-qfrh4 seam 2 — perform-restore! threads the EXACT incarnation
+            token into the pre-write reconcile so its bare-id host-table clear is
+            fenced. A reconcile that churns A to B mid-pass then gates its side
+            effect on the threaded token performs NO B-addressed effect; the exact
+            write then rejects the lost incarnation, restore returns false, and B
+            is byte-for-byte unchanged. Before the fix the reconcile received no
+            token and its bare-id clear landed on B."
+    (rf/make-frame {:id :test/seam2})
+    ;; seed a non-nil runtime-db partition so the reconcile hook is consulted
+    ;; (`reconcile-runtime-db-on-restore` skips a nil runtime-db).
+    (rf/reg-event :seed2
+      (fn [{rt :rf.db/runtime} [_ o n]]
+        {:db {:owner o :n n}
+         :rf.db/runtime (assoc (or rt {}) :marker :present)}))
+    (rf/dispatch-sync [:seed2 :A 1] {:frame :test/seam2})
+    (rf/dispatch-sync [:seed2 :A 2] {:frame :test/seam2})
+    (let [a-target-id (some (fn [r] (when (= {:owner :A :n 1} (:db-after r)) (:epoch-id r)))
+                            (rf/epoch-history :test/seam2))
+          {:keys [outcome epoch incarnation-token]}
+          (tool-pair/check-restore-preconditions! :test/seam2 a-target-id)
+          seen-token (atom :unseen)
+          b-effect?  (atom false)
+          rk         :resources/reconcile-on-restore
+          r0         (late-bind/get-fn rk)]
+      (is (= :ok outcome) "preconditions passed against live incarnation A")
+      (is (some? a-target-id) "seeded an A epoch")
+      (try
+        (late-bind/set-fn! rk
+          (fn [rdb frame-id {:keys [owner-token]}]
+            (reset! seen-token owner-token)
+            ;; churn A -> same-id successor B mid-reconcile
+            (rf/destroy-frame! :test/seam2)
+            (rf/make-frame {:id :test/seam2})
+            (rf/dispatch-sync [:seed2 :B 99] {:frame :test/seam2})
+            ;; The real resources host-transient clear addresses the frame by BARE
+            ;; id; fence it on the threaded token exactly as ssr.cljc now does. A
+            ;; true here would mean a bare-id host-table touch landing on B.
+            (when (and frame-id (or (nil? owner-token)
+                                    (frame/frame-incarnation-live? frame-id owner-token)))
+              (reset! b-effect? true))
+            rdb))
+        (let [result (tool-pair/perform-restore! :test/seam2 incarnation-token epoch)]
+          (is (identical? incarnation-token @seen-token)
+              "the reconcile received the EXACT incarnation token (was absent before the fix)")
+          (is (false? @b-effect?)
+              "the token-fenced bare-id host-table effect did NOT fire against successor B")
+          (is (false? result) "the exact write rejects the lost incarnation")
+          (is (= {:owner :B :n 99} (rf/app-db-value :test/seam2))
+              "successor B is byte-for-byte unchanged"))
+        (finally (late-bind/set-fn! rk r0))))))
+
+(deftest restore-tail-anchoring-fenced-to-exact-incarnation
+  (testing "rf2-qfrh4 seam 3 — after the exact install commits, a synchronous
+            :rf.epoch/restored trace listener that destroys A and seats a same-id
+            successor B must not let the bare-id post-write tail (last-settled
+            anchor, resource-trace commit, host-work quiesce) RETARGET onto B.
+            restore returns TRUE (the install committed on A) but B's last-settled
+            anchor is NOT stamped with A's restored epoch-id. Before the fix the
+            tail ran unconditionally by bare id and stamped B."
+    (rf/make-frame {:id :test/seam3})
+    (rf/reg-event :set-owner3 (fn [_ [_ o n]] {:db {:owner o :n n}}))
+    (rf/dispatch-sync [:set-owner3 :A 1] {:frame :test/seam3})
+    (rf/dispatch-sync [:set-owner3 :A 2] {:frame :test/seam3})
+    (let [a-target-id (some (fn [r] (when (= {:owner :A :n 1} (:db-after r)) (:epoch-id r)))
+                            (rf/epoch-history :test/seam3))
+          {:keys [outcome epoch incarnation-token]}
+          (tool-pair/check-restore-preconditions! :test/seam3 a-target-id)
+          fired? (atom false)
+          lk     ::seam3-churn]
+      (is (= :ok outcome) "preconditions passed against live incarnation A")
+      (is (some? a-target-id) "seeded an A epoch")
+      (rf/register-listener! :trace lk
+        (fn [ev]
+          (when (and (not @fired?) (= :rf.epoch/restored (:operation ev)))
+            (reset! fired? true)
+            (rf/destroy-frame! :test/seam3)
+            (rf/make-frame {:id :test/seam3})
+            (rf/dispatch-sync [:set-owner3 :B 99] {:frame :test/seam3}))))
+      (try
+        (let [result (tool-pair/perform-restore! :test/seam3 incarnation-token epoch)]
+          (is (true? @fired?) "the :rf.epoch/restored listener churned A to B")
+          (is (true? result)
+              "the install committed on the exact incarnation A, so the public result stays TRUE")
+          (is (not= a-target-id (state/last-settled-epoch-id :test/seam3))
+              "the post-write anchor was NOT retargeted onto successor B")
+          (is (= {:owner :B :n 99} (rf/app-db-value :test/seam3))
+              "successor B's app-db is untouched by the restore tail"))
+        (finally (rf/unregister-listener! :trace lk))))))
+
+(deftest restore-through-all-fences-still-succeeds
+  (testing "rf2-qfrh4 control — the same token-threaded seams (record-derived
+            token, exact-owner history gate, token-carrying reconcile, fenced
+            post-write tail) with NO incarnation churn install and return true:
+            the fences reject only a lost incarnation, never an ordinary live one.
+            The reconcile receives the exact token and sees it LIVE; the tail
+            anchors last-settled to the restored epoch."
+    (rf/make-frame {:id :test/allfences})
+    (rf/reg-event :seedc
+      (fn [{rt :rf.db/runtime} [_ n]]
+        {:db {:n n}
+         :rf.db/runtime (assoc (or rt {}) :marker :present)}))
+    (rf/dispatch-sync [:seedc 1] {:frame :test/allfences})
+    (rf/dispatch-sync [:seedc 2] {:frame :test/allfences})
+    (let [target-id (some (fn [r] (when (= {:n 1} (:db-after r)) (:epoch-id r)))
+                          (rf/epoch-history :test/allfences))
+          {:keys [outcome epoch incarnation-token]}
+          (tool-pair/check-restore-preconditions! :test/allfences target-id)
+          token-live? (atom nil)
+          rk          :resources/reconcile-on-restore
+          r0          (late-bind/get-fn rk)]
+      (is (= :ok outcome) "preconditions passed against the live frame")
+      (is (identical? incarnation-token (frame/frame-incarnation-token :test/allfences))
+          "the :ok ticket's token is the live incarnation's own drain-lock (record-derived)")
+      (try
+        (late-bind/set-fn! rk
+          (fn [rdb frame-id {:keys [owner-token]}]
+            (reset! token-live? (and (some? owner-token)
+                                     (frame/frame-incarnation-live? frame-id owner-token)))
+            rdb))
+        (let [recorded (record-trace!)
+              result   (tool-pair/perform-restore! :test/allfences incarnation-token epoch)]
+          (is (true? @token-live?) "the reconcile saw the threaded token LIVE (no churn)")
+          (is (true? result) "an ordinary within-incarnation restore still succeeds")
+          (is (= {:n 1} (rf/app-db-value :test/allfences)) "app-db rewound to the target epoch")
+          (is (= target-id (state/last-settled-epoch-id :test/allfences))
+              "the tail anchored last-settled to the restored epoch")
+          (is (some #(= :rf.epoch/restored (:operation %)) @recorded)
+              ":rf.epoch/restored success trace fired"))
+        (finally (late-bind/set-fn! rk r0))))))
 
 ;; rf2-obi8rr — the resources restore-reconcile success rows
 ;; (:rf.resource/restored / :rf.resource/owner-released) must NOT leak when the
