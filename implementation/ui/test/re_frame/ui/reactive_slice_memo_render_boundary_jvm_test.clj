@@ -244,12 +244,26 @@
 ;; per-render-slice identity proof, internal-only (no public memo token).
 ;; ---------------------------------------------------------------------------
 
+(def ^:private ^:dynamic *render-label*
+  "Per-render-thread label (`:a`/`:b`) bound INSIDE each render thread by
+  `run-two-renders!`, read by `with-probe-handle-witness` to attribute every
+  threaded slice-memo handle to a KNOWN render rather than a JVM-assigned thread
+  id. Keying by an explicit label makes the witness map hold exactly one entry
+  per render BY CONSTRUCTION — the count is not inferred from thread-id
+  extraction, which the shared-cached-pool `future` made timing-dependent."
+  nil)
+
 (defn- with-probe-handle-witness
-  "Run `thunk` with `obs/probe` wrapped to record, keyed by the calling thread,
-  the IDENTITY of every non-nil slice-memo handle threaded through a probe.
-  Returns `{thread-id #{handle …}}`. Internal-only: it observes the handle a
-  slice already threads, adding no public token and leaving the runtime design
-  untouched. Restores the original `probe` on exit (var-root redef)."
+  "Run `thunk` with `obs/probe` wrapped to record, keyed by the calling render's
+  `*render-label*`, the IDENTITY of every non-nil slice-memo handle threaded
+  through a probe. Returns `{label #{handle …}}`. Internal-only: it observes the
+  handle a slice already threads, adding no public token and leaving the runtime
+  design untouched. Restores the original `probe` on exit (var-root redef).
+
+  `swap!` on an atom is already race-free for concurrent distinct-label updates
+  (a CAS retry never drops a sibling render's entry), so the collection itself
+  never races — the determinism win is the labelled keys + the dedicated
+  threads in `run-two-renders!`, not the collection primitive."
   [thunk]
   (let [seen (atom {})
         orig obs/probe]
@@ -257,12 +271,43 @@
                   (fn
                     ([target] (orig target))
                     ([target slice-memo]
-                     (when (some? slice-memo)
-                       (swap! seen update (.getId (Thread/currentThread))
+                     (when (and (some? slice-memo) *render-label*)
+                       (swap! seen update *render-label*
                               (fnil conj #{}) slice-memo))
                      (orig target slice-memo)))]
       (thunk))
     @seen))
+
+(defn- run-two-renders!
+  "Run `labelled-render` — a 1-arg fn of a render label (`:a`/`:b`) — on TWO
+  DEDICATED, concurrently-started threads, join both, and rethrow any
+  non-recovered thread throwable. Dedicated threads (not `future`'s shared
+  cached thread pool) guarantee two distinct, live threads exist for the whole
+  overlap, so the acquisition barrier tripped inside the shared parent always
+  finds its second party — no pool-creation/scheduling delay can starve one
+  render past the barrier timeout under load, which is what made the pooled
+  `future` form flaky. `bound-fn*` conveys the caller's dynamic bindings exactly
+  as `future` would; the generous join ceiling is a hung-box safety net that a
+  correct run (both threads reach the barrier in milliseconds) never approaches."
+  [labelled-render]
+  (let [errs (atom [])
+        mk   (fn [label]
+               (doto (Thread. ^Runnable
+                       (bound-fn* (fn []
+                                    (try (labelled-render label)
+                                         (catch Throwable e (swap! errs conj e)))))
+                       (str "rf2-slice-memo-render-" (name label)))
+                 (.setDaemon true)))
+        ta   (mk :a)
+        tb   (mk :b)]
+    (.start ta)
+    (.start tb)
+    (.join ta 30000)
+    (.join tb 30000)
+    (when (or (.isAlive ta) (.isAlive tb))
+      (throw (ex-info "slice-memo render threads did not finish within 30s"
+                      {:a-alive (.isAlive ta) :b-alive (.isAlive tb)})))
+    (when-let [e (first @errs)] (throw e))))
 
 (deftest concurrent-tier1-renders-thread-distinct-memo-handle-identity
   ;; Two `uit/render`s on the SAME frame, forced to OVERLAP at memo acquisition:
@@ -274,9 +319,23 @@
   ;; thread two handles across the overlap (its own, then the other thread's
   ;; clobber) or converges both threads on one identity — either fails an
   ;; assertion here, DETERMINISTICALLY under the forced overlap (AC5).
+  ;;
+  ;; DETERMINISM (rf2-m2kby): the JVM slice memo is a per-thread `binding` of
+  ;; `reactive/*slice*`, so cross-thread handle sharing is architecturally
+  ;; impossible — the distinct-identity law is structural, and any observed
+  ;; flake was the TEST's concurrency, not the runtime. Two sources are pinned
+  ;; here: (1) DEDICATED render threads (`run-two-renders!`) replace `future`'s
+  ;; shared cached pool, so a scheduling delay can never starve the 2nd render
+  ;; past the barrier timeout under load; (2) the barrier lives inside a sub
+  ;; BODY, whose throws the graph RECOVERS to nil (:rf.error/sub-exception) — a
+  ;; timed-out/broken barrier would be SWALLOWED, limping on with parent=nil and
+  ;; corrupting the counts opaquely, so any rendezvous throwable is captured in
+  ;; `gate-errors` and asserted empty FIRST, turning an infra-timing failure
+  ;; into a legible signal rather than a mysterious handle-count miss.
   (reg-slice-subs!)
-  (let [f    (rf/make-frame {:initial-events [[:rf/set-db {:n 5}]]})
-        gate (CyclicBarrier. 2)]
+  (let [f           (rf/make-frame {:initial-events [[:rf/set-db {:n 5}]]})
+        gate        (CyclicBarrier. 2)
+        gate-errors (atom [])]
     ;; Re-register the shared cold parent so its compute trips the acquisition
     ;; barrier; siblings sharing one slice handle compute it once per render, so
     ;; each render trips the barrier exactly once → the 2-party barrier releases
@@ -284,22 +343,30 @@
     (rf/reg-sub :slice/parent
                 (fn [db _]
                   (swap! parent-runs inc)
-                  (.await gate 10 TimeUnit/SECONDS)
+                  ;; Capture any rendezvous throwable rather than let the
+                  ;; sub-graph's :rf.error/sub-exception recovery swallow it.
+                  (try (.await gate 30 TimeUnit/SECONDS)
+                       (catch Throwable e (swap! gate-errors conj e)))
                   (:n db)))
     (reset! parent-runs 0)
     (let [seen (with-probe-handle-witness
                  (fn []
-                   (let [run (fn [] (future (uit/render siblings {:frame f})))
-                         r1  (run)
-                         r2  (run)]
-                     @r1 @r2)))
-          thread-handle-sets (vals seen)]
+                   (run-two-renders!
+                     (fn [label]
+                       (binding [*render-label* label]
+                         (uit/render siblings {:frame f}))))))
+          handle-sets (vals seen)]
+      (is (empty? @gate-errors)
+          (str "both renders reached the acquisition barrier and rendezvoused —"
+               " a broken/timed-out barrier means the two renders never actually"
+               " OVERLAPPED (an infra-timing failure, NOT a thread-locality"
+               " violation): " (mapv ex-message @gate-errors)))
       (is (= 2 (count seen))
-          "two distinct render threads each threaded slice-memo handles")
-      (is (every? #(= 1 (count %)) thread-handle-sets)
+          "both labelled render threads (:a/:b) each threaded slice-memo handles")
+      (is (every? #(= 1 (count %)) handle-sets)
           "each render threaded EXACTLY ONE handle across both sibling probes —
            within-render sharing held even under the forced acquisition overlap")
-      (let [[ha hb] (map first thread-handle-sets)]
+      (let [[ha hb] (map first handle-sets)]
         (is (not (identical? ha hb))
             "the two OVERLAPPING renders threaded DISTINCT handle identities — a
              thread-local render scope, not a shared/reset global holder"))
