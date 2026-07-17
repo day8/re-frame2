@@ -1347,8 +1347,20 @@
   `interop/debug-enabled?` so it DCEs in production, and the override
   feeds ONLY the derefed reaction the view sees — never app-db, never
   `compute-sub` — so `:rf.assert/sub-equals` stays unsatisfiable by an
-  override."
-  [target query-v]
+  override.
+
+  `expected-incarnation` (rf2-dlld6, 3-arity) is the EXACT incarnation token a
+  `capture-frame` `:subscribe` op pinned at capture. When non-nil the read is
+  FENCED to that incarnation: a same-id successor resolved here (the capture's
+  frame was destroyed and a successor reseated under the id after the capture's
+  liveness pre-check) recover-but-emits `:rf.error/frame-destroyed` and returns
+  nil rather than reading the successor's app-db or caching a reaction in its
+  sub-cache. The token is compared against the SAME record resolved for the read
+  (`:drain-lock`), so validation and consumption are one exact-incarnation
+  operation. nil `expected-incarnation` — the ambient / explicit address-directed
+  read, and every layer-2+ recursive input resolution — is unfenced."
+  ([target query-v] (subscribe-in-frame target query-v nil))
+  ([target query-v expected-incarnation]
    (let [frame-id (frame/frame-target->id target)]
    ;; (CLJS, dev-only): record the view→sub edge — push this
    ;; query-v into the in-flight render's deref sink so `:rf.view/rendered`
@@ -1442,7 +1454,20 @@
          ;; static-require `re-frame.error-emit` — load cycle). The
          ;; `:frame`-stampable record carries `frame-id` + the attempted
          ;; `query-v` (as `:event`) for frame + shipper attribution.
-         (nil? frame-record)
+         ;;
+         ;; rf2-dlld6: the SAME recover-but-emit also covers a superseded
+         ;; captured read — `frame-record` resolved a same-id successor B whose
+         ;; `:drain-lock` differs from the `expected-incarnation` a
+         ;; `capture-frame` op pinned (A destroyed + B installed after the
+         ;; capture's liveness pre-check). The token is compared against the
+         ;; record we just resolved for the read, so a stale capture can neither
+         ;; read B's app-db nor cache a reaction in B's sub-cache. A nil
+         ;; `expected-incarnation` (ambient / address-directed / layer-2+ input)
+         ;; leaves the clause a pure `(nil? frame-record)` test.
+         (or (nil? frame-record)
+             (and (some? expected-incarnation)
+                  (not (identical? expected-incarnation
+                                   (:drain-lock frame-record)))))
          (do
            ;; Both channels via the shared helper: axis 1 the
            ;; always-on listener (survives prod elision), axis 2 the dev trace
@@ -1493,7 +1518,7 @@
                (if (identical? reaction (get-in new [k :reaction]))
                  reaction
                  (compute-and-cache! frame-id query-v)))
-             (compute-and-cache! frame-id query-v)))))))))) ;; close fn + call-with-frame-resolution + normalize-target let + subscribe-in-frame
+             (compute-and-cache! frame-id query-v))))))))))) ;; close fn + call-with-frame-resolution + normalize-target let + 3-arity + subscribe-in-frame
 
 (defn subscribe
   "Per Spec 006 §Lookup algorithm. Returns the reaction for query-v;
@@ -1557,8 +1582,13 @@
    ;; reach. `opts` may carry `{:frame target}` (a frame-id keyword or a live
    ;; frame value) — the explicit OVERRIDE intent; ambient (the carried
    ;; scope/hold stamp) when absent.
+   ;;
+   ;; rf2-dlld6: `:rf.frame/expected-incarnation` (a `capture-frame`
+   ;; `:subscribe` op's pinned token — INTERNAL, reserved `:rf.frame/` ns)
+   ;; rides alongside `:frame` so the read is fenced to the exact captured
+   ;; incarnation. nil for every ordinary explicit-frame read.
    (if-some [target (:frame opts)]
-     (subscribe-in-frame target query-v)
+     (subscribe-in-frame target query-v (:rf.frame/expected-incarnation opts))
      (subscribe query-v))))
 
 (defn- subscribe-once-in-frame

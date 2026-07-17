@@ -470,15 +470,23 @@ close this window; either is individually sufficient for its axis, and together 
 2. **Incarnation-keyed frame-capture fence.** A frame api (`capture-frame`, and the `reg-view`
    render-time injection) captured against a **live** frame pins that frame's exact incarnation (its
    `:drain-lock`, per [002 §capture-frame](002-Frames.md)). If the captured incarnation is later
-   destroyed — the id unclaimed, **or** a same-id successor incarnation reseated under it — a dispatch
-   through the stale api RECOVERS (the event is never enqueued into the successor) and emits the
-   production-survivable `:rf.error/frame-destroyed`, exactly as a dispatch into a destroyed frame
-   does. This is the async-safe, recover-but-emit sibling of the synchronous **throwing** incarnation
-   fence the `(frame)` accessor bundle already applies; it is the last-line guard for a predecessor
-   cleanup — including a throwing-host quarantine React later self-completes — that fires after both
-   the successor adapter and a same-id successor frame are live. A capture whose id was **not** live
-   at capture (the `capture-frame` 1-arity lock-to-id form used from outside any scope) pins nothing
-   and stays address-directed.
+   destroyed — the id unclaimed, **or** a same-id successor incarnation reseated under it — **every**
+   op the stale api exposes behaves uniformly: `:dispatch` and `:dispatch-sync` RECOVER (the event is
+   never enqueued into the successor), and `:subscribe` RECOVERS by reading nothing and returning
+   **nil** (it never resolves a reaction against the successor's app-db nor caches an entry in the
+   successor's sub-cache). Each emits the production-survivable `:rf.error/frame-destroyed`
+   **exactly once**, exactly as an op into a destroyed frame does. The captured incarnation is carried
+   through into target selection / enqueue / read, so validation and target consumption are **one
+   exact-incarnation operation** — the pinned token is compared against the same record the router / sub
+   resolves for the enqueue or read. There is therefore **no liveness-check-to-bare-id-use window**: on
+   the concurrent JVM host, an actor that destroys the captured incarnation and reseats a same-id
+   successor between the capture's liveness pre-check and its ordinary address-directed consumption can
+   never redirect the stale op into that successor (rf2-dlld6). This is the async-safe, recover-but-emit
+   sibling of the synchronous **throwing** incarnation fence the `(frame)` accessor bundle already
+   applies; it is the last-line guard for a predecessor cleanup — including a throwing-host quarantine
+   React later self-completes — that fires after both the successor adapter and a same-id successor
+   frame are live. A capture whose id was **not** live at capture (the `capture-frame` 1-arity
+   lock-to-id form used from outside any scope) pins nothing and stays address-directed.
 
 This is consistent with **"Disposal is total"** and **"no state survives"** (the adapter-revertibility
 contract above): the surviving `:tearing-down` claim is a **host-ownership quarantine** tracking a
