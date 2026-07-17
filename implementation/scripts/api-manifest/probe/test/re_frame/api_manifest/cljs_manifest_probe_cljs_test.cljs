@@ -64,7 +64,8 @@
   mechanism for it (see rf2-2mtte PR notes)."
   (:require-macros [re-frame.api-manifest.cljs-publics
                     :refer [emit-ns-publics emit-cljs-only-rows
-                            emit-classification-rows]])
+                            emit-classification-rows emit-ns-signatures
+                            emit-ui-test-signature-contract]])
   (:require [cljs.test :refer-macros [deftest is testing]]
             [re-frame.api-manifest.cljs-probe :as probe]
             ;; The covered CLJS-only namespaces. The `:require` forces the
@@ -216,3 +217,96 @@
       (is (contains? live-publics ns-str)
           (str ns-str " is marked :fully-rowed but is not in live-publics "
                "— add its :require + emit-ns-publics entry.")))))
+
+;; ---------------------------------------------------------------------------
+;; re-frame.ui.test HOST-ARITY guard — CLJS (:cljs) lane (rf2-5bcdi).
+;;
+;; The manifest carries name + :kind but NO arity, so a re-frame.ui.test
+;; FUNCTION can reshape a supported arity and stay green — and the contract is
+;; host-specific: `flush!` is 0-arity on the JVM but 0/1-arity on CLJS. This
+;; enumerates the live CLJS analyzer arities of the reader-conditional surface
+;; and reconciles the FUNCTION arities against the `:cljs` half of the sidecar
+;; signature authority. A CLJS-only reshape (e.g. dropping flush!'s 1-arity)
+;; turns this RED. Macros are host-invariant (pinned once on the JVM lane).
+;; ---------------------------------------------------------------------------
+
+(def live-ui-test-signatures
+  "`{var-name (#{arity} | nil)}` for re-frame.ui.test's live CLJS public
+   surface, enumerated off the analyzer at compile time."
+  (emit-ns-signatures re-frame.ui.test))
+
+(def ui-test-signature-contract
+  "The sidecar `:ui-test-signatures` authority, embedded at compile time
+   (no runtime filesystem). `:vars` is the per-var host-aware contract."
+  (emit-ui-test-signature-contract))
+
+(deftest ui-test-cljs-arities-in-sync
+  (testing "the live CLJS function arities of re-frame.ui.test match the :cljs
+            signature contract (the reader-conditional flush! 0/1-arity pinned)"
+    (let [problems (probe/signature-problems (:vars ui-test-signature-contract)
+                                             live-ui-test-signatures)]
+      (is (empty? problems) (probe/signature-report problems)))))
+
+(deftest ui-test-signature-contract-is-non-vacuous
+  (testing "the embedded contract carries the nine blessed ui.test vars and the
+            analyzer surfaced flush!'s live CLJS 0/1-arity (guards against a
+            vacuous green from an unread sidecar or un-analysed namespace)"
+    (is (= "re-frame.ui.test" (:namespace ui-test-signature-contract)))
+    (is (= 9 (count (:vars ui-test-signature-contract))))
+    (is (= #{[0] [1]} (get live-ui-test-signatures "flush!"))
+        "flush! must be observed 0/1-arity on CLJS — the blessed host difference")))
+
+;; Synthetic reconciler contracts — the mutation proof, exercised directly on
+;; the pure `signature-problems` so a reshape goes RED and the in-sync state
+;; stays green regardless of the live analyzer.
+(def ^:private synthetic-contract
+  {"attrs"     {:kind :fn    :cljs #{[1]}}
+   "flush!"    {:kind :fn    :cljs #{[0] [1]}}
+   "render"    {:kind :macro :cljs #{[1] [2]}}
+   "with-root" {:kind :macro :cljs #{[1 :&]}}})
+
+(def ^:private synthetic-live-in-sync
+  {"attrs" #{[1]} "flush!" #{[0] [1]} "render" #{[1] [2]} "with-root" #{[1 :&]}})
+
+(deftest cljs-arities-in-sync-produce-no-problems
+  (testing "the matching live CLJS arities reconcile clean"
+    (is (empty? (probe/signature-problems synthetic-contract synthetic-live-in-sync)))))
+
+(deftest cljs-flush-arity-drop-goes-red
+  (testing "THE BUG (rf2-5bcdi): flush! losing its CLJS 1-arity (thunk) fails
+            against :cljs #{[0] [1]} — a CLJS-only reshape the manifest cannot see"
+    (let [problems (probe/signature-problems
+                    synthetic-contract
+                    (assoc synthetic-live-in-sync "flush!" #{[0]}))]
+      (is (= [:arity-mismatch] (map :kind problems)))
+      (is (= "flush!" (:var (first problems))))
+      (is (= #{[0] [1]} (:expected (first problems))))
+      (is (= #{[0]} (:got (first problems)))))))
+
+(deftest cljs-added-arity-goes-red
+  (testing "ADDING a CLJS-only arity (attrs gains a 2-arity) fails — a superset
+            is drift, not a pass"
+    (let [problems (probe/signature-problems
+                    synthetic-contract
+                    (assoc synthetic-live-in-sync "attrs" #{[1] [2]}))]
+      (is (= [:arity-mismatch] (map :kind problems)))
+      (is (= "attrs" (:var (first problems)))))))
+
+(deftest cljs-unobserved-function-goes-red
+  (testing "a contracted FUNCTION the analyzer surfaces no arity for is
+            :arity-unobserved (never a vacuous pass)"
+    (let [problems (probe/signature-problems
+                    synthetic-contract
+                    (assoc synthetic-live-in-sync "attrs" nil))]
+      (is (= [:arity-unobserved] (map :kind problems)))
+      (is (= "attrs" (:var (first problems)))))))
+
+(deftest cljs-macros-are-not-arity-checked
+  (testing "macros (render / with-root) are host-invariant — the CLJS lane does
+            NOT flag them even when the analyzer surfaces no arity for them
+            (their grammar is pinned on the JVM lane)"
+    (is (empty? (probe/signature-problems
+                 synthetic-contract
+                 (-> synthetic-live-in-sync
+                     (assoc "render" nil)
+                     (dissoc "with-root")))))))
