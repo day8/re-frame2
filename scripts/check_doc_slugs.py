@@ -77,9 +77,34 @@ DEFAULT_ROOTS = (
 # explicit opt-in scope: it must not widen the default docs/MkDocs corpus or
 # sweep unrelated ai/ scratch. S6 owns publication; this gate owns only links
 # and anchors while the source remains here.
+#
+# The scope is ALSO the retired-operation guard's inventory (see
+# _scan_retired_synthesis_ops): every active runnable/dispatch authority a
+# worker executes directly must be covered, so a stale copy-from-mayor /
+# local-only directive cannot hide in a live authority. rf2-d9v3n expanded the
+# inventory from guide/ + drafts/ (which only covered publication-track pages)
+# to the operational authorities as well:
+#
+#   * prep/ — the per-workstream prep tables (w1/w2/w3/w9) workers run against.
+#   * the two top-level operational authorities named in SYNTHESIS_FILES.
+#
+# The inventory stays narrow and reviewable on purpose: the sibling 01-10
+# narrative chapters, README, and the reviews/ + spikes/ subtrees are
+# historical review/spike prose, NOT active operations, and stay out.
 SYNTHESIS_ROOTS = (
     "ai/findings/new-substrate-synthesis/guide",
     "ai/findings/new-substrate-synthesis/drafts",
+    "ai/findings/new-substrate-synthesis/prep",
+)
+
+# Individual top-level operational authorities. These two files live directly in
+# ai/findings/new-substrate-synthesis/ alongside the 01-10 narrative chapters and
+# README, so the whole directory is NOT a root — only these named files are
+# active authorities a worker dispatches/executes and must be guarded. Naming
+# them explicitly keeps the inventory an auditable list, not a directory sweep.
+SYNTHESIS_FILES = (
+    "ai/findings/new-substrate-synthesis/11-adoption-workstreams.md",
+    "ai/findings/new-substrate-synthesis/12-implementation-plan.md",
 )
 
 # Diff-ready spec drafts author their links for the file's eventual `spec/`
@@ -323,11 +348,16 @@ def _iter_markdown(
 ) -> Iterable[Path]:
     """Yield absolute paths to every in-scope .md file."""
     roots: list[tuple[Path, bool]] = []
+    explicit_files: list[Path] = []
     if synthesis_only:
         for d in SYNTHESIS_ROOTS:
             p = repo_root / d
             if p.is_dir():
                 roots.append((p, True))
+        for f in SYNTHESIS_FILES:
+            p = repo_root / f
+            if p.is_file():
+                explicit_files.append(p)
     else:
         for d in DEFAULT_ROOTS:
             p = repo_root / d
@@ -354,6 +384,17 @@ def _iter_markdown(
                 continue
             seen.add(ap)
             yield path
+    # Individually-named authority files (SYNTHESIS_FILES). Run through the same
+    # exclusion + dedup path; allow_ai_findings is True because these are the
+    # exact tracked synthesis authorities, never an arbitrary ai/ path.
+    for path in explicit_files:
+        if _is_excluded(path, repo_root, allow_ai_findings=True):
+            continue
+        ap = path.resolve()
+        if ap in seen:
+            continue
+        seen.add(ap)
+        yield path
 
 
 def _strip_fences(lines: list[str]) -> list[tuple[int, str]]:
@@ -898,8 +939,10 @@ def main(argv: list[str]) -> int:
         "--synthesis-only",
         action="store_true",
         help=(
-            "Scan only the tracked re-frame.ui synthesis guide and active "
-            "drafts. Enumerates every matched file and fails if the scope is empty."
+            "Scan only the tracked re-frame.ui synthesis authority inventory: "
+            "the guide + active drafts, the prep/ workstream tables, and the "
+            "top-level adoption/implementation plans. Enumerates every matched "
+            "file and fails if the scope is empty."
         ),
     )
     args = parser.parse_args(argv)
@@ -1002,6 +1045,13 @@ def _run_self_tests(verbose: bool = False) -> int:
         # quotes of the old model.
         ("synthesis_retired_op", 1),
         ("synthesis_retired_op_allowed", 0),
+        # rf2-d9v3n — the inventory now covers the operational authorities too,
+        # so a retired copy-from-mayor / mayor-checkout-only directive can no
+        # longer hide in a prep/ workstream table (COPY_FROM_MAYOR) or a
+        # top-level plan named in SYNTHESIS_FILES (MAYOR_CHECKOUT_ONLY). Both
+        # trip under the synthesis scope and stay invisible to the default corpus.
+        ("synthesis_retired_op_prep", 1),
+        ("synthesis_retired_op_toplevel", 1),
     ]
     for fixture, expected in synthesis_cases:
         root = _SELF_TEST_FIXTURE_ROOT / fixture
@@ -1039,6 +1089,14 @@ def _run_self_tests(verbose: bool = False) -> int:
             )
             failures += 1
 
+    # rf2-d9v3n — prove the expanded inventory enumerates exactly the active
+    # authorities (guide + drafts + prep/ + the two top-level SYNTHESIS_FILES)
+    # and NOTHING else: the fixture also carries a top-level narrative chapter, a
+    # README, a reviews/ page, a spikes/ page (each with a retired directive), and
+    # unrelated ai/ scratch — none of which may enter the inventory. The parallel
+    # synthesis_valid_narrow_scope run above (expected synthesis broken=0) is the
+    # belt-and-suspenders proof that those retired-directive landmines are never
+    # scanned; this set-equality is the direct proof.
     narrow_root = _SELF_TEST_FIXTURE_ROOT / "synthesis_valid_narrow_scope"
     narrow_files = {
         path.relative_to(narrow_root).as_posix()
@@ -1047,6 +1105,9 @@ def _run_self_tests(verbose: bool = False) -> int:
     expected_narrow_files = {
         "ai/findings/new-substrate-synthesis/guide/index.md",
         "ai/findings/new-substrate-synthesis/drafts/design.md",
+        "ai/findings/new-substrate-synthesis/prep/w1-migrator-rule-table.md",
+        "ai/findings/new-substrate-synthesis/11-adoption-workstreams.md",
+        "ai/findings/new-substrate-synthesis/12-implementation-plan.md",
     }
     if narrow_files != expected_narrow_files:
         sys.stderr.write(
@@ -1056,7 +1117,8 @@ def _run_self_tests(verbose: bool = False) -> int:
         failures += 1
     elif verbose:
         sys.stderr.write(
-            "self-test PASS: synthesis scope enumerates guide + drafts only\n"
+            "self-test PASS: synthesis scope enumerates guide + drafts + prep + "
+            "top-level authorities only (narrative/README/reviews/spikes excluded)\n"
         )
 
     empty_root = _SELF_TEST_FIXTURE_ROOT / "valid_link"
