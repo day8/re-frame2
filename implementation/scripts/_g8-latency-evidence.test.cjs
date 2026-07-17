@@ -1,21 +1,25 @@
 #!/usr/bin/env node
 /*
- * Pure unit tests for `lib/g8-latency-evidence.cjs` and the pure teeth of
- * `run-ui-g8.cjs` (rf2-fnkmi — completing the canonical G-8).
+ * Pure unit tests for `lib/g8-latency-evidence.cjs` (rf2-fnkmi — completing the
+ * canonical G-8).
  *
  * PR #6182 shipped the G-8 real-browser correctness matrix but not the two
  * canonical arms: real attributable React commit counts and the comparative
- * event-to-commit latency. This test pins, without spawning shadow-cljs or
- * Playwright:
+ * event-to-commit latency. This test pins the comparative-latency evidence
+ * MATH — the stated nearest-rank quantile convention, sample-shape validation,
+ * the evidence-only p95 budget comparison, and the step-summary rendering —
+ * without spawning shadow-cljs or Playwright.
  *
- *   1. the comparative-latency evidence math — the stated nearest-rank quantile
- *      convention, sample-shape validation, the evidence-only p95 budget
- *      comparison, and the step-summary rendering;
- *   2. the runner's correctness mutation teeth for the NEW arms — an extra React
- *      commit, an IME duplicate (revision or commit), and a vacuous commit
- *      counter must all redden the gate (`=== 1`, not `>= 1`);
- *   3. the budget mutation teeth — the evidence-only comparison bites on
- *      synthetic over-budget data without gating real measured latency.
+ * PURE by construction, exactly like the sibling `_g13-timing-evidence.test.cjs`:
+ * it requires ONLY `assert/strict` and the pure `lib/g8-latency-evidence.cjs`
+ * (no node_modules), so it runs in the lightweight "JS harness self-tests"
+ * CI job, which installs no dependencies. The runner's correctness + budget
+ * MUTATION TEETH (extra React commit, IME duplicate, vacuous commit counter,
+ * over-budget latency) live in `run-ui-g8.cjs` — which requires Playwright — and
+ * are exercised with the SAME red-before/green-after discipline at the START of
+ * the actual G-8 browser gate: `runMutationTeeth` + `runBudgetTeeth` run before
+ * any browser and throw if a tooth fails to bite, and the report records the
+ * labels that bit. They are therefore not re-run here.
  *
  * Standalone node runner, matching the sibling `_*.test.cjs` convention.
  */
@@ -38,13 +42,6 @@ const {
   engineLatencyEvidence,
   buildPerformanceSummary,
 } = require('./lib/g8-latency-evidence.cjs');
-
-const {
-  goldenResult,
-  assertEngineResult,
-  runMutationTeeth,
-  runBudgetTeeth,
-} = require('./run-ui-g8.cjs');
 
 const tests = [];
 function test(name, fn) {
@@ -194,63 +191,13 @@ test('buildPerformanceSummary emits a per-engine p95 + ratio row and exposes the
   assert.match(md, /webkit hand-written/);
 });
 
+test('buildPerformanceSummary reports an over-budget engine as observed-over (evidence, not a gate)', () => {
+  const md = buildPerformanceSummary([engineLatencyEvidence('chromium', fill25(2.0), fill25(1.0))]);
+  assert.match(md, /\| chromium \| 2\.000 \| 1\.000 \| 2\.000 \| observed over \|/);
+});
+
 test('buildPerformanceSummary rejects an empty per-engine set', () => {
   assert.throws(() => buildPerformanceSummary([]), /non-empty/);
-});
-
-// ----- runner correctness teeth: the NEW commit + IME arms bite --------------
-
-test('the golden result passes assertEngineResult (green-after baseline)', () => {
-  assert.doesNotThrow(() => assertEngineResult('golden', goldenResult()));
-});
-
-test('runMutationTeeth returns a label for every tooth (all bit — none stayed green)', () => {
-  const teeth = runMutationTeeth();
-  assert.ok(Array.isArray(teeth) && teeth.length >= 13, `expected the full teeth set, got ${teeth.length}`);
-  // The NEW commit-count + IME-exact teeth must be present and have bit.
-  for (const needle of [
-    /extra React commit/,
-    /commit counter vacuous/,
-    /duplicate revision/,
-    /duplicate React commit/,
-    /IME commit counter vacuous/,
-  ]) {
-    assert.ok(teeth.some((t) => needle.test(t)), `missing a tooth matching ${needle}`);
-  }
-});
-
-test('assertEngineResult rejects an extra React commit for one ordinary input', () => {
-  const r = goldenResult();
-  r.sync['ordinary-commit-delta'] = 2;
-  assert.throws(() => assertEngineResult('mutant', r), /not exactly one/);
-});
-
-test('assertEngineResult rejects a vacuous (0) ordinary commit counter', () => {
-  const r = goldenResult();
-  r.sync['ordinary-commit-delta'] = 0;
-  assert.throws(() => assertEngineResult('mutant', r), /vacuous counter reports 0/);
-});
-
-test('assertEngineResult rejects an IME duplicate revision (>= 1 would have accepted it)', () => {
-  const r = goldenResult();
-  r.sync['ime-revision-delta'] = 2;
-  assert.throws(() => assertEngineResult('mutant', r), /not exactly once/);
-});
-
-test('assertEngineResult rejects an IME duplicate React commit', () => {
-  const r = goldenResult();
-  r.sync['ime-commit-delta'] = 2;
-  assert.throws(() => assertEngineResult('mutant', r), /not exactly one/);
-});
-
-// ----- runner budget teeth: non-vacuous, evidence-only -----------------------
-
-test('runBudgetTeeth proves the comparison bites without gating real timing', () => {
-  const teeth = runBudgetTeeth();
-  assert.ok(Array.isArray(teeth) && teeth.length === 3, `expected 3 budget teeth, got ${teeth.length}`);
-  assert.ok(teeth.some((t) => /within 10%/.test(t)));
-  assert.ok(teeth.some((t) => /over-budget compiled p95 \(2x baseline\) flagged outside 10%/.test(t)));
-  assert.ok(teeth.some((t) => /zero baseline p95 is rejected/.test(t)));
 });
 
 // ----- runner ----------------------------------------------------------------
