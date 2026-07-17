@@ -304,7 +304,7 @@
              (-> (events-of :rf.machine/destroyed) first :tags :reason))))))
 
 (deftest delayed-completion-after-explicit-cancellation-cannot-fold
-  (testing "a delayed exact-auth carrier is suppressed after its attempt closes"
+  (testing "a delayed exact-attempt carrier is suppressed after its attempt closes"
     (let [callback (atom nil)
           pending  (atom [])]
       (with-redefs [interop/set-timeout! (fn [f _ms]

@@ -321,7 +321,7 @@
         (let [after (join-state :sac/tomb [:racing])
               stale (first (mtest/events-of :rf.machine.spawn-all/stale-completion))]
           (is (= #{} (:done after))
-              "the late exact-auth carrier did NOT fold — :a is never marked done")
+              "the late exact-attempt carrier did NOT fold — :a is never marked done")
           (is (= #{:a} (:cancelled after))
               "the tombstone is unchanged — the cancelled child is not resurrected")
           (is (some? stale) "a stale-completion suppression fired for the late carrier")

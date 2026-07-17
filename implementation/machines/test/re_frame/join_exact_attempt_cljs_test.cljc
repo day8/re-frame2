@@ -395,7 +395,7 @@
         (is (true? (:resolved? (join-state :jea/p9))) "attempt 2 resolved")))))
 
 ;; ---------------------------------------------------------------------------
-;; rf2-ixjd48 — validate ownership + exact authority BEFORE the
+;; rf2-ixjd48 — validate ownership + exact-attempt coordinate BEFORE the
 ;; resolved-vs-unresolved classification. Pre-fix the `:resolved?` branch ran
 ;; FIRST, so ANY matching event shape against a resolved join was attributed
 ;; to the CURRENT attempt: an old-attempt straggler, an unstamped carrier, or
@@ -415,7 +415,7 @@
 (defn- resolve-all-join!
   "Resolve a fresh `reg-join-parent!` `:all` join by completing BOTH children
   through their own handler boundaries (so they fold with valid attempt
-  authority). The parent has no `:on` for `:all/done`, so it stays on
+  coordinates). The parent has no `:on` for `:all/done`, so it stays on
   `:racing` and the resolved join slot survives for post-resolution probes.
   Returns the resolved join state."
   [parent-kw]
@@ -429,7 +429,7 @@
             the parent re-enters, installs attempt B, and B RESOLVES; then A
             drains. Pre-fix the `:resolved?` branch ran first and forged a
             join-resolved `:late-completion` carrying B's CURRENT spawned/work
-            identity for A's straggler. The fix validates authority first: A is
+            identity for A's straggler. The fix validates the exact-attempt coordinate first: A is
             classified `:attempt-superseded` carrying ITS OWN (attempt-A)
             identity, NO late-completion fires, and B's resolved join is
             untouched (zero db mutation)."
@@ -473,8 +473,8 @@
   (testing "rf2-ixjd48 — THE PRESERVED PATH. An EXACT-CURRENT
             carrier arriving after its OWN join resolved (a genuine current
             survivor draining post-latch) still takes the join-resolved
-            `:late-completion` path — the fix gates late-completion on exact
-            authority, it does not remove it."
+            `:late-completion` path — the fix gates late-completion on the
+            exact-attempt fence, it does not remove it."
     (reg-join-parent! :jea/pr2 :jea/pr2a :jea/pr2b)
     (let [j (resolve-all-join! :jea/pr2)
           a (get-in j [:children :a])]
@@ -499,7 +499,7 @@
 (deftest unstamped-carrier-against-resolved-join-is-unverified
   (testing "rf2-ixjd48 — acceptance: an UNSTAMPED carrier against a RESOLVED
             join is `:attempt-unverified`, NOT late-completion. Pre-fix the
-            `:resolved?` branch attributed it before checking authority."
+            `:resolved?` branch attributed it before checking the exact-attempt coordinate."
     (reg-join-parent! :jea/pr3 :jea/pr3a :jea/pr3b)
     (resolve-all-join! :jea/pr3)
     (mtest/reset-captured!)
