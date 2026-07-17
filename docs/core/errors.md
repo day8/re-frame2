@@ -162,10 +162,10 @@ A missing [coeffect](glossary.md#coeffect) is the stricter sibling, because a co
 
 ### A subscription throws, or reads one that isn't there
 
-*The same `nil` that crashed your handler can crash a [sub](glossary.md#subscription) instead — a layer-2 sub maps over `(:items cart)` while `cart` is still `nil`.* The read side has its own two categories, and they're the exact mirror of the event side:
+*The same `nil` that crashed your handler can crash a [sub](glossary.md#subscription) instead — a layer-2 sub maps over `(:items cart)` while `cart` is still `nil`.* The render phase has its own two categories, and they're the exact mirror of the event side:
 
 - **A throwing sub computation emits `:rf.error/sub-exception`** (recovery `:replaced-with-default`): the sub returns `nil`, the view sees no value, and the failure is named — not a blank panel with no clue. A `:where` tag (`:reactive` for the hot recompute path, `:compute-sub` for the on-demand path) tells you which resolution path threw. The fix is the same defensive default you'd apply in a handler.
-- **A `subscribe` to an unregistered sub-id — or a `:<-` input naming one — emits `:rf.error/no-such-sub`** (recovery `:replaced-with-default`): the unresolved input is substituted with `nil` and the sub's body still runs. This is the read-side twin of `:rf.error/no-such-handler`: a botched load order degrades to a `nil` read with the exact id named in the trace, rather than crashing the render.
+- **A `subscribe` to an unregistered sub-id — or a `:<-` input naming one — emits `:rf.error/no-such-sub`** (recovery `:replaced-with-default`): the unresolved input is substituted with `nil` and the sub's body still runs. This is the render-phase twin of `:rf.error/no-such-handler`: a botched load order degrades to a `nil` read with the exact id named in the trace, rather than crashing the render.
 
 For both, a missing or broken *derivation* yields `nil` and renders on, because a view that's missing one value is still a view. That's deliberately gentler than the event side: an `:rf.error/handler-exception` halts its whole run (`:no-recovery`), but a sub failure is contained to the one node and its dependents, leaving the rest of the [derivation graph](glossary.md#the-derivation-graph) intact.
 

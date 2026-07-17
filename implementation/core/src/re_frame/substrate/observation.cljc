@@ -1,5 +1,5 @@
 (ns re-frame.substrate.observation
-  "The internal observation port — the six-operation read-side protocol the
+  "The internal observation port — the six-operation render-phase protocol the
   compiled UI substrate (`day8/re-frame2-ui`) uses over the REAL per-frame
   sub-cache. Per Spec 006 §The internal observation port (adapter-internal).
 

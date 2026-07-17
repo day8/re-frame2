@@ -156,34 +156,42 @@ Related: [Introduction](introduction.md).
 <a id="event-cascade"></a>
 ### **event pipeline**
 
-The fixed stage sequence one dispatched [event](#event) traverses. It has a [**write side**](#write-side) and a [**read side**](#read-side), split at the [**commit**](#commit) — nothing crosses between them except the committed value. The write side runs per event — [assemble](#assemble) → [transform](#transform) → [commit](#commit) → [perform](#perform); the read side runs once per [drain](#drain--run-to-completion) at settle — [derive](#derive) → [render](#render).
+The fixed stage sequence one dispatched [event](#event) traverses, in three **phases**: the [**update phase**](#update-phase) computes a *description* of the change, the [**commit phase**](#commit-phase) executes the declared effects — the `:db` write first, atomically — and the [**render phase**](#render-phase) brings the derivations and the screen up to date. The update and commit phases run per event — [assemble](#assemble) → [transform](#transform) → [commit](#commit) → [perform](#perform); the render phase runs once per [drain](#drain--run-to-completion) at settle — [derive](#derive) → [render](#render).
 
 ```clojure
-;; write side (per event):  assemble → transform → commit → perform
-;; read side  (per drain):  derive → render
+;; update + commit phases (per event):  assemble → transform → commit → perform
+;; render phase           (per drain):  derive → render
 ```
 
-The commit is the seam: the write side is transactional up to it and best-effort after it, and the [view](#view) renders once, from the committed state — never mid-run.
+The `:db` write is the anchor: the pipeline is transactional up to it and best-effort after it, and the [view](#view) renders once, from the committed state — never mid-run.
 
-One traversal of the pipeline is a [**run**](#run); the record a run leaves behind is an [**epoch**](#epoch). Read the triple as **pipeline** (the structure) / **run** (one traversal) / **epoch** (the record). The to-fixed-point family — running the whole queue before the read side — is a [**drain**](#drain--run-to-completion).
+One traversal of the pipeline is a [**run**](#run); the record a run leaves behind is an [**epoch**](#epoch). Read the triple as **pipeline** (the structure) / **run** (one traversal) / **epoch** (the record). The to-fixed-point family — running the whole queue before the render phase — is a [**drain**](#drain--run-to-completion).
 
 Related: [Introduction](introduction.md). (Older prose called this the *event cascade*, a *turn of the loop*, or simply *the loop*; those spellings are retired for the event-traversal sense — prefer **event pipeline** / **pipeline run**. The machines *cancellation cascade* keeps its name.)
 
 ### **run**
 
-One traversal of the [event pipeline](#event-pipeline) — a single dispatched [event](#event) carried through every stage, write side then read side. It's the middle term of the triple: the [**pipeline**](#event-pipeline) is the fixed structure, a **run** is one trip through it, and the [**epoch**](#epoch) is the record that trip leaves. One dispatch = one run = one epoch. (A whole queue run to a fixed point before the read side is a [drain](#drain--run-to-completion), which is many runs but one read side.)
+One traversal of the [event pipeline](#event-pipeline) — a single dispatched [event](#event) carried through every stage: its update and commit phases, then the drain's shared render phase. It's the middle term of the triple: the [**pipeline**](#event-pipeline) is the fixed structure, a **run** is one trip through it, and the [**epoch**](#epoch) is the record that trip leaves. One dispatch = one run = one epoch. (A whole queue run to a fixed point before the render phase is a [drain](#drain--run-to-completion), which is many runs but one render phase.)
 
 Related: [Introduction](introduction.md).
 
-### **write side**
+<a id="write-side"></a>
+### **update phase**
 
-The first half of the [event pipeline](#event-pipeline) — [assemble](#assemble) → [transform](#transform) → [commit](#commit) → [perform](#perform) — the part that runs *once per [event](#event)* and computes and applies the change. It's transactional up to the [commit](#commit) (a throwing handler installs nothing) and best-effort after it. The [commit](#commit) is the seam that ends it; nothing crosses to the [read side](#read-side) except the value the commit lands.
+The first phase of the [event pipeline](#event-pipeline) — [assemble](#assemble) → [transform](#transform) — the handler's **pure computation**, once per [event](#event): build the [world](#world), run the handler over it, and produce a *description* of the change (the new value and the declared effects). Nothing has happened yet — the phase yields intent, as data. A throwing handler installs nothing.
 
 Related: [Introduction](introduction.md).
 
-### **read side**
+### **commit phase**
 
-The second half of the [event pipeline](#event-pipeline) — [derive](#derive) → [render](#render) — the part that runs *once per [drain](#drain--run-to-completion)*, after the queue settles, and brings the screen up to date. It reads only the value the [commit](#commit) landed; it never sees a half-written [app-db](#app-db), and it runs once no matter how many events the drain settled.
+The second phase — [commit](#commit) → [perform](#perform) — where the declared effects **execute**, once per [event](#event). The `:db` write is one of those effects, special **only** in that it is guaranteed to run *first*: the new [app-db](#app-db) lands atomically, in one step, before any other effect fires; the remaining effects then run in source order, best-effort. **Pre-commit** and **post-commit** name positions relative to that first write. Nothing crosses to the [render phase](#render-phase) except the committed value.
+
+Related: [Effects](effects.md), [Introduction](introduction.md).
+
+<a id="read-side"></a>
+### **render phase**
+
+The final phase — [derive](#derive) → [render](#render) — the part that runs *once per [drain](#drain--run-to-completion)*, after the queue settles, and brings the screen up to date. It reads only the value the [commit](#commit) landed; it never sees a half-written [app-db](#app-db), and it runs once no matter how many events the drain settled.
 
 Related: [Subscriptions](subscriptions.md), [Introduction](introduction.md).
 
@@ -482,7 +490,7 @@ Related: [Views](views.md). Use "component" for React-analogy callouts only.
 
 ## The Verbs
 
-The six pipeline stages — [**assemble → transform → commit → perform**](#write-side) (the [write side](#write-side), per event) and [**derive → render**](#read-side) (the [read side](#read-side), per drain) — are the verbs of the [event pipeline](#event-pipeline); they lead this section, in pipeline order.
+The six pipeline stages — [**assemble → transform**](#write-side) (the [update phase](#write-side), per event), [**commit → perform**](#commit-phase) (the [commit phase](#commit-phase), per event) and [**derive → render**](#read-side) (the [render phase](#read-side), per drain) — are the verbs of the [event pipeline](#event-pipeline); they lead this section, in pipeline order.
 
 ### **assemble**
 
@@ -498,7 +506,7 @@ Related: [Introduction](introduction.md), [event handler](#event-handler).
 
 ### **commit**
 
-The single, deferred, all-or-nothing write of the new [app-db](#app-db) — and the **seam** of the [event pipeline](#event-pipeline). It is the one point the committed value crosses from the [write side](#write-side) to the [read side](#read-side); nothing else crosses. Everything before it (assemble, transform) is transactional — the `:db` your [event handler](#event-handler) returns is *staged* and lands once, atomically, after flows run, so a throwing handler or flow installs *nothing* — and everything after it ([perform](#perform)) is best-effort. No observer ever sees a half-written app-db.
+The single, deferred, all-or-nothing write of the new [app-db](#app-db) — the **first effect of the [commit phase](#commit-phase)**, and its anchor. The `:db` write is an effect like any other, special *only* in that it is guaranteed to run first; it is the one point the committed value crosses to the [render phase](#read-side), and nothing else crosses. Everything before it (assemble, transform) is transactional — the `:db` your [event handler](#event-handler) returns is *staged* and lands once, atomically, after flows run, so a throwing handler or flow installs *nothing* — and everything after it ([perform](#perform)) is best-effort. No observer ever sees a half-written app-db.
 
 ```clojure
 ;; the :db you return is staged; it's committed once, atomically — the write/read seam
@@ -508,13 +516,13 @@ Related: [Introduction](introduction.md).
 
 ### **perform**
 
-The pipeline's fourth stage and the last of the [write side](#write-side): run the `:fx` rows the [transform](#transform) returned, in source order, after the [commit](#commit). This is the *only* place the system touches the world — the HTTP call, the navigation, the follow-up dispatch — carried out by the [effect handler](#effect-handler) registered for each id. Past the [commit](#commit) seam it's best-effort: an effect that throws doesn't un-commit the state.
+The pipeline's fourth stage and the rest of the [commit phase](#commit-phase): run the `:fx` rows the [transform](#transform) returned, in source order, after the [commit](#commit). This is the *only* place the system touches the world — the HTTP call, the navigation, the follow-up dispatch — carried out by the [effect handler](#effect-handler) registered for each id. Past the `:db` write it's best-effort: an effect that throws doesn't un-commit the state.
 
 Related: [Effects](effects.md), [Coeffects](coeffects.md), [effect](#effect).
 
 ### **derive**
 
-The pipeline's fifth stage and the first of the [read side](#read-side): recompute the [subscriptions](#subscription) (and the rest of [the derivation graph](#the-derivation-graph)) that watch the changed parts of the committed [app-db](#app-db). Values that come out equal (by `=`) to last time prune everything downstream. The read side runs once per [drain](#drain--run-to-completion), so derivation happens against settled state, never mid-run. (The public verb you write is [`subscribe`](#subscribe--derive); *derive* names the stage.)
+The pipeline's fifth stage and the first of the [render phase](#read-side): recompute the [subscriptions](#subscription) (and the rest of [the derivation graph](#the-derivation-graph)) that watch the changed parts of the committed [app-db](#app-db). Values that come out equal (by `=`) to last time prune everything downstream. The render phase runs once per [drain](#drain--run-to-completion), so derivation happens against settled state, never mid-run. (The public verb you write is [`subscribe`](#subscribe--derive); *derive* names the stage.)
 
 Related: [Subscriptions](subscriptions.md).
 
@@ -549,10 +557,10 @@ Related: [Introduction](introduction.md).
 
 ### **drain / run-to-completion**
 
-The runtime normally drains the *whole* event queue to a fixed point — running the [write side](#write-side) of every queued [event](#event) to completion — before the [read side](#read-side) runs. So the write side runs *per event*, the read side runs *once per drain* at settle, and the UI updates once, from a settled state, never mid-flight. A drain-depth halt or successful exact-incarnation destruction claim is terminal. At a destroy claim an authored callback already on the stack may return and entered authored interceptor `:after` callbacks may unwind, but its returned framework tail is inert; later ordinary events do not begin and no read side follows the interrupted event. A drain is normally many [pipeline runs](#event-pipeline) sharing one read side.
+The runtime normally drains the *whole* event queue to a fixed point — running the [update and commit phases](#write-side) of every queued [event](#event) to completion — before the [render phase](#read-side) runs. So update and commit run *per event*, the render phase runs *once per drain* at settle, and the UI updates once, from a settled state, never mid-flight. A drain-depth halt or successful exact-incarnation destruction claim is terminal. At a destroy claim an authored callback already on the stack may return and entered authored interceptor `:after` callbacks may unwind, but its returned framework tail is inert; later ordinary events do not begin and no render phase follows the interrupted event. A drain is normally many [pipeline runs](#event-pipeline) sharing one render phase.
 
 ```clojure
-;; every queued event's write side runs, THEN — once — subs recompute and views render
+;; every queued event's update + commit phases run, THEN — once — subs recompute and views render
 ```
 
 Related: [Effects — run to completion](effects.md#run-to-completion) (idea + demo);

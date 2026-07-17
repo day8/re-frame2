@@ -167,7 +167,7 @@ selector raises `:rf.error/ui-test-bad-selector` naming the composed-`find` idio
 `query` (the Tier-3 live-DOM counterpart), `text`/`attrs`, `dispatch!` (real dispatch +
 drain), `with-root` (CLJS Promise; awaited mount, body, and total teardown), and
 `flush!` — the sole public test flush: on CLJS a Promise running the optional thunk
-inside React 19 `act`, letting the write side reach **drain quiescence**, then
+inside React 19 `act`, letting the update and commit phases reach **drain quiescence**, then
 alternating framework drains and React commits to a fixed point; on the JVM a
 synchronous drain of the headless ViewCell registry. The open-drain guard throws
 `:rf.error/flush-in-open-epoch`; a forgotten await fails loudly with
@@ -197,7 +197,7 @@ as the hydration-parity suite, including multi-root failure isolation.
 | **G-2** AOT peer | ≥ UIx-AOT parity on pure views; reactive one-read ≤ 15% update-p95 over raw correct `useSyncExternalStore` |
 | **G-3** multi-read scaling | one store listener and one body invocation per ViewCell; independent lexical-site leases; at most one notification per dirty cell; queued writes settle before one post-quiescence batch |
 | **G-4** equality no-op | `rf=` results ⇒ zero revisions, zero prop/sub-driven renders, stable references |
-| **G-5** drain fan-in | eight queued write-side epochs all execute in one run-to-completion drain, then exactly **one** read/render batch; coalescing never drops writes; epoch count is never evidence of render/commit count |
+| **G-5** drain fan-in | eight queued update+commit epochs all execute in one run-to-completion drain, then exactly **one** read/render batch; coalescing never drops writes; epoch count is never evidence of render/commit count |
 | **G-6** abandonment/disposal | 10k headless abandoned renders/cold probes and bounded mounted StrictMode/Activity cycles return every ownership surface to exact baseline |
 | **G-7** dev/prod equivalence | per generated shape + pairwise capabilities + high-risk triples: committed DOM/events/owners/cleanup/hydration agree, debug off |
 | **G-8** input latency & correctness (widened 2026-07-16) | caret/IME correctness first under the sync door, then event→commit within 10% of hand-written React p95, one commit per input; the real-browser Chromium/WebKit matrix now runs through a **reusable event-prefix component** (`ui/event` vector-outcome door) — toy literal fixtures alone do not close it |

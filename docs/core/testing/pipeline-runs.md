@@ -326,7 +326,7 @@ It shares its name root with the `:rf.assert/path-equals` event you'd use inside
 
 ## Asserting on a derived value, not raw `app-db`
 
-Every assertion so far has read a path straight out of `app-db`. But the pipeline doesn't stop at the commit — the read side runs on through [subscriptions](../glossary.md#subscription) to the [view](../glossary.md#view), and sometimes the value worth pinning is a *derived* one (a filtered list, a rolled-up count, a formatted label) rather than the raw state it's computed from. You could assert the inputs and trust the sub — but if the bug lives in the sub's own logic, that misses it. `compute-sub` lets you assert the derived value directly, still headless on the JVM:
+Every assertion so far has read a path straight out of `app-db`. But the pipeline doesn't stop at the commit — the render phase runs on through [subscriptions](../glossary.md#subscription) to the [view](../glossary.md#view), and sometimes the value worth pinning is a *derived* one (a filtered list, a rolled-up count, a formatted label) rather than the raw state it's computed from. You could assert the inputs and trust the sub — but if the bug lives in the sub's own logic, that misses it. `compute-sub` lets you assert the derived value directly, still headless on the JVM:
 
 ```clojure
 (rf/reg-sub :articles/favorited

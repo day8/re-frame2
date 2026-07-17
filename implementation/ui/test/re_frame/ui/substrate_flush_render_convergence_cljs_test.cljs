@@ -11,7 +11,7 @@
     1. the SHARED open-drain guard call — a flush forced inside a still-open
        event drain must throw `:rf.error/flush-in-open-epoch` BEFORE publishing
        any pending ViewCell (removing the guard would let it publish a
-       partially-settled read side); and
+       partially-settled render phase); and
     2. the commit-triggered RE-DIRTY loop, now bounded by
        `reactive/converge-flush!` — a non-quiescent cascade must fail loud with
        `:rf.error/flush-convergence-exceeded` (removing the loop would silently

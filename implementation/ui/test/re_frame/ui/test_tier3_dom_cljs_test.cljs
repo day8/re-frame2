@@ -557,7 +557,7 @@
               (reset! evidence {:reads 0 :renders 0 :commits 0})
 
               ;; The thunk itself runs inside the awaited act operation. Its
-              ;; eight queued events finish the write side synchronously;
+              ;; eight queued events finish their update and commit phases synchronously;
               ;; Promise settlement then performs the one read/render batch.
               (let [p (uit/flush!
                        (fn []

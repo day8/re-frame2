@@ -7,7 +7,7 @@ It's just a todo list, so what's worth your time? Two design decisions. Each loo
 1. **The filter is a *route*, not a flag.** The all/active/completed switch lives in the URL. The rest of the app derives the filtered list from it. There's no `:showing` key in app-db — the thing you'd reflexively store turns out to be something you read.
 2. **Persistence stays *replayable*.** The localStorage read at boot doesn't happen inside a handler. It arrives as a recordable **coeffect** instead. So the boot **event** replays to the exact same state under time-travel, rather than re-reading whatever the browser holds now. There's a section on why that matters below.
 
-Everything else is the plain, correct re-frame2 spine: pure **event handlers**, a layered **subscription** graph, a registered **effect** for the write side, and a **view** tree that holds no business logic.
+Everything else is the plain, correct re-frame2 spine: pure **event handlers**, a layered **subscription** graph, a registered **effect** in the commit phase, and a **view** tree that holds no business logic.
 
 The file layout echoes the v1 example's teaching split — the same concerns, split the same way — so diffing v1 against v2 shows what changed in the *API*, never in the architecture:
 

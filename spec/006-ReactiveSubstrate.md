@@ -1216,7 +1216,7 @@ These are normative (R-2). Each names the bug class it deletes.
    stale reads; a coincident-version reincarnation misread as unchanged; a retained
    headless site that self-corrects through no channel.)*
 6. **One notification per cell per render batch — the boundary is drain quiescence, not
-   epoch close.** An event/frame **epoch** is a write-side commit + diagnostic-evidence
+   epoch close.** An event/frame **epoch** is a commit-phase + diagnostic-evidence
    unit (one per dequeued event — per
    [002 §Drain versus event](002-Frames.md#drain-versus-event--the-epoch-unit)); it is
    **not** a React render boundary. Source-side notification is constant work — mark the
@@ -1969,7 +1969,7 @@ Both impls share the dynamic-var tier (`re-frame.frame/*current-frame*`, set by 
 
 ### The sub-override subscribe seam (debug-gated)
 
-`re-frame.subs/subscribe` carries one **substitutive**, debug-gated late-bind hook — `:subs/resolve-sub-override` — that lets a development tool *replace* a subscription's value at the view's deref point without touching app-db. It is the read-side of [Story's `:sub-overrides` fidelity rung](../tools/story/spec/017-Testing-Story.md#view-state-subscription-overrides): a designer pins a view into an `:error` / `:loading` / `:empty` state by naming exact subscription query-vectors and the values they should surface — no events, no app-db seed.
+`re-frame.subs/subscribe` carries one **substitutive**, debug-gated late-bind hook — `:subs/resolve-sub-override` — that lets a development tool *replace* a subscription's value at the view's deref point without touching app-db. It is the render-phase half of [Story's `:sub-overrides` fidelity rung](../tools/story/spec/017-Testing-Story.md#view-state-subscription-overrides): a designer pins a view into an `:error` / `:loading` / `:empty` state by naming exact subscription query-vectors and the values they should surface — no events, no app-db seed.
 
 **Carriage — React context, not a dynamic var.** The override map (`{query-vector value}`) must survive from the Story render-scope component into the **descendant** view's own, *deferred* React render — the view's `@(rf/subscribe [:q])` runs later, in its own reaction, several component layers deep. A `binding`-bound dynamic var does NOT survive that boundary (the binding unwinds before the descendant renders). The carriage that does is a **React context** — React mutates a context's `_currentValue` as Provider boundaries are entered/exited during render, so a read from inside any descendant render sees the closest enclosing Provider's value. This is the exact mechanism the frame-id uses (§Frame-provider via React context above); the override carriage mirrors it in a sibling CLJS-only context object whose default value is `nil` (no overrides in scope). The tool wraps the variant view in that Provider; core reads the closest enclosing map at subscribe time.
 

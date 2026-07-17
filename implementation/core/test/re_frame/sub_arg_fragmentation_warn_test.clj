@@ -8,7 +8,7 @@
   each render (a `{…}` map / collection / record built inline in the render
   body) mints a DISTINCT cache key every render — unbounded cache growth,
   zero reuse, silently. The React-hook `use-subscribe` path defends its
-  deps-array identity; this is the read-side analogue for subscribe's cache
+  deps-array identity; this is the render-phase analogue for subscribe's cache
   keying.
 
   This file pins the heuristic's behaviour: it FIRES (once) on the

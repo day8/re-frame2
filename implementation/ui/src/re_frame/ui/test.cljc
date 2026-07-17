@@ -765,7 +765,7 @@
   ;; with the first-party adapter's `flush-render!` — ONE guard, not two copies.
   ;; It survives a handler destroying its own frame (`*run-frame-state-before*`
   ;; outlives a live-registry scan), so a destroy-self-then-flush call still
-  ;; fails before delivering read-side work inside the still-open run.
+  ;; fails before delivering render-phase work inside the still-open run.
   (reactive/guard-open-drain! 'rf.ui.test/flush!))
 
 #?(:clj

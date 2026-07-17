@@ -82,7 +82,7 @@
     (-> (uit/flush!
          (fn []
            ;; dispatch! completes all eight write epochs synchronously; the
-           ;; read side runs when flush!'s Promise advances to the commit.
+           ;; render phase runs when flush!'s Promise advances to the commit.
            (uit/dispatch! frame [::fixture/step fixture/queued-writes])))
         (.then (fn [_] (- (js/performance.now) started))))))
 
@@ -102,7 +102,7 @@
     (-> (uit/flush!
          (fn []
            ;; dispatch! completes all eight write epochs synchronously. The
-           ;; read side has not run until flush!'s returned Promise advances.
+           ;; render phase has not run until flush!'s returned Promise advances.
            (uit/dispatch! frame [::fixture/step fixture/queued-writes])
            (reset! pre
                    {:pending (reactive/pending-cell-count)

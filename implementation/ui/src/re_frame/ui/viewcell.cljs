@@ -174,7 +174,7 @@
   "Reconcile resource ownership after the layout commit accepted `capture`.
 
   This is a passive effect: render and layout publish only an ownership-free
-  desired plan; queued ensure/release events are write-side work for the next
+  desired plan; queued ensure/release events are update/commit work for the next
   drain.  A stale/abandoned capture is rejected by `reactive`."
   [cell capture]
   ;; Pure capability installation, not ownership: abandoned renders may set a

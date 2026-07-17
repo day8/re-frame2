@@ -7,7 +7,7 @@ where follow-up events make the drain visible.
 This page is **operational detail**: what happens when a drain runs away, how
 `dispatch-sync` differs from `dispatch`, and how destroy cuts the queue off.
 
-> **Write side runs per event; read side runs once per drain, at settle.**
+> **Update and commit run per event; render runs once per drain, at settle.**
 
 ## When the drain won't stop
 

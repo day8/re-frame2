@@ -85,7 +85,7 @@ If neither tier names a frame, the reader returns `nil` and a public frame-scope
 
 ```clojure
 (rf/dispatch  [:foo]    {:frame :stories})        ;; trailing {:frame …} opt
-(rf/subscribe [:my-sub] {:frame :stories})        ;; same shape on the read side
+(rf/subscribe [:my-sub] {:frame :stories})        ;; subscribe mirrors the same shape
 (rf/subscribe [:my-sub])                          ;; no opts → resolves the established scope (raises if none)
 ```
 

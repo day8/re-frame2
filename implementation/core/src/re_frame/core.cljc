@@ -961,7 +961,7 @@
   live one-shot read for non-reactive consumers — REPL sessions, SSR
   builders, tools, and integration tests that want what the running frame
   sees right now; for reactive consumers (Reagent views, tools holding
-  the reaction) use `subscribe`. NOT the default write-side idiom:
+  the reaction) use `subscribe`. NOT the default update-phase idiom:
   ordinary event/effect design derives from the handler's declared
   coeffects (`:rf.cofx/requires`, EP-0017) and pure helpers, so the read
   rides the causal record rather than an ambient side-effect. And **never

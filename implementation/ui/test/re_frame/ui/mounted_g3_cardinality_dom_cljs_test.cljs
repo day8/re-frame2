@@ -5,7 +5,7 @@
   Four explicit compiled children contain 1/4/8/16 lexical `ui/sub` sites.
   The fixture proves one ViewCell and one useSyncExternalStore subscriber per
   child, independent ownership per lexical site, and one body invocation per
-  changed child. Twenty-nine queued events complete their write side before
+  changed child. Twenty-nine queued events complete their update and commit phases before
   one post-quiescence read/render batch; event epochs are evidence, never a
   render-count model.
 

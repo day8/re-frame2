@@ -144,7 +144,7 @@
           ;; The sub-only view already proved it is subscribed to B (it resolved
           ;; B's :retarget/n=2 above). A sub delta repaints on a later microtask,
           ;; which act-free advanced React cannot flush synchronously here, so this
-          ;; asserts the write side only.
+          ;; asserts the update and commit phases only.
           (ReactDOM/flushSync #((:dispatch-sync (last @frame-only-log)) [:retarget/set 77]))
           (is (= 77 (:n (rf/app-db-value fb))) "bundle drove B")
           (is (= 1 (:n (rf/app-db-value fa))) "A untouched"))

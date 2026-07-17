@@ -5,7 +5,7 @@
   overrides, a variant whose goal is rendering / design exploration MAY
   author `:sub-overrides` — a map of exact subscription query vectors to
   the data values the renderer should surface for them. This namespace is
-  the RENDER-PATH read side: given the plan's resolved override map and a
+  the RENDER-PHASE resolver: given the plan's resolved override map and a
   query vector a view is subscribing to, return either the override value
   or a miss sentinel.
 
