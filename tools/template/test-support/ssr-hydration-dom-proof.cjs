@@ -143,8 +143,23 @@ function initScriptStampServerNode() {
   let browser;
   let failure = null;
 
+  // Launch is a SKIP boundary, not a failure: some CI tiers enable this proof
+  // but do not provision a launchable Chromium (no `npx playwright install
+  // --with-deps`). Exit 2 = "browser unavailable, skipped" so the caller keeps
+  // the tier green; the real tooth still runs wherever a browser is installed
+  // (expensive-tests / template-release / local).
   try {
     browser = await chromium.launch({ headless: true });
+  } catch (launchErr) {
+    server.close();
+    console.log(
+      'SSR hydration DOM proof SKIPPED: Chromium is not launchable here ' +
+        `(${launchErr.message.split('\n')[0]}).`,
+    );
+    process.exit(2);
+  }
+
+  try {
     const context = await browser.newContext();
     const page = await context.newPage();
     await page.addInitScript(initScriptStampServerNode);
