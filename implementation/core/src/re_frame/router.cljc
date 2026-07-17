@@ -2066,16 +2066,34 @@
   Reached via the `:error-emit/dispatch-on-error` late-bind hook — the
   drain helper is on the same facade as the dispatch entry points and
   router already static-requires `error-emit`, but routing all the
-  non-recovery sites through one helper keeps the gating uniform."
-  [event-id event frame-id]
-  ;; Fan out along BOTH channels (rf2-c4oycd shared helper). Axis 1 — the
-  ;; always-on listener (survives prod elision); axis 2 — the dev trace (DCE'd
-  ;; under `:advanced` + `goog.DEBUG=false`). No exception — invalid op, not a
-  ;; throw; `elapsed-ms 0` (not a timed path).
-  (error-emit/emit-error-both!
-    :rf.error/frame-destroyed
-    event event-id frame-id nil 0 (interop/now-ms)
-    {:frame frame-id :event event :reason :frame-destroyed}))
+  non-recovery sites through one helper keeps the gating uniform.
+
+  `op` (rf2-7xlvt) is the ALREADY-KNOWN operation realm of the failing op
+  — `:dispatch` / `:dispatch-sync` / `:subscribe` — carried onto the
+  always-on record's private `:op` steering slot so
+  `error-emit/error-source-coord` resolves the source-coord under the EXACT
+  realm (`[:event id]` for a dispatch, `[:sub id]` for a subscribe) rather
+  than the realm-ambiguous `[:sub]`-then-`[:event]` fallback. The bare
+  router drain / no-such-frame emitters carry NO realm (the 3-arity), so
+  they keep that fallback — unchanged. The `capture-frame` stale-op seam
+  (`emit-captured-frame-superseded!`) is the one caller that KNOWS the
+  realm and passes it."
+  ([event-id event frame-id]
+   (emit-frame-destroyed! event-id event frame-id nil))
+  ([event-id event frame-id op]
+   ;; Fan out along BOTH channels (rf2-c4oycd shared helper). Axis 1 — the
+   ;; always-on listener (survives prod elision); axis 2 — the dev trace (DCE'd
+   ;; under `:advanced` + `goog.DEBUG=false`). No exception — invalid op, not a
+   ;; throw; `elapsed-ms 0` (not a timed path). When `op` is present it rides
+   ;; BOTH the dev-trace tags (axis 2) and the always-on record-attrs (axis 1
+   ;; — the private `:op` source-coord steering); nil `op` leaves the record
+   ;; shape exactly as the bare-drain callers have always emitted it.
+   (error-emit/emit-error-both!
+     :rf.error/frame-destroyed
+     event event-id frame-id nil 0 (interop/now-ms)
+     (cond-> {:frame frame-id :event event :reason :frame-destroyed}
+       op (assoc :op op))
+     (when op {:op op}))))
 
 (defn- handle-frame-destroyed!
   "Per Spec 002 §Run-to-completion: a frame disposed between enqueue and
@@ -2104,6 +2122,18 @@
   synchronous `capture-target-superseded?` pre-check already sees the pin gone;
   a superseded `:subscribe` additionally returns nil rather than a reaction.
 
+  `op` (rf2-7xlvt) is the ALREADY-KNOWN operation realm of the failing captured
+  op — `:dispatch` / `:dispatch-sync` (from `capture-dispatch!`) or `:subscribe`
+  (from `capture-subscribe!`). It is carried through `emit-frame-destroyed!` onto
+  the always-on record's private `:op` steering slot so `error-emit/error-source-
+  coord` resolves the source-coord under the EXACT realm — `[:event id]` for a
+  dispatch, `[:sub id]` for a subscribe — never the realm-ambiguous
+  `[:sub]`-then-`[:event]` fallback that (before rf2-7xlvt) misattributed a stale
+  captured dispatch to a same-keyword subscription's coord and a stale captured
+  subscribe to an unrelated event's coord instead of OMITTING it. This seam KNOWS
+  the realm; the bare router drain emitters (which genuinely do not) keep the
+  fallback.
+
   rf2-dlld6 closes the concurrent-JVM window BETWEEN that pre-check and the
   ordinary bare-id target consumption: `capture-dispatch!` / the `:subscribe`
   thunk carry the pinned incarnation through as `:rf.frame/expected-incarnation`,
@@ -2114,9 +2144,9 @@
   The bare-id `frame-destroyed` emit `dispatch!` / `dispatch-sync!` already raise
   for a fully-unclaimed id is unchanged (an unpinned 1-arity capture stays
   address-directed)."
-  [event frame-id opts]
+  [event frame-id op opts]
   (trace/with-call-site (when interop/debug-enabled? (:rf.trace/call-site opts))
-    (emit-frame-destroyed! (first event) event frame-id))
+    (emit-frame-destroyed! (first event) event frame-id op))
   nil)
 
 ;; EP-0015 §8 (rf2-d2r3um): the former per-dispatch
