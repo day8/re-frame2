@@ -365,7 +365,22 @@
   ;; :api-md-known-unmanifested allowlist below (they now ship).
   {:namespace "re-frame.ui" :var "handler"        :kind :fn    :facade? false :tier :advanced    :owner "004" :status "Spec-004 S3" :runtime-verified? true}
   {:namespace "re-frame.ui" :var "error-boundary" :kind :fn    :facade? false :tier :advanced    :owner "004" :status "Spec-004 S3" :runtime-verified? true}
-  {:namespace "re-frame.ui" :var "client-only"    :kind :fn    :facade? false :tier :advanced    :owner "004" :status "Spec-004 S3" :runtime-verified? true}]
+  {:namespace "re-frame.ui" :var "client-only"    :kind :fn    :facade? false :tier :advanced    :owner "004" :status "Spec-004 S3" :runtime-verified? true}
+  ;; re-frame.ui.react (rf2-vxgfnd.95.4) — the frozen seven-wrapper React interop
+  ;; tier (Spec 004 §The React interop tier). Six host hooks (use-ref /
+  ;; use-effect / use-layout-effect / use-effect-event / use-context / use-id)
+  ;; are resolution-only `defn`s the compiler recognises + lowers inside a
+  ;; compiled view, position-checked by the finite-site machinery; `lazy` is a
+  ;; def-level `defmacro` (React.lazy over a foreign component-loading thunk).
+  ;; Interop surfaces — advanced tier. Their live vars + the DOM/JVM fixtures
+  ;; landed with this feature.
+  {:namespace "re-frame.ui.react" :var "use-ref"           :kind :fn    :facade? false :tier :advanced :owner "004" :status "Spec-004 S3" :runtime-verified? true}
+  {:namespace "re-frame.ui.react" :var "use-effect"        :kind :fn    :facade? false :tier :advanced :owner "004" :status "Spec-004 S3" :runtime-verified? true}
+  {:namespace "re-frame.ui.react" :var "use-layout-effect" :kind :fn    :facade? false :tier :advanced :owner "004" :status "Spec-004 S3" :runtime-verified? true}
+  {:namespace "re-frame.ui.react" :var "use-effect-event"  :kind :fn    :facade? false :tier :advanced :owner "004" :status "Spec-004 S3" :runtime-verified? true}
+  {:namespace "re-frame.ui.react" :var "use-context"       :kind :fn    :facade? false :tier :advanced :owner "004" :status "Spec-004 S3" :runtime-verified? true}
+  {:namespace "re-frame.ui.react" :var "use-id"            :kind :fn    :facade? false :tier :advanced :owner "004" :status "Spec-004 S3" :runtime-verified? true}
+  {:namespace "re-frame.ui.react" :var "lazy"              :kind :macro :facade? false :tier :advanced :owner "004" :status "Spec-004 S3" :runtime-verified? true}]
 
  ;; --------------------------------------------------------------------------
  ;; API.md var-rows that are KNOWINGLY absent from the manifest. The

@@ -250,7 +250,10 @@
         ;; `sub` sites stay excluded by design (Spec 004 §Hot reload).
         hs      (fingerprint/hook-signature-hash
                  {:locals (mapv (constantly :local) (:locals sites))
-                  :effects (mapv :kind (:effects sites))})
+                  :effects (mapv :kind (:effects sites))
+                  ;; the frozen re-frame.ui.react interop hooks: kind + source-
+                  ;; order position among all let-body host hooks (S3 shape-2).
+                  :react (mapv #(select-keys % [:kind :order]) (:react sites))})
         manifest {:view-id view-id
                   :display-name display-name
                   :doc docstring
@@ -269,10 +272,21 @@
                   :as? (= :as (:mode hdr))
                   :template-fingerprint tf
                   :hook-signature hs
-                  :capabilities (cond-> (capabilities ast)
-                                  (seq (:locals sites))       (conj :local)
-                                  (seq (:effects sites))      (conj :effect)
-                                  (seq (:dispatch-fns sites)) (conj :dispatch-fn))
+                  :capabilities (into
+                                 (cond-> (capabilities ast)
+                                   (seq (:locals sites))       (conj :local)
+                                   (seq (:effects sites))      (conj :effect)
+                                   (seq (:dispatch-fns sites)) (conj :dispatch-fn))
+                                 ;; re-frame.ui.react hooks fold onto the static-
+                                 ;; root vocabulary: use-ref→:ref; use-effect /
+                                 ;; use-layout-effect / use-effect-event→:effect;
+                                 ;; use-context→:context; use-id is exempt (inert
+                                 ;; deterministic ids are static-safe). lazy folds
+                                 ;; into :foreign via the AST scan.
+                                 (keep {:ref :ref :effect :effect
+                                        :layout-effect :effect :effect-event :effect
+                                        :context :context})
+                                 (map :kind (:react sites)))
                   :sites sites}
         args    {:vname vname
                  ;; The canonical current-namespace Var a self-recursive head
@@ -320,6 +334,69 @@
   [form menv vname forms]
   (anchored (source-coords form (some? (:ns menv)))
             #(defview** form menv vname forms)))
+
+;; ---------------------------------------------------------------------------
+;; re-frame.ui.react/lazy — the def-level code-splitting constructor
+;; ---------------------------------------------------------------------------
+
+(defn- compile-lazy-fallback
+  "Compile a react/lazy `:fallback` template capability-free to a host render
+  thunk `(fn [] element)`. CLJS emits a self-contained React element; JVM emits
+  the deterministic structural tree."
+  [menv cljs? ns-sym fallback-form]
+  (let [e   (env/make-env {:host (if cljs? :cljs :clj)
+                           :cljs-env menv
+                           :ns-sym ns-sym
+                           ;; a synthetic self-id so a reactive read in the
+                           ;; fallback is recognised as a site and rejected with
+                           ;; the didactic :rf.ui.compile/capability-in-fallback
+                           ;; (the client-only-fallback rule), not a bare
+                           ;; self-less misplacement.
+                           :self-id :re-frame.ui.react/lazy-fallback
+                           :template-anchor (fingerprint/digest "sta1-" fallback-form)})
+        ast (ana/analyze-capability-free-template
+             e "a re-frame.ui.react/lazy :fallback" fallback-form)]
+    `(fn [] ~(if cljs?
+               (emit-cljs/emit-standalone ast)
+               (emit-jvm/emit-node ast)))))
+
+(defn expand-lazy
+  "Expand `(re-frame.ui.react/lazy load-thunk {:fallback tpl}?)` — a DEF-LEVEL
+  foreign-component constructor. CLJS wraps `React.lazy` (with a Suspense
+  boundary when a fallback is given); the JVM structural value renders the
+  compiled fallback / nothing and never references the load thunk. `form` =
+  &form, `menv` = &env, `args` = the argument list."
+  [form menv args]
+  (anchored
+   (source-coords form (some? (:ns menv)))
+   (fn []
+     (let [cljs?  (some? (:ns menv))
+           ns-sym (if cljs? (-> menv :ns :name) (ns-name *ns*))
+           n      (count args)]
+       (when (or (< n 1) (> n 2))
+         (fail :rf.ui.compile/bad-lazy
+               (str "(react/lazy load-thunk {:fallback tpl}?) takes the load "
+                    "thunk and an optional literal opts map; got " n " argument(s)")
+               {:form form}))
+       (let [load-thunk (first args)
+             opts       (second args)]
+         (when (and (some? opts) (not (map? opts)))
+           (fail :rf.ui.compile/bad-lazy
+                 "(react/lazy load-thunk {:fallback tpl}) opts must be a literal map"
+                 {:form form}))
+         (let [bad (remove #{:fallback} (keys opts))]
+           (when (seq bad)
+             (fail :rf.ui.compile/bad-lazy
+                   (str "unknown react/lazy option" (when (next bad) "s") " "
+                        (str/join ", " (map pr-str bad))
+                        " — the only option is :fallback")
+                   {:form form})))
+         (let [fallback    (:fallback opts)
+               fallback-fn (when (some? fallback)
+                             (compile-lazy-fallback menv cljs? ns-sym fallback))]
+           (if cljs?
+             `(re-frame.ui.hooks/lazy-component ~load-thunk ~fallback-fn)
+             `(re-frame.ui.hooks/lazy-jvm ~fallback-fn))))))))
 
 (defn- custom-element**
   [coords ns-sym tag opts]

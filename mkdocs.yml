@@ -189,6 +189,7 @@ nav:
       - "Build a form": core/how-to/build-a-form.md
       - "Validate with schemas": core/how-to/validate-with-schemas.md
       - "Fix a slow view": core/how-to/fix-a-slow-view.md
+      - "Measure before paint": core/how-to/measure-before-paint.md
       - "Keep secrets out of traces": core/how-to/keep-secrets-out-of-traces.md
       - "Report errors in production": core/how-to/report-errors-in-production.md
       - "Configure dev and prod": core/how-to/configure-dev-and-prod.md
@@ -217,6 +218,7 @@ nav:
     - api/README.md
     - "re-frame.core": api/re-frame.core.md
     - "re-frame.ui": api/re-frame.ui.md
+    - "re-frame.ui.react": api/re-frame.ui.react.md
     - "re-frame.schemas": api/re-frame.schemas.md
     - "re-frame.flows": api/re-frame.flows.md
     - "re-frame.http": api/re-frame.http.md

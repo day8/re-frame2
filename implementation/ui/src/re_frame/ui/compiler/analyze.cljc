@@ -50,6 +50,39 @@
 (def ^:private local-fqns     #{'re-frame.ui/local})
 (def ^:private effect-fqns    #{'re-frame.ui/effect})
 (def ^:private dispatch-fn-fqns #{'re-frame.ui/dispatch-fn})
+
+;; The frozen re-frame.ui.react interop tier (Spec 004 §The React interop tier).
+;; The six host hooks are recognised in expression (let-binding value) position
+;; by the same finite-site machinery as `local`, position-checked, and lowered
+;; to `re-frame.ui.hooks/*`. `lazy` is def-level only — recognised in a view
+;; body solely to reject it.
+(def ^:private react-use-ref-fqns          #{'re-frame.ui.react/use-ref})
+(def ^:private react-use-effect-fqns       #{'re-frame.ui.react/use-effect})
+(def ^:private react-use-layout-effect-fqns #{'re-frame.ui.react/use-layout-effect})
+(def ^:private react-use-effect-event-fqns #{'re-frame.ui.react/use-effect-event})
+(def ^:private react-use-context-fqns      #{'re-frame.ui.react/use-context})
+(def ^:private react-use-id-fqns           #{'re-frame.ui.react/use-id})
+(def ^:private react-lazy-fqns             #{'re-frame.ui.react/lazy})
+;; kind keyword + runtime lowering target + call arity, keyed by fqn set.
+(def ^:private react-hook-specs
+  [{:fqns react-use-ref-fqns          :kind :ref          :runtime 're-frame.ui.hooks/use-ref
+    :min-args 0 :max-args 1 :name "use-ref"}
+   {:fqns react-use-effect-fqns       :kind :effect       :runtime 're-frame.ui.hooks/use-effect
+    :min-args 1 :max-args 2 :name "use-effect" :deferred-cb 0 :deps-arg 1}
+   {:fqns react-use-layout-effect-fqns :kind :layout-effect :runtime 're-frame.ui.hooks/use-layout-effect
+    :min-args 1 :max-args 2 :name "use-layout-effect" :deferred-cb 0 :deps-arg 1}
+   {:fqns react-use-effect-event-fqns :kind :effect-event :runtime 're-frame.ui.hooks/use-effect-event
+    :min-args 1 :max-args 1 :name "use-effect-event" :deferred-cb 0}
+   {:fqns react-use-context-fqns      :kind :context      :runtime 're-frame.ui.hooks/use-context
+    :min-args 1 :max-args 1 :name "use-context"}
+   {:fqns react-use-id-fqns           :kind :id           :runtime 're-frame.ui.hooks/use-id
+    :min-args 0 :max-args 0 :name "use-id"}])
+
+(defn- react-hook-spec-for
+  "The react-hook spec `head` (an unshadowed symbol) resolves to, or nil."
+  [e* head]
+  (some (fn [spec] (when (env/resolves-to? e* head (:fqns spec)) spec))
+        react-hook-specs))
 (def ^:private frame-root-fqns #{'re-frame.ui/frame-root})
 (def ^:private frame-provider-fqns #{'re-frame.ui/frame-provider})
 
@@ -865,12 +898,87 @@
                                           "(host hooks run once per render in fixed order)")
                                      {:form f})))
                       (let [sid (lexical-site-id e :local f p)]
+                        (env/next-hook-ordinal! e) ; a local advances the shared body-hook ordinal
                         (env/add-site! e :locals {:sid sid :path (:path e)
                                                   :expr-path (vec p)})
                         (with-same-meta
                           f
                           (list runtime-local-fqn
                                 (rw (second f) locals (conj p 1))))))
+
+                    ;; re-frame.ui.react host hooks (use-ref / use-effect /
+                    ;; use-layout-effect / use-effect-event / use-context /
+                    ;; use-id) — value-position host hooks obeying the SAME
+                    ;; position law as `local`: legal only where they evaluate
+                    ;; unconditionally, once per render (the straight-line top
+                    ;; region — an outer let binding). Lowered to hooks/use-*.
+                    (and (symbol? head) (not (contains? locals head))
+                         (react-hook-spec-for e* head))
+                    (let [{:keys [kind runtime min-args max-args name deps-arg]}
+                          (react-hook-spec-for e* head)
+                          call-args (rest f)
+                          argc      (count call-args)]
+                      (when (or (< argc min-args) (> argc max-args))
+                        (env/fail! e :rf.ui.compile/unsupported-form
+                                   (str "(react/" name " …) takes "
+                                        (if (= min-args max-args)
+                                          (str min-args)
+                                          (str min-args "–" max-args))
+                                        " argument(s); got " argc)
+                                   {:form f}))
+                      (when (or (nil? (:self-id e))
+                                (:in-loop? e)
+                                (contains? locals deferred-scope)
+                                (not (:hooks-region? e)))
+                        (if (:in-render-fn? e)
+                          (impure-slot-fail! e (str "react/" name) f)
+                          (env/fail! e :rf.ui.compile/react-hook-misplaced
+                                     (str "(react/" name " …) is a host hook — legal ONLY "
+                                          "where it evaluates unconditionally, once per "
+                                          "render: the straight-line top region of a "
+                                          "defview body (an outer let binding). It cannot "
+                                          "run in a loop, branch, deferred callback, "
+                                          "render-fn slot, or root expression — React's "
+                                          "hook order must be static. Hoist it to the top "
+                                          "of the view body, or extract a keyed child view")
+                                     {:form f})))
+                      (when (and deps-arg (> argc deps-arg)
+                                 (not (vector? (nth call-args deps-arg))))
+                        (env/fail! e :rf.ui.compile/react-hook-bad-deps
+                                   (str "(react/" name " setup deps): deps must be a "
+                                        "literal vector (compared per slot by Object.is); "
+                                        "got " (pr-str (nth call-args deps-arg)))
+                                   {:form f}))
+                      (let [sid   (lexical-site-id e kind f p)
+                            order (env/next-hook-ordinal! e)
+                            args* (map-indexed
+                                   (fn [i a]
+                                     (if (and deps-arg (= i deps-arg))
+                                       ;; deps vector: walk each slot in ambient
+                                       ;; scope (render-time values).
+                                       (with-same-meta a
+                                         (mapv (fn [j d] (rw d locals (conj p (inc i) j)))
+                                               (range) a))
+                                       ;; setup fn / ctx / initial: ordinary
+                                       ;; expressions (a setup fn is a deferred
+                                       ;; callback — rw-fn rejects reactive sites).
+                                       (rw a locals (conj p (inc i)))))
+                                   call-args)]
+                        (env/add-site! e :react {:sid sid :kind kind :order order
+                                                 :path (:path e) :expr-path (vec p)})
+                        (with-same-meta f (apply list runtime args*))))
+
+                    ;; (react/lazy …) is DEF-LEVEL only — recognised in a body
+                    ;; solely to reject it (per-render construction remount-loops).
+                    (and (symbol? head) (not (contains? locals head))
+                         (env/resolves-to? e* head react-lazy-fqns))
+                    (env/fail! e :rf.ui.compile/react-lazy-misplaced
+                               (str "(react/lazy …) is DEF-LEVEL only — bind it at the top "
+                                    "level: (def HeavyChart (react/lazy load-thunk "
+                                    "{:fallback tpl})), then use the component as a foreign "
+                                    "head [HeavyChart {…}]. Calling it inside a view body "
+                                    "mints a new component type per render and remount-loops")
+                               {:form f})
 
                     ;; (ui/dispatch-fn) — the stable committed-frame dispatcher.
                     ;; A render-time site like (frame): finite, not in a loop or
@@ -1963,14 +2071,17 @@
                               "). Q2 pin: absent :props = open, present :props "
                               "= closed")
                          {:head head :undeclared (vec bad)}))))))
-    {:op (if (= :view (:kind info)) :view :foreign)
-     :sym head
-     :fqn (:fqn info)
-     :view-id (:view-id info)
-     :props props
-     :children children
-     :static? false
-     :path (:path e)}))
+    (cond-> {:op (if (= :view (:kind info)) :view :foreign)
+             :sym head
+             :fqn (:fqn info)
+             :view-id (:view-id info)
+             :props props
+             :children children
+             :static? false
+             :path (:path e)}
+      ;; a re-frame.ui.react/lazy component is a foreign head that IS callable on
+      ;; the JVM structural render (renders its fallback / nothing).
+      (:lazy? info) (assoc :lazy? true))))
 
 (defn- analyze-slot
   "Analyze `(ui/slot render-fn-value arg…)` — the compiler-owned invocation of
@@ -2112,6 +2223,14 @@
                       "event handlers into the client subtree")
                  {:form form :capabilities (vec (sort found))}))
     ast))
+
+(defn analyze-capability-free-template
+  "Analyze `form` as a standalone CAPABILITY-FREE template (deterministic
+  structural markup: no reactive reads, host state/effects, or committed event
+  handlers) — the def-level entry for re-frame.ui.react/lazy's `:fallback`.
+  Returns the AST or fails loud. `context` names the position for diagnostics."
+  [e context form]
+  (analyze-capability-free e context form))
 
 (defn- analyze-client-only
   "(ui/client-only {:fallback tpl} client-tpl) — a browser-only subtree with a
