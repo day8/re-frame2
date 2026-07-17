@@ -3,7 +3,7 @@
   `:rf.cofx` transport (`:rf.machine/join-attempt`) in the AMBIGUOUS PARALLEL
   shape.
 
-  `join_exact_auth_cljs_test` covers the wrong-invoke / wrong-actor /
+  `join_exact_attempt_cljs_test` covers the wrong-invoke / wrong-actor /
   unstamped / unknown-child control classes in the FLAT shape via event-vector
   METADATA. This file re-drives the same control classes in the two-region
   parallel shape where both regions reuse the SAME logical child id `:worker`

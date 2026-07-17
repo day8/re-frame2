@@ -266,7 +266,7 @@
   minted into the join state, and the canonical private work generation
   selected from explicit spawn provenance. The child's
   machine-handler boundary reads it to stamp outbound completion carriers
-  with the attempt authentication the parent's join interceptor verifies
+  with the exact-attempt coordinate the parent's join interceptor verifies
   (`join/stamp-join-completion-fx` / `intercept-spawn-all-event`), so a
   stale completion from a PRIOR attempt / prior actor incarnation can
   never fold into a successor join, while fixed-vs-generated work provenance
