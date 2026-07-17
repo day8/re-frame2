@@ -206,7 +206,8 @@
     ;; carrier the seam invokes via ui/slot. On the JVM its rendered output is
     ;; a structural tree node.
     :render-fn  `(re-frame.ui.tree/render-fn
-                  (fn [~@(:params render-fn)] ~(emit-node (:body render-fn))))
+                  (fn [~@(:params render-fn)] ~(emit-node (:body render-fn)))
+                  ~(count (:params render-fn)))
     value))
 
 (defn- emit-view [node]
@@ -254,10 +255,12 @@
   [node]
   (let [rf      (gensym "rf-ui-slot")
         slotval (if-let [{:keys [params body]} (:render-fn node)]
-                  `(re-frame.ui.tree/render-fn (fn [~@params] ~(emit-node body)))
+                  `(re-frame.ui.tree/render-fn (fn [~@params] ~(emit-node body))
+                                               ~(count params))
                   (:slot-value node))]
     `(let [~rf ~slotval]
        (when (re-frame.ui.tree/slot-ready? ~rf)
+         (re-frame.ui.tree/check-slot-arity! ~rf ~(count (:args node)))
          ((:f ~rf) ~@(:args node))))))
 
 (defn emit-node

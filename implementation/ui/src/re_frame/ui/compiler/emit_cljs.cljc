@@ -410,7 +410,8 @@
   (case marker
     :render-fn
     [slot `(re-frame.ui.runtime/render-fn
-            (fn [~@(:params render-fn)] ~(emit-node (:body render-fn) st false)))]
+            (fn [~@(:params render-fn)] ~(emit-node (:body render-fn) st false))
+            ~(count (:params render-fn)))]
 
     :ui-event
     ;; foreign/view committed event callback — flags 0 (the controlled-input
@@ -534,10 +535,12 @@
   (let [rf      (gensym "rf-ui-slot")
         slotval (if-let [{:keys [params body]} (:render-fn node)]
                   `(re-frame.ui.runtime/render-fn
-                    (fn [~@params] ~(emit-node body st false)))
+                    (fn [~@params] ~(emit-node body st false))
+                    ~(count params))
                   (:slot-value node))]
     `(let [~rf ~slotval]
        (when (re-frame.ui.runtime/slot-ready? ~rf)
+         (re-frame.ui.runtime/check-slot-arity! ~rf ~(count (:args node)))
          (~rf ~@(:args node))))))
 
 (defn- emit-error-boundary

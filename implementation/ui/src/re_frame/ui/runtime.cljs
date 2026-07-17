@@ -256,12 +256,16 @@
 ;; ---------------------------------------------------------------------------
 
 (def ^:private render-fn-mark "rf$render_fn")
+(def ^:private render-fn-arity-mark "rf$render_fn_arity")
 
 (defn render-fn
-  "Mark a compiled callback closure as a `ui/render-fn` value and return it.
-  The value is directly invocable; `slot` gates every invocation."
-  [f]
+  "Mark a compiled callback closure as a `ui/render-fn` value, recording its
+  fixed `arity` (the declared parameter count), and return it. The value is
+  directly invocable; `slot` gates every invocation and `check-slot-arity!`
+  enforces the arity host-identically before it fires."
+  [f arity]
   (unchecked-set f render-fn-mark true)
+  (unchecked-set f render-fn-arity-mark arity)
   f)
 
 (defn render-fn?
@@ -291,6 +295,25 @@
     (nil? x)        false
     (render-fn? x)  true
     :else           (invalid-slot! x)))
+
+(defn check-slot-arity!
+  "Enforce the host-independent ui/slot ↔ ui/render-fn arity contract BEFORE
+  invocation: a slot passing `argc` runtime args to a render-fn compiled with a
+  different fixed arity is the didactic `:rf.error/ui-tree-malformed` (the arity
+  twin of `invalid-slot!`) on BOTH hosts — neither leans on the native call
+  quirk (JS silently drops surplus args; the JVM throws a raw ArityException)."
+  [rf argc]
+  (let [arity (unchecked-get rf render-fn-arity-mark)]
+    (when (not= arity argc)
+      (error/throw-error!
+       :rf.error/ui-tree-malformed 're-frame.ui/slot
+       (str "a ui/slot passed " argc " argument" (when (not= 1 argc) "s")
+            " to a ui/render-fn that declares " arity " parameter"
+            (when (not= 1 arity) "s")
+            " — a render-fn is a fixed-arity callback; the slot must pass exactly "
+            "its declared parameters. Match the slot's argument count to the "
+            "render-fn's parameter vector")
+       {:extra {:expected arity :actual argc}}))))
 
 ;; ---------------------------------------------------------------------------
 ;; Props ABI helpers (Q2/Q3)
