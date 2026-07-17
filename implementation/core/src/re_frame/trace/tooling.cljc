@@ -707,11 +707,39 @@
 ;;
 ;; The queue is a plain vector consumed by an advancing index (never mutated
 ;; mid-drain except by append), so appends made by a draining callback extend
-;; it and are picked up in FIFO order. Thread-local by dynamic binding: a
-;; concurrent JVM emit on another thread has its own outermost fan-out and
-;; queue. Composes with rf2-eaxnai: the deferred item carries its OWN
-;; `continue?`, and the listener body already ran under the neutral
-;; continuation scope `re-frame.trace/deliver!` established.
+;; it and are picked up in FIFO order. Composes with rf2-eaxnai: the deferred
+;; item carries its OWN `continue?`, and the listener body already ran under the
+;; neutral continuation scope `re-frame.trace/deliver!` established.
+;;
+;; ---- cross-thread fan-out serialization (rf2-uw7hg) -----------------------
+;;
+;; The deferral queue above is thread-local (a dynamic binding), so it only
+;; orders SAME-thread reentrant emits. It says nothing about two emits racing on
+;; two JVM threads: each opens its OWN outermost fan-out and each would invoke
+;; the SAME registered listener callback CONCURRENTLY. That violates the public
+;; listener contract (`docs/api/re-frame.core.md`: "Delivery is synchronous: the
+;; callback returns before the next record") and Spec 009 §The listener contract,
+;; which require synchronous, in-order, event-at-a-time delivery PER listener —
+;; a callback the tool author was told can never re-enter itself would be run on
+;; two threads at once, and B could reach a listener before A even when A's emit
+;; began first.
+;;
+;; A single process-global monitor (`fanout-monitor`) serializes each OUTERMOST
+;; fan-out — its transitive drain included. Concurrent emits therefore linearize
+;; on monitor-acquisition order: the second thread cannot begin its fan-out until
+;; the first thread's outermost fan-out and every reentrant deferral it drained
+;; have completed. No listener callback ever overlaps itself, records reach each
+;; listener in a single defined order, and an emit still returns only after its
+;; record's callback has run (the monitor is held for the whole synchronous
+;; fan-out and released before `emit!` returns).
+;;
+;; Same-thread reentrancy does NOT re-acquire the monitor: a nested emit sees
+;; `*listener-fanout-queue*` already bound and takes the enqueue branch below, so
+;; it never reaches the lock — no self-deadlock, and the rf2-1zxlsm reentrant
+;; ordering is preserved verbatim. `locking` is a reentrant monitor regardless,
+;; so even a hypothetical re-entry could not deadlock on itself. CLJS is
+;; single-threaded (no concurrent emits): the `:cljs` arm runs the fan-out inline
+;; with no monitor, preserving production elision.
 
 (def ^:private ^:dynamic *listener-fanout-queue*
   "When bound (an outermost listener fan-out is in progress on this thread), a
@@ -720,6 +748,16 @@
   fanning out immediately, so every listener observes the outer event before
   the reentrant one. nil at the top of the stack."
   nil)
+
+#?(:clj
+   (def ^:private ^Object fanout-monitor
+     "Process-global JVM monitor serializing every OUTERMOST trace-listener
+     fan-out across concurrent emits (rf2-uw7hg), so no registered listener
+     callback is ever invoked on two threads at once and records reach each
+     listener in one defined order. Held for the whole synchronous fan-out +
+     drain. Reentrant same-thread emits never acquire it (they enqueue on
+     `*listener-fanout-queue*`). CLJS is single-threaded and has no counterpart."
+     (Object.)))
 
 (defn- fan-out-to-listeners!
   "Deliver `event` to every registered listener in registration order, isolating
@@ -736,6 +774,25 @@
           (catch #?(:clj Throwable :cljs :default) _ nil))
         (when (continue?)
           (recur (next entries)))))))
+
+(defn- run-outermost-fanout!
+  "Deliver `event` to every registered listener, then drain — FIFO, transitively
+  — every reentrant fan-out a listener deferred while it ran (rf2-1zxlsm). Binds
+  `*listener-fanout-queue*` so a nested emit from a listener body enqueues rather
+  than recursing; the index re-reads `(count @q)` each step so appends made
+  mid-drain are picked up in FIFO emission order.
+
+  On the JVM the caller runs this under `fanout-monitor` so concurrent emits
+  serialize (rf2-uw7hg); the binding + drain are the whole critical section."
+  [event continue?]
+  (let [q (volatile! [])]
+    (binding [*listener-fanout-queue* q]
+      (fan-out-to-listeners! event continue?)
+      (loop [i 0]
+        (when (< i (count @q))
+          (let [[ev cont] (nth @q i)]
+            (fan-out-to-listeners! ev cont))
+          (recur (inc i)))))))
 
 (defn- deliver-to-tooling!
   "Push `event` onto its in-flight frame's run-keyed ring (when the
@@ -774,20 +831,17 @@
    (if-let [q *listener-fanout-queue*]
      ;; Reentrant emit from inside a listener body: defer so every listener
      ;; observes the outer event before this one. The outermost fan-out (below)
-     ;; drains us. Ring retention already ran above, in emission order.
+     ;; drains us. Ring retention already ran above, in emission order. Bound
+     ;; only on THIS thread, so this branch is what keeps a reentrant emit off
+     ;; the `fanout-monitor` — no self-deadlock.
      (do (vswap! q conj [event continue?]) nil)
-     ;; Outermost fan-out: deliver this event, then drain every fan-out that
-     ;; listeners deferred while it ran — and, transitively, any THEY defer —
-     ;; in FIFO emission order. The index re-reads `(count @q)` each step so
-     ;; appends made mid-drain are picked up.
-     (let [q (volatile! [])]
-       (binding [*listener-fanout-queue* q]
-         (fan-out-to-listeners! event continue?)
-         (loop [i 0]
-           (when (< i (count @q))
-             (let [[ev cont] (nth @q i)]
-               (fan-out-to-listeners! ev cont))
-             (recur (inc i)))))))))
+     ;; Outermost fan-out. On the JVM `fanout-monitor` serializes it across
+     ;; concurrent emits (rf2-uw7hg) so no listener callback overlaps itself and
+     ;; records reach each listener in monitor-acquisition order; the monitor is
+     ;; held for the whole synchronous fan-out + drain. CLJS is single-threaded,
+     ;; so it runs inline with no monitor.
+     #?(:clj  (locking fanout-monitor (run-outermost-fanout! event continue?))
+        :cljs (run-outermost-fanout! event continue?)))))
 
 (late-bind/set-fn! :trace.tooling/deliver! deliver-to-tooling!)
 

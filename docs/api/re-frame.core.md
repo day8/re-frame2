@@ -954,7 +954,7 @@ Two surfaces stacked. The first is **dev-only**: a trace bus that emits one rich
   ```clojure
   (register-listener! stream id callback-fn)
   ```
-- **Description**: Register `callback-fn` under `id` to receive every record the runtime emits on `stream`. Delivery is synchronous: the callback returns before the next record. Re-registering the same id on a stream replaces.
+- **Description**: Register `callback-fn` under `id` to receive every record the runtime emits on `stream`. Delivery is synchronous: the callback returns before the next record. On the JVM, where emits can race across threads, each listener is invoked serially — a callback is never entered concurrently with itself, so tool appenders and stateful folds need no locking of their own. Re-registering the same id on a stream replaces.
   - Streams:
     - `:trace` — dev-only, DCE'd in production.
     - `:events` and `:errors` — **always-on**; they survive CLJS `:advanced` + `goog.DEBUG=false`.
