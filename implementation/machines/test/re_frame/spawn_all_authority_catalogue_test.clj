@@ -21,12 +21,17 @@
        unregistered-child `:spawn-all` fixture validates the COMPLETE
        `:rf.runtime/machines` runtime-db against the extracted `Machines` form
        during the legal pre-parent-exit interval; a sentinel carrying
-       `:children`/authority, and a token-less live join, both fail. Every
-       runtime-owned required join key is guarded by a compact key-completeness
-       plus targeted-mutation check, and the `:cancelled` tombstone is proven
-       end-to-end: an explicitly cancelled child leaves a tombstone the schema
-       REQUIRES and the runtime HONOURS, so a late authority cannot resurrect it
-       (rf2-y7venl).
+       `:children`/authority, and a token-less live join, both fail. Key
+       completeness derives from ONE producer/consumer boundary (rf2-64uoa): the
+       real runtime-produced join's COMPLETE key set equals the extracted schema's
+       REQUIRED set (the consumer contract) unioned with an explicit
+       open-bookkeeping classification (`:invoke-id`), so a newly seeded-and-
+       consumed runtime-owned key FAILS until it is intentionally classified or
+       promoted into the schema — the open map can no longer hide a false-green.
+       Each required key is additionally guarded by targeted mutation, and the
+       `:cancelled` tombstone is proven end-to-end: an explicitly cancelled child
+       leaves a tombstone the schema REQUIRES and the runtime HONOURS, so a late
+       authority cannot resurrect it (rf2-y7venl).
 
     2. CATALOGUE — `:rf.machine.spawn-all/child-completed` emits
        `:rf.reply/correlation` (Spec 009 detailed row + `join.cljc`), carrying
@@ -40,7 +45,8 @@
        operation); the PRE-resolution suppression fires
        `:rf.machine.spawn-all/stale-completion` also classified by
        `:rf.reply/stale-reason` (NOT the bare `:reason`)."
-  (:require [clojure.string :as str]
+  (:require [clojure.set :as set]
+            [clojure.string :as str]
             [clojure.test :refer [deftest is testing use-fixtures]]
             [malli.core :as m]
             [re-frame.core :as rf]
@@ -150,12 +156,28 @@
   (rf/dispatch-sync [parent-kw [:start]])
   (join-state parent-kw [:racing]))
 
-;; The runtime-owned REQUIRED keys `spawn-all-init-fx` seeds on every live
-;; child-bearing join (Spec-Schemas §InvokeAllJoinState). Weakening any of these
-;; to `{:optional true}` in the authoritative document, or omitting one, must
-;; turn the key-completeness proof red.
-(def ^:private expected-runtime-owned-join-keys
-  #{:children :done :failed :cancelled :resolved? :spec :rf/attempt})
+;; The SINGLE non-schema authority in the completeness proof: the explicit,
+;; reviewed classification of runtime-produced join keys that are NOT
+;; schema-required consumer inputs — the "additional bookkeeping keys" the
+;; intentionally OPEN `InvokeAllJoinState` legally carries (Spec-Schemas
+;; §InvokeAllJoinState). Everything else the proof needs is DERIVED: the required
+;; set is read straight off the extracted schema (`schema-required-keys`), and the
+;; produced set is read straight off a real runtime join. The completeness proof
+;; asserts `produced = required ∪ this-roster`, so a NEW runtime-owned key fails
+;; until it is intentionally classified here (bookkeeping) OR promoted into the
+;; authoritative schema (a required consumer input) — no hand-copied mirror of the
+;; required set to drift, and the open map can no longer hide a false-green.
+;;
+;; `:invoke-id` is classified bookkeeping, NOT a required consumer input: the seed
+;; writes it (`transition.cljc` seeds `:invoke-id invoke-id`) REDUNDANT with the
+;; slot key `[parent-id invoke-id]`, and every consumer resolves `invoke-id` from
+;; the state-path prefix (`join.cljc` `find-active-spawn-all-in-tree`), reading the
+;; fetched join-state value only for `:rf/attempt` / `:children` — never for
+;; `:invoke-id`. `cancelled-child-tombstone-is-required-and-honoured` proves the
+;; required keys' consumer contract end-to-end; the completeness proof below proves
+;; `:invoke-id` remains OPTIONAL (dropping it still validates the open schema).
+(def ^:private classified-open-bookkeeping-join-keys
+  #{:invoke-id})
 
 (defn- schema-required-keys
   "The set of REQUIRED (non-`{:optional true}`) map keys of an extracted malli
@@ -196,29 +218,56 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest live-join-guards-every-runtime-owned-required-key
-  (testing "rf2-y7venl — the extracted `InvokeAllJoinState` requires EXACTLY the
-            runtime-owned seed keys `spawn-all-init-fx` writes (key-completeness:
-            weakening any to `{:optional true}` or omitting one shrinks the
-            required set and turns this red), a real runtime join carries every
-            one, dropping ANY single required key FAILS the extracted schema
-            (targeted mutation), and yet an EXTRA bookkeeping key still validates
-            — the join map is intentionally OPEN, not `{:closed true}`."
-    (let [j (reg-join-parent! :sac/pk :sac/pka :sac/pkb
-                              {:join :all :on-all-complete [:all/done]})]
-      ;; key-completeness: the authoritative schema's required set is exactly the
-      ;; runtime-owned seed key set — no drift in either direction.
-      (is (= expected-runtime-owned-join-keys (schema-required-keys InvokeAllJoinState))
-          (str "the extracted InvokeAllJoinState requires exactly the "
-               "runtime-owned seed keys; found: "
-               (schema-required-keys InvokeAllJoinState)))
+  (testing "rf2-64uoa — the completeness proof derives from ONE producer/consumer
+            boundary: the REAL runtime-produced join's COMPLETE key set equals the
+            union of the extracted schema's REQUIRED keys (the consumer contract)
+            and the explicit `classified-open-bookkeeping-join-keys` roster. There
+            is no hand-copied mirror of the required set (the pre-rf2-64uoa
+            `expected-runtime-owned-join-keys` compared the schema only to a second
+            hand-written copy AND drove the mutation off that same copy, so a
+            newly-seeded-and-consumed required key omitted from both copies stayed
+            green under the intentionally OPEN map — a dual-authority false-green).
+            Now: a new runtime-owned key must be classified (bookkeeping) or
+            promoted into the schema (a required consumer input) or this FAILS;
+            dropping ANY required key FAILS the extracted schema (targeted
+            mutation); a classified bookkeeping key is present yet OPTIONAL; and an
+            unknown extra key still validates — the join stays OPEN, not
+            `{:closed true}`."
+    (let [j        (reg-join-parent! :sac/pk :sac/pka :sac/pkb
+                                     {:join :all :on-all-complete [:all/done]})
+          required (schema-required-keys InvokeAllJoinState)
+          produced (set (keys j))]
+      ;; SINGLE-AUTHORITY completeness: the real produced key set IS the ground
+      ;; truth, checked against required ∪ classified-open-bookkeeping. A new
+      ;; seeded-and-consumed key that is neither schema-required nor classified
+      ;; bookkeeping makes `produced` exceed the union and FAILS here — the gate
+      ;; can no longer be satisfied by two hand-copies agreeing while the open map
+      ;; silently absorbs an unclassified runtime-owned key.
+      (is (= produced (set/union required classified-open-bookkeeping-join-keys))
+          (str "the real spawn-all-produced join's COMPLETE key set must equal "
+               "schema-required ∪ classified-open-bookkeeping — a new runtime-owned "
+               "key must be classified or promoted into the schema. produced=" produced
+               " required=" required
+               " classified=" classified-open-bookkeeping-join-keys
+               " unclassified=" (set/difference produced required
+                                                 classified-open-bookkeeping-join-keys)))
       (is (m/validate InvokeAllJoinState j)
           (str "the runtime join validates; explain: " (m/explain InvokeAllJoinState j)))
-      ;; targeted mutation: the runtime seed carries every required key, and
-      ;; dropping any single one fails the extracted schema.
-      (doseq [k expected-runtime-owned-join-keys]
+      ;; targeted mutation: the runtime seed carries every REQUIRED consumer-input
+      ;; key, and dropping any single one FAILS the extracted schema.
+      (doseq [k required]
         (is (contains? j k) (str "the runtime seed carries the required key " k))
         (is (not (m/validate InvokeAllJoinState (dissoc j k)))
             (str "dropping the required key " k " FAILS the extracted schema")))
+      ;; classification proof: every classified bookkeeping key IS produced by the
+      ;; runtime, and dropping it STILL validates — it is genuinely OPTIONAL under
+      ;; the open schema, not a required consumer input smuggled in as bookkeeping.
+      (doseq [k classified-open-bookkeeping-join-keys]
+        (is (contains? j k)
+            (str "the runtime seed carries the classified bookkeeping key " k))
+        (is (m/validate InvokeAllJoinState (dissoc j k))
+            (str "dropping the classified bookkeeping key " k " STILL validates — "
+                 "it is open bookkeeping, not a required consumer input")))
       ;; intentional open-map extensibility preserved.
       (is (m/validate InvokeAllJoinState (assoc j :rf/future-bookkeeping 1))
           "an extra runtime bookkeeping key still validates — the join stays open"))))
