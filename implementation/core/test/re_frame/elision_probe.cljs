@@ -99,7 +99,20 @@
             ;; reason string (reachable ONLY from the two gated override
             ;; consults) must NOT survive.
             [re-frame.ui :as ui :refer [defview]]
-            [re-frame.ui.reactive :as ui-reactive]))
+            [re-frame.ui.reactive :as ui-reactive]
+            ;; rf2-fagk6 — root the `(frame)` operation-bundle `:subscribe` seam so
+            ;; the dev-only cross-frame carried-op honesty warning
+            ;; (`re-frame.ui.frames/maybe-warn-cross-frame-carried-subscribe!`) sits
+            ;; in the :advanced DCE reachability graph. Its whole body (ambient read,
+            ;; frame comparison, reason string, `:rf.warning/cross-frame-carried-op`
+            ;; emit) is `interop/debug-enabled?`-gated wholesale and must DCE under
+            ;; goog.DEBUG=false. The two live frames the carry crosses are minted via
+            ;; the ENGINE seat `re-frame.frame/upsert-frame!` (NOT the public
+            ;; `make-frame` constructor) so this touch does NOT root the EP-0023
+            ;; image-assembly path — keeping the PROD_ABSENT_WHEN_UNUSED contract
+            ;; (`resolve-within-image`) intact, exactly like `touch-teardown!` /
+            ;; `touch-drain-depth!`.
+            [re-frame.ui.frames :as ui-frames]))
 
 ;; ---- trace listener API ---------------------------------------------------
 
@@ -825,6 +838,48 @@
 (defn ^:export touch-ui-hmr-shell! []
   (react/createElement hmr-shell-elision-probe nil))
 
+;; ---- rf2-fagk6: cross-frame carried-op honesty warning DCE ----------------
+;;
+;; A `(frame)` operation bundle captured under frame A can be CARRIED across a
+;; frame boundary (the HOLD semantics) and its `:subscribe` invoked beneath a
+;; DIFFERENT ambient frame B. Frames are ISOLATED contexts, so the runtime emits
+;; `:rf.warning/cross-frame-carried-op` and CONTINUES against the captured
+;; (origin) frame — advisory only. The whole check (ambient read, comparison,
+;; reason-string build, `:origin-frame` / `:ambient-frame` / `:rf.sub/query-v`
+;; evidence map, and the `trace/emit! :warning` call carrying
+;; `:recovery :warned-and-continued`) is wrapped WHOLE in the outermost
+;; `interop/debug-enabled?` gate in `re-frame.ui.frames/maybe-warn-cross-frame-
+;; carried-subscribe!`, so under :advanced + goog.DEBUG=false the category
+;; keyword, the reason prose, and the evidence/recovery slots must ALL DCE.
+;;
+;; Before rf2-fagk6 no probe rooted `mint-frame-ops` → `fence-subscribe` →
+;; `maybe-warn-cross-frame-carried-subscribe!`, so check-elision.cjs carried no
+;; sentinel for this warning — its production absence was UNVERIFIED (PR #5960's
+;; scope note deferred exactly this touch). This roots the gated emit through a
+;; real cross-frame carry (bundle captured under the origin frame, `:subscribe`
+;; invoked under a FOREIGN ambient frame) so the control build (DEBUG=true)
+;; contains the `rf.warning/cross-frame-carried-op` category keyword, the
+;; `beneath a DIFFERENT ambient frame` reason fragment, and the `origin-frame`
+;; evidence slot, and the production build (DEBUG=false) must DCE them.
+
+(defn ^:export touch-carried-op-cross-frame! []
+  (rf/reg-sub :rf.probe/carried-op-sub (fn [db _q] (:carried-op-n db)))
+  ;; ENGINE seat (frame/upsert-frame!, generation-less) — NOT the public
+  ;; make-frame constructor — so this touch keeps the EP-0023 image-assembly
+  ;; path DCE-able when unused (PROD_ABSENT_WHEN_UNUSED), same as the sibling
+  ;; touches above.
+  (frame/upsert-frame! :rf.probe/carried-op-a {})
+  (frame/upsert-frame! :rf.probe/carried-op-b {})
+  (try
+    ;; Capture the ops bundle under frame A (the committed/origin frame), then
+    ;; invoke its `:subscribe` beneath the FOREIGN frame B — the exact cross-
+    ;; frame carry that fires the honesty warning under DEBUG=true.
+    (let [bundle (rf/with-frame :rf.probe/carried-op-a (ui-frames/frame-ops))]
+      (rf/with-frame :rf.probe/carried-op-b
+        ((:subscribe bundle) [:rf.probe/carried-op-sub])))
+    (catch :default _ nil))
+  (ui-frames/reset-frame-ops-cache!))
+
 (defn ^:export run []
   (touch-direct-emit-diagnostics!)
   (touch-drain-depth!)
@@ -843,6 +898,7 @@
   (touch-doc-metadata!)
   (touch-interceptor-override-summary!)
   (touch-override-capture!)
+  (touch-carried-op-cross-frame!)
   (touch-image-frame-provenance!)
   ;; Reference trace/emit! directly through the trace ns alias so its
   ;; body, not just the public re-frame.core re-export, is reachable.
