@@ -462,10 +462,12 @@
   `:rf.http/managed` through it. To route, either dispatch with
   `:fx-overrides {:rf.http/managed :rf.http/managed-test-stub}`, or — far
   more usually — wrap the test body via `with-managed-request-stubs` /
-  `with-managed-request-stubs*`, which install a per-scope stub fx AND the
-  matching `:rf.http/managed → <scope-stub>` override for the body's
-  dynamic extent, so plain `dispatch-sync` calls auto-route with no manual
-  `:fx-overrides`.
+  `with-managed-request-stubs*`, which bind the
+  `:rf.http/managed → :rf.test/managed-http-scope-stub` override (a stable
+  target registered at ns-load, NOT a per-scope fx) plus the scope's route
+  map on a dynamic var, for the body's dynamic extent — so plain
+  `dispatch-sync` calls auto-route with no manual `:fx-overrides`. Unlike
+  this fn, that wrapper performs NO registrar mutation.
 
   rf2-vn8qjv — stack/token discipline: install snapshots any prior
   `:rf.http/managed-test-stub` handler before overwriting it, so a nested

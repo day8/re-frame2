@@ -36,7 +36,10 @@
 ;; stubs` macro keeps its `with-managed-request-stubs*` façade plumbing below.
 
 (defwrapper with-managed-request-stubs*
-  "Function form: install stubs, run thunk, uninstall. Late-bound via
+  "Function form: bind the `:rf.http/managed → :rf.test/managed-http-scope-stub`
+  stub override plus the scope's route map (on a dynamic var) for the thunk's
+  dynamic extent, then run thunk. Both bindings unwind on exit; the wrapper
+  performs no registrar mutation. Late-bound via
   `:http/with-managed-request-stubs*` (published from
   `re-frame.http.test-support` per rf2-lwmgw)."
   {:hook :http/with-managed-request-stubs* :artefact http-test-support-artefact :on-absent :throw}
