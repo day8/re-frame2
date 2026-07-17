@@ -881,8 +881,8 @@
 (defn launch-diagnostics
   "Scan `argv` for misconfigured launch input and return a vector of
   structured diagnostic maps (empty when the config is clean). Each
-  entry is `{:rf.config/severity :warn :rf.config/input <token>
-  :rf.config/issue <kw> :rf.config/effect <string>}` — the rejected
+  entry is `{:severity :warn :input <token>
+  :issue <kw> :effect <string>}` — the rejected
   input, what's wrong, and the effective fallback the operator gets.
 
   Detects, against the declared flag schema:
@@ -921,36 +921,36 @@
                  (cond
                    ;; Removed / renamed legacy name — intentional diagnostic.
                    (contains? removed-launch-flags prefix)
-                   {:rf.config/severity :warn
-                    :rf.config/input    token
-                    :rf.config/issue    :removed-flag
-                    :rf.config/effect   (str "ignored — " (get removed-launch-flags prefix))}
+                   {:severity :warn
+                    :input    token
+                    :issue    :removed-flag
+                    :effect   (str "ignored — " (get removed-launch-flags prefix))}
 
                    ;; Unknown --flag: a typo or a flag from another tool.
                    (not (known-flag? prefix))
-                   {:rf.config/severity :warn
-                    :rf.config/input    token
-                    :rf.config/issue    :unknown-flag
-                    :rf.config/effect   "ignored — not a recognised re-frame2-pair-mcp launch flag"}
+                   {:severity :warn
+                    :input    token
+                    :issue    :unknown-flag
+                    :effect   "ignored — not a recognised re-frame2-pair-mcp launch flag"}
 
                    ;; Valued flag present with no value.
                    (and (contains? known-valued-flags prefix)
                         (nil? inline-val)
                         (nil? space-val))
-                   {:rf.config/severity :warn
-                    :rf.config/input    token
-                    :rf.config/issue    :missing-value
-                    :rf.config/effect   (str prefix " supplied with no value — falling back to the default discovery / behaviour")}
+                   {:severity :warn
+                    :input    token
+                    :issue    :missing-value
+                    :effect   (str prefix " supplied with no value — falling back to the default discovery / behaviour")}
 
                    ;; --http-port with a non-numeric value.
                    (and (= prefix "--http-port")
                         (let [raw (or inline-val space-val)]
                           (and (some? raw)
                                (js/isNaN (js/parseInt raw 10)))))
-                   {:rf.config/severity :warn
-                    :rf.config/input    token
-                    :rf.config/issue    :malformed-value
-                    :rf.config/effect   "non-numeric --http-port — falling back to the default shadow HTTP port (9630)"}
+                   {:severity :warn
+                    :input    token
+                    :issue    :malformed-value
+                    :effect   "non-numeric --http-port — falling back to the default shadow HTTP port (9630)"}
 
                    ;; Resource-control flag in the SPACE form. The resource
                    ;; parser only accepts `--name=N`, so a
@@ -958,20 +958,20 @@
                    ;; dropped — name it as a malformed usage.
                    (and (contains? resource/flag->key prefix)
                         (not has-inline?))
-                   {:rf.config/severity :warn
-                    :rf.config/input    token
-                    :rf.config/issue    :malformed-value
-                    :rf.config/effect   (str prefix " requires the equals form (" prefix "=N) — falling back to the documented default")}
+                   {:severity :warn
+                    :input    token
+                    :issue    :malformed-value
+                    :effect   (str prefix " requires the equals form (" prefix "=N) — falling back to the documented default")}
 
                    ;; Resource-control flag whose value isn't a positive int.
                    (and (contains? resource/flag->key prefix)
                         has-inline?
                         (let [n (parse-long (or inline-val ""))]
                           (not (and n (pos? n)))))
-                   {:rf.config/severity :warn
-                    :rf.config/input    token
-                    :rf.config/issue    :malformed-value
-                    :rf.config/effect   (str prefix " value must be a positive integer — falling back to the documented default")}
+                   {:severity :warn
+                    :input    token
+                    :issue    :malformed-value
+                    :effect   (str prefix " value must be a positive integer — falling back to the documented default")}
 
                    :else nil)))))
          (vec))))
@@ -995,17 +995,17 @@
               (when (and (string? raw) (seq raw))
                 (let [n (parse-long raw)]
                   (when-not (and n (pos? n))
-                    {:rf.config/severity :warn
-                     :rf.config/input    (str var-name "=" raw)
-                     :rf.config/issue    :malformed-env
-                     :rf.config/effect   (str var-name " must be a positive integer — falling back to the documented default")}))))))
+                    {:severity :warn
+                     :input    (str var-name "=" raw)
+                     :issue    :malformed-env
+                     :effect   (str var-name " must be a positive integer — falling back to the documented default")}))))))
         (vec))))
 
 (defn- log-launch-diagnostics!
   "Emit each launch-config diagnostic to stderr at boot, BEFORE the
   transport announces readiness. No-op when the config is clean."
   [argv]
-  (doseq [{:rf.config/keys [input issue effect]}
+  (doseq [{:keys [input issue effect]}
           (into (launch-diagnostics argv) (resource-env-diagnostics))]
     (log! (str "launch-config WARNING [" (name issue) "]: " input " — " effect))))
 
