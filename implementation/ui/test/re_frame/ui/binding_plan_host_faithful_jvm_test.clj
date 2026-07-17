@@ -238,10 +238,13 @@
           {:keys [locals slot-of]} (emitted [pat])]
       (is (= {'x :ns/x} host)
           "host last-wins binds x <- :ns/x; the explicit :other is dead")
-      (is (= '[x] locals)
-          "x is emitted EXACTLY ONCE — no duplicate read")
+      ;; rf2-nedxb — the EXECUTABLE emission runs every host binding unit, so both
+      ;; the shadowed `:other` read and the winning `:ns/x` read are emitted (host
+      ;; `let` last-wins). Only the DERIVED slots (below) collapse to the winner.
+      (is (= '[x x] locals)
+          "x is emitted for BOTH host units — the later :ns/x is the visible winner")
       (is (= "ns/x" (slot-of 'x))
-          "CLJS reads the host's winning slot \"ns/x\", never dead \"other\"")
+          "CLJS's winning read is the host's slot \"ns/x\", never dead \"other\"")
       (is (= (header/slot-name (host 'x)) (slot-of 'x)))))
   (testing "the collapsed slot is the ONLY declared slot — no dead :other"
     (let [h (header/parse-header '[{:keys [ns/x] x :other}])]
@@ -327,3 +330,127 @@
     ;; an explicit {^js ex :e1} local was never rewritten, so it already kept meta
     (is (= {:tag 'js} (meta (native-local '{^js ex :e1} 'ex)))  "host keeps explicit ^js")
     (is (= {:tag 'js} (meta (plan-local   '{^js ex :e1} 'ex)))  "plan keeps explicit ^js")))
+
+;; ---------------------------------------------------------------------------
+;; rf2-nedxb — executable HOST EVAL SEMANTICS survive header collapse
+;;
+;; Two host-visible losses in the CLJS header lowering (the JVM emitter uses
+;; native destructuring, so it is already faithful):
+;;
+;;   1. A `:or` default is `get`'s third argument — a function arg, so the host
+;;      evaluates it as part of the lookup even when the slot is PRESENT. The old
+;;      `slot-read` only evaluated it when the slot was absent.
+;;   2. A qualified-group/explicit same-local collision (`{:keys [ns/x] x :other}`)
+;;      is TWO host binding units (both name-strip to `x`, host `let` last-wins);
+;;      native evaluates BOTH initializers before the later wins. The collapsed
+;;      projection (comparator/manifest/slots) keeps only the winner, but the
+;;      EXECUTABLE emission must run every host unit.
+;;
+;; The emitter is `.cljc` and runs on the JVM for both hosts. These fixtures
+;; evaluate the REAL emitter output on the JVM, modeling only the two cljs
+;; primitives it uses — `unchecked-get` (absent slot -> a sentinel; present-nil
+;; stays nil) and `undefined?` (tests that sentinel) — and compare effect COUNT,
+;; order, throws and final value against real `clojure.core/destructure`.
+;; ---------------------------------------------------------------------------
+
+(def ^:private UNDEF (Object.))            ; models JS `undefined` for an absent slot
+(defn- uget [m k] (if (contains? m k) (get m k) UNDEF))
+(defn- undef? [x] (identical? x UNDEF))
+(def calls (atom 0))                        ; :or default side-effect counter
+(def marks (atom []))                       ; :or default evaluation-order log
+(defn- mk [tag] (swap! marks conj tag) tag)
+
+(defn- header-locals [binds]
+  (->> binds (partition 2) (map first) (filter symbol?) distinct vec))
+
+(defn- run-native
+  "Evaluate the JVM emitter path — native `let` destructuring of the raw pattern
+  — on keyword-keyed `props`. Returns {local -> final value}; the ground truth."
+  [pat props]
+  (binding [*ns* (find-ns 're-frame.ui.binding-plan-host-faithful-jvm-test)]
+    (let [locals (->> (destructure [pat 'the-map]) (partition 2) (map first)
+                      (remove #(re-find #"^(map__|vec__|seq__|first__|p__|the-map)"
+                                        (name %)))
+                      distinct vec)
+          f (eval `(fn [m#] (let [~pat m#]
+                              ~(into {} (map (fn [s] [(list 'quote s) s])) locals))))]
+      (f props))))
+
+(defn- run-emitted
+  "Evaluate the REAL CLJS `header-bindings` emitter output on the JVM, modeling
+  `unchecked-get`/`undefined?` with faithful JS-object semantics. `props` is
+  keyword-keyed and converted to the slot STRINGS the emitter reads. Returns
+  {local -> final value}; `:or` default side effects run for real."
+  [argv props]
+  (binding [*ns* (find-ns 're-frame.ui.binding-plan-host-faithful-jvm-test)]
+    (let [binds  (vec (emit-cljs/header-bindings (header/parse-header argv)))
+          subbed (walk/postwalk-replace
+                  {'cljs.core/unchecked-get `uget
+                   'cljs.core/undefined?    `undef?}
+                  binds)
+          locals (header-locals binds)
+          strp   (into {} (map (fn [[k v]] [(header/slot-name k) v])) props)
+          f      (eval `(fn [~'rf-ui-props]
+                          (let [~@subbed]
+                            ~(into {} (map (fn [s] [(list 'quote s) s])) locals))))]
+      ;; A final binding left as the sentinel is `js/undefined` on real CLJS,
+      ;; which `nil?`/`=` treat as nil (an absent no-default read) — model that.
+      (into {} (map (fn [[k v]] [k (if (undef? v) nil v)])) (f strp)))))
+
+(deftest or-default-evaluates-once-present-and-absent-like-the-host
+  (let [pat  '{:keys [x] :or {x (swap! calls inc)}}
+        argv [pat]]
+    (testing "native: the :or default is an eager get-arg — evaluated once whether present or absent"
+      (reset! calls 0)
+      (is (= {'x 5} (run-native pat {:x 5})))
+      (is (= 1 @calls) "present -> default STILL evaluated once (get's 3rd arg is eager)")
+      (reset! calls 0)
+      (is (= {'x 1} (run-native pat {})))
+      (is (= 1 @calls) "absent -> default evaluated once, becomes the value"))
+    (testing "emitted CLJS agrees on COUNT and value (present + absent)"
+      (reset! calls 0)
+      (is (= {'x 5} (run-emitted argv {:x 5})))
+      (is (= 1 @calls) "emitted evaluates the default even when the slot is PRESENT, like the host")
+      (reset! calls 0)
+      (is (= {'x 1} (run-emitted argv {})))
+      (is (= 1 @calls))))
+  (testing "a throwing default is evaluated even when the slot is PRESENT (both targets)"
+    (let [pat  '{:keys [x] :or {x (throw (ex-info "boom" {}))}}
+          argv [pat]]
+      (is (thrown? clojure.lang.ExceptionInfo (run-native pat {:x 5}))
+          "native: the eager get-arg throws even though :x is present")
+      (is (thrown? clojure.lang.ExceptionInfo (run-emitted argv {:x 5}))
+          "emitted: host-faithful — the default throws even though :x is present"))))
+
+(deftest shadowed-initializers-all-execute-with-the-later-winning
+  (let [pat  '{:keys [ns/x] x :other :or {x (mk :d)}}
+        argv [pat]]
+    (testing "the split: executable plan keeps BOTH host units; derived slots keep only the winner"
+      (let [h (header/parse-header argv)]
+        (is (= 2 (count (:binding-units h)))
+            "the uncollapsed executable plan carries both host binding units")
+        (is (= [:ns/x] (:slots h))
+            "the collapsed projection keeps only the host-winning slot")
+        (is (= [{:key :ns/x :slot "ns/x" :pattern 'x :default '(mk :d)}] (:entries h))
+            "derived `:entries` remain the single collapsed winner")))
+    (testing "native evaluates BOTH initializers (default per unit); :ns/x wins"
+      (reset! marks [])
+      (is (= {'x 1} (run-native pat {:ns/x 1 :other 2})))
+      (is (= [:d :d] @marks) "two get-calls each evaluate the :or default -> 2, in host order")
+      (reset! marks [])
+      (is (= {'x :d} (run-native pat {})))
+      (is (= [:d :d] @marks) "both defaults evaluated; the winner :ns/x is absent -> its default value"))
+    (testing "emitted CLJS emits both host binding units -> same count, order and winner"
+      (reset! marks [])
+      (is (= {'x 1} (run-emitted argv {:ns/x 1 :other 2})))
+      (is (= [:d :d] @marks)
+          "both shadowed initializers execute — not just the collapsed winner")
+      (reset! marks [])
+      (is (= {'x :d} (run-emitted argv {})))
+      (is (= [:d :d] @marks))))
+  (testing "without a default, the dead :other read still happens but :ns/x is the visible winner"
+    (let [pat '{:keys [ns/x] x :other}]
+      (is (= {'x nil} (run-native  pat {:other 2}))  "native: :other read is shadowed by absent :ns/x")
+      (is (= {'x nil} (run-emitted [pat] {:other 2}))
+          "emitted: same — :ns/x (absent) wins over the shadowed :other read")
+      (is (= {'x 1}   (run-emitted [pat] {:ns/x 1 :other 2})) "present :ns/x wins"))))

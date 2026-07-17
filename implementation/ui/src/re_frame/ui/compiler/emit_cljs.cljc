@@ -647,32 +647,38 @@
 
 (defn- slot-read [slot default]
   (if (some? default)
-    `(let [v# (cljs.core/unchecked-get ~props-sym ~slot)]
-       (if (cljs.core/undefined? v#) ~default v#))
+    ;; Host-faithful: native destructure lowers a defaulted slot to
+    ;; `(get props :slot default)` — `get` is a function, so the default operand
+    ;; is EVALUATED as part of the lookup even when the slot is present (it is an
+    ;; eager third argument). Evaluate `d#` unconditionally (once), then select
+    ;; it only when the slot is absent — matching the host's eval count/effects,
+    ;; not just its final value.
+    `(let [d# ~default
+           v# (cljs.core/unchecked-get ~props-sym ~slot)]
+       (if (cljs.core/undefined? v#) d# v#))
     `(cljs.core/unchecked-get ~props-sym ~slot)))
 
 (defn header-bindings
   "The CLJS header `let` bindings, in canonical host `destructure` order
   (rf2-vxgfnd.283): `:as` binds the whole props map FIRST — matching the JVM
-  native destructuring the JVM emitter uses — then ONE property-read per
-  collapsed binding unit. The entries are already the host `bes` order with
-  winning lookup slots (`parse-header` routed them through the ONE canonical
-  binding plan, `bp/assoc-binding-units`, then `header/collapse-entries`), so
-  there is NOTHING left to sort or de-collide here: two header entries binding
-  the same local — whether they collided in the `bes` map or only after a
-  qualified group local name-strips onto an explicit local — already collapsed
-  in `parse-header` to one entry, so this emits exactly one read of the host's
-  winning slot (never two, never a silent last-wins), and a qualified `:keys`
-  local reads its qualified slot. Emitting `:as` last, or the
-  entries in parse order, could resolve a dependent `:or` default to a different
-  symbol on CLJS than on the JVM — including a public reactive authoring var."
+  native destructuring the JVM emitter uses — then ONE property-read per host
+  binding UNIT. These consume `parse-header`'s `:binding-units` — the FULL host
+  plan, not the collapsed derived projection — so the emission reproduces the
+  host's executable semantics exactly (rf2-nedxb): every host initializer runs,
+  and a qualified-group-name collision (`{:keys [ns/x] x :other}`) emits BOTH
+  units binding one local, the later `:ns/x` winning by host `let` last-wins.
+  The units are already the host `bes` order with winning lookup slots (a
+  qualified `:keys` local reads its qualified slot), so there is nothing to sort
+  or de-collide here. Emitting `:as` last, or the units in parse order, could
+  resolve a dependent `:or` default to a different symbol on CLJS than on the
+  JVM — including a public reactive authoring var."
   [header]
   (concat
    (when (:as-sym header)
      [(:as-sym header) `(re-frame.ui.runtime/props->map ~props-sym)])
    (mapcat (fn [{:keys [slot pattern default]}]
              [pattern (slot-read slot default)])
-           (:entries header))))
+           (:binding-units header))))
 
 (defn comparator-form
   "The generated straight-line rf= comparator (RULED: Object.is OR = per
