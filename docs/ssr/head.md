@@ -54,9 +54,12 @@ app-db.
   `data-rf-head-hash` on `<head>`), omitted when the head can't be recomputed — an
   explicit `:head` string, or a degraded head. The bundled runtime compares only the
   body hash; it ships **no** automatic head comparison. The head *model* is
-  reconstructible, so a host that wants the check recomputes `(rf/active-head
-  frame-id)` from the hydrated app-db + route slice and compares it to `:rf/head-hash`
-  itself — that wiring is the host's, not automatic.
+  reconstructible, so a host that wants the check recomputes the model with
+  `(rf/active-head frame-id)` from the hydrated app-db + route slice, **hashes it**
+  with `rf/render-tree-hash`, and compares `(rf/render-tree-hash (rf/active-head
+  frame-id))` against the `:rf/head-hash` string — `active-head` returns a head-model
+  map, not a hash, so the hash step is what makes the comparison meaningful. That
+  wiring is the host's, not automatic.
 - **Keeping the document head current is the app's job.** There is no DOM-head
   reconciler in v1. The first byte carries the server-rendered head; refreshing
   `<title>` / `<meta>` on an SPA route change needs an app- or host-level head

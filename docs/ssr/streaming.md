@@ -65,9 +65,14 @@ On the client, opt in with `ssr/streaming-install!` (same carried `:frame` as
 `hydrate!`). It does two jobs: it materialises the inert fallback `<template>`s into
 visible mounts, then swaps each mount's content for its resolved chunk — merging that
 chunk's delta — as the chunks arrive. A streaming page therefore *requires* the
-client runtime to paint fallbacks at all: a non-JS client sees the shell structure
-but no skeletons until the final payload lands and `hydrate!` renders everything at
-once.
+client runtime to paint fallbacks at all — and "no streaming" splits into two cases.
+A **JS client that runs `hydrate!` but skips `streaming-install!`** never paints the
+skeletons: it renders the shell, then swaps straight to the fully-resolved page when
+the final payload's `hydrate!` runs (that final chunk is the canonical full payload).
+A **non-JS client** runs no client runtime at all — the inert `<template>` fallbacks,
+the streamed chunks, and the payload `<script>` never materialise and hydration never
+runs, so it keeps the static server shell (the non-boundary body only: no skeletons,
+no streamed regions).
 
 ??? note "Correctness lock"
 
