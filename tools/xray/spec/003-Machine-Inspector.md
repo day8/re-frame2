@@ -845,9 +845,13 @@ region-qualified grammar) is projected carrying `:parallel-root-on? true`
 TOO (plus `:parallel-root-after? true` + `:after <delay>`), so this same
 arm 3 resolves a fired root-`:after` move without a separate arm — a fired
 root `:after` lights its region-qualified edge exactly as a root `:on`
-does. Separately, a region **HANDLED but UNCHANGED**
-(`before == after` with a non-empty `:cascade` for the region) lights its
-self / internal edge through an ordered, mutually-exclusive pair:
+does. Separately, a region **HANDLED but UNCHANGED** — its EVENT target is
+the resting state (`before == the event target`) with a non-empty
+**non-microstep** `:cascade` for the region, EVEN when a later `:always`
+round then moves the region on so the settled `after` differs (rf2-v528f;
+see [§Parallel parent-owned `:always` round](#parallel-parent-owned-always-round-fired-edge-highlight-rf2-bvwv4q))
+— lights its self / internal edge through an ordered, mutually-exclusive
+pair:
 (a) a **leaf** self / internal edge (region-scoped in-region `:source`,
 `:from-path == :to-path`, rf2-l8ls6w); else (b) a region-**ROOT
 targetless / action-only `:on`** fallback — a region-level `:on`
@@ -906,9 +910,28 @@ the round loop advanced — the parallel analog of `direct-event-target`), so
 the event edge matches `:idle → :staged` (never the phantom `:idle → :done`);
 and each round's own regional hop is matched with `event*` `:always`
 (region-scoped, `region-local-fired-ids`), so an **ACTIONLESS** round still
-lights. A region that **DECLINED** the external event but later took an
-`:always` round has its first round's `:from` equal to its pre-event state,
-so it gains **no phantom event-labelled edge** — only its round edges light.
+lights.
+
+**Handled self/internal EVENT then a round (rf2-v528f).** A region can HANDLE
+the event with a real **self / internal** transition (`before == the event
+target` — the region rests on the event) and THEN take an `:always` round
+that moves it on. Because the discriminator is `before` vs the **event
+target** (the first round's `:from`), NOT `before` vs the settled `after`,
+the region's self / internal EVENT edge still lights alongside its round
+edge. The earlier derivation additionally required the region to have **no**
+rounds and diffed the settled before/after, so an internal-then-round region
+lost its event edge (e.g. `:idle --:go[/:arm]--> :idle` then a guarded
+`:idle --:always--> :done` lit only the `:always` edge, dropping
+`region__a__idle__idle__go__a_arm`). The event-handled-region set
+(`handled-regions-from-cascade`) is derived from the **non-`:microstep`**
+cascade steps (`:exit` / `:action` / `:entry`) alone: a parallel macrostep's
+`:cascade` interleaves the event-handling steps with one `:kind :microstep`
+step per round, so a region that **DECLINED** the event but participated in
+stabilization contributes ONLY microstep steps and is correctly excluded —
+counting them would mint a **phantom** event edge. A declined-then-round
+region's first round `:from` equals its pre-event state, so it gains **no
+phantom event-labelled edge** — only its round edges light.
+
 Region-tagging keeps this scoped to parallel: single-active `:always`
 microsteps carry no `:region` and continue to ride the transition's
 structured `:cascade` (above). The returned ids are the EXACT canonical
