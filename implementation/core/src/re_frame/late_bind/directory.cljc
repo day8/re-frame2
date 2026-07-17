@@ -820,6 +820,10 @@
    {:key         :epoch/unregister-epoch-listener!
     :producer-ns 're-frame.epoch
     :description "Unregister a previously-registered epoch-settled callback."}
+   {:key         :epoch/epoch-listener-generation
+    :producer-ns 're-frame.epoch
+    :design-bead "rf2-6ys5n"
+    :description "Return the opaque, process-unique GENERATION token of the CURRENT epoch-listener registration under a cb-id (or nil when none). Each register-epoch-listener! (including a same-id replacement) mints a fresh, never-reused generation. The SUPPORTED authority a consumer of a generation-qualified :rf.epoch.cb/silenced-on-frame-destroy signal uses to SELF-FILTER a superseded signal: the signal carries :observed-gen G, and the consumer discards it when (not= G (epoch-listener-generation cb-id)) — its registration has since been replaced or dropped. Before this query the current generation was reachable only through the private listener registry (state/listeners-snapshot), so the consumer rule the signal documents was not implementable through any supported API."}
    {:key         :epoch/configure!
     :producer-ns 're-frame.epoch
     :description "Configure epoch buffer size / capture policy."}
