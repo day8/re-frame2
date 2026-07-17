@@ -180,11 +180,41 @@
   captured after the second app loads then fails default-image assembly
   loud (`:rf.error/image-duplicate-id`) on every `make-frame`. Each
   consuming test ns calls this at NS LOAD (right after requiring its app
-  ns) so no other suite's baseline ever sees more than one row."
+  ns) so no other suite's baseline ever sees more than one row.
+
+  PROVENANCE-SAFE + TRUE NO-OP (rf2-22vzb). Two guards keep a co-loaded
+  suite's removal from ever touching a SIBLING namespace's live
+  registration:
+
+    - ABSENT ROW => TRUE NO-OP. When `[kind id provenance-ns]` has no
+      source-store row, neither the live registrar nor the source store is
+      touched and nil is returned. A requested namespace that never
+      registered `(kind, id)` therefore cannot clobber whichever namespace
+      DID (the reported bug: sequestering `missing.app`'s absent row was
+      wiping `app.b`'s live `(kind, id)` and leaving its source row behind).
+    - REGISTRAR LEG IS OWNERSHIP-GUARDED. The registrar's single
+      `(kind, id)` slot is the LAST writer's — for an id BOTH apps register
+      that may be a SIBLING's. Remove it ONLY when its current writer IS
+      `provenance-ns`; otherwise leave it standing so the sibling's live
+      registration survives (mirrors the registrar guard in
+      [[sequester-app-namespaces!]]). This suite's own source row is
+      forgotten either way — sibling source rows survive — so registrar and
+      source-store authority stay coherent."
   [kind id provenance-ns]
-  (let [row (get-in @source-store/kind->id->ns->descriptor
-                    [kind id provenance-ns])]
-    (swap! registrar/kind->id->metadata update kind dissoc id)
+  (when-let [row (get-in @source-store/kind->id->ns->descriptor
+                         [kind id provenance-ns])]
+    ;; Registrar leg — remove the shared (kind, id) resolver slot ONLY when
+    ;; this provenance-ns is its CURRENT writer, so an id both apps register
+    ;; does not have a sibling's live registration clobbered.
+    (swap! registrar/kind->id->metadata update kind
+           (fn [m]
+             (let [cur    (get m id)
+                   cur-ns (or (get cur source-store/provenance-ns-key)
+                              (some-> (:ns cur) str))]
+               (if (and cur (= cur-ns (str provenance-ns)))
+                 (dissoc m id)
+                 m))))
+    ;; Source leg — forget THIS provenance-ns's own row; sibling rows survive.
     (source-store/forget-descriptor! kind id provenance-ns)
     row))
 
