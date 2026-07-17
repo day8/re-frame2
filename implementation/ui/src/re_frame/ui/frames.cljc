@@ -1098,6 +1098,13 @@
   an off-box shipper attributes the failure. `payload` is nil for the `:capture`
   arm (the read failed before any op was invoked).
 
+  The THROWN exception mirrors the same STRUCTURAL attribution in its `:extra`
+  ex-data — `:frame`, `:op`, and the event/query `:event-id` HEAD (rf2-r79gr) —
+  so a synchronous `try/catch` around a stale op attributes it from the caught
+  exception alone, without correlating the async always-on record. Head only:
+  the raw payload BODY never rides the exception (same fail-closed policy as the
+  record — see below).
+
   Emitted EXACTLY ONCE, at this UI source: the incarnation fence emits and throws
   HERE — before delegating to core's dispatch/subscribe — so the same failure is
   never ALSO fanned by core's router/subs frame-destroyed path (source-level
@@ -1128,21 +1135,30 @@
   (let [;; Body redacted at source (rf2-01ihi) — a dead incarnation has no
         ;; trustworthy policy for its captured payload on EITHER channel. nil
         ;; for the `:capture` arm (no op was invoked, so no payload to redact).
-        redacted-event (when (some? payload) privacy/redacted-sentinel)]
+        redacted-event (when (some? payload) privacy/redacted-sentinel)
+        ;; The STRUCTURAL event/query HEAD — the attempted vector's first
+        ;; element (the event-id / sub-id keyword), NEVER the raw payload body
+        ;; (rf2-01ihi redacts the body; only the head survives). nil for the
+        ;; `:capture` arm. Rides BOTH the always-on record's `:event-id` slot
+        ;; AND the thrown exception's `:extra :event-id` (rf2-r79gr), so a
+        ;; synchronous catcher attributes the stale op from the exception alone,
+        ;; without correlating the async record stream — head only, so no
+        ;; successor elision policy can be borrowed to egress the body.
+        event-id       (when payload (first payload))]
     (error-emit/emit-error-both!
      :rf.error/frame-destroyed
      redacted-event                  ;; attempted event/query body, redacted at source (elided as :event); nil for :capture
-     (when payload (first payload))  ;; :event-id / sub-id — the structural vector head (survives)
+     event-id                        ;; :event-id / sub-id — the structural vector head (survives)
      frame-id
      nil                             ;; no exception — a dead-incarnation op, not a caught throw
      0                               ;; elapsed-ms — not a timed path
      (interop/now-ms)                ;; time
      {:frame frame-id :op op :event redacted-event :reason :frame-destroyed} ;; dev-trace tags (axis 2)
-     {:op op}))                      ;; category-specific attribution for the always-on record (axis 1)
-  (error/throw-error!
-   :rf.error/frame-destroyed 're-frame.ui/frame
-   reason
-   {:extra {:frame frame-id :op op}}))
+     {:op op})                       ;; category-specific attribution for the always-on record (axis 1)
+    (error/throw-error!
+     :rf.error/frame-destroyed 're-frame.ui/frame
+     reason
+     {:extra {:frame frame-id :op op :event-id event-id}})))
 
 (defn- throw-frame-ops-destroyed!
   "The ambient frame a `(frame)` read resolved has no live incarnation to

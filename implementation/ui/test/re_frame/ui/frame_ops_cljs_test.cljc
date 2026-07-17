@@ -262,6 +262,69 @@
       (is (= :rf.error/frame-destroyed (:error (first @recs)))))))
 
 ;; ===========================================================================
+;; rf2-r79gr — the THROWN stale-op exception carries the structural event/query
+;; HEAD in its `:extra` ex-data, so a synchronous catcher attributes the failing
+;; op from the exception ALONE (without correlating the async always-on record).
+;; The record already exposes the head as `:event-id` (rf2-01ihi's surviving
+;; evidence); this leg pins the SAME head onto the thrown exception's ex-data.
+;; Head ONLY: rf2-01ihi's fail-closed policy stays intact — the raw payload BODY
+;; NEVER rides the exception. Reverting `:event-id` out of `:extra` goes red.
+;; ===========================================================================
+
+(defn- ex-data-of
+  "Run `thunk` (expected to throw the canonical ExceptionInfo) and return the
+  caught exception's ex-data, or nil if it did not throw."
+  [thunk]
+  (try (thunk) nil
+       (catch #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo) e
+         (ex-data e))))
+
+(defn- deep-contains?
+  "True when `target` appears anywhere in `x` (key, value, or leaf) — the
+  redaction proof walks the WHOLE ex-data so a re-keyed payload leak cannot hide."
+  [x target]
+  (cond
+    (= x target)    true
+    (map? x)        (boolean (some (fn [[k v]] (or (deep-contains? k target)
+                                                   (deep-contains? v target))) x))
+    (sequential? x) (boolean (some #(deep-contains? % target) x))
+    (set? x)        (boolean (some #(deep-contains? % target) x))
+    :else           false))
+
+(deftest thrown-stale-op-exception-carries-the-head-body-redacted
+  (testing "Per rf2-r79gr: the THROWN :rf.error/frame-destroyed exception carries
+            the structural event/query HEAD as :extra :event-id (dispatch /
+            dispatch-sync / subscribe), so a try/catch attributes the stale op
+            from the exception alone. Head ONLY — rf2-01ihi keeps the raw payload
+            BODY off the exception entirely."
+    (rf/reg-event :ops/secret   (fn [_ _] {:db {}}))
+    (rf/reg-sub   :ops/secret-q (fn [db _] db))
+    ;; A sensitive body the exception must NEVER carry; only the head survives.
+    (let [secret-body  {:password :TOP-SECRET}
+          secret-value :TOP-SECRET]
+      (doseq [[op invoke head]
+              [[:dispatch      (fn [b] ((:dispatch b) [:ops/secret secret-body]))      :ops/secret]
+               [:dispatch-sync (fn [b] ((:dispatch-sync b) [:ops/secret secret-body])) :ops/secret]
+               [:subscribe     (fn [b] ((:subscribe b) [:ops/secret-q secret-body]))   :ops/secret-q]]]
+        (testing (str "stale " op)
+          (make-frame! :ops/doomed {})
+          (let [b (rf/with-frame :ops/doomed (frames/frame-ops))]
+            (frame/destroy-frame! :ops/doomed)
+            (let [data (ex-data-of #(invoke b))]
+              (is (= :rf.error/frame-destroyed (:rf.error/id data))
+                  "the stale op fails loud with the canonical typed error")
+              (is (= :ops/doomed (:frame data)) ":extra carries the captured frame id")
+              (is (= op (:op data))             ":extra carries the failing op")
+              ;; THE FIX (red before rf2-r79gr — :event-id absent from :extra):
+              (is (= head (:event-id data))
+                  ":extra carries the STRUCTURAL event/query head (rf2-r79gr)")
+              ;; rf2-01ihi INTACT: only the head rides the exception, never the body.
+              (is (not (deep-contains? data secret-body))
+                  "the raw payload BODY never rides the thrown exception")
+              (is (not (deep-contains? data secret-value))
+                  "no sensitive leaf from the payload reaches the exception ex-data"))))))))
+
+;; ===========================================================================
 ;; rf2-vxgfnd.231 — the cross-frame carried-subscribe HONESTY warning.
 ;;
 ;; A `(frame)` operation bundle captured under frame A can be CARRIED across a
