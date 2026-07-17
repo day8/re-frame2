@@ -175,6 +175,48 @@
   (find-line spec-schemas-file
              #(str/starts-with? % "| `:rf.machine.lifecycle/destroyed` |")))
 
+(defn- lifecycle-row-violation
+  "Structural verdict for the Spec-Schemas `:rf.machine.lifecycle/destroyed`
+  row (rf2-j9ojw shape-3). Returns a violation string when the row does NOT
+  pin the SOLE reason `:parent-frame-destroyed`, or nil when it is exact.
+
+  ANCHORED captures — NOT substrings — so an appended alternative fails
+  closed. The old substring form let ``… `:parent-frame-destroyed` or
+  `:bogus` …`` pass (the required prefix stayed a substring and `:bogus` was
+  not a KNOWN competing reason). Here the `:tags` reason slot is captured as
+  the map's FINAL entry, and the sole-reason sentence must name EXACTLY ONE
+  backticked keyword between `is always` and its em-dash clause — a second
+  keyword (an appended `or `:bogus``) breaks it."
+  [row]
+  (if (nil? row)
+    "Spec-Schemas is missing the `:rf.machine.lifecycle/destroyed` row"
+    (let [tags-body    (second (re-find #"`:tags \{([^}]*)\}`" row))
+          tags-reasons (mapv (comp keyword #(subs % 1) second)
+                             (re-seq #":reason (:[\w./-]+)" (or tags-body "")))
+          [_ sole-span] (re-find #"`:reason` is always (.*?) [—–-] " row)
+          sole-reasons  (some-> sole-span backticked-keywords vec)]
+      (cond
+        (nil? tags-body)
+        "the lifecycle row's `:tags {…}` map did not parse"
+
+        (not= [:parent-frame-destroyed] tags-reasons)
+        (str "the `:tags` map must bind exactly `:reason :parent-frame-destroyed`; "
+             "parsed tag reasons: " (pr-str tags-reasons))
+
+        (not (str/ends-with? (str/trimr tags-body) ":reason :parent-frame-destroyed"))
+        (str "`:reason :parent-frame-destroyed` must be the FINAL entry of the "
+             "`:tags` map; tags body: " (pr-str tags-body))
+
+        (nil? sole-span)
+        "the row's sole-reason sentence (``:reason` is always `…` —`) did not parse"
+
+        (not= [:parent-frame-destroyed] sole-reasons)
+        (str "the sole-reason sentence must name EXACTLY `:parent-frame-destroyed` "
+             "and no alternative; parsed " (pr-str sole-reasons)
+             " from span " (pr-str sole-span))
+
+        :else nil))))
+
 (defn- spec-005-d6-reasons
   "The D6 enrichment vocabulary — the span `\\`:reason\\` tag — one of
   <kws>.` in the D6 sub-decision row. Returns a set."
@@ -229,13 +271,10 @@
 (deftest spec-schemas-lifecycle-row-is-single-reason
   (let [row (spec-schemas-lifecycle-row)]
     (is (some? row) "Spec-Schemas carries the `:rf.machine.lifecycle/destroyed` row")
-    (testing "the tags schema pins the sole reason as the LAST entry of the map"
-      (is (str/includes? row ":reason :parent-frame-destroyed}")
-          "the row's `:tags` map must close with `:reason :parent-frame-destroyed`
-           (the closing brace pins it as an exact, single reason — an extra
-           reason in the map would break this)"))
-    (testing "the row states the sole-reason contract"
-      (is (str/includes? row "`:reason` is always `:parent-frame-destroyed`")))
+    (testing "the row STRUCTURALLY pins the sole reason `:parent-frame-destroyed`
+              — anchored `:tags` reason slot + sole-reason sentence, not
+              substrings, so an appended alternative fails closed"
+      (is (nil? (lifecycle-row-violation row)) (lifecycle-row-violation row)))
     (testing "no OTHER matrix reason leaks into the lifecycle row"
       (let [other-reasons (disj (set/union expected-fx-reasons expected-lifecycle-reasons)
                                 :parent-frame-destroyed)
@@ -291,19 +330,61 @@
       (let [form (read {:read-cond :allow :eof ::eof} r)]
         (when (and (seq? form) (= 'ns (first form))) (second form))))))
 
+(defn- expand-reader-conditionals
+  "Recursively replace every PRESERVED `ReaderConditional` in `form` with a
+  plain list of ALL its branch bodies, so a single structural walk inspects
+  BOTH the `:clj` and `:cljs` views (rf2-j9ojw shape-2 fail-closed). Reading
+  with `:read-cond :allow` collapses to the JVM `:clj` branch only, so a
+  destroy reason under a `#?(:cljs …)` branch was invisible; expanding both
+  branches into siblings makes any branch's emit site reachable."
+  [form]
+  (cond
+    (reader-conditional? form)
+    (->> (:form form)                       ; (feature body feature body …)
+         (partition 2)
+         (map (comp expand-reader-conditionals second))
+         (apply list))
+    (map? form)   (into (empty form)
+                        (map (fn [[k v]]
+                               [(expand-reader-conditionals k)
+                                (expand-reader-conditionals v)]))
+                        form)
+    (seq? form)   (apply list (map expand-reader-conditionals form))
+    (vector? form) (mapv expand-reader-conditionals form)
+    (set? form)   (into (empty form) (map expand-reader-conditionals) form)
+    :else form))
+
+(defn- read-all-conditional-forms
+  "Every top-level form read from `rdr` with reader conditionals PRESERVED
+  (`:read-cond :preserve`) then expanded across BOTH host feature views (see
+  `expand-reader-conditionals`), with `*ns*` bound so auto-resolved (`::`)
+  keywords resolve and `*default-data-reader-fn*` dropping any unknown tag to
+  its value (so a preserved `:cljs` branch does not throw on a cljs-only
+  reader tag). Fails CLOSED: a read error propagates (reds the gate) rather
+  than silently truncating the scan."
+  [^java.io.Reader rdr the-ns]
+  (with-open [r (PushbackReader. rdr)]
+    (binding [*read-eval*              false
+              *ns*                     the-ns
+              *default-data-reader-fn* (fn [_tag value] value)]
+      (->> (repeatedly #(read {:read-cond :preserve :eof ::eof} r))
+           (take-while #(not= ::eof %))
+           (mapv expand-reader-conditionals)))))
+
 (defn- read-source-forms
-  "Every top-level form of `file`, read with `:read-cond :allow` (the JVM
-  `:clj` view) and `*ns*` bound to the file's LOADED namespace so
-  auto-resolved (`::`) keywords resolve. Fails CLOSED: a read error
-  propagates (reds the gate) rather than silently truncating the scan."
+  "Every top-level form of `file`, read across both host feature views with
+  `*ns*` bound to the file's LOADED namespace."
   [file]
-  (let [the-ns (or (find-ns (reader-ns-sym file))
-                   (create-ns (gensym "rf-destroy-scan")))]
-    (with-open [r (PushbackReader. (io/reader file))]
-      (binding [*read-eval* false *ns* the-ns]
-        (doall
-          (take-while #(not= ::eof %)
-                      (repeatedly #(read {:read-cond :allow :eof ::eof} r))))))))
+  (read-all-conditional-forms
+    (io/reader file)
+    (or (find-ns (reader-ns-sym file))
+        (create-ns (gensym "rf-destroy-scan")))))
+
+(defn- read-conditional-forms
+  "Read forms from a source STRING (mutation fixtures) across both host views."
+  [s]
+  (read-all-conditional-forms (java.io.StringReader. s)
+                              (create-ns (gensym "rf-destroy-scan"))))
 
 (defn- call-name
   "The unqualified name of `form`'s head symbol (ignoring any ns alias), or
@@ -311,13 +392,57 @@
   [form]
   (when (and (seq? form) (symbol? (first form))) (name (first form))))
 
-(defn- reason-key-values
-  "Every value bound to a literal `:reason` key in any map literal nested in
-  `form` (digs through `cond->` / `assoc`-free map literals)."
-  [form]
-  (for [sf (tree-seq coll? seq form)
-        :when (and (map? sf) (contains? sf :reason))]
-    (:reason sf)))
+(defn- assoc-step-reason
+  "For a THREADING STEP of a `cond->` (the step form, threaded acc elided) —
+  e.g. `(assoc :system-id system-id)` — return `[::ok <reason-values>]` where
+  `<reason-values>` are the literal `:reason` values that step injects (empty
+  when it injects none), or `[::unproven]` when the step cannot be proven
+  reason-safe. Supported reason-safe steps: `(assoc …)` / `(assoc! …)` whose
+  KEY positions are all literal keywords. Anything else (a `merge`, an
+  `into`, a function call, a non-literal key) fails closed."
+  [step]
+  (let [h (call-name step)]
+    (if (contains? #{"assoc" "assoc!"} h)
+      (let [kvs (rest step)]
+        (if (and (even? (count kvs))
+                 (every? keyword? (take-nth 2 kvs)))
+          [::ok (keep (fn [[k v]] (when (= k :reason) v)) (partition 2 kvs))]
+          [::unproven]))
+      [::unproven])))
+
+(defn- resolve-reason-arg
+  "Structurally resolve the reason-bearing ARGUMENT form of a destroy emit
+  call — the choke point rf2-j9ojw closes to fail CLOSED. Returns
+  `{:proven? bool :reasons [values…]}`:
+
+    - a MAP LITERAL is fully enumerable — its `:reason` value (or, when the
+      key is absent, the sanctioned `:explicit`/`nil` default, i.e. NO
+      reasons) is proven;
+    - a `(cond-> <map-literal> test step …)` is proven iff every step is
+      reason-safe (see `assoc-step-reason`), collecting the base map's
+      `:reason` plus any literal `:reason` an `assoc` step injects;
+    - EVERYTHING ELSE — a bare local symbol (`payload`), an
+      `(assoc payload :reason :bogus)` constructor, a `merge`, a computed
+      expression — is NOT structurally provable, so `:proven?` is false and
+      the site fails closed rather than being silently read as the default."
+  [arg]
+  (cond
+    (map? arg)
+    {:proven? true
+     :reasons (if (contains? arg :reason) [(:reason arg)] [])}
+
+    (and (seq? arg) (contains? #{"cond->" "cond->>"} (call-name arg)))
+    (let [base       (second arg)
+          steps      (map second (partition 2 (drop 2 arg)))
+          base-res   (resolve-reason-arg base)
+          step-verds (map assoc-step-reason steps)]
+      (if (and (:proven? base-res)
+               (every? #(= ::ok (first %)) step-verds))
+        {:proven? true
+         :reasons (into (vec (:reasons base-res)) (mapcat second step-verds))}
+        {:proven? false :reasons []}))
+
+    :else {:proven? false :reasons []}))
 
 (defn- or-default-reasons
   "Every `:or {reason <v>}` destructuring default bound to the SYMBOL
@@ -345,34 +470,49 @@
                                 (str/includes? s (str lifecycle-channel))))))))
        vec))
 
-(defn- enumerate-emit-sites
-  "Structurally walk every destroy-emit-bearing source file; return a vector
-  of findings pinning each (channel, reason) choke point."
-  [files]
+(defn- site-findings
+  "0 or 1 census finding for a single (already-expanded) subform `sf`. Each
+  destroy choke point pins its (channel, reason) tuple; the reason ARGUMENT
+  is structurally resolved (`resolve-reason-arg`) so `:proven?` records
+  whether the shape can be enumerated at all — an unprovable shape fails
+  closed downstream instead of defaulting to `:explicit`."
+  [fname sf]
+  (let [h (call-name sf), v (vec sf)]
+    (cond
+      (= h "emit!")
+      (let [ch (nth v 2 nil)]
+        (when (contains? destroy-channels ch)
+          (let [{:keys [proven? reasons]} (resolve-reason-arg (nth v 3 nil))]
+            [{:kind :channel-emit :file fname :form sf :channel ch
+              :proven? proven? :reasons (vec reasons)}])))
+
+      (= h "emit-destroyed!")
+      (let [{:keys [proven? reasons]} (resolve-reason-arg (nth v 1 nil))]
+        [{:kind :emit-destroyed :file fname :form sf
+          :proven? proven? :reasons (vec reasons)}])
+
+      (= h "destroy-resolved!")
+      [{:kind :destroy-resolved :file fname :form sf
+        :reason (nth v 3 ::missing)}]
+
+      :else nil)))
+
+(defn- enumerate-forms
+  "Structurally walk `forms` (from one file or a mutation string), returning a
+  vector of findings pinning each (channel, reason) choke point."
+  [fname forms]
   (vec
-    (for [f files
-          form (read-source-forms f)
+    (for [form forms
           sf (tree-seq coll? seq form)
           :when (seq? sf)
-          finding
-          (let [h (call-name sf), v (vec sf)]
-            (cond
-              (= h "emit!")
-              (let [ch (nth v 2 nil)]
-                (when (contains? destroy-channels ch)
-                  [{:kind :channel-emit :file (.getName f) :form sf
-                    :channel ch :reasons (vec (reason-key-values (nth v 3 nil)))}]))
-
-              (= h "emit-destroyed!")
-              [{:kind :emit-destroyed :file (.getName f) :form sf
-                :reasons (vec (reason-key-values (nth v 1 nil)))}]
-
-              (= h "destroy-resolved!")
-              [{:kind :destroy-resolved :file (.getName f) :form sf
-                :reason (nth v 3 ::missing)}]
-
-              :else nil))]
+          finding (site-findings fname sf)]
       finding)))
+
+(defn- enumerate-emit-sites
+  "Structurally walk every destroy-emit-bearing source file (both host views)."
+  [files]
+  (vec (mapcat (fn [f] (enumerate-forms (.getName f) (read-source-forms f)))
+               files)))
 
 (defn- valid-fx-reason?
   "An fx-channel reason is valid iff it is the sanctioned forwarding symbol
@@ -387,6 +527,58 @@
 (defn- loc [finding]
   (str (:file finding) " :: " (pr-str (:form finding))))
 
+(defn- emit-site-violations
+  "Pure verdict for the structural emit census — a seq of human-readable
+  violation strings (empty ⇒ every site pins a provable, documented tuple).
+  Fails CLOSED: a reason ARGUMENT whose shape could not be structurally
+  proven (`:proven?` false — an `(assoc … :reason …)`, a bare local payload,
+  a `merge`, …) is a violation, NOT a silent `:explicit` default. Shared by
+  the real-source gate and the mutation fixtures so both red on the same
+  logic."
+  [findings]
+  (vec
+    (for [{:keys [kind channel reason proven? reasons] :as fnd} findings
+          msg
+          (case kind
+            :channel-emit
+            (if-not proven?
+              [(str "destroy channel-emit reason arg is not structurally provable "
+                    "(fails closed) at " (loc fnd))]
+              (keep (fn [r]
+                      (cond
+                        (= channel lifecycle-channel)
+                        (when-not (valid-lifecycle-reason? r)
+                          (str "lifecycle-channel emit must stamp a documented literal "
+                               "lifecycle reason " expected-lifecycle-reasons "; saw "
+                               (pr-str r) " at " (loc fnd)))
+                        (= channel fx-channel)
+                        (when-not (valid-fx-reason? r)
+                          (str "fx-channel emit must stamp a documented fx literal "
+                               expected-fx-reasons " or forward `reason`; saw "
+                               (pr-str r) " at " (loc fnd)))))
+                    reasons))
+
+            :emit-destroyed
+            (if-not proven?
+              [(str "emit-destroyed! reason arg is not structurally provable — "
+                    "cannot prove a supported literal map / :explicit default "
+                    "(fails closed) at " (loc fnd))]
+              (keep (fn [r]                          ; 0 reasons = the :explicit default
+                      (when-not (valid-fx-reason? r)
+                        (str "emit-destroyed! must pass a documented fx literal "
+                             expected-fx-reasons " or forward `reason`; saw "
+                             (pr-str r) " at " (loc fnd))))
+                    reasons))
+
+            :destroy-resolved
+            (when-not (and (keyword? reason) (contains? expected-fx-reasons reason))
+              [(str "destroy-resolved! must be called with a documented fx literal "
+                    expected-fx-reasons " (a dynamic reason here fails closed); saw "
+                    (pr-str reason) " at " (loc fnd))])
+
+            nil)]
+      msg)))
+
 (deftest emit-sites-pin-exact-channel-reason-tuples
   (let [files    (destroy-emit-files)
         findings (enumerate-emit-sites files)]
@@ -395,36 +587,12 @@
       (is (seq findings) "at least one destroy emit choke point was enumerated"))
 
     ;; --- per-site (channel, reason) validity: fails CLOSED on any reason that
-    ;;     is neither a documented literal for its channel nor forwarding `reason`.
-    (doseq [{:keys [kind channel reasons reason] :as fnd} findings]
-      (case kind
-        :channel-emit
-        (cond
-          (= channel lifecycle-channel)
-          (doseq [r reasons]
-            (is (valid-lifecycle-reason? r)
-                (str "lifecycle-channel emit must stamp a documented literal "
-                     "lifecycle reason " expected-lifecycle-reasons "; saw "
-                     (pr-str r) " at " (loc fnd))))
-          (= channel fx-channel)
-          (doseq [r reasons]
-            (is (valid-fx-reason? r)
-                (str "fx-channel emit must stamp a documented fx literal "
-                     expected-fx-reasons " or forward `reason`; saw "
-                     (pr-str r) " at " (loc fnd)))))
-
-        :emit-destroyed
-        (doseq [r reasons]                         ; 0 reasons = the :explicit default
-          (is (valid-fx-reason? r)
-              (str "emit-destroyed! must pass a documented fx literal "
-                   expected-fx-reasons " or forward `reason`; saw "
-                   (pr-str r) " at " (loc fnd))))
-
-        :destroy-resolved
-        (is (and (keyword? reason) (contains? expected-fx-reasons reason))
-            (str "destroy-resolved! must be called with a documented fx literal "
-                 expected-fx-reasons " (a dynamic reason here fails "
-                 "closed); saw " (pr-str reason) " at " (loc fnd)))))
+    ;;     is neither a documented literal for its channel nor forwarding
+    ;;     `reason`, AND on any reason argument whose shape cannot be proven.
+    (testing "every destroy emit site pins a provable, documented (channel,
+              reason) tuple — dynamic / assoc / local reason shapes fail closed"
+      (let [violations (emit-site-violations findings)]
+        (is (empty? violations) (str/join "\n" violations))))
 
     ;; --- coverage: the emitted TUPLE SETS are exactly the matrix's.
     (let [lifecycle-emits (filter #(and (= :channel-emit (:kind %))
@@ -472,6 +640,75 @@
       (is (empty? reserved)
           (str "no 009 matrix row may be marked reserved; saw "
                (pr-str reserved))))))
+
+;; ---------------------------------------------------------------------------
+;; B′. Mutation proofs — each previously-false-green shape now reds the gate
+;; ---------------------------------------------------------------------------
+;; These feed MUTATED inputs to the SAME pure verdict functions the gate above
+;; uses (`resolve-reason-arg`, `emit-site-violations`, `enumerate-forms`,
+;; `read-conditional-forms`, `lifecycle-row-violation`). Each asserts the
+;; mutation trips a violation while the genuine shape stays clean — proving the
+;; three false-green shapes rf2-j9ojw names now FAIL CLOSED.
+
+(deftest mutation-shape1-census-fails-closed-on-unprovable-reason-arg
+  (testing "an (assoc … :reason :bogus) reason arg is NOT structurally provable"
+    (is (false? (:proven? (resolve-reason-arg (read-string "(assoc payload :reason :bogus)"))))))
+  (testing "a bare local-symbol payload is NOT structurally provable"
+    (is (false? (:proven? (resolve-reason-arg (read-string "payload"))))))
+  (testing "an assoc step INSIDE a cond-> is captured (not silently missed)"
+    (is (= [:bogus]
+           (:reasons (resolve-reason-arg (read-string "(cond-> {} c (assoc :reason :bogus))"))))))
+  (testing "the genuine emit-argument shapes stay provable"
+    (is (:proven? (resolve-reason-arg (read-string "{:frame f :reason :rf.machine/finished}"))))
+    (is (:proven? (resolve-reason-arg (read-string "{:frame f :reason reason}"))))     ; forwarding sym
+    (is (:proven? (resolve-reason-arg (read-string "{:frame f}"))))                    ; :explicit default
+    (is (:proven? (resolve-reason-arg
+                    (read-string "(cond-> {:reason reason} (some? x) (assoc :work-generation g))")))))
+  (testing "the census VERDICT reds on an (assoc …) emit-destroyed! site …"
+    (is (seq (emit-site-violations
+               (enumerate-forms "mut.cljc"
+                                [(read-string "(emit-destroyed! (assoc payload :reason :bogus))")])))))
+  (testing "… and on a bare local-payload emit-destroyed! site"
+    (is (seq (emit-site-violations
+               (enumerate-forms "mut.cljc" [(read-string "(emit-destroyed! payload)")])))))
+  (testing "the census VERDICT stays clean on genuine literal / default sites"
+    (is (empty? (emit-site-violations
+                  (enumerate-forms "ok.cljc" [(read-string "(emit-destroyed! {:frame f})")]))))
+    (is (empty? (emit-site-violations
+                  (enumerate-forms "ok.cljc"
+                                   [(read-string "(emit-destroyed! {:frame f :reason :explicit})")]))))))
+
+(deftest mutation-shape2-census-reads-both-host-views
+  (testing "a destroy emit under a #?(:cljs …) branch IS inspected — a CLJS-only
+            undocumented fx reason reds the census (it was invisible to the
+            single JVM `:clj` read)"
+    (let [forms    (read-conditional-forms
+                     (str "(ns mut)\n"
+                          "#?(:cljs (re-frame.trace/emit! :rf.machine :rf.machine/destroyed "
+                          "{:reason :cljs-only-bogus}))\n"))
+          findings (enumerate-forms "mut.cljc" forms)]
+      (is (seq findings) "the #?(:cljs …) destroy emit was enumerated")
+      (is (seq (emit-site-violations findings))
+          "a #?(:cljs …) :cljs-only-bogus fx reason must fail the census")))
+  (testing "the same emit under #?(:clj …) with a documented reason stays clean"
+    (let [forms (read-conditional-forms
+                  (str "(ns mut)\n"
+                       "#?(:clj (re-frame.trace/emit! :rf.machine :rf.machine/destroyed "
+                       "{:reason :explicit}))\n"))]
+      (is (empty? (emit-site-violations (enumerate-forms "mut.cljc" forms)))))))
+
+(deftest mutation-shape3-spec-schemas-row-rejects-appended-alternative
+  (let [genuine (spec-schemas-lifecycle-row)
+        mutated (str/replace genuine
+                             "`:reason` is always `:parent-frame-destroyed`"
+                             "`:reason` is always `:parent-frame-destroyed` or `:bogus`")]
+    (testing "sanity: the mutation actually rewrote the sole-reason sentence"
+      (is (not= genuine mutated)))
+    (testing "the genuine row passes the anchored structural verdict"
+      (is (nil? (lifecycle-row-violation genuine)) (lifecycle-row-violation genuine)))
+    (testing "an appended `or `:bogus`` on the sole-reason sentence fails closed
+              (the old substring check admitted it)"
+      (is (some? (lifecycle-row-violation mutated))))))
 
 ;; ---------------------------------------------------------------------------
 ;; C. Executable fixtures — drive the runtime, assert the exact emitted tuple
