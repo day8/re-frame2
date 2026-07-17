@@ -164,17 +164,26 @@ Probes are ownership-free: no ref-count, no watch, no zero-owner cache node.
 **First-mount fan-out mitigation:** probes share a **slice-scoped pure memo table** —
 the `?slice-memo` argument — so N sibling rows probing `[:orders/by-id id]` compute
 shared derivation parents once per slice, not once per row. There is no public React
-render-pass token; the table is scoped to the **current synchronous execution slice**,
-created lazily on first probe and bounded **per-host**. On the **JVM** the slice is a
-thread-local render scope (`*slice*` / `with-slice-memo`, opened around every public
-Tier-1 render entry — `re-frame.ui.tree/render`, the `ui.test/render` routes, and each
-ViewCell capture) whose table is **discarded synchronously when the render thunk
-returns** — there is no microtask on the JVM. On **CLJS** a single-threaded module holder
-shares the pass and is **released at the host microtask checkpoint** (`queueMicrotask`,
-under a CAS guard, aligned with the port's own table clear). Both hosts belt-and-braces
-tag the table with `(frame, frame-epoch, registry-epoch)`, invalidate on any mismatch,
-and enforce the one law: sharing is allowed within a slice, but no table or handle
-survives into a later render slice. A time-sliced
+render-pass token, so how far a table's sharing reaches — the *slice* it belongs to — is
+bounded **per-host**, created lazily on first probe. On the **JVM** sharing ends with its
+synchronous render thunk: the slice is a thread-local render scope (`*slice*` /
+`with-slice-memo`, opened around every public Tier-1 render entry —
+`re-frame.ui.tree/render`, the `ui.test/render` routes, and each ViewCell capture) whose
+table is **discarded synchronously when the render thunk returns** — there is no microtask
+on the JVM. On **CLJS** sharing MAY span later callbacks within the bounded host-microtask
+window: a single-threaded module holder shares the pass and is **released at the host
+microtask checkpoint** (`queueMicrotask`, under a CAS guard, aligned with the port's own
+table clear). The whole host-microtask window is therefore one CLJS slice — because
+`queueMicrotask` is FIFO, a genuinely-later render interposed before that checkpoint finds
+the holder still installed and reuses it, a bounded within-window economy — and no holder
+or table survives past the checkpoint into the next window (rf2-2g7pxq pins the
+inverse-FIFO ordering). Both hosts belt-and-braces tag the table with
+`(frame, frame-epoch, registry-epoch)` plus the frame incarnation, invalidate on any
+mismatch, and enforce the same law: probes may share within one slice — the JVM's
+synchronous render thunk, the CLJS host-microtask window — but no holder or table survives
+past that boundary into the next slice. Bounded reuse is never stale-value authority: an
+interposed later render at a moved epoch fails the tag check and mints a fresh table rather
+than the stale memoized value. A time-sliced
 pass spanning k slices builds k tables (fixture 1b: 3 tables across an interrupted
 3,000-row transition) — the economy is **once-per-slice, not once-per-pass**; bounded,
 allocation-trivial, zero React internals. An interrupted or abandoned slice's table

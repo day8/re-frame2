@@ -1417,25 +1417,34 @@
 
 (defn make-slice-memo
   "Return a fresh slice-memo HANDLE for [[probe]]'s optional second argument.
-  Within one synchronous execution slice, cold probes threading the same
-  handle share computed derivation parents (N sibling rows probing
-  `[:orders/by-id id]` compute shared parents once per slice, not once per
-  row). The table inside is created lazily on first cold probe, tagged with
-  `(frame, frame-epoch, registry-epoch)` PLUS the exact frame-incarnation
-  token, and invalidated on any mismatch — the token by identity, because the
-  epoch triple can tie across a same-id destroy+recreate (rf2-vxgfnd.160). The
-  handle dies with its slice under ONE law — probes may share within a slice,
-  but no table or handle survives into a later render slice — which each host
-  reaches by its own mechanism, because their scheduling models differ: on the
-  JVM a thread-local render scope discards the table when the render thunk
-  returns (there is no microtask there), while on CLJS a module holder is
-  cleared at the `queueMicrotask` checkpoint so an abandoned slice's table is
-  released. `re-frame.ui.reactive` owns both. The memo is an ECONOMY, never an
-  authority — for a COMMITTING reader the commit evidence comparison
-  (invariant 5) corrects any staleness before paint; the
-  incarnation-complete tag additionally keeps a COMMIT-FREE
-  reader (a Tier-1 probe outside a ViewCell, which has no commit step 5)
-  correct on its own. Per Spec 006 §The slice-scoped probe memo."
+  Cold probes threading the same handle share computed derivation parents (N
+  sibling rows probing `[:orders/by-id id]` compute shared parents once per
+  slice, not once per row). The table inside is created lazily on first cold
+  probe, tagged with `(frame, frame-epoch, registry-epoch)` PLUS the exact
+  frame-incarnation token, and invalidated on any mismatch — the token by
+  identity, because the epoch triple can tie across a same-id destroy+recreate
+  (rf2-vxgfnd.160).
+
+  How far the sharing reaches — the SLICE — is bounded PER HOST, because the
+  hosts' scheduling models genuinely differ, yet both reach the same law:
+  probes may share within one slice, but no holder or table survives past that
+  boundary into the next slice. On the JVM sharing ends with its synchronous
+  render thunk — a thread-local render scope discards the table when the thunk
+  returns (there is no microtask there). On CLJS sharing MAY span later
+  callbacks within the bounded host-microtask window: one module holder lives
+  until the `queueMicrotask` checkpoint, so a genuinely-later render interposed
+  before that checkpoint (queueMicrotask is FIFO) reuses the still-installed
+  holder — a bounded within-window economy — while no holder survives past the
+  checkpoint into the next window (rf2-2g7pxq). `re-frame.ui.reactive` owns
+  both.
+
+  Bounded reuse is never stale-value authority: an interposed later render at a
+  moved epoch fails the tag check and mints a fresh table rather than serving
+  the stale value. The memo is an ECONOMY, never an authority — for a
+  COMMITTING reader the commit evidence comparison (invariant 5) corrects any
+  staleness before paint; the incarnation-complete tag additionally keeps a
+  COMMIT-FREE reader (a Tier-1 probe outside a ViewCell, which has no commit
+  step 5) correct on its own. Per Spec 006 §The slice-scoped probe memo."
   []
   (atom {:tag nil :memo nil}))
 
@@ -1478,8 +1487,8 @@
              (when (exists? js/queueMicrotask)
                (js/queueMicrotask
                  (fn []
-                   ;; Release only OUR table — a later slice may have
-                   ;; installed a fresh one already.
+                   ;; Release only OUR table — a later probe in this window may
+                   ;; have re-tagged and installed a fresh one already.
                    (when (identical? fresh (:memo @handle))
                      (reset! handle {:tag nil :token nil :memo nil}))))))
           fresh)))))
