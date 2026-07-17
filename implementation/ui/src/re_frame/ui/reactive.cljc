@@ -3527,8 +3527,10 @@
     (:hmr-body-revision slot)))
 
 (defn- publish-commit!
-  "Linearize the FINAL HMR body-authority validation WITH the state publication
-  as ONE operation (rf2-77pb08). Publishes `new-committed` (optionally
+  "Settle the FINAL HMR body-authority validation together with the state
+  publication (rf2-77pb08) across two axes of differing strength — a cell-state
+  CAS linearization and a best-effort registered-slot identity check taken
+  immediately before it (detailed below). Publishes `new-committed` (optionally
   transformed by `accept-capture`) onto `cell` and returns `:published`, or
   returns `:stale` having published NOTHING when the body authority moved.
 
@@ -3558,7 +3560,7 @@
     - REGISTRY axis — a BEST-EFFORT slot-IDENTITY gate, NOT a single-atom
       linearization. The view's HMR slot is sampled ONCE per attempt as an
       authority TOKEN; the publish gate is `(and (identical? token (get
-      @view-generations view-id)) (compare-and-set! st s published))` — TWO reads
+      (deref view-generations) view-id)) (compare-and-set! st s published))` — TWO reads
       of TWO different atoms (`view-generations` for the token, `st` for the
       CAS). The token is checked IMMEDIATELY BEFORE the CAS, not fused atomically
       WITH it. A same-view re-registration swaps `view-generations` to a fresh
@@ -3777,7 +3779,7 @@
           ;; joins this commit to the acquired incarnation's teardown, not the
           ;; replacement id (rf2-vxgfnd.88).
           (when-some [barrier *commit-barrier*] (barrier :post-acquire cell))
-          ;; FINAL HMR-authority fence + publication as ONE linearized operation
+          ;; FINAL HMR-authority fence + publication — two axes of differing strength
           ;; (rf2-77pb08, completing rf2-vxgfnd.214). Step 1 samples the body
           ;; authority ONCE — before the :pre-acquire barrier, the acquire/cache
           ;; callbacks, and the :post-acquire barrier, EVERY one of which can
@@ -3787,10 +3789,11 @@
           ;; to publish — a check-to-use gap in which an `advance-generation!`
           ;; (cell-local axis) or a same-view re-registration (registry axis) could
           ;; land and let a stale-generation capture publish and connect. A third
-          ;; read only MOVES that gap. `publish-commit!` instead FUSES the final
-          ;; validation and the step-6 publication into ONE compare-and-set!
-          ;; transition (cell-local axis) gated on the registered-slot identity
-          ;; token (registry axis), so no pause interposed before the CAS can
+          ;; read only MOVES that gap. `publish-commit!` instead CAS-linearizes
+          ;; the final cell-state validation with the step-6 publication
+          ;; (cell-local axis), and checks the registered-slot identity token
+          ;; IMMEDIATELY BEFORE that CAS (registry axis — best-effort under the
+          ;; single-threaded CLJS host), so no pause interposed before the CAS can
           ;; publish a stale capture. On rejection it publishes NOTHING; we release
           ;; ONLY the newly staged leases in reverse acquisition order, leaving the
           ;; prior committed set / values / lifecycle untouched, and return :stale
