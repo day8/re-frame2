@@ -1,5 +1,17 @@
-(ns re-frame.ui.s3-ergonomic-proof-dom-cljs-test
+(ns re-frame.realworld-resources-s3-ergonomic-proof-dom-cljs-test
   "rf2-vxgfnd.95.9 — the S3 ergonomic-proof rider, DOM Tier-3 (browser) side.
+
+  Named OUTSIDE the `re-frame.ui.*` prefix on purpose: it drives the REAL
+  `article_editor.cljs` dataflow (required below), which is a stock-Reagent
+  RealWorld page, so requiring it pulls `reagent.core` into the build. The
+  focused `:node-test-ui` build (`^re-frame\\.ui\\..+-cljs-test$`) is the PURE
+  re-frame.ui artefact surface — no adapter/example view-stack code may enter
+  its module closure (the `check-ui-adapter-isolation` gate). This coherence
+  test is an example-coupled proof, so it lives under the `re-frame.*` (not
+  `re-frame.ui.*`) prefix — a sibling of the reagent-adapter suite
+  `re-frame.realworld-resources-cljs-test` — and runs in the broad
+  `:node-test` (`cljs-test$`) and `:browser-test` (`-dom-cljs-test$`) gates,
+  where example reagent code is expected, NOT the isolated UI build.
 
   Mounts the three native re-frame.ui views on a real React root under
   `ui/adapter` and drives them with the platform's own events (no gesture DSL),
