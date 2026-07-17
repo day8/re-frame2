@@ -331,16 +331,22 @@
                   (get-in failed [:tags :reason]))}))
 
 (defn- surface-events->cancel-cause
-  "When the event-bundle includes an abort trace, surface its cause so the
-  panel header can render `cancel: :actor-destroyed`. Returns nil when
-  no cancellation is present."
+  "When the event-bundle includes an HTTP abort trace, surface its cause so
+  the panel header can render `cancel: :actor-destroyed`. Returns nil when
+  no cancellation is present.
+
+  This reader owns HTTP-request cancellation only. Machine disappearance is
+  NOT a cancel-cause here: `:rf.machine/destroy` is the reserved fx-id — a
+  COMMAND the runtime consumes — and never appears as a trace `:operation`
+  (see `machine-invoke-trace-operations`; the real fx-substrate terminal is
+  `:rf.machine/destroyed`). Machine-disappearance cancellation semantics are
+  owned by the cancellation-cascade projection, not this per-record reader."
   [surface-events]
   (some (fn [ev]
           (case (:operation ev)
             :rf.http/aborted-on-actor-destroy :actor-destroyed
             :rf.http/aborted                  (or (get-in ev [:tags :reason])
                                                   :user)
-            :rf.machine/destroy               :actor-destroyed
             nil))
         (or surface-events [])))
 
