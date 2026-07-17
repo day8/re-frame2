@@ -2559,7 +2559,7 @@ lease, or React object crosses the wire.
 | `read-mounted-views`      | `mounted-views`               | —          |
 | `explain-render`          | `explain-render`              | `view-id?` |
 
-The wire names carry a [`NAMING.md`](../../NAMING.md)-conformant verb
+The wire names carry a [`NAMING.md`](../../mcp-conformance/NAMING.md)-conformant verb
 prefix (`read-` / `explain-`); the framework fn names (`view-manifest`,
 …) do not, so the four manifest reads take the `read-<thing>` idiom
 `read-ui` / `read-dom` / `read-sub` already use.
