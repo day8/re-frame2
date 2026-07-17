@@ -125,6 +125,12 @@
       ~(site-key-form h) ~(:form h) ~(handler-flags h false false)
       ~(debug-site-form h))
 
+    :handler
+    ;; ui/handler — the explicit imperative committed callback (the bare-fn
+    ;; shorthand's visible spelling); its return is dropped, no dispatch.
+    `(re-frame.ui.events/handler-callback
+      ~(site-key-form h) ~(:form h) ~(debug-site-form h))
+
     :fn
     `(re-frame.ui.events/dynamic-handler
       ~(site-key-form h) ~(:form h) ~(debug-site-form h))
@@ -397,12 +403,25 @@
 (defn- component-prop-pair
   "One [slot value-form] pair for a component call-site prop. A compiled render
   slot (`ui/render-fn`) emits its lexically-visible pure body as a marked
-  callback the seam invokes via ui/slot; every other prop carries its walked
-  value verbatim."
-  [{:keys [slot value render-fn]} st]
-  (if render-fn
+  callback the seam invokes via ui/slot; a `ui/event`/`ui/handler` prop lowers
+  to the SAME per-site-stable committed callback a DOM handler rides (the one
+  closed boundary law); every other prop carries its walked value verbatim."
+  [{:keys [slot value render-fn marker callback-fn] :as entry} st]
+  (case marker
+    :render-fn
     [slot `(re-frame.ui.runtime/render-fn
             (fn [~@(:params render-fn)] ~(emit-node (:body render-fn) st false)))]
+
+    :ui-event
+    ;; foreign/view committed event callback — flags 0 (the controlled-input
+    ;; door is DOM-only); the invoker's first arg binds the event.
+    [slot `(re-frame.ui.events/event-handler
+            ~(site-key-form entry) ~callback-fn 0 ~(debug-site-form entry))]
+
+    :handler
+    [slot `(re-frame.ui.events/handler-callback
+            ~(site-key-form entry) ~callback-fn ~(debug-site-form entry))]
+
     [slot value]))
 
 (defn- emit-component [node st inline?]
@@ -508,6 +527,29 @@
        (when (re-frame.ui.runtime/slot-ready? ~rf)
          (~rf ~@(:args node))))))
 
+(defn- emit-error-boundary
+  "`ui/error-boundary` → the runtime class boundary. The fallback view is the
+  head component (self-recursive fallbacks target the current-ns Var, mirroring
+  emit-component). When :on-error is present, capture the committed frame at the
+  owning view's render and build the after-commit dispatch closure (appends the
+  caught error to the authored event vector)."
+  [node st]
+  (let [fb        (:fallback node)
+        self-fqn  (:self-fqn @st)
+        self-fb?  (and (some? self-fqn) (= (:fqn fb) self-fqn))
+        fb-sym    (if self-fb? (:fqn fb) (:sym fb))
+        _         (when self-fb? (swap! st assoc :self-ref? true))
+        reset-key (when (:has-reset-key? node) (:reset-key node))
+        on-error  (:on-error node)
+        child     (emit-node (:child node) st false)
+        on-error-form
+        (when on-error
+          `(let [ops# (re-frame.ui.frames/frame-ops)]
+             (fn [error#]
+               ((:dispatch ops#) (conj ~on-error error#) {:source :ui}))))]
+    `(re-frame.ui.runtime/error-boundary
+      ~fb-sym ~reset-key ~on-error-form ~child)))
+
 (defn emit-node
   "AST node -> CLJS form (nil for a statically-absent child)."
   [node st inline?]
@@ -524,6 +566,11 @@
     :view     (emit-component node st inline?)
     :foreign  (emit-component node st inline?)
     :slot     (emit-slot node st)
+    :error-boundary (emit-error-boundary node st)
+    ;; S3: the browser renders the client subtree directly (activation). The
+    ;; capability-free fallback is the JVM/SSR path only; the single-update SSR
+    ;; phase-flip (fallback→client per root) completes S5.
+    :client-only (emit-node (:child node) st inline?)
     ;; Leading (effect …) statements spliced before the template: a `do`
     ;; sequences the lowered effect hook calls, then renders the template.
     :hook-prefix `(do ~@(:statements node) ~(emit-node (:body node) st inline?))

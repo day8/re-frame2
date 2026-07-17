@@ -99,9 +99,11 @@
             (case classification
               :vector   [(assoc stat k form) dyn]
               :options  [(assoc stat k form) dyn]
-              ;; ui/event, like a bare fn, is an opaque committed callback whose
-              ;; body the JVM tree never evaluates (non-serialisable site).
+              ;; ui/event and ui/handler, like a bare fn, are opaque committed
+              ;; callbacks whose body the JVM tree never evaluates (non-
+              ;; serialisable sites).
               :ui-event [(assoc stat k `re-frame.ui.tree/opaque-fn) dyn]
+              :handler  [(assoc stat k `re-frame.ui.tree/opaque-fn) dyn]
               :fn       [(assoc stat k `re-frame.ui.tree/opaque-fn) dyn]
               :dynamic  [stat (assoc dyn k `(re-frame.ui.tree/classify-event ~form))]))
           [{} {}]
@@ -195,6 +197,11 @@
   (case marker
     :foreign    `re-frame.ui.tree/opaque-foreign
     :ui/raw-fn  {:rf.ui/opaque :ui/raw-fn}
+    ;; ui/event and ui/handler at a component prop are non-serialisable committed
+    ;; callbacks — opaque on the JVM structural tree (the body never evaluates,
+    ;; the foreign invocation phase never happens server-side).
+    :ui-event   `re-frame.ui.tree/opaque-fn
+    :handler    `re-frame.ui.tree/opaque-fn
     ;; A compiled render slot: the lexically-visible pure body compiles to a
     ;; carrier the seam invokes via ui/slot. On the JVM its rendered output is
     ;; a structural tree node.
@@ -285,6 +292,16 @@
     :view     (emit-view node)
     :foreign  (emit-foreign node)
     :slot     (emit-slot node)
+    ;; error-boundary is a CLIENT recovery mechanism (Spec 004 §The JVM
+    ;; structural subset): the JVM/SSR renders the guarded CHILD transparently
+    ;; under the server failure policy (per 011); it never renders the fallback
+    ;; (that is client recovery). A throw below it is the server's to project.
+    :error-boundary (emit-node (:child node))
+    ;; client-only: the JVM/SSR renders the deterministic capability-free
+    ;; FALLBACK, wrapped in the `:rf.ui/boundary :client-only` fragment (§004B);
+    ;; the browser-only client subtree never appears on the JVM tree.
+    :client-only `(re-frame.ui.tree/client-only-fallback
+                   ~(emit-node (:fallback node)))
     ;; Leading (effect …) statements: a `do` sequences the JVM effect stubs
     ;; (no-ops) then renders the template. `local` mutators / dispatch-fn stay
     ;; unevaluated in their statement bodies until a host test invokes them.

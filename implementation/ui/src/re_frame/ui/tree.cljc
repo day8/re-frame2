@@ -279,6 +279,18 @@
       ;; a fragment node must remain discriminable even when empty
       (not (seq chs)) (assoc :children []))))
 
+(defn client-only-fallback
+  "The JVM/SSR deterministic fallback node for `(ui/client-only {:fallback tpl}
+  …)` — a fragment carrying the `:rf.ui/boundary :client-only` diagnostic marker
+  (§004B; a droppable reserved key, stripped by semantic normalization). The
+  JVM renders the capability-free fallback, never the browser-only client
+  subtree."
+  [& xs]
+  (let [chs (apply children xs)]
+    (cond-> {:rf.ui/boundary :client-only}
+      (seq chs)       (assoc :children chs)
+      (not (seq chs)) (assoc :children []))))
+
 (defn view-boundary
   "Wrap one internal-view expansion (Q12: view-boundary nodes are real
   nodes, nesting recursively). `props` is the props map the view fn
@@ -292,9 +304,13 @@
                             {} (dissoc props :children))
         chs (cond
               (nil? body) nil
-              ;; fragment-rooted view: boundary adopts the fragment's children
+              ;; fragment-rooted view: boundary adopts the fragment's children.
+              ;; A boundary-marked fragment (`:rf.ui/boundary`, e.g. a root-level
+              ;; ui/client-only fallback) is NOT adopted — its marker is a
+              ;; load-bearing child node that must survive as its own node.
               (and (map? body) (not (contains? body :tag))
                    (not (contains? body :view-id)) (not (contains? body :html))
+                   (not (contains? body :rf.ui/boundary))
                    (contains? body :children)
                    (not (contains? body :key)))
               (let [c (:children body)] (when (seq c) c))

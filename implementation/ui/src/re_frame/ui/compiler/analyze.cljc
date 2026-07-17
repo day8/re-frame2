@@ -27,6 +27,7 @@
   scoping a subtree to an already-live frame."
   #{:text :nothing :expr :element :fragment :view :foreign
     :if :let :letfn :case :for :raw :html :frame-root :frame-provider :slot
+    :error-boundary :client-only
     :hook-prefix})
 
 (defn literal-scalar? [x]
@@ -38,8 +39,11 @@
 (def ^:private ui-spread-fqns #{'re-frame.ui/spread})
 (def ^:private ui-spread-safe-fqns #{'re-frame.ui/spread-safe})
 (def ^:private ui-event-fqns  #{'re-frame.ui/event})
+(def ^:private ui-handler-fqns #{'re-frame.ui/handler})
 (def ^:private ui-render-fn-fqns #{'re-frame.ui/render-fn})
 (def ^:private ui-slot-fqns   #{'re-frame.ui/slot})
+(def ^:private error-boundary-fqns #{'re-frame.ui/error-boundary})
+(def ^:private client-only-fqns #{'re-frame.ui/client-only})
 (def ^:private sub-fqns       #{'re-frame.ui/sub})
 (def ^:private lease-fqns     #{'re-frame.ui/lease})
 (def ^:private frame-fqns     #{'re-frame.ui/frame})
@@ -105,8 +109,11 @@
 (defn- spread-form? [e f] (and (seq? f) (symbol? (first f)) (env/resolves-to? e (first f) ui-spread-fqns)))
 (defn- spread-safe-form? [e f] (and (seq? f) (symbol? (first f)) (env/resolves-to? e (first f) ui-spread-safe-fqns)))
 (defn- ui-event-form? [e f] (and (seq? f) (symbol? (first f)) (env/resolves-to? e (first f) ui-event-fqns)))
+(defn- ui-handler-form? [e f] (and (seq? f) (symbol? (first f)) (env/resolves-to? e (first f) ui-handler-fqns)))
 (defn- render-fn-form? [e f] (and (seq? f) (symbol? (first f)) (env/resolves-to? e (first f) ui-render-fn-fqns)))
 (defn- slot-form? [e f] (and (seq? f) (symbol? (first f)) (env/resolves-to? e (first f) ui-slot-fqns)))
+(defn- error-boundary-form? [e f] (and (seq? f) (symbol? (first f)) (env/resolves-to? e (first f) error-boundary-fqns)))
+(defn- client-only-form? [e f] (and (seq? f) (symbol? (first f)) (env/resolves-to? e (first f) client-only-fqns)))
 
 ;; ---------------------------------------------------------------------------
 ;; Expression rewriting — lexical site indexing + loop finiteness
@@ -1248,6 +1255,33 @@
                  {:k k :name nm :classification :ui-event :form form*
                   :capture? false :hoistable? false :serializable? false})))
 
+      (ui-handler-form? e form)
+      ;; The explicit imperative committed callback (`ui/handler`) at a DOM
+      ;; :on-* site — the visible spelling of the bare-fn shorthand. Its body
+      ;; runs after commit; the native event binds its parameter and its return
+      ;; is IGNORED (no dispatch of a returned vector — that is `ui/event`).
+      (let [[_ bindings & body] form]
+        (when-not (and (vector? bindings) (not (some #{'&} bindings))
+                       (= 1 (count bindings)))
+          (env/fail! e :rf.ui.compile/bad-ui-handler
+                     (str "(ui/handler [x] body…) at " k " binds exactly the "
+                          "invoker's argument (the native event at a DOM site) "
+                          "and does imperative work; got " (pr-str bindings)
+                          ". To DISPATCH a vector, use ui/event")
+                     {:prop k :form form}))
+        (let [binders (set (env/binding-syms bindings))
+              form*   (walk-expr e [:handler k :ui-handler]
+                                 (with-meta (apply list 'fn bindings body)
+                                   (meta form)))]
+          (check-loop-capture! (update e :loop-syms #(reduce disj % binders))
+                               (str "ui/handler at " k) form)
+          (add-event-site! e identity
+                           {:prop k :handler :opaque
+                            :classification :handler :serializable? false})
+          (merge identity
+                 {:k k :name nm :classification :handler :form form*
+                  :capture? false :hoistable? false :serializable? false})))
+
       (fn-form? form)
       (do (when (:in-loop? e)
             (env/warn! e {:id :rf.ui.compile/bare-fn-in-loop
@@ -1734,11 +1768,62 @@
       {:params params
        :body   (analyze e* (first body))})))
 
+(defn- prop-slot-name [k]
+  (if-let [ns* (namespace k)] (str ns* "/" (name k)) (name k)))
+
+(defn- analyze-component-callback
+  "A `ui/event` or `ui/handler` at a foreign/internal-view component prop: a
+  per-site-stable committed callback that reads the winning commit (the
+  stale-closure boundary law — one closed boundary contract for both invokers).
+  `kind` is :ui-event (its body returns the event vector to dispatch, or nil) or
+  :handler (imperative — its return is dropped). Records an event SITE
+  (loop-capture-checked, manifest-carried) and produces the compiled body fn the
+  emitter lowers to the stable callback."
+  [e head-info k kind form]
+  (let [[_ bindings & body] form
+        verb (if (= kind :ui-event) "ui/event" "ui/handler")]
+    (when-not (and (vector? bindings) (not (some #{'&} bindings))
+                   (if (= kind :ui-event)
+                     (= 1 (count bindings))
+                     (pos? (count bindings))))
+      (env/fail! e :rf.ui.compile/bad-ui-callback
+                 (str "(" verb " " (pr-str bindings) " …) at prop " k " on "
+                      (if (= :view (:kind head-info)) "view " "foreign-component ")
+                      (:sym head-info) " — " verb
+                      (if (= kind :ui-event)
+                        (str " binds exactly the invoker's event argument and "
+                             "returns an event vector (or nil to dispatch nothing)")
+                        (str " binds the invoker's arguments (a fixed-arity "
+                             "vector, no &) and does imperative work")))
+                 {:prop k :form form}))
+    (let [identity (event-site-identity e k form)
+          binders  (set (env/binding-syms bindings))
+          ;; The body is a DEFERRED callback (the invoker calls it later), so the
+          ;; fn walk rejects render-time sub/lease/frame inside it. Its own
+          ;; bindings shadow, so they are excluded from the loop-capture check.
+          form*    (walk-expr e [:component-prop k kind]
+                              (with-meta (apply list 'fn bindings body) (meta form)))]
+      (check-loop-capture! (update e :loop-syms #(reduce disj % binders))
+                           (str verb " at prop " k) form)
+      (add-event-site! e identity
+                       {:prop k :handler :opaque
+                        :classification kind :serializable? false})
+      (merge identity
+             {:k k
+              :slot (prop-slot-name k)
+              :marker kind          ; :ui-event | :handler
+              :callback-fn form*
+              :classification kind
+              :literal? false}))))
+
 (defn- analyze-component-props
   "View/foreign call-site props (Q2/Q3/Q4): literal map required; :key
   extracted (never a prop); :children as an explicit key rejected
-  (children are positional); literal fn values rejected (the narrow
-  bare-fn law: not arbitrary fn-valued props)."
+  (children are positional). Bare fn values: rejected at a FOREIGN boundary
+  (the narrow bare-fn law — invoker/phase unknown), but LEGAL as an opaque
+  identity-compared value at an INTERNAL-view boundary (C-13a) — the framework
+  never invokes it and promises no phase; ui/handler/ui/render-fn opt a phase
+  in. `ui/event`/`ui/handler` are the explicit committed callbacks at either."
   [e head-info props-form]
   (when (and (some? props-form) (not (map? props-form)))
     (env/fail! e :rf.ui.compile/dynamic-props-map
@@ -1766,47 +1851,68 @@
                                   (if (= :view (:kind head-info)) :view :foreign)))
           m*       (dissoc m :key :ref)
           entries  (mapv (fn [[k v]]
-                           (if (render-fn-form? e v)
+                           (cond
+                             (render-fn-form? e v)
                              ;; A compiled render slot: the body is a lexically
                              ;; visible pure template compiled HERE (both emitters)
                              ;; into a callback value the seam invokes via ui/slot.
                              {:k k
-                              :slot (if-let [ns* (namespace k)] (str ns* "/" (name k)) (name k))
+                              :slot (prop-slot-name k)
                               :render-fn (analyze-render-fn
                                           (update e :path into [:component-prop k]) v)
                               :marker :render-fn
                               :literal? false}
-                             (do
-                               (when (fn-form? v)
-                                 (env/fail! e :rf.ui.compile/bare-fn-prop
-                                            (str "bare fn prop " k " at a "
-                                                 (if (= :view (:kind head-info))
-                                                   "view" "foreign-component")
-                                                 " boundary — invoker and phase are "
-                                                 "unknown there. Choose ui/raw-fn "
-                                                 "(identity-as-protocol), ui/event (a "
-                                                 "committed :on-* handler), or "
-                                                 "ui/render-fn (a compiled render "
-                                                 "slot) — never a bare fn")
-                                            {:prop k :head (:sym head-info)}))
-                               ;; NOTE: vector/data props MAY capture loop bindings —
-                               ;; passing row data into a keyed child view is exactly
-                               ;; the extract-a-keyed-child-view fix; only HANDLER
-                               ;; sites are capture-checked.
-                               (let [raw?    (raw-form? e v)
-                                     raw-fn? (raw-fn-form? e v)
-                                     v*      (cond
-                                               raw? (walk-expr e [:component-prop k :raw]
-                                                               (second v))
-                                               raw-fn? (walk-expr e [:component-prop k :raw-fn]
-                                                                  (second v))
-                                               (literal-scalar? v) v
-                                               :else (walk-expr e [:component-prop k] v))]
-                                 {:k k
-                                  :slot (if-let [ns* (namespace k)] (str ns* "/" (name k)) (name k))
-                                  :value v*
-                                  :marker (cond raw? :foreign raw-fn? :ui/raw-fn :else nil)
-                                  :literal? (literal-scalar? v)}))))
+
+                             ;; The explicit committed callbacks — a per-site
+                             ;; stable identity reading the winning commit at a
+                             ;; foreign or internal-view seam.
+                             (ui-event-form? e v)
+                             (analyze-component-callback e head-info k :ui-event v)
+
+                             (ui-handler-form? e v)
+                             (analyze-component-callback e head-info k :handler v)
+
+                             (fn-form? v)
+                             (if (= :view (:kind head-info))
+                               ;; C-13a: a bare fn between INTERNAL views is a
+                               ;; legal OPAQUE value — identity-compared, NEVER
+                               ;; invoked by the framework, no implicit invocation
+                               ;; phase. A fresh closure repaints via the memo
+                               ;; identity-compare; opt a phase in with ui/handler
+                               ;; (per-site stable) or ui/render-fn.
+                               {:k k :slot (prop-slot-name k)
+                                :value (walk-expr e [:component-prop k] v)
+                                :marker nil :literal? false}
+                               (env/fail! e :rf.ui.compile/bare-fn-prop
+                                          (str "bare fn prop " k " at a "
+                                               "foreign-component boundary — invoker "
+                                               "and phase are unknown there. Choose "
+                                               "ui/raw-fn (identity-as-protocol), "
+                                               "ui/event (returns the event vector to "
+                                               "dispatch), ui/handler (imperative "
+                                               "work), or ui/render-fn (a compiled "
+                                               "render slot) — never a bare fn")
+                                          {:prop k :head (:sym head-info)}))
+
+                             :else
+                             ;; NOTE: vector/data props MAY capture loop bindings —
+                             ;; passing row data into a keyed child view is exactly
+                             ;; the extract-a-keyed-child-view fix; only HANDLER
+                             ;; sites are capture-checked.
+                             (let [raw?    (raw-form? e v)
+                                   raw-fn? (raw-fn-form? e v)
+                                   v*      (cond
+                                             raw? (walk-expr e [:component-prop k :raw]
+                                                             (second v))
+                                             raw-fn? (walk-expr e [:component-prop k :raw-fn]
+                                                                (second v))
+                                             (literal-scalar? v) v
+                                             :else (walk-expr e [:component-prop k] v))]
+                               {:k k
+                                :slot (prop-slot-name k)
+                                :value v*
+                                :marker (cond raw? :foreign raw-fn? :ui/raw-fn :else nil)
+                                :literal? (literal-scalar? v)})))
                           m*)]
       (let [key-form* (if (and (contains? m :key) (not (literal-scalar? key-form)))
                         (walk-expr e [:component-key] key-form)
@@ -1904,6 +2010,148 @@
                              :source-coord (event-source-coord e form)
                              :inline? (contains? node :render-fn)})
     node))
+
+;; ---------------------------------------------------------------------------
+;; ui/error-boundary + ui/client-only (S3) — the interop recovery/boundary forms
+;; ---------------------------------------------------------------------------
+
+(def ^:private error-boundary-opt-keys #{:fallback :reset-key :on-error})
+
+(defn- analyze-error-boundary
+  "(ui/error-boundary {:fallback view :reset-key val :on-error [:ev …]} child)
+  — the explicit error component. Catches render/lifecycle throws below it
+  (React does not catch event-handler or async errors — those keep their typed
+  paths); the fallback VIEW renders with :error on catch; :on-error dispatches
+  AFTER the failing commit through the owning view's captured frame (never
+  during render, I-1); changing :reset-key clears the caught error (retry). One
+  guarded child."
+  [e form]
+  (let [opts  (nth form 1 nil)
+        rest* (drop 2 form)]
+    (when-not (map? opts)
+      (env/fail! e :rf.ui.compile/bad-error-boundary
+                 (str "(ui/error-boundary {:fallback view …} child) needs a "
+                      "literal opts map with a :fallback view")
+                 {:form form}))
+    (let [bad (remove error-boundary-opt-keys (keys opts))]
+      (when (seq bad)
+        (env/fail! e :rf.ui.compile/bad-error-boundary
+                   (str "unknown error-boundary option" (when (next bad) "s") " "
+                        (str/join ", " (map pr-str bad))
+                        " — the closed set is {:fallback :reset-key :on-error}")
+                   {:form form})))
+    (when-not (contains? opts :fallback)
+      (env/fail! e :rf.ui.compile/bad-error-boundary
+                 (str ":fallback is REQUIRED — the view that renders with :error "
+                      "when a throw is caught below the boundary")
+                 {:form form}))
+    (let [fallback (:fallback opts)
+          fb-info  (when (and (symbol? fallback) (not (contains? (:locals e) fallback)))
+                     (env/classify-head e fallback))]
+      (when-not (and fb-info (= :view (:kind fb-info)))
+        (env/fail! e :rf.ui.compile/bad-error-boundary
+                   (str ":fallback must be a defview — it renders with :error + "
+                        "declared props and cannot recursively dispatch; got "
+                        (pr-str fallback))
+                   {:form form}))
+      (let [on-error (:on-error opts)]
+        (when (and (some? on-error)
+                   (not (and (vector? on-error) (keyword? (first on-error)))))
+          (env/fail! e :rf.ui.compile/bad-error-boundary
+                     (str ":on-error must be a literal event vector "
+                          "[:domain/event …] dispatched after the failing commit; "
+                          "got " (pr-str on-error))
+                     {:form form}))
+        (when (not= 1 (count rest*))
+          (env/fail! e :rf.ui.compile/bad-error-boundary
+                     (str "(ui/error-boundary {…} child) takes exactly ONE guarded "
+                          "child; wrap siblings in [:<> …]")
+                     {:form form}))
+        {:op :error-boundary
+         :fallback fb-info
+         :has-reset-key? (contains? opts :reset-key)
+         :reset-key (when (contains? opts :reset-key)
+                      (walk-expr e [:error-boundary :reset-key] (:reset-key opts)))
+         ;; :on-error args evaluate when the after-commit dispatch closure builds
+         ;; at render — walk them for site indexing (the head stays the event id).
+         :on-error (when (some? on-error)
+                     (with-meta
+                       (into [(first on-error)]
+                             (map-indexed
+                              (fn [i x] (walk-expr e [:error-boundary :on-error i] x)))
+                             (rest on-error))
+                       (meta on-error)))
+         ;; The child is CONDITIONALLY rendered (child vs fallback) → host hooks
+         ;; below it are illegal; frame-plan extraction DESCENDS through the
+         ;; boundary (004C §6), so :top-region? is preserved.
+         :child (analyze (assoc e :hooks-region? false) (first rest*))
+         :static? false
+         :path (:path e)}))))
+
+(defn- analyze-capability-free
+  "Analyze `form` as a CAPABILITY-FREE template (a client-only :fallback):
+  deterministic structural markup only — the JVM/SSR and first-hydration render
+  must match, so reactive reads (sub/lease/frame), host state/effects (local/
+  effect/dispatch-fn), and committed event handlers are compile errors. Returns
+  the fallback AST. `context` names the position for the diagnostic."
+  [e context form]
+  (let [sub-sites (atom {:events [] :subs [] :leases [] :htmls [] :frame-ops []
+                         :slots [] :locals [] :effects [] :dispatch-fns []})
+        ast       (analyze (assoc e :sites sub-sites :hooks-region? false) form)
+        found     (->> [:events :subs :leases :frame-ops :locals :effects :dispatch-fns]
+                       (filter #(seq (get @sub-sites %)))
+                       (map name))]
+    (when (seq found)
+      (env/fail! e :rf.ui.compile/capability-in-fallback
+                 (str context " must be CAPABILITY-FREE — the JVM/SSR and first "
+                      "hydration render it deterministically, then the client "
+                      "swaps in the live subtree, so a capability here would tear "
+                      "on hydration. Found " (str/join ", " (sort found))
+                      ". A fallback is static markup (structure, props, branches, "
+                      "ui/html); move reactive reads, host state/effects, and "
+                      "event handlers into the client subtree")
+                 {:form form :capabilities (vec (sort found))}))
+    ast))
+
+(defn- analyze-client-only
+  "(ui/client-only {:fallback tpl} client-tpl) — a browser-only subtree with a
+  mandatory, capability-free fallback (compiler-checked). The JVM/SSR renders
+  the fallback (a deterministic `:rf.ui/boundary :client-only` node); the client
+  renders the client subtree (the S3 activation; the single-update SSR
+  phase-flip completes S5, per [011])."
+  [e form]
+  (let [opts  (nth form 1 nil)
+        rest* (drop 2 form)]
+    (when-not (map? opts)
+      (env/fail! e :rf.ui.compile/bad-client-only
+                 (str "(ui/client-only {:fallback tpl} client-tpl) needs a literal "
+                      "{:fallback tpl} map")
+                 {:form form}))
+    (let [bad (remove #{:fallback} (keys opts))]
+      (when (seq bad)
+        (env/fail! e :rf.ui.compile/bad-client-only
+                   (str "unknown client-only option" (when (next bad) "s") " "
+                        (str/join ", " (map pr-str bad))
+                        " — the only option is :fallback")
+                   {:form form})))
+    (when-not (contains? opts :fallback)
+      (env/fail! e :rf.ui.compile/bad-client-only
+                 (str ":fallback is REQUIRED and must be capability-free — the "
+                      "deterministic JVM/SSR + first-hydration render")
+                 {:form form}))
+    (when (not= 1 (count rest*))
+      (env/fail! e :rf.ui.compile/bad-client-only
+                 (str "(ui/client-only {:fallback tpl} client-tpl) takes exactly "
+                      "ONE client child; wrap siblings in [:<> …]")
+                 {:form form}))
+    {:op :client-only
+     :fallback (analyze-capability-free e "a ui/client-only :fallback" (:fallback opts))
+     ;; the client subtree is browser-only — it ends the static top region and
+     ;; the hooks region (host content never appears on the JVM/SSR path).
+     :child (analyze (-> e (dissoc :top-region?) (assoc :hooks-region? false))
+                     (first rest*))
+     :static? false
+     :path (:path e)}))
 
 ;; ---------------------------------------------------------------------------
 ;; Reactive authoring verbs in head position (rf2-vxgfnd.266)
@@ -2441,6 +2689,12 @@
 
         (slot-form? e form)
         (analyze-slot e form)
+
+        (error-boundary-form? e form)
+        (analyze-error-boundary e form)
+
+        (client-only-form? e form)
+        (analyze-client-only e form)
 
         (render-fn-form? e form)
         (env/fail! e :rf.ui.compile/render-fn-misplaced

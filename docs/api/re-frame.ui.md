@@ -240,6 +240,26 @@ from ordinary Clojure code fails loud** (they are not runtime helpers).
            :on-input (ui/event [e] [:draft/set (.. e -target -value)])}]
   ```
 
+### `handler`
+
+- **Kind**: function (compile-time authoring form)
+- **Signature**: `(handler [x] body…)`
+- **Description**: The explicit **imperative** committed callback — the imperative
+  sibling of `event`. The body runs after commit and its return is **ignored** (no
+  dispatch of a returned vector — that is `event`); it does imperative work. Like every
+  committed callback it is **per-site stable** and reads the **committed** values (the
+  stale-closure boundary law). Legal at a DOM / custom-element `:on-*` site (the
+  explicit spelling of the bare-fn shorthand; the native event binds its parameter) and
+  at a **foreign-component** or **internal-view** prop (the invoker's arguments bind
+  through). At an internal-view seam it gives a bare fn prop the per-site stable identity
+  a fresh closure lacks (C-13a).
+- **Errors**: direct call → `:rf.error/ui-tree-malformed`.
+- **Example**:
+  ```clojure
+  (let [d (ui/dispatch-fn)]
+    [foreign-map {:on-move (ui/handler [pt] (d [:map/moved pt]))}])
+  ```
+
 ### `render-fn`
 
 - **Kind**: function (compile-time authoring form)
@@ -266,6 +286,36 @@ from ordinary Clojure code fails loud** (they are not runtime helpers).
   participates in the surrounding children exactly like any other child. Legal only in
   a child position.
 - **Errors**: direct call → `:rf.error/ui-tree-malformed`.
+
+### `error-boundary`
+
+- **Kind**: function (compile-time authoring form)
+- **Signature**: `(error-boundary {:fallback view :reset-key val :on-error [:ev …]} child)`
+- **Description**: The explicit **error component**. Catches render / lifecycle throws
+  **below** it (React does not catch event-handler or async errors — those keep their
+  own typed paths). On catch the `:fallback` **view** renders with `:error` + its
+  declared props and cannot recursively dispatch. `:on-error` (optional) dispatches
+  **after** the failing commit through a live frame captured at the owning view's render
+  — never during render — with the caught error appended to the authored event vector.
+  Changing `:reset-key` (compared `rf=`) clears the caught error (retry = a state change
+  that changes the key). The JVM / SSR renders the **child** under the server failure
+  policy — boundaries are a **client** recovery mechanism.
+- **Errors**: bad opts / non-view fallback → `:rf.ui.compile/bad-error-boundary`;
+  direct call → `:rf.error/ui-tree-malformed`.
+
+### `client-only`
+
+- **Kind**: function (compile-time authoring form)
+- **Signature**: `(client-only {:fallback tpl} client-tpl)`
+- **Description**: A **browser-only** subtree with a **mandatory, capability-free**
+  fallback (compiler-checked: the fallback carries no reactive read / host state /
+  effect / event handler, so the JVM / SSR and first hydration render it
+  deterministically). The JVM / SSR renders the fallback (a `:rf.ui/boundary
+  :client-only` node); the browser renders the client subtree (the S3 activation). The
+  one root phase-flip that swaps all sites in a single update completes S5.
+- **Errors**: bad opts / missing fallback → `:rf.ui.compile/bad-client-only`; a
+  capability in the fallback → `:rf.ui.compile/capability-in-fallback`; direct call →
+  `:rf.error/ui-tree-malformed`.
 
 ## Roots and mounting
 

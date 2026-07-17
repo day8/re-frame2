@@ -424,3 +424,69 @@
           (jsxrt/jsx t props-obj k))
     (do (unchecked-set props-obj "children" children-arr)
         (jsxrt/jsxs t props-obj k))))
+
+;; ---------------------------------------------------------------------------
+;; ui/error-boundary — the explicit error component (S3)
+;;
+;; React error boundaries are class-only: getDerivedStateFromError /
+;; componentDidCatch have NO hook equivalent, so this is the ONE class in the
+;; compiled-view runtime. It catches render/lifecycle throws BELOW it (React
+;; does not catch event-handler or async errors — those keep their own typed
+;; paths); renders the fallback view with `:error` on catch; dispatches
+;; `:on-error` AFTER the failing commit (componentDidCatch is a post-commit
+;; lifecycle) through the frame the owning view captured at render; and clears
+;; the caught error when `:reset-key` changes by `rf=` (retry = a state change
+;; that changes the key). The fallback is a plain view — recursive dispatch
+;; from it is the author's own loop to avoid (no runtime block, per Spec 004:
+;; the recovery protocol is reset-key + fallback, nothing else).
+;; ---------------------------------------------------------------------------
+
+(defn- error-boundary-render [^js this]
+  (let [props (.-props this)
+        state (.-state this)]
+    (if (some? (.-error state))
+      (jsx2 (.-fallback props) #js {:error (.-error state)})
+      (.-children props))))
+
+(def ^js ErrorBoundary
+  (let [ctor  (fn ErrorBoundary [props]
+                (this-as this
+                  (.call react/Component this props)
+                  (set! (.-state this) #js {:error nil :resetKey (.-resetKey props)})
+                  this))
+        proto (js/Object.create (.-prototype react/Component))]
+    (set! (.-prototype ctor) proto)
+    (set! (.-constructor proto) ctor)
+    ;; getDerivedStateFromError — the render-phase state transition into the
+    ;; caught state; the fallback renders on the very next commit.
+    (set! (.-getDerivedStateFromError ctor)
+          (fn [error] #js {:error error}))
+    ;; getDerivedStateFromProps — a changed :reset-key clears the caught error
+    ;; (rf= so structural keys retry once, value-equal keys do not).
+    (set! (.-getDerivedStateFromProps ctor)
+          (fn [props state]
+            (when-not (eq/rf= (.-resetKey props) (.-resetKey state))
+              #js {:error nil :resetKey (.-resetKey props)})))
+    ;; componentDidCatch — post-commit; dispatch :on-error through the captured
+    ;; live frame (never during render, I-1). The closure the emitter passes
+    ;; appends the caught error to the authored event vector.
+    (set! (.-componentDidCatch proto)
+          (fn [error _info]
+            (this-as this
+              (when-some [on-error (.-onError (.-props this))]
+                (on-error error)))))
+    (set! (.-render proto) (fn [] (this-as this (error-boundary-render this))))
+    (when ^boolean js/goog.DEBUG
+      (set! (.-displayName ctor) "rf.ui/error-boundary"))
+    ctor))
+
+(defn error-boundary
+  "Build a `ui/error-boundary` element. `fallback` is the fallback view
+  (rendered with `:error` on catch), `reset-key` clears the caught error when
+  it changes (rf=), `on-error` (or nil) is the after-commit dispatch closure the
+  emitter captured against the owning view's frame, and `child` is the guarded
+  subtree."
+  [fallback reset-key on-error child]
+  (jsx2 ErrorBoundary
+        #js {:fallback fallback :resetKey reset-key
+             :onError on-error :children child}))

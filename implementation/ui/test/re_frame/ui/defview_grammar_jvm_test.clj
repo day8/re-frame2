@@ -325,7 +325,11 @@
             spread-safe
             ;; S3 host hooks — view-local ephemera, host effects, and the
             ;; stable committed-frame dispatcher (rf2-vxgfnd.95.2)
-            local effect dispatch-fn}
+            local effect dispatch-fn
+            ;; S3 explicit callback boundaries, error recovery, client-only
+            ;; (rf2-vxgfnd.95.3): the imperative committed callback + the two
+            ;; interop recovery/boundary forms
+            handler error-boundary client-only}
          (set (keys (ns-publics 're-frame.ui))))
       "no reg-view family, no Form-1/2/3 helpers, no h macro, no view
        lookup, no ratom/cursor/reaction — Spec 004 §Removed forms"))
