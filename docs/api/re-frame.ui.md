@@ -317,6 +317,38 @@ from ordinary Clojure code fails loud** (they are not runtime helpers).
   capability in the fallback → `:rf.ui.compile/capability-in-fallback`; direct call →
   `:rf.error/ui-tree-malformed`.
 
+### `route-link`
+
+- **Kind**: compiled view (an ordinary `defview`)
+- **Signature**: `[route-link {:to :route-id …html-attrs} & children]`
+- **Description**: A navigation anchor — the compiled counterpart of the stock-Reagent
+  `rf/route-link`. It renders a **real** `<a href=…>` with the route's strategy-encoded
+  href (so copy-link / open-in-new-tab / keyboard activation / no-JS navigation all
+  work) and, on a plain in-app left click, dispatches `:rf.route/url-requested` to the
+  **committed frame** (tagged `:source :router`) instead of letting the browser reload.
+  `:to` is required (a registered route id); `:params` / `:query` / `:fragment` feed both
+  the href and the dispatch payload; every other key — `:class`, `:title`, `:id`,
+  `:aria-label`, `:target`, `:download`, `:on-click`, and any further HTML attribute —
+  passes through to the `<a>`. A caller `:on-click` runs **first** and may veto (prevent
+  default); modifier / middle-click and native anchors (`:target` other than `_self`, or
+  `:download`) defer to the browser so its native affordances stand.
+- **Architecture**: `route-link` is an **ordinary compiled `defview`** — it gets JSX
+  emission, the generated prop comparator, JVM-tree parity, and dev identity for free;
+  there is **no route-link compiler intrinsic**. The routing calculation (href encode,
+  dispatch payload, native-attr detection) and the click law live in the **optional**
+  `re-frame.routing` artefact behind the substrate-neutral `:routing/link-model` /
+  `:routing/activate-link!` late-bound seam, consumed through core's late-bind registry —
+  so `re-frame.ui` never statically requires routing (`ui -> core late-bind <- routing`).
+  Migrating a routed Reagent app is a mechanical `rf/route-link` → `ui/route-link`
+  head-rename.
+- **JVM / SSR**: renders the handler-free path-form `<a href>` shell (no raw host event
+  enters the server tree); the hydrated client re-encodes through the frame's URL
+  strategy. The behavioural contract + full conformance matrix live in Spec 012 — routing
+  owns the law.
+- **Errors**: rendered without `day8/re-frame2-routing` on the classpath →
+  `:rf.error/routing-artefact-missing` (naming the artefact, its Maven coord, and the
+  link site). A plain `[:a]` stays available for intentional browser-native navigation.
+
 ## Roots and mounting
 
 ### `mount`

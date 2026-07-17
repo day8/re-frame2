@@ -577,6 +577,40 @@ independent demand for platform-scale features). The seven wrappers of the forei
 React-interop tier — `re-frame.ui.react` — carry their own call-shape contract in
 §The React interop tier below.
 
+## `ui/route-link` — a framework-provided compiled view over the routing seam
+
+`ui/route-link` is the compiled counterpart of the stock-Reagent `rf/route-link` — a
+navigation anchor that renders a real `<a href=…>` with the route's strategy-encoded
+href (copy-link / open-in-new-tab / keyboard activation / no-JS navigation all work) and,
+on a plain in-app left click, dispatches `:rf.route/url-requested` to the committed frame
+(`:source :router`) instead of reloading. `:to` is required; `:params` / `:query` /
+`:fragment` feed the href and the dispatch payload; every other key — `:class`, `:target`,
+`:download`, `:aria-label`, `:on-click`, and any further HTML attribute — passes through
+to the `<a>`. A caller `:on-click` runs **first** and may veto; modifier / middle-click
+and native anchors (`:target` other than `_self`, or `:download`) defer to the browser.
+
+It is an **ordinary compiled `defview`** — the first framework-provided compiled view. It
+gets JSX emission, the generated prop comparator, JVM-tree parity, and dev identity for
+free; there is **no route-link compiler intrinsic**, and its call site
+(`[ui/route-link {…} …]`) is an ordinary internal-view component. The routing calculation
+(href encode, dispatch payload, native-attr detection) and the click law live in the
+**optional** routing artefact behind a substrate-neutral late-bound seam
+(`:routing/link-model` — pure, both hosts; `:routing/activate-link!` — the CLJS click op)
+that routing publishes and `re-frame.ui` consumes through core's late-bind registry. So
+neither optional artefact statically requires the other (`ui -> core late-bind <- routing`,
+the [Conventions](Conventions.md) packaging-independence rule): `re-frame.ui` never
+imports routing. Rendering `ui/route-link` without `day8/re-frame2-routing` on the
+classpath fails loud with `:rf.error/routing-artefact-missing` (naming the artefact, its
+Maven coord, and the link site); a plain `[:a]` stays available for intentional
+browser-native navigation. The JVM/SSR render is the handler-free path-form `<a href>`
+shell — no raw host event enters the server tree — and the hydrated client re-encodes
+through the frame's URL strategy.
+
+The **behavioural contract and full conformance matrix are Spec 012's** — routing owns
+the link law; see [012 §Linking from views](012-Routing.md#linking-from-views--plain-anchor-semantics).
+Migrating a routed Reagent app is a mechanical `rf/route-link` → `ui/route-link`
+head-rename (the compiled view preserves the same public shape and passthrough).
+
 ## Compiled render slots — `render-fn` and `slot`
 
 Parameterized markup a consumer supplies to a reusable view (row / item / cell /
@@ -1114,6 +1148,7 @@ order and is a defect in this table.
 | §Interop — `ui/html` | **S1** | dual-emitter agreement; the single escaping bypass; manifest site recording |
 | §Interop — `ui/error-boundary` | **S3** | phase semantics; `:reset-key`; server-policy contrast |
 | §Interop — `ui/client-only` | **S3** → completes **S5** | capability-free fallback check (S3); SSR phase flip (S5) |
+| §`ui/route-link` — framework-provided compiled view | **S3** | ordinary-defview compilation (no intrinsic branch); strategy-encoded href truth; handler-free path-form SSR shell; the routing-owned late-bound seam (`:routing/link-model` / `:routing/activate-link!`) + `:rf.error/routing-artefact-missing` when routing is absent; the click law (plain-left intercept + `:source :router` committed-frame dispatch; modifier / middle / native deferral; caller `:on-click`-first veto) is [012](012-Routing.md)'s |
 | §Interop — `ui/spread` | **S1** | with the conversion-table row above |
 | §The safe-spread policy — `ui/spread-safe` | **S3** | owned-key deny in dev AND advanced builds (G-17); `aria-*`/`data-*`/`title`/`:class`/`:style` passthrough per the 004B table; allowed `:on-*` classify through the handler table; the controlled split — policy retains the sync door, general spread forfeits it (both asserted) |
 | §Interop — `ui/->react` | **S6** | compat-boundary fixtures, both nesting directions (the compat-boundary contract) |

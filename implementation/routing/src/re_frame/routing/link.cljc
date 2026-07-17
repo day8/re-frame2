@@ -210,6 +210,91 @@
   (let [[_url attrs] (href-attrs props identity)]
     (into [:a attrs] children)))
 
+;; ---------------------------------------------------------------------------
+;; The substrate-neutral late-bound link seam (rf2-vxgfnd.95.5)
+;;
+;; The compiled `re-frame.ui/route-link` defview is an ORDINARY compiled view in
+;; the OPTIONAL re-frame.ui artefact. It must not statically require routing
+;; (the packaging-independence rule, Conventions §Packaging) yet must render an
+;; anchor whose href, dispatch payload, and click law are the SAME ones this
+;; namespace already owns for `rf/route-link`. Two late-bound `:routing/*` hooks
+;; publish that calculation behind a small substrate-neutral seam routing owns
+;; and ui consumes — so ui reimplements NONE of the routing link law and neither
+;; artefact statically requires the other (`ui -> core late-bind <- routing`).
+;;
+;;   `link-model`     — PURE, both hosts. The whole routing calculation for one
+;;                      link render: strategy-encoded href, the path-form
+;;                      `:rf.route/url-requested` dispatch payload, and native?
+;;                      (target≠_self / download → the browser owns the click).
+;;   `activate-link!` — CLJS only. THE router-attributed click decision (run the
+;;                      caller `:on-click`, defer on defaultPrevented / native? /
+;;                      modifier / auxiliary-button, else preventDefault + dispatch
+;;                      to the captured render frame with `:source :router`).
+;;
+;; The ui side captures its render frame (its compiled `(ui/frame)` bundle's
+;; `:frame` id) and threads it through both hooks; it owns nothing but the
+;; anchor's markup + passthrough attrs.
+
+(defn link-model
+  "The `:routing/link-model` seam (PURE, both hosts). Given a link `target`
+  (the `:to` / `:params` / `:query` / `:fragment` control keys plus the
+  native-handling HTML attrs `:target` / `:download`) and the ui view's
+  captured `render-frame` id, compute the rendered link model:
+
+    {:href    <strategy-encoded href — one of the four strategy consult
+              points on CLJS; path-form (`identity` encode) on the JVM>
+     :payload <the FULL `[:rf.route/url-requested {...}]` dispatch vector,
+              path-form throughout — the navigation identity>
+     :native? <true when the anchor carries native-handling attrs the
+              framework must not intercept even on a plain left click>}
+
+  Owns route-url synthesis + strategy encode + payload synthesis + native-attr
+  detection, so the ui artefact reaches route-link semantics through this one
+  seam without exposing routing internals (strategy encode, frame capture,
+  source stamping) as separate hooks. The JVM branch encodes path-form (SSR has
+  no address bar); on hydration the CLJS render re-encodes through the frame
+  strategy. Per Spec 012 §Linking from views and the rf2-5yovjt ruling."
+  [{:keys [to params query fragment] :as target} render-frame]
+  (let [path-url (registry/route-url to (or params {}) (or query {}) fragment)
+        encode   #?(:cljs (:encode (strategy/url-strategy-for-frame-id render-frame))
+                    :clj  identity)]
+    {:href    (encode path-url)
+     :payload [:rf.route/url-requested
+               (cond-> {:url path-url :to to}
+                 (seq params) (assoc :params params)
+                 (seq query)  (assoc :query  query)
+                 fragment     (assoc :fragment fragment))]
+     :native? (native-anchor? target)}))
+
+#?(:cljs
+   (defn activate-link!
+     "The `:routing/activate-link!` seam (CLJS only). THE router-attributed
+     click decision for a compiled `ui/route-link` anchor — the SAME click law
+     `route-link-render` applies to `rf/route-link`, kept inside routing so the
+     ui artefact reimplements none of it.
+
+     `e` is the native click event; `on-click` is the caller-supplied `:on-click`
+     (or nil); `render-frame` is the ui view's captured render-frame id; `payload`
+     and `native?` come from `link-model`.
+
+     Runs the caller `:on-click` first; then, unless the anchor is native (new
+     tab / download), the caller already prevented the default, or the click is
+     not a plain primary-button click (a modifier-key or auxiliary-button click
+     keeps the browser's open-in-new-tab affordance), calls `.preventDefault` and
+     dispatches `payload` to the captured render frame with `:source :router` (so
+     the L2 epoch timeline tags the cascade as a routing-substrate dispatch, per
+     rf2-t1lxr / rf2-1ve9h). `:frame render-frame` is an explicit dispatch opt —
+     the router targets the rendering frame verbatim even though the render scope
+     has unwound by click time (rf2-o3nam4), so the dispatch always lands on the
+     CURRENTLY-committed frame (retarget-safe)."
+     [e on-click render-frame payload native?]
+     (when on-click (on-click e))
+     (when (and (not native?)
+                (not (.-defaultPrevented e))
+                (plain-left-click? e))
+       (.preventDefault e)
+       (router/dispatch! payload {:source :router :frame render-frame}))))
+
 ;; The façade owns the `:route/link` registration:
 ;;
 ;;   #?(:cljs (def route-link (views/reg-view* :route/link {} route-link-render))

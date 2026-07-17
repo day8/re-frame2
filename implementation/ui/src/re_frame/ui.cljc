@@ -59,6 +59,7 @@
             [re-frame.ui.hooks]
             [re-frame.ui.lease-descriptor]
             [re-frame.ui.reactive :as reactive]
+            [re-frame.ui.route-link-seam :as rl]
             #?@(:clj  [[re-frame.ui.compiler :as compiler]
                        [re-frame.ui.compiler.root :as root]
                        ;; JVM: loads the frame machinery so compiled bodies'
@@ -649,3 +650,68 @@
         "it is a template form invoking a ui/render-fn value in child "
         "position, wired by the compiler; it is never called directly")
    nil))
+
+;; ---------------------------------------------------------------------------
+;; route-link (S3, rf2-vxgfnd.95.5) — an ORDINARY compiled view, NOT a compiler
+;; intrinsic and NOT a UI→routing dependency
+;; ---------------------------------------------------------------------------
+
+;; NOTE: the macro is called QUALIFIED (`re-frame.ui/defview`) — the facade's own
+;; `:require-macros [re-frame.ui]` (self) exposes it qualified, and a BARE `defview`
+;; here would not resolve to the self-macro on CLJS (it would compile as a plain
+;; call and evaluate the header binding symbols as vars). This is the one
+;; framework-authored compiled view, so it is the only in-facade `defview` use.
+(re-frame.ui/defview route-link
+  "(ui/route-link {:to :route-id ...html-attrs} & children) — a navigation
+  anchor that renders a REAL `<a href=…>` with the route's strategy-encoded href
+  (so copy-link / open-in-new-tab / keyboard activation / no-JS navigation all
+  work) and, on a plain in-app left click, dispatches the routing cascade to the
+  committed frame instead of letting the browser reload.
+
+  `:to` is required (a registered route id). `:params` / `:query` / `:fragment`
+  feed both the href and the dispatch payload; every OTHER key — `:class`,
+  `:title`, `:id`, `:aria-label`, `:target`, `:download`, `:on-click`, and any
+  further HTML attribute — passes through to the underlying `<a>`. A caller
+  `:on-click` runs FIRST; if it prevents the default (or the anchor is
+  native — `:target` other than `_self`, or `:download`) or the click is a
+  modifier / middle / auxiliary-button click, the framework does NOT intercept
+  and the browser's native `href` behaviour stands. Otherwise the plain
+  left-click is intercepted and the navigation dispatches to the frame that
+  RENDERED the link, tagged `:source :router`.
+
+  This is an ORDINARY compiled `defview` — it gets JSX emission, the generated
+  prop comparator, JVM-tree parity, and dev identity for free; there is no
+  route-link compiler intrinsic. The routing calculation (href encode, dispatch
+  payload, native-attr detection) and the click law live in the OPTIONAL routing
+  artefact behind the substrate-neutral `:routing/link-model` /
+  `:routing/activate-link!` late-bound seam, consumed here through core's
+  late-bind registry — so `re-frame.ui` never statically requires routing
+  (`ui -> core late-bind <- routing`). Rendering a `ui/route-link` without
+  `day8/re-frame2-routing` on the classpath fails loud with
+  `:rf.error/routing-artefact-missing`; a plain `[:a]` stays available for
+  intentional browser-native navigation. JVM/SSR renders the handler-free
+  path-form `<a href>` shell (no raw host event enters the server tree); the
+  hydrated client re-encodes through the frame's URL strategy. The behavioural
+  contract + full conformance matrix live in Spec 012 (routing owns the law)."
+  [{:keys [to params query fragment on-click children] :as props}]
+  (let [render-frame (:frame (frame))
+        ;; `target` carries the route control keys AND the native-handling attrs
+        ;; (`:target` / `:download`) the model needs; `link-model` reads only what
+        ;; it needs and ignores the rest.
+        {:keys [href payload native?]} (rl/link-model (dissoc props :on-click :children)
+                                                      render-frame)
+        ;; Everything the caller passed EXCEPT the framework-owned control keys
+        ;; is forwarded onto the anchor; the owned `:href` (+ CLJS `:on-click`)
+        ;; win the spread.
+        passthrough (dissoc props :to :params :query :fragment :on-click :children)]
+    ;; The activation closure is CLJS-only — the JVM/SSR shell renders a
+    ;; handler-free anchor (no DOM click to intercept). Reader conditionals give
+    ;; each emitter its own override map, so the raw host event never enters the
+    ;; server tree.
+    [:a (spread passthrough
+                #?(:cljs {:href     href
+                          :on-click (fn [e]
+                                      (rl/activate! e on-click render-frame
+                                                    payload native?))}
+                   :clj  {:href href}))
+     children]))

@@ -366,6 +366,15 @@
   {:namespace "re-frame.ui" :var "handler"        :kind :fn    :facade? false :tier :advanced    :owner "004" :status "Spec-004 S3" :runtime-verified? true}
   {:namespace "re-frame.ui" :var "error-boundary" :kind :fn    :facade? false :tier :advanced    :owner "004" :status "Spec-004 S3" :runtime-verified? true}
   {:namespace "re-frame.ui" :var "client-only"    :kind :fn    :facade? false :tier :advanced    :owner "004" :status "Spec-004 S3" :runtime-verified? true}
+  ;; route-link (rf2-vxgfnd.95.5) — the FIRST framework-provided compiled view:
+  ;; an ORDINARY compiled `defview` (a live component Var, not a resolution-only
+  ;; `defn`) over the routing-owned substrate-neutral link seam
+  ;; (`:routing/link-model` / `:routing/activate-link!`), consumed through core's
+  ;; late-bind registry so `re-frame.ui` never statically requires routing. NOT a
+  ;; compiler intrinsic. Its live public var + the `export-surface-is-exactly-the-
+  ;; blessed-set` JVM row landed with this feature. Owner 012 — routing owns the
+  ;; link law + full conformance matrix; the ui table LINKS to 012.
+  {:namespace "re-frame.ui" :var "route-link"     :kind :fn    :facade? false :tier :advanced    :owner "012" :status "Spec-004 S3" :runtime-verified? true}
   ;; re-frame.ui.react (rf2-vxgfnd.95.4) — the frozen seven-wrapper React interop
   ;; tier (Spec 004 §The React interop tier). Six host hooks (use-ref /
   ;; use-effect / use-layout-effect / use-effect-event / use-context / use-id)
