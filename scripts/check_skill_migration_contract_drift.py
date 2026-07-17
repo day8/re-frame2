@@ -65,21 +65,28 @@ Two contract facts, each pinned against the shipped spec:
     ambient calls and lets an AFTER recipe hide behind a BEFORE example
     (rf2-vxgfnd.94.20).
 
-  * **Form-3 capture-once retarget invariance — a POSITIVE-presence + cross-owner
-    alignment check (rf2-aalo4n).** The reagent-slim FORM-3.md is the adopter-
-    facing owner of the Form-3 capture-once recipe; guided-handlers-state.md §M-11
-    is the canonical migration recipe. FORM-3.md recommends capturing the frame
-    once in the outer `reg-view*` callable, but that handle is a LOCKED value that
-    never re-resolves (`make-capture-frame` closes the captured frame over every
-    op — core.cljc), so capture-once is safe ONLY while the mount's provider frame
-    is invariant: a *surviving* instance retargeted from provider A to provider B
-    keeps sending to the stale A. The adopter owner must state the invariant (the
-    A→B stale case, a supported remedy — a frame-derived React `key` remount or the
-    registered `reg-view` child, and a canonical-recipe pointer), and the canonical
-    recipe must still carry the aligned invariance, so the two owners cannot drift
-    apart. Unlike the M-11/M-13 line rules (which KILL stale claims), this asserts
-    a thing must be PRESENT — the same shape as the M-1 anchor pins
-    (`form3_capture_once_retarget_problems`).
+  * **Form-3 capture-once retarget invariance — a RELATIONSHIP + POLARITY +
+    cross-owner check (rf2-aalo4n, rf2-gjrlz).** The reagent-slim FORM-3.md is the
+    adopter-facing owner of the Form-3 capture-once recipe; guided-handlers-
+    state.md §M-11 is the canonical migration recipe. FORM-3.md recommends
+    capturing the frame once in the outer `reg-view*` callable, but that handle is
+    a LOCKED value that never re-resolves (`make-capture-frame` closes the captured
+    frame over every op — core.cljc), so capture-once is safe ONLY while the
+    mount's provider frame is invariant: a *surviving* instance retargeted from
+    provider A to provider B keeps sending to the stale A. Each owner must state
+    the invariant with SEMANTIC TEETH, not just the vocabulary: the capture-once
+    framing, the A→B retarget, and the stale-A consequence must be tied together
+    in ONE paragraph (scattered tokens do not count), the adopter owner's paragraph
+    must carry a supported remedy — a frame-derived React `key` remount or the
+    registered `reg-view` child — and the canonical-recipe pointer, and NEITHER
+    owner may assert the OPPOSITE polarity (capture-once auto-retargets /
+    re-resolves / follows automatically, never goes stale, or needs no remount),
+    even when every positive vocabulary token still appears elsewhere. The
+    corrected adaptive-remedy prose (route 1 "follows A→B with no remount") is
+    exempt — it is the fix, not the footgun. This started as a POSITIVE-presence
+    census (rf2-aalo4n) that a reversal with scattered vocabulary slipped past;
+    rf2-gjrlz gave it the relationship + polarity teeth. See
+    `form3_capture_once_retarget_problems` / `_retarget_invariance_problems`.
 
   * **Boot-smoke Pair partition mismatch (rf2-j538f7.33) — an app-db-only Pair
     read aimed at a runtime-db path.** The boot smoke-test (references/runtime-
@@ -1113,10 +1120,15 @@ def m1_anchor_problems() -> list[str]:
 # carry the invariant and keeps it aligned with the canonical recipe
 # (rf2-aalo4n; historical rf2-vxgfnd.272/.288).
 #
-# Unlike the M-11/M-13 line rules above (which KILL stale claims), this is a
-# POSITIVE-presence + cross-owner alignment check — the same shape as
-# `m1_anchor_problems`: the invariant is a thing that must be PRESENT, and a
-# future edit must not delete it from one owner while the other still carries it.
+# This carries BOTH shapes. Like `m1_anchor_problems` it asserts a thing must be
+# PRESENT (a future edit must not delete the invariant from one owner while the
+# other still carries it); like the M-11/M-13 line rules it KILLS a stale claim —
+# here the OPPOSITE polarity (capture-once auto-adapts to a provider change). A
+# pure token census (the original rf2-aalo4n shape) let a reversal through as long
+# as the positive vocabulary appeared *somewhere*, so rf2-gjrlz added the
+# relationship + polarity teeth in `_retarget_invariance_problems`: the invariant
+# must be stated in ONE paragraph (framing + A→B + stale-A consequence), and no
+# capture-once paragraph may assert the reversal.
 # ---------------------------------------------------------------------------
 
 # capture-once / locked-value framing — the subject the invariance attaches to.
@@ -1141,51 +1153,190 @@ FORM3_REMEDY_RE = re.compile(
 # The pointer back to the canonical migration recipe.
 FORM3_RECIPE_POINTER_RE = re.compile(r"guided-handlers-state\.md", re.IGNORECASE)
 
+# --- Semantic teeth (rf2-gjrlz) --------------------------------------------
+# The four presence checks above prove the *vocabulary* is somewhere in the
+# document; they do NOT prove the tokens state the locked-handle RELATIONSHIP,
+# and they accept the OPPOSITE polarity. So a document that scatters "provider A
+# to B", "remount", and the pointer across unrelated fragments, then asserts the
+# reversal ("capture-once automatically follows any provider change; it never
+# goes stale"), passed as clean. These two regexes give the check teeth: the
+# capture-once statement must state the stale-A CONSEQUENCE, and it must not
+# assert the reversal.
+#
+# The stale-A RELATIONSHIP the capture-once statement must carry: the locked
+# handle stays on the stale A and does NOT follow B. Markdown-bold tolerant
+# (`stale **A**`, `never **B**`).
+FORM3_STALE_RELATION_RE = re.compile(
+    r"stale\s*\**A\b|to\s+(?:the\s+)?\**stale|go(?:es|ing)?\s+\**stale"
+    r"|went\s+\**stale|stays?\s+on\s+\**A\b|stuck\s+on\s+\**A\b|sticks?\s+to\s+\**A\b"
+    r"|keeps?\s+(?:sending|targeting|pointing|firing|resolving)"
+    r"|does\s+not\s+follow|doesn'?t\s+follow|never\s+\**B\b|not\s+\**B\b",
+    re.IGNORECASE,
+)
+# The semantic REVERSAL — the FALSE claim that capture-once auto-adapts to a
+# provider change: it re-resolves/retargets/follows automatically, never goes
+# stale, or needs no remount. Any of these inside a capture-once paragraph
+# (outside an adaptive-remedy sentence, below) is flagged, EVEN when every
+# positive vocabulary token still appears elsewhere in the document.
+#
+# The affirmative auto-adaptation forms are deliberately paired with an
+# auto/dynamic qualifier or a to-B target, so the CORRECTED negations do NOT
+# match: "never re-resolves", "not a live re-resolver", and "It goes stale" all
+# stay clean (the qualifier "live" is intentionally excluded — the corpus uses
+# "live re-resolver"/"live resolver" positively about the reg-view child).
+FORM3_REVERSAL_RE = re.compile(
+    # (a) auto-qualifier + adaptation verb
+    r"(?:automatically|auto-?|always|dynamically)\s*"
+    r"(?:re-?resolv\w*|re-?target\w*|retarget\w*|re-?point\w*|repoint\w*"
+    r"|follow\w*|adapt\w*|track\w*|switch\w*|updat\w*)"
+    # (b) adaptation verb + auto/dynamic or an explicit to-B / new-provider target
+    r"|(?:re-?resolv\w*|re-?target\w*|retarget\w*|re-?point\w*|repoint\w*"
+    r"|follow\w*|adapt\w*|track\w*|switch\w*)\s+"
+    r"(?:automatically|dynamically|to\s+(?:provider\s+)?\**B\b"
+    r"|to\s+the\s+(?:new|current|other)\b|any\s+provider|the\s+new\s+provider)"
+    # (c) never-goes-stale / stays-fresh
+    r"|never\s+(?:ever\s+)?(?:go(?:es|ing)?\s+)?\**stale|never\s+\**stale"
+    r"|(?:does\s?n['o]?t|doesn'?t|do\s+not|don'?t|won'?t|will\s+not|cannot|can'?t"
+    r"|no\s+longer)\s+(?:ever\s+)?go(?:es)?\s+\**stale|stays?\s+fresh|immune\s+to\s+stal"
+    # (d) no-remount-needed
+    r"|no\s+(?:need\s+(?:to|for)\s+(?:a\s+)?)?re-?mount(?:ing)?\b"
+    r"|needs?\s+no\s+re-?mount|without\s+(?:a\s+|any\s+|ever\s+)?re-?mount(?:ing)?"
+    r"|re-?mount(?:ing)?\s+is\s+(?:not\s+needed|unnecessary|never\s+needed)",
+    re.IGNORECASE,
+)
+# Sentences that legitimately describe an ADAPTIVE remedy — the route-1 reg-view
+# child (reads its frame from React context every render, so it follows A→B), or
+# the frame-derived-`key` remount (a frame change remounts and the capture
+# re-locks to B). A reversal-shaped phrase inside such a sentence is the
+# corrected remedy prose, not a false claim, so these sentences are exempt from
+# the reversal scan — e.g. "…so it follows A→B with no remount" (rf2-gjrlz).
+FORM3_ADAPTIVE_REMEDY_RE = re.compile(
+    r"reg-view`?\s+child|route\s*1|react\s+context|reads?\s+(?:its|the)\s+frame"
+    r"|:context-?type|context-reading|on\s+(?:every|each)\s+render"
+    r"|re-?locks?\s+to|force\s+a\s+remount|remounts?\s+the\s+component"
+    r"|frame\s+change\s+(?:then\s+)?(?:changes|remounts)",
+    re.IGNORECASE,
+)
 
-def _form3_capture_once_problems(f3_text: str, g_text: str | None) -> list[str]:
-    """Pure presence + cross-owner alignment check over the two owners' text.
 
-    Kept text-pure (no disk read) so the self-test can exercise it against
-    fixtures and live mutations, mirroring the M-1 classifier / live-corpus teeth.
-    `g_text` is the canonical guided-handlers-state.md text; None skips the
-    cross-owner alignment leg (a SETUP problem is reported separately)."""
+def _capture_once_paragraphs(text: str) -> list[str]:
+    """Blank-line-delimited blocks that carry the capture-once / locked-handle
+    framing. A minimal split — deliberately NOT a Markdown parser (rf2-gjrlz);
+    it just bounds the capture-once statement to its own paragraph so scattered
+    vocabulary elsewhere cannot satisfy the invariant, and so a reversal is read
+    against its own subject."""
+    return [p for p in re.split(r"\n[ \t]*\n", text) if FORM3_CAPTURE_ONCE_RE.search(p)]
+
+
+def _reversal_sentences(paragraph: str) -> list[str]:
+    """The reversal-asserting sentences of a capture-once paragraph, minus the
+    ones describing an adaptive remedy (route 1 / key remount) — those carry a
+    reversal-shaped phrase legitimately (rf2-gjrlz)."""
+    hits: list[str] = []
+    for sentence in FORM3_SENTENCE_BOUNDARY_RE.split(paragraph):
+        if FORM3_REVERSAL_RE.search(sentence) and not FORM3_ADAPTIVE_REMEDY_RE.search(
+            sentence
+        ):
+            hits.append(" ".join(sentence.split()))
+    return hits
+
+
+def _retarget_invariance_problems(text: str, owner: str, *, adopter: bool) -> list[str]:
+    """Relationship + polarity teeth for one owner's capture-once statement
+    (rf2-gjrlz).
+
+    Beyond the vocabulary being present, the capture-once/locked-handle framing,
+    the A→B retarget, and the stale-A consequence must sit in ONE paragraph
+    (scattered tokens cannot satisfy it), and no capture-once paragraph may
+    ASSERT the reversal (auto-retargets / never goes stale / no remount needed),
+    even if every positive token still appears elsewhere. `adopter=True` (the
+    FORM-3 owner) additionally requires an in-paragraph supported remedy and the
+    canonical-recipe pointer; the canonical recipe is the pointer target, so it
+    passes adopter=False."""
     problems: list[str] = []
-    if not FORM3_CAPTURE_ONCE_RE.search(f3_text):
+    capture_paras = _capture_once_paragraphs(text)
+    owning = [p for p in capture_paras if FORM3_RETARGET_RE.search(p)]
+
+    # Polarity — no capture-once paragraph may assert the reversal.
+    reversals = [s for p in capture_paras for s in _reversal_sentences(p)]
+    if reversals:
+        sample = reversals[0]
         problems.append(
-            "FORM3-CAPTURE-ONCE-MISSING: FORM-3.md no longer frames the "
+            f"FORM3-POLARITY-REVERSED: {owner} asserts capture-once auto-adapts to "
+            "a provider change (it re-resolves/retargets/follows automatically, "
+            "never goes stale, or needs no remount) — the OPPOSITE of the "
+            "locked-handle invariant. `(rf/capture-frame)` locks to the mount's "
+            "frame and never re-resolves; a surviving A→B retarget keeps sending to "
+            f'the stale A. Offending: "{sample[:140]}". State the invariant and its '
+            "frame-safe remedy (a frame-derived React `key` remount, or the "
+            "registered `reg-view` child) — not the (false) auto-adaptation "
+            "(rf2-gjrlz)."
+        )
+
+    # Relationship — capture-once, the A→B retarget, and the stale-A consequence
+    # must be tied together in one paragraph.
+    if not capture_paras:
+        problems.append(
+            f"FORM3-CAPTURE-ONCE-MISSING: {owner} no longer frames the "
             "outer-callable `(rf/capture-frame)` as capture-once / a locked handle "
             "— the retarget invariance has no subject to attach to (rf2-aalo4n)."
         )
-    if not FORM3_RETARGET_RE.search(f3_text):
+    elif not owning:
         problems.append(
-            "FORM3-RETARGET-MISSING: FORM-3.md omits the capture-once retarget "
-            "invariance — it must state that a *surviving* instance retargeted "
-            "from provider A to provider B keeps sending render/lifecycle actions "
-            "to the stale A (the locked handle does not re-resolve; the outer "
-            "callable does not re-run). (rf2-aalo4n; canonical: "
-            "guided-handlers-state.md §M-11.)"
+            f"FORM3-RETARGET-MISSING: {owner} does not tie the capture-once "
+            "statement to a *surviving* provider A→B retarget — the capture-once "
+            "framing and the A→B case are in different paragraphs, or the A→B case "
+            "is absent. State, in the capture-once paragraph, that a surviving "
+            "instance retargeted from provider A to provider B keeps sending "
+            "render/lifecycle actions to the stale A (the locked handle does not "
+            "re-resolve; the outer callable does not re-run). (rf2-aalo4n; "
+            "canonical: guided-handlers-state.md §M-11.)"
         )
-    if not FORM3_REMEDY_RE.search(f3_text):
+    elif not any(FORM3_STALE_RELATION_RE.search(p) for p in owning):
         problems.append(
-            "FORM3-REMEDY-MISSING: FORM-3.md states the provider A→B stale case "
-            "but points at no supported remedy — name the frame-derived React "
-            "`key` remount or the registered `reg-view` child (route 1). Do NOT "
-            "reach for a mutable / re-pointable capture (rf2-aalo4n)."
+            f"FORM3-STALE-RELATION-MISSING: {owner} names the provider A→B retarget "
+            "beside the capture-once framing but never states the CONSEQUENCE — the "
+            "locked handle stays on the stale A and does not follow B. The A→B "
+            "token alone does not carry the invariant (rf2-gjrlz)."
         )
-    if not FORM3_RECIPE_POINTER_RE.search(f3_text):
-        problems.append(
-            "FORM3-RECIPE-POINTER-MISSING: FORM-3.md does not point at the "
-            "canonical migration recipe (guided-handlers-state.md §M-11) for the "
-            "full capture-once retarget routes (rf2-aalo4n)."
-        )
-    if g_text is not None and not (
-        FORM3_RETARGET_RE.search(g_text) and FORM3_CAPTURE_ONCE_RE.search(g_text)
-    ):
-        problems.append(
-            "FORM3-CANONICAL-DRIFT: guided-handlers-state.md no longer carries the "
-            "capture-once provider A→B retarget invariance that FORM-3.md mirrors "
-            "— the adopter owner and the canonical recipe have drifted "
-            "(rf2-aalo4n). Re-align both owners, or re-point this guard's anchors."
+
+    if adopter and owning:
+        if not any(FORM3_REMEDY_RE.search(p) for p in owning):
+            problems.append(
+                f"FORM3-REMEDY-MISSING: {owner} states the provider A→B stale case "
+                "but its owning paragraph points at no supported remedy — name the "
+                "frame-derived React `key` remount or the registered `reg-view` "
+                "child (route 1). Do NOT reach for a mutable / re-pointable capture "
+                "(rf2-aalo4n)."
+            )
+        if not any(FORM3_RECIPE_POINTER_RE.search(p) for p in owning):
+            problems.append(
+                f"FORM3-RECIPE-POINTER-MISSING: {owner}'s capture-once paragraph "
+                "does not point at the canonical migration recipe "
+                "(guided-handlers-state.md §M-11) for the full retarget routes "
+                "(rf2-aalo4n)."
+            )
+    return problems
+
+
+def _form3_capture_once_problems(f3_text: str, g_text: str | None) -> list[str]:
+    """Relationship + polarity check over the two owners' text (rf2-aalo4n +
+    rf2-gjrlz).
+
+    Kept text-pure (no disk read) so the self-test can exercise it against
+    fixtures and live mutations, mirroring the M-1 classifier / live-corpus teeth.
+    The adopter owner (`f3_text`) must tie capture-once → surviving A→B retarget →
+    stays-on-stale-A in one paragraph, carry an in-paragraph remedy + the
+    canonical-recipe pointer, and never assert the reversal. `g_text` is the
+    canonical guided-handlers-state.md text, held to the same relationship +
+    polarity teeth (minus the pointer, which is its own target); None skips the
+    cross-owner leg (a SETUP problem is reported separately)."""
+    problems = _retarget_invariance_problems(f3_text, "FORM-3.md", adopter=True)
+    if g_text is not None:
+        problems.extend(
+            _retarget_invariance_problems(
+                g_text, "guided-handlers-state.md", adopter=False
+            )
         )
     return problems
 
@@ -2069,6 +2220,65 @@ def _self_test() -> int:
         dirty=True, label="K6 canonical drifting off the A→B invariance is dirty",
     )
 
+    # Semantic-teeth fixtures (rf2-gjrlz). Vocabulary presence is not enough: the
+    # OPPOSITE polarity must fail even when every positive token survives, and
+    # tokens scattered across unrelated paragraphs must not satisfy the invariant.
+    #
+    # K7 is the exact repro: an adopter owner that ASSERTS the reversal
+    # ("automatically follows … never goes stale") with the A→B / remount /
+    # pointer tokens sprinkled into unrelated paragraphs. The pre-teeth guard
+    # returned [] here.
+    K7_REVERSED_SCATTERED = (
+        "Capture-once automatically follows any provider change; it never goes "
+        "stale.\n\n"
+        "Elsewhere, an instance can be retargeted from provider A to provider B.\n\n"
+        "You might force a remount with a frame-derived React `key`.\n\n"
+        "See `guided-handlers-state.md` §M-11 for more."
+    )
+    expect_form3(
+        K7_REVERSED_SCATTERED, K_CANON, dirty=True,
+        label="K7 adopter reversal + scattered vocabulary is dirty",
+    )
+    # K8: every positive token tied in ONE paragraph, but with a "no need to
+    # remount" / "never goes stale" reversal spliced in — polarity teeth must
+    # still fail it (the reversal survives beside the correct relationship).
+    K8_REVERSED_TIED = (
+        "Capture-once is a locked handle; there is no need to remount even if a "
+        "surviving instance is retargeted from provider A to provider B, and it "
+        "never goes stale — it keeps sending to the stale A. Remedy: a "
+        "frame-derived React `key` remount, or the registered `reg-view` child "
+        "(route 1). See `guided-handlers-state.md` §M-11."
+    )
+    expect_form3(
+        K8_REVERSED_TIED, K_CANON, dirty=True,
+        label="K8 adopter reversal with every positive token present is dirty",
+    )
+    # K9: the canonical owner reversed (repro's second half) — the cross-owner
+    # leg must catch it, not just the adopter.
+    K9_CANON_REVERSED = (
+        "Capture-once automatically retargets and re-resolves to the new "
+        "provider.\n\n"
+        "For example, an instance may be retargeted from provider A to provider B."
+    )
+    expect_form3(
+        K_OWNER, K9_CANON_REVERSED, dirty=True,
+        label="K9 canonical reversal is dirty",
+    )
+    # K10: the corrected adaptive-remedy prose (route 1 follows A→B "with no
+    # remount") must NOT be read as a reversal — it is the fix, not the footgun.
+    K10_ADAPTIVE_REMEDY_OK = (
+        "Capture-once is a locked handle. It goes stale if a surviving instance is "
+        "retargeted from provider A to provider B — the locked handle keeps "
+        "sending to the stale A, never B. Or use the registered `reg-view` child "
+        "(route 1), which reads its frame from React context on every render and "
+        "so follows A→B with no remount and no re-capture. See "
+        "`guided-handlers-state.md` §M-11."
+    )
+    expect_form3(
+        K10_ADAPTIVE_REMEDY_OK, K_CANON, dirty=False,
+        label="K10 route-1 adaptive-remedy prose is clean",
+    )
+
     # Live-corpus teeth: the SHIPPED owners must both carry the invariant, and a
     # mutation that drops the A→B sentence from either owner must be caught — so a
     # careless re-author of the real docs cannot make this guard go vacuous.
@@ -2104,6 +2314,51 @@ def _self_test() -> int:
                 "SELF-TEST FAIL (form3 canonical mutation): dropping the provider "
                 "A→B retarget sentence from guided-handlers-state.md did not trip "
                 "the cross-owner drift leg."
+            )
+            failures += 1
+
+        # rf2-gjrlz: mutate each live owner to the WRONG POLARITY while keeping
+        # ALL of the A/B / remount / pointer vocabulary intact — a splice adjacent
+        # to a real capture-once token, so it lands inside a capture-once
+        # paragraph regardless of the doc's exact wording. The pre-teeth guard
+        # (vocabulary-presence only) was blind to this; the polarity teeth must
+        # now catch it. This proves the guard has semantic teeth, not just a
+        # token census.
+        def _splice_reversal(t: str) -> str:
+            return FORM3_CAPTURE_ONCE_RE.sub(
+                lambda m: m.group(0)
+                + " automatically re-resolves and never goes stale;",
+                t,
+                count=1,
+            )
+
+        f3_reversed = _splice_reversal(f3_live)
+        if f3_reversed == f3_live:
+            print(
+                "SELF-TEST FAIL (form3 owner reversal setup): no capture-once "
+                "anchor in FORM-3.md to splice a polarity reversal onto."
+            )
+            failures += 1
+        elif not _form3_capture_once_problems(f3_reversed, g_live):
+            print(
+                "SELF-TEST FAIL (form3 owner reversal): a capture-once auto-adapt "
+                "reversal spliced into FORM-3.md (A/B/remount/pointer intact) "
+                "passed the guard — the polarity teeth are blunt."
+            )
+            failures += 1
+
+        g_reversed = _splice_reversal(g_live)
+        if g_reversed == g_live:
+            print(
+                "SELF-TEST FAIL (canonical reversal setup): no capture-once anchor "
+                "in guided-handlers-state.md to splice a polarity reversal onto."
+            )
+            failures += 1
+        elif not _form3_capture_once_problems(f3_live, g_reversed):
+            print(
+                "SELF-TEST FAIL (canonical reversal): a capture-once auto-adapt "
+                "reversal spliced into guided-handlers-state.md (A/B/remount/"
+                "pointer intact) passed the cross-owner leg."
             )
             failures += 1
 
