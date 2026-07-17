@@ -94,12 +94,21 @@
 
     :compile-finish
     (let [snap  (build/accepted-snapshot build-state)
-          views (build/accepted-aggregate build/views build-state)]
+          views (build/accepted-aggregate build/views build-state)
+          ;; rf2-vxgfnd.95.5 shipped the FIRST framework-authored compiled view
+          ;; (`re-frame.ui/route-link`), so re-frame.ui — which every probe app
+          ;; source requires — now contributes its own view(s) to the WHOLE-build
+          ;; accepted aggregate. Scope this fixture's lifecycle count to the
+          ;; probe's own app namespaces so the declare/evict assertions stay
+          ;; exact (and still redden on an app-a ghost of ANY id) instead of
+          ;; drifting by one with every framework view re-frame.ui adds.
+          probe-nss  #{(namespace a-view-id) (namespace b-view-id)}
+          app-views  (filter #(contains? probe-nss (namespace %)) (keys views))]
       (record! build-id
                {:stage :finish
                 :version (:version snap)
                 :digest (:digest snap)
-                :view-count (count views)
+                :view-count (count app-views)
                 :a-present (contains? views a-view-id)
                 :b-present (contains? views b-view-id)
                 ;; A stable string image of app-b's accepted row, so the runner
