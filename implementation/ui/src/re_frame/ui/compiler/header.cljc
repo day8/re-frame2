@@ -137,21 +137,33 @@
           entries)))
 
 (defn parse-header
-  "argv -> {:mode :none|:named|:as, :as-sym, :entries [{:key :slot
-  :pattern :default}...], :slots [kw...], :children? bool, :binding-form}
+  "argv -> {:mode :none|:named|:as, :as-sym, :entries [{:key :slot :pattern
+  :default}...], :binding-units [...same shape...], :slots [kw...], :children?
+  bool, :binding-form}
 
-  The binding `:entries` and `:slots` are the CANONICAL, host-faithful binding
-  units (`bp/assoc-binding-units`, then `collapse-entries`): one entry per bound
-  local, in host `destructure` `bes` order, carrying the WINNING lookup key after
-  collapse. Two header entries that bind the same local COLLAPSE to a single
-  entry — never two, never a silent last-wins — whether they collide in the host
-  `bes` map (`{:keys [x] x :foo}` → `x <- :x`) or only after the qualified group
-  local name-strips onto an explicit local (`{:keys [ns/x] x :other}` → the host
-  last-wins `x <- :ns/x`, the explicit `:other` dropped). A qualified group local
-  (`{:keys [acct/id]}`) keeps its qualified slot `:acct/id`. Both emitters, the
-  schema slot order, the memo comparator and the manifest metadata read these
-  same collapsed entries, so no downstream path can re-collide, strip a qualified
-  key, or inherit a dead slot."
+  TWO views of the ONE canonical, host-faithful binding plan
+  (`bp/assoc-binding-units`), split by what the host actually does:
+
+  - `:binding-units` — the FULL host binding-unit plan, one unit per `bes`
+    entry, in host `destructure` order, carrying its winning lookup key and any
+    `:or` default. The EXECUTABLE emission (the CLJS `header-bindings` lowering)
+    and the analyzer's scope walk consume this, so every host initializer runs
+    and the host `let` last-wins is reproduced exactly — including the two units
+    a qualified-group-name collision (`{:keys [ns/x] x :other}`) establishes for
+    one local (rf2-nedxb).
+
+  - `:entries` + `:slots` — the COLLAPSED effective-slot projection (`:entries`
+    run through `collapse-entries`): one entry per bound local, the host-winning
+    last occurrence. DERIVED metadata — the memo comparator, the manifest
+    `:prop-slots`, the closed-`:props` slot set and the schema slot order — reads
+    these, so it never over-declares a dead slot (`{:keys [ns/x] x :other}` drops
+    `:other`), re-collides, or strips a qualified key (`{:keys [acct/id]}` keeps
+    `:acct/id`).
+
+  For every header WITHOUT a qualified-group-name collision the two views are
+  identical; they differ only where the host binds one local through two `bes`
+  keys. The JVM emitter uses `:binding-form` (native destructuring) and needs
+  neither view."
   [argv]
   (when-not (vector? argv)
     (fail :rf.ui.compile/bad-defview-args
@@ -163,33 +175,37 @@
                "positional args. Got " (count argv))
           {:argv argv}))
   (if (empty? argv)
-    {:mode :none :as-sym nil :entries [] :slots [] :children? false
-     :binding-form nil}
+    {:mode :none :as-sym nil :entries [] :binding-units [] :slots []
+     :children? false :binding-form nil}
     (let [b (first argv)]
       (cond
         (symbol? b)
-        {:mode :as :as-sym b :entries [] :slots [] :children? true
-         :binding-form b}
+        {:mode :as :as-sym b :entries [] :binding-units [] :slots []
+         :children? true :binding-form b}
 
         (map? b)
         (let [as-sym  (get b :as)
               or-map  (get b :or {})
               _       (validate-header-map! b or-map)
-              ;; ONE canonical, de-collided binding plan — the host `bes` order
-              ;; with winning lookup keys. `collapse-entries` folds any two units
-              ;; that bind the SAME local (including the qualified-group-name
-              ;; collision `bp/assoc-binding-units` leaves as two) to the single
-              ;; host-winning entry, so no downstream consumer inherits a dead
-              ;; slot, re-collides, or strips a qualified key.
-              entries (collapse-entries
-                       (mapv (fn [{:keys [local-pattern key]}]
-                               (cond-> {:key key
-                                        :slot (slot-name key)
-                                        :pattern local-pattern}
-                                 (and (symbol? local-pattern)
-                                      (contains? or-map local-pattern))
-                                 (assoc :default (get or-map local-pattern))))
-                             (bp/assoc-binding-units b)))
+              ;; The FULL host binding-unit plan — the host `bes` order with
+              ;; winning lookup keys, EVERY unit the host `let` establishes. A
+              ;; qualified-group-name collision (`{:keys [ns/x] x :other}`) is two
+              ;; units binding one local via host last-wins; both stay here so
+              ;; executable emission runs every host initializer (rf2-nedxb).
+              binding-units
+              (mapv (fn [{:keys [local-pattern key]}]
+                      (cond-> {:key key
+                               :slot (slot-name key)
+                               :pattern local-pattern}
+                        (and (symbol? local-pattern)
+                             (contains? or-map local-pattern))
+                        (assoc :default (get or-map local-pattern))))
+                    (bp/assoc-binding-units b))
+              ;; The COLLAPSED effective-slot projection — one entry per bound
+              ;; local (the host-winning last occurrence). `collapse-entries` folds
+              ;; the qualified-group-name collision to its single winner, so the
+              ;; comparator, manifest and schema slots carry no dead key.
+              entries (collapse-entries binding-units)
               _ (doseq [s (keys or-map)]
                   (when-not (some #(= s (:pattern %)) entries)
                     (fail :rf.ui.compile/bad-defview-args
@@ -199,6 +215,7 @@
           {:mode (if as-sym :as :named)
            :as-sym as-sym
            :entries entries
+           :binding-units binding-units
            :slots slots
            :children? (boolean (or as-sym (some #(= :children %) slots)))
            :binding-form b})
