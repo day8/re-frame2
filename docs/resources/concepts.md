@@ -296,8 +296,10 @@ remembered in `onSuccess`:
 Success plan arms (fixed order): `:patches` → `:populates` → `:removes` →
 `:invalidates`. Patches run *before* populates, so when the same key is both
 patched and populated the **populate wins** — it is applied last, overwriting the
-patch. Invalidation runs last of all, over the tags the patch/populate did not
-already freshen.
+patch. Invalidation runs last of all. Only keys this same mutation **populated**
+are spared from its immediate refetch — a populate is an authoritative load, so
+the value it just wrote stays fresh. A **patched** key is *not* exempt: the same
+pass may still mark it stale and refetch it.
 
 Execute and watch (instance id is app-chosen — reuse it for the sub):
 
