@@ -487,8 +487,14 @@
       (testing "neither same-id nor same-container retry can reopen quarantine"
         (is (= :rf.error/duplicate-root-id
                (:rf.error/id (ex-data (:error same)))))
-        (is (= :rf.error/root-container-in-use
+        ;; rf2-sddbc — a THROWING first-mount cleanup is a cleanup-failure
+        ;; quarantine, so a same-container retry (any id) is fail-closed CONSUMED
+        ;; (never merely in-use): the exact node can't be proven free, recovery is
+        ;; a fresh node.
+        (is (= :rf.error/root-container-consumed
                (:rf.error/id (ex-data (:error other)))))
+        (is (= :use-a-fresh-container
+               (:recovery (ex-data (:error other)))))
         (is (= [] @retry-renders)))
       )))
 
