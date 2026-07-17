@@ -448,7 +448,21 @@
           (ana-full '[:div {:title (letfn* [sub (fn* sub ([x] x))] (sub 3))}])]
       (is (empty? (:subs sites)) "the shadowed sub mints no reactive site")
       (is (= '(letfn* [sub (fn* sub ([x] x))] (sub 3))
-             (get-in ast [:props :attrs 0 :value]))))))
+             (get-in ast [:props :attrs 0 :value])))))
+  (testing "rf2-rgqn9 — single-arity and multi-arity fn* initializers are legal"
+    ;; The bounded shape validator must permit BOTH the `[argv] body` single
+    ;; arity and the `([argv] body …)` arity-list forms — not only the named
+    ;; multi-arity shape the earlier fixtures used.
+    (let [{:keys [ast sites]}
+          (ana-full '[:div {:title (letfn* [f (fn* [x] x)
+                                            g (fn* ([] 0) ([x] x))]
+                                     (f (g)))}])]
+      (is (empty? (:subs sites)))
+      (is (= '(letfn* [f (fn* [x] x)
+                       g (fn* ([] 0) ([x] x))]
+                (f (g)))
+             (get-in ast [:props :attrs 0 :value]))
+          "flat bindings with single- and multi-arity fn* initializers are kept verbatim"))))
 
 (deftest legitimate-value-flow-still-compiles
   ;; rf2-vxgfnd.252 — the escape guard rejects ONLY bare reactive authoring
