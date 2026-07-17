@@ -43,6 +43,7 @@ on the Python stdlib.
 from __future__ import annotations
 
 import argparse
+import os
 import re
 import sys
 import urllib.parse
@@ -261,15 +262,19 @@ _INLINE_CODE_RE = re.compile(r"(`+)(?:.+?)\1(?!`)")
 #      markdown corpus links to it (an external bookmark has no in-repo linker to
 #      catch the break). A listed page that is deleted or renamed also fails, so
 #      the bookmarks it carries cannot silently vanish (rf2-57k74).
-#   2. SOURCE_COMMENT_LINK_GLOBS — non-markdown source files whose comments point
-#      readers at handbook anchors. Every `docs/<handbook>/<page>.md#anchor`
-#      substring is resolved and validated against the target page's slug index,
-#      so a stale comment link (or a reorg removing its target) fails here too.
+#   2. The tracked-Clojure-source walk (_iter_source_files) — non-markdown source
+#      files whose comments point readers at handbook anchors. Every
+#      `docs/<handbook>/<page>.md#anchor` substring is resolved and validated
+#      against the target page's slug index, so a stale comment link (or a reorg
+#      removing its target) fails here too. rf2-zq5i6 widened this from an
+#      examples-only glob roster to the whole tracked tree so moving a covered
+#      source file cannot silently drop it from validation.
 #
 # rf2-57k74 generalized the mechanism from Machines-only to the bounded set of
-# covered handbooks (Machines, Async, API, Routing) named in COMPAT_HANDBOOKS.
-# Both checks run only in the default (docs-corpus) scope, never under
-# --synthesis-only.
+# covered handbooks (Machines, Async, API, Routing); rf2-zq5i6 made that set
+# DERIVED from this manifest's page keys (see COMPAT_HANDBOOKS) rather than a
+# separate hand-maintained tuple. Both checks run only in the default (docs-corpus)
+# scope, never under --synthesis-only.
 HANDBOOK_COMPAT_ANCHORS = {
     "docs/machines/concepts.md": (
         "state-machines",
@@ -339,26 +344,81 @@ HANDBOOK_COMPAT_ANCHORS = {
     ),
 }
 
-# The bounded set of handbooks whose source-comment links are inventoried. The
-# source-comment scan validates `docs/<handbook>/<page>.md#anchor` references only
-# for these; other doc trees are the corpus scan's concern, not this gate's.
-COMPAT_HANDBOOKS = ("machines", "async", "api", "routing")
+# The bounded set of handbooks whose source-comment links are inventoried, DERIVED
+# from the manifest itself (rf2-zq5i6): the handbook is the second path segment of
+# each `docs/<handbook>/<page>.md` manifest key. There is no independently
+# maintained authority to drift out of lock-step with HANDBOOK_COMPAT_ANCHORS —
+# adding a page under a new handbook to the manifest automatically extends the
+# source-comment scan's alternation to that handbook, and dropping the last page of
+# a handbook stops scanning it. The source-comment scan validates
+# `docs/<handbook>/<page>.md#anchor` references only for these; other doc trees are
+# the corpus scan's concern, not this gate's.
+COMPAT_HANDBOOKS = tuple(sorted({
+    page_rel.split("/")[1] for page_rel in HANDBOOK_COMPAT_ANCHORS
+}))
 
-# Source trees whose comments carry `docs/<handbook>/<page>.md#anchor` references.
-SOURCE_COMMENT_LINK_GLOBS = (
-    "examples/**/*.clj",
-    "examples/**/*.cljs",
-    "examples/**/*.cljc",
-)
+# Tracked Clojure source carries `docs/<handbook>/<page>.md#anchor` references in
+# its comments. rf2-zq5i6 replaced the examples-only glob roster with a walk of the
+# whole tracked tree (generated/vendor dirs pruned below) so that MOVING a source
+# file that carries a covered link — e.g. promoting a walkthrough out of examples/
+# into implementation/ — cannot silently drop it from validation. The link pattern
+# is specific enough that scanning every source tree only matches files that
+# actually reference a covered handbook page.
+SOURCE_LINK_EXTS = (".clj", ".cljs", ".cljc")
+
+# Generated / vendored / gitignored trees are pruned from the source-comment walk.
+# These never carry authored covered links; scanning them would be slow and could
+# match vendored copies. Kept an explicit, auditable list per the rf2-zq5i6 design
+# ("generated/vendor trees may remain explicitly excluded").
+SOURCE_EXCLUDE_DIR_NAMES = frozenset({
+    ".git",
+    ".beads",
+    "node_modules",
+    ".shadow-cljs",
+    ".cpcache",
+    "target",
+    "out",
+    "dist",
+    "site",
+    "__pycache__",
+    "ai",  # gitignored local-only working tree
+    # This script's own self-test fixtures carry DELIBERATELY broken covered
+    # links (they are validated via explicit source_files inputs in the
+    # self-tests, never via the production walk). Pruning them keeps the
+    # production corpus run from resolving a fixture's broken link against the
+    # real repo root.
+    "_test_fixtures",
+})
 
 # A `docs/<handbook>/<page>.md#anchor` substring, however it is embedded (bare in
 # a `;;` comment, inside a markdown `[text](../../docs/...)` link, or in parens).
 # Any leading path segments (`../../../`) are ignored — the captured `docs/...`
 # tail is resolved repo-root-relative. The handbook alternation is built from
-# COMPAT_HANDBOOKS so the manifest and the link scan stay in lock-step.
+# COMPAT_HANDBOOKS (itself derived from the manifest) so the manifest and the link
+# scan stay in lock-step by construction.
 _HANDBOOK_DOC_LINK_RE = re.compile(
     r"(docs/(?:" + "|".join(COMPAT_HANDBOOKS) + r")/[A-Za-z0-9_-]+\.md)#([A-Za-z0-9_-]+)"
 )
+
+
+# rf2-zq5i6 — render-faithful placement guard for compatibility anchors whose id
+# names a specific passage rather than the heading they sit under. Most compat
+# anchors sit immediately under (or immediately before) the heading they name, so a
+# deep-link lands at the top of that section. A few name a passage that lives
+# BETWEEN two headings; for those the anchor must precede the passage, or a
+# deep-link scrolls past the named content and onto the next section. Keyed by the
+# (page, anchor) manifest entry; the value is a regex the anchor must appear before.
+# The set is deliberately tiny and each key MUST be a real manifest anchor (a
+# self-test enforces that), so placement and the anchor manifest stay in lock-step.
+COMPAT_ANCHOR_PLACEMENT = {
+    # The loader-failure bookmark names the two-line "On loader failure ..."
+    # explanation, which sits between the "Loaders" heading and the unrelated
+    # "Declaring resources instead" heading. The anchor must precede that
+    # explanation so `#when-a-loader-fails` lands ON it, not on the resources
+    # section below it (the rf2-zq5i6 bug).
+    ("docs/routing/concepts.md", "when-a-loader-fails"):
+        re.compile(r"On loader failure"),
+}
 
 
 def _is_excluded(
@@ -468,10 +528,52 @@ def _strip_fences(lines: list[str]) -> list[tuple[int, str]]:
     return out
 
 
-def _slug_index(path: Path) -> set[str]:
-    """Compute the slug set for every heading and inline HTML anchor in path.
+def _mask_html_comments(
+    pairs: list[tuple[int, str]],
+) -> list[tuple[int, str]]:
+    """Blank `<!-- ... -->` regions (which may span lines) with spaces.
 
-    Two anchor mechanisms contribute to the slug set:
+    Length and line count are preserved (each masked character becomes a single
+    space) so column offsets stay honest and downstream regexes cannot bridge
+    across a masked region. Operates on the fence-stripped (line_no, content)
+    pairs; comment state carries across lines so a multi-line comment is fully
+    masked. An MkDocs/CommonMark HTML comment produces no rendered fragment
+    target, so an `<a id="...">` written inside one must not mint a slug
+    (rf2-zq5i6).
+    """
+    out: list[tuple[int, str]] = []
+    in_comment = False
+    for line_no, content in pairs:
+        buf: list[str] = []
+        i = 0
+        n = len(content)
+        while i < n:
+            if not in_comment:
+                if content.startswith("<!--", i):
+                    in_comment = True
+                    buf.append("    ")  # blank the 4 chars of "<!--"
+                    i += 4
+                else:
+                    buf.append(content[i])
+                    i += 1
+            else:
+                if content.startswith("-->", i):
+                    in_comment = False
+                    buf.append("   ")  # blank the 3 chars of "-->"
+                    i += 3
+                else:
+                    buf.append(" ")
+                    i += 1
+        out.append((line_no, "".join(buf)))
+    return out
+
+
+def _scan_rendered_ids(path: Path) -> dict[str, int]:
+    """Map every rendered fragment id on the page to its occurrence count.
+
+    Two anchor mechanisms mint a fragment target, and both are counted so a
+    duplicate/colliding id is visible (rf2-zq5i6 — the predecessor collapsed
+    everything into a set, hiding collisions):
 
     1. ATX headings (`# Title`, `## Title`, ...) — slugified with the same
        pymdownx slugifier MkDocs uses, with duplicate-suffix disambiguation
@@ -480,16 +582,30 @@ def _slug_index(path: Path) -> set[str]:
        authors to mint stable cross-link targets that survive heading renames.
        Both attribute names are recognised (`name` is the legacy HTML form;
        `id` is the modern form; browsers resolve both as fragment targets).
+
+    Recognition is render-faithful (rf2-zq5i6): fenced code is already blanked
+    by `_strip_fences`, HTML comments are masked by `_mask_html_comments`, and
+    inline-code spans are masked by `_strip_inline_code` before the anchor regex
+    runs — anchor-shaped text that the browser never turns into a fragment target
+    therefore contributes nothing. Heading slugs are still derived from the
+    fence-stripped line (inline code inside a heading title is part of the
+    rendered slug, so it must NOT be masked away there).
     """
     text = path.read_text(encoding="utf-8", errors="replace")
-    slugs: set[str] = set()
+    counts: dict[str, int] = {}
     seen_counts: dict[str, int] = {}
-    for _, line in _strip_fences(text.splitlines()):
-        # HTML anchor elements can appear on any line (heading or not).
-        for am in _HTML_ANCHOR_RE.finditer(line):
-            slugs.add(am.group(1))
+    fence_stripped = _strip_fences(text.splitlines())
+    comment_masked = _mask_html_comments(fence_stripped)
+    for (_, raw_line), (_, masked_line) in zip(fence_stripped, comment_masked):
+        # HTML anchor elements can appear on any line (heading or not). Only a
+        # RENDERED anchor counts, so recognise them on the comment- and
+        # inline-code-masked line.
+        anchor_line = _strip_inline_code(masked_line)
+        for am in _HTML_ANCHOR_RE.finditer(anchor_line):
+            aid = am.group(1)
+            counts[aid] = counts.get(aid, 0) + 1
 
-        m = _HEADING_RE.match(line)
+        m = _HEADING_RE.match(raw_line)
         if not m:
             continue
         title = m.group(2).strip()
@@ -500,16 +616,79 @@ def _slug_index(path: Path) -> set[str]:
             slug = SLUGIFY(title, SLUG_SEP)
         if not slug:
             continue
-        # pymdownx.toc disambiguates duplicate slugs by appending _N starting
-        # at the second occurrence.  We mirror that so links to disambiguated
-        # anchors validate.
+        # pymdownx.toc disambiguates duplicate HEADING slugs by appending _N
+        # starting at the second occurrence.  We mirror that so links to
+        # disambiguated anchors validate — and so each disambiguated heading id
+        # counts as its own distinct rendered target.
         n = seen_counts.get(slug, 0)
-        if n == 0:
-            slugs.add(slug)
-        else:
-            slugs.add(f"{slug}_{n}")
+        rid = slug if n == 0 else f"{slug}_{n}"
+        counts[rid] = counts.get(rid, 0) + 1
         seen_counts[slug] = n + 1
-    return slugs
+    return counts
+
+
+def _slug_index(path: Path) -> set[str]:
+    """Return the set of rendered fragment ids on the page (see _scan_rendered_ids)."""
+    return set(_scan_rendered_ids(path))
+
+
+_ANCHOR_ID_RE_CACHE: dict[str, re.Pattern[str]] = {}
+
+
+def _anchor_id_re(anchor_id: str) -> re.Pattern[str]:
+    """Compiled regex matching an explicit `<a id|name="anchor_id">` element."""
+    rx = _ANCHOR_ID_RE_CACHE.get(anchor_id)
+    if rx is None:
+        rx = re.compile(
+            r"""<a\s+(?:name|id)\s*=\s*["']"""
+            + re.escape(anchor_id)
+            + r"""["']""",
+            re.IGNORECASE,
+        )
+        _ANCHOR_ID_RE_CACHE[anchor_id] = rx
+    return rx
+
+
+def _anchor_precedes_passage(
+    lines: list[str],
+    anchor_id: str,
+    passage_re: re.Pattern[str],
+) -> bool:
+    """True iff an explicit `<a id=anchor_id>` appears before the named passage.
+
+    `lines` are fence-stripped content lines. Returns False if the anchor is
+    absent, the passage is absent, or the anchor appears at/after the passage —
+    each is a placement defect the caller reports (rf2-zq5i6). Kept a pure
+    function so the placement teeth can drive it with a correct and a mutated
+    (drifted) line list directly.
+    """
+    anchor_re = _anchor_id_re(anchor_id)
+    anchor_idx: int | None = None
+    passage_idx: int | None = None
+    for i, line in enumerate(lines):
+        if anchor_idx is None and anchor_re.search(line):
+            anchor_idx = i
+        if passage_idx is None and passage_re.search(line):
+            passage_idx = i
+    if anchor_idx is None or passage_idx is None:
+        return False
+    return anchor_idx < passage_idx
+
+
+def _iter_source_files(
+    repo_root: Path,
+    *,
+    exts: tuple[str, ...] = SOURCE_LINK_EXTS,
+    exclude_dir_names: frozenset[str] = SOURCE_EXCLUDE_DIR_NAMES,
+) -> Iterable[Path]:
+    """Yield every Clojure source file under repo_root, pruning vendor/generated
+    trees (rf2-zq5i6). os.walk prunes excluded directories in place so huge
+    vendored trees (node_modules) are never descended into."""
+    for dirpath, dirnames, filenames in os.walk(repo_root):
+        dirnames[:] = sorted(d for d in dirnames if d not in exclude_dir_names)
+        for fn in sorted(filenames):
+            if fn.endswith(exts):
+                yield Path(dirpath) / fn
 
 
 def _strip_inline_code(line: str) -> str:
@@ -645,72 +824,117 @@ def _scan_retired_synthesis_ops(
 
 def _check_compat_anchors(
     repo_root: Path,
-    slugs_for,
+    counts_for,
     manifest: dict[str, tuple[str, ...]],
-) -> tuple[list[tuple[str, str]], list[str]]:
-    """Validate every manifest compat anchor resolves on its page (rf2-57k74).
+) -> tuple[list[tuple[str, str]], list[str], list[tuple[str, str, int]]]:
+    """Validate every manifest compat anchor resolves to exactly one target (rf2-57k74/zq5i6).
 
-    Returns (missing_anchors, missing_pages):
+    Returns (missing_anchors, missing_pages, duplicate_anchors):
         * missing_anchors — (page-rel, anchor) for each manifest anchor absent
-          from its page's slug index.
+          from its page's rendered-id index.
         * missing_pages — page-rel for each inventoried page NOT present in the
           working tree. A deleted or renamed page fails the gate, so the external
           bookmarks it carries cannot silently disappear behind an ordinary
           link-rename (rf2-57k74 closed this hole — the Machines-only predecessor
           silently `continue`d past an absent page).
+        * duplicate_anchors — (page-rel, anchor, count) for each manifest anchor
+          that resolves to MORE THAN ONE rendered target on its page (rf2-zq5i6):
+          a duplicate explicit id, or an explicit id colliding with a generated
+          heading slug. A fragment id that appears twice is an invalid, ambiguous
+          bookmark (the browser resolves only the first), so it fails the gate.
 
-    The manifest is an explicit parameter, NOT a module global, so the
-    fixture-based self-tests stay isolated by passing their own inputs (a fixture
-    manifest or `{}`) rather than relying on production pages being absent.
+    `counts_for(page)` returns the page's {rendered-id: occurrence-count} map. The
+    manifest is an explicit parameter, NOT a module global, so the fixture-based
+    self-tests stay isolated by passing their own inputs (a fixture manifest or
+    `{}`) rather than relying on production pages being absent.
     """
     missing_anchors: list[tuple[str, str]] = []
     missing_pages: list[str] = []
+    duplicate_anchors: list[tuple[str, str, int]] = []
     for page_rel, anchors in manifest.items():
         page = repo_root / page_rel
         if not page.is_file():
             missing_pages.append(page_rel)
             continue
-        page_slugs = slugs_for(page)
+        page_counts = counts_for(page)
         for anchor in anchors:
-            if anchor not in page_slugs:
+            n = page_counts.get(anchor, 0)
+            if n == 0:
                 missing_anchors.append((page_rel, anchor))
-    return missing_anchors, missing_pages
+            elif n > 1:
+                duplicate_anchors.append((page_rel, anchor, n))
+    return missing_anchors, missing_pages, duplicate_anchors
+
+
+def _check_compat_anchor_placement(
+    repo_root: Path,
+    placement: dict[tuple[str, str], re.Pattern[str]] = COMPAT_ANCHOR_PLACEMENT,
+) -> list[tuple[str, str, str]]:
+    """Validate render-faithful placement of passage-naming compat anchors (rf2-zq5i6).
+
+    For each `(page, anchor) -> passage_re` rule, the anchor must appear before the
+    passage it names so a deep-link lands ON that content, not past it. Returns
+    (page-rel, anchor, reason) for each misplaced or missing entry.
+    """
+    misplaced: list[tuple[str, str, str]] = []
+    for (page_rel, anchor), passage_re in placement.items():
+        page = repo_root / page_rel
+        if not page.is_file():
+            misplaced.append((page_rel, anchor, "page missing from working tree"))
+            continue
+        lines = [
+            content
+            for _, content in _strip_fences(
+                page.read_text(encoding="utf-8", errors="replace").splitlines()
+            )
+        ]
+        if not _anchor_precedes_passage(lines, anchor, passage_re):
+            misplaced.append(
+                (
+                    page_rel,
+                    anchor,
+                    f"must appear before the passage matching /{passage_re.pattern}/",
+                )
+            )
+    return misplaced
 
 
 def _check_source_comment_links(
     repo_root: Path,
     slugs_for,
     *,
-    globs: tuple[str, ...] = SOURCE_COMMENT_LINK_GLOBS,
+    source_files: Iterable[Path],
     link_re: re.Pattern[str] = _HANDBOOK_DOC_LINK_RE,
 ) -> list[tuple[Path, int, str, str]]:
     """Validate `docs/<handbook>/*.md#anchor` links in source comments (rf2-57k74).
 
-    Scans `globs` line by line for the handbook-anchor substring matched by
-    `link_re` and resolves each against the target page's slug index. Returns
-    (source-file, line-no, `page#anchor`, reason) for every broken reference.
-    A repo with no matching source files (the self-test fixtures) yields none.
+    Scans each file in `source_files` line by line for the handbook-anchor
+    substring matched by `link_re` and resolves each against the target page's
+    slug index. Returns (source-file, line-no, `page#anchor`, reason) for every
+    broken reference. An empty `source_files` (some self-test fixtures) yields none.
 
-    `globs` and `link_re` are parameters so the self-tests can drive the same
-    mechanism against fixture source files and a fixture-scoped pattern.
+    `source_files` and `link_re` are parameters so the self-tests can drive the
+    same mechanism against explicit fixture source files and a fixture-scoped
+    pattern. Production passes the whole tracked Clojure tree (see
+    `_iter_source_files`) so a covered comment stays validated wherever its file
+    lives (rf2-zq5i6).
     """
     broken: list[tuple[Path, int, str, str]] = []
-    for pattern in globs:
-        for src in sorted(repo_root.glob(pattern)):
-            text = src.read_text(encoding="utf-8", errors="replace")
-            for line_no, line in enumerate(text.splitlines(), start=1):
-                for m in link_re.finditer(line):
-                    doc_rel, anchor = m.group(1), m.group(2)
-                    target = (repo_root / doc_rel).resolve()
-                    if not target.is_file():
-                        broken.append(
-                            (src, line_no, f"{doc_rel}#{anchor}", "missing target file")
-                        )
-                        continue
-                    if anchor not in slugs_for(target):
-                        broken.append(
-                            (src, line_no, f"{doc_rel}#{anchor}", "missing anchor")
-                        )
+    for src in source_files:
+        text = src.read_text(encoding="utf-8", errors="replace")
+        for line_no, line in enumerate(text.splitlines(), start=1):
+            for m in link_re.finditer(line):
+                doc_rel, anchor = m.group(1), m.group(2)
+                target = (repo_root / doc_rel).resolve()
+                if not target.is_file():
+                    broken.append(
+                        (src, line_no, f"{doc_rel}#{anchor}", "missing target file")
+                    )
+                    continue
+                if anchor not in slugs_for(target):
+                    broken.append(
+                        (src, line_no, f"{doc_rel}#{anchor}", "missing anchor")
+                    )
     return broken
 
 
@@ -720,8 +944,9 @@ def check(
     *,
     synthesis_only: bool = False,
     compat_anchors: dict[str, tuple[str, ...]] | None = None,
-    source_comment_globs: tuple[str, ...] | None = None,
+    source_files: Iterable[Path] | None = None,
     source_comment_re: re.Pattern[str] | None = None,
+    placement: dict[tuple[str, str], re.Pattern[str]] | None = None,
 ) -> int:
     """Validate every in-repo markdown link.  Return the total defect count.
 
@@ -740,6 +965,14 @@ def check(
                               in HANDBOOK_COMPAT_ANCHORS no longer resolves on
                               its page (external bookmarks / source comments
                               depend on it).
+        * DUPLICATE COMPAT ANCHOR — (default scope, rf2-zq5i6) a manifest anchor
+                              resolves to MORE THAN ONE rendered target on its
+                              page (duplicate explicit id, or explicit id vs
+                              generated heading slug) — an ambiguous bookmark.
+        * MISPLACED COMPAT ANCHOR — (default scope, rf2-zq5i6) a passage-naming
+                              compat anchor (COMPAT_ANCHOR_PLACEMENT) no longer
+                              precedes the passage it names, so a deep-link
+                              scrolls past the content onto the next section.
         * MISSING COMPAT PAGE — (default scope, rf2-57k74) an inventoried page in
                               HANDBOOK_COMPAT_ANCHORS is missing from the working
                               tree — a delete/rename would otherwise take every
@@ -748,17 +981,20 @@ def check(
                               `docs/<handbook>/*.md#anchor` reference embedded in
                               a non-markdown source comment does not resolve.
 
-    The compat-anchor manifest and source-comment scan default to the production
-    inventory (HANDBOOK_COMPAT_ANCHORS / SOURCE_COMMENT_LINK_GLOBS /
-    _HANDBOOK_DOC_LINK_RE); the self-tests pass explicit fixture inputs so an
-    absent production page never has to be silently ignored to keep them green.
+    The compat-anchor manifest, source-comment scan, and placement rules default
+    to the production inventory (HANDBOOK_COMPAT_ANCHORS / the tracked Clojure tree
+    via _iter_source_files / _HANDBOOK_DOC_LINK_RE / COMPAT_ANCHOR_PLACEMENT); the
+    self-tests pass explicit fixture inputs so an absent production page never has
+    to be silently ignored to keep them green.
     """
     if compat_anchors is None:
         compat_anchors = HANDBOOK_COMPAT_ANCHORS
-    if source_comment_globs is None:
-        source_comment_globs = SOURCE_COMMENT_LINK_GLOBS
+    if source_files is None:
+        source_files = list(_iter_source_files(repo_root))
     if source_comment_re is None:
         source_comment_re = _HANDBOOK_DOC_LINK_RE
+    if placement is None:
+        placement = COMPAT_ANCHOR_PLACEMENT
     files = list(_iter_markdown(repo_root, synthesis_only=synthesis_only))
     if synthesis_only:
         if not files:
@@ -777,13 +1013,22 @@ def check(
     if verbose:
         sys.stderr.write(f"scanning {len(files)} markdown files...\n")
 
-    # Build slug index lazily — many files are never linked to with an anchor.
+    # Build the rendered-id index lazily — many files are never linked to with an
+    # anchor. `counts_for` yields the {id: occurrence-count} map (used by the
+    # uniqueness check); `slugs_for` derives the membership set from it.
+    counts_cache: dict[Path, dict[str, int]] = {}
     slug_cache: dict[Path, set[str]] = {}
+
+    def counts_for(path: Path) -> dict[str, int]:
+        ap = path.resolve()
+        if ap not in counts_cache:
+            counts_cache[ap] = _scan_rendered_ids(path)
+        return counts_cache[ap]
 
     def slugs_for(path: Path) -> set[str]:
         ap = path.resolve()
         if ap not in slug_cache:
-            slug_cache[ap] = _slug_index(path)
+            slug_cache[ap] = set(counts_for(path))
         return slug_cache[ap]
 
     broken_anchor: list[tuple[Path, int, str, str]] = []
@@ -861,19 +1106,23 @@ def check(
     if synthesis_only:
         retired_ops = _scan_retired_synthesis_ops(files, repo_root)
 
-    # rf2-57k74 — the cross-handbook compat-anchor manifest + source-comment link
-    # gate run only in the default docs scope (never under --synthesis-only).
+    # rf2-57k74 / rf2-zq5i6 — the cross-handbook compat-anchor manifest, uniqueness,
+    # placement, and source-comment link gates run only in the default docs scope
+    # (never under --synthesis-only).
     compat_missing: list[tuple[str, str]] = []
     compat_missing_pages: list[str] = []
+    compat_duplicate: list[tuple[str, str, int]] = []
+    compat_misplaced: list[tuple[str, str, str]] = []
     source_comment_broken: list[tuple[Path, int, str, str]] = []
     if not synthesis_only:
-        compat_missing, compat_missing_pages = _check_compat_anchors(
-            repo_root, slugs_for, compat_anchors
+        compat_missing, compat_missing_pages, compat_duplicate = _check_compat_anchors(
+            repo_root, counts_for, compat_anchors
         )
+        compat_misplaced = _check_compat_anchor_placement(repo_root, placement)
         source_comment_broken = _check_source_comment_links(
             repo_root,
             slugs_for,
-            globs=source_comment_globs,
+            source_files=source_files,
             link_re=source_comment_re,
         )
 
@@ -884,6 +1133,8 @@ def check(
         + len(retired_ops)
         + len(compat_missing)
         + len(compat_missing_pages)
+        + len(compat_duplicate)
+        + len(compat_misplaced)
         + len(source_comment_broken)
     )
 
@@ -984,6 +1235,39 @@ def check(
             "comments. Restore an `<a id=\"...\"></a>` for each on its page "
             "(without duplicating a visible heading), or update "
             "HANDBOOK_COMPAT_ANCHORS if the anchor is intentionally retired.\n"
+        )
+
+    if compat_duplicate:
+        sys.stderr.write(
+            f"\n{len(compat_duplicate)} colliding handbook compat anchor(s) "
+            "found (rf2-zq5i6):\n\n"
+        )
+        for page_rel, anchor, count in compat_duplicate:
+            sys.stderr.write(
+                f"  DUPLICATE COMPAT ANCHOR: {page_rel}#{anchor} "
+                f"(resolves to {count} rendered targets)\n"
+            )
+        sys.stderr.write(
+            "\nFix: a compatibility fragment must resolve to exactly one rendered "
+            "target. Remove the duplicate `<a id>` element, or rename it so it no "
+            "longer collides with the other explicit anchor or the generated "
+            "heading slug of the same name.\n"
+        )
+
+    if compat_misplaced:
+        sys.stderr.write(
+            f"\n{len(compat_misplaced)} misplaced handbook compat anchor(s) "
+            "found (rf2-zq5i6):\n\n"
+        )
+        for page_rel, anchor, reason in compat_misplaced:
+            sys.stderr.write(
+                f"  MISPLACED COMPAT ANCHOR: {page_rel}#{anchor}\n"
+                f"      ({reason})\n"
+            )
+        sys.stderr.write(
+            "\nFix: move the `<a id>` so it precedes the passage it names — a "
+            "deep-link must land ON that content, not scroll past it onto the "
+            "following section.\n"
         )
 
     if source_comment_broken:
@@ -1123,14 +1407,16 @@ def _run_self_tests(verbose: bool = False) -> int:
         saved_stderr = sys.stderr
         sys.stderr = _DevNull()
         try:
-            # Isolate through explicit fixture inputs: the compat manifest and
-            # source-comment scan are empty here, so these fixtures never depend
-            # on production handbook pages being absent (rf2-57k74).
+            # Isolate through explicit fixture inputs: the compat manifest,
+            # source-comment scan, and placement rules are empty here, so these
+            # fixtures never depend on production handbook pages being absent
+            # (rf2-57k74 / rf2-zq5i6).
             got = check(
                 root,
                 verbose=False,
                 compat_anchors={},
-                source_comment_globs=(),
+                source_files=(),
+                placement={},
             )
         finally:
             sys.stderr = saved_stderr
@@ -1182,7 +1468,8 @@ def _run_self_tests(verbose: bool = False) -> int:
                 root,
                 verbose=False,
                 compat_anchors={},
-                source_comment_globs=(),
+                source_files=(),
+                placement={},
             )
             synthesis_got = check(root, verbose=False, synthesis_only=True)
         finally:
@@ -1257,30 +1544,72 @@ def _run_self_tests(verbose: bool = False) -> int:
             "self-test PASS: empty synthesis scope refuses a vacuous pass\n"
         )
 
-    # rf2-57k74 — compat-anchor + source-comment TEETH. Drive the generalized
-    # mechanism against a fixture handbook page (docs/machines/page.md carrying an
-    # invisible `<a id="keep-me">`) through EXPLICIT manifest/glob inputs, proving:
-    #   * a present anchor + present page passes;
+    # rf2-57k74 / rf2-zq5i6 — compat-anchor + source-comment TEETH. Drive the
+    # generalized mechanism against fixture handbook pages through EXPLICIT
+    # manifest/source-file/placement inputs, proving:
+    #   * a present anchor + present page passes (docs/machines/page.md);
     #   * DELETING an individual anchor fails (MISSING COMPAT ANCHOR);
     #   * a MISSING inventoried page fails (MISSING COMPAT PAGE) — the hole the
     #     Machines-only predecessor left by silently skipping absent pages;
-    #   * the same mechanism validates source-comment links (valid resolves,
-    #     a broken `page.md#anchor` comment fails).
+    #   * render-faithfulness (rf2-zq5i6): an anchor that exists ONLY inside an
+    #     HTML comment or an inline-code span mints no rendered target, so it does
+    #     not satisfy the manifest;
+    #   * uniqueness (rf2-zq5i6): a manifest anchor that resolves to two rendered
+    #     targets — two explicit ids, or an explicit id colliding with a generated
+    #     heading slug — fails (DUPLICATE COMPAT ANCHOR);
+    #   * placement (rf2-zq5i6): the anchor must precede the passage it names — a
+    #     correct fixture passes, a drifted one fails (MISPLACED COMPAT ANCHOR);
+    #   * the source-comment mechanism validates links for Machines AND a real
+    #     non-Machines handbook (Routing valid, Async broken), exercising the
+    #     manifest-derived handbook vocabulary causally.
     teeth_root = _SELF_TEST_FIXTURE_ROOT / "compat_anchor_teeth"
     teeth_cases: list[tuple[str, dict, int]] = [
         ("compat anchor present",
          dict(compat_anchors={"docs/machines/page.md": ("keep-me",)},
-              source_comment_globs=()), 0),
+              source_files=(), placement={}), 0),
         ("compat anchor deleted",
          dict(compat_anchors={"docs/machines/page.md": ("gone-anchor",)},
-              source_comment_globs=()), 1),
+              source_files=(), placement={}), 1),
         ("inventoried page missing",
          dict(compat_anchors={"docs/machines/absent.md": ("keep-me",)},
-              source_comment_globs=()), 1),
+              source_files=(), placement={}), 1),
+        # rf2-zq5i6 render-faithfulness teeth.
+        ("commented anchor does not resolve",
+         dict(compat_anchors={"docs/machines/commented.md": ("keep-me",)},
+              source_files=(), placement={}), 1),
+        ("backticked anchor does not resolve",
+         dict(compat_anchors={"docs/machines/backticked.md": ("keep-me",)},
+              source_files=(), placement={}), 1),
+        # rf2-zq5i6 uniqueness teeth.
+        ("duplicate explicit ids collide",
+         dict(compat_anchors={"docs/machines/duplicate.md": ("dup-me",)},
+              source_files=(), placement={}), 1),
+        ("explicit id vs generated heading slug collide",
+         dict(compat_anchors={"docs/machines/collision.md": ("dup-me",)},
+              source_files=(), placement={}), 1),
+        # rf2-zq5i6 placement teeth.
+        ("placement ok — anchor precedes passage",
+         dict(compat_anchors={}, source_files=(),
+              placement={("docs/routing/loader_ok.md", "when-a-loader-fails"):
+                         re.compile(r"On loader failure")}), 0),
+        ("placement drifted — anchor after passage",
+         dict(compat_anchors={}, source_files=(),
+              placement={("docs/routing/loader_drifted.md", "when-a-loader-fails"):
+                         re.compile(r"On loader failure")}), 1),
+        # rf2-57k74 source-comment mechanism (Machines).
         ("source-comment link valid",
-         dict(compat_anchors={}, source_comment_globs=("src/valid.clj",)), 0),
+         dict(compat_anchors={}, placement={},
+              source_files=(teeth_root / "src" / "valid.clj",)), 0),
         ("source-comment link broken",
-         dict(compat_anchors={}, source_comment_globs=("src/broken.clj",)), 1),
+         dict(compat_anchors={}, placement={},
+              source_files=(teeth_root / "src" / "broken.clj",)), 1),
+        # rf2-zq5i6 — real non-Machines source comments, exercised causally.
+        ("routing source-comment link valid",
+         dict(compat_anchors={}, placement={},
+              source_files=(teeth_root / "src" / "routing_ref.cljc",)), 0),
+        ("async source-comment link broken",
+         dict(compat_anchors={}, placement={},
+              source_files=(teeth_root / "src" / "async_ref.cljc",)), 1),
     ]
     if not (teeth_root / "mkdocs.yml").is_file():
         sys.stderr.write(
@@ -1308,12 +1637,119 @@ def _run_self_tests(verbose: bool = False) -> int:
                 )
                 failures += 1
 
+    # rf2-zq5i6 — the source-comment handbook vocabulary is DERIVED from the
+    # manifest, with no independent COMPAT_HANDBOOKS authority. Assert the derived
+    # set matches the manifest keys and the link regex matches every covered
+    # handbook (the causal guarantee the broken-async tooth above depends on).
+    expected_handbooks = {page.split("/")[1] for page in HANDBOOK_COMPAT_ANCHORS}
+    if set(COMPAT_HANDBOOKS) != expected_handbooks:
+        sys.stderr.write(
+            "self-test FAIL: COMPAT_HANDBOOKS drifted from the manifest keys: "
+            f"derived {sorted(COMPAT_HANDBOOKS)}, expected {sorted(expected_handbooks)}\n"
+        )
+        failures += 1
+    elif not all(
+        _HANDBOOK_DOC_LINK_RE.search(f"docs/{hb}/page.md#anchor")
+        for hb in ("machines", "async", "api", "routing")
+    ):
+        sys.stderr.write(
+            "self-test FAIL: manifest-derived handbook link regex does not match "
+            "every covered handbook (machines/async/api/routing)\n"
+        )
+        failures += 1
+    elif verbose:
+        sys.stderr.write(
+            "self-test PASS: source-comment handbook vocabulary derived from the "
+            "manifest (no independent COMPAT_HANDBOOKS authority)\n"
+        )
+
+    # rf2-zq5i6 — placement rules stay in lock-step with the anchor manifest: every
+    # COMPAT_ANCHOR_PLACEMENT key must name a real (page, anchor) in the manifest.
+    placement_orphans = [
+        (page_rel, anchor)
+        for (page_rel, anchor) in COMPAT_ANCHOR_PLACEMENT
+        if anchor not in HANDBOOK_COMPAT_ANCHORS.get(page_rel, ())
+    ]
+    if placement_orphans:
+        sys.stderr.write(
+            "self-test FAIL: COMPAT_ANCHOR_PLACEMENT references non-manifest "
+            f"anchors: {placement_orphans}\n"
+        )
+        failures += 1
+    elif verbose:
+        sys.stderr.write(
+            "self-test PASS: every placement rule keys a real manifest anchor\n"
+        )
+
+    # rf2-zq5i6 — the source-comment scan walks the whole tracked tree, so MOVING a
+    # covered comment to a deep non-examples path keeps it validated, while vendored
+    # trees stay pruned.
+    source_walk = {
+        p.relative_to(teeth_root).as_posix() for p in _iter_source_files(teeth_root)
+    }
+    if "lib/deep/moved_ref.cljc" not in source_walk:
+        sys.stderr.write(
+            "self-test FAIL: source walk dropped a covered comment at a "
+            f"non-examples path (got {sorted(source_walk)})\n"
+        )
+        failures += 1
+    elif "node_modules/vendored.cljc" in source_walk:
+        sys.stderr.write(
+            "self-test FAIL: source walk descended into a pruned vendor tree "
+            f"(got {sorted(source_walk)})\n"
+        )
+        failures += 1
+    elif verbose:
+        sys.stderr.write(
+            "self-test PASS: source walk covers non-examples paths and prunes "
+            "vendored trees\n"
+        )
+
+    # rf2-zq5i6 — placement ordering logic, driven directly with a correct and a
+    # drifted (mutated) line list. This is the focused tooth that fails if the
+    # routing loader-failure bookmark ever drifts behind its explanation again.
+    _placement_passage = re.compile(r"On loader failure")
+    _correct_lines = [
+        '<a id="when-a-loader-fails"></a>',
+        "",
+        "Runs client- and server-side. On loader failure, transition to error.",
+        "",
+        "### Declaring resources instead",
+    ]
+    _drifted_lines = [
+        "Runs client- and server-side. On loader failure, transition to error.",
+        "",
+        '<a id="when-a-loader-fails"></a>',
+        "",
+        "### Declaring resources instead",
+    ]
+    if not _anchor_precedes_passage(
+        _correct_lines, "when-a-loader-fails", _placement_passage
+    ):
+        sys.stderr.write(
+            "self-test FAIL: placement check rejected a correctly-placed anchor\n"
+        )
+        failures += 1
+    elif _anchor_precedes_passage(
+        _drifted_lines, "when-a-loader-fails", _placement_passage
+    ):
+        sys.stderr.write(
+            "self-test FAIL: placement check passed an anchor that drifted behind "
+            "its explanation\n"
+        )
+        failures += 1
+    elif verbose:
+        sys.stderr.write(
+            "self-test PASS: placement check accepts anchor-before-passage and "
+            "rejects the drifted mutation\n"
+        )
+
     if failures:
         sys.stderr.write(f"\n{failures} self-test failure(s).\n")
         return 1
     if verbose:
         sys.stderr.write(
-            f"all {len(cases) + len(synthesis_cases) + len(teeth_cases) + 2} "
+            f"all {len(cases) + len(synthesis_cases) + len(teeth_cases) + 6} "
             "self-tests passed.\n"
         )
     return 0

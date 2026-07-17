@@ -267,10 +267,10 @@ changed params; identical params don't re-fire):
   "/cart")
 ```
 
+<a id="when-a-loader-fails"></a>
+
 Runs client- and server-side. On loader failure, `:transition` → `:error`; optional
 `:on-error` event fires once (first error wins; later loaders still run).
-
-<a id="when-a-loader-fails"></a>
 
 ### Declaring resources instead
 
