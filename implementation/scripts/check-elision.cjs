@@ -641,6 +641,21 @@ const DEV_ONLY_SENTINELS = [
     sentinel: 'hmr-descriptor' },
   { source: 're-frame.ui Fast Refresh slot (stable inner extra Fiber)',
     sentinel: 'hmr-inner' },
+  // re-frame.ui.runtime — the DEV bare-view-alias diagnostic (rf2-vxgfnd.95.15,
+  // EP-0035 / rf2-ho1iba). A bare `(def alias other/view)` var copy used as a
+  // component head resolves at runtime to the registered view shell;
+  // `warn-bare-view-alias!` consults the DEV shell marker and warns once. The
+  // emitter wraps EVERY foreign head in
+  // `(if goog.DEBUG (re-frame.ui.runtime/warn-bare-view-alias! head) head)`, so
+  // under :advanced + goog.DEBUG=false the wrapper folds to the bare head,
+  // `warn-bare-view-alias!` is unreferenced, and its message string, the
+  // `view-shell-mark` marker, and the dedup set all DCE. The elision-probe's
+  // `touch-bare-view-alias!` roots a real bare-alias foreign head so the control
+  // build (DEBUG=true) contains this message fragment and the production build
+  // (DEBUG=false) must not. (Compile-tier `:rf.ui.compile/*` diagnostic — no
+  // Spec 009 catalogue row, delivered by console.warn not error/throw-error!.)
+  { source: 're-frame.ui.runtime/warn-bare-view-alias! (bare-view-alias diagnostic)',
+    sentinel: 'bare var alias of a registered view' },
   // re-frame.ui.frames — :rf.warning/cross-frame-carried-op DEV-ONLY honesty
   // warning (rf2-vxgfnd.231 shipped the warning in #5960; rf2-fagk6 pins its
   // production elision). A CARRIED `(frame)` operation bundle's `:subscribe`

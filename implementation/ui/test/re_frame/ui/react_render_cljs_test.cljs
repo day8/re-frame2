@@ -174,6 +174,18 @@
 (defview proto-view [{:keys [v]}] [proto-child {:__proto__ v}])
 (defview proto-foreign [{:keys [v]}] [plain-fc {:__proto__ v}])
 
+;; DEV bare-view-alias diagnostic fixtures (rf2-vxgfnd.95.15). `alias-source-view`
+;; is a real registered view; `bare-view-alias-copy` is a plain `(def …)` var
+;; copy of it — def does NOT carry `:rf.ui/view` metadata, so the compiler
+;; classifies `[bare-view-alias-copy …]` as a FOREIGN head, whose runtime value
+;; is nonetheless the registered shell. `uses-canonical-alias` references the
+;; view by its canonical name (a :view head — quiet), and `uses-foreign` above
+;; is a genuine foreign component (also quiet).
+(defview alias-source-view [{:keys [x]}] [:span x])
+(def bare-view-alias-copy alias-source-view)
+(defview uses-bare-alias      [] [bare-view-alias-copy {:x "aliased"}])
+(defview uses-canonical-alias [] [alias-source-view {:x "canonical"}])
+
 ;; ---------------------------------------------------------------------------
 ;; Renders
 ;; ---------------------------------------------------------------------------
@@ -316,6 +328,49 @@
 (deftest foreign-component-renders
   (is (= "<div><b>L</b></div>"
          (render (rt/jsx2 uses-foreign (js-obj "l" "L"))))))
+
+;; ---------------------------------------------------------------------------
+;; DEV bare-view-alias diagnostic (rf2-vxgfnd.95.15) — runtime behaviour.
+;; A bare `(def alias other/view)` var copy used as a component head resolves at
+;; runtime to the registered view shell; the DEV foreign-head guard warns once
+;; (deduped by view id), naming the lost checks + the canonical/namespace-alias
+;; recovery. Canonical view heads and genuine foreign components stay quiet.
+;; ---------------------------------------------------------------------------
+
+(defn- alias-warnings [warnings]
+  (filter (fn [call]
+            (some #(str/includes? % "bare var alias of a registered view") call))
+          warnings))
+
+(deftest bare-view-alias-head-warns-once-and-dedupes
+  (rt/clear-bare-view-alias-warned!)
+  (let [{:keys [warnings]}
+        (with-captured-console-warn
+         (fn []
+           ;; renders through the aliased shell — still valid markup
+           (is (= "<span>aliased</span>" (render (rt/jsx2 uses-bare-alias (js-obj)))))
+           ;; a SECOND render must not re-warn (process-lifetime dedup by view id)
+           (render (rt/jsx2 uses-bare-alias (js-obj)))))
+        warns (alias-warnings warnings)]
+    (is (= 1 (count warns))
+        "a bare-alias foreign head warns exactly once, deduped across renders")
+    (let [msg (str/join " " (first warns))]
+      (is (str/includes? msg ":rf.ui.compile/bare-view-alias")
+          "the warning carries the compile-tier diagnostic id (no Spec 009 row)")
+      (is (str/includes? msg "alias-source-view")
+          "the warning names the aliased view")
+      (is (str/includes? msg "canonical")
+          "the warning names the canonical-name / namespace-alias recovery"))))
+
+(deftest canonical-and-genuine-foreign-heads-never-warn
+  (rt/clear-bare-view-alias-warned!)
+  (let [{:keys [warnings]}
+        (with-captured-console-warn
+         (fn []
+           (render (rt/jsx2 uses-canonical-alias (js-obj)))   ; canonical :view head
+           (render (rt/jsx2 uses-foreign (js-obj "l" "L")))))] ; genuine foreign (plain fn)
+    (is (empty? (alias-warnings warnings))
+        "a canonical view head and a genuine foreign component both stay quiet")))
 
 (defn- has-own? [o k]
   (.call (.-hasOwnProperty (.-prototype js/Object)) o k))
