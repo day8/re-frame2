@@ -1348,6 +1348,14 @@
         (throw e))))
   nil)
 
+;; PRESENCE, not JS truthiness, decides whether a container-reclaim step failed
+;; (rf2-s2cfv). A reclaim step can throw a legitimately falsy value (false/nil);
+;; the failure slot holds this identity sentinel until a throw records into it, so
+;; the FIRST failure is preserved by presence — a later step never overwrites a
+;; falsy first failure, and a falsy failure is still rethrown rather than silently
+;; swallowed.
+(defonce ^:private no-reclaim-failure #js {})
+
 (defn- reclaim-consumed-container!
   "Adapter-disposal fallback after a public Root's host unmount threw.
 
@@ -1356,10 +1364,13 @@
   supported retry through the consumed handle. The adapter owns the terminal
   process teardown, so it clears both pieces against the PINNED React host;
   this makes DOM-empty + same-container re-init deterministic. Any fallback
-  failure propagates as secondary cleanup evidence, never over the host error."
+  failure propagates as secondary cleanup evidence, never over the host error.
+  The FIRST reclaim failure is preserved BY PRESENCE (not truthiness), so a
+  legitimately falsy thrown value (false/nil) is neither overwritten by a later
+  step nor silently swallowed at the rethrow (rf2-s2cfv)."
   [^Root root]
   (let [container (.-container root)
-        failure   (volatile! nil)]
+        failure   (volatile! no-reclaim-failure)]
     (when container
       (try
         (if (fn? (.-replaceChildren container))
@@ -1372,8 +1383,11 @@
           (when (str/starts-with? k "__reactContainer$")
             (js/Reflect.deleteProperty container k)))
         (catch :default e
-          (when-not @failure (vreset! failure e)))))
-    (when @failure (throw @failure))
+          ;; keep the FIRST failure by PRESENCE — never let this secondary step
+          ;; overwrite a falsy (false/nil) first failure.
+          (when (identical? @failure no-reclaim-failure) (vreset! failure e)))))
+    ;; rethrow by PRESENCE so a falsy first failure still propagates.
+    (when-not (identical? @failure no-reclaim-failure) (throw @failure))
     nil))
 
 (defn with-root-admission-closed!
@@ -1469,14 +1483,27 @@
                   (release-root! root-id root)
                   (catch :default recovery-error
                     (vswap! errors conj recovery-error)))))))))
-    (when-let [primary (first @errors)]
-      (when (< 1 (count @errors))
-        (try
-          (js/Object.defineProperty
-           primary "rfUiAdapterCleanupErrors"
-           #js {:value (to-array (rest @errors)) :configurable true})
-          (catch :default _ nil)))
-      (throw primary)))
+    ;; PRESENCE (seq/count), not truthiness: a non-empty error vector whose FIRST
+    ;; payload is falsy (false/nil) must still rethrow — `when-let` on `(first …)`
+    ;; would suppress the whole set (rf2-s2cfv).
+    (when (seq @errors)
+      (let [primary (first @errors)]
+        (when (< 1 (count @errors))
+          (try
+            (js/Object.defineProperty
+             primary "rfUiAdapterCleanupErrors"
+             #js {:value (to-array (rest @errors)) :configurable true})
+            (catch :default _
+              ;; a primitive primary (nil/false/number) cannot carry a diagnostic
+              ;; property; keep the later failures observable via console instead,
+              ;; and rethrow the primary unchanged.
+              (when (exists? js/console)
+                (.warn js/console
+                       (str "[re-frame.ui] adapter cleanup errors could not ride "
+                            "the primitive primary rejection; the primary is "
+                            "rethrown unchanged. Later cleanup errors:")
+                       (to-array (rest @errors)))))))
+        (throw primary))))
   nil)
 
 (defn dispose-live-roots!

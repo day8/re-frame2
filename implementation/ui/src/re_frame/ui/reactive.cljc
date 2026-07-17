@@ -3200,6 +3200,16 @@
     #?(:cljs (queue-microtask! settle)
        :clj  (settle))))
 
+;; PRESENCE, not JS truthiness, decides whether the host `.unmount` thunk threw
+;; (rf2-s2cfv). On CLJS a thunk can throw a legitimately falsy value (false/nil);
+;; `host-error` holds this identity sentinel until a throw records into it, so
+;; such a failure is a REAL, preserved host error — reaped fail-closed over the
+;; exact generation and rethrown — never reclassified as a success/deferred
+;; teardown that settles and releases ownership. Cross-host: a bare Object on the
+;; JVM, a fresh JS object on CLJS; compared only by `identical?`.
+(def ^:private no-host-error
+  #?(:clj (Object.) :cljs #js {}))
+
 (defn teardown-root!
   "Explicit host/ROOT teardown driver (03 §4) — the root-path counterpart to
   the frame-destroy sweep, driven from `re-frame.ui.client/unmount!*` at the
@@ -3307,7 +3317,7 @@
    (let [prev       @teardown-collector
          prev-sig   @teardown-settle-signal
          fired      (volatile! false)
-         host-error (volatile! nil)
+         host-error (volatile! no-host-error)
          captured   (volatile! #{})
          _          (do
                       (reset! teardown-collector #{})
@@ -3327,6 +3337,9 @@
                           (reset! teardown-collector prev)
                           (reset! teardown-settle-signal prev-sig))))
          collected  @captured
+         ;; PRESENCE, not truthiness: a throw of a falsy value (false/nil) still
+         ;; counts as a host failure (rf2-s2cfv).
+         host-threw? (not (identical? @host-error no-host-error))
          explicit?  (some? root-incarnation)
          ;; When an explicit root incarnation is named it is AUTHORITATIVE: this
          ;; teardown owns EXACTLY the cells of that generation (rf2-vxgfnd.156).
@@ -3364,7 +3377,7 @@
                          (comp (mapcat #(weak-live (get @root-cells %) %))
                                (filter #(= :disconnected (lifecycle %))))
                          incs)
-         victims   (if (and @host-error explicit?)
+         victims   (if (and host-threw? explicit?)
                      ;; The host handle is consumed/released even on this path.
                      ;; Fail closed over the EXACT root generation, including
                      ;; cells still connected because React ran no cleanup.
@@ -3382,12 +3395,12 @@
          ;; layout effect) is not a member, so it has no pending host teardown to
          ;; await and settles synchronously. `collected` no longer classifies — it
          ;; only drives the reap (`owned`/`hidden`/`victims`).
-         deferred? (and explicit? (not @host-error) (not @fired)
+         deferred? (and explicit? (not host-threw?) (not @fired)
                         (contains? @live-reporters root-incarnation))]
      (doseq [cell victims]
        (teardown! cell))
      (cond
-       @host-error
+       host-threw?
        ;; rf2-vxgfnd.275 — the exact generation is force-dead (victims) above;
        ;; on-settled is NOT fired. The host teardown threw, so the container is
        ;; NOT proven free: the client FAILS CLOSED in its own catch, leaving the
