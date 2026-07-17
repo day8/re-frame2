@@ -41,6 +41,33 @@
        (map first)
        vec))
 
+(defn- native-local
+  "The user local `clojure.core/destructure` binds for name `nm` in map `pat` —
+  WITH the metadata the host preserves via `with-meta` (the ground truth)."
+  [pat nm]
+  (->> (destructure [pat 'the-map])
+       (partition 2)
+       (map first)
+       (some #(when (and (symbol? %) (= (name nm) (name %))) %))))
+
+(defn- plan-local
+  "The canonical binding plan's `:local-pattern` for local name `nm` in map
+  `pat` — WITH its metadata (the plan must retain what the host preserves)."
+  [pat nm]
+  (some #(when (and (symbol? %) (= (name nm) (name %)))
+           %)
+        (ana/header-binding-order pat)))
+
+(defn- emit-local
+  "The symbol the CLJS header emitter binds for local name `nm` — WITH its
+  metadata, so a lost `^js`/type hint on the emitted `let` binding is visible."
+  [argv nm]
+  (->> (header/parse-header argv)
+       emit-cljs/header-bindings
+       (partition 2)
+       (map first)
+       (some #(when (and (symbol? %) (= (name nm) (name %))) %))))
+
 ;; ---------------------------------------------------------------------------
 ;; The plan reproduces the host bes order
 ;; ---------------------------------------------------------------------------
@@ -258,3 +285,45 @@
           f   (eval (list 'fn [pat] 'x))]
       (is (= :a (f {:x :a :foo :b})) "reads :x")
       (is (nil? (f {:foo :b}))       "absent :x, no default → nil, never :foo"))))
+
+;; ---------------------------------------------------------------------------
+;; rf2-gvuoo — group-symbol METADATA survives the canonical plan
+;;
+;; `assoc-binding-units` reconstructed a group local with `(symbol (name bb))`,
+;; discarding authored symbol metadata. Real `clojure.core/destructure`
+;; preserves it via `(with-meta (symbol nil (name bb)) (meta bb))`. Symbol
+;; equality ignores metadata, so the plan-order tests above false-green; losing
+;; `^js` and other portable type hints changes Closure interop inference,
+;; warnings and advanced-build codegen. These fixtures compare the metadata
+;; DIRECTLY against the host's, so a `(symbol (name …))` regression fails.
+;; ---------------------------------------------------------------------------
+
+(deftest group-symbol-metadata-survives-the-canonical-plan
+  (testing "native clojure.core/destructure preserves ^js on the group local (ground truth)"
+    (is (= {:tag 'js} (meta (native-local '{:keys [^js node]} 'node)))
+        "the host binds `node` carrying its authored {:tag js}"))
+  (testing "the canonical binding plan retains the SAME metadata as the host"
+    (let [host (meta (native-local '{:keys [^js node]} 'node))
+          plan (meta (plan-local   '{:keys [^js node]} 'node))]
+      (is (= {:tag 'js} plan)
+          "^js survives on the plan's :local-pattern, not a bare (symbol (name bb))")
+      (is (= host plan)
+          "plan metadata equals the host's preserved metadata")))
+  (testing "the emitted CLJS header binding carries the hint (advanced interop)"
+    (is (= {:tag 'js} (meta (emit-local ['{:keys [^js node]}] 'node)))
+        "^js reaches the emitted `let` binding so Closure interop inference holds"))
+  (testing "a QUALIFIED group local keeps its hint through the name-strip"
+    ;; {:keys [^js acct/node]} binds the name-only local `node`, still ^js-tagged
+    (is (= {:tag 'js} (meta (native-local '{:keys [^js acct/node]} 'node)))
+        "host name-strips acct/node → node, keeping the hint")
+    (is (= {:tag 'js} (meta (plan-local   '{:keys [^js acct/node]} 'node)))
+        "the plan name-strips the same way and keeps the hint")
+    (is (= [:acct/node] (:slots (header/parse-header ['{:keys [^js acct/node]}])))
+        "the qualified lookup key is unchanged by metadata preservation"))
+  (testing "unhinted group symbols + explicit locals retain current behavior"
+    (is (nil? (meta (native-local '{:keys [plain]} 'plain))) "host: no meta invented")
+    (is (nil? (meta (plan-local   '{:keys [plain]} 'plain))) "plan: no meta invented")
+    (is (nil? (meta (emit-local ['{:keys [plain]}] 'plain)))  "emit: no meta invented")
+    ;; an explicit {^js ex :e1} local was never rewritten, so it already kept meta
+    (is (= {:tag 'js} (meta (native-local '{^js ex :e1} 'ex)))  "host keeps explicit ^js")
+    (is (= {:tag 'js} (meta (plan-local   '{^js ex :e1} 'ex)))  "plan keeps explicit ^js")))
