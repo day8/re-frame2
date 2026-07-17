@@ -80,6 +80,34 @@ function summarizeWarm(raw, where = 'warm timing evidence') {
   };
 }
 
+// rf2-52isf — the cold-order control. G-13's `cold` sample must be the FIRST
+// post-mount dispatch/commit: its timed span cannot sit AFTER this sample's own
+// correctness dispatch, O(V) audit, DOM read, or React/cache warm-up. The
+// fixture seeds app-db `:hot=0` at mount and every drain adds `queued-writes`,
+// so `:timing-pre-hot` — the app-db `:hot` value captured immediately before
+// the cold timing dispatch — is exactly 0 iff no drain preceded the cold timer.
+// A nonzero value means correctness (or a warmup) ran first and the reported
+// "cold" span is actually a warmed second dispatch. Evidence plumbing only — no
+// wall-clock threshold; this pins the cold IDENTITY, not its duration.
+const COLD_FIRST_DRAIN_PRE_HOT = 0;
+
+// Assert the cold sample is the first post-mount drain. `where` labels the call
+// site (e.g. "V=100 cold timing evidence"). Returns the sample on success.
+function assertColdIsFirstDrain(cold, where = 'cold timing evidence') {
+  if (!cold || typeof cold !== 'object') {
+    throw evidenceFail(`${where}: cold sample is missing (got ${JSON.stringify(cold)})`);
+  }
+  const preHot = cold['timing-pre-hot'];
+  if (preHot !== COLD_FIRST_DRAIN_PRE_HOT) {
+    throw evidenceFail(
+      `${where}: cold timer did not measure the first post-mount dispatch ` +
+        `(timing-pre-hot=${JSON.stringify(preHot)}, expected ${COLD_FIRST_DRAIN_PRE_HOT}); ` +
+        'correctness ran before the cold timer',
+    );
+  }
+  return cold;
+}
+
 function fmt(x) {
   return Number(x).toFixed(3);
 }
@@ -125,8 +153,10 @@ function buildSummary(results) {
 module.exports = {
   RECORDED_SAMPLES,
   PERCENTILE_CONVENTION,
+  COLD_FIRST_DRAIN_PRE_HOT,
   warmPercentile,
   validateWarmSamples,
   summarizeWarm,
+  assertColdIsFirstDrain,
   buildSummary,
 };

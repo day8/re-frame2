@@ -59,6 +59,15 @@
 ;; query — are exactly the V-dependent work that must NOT sit inside a
 ;; dispatch-to-commit interval. So the clean timing cycle carries no evidence
 ;; collection at all, and the untimed correctness cycle carries all of it.
+;;
+;; rf2-52isf — ORDER matters as much as separation: `sample!` runs the clean
+;; timing cycle FIRST, then the correctness cycle. For the `cold` sample this
+;; makes the timed span the true FIRST post-mount dispatch/commit — before this
+;; sample's own correctness dispatch, O(V) audit, DOM read, and cache/React
+;; warm-up. `:timing-pre-hot` (the app-db `:hot` value captured just before the
+;; timing dispatch; 0 at the mount seed, +queued-writes per drain) is the causal
+;; witness the gate asserts: a cold `:timing-pre-hot` of 0 proves no drain
+;; preceded the cold timer.
 
 (defn- timing-cycle!
   "CLEAN dispatch-to-commit measurement. The measured interval spans exactly
@@ -193,16 +202,24 @@
               :projection projection}))))))
 
 (defn- sample!
-  "One recorded sample: the untimed correctness cycle (exact-work projection +
-  DOM proof) followed by a separate CLEAN timing cycle. The reported
-  `:elapsed-ms` therefore measures only dispatch-to-commit, while the exact
-  counts come from a cycle that is never on the clock."
+  "One recorded sample: the CLEAN timing cycle FIRST, then the untimed
+  correctness cycle (exact-work projection + DOM proof). Timing runs before
+  correctness so the reported `:elapsed-ms` is a true first-drain
+  dispatch-to-commit span — never the second dispatch after this sample's own
+  O(V) audit, DOM read, and cache/React warm-up. `:timing-pre-hot` is the
+  app-db `:hot` value captured immediately BEFORE the timing dispatch (outside
+  the measured interval): the mount seed leaves it 0 and every drain adds
+  `queued-writes`, so for the `cold` sample it is 0 — the causal proof that the
+  timer measured the FIRST post-mount dispatch, before any correctness-cycle
+  dispatch or audit. The exact counts still come from a cycle never on the clock."
   [root frame v label]
-  (-> (correctness-cycle! root frame v label)
-      (.then (fn [c]
-               (-> (timing-cycle! frame)
-                   (.then (fn [elapsed]
-                            (assoc c :elapsed-ms elapsed))))))))
+  (let [timing-pre-hot (:hot (rf/app-db-value frame))]
+    (-> (timing-cycle! frame)
+        (.then (fn [elapsed]
+                 (-> (correctness-cycle! root frame v label)
+                     (.then (fn [c]
+                              (assoc c :elapsed-ms elapsed
+                                     :timing-pre-hot timing-pre-hot)))))))))
 
 (defn- run-size! [v]
   (let [frame (rf/make-frame {:initial-events [[:rf/set-db (fixture/seed v)]]})
