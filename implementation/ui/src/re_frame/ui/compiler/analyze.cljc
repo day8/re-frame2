@@ -79,6 +79,22 @@
 (defn- fn-form? [f]
   (and (seq? f) (contains? #{'fn 'fn* 'clojure.core/fn 'cljs.core/fn} (first f))))
 
+(defn- fn-init-shape?
+  "True when `init` is a structurally well-formed fn/fn* form — the only legal
+  shape for a HOST letfn* binding initializer. Bounded grammar check, not a full
+  semantic one: it guards `rw-fn` against a malformed body (a non-vector arity
+  otherwise throws a raw host `Don't know how to create ISeq` exception) and
+  rejects a non-fn initializer such as a bare `42` up front. Accepted shapes are
+  `(fn <name>? [argv] body*)` (single arity) and `(fn <name>? ([argv] body*)+)`
+  (one or more arity lists); every argv MUST be a vector."
+  [init]
+  (and (fn-form? init)
+       (let [tail (cond-> (rest init) (symbol? (second init)) rest)]
+         (cond
+           (vector? (first tail)) true
+           (seq tail)             (every? #(and (seq? %) (vector? (first %))) tail)
+           :else                  false))))
+
 (defn- raw-form? [e f]  (and (seq? f) (symbol? (first f)) (env/resolves-to? e (first f) ui-raw-fqns)))
 (defn- html-form? [e f] (and (seq? f) (symbol? (first f)) (env/resolves-to? e (first f) ui-html-fqns)))
 (defn- raw-fn-form? [e f] (and (seq? f) (symbol? (first f)) (env/resolves-to? e (first f) ui-raw-fn-fqns)))
@@ -625,10 +641,24 @@
                             {:form f})
                  (let [pairs (partition 2 bindings)
                        names (map first pairs)]
-                   (when-not (every? symbol? names)
-                     (env/fail! e :rf.ui.compile/bad-let
-                                "letfn* binding names must be symbols"
-                                {:form f}))
+                   ;; Bound the flat grammar BEFORE blindly rewriting each
+                   ;; initializer: a name must be a simple (unqualified) symbol
+                   ;; — the host only defaults simple-symbol locals — and each
+                   ;; initializer must be a well-formed fn/fn* form, else a bare
+                   ;; value (e.g. `42`) slips through to the host compiler and a
+                   ;; malformed arity throws a raw ISeq exception inside rw-fn.
+                   (doseq [[nm init] pairs]
+                     (when-not (simple-symbol? nm)
+                       (env/fail! e :rf.ui.compile/bad-let
+                                  (str "letfn* binding names must be simple "
+                                       "(unqualified) symbols; got " (pr-str nm))
+                                  {:form f}))
+                     (when-not (fn-init-shape? init)
+                       (env/fail! e :rf.ui.compile/bad-let
+                                  (str "each letfn* initializer must be a fn/fn* "
+                                       "form with a [argv] body or ([argv] body …) "
+                                       "arity lists; got " (pr-str init))
+                                  {:form f})))
                    (let [scope     (into locals names)
                          bindings* (with-same-meta
                                      bindings

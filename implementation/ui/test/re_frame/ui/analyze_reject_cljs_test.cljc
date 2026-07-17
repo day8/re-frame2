@@ -383,6 +383,19 @@
   (is (= :rf.ui.compile/bad-let
          (reject-id '[:div {:title (letfn* [42 (fn* _ ([x] x))] 1)}]))
       "non-symbol binding name -> typed bad-let")
+  ;; rf2-rgqn9 — the flat-binding validator checked only vector parity + symbol?
+  ;; then blindly rewrote each initializer, so these three slipped through the
+  ;; typed surface (a bare value / qualified name were ACCEPTED and only failed
+  ;; in the later host compiler; a malformed fn* threw a raw ISeq exception).
+  (is (= :rf.ui.compile/bad-let
+         (reject-id '[:div {:title (letfn* [f 42] f)}]))
+      "a bare non-fn initializer -> typed bad-let (never accepted then host-failed)")
+  (is (= :rf.ui.compile/bad-let
+         (reject-id '[:div {:title (letfn* [f (fn* 42)] f)}]))
+      "a malformed fn* arity -> typed bad-let (never a raw IllegalArgumentException)")
+  (is (= :rf.ui.compile/bad-let
+         (reject-id '[:div {:title (letfn* [foo/bar (fn* [] 1)] foo/bar)}]))
+      "a qualified binding name -> typed bad-let (host rejects qualified locals)")
   (is (= :rf.ui.compile/sub-in-loop
          (reject-id '[:div {:title (letfn* [f (fn* f ([x] (sub [:q])))] (f 7))}]))
       "a reactive read inside a deferred local fn body is not a finite render site"))
