@@ -19,11 +19,11 @@ Almost everything else in re-frame2 stays simple *because* of that.
 
 ## A complete live counter
 
-The intro counter already seeded `:value 0` through its `:initialise` event; the
+The intro counter seeded `:value` explicitly through its `:initialise` event; the
 `(:value db 0)` in its subscription was a defensive display fallback, not the
-initializer. Here we extend that same initial map with a second fact — `:step-size` —
-so both begin explicit in one store. Click the buttons (edit the cell and press
-**`Ctrl-Enter`** / **`Cmd-Enter`** if you change the code):
+initializer. Here we reuse that same initialization pattern and add a second fact —
+`:step-size` — so both begin explicit in one store. Click the buttons (edit the cell
+and press **`Ctrl-Enter`** / **`Cmd-Enter`** if you change the code):
 
 ```cljs-rf2
 (require '[re-frame.core :as rf])

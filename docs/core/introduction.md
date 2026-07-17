@@ -149,8 +149,8 @@ speak them: timers, HTTP replies, route loaders. The next page,
 ## One map of state: app-db
 
 Each running instance holds application state as one immutable Clojure map —
-**app-db**. In the counter it starts `{}`, then becomes `{:value 0}` after
-`:initialise`, then `{:value 1}` after the first `:inc`.
+**app-db**. In the counter it starts `{}`, then becomes `{:value 3}` after
+`:initialise`, then `{:value 4}` after the first `:inc`.
 
 Handlers never "set state" as a side effect. They return the next map inside an
 effect description. [app-db](app-db.md) is the dedicated page for that doctrine.
