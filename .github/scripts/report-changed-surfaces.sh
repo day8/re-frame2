@@ -975,6 +975,36 @@ else
         mcp_conformance=true
         mcp_live=true
         ;;
+      skills/re-frame2-pair/preload/*)
+        # rf2-11yjq — the shipped re-frame2-pair preload
+        # (skills/re-frame2-pair/preload/re_frame2_pair/{runtime.cljs,pure.cljc},
+        # and any nested source) is dev-only RUNTIME whose stateful wrapper has
+        # TWO owning behavioral gates:
+        #   - cljs-browser (gated on cljs_browser) discovers
+        #     re-frame.pair-dispatch-and-settle-dom-cljs-test, which imports
+        #     re-frame2-pair.runtime and drives its real React/epoch settle
+        #     behavior under headless Chromium.
+        #   - mcp-conformance-re-frame2-pair (gated on mcp_live) boots the
+        #     hermetic fixture with THIS exact preload and exercises live Pair
+        #     operations across the MCP bridge.
+        # rf2-k8yl5f armed examples_compile (the earlier case block) so the
+        # preload COMPILES into the ~28 example dev builds that inject it, and
+        # the generic skills/re-frame2-pair/* case below armed skills_structural
+        # (source-shape + pure-core node fixture). But NEITHER of those executes
+        # the stateful runtime wrapper or its live wire behavior — so a
+        # preload-only regression (runtime.cljs / pure.cljc / a nested preload
+        # path) merged with BOTH owning behavioral gates SKIPPED, caught only by
+        # the nightly net (a PR-time false-green). Arm cljs_browser + mcp_live so
+        # the two runtime consumers run at PR time. skills_structural is set here
+        # too because this more-specific case shadows the generic
+        # skills/re-frame2-pair/* case below (widening coverage, not narrowing
+        # it); examples_compile still fires via the earlier case block. Scoped to
+        # the preload subtree only — non-preload skill docs/references keep their
+        # structural-only classification and never arm these expensive gates.
+        skills_structural=true
+        cljs_browser=true
+        mcp_live=true
+        ;;
       skills/re-frame2-pair/*|skills/shared/*)
         skills_structural=true
         ;;
