@@ -140,6 +140,30 @@ TEETH = (
         "ai/findings/new-substrate-synthesis/guide/01-getting-started.md",
         "standard JavaScript `WeakRef` constructor",
     ),
+    # rf2-sddbc / rf2-fjti6 — consumed-container fail-close teeth. A throwing host
+    # `.unmount` may have QUEUED late DOM work before it threw, so an adapter reclaim
+    # clearing the node is a SNAPSHOT, never proof the surface settled: the EXACT node
+    # is recorded fail-closed and terminally denied while only the id/prefix free for a
+    # fresh-container re-mount. These pin (1) the runtime mark-consumed-BEFORE-release
+    # ordering, (2) the `:rf.error/root-container-consumed` fresh-node recovery contract,
+    # and (3) the causally-late browser fixture that forces the queued mutation to run
+    # AFTER the successor commits (the earlier FIFO-microtask proof could not). Each
+    # anchor is a site-unique literal; its mutation self-test turns exactly its tooth red.
+    Tooth(
+        "runtime-consumed-mark-before-release",
+        "implementation/ui/src/re_frame/ui/client.cljs",
+        "(mark-container-consumed! (.-container root))\n  (release-root! root-id root)",
+    ),
+    Tooth(
+        "spec-009-consumed-fresh-node-recovery",
+        "spec/009-Instrumentation.md",
+        "the same `:root-id` re-mounts onto a fresh node once the poisoned claim is reclaimed",
+    ),
+    Tooth(
+        "consumed-causal-late-fixture",
+        "implementation/ui/test/re_frame/ui/adapter_public_root_disposal_dom_cljs_test.cljs",
+        "the queued predecessor mutation ran AFTER the successor committed",
+    ),
 )
 
 
