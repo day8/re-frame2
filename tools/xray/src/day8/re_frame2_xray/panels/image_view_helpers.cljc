@@ -64,10 +64,10 @@
   inline coordinate (`:rf.provenance/image` / `:rf.provenance/inline`); a
   framework standard by its `:standard true` marker. Returns
 
-      {:kind :rf.prov/ns        :ns \"docs.counter.v2\"}
-      {:kind :rf.prov/inline    :image :test/small :inline [:reg-event :counter/inc]}
-      {:kind :rf.prov/standard}
-      {:kind :rf.prov/unknown}
+      {:kind :ns        :ns \"docs.counter.v2\"}
+      {:kind :inline    :image :test/small :inline [:reg-event :counter/inc]}
+      {:kind :standard}
+      {:kind :unknown}
 
   The three provenance slots are MUTUALLY EXCLUSIVE on a well-formed
   descriptor, so this `cond`'s branch order tracks core's
@@ -76,23 +76,23 @@
   then the registered `:rf.provenance/ns` — rather than introducing a different
   precedence the projection would have to defend. (`descriptor-coordinate`'s
   final `:else` is the registered-ns case; here that leg is explicit so an
-  unrecognized descriptor falls through to `:rf.prov/unknown` instead of
+  unrecognized descriptor falls through to `:unknown` instead of
   `{:ns nil}`.) Pure `data -> data`; JVM-testable."
   [descriptor]
   (cond
     (:standard descriptor)
-    {:kind :rf.prov/standard}
+    {:kind :standard}
 
     (:rf.provenance/image descriptor)
-    {:kind   :rf.prov/inline
+    {:kind   :inline
      :image  (:rf.provenance/image descriptor)
      :inline (:rf.provenance/inline descriptor)}
 
     (:rf.provenance/ns descriptor)
-    {:kind :rf.prov/ns :ns (:rf.provenance/ns descriptor)}
+    {:kind :ns :ns (:rf.provenance/ns descriptor)}
 
     :else
-    {:kind :rf.prov/unknown}))
+    {:kind :unknown}))
 
 (defn project-generation
   "Project a sealed image GENERATION into the image-view's image-row shape —
@@ -240,9 +240,9 @@
   the standard/unknown marker. Pure `data -> string`; JVM-testable."
   [{:keys [kind ns image inline] :as _provenance}]
   (case kind
-    :rf.prov/ns       (str ns)
-    :rf.prov/inline   (str "inline " (pr-str image) " " (pr-str inline))
-    :rf.prov/standard "framework standard"
+    :ns       (str ns)
+    :inline   (str "inline " (pr-str image) " " (pr-str inline))
+    :standard "framework standard"
     "—"))
 
 (defn image-row-summary

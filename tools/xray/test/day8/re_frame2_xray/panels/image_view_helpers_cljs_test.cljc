@@ -80,21 +80,21 @@
 
 (deftest descriptor-provenance-source-ns
   (testing "a registered descriptor projects to its source-namespace provenance"
-    (is (= {:kind :rf.prov/ns :ns "docs.counter.v2"}
+    (is (= {:kind :ns :ns "docs.counter.v2"}
            (h/descriptor-provenance inc-desc)))))
 
 (deftest descriptor-provenance-inline
   (testing "an inline descriptor projects to its image id + inline coordinate"
-    (is (= {:kind :rf.prov/inline :image :test/small :inline [:reg-event :counter/inc]}
+    (is (= {:kind :inline :image :test/small :inline [:reg-event :counter/inc]}
            (h/descriptor-provenance inline-desc)))))
 
 (deftest descriptor-provenance-standard
   (testing "a framework standard descriptor projects to the standard marker"
-    (is (= {:kind :rf.prov/standard} (h/descriptor-provenance standard-desc)))))
+    (is (= {:kind :standard} (h/descriptor-provenance standard-desc)))))
 
 (deftest descriptor-provenance-unknown
   (testing "a descriptor with no recognizable provenance projects to :unknown"
-    (is (= {:kind :rf.prov/unknown} (h/descriptor-provenance {:kind :event :id :x})))))
+    (is (= {:kind :unknown} (h/descriptor-provenance {:kind :event :id :x})))))
 
 ;; ---- project-generation: image as a [kind id] descriptor set -------------
 
@@ -109,9 +109,9 @@
       (is (= [:event :sub] (:kinds img)) "kinds sorted by str")
       (is (= 2 (:descriptor-count img)))
       (is (= [{:kind :event :id :counter/inc
-               :provenance {:kind :rf.prov/ns :ns "docs.counter.v2"}}
+               :provenance {:kind :ns :ns "docs.counter.v2"}}
               {:kind :sub :id :counter/value
-               :provenance {:kind :rf.prov/ns :ns "docs.counter.v2"}}]
+               :provenance {:kind :ns :ns "docs.counter.v2"}}]
              (:descriptors img))
           "one row per resolved [kind id], sorted by (kind id) str"))))
 
@@ -159,10 +159,10 @@
     (let [in-counter (h/resolve-in-frame resolve-fn counter-frame :event :counter/inc)
           in-other   (h/resolve-in-frame resolve-fn other-frame   :event :counter/inc)]
       (is (true? (:resolved? in-counter)))
-      (is (= {:kind :rf.prov/ns :ns "docs.counter.v2"} (:provenance in-counter))
+      (is (= {:kind :ns :ns "docs.counter.v2"} (:provenance in-counter))
           "counter-frame resolves :counter/inc to its source-ns descriptor")
       (is (true? (:resolved? in-other)))
-      (is (= {:kind :rf.prov/inline :image :test/small :inline [:reg-event :counter/inc]}
+      (is (= {:kind :inline :image :test/small :inline [:reg-event :counter/inc]}
              (:provenance in-other))
           "other-frame resolves the SAME id to ITS image's inline descriptor")
       (is (not= (:provenance in-counter) (:provenance in-other))
@@ -207,13 +207,13 @@
 (deftest provenance-summary-strings
   (testing "provenance summaries read cleanly per kind"
     (is (= "docs.counter.v2"
-           (h/provenance-summary {:kind :rf.prov/ns :ns "docs.counter.v2"})))
+           (h/provenance-summary {:kind :ns :ns "docs.counter.v2"})))
     (is (= "inline :test/small [:reg-event :counter/inc]"
-           (h/provenance-summary {:kind :rf.prov/inline :image :test/small
+           (h/provenance-summary {:kind :inline :image :test/small
                                   :inline [:reg-event :counter/inc]})))
     (is (= "framework standard"
-           (h/provenance-summary {:kind :rf.prov/standard})))
-    (is (= "—" (h/provenance-summary {:kind :rf.prov/unknown})))))
+           (h/provenance-summary {:kind :standard})))
+    (is (= "—" (h/provenance-summary {:kind :unknown})))))
 
 (deftest image-row-summary-string
   (testing "the image summary reads N descriptors · K kinds with correct plurals"
