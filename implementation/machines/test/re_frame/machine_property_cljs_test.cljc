@@ -64,9 +64,15 @@
        until quiescent — all before the same macrostep commits. So a
        region's `:always` guard reading a SIBLING's same-macrostep `:data`
        write converges in THIS macrostep, and reordering the regions cannot
-       change the resolved configuration or data. Invariant 8 pins selection
-       for regions that are independent by construction; this one pins the
-       law for regions that are deliberately COUPLED across the freeze.
+       change which `:always` SET each round SELECTS. This family's writes
+       are COMMUTATIVE by construction (see the deftest comment below), so
+       here the resolved configuration and data are order-independent too —
+       but that data-independence is a property of the commutative writes,
+       NOT a general law: non-commuting apply-phase writes to shared `:data`
+       feed the next round's freeze and can change a LATER round's selection.
+       Invariant 8 pins selection for regions that are independent by
+       construction; this one pins the law for regions that are deliberately
+       COUPLED across the freeze.
 
   ## Why a hand-rolled seeded PRNG (not clojure.test.check)
 
@@ -871,6 +877,58 @@
       (is (nil? failure)
           (str "declaration-order-independence property failed: " (pr-str failure))))))
 
+;; ---- INVARIANT 8 boundary: NON-commuting writes are order-SENSITIVE --------
+;;
+;; Invariant 8 holds because its regions are INDEPENDENT by construction (no
+;; shared-`:data` writes). This focused counterexample pins the OTHER side of
+;; the law the guide now states (`docs/machines/parallel-states.md` — "order
+;; independence is a guarantee about SELECTION WITHIN ONE FROZEN ROUND, not an
+;; unconditional guarantee about the final outcome"): when two regions' actions
+;; write the SAME `:data` key with non-commuting values, the apply order — which
+;; declaration order governs — changes the value a subsequent selection freezes,
+;; and hence a sibling's chosen target. Reordering therefore CAN change the
+;; resolved configuration. This is the executable guard that keeps the guide's
+;; qualified claim honest against a regression to "reordering cannot change the
+;; outcome" (rf2-nqovj).
+
+(deftest non-commuting-region-writes-are-declaration-order-sensitive
+  (testing "regions :a and :b both handle one event with ordered, non-commuting
+            writes of :x; region :c's `:always` selects its target from the
+            frozen :x. Reversing :a/:b changes the value :c freezes and thus
+            :c's resolved target — order independence is within-round selection
+            only, not an unconditional outcome guarantee (rf2-nqovj)"
+    (let [base {:type    :parallel
+                :data    {}
+                :guards  {:x-is-1? (fn [{d :data}] (= 1 (:x d)))
+                          :x-is-2? (fn [{d :data}] (= 2 (:x d)))}
+                :actions {:set-x-1 (fn [{d :data}] {:data (assoc d :x 1)})
+                          :set-x-2 (fn [{d :data}] {:data (assoc d :x 2)})}
+                :regions {:a {:initial :s0
+                              :states  {:s0 {:on {:ev {:target :s1 :action :set-x-1}}} :s1 {}}}
+                          :b {:initial :s0
+                              :states  {:s0 {:on {:ev {:target :s1 :action :set-x-2}}} :s1 {}}}
+                          :c {:initial :c0
+                              :states  {:c0    {:always [{:guard :x-is-2? :target :c-two}
+                                                         {:guard :x-is-1? :target :c-one}]}
+                                        :c-one {}
+                                        :c-two {}}}}}
+          run  (fn [order]
+                 (let [m (parallel/install-region-cache (assoc base :region-order order))]
+                   (:snap (last (run-sequence m [[:ev]])))))
+          ab   (run [:a :b :c])
+          ba   (run [:b :a :c])]
+      ;; last writer wins within the round → the frozen :x differs by apply order
+      (is (= 2 (get-in ab [:data :x])) "[:a :b] applies :set-x-2 last → :x=2")
+      (is (= 1 (get-in ba [:data :x])) "[:b :a] applies :set-x-1 last → :x=1")
+      ;; and that difference propagates to :c's frozen-view selection
+      (is (= :c-two (:c (:state ab)))
+          "with :x=2, :c's `:always` selected :c-two")
+      (is (= :c-one (:c (:state ba)))
+          "reversing :a/:b changed the frozen :x and hence :c's target")
+      (is (not= (:state ab) (:state ba))
+          "region reordering changed the RESOLVED configuration — the outcome
+           is not order-independent when regions' writes do not commute"))))
+
 ;; ---- INVARIANT 9: parent-owned parallel `:always` rounds -------------------
 ;;
 ;; The law (Spec 005 §Per-region `:always` / `:after` / `:spawn` scoping):
@@ -885,10 +943,14 @@
 ;;       sibling's same-macrostep `:data` write fires in THIS macrostep (the
 ;;       first post-event round observes the complete event set), not on some
 ;;       later event.
-;;   (b) ORDER INDEPENDENCE ACROSS THE COUPLING — because every round selects
-;;       against a frozen view, reordering the regions cannot change which
-;;       `:always` set is selected in any round, hence cannot change the
-;;       resolved configuration or data.
+;;   (b) ORDER-INDEPENDENT SELECTION ACROSS THE COUPLING — because every round
+;;       selects against a frozen view, reordering the regions cannot change
+;;       which `:always` set is selected in any round. With this family's
+;;       COMMUTATIVE writes (see below) the resolved configuration and data
+;;       are order-independent too; that data-independence is a property of the
+;;       commutative construction, NOT a general law — non-commuting apply-phase
+;;       writes to shared `:data` feed the next round's freeze and can change a
+;;       later round's selection.
 ;;
 ;; The superseded region-local model — settle each region's `:always` loop
 ;; before visiting the next region — satisfies NEITHER. Under it, a region
