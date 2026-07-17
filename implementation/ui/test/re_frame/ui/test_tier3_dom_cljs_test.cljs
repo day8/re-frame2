@@ -612,3 +612,99 @@
                    (fn [e]
                      (rf/destroy-frame! f)
                      (reject-unexpectedly! done "recursive fixed-point rejected" e))))))))
+
+;; rf2-qxgve — the PUBLIC async `flush!` nonconvergence BOUND.
+;;
+;; The finite cascade above proves `flush-async!`'s Promise recursion RUNS, but
+;; only for two passes — it never reaches the bound. And the #6038 proofs
+;; (`reactive-flush-convergence-bound-cljs-test`,
+;; `substrate-flush-render-convergence-cljs-test`) drive the SHARED synchronous
+;; `converge-flush!` law and the synchronous first-party adapter directly; none
+;; drives the public async `ui.test/flush!` path, which INDEPENDENTLY implements
+;; its Promise recursion AND its own pass comparison against
+;; `reactive/flush-convergence-budget` in `re-frame.ui.test/flush-async!`.
+;; Removing or misplacing THAT async check restores unbounded Promise chaining
+;; while every synchronous proof stays green (the false-green).
+;;
+;; DRIVING THE BOUND DETERMINISTICALLY. A real re-dirtying path — a listener or a
+;; mounted commit that re-marks a ViewCell on every flush — cannot cleanly drive
+;; this loop to its bound: re-frame's invalidation arms an AUTONOMOUS
+;; `schedule-flush!` microtask, so a perpetual re-dirty spins an INDEPENDENT drain
+;; loop that outraces (and can starve) the act-gated async passes — the registry
+;; quiesces or the runner stalls before pass `budget`, nondeterministically
+;; (empirically it resolved at whatever re-mark cap was chosen, never at the
+;; bound). Instead we make the registry genuinely non-quiescent with NO re-dirty
+;; loop: a really-dirty `cell` (the REAL `pending-cell-count` sees it, so the
+;; bound logic runs against real registry state) whose DRAIN is WITHHELD —
+;; `flush-pending!` is neutralized for the first `drain-at` async passes
+;; (drain-at > budget), then restored so the registry can finally settle. The
+;; single microtask `mark-dirty!` arms hits the withholding stub (no drain, no
+;; re-mark) and stops, so there is no runaway loop. With the bound present, the
+;; async flush! rejects at `budget` passes (before drain-at). TEETH: remove or
+;; misplace the async bound and flush! recurses until the drain lands at
+;; `drain-at`, then RESOLVES — the `:rejected` assertion fails, a crisp red rather
+;; than a runner-stalling hang. Cleanup is proven on every ownership axis: the
+;; mounted-baseline (no root/container/root-cell leak), a zero pending-cell count
+;; (the withheld cell drained), and a follow-up public flush! that resolves — a
+;; strand of the mid-flight act would reject it `:rf.error/ui-test-overlapping-act`.
+(deftest flush-async-nonconvergence-trips-the-public-bound
+  (when (browser?)
+    (let [before     (mounted-baseline)
+          real-flush reactive/flush-pending!
+          restore!   (fn [] (set! reactive/flush-pending! real-flush))
+          passes     (atom 0)
+          drain-at   (+ reactive/flush-convergence-budget 10)
+          outcome    (volatile! nil)]
+      (async done
+        (-> (uit/with-root [_root [query-fixture]]
+              (let [cell (reactive/make-cell ::runaway)]
+                ;; A genuinely dirty cell whose drain is withheld: every async
+                ;; flush pass finds the registry non-quiescent, with NO re-dirty
+                ;; loop. The one microtask `mark-dirty!` arms hits the stub (no
+                ;; drain, no re-mark) and stops. `flush-pending!` is restored to
+                ;; real once `drain-at` (> budget) passes elapse, so a
+                ;; bound-REMOVED flush can finally quiesce and RESOLVE.
+                (reactive/mark-dirty! cell)
+                (set! reactive/flush-pending!
+                      (fn []
+                        (when (>= (swap! passes inc) drain-at)
+                          (real-flush))))
+                ;; Drive the PUBLIC async flush! (flush-async!'s Promise
+                ;; recursion). Settle EITHER way inside the body so with-root
+                ;; still runs total teardown; assert on the outcome after.
+                (-> (uit/flush!)
+                    (.then (fn [_] (restore!) (vreset! outcome [:resolved @passes]))
+                           (fn [e] (restore!) (vreset! outcome [:rejected e]))))))
+            (.then
+             (fn []
+               (reactive/flush-pending!) ; drain the withheld cell (restored; no re-dirty)
+               (let [[kind e] @outcome
+                     data     (ex-data e)]
+                 (is (= :rejected kind)
+                     (str "a non-quiescent async flush! must fail loud at the "
+                          "bound, not chain Promises forever (removing/misplacing "
+                          "the flush-async! bound lets it quiesce at drain-at and "
+                          "RESOLVE, failing HERE); got " (pr-str @outcome)))
+                 (is (= :rf.error/flush-convergence-exceeded (:rf.error/id data))
+                     "the SHARED typed nonconvergence diagnostic")
+                 (is (= reactive/flush-convergence-budget (:passes data))
+                     "carries the exhausted shared budget")
+                 (is (pos? (:pending data))
+                     "carries a positive residual pending-cell count")
+                 (is (= 'rf.ui.test/flush! (:where data))
+                     "names the public flush! forcing site — not the sync adapter")
+                 (is (= :no-recovery (:recovery data)))
+                 (is (= before (mounted-baseline))
+                     "teardown leaves no mounted roots, containers, or root cells")
+                 (is (zero? (reactive/pending-cell-count))
+                     "the withheld cell drained clean — no dirty cell survives"))
+               ;; No active-act ownership stranded by the mid-flight rejection: a
+               ;; fresh public flush! resolves (a strand rejects overlapping-act).
+               (uit/flush!))
+             (fn [e]
+               (restore!)
+               (reject-unexpectedly! done "nonconvergence flush test rejected" e)))
+            (.then (fn [_] (done))
+                   (fn [e]
+                     (reject-unexpectedly!
+                      done "post-teardown flush! rejected (stranded act ownership?)" e))))))))
