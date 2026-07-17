@@ -21,6 +21,7 @@
             [re-frame.core :as rf]
             [re-frame.frame :as frame]
             [re-frame.error-emit :as error-emit]
+            [re-frame.source-coords :as source-coords]
             [re-frame.substrate.plain-atom :as plain-atom]
             [re-frame.test-support :as test-support]))
 
@@ -617,6 +618,121 @@
           (is (symbol?  (:ns   sc)))
           (is (integer? (:line sc)))
           (is (string?  (:file sc))))))))
+
+;; ============================================================================
+;; rf2-xgkgx — frame-destroyed source-coord is OPERATION-REALM AWARE.
+;; ----------------------------------------------------------------------------
+;; `:rf.error/frame-destroyed` is the one realm-AMBIGUOUS category: an event-id
+;; and a sub-id may legitimately SHARE a keyword because they live in SEPARATE
+;; registries (`[:event id]` vs `[:sub id]`). The pre-fix resolution probed
+;; `[:sub]` then `[:event]`, so a `:dispatch` frame-destroyed whose id ALSO
+;; named a subscription was attributed to the WRONG realm (the subscription's
+;; coord). The UI frame-bundle stale-op seam (`re-frame.ui.frames`) stamps the
+;; exact failing `:op` onto the always-on record; `error-emit/error-source-coord`
+;; now pivots on it — `:dispatch` / `:dispatch-sync` → the EVENT coord,
+;; `:subscribe` → the SUBSCRIPTION coord, `:capture` → NEITHER. The `:op` is a
+;; PRIVATE steering input (read from the record's attribution, never promoted to
+;; a public schema slot).
+;;
+;; These drive the exact seam the frame-bundle uses (`emit-error-both!` with the
+;; `:op` in the trailing record-attrs) against `[:event id]` / `[:sub id]` coords
+;; seeded directly into the always-on `error-coords-by-id` registry, and assert
+;; the delivered record's resolved `:source-coord` names the correct realm. Both
+;; collision directions plus the no-coordinate (programmatic) case are covered.
+;; ============================================================================
+
+(def ^:private xgkgx-event-coord
+  {:ns 're-frame.on-error-cljs-test.collide-events :file "collide_events.cljc" :line 11})
+
+(def ^:private xgkgx-sub-coord
+  {:ns 're-frame.on-error-cljs-test.collide-subs :file "collide_subs.cljc" :line 22})
+
+(defn- xgkgx-frame-destroyed-records
+  "Fire a frame-destroyed record shaped EXACTLY like the UI frame-bundle's
+  stale-op seam (`re-frame.ui.frames/emit-and-throw-frame-destroyed!` →
+  `emit-error-both!` with `{:op op}` in the trailing record-attrs) and return
+  the vector of always-on records the listener saw. Exactly ONE record per emit
+  pins the one-record-per-runtime-error law across the arms."
+  [op id]
+  (let [seen (atom [])]
+    (rf/register-listener! :errors :xgkgx/recorder
+                           (fn [record] (swap! seen conj record)))
+    (error-emit/emit-error-both!
+      :rf.error/frame-destroyed
+      (when id [id])   ;; attempted event/query vector (nil for :capture)
+      id               ;; event-id / sub-id — the vector head (nil for :capture)
+      :rf/default      ;; a live frame — no fail-closed :event noise
+      nil              ;; no exception — an invalid op, not a caught throw
+      0                ;; elapsed-ms — not a timed path
+      0                ;; time
+      {:frame :rf/default :op op :reason :frame-destroyed} ;; dev-trace tags (axis 2)
+      {:op op})        ;; category-specific attribution for the always-on record (axis 1)
+    @seen))
+
+(deftest frame-destroyed-dispatch-resolves-the-event-coord-on-same-keyword-collision
+  (testing "rf2-xgkgx — a `:dispatch` frame-destroyed record whose id is
+            registered as BOTH an event AND a same-keyword subscription
+            resolves the EVENT coord. The pre-fix `[:sub]`-first probe picked
+            the subscription's coord (the WRONG realm)."
+    (source-coords/forget-error-coords!)
+    (source-coords/remember-error-coords! :event :xgkgx.collide/a xgkgx-event-coord)
+    (source-coords/remember-error-coords! :sub   :xgkgx.collide/a xgkgx-sub-coord)
+    (let [records (xgkgx-frame-destroyed-records :dispatch :xgkgx.collide/a)]
+      (is (= 1 (count records)) "exactly one always-on record per frame-destroyed emit")
+      (let [r (first records)]
+        (is (= :rf.error/frame-destroyed (:error r)))
+        (is (= xgkgx-event-coord (:source-coord r))
+            ":dispatch resolves the EVENT coord, not the same-keyword sub's")))))
+
+(deftest frame-destroyed-dispatch-sync-shares-the-dispatch-event-realm
+  (testing "rf2-xgkgx — `:dispatch-sync` shares the dispatch realm: it resolves
+            the EVENT coord, never the same-keyword subscription's."
+    (source-coords/forget-error-coords!)
+    (source-coords/remember-error-coords! :event :xgkgx.collide/b xgkgx-event-coord)
+    (source-coords/remember-error-coords! :sub   :xgkgx.collide/b xgkgx-sub-coord)
+    (let [records (xgkgx-frame-destroyed-records :dispatch-sync :xgkgx.collide/b)]
+      (is (= 1 (count records)))
+      (is (= xgkgx-event-coord (:source-coord (first records)))
+          ":dispatch-sync resolves the EVENT coord"))))
+
+(deftest frame-destroyed-subscribe-resolves-the-sub-coord-on-same-keyword-collision
+  (testing "rf2-xgkgx — the INVERSE collision direction: a `:subscribe`
+            frame-destroyed record whose id is registered as BOTH resolves the
+            SUBSCRIPTION coord, never the same-keyword event's."
+    (source-coords/forget-error-coords!)
+    (source-coords/remember-error-coords! :event :xgkgx.collide/c xgkgx-event-coord)
+    (source-coords/remember-error-coords! :sub   :xgkgx.collide/c xgkgx-sub-coord)
+    (let [records (xgkgx-frame-destroyed-records :subscribe :xgkgx.collide/c)]
+      (is (= 1 (count records)))
+      (is (= xgkgx-sub-coord (:source-coord (first records)))
+          ":subscribe resolves the SUB coord, not the same-keyword event's"))))
+
+(deftest frame-destroyed-capture-fabricates-no-coord
+  (testing "rf2-xgkgx — the `:capture` arm (a `(frame)` read that resolved a
+            dead incarnation BEFORE any op ran) fabricates NEITHER coord: no id
+            rides the record, and no `:source-coord` slot appears even with
+            same-keyword registrations present."
+    (source-coords/forget-error-coords!)
+    (source-coords/remember-error-coords! :event :xgkgx.collide/d xgkgx-event-coord)
+    (source-coords/remember-error-coords! :sub   :xgkgx.collide/d xgkgx-sub-coord)
+    (let [records (xgkgx-frame-destroyed-records :capture nil)]
+      (is (= 1 (count records)))
+      (let [r (first records)]
+        (is (= :rf.error/frame-destroyed (:error r)))
+        (is (not (contains? r :source-coord))
+            ":capture never fabricates a source-coord")))))
+
+(deftest frame-destroyed-programmatic-registration-omits-the-coord
+  (testing "rf2-xgkgx — a `:dispatch` frame-destroyed for an id with NO captured
+            coords (a programmatic registration that bypassed the macro path)
+            omits the `:source-coord` slot rather than niling it."
+    (source-coords/forget-error-coords!)
+    (let [records (xgkgx-frame-destroyed-records :dispatch :xgkgx.no-coord/e)]
+      (is (= 1 (count records)))
+      (let [r (first records)]
+        (is (= :rf.error/frame-destroyed (:error r)))
+        (is (not (contains? r :source-coord))
+            "no captured coords ⇒ the :source-coord slot is ABSENT, not nil")))))
 
 (deftest non-recovery-categories-fan-out-to-listener
   (testing "Per rf2-2hvga (= B / widen): every catalogued production-

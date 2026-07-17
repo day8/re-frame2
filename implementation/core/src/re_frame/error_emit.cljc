@@ -99,11 +99,24 @@
 ;; reserved-fx / no-such-handler) carry an EVENT id under `[:event …]`.
 ;;
 ;; `:rf.error/frame-destroyed` is the one shared category — fired with an
-;; EVENT id from `router.cljc` (a dispatch into a destroyed frame) AND with
-;; a SUB id from `subs.cljc` (a subscribe into a destroyed frame). We can't
-;; disambiguate on the kw alone, so for it we try `:sub` then `:event`
-;; (a sub-id never collides with an event-id under the same registry, so
-;; the first hit is unambiguous; a miss falls through to nil → slot absent).
+;; EVENT id (a dispatch / dispatch-sync into a destroyed frame) AND with a
+;; SUB id (a subscribe into a destroyed frame), and also from the UI
+;; frame-bundle's stale-op seam (`re-frame.ui.frames`) for a `:dispatch` /
+;; `:dispatch-sync` / `:subscribe` / `:capture` op against a dead
+;; incarnation. The category keyword ALONE CANNOT name the realm: an
+;; event-id and a sub-id may legitimately SHARE a keyword — they live in
+;; SEPARATE registries (`[:event id]` vs `[:sub id]`), so a bare
+;; `[:sub]`-then-`[:event]` probe attributes a same-keyword collision to the
+;; WRONG realm (rf2-xgkgx — the earlier comment here wrongly claimed sub-ids
+;; and event-ids never collide). Resolution therefore pivots on the exact
+;; operation realm the record already carries in `:op`: `:dispatch` /
+;; `:dispatch-sync` → `[:event]`, `:subscribe` → `[:sub]`, `:capture` →
+;; NEITHER (a `(frame)` read that resolved a dead incarnation before any op
+;; ran — no component source). The core router / subs emitters carry no
+;; `:op`; for them the lookup falls back to `[:sub]`-then-`[:event]`, which
+;; keeps them correct (the subs sub-id hits `[:sub]`; the router event-id
+;; misses `[:sub]` then hits `[:event]`). A miss on the resolved realm falls
+;; through to nil → the `:source-coord` slot is absent.
 
 (def ^:private sub-error-categories
   "Categories whose `:event-id` slot carries a SUB id — their source
@@ -132,18 +145,37 @@
   the `:source-coord` slot is ABSENT from the record rather than nil.
 
     - `:rf.error/sub-*` categories → look under `[:sub id]`.
-    - `:rf.error/frame-destroyed` is fired with both an event-id (router)
-      and a sub-id (subs), so try `[:sub id]` first then `[:event id]`.
+    - `:rf.error/frame-destroyed` is realm-AMBIGUOUS on the id alone (an
+      event-id and a sub-id may legitimately SHARE a keyword — they live in
+      SEPARATE registries), so it pivots on the exact operation realm the
+      record already carries in `op` (rf2-xgkgx — the PRIVATE steering input;
+      it is NOT read from any public schema slot, just the attribution `op`
+      the frame-bundle stale-op seam already stamps):
+        - `:dispatch` / `:dispatch-sync` → the failing op is a DISPATCH, so
+          the coord lives under `[:event id]`.
+        - `:subscribe`                   → a SUBSCRIBE, coord under `[:sub id]`.
+        - `:capture`                     → a `(frame)` read that resolved a
+          dead incarnation BEFORE any op ran — no component source, so
+          fabricate NEITHER coord (nil), even were an id somehow present.
+        - `op` absent (the core router / subs emitters do not carry it) →
+          fall back to `[:sub]`-then-`[:event]`, which keeps those callers
+          correct (the subs sub-id hits `[:sub]`; the router event-id misses
+          `[:sub]` then hits `[:event]`).
     - every other category → look under `[:event id]`."
-  [error-kw id]
+  [error-kw id op]
   (when id
     (cond
       (contains? sub-error-categories error-kw)
       (source-coords/error-coords-for :sub id)
 
       (= :rf.error/frame-destroyed error-kw)
-      (or (source-coords/error-coords-for :sub id)
-          (source-coords/error-coords-for :event id))
+      (case op
+        (:dispatch :dispatch-sync) (source-coords/error-coords-for :event id)
+        :subscribe                 (source-coords/error-coords-for :sub id)
+        :capture                   nil
+        ;; `op` absent — the realm-ambiguous core router / subs emitters.
+        (or (source-coords/error-coords-for :sub id)
+            (source-coords/error-coords-for :event id)))
 
       :else
       (source-coords/error-coords-for :event id))))
@@ -224,9 +256,14 @@
            ;; The lookup is KIND-AWARE: the registry is keyed
            ;; by `[registry-kind id]`, so a sub-id (`:rf.error/sub-*`
            ;; categories) must resolve under `[:sub …]`, not the hardcoded
-           ;; `[:event …]`. See [[error-source-coord]] / [[sub-error-categories]].
+           ;; `[:event …]`. For the realm-ambiguous `:rf.error/frame-destroyed`
+           ;; category the resolution ALSO pivots on the operation realm the
+           ;; record carries in its `:op` attribution — the private steering
+           ;; input (rf2-xgkgx), so a same-keyword event vs subscription is
+           ;; attributed to the correct realm. See [[error-source-coord]] /
+           ;; [[sub-error-categories]].
            source-coord (try
-                          (error-source-coord error-kw event-id)
+                          (error-source-coord error-kw event-id (:op attrs))
                           (catch #?(:clj Throwable :cljs :default) e
                             (when (trace/continuation-live?)
                               (throw e))))]
