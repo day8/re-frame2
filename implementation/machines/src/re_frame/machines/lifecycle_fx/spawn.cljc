@@ -842,6 +842,31 @@
                    spec {:bootstrap-pending? true}))]
       (spawn-rejected? spec spawned-id snap continue?))))
 
+(defn- write-spawned-slot!
+  "Write `value` into the frame's join slot at
+  `[:rf.runtime/machines :spawned <parent-id> <invoke-id>]`, bound to A's RAW
+  owner token (rf2-8nxsh). `spawn-all-init-fx` reaches this write only AFTER
+  its admission preflight has run application `[:schemas :data]` validators and
+  (on the reject path) fanned callback-bearing reject records — either of which
+  can synchronously destroy owner frame A and publish a same-id successor B on
+  its own stack. A bare-id `frame/swap-runtime-db!` resolves to the CURRENT
+  incarnation, so it would land A's join-state / reject sentinel on B (and bump
+  B's commit epoch), leaving B holding an IMPOSSIBLE join it never spawned.
+
+  With an event owner, route the write through `swap-runtime-db-exact!`: it
+  binds the install to A's own container, so a same-id B can never redirect it,
+  and on mid-write owner loss (a synchronous container watch that destroys A
+  during the physical install) it returns nil WITHOUT bumping B's epoch — B
+  stays byte-identical. Without an owner (a conformance / pure-fn caller with no
+  router event owner), fall back to the historical bare-id write; that path has
+  no incarnation to lose, symmetric with `continue?`'s `(constantly true)`.
+  Returns the new runtime-db slice, or nil on owner loss."
+  [frame-id owner-token parent-id invoke-id value]
+  (let [swap-fn #(assoc-in % (paths/spawned-path parent-id invoke-id) value)]
+    (if owner-token
+      (frame/swap-runtime-db-exact! frame-id owner-token swap-fn)
+      (frame/swap-runtime-db! frame-id swap-fn))))
+
 (defn spawn-all-init-fx
   "fx handler for `:rf.machine/spawn-all-init`. Per Spec 005
   §Spawn-and-join via `:spawn-all`, on entry to a `:spawn-all`-bearing
@@ -899,7 +924,20 @@
   Because the sentinel is childless, no actor is ever spawned to complete:
   a stray / forged `:on-child-done` hits `join.cljc`'s childless-slot
   guard and is a no-op (no deadlock), and `destroy-spawn-all-children!`
-  finds nothing to tear down and clears the sentinel on parent exit."
+  finds nothing to tear down and clears the sentinel on parent exit.
+
+  EXACT-INCARNATION FENCE (rf2-8nxsh). The preflight's `[:schemas :data]`
+  validators are application code, and the reject path fans callback-bearing
+  always-on records + dev traces; either can synchronously destroy owner frame
+  A and publish a same-id successor B on its own stack. Both durable writes —
+  the live join AND the reject sentinel — therefore ride A's raw owner token
+  through `write-spawned-slot!` (`swap-runtime-db-exact!`): a same-id B can
+  never redirect the write, and a mid-write container watch that loses A no-ops
+  it (nil return) without bumping B's epoch, so B stays byte-identical. `continue?`
+  is rechecked after the preflight (before either write) and between reject
+  emissions, and the `:rf.machine.spawn-all/started` trace fires only when the
+  join actually committed into A. A validator / listener that swaps A for B thus
+  lands no A-derived join, sentinel, or started trace on B."
   [{frame-id :frame} args]
   (let [;; EP-0002 carried invariant — the fx context carries the cascade
         ;; envelope frame; a nil stamp is an invariant failure
@@ -931,6 +969,18 @@
                           :cancelled #{}
                           :rf/attempt (next-join-attempt-token))
         continue?  (data-validation/owner-continuation frame-id)
+        ;; rf2-8nxsh — the RAW exact owner token (`continue?` closes over the
+        ;; same authority). The admission preflight below runs application
+        ;; `[:schemas :data]` validators (`schema-rejected-child?`), and the
+        ;; reject path fans callback-bearing always-on reject records + dev
+        ;; traces (`reject-unregistered-spawn!`): each is application / listener
+        ;; code that can synchronously destroy owner frame A and publish same-id
+        ;; successor B. Binding the durable join / reject-sentinel write to A's
+        ;; own token (`write-spawned-slot!` → `swap-runtime-db-exact!`) keeps B
+        ;; byte-identical even under a mid-write container watch; nil for a
+        ;; non-router caller falls back to the bare write, symmetric with
+        ;; `continue?`'s `(constantly true)`.
+        owner-token (frame/current-event-owner-token)
         ;; ---- The invoke-level admission preflight ------------------------
         ;; ONE decision, authoritative for EVERY fail-closed child-admission
         ;; condition, taken BEFORE a live join or ANY child side effect is
@@ -968,11 +1018,24 @@
       ;; already emitted its own `:rf.error/schema-validation-failure
       ;; :phase :spawn` as the preflight decided it. Both axes: exactly one
       ;; error per offending child, and no child effect runs at all.
-      (do (doseq [child unregistered]
-            (reject-unregistered-spawn! frame-id (:machine-id child)))
-          (frame/swap-runtime-db! frame-id assoc-in
-                                  (paths/spawned-path parent-id invoke-id)
-                                  spawn-all-reject-sentinel)
+      ;;
+      ;; rf2-8nxsh — every reject record + dev trace `reject-unregistered-spawn!`
+      ;; fans is callback-bearing (an always-on `:errors` listener can destroy A
+      ;; / publish same-id B), and the preflight's schema validators above may
+      ;; ALREADY have lost A. Fence between emissions on `(continue?)` so a
+      ;; listener that replaces A with B terminates the remaining rejects rather
+      ;; than attributing stale diagnostics to a dead frame / successor B; then
+      ;; seed the childless sentinel ONLY while A still owns, bound to A's raw
+      ;; token so a same-id B stays byte-identical (no A-derived sentinel lands
+      ;; on B). Under a live owner with no destroyer this is the historical
+      ;; behaviour: one reject per unregistered child, one sentinel seeded.
+      (do (loop [remaining unregistered]
+            (when (and (seq remaining) (continue?))
+              (reject-unregistered-spawn! frame-id (:machine-id (first remaining)))
+              (recur (rest remaining))))
+          (when (continue?)
+            (write-spawned-slot! frame-id owner-token parent-id invoke-id
+                                 spawn-all-reject-sentinel))
           nil)
       ;; The all-valid fast path. `join-state` already carries the opaque
       ;; per-attempt token (rf2-nvxehu) minted above: one LIVE seed = one join
@@ -982,14 +1045,26 @@
       ;; completion carrier to this exact attempt.
       ;;
       ;; Machine spawn-registry state is durable runtime-db state.
-      (do (frame/swap-runtime-db! frame-id assoc-in
-                                  (paths/spawned-path parent-id invoke-id) join-state)
-          (trace/emit! :rf.machine :rf.machine.spawn-all/started
-                       {;; The parent's live actor INSTANCE address;
-                        ;; `:invoke-id` is the declarative invocation path.
-                        :actor-id   parent-id
-                        :invoke-id  invoke-id
-                        :child-ids  (set (keys children))
-                        :children   children
-                        :frame      frame-id})
+      ;;
+      ;; rf2-8nxsh — the preflight's `[:schemas :data]` validators are
+      ;; application code that may have destroyed A / published same-id B even
+      ;; when every child CONFORMED (a conforming validator returning true still
+      ;; ran on A's stack). Seed the live join ONLY while A still owns and bind
+      ;; it to A's raw token: `write-spawned-slot!` no-ops (returns nil) when A
+      ;; is already gone AND when a mid-write watch loses A, so A's join-state
+      ;; can never land on B. The `:rf.machine.spawn-all/started` trace is
+      ;; framework-owned tail — fire it ONLY when the join actually committed
+      ;; into A (a nil return means B, or a dead frame, and gets no started
+      ;; trace).
+      (do (when (continue?)
+            (when (some? (write-spawned-slot! frame-id owner-token
+                                              parent-id invoke-id join-state))
+              (trace/emit! :rf.machine :rf.machine.spawn-all/started
+                           {;; The parent's live actor INSTANCE address;
+                            ;; `:invoke-id` is the declarative invocation path.
+                            :actor-id   parent-id
+                            :invoke-id  invoke-id
+                            :child-ids  (set (keys children))
+                            :children   children
+                            :frame      frame-id})))
           nil))))

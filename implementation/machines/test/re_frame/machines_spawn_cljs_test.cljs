@@ -27,14 +27,24 @@
   `[:rf.runtime/machines :spawned <parent> <invoke-id>]`."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
+            [re-frame.error-emit :as error-emit]
+            [re-frame.frame :as frame]
+            [re-frame.late-bind :as late-bind]
+            [re-frame.machines.lifecycle-fx.spawn :as spawn]
+            [re-frame.machines.paths :as paths]
+            [re-frame.machines.spawn-order :as spawn-order]
             ;; listener / buffer surface lives in re-frame.trace.tooling.
             [re-frame.trace.tooling :as trace-tooling]
             [re-frame.adapter.reagent :as reagent-adapter]
             [re-frame.machines.test-support :as mtest]))
 
+;; The always-on error-listener registry (a `defonce` atom) is cleared per test
+;; so an `:errors` listener from one test cannot leak into the next (the
+;; unregistered-rejection cardinality + incarnation-fence tests register them).
 (use-fixtures :each
   (mtest/make-reset-runtime-fixture
-    {:adapter reagent-adapter/adapter}))
+    {:adapter reagent-adapter/adapter
+     :init-fn (fn [] (error-emit/clear-error-listeners!))}))
 
 ;; snapshot lookup via the shared machines test-support — no hardcoded
 ;; `[:rf.runtime/machines :snapshots …]` path. The per-section
@@ -290,3 +300,258 @@
       (is (thrown-with-msg? js/Error
                             #"spawn-timeout-ms-removed"
                             (rf/reg-machine :rmv/bad-invoke-all bad))))))
+
+;; ===========================================================================
+;; rf2-plahy — CLJS exact-cardinality proof for UNREGISTERED spawn rejection.
+;;
+;; The production path is `.cljc`, but until now the exact N/order/sentinel
+;; coverage lived ONLY in the JVM `machine_spawn_unregistered_type_test.clj`;
+;; the CLJS surface merely mentioned the error in a setup comment. Host-specific
+;; error/trace wiring (the always-on `:errors` fan-out + the dev trace) could
+;; regress on the CLJS runtime while CI stayed green. These pin it on CLJS.
+;;
+;; Mutation tooth: restoring the OLD per-child gate order (the child-local
+;; `unregistered-spawn-type?` gate ahead of the invoke `spawn-all-invoke-rejected?`
+;; sentinel gate in `spawn-fx`) makes each offending child fan a SECOND reject
+;; from its own per-child fx — the cardinality doubles and these tests fail.
+;; ===========================================================================
+
+(defn- with-error-records
+  "Run `thunk` while a corpus-wide always-on `:errors` listener records every
+  fanned-out record; return the records filtered to the unregistered-type
+  category (the production-survivable axis). Always unregisters in a `finally`."
+  [thunk]
+  (let [seen (atom [])]
+    (rf/register-listener! :errors ::recorder (fn [r] (swap! seen conj r)))
+    (try
+      (thunk)
+      (filterv #(= :rf.error/machine-spawn-unregistered-type (:error %)) @seen)
+      (finally (rf/unregister-listener! :errors ::recorder)))))
+
+(defn- reject-trace-machine-ids
+  "The `:machine-id` of every unregistered-type reject the dev TRACE axis fanned
+  (DCE'd in production; the always-on axis is captured separately)."
+  [traces]
+  (mapv #(get-in % [:tags :machine-id])
+        (filterv #(= :rf.error/machine-spawn-unregistered-type (:operation %)) @traces)))
+
+(defn- spawn-all-parent
+  "A `:spawn-all :all` parent over `children`, for cardinality fixtures."
+  [children]
+  {:initial :idle
+   :states
+   {:idle    {:on {:start :forking}}
+    :forking {:spawn-all {:children        children
+                          :join            :all
+                          :on-child-done   :gc/done
+                          :on-child-error  :gc/failed
+                          :on-all-complete [:all/done]}
+              :on {:all/done :ready}}
+    :ready   {}}})
+
+(defn- runtime-db-value []
+  (:rf.db/runtime (rf/frame-state-value :rf/default)))
+
+(deftest spawn-all-multi-unregistered-exact-cardinality-cljs
+  (testing "a rejected :spawn-all with MULTIPLE missing child types + a registered
+            sibling fans EXACTLY ONE always-on record AND one dev trace per
+            offending id, seeds the childless sentinel, and runs NO child effect
+            (no snapshot / spawn-order / spawn trace for any child)"
+    (let [ok-child {:initial :running :data {} :states {:running {}}}
+          traces   (atom [])]
+      (rf/reg-machine :card/ok ok-child)
+      ;; :card/missing-a and :card/missing-b are NEVER reg-machine'd.
+      (rf/reg-machine :sup/card
+                      (spawn-all-parent [{:id :a  :machine-id :card/missing-a}
+                                         {:id :ok :machine-id :card/ok}
+                                         {:id :b  :machine-id :card/missing-b}]))
+      (trace-tooling/register-listener! ::card (fn [ev] (swap! traces conj ev)))
+      (let [records (with-error-records
+                      #(rf/dispatch-sync [:sup/card [:start]]))]
+        (trace-tooling/unregister-listener! ::card)
+        ;; TWO offending children ⇒ TWO always-on records — the OLD gate order
+        ;; produced FOUR (each offending child re-emitting from its per-child fx).
+        (is (= 2 (count records))
+            "exactly TWO always-on records — one per offending child, not four")
+        (is (= [:card/missing-a :card/missing-b]
+               (sort (mapv :machine-id records)))
+            "one record per offending machine-id — no duplicates, no sibling")
+        ;; The dev-trace axis carries the SAME cardinality (both channels fire).
+        (is (= [:card/missing-a :card/missing-b]
+               (sort (reject-trace-machine-ids traces)))
+            "exactly TWO dev traces — one per offending machine-id")
+        ;; A childless reject SENTINEL was seeded — no live join.
+        (is (= {:rf/spawn-all-rejected? true}
+               (get-in (runtime-db-value)
+                       [:rf.runtime/machines :spawned :sup/card [:forking]]))
+            "one childless reject sentinel (no :children) for the invoke")
+        ;; The registered sibling was SUPPRESSED — no child effect ran.
+        (is (nil? (get-in (runtime-db-value)
+                          [:rf.runtime/machines :snapshots :card/ok#1]))
+            "the registered sibling installs no snapshot under the rejected invoke")
+        (is (not (some #{:card/ok#1} (spawn-order/frame-order :rf/default)))
+            "the registered sibling records no spawn-order entry")
+        (is (not (some (fn [ev] (= :rf.machine.spawn/spawned (:operation ev)))
+                       @traces))
+            "no :rf.machine.spawn/spawned trace for ANY child of a rejected invoke")))))
+
+(deftest single-unregistered-spawn-exact-one-cljs
+  (testing "a standalone single :spawn of an UNREGISTERED :machine-id (no invoke
+            sentinel to hide behind) fans EXACTLY ONE always-on record + one dev
+            trace and installs nothing — the per-child gate still fails closed"
+    (let [parent {:initial :idle
+                  :states
+                  {:idle    {:on {:start :working}}
+                   :working {:spawn {:machine-id :ghost/worker
+                                     :system-id  :ghost-actor
+                                     :start      [:go]}}}}
+          traces (atom [])]
+      ;; :ghost/worker is NEVER reg-machine'd.
+      (rf/reg-machine :sup/ghost parent)
+      (trace-tooling/register-listener! ::ghost (fn [ev] (swap! traces conj ev)))
+      (let [records (with-error-records
+                      #(rf/dispatch-sync [:sup/ghost [:start]]))]
+        (trace-tooling/unregister-listener! ::ghost)
+        (is (= 1 (count records))
+            "exactly ONE always-on record for the standalone unregistered spawn")
+        (is (= :ghost/worker (:machine-id (first records)))
+            "the record names the unregistered TYPE")
+        (is (= [:ghost/worker] (reject-trace-machine-ids traces))
+            "exactly ONE dev trace for the standalone unregistered spawn")
+        ;; Nothing installed — no snapshot, no slot, no system-id, no spawn-order.
+        (is (nil? (get-in (runtime-db-value)
+                          [:rf.runtime/machines :snapshots :ghost/worker#1]))
+            "no snapshot installed for the rejected actor")
+        (is (nil? (get-in (runtime-db-value)
+                          [:rf.runtime/machines :spawned :sup/ghost [:working]]))
+            "no [:rf.runtime/machines :spawned …] slot for the rejected spawn")
+        (is (nil? (get-in (runtime-db-value)
+                          [:rf.runtime/machines :system-ids :ghost-actor]))
+            "no :system-id binding for the rejected spawn")
+        (is (not (some #{:ghost/worker#1} (spawn-order/frame-order :rf/default)))
+            "no spawn-order entry for the rejected actor")))))
+
+;; ===========================================================================
+;; rf2-8nxsh — CLJS incarnation fence for `spawn-all-init-fx`'s join / sentinel
+;; writes. Cross-host companion to the JVM
+;; `spawn_all_init_incarnation_fence_test.clj`: the production path is `.cljc`,
+;; so the fence logic is shared, but the schema-validator / trace / frame wiring
+;; is host-specific and must be pinned on the CLJS runtime too.
+;;
+;; `spawn-all-init-fx` is driven DIRECTLY under a bound event owner (A's token);
+;; the destroyer publishes same-id successor B on the callback's own stack.
+;; ===========================================================================
+
+(def ^:private fence-child-schema ::fence-child-schema)
+
+(defn- fence-init-args
+  "A faithful `[:rf.machine/spawn-all-init args]` payload over `children` (each
+  `{:child-id :machine-id :spawned-id :data?}`) — the join-state seed plus the
+  prepared per-child `:child-args` the admission preflight decides over."
+  [parent-id invoke-id children]
+  (let [child-arg (fn [{:keys [machine-id spawned-id child-id data]}]
+                    (cond-> {:machine-id            machine-id
+                             :id-prefix             machine-id
+                             :rf/spawned-id         spawned-id
+                             :rf/parent-id          parent-id
+                             :rf/spawn-all-id       invoke-id
+                             :rf/spawn-all-child-id child-id}
+                      (some? data) (assoc :data data)))]
+    {:rf/parent-id parent-id
+     :rf/invoke-id invoke-id
+     :join-state   {:children  (into {} (map (juxt :child-id :spawned-id)) children)
+                    :done      #{} :failed #{} :resolved? false
+                    :spec      {:join :all :on-child-done :sa/done
+                                :on-child-error :sa/failed :on-all-complete [:all/done]}
+                    :invoke-id invoke-id}
+     :child-args   (mapv child-arg children)}))
+
+(deftest spawn-all-init-conforming-validator-loss-fences-live-join-cljs
+  (testing "a CONFORMING [:schemas :data] validator that destroys A + publishes
+            same-id B during the preflight: the all-valid join write no-ops
+            (bound to A's raw token), so B holds no A-derived live join and gets
+            no started trace"
+    (rf/reg-machine :fence/strict {:initial :running :data {:n 1}
+                                   :schemas {:data fence-child-schema}
+                                   :states  {:running {}}})
+    (let [frame-a   :rf2-8nxsh/accept-cljs
+          parent-id :par/a
+          invoke-id [:forking]
+          fired?    (atom false)
+          b-birth   (atom nil)
+          orig      (late-bind/get-fn :schemas/validate-with-registered-fn)]
+      (rf/make-frame {:id frame-a})
+      (let [token-a (frame/frame-incarnation-token frame-a)
+            started (atom [])]
+        (trace-tooling/register-listener!
+          ::accept (fn [ev] (when (= :rf.machine.spawn-all/started (:operation ev))
+                              (swap! started conj ev))))
+        (try
+          (late-bind/set-fn! :schemas/validate-with-registered-fn
+            (fn [schema _data]
+              (when (= schema fence-child-schema)
+                (when (compare-and-set! fired? false true)
+                  (frame/destroy-frame! frame-a)   ;; destroy A
+                  (rf/make-frame {:id frame-a})      ;; publish same-id B
+                  (reset! b-birth (mtest/runtime-db frame-a))))
+              true))                                  ;; conform verdict
+          (frame/call-with-event-owner-token frame-a token-a
+            (fn [] (spawn/spawn-all-init-fx
+                     {:frame frame-a}
+                     (fence-init-args parent-id invoke-id
+                                      [{:child-id :bad :machine-id :fence/strict
+                                        :spawned-id :fence/strict#1 :data {:n 1}}]))))
+          (is (true? @fired?) "the conforming validator ran (fence exercised)")
+          (is (nil? (get-in (mtest/runtime-db frame-a)
+                            (paths/spawned-path parent-id invoke-id)))
+              "no A-derived live join landed on same-id successor B")
+          (is (= @b-birth (mtest/runtime-db frame-a))
+              "B's runtime-db is byte-identical to its birth value")
+          (is (empty? @started)
+              "no :rf.machine.spawn-all/started trace fired against B")
+          (finally
+            (trace-tooling/unregister-listener! ::accept)
+            (late-bind/set-fn! :schemas/validate-with-registered-fn orig)))))))
+
+(deftest spawn-all-init-reject-listener-loss-fences-sentinel-cljs
+  (testing "an unregistered child fans a reject record; an :errors LISTENER on
+            that record destroys A + publishes same-id B. Ownership is rechecked
+            and the sentinel write rides A's raw token, so no reject sentinel
+            lands on B"
+    (rf/reg-machine :fence/ok {:initial :running :data {} :states {:running {}}})
+    ;; :fence/missing is NEVER reg-machine'd.
+    (let [frame-a   :rf2-8nxsh/reject-cljs
+          parent-id :par/a
+          invoke-id [:forking]
+          fired?    (atom false)
+          records   (atom [])
+          b-birth   (atom nil)]
+      (rf/make-frame {:id frame-a})
+      (let [token-a (frame/frame-incarnation-token frame-a)]
+        (rf/register-listener! :errors ::rej
+          (fn [r]
+            (when (= :rf.error/machine-spawn-unregistered-type (:error r))
+              (swap! records conj r)
+              (when (compare-and-set! fired? false true)
+                (frame/destroy-frame! frame-a)   ;; destroy A on the record's stack
+                (rf/make-frame {:id frame-a})      ;; publish same-id B
+                (reset! b-birth (mtest/runtime-db frame-a))))))
+        (try
+          (frame/call-with-event-owner-token frame-a token-a
+            (fn [] (spawn/spawn-all-init-fx
+                     {:frame frame-a}
+                     (fence-init-args parent-id invoke-id
+                                      [{:child-id :ok      :machine-id :fence/ok
+                                        :spawned-id :fence/ok#1}
+                                       {:child-id :missing :machine-id :fence/missing
+                                        :spawned-id :fence/missing#1}]))))
+          (is (true? @fired?) "the reject-record listener ran (fence exercised)")
+          (is (= 1 (count @records))
+              "the reject record fired once (it precedes the loss)")
+          (is (nil? (get-in (mtest/runtime-db frame-a)
+                            (paths/spawned-path parent-id invoke-id)))
+              "no reject sentinel landed on same-id successor B")
+          (is (= @b-birth (mtest/runtime-db frame-a))
+              "B's runtime-db is byte-identical to its birth value")
+          (finally
+            (rf/unregister-listener! :errors ::rej)))))))
