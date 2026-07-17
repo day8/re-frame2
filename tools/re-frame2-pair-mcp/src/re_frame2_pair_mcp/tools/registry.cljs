@@ -23,6 +23,7 @@
             [re-frame2-pair-mcp.tools.orient :as orient]
             [re-frame2-pair-mcp.tools.read-dom :as read-dom]
             [re-frame2-pair-mcp.tools.read-ui :as read-ui]
+            [re-frame2-pair-mcp.tools.view-tool :as view-tool]
             [re-frame2-pair-mcp.tools.record :as record]
             [re-frame2-pair-mcp.tools.watch-until :as watch-until]
             [re-frame2-pair-mcp.tools.subscribe :as subscribe]
@@ -126,6 +127,32 @@
     ;; mutation, so a cache keyed on app-db would serve stale render reads.
     :cacheable? false
     :descriptor data/read-ui}
+   ;; The five read-only re-frame.ui.tool projections (rf2-vxgfnd.95.8) — the S3
+   ;; compiled-view evidence a pairing agent reads from a running app. NOT
+   ;; cacheable: the manifest can move on an HMR body swap and the render
+   ;; evidence moves with every render — neither bumps the app-db precheck hash
+   ;; the cache keys on, so a cache would serve stale view reads (the read-ui /
+   ;; read-dom posture).
+   {:name       "read-view-manifest"
+    :handler    (ignoring-extra #(view-tool/read-view-manifest-tool %1 %2))
+    :cacheable? false
+    :descriptor data/read-view-manifest}
+   {:name       "read-view-dependencies"
+    :handler    (ignoring-extra #(view-tool/read-view-dependencies-tool %1 %2))
+    :cacheable? false
+    :descriptor data/read-view-dependencies}
+   {:name       "read-view-event-sites"
+    :handler    (ignoring-extra #(view-tool/read-view-event-sites-tool %1 %2))
+    :cacheable? false
+    :descriptor data/read-view-event-sites}
+   {:name       "read-mounted-views"
+    :handler    (ignoring-extra #(view-tool/read-mounted-views-tool %1 %2))
+    :cacheable? false
+    :descriptor data/read-mounted-views}
+   {:name       "explain-render"
+    :handler    (ignoring-extra #(view-tool/explain-render-tool %1 %2))
+    :cacheable? false
+    :descriptor data/explain-render}
    {:name       "record"
     :handler    (ignoring-extra #(record/record-tool %1 %2))
     ;; Installs a live recorder on the runtime (mints a recording-id, runs

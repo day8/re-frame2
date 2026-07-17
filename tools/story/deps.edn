@@ -53,6 +53,19 @@
  :aliases
  {:test {:extra-paths ["test"]
          :extra-deps  {day8/re-frame2-test-quiet {:local/root "../../implementation/test-quiet"}
+                       ;; The S3 view-tool consumer (rf2-vxgfnd.95.8) reads the
+                       ;; compiled-view tool tier (`re-frame.ui.tool`) + renders
+                       ;; the JVM structural tree (`re-frame.ui.test/render`),
+                       ;; both in `day8/re-frame2-ui`. TEST-ONLY: that artefact
+                       ;; is PRE-PUBLICATION (no :clein deploy — see its
+                       ;; deps.edn), so Story's published jar must NOT depend on
+                       ;; it; the consumer + its fixtures live under the `:test`
+                       ;; alias. The top-level `:node-test` build already carries
+                       ;; `ui/src` on its source-paths, so `npm run test:cljs`
+                       ;; resolves the same reads without this entry; this gives
+                       ;; the JVM `clojure -M:test` gate the same classpath.
+                       ;; ui depends only on core (already present) — no cycle.
+                       day8/re-frame2-ui         {:local/root "../../implementation/ui"}
                        ;; Two test-only consumers need the live epoch surface
                        ;; on the JVM classpath:
                        ;;   • the invariant-sentinel fixture

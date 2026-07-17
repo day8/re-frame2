@@ -2540,6 +2540,183 @@ malformed CSS selector;
 `:reason :rf.error/read-ui-failed` (with `:message`) on any other
 failure.
 
+## The compiled-view tool tier — read-view-manifest / read-view-dependencies / read-view-event-sites / read-mounted-views / explain-render
+
+Five read-only projections (rf2-vxgfnd.95.8) of the **compiled-view
+tool tier** (`re-frame.ui.tool`, framework rf2-vxgfnd.95.6) — the same
+S3 view evidence Xray and Story read, exposed from a **running**
+re-frame2 app so a pairing agent inspects a compiled view WITHOUT
+reaching a private React / lease / scheduler handle. Each projection is
+**versioned** (stamps `:rf.ui.tool/version`), **deterministic**,
+**serializable**, and egresses only bounded plain data — no `ViewCell`,
+lease, or React object crosses the wire.
+
+| MCP wire tool             | `re-frame.ui.tool` projection | arg        |
+|---------------------------|-------------------------------|------------|
+| `read-view-manifest`      | `view-manifest`               | `view-id`  |
+| `read-view-dependencies`  | `view-dependencies`           | `view-id`  |
+| `read-view-event-sites`   | `view-event-sites`            | `view-id`  |
+| `read-mounted-views`      | `mounted-views`               | —          |
+| `explain-render`          | `explain-render`              | `view-id?` |
+
+The wire names carry a [`NAMING.md`](../../NAMING.md)-conformant verb
+prefix (`read-` / `explain-`); the framework fn names (`view-manifest`,
+…) do not, so the four manifest reads take the `read-<thing>` idiom
+`read-ui` / `read-dom` / `read-sub` already use.
+
+### Tier presence — direct eval, no preload coupling
+
+Unlike the `read-ui` / `read-dom` wrapper pattern, these tools **do not**
+route through a `re-frame2-pair.runtime` fn. `re-frame.ui.tool` lives in
+`day8/re-frame2-ui` — the **optional** compiled-view substrate; a
+re-frame2 app built on plain Reagent never has it on its classpath, so
+requiring it in the generic preload would make the preload uncompilable
+there. Each tool instead evals a self-contained form guarded by
+`cljs.core/exists?`: the projection is called only when the tier is
+present, and its absence is surfaced **honestly** as `:reason
+:view-tier-unavailable` — the S3 "tolerate absent evidence explicitly"
+discipline, not a fabricated emptiness. The tier is present whenever
+Xray is active, or when the app itself loads `re-frame.ui.tool`.
+
+### Absent / older evidence (S3 tolerance)
+
+Each guarded form resolves to one of:
+
+- `{:ok? true …projection…}` — the projection, `:rf.ui.tool/version`
+  stamped, forwarded verbatim. The agent reads the version and
+  **reconciles** if it differs from what it expects (the tier's
+  versioned-degrade contract);
+- `{:ok? false :reason :view-tier-unavailable}` — `re-frame.ui.tool`
+  is not loaded (the optional substrate is absent);
+- `{:ok? false :reason :view-not-available :view-id …}` — no compiled
+  view is registered under that id (a nil manifest);
+- `{:ok? false :reason :view-tier-inactive}` — a production build
+  nil-gates the whole tier;
+- `{:ok? false :reason :view-tier-error :message …}` — the projection
+  threw.
+
+Every `:ok? false` rides `isError:true` (the universal §"Every `:ok?
+false` response is `isError: true`" contract), so a degraded read is
+never cached and never masquerades as a successful empty answer. The
+`view-id`-taking reads also short-circuit `{:ok? false :reason
+:missing-view-id}` **before any nREPL round-trip** when `:view-id` is
+absent.
+
+### Sensitive-data projection
+
+These reads project a view's compiler **manifest** + render **evidence**
+(structure, declared sites, occurrence / cause / loss counts, authored
+event vectors) — **not app-db values**. They carry no app-db-classified
+slot, so — like the registrar reads `handler-meta` / `list-handlers` —
+they need no elision / sensitive walker: the "normal projection" for a
+non-app-db read is verbatim bounded data. An authored event vector shows
+its id + literal args exactly as `handler-meta` surfaces a handler's
+source coordinate.
+
+### read-view-manifest
+
+The versioned public projection of a compiled view's **manifest** — what
+CAN happen, useful **before** mount. Requires `:view-id` (the compiled
+view's registry id, colon-tolerant string / keyword). Returns the
+view's `:source` coord, per-prop `:props` docs/defaults/schema (the
+single source of truth for a view's args — replaces a parallel
+args-description system), declared render-slot + interop sites,
+capability bits, template / hook fingerprints, and per-kind
+`:site-counts`. Read-only, versioned.
+
+```clojure
+;; read-view-manifest {:view-id ":my.app/counter"}
+{:ok? true :rf.ui.tool/version 1 :view-id :my.app/counter
+ :doc "..." :source {...}
+ :props [{:key :label :doc "..." :schema :string}]
+ :site-counts {:subs 2 :events 1 :leases 0 ...}}
+```
+
+### read-view-dependencies
+
+The reactive dependency **sites** (subscriptions + leases) a compiled
+view declares, with literal-vs-`:dynamic` query-shape honesty: a
+fully-literal query is projected verbatim (`:dynamic? false`); a query
+carrying a captured local is `:dynamic? true` (its literal `:query-id`
+is still shown — the runtime argument is not fabricated). Read from the
+manifest, so available before mount. Requires `:view-id`.
+
+```clojure
+;; read-view-dependencies {:view-id ":my.app/row"}
+{:ok? true :rf.ui.tool/version 1 :view-id :my.app/row
+ :subscriptions [{:query [:total] :dynamic? false}
+                 {:query-id :item :dynamic? true}]
+ :leases []}
+```
+
+### read-view-event-sites
+
+The event-handler **sites** a compiled view declares (its `:on-*`
+handlers), each classified for honesty: a `:literal` event vector and a
+`:normalized` options-map event vector both carry their inspectable
+`:handler` event vector; a `ui/event`, `ui/handler`, bare fn, or dynamic
+expression is `:dynamic` with `:handler :opaque` — the tier never claims
+a raw callback's internals are inspectable. `:serializable?` and
+`:sync?` (the controlled-input synchronous door) ride each site.
+Requires `:view-id`.
+
+```clojure
+;; read-view-event-sites {:view-id ":my.app/form"}
+{:ok? true :rf.ui.tool/version 1 :view-id :my.app/form
+ :handlers [{:prop :on-click :site-kind :literal :handler [:submit] :serializable? true}
+            {:prop :on-input :site-kind :dynamic :handler :opaque :serializable? false :sync? true}]}
+```
+
+### read-mounted-views
+
+The committed **connected-instance** records for every compiled-view
+incarnation the evidence tier currently retains — no arg (spans every
+retained incarnation). Per incarnation: an `:occurrence` identity (a
+stable ordinal distinguishing two instances of one view), the owning
+root, the live `:connection` state, honest hide-vs-unmount `:lifecycle`
+labels (`:disconnected {:reason :unknown}` stays unknown until the
+runtime **proves** `:activity-hidden` or `:unmounted` — never
+fabricated), and the bounded render `:evidence`. An empty-but-versioned
+`{:views []}` when no evidence tool is installed — **never** a fabricated
+instance.
+
+This is the **hot-swap** read. There is no new reload protocol: a
+pairing agent edits a compiled view, lets shadow-cljs recompile over its
+normal watch (the existing [`tail-build`](#tail-build) HMR path), and
+re-reads `read-mounted-views` — a **compatible** body swap retains the
+occurrence (the identity + lifecycle log survive), an **incompatible**
+change remounts it (a fresh occurrence). The retention-vs-remount
+evidence the tier already records.
+
+```clojure
+;; read-mounted-views {}
+{:ok? true :rf.ui.tool/version 1
+ :views [{:occurrence 3 :view-id :my.app/row :connection :connected
+          :lifecycle {:intervals [] :dropped 0 :exact? true}
+          :evidence {...}}]}
+```
+
+### explain-render
+
+Why did a compiled view's live incarnations render? Per occurrence: the
+bounded render `:causes` (`:value` / `:hmr` / `:disposed`), occurrence +
+batch counters, first/latest movement epochs, the moving observation
+targets, and **explicit loss accounting** — `:observations
+{:identity-exact? bool}` (did the SHOWN targets keep exact identity) and
+`:loss {:dropped N :exact? bool}` (how many DISTINCT targets were omitted
+past the shown cap; a count is a completeness claim only when
+`:exact?`). Optional `:view-id` narrows to one view; omitted, every
+retained incarnation. An empty-but-versioned `{:occurrences []}` with no
+evidence.
+
+```clojure
+;; explain-render {:view-id ":my.app/row"}
+{:ok? true :rf.ui.tool/version 1 :view-id :my.app/row
+ :occurrences [{:occurrence 3 :causes #{:value} :render-count 4
+                :observations {:identity-exact? true}
+                :loss {:dropped 0 :exact? true}}]}
+```
+
 ## record
 
 First-class **signal recorder** (rf2-zo4b9) — the canonical move for
