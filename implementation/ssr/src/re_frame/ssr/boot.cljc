@@ -168,8 +168,12 @@
                  `:render-tree-fn` the host supplies: a 0-arity fn
                  returning the CLIENT render-tree to hash (typically
                  `#((rf/view :app/root))`). `hydrate!` calls it
-                 SYNCHRONOUSLY, immediately after `:rf/hydrate` and BEFORE
-                 the host's own render — see the ns docstring §The verify
+                 SYNCHRONOUSLY, immediately after `:rf/hydrate`, BEFORE
+                 the host's own render, and UNDER the target frame's scope —
+                 so the documented `((rf/view :app/root))` idiom, whose view
+                 derefs a frame-scoped `subscribe`, resolves the frame the
+                 same way the server render does inside `(with-frame f …)`.
+                 See the ns docstring §The verify
                  contract for why hashing the pure client tree pre-mount is
                  equivalent to hashing the mounted tree (a re-frame2 view is
                  a pure fn of the just-hydrated app-db). The helper does not
@@ -202,9 +206,12 @@
                       on the JVM it is required (no DOM to read from).
     :render-tree-fn — (optional) a 0-arity fn returning the client
                       render-tree to hash for mismatch detection. Called
-                      ONCE, SYNCHRONOUSLY, immediately after `:rf/hydrate`
-                      and before the host's own render (a pure client-tree
-                      computation — see step 3). Omit to skip verification.
+                      ONCE, SYNCHRONOUSLY, immediately after `:rf/hydrate`,
+                      before the host's own render, and UNDER the `:frame`
+                      scope (so a fn that calls a frame-scoped subscribing
+                      view — the `((rf/view :app/root))` idiom — resolves;
+                      a pure client-tree computation — see step 3). Omit to
+                      skip verification.
     :element-id     — (CLJS, optional) override the payload `<script>` id
                       to read when `:payload` is omitted. Default the
                       pinned `__rf_payload`.
@@ -220,7 +227,9 @@
            (rf/init! reagent-adapter/adapter)
            ;; hydrate! seeds app-db AND verifies synchronously (computing
            ;; the client tree via render-tree-fn) BEFORE the host mounts.
-           ;; The hydration target is supplied explicitly via `:frame`.
+           ;; The hydration target is supplied explicitly via `:frame`, and
+           ;; hydrate! calls render-tree-fn UNDER that frame's scope — so the
+           ;; view's `subscribe` resolves without a manual `with-frame` wrap.
            (let [payload (ssr/hydrate! {:frame          :app/main
                                         :render-tree-fn #((rf/view :app/root))})]
              (rdc/render react-root
@@ -269,6 +278,18 @@
       (router/dispatch-sync! [:rf/hydrate payload] {:frame frame})
       ;; HOT PATH — post-render hash-mismatch detection. Symmetric with
       ;; the server's `:emit-hash?`-stamped `data-rf-render-hash` marker.
+      ;;
+      ;; Call `render-tree-fn` UNDER the target frame's scope (rf2-0vk7b). The
+      ;; documented idiom `(fn [] ((rf/view :app/root)))` computes the client
+      ;; tree by CALLING a registered view, whose reg-view-injected `subscribe`
+      ;; resolves the ambient frame via the carried invariant. `hydrate!` already
+      ;; resolved `frame` and dispatched `:rf/hydrate` into it, so — mirroring
+      ;; the server render, which wraps `((rf/view :app/root))` in
+      ;; `(with-frame f …)` — it pins that same frame here. Without the pin the
+      ;; view's `subscribe` runs under no scope and raises
+      ;; `:rf.error/no-frame-context`, aborting client boot. `bind-fn` re-binds
+      ;; `*current-frame*` for the one call; a `render-tree-fn` that establishes
+      ;; its own scope (or ignores it — a plain-hiccup fn) is unaffected.
       (when render-tree-fn
-        (hydrate/verify-hydration! frame (render-tree-fn))))
+        (hydrate/verify-hydration! frame ((frame/bind-fn frame render-tree-fn)))))
     payload))
