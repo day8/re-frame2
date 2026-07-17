@@ -122,6 +122,42 @@ for (const forbidden of ['dropped-exact', 'invalidation-evidence projection']) {
 }
 
 /*
+ * rf2-vxgfnd.95.6 — the DEV-ONLY re-frame.ui.tool projection tier (the five
+ * frozen projections: view-manifest / mounted-views / explain-render /
+ * view-dependencies / view-event-sites).
+ *
+ * The elision companion (tool_view_elision_prod_test) requires re-frame.ui.tool
+ * into this SAME bundle and CALLS every projection, so these are positive proofs
+ * of BODY-erasure: the facade vars survive (they are called) while their
+ * debug-gated projection SHAPES do not. Source positive controls first — the
+ * projection-shape keyword strings still name the gated bodies in source.
+ */
+const TOOL_FACADE_SOURCE = path.join(ROOT, 'ui', 'src', 're_frame', 'ui',
+                                     'tool.cljc');
+const toolFacadeSource = fs.readFileSync(TOOL_FACADE_SOURCE, 'utf8');
+for (const expected of ['identity-exact', 'site-counts']) {
+  if (!toolFacadeSource.includes(expected)) {
+    fail(`tool-facade source positive-control sentinel is absent: ${expected}`);
+  }
+}
+
+const TOOL_VIEW_PROD_TEST = path.join(ROOT, 'ui', 'test', 're_frame', 'ui',
+                                      'tool_view_elision_prod_test.cljs');
+const toolViewProdTest = fs.readFileSync(TOOL_VIEW_PROD_TEST, 'utf8');
+const TOOL_PROJECTIONS_CONTROL = 'rf-ui-tool-projections-inert-v1';
+if (!toolViewProdTest.includes(TOOL_PROJECTIONS_CONTROL)) {
+  fail(`tool-facade inert-projection control is absent from its test: ${TOOL_PROJECTIONS_CONTROL}`);
+}
+if (!bundle.includes(TOOL_PROJECTIONS_CONTROL)) {
+  fail('tool-facade inert-projection assertion was omitted from advanced bundle');
+}
+for (const forbidden of ['identity-exact', 'site-counts']) {
+  if (bundle.includes(forbidden)) {
+    fail(`re-frame.ui.tool projection shape survived advanced output: ${forbidden}`);
+  }
+}
+
+/*
  * rf2-vxgfnd.94.8 — REAL compiled mutation control. A second advanced build
  * flips a private goog-define which roots an unrelatedly named atom/reset path
  * inside re-frame.ui.tool.evidence. The same production test must turn red on

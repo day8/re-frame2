@@ -90,6 +90,14 @@
 (def ^:private ^:const target-node-cap 128)
 (def ^:private ^:const target-string-cap 256)
 
+(def ^:private ^:const interval-cap
+  ;; Most-recent lifecycle intervals projected per incarnation (rf2-vxgfnd.95.6).
+  ;; A hide/reveal or teardown cycle appends one interval; a long-lived Activity
+  ;; cell could accrete many, so the connected-instance record projects a bounded
+  ;; TAIL and reports older ones as a `:dropped` count — the lifecycle axis of the
+  ;; same honest-loss discipline the per-cell target account uses.
+  16)
+
 (def ^:private dynamic-marker {:rf.ui.evidence/opaque :dynamic})
 (def ^:private bounded-marker {:rf.ui.evidence/opaque :bounded})
 
@@ -893,4 +901,78 @@
                    :root-id  (get roots (reactive/cell-root cell))
                    :evidence evidence}))
            (sort-by :cell-id)
+           (into [])))))
+
+;; ---- connected-instance records (S3 — lifecycle-aware) -----------------------
+;;
+;; The S3 tool tier (`re-frame.ui.tool`) needs the SAME retained incarnations the
+;; `projection` read exposes, plus the cell's live CONNECTION state and its
+;; lifecycle-fact log. Those live on the ViewCell (03 §4). Projecting them HERE —
+;; where the engine already holds the cell behind its non-owning weak key — keeps
+;; the public facade handle-free: only the ordinal, the authoring view id, and
+;; bounded serializable data ever egress. No ViewCell, lease, or React object.
+
+(def ^:private lifecycle-interval-keys
+  ;; The serializable lifecycle-fact keys (03 §4). `:state` is the EMITTED runtime
+  ;; fact; `:reason`/`:proof` are the qualified RETROACTIVE annotation — an
+  ;; explicit INFERENCE label (`:unknown` until the runtime PROVES `:activity-hidden`
+  ;; via a settled reconnect or `:unmounted` via host/root teardown). This tier
+  ;; passes them through VERBATIM and never fabricates a hide/unmount claim the
+  ;; runtime did not record.
+  [:state :reason :proof])
+
+(defn- project-lifecycle
+  "Project a cell's interval log into a BOUNDED, serializable lifecycle
+  annotation: the most-recent `interval-cap` intervals (each reduced to the
+  `:state`/`:reason`/`:proof` label keys — all keywords, never a handle) plus an
+  honest `:dropped` count of older intervals omitted and an `:exact?` flag. The
+  hide-vs-unmount labels are copied through as the runtime recorded them; the
+  projection never upgrades an `:unknown` disconnect to a fabricated hide/unmount."
+  [ivs]
+  (let [ivs     (vec ivs)
+        n       (count ivs)
+        dropped (max 0 (- n interval-cap))
+        shown   (if (pos? dropped) (subvec ivs dropped) ivs)]
+    {:intervals (mapv #(select-keys % lifecycle-interval-keys) shown)
+     :dropped   dropped
+     :exact?    (zero? dropped)}))
+
+(defn instance-records
+  "Per-incarnation CONNECTED-INSTANCE records (tool read) — the S3
+  lifecycle-aware sibling of `projection`. Each retained committed incarnation
+  projects to
+
+    {:occurrence ord      ; stable per-incarnation ordinal (occurrence identity)
+     :view-id    vid       ; the authoring view (defview identity)
+     :root-id    rid|nil   ; the owning LIVE client root (nil under no live root)
+     :connection state     ; the cell's LIVE runtime lifecycle keyword
+                           ;   (:connected / :disconnected — dead cells are pruned)
+     :lifecycle  {:intervals [...] :dropped n :exact? b}
+                           ; bounded serializable lifecycle-fact log + honest
+                           ;   hide-vs-unmount labels (never fabricated)
+     :evidence   accrual}  ; the bounded cumulative render evidence (`projection`)
+
+  Records represent COMMITTED CONNECTED incarnations only — a speculative render
+  never enrols, so nothing here is fabricated. A currently-connected cell reads
+  `:connection :connected`; an Activity-hidden cell the tool deliberately retains
+  reads `:connection :disconnected` and carries the honest hide-vs-unmount
+  interval labels (rf2-un54gv / 03 §4). No ViewCell, lease, or React object
+  egresses — only the ordinal, the view id, and bounded serializable data. nil in
+  a production build, where the debug evidence plane is elided."
+  []
+  (when interop/debug-enabled?
+    (let [entries (transition!
+                   (fn []
+                     (let [s (swap! state* normalize-state)]
+                       (store-live-entries! (:entries s)))))
+          roots   (root-id-index)]
+      (->> entries
+           (map (fn [[cell {:keys [cell-id view-id evidence]}]]
+                  {:occurrence cell-id
+                   :view-id    view-id
+                   :root-id    (get roots (reactive/cell-root cell))
+                   :connection (reactive/lifecycle cell)
+                   :lifecycle  (project-lifecycle (reactive/intervals cell))
+                   :evidence   evidence}))
+           (sort-by :occurrence)
            (into [])))))
