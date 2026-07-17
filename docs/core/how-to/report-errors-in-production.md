@@ -187,7 +187,7 @@ Notice where the throwables live: **inside** the `:hook-failures` vector, one pe
           (Sentry/captureMessage (str (:error record)) ctx))))))
 ```
 
-(`mapv` walks `:hook-failures` and builds a new vector — one summary map per failed hook. `some->` guards against a missing `:exception`: it calls `ex-message` only when the exception is non-`nil`, returning `nil` instead of crashing otherwise.) Each `:hook-failures` entry names the cleanup hook that threw (`:hook`), carries *that hook's* throwable (`:exception`), and stamps `:where :safe-call-hook!` for provenance. Teardown stays best-effort by design — there's no slot here you act on; the disposition is a fixed property of the category.
+(`mapv` walks `:hook-failures` and builds a new vector — one summary map per failed hook. `some->` guards against a missing `:exception`: it calls `ex-message` only when the exception is non-`nil`, returning `nil` instead of crashing otherwise.) Each `:hook-failures` entry names the teardown step that threw (`:hook` — a late-bound cleanup-hook key, or a guarded direct step such as `:frame/notify-machine-destruction!`), carries *that step's* throwable (`:exception`), and stamps `:where` with the catch boundary that recorded it (`:safe-call-hook!` for a late-bound hook, `:safe-teardown-step!` for a guarded direct step) for provenance. Teardown stays best-effort by design — there's no slot here you act on; the disposition is a fixed property of the category.
 
 !!! note "Why a single bounded report?"
 
