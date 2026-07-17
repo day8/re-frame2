@@ -127,6 +127,77 @@
            (html/attr-string {(keyword "onClick=alert(1) data-x") "v"
                               :id "x"})))))
 
+(deftest attr-string-serialises-style-map
+  (testing "rf2-l6h6a — a map-valued `:style` serialises to a CSS declaration
+            string (matching react-dom/server's `pushStyleAttribute`), NOT the
+            EDN print of the map. Before the fix `{:margin \"0 1em\"}` rendered
+            the literal `style=\"{:margin &quot;0 1em&quot;}\"`, and React 19
+            logged a hydration attribute mismatch on every SSR app's first load."
+    (testing "the reported repro: a single string-valued declaration"
+      (is (= " style=\"margin:0 1em\""
+             (html/attr-string {:style {:margin "0 1em"}})))
+      (is (not (str/includes? (html/attr-string {:style {:margin "0 1em"}})
+                              "{:margin"))
+          "the raw EDN map text must never reach the wire"))
+
+    (testing "camelCase property names → kebab CSS names (React's rule)"
+      (is (= " style=\"margin-top:4px\""
+             (html/attr-string {:style {:marginTop "4px"}}))))
+
+    (testing "an already-kebab property name is unchanged"
+      (is (= " style=\"background-color:red\""
+             (html/attr-string {:style {:background-color "red"}}))))
+
+    (testing "a keyword value renders bare (its name)"
+      (is (= " style=\"display:flex\""
+             (html/attr-string {:style {:display :flex}}))))
+
+    (testing "a numeric value on a non-unitless property gets a px suffix"
+      (is (= " style=\"width:10px\""
+             (html/attr-string {:style {:width 10}}))))
+
+    (testing "a numeric value of 0 is bare (no px)"
+      (is (= " style=\"margin:0\""
+             (html/attr-string {:style {:margin 0}}))))
+
+    (testing "a numeric value on a unitless property is bare (no px)"
+      (is (= " style=\"flex-grow:1\""
+             (html/attr-string {:style {:flex-grow 1}})))
+      (is (= " style=\"z-index:100\""
+             (html/attr-string {:style {:z-index 100}}))))
+
+    (testing "nil / boolean / empty-string entries are omitted entirely"
+      (is (= " style=\"color:red\""
+             (html/attr-string {:style {:color "red" :top nil
+                                        :bottom false :left ""}}))))
+
+    (testing "CSS custom properties (--foo) pass through verbatim, no px"
+      (is (= " style=\"--gap:8\""
+             (html/attr-string {:style {:--gap 8}}))))
+
+    (testing "the CSS string is attribute-escaped (double-quote in a value)"
+      (is (= " style=\"font-family:&quot;My Font&quot;, sans-serif\""
+             (html/attr-string {:style {:font-family "\"My Font\", sans-serif"}}))))
+
+    (testing "a STRING :style value is already CSS and rides through untouched"
+      (is (= " style=\"margin:0 1em\""
+             (html/attr-string {:style "margin:0 1em"}))))
+
+    (testing "multiple declarations join with `;` in map order"
+      (is (= " style=\"margin:0;padding:4px\""
+             (html/attr-string {:style (array-map :margin 0 :padding "4px")}))))))
+
+(deftest render-to-string-serialises-style-map-through-full-emit
+  (testing "rf2-l6h6a — the style-map → CSS serialisation survives the FULL
+            `render-to-string` emit composition (not just `attr-string` in
+            isolation), so the wire markup for a `:style` map is CSS and the
+            server/client render agree (no hydration attribute mismatch)."
+    (let [html-out (emit/render-to-string
+                     [:div {:style {:margin "0 1em" :color :red}} "hi"] {})]
+      (is (= "<div style=\"margin:0 1em;color:red\">hi</div>" html-out))
+      (is (not (str/includes? html-out "{:margin"))
+          "no raw EDN map text on the wire — the hydration-mismatch defect is gone"))))
+
 (deftest render-to-string-strips-lowercase-handlers-end-to-end
   (testing "rf2-1uex4 — the canonical lowercase `on*` payload an attacker
             splats into `:custom-attrs` does NOT survive through the public
