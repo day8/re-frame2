@@ -108,7 +108,14 @@
     (for [[bb bk] bes]
       (if (contains? explicit bb)
         {:local-pattern bb :key bk :explicit? true}
-        {:local-pattern (symbol (name bb)) :key bk :explicit? false}))))
+        ;; Reconstruct the group local exactly as the host does — name-stripped
+        ;; (`{:keys [acct/id]}` binds `id`), but carrying the AUTHORED symbol's
+        ;; metadata (`(with-meta (symbol nil (name bb)) (meta bb))`), so a `^js`
+        ;; or other portable type hint survives to the CLJS `let` binding and its
+        ;; Closure interop inference. Only the host's existing metadata is kept;
+        ;; nothing is invented, matching `clojure.core/destructure` verbatim.
+        {:local-pattern (with-meta (symbol nil (name bb)) (meta bb))
+         :key bk :explicit? false}))))
 
 (defn binding-order
   "The local-patterns of map `pattern`, in host `destructure` `bes` order
