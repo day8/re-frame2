@@ -1,6 +1,9 @@
 (ns re-frame.ui.reactive-publication-linearize-race-jvm-test
-  "rf2-77pb08 — the final ViewCell body-authority validation and the state
-  publication are ONE linearized compare-and-set! transition.
+  "rf2-77pb08 — the final ViewCell body-authority validation settles with the
+  state publication across two axes of differing strength: the cell-state publish
+  is a genuine single-atom compare-and-set! linearization; the registered-slot
+  identity is a best-effort check taken immediately before that CAS, sound on
+  re-frame2's single-threaded CLJS host.
 
   THE RACE (JVM-only; CLJS is single-threaded). PR #5938 fenced the final
   publication against an HMR body-authority change, but the fence SAMPLED the
@@ -12,12 +15,24 @@
 
   These fixtures reproduce the window with a deterministic `CountDownLatch`
   handoff (NO sleeps): the commit PARKS at the `:pre-publish` seam — fired inside
-  `publish-commit!` between an attempt's authority sample and its publish CAS — a
-  racing thread advances the authority, then the commit resumes. With the
-  linearization the publish CAS over the now-stale snapshot FAILS (cell-local
-  axis) or the registered-slot identity token has moved (registry axis), so the
-  loop re-validates and returns `:stale` having published/connected NOTHING.
-  Pre-fix (sample-then-independent-swap) the racing commit publishes and connects.
+  `publish-commit!` after an attempt's authority sample, before its publish CAS —
+  a racing thread advances the authority, then the commit resumes.
+
+  CELL-LOCAL axis (genuine single-atom linearization): the racing
+  `advance-generation!` moves the cell-state atom, so the publish
+  `compare-and-set!` over the now-stale snapshot FAILS; the loop re-validates and
+  returns `:stale`.
+
+  REGISTRY axis (best-effort slot-identity gate, NOT one fused CAS): the racing
+  re-registration swaps the slot object BEFORE the `identical?` token recheck that
+  immediately precedes the CAS, so that recheck fails, the loop re-reads a moved
+  revision and returns `:stale`. This fixture exercises the recheck→re-validate
+  path — NOT the residual token-read→CAS window; a single-fire barrier cannot
+  interpose there, and that window is unreachable on the single-threaded CLJS host
+  anyway.
+
+  Both publish/connect NOTHING. Pre-fix (sample-then-independent-swap) the racing
+  commit publishes and connects.
 
   `.clj` (JVM-only) — a genuine two-thread interleaving; the barrier handoff means
   only one thread mutates the substrate at a time, so this is a controlled
