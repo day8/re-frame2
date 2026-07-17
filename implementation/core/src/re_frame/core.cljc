@@ -841,10 +841,16 @@
   configures the frame in one call.
 
   Returns the frame VALUE — the live lifecycle token (its representation is not
-  an app-facing data contract). The frame is fully runnable: `dispatch` /
-  `subscribe` / `destroy-frame!` / `app-db-value` / `frame-provider` all accept
-  the value directly, OR its id — the API teaches ONE frame-target grammar, so
-  there is no separate value→id accessor to reach for.
+  an app-facing data contract). The frame is fully runnable: the routing
+  operations `dispatch` / `subscribe` / `app-db-value` / `frame-provider` all
+  accept the value directly, OR its id — they normalize the value to its id, so
+  there is no separate value→id accessor to reach for. `destroy-frame!` accepts
+  either too, but is the one LIFECYCLE exception (rf2-moftbs): the returned value
+  is an EXACT-INCARNATION token — destroying it tears down ONLY the incarnation
+  this call produced (a stale value no-ops against a same-id successor), while
+  destroying by the id is ADDRESS-directed (tears down whatever incarnation is
+  currently live under the id). See `destroy-frame!` and spec/002-Frames.md
+  §Destroy.
 
   Two arities mirror `re-frame.live-frame/make-frame`:
     (make-frame opts)             — resolve `:images` against the LIVE source store.
@@ -897,14 +903,20 @@
   compare-cleans epoch state with the exact incarnation token. A post-claim,
   pre-dead ordinary dispatch may enqueue, but the drain rejects it before any
   handler/effect/child runs; dead/absent operations no-op and emit the always-on
-  frame-destroyed diagnostic. Idempotent. Per Spec 002 §Destroy."}
+  frame-destroyed diagnostic. A frame VALUE target carries exact-incarnation
+  authority — a stale value no-ops against a same-id successor — while a
+  frame-id keyword is address-directed and tears down whatever incarnation is
+  currently live (rf2-moftbs). Idempotent. Per Spec 002 §Destroy."}
   destroy-frame! frame/destroy-frame!)
 
 ;; `frame-value->id` is REMOVED from the facade (API-shrink #1, rf2-csbbwu).
-;; The API fully commits to ONE frame-target grammar accepted everywhere
-;; (`dispatch` / `subscribe` / `destroy-frame!` / `app-db-value` /
-;; `frame-provider` / … all take a frame VALUE or its id interchangeably), so
-;; there is no longer a public need to unwrap a value to its id — pass the
+;; The API commits to ONE frame-target grammar accepted everywhere: the routing
+;; operations (`dispatch` / `subscribe` / `app-db-value` / `frame-provider` / …)
+;; take a frame VALUE or its id interchangeably (they normalize a value to its
+;; id), and `destroy-frame!` accepts either too but reads the value's
+;; exact-incarnation lifecycle authority (rf2-moftbs — a stale value no-ops
+;; against a same-id successor; a keyword is address-directed). Either way there
+;; is no longer a public need to unwrap a value to its id — pass the
 ;; value straight through. The internal normalization primitive
 ;; (`re-frame.frame/frame-value->id`) survives for the framework's own
 ;; call sites. Per Spec 002 §Frame value and EP-0024 Operation target grammar.
