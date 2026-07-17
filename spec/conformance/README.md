@@ -579,3 +579,4 @@ If a port (CLJS, JVM SSR, future hosts) needs to claim conformance for render-ti
 - [011-SSR.md](../011-SSR.md) — SSR fixtures' protocol.
 - [012-Routing.md](../012-Routing.md) — routing fixtures' protocol.
 - [Pattern-StaleDetection.md](../Pattern-StaleDetection.md) — the meta-pattern shared by `after-stale-detection.edn` and `route-stale-nav-token-suppression.edn`.
+- [S3-view-conformance-profile.md](S3-view-conformance-profile.md) — the frozen S3 compiled-view surface (verbs, host behaviour, HMR/batching/callback laws, evidence projections, non-surfaces) and the gate that proves each row; kept honest by the executable drift guard `s3_conformance_profile_jvm_test`.
