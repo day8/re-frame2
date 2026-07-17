@@ -777,7 +777,17 @@ test('cljs job provisions Clojure CLI before the G-12 isolation gate (rf2-3kewru
   assert.notEqual(setup, -1, 'cljs job must install Clojure CLI for G-12 Arm 2');
   assert.notEqual(gate, -1, 'cljs job must run the UI isolation gate');
   assert.ok(setup < gate, 'Clojure CLI setup must precede the G-12 isolation gate');
-  assert.match(block, /DeLaGuardo\/setup-clojure@02f5a82b79a547523e664fe8a7a32ea14884d7b2/);
+  // rf2-9sgj8 — the install now runs the official linux-install.sh directly
+  // with retry (resilient against the transient curl-35 / socket-hang-up that
+  // reds setup) instead of DeLaGuardo/setup-clojure. It is still a real Clojure
+  // CLI provision, which is all Arm 2's `clojure -Stree` needs — assert the
+  // install actually downloads+installs the CLI rather than pinning the
+  // (now-removed) action SHA.
+  assert.match(
+    block,
+    /brew-install\/releases\/latest\/download\/linux-install\.sh/,
+    'cljs job must install the Clojure CLI for Arm 2 `clojure -Stree` (rf2-9sgj8 resilient install)',
+  );
 });
 
 // rf2-vxgfnd.135 — the tracked synthesis guide/drafts are authoritative
