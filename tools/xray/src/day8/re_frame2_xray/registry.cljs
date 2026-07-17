@@ -198,6 +198,19 @@
        no-ops too — no handler-replaced flood on repeat reloads."
   []
   (when (compare-and-set! registered? false true)
+    ;; rf2-g2jf3 — fresh-install ATOMICITY. `compare-and-set!` flips the
+    ;; umbrella to true BEFORE the ~900-line bulk install below, but the
+    ;; schema is stamped only AFTER the last installer. If any registrar /
+    ;; leaf installer throws mid-block, an unguarded exit would leave
+    ;; `{registered? true, installed-schema nil}` — the next reload's umbrella
+    ;; permanently skips the unfinished bulk install and the migration seam
+    ;; mis-reads the nil stamp as schema 0, stamping the registry "current"
+    ;; over a PARTIAL install. Wrap the whole bulk block so a throw ROLLS the
+    ;; umbrella back to false and rethrows: the registration stays RETRYABLE
+    ;; (a second call replays every installer; partial registrar writes are
+    ;; replaced in place) and the schema is NEVER stamped past a failure.
+    ;; Publish registered/current only after every installer succeeds.
+    (try
     ;; ---- cross-panel primitives ---------------------------------
 
     ;; Xray's trace-buffer sub returns a flat snapshot of every
@@ -1089,8 +1102,21 @@
     (static-interceptors-panel/install!)
     ;; Fresh boot ran the whole leaf install (the current bridge included),
     ;; so stamp the schema CURRENT — the migration seam below then no-ops
-    ;; on this process and on its own `:after-load` reloads.
-    (reset! installed-schema schema-version))
+    ;; on this process and on its own `:after-load` reloads. Reached ONLY when
+    ;; every installer above succeeded (rf2-g2jf3): the stamp is the last act
+    ;; inside the guarded block, so a partial install never advances the schema.
+    (reset! installed-schema schema-version)
+    (catch :default e
+      ;; A registrar / leaf installer threw mid bulk-install (rf2-g2jf3). Roll
+      ;; the umbrella back so the NEXT `register-xray-handlers!` replays the
+      ;; whole leaf install (re-frame's registrar replaces partial writes in
+      ;; place) instead of permanently skipping it, and leave `installed-schema`
+      ;; UNSTAMPED (nil) so the migration seam below cannot mistake a failed
+      ;; fresh install for a live-upgrade delta. Rethrow so the failure stays
+      ;; loud — a transient/programming failure surfaces immediately rather
+      ;; than silently degrading into a partial registry.
+      (reset! registered? false)
+      (throw e))))
   ;; ---- live-upgrade migration seam (rf2-ykaq4u) ----------------------
   ;;
   ;; INDEPENDENT of the umbrella gate above. An already-registered process
