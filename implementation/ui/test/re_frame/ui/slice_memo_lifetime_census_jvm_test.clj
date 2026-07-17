@@ -9,19 +9,28 @@
   thunk returns. The prose was reconciled per-host in 718a8dea16; this census is
   the regression pin that commit did not carry.
 
-  The law, and why the mechanisms legitimately differ: the table dies with its
-  slice, so probes may share WITHIN one slice but no table or handle survives
-  into a LATER render slice. How a slice is BOUNDED is per-host because the
-  hosts' scheduling models genuinely differ — the JVM has no microtask queue, and
-  the single-threaded CLJS host needs no thread-local. Both reach the same law.
+  The law, and why the mechanisms legitimately differ: probes may share WITHIN
+  one slice, but no holder or table survives PAST that host boundary into the
+  next slice. What BOUNDS a slice is per-host because the hosts' scheduling
+  models genuinely differ. On the JVM sharing ends with the synchronous render
+  thunk (no microtask queue, a thread-local scope). On CLJS the whole
+  host-microtask window is ONE slice: because `queueMicrotask` is FIFO, a
+  genuinely-later render interposed before the checkpoint REUSES the still-
+  installed holder — a bounded within-window economy the inverse-FIFO fixture
+  proves (rf2-2g7pxq) — so the obsolete framing of the CLJS slice as one
+  'synchronous execution slice' (nothing surviving into a 'later render slice')
+  is false and this census now REJECTS it. Both reach the same law.
 
   This census pins, in BOTH authoritative documents:
 
-    - each distinguishes the JVM thread-local render scope from the CLJS module
-      holder released at the microtask checkpoint;
+    - each distinguishes the JVM thread-local render scope (sharing ends with
+      the synchronous render thunk) from the CLJS module holder whose sharing
+      MAY span later callbacks within the bounded host-microtask window;
     - neither applies microtask lifetime to the JVM — the JVM span may name a
       microtask ONLY to deny it;
-    - each states the shared law, attributed to BOTH hosts.
+    - neither carries the obsolete synchronous-slice / later-render-slice claim,
+      and CLJS AFFIRMS the within-window reuse;
+    - each states the shared host-boundary law, attributed to BOTH hosts.
 
   The census is a pure predicate over document text
   (`slice-memo-lifetime-violations`), so the negative arm can prove it has teeth:
@@ -102,15 +111,36 @@
 (def ^:private jvm-synchronous-discard
   "synchronously when the render thunk returns")
 
-(def ^:private later-slice-law
-  "no table or handle survives into a later render slice")
-
 (def ^:private both-hosts-law-re
   "The reconciliation's substance: ONE law, attributed to BOTH hosts."
   #"(?i)both hosts[\s\S]{0,240}?enforce the (?:same|one) law")
 
 (def ^:private within-slice-sharing-re
   #"(?i)(?:shar\w+[^.]{0,48}within (?:one|a) slice|within (?:one|a) slice[^.]{0,48}shar\w+)")
+
+(def ^:private next-slice-boundary-re
+  "The CORRECTED boundary law: sharing ends at the HOST boundary — the JVM
+  thunk's return, the CLJS microtask checkpoint — with nothing surviving into
+  the NEXT slice. This REPLACES the obsolete unconditional 'no ... survives
+  into a later render slice' claim, which a bounded within-window reuse
+  (the inverse-FIFO fixture, rf2-2g7pxq) contradicts."
+  #"(?i)no (?:holder|table)[^.]{0,80}?survives? past[^.]{0,80}?into the next slice")
+
+(def ^:private obsolete-synchronous-slice-re
+  "The obsolete claim this bead retires: the CLJS memo scoped to the 'current
+  synchronous execution slice', or the universal 'no ... survives into a later
+  render slice'. Both frame the CLJS slice as one SYNCHRONOUS call and so deny
+  the within-window reuse the inverse-FIFO fixture proves (rf2-2g7pxq) — a
+  genuinely-later render interposed before the checkpoint reuses the holder.
+  Its PRESENCE (not absence) is the violation."
+  #"(?i)synchronous execution slice|into a later render slice")
+
+(def ^:private cljs-window-reuse-re
+  "CLJS must AFFIRM the bounded within-window later-render reuse — the substance
+  the inverse-FIFO fixture proves, not merely the checkpoint marker: the whole
+  host-microtask window is one slice, so a genuinely-later render interposed
+  before the checkpoint REUSES the still-installed holder."
+  #"(?i)host-microtask window[\s\S]{0,240}?reuse")
 
 (def ^:private microtask-re #"(?i)microtask")
 
@@ -155,6 +185,13 @@
       (and cljs (not (str/includes? cljs "queueMicrotask")))
       (conj :cljs/microtask-checkpoint-missing)
 
+      ;; CLJS must AFFIRM the bounded within-window later-render reuse — the
+      ;; substance the inverse-FIFO fixture proves (rf2-2g7pxq), not merely the
+      ;; presence of the checkpoint marker. The old census false-greened by
+      ;; requiring the checkpoint word while its LAW still denied the reuse.
+      (and cljs (not (re-find cljs-window-reuse-re cljs)))
+      (conj :cljs/window-reuse-missing)
+
       ;; The shared law, in both halves, attributed to both hosts.
       (not (re-find both-hosts-law-re section))
       (conj :law/not-attributed-to-both-hosts)
@@ -162,8 +199,15 @@
       (not (re-find within-slice-sharing-re section))
       (conj :law/within-slice-sharing-missing)
 
-      (not (str/includes? section later-slice-law))
-      (conj :law/later-slice-reuse-missing))))
+      ;; THE claim this bead retires: the obsolete synchronous-slice / later-
+      ;; render-slice framing. Its PRESENCE is the violation — it contradicts
+      ;; the executable within-window reuse proof.
+      (re-find obsolete-synchronous-slice-re section)
+      (conj :law/obsolete-synchronous-slice-claim)
+
+      ;; The corrected host-boundary law, in place of the old universal.
+      (not (re-find next-slice-boundary-re section))
+      (conj :law/next-slice-boundary-missing))))
 
 ;; ---------------------------------------------------------------------------
 ;; Positive arm — the live documents
@@ -204,12 +248,14 @@ once-per-pass** — bounded, allocation-trivial, and requiring zero React intern
 interrupted or abandoned slice's table becomes unreachable garbage.")
 
 (deftest census-rejects-the-historical-pre-reconciliation-wording
-  (testing "the pre-718a8dea16 Spec 006 text names no host and generalises the
-            CLJS microtask, so the census must reject it"
+  (testing "the pre-718a8dea16 Spec 006 text names no host, generalises the
+            CLJS microtask, AND carries the obsolete synchronous-slice claim, so
+            the census must reject it"
     (is (= #{:jvm/span-missing
              :cljs/span-missing
              :law/not-attributed-to-both-hosts
-             :law/later-slice-reuse-missing}
+             :law/obsolete-synchronous-slice-claim
+             :law/next-slice-boundary-missing}
            (slice-memo-lifetime-violations (normalize pre-reconciliation-spec-006))))))
 
 (defn- drift
@@ -227,7 +273,24 @@ interrupted or abandoned slice's table becomes unreachable garbage.")
 (def ^:private drifts
   "Single-fact mutations of the LIVE text. Each is one edit away from green, so
   the census is proven to catch MINIMAL drift, not merely wholly-other prose."
-  [{:label   "the JVM span gains microtask lifetime (the historical drift)"
+  [;; THE drift this bead exists for: restore the obsolete synchronous-slice /
+   ;; later-render-slice claim while KEEPING every checkpoint marker
+   ;; (thread-local, queueMicrotask, the discard phrase). The old census could
+   ;; not catch this — it demanded the checkpoint markers but not their
+   ;; compatible meaning, so this exact edit false-greened.
+   {:label   "the obsolete synchronous-execution-slice claim is restored, checkpoint markers retained"
+    :match   "The whole host-microtask window is therefore one CLJS slice"
+    :replace "The table is scoped to the current synchronous execution slice"
+    :expect  :law/obsolete-synchronous-slice-claim}
+   {:label   "the CLJS within-window reuse economy is dropped"
+    :match   "finds the holder still installed and reuses it"
+    :replace "opens a fresh table"
+    :expect  :cljs/window-reuse-missing}
+   {:label   "the corrected host-boundary law is dropped"
+    :match   "no holder or table survives past that boundary into the next slice"
+    :replace "the table stays reusable"
+    :expect  :law/next-slice-boundary-missing}
+   {:label   "the JVM span gains microtask lifetime"
     :match   jvm-microtask-denial
     :replace "the table is cleared by `queueMicrotask` at the microtask checkpoint"
     :expect  :jvm/microtask-lifetime-applied}
@@ -235,10 +298,6 @@ interrupted or abandoned slice's table becomes unreachable garbage.")
     :match   jvm-synchronous-discard
     :replace "eventually"
     :expect  :jvm/synchronous-discard-missing}
-   {:label   "the later-slice reuse law is dropped"
-    :match   later-slice-law
-    :replace "the table stays reusable"
-    :expect  :law/later-slice-reuse-missing}
    {:label   "the law is no longer attributed to both hosts"
     :match   "Both hosts"
     :replace "The CLJS host"
