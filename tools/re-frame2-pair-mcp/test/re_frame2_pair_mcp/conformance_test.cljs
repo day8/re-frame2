@@ -290,7 +290,7 @@
   "Inline conformance corpus for re-frame2-pair-mcp's tool catalogue.
 
   Coverage matrix. Every advertised tool (see
-  `test/fixtures/tool-names.json` — 30 today) appears below: either with a
+  `test/fixtures/tool-names.json` — 35 today) appears below: either with a
   fixture in THIS inline corpus, or in the `Not exercised here` note that
   follows — so a tool cannot silently drop out of the map by omission:
 
@@ -308,6 +308,11 @@
     | snapshot               | yes   | n/a         | yes (no-preload)  |
     | get-path               | yes   | yes         | yes (no-preload)  |
     | read-dom               | yes   | yes         | bad-selector      |
+    | read-view-manifest     | yes   | yes (missing-view-id) | n/a     |
+    | read-view-dependencies | yes   | n/a         | tier-unavailable  |
+    | read-view-event-sites  | yes   | n/a         | view-not-available |
+    | read-mounted-views     | yes   | n/a         | empty-but-versioned |
+    | explain-render         | yes   | n/a         | tier-inactive     |
     | subscribe              | n/a   | yes         | n/a               |
     | unsubscribe            | n/a   | yes         | n/a               |
     | list-subscriptions     | yes   | n/a         | n/a               |
@@ -1771,6 +1776,168 @@
     :fixture/expect
     {:isError? true
      :reason :no-target-arg}}
+
+   ;; ---------- the five re-frame.ui.tool projections (rf2-vxgfnd.95.8) ----
+   ;; Each ships an exists?-guarded self-describing form calling
+   ;; re-frame.ui.tool/<projection>; the form resolves to an {:ok? …} envelope
+   ;; projected via map-envelope-result (every :ok? false is isError). The stub
+   ;; returns the envelope the guarded form would produce, so the corpus pins the
+   ;; happy passthrough (with :rf.ui.tool/version + the loss/version fields) AND
+   ;; the honest absent/unavailable envelopes.
+   {:fixture/id    :read-view-manifest/happy
+    :fixture/doc   "read-view-manifest forwards the versioned manifest projection; the form calls re-frame.ui.tool/view-manifest under an exists? guard."
+    :fixture/tool  "read-view-manifest"
+    :fixture/args  {:view-id ":my.app/counter"}
+    :fixture/eval-script
+    [["__re_frame2_pair_runtime"        true]
+     ["re-frame.ui.tool/view-manifest"  {:ok? true :rf.ui.tool/version 1
+                                         :view-id :my.app/counter :doc "A counter."
+                                         :props [] :site-counts {:subs 1 :events 1}}]
+     [:default                          nil]]
+    :fixture/eval-form-must-contain
+    ["re-frame.ui.tool/view-manifest" "cljs.core/exists?"]
+    :fixture/expect
+    {:isError? false
+     :edn-submap {:ok? true :view-id :my.app/counter :rf.ui.tool/version 1}
+     :edn-contains-keys #{:site-counts}}}
+
+   {:fixture/id    :read-view-manifest/missing-view-id
+    :fixture/doc   "read-view-manifest without :view-id short-circuits on :missing-view-id before any nREPL round-trip."
+    :fixture/tool  "read-view-manifest"
+    :fixture/args  {}
+    :fixture/eval-script
+    [[:default nil]]
+    :fixture/expect
+    {:isError? true
+     :reason :missing-view-id}}
+
+   {:fixture/id    :read-view-dependencies/happy
+    :fixture/doc   "read-view-dependencies forwards the sub/lease site projection (literal-vs-:dynamic honesty)."
+    :fixture/tool  "read-view-dependencies"
+    :fixture/args  {:view-id ":my.app/row"}
+    :fixture/eval-script
+    [["__re_frame2_pair_runtime"           true]
+     ["re-frame.ui.tool/view-dependencies" {:ok? true :rf.ui.tool/version 1
+                                            :view-id :my.app/row
+                                            :subscriptions [{:query [:total] :dynamic? false}]
+                                            :leases []}]
+     [:default                             nil]]
+    :fixture/eval-form-must-contain
+    ["re-frame.ui.tool/view-dependencies"]
+    :fixture/expect
+    {:isError? false
+     :edn-submap {:ok? true :view-id :my.app/row}
+     :edn-contains-keys #{:subscriptions :leases}}}
+
+   {:fixture/id    :read-view-dependencies/tier-unavailable-iserror
+    :fixture/doc   "when re-frame.ui.tool is not loaded (a plain-Reagent app), the guarded form resolves to {:ok? false :reason :view-tier-unavailable} — surfaced as an isError envelope (absent evidence tolerated explicitly)."
+    :fixture/tool  "read-view-dependencies"
+    :fixture/args  {:view-id ":my.app/row"}
+    :fixture/eval-script
+    [["__re_frame2_pair_runtime"           true]
+     ["re-frame.ui.tool/view-dependencies" {:ok? false :reason :view-tier-unavailable
+                                            :hint "the re-frame.ui.tool projection tier is not loaded…"}]
+     [:default                             nil]]
+    :fixture/expect
+    {:isError? true
+     :edn-submap {:ok? false :reason :view-tier-unavailable}}}
+
+   {:fixture/id    :read-view-event-sites/happy
+    :fixture/doc   "read-view-event-sites forwards the event-handler site projection (literal inspectable, opaque :dynamic marked)."
+    :fixture/tool  "read-view-event-sites"
+    :fixture/args  {:view-id ":my.app/form"}
+    :fixture/eval-script
+    [["__re_frame2_pair_runtime"           true]
+     ["re-frame.ui.tool/view-event-sites"  {:ok? true :rf.ui.tool/version 1
+                                            :view-id :my.app/form
+                                            :handlers [{:prop :on-click :site-kind :literal
+                                                        :handler [:submit] :serializable? true}
+                                                       {:prop :on-input :site-kind :dynamic
+                                                        :handler :opaque :serializable? false :sync? true}]}]
+     [:default                             nil]]
+    :fixture/eval-form-must-contain
+    ["re-frame.ui.tool/view-event-sites"]
+    :fixture/expect
+    {:isError? false
+     :edn-submap {:ok? true :view-id :my.app/form}
+     :edn-contains-keys #{:handlers}}}
+
+   {:fixture/id    :read-view-event-sites/view-not-available-iserror
+    :fixture/doc   "an unregistered view id yields {:ok? false :reason :view-not-available} (nil manifest) — an isError envelope, never a fabricated empty result."
+    :fixture/tool  "read-view-event-sites"
+    :fixture/args  {:view-id ":nope/absent"}
+    :fixture/eval-script
+    [["__re_frame2_pair_runtime"           true]
+     ["re-frame.ui.tool/view-event-sites"  {:ok? false :reason :view-not-available
+                                            :view-id :nope/absent}]
+     [:default                             nil]]
+    :fixture/expect
+    {:isError? true
+     :edn-submap {:ok? false :reason :view-not-available :view-id :nope/absent}}}
+
+   {:fixture/id    :read-mounted-views/happy
+    :fixture/doc   "read-mounted-views forwards the committed connected-instance records (occurrence identity, connection state, lifecycle log)."
+    :fixture/tool  "read-mounted-views"
+    :fixture/args  {}
+    :fixture/eval-script
+    [["__re_frame2_pair_runtime"        true]
+     ["re-frame.ui.tool/mounted-views"  {:ok? true :rf.ui.tool/version 1
+                                         :views [{:occurrence 3 :view-id :my.app/row
+                                                  :connection :connected
+                                                  :lifecycle {:intervals [] :dropped 0 :exact? true}
+                                                  :evidence {:count 4}}]}]
+     [:default                          nil]]
+    :fixture/eval-form-must-contain
+    ["re-frame.ui.tool/mounted-views"]
+    :fixture/expect
+    {:isError? false
+     :edn-submap {:ok? true :rf.ui.tool/version 1}
+     :edn-contains-keys #{:views}}}
+
+   {:fixture/id    :read-mounted-views/empty-but-versioned
+    :fixture/doc   "with no evidence tool installed, read-mounted-views forwards {:ok? true :views []} — an empty-but-versioned envelope, NOT an isError (real emptiness is a legitimate answer)."
+    :fixture/tool  "read-mounted-views"
+    :fixture/args  {}
+    :fixture/eval-script
+    [["__re_frame2_pair_runtime"        true]
+     ["re-frame.ui.tool/mounted-views"  {:ok? true :rf.ui.tool/version 1 :views []}]
+     [:default                          nil]]
+    :fixture/expect
+    {:isError? false
+     :edn-submap {:ok? true :views []}}}
+
+   {:fixture/id    :explain-render/happy
+    :fixture/doc   "explain-render forwards the render-cause projection with the version + loss/observation fields per occurrence."
+    :fixture/tool  "explain-render"
+    :fixture/args  {:view-id ":my.app/row"}
+    :fixture/eval-script
+    [["__re_frame2_pair_runtime"         true]
+     ["re-frame.ui.tool/explain-render"  {:ok? true :rf.ui.tool/version 1
+                                          :view-id :my.app/row
+                                          :occurrences [{:occurrence 3 :causes #{:value}
+                                                         :render-count 4
+                                                         :observations {:identity-exact? true}
+                                                         :loss {:dropped 0 :exact? true}}]}]
+     [:default                           nil]]
+    :fixture/eval-form-must-contain
+    ["re-frame.ui.tool/explain-render"]
+    :fixture/expect
+    {:isError? false
+     :edn-submap {:ok? true :view-id :my.app/row}
+     :edn-contains-keys #{:occurrences}}}
+
+   {:fixture/id    :explain-render/tier-inactive-iserror
+    :fixture/doc   "a production build nil-gates the whole tier; the guarded form resolves to {:ok? false :reason :view-tier-inactive} — surfaced as isError."
+    :fixture/tool  "explain-render"
+    :fixture/args  {}
+    :fixture/eval-script
+    [["__re_frame2_pair_runtime"         true]
+     ["re-frame.ui.tool/explain-render"  {:ok? false :reason :view-tier-inactive
+                                          :hint "the re-frame.ui.tool tier is inactive…"}]
+     [:default                           nil]]
+    :fixture/expect
+    {:isError? true
+     :edn-submap {:ok? false :reason :view-tier-inactive}}}
 
    ;; ---------- describe-image --------------------------------------------
    ;; EP-0023 forward read of a frame's resolved image generation. Routes
