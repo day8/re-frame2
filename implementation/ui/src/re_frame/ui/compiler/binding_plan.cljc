@@ -123,3 +123,50 @@
   dependent `:or` default resolves to the same symbol on every host."
   [pattern]
   (mapv :local-pattern (assoc-binding-units pattern)))
+
+(defn pattern-locals
+  "The set of local symbols a destructuring binding PATTERN introduces, exactly
+  as host `destructure` binds them. This is the host-faithful primitive a
+  DERIVED-slot consumer uses to judge which binding units survive host `let`
+  last-wins shadowing: a unit whose every local a LATER unit rebinds contributes
+  no final visible local, so its lookup key is a dead slot even though its
+  initializer still runs (`assoc-binding-units` keeps it in the executable plan).
+
+  A simple symbol binds itself. A sequential `[a b & more :as all]` binds each
+  element pattern (recursively), the rest pattern and `:as`. An associative
+  `{:keys [...] p key :as s :or {...}}` binds each group local NAME-STRIPPED
+  (`:keys [ns/x]` binds `x`, exactly as the plan's group locals arrive), each
+  explicit sub-pattern (recursively), and `:as`. Directives (`:or`, the group
+  keyword) and lookup keys are not locals; the `&` marker is dropped.
+
+  Comparing the LOCALS a pattern binds — not whole `:pattern` values — is what
+  lets a nested or partially overlapping pattern collapse faithfully: a symbol
+  `x <- :ns/x` shadows the `x` a sibling `[x] <- :other` binds (whole-pattern
+  equality would miss it, leaking `:other`), while `[a b] <- :other` survives
+  beside `a <- :ns/a` because `b` is still a final visible local."
+  [pattern]
+  (cond
+    (symbol? pattern)
+    (if (= '& pattern) #{} #{pattern})
+
+    (vector? pattern)
+    (loop [ps (seq pattern), acc #{}]
+      (if (nil? ps)
+        acc
+        (let [p (first ps)]
+          (if (or (= :as p) (= '& p))
+            (recur (nnext ps) (into acc (pattern-locals (second ps))))
+            (recur (next ps)  (into acc (pattern-locals p)))))))
+
+    (map? pattern)
+    (reduce-kv
+     (fn [acc k v]
+       (cond
+         (= k :as)         (into acc (pattern-locals v))
+         (= k :or)         acc
+         (key-group-kw? k) (into acc (map (fn [s] (symbol nil (name s)))) v)
+         :else             (into acc (pattern-locals k))))
+     #{}
+     pattern)
+
+    :else #{}))

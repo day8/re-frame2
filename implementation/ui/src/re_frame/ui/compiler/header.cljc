@@ -114,27 +114,43 @@
   nil)
 
 (defn- collapse-entries
-  "Keep exactly ONE entry per bound local (`:pattern`) — the host `bes`-order
-  WINNER, i.e. the LAST occurrence, the binding the host's `let` last-wins
-  actually establishes. `bp/assoc-binding-units` already collapses two units
-  that share a `bes` KEY (`{:keys [x] x :foo}` → the group's `assoc` overwrites
-  the explicit entry, one `x <- :x`). But a QUALIFIED group local whose bare
-  name collides an explicit local (`{:keys [ns/x] x :other}`) keeps two DISTINCT
-  `bes` keys (`ns/x`, `x`) that both name-strip to the same local `x`; those
-  arrive as two units binding one local via host last-wins. Left uncollapsed
-  they leave a DEAD slot (`:other` here) in the derived `:slots` — over-comparing
-  in the memo comparator (spurious re-renders), over-declaring in the manifest
-  `:prop-slots`, and silently accepting a never-bound key under CLOSED `:props`.
-  De-duping by `:pattern` here — keeping the last, host-winning entry — restores
-  the 'never two entries for one local' invariant so the derived slots carry no
-  key the view never binds. The winning entry stays in its `bes` position; a
-  same-key collision across DISTINCT locals (`{:keys [x] y :x}` — two locals,
-  one slot) is untouched (both patterns differ, so both survive; the slot
-  `distinct` folds the shared key)."
+  "Project the full host binding-unit plan to its FINAL visible-local slots: keep
+  an entry only where it binds a local NO LATER entry rebinds — the bindings the
+  host's `let` last-wins actually leaves visible. `bp/assoc-binding-units` already
+  collapses two units that share a `bes` KEY (`{:keys [x] x :foo}` → the group's
+  `assoc` overwrites the explicit entry, one `x <- :x`). The residual shadows it
+  does NOT catch arrive as DISTINCT units binding one local via host last-wins:
+    - a QUALIFIED group local whose bare name collides an explicit local
+      (`{:keys [ns/x] x :other}` — `ns/x` ≠ `x` as `bes` keys, both name-strip to
+      the local `x`);
+    - a NESTED or partially overlapping pattern (`{[x] :other :keys [ns/x]}` —
+      `[x]` and `x` are unequal `:pattern` values, but `[x]`'s only local `x` is
+      reclaimed by the group's `x <- :ns/x`).
+  Left uncollapsed these leave a DEAD slot (`:other` here) in the derived `:slots`
+  — over-comparing in the memo comparator (spurious re-renders), over-declaring in
+  the manifest `:prop-slots`, and silently accepting a never-bound key under
+  CLOSED `:props`.
+
+  A reverse sweep restores the 'no dead slot' invariant: walk entries LAST→first,
+  keeping the set of locals a later entry already claimed; retain an entry only
+  where it binds at least one local NOT yet claimed (a final visible local), then
+  add its locals to the claimed set. Comparing the LOCALS each pattern binds
+  (`bp/pattern-locals`) rather than whole `:pattern` values is what catches the
+  nested case a whole-pattern equality misses. The winning entries stay in their
+  `bes` positions, and the FULL executable plan (`:binding-units`) is untouched —
+  every host initializer still runs. Two DISTINCT locals sharing one slot
+  (`{:keys [x] y :x}`) both survive; a partial overlap (`{[a b] :other :keys
+  [ns/a]}`) keeps `:other` because `b` is still a final visible local; the slot
+  `distinct` folds any shared key."
   [entries]
-  (let [last-idx (into {} (map-indexed (fn [i e] [(:pattern e) i])) entries)]
-    (into [] (keep-indexed (fn [i e] (when (= i (last-idx (:pattern e))) e)))
-          entries)))
+  (let [v (vec entries)]
+    (loop [i (dec (count v)), claimed #{}, keep #{}]
+      (if (neg? i)
+        (into [] (keep-indexed (fn [idx e] (when (contains? keep idx) e))) v)
+        (let [locals (bp/pattern-locals (:pattern (nth v i)))]
+          (if (some (complement claimed) locals)
+            (recur (dec i) (into claimed locals) (conj keep i))
+            (recur (dec i) claimed keep)))))))
 
 (defn parse-header
   "argv -> {:mode :none|:named|:as, :as-sym, :entries [{:key :slot :pattern
