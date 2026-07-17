@@ -174,7 +174,7 @@ nav:
       - "Coeffects: the way in": core/coeffects.md
     - "Structure":
       - "Frames: isolated worlds": core/frames.md
-      - "Flows: write-side derivations": core/flows.md
+      - "Flows: derived values your handlers can read": core/flows.md
       - "Interceptors: cross-cutting (rare)": core/interceptors.md
     - "Operations":
       - "Errors: dossiers": core/errors.md
