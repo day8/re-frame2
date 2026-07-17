@@ -137,6 +137,22 @@
   [id]
   (when id (string/replace (str id) #"[^a-zA-Z0-9_]" "_")))
 
+(defn- concrete-query-selector
+  "Injective `data-testid` suffix for an unchanged-sub row's concrete-query
+  identity (rf2-bk2c6). `id-slug` alone is LOSSY — it flattens every
+  non-alnum/non-`_` char to `_`, so DISTINCT valid queries collapse to one
+  selector (`[:item/derived :a-b]` and `[:item/derived :a/b]` both slug to
+  `__item_derived__a_b_`), colliding two surviving rows onto one `data-testid`
+  the DOM can no longer address independently. Appending a stable content
+  hash of the FULL identity restores distinction while retaining the readable
+  slug stem: distinct concrete queries get distinct selectors, and the SAME
+  concrete query always hashes the same — so repeated evidence keeps ONE
+  stable selector (the dedup contract). Projection, React keys, the visible
+  label, and `data-query-v` are untouched; only this testid encoding changes."
+  [ident]
+  (str (id-slug ident) "-"
+       (.toString (unsigned-bit-shift-right (hash ident) 0) 36)))
+
 (defn- elapsed-label
   "Format a render's `:elapsed-ms` for the view-node sub-label. Sub-ms
   rounds to one decimal; ≥1ms rounds to whole ms. nil → nil."
@@ -545,7 +561,7 @@
                      :let [ident (unchanged-row-identity row)]]
                  ^{:key (str ident)}
                  [:div {:data-testid (str "rf-xray-reactive-unchanged-row-"
-                                          (id-slug ident))
+                                          (concrete-query-selector ident))
                         :data-query-v (str query-v)
                         :style       unchanged-row-style}
                   [:span {:style {:flex 1}} (unchanged-row-label row)]

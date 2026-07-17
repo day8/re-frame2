@@ -12,6 +12,7 @@
   reactive-flow-graph-test; the projection logic by
   reactive-panel-subs-cljs-test."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
+            [clojure.string :as str]
             [re-frame.core :as rf]
             [re-frame.frame :as frame]
             [re-frame.substrate.plain-atom :as plain-atom]
@@ -28,6 +29,12 @@
   "Concatenated text content under the node matching `testid`."
   [tree testid]
   (some-> (th/find-by-testid tree testid) th/text-content))
+
+(defn- unchanged-row-testids
+  "Every unchanged-sub row's `data-testid`, in depth-first order."
+  [tree]
+  (mapv #(:data-testid (th/attrs %))
+        (th/find-by-testid-prefix tree "rf-xray-reactive-unchanged-row-")))
 
 (use-fixtures :each
   (test-support/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
@@ -474,10 +481,12 @@
 ;; ---- unchanged-subs disclosure keys by concrete query-v (rf2-cj2yx) ----
 
 (deftest unchanged-rows-key-and-label-by-concrete-query-v
-  (testing "rf2-cj2yx — two skipped memo-hits sharing a registered sub-id but
-            DISTINCT concrete query-vs render as two individually-addressable
-            rows: distinct test-ids AND distinct labels (the full query
-            vector), not one row collapsed by sub-id."
+  (testing "rf2-cj2yx / rf2-bk2c6 — two skipped memo-hits sharing a registered
+            sub-id but DISTINCT concrete query-vs render as two
+            individually-addressable rows: distinct test-ids AND distinct
+            labels (the full query vector), not one row collapsed by sub-id.
+            The injective selector keeps the readable slug stem and only
+            appends a stable disambiguator."
     (facade/install!)
     (rf/make-frame {:id :rf/xray})
     (seed-reactive-data!
@@ -488,22 +497,63 @@
                        :reason :input-value-equal :input-paths-unchanged []}
                       {:sub-id :item/derived :query-v [:item/derived 2]
                        :reason :input-value-equal :input-paths-unchanged []}]})
-    (let [tree (view/reactive-panel)
-          row1 (th/find-by-testid tree "rf-xray-reactive-unchanged-row-__item_derived_1_")
-          row2 (th/find-by-testid tree "rf-xray-reactive-unchanged-row-__item_derived_2_")]
-      (is (some? row1) "the [:item/derived 1] parameterization has its own row")
-      (is (some? row2) "the [:item/derived 2] parameterization has its own row")
-      (is (re-find #"\[:item/derived 1\]"
-                   (text-of tree "rf-xray-reactive-unchanged-row-__item_derived_1_"))
+    (let [tree    (view/reactive-panel)
+          testids (unchanged-row-testids tree)
+          id-for  (fn [stem]
+                    (some #(when (str/starts-with?
+                                   % (str "rf-xray-reactive-unchanged-row-" stem))
+                             %)
+                          testids))
+          id1     (id-for "__item_derived_1_")
+          id2     (id-for "__item_derived_2_")]
+      (is (= 2 (count testids)) "each parameterization renders its own row")
+      (is (some? id1) "the [:item/derived 1] parameterization keeps its slug stem")
+      (is (some? id2) "the [:item/derived 2] parameterization keeps its slug stem")
+      (is (not= id1 id2) "the two rows carry DISTINCT test-ids")
+      (is (= 1 (count (th/find-all-by-testid tree id1)))
+          "row 1's test-id addresses exactly one node")
+      (is (= 1 (count (th/find-all-by-testid tree id2)))
+          "row 2's test-id addresses exactly one node")
+      (is (re-find #"\[:item/derived 1\]" (text-of tree id1))
           "row 1 labels with its full concrete query vector")
-      (is (re-find #"\[:item/derived 2\]"
-                   (text-of tree "rf-xray-reactive-unchanged-row-__item_derived_2_"))
+      (is (re-find #"\[:item/derived 2\]" (text-of tree id2))
           "row 2 labels with its full concrete query vector"))))
 
+(deftest unchanged-row-selectors-injective-for-colliding-queries
+  (testing "rf2-bk2c6 — two DISTINCT concrete queries whose `id-slug` forms
+            COLLIDE (`[:item/derived :a-b]` and `[:item/derived :a/b]` both
+            slug to `__item_derived__a_b_`) must still receive distinct,
+            individually-addressable row test-ids. Before the injective
+            selector both rows shared one `data-testid` (find-all returned 2,
+            distinct count was 1); after, each is uniquely addressable while
+            the labels stay distinct."
+    (facade/install!)
+    (rf/make-frame {:id :rf/xray})
+    (seed-reactive-data!
+      {:has-event-bundle? true :frame :rf/app :focus {:current :ep-1}
+       :counts {} :level-1-subs [] :level-2-subs [] :view-rows []
+       :show-unchanged? true
+       :subs-skipped [{:sub-id :item/derived :query-v [:item/derived :a-b]
+                       :reason :input-value-equal :input-paths-unchanged []}
+                      {:sub-id :item/derived :query-v [:item/derived :a/b]
+                       :reason :input-value-equal :input-paths-unchanged []}]})
+    (let [tree    (view/reactive-panel)
+          testids (unchanged-row-testids tree)]
+      (is (= 2 (count testids)) "both colliding parameterizations render a row")
+      (is (= 2 (count (distinct testids)))
+          "the injective selector gives the two rows DISTINCT test-ids")
+      (doseq [id (distinct testids)]
+        (is (= 1 (count (th/find-all-by-testid tree id)))
+            "each concrete query's test-id addresses exactly one node"))
+      (let [joined (str/join " " (map #(text-of tree %) (distinct testids)))]
+        (is (re-find #":a-b" joined) "the :a-b parameterization is labelled")
+        (is (re-find #":a/b" joined) "the :a/b parameterization is labelled")))))
+
 (deftest unchanged-row-unparameterized-shows-plain-sub-id
-  (testing "rf2-cj2yx — a bare unparameterized skip (query-v `[:sub/id]`)
-            renders the plain sub-id label (the common case is unchanged),
-            not a bracketed one-element vector."
+  (testing "rf2-cj2yx / rf2-bk2c6 — a bare unparameterized skip (query-v
+            `[:sub/id]`) renders the plain sub-id label (the common case is
+            unchanged), not a bracketed one-element vector; its readable slug
+            stem survives the injective encoding."
     (facade/install!)
     (rf/make-frame {:id :rf/xray})
     (seed-reactive-data!
@@ -512,9 +562,13 @@
        :show-unchanged? true
        :subs-skipped [{:sub-id :user/name :query-v [:user/name]
                        :reason :input-value-equal :input-paths-unchanged []}]})
-    (let [tree (view/reactive-panel)
-          row  (text-of tree "rf-xray-reactive-unchanged-row-__user_name_")]
-      (is (some? row) "the unparameterized row renders")
+    (let [tree    (view/reactive-panel)
+          testids (unchanged-row-testids tree)
+          id      (first testids)
+          row     (text-of tree id)]
+      (is (= 1 (count testids)) "exactly one unparameterized row renders")
+      (is (str/starts-with? id "rf-xray-reactive-unchanged-row-__user_name_")
+          "the common-case row keeps its readable :user/name slug stem")
       (is (re-find #":user/name" row) "labels with the plain sub-id")
       (is (not (re-find #"\[:user/name\]" row))
           "no bracketed one-element vector for the bare query"))))

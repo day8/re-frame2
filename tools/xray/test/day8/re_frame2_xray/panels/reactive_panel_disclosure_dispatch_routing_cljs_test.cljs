@@ -142,9 +142,9 @@
                      (let [tree2 (render-panel :rf/xray)]
                        (is (some? (th/find-by-testid tree2 "rf-xray-reactive-unchanged-list"))
                            "the dim memo-hit row list now renders")
-                       (is (some? (th/find-by-testid
-                                    tree2 "rf-xray-reactive-unchanged-row-__user_name_"))
-                           "a memo-hit row renders after expand"))
+                       (is (seq (th/find-by-testid-prefix
+                                  tree2 "rf-xray-reactive-unchanged-row-__user_name_"))
+                           "a memo-hit row renders after expand (readable slug stem, injective suffix)"))
                      (done)))
             (.catch (fn [e] (is false (.-message e)) (done))))))))
 
