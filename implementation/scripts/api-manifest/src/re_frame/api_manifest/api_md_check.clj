@@ -85,11 +85,39 @@
   (let [c (str/lower-case cell)]
     (some (fn [t] (when (str/includes? c t) (keyword t))) tier-tokens)))
 
+(def ^:private var-kind-markers
+  "The closed set of var-kind markers API.md's `M/Fn` cell uses, mapped to
+   the manifest `:kind` vocabulary (`:macro` / `:fn` / `:var`) each ASSERTS.
+   `Component` is deliberately mapped to nil: a Reagent-component row is
+   carried in the manifest as `:fn` or `:var` (there is no `:component`
+   kind), so its marker pins no single manifest kind — it still classifies
+   the row as a var-row (`var-kind-marker?`), but contributes no
+   documented-kind assertion the root-verb kind guard could check
+   (rf2-e9q33)."
+  {"M" :macro, "Fn" :fn, "Var" :var, "Component" nil})
+
+(defn- var-kind-token
+  "The var-kind marker token beginning the `M/Fn` cell (`Fn`/`M`/`Var`/
+   `Component`), or nil when the cell is a keyword-registration or prose
+   cell."
+  [cell]
+  (second (re-find #"^(Fn|M|Var|Component)\b" (str/trim cell))))
+
 (defn- var-kind-marker?
   "True when the M/Fn cell denotes a VAR row (a fn / macro / Var /
    component), as opposed to a keyword-registration or prose cell."
   [cell]
-  (boolean (re-find #"^(Fn|M|Var|Component)\b" (str/trim cell))))
+  (boolean (var-kind-token cell)))
+
+(defn- documented-kind
+  "The manifest `:kind` (`:macro` / `:fn` / `:var`) a var-row's `M/Fn` cell
+   DOCUMENTS, or nil when the marker pins no single kind (`Component`) or the
+   cell is not a var-kind marker. Retained on each parsed var-row so the
+   root-verb kind guard can compare the documented kind against the manifest
+   — previously the marker was used only to classify a row, then discarded
+   (rf2-e9q33)."
+  [cell]
+  (get var-kind-markers (var-kind-token cell)))
 
 (def adapter-aliases
   "The documented `:require [<ns> :as <alias>]` adapter aliases API.md uses
@@ -145,8 +173,12 @@
 
 (defn parse-api-md-var-rows
   "Parse spec/API.md and return `[{:var <bare-name> :qualifier <ns-or-alias
-   or nil> :tier <kw> :line <n> :raw <first-cell>} ...]` for every VAR-row
-   found in any table that has a `Tier` column. `:qualifier` is the
+   or nil> :tier <kw> :doc-kind <:macro/:fn/:var or nil> :line <n> :raw
+   <first-cell>} ...]` for every VAR-row found in any table that has a `Tier`
+   column. `:doc-kind` is the manifest `:kind` the row's `M/Fn` marker
+   documents (nil for a `Component` marker, which pins no single kind), so
+   the root-verb kind guard can reconcile it against the manifest
+   (rf2-e9q33). `:qualifier` is the
    namespace/alias prefix for a qualified row (`helix-adapter`,
    `re-frame.http`) or nil for a bare row — preserved so qualified rows can
    resolve strictly against the manifest `[namespace var]` index
@@ -188,6 +220,7 @@
                            (conj! acc {:var       bare
                                        :qualifier qualifier
                                        :tier      tier
+                                       :doc-kind  (documented-kind kind-cell)
                                        :line      n
                                        :raw       (second m)})))
                   (recur more tier-idx acc))
@@ -260,6 +293,122 @@
   [extracted]
   (projection/vacuity-floor-problem "spec/API.md" extracted min-var-rows))
 
+;; ---------------------------------------------------------------------------
+;; Root-verb KIND guard (rf2-e9q33).
+;;
+;; PR #5968 corrected the source (create-root is a MACRO, not a Fn) but left
+;; the documented-kind acceptance criterion unproved: the `M/Fn` cell was
+;; used only to classify a row as a var-row, then discarded — `reconcile`
+;; compares identity and tier only. So the create-root row could silently
+;; flip M -> Fn (or unmount! Fn -> M) and stay GREEN. This guard restores the
+;; comparison for the Spec-004C root verbs: each documented kind must equal
+;; the manifest `:kind` for the `re-frame.ui` row of that name.
+;; ---------------------------------------------------------------------------
+
+(def root-verb-namespace
+  "The manifest namespace that owns the Spec-004C root-lifecycle verbs whose
+   documented public-Var KIND the gate pins against the manifest (rf2-e9q33)."
+  "re-frame.ui")
+
+(def root-verb-kinds
+  "The Spec-004C root-lifecycle verbs (`re-frame.ui`) whose DOCUMENTED
+   public-Var kind the gate pins against the manifest (rf2-e9q33) — named in
+   the bead's acceptance criteria: create-root / render! / hydrate-root are
+   macros; unmount! is a function. A new root verb whose kind should be
+   pinned is an intentional one-line addition here."
+  #{"create-root" "render!" "hydrate-root" "unmount!"})
+
+(defn root-verb-kind-problems
+  "Pure documented-kind reconciler for the Spec-004C root verbs (rf2-e9q33).
+   For every API.md var-row naming one of `root-verb-kinds`, the DOCUMENTED
+   kind (its `M/Fn` marker mapped to `:macro` / `:fn` / `:var`) must equal
+   the manifest `:kind` for the `re-frame.ui` row of that name. Returns the
+   seq of problem maps; empty when every root verb's documented kind matches.
+
+   `rows`     — manifest rows (each `{:namespace :var :kind ...}`).
+   `api-rows` — parsed API.md var-rows `{:var :doc-kind :line :raw ...}`.
+
+   Row ABSENCE (a root verb dropped from API.md or the manifest) is the
+   `reconcile` / `gen --check` existence guard's job, not this kind guard's:
+   this fires only when a row is PRESENT on both sides with a disagreeing
+   kind — the wrong-Var-kind drift the tier reconcile could not see."
+  [{:keys [rows api-rows]}]
+  (let [manifest-kind (into {}
+                            (for [{:keys [namespace var kind]} rows
+                                  :when (and (= namespace root-verb-namespace)
+                                             (root-verb-kinds var))]
+                              [var kind]))]
+    (keep (fn [{:keys [var doc-kind line raw]}]
+            (when-let [mkind (and (root-verb-kinds var)
+                                  (get manifest-kind var))]
+              (cond
+                (nil? doc-kind)
+                {:kind :kind-unmarked :var var :raw raw :line line
+                 :manifest-kind mkind}
+                (not= doc-kind mkind)
+                {:kind :kind-mismatch :var var :raw raw :line line
+                 :doc-kind doc-kind :manifest-kind mkind})))
+          api-rows)))
+
+;; ---------------------------------------------------------------------------
+;; create-root LITERAL-OPTION guard (rf2-e9q33).
+;;
+;; Spec 004C fixes create-root's public contract: authored `:root-id` is
+;; REQUIRED (no root form to derive an id from) and `:disambiguator` is
+;; INVALID. The tier/kind reconcile cannot see this — it pins name,
+;; qualifier, tier, and kind, never the option grammar. This narrow guard
+;; requires the create-root API.md row to state BOTH facts literally; a row
+;; that drops the `:root-id`-required assertion or no longer marks
+;; `:disambiguator` invalid (silently admitting it) goes red. It is a
+;; targeted literal-invariant on ONE named row — deliberately NOT a general
+;; Markdown signature parser (bead guidance).
+;; ---------------------------------------------------------------------------
+
+(def ^:private create-root-row-re
+  "Anchored match for the create-root VAR-ROW (its first table cell is
+   exactly `` `create-root` ``), used to locate the row whose literal
+   option-grammar the gate pins (rf2-e9q33)."
+  #"^\s*\|\s*`create-root`\s*\|")
+
+(def ^:private root-id-required-re
+  "The create-root row must assert authored `:root-id` is REQUIRED — the
+   `:root-id` token followed, within the SAME table cell (`[^|]`), by
+   `required` (rf2-e9q33)."
+  #":root-id[^|]{0,60}\brequired\b")
+
+(def ^:private disambiguator-invalid-re
+  "The create-root row must assert `:disambiguator` is INVALID — the
+   `:disambiguator` token followed, within the SAME table cell (`[^|]`), by
+   `invalid` (rf2-e9q33). A row that drops this — or renames it to admit the
+   option — goes red."
+  #":disambiguator[^|]{0,60}\binvalid\b")
+
+(defn read-api-md-lines
+  "Read spec/API.md as `[[line-no line-text] ...]` (1-based). Shared by
+   `check!` and the prose-scanning guards (the keyword-drift guards and the
+   create-root option guard) so they all see the same line index."
+  []
+  (with-open [r (io/reader @api-md-file)]
+    (vec (map-indexed (fn [i line] [(inc i) line]) (line-seq r)))))
+
+(defn create-root-option-problems
+  "Pure literal-option-grammar guard for the create-root row (rf2-e9q33).
+   Returns the seq of problem maps; empty when the create-root row pins both
+   authored-`:root-id`-required and `:disambiguator`-invalid.
+
+   `api-md-lines` — `[[line-no line-text] ...]` for spec/API.md."
+  [api-md-lines]
+  (if-let [[line row-text]
+           (some (fn [[n text]]
+                   (when (re-find create-root-row-re text) [n text]))
+                 api-md-lines)]
+    (cond-> []
+      (not (re-find root-id-required-re row-text))
+      (conj {:kind :root-id-not-required :line line})
+      (not (re-find disambiguator-invalid-re row-text))
+      (conj {:kind :disambiguator-admitted :line line}))
+    [{:kind :create-root-row-missing :line nil}]))
+
 (defn check!
   "Validate spec/API.md var-rows against the manifest. Returns true when
    every API.md var-row resolves to a manifest row with a MATCHING tier;
@@ -282,8 +431,7 @@
                                :api-rows           api-rows
                                :known-unmanifested known-unmanifested
                                :aliases            adapter-aliases})
-        api-md-lines (with-open [r (io/reader @api-md-file)]
-                       (vec (map-indexed (fn [i line] [(inc i) line]) (line-seq r))))
+        api-md-lines (read-api-md-lines)
         ;; Var-row reconciliation cannot see retired keyword vocabulary in
         ;; API.md prose. The reply-envelope
         ;; (`:stale-key` / bare `:work-id`) and egress-profile (retired
@@ -293,7 +441,14 @@
         kw-probs   (concat
                      (projection/ep0017-keyword-drift-problems "spec/API.md" api-md-lines)
                      (projection/ep0011-reply-vocab-drift-problems "spec/API.md" api-md-lines)
-                     (projection/ep0015-privacy-vocab-drift-problems "spec/API.md" api-md-lines))]
+                     (projection/ep0015-privacy-vocab-drift-problems "spec/API.md" api-md-lines))
+        ;; Documented-kind guard for the Spec-004C root verbs (rf2-e9q33):
+        ;; each root verb's M/Fn marker must match the manifest :kind — the
+        ;; wrong-Var-kind drift the tier reconcile could not see.
+        kind-probs (root-verb-kind-problems {:rows rows :api-rows api-rows})
+        ;; Literal-option guard for the create-root row (rf2-e9q33): authored
+        ;; :root-id REQUIRED and :disambiguator INVALID must both stay pinned.
+        opt-probs  (create-root-option-problems api-md-lines)]
     (cond
       ;; Vacuity-floor violation: extraction collapsed — refuse a green.
       floor
@@ -312,6 +467,38 @@
             (println "an explicit retirement/rename reference. Problems:")
             (doseq [{:keys [file line raw detail]} kw-probs]
               (println (format "  %s:%d  `%s`  %s" file line raw detail))))
+          false)
+
+      (seq kind-probs)
+      (do (binding [*out* *err*]
+            (println "DRIFT: spec/API.md documents a Spec-004C root verb with the wrong Var kind.")
+            (println "create-root / render! / hydrate-root are MACROS; unmount! is a FUNCTION.")
+            (println "Each root-verb row's M/Fn marker must match the manifest :kind. Problems:")
+            (doseq [{:keys [kind raw line doc-kind manifest-kind]} kind-probs]
+              (case kind
+                :kind-mismatch
+                (println (format "  L%-4d KIND:    `%s` API.md marks %s; manifest :kind is %s"
+                                 line raw doc-kind manifest-kind))
+                :kind-unmarked
+                (println (format "  L%-4d KIND:    `%s` carries no var-kind marker; manifest :kind is %s"
+                                 line raw manifest-kind)))))
+          false)
+
+      (seq opt-probs)
+      (do (binding [*out* *err*]
+            (println "DRIFT: spec/API.md create-root row lost its literal option grammar.")
+            (println "The create-root row must pin authored :root-id REQUIRED and :disambiguator")
+            (println "INVALID (Spec 004C). Problems:")
+            (doseq [{:keys [kind line]} opt-probs]
+              (case kind
+                :root-id-not-required
+                (println (format "  L%-4s create-root no longer states authored :root-id is required"
+                                 (str line)))
+                :disambiguator-admitted
+                (println (format "  L%-4s create-root no longer marks :disambiguator invalid (admitted)"
+                                 (str line)))
+                :create-root-row-missing
+                (println "  create-root var-row not found in spec/API.md"))))
           false)
 
       (empty? problems)
