@@ -501,49 +501,68 @@
     :rf.fx/clear-flow
     :rf.route/with-nav-token})
 
+(defn classify-fx-override
+  "Resolve `overrides`[`fx-id`] into ONE structured disposition, performing the
+  registrar + protected-target lookup EXACTLY ONCE. This is THE single override
+  policy — `real-override?`, `override-applies?`, and `resolve-fx-with-overrides`
+  all express themselves over it, and the machines join-completion transport
+  (`:rf.machine/join-dispatch`) consumes the SAME disposition under its
+  exact-owner fence (rf2-5g6qq). Because the classification is taken once and
+  wholly determines the caller's branch, a concurrent register / unregister can
+  never flip an applies-preflight into a different EXECUTION disposition.
+
+  Returns a map `{:disposition <kw> …}`:
+
+    {:disposition :noop}
+      No override, or the documented nil/false placeholder — the original fx runs.
+    {:disposition :applied-fn :override <fn>}
+      A fn-value override runs IN PLACE OF the fx (CLJS-reference convenience).
+    {:disposition :applied-redirect :target <fx-id>}
+      A keyword redirect to a REGISTERED, NON-PROTECTED fx runs in place.
+    {:disposition :fallthrough :reason :unregistered :target <fx-id>}
+    {:disposition :fallthrough :reason :malformed :value <v>}
+      A real but non-applying override — surface `:rf.error/override-fallthrough`
+      (`emit-override-fallthrough!`), then run the original fx.
+    {:disposition :protected-rejection :target <fx-id>}
+      A keyword redirect whose TARGET is a protected internal id
+      (`rejected-reserved-fx-ids`) — refused, same fallthrough diagnostic.
+
+  Pure and non-emitting (mirrors the value-inspecting predicate family); callers
+  own any diagnostic / execution."
+  [overrides fx-id]
+  (let [v (get overrides fx-id)]
+    (cond
+      (or (nil? v) (false? v)) {:disposition :noop}
+      (fn? v)                  {:disposition :applied-fn :override v}
+      (keyword? v)
+      (cond
+        (contains? rejected-reserved-fx-ids v) {:disposition :protected-rejection :target v}
+        (registrar/lookup :fx v)               {:disposition :applied-redirect :target v}
+        :else                                  {:disposition :fallthrough :reason :unregistered :target v})
+      :else                    {:disposition :fallthrough :reason :malformed :value v})))
+
 (defn real-override?
   "True iff `overrides` carries a GENUINE override for `fx-id` — a fn body, a
   keyword redirect, or any other non-noop value (which `resolve-fx-with-
   overrides` then reports) — as opposed to the documented nil/false no-op
   placeholder (spec/002 §`:fx-overrides`: \"nil/false → no override, fall
   through\"). The single definition of \"is this fx actually overridden\",
-  shared by the reject-tier gate (`real-reject-override?`) and the machines
-  `:rf.machine/join-dispatch` transport's override-first resolution (rf2-ulsbgr
-  — a `:spawn-all` child completion whose canonical `:dispatch` / `:dispatch-
-  later` is overridden must route through that override, NOT be lowered to the
-  private recordable transport). Public so the machines transport reuses this
-  one definition rather than forking a second override engine."
+  shared by the reject-tier gate (`real-reject-override?`). A thin predicate over
+  the ONE `classify-fx-override` policy (any non-`:noop` disposition)."
   [overrides fx-id]
-  (let [v (get overrides fx-id)]
-    (and (some? v) (not (false? v)))))
+  (not= :noop (:disposition (classify-fx-override overrides fx-id))))
 
 (defn override-applies?
   "True iff `overrides` carries an override for `fx-id` that will ACTUALLY run
   an application-controlled handler IN PLACE OF the fx — a fn-value, or a
-  keyword redirect to a REGISTERED, NON-PROTECTED fx. This is the STRICTER
-  companion to `real-override?`: an override value that `real-override?` counts
-  as genuine but that does NOT run an app handler returns false here — a
-  nil/false noop, an UNREGISTERED-keyword or MALFORMED value (both fall through
-  to the original fx via `:rf.error/override-fallthrough`), and a redirect whose
-  TARGET is a PROTECTED internal id (`rejected-reserved-fx-ids`).
-
-  The machines join-completion transport (`:rf.machine/join-dispatch`, rf2-t154jx)
-  uses this to decide whether a public `{:dispatch …}` / `{:dispatch-later …}`
-  override GENUINELY pre-empts a `:spawn-all` child's completion — routed through
-  the shared override engine `handle-one-fx`, minting no private authority
-  (rf2-ulsbgr) — or merely falls through, in which case the authenticated
-  recordable transport must still run so the join folds (rf2-2lzk8a). It shares
-  `resolve-fx-with-overrides`'s registrar lookup + protected-target rule and is
-  the NON-EMITTING pre-flight predicate for that ONE engine (mirrors the
-  existing `real-override?` / `real-reject-override?` value-inspecting
-  predicates), not a second resolver."
+  keyword redirect to a REGISTERED, NON-PROTECTED fx. The STRICTER companion to
+  `real-override?`: a nil/false noop, an UNREGISTERED-keyword or MALFORMED value,
+  and a redirect whose TARGET is a PROTECTED internal id all return false. A thin
+  predicate over the ONE `classify-fx-override` policy (an `:applied-fn` /
+  `:applied-redirect` disposition)."
   [overrides fx-id]
-  (let [v (get overrides fx-id)]
-    (cond
-      (fn? v)      true
-      (keyword? v) (and (not (contains? rejected-reserved-fx-ids v))
-                        (some? (registrar/lookup :fx v)))
-      :else        false)))
+  (contains? #{:applied-fn :applied-redirect}
+             (:disposition (classify-fx-override overrides fx-id))))
 
 (defn- real-reject-override?
   "True iff `overrides` carries a GENUINE reject-tier override attempt for
@@ -932,8 +951,71 @@
          overrides))
      overrides)))
 
+(defn emit-override-fallthrough!
+  "Surface the canonical `:rf.error/override-fallthrough` diagnostic for a
+  non-applying override `disposition` (a `:fallthrough` or `:protected-rejection`
+  from `classify-fx-override`) on BOTH error substrates — the always-on error-emit
+  fan-out (rf2-goum9x: override misconfiguration is production-reachable) and the
+  dev trace. A no-op for `:noop` / `:applied-*` dispositions.
+
+  The ONE emit path shared by `resolve-fx-with-overrides` and the machines
+  join-completion transport (`:rf.machine/join-dispatch`, rf2-5g6qq), so a
+  misconfigured override on a join completion reads identically to one on any
+  other dispatch. `frame-id` / `origin-event` / `origin-event-id` (rf2-goum9x)
+  frame-attribute the emit; the recovery is the framework's own
+  `:replaced-with-default` (use the registered `original-fx-id`)."
+  [{:keys [disposition reason target value]}
+   original-fx-id overrides frame-id origin-event origin-event-id]
+  (case disposition
+    ;; rf2-2lzk8a — a redirect whose TARGET is a protected internal id: refused,
+    ;; fail safely exactly like an unregistered target.
+    :protected-rejection
+    (emit-fx-error! :rf.error/override-fallthrough
+                    origin-event origin-event-id frame-id nil
+                    {:failing-id    original-fx-id
+                     :overrides-map overrides
+                     :looked-up-id  target
+                     :frame         frame-id
+                     :reason        (str "Override redirected `" original-fx-id
+                                         "` to `" target
+                                         "`, a PROTECTED internal fx-id that "
+                                         "may not be an override target. Using "
+                                         "the registered `" original-fx-id "` instead.")
+                     :recovery      :replaced-with-default})
+
+    :fallthrough
+    (if (= reason :unregistered)
+      (emit-fx-error! :rf.error/override-fallthrough
+                      origin-event origin-event-id frame-id nil
+                      {:failing-id    original-fx-id
+                       :overrides-map overrides
+                       :looked-up-id  target
+                       :frame         frame-id
+                       :reason        (str "Override redirected `" original-fx-id
+                                           "` to `" target
+                                           "`, which is not registered. Using the registered `"
+                                           original-fx-id "` instead.")
+                       :recovery      :replaced-with-default})
+      ;; :malformed — any value that is not a keyword / fn / nil / false.
+      (emit-fx-error! :rf.error/override-fallthrough
+                      origin-event origin-event-id frame-id nil
+                      {:failing-id    original-fx-id
+                       :overrides-map overrides
+                       :override      value
+                       :frame         frame-id
+                       :reason        (str "Override for `" original-fx-id
+                                           "` is `" (pr-str value)
+                                           "`, which is not a valid `:fx-overrides` "
+                                           "value — it must be an fx-id keyword "
+                                           "(id-redirect), a function (override body), "
+                                           "or nil/false (noop). Using the registered `"
+                                           original-fx-id "` instead.")
+                       :recovery      :replaced-with-default}))
+    nil))
+
 (defn resolve-fx-with-overrides
-  "Apply fx-id overrides per Spec 002 §Per-frame and per-call overrides.
+  "Apply fx-id overrides per Spec 002 §Per-frame and per-call overrides, over the
+  ONE `classify-fx-override` policy.
 
   Three override-value shapes are honoured (per [002 §`:fx-overrides`](spec/002-Frames.md#fx-overrides--replace-fx-handlers)):
 
@@ -968,128 +1050,33 @@
   frame-attributed and fanned out through the always-on error-emit
   substrate (not just the dev trace) — they are otherwise read-only here."
   [original-fx-id overrides frame-id origin-event origin-event-id]
-  (if (contains? overrides original-fx-id)
-    (let [override-target (get overrides original-fx-id)]
-      (cond
-        ;; (3) function value — CLJS-reference convenience. The
-        ;; `:rf.fx/override-applied` trace is emitted by `handle-one-fx`
-        ;; when the override fn actually fires (not here), because a
-        ;; fn-value override of a *reserved* fx-id must pre-empt the
-        ;; reserved body — emitting the trace here would fire it even on
-        ;; paths that (counterfactually) declined the override. Returns
-        ;; the original-fx-id unchanged; `resolved-fx-meta` synthesises
-        ;; the meta carrying the user's fn.
-        (fn? override-target)
-        original-fx-id
+  (let [disposition (classify-fx-override overrides original-fx-id)]
+    (case (:disposition disposition)
+      ;; (3) function value — CLJS-reference convenience. Returns the
+      ;; original-fx-id unchanged; the `:rf.fx/override-applied` trace is
+      ;; emitted by `handle-one-fx` when the override fn actually fires (a
+      ;; fn-value override of a *reserved* fx-id must pre-empt the reserved
+      ;; body — emitting here would fire even on paths that declined it).
+      :applied-fn       original-fx-id
 
-        ;; (2) id-redirect to a registered fx.
-        (keyword? override-target)
-        (cond
-          ;; rf2-2lzk8a — REFUSE a redirect whose TARGET is a protected internal
-          ;; id (`rejected-reserved-fx-ids`: the state-installing lifecycle fxs,
-          ;; the nav-token threader, and the private `:rf.machine/join-dispatch`
-          ;; join-completion transport). An app must not reach a framework-
-          ;; internal transport by redirecting a canonical effect — it would
-          ;; bypass the reserved-key reject (an app can already not OVERRIDE
-          ;; these ids), escalate privilege, and for the self-recursive
-          ;; `:rf.machine/join-dispatch` re-enter override resolution unboundedly
-          ;; to a StackOverflowError. Fail safely exactly like an unregistered
-          ;; target: emit the canonical override-fallthrough and use the
-          ;; original fx.
-          (contains? rejected-reserved-fx-ids override-target)
-          (do
-            (emit-fx-error! :rf.error/override-fallthrough
-                            origin-event
-                            origin-event-id
-                            frame-id
-                            nil
-                            {:failing-id     original-fx-id
-                             :overrides-map  overrides
-                             :looked-up-id   override-target
-                             :frame          frame-id
-                             :reason         (str "Override redirected `"
-                                                  original-fx-id
-                                                  "` to `"
-                                                  override-target
-                                                  "`, a PROTECTED internal fx-id that "
-                                                  "may not be an override target. Using "
-                                                  "the registered `"
-                                                  original-fx-id
-                                                  "` instead.")
-                             :recovery       :replaced-with-default})
-            original-fx-id)
+      ;; (2) id-redirect to a registered fx.
+      :applied-redirect (do
+                          (trace/emit! :rf.fx :rf.fx/override-applied
+                                       {:rf.fx/from original-fx-id
+                                        :rf.fx/to   (:target disposition)})
+                          (:target disposition))
 
-          (registrar/lookup :fx override-target)
-          (do
-            (trace/emit! :rf.fx :rf.fx/override-applied
-                         {:rf.fx/from original-fx-id :rf.fx/to override-target})
-            override-target)
-          :else
-          (do
-            ;; rf2-goum9x: override misconfiguration is a production-
-            ;; reachable runtime error (Spec 009 §Error event catalogue) —
-            ;; fan it out through the always-on listener so override-map
-            ;; mistakes are visible in production, not only under dev
-            ;; traces. The recovery is the framework's own
-            ;; `:replaced-with-default` (use the registered fx).
-            (emit-fx-error! :rf.error/override-fallthrough
-                            origin-event
-                            origin-event-id
-                            frame-id
-                            nil
-                            {:failing-id     original-fx-id
-                             :overrides-map  overrides
-                             :looked-up-id   override-target
-                             :frame          frame-id
-                             :reason         (str "Override redirected `"
-                                                  original-fx-id
-                                                  "` to `"
-                                                  override-target
-                                                  "`, which is not registered. Using the registered `"
-                                                  original-fx-id
-                                                  "` instead.")
-                             :recovery       :replaced-with-default})
-            original-fx-id))
+      ;; A real but non-applying override — surface the canonical fallthrough
+      ;; (protected-target redirect, unregistered keyword, or malformed value)
+      ;; through the shared emit path, then fall back to the original fx.
+      (:fallthrough :protected-rejection)
+      (do
+        (emit-override-fallthrough! disposition original-fx-id overrides
+                                    frame-id origin-event origin-event-id)
+        original-fx-id)
 
-        ;; `nil` / `false` — the documented noop-style placeholder
-        ;; (spec/002 §`:fx-overrides`): "no override", silently fall
-        ;; through to the original fx. KEPT silent on purpose.
-        (or (nil? override-target) (false? override-target))
-        original-fx-id
-
-        :else
-        ;; Any OTHER value (a number / string / map / vector / …) is a
-        ;; malformed `:fx-overrides` entry — an `:fx-overrides` value must
-        ;; be an fx-id keyword (id-redirect), a fn (override body), or
-        ;; nil/false (noop). Fail LOUD, matching the sibling
-        ;; unregistered-keyword branch (rf2-3az1vn P2 + spec/002 §`:fx-overrides`
-        ;; :else throw): emit `:rf.error/override-fallthrough` through BOTH
-        ;; error substrates so a silently-swallowed bad override surfaces in
-        ;; dev AND production observability, then fall through to the original
-        ;; fx (recovery `:replaced-with-default`).
-        (do
-          (emit-fx-error! :rf.error/override-fallthrough
-                          origin-event
-                          origin-event-id
-                          frame-id
-                          nil
-                          {:failing-id    original-fx-id
-                           :overrides-map overrides
-                           :override      override-target
-                           :frame         frame-id
-                           :reason        (str "Override for `"
-                                               original-fx-id
-                                               "` is `"
-                                               (pr-str override-target)
-                                               "`, which is not a valid `:fx-overrides` "
-                                               "value — it must be an fx-id keyword "
-                                               "(id-redirect), a function (override body), "
-                                               "or nil/false (noop). Using the registered `"
-                                               original-fx-id
-                                               "` instead.")
-                           :recovery      :replaced-with-default})
-          original-fx-id)))
-    original-fx-id))
+      ;; `:noop` — missing key / nil / false. KEPT silent on purpose.
+      original-fx-id)))
 
 (defn- resolved-fx-meta
   "Return the fx-handler meta to invoke for `original-fx-id` under
