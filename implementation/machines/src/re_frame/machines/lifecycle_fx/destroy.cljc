@@ -381,7 +381,7 @@
   cancellation and atomically closes the attempt by adding its logical child
   id to the live join state's private `:cancelled` set BEFORE exit callbacks,
   snapshot removal, or the terminal destroyed trace. Consequently an already
-  queued/delayed exact-auth completion observes a closed attempt and cannot
+  queued/delayed exact-attempt completion observes a closed attempt and cannot
   fold a contradictory terminal. A new join attempt seeds a new join-state, so
   no tombstone crosses re-entry.
 
