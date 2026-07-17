@@ -775,7 +775,7 @@ Universal trace event shape, including error events.
    [:time      :any]                                                       ;; emit timestamp (host clock)
    [:tags      {:optional true} [:map-of :keyword :any]]                   ;; op-type-specific payload
    [:source    {:optional true} :keyword]                                  ;; (when present) the trigger source
-   [:recovery  {:optional true} [:enum :no-recovery :replaced-with-default :retried :skipped :warned-and-replaced :logged-and-skipped :ignored]]
+   [:recovery  {:optional true} [:enum :no-recovery :replaced-with-default :retried :skipped :warned-and-replaced :warned-and-continued :logged-and-skipped :ignored]]
    [:rf.trace/trigger-handler {:optional true}                              ;; (when present) the in-scope handler at emit time
                               [:map
                                [:kind         [:enum :event :sub :fx :cofx :view]]
@@ -845,7 +845,7 @@ A refinement of `:rf/trace-event` for the unified error/warning envelope. Every 
    [:op-type   [:enum :error :warning]]         ;; :error for failures; :warning for advisories
    [:time      :any]                            ;; emit timestamp (host clock)
    [:source    {:optional true} :keyword]
-   [:recovery  {:optional true} [:enum :no-recovery :replaced-with-default :retried :skipped :warned-and-replaced :logged-and-skipped :ignored]]
+   [:recovery  {:optional true} [:enum :no-recovery :replaced-with-default :retried :skipped :warned-and-replaced :warned-and-continued :logged-and-skipped :ignored]]
    [:rf.trace/trigger-handler {:optional true}
                               [:map
                                [:kind         [:enum :event :sub :fx :cofx :view]]
@@ -1979,6 +1979,35 @@ Common keys (`:category`, `:failing-id`, `:reason`, `:frame`) are inherited from
    [:other-frame  :keyword]                          ;; an arbitrary mid-drain sibling — typically the caller's frame
    [:event        [:vector :any]]
    [:reason       :string]])
+
+;; --- warning: a CARRIED `(frame)` operation bundle's `:subscribe` ran under a foreign ambient frame ---
+;; `:rf.warning/cross-frame-carried-op` (rf2-vxgfnd.231) — a `(frame)` operation
+;; bundle captured under `:origin-frame` was CARRIED across a frame boundary (the
+;; HOLD semantics) and its `:subscribe` invoked beneath a DIFFERENT `:ambient-frame`.
+;; Frames are ISOLATED contexts (a subscription MUST NOT reach across a frame
+;; boundary), so the runtime emits this advisory and CONTINUES the read against the
+;; captured (origin) frame — never a retarget, never a refusal. QUIET when ambient
+;; equals origin (the ordinary in-scope read) or names no frame (an async hop / top-
+;; of-stack caller); NARROW to `:subscribe` (a carried dispatch drives its locked
+;; frame and does not warn). Dev-only — the whole check (ambient read, comparison,
+;; reason string, emit) is `interop/debug-enabled?`-gated wholesale and DCEs under
+;; `:advanced` + `goog.DEBUG=false` (pinned by `check-elision.cjs`; the emit is
+;; sourced by `re-frame.elision-probe/touch-carried-op-cross-frame!`). `:recovery`
+;; rides the envelope top-level after the emit-time hoist (per §`:rf/trace-event`);
+;; pinned here to `:warned-and-continued` for the per-category contract. Emitted by
+;; `re-frame.ui.frames/maybe-warn-cross-frame-carried-subscribe!`. Per the [009 error
+;; catalogue row](009-Instrumentation.md#error-event-catalogue), [002 §Frame target
+;; resolution](002-Frames.md#frame-target-resolution--the-carried-invariant), and
+;; [004 §Roots and mounting](004-Views.md#roots-and-mounting).
+
+(def CrossFrameCarriedOpTags
+  [:map
+   [:category       [:= :rf.warning/cross-frame-carried-op]]
+   [:origin-frame   :keyword]                        ;; the captured (committed) frame the bundle was minted under
+   [:ambient-frame  :keyword]                        ;; the foreign ambient frame the carried `:subscribe` ran beneath
+   [:rf.sub/query-v [:vector :any]]                  ;; the attempted subscription query vector (the read that CONTINUED against origin)
+   [:reason         :string]
+   [:recovery       [:= :warned-and-continued]]])     ;; the read proceeds against the CAPTURED origin frame — advisory only
 
 (def DecodeDefaultedTags
   [:map
