@@ -1,9 +1,11 @@
 (ns re-frame.ui.g8.dev
-  "G-8 — the real-browser controlled-input correctness matrix (07 §5; EP-0035
-  widened G-8). S-5's evidence was jsdom-only; this fixture is driven by the
+  "G-8 — the real-browser controlled-input CORRECTNESS matrix AND the
+  comparative event-to-commit LATENCY evidence (07 §5; EP-0034 §4 widened
+  G-8; EP-0035). S-5's evidence was jsdom-only; this fixture is driven by the
   run-ui-g8.cjs runner in BOTH real Chromium AND real WebKit, so the engine's
-  own DOM event pipeline, controlled-input reconciliation, caret management, and
-  paint scheduling — none of which jsdom fakes — are under test.
+  own DOM event pipeline, controlled-input reconciliation, caret management,
+  React commit scheduling, and paint scheduling — none of which jsdom fakes —
+  are under test.
 
   The matrix runs through a REUSABLE EVENT-PREFIX COMPONENT (the readiness P0-2
   library arm): a library-shaped control that receives its application event
@@ -11,18 +13,34 @@
   vector-outcome door at a compiler-proven controlled site. Toy literal fixtures
   do NOT close G-8 (EP-0035); the matrix passes through the library control.
 
-  Arms (each observed on the REAL engine):
+  ## Two channels, kept separate (the canonical G-8 is both)
+
+  DETERMINISTIC CORRECTNESS (the hard gate). Each arm observed on the REAL
+  engine:
     - pre-paint synchronous commit — the door writes app-db INSIDE the native
       `input` dispatch, before any microtask, await, or paint (rAF).
     - single synchronous revision advance — the dirty ViewCell advances exactly
       once per keystroke, so React never re-renders mid-keystroke (no tearing).
+    - one attributable React commit per input — a `React.Profiler` around the
+      reusable control counts ACTUAL React commits (separate from ViewCell
+      revisions); one ordinary input, and the committed IME boundary, each
+      produce exactly ONE commit.
     - event ordering — queued native inputs deliver in order; app-db reflects
       the last; the controlled value round-trips.
     - caret restoration — a mid-string insertion keeps the caret at the
-      insertion point through the controlled re-render (the door commits the
-      matching value, so React resets nothing).
+      insertion point through the controlled re-render.
     - IME composition — a compositionstart/update/end sequence commits the
-      composed value once at the real engine's composition boundary, caret kept.
+      composed value EXACTLY ONCE (one revision, one React commit) at the real
+      engine's composition boundary, caret kept.
+
+  COMPARATIVE LATENCY (evidence only; NO threshold — G-13's posture). The
+  compiled reusable control's event-to-commit time is measured against an
+  EQUIVALENT HAND-WRITTEN React control (a plain `useState`/`onChange`
+  controlled input) in the SAME warmed run, interleaved per sample, warm-ups
+  discarded. The runner owns the (stated nearest-rank) quantile convention,
+  records the sample count + noise policy, and reports the compiled-vs-baseline
+  p95 ratio and the within-10% OBSERVATION. Nothing here gates on a wall-clock
+  number; the runner's budget mutation teeth keep the comparison non-vacuous.
 
   The TOOTH: a second control — the deliberate ASYNC-DOOR REGRESSION — is the
   SAME controlled input whose write is deferred to a `setTimeout(0)` (a
@@ -30,7 +48,8 @@
   the pre-paint + revision arms MUST FAIL. The runner asserts the sync door
   passes AND the async door fails; an async door that accidentally passes turns
   the gate red (the matrix is not vacuous)."
-  (:require [re-frame.core :as rf]
+  (:require ["react" :as React]
+            [re-frame.core :as rf]
             [re-frame.ui :as ui :refer [defview]]
             [re-frame.ui.reactive :as reactive]
             [re-frame.ui.test :as uit]))
@@ -41,8 +60,17 @@
 
 (defonce ^:private delivered (atom []))
 
+;; Attributable React commit counters. A `React.Profiler` around each control
+;; increments its counter in `onRender` — the ACTUAL React commit signal, read
+;; separately from the ViewCell revision. Reset at mount so a measured delta
+;; counts only the commits of the arm under observation.
+(defonce ^:private sync-commit-count (atom 0))
+(defonce ^:private hw-commit-count (atom 0))
+
 (defn- register! []
   (reset! delivered [])
+  (reset! sync-commit-count 0)
+  (reset! hw-commit-count 0)
   (rf/reg-sub ::text (fn [db _] (:text db)))
   (rf/reg-sub ::async-text (fn [db _] (:async-text db)))
   (rf/reg-event
@@ -89,6 +117,46 @@
                            (js/setTimeout #(d [::set-async v]) 0)))}]))
 
 ;; ---------------------------------------------------------------------------
+;; React.Profiler wrappers (attributable commit counting) + the hand-written
+;; React baseline (comparative-latency counterpart)
+;; ---------------------------------------------------------------------------
+
+(defview profiled-sync-input [{:keys [on-change]}]
+  ;; Wrap the reusable control in a real `React.Profiler`; `onRender` fires once
+  ;; per React commit of the control's subtree. The frame context established by
+  ;; the enclosing `frame-provider` propagates through the Profiler + `ui/raw`
+  ;; boundary to the compiled control (same pattern G-13 uses for its Profiler).
+  (ui/raw
+   (React/createElement
+    (.-Profiler React)
+    #js {:id "g8-sync"
+         :onRender (fn [& _] (swap! sync-commit-count inc))}
+    (React/createElement reusable-prefix-input #js {:on-change on-change}))))
+
+(defn- handwritten-input [_props]
+  ;; The EQUIVALENT hand-written React control — a plain controlled input a
+  ;; developer would write by hand: `useState` value, native `onChange` write.
+  ;; No framework, no sync door. It is the comparative-latency baseline.
+  (let [state     (React/useState "seed")
+        value     (aget state 0)
+        set-value (aget state 1)]
+    (React/createElement
+     "input"
+     #js {:data-role "handwritten"
+          :value value
+          :onChange (fn [e] (set-value (.. e -target -value)))})))
+
+(defview handwritten-host []
+  ;; Same Profiler instrumentation as the compiled control so the latency
+  ;; comparison is apples-to-apples (equivalent per-commit overhead).
+  (ui/raw
+   (React/createElement
+    (.-Profiler React)
+    #js {:id "g8-handwritten"
+         :onRender (fn [& _] (swap! hw-commit-count inc))}
+    (React/createElement handwritten-input #js {}))))
+
+;; ---------------------------------------------------------------------------
 ;; In-browser observation helpers
 ;; ---------------------------------------------------------------------------
 
@@ -102,9 +170,22 @@
 (defn- fire-input!
   "Set the DOM value (what a keystroke leaves behind) then dispatch a native
   `input` event through the real engine — exactly the committed-event spine's
-  own delivery, no gesture abstraction."
+  own delivery, no gesture abstraction. Drives the compiled control's native
+  `:on-input` listener."
   [el value]
   (set! (.-value el) value)
+  (.dispatchEvent el (js/Event. "input" #js {:bubbles true :cancelable true})))
+
+(defn- fire-native-input!
+  "Set the DOM value through the NATIVE HTMLInputElement value setter (bypassing
+  React's controlled-input value tracker so a synthetic `onChange` fires) then
+  dispatch a native `input` event. Works for BOTH the compiled control's native
+  `:on-input` listener and the hand-written control's React `onChange`, so the
+  two controls are driven identically in the latency arm."
+  [el value]
+  (let [setter (.-set (js/Object.getOwnPropertyDescriptor
+                       (.-prototype js/HTMLInputElement) "value"))]
+    (.call setter el value))
   (.dispatchEvent el (js/Event. "input" #js {:bubbles true :cancelable true})))
 
 (defn- host-turn! []
@@ -116,15 +197,16 @@
   (js/Promise. (fn [resolve _] (js/requestAnimationFrame (fn [_] (resolve nil))))))
 
 ;; ---------------------------------------------------------------------------
-;; The matrix — driven against the sync-door control
+;; The correctness matrix — driven against the sync-door control
 ;; ---------------------------------------------------------------------------
 
 (defn- run-sync-matrix! [frame frame-id root]
   (let [el   (uit/query root "[data-role='sync']")
+        hw   (uit/query root "[data-role='handwritten']")
         cell (cell-observing frame-id [::text])
         out  (atom {})]
-    ;; Arm 1+2+5 — pre-paint synchronous commit, single revision advance, and
-    ;; ordering, all observed SYNCHRONOUSLY inside the native dispatch stack.
+    ;; Arm 1+2 — pre-paint synchronous commit + single revision advance,
+    ;; observed SYNCHRONOUSLY inside the native dispatch stack.
     (let [before (reactive/revision cell)]
       (fire-input! el "abc")
       ;; SYNCHRONOUS reads — no await, no microtask, strictly before any paint.
@@ -167,12 +249,34 @@
                          :caret-pos (.-selectionStart el)))))))
         (.then
          (fn []
+           ;; Arm — one attributable React COMMIT per ordinary input. A single
+           ;; fresh-value keystroke through the sync door advances the ViewCell
+           ;; once AND produces exactly one React commit (Profiler onRender),
+           ;; read separately from the revision. The hand-written control's
+           ;; one-commit is captured alongside as supporting evidence.
+           (reset! delivered [])
+           (let [rev-before  (reactive/revision cell)
+                 sync-before @sync-commit-count
+                 hw-before   @hw-commit-count]
+             (-> (uit/flush! (fn []
+                               (fire-native-input! el "commit-probe")
+                               (fire-native-input! hw "hw-commit-probe")))
+                 (.then
+                  (fn []
+                    (swap! out assoc
+                           :ordinary-revision-delta (- (reactive/revision cell) rev-before)
+                           :ordinary-commit-delta (- @sync-commit-count sync-before)
+                           :handwritten-commit-delta (- @hw-commit-count hw-before))))))))
+        (.then
+         (fn []
            ;; Arm 3 — IME composition through the real engine: start, a
            ;; composing input carrying the composed value, then end. The door
-           ;; commits the composed value once at the composition boundary and
-           ;; the caret is preserved.
+           ;; commits the composed value EXACTLY ONCE at the composition
+           ;; boundary — one ViewCell revision AND one React commit — and the
+           ;; caret is preserved. Duplicate revisions/commits redden the gate.
            (reset! delivered [])
-           (let [before (reactive/revision cell)]
+           (let [rev-before    (reactive/revision cell)
+                 commit-before @sync-commit-count]
              (.dispatchEvent el (js/CompositionEvent. "compositionstart"
                                                       #js {:bubbles true :data ""}))
              (set! (.-value el) "が")
@@ -189,7 +293,8 @@
                   (fn []
                     (swap! out assoc
                            :ime-committed (:text (app-db frame))
-                           :ime-revision-delta (- (reactive/revision cell) before)
+                           :ime-revision-delta (- (reactive/revision cell) rev-before)
+                           :ime-commit-delta (- @sync-commit-count commit-before)
                            :ime-caret (.-selectionStart el)
                            :ime-dom (.-value el))))))))
         (.then (fn [] @out)))))
@@ -214,7 +319,55 @@
         (.then (fn [] (swap! out assoc :eventual (:async-text (app-db frame))) @out)))))
 
 ;; ---------------------------------------------------------------------------
-;; Driver — mount both controls, run the matrix + tooth, publish the result
+;; The comparative-latency arm — compiled reusable control vs hand-written React
+;; ---------------------------------------------------------------------------
+
+(def ^:private latency-warmups 5)
+(def ^:private latency-recorded 25)
+
+(defn- latency-sample!
+  "One dispatch-to-commit span for a single fresh-value native input, mirroring
+  G-13's timing-cycle: the timer starts immediately before the flush that fires
+  the input and stops the instant the post-commit Promise resolves — no evidence
+  scan, DOM read, or assertion runs inside the measured interval."
+  [el value]
+  (let [started (js/performance.now)]
+    (-> (uit/flush! (fn [] (fire-native-input! el value)))
+        (.then (fn [_] (- (js/performance.now) started))))))
+
+(defn- run-latency!
+  "Comparative event-to-commit latency — the compiled reusable control vs the
+  equivalent hand-written React control, INTERLEAVED per sample (compiled then
+  hand-written) in the same warmed run. The first `latency-warmups` samples per
+  control are discarded; the next `latency-recorded` are returned as raw ms
+  arrays (the runner owns the stated nearest-rank quantile convention). EVIDENCE
+  ONLY — no threshold is applied here."
+  [root]
+  (let [compiled-el (uit/query root "[data-role='sync']")
+        hw-el       (uit/query root "[data-role='handwritten']")
+        n           (atom 0)
+        compiled    (atom [])
+        handwritten (atom [])]
+    (letfn [(step [i]
+              (if (>= i (+ latency-warmups latency-recorded))
+                (js/Promise.resolve {:compiled-raw-ms @compiled
+                                     :handwritten-raw-ms @handwritten
+                                     :samples-recorded latency-recorded
+                                     :warmups latency-warmups})
+                (-> (latency-sample! compiled-el (str "c" (swap! n inc)))
+                    (.then
+                     (fn [c-ms]
+                       (-> (latency-sample! hw-el (str "h" (swap! n inc)))
+                           (.then
+                            (fn [h-ms]
+                              (when (>= i latency-warmups)
+                                (swap! compiled conj c-ms)
+                                (swap! handwritten conj h-ms))
+                              (step (inc i))))))))))]
+      (step 0))))
+
+;; ---------------------------------------------------------------------------
+;; Driver — mount all controls, run correctness + latency, publish the result
 ;; ---------------------------------------------------------------------------
 
 (defn- execute! []
@@ -226,19 +379,23 @@
                                 :initial-events [[:rf/set-db {:async-text "seed"}]]})]
     (-> (uit/with-root [root [:div
                               [ui/frame-provider {:frame f-sync}
-                               [reusable-prefix-input {:on-change [::set-text]}]]
+                               [profiled-sync-input {:on-change [::set-text]}]]
                               [ui/frame-provider {:frame f-async}
-                               [async-door-input]]]]
+                               [async-door-input]]
+                              [handwritten-host]]]
           (-> (host-turn!)
               (.then (fn [] (run-sync-matrix! f-sync ::sync root)))
               (.then (fn [sync-result]
                        (-> (run-async-tooth! f-async ::async root)
                            (.then (fn [async-result]
-                                    {:gate "G-8"
-                                     :status "pass"
-                                     :user-agent (.-userAgent js/navigator)
-                                     :sync sync-result
-                                     :async async-result})))))))
+                                    (-> (run-latency! root)
+                                        (.then (fn [latency-result]
+                                                 {:gate "G-8"
+                                                  :status "pass"
+                                                  :user-agent (.-userAgent js/navigator)
+                                                  :sync sync-result
+                                                  :async async-result
+                                                  :latency latency-result}))))))))))
         (.then (fn [result]
                  (rf/destroy-frame! f-sync)
                  (rf/destroy-frame! f-async)
