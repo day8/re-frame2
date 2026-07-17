@@ -703,3 +703,161 @@
               "the superseded signal no longer matches the current generation — DISCARD")))
       (rf/unregister-listener! :trace ::recorder6)
       (rf/unregister-listener! :epoch ::watcher6))))
+
+;; ---- rf2-oh1y8 — nil-evidence cleanup across every owned store, CLJS host ---
+;;
+;; The JVM peer `destroy-cleans-exact-owner-stores-when-snapshot-evidence-is-nil`
+;; (`re-frame.epoch-test`) directly seeds and asserts each of the FIVE exact-owner
+;; stores `on-frame-destroyed!`'s cleanup-fn drops. `re-frame.epoch.state` is a
+;; host-shared `.cljc`, but owner serialization differs by host (`locking` on JVM
+;; vs synchronous direct execution on CLJS), and rf2-hclxos called for BOTH hosts.
+;; These two synchronous CLJS fixtures close that gap:
+;;
+;;   1. the #5939 nil-evidence path drops all five stores AND fabricates nothing —
+;;      re-nesting cleanup under the evidence guard fails causally;
+;;   2. a stale predecessor A resuming with nil evidence CANNOT erase a claimed
+;;      same-id B's stores (the compare-owned no-op). The equivalent JVM invariant
+;;      lives in `frame-destroy-incarnation-jvm-test`.
+
+(deftest destroy-cleans-exact-owner-stores-when-snapshot-evidence-is-nil-cljs
+  (testing "rf2-oh1y8 (synchronous CLJS) — a throwing :epoch/snapshot-frame-
+            destroyed hook yields nil terminal-evidence (#5939), but the destroyed
+            incarnation's FIVE id-keyed epoch stores are STILL dropped, and the
+            nil bundle publishes/fabricates nothing. Each store is seeded and
+            asserted directly, so re-nesting cleanup under the evidence guard — or
+            removing any single drop — fails exactly its assertion."
+    (let [id            :rf2-oh1y8/nil-evidence
+          cb            ::rf2-oh1y8-nil-evidence-cb
+          render-key    ::rf2-oh1y8-nil-evidence-view
+          records       (atom [])
+          traces        (atom [])
+          original-snap (late-bind/get-fn :epoch/snapshot-frame-destroyed)]
+      (rf/make-frame {:id id})
+      (rf/reg-event :rf2-oh1y8/seed (fn [_ _] {:db {:audit/seed :from-A}}))
+      ;; cb OBSERVES A: fanning the settled record stamps its observation, so a
+      ;; fabricating publish would have a real observer to (wrongly) silence.
+      (rf/register-listener! :epoch cb (fn [r] (swap! records conj r)))
+      (rf/register-listener! :trace ::rf2-oh1y8-nil-evidence-trace
+        (fn [ev] (swap! traces conj ev)))
+      (rf/dispatch-sync [:rf2-oh1y8/seed] {:frame id})
+      (reset! records [])                          ; drop the :seed :ok record
+      (let [a-epoch-id (:epoch-id (first (rf/epoch-history id)))]
+        ;; The cascade seeds history + last-settled + cb's observation. Seed the two
+        ;; the synchronous cascade cannot: the harvested-empty capture buffer and
+        ;; the render mount-attribution (no React commit).
+        (state/buffer-event! id {:operation :rf.event/run-start
+                                 :tags {:rf.trace/dispatch-id ::seed-dispatch}})
+        (state/record-mount-epoch! id render-key a-epoch-id)
+        (state/record-render-deps! id render-key ::a-sub)
+
+        ;; PRE-DESTROY: all five exact-owner stores hold A's state.
+        (is (contains? (set (state/cbs-observing-frame id)) cb)
+            "observation stamp seeded — cb observed A")
+        (is (= 1 (count (state/history-for id)))
+            "history seeded — A settled one epoch")
+        (is (seq (state/buffer-for id))
+            "capture buffer seeded")
+        (is (some? (state/last-settled-epoch-id id))
+            "last-settled epoch seeded")
+        (is (some? (state/mount-epoch-for id render-key))
+            "mount attribution seeded")
+        (try
+          (late-bind/set-fn! :epoch/snapshot-frame-destroyed
+            (fn [& args]
+              (if (= id (first args))
+                (throw (ex-info "snapshot blew" {:why :test}))
+                (when original-snap (apply original-snap args)))))
+          (rf/destroy-frame! id)
+
+          ;; (1) All five id-keyed stores are dropped despite the nil bundle.
+          (is (empty? (state/cbs-observing-frame id))
+              "observation stamps dropped (drop-frame-observation!)")
+          (is (= [] (state/history-for id))
+              "history dropped (drop-frame-history!)")
+          (is (empty? (state/buffer-for id))
+              "capture buffer dropped (drop-frame-buffer!)")
+          (is (nil? (state/last-settled-epoch-id id))
+              "last-settled epoch dropped (drop-last-settled-epoch!)")
+          (is (nil? (state/mount-epoch-for id render-key))
+              "mount attribution dropped (drop-frame-mount-attribution!)")
+          (is (nil? (state/render-deps-for id render-key))
+              "mount attribution read-set dropped with the frame's entry")
+          (is (= [] (rf/epoch-history id))
+              "public epoch-history is [] even though the snapshot threw")
+          (is (nil? (frame/frame-incarnation-token id))
+              "A is fully destroyed — no live incarnation owns the id")
+
+          ;; (2) #5939 NON-FABRICATION: the nil bundle publishes/opens nothing.
+          (is (empty? (filter #(= :halted-destroy (:outcome %)) @records))
+              "no :halted-destroy record is fabricated from the nil bundle")
+          (is (empty? (filter #(= :rf.epoch.cb/silenced-on-frame-destroy
+                                  (:operation %))
+                              @traces))
+              "no silencing fires — the nil bundle owed none")
+          (is (zero? (reduce + 0 (map count
+                                      (vals (state/terminal-silence-marks-snapshot)))))
+              "a nil bundle opens no deferred-silence window — no mark accreted")
+          (finally
+            (late-bind/set-fn! :epoch/snapshot-frame-destroyed original-snap)
+            (when (frame/frame id) (rf/destroy-frame! id))
+            (rf/unregister-listener! :epoch cb)
+            (rf/unregister-listener! :trace ::rf2-oh1y8-nil-evidence-trace)))))))
+
+(deftest stale-a-nil-evidence-cleanup-cannot-erase-claimed-same-id-b-cljs
+  (testing "rf2-oh1y8 (synchronous CLJS) — a stale predecessor A resuming with NIL
+            terminal-evidence runs its exact-owner cleanup, but a same-id successor
+            B already CLAIMED the id-keyed stores. A LOSES the compare-owned
+            comparison, so its cleanup no-ops and cannot erase ANY of B's five
+            exact-owner stores. The equivalent JVM invariant lives in
+            frame-destroy-incarnation-jvm-test."
+    (let [id         :rf2-oh1y8-stale/frame
+          cb         ::rf2-oh1y8-stale-cb
+          render-key ::rf2-oh1y8-stale-view
+          token-a    #js {}
+          token-b    #js {}
+          b-record   {:frame id :epoch-id 2 :outcome :ok :db-after {:audit/seed :from-B}}]
+      (rf/register-listener! :epoch cb (fn [_] nil))
+      (try
+        ;; A claims + cb observes A (the state a live incarnation holds before its
+        ;; nil-evidence destroy is deferred past a same-id successor).
+        (state/claim-frame-owner! id token-a)
+        (epoch.listeners/notify-listeners! {:frame id :epoch-id 1})
+        ;; Same-id B claims the id-keyed stores (dropping A's), then seeds ALL FIVE
+        ;; of its own.
+        (state/claim-frame-owner! id token-b)
+        (epoch.listeners/notify-listeners! b-record)   ; cb re-observes under B
+        (state/record! b-record)                       ; history
+        (state/set-last-settled-epoch! id 2)           ; last-settled
+        (state/buffer-event! id {:operation :rf.event/run-start
+                                 :tags {:rf.trace/dispatch-id ::b-dispatch}}) ; buffer
+        (state/record-mount-epoch! id render-key 2)    ; mount attribution
+        (state/record-render-deps! id render-key ::b-sub)
+
+        ;; PRE-RESUME: B's five stores are populated.
+        (is (contains? (set (state/cbs-observing-frame id)) cb))
+        (is (= [b-record] (state/history-for id)))
+        (is (seq (state/buffer-for id)))
+        (is (= 2 (state/last-settled-epoch-id id)))
+        (is (= 2 (state/mount-epoch-for id render-key)))
+
+        ;; Stale A resumes with NIL evidence: cleanup loses the comparison to B.
+        (epoch.listeners/on-frame-destroyed! id token-a nil)
+
+        ;; B's FIVE stores are byte-identical — A's stale cleanup no-op'd.
+        (is (contains? (set (state/cbs-observing-frame id)) cb)
+            "B's observation survives A's stale nil-evidence cleanup")
+        (is (= [b-record] (state/history-for id))
+            "B's history survives")
+        (is (seq (state/buffer-for id))
+            "B's capture buffer survives")
+        (is (= 2 (state/last-settled-epoch-id id))
+            "B's last-settled anchor survives")
+        (is (= 2 (state/mount-epoch-for id render-key))
+            "B's mount attribution survives")
+        (is (= #{::b-sub} (state/render-deps-for id render-key))
+            "B's mount read-set survives")
+        (finally
+          ;; B tears itself down (token-b owns → cleanup runs) and releases the
+          ;; owner ledger, then unregister cb.
+          (epoch.listeners/on-frame-destroyed! id token-b nil)
+          (rf/unregister-listener! :epoch cb))))))
