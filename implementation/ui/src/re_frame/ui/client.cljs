@@ -1447,9 +1447,14 @@
   React 19 can consume the Root handle and throw before it clears either DOM
   children or its private `__reactContainer$…` ownership marker. There is no
   supported retry through the consumed handle. The adapter owns the terminal
-  process teardown, so it clears both pieces against the PINNED React host;
-  this makes DOM-empty + same-container re-init deterministic. Any fallback
-  failure propagates as secondary cleanup evidence, never over the host error.
+  process teardown, so it clears both pieces against the PINNED React host. That
+  clearing is a SNAPSHOT, NOT proof the surface settled — a throwing `.unmount`
+  may have QUEUED late host DOM work (a scheduled `replaceChildren`) before it
+  threw — so it does NOT license same-container re-init: the exact node is
+  recorded fail-closed (`consumed-containers`) and terminally denied, while only
+  the id/identifier-prefix free for a same-id re-mount on a FRESH container (see
+  `reclaim-and-retire-quarantine!`). Any fallback failure propagates as
+  secondary cleanup evidence, never over the host error.
   The FIRST reclaim failure is preserved BY PRESENCE (not truthiness), so a
   legitimately falsy thrown value (false/nil) is neither overwritten by a later
   step nor silently swallowed at the rethrow (rf2-s2cfv)."
@@ -1592,8 +1597,11 @@
               (when (exact-cleanup-failure-quarantine? root-id root)
                 (try
                   ;; `unmount!*` just classified this exact root as cleanup-failed.
-                  ;; Successful adapter reclaim proves the surface free; the identity
-                  ;; fence prevents a stale snapshot releasing a successor.
+                  ;; A successful adapter reclaim clears the node as a SNAPSHOT (NOT
+                  ;; proof the surface is free — the exact node stays fail-closed in
+                  ;; `consumed-containers`) and frees only the id/prefix for a same-id
+                  ;; re-mount on a FRESH container; the identity fence prevents a
+                  ;; stale snapshot releasing a successor.
                   ;; rf2-nd7z9h — retire this incarnation's reporter authority too,
                   ;; between the successful reclaim and the claim release, so the
                   ;; reporter ledger returns to baseline (a failed reclaim throws

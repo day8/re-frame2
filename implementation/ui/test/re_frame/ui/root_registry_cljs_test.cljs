@@ -497,8 +497,13 @@
       (is (= ["" ""] [(.-innerHTML ca) (.-innerHTML cb)])
           "adapter failure fallback empties every failed root container")
       (is (nil? (unchecked-get ca "__reactContainer$fixture"))
-          "the consumed React container marker is removed for same-container re-init")
-      (is (nil? (unchecked-get cb "__reactContainer$fixture"))))))
+          "the consumed React container marker is cleared as a SNAPSHOT — the exact node stays fail-closed, reuse is terminally denied")
+      (is (nil? (unchecked-get cb "__reactContainer$fixture")))
+      ;; rf2-fjti6 — clearing DOM + marker is a snapshot, NOT proof the surface is
+      ;; free: each exact node is recorded fail-closed and terminally denied.
+      (is (true? (client/container-consumed? ca))
+          "the exact reclaimed node is denied (terminally fail-closed, never same-container re-init)")
+      (is (true? (client/container-consumed? cb))))))
 
 (defn- root-with-consuming-unmount-throws-once
   "A Root whose host react-root models the REAL react-dom 19.2.0

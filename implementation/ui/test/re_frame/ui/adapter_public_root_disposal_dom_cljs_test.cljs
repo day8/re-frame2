@@ -238,23 +238,35 @@
                      (unexpected! done "throwing-root fail-closed recovery rejected" e))))))))
 
 (deftest throwing-unmount-that-queues-dom-mutation-cannot-clobber-a-successor
-  ;; rf2-sddbc — the counterexample the captured-dispatch queue-then-throw arm
-  ;; missed: a host `.unmount` SCHEDULES a late `container.replaceChildren(...)` and
-  ;; THEN throws. Adapter destroy reclaims the quarantine (clears DOM + marker,
-  ;; releases the id/prefix), but that is a SNAPSHOT, not proof the queued host task
-  ;; settled — no incarnation fence protects RAW DOM mutation. So the EXACT container
-  ;; is fail-closed and the successor mounts on a FRESH node the queued predecessor
-  ;; task can neither clobber nor replace. RED before the fix: the exact container
-  ;; was reusable, and the queued replaceChildren then replaced the successor tree.
+  ;; rf2-sddbc / rf2-fjti6 — the counterexample the captured-dispatch queue-then-throw
+  ;; arm missed, made CAUSALLY LATE. A host `.unmount` QUEUES a late
+  ;; `container.replaceChildren(...)` and THEN throws. The earlier proof scheduled that
+  ;; work with `queueMicrotask`, but JS FIFO ran it BEFORE the next `.then` mounted any
+  ;; successor — the mutation could never reach a successor, so the "cannot clobber"
+  ;; claim passed VACUOUSLY. Here the queued host work is HELD behind an explicit
+  ;; deterministic release (`held-mutation`) and let go only AFTER the successor has
+  ;; COMMITTED — the worst causal ordering. Adapter destroy reclaims the quarantine
+  ;; (clears DOM + marker, releases id/prefix), but that is a SNAPSHOT, not proof the
+  ;; queued host task settled; no incarnation fence protects RAW DOM mutation. So the
+  ;; EXACT container is fail-closed and the successor mounts on a FRESH node the LATE
+  ;; predecessor mutation can neither clobber nor replace.
+  ;;
+  ;; RED if exact-container denial is removed (the `:rf.error/root-container-consumed`
+  ;; arm below stops throwing → the successor could take the poisoned node). RED if the
+  ;; predecessor mutation runs BEFORE the successor commit (the `order` assertion flips).
   (when (browser?)
     (async done
       (rf/reg-sub ::adapter-value (fn [db _] (:value db)))
       (frame/replace-app-db! :rf/default {:value 7})
-      (let [container (js/document.createElement "div")
-            fresh     (js/document.createElement "div")
-            cleanup   (js/Error. "queue-then-throw host cleanup")
-            root*     (volatile! nil)
-            sentinel  (js/document.createElement "section")]
+      (let [container      (js/document.createElement "div")
+            fresh          (js/document.createElement "div")
+            cleanup        (js/Error. "queue-then-throw host cleanup")
+            root*          (volatile! nil)
+            sentinel       (js/document.createElement "section")
+            ;; The queued host DOM work is CAPTURED here and NOT run until we release
+            ;; it — deterministically ordering its execution after the successor commit.
+            held-mutation  (volatile! nil)
+            order          (volatile! [])]
         (set! (.-textContent sentinel) "PREDECESSOR-CLOBBER")
         (-> (act-promise
              #(vreset! root*
@@ -262,15 +274,21 @@
                                  container {:root-id :adapter-public/queue-throw})))
             (.then
              (fn []
-               ;; SCHEDULE a late DOM mutation against the container, THEN throw.
+               ;; QUEUE a late DOM mutation against the container, THEN throw — but hold
+               ;; it behind `held-mutation` instead of running it now, so its execution
+               ;; is deterministically ordered AFTER the successor commits.
                (let [^client/Root root @root*]
                  (set! (.-unmount (.-react-root root))
                        (fn []
-                         (js/queueMicrotask
-                          (fn [] (.replaceChildren container sentinel)))
+                         (vreset! held-mutation
+                                  (fn []
+                                    (vswap! order conj :predecessor-mutation-ran)
+                                    (.replaceChildren container sentinel)))
                          (throw cleanup))))
                (is (identical? cleanup (thrown-value rf/destroy-adapter!))
-                   "the throwing host cleanup error still propagates")))
+                   "the throwing host cleanup error still propagates")
+               (is (fn? @held-mutation)
+                   "the predecessor QUEUED DOM work but it is HELD, not yet run")))
             (.then
              (fn []
                (is (= #{} (client/live-root-ids)) "the id/prefix are released")
@@ -284,24 +302,38 @@
                            nil (catch :default e e))]
                  (is (= :rf.error/root-container-consumed
                         (:rf.error/id (ex-data err)))
-                     "exact-container reuse fails closed"))
+                     "exact-container reuse fails closed")
+                 (is (= :use-a-fresh-container (:recovery (ex-data err)))
+                     "…with the fresh-node recovery"))
                ;; … the successor mounts on a FRESH node instead.
                (act-promise
                 #(ui/mount [observed-root {:label "successor" :renders (atom 0)}]
                            fresh {:root-id :adapter-public/queue-throw}))))
-            (.then (fn [] (next-macrotask)))          ;; flush the queued replaceChildren
             (.then
              (fn []
+               ;; RECORD that the successor has COMMITTED before releasing the held
+               ;; predecessor mutation — the causal order the fence must survive.
                (is (str/starts-with? (.-textContent fresh) "successor:")
-                   "the successor tree on the fresh node is intact")
+                   "the successor tree on the fresh node committed")
+               (vswap! order conj :successor-committed)
+               ;; NOW release the held predecessor mutation — it runs LATE, after the
+               ;; successor committed, exactly the hazardous ordering FIFO could not force.
+               (@held-mutation)
+               (next-macrotask)))
+            (.then
+             (fn []
+               (is (= [:successor-committed :predecessor-mutation-ran] @order)
+                   "the queued predecessor mutation ran AFTER the successor committed")
+               (is (str/starts-with? (.-textContent fresh) "successor:")
+                   "the LATE predecessor mutation cannot touch the fresh successor node")
                (is (not (str/includes? (.-textContent fresh) "PREDECESSOR-CLOBBER"))
                    "the queued predecessor task cannot clobber or replace the successor tree")
                (is (= "PREDECESSOR-CLOBBER" (.-textContent container))
-                   "the queued replaceChildren landed harmlessly on the fail-closed old node")
+                   "the late replaceChildren landed harmlessly on the fail-closed old node")
                (act-promise rf/destroy-adapter!)))
             (.then (fn [] (done))
                    (fn [e]
-                     (unexpected! done "queue-then-throw clobber fence rejected" e))))))))
+                     (unexpected! done "causally-late queue-then-throw clobber fence rejected" e))))))))
 
 (deftest adapter-destroy-reclaims-a-preexisting-failed-first-mount-quarantine
   (when (browser?)
@@ -901,8 +933,9 @@
                (is (contains? (client/live-root-ids)
                               :adapter-public/retire-reclaim-fail))
                (is (true? (reactive/live-reporter? @inc*))
-                   "a failed reclaim retains reporter authority (never retire before
-                    a reclaim proves the surface free)")
+                   "a failed reclaim retains reporter authority — retirement rides only
+                    a SUCCESSFUL reclaim; that reclaim clears the node as a snapshot and
+                    fail-closes it, never proving the surface free")
                ;; Repair the reclaim seam and recover cleanly, so the fixture
                ;; teardown starts from an empty registry (and prove a subsequent
                ;; successful reclaim now retires the reporter).
