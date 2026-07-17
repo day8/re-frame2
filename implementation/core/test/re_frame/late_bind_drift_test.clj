@@ -337,18 +337,63 @@
                "— add a publication or remove the entry:\n  "
                (str/join "\n  " missing-publish))))))
 
-(deftest epoch-destroy-bundle-directory-lists-full-terminal-evidence
-  (testing "The :epoch/snapshot-frame-destroyed entry names the COMPLETE terminal-evidence bundle (rf2-q5xq4a)"
+(def ^:private destroy-bundle-roster-re
+  "Capture the field set inside the AUTHORITATIVE `Returns the {…} bundle`
+  roster of the :epoch/snapshot-frame-destroyed directory description.
+  Anchored to the literal `Returns the {` … `}` delimiters so ONLY the exact
+  delimited roster — not the per-field prose that follows it (`:record is …`,
+  `:silenced-cbs is a {cb-id → generation} map …`, `:baseline-silence-seq is
+  the terminal-silence counter …`) — is what the drift pin reads. The earlier
+  str/includes? gate matched any field ANYWHERE in the description, so dropping
+  a field from this roster left its later prose mention and stayed green — the
+  false-green rf2-0st1f gives real teeth."
+  #"Returns the \{([^}]*)\}")
+
+(def ^:private simple-keyword-re
+  "A single unqualified keyword token (`:record`, `:baseline-silence-seq`).
+  The destroy-bundle roster fields are unqualified, so `map-entry-key-re`
+  (which requires a `/`-qualified keyword) cannot extract them."
+  #":[a-zA-Z][a-zA-Z0-9!?*+.\-]*")
+
+(def ^:private epoch-destroy-bundle-roster
+  "The EXACT terminal-evidence bundle :epoch/snapshot-frame-destroyed returns
+  and threads to :epoch/on-frame-destroyed (rf2-vxgfnd.151 / .265 / .285).
+  This is the authoritative expectation the directory description's
+  `Returns the {…}` roster is pinned against: any addition, removal, or rename
+  must update BOTH this set and the description roster in lockstep, or
+  `epoch-destroy-bundle-directory-pins-exact-roster` fails. The runtime
+  producer/consumer contract (re-frame.epoch.listeners) stays the behavioural
+  authority; this pin only guards the central late-bind ABI description."
+  #{:record :listener-snapshot :silenced-cbs :baseline-silence-seq})
+
+(deftest epoch-destroy-bundle-directory-pins-exact-roster
+  (testing "The :epoch/snapshot-frame-destroyed entry pins the EXACT terminal-evidence bundle roster (rf2-0st1f)"
     ;; The producer (re-frame.epoch.listeners/snapshot-terminal-destroy-evidence!)
-    ;; and the consumer (on-frame-destroyed!) both require :baseline-silence-seq to
-    ;; decide delayed callback silence across re-arm and the A->B->nil ABA; omitting
-    ;; it from the central late-bind directory made it an incomplete ABI description.
-    ;; This focused drift check fails if any bundle field is dropped from the entry.
-    (let [desc (:description (directory/entry :epoch/snapshot-frame-destroyed))]
+    ;; and the consumer (on-frame-destroyed!) thread a four-field bundle across
+    ;; re-arm and the A->B->nil ABA; omitting any field from the central late-bind
+    ;; directory makes it an incomplete ABI description (rf2-q5xq4a). This pins the
+    ;; EXACT delimited `Returns the {…}` roster: a per-field str/includes? check is
+    ;; a false-green because every field is ALSO named in the per-field explanatory
+    ;; prose, so dropping one from the roster leaves its later mention and passes
+    ;; anyway (rf2-0st1f). Extracting the roster block and comparing the exact field
+    ;; set gives it teeth — add/remove/rename a roster field and this fails unless
+    ;; `epoch-destroy-bundle-roster` above is updated in lockstep.
+    (let [desc         (:description (directory/entry :epoch/snapshot-frame-destroyed))
+          roster-block (some-> (re-find destroy-bundle-roster-re desc) second)]
       (is (some? desc)
           ":epoch/snapshot-frame-destroyed must have a directory entry")
-      (doseq [field [":record" ":listener-snapshot" ":silenced-cbs" ":baseline-silence-seq"]]
-        (is (str/includes? desc field)
-            (str ":epoch/snapshot-frame-destroyed directory description must name the "
-                 "terminal-evidence bundle field " field " — the ABI drift with the "
-                 "producer/consumer is exactly what rf2-q5xq4a reconciled."))))))
+      (is (some? roster-block)
+          (str ":epoch/snapshot-frame-destroyed description must carry the authoritative "
+               "`Returns the {…}` bundle roster — the exact delimited field set is what "
+               "this drift pin reads."))
+      (let [roster (->> (re-seq simple-keyword-re (or roster-block ""))
+                        (map (comp keyword #(subs % 1)))
+                        set)]
+        (is (= epoch-destroy-bundle-roster roster)
+            (str ":epoch/snapshot-frame-destroyed `Returns the {…}` roster drifted from the "
+                 "authoritative terminal-evidence bundle.\n"
+                 "  expected: " (pr-str (sort epoch-destroy-bundle-roster)) "\n"
+                 "  found:    " (pr-str (sort roster)) "\n"
+                 "Update BOTH the directory description roster and the "
+                 "epoch-destroy-bundle-roster expectation in lockstep (the "
+                 "producer/consumer ABI is the runtime authority)."))))))
