@@ -24,9 +24,11 @@ const assert = require('assert/strict');
 const {
   RECORDED_SAMPLES,
   PERCENTILE_CONVENTION,
+  COLD_FIRST_DRAIN_PRE_HOT,
   warmPercentile,
   validateWarmSamples,
   summarizeWarm,
+  assertColdIsFirstDrain,
   buildSummary,
 } = require('./lib/g13-timing-evidence.cjs');
 
@@ -171,6 +173,46 @@ test('buildSummary validates each size (a malformed raw array fails loudly)', ()
   const bad = twoSizeResults();
   bad[1].warm['raw-ms'] = [1, 2, 3];
   assert.throws(() => buildSummary(bad), /exactly 9/);
+});
+
+// ----- assertColdIsFirstDrain: the cold-order control (rf2-52isf) ------------
+
+test('COLD_FIRST_DRAIN_PRE_HOT is the mount-seed :hot value (0)', () => {
+  // The fixture seeds app-db :hot=0 at mount; the cold timer must fire before
+  // any drain advances it, so the cold sample's timing-pre-hot must equal 0.
+  assert.equal(COLD_FIRST_DRAIN_PRE_HOT, 0);
+});
+
+test('assertColdIsFirstDrain accepts a cold sample captured before any drain', () => {
+  const cold = { label: 'cold', 'elapsed-ms': 6.25, 'timing-pre-hot': 0 };
+  assert.equal(assertColdIsFirstDrain(cold), cold);
+});
+
+test('assertColdIsFirstDrain rejects correctness running before the cold timer', () => {
+  // A single correctness drain would have advanced :hot from 0 to queued-writes
+  // (8) before the cold timer — the reported "cold" span is then a warmed second
+  // dispatch, and the control must turn red naming the ordering fault.
+  const warmed = { label: 'cold', 'elapsed-ms': 6.25, 'timing-pre-hot': 8 };
+  assert.throws(
+    () => assertColdIsFirstDrain(warmed, 'V=100 cold timing evidence'),
+    /correctness ran before the cold timer/,
+  );
+  assert.throws(
+    () => assertColdIsFirstDrain(warmed, 'V=100 cold timing evidence'),
+    /V=100 cold timing evidence/,
+  );
+});
+
+test('assertColdIsFirstDrain rejects any nonzero pre-hot (a later warmed drain)', () => {
+  assert.throws(
+    () => assertColdIsFirstDrain({ 'timing-pre-hot': 16 }),
+    /first post-mount dispatch/,
+  );
+});
+
+test('assertColdIsFirstDrain rejects a missing pre-hot witness', () => {
+  assert.throws(() => assertColdIsFirstDrain({ label: 'cold' }), /first post-mount dispatch/);
+  assert.throws(() => assertColdIsFirstDrain(null, 'V=500'), /cold sample is missing/);
 });
 
 // ----- runner ----------------------------------------------------------------

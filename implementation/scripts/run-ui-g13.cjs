@@ -20,6 +20,7 @@ const { classifyReleaseBundle } = require('./lib/read-release-bundle.cjs');
 const {
   validateWarmSamples,
   summarizeWarm,
+  assertColdIsFirstDrain,
   buildSummary,
 } = require('./lib/g13-timing-evidence.cjs');
 
@@ -310,6 +311,11 @@ function assertDevResult(result) {
     if (size.cold['fixed-shell-idle-cells'] !== 2) {
       fail(`cold sample at V=${size.v} lost the two ownership-empty HMR shells`);
     }
+    // rf2-52isf — the cold timed span must be the FIRST post-mount drain. A
+    // cold `timing-pre-hot` of 0 (mount seed :hot; +queued-writes per drain)
+    // proves the timer ran before any correctness dispatch or O(V) audit; a
+    // nonzero value means the reported "cold" span is a warmed second dispatch.
+    assertColdIsFirstDrain(size.cold, `V=${size.v} cold timing evidence`);
     if (!Array.isArray(size.samples) || size.samples.length !== 9) {
       fail(`V=${size.v} did not retain exactly nine warm samples`);
     }
@@ -376,6 +382,13 @@ function assertMutationTeeth(result) {
     }],
     ['V-wide port current? scan', (r) => {
       r.results[0].cold.projection['port-candidate-inspections']['current?'] = 500;
+    }],
+    // rf2-52isf — the cold-order tooth. If the correctness cycle (or any drain)
+    // runs before the cold timer, the mount seed :hot=0 has already advanced and
+    // the cold `timing-pre-hot` is nonzero. The reported span would be a warmed
+    // second dispatch mislabelled cold; the order control must reject it.
+    ['correctness ran before the cold timer', (r) => {
+      r.results[0].cold['timing-pre-hot'] = 8;
     }],
     // rf2-vxgfnd.212 — workload-roster teeth. Each must fail validation, proving
     // the exact one-to-one V=100/V=500 roster before projections are compared.
