@@ -1176,7 +1176,9 @@
   `observed-gen` (the caller bakes it into the payload): the resulting
   GENERATION-QUALIFIED signal SELF-FILTERS at the receiver — an observer whose
   current generation for `cb-id` no longer equals the carried `observed-gen`
-  discards it. So the forbidden ordering (H current, THEN a signal attributed to
+  discards it. The receiver reads that current generation through the supported
+  `re-frame.epoch/epoch-listener-generation` query (rf2-6ys5n), so the self-filter
+  is implementable at the public boundary without a private registry read. So the forbidden ordering (H current, THEN a signal attributed to
   H) is impossible: the signal is attributed to G, and a receiver that sees G is
   no longer current drops it. This SUPERSEDES the emit-under-lock mechanism of
   rf2-9bhne6 — the generation stays authoritative through a data qualifier, not
@@ -1338,6 +1340,18 @@
   observation against the exact generation it invoked."
   []
   @listeners)
+
+(defn current-listener-generation
+  "Return the opaque generation token of the CURRENT registration under `cb-id`,
+  or nil when no listener is registered there. Narrower than `listeners-snapshot`
+  (the callback fn is never exposed): this is the registration-identity authority
+  a `:rf.epoch.cb/silenced-on-frame-destroy` receiver compares against the
+  signal's `:observed-gen` to self-filter a superseded generation. Backs the
+  public `re-frame.epoch/epoch-listener-generation` so a consumer never has to
+  read the private registry map to do that comparison. (Named apart from the
+  private `listener-generation` counter atom above.)"
+  [cb-id]
+  (:generation (get @listeners cb-id)))
 
 (defn observations-snapshot
   "Return the current `{cb-id → {frame-id → generation-token}}` map."

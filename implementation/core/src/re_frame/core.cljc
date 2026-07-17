@@ -2470,6 +2470,20 @@
 ;; artefact is absent. A dedicated per-channel pair here was the exact shape
 ;; the stream-parameterized verb (decision rf2-dbo0c9 Option C) abolished.
 
+(def ^{:doc "Return the opaque, process-unique GENERATION token of the CURRENT
+  epoch-listener registration under `id`, or nil when none is registered (or
+  when the `day8/re-frame2-epoch` artefact is absent). Each
+  `(register-listener! :epoch id f)` — including a same-id replacement — mints a
+  fresh, never-reused generation. The SUPPORTED authority a consumer uses to
+  SELF-FILTER a generation-qualified `:rf.epoch.cb/silenced-on-frame-destroy`
+  signal: the signal carries `:observed-gen` G, and the consumer discards it
+  when `(not= G (epoch-listener-generation cb-id))` — the registration has since
+  been replaced or dropped, so G's silence no longer names the current callback.
+  The token is OPAQUE (compare for equality only). Per Tool-Pair §Surface
+  behaviour against destroyed frames + Spec 009 §The delayed-silence emission
+  linearization law. Late-bound via `:epoch/epoch-listener-generation`."}
+  epoch-listener-generation  rf-epoch/epoch-listener-generation)
+
 ;; ---- frame-state write surface (rf2-q4i9ko / rf2-tfepxu / rf2-t3lftq) -----
 ;;
 ;; Per Spec 002 §Frame-state value accessors and mutators + API.md, the

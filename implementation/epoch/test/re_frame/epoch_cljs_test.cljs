@@ -658,3 +658,48 @@
       (state/reset-listeners!)
       (is (zero? (vxgfnd285-total-marks))
           "reset-listeners! clears the terminal-silence lineage, not just the registry"))))
+
+;; ---- rf2-6ys5n — public generation query self-filters a superseded silence -
+
+(deftest epoch-listener-generation-public-self-filter-cljs
+  (testing "rf2-6ys5n (CLJS peer of the JVM public-boundary suite) — the
+            generation-qualified silence self-filter is implementable through the
+            SUPPORTED public API on the CLJS host too. Reaches for NO private
+            state (no `listeners-snapshot`): only `re-frame.core` /
+            `re-frame.epoch` public vars."
+    ;; Pure query: registered → some; absent → nil; replacement → distinct.
+    (is (nil? (rf/epoch-listener-generation ::never-cljs)))
+    (rf/register-listener! :epoch ::probe-cljs (fn [_] nil))
+    (let [g1 (rf/epoch-listener-generation ::probe-cljs)]
+      (is (some? g1))
+      (rf/register-listener! :epoch ::probe-cljs (fn [_] nil))
+      (is (not= g1 (rf/epoch-listener-generation ::probe-cljs))
+          "a same-id replacement mints a distinct generation")
+      (rf/unregister-listener! :epoch ::probe-cljs)
+      (is (nil? (rf/epoch-listener-generation ::probe-cljs))))
+
+    ;; Real emitted silence self-filters at the public boundary.
+    (rf/make-frame {:id :test/short-lived-cljs})
+    (rf/reg-event :seed6 (fn [{:keys [db]} _] {:db {:n 0}}))
+    (let [recorded (atom [])]
+      (rf/register-listener! :trace ::recorder6 (fn [ev] (swap! recorded conj ev)))
+      (rf/register-listener! :epoch ::watcher6 (fn [_] nil))
+      (rf/dispatch-sync [:seed6] {:frame :test/short-lived-cljs})
+      (let [g-observed (rf/epoch-listener-generation ::watcher6)]
+        (rf/destroy-frame! :test/short-lived-cljs)
+        (let [tags (->> @recorded
+                        (filter #(= :rf.epoch.cb/silenced-on-frame-destroy
+                                    (:operation %)))
+                        first
+                        :tags)]
+          (is (= g-observed (:observed-gen tags))
+              "the silence names the generation that observed the frame")
+          ;; Current registration: the live signal is accepted.
+          (is (= (:observed-gen tags) (rf/epoch-listener-generation ::watcher6))
+              "the live signal matches the cb's current generation — APPLY")
+          ;; Supersede (G→H) through the public verb; the same signal self-filters.
+          (rf/register-listener! :epoch ::watcher6 (fn [_] nil))
+          (is (not= (:observed-gen tags) (rf/epoch-listener-generation ::watcher6))
+              "the superseded signal no longer matches the current generation — DISCARD")))
+      (rf/unregister-listener! :trace ::recorder6)
+      (rf/unregister-listener! :epoch ::watcher6))))

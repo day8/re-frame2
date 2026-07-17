@@ -53,9 +53,13 @@
   (test-support/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
 
 (defn- cb-generation
-  "The live generation token currently registered under `cb`."
+  "The live generation token currently registered under `cb`, read through the
+  SUPPORTED public query (rf2-6ys5n) — the exact surface a real consumer uses to
+  self-filter a superseded silence. The self-filter assertions below therefore
+  reach for no private registry state (`listeners-snapshot`); the dedicated
+  public-boundary suite is `re-frame.epoch-listener-generation-public-api-test`."
   [cb]
-  (:generation (get (epoch-state/listeners-snapshot) cb)))
+  (re-frame.epoch/epoch-listener-generation cb))
 
 (defn- owe-silence!
   "Register `cb`, observe `frame` under its current generation, then drop the

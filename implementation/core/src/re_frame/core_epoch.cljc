@@ -73,6 +73,23 @@
   {:hook :epoch/unregister-epoch-listener! :artefact epoch-artefact :on-absent :nil}
   ([id] :delegate))
 
+(defwrapper epoch-listener-generation
+  "Return the opaque, process-unique GENERATION token of the CURRENT epoch-
+  listener registration under `id`, or nil when none is registered (or when the
+  `day8/re-frame2-epoch` artefact is not on the classpath). Each
+  `(register-listener! :epoch id f)` — including a same-id replacement — mints a
+  fresh, never-reused generation.
+
+  The SUPPORTED authority a consumer uses to SELF-FILTER a generation-qualified
+  `:rf.epoch.cb/silenced-on-frame-destroy` signal (Spec 009 §The delayed-silence
+  emission linearization law): the signal carries `:observed-gen` G, and the
+  consumer discards it when `(not= G (epoch-listener-generation cb-id))` — the
+  registration has since been replaced or dropped, so G's silence no longer names
+  the current callback. The token is OPAQUE: compare for equality only. Late-bound
+  via `:epoch/epoch-listener-generation`."
+  {:hook :epoch/epoch-listener-generation :artefact epoch-artefact :on-absent :nil}
+  ([id] :delegate))
+
 (defwrapper clear-epoch-listeners!
   "Drop every registered epoch-settled callback. Test-isolation only —
   production code should never call this. Returns nil. No-op (returns
