@@ -23,7 +23,8 @@
   `reconcile` reconciler with synthetic inputs, plus a live smoke that the
   committed spec/API.md + manifest still reconcile clean."
   (:require [clojure.test :refer [deftest is testing]]
-            [re-frame.api-manifest.api-md-check :as c]))
+            [re-frame.api-manifest.api-md-check :as c]
+            [re-frame.api-manifest.gen :as gen]))
 
 ;; A minimal synthetic manifest reproducing the EXACT ambiguity the real
 ;; manifest has: the bare var `adapter` carried for four namespaces, three
@@ -197,3 +198,180 @@
             EP-0011/EP-0015 keyword-drift guards (no false +)"
     (is (true? (c/check!))
         "live drift: api-md-check failed with the keyword-drift guards wired")))
+
+;; ---------------------------------------------------------------------------
+;; Root-verb KIND guard (rf2-e9q33).
+;;
+;; PR #5968 corrected create-root (a MACRO, not a Fn) but left the
+;; documented-kind acceptance criterion unproved: api-md-check used the `M/Fn`
+;; cell only to classify a row as a var-row, then discarded it — reconcile
+;; compares identity + tier only. So the create-root row could silently flip
+;; M -> Fn (or unmount! Fn -> M) and stay GREEN. `root-verb-kind-problems`
+;; restores the comparison: each root verb's documented kind must equal the
+;; manifest :kind. These fixtures prove the wrong-kind cases go RED and the
+;; in-sync state stays green.
+;; ---------------------------------------------------------------------------
+
+;; Synthetic manifest rows carrying the manifest :kind for the four Spec-004C
+;; root verbs (three macros + one fn), plus an unrelated non-root fn.
+(def ^:private root-manifest-rows
+  [{:namespace "re-frame.ui"   :var "create-root"  :kind :macro}
+   {:namespace "re-frame.ui"   :var "render!"      :kind :macro}
+   {:namespace "re-frame.ui"   :var "hydrate-root" :kind :macro}
+   {:namespace "re-frame.ui"   :var "unmount!"     :kind :fn}
+   {:namespace "re-frame.core" :var "reg-event"    :kind :fn}])
+
+(defn- kind-problems-for [api-rows]
+  (c/root-verb-kind-problems {:rows root-manifest-rows :api-rows api-rows}))
+
+(deftest root-verbs-in-sync-produce-no-kind-problems
+  (testing "the committed documented kinds (create-root/render!/hydrate-root
+            = macro, unmount! = fn) reconcile clean against the manifest"
+    (is (empty? (kind-problems-for
+                  [{:var "create-root"  :doc-kind :macro :line 252 :raw "create-root"}
+                   {:var "render!"      :doc-kind :macro :line 253 :raw "render!"}
+                   {:var "hydrate-root" :doc-kind :macro :line 254 :raw "hydrate-root"}
+                   {:var "unmount!"     :doc-kind :fn    :line 255 :raw "unmount!"}])))))
+
+(deftest create-root-flipped-macro-to-fn-goes-red
+  (testing "THE BUG (rf2-e9q33): a create-root row whose M/Fn marker flipped
+            M -> Fn (documented :fn) fails against the manifest :macro"
+    (let [problems (kind-problems-for
+                     [{:var "create-root" :doc-kind :fn :line 252 :raw "create-root"}])]
+      (is (= 1 (count problems)))
+      (is (= :kind-mismatch (:kind (first problems))))
+      (is (= :fn    (:doc-kind (first problems))))
+      (is (= :macro (:manifest-kind (first problems))))
+      (is (= 252 (:line (first problems)))))))
+
+(deftest render-and-hydrate-flipped-to-fn-go-red
+  (testing "render! and hydrate-root flipped M -> Fn each fail on kind"
+    (is (= [:kind-mismatch]
+           (map :kind (kind-problems-for
+                        [{:var "render!" :doc-kind :fn :line 253 :raw "render!"}]))))
+    (is (= [:kind-mismatch]
+           (map :kind (kind-problems-for
+                        [{:var "hydrate-root" :doc-kind :fn :line 254 :raw "hydrate-root"}]))))))
+
+(deftest unmount-documented-as-anything-but-fn-goes-red
+  (testing "unmount! documented as a macro (Fn -> M) fails — the acceptance
+            criterion 'unmount! documented as anything other than a function'"
+    (let [problems (kind-problems-for
+                     [{:var "unmount!" :doc-kind :macro :line 255 :raw "unmount!"}])]
+      (is (= 1 (count problems)))
+      (is (= :kind-mismatch (:kind (first problems))))
+      (is (= :macro (:doc-kind (first problems))))
+      (is (= :fn    (:manifest-kind (first problems)))))))
+
+(deftest unmarked-root-verb-goes-red
+  (testing "a root verb whose marker pins no kind (e.g. a `Component` cell,
+            doc-kind nil) is flagged :kind-unmarked rather than silently
+            passing"
+    (let [problems (kind-problems-for
+                     [{:var "create-root" :doc-kind nil :line 252 :raw "create-root"}])]
+      (is (= 1 (count problems)))
+      (is (= :kind-unmarked (:kind (first problems))))
+      (is (= :macro (:manifest-kind (first problems)))))))
+
+(deftest non-root-var-rows-are-not-kind-checked
+  (testing "the guard fires ONLY for the named root verbs — an unrelated
+            var-row (even one carried in the manifest) contributes no kind
+            problem regardless of its documented kind"
+    (is (empty? (kind-problems-for
+                  [{:var "reg-event" :doc-kind :macro :line 1 :raw "reg-event"}
+                   {:var "some-tooling-fn" :doc-kind :var :line 2 :raw "some-tooling-fn"}])))))
+
+(deftest live-root-verb-kinds-match-the-manifest
+  (testing "the committed spec/API.md documents each Spec-004C root verb with
+            the kind the committed manifest carries (no live drift)"
+    (let [rows     (:vars (gen/read-committed-manifest))
+          api-rows (c/parse-api-md-var-rows)]
+      (is (empty? (c/root-verb-kind-problems {:rows rows :api-rows api-rows}))
+          "live drift: a root verb's documented kind disagrees with the manifest"))))
+
+(deftest live-parser-retains-doc-kind-for-root-verbs
+  (testing "the parser maps each root verb's M/Fn marker to a manifest :kind
+            (create-root = :macro, unmount! = :fn), so the guard has a
+            documented kind to compare (the marker is no longer discarded)"
+    (let [by-var (into {} (for [{:keys [var qualifier doc-kind]} (c/parse-api-md-var-rows)
+                                :when (and (nil? qualifier) (c/root-verb-kinds var))]
+                            [var doc-kind]))]
+      (is (= :macro (get by-var "create-root")))
+      (is (= :macro (get by-var "render!")))
+      (is (= :macro (get by-var "hydrate-root")))
+      (is (= :fn    (get by-var "unmount!"))))))
+
+;; ---------------------------------------------------------------------------
+;; create-root LITERAL-OPTION guard (rf2-e9q33).
+;;
+;; Spec 004C fixes create-root's public contract: authored :root-id is
+;; REQUIRED and :disambiguator is INVALID. The tier/kind reconcile cannot see
+;; option grammar. `create-root-option-problems` pins both literal facts on
+;; the create-root row; these fixtures prove the missing-root-id and
+;; admitted-disambiguator cases go RED and the committed row stays green.
+;; ---------------------------------------------------------------------------
+
+(def ^:private create-root-row-in-sync
+  "A create-root API.md row that pins BOTH literal facts (mirrors the
+   committed spec/API.md create-root row)."
+  (str "| `create-root` | M | `(ui/create-root dom-node opts)` → Root | S1 "
+       "| advanced | Identity fixed for the Root's lifetime; authored "
+       "`:root-id` **required** — a missing id is `:rf.ui.compile/missing-root-id` "
+       "and `:disambiguator` is invalid. |"))
+
+(deftest create-root-in-sync-row-produces-no-option-problems
+  (testing "the committed create-root row (pins :root-id required + "
+           ":disambiguator invalid) reconciles clean"
+    (is (empty? (c/create-root-option-problems [[252 create-root-row-in-sync]])))))
+
+(deftest create-root-losing-required-root-id-goes-red
+  (testing "a create-root row that drops the authored-:root-id-REQUIRED
+            assertion fails"
+    (let [row (str "| `create-root` | M | `(ui/create-root dom-node opts)` → Root "
+                   "| S1 | advanced | Identity fixed; `:disambiguator` is invalid. |")
+          problems (c/create-root-option-problems [[252 row]])]
+      (is (= 1 (count problems)))
+      (is (= :root-id-not-required (:kind (first problems))))
+      (is (= 252 (:line (first problems)))))))
+
+(deftest create-root-admitting-disambiguator-goes-red
+  (testing "a create-root row that no longer marks :disambiguator INVALID
+            (silently admitting it) fails"
+    (let [row (str "| `create-root` | M | `(ui/create-root dom-node opts)` → Root "
+                   "| S1 | advanced | authored `:root-id` **required**; "
+                   "`:disambiguator` is now supported. |")
+          problems (c/create-root-option-problems [[252 row]])]
+      (is (= 1 (count problems)))
+      (is (= :disambiguator-admitted (:kind (first problems)))))))
+
+(deftest create-root-losing-both-facts-reports-both
+  (testing "a create-root row that pins neither fact reports both problems"
+    (let [row (str "| `create-root` | M | `(ui/create-root dom-node opts)` → Root "
+                   "| S1 | advanced | Identity fixed for the Root's lifetime. |")
+          kinds (set (map :kind (c/create-root-option-problems [[252 row]])))]
+      (is (= #{:root-id-not-required :disambiguator-admitted} kinds)))))
+
+(deftest create-root-row-missing-goes-red
+  (testing "if the create-root var-row is absent from API.md the guard fails
+            (the grammar cannot be verified against a missing row)"
+    (let [problems (c/create-root-option-problems
+                     [[10 "| `render!` | M | `(ui/render! root root-form)` | S1 | advanced | x |"]])]
+      (is (= 1 (count problems)))
+      (is (= :create-root-row-missing (:kind (first problems)))))))
+
+(deftest option-guard-scopes-required-invalid-to-the-same-cell
+  (testing "the pins require :root-id/:disambiguator and required/invalid in
+            the SAME table cell — required/invalid leaking from OTHER cells
+            of the row does not satisfy the invariant"
+    ;; `required` and `invalid` appear, but in DIFFERENT cells than the
+    ;; :root-id / :disambiguator tokens (pipe-separated), so neither pin holds.
+    (let [row (str "| `create-root` | M | `:root-id` `:disambiguator` "
+                   "| required invalid | advanced | notes |")
+          kinds (set (map :kind (c/create-root-option-problems [[252 row]])))]
+      (is (= #{:root-id-not-required :disambiguator-admitted} kinds)))))
+
+(deftest live-create-root-options-are-pinned
+  (testing "the committed spec/API.md create-root row pins both literal facts
+            (no live option-grammar drift)"
+    (is (empty? (c/create-root-option-problems (c/read-api-md-lines)))
+        "live drift: create-root row lost :root-id-required or :disambiguator-invalid")))
