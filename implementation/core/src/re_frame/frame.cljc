@@ -574,13 +574,14 @@
            :recovery    :supply-frame
            :reason      (str "a frame-scoped " (name operation) " ran with no frame "
                              "context — no carried frame stamp and no established "
-                             "scope. Frame identity is carried, not found: declare "
-                             "your root frame (rf/make-frame) and run the operation "
-                             "inside that scope (with-frame, or an enclosing frame "
-                             "boundary — a frame-provider that scopes an existing "
-                             "frame, or a frame-root that ensures one), or pass an "
-                             "explicit {:frame <id>}. Per Spec 002 §The error and "
-                             "its ladder.")}
+                             "scope. Frame identity is carried, not found. Establish a "
+                             "scope one of three distinct ways (do not combine 1 and 2): "
+                             "(1) create a frame with rf/make-frame, then scope the "
+                             "operation inside it with with-frame or a frame-provider "
+                             "(which SCOPES an existing frame); (2) let a frame-root "
+                             "ENSURE the frame (create-if-absent) without pre-creating "
+                             "it; or (3) pass an explicit {:frame <id>}. Per Spec 002 "
+                             "§The error and its ladder.")}
           ;; Capture-site ancestry off the in-scope handler scope: the
           ;; cascade's dispatch-id correlates a stampless continuation back
           ;; to the cascade that captured the callback. nil outside any
@@ -2770,7 +2771,7 @@
                 ;; A `:frame-init` `:initial-events` step that classifies a path
                 ;; runs (below) at creation, so init-cascade trace stays redacted.
                 ;; EP-0027 §Construction — FORBID handler-time frame construction.
-                ;; Frames are created by the VIEW (frame-provider) or at TOP LEVEL
+                ;; Frames are created by the VIEW (frame-root, ENSURE) or at TOP LEVEL
                 ;; (tests, boot, SSR per request); constructing a frame INSIDE an
                 ;; event handler is not supported. The signal for "inside a
                 ;; handler" is `trace/*handler-scope*` being bound — the router
@@ -2787,10 +2788,11 @@
                     'rf/make-frame
                     (str "constructing a frame inside an event handler is not supported "
                          "(EP-0027) — got a frame construction for " (pr-str id) " while a cascade is in "
-                         "flight. Frames are created by the VIEW (frame-provider) or at "
-                         "TOP LEVEL; a handler changes app-db, and the view materializes "
-                         "frames from it. Move the frame creation to a frame-provider in "
-                         "the view tree, or to top-level boot.")
+                         "flight. Frames are created by the VIEW (a frame-root, which "
+                         "ENSUREs the frame — create-if-absent) or at TOP LEVEL; a handler "
+                         "changes app-db, and the view materializes frames from it. Move "
+                         "the frame creation to a frame-root in the view tree, or to "
+                         "top-level boot (rf/make-frame).")
                     {:recovery :construct-frames-in-view-or-top-level
                      :extra    {:frame id}}))
                 ;; rf2-umsyo9: apply the winning config's frame-scoped trace
