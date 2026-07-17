@@ -390,14 +390,15 @@ machines / timers:
   `:rf.reply/suppressed`, the routing `:rf.route.nav-token/stale-suppressed`,
   the machine `:rf.machine.timer/stale-after`, the HTTP-supersession
   `:rf.http/stale-suppressed`, and the `:spawn-all` join's two
-  exact-authority stale rows `:rf.machine.spawn-all/stale-completion`
-  (an authority-suppressed completion carrier — the exact-authority /
-  closed-attempt fold gate runs BEFORE the resolution classification, so this
-  op covers ownership/authority suppression on BOTH sides of resolution,
-  rf2-ixjd48) +
+  exact-attempt stale rows `:rf.machine.spawn-all/stale-completion`
+  (an attempt-suppressed completion carrier — its exact-attempt fence
+  classifies `attempt-unverified` / `attempt-superseded` BEFORE the
+  `:resolved?` check, so those two suppress on BOTH sides of resolution, while
+  `duplicate-completion` is checked AFTER `:resolved?` and so fires only in a
+  still-live unresolved join, rf2-ixjd48) +
   `:rf.machine.spawn-all/late-completion` (the POST-resolution
-  `:resolved?`-latched EXACT-CURRENT straggler — the only carrier that passes
-  authority yet still arrives after its own join resolved) — rf2-waawic /
+  `:resolved?`-latched EXACT-CURRENT straggler — the only carrier that clears
+  the exact-attempt fence yet still arrives after its own join resolved) — rf2-waawic /
   rf2-azcmd3 / rf2-hj4skn; the suffix heuristic
   catches `stale-suppress` / `suppressed` but NOT `stale-after`, and NOT the
   spawn-all `*-completion` names (which end in `-completion`, not
@@ -417,7 +418,7 @@ machines / timers:
   `{:carried … :current …}`. `work-event-row` surfaces it as `:correlation`
   (summarized for PRIVACY, the same contract `reply-row` uses) plus the
   causal `:completed-at` from `:rf.reply/completed-at`, so the
-  exact-authority evidence an operator diagnoses a superseded / unverified /
+  exact-attempt evidence an operator diagnoses a superseded / unverified /
   duplicate / post-resolution join completion FROM is not silently dropped.
 - **Production `:rf.reply/*` trace vocabulary (rf2-waawic).** Family
   completion / stale rows stamp the canonical reply facts ADDITIVELY as
