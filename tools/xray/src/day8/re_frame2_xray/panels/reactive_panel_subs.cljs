@@ -22,10 +22,13 @@
     (NOT a `:sub-runs` row) when a reaction was reactively considered but
     its input was value-equal to last-seen, so the user body did NOT
     recompute (`re-frame.subs.memo/emit-sub-skip!`). `project-record`
-    reads those ops off `:trace-events` — de-duplicated by sub-id and
-    excluding any sub that ALSO recomputed this epoch (a sub that ran DID
-    fire; it is a `:subs-ran` row, not an unchanged/short-circuited one),
-    so `:subs-skipped` stays cleanly distinct from `:subs-ran`. This is the
+    reads those ops off `:trace-events` — de-duplicated + cross-excluded
+    by CONCRETE query-v identity (rf2-cj2yx), NOT the registered sub-id, so
+    two parameterizations of one registered sub (`[:item/derived 1]` /
+    `[:item/derived 2]`) stay distinct rows and a recomputed query excludes
+    only its EXACT skip (a sub that ran DID fire; it is a `:subs-ran` row,
+    not an unchanged/short-circuited one), so `:subs-skipped` stays cleanly
+    distinct from `:subs-ran`. This is the
     'what DIDN'T fire' coverage the panel's collapsed unchanged-subs
     disclosure surfaces. It is NOT reconstructed by filtering `:sub-runs`
     on `(complement :recomputed?)` — that shape is structurally empty.
@@ -483,6 +486,20 @@
 
 ;; ---- memo-hit skip evidence (spec/021 §3.4) -------------------------------
 
+(defn- skip-query-v
+  "Concrete-query identity for a `:rf.sub/skip` op (rf2-cj2yx). The
+  canonical `:rf.sub/query-v` tag names the EXACT parameterized instance
+  the cache/trace short-circuited (`[:item/derived 1]` distinct from
+  `[:item/derived 2]`), so it — not the registered `:rf.sub/id` — is the
+  dedup + cross-exclusion key. Documented fallback: when the skip evidence
+  genuinely lacks a query-v, the bare unparameterized query shape
+  `[sub-id]` (so an id-only skip still collapses/excludes against a
+  `[sub-id]`-shaped run). nil only when neither a query-v nor a sub-id is
+  present."
+  [tags sub-id]
+  (or (:rf.sub/query-v tags)
+      (when sub-id [sub-id])))
+
 (defn skipped-subs
   "Project the epoch's memo-hit `:rf.sub/skip` evidence into distinct
   'unchanged sub' rows for the §3.4 disclosure.
@@ -496,31 +513,38 @@
   `:<-` query-vectors for a layer-n sub).
 
   Each projected row `{:sub-id _ :query-v _ :reason _ :input-paths-unchanged
-  [...]}`. De-duplicated by sub-id (first-seen — a post-settle deref burst
-  can memo-hit the same sub repeatedly) and EXCLUDING any sub-id present in
-  `ran-ids` (a sub that recomputed this epoch DID fire — it is a
-  `:subs-ran` row, so it must not ALSO appear in the 'what DIDN'T fire'
-  coverage; this keeps `:subs-skipped` cleanly distinct from `:subs-ran`,
-  the two categories the panel must never conflate).
+  [...]}`. De-duplicated + cross-excluded by CONCRETE QUERY-V identity
+  (rf2-cj2yx), NOT the registered sub-id: the cache and trace identify a
+  short-circuited reaction by its full query vector, so a burst that
+  memo-hits `[:item/derived 2]` twice collapses to one row while
+  `[:item/derived 1]` and `[:item/derived 2]` stay two distinct rows.
+  `ran-query-vs` is the set of concrete query-vectors that RECOMPUTED this
+  epoch; a skip is excluded ONLY when its exact query recomputed (a sub
+  that ran DID fire — it is a `:subs-ran` row, not an unchanged one), so
+  `[:item/derived 1]` recomputing no longer suppresses a `[:item/derived 2]`
+  skip. This keeps `:subs-skipped` cleanly distinct from `:subs-ran`, the
+  two categories the panel must never conflate.
 
-  `ran-ids` is the set of `:sub-id`s in `:subs-ran`. nil-safe on both args."
-  [trace-events ran-ids]
-  (let [ran (or ran-ids #{})]
+  `ran-query-vs` is the set of concrete `:query-v`s in `:subs-ran`.
+  nil-safe on both args."
+  [trace-events ran-query-vs]
+  (let [ran (or ran-query-vs #{})]
     (:rows
      (reduce
       (fn [{:keys [seen] :as acc} ev]
         (if (= :rf.sub/skip (op-kw ev))
-          (let [tags   (:tags ev)
-                sub-id (or (:rf.sub/id tags) (:sub-id tags))]
-            (if (or (nil? sub-id)
-                    (contains? seen sub-id)
-                    (contains? ran sub-id))
+          (let [tags    (:tags ev)
+                sub-id  (or (:rf.sub/id tags) (:sub-id tags))
+                query-v (skip-query-v tags sub-id)]
+            (if (or (nil? query-v)
+                    (contains? seen query-v)
+                    (contains? ran query-v))
               acc
               (-> acc
-                  (update :seen conj sub-id)
+                  (update :seen conj query-v)
                   (update :rows conj
                           {:sub-id                sub-id
-                           :query-v               (:rf.sub/query-v tags)
+                           :query-v               query-v
                            :reason                (:rf.sub/reason tags)
                            :input-paths-unchanged (or (:rf.sub/input-paths-unchanged tags)
                                                       [])}))))
@@ -566,8 +590,16 @@
          flows-comp    (count (get grouped :rf.flow/computed []))
          flows-skipped (count (get grouped :rf.flow/skip []))
          changed-set   (changed-sub-id-set ran)
-         ran-ids       (into #{} (map :sub-id) ran)
-         skipped       (skipped-subs trace-events ran-ids)
+         ;; rf2-cj2yx — cross-exclude skipped subs by CONCRETE query-v, not
+         ;; the registered sub-id: a recomputed `[:item/derived 1]` must
+         ;; exclude only its own skip, never a `[:item/derived 2]` memo-hit.
+         ;; Documented fallback to `[sub-id]` when a run row lacks its query-v.
+         ran-query-vs  (into #{}
+                             (map (fn [row]
+                                    (or (:query-v row)
+                                        (when-let [sid (:sub-id row)] [sid]))))
+                             ran)
+         skipped       (skipped-subs trace-events ran-query-vs)
          readers       (sub-readers trace-events)
          {:keys [level-1 level-2]} (partition-subs-by-level ran topology readers)
          v-rows        (view-rows trace-events changed-set)

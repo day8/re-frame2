@@ -471,3 +471,51 @@
       (is (re-find #"no change \(short-circuits" legend-text) "no-change swatch labelled")
       (is (re-find #"unmounted / destroyed" legend-text) "teardown swatch labelled"))))
 
+;; ---- unchanged-subs disclosure keys by concrete query-v (rf2-cj2yx) ----
+
+(deftest unchanged-rows-key-and-label-by-concrete-query-v
+  (testing "rf2-cj2yx — two skipped memo-hits sharing a registered sub-id but
+            DISTINCT concrete query-vs render as two individually-addressable
+            rows: distinct test-ids AND distinct labels (the full query
+            vector), not one row collapsed by sub-id."
+    (facade/install!)
+    (rf/make-frame {:id :rf/xray})
+    (seed-reactive-data!
+      {:has-event-bundle? true :frame :rf/app :focus {:current :ep-1}
+       :counts {} :level-1-subs [] :level-2-subs [] :view-rows []
+       :show-unchanged? true
+       :subs-skipped [{:sub-id :item/derived :query-v [:item/derived 1]
+                       :reason :input-value-equal :input-paths-unchanged []}
+                      {:sub-id :item/derived :query-v [:item/derived 2]
+                       :reason :input-value-equal :input-paths-unchanged []}]})
+    (let [tree (view/reactive-panel)
+          row1 (th/find-by-testid tree "rf-xray-reactive-unchanged-row-__item_derived_1_")
+          row2 (th/find-by-testid tree "rf-xray-reactive-unchanged-row-__item_derived_2_")]
+      (is (some? row1) "the [:item/derived 1] parameterization has its own row")
+      (is (some? row2) "the [:item/derived 2] parameterization has its own row")
+      (is (re-find #"\[:item/derived 1\]"
+                   (text-of tree "rf-xray-reactive-unchanged-row-__item_derived_1_"))
+          "row 1 labels with its full concrete query vector")
+      (is (re-find #"\[:item/derived 2\]"
+                   (text-of tree "rf-xray-reactive-unchanged-row-__item_derived_2_"))
+          "row 2 labels with its full concrete query vector"))))
+
+(deftest unchanged-row-unparameterized-shows-plain-sub-id
+  (testing "rf2-cj2yx — a bare unparameterized skip (query-v `[:sub/id]`)
+            renders the plain sub-id label (the common case is unchanged),
+            not a bracketed one-element vector."
+    (facade/install!)
+    (rf/make-frame {:id :rf/xray})
+    (seed-reactive-data!
+      {:has-event-bundle? true :frame :rf/app :focus {:current :ep-1}
+       :counts {} :level-1-subs [] :level-2-subs [] :view-rows []
+       :show-unchanged? true
+       :subs-skipped [{:sub-id :user/name :query-v [:user/name]
+                       :reason :input-value-equal :input-paths-unchanged []}]})
+    (let [tree (view/reactive-panel)
+          row  (text-of tree "rf-xray-reactive-unchanged-row-__user_name_")]
+      (is (some? row) "the unparameterized row renders")
+      (is (re-find #":user/name" row) "labels with the plain sub-id")
+      (is (not (re-find #"\[:user/name\]" row))
+          "no bracketed one-element vector for the bare query"))))
+

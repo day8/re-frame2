@@ -678,10 +678,20 @@ substrate's `sub-run-row` hardcodes `:recomputed? true`) but rides
 tags `:rf.sub/id` / `:rf.sub/query-v` / `:rf.sub/reason` `:input-value-equal`
 / `:rf.sub/input-paths-unchanged`). `reactive-panel-subs/project-record`
 reads those ops off `:trace-events` into a distinct `:subs-skipped` slice
-(`skipped-subs`), de-duplicated by sub-id and EXCLUDING any sub that also
-recomputed this epoch — so `:subs-skipped` stays cleanly distinct from
-`:subs-ran`. It is NOT reconstructed by filtering `:sub-runs` on
-`(complement :recomputed?)`, which is structurally always empty. The
+(`skipped-subs`), de-duplicated + cross-excluded by CONCRETE query-v
+identity (rf2-cj2yx) — NOT the registered `:rf.sub/id`, which would
+collapse distinct parameterizations of one sub. The cache and trace
+identify a short-circuited reaction by its full query vector, so
+`[:item/derived 1]` and `[:item/derived 2]` stay two distinct rows, a burst
+that memo-hits one concrete query collapses to a single row, and a
+recomputed query excludes ONLY its EXACT skip (never every instance sharing
+the registration id) — so `:subs-skipped` stays cleanly distinct from
+`:subs-ran`, and Xray never claims no concrete instance was skipped when one
+was. Rows display + key by the full query vector (documented fallback to the
+registered id only when the skip evidence genuinely lacks a query-v);
+source-coordinate lookup keeps the registered id. It is NOT reconstructed by
+filtering `:sub-runs` on `(complement :recomputed?)`, which is structurally
+always empty. The
 graph's `unchanged` (dashed, short-circuited) nodes are subs that RAN with
 `:value-changed? false` (a recompute that produced the same value) — a
 DIFFERENT category from a memo-hit skip, and the panel never conflates the

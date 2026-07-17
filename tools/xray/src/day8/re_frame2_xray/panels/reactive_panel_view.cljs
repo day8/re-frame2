@@ -483,6 +483,29 @@
    ;; §3.4 — rendered at 60% opacity (:text-tertiary): coverage, dimmed.
    :color (:text-tertiary tokens)})
 
+(defn- unchanged-row-identity
+  "Concrete-query identity a skipped-sub row keys + test-ids by (rf2-cj2yx).
+  The full `:query-v` when the skip evidence carried it — so distinct
+  parameterizations of one registered sub (`[:item/derived 1]` /
+  `[:item/derived 2]`) render as distinct, individually-addressable rows;
+  the documented fallback to the registered `:sub-id` only when the
+  evidence genuinely lacked a query-v."
+  [{:keys [sub-id query-v]}]
+  (if (some? query-v) query-v sub-id))
+
+(defn- unchanged-row-label
+  "Display label for a skipped-sub row (rf2-cj2yx). A bare single-element
+  query `[:sub/id]` renders as the plain sub-id (the common unparameterized
+  case — unchanged); a parameterized query renders the FULL vector so
+  `[:item/derived 1]` and `[:item/derived 2]` read distinctly. Falls back
+  to the registered id when the row carries no query-v."
+  [{:keys [sub-id query-v]}]
+  (cond
+    (and (vector? query-v) (= 1 (count query-v))) (format-id (first query-v))
+    (vector? query-v)                             (pr-str query-v)
+    (some? query-v)                               (format-id query-v)
+    :else                                         (format-id sub-id)))
+
 (defn- unchanged-subs-section
   "The 'Show N unchanged subs' footer disclosure (spec/021 §3.4).
 
@@ -490,7 +513,10 @@
   toggle button; collapsed by default, expanded (per-panel toggle OR the
   `:show-unchanged-subs?` Settings pin — both fold into `:show-unchanged?`)
   it lists the memo-hit subs dim. The button dispatches the panel-local
-  `:rf.xray/reactive-toggle-unchanged` quick-toggle."
+  `:rf.xray/reactive-toggle-unchanged` quick-toggle.
+
+  Rows key + test-id + label by CONCRETE query-v (rf2-cj2yx), so distinct
+  parameterizations of one registered sub stay individually visible."
   [data]
   (let [rows  (:subs-skipped data)
         n     (count rows)
@@ -509,12 +535,14 @@
        (when open?
          (into [:div {:data-testid "rf-xray-reactive-unchanged-list"
                       :style       list-card-style}]
-               (for [{:keys [sub-id]} rows]
-                 ^{:key (str sub-id)}
+               (for [{:keys [query-v] :as row} rows
+                     :let [ident (unchanged-row-identity row)]]
+                 ^{:key (str ident)}
                  [:div {:data-testid (str "rf-xray-reactive-unchanged-row-"
-                                          (id-slug sub-id))
+                                          (id-slug ident))
+                        :data-query-v (str query-v)
                         :style       unchanged-row-style}
-                  [:span {:style {:flex 1}} (format-id sub-id)]
+                  [:span {:style {:flex 1}} (unchanged-row-label row)]
                   [:span {:style {:font-family sans-stack :font-size "10px"}}
                    "input unchanged · memo hit"]])))])))
 

@@ -45,7 +45,7 @@
 (defn- skip-ev
   "A `:rf.sub/skip` memo-hit trace event as the substrate emits it
   (`re-frame.subs.memo/emit-sub-skip!`) — rides `:trace-events`, NOT
-  `:sub-runs`."
+  `:sub-runs`. The query-v is the bare unparameterized shape `[sub-id]`."
   ([sub-id] (skip-ev sub-id []))
   ([sub-id input-paths-unchanged]
    {:operation :rf.sub/skip
@@ -53,6 +53,19 @@
                 :rf.sub/query-v               [sub-id]
                 :rf.sub/reason                :input-value-equal
                 :rf.sub/input-paths-unchanged input-paths-unchanged}}))
+
+(defn- skip-qv
+  "A `:rf.sub/skip` op for a CONCRETE parameterized query (rf2-cj2yx) —
+  the registered `sub-id` plus the EXACT `query-v` the cache/trace
+  short-circuited (e.g. `[:item/derived 1]`), the two carried separately
+  so the projection can dedup/exclude by the concrete query while keeping
+  the id for source-coordinate lookup."
+  [sub-id query-v]
+  {:operation :rf.sub/skip
+   :tags      {:rf.sub/id                    sub-id
+               :rf.sub/query-v               query-v
+               :rf.sub/reason                :input-value-equal
+               :rf.sub/input-paths-unchanged []}})
 
 ;; ---- focused-epoch-record ---------------------------------------------
 
@@ -138,14 +151,80 @@
           "layer-2 skip names its upstream query-vectors"))))
 
 (deftest skipped-subs-excludes-subs-that-also-ran
-  (testing "rf2-ty5r5o — a sub that RECOMPUTED this epoch DID fire, so it is
-            a :subs-ran row and MUST NOT also appear in :subs-skipped (the
-            two categories stay distinct); a pure memo-hit survives."
+  (testing "rf2-ty5r5o / rf2-cj2yx — a sub that RECOMPUTED this epoch DID
+            fire, so it is a :subs-ran row and MUST NOT also appear in
+            :subs-skipped (the two categories stay distinct); a pure memo-hit
+            survives. Exclusion keys on the CONCRETE query-v run-set."
     (let [events [(skip-ev :read-a)     ; also ran (below) → excluded
                   (skip-ev :derived-a)] ; pure skip → kept
-          rows   (subs/skipped-subs events #{:read-a})]
+          ;; ran-set is now concrete query-vs (rf2-cj2yx), not bare sub-ids.
+          rows   (subs/skipped-subs events #{[:read-a]})]
       (is (= [:derived-a] (mapv :sub-id rows))
           ":read-a is excluded (it ran); :derived-a survives"))))
+
+;; ---- concrete-query identity (rf2-cj2yx) -------------------------------
+;;
+;; The cache/trace identify a short-circuited reaction by its full query
+;; vector, so the disclosure must dedup + cross-exclude by concrete query-v
+;; — NOT the registered sub-id, which collapses distinct parameterizations.
+
+(deftest skipped-subs-preserves-distinct-parameterizations
+  (testing "rf2-cj2yx — two memo-hit skips sharing a registered sub-id but
+            with DISTINCT concrete query-vs BOTH survive (dedup is by
+            concrete query-v, not the registered id)."
+    (let [events [(skip-qv :item/derived [:item/derived 1])
+                  (skip-qv :item/derived [:item/derived 2])]
+          rows   (subs/skipped-subs events #{})]
+      (is (= 2 (count rows)) "both parameterizations survive")
+      (is (= [[:item/derived 1] [:item/derived 2]] (mapv :query-v rows))
+          "each row carries its own concrete query-v")
+      (is (= [:item/derived :item/derived] (mapv :sub-id rows))
+          "the registered id rides both rows for source-coord lookup"))))
+
+(deftest skipped-subs-dedups-repeated-same-concrete-query
+  (testing "rf2-cj2yx — repeated evidence for the SAME concrete query (a
+            post-settle deref burst) collapses to one row."
+    (let [events [(skip-qv :item/derived [:item/derived 2])
+                  (skip-qv :item/derived [:item/derived 2])]
+          rows   (subs/skipped-subs events #{})]
+      (is (= [[:item/derived 2]] (mapv :query-v rows))
+          "the same concrete query collapses to a single row"))))
+
+(deftest skipped-subs-recompute-excludes-only-exact-query
+  (testing "rf2-cj2yx — the focused counterexample: `[:item/derived 1]`
+            recomputes while `[:item/derived 2]` memo-hits. The recompute
+            excludes ONLY its exact query; the different same-id memo-hit is
+            preserved + disambiguated, not suppressed."
+    (let [events       [(skip-qv :item/derived [:item/derived 1])  ; ran below → excluded
+                        (skip-qv :item/derived [:item/derived 2])] ; memo-hit → kept
+          ran-query-vs #{[:item/derived 1]}
+          rows         (subs/skipped-subs events ran-query-vs)]
+      (is (= [[:item/derived 2]] (mapv :query-v rows))
+          "only the exact recomputed query is excluded; the sibling survives"))))
+
+(deftest skipped-subs-unparameterized-behavior-unchanged
+  (testing "rf2-cj2yx — an ordinary unparameterized skip (query-v `[sub-id]`)
+            still projects one row and still excludes when that exact query
+            recomputed: the common-case behavior is unchanged."
+    (is (= [:user/name]
+           (mapv :sub-id (subs/skipped-subs [(skip-ev :user/name)] #{})))
+        "a lone unparameterized skip survives")
+    (is (= []
+           (subs/skipped-subs [(skip-ev :user/name)] #{[:user/name]}))
+        "the `[sub-id]` run-set excludes the matching `[sub-id]` skip")))
+
+(deftest skipped-subs-falls-back-to-sub-id-when-query-v-absent
+  (testing "rf2-cj2yx — documented fallback: a skip op lacking a query-v
+            uses the registered `[sub-id]` shape as its identity, so it
+            still projects a row and still excludes against a `[sub-id]` run."
+    (let [ev {:operation :rf.sub/skip
+              :tags {:rf.sub/id :legacy/sub :rf.sub/reason :input-value-equal}}]
+      (is (= [{:sub-id :legacy/sub :query-v [:legacy/sub]}]
+             (mapv #(select-keys % [:sub-id :query-v])
+                   (subs/skipped-subs [ev] #{})))
+          "query-v falls back to the bare [sub-id] shape")
+      (is (= [] (subs/skipped-subs [ev] #{[:legacy/sub]}))
+          "the fallback identity still cross-excludes against a [sub-id] run"))))
 
 (deftest skipped-subs-nil-safe
   (is (= [] (subs/skipped-subs nil nil)))
@@ -180,6 +259,36 @@
       (let [p (subs/project-record r)]
         (is (= [] (:subs-skipped p)))
         (is (= 0 (-> p :counts :subs-skipped)))))))
+
+(deftest project-record-preserves-parameterized-skip-past-same-id-recompute
+  (testing "rf2-cj2yx — end to end: `[:item/derived 1]` recomputes (a
+            :sub-runs row) while `[:item/derived 2]` memo-hits. project-record
+            builds the run-set from CONCRETE query-vs, so it excludes only the
+            exact recomputed query and keeps the `[:item/derived 2]` skip —
+            Xray no longer claims no concrete instance was skipped when one
+            was."
+    (let [record {:sub-runs     [{:sub-id :item/derived :query-v [:item/derived 1]
+                                  :recomputed? true :value-changed? true}]
+                  :trace-events [(skip-qv :item/derived [:item/derived 2])]}
+          p      (subs/project-record record)]
+      (is (= [[:item/derived 1]] (mapv :query-v (:subs-ran p)))
+          ":item/derived 1 recomputed → a subs-ran row")
+      (is (= [[:item/derived 2]] (mapv :query-v (:subs-skipped p)))
+          ":item/derived 2 memo-hit survives (NOT suppressed by the same-id recompute)")
+      (is (= [:item/derived] (mapv :sub-id (:subs-skipped p)))
+          "the registered id still rides the skip row")
+      (is (= 1 (-> p :counts :subs-skipped))))))
+
+(deftest project-record-both-parameterizations-skipped-survive
+  (testing "rf2-cj2yx — two same-id skipped queries with no recompute BOTH
+            survive through project-record (distinct concrete rows)."
+    (let [record {:sub-runs     []
+                  :trace-events [(skip-qv :item/derived [:item/derived 1])
+                                 (skip-qv :item/derived [:item/derived 2])]}
+          p      (subs/project-record record)]
+      (is (= [[:item/derived 1] [:item/derived 2]] (mapv :query-v (:subs-skipped p)))
+          "both concrete parameterizations survive as distinct rows")
+      (is (= 2 (-> p :counts :subs-skipped))))))
 
 ;; ---- project-record: views rendered -----------------------------------
 
