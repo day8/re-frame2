@@ -182,6 +182,115 @@
           (is (some #(= :rf.error/frame-destroyed (:operation %)) @errs)
               "the superseded value-capture dispatch recover-but-emits :rf.error/frame-destroyed"))))))
 
+;; ---- rf2-dlld6: carry the captured incarnation THROUGH target consumption ---
+;;
+;; rf2-9pyles/tdjv7p/vclh63 (above) pinned the exact incarnation and had
+;; `capture-target-superseded?` VALIDATE it — but that check and the ordinary
+;; address-directed dispatch/subscribe it then delegated to were SEPARATE
+;; operations. On the concurrent JVM host frame A can be destroyed AND a same-id
+;; successor B installed in the window between the check returning "A live" and
+;; the ordinary implementation resolving the bare id — so a check-passing stale
+;; capture leaked into B (`{:successor-db {:owner :B :marked-by :stale-capture}}`
+;; in the reproduction). The fix carries the captured incarnation through into
+;; the router/sub resolve so validation and target consumption are ONE
+;; exact-incarnation operation.
+;;
+;; These fixtures interpose ONE-SHOT on `frame/frame-incarnation-live?` — the
+;; predicate `capture-target-superseded?` consults — and, at the moment the
+;; pre-check validates incarnation A as live, destroy A and reseat a same-id
+;; successor B BEFORE returning A's (true) liveness. That is exactly the JVM
+;; interleaving: the stale capture validated A, another actor swapped A for B,
+;; then the op resumed and resolved the bare id → B. Deterministic + single-
+;; threaded (the swap runs inside the interposed call), so no latch is needed.
+
+(defn- run-supersede-during-precheck
+  "Run `op` with a ONE-SHOT interposition on `frame/frame-incarnation-live?`:
+  when the capture's pre-check validates incarnation `a-token` of `frame-id` as
+  live, destroy A and reseat a fresh same-id successor B BEFORE handing back A's
+  (true) liveness — reproducing the destroy-A/create-B window between
+  `capture-frame`'s liveness pre-check and the ordinary bare-id target resolve.
+  The interposition fires exactly once (the pre-check); every later call —
+  including the destroy/create machinery's own — delegates to the real fn."
+  [frame-id a-token op]
+  (let [real  frame/frame-incarnation-live?
+        fired (atom false)]
+    (with-redefs [frame/frame-incarnation-live?
+                  (fn [id token]
+                    (let [live? (real id token)]
+                      (when (and (not @fired)
+                                 (= id frame-id)
+                                 (identical? token a-token)
+                                 live?)
+                        (reset! fired true)     ;; set BEFORE the swap so the
+                        ;; destroy/create's own liveness reads take the real path
+                        (rf/destroy-frame! frame-id)
+                        (rf/make-frame {:id frame-id :doc "incarnation B (successor)"}))
+                      live?))]
+      (op))))
+
+(deftest stale-capture-dispatch-sync-does-not-retarget-same-id-successor
+  (testing "rf2-dlld6 (dispatch-sync arm) — a capture whose pre-check validated
+            incarnation A, superseded by same-id B before the bare-id resolve,
+            MUST NOT dispatch-sync into B. It recover-but-emits
+            :rf.error/frame-destroyed and leaves B byte-for-byte unchanged."
+    (rf/reg-event :fh/mark (fn [{:keys [db]} _] {:db (assoc db :marked-by :stale-capture)}))
+    (rf/make-frame {:id :fh/race :doc "incarnation A"})
+    (let [a-token (frame/frame-incarnation-token :fh/race)
+          {:keys [dispatch-sync]} (rf/capture-frame :fh/race) ;; pins A
+          errs    (atom [])]
+      (rf/register-listener! :trace ::race (fn [ev] (swap! errs conj ev)))
+      (run-supersede-during-precheck
+        :fh/race a-token #(dispatch-sync [:fh/mark]))
+      (rf/unregister-listener! :trace ::race)
+      (is (nil? (:marked-by (rf/app-db-value :fh/race)))
+          "the stale capture did NOT mutate same-id successor B")
+      (is (some #(= :rf.error/frame-destroyed (:operation %)) @errs)
+          "the superseded dispatch-sync recover-but-emits :rf.error/frame-destroyed"))))
+
+(deftest stale-capture-async-dispatch-does-not-enqueue-into-same-id-successor
+  (testing "rf2-dlld6 (async dispatch arm) — a superseded capture's async
+            dispatch enqueues NOTHING into same-id successor B; it recover-but-
+            emits and B stays byte-for-byte unchanged."
+    (rf/reg-event :fh/mark (fn [{:keys [db]} _] {:db (assoc db :marked-by :stale-capture)}))
+    (rf/make-frame {:id :fh/race :doc "incarnation A"})
+    (let [a-token (frame/frame-incarnation-token :fh/race)
+          {:keys [dispatch]} (rf/capture-frame :fh/race) ;; pins A
+          errs    (atom [])]
+      (rf/register-listener! :trace ::race (fn [ev] (swap! errs conj ev)))
+      (run-supersede-during-precheck
+        :fh/race a-token #(dispatch [:fh/mark]))
+      ;; The fence short-circuits BEFORE enqueue/schedule, so nothing can drain
+      ;; into B; poll to confirm the emit lands rather than asserting a single
+      ;; instant.
+      (test-support/poll-until (fn [] (some (fn [ev] (= :rf.error/frame-destroyed (:operation ev))) @errs))
+                               {:label "async fence emits frame-destroyed"})
+      (rf/unregister-listener! :trace ::race)
+      (is (nil? (:marked-by (rf/app-db-value :fh/race)))
+          "the stale async dispatch enqueued nothing into successor B")
+      (is (some #(= :rf.error/frame-destroyed (:operation %)) @errs)
+          "the superseded async dispatch recover-but-emits :rf.error/frame-destroyed"))))
+
+(deftest stale-capture-subscribe-race-does-not-read-or-cache-in-same-id-successor
+  (testing "rf2-dlld6 (subscribe arm) — a capture whose pre-check validated A,
+            superseded by same-id B before the sub-cache resolve, neither reads
+            B's app-db nor installs a reaction/cache entry in B; it returns nil
+            and recover-but-emits."
+    (rf/reg-sub :fh/value (fn [db _] (:value db)))
+    (rf/make-frame {:id :fh/race :doc "incarnation A"})
+    (let [a-token (frame/frame-incarnation-token :fh/race)
+          {:keys [subscribe]} (rf/capture-frame :fh/race) ;; pins A
+          errs    (atom [])
+          result  (do (rf/register-listener! :trace ::race (fn [ev] (swap! errs conj ev)))
+                      (run-supersede-during-precheck
+                        :fh/race a-token #(subscribe [:fh/value])))]
+      (rf/unregister-listener! :trace ::race)
+      (is (nil? result)
+          "the superseded subscribe returns nil — it did NOT resolve a reaction into B")
+      (is (empty? @(:sub-cache (frame/frame :fh/race)))
+          "no reaction/cache entry was installed in same-id successor B's sub-cache")
+      (is (some #(= :rf.error/frame-destroyed (:operation %)) @errs)
+          "the superseded subscribe recover-but-emits :rf.error/frame-destroyed"))))
+
 ;; ---- contract: (capture-frame) outside any scope RAISES (EP-0002) ---------
 ;;
 ;; rf2-jue6sp: the no-arg capture form captures ONLY when a real scope

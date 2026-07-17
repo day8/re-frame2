@@ -1232,7 +1232,20 @@
   (if (capture-target-superseded? frame-target captured-incarnation)
     (router/emit-captured-frame-superseded!
       event (frame/frame-target->id frame-target) opts)
-    (dispatch-fn event opts)))
+    ;; rf2-dlld6: the `capture-target-superseded?` pre-check above and the
+    ;; ordinary address-directed dispatch below are SEPARATE operations. On the
+    ;; concurrent JVM host frame A can be destroyed AND a same-id successor B
+    ;; installed in the window between them, so a capture that just validated A
+    ;; would enqueue into B — a bare-id resolve, violating the exact-incarnation
+    ;; promise. Carry the EXACT captured incarnation through as
+    ;; `:rf.frame/expected-incarnation` so `dispatch!` / `dispatch-sync!`
+    ;; validate it against the SAME record they resolve for enqueue (one
+    ;; exact-incarnation operation) and recover-but-emit rather than leak into B.
+    ;; nil `captured-incarnation` (an unpinned capture made while its target was
+    ;; ABSENT) carries nothing and stays deliberately address-directed.
+    (dispatch-fn event (cond-> opts
+                         (some? captured-incarnation)
+                         (assoc :rf.frame/expected-incarnation captured-incarnation)))))
 
 (defn- capture-subscribe!
   "Route a captured `:subscribe` op through the SAME incarnation fence as
@@ -1319,13 +1332,22 @@
      ;; caching a reaction in B's sub-cache); it recover-but-emits and returns nil.
      (fn subscribe-fn
        [query-v]
-       (capture-subscribe!
-         (fn []
-           (if (and subscribe-call-site interop/debug-enabled?)
-             (trace/with-call-site subscribe-call-site
-               (subscribe-impl query-v {:frame frame}))
-             (subscribe-impl query-v {:frame frame})))
-         frame captured-incarnation query-v subscribe-call-site))}))
+       ;; rf2-dlld6: carry the EXACT captured incarnation into the read so
+       ;; `subscribe-in-frame` validates it against the SAME record it resolves
+       ;; from the sub-cache (one exact-incarnation operation) — closing the
+       ;; identical check-then-use window the dispatch arm has: a same-id
+       ;; successor B installed between the `capture-subscribe!` pre-check and
+       ;; the resolve cannot be read (nor a reaction cached in B's sub-cache).
+       (let [sub-opts (cond-> {:frame frame}
+                        (some? captured-incarnation)
+                        (assoc :rf.frame/expected-incarnation captured-incarnation))]
+         (capture-subscribe!
+           (fn []
+             (if (and subscribe-call-site interop/debug-enabled?)
+               (trace/with-call-site subscribe-call-site
+                 (subscribe-impl query-v sub-opts))
+               (subscribe-impl query-v sub-opts)))
+           frame captured-incarnation query-v subscribe-call-site)))}))
 
 (defn capture-frame
   "Return a frame api — the keystone affordance for

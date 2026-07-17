@@ -380,7 +380,15 @@
         ;; the dispatched trace under `:rf.frame/init-step-index`
         ;; (`emit-dispatched-trace`). It is a debug/trace provenance lever, not a
         ;; correctness one — the trace stamp itself is debug-gated there.
-        step-index         (:step-index opts)]
+        step-index         (:step-index opts)
+        ;; rf2-dlld6: the EXACT incarnation a `capture-frame` op pinned at
+        ;; capture (its `:drain-lock`), threaded by
+        ;; `re-frame.core/capture-dispatch!`. A CORRECTNESS lever (it gates
+        ;; whether the enqueue may target the resolved incarnation), so it rides
+        ;; the envelope unconditionally when present — like `:rf.machine/internal?`
+        ;; — never a debug diagnostic. nil for every ordinary / address-directed
+        ;; dispatch; the key is then omitted so the hot path stays lean.
+        expected-incarnation (:rf.frame/expected-incarnation opts)]
     (when (trace/continuation-live?)
       (cond-> {:event                  event
              :frame                  frame
@@ -439,7 +447,11 @@
       ;; envelope only when present (frame-init dispatches), so
       ;; `emit-dispatched-trace` can stamp it on the dispatched trace as the
       ;; second half of the EP-0027 §Provenance contract.
-      step-index         (assoc :step-index step-index))))))
+      step-index         (assoc :step-index step-index)
+      ;; rf2-dlld6: carry the captured incarnation token onto the envelope only
+      ;; when a `capture-frame` op supplied it, so `dispatch!` / `dispatch-sync!`
+      ;; can fence the enqueue to the EXACT incarnation the resolve returns.
+      expected-incarnation (assoc :rf.frame/expected-incarnation expected-incarnation))))))
 
 (defn- resolve-handler [event-id]
   (registrar/lookup :event event-id))
@@ -2087,9 +2099,20 @@
 
   `opts` carries the dev-only `:rf.trace/call-site` (the capture's dispatch coord),
   bound around the emit so the trace attributes the drop to the dispatch site.
-  Called from `make-capture-frame`'s incarnation-fenced dispatch / dispatch-sync
-  ops; the bare-id `frame-destroyed` emit `dispatch!` / `dispatch-sync!` already
-  raise for a fully-unclaimed id is unchanged (an unpinned 1-arity capture stays
+  Called UNIFORMLY from `make-capture-frame`'s incarnation-fenced `:dispatch`,
+  `:dispatch-sync` (rf2-9pyles) AND `:subscribe` (rf2-tdjv7p, #6084) ops when the
+  synchronous `capture-target-superseded?` pre-check already sees the pin gone;
+  a superseded `:subscribe` additionally returns nil rather than a reaction.
+
+  rf2-dlld6 closes the concurrent-JVM window BETWEEN that pre-check and the
+  ordinary bare-id target consumption: `capture-dispatch!` / the `:subscribe`
+  thunk carry the pinned incarnation through as `:rf.frame/expected-incarnation`,
+  so `dispatch!` / `dispatch-sync!` (and `subscribe-in-frame`) validate it
+  against the SAME record they resolve for enqueue/read and emit the SAME
+  production-survivable `:rf.error/frame-destroyed` exactly once — never a
+  liveness-check-to-bare-id-use window, never a leak into a same-id successor.
+  The bare-id `frame-destroyed` emit `dispatch!` / `dispatch-sync!` already raise
+  for a fully-unclaimed id is unchanged (an unpinned 1-arity capture stays
   address-directed)."
   [event frame-id opts]
   (trace/with-call-site (when interop/debug-enabled? (:rf.trace/call-site opts))
@@ -3810,6 +3833,11 @@
              frame-id       (:frame envelope)
              frame-record   (when (owner-live?) (frame/frame frame-id))
              target-token   (:drain-lock frame-record)
+             ;; rf2-dlld6: the EXACT incarnation a `capture-frame` op pinned at
+             ;; capture (its `:drain-lock`), carried onto the envelope by
+             ;; `build-envelope`. nil for every ordinary / address-directed
+             ;; dispatch — the fence below is inert then.
+             expected-incarnation (:rf.frame/expected-incarnation envelope)
              target-live?   #(and (owner-live?)
                                   (frame/frame-incarnation-live?
                                     frame-id target-token))
@@ -3827,6 +3855,21 @@
        ;; `emit-frame-destroyed!` carries it; the always-on record reads
        ;; its coords off the parallel error-coord registry, not the
        ;; dynamic call-site.
+       (trace/with-call-site (:call-site envelope)
+         (emit-frame-destroyed! (first event) event (:frame envelope)))
+
+       ;; rf2-dlld6: a captured op pinned to incarnation A resolved a same-id
+       ;; successor B here — A was destroyed and B installed in the window
+       ;; between `capture-frame`'s liveness pre-check and this bare-id resolve.
+       ;; `target-token` is B's `:drain-lock`, read off the SAME record we would
+       ;; enqueue into, so this mismatch IS the exact-incarnation check fused
+       ;; with target consumption (no second liveness-check-to-bare-id-use
+       ;; window). Recover-but-emit `:rf.error/frame-destroyed` and enqueue
+       ;; NOTHING — A's authority never leaks into B. Identical recover-but-emit
+       ;; to the nil-record clause above; the address-directed path (nil
+       ;; `expected-incarnation`) is untouched.
+       (and (some? expected-incarnation)
+            (not (identical? expected-incarnation target-token)))
        (trace/with-call-site (:call-site envelope)
          (emit-frame-destroyed! (first event) event (:frame envelope)))
 
@@ -3895,6 +3938,11 @@
          ;; build-envelope) so the synchronous error emits below can
          ;; carry it without referencing the keyword a second time.
          call-site    (:call-site envelope)
+         ;; rf2-dlld6: the EXACT incarnation a `capture-frame` op pinned at
+         ;; capture (its `:drain-lock`), carried onto the envelope by
+         ;; `build-envelope`. nil for every ordinary / address-directed
+         ;; dispatch-sync — the fence below is inert then.
+         expected-incarnation (:rf.frame/expected-incarnation envelope)
          ;; Nested-sync detection, hoisted out of the cond TEST position so
          ;; the cond reads as flat test→result pairs. True when this call is
          ;; reentering the SAME frame's running drain — either an explicit
@@ -3946,6 +3994,20 @@
        ;; destroyed / unknown frame RECOVERS (no-op) AND emits the
        ;; production-survivable `:rf.error/frame-destroyed` through the
        ;; always-on listener.
+       (trace/with-call-site call-site
+         (emit-frame-destroyed! (first event) event (:frame envelope)))
+
+       ;; rf2-dlld6: a captured op pinned to incarnation A resolved a same-id
+       ;; successor B here — A destroyed + B installed between `capture-frame`'s
+       ;; liveness pre-check and this bare-id resolve. `target-token` is B's
+       ;; `:drain-lock`, read off the SAME record we would seed the drain from,
+       ;; so this mismatch fuses the exact-incarnation check with target
+       ;; consumption (no liveness-check-to-bare-id-use window). Recover-but-emit
+       ;; and process NOTHING, so A's authority never leaks into B. Placed before
+       ;; the `nested-sync?` / drain clauses so a superseded capture never enters
+       ;; B's drain. Address-directed dispatch-sync (nil expected) is untouched.
+       (and (some? expected-incarnation)
+            (not (identical? expected-incarnation target-token)))
        (trace/with-call-site call-site
          (emit-frame-destroyed! (first event) event (:frame envelope)))
 

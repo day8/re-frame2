@@ -130,10 +130,19 @@
                             `frame.cljc`'s `run-setup-events!` onto each
                             `:initial-events` dispatch (EP-0027); read by
                             `build-envelope` and carried onto the dispatched
-                            trace as `:rf.frame/init-step-index`"
+                            trace as `:rf.frame/init-step-index`
+    :rf.frame/expected-incarnation
+                            rf2-dlld6 — the EXACT incarnation token
+                            (`:drain-lock`) a `capture-frame` op pinned at
+                            capture, threaded by `re-frame.core/capture-dispatch!`.
+                            `build-envelope` reads it and carries it onto the
+                            envelope so `dispatch!` / `dispatch-sync!` refuse to
+                            enqueue into a same-id successor resolved after the
+                            capture's liveness pre-check. INTERNAL (reserved
+                            `:rf.frame/` namespace) — not an app-facing opt."
   #{:frame :fx-overrides :interceptor-overrides :trace-id :source
     :source-detail :origin :rf.cofx :rf.cofx/mint-policy :rf.trace/call-site
-    :rf.machine/internal? :step-index})
+    :rf.machine/internal? :step-index :rf.frame/expected-incarnation})
 
 (def ^:const retired-draft-opt-hints
   "Dispatch-opt keys that named a fact only ever spelled in the spec's own

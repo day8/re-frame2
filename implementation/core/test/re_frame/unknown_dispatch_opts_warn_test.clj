@@ -163,7 +163,12 @@
     ;; (The `:realm` opt was removed under the realm-substrate collapse —
     ;; rf2-9w37t2 / rf2-afdlyr — every dispatch is the single default realm,
     ;; so build-envelope no longer reads a realm dimension.)
+    ;; `:rf.frame/expected-incarnation` (rf2-dlld6) is the INTERNAL captured-
+    ;; incarnation token a `capture-frame` op threads through; build-envelope
+    ;; reads it and carries it onto the envelope so `dispatch!` / `dispatch-sync!`
+    ;; fence the enqueue to the exact captured incarnation.
     (is (= #{:frame :fx-overrides :interceptor-overrides :trace-id :source
              :source-detail :origin :rf.cofx :rf.cofx/mint-policy
-             :rf.trace/call-site :rf.machine/internal? :step-index}
+             :rf.trace/call-site :rf.machine/internal? :step-index
+             :rf.frame/expected-incarnation}
            diag/known-dispatch-opts))))
