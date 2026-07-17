@@ -1,14 +1,27 @@
 #!/usr/bin/env node
 'use strict';
 
-// G-8 — the real-browser controlled-input correctness gate (07 §5; EP-0035
-// widened G-8). S-5's evidence was jsdom-only; this runner serves one un-
-// optimized :ui-g8 bundle and drives the SAME reusable-event-prefix fixture in
-// real Chromium AND real WebKit. Both engines must pass the matrix (pre-paint
-// synchronous commit, single revision advance, ordering, caret restoration, IME
-// composition) under the sync door AND show the deliberate async-door regression
-// FAIL the pre-paint + revision arms (the tooth). The runner's own assertions
-// carry mutation teeth so a vacuous check cannot pass.
+// G-8 — the real-browser controlled-input gate (07 §5; EP-0034 §4 widened G-8;
+// EP-0035). S-5's evidence was jsdom-only; this runner serves one un-optimized
+// :ui-g8 bundle and drives the SAME reusable-event-prefix fixture in real
+// Chromium AND real WebKit. The canonical G-8 is TWO channels, kept separate:
+//
+//   DETERMINISTIC CORRECTNESS (the hard gate) — pre-paint synchronous commit,
+//   single revision advance, ONE attributable React commit per ordinary input,
+//   ordering, caret restoration, and an IME composition boundary that commits
+//   EXACTLY ONCE (one revision AND one React commit). Both engines must pass
+//   this matrix under the sync door AND show the deliberate async-door
+//   regression FAIL the pre-paint + revision arms (the tooth). The runner's own
+//   assertions carry mutation teeth so a vacuous check cannot pass — including
+//   teeth for an extra React commit, an IME duplicate, and a vacuous commit
+//   counter.
+//
+//   COMPARATIVE LATENCY (evidence only; NO threshold — G-13's posture) — the
+//   compiled reusable control's event-to-commit p95 measured against an
+//   equivalent hand-written React control in the SAME warmed run. The p95
+//   ratio, the within-10% observation, the sample count, and the noise policy
+//   are RECORDED and reported; nothing gates on a wall-clock number. The budget
+//   comparison is kept non-vacuous by mutation teeth over synthetic data.
 
 const fs = require('fs');
 const path = require('path');
@@ -20,6 +33,15 @@ const {
   resolveServePort,
   startLocalHttpServer,
 } = require('./lib/local-browser-harness.cjs');
+const {
+  RECORDED_SAMPLES,
+  PERCENTILE_CONVENTION,
+  RATIO_BUDGET,
+  NOISE_POLICY,
+  withinBudget,
+  engineLatencyEvidence,
+  buildPerformanceSummary,
+} = require('./lib/g8-latency-evidence.cjs');
 
 const IMPL = path.resolve(__dirname, '..');
 const OUT = path.join(IMPL, 'out');
@@ -83,14 +105,32 @@ function assertSyncMatrix(engine, sync) {
   if (sync['caret-value'] !== 'abXc' || sync['caret-pos'] !== 3) {
     fail(`[${engine}] caret not restored to the insertion point: value=${sync['caret-value']} pos=${sync['caret-pos']}`);
   }
+  // One attributable React commit per ordinary input, read SEPARATELY from the
+  // ViewCell revision. Exactly one advance AND exactly one commit — a vacuous
+  // (never-incrementing) commit counter reports 0 and fails here.
+  if (sync['ordinary-revision-delta'] !== 1) {
+    fail(`[${engine}] one ordinary input advanced the ViewCell ${sync['ordinary-revision-delta']} times, not exactly once`);
+  }
+  if (sync['ordinary-commit-delta'] !== 1) {
+    fail(`[${engine}] one ordinary input produced ${sync['ordinary-commit-delta']} React commits, not exactly one (commit-count arm — a vacuous counter reports 0)`);
+  }
+  if (sync['handwritten-commit-delta'] !== 1) {
+    fail(`[${engine}] the hand-written baseline produced ${sync['handwritten-commit-delta']} React commits for one input, not exactly one`);
+  }
   if (sync['ime-committed'] !== 'が' || sync['ime-dom'] !== 'が') {
     fail(`[${engine}] IME composition did not commit the composed value: committed=${sync['ime-committed']} dom=${sync['ime-dom']}`);
   }
   if (sync['ime-caret'] !== 1) {
     fail(`[${engine}] IME caret not preserved: ${sync['ime-caret']}`);
   }
-  if (!(sync['ime-revision-delta'] >= 1)) {
-    fail(`[${engine}] IME composition did not commit through the door (revision-delta ${sync['ime-revision-delta']})`);
+  // The IME boundary commits the composed value EXACTLY ONCE — one ViewCell
+  // revision AND one React commit. `=== 1`, not `>= 1`: a duplicate revision or
+  // commit at the composition boundary reddens the gate.
+  if (sync['ime-revision-delta'] !== 1) {
+    fail(`[${engine}] IME composition advanced the ViewCell ${sync['ime-revision-delta']} times, not exactly once (IME duplicate-revision arm)`);
+  }
+  if (sync['ime-commit-delta'] !== 1) {
+    fail(`[${engine}] IME composition produced ${sync['ime-commit-delta']} React commits, not exactly one (IME duplicate-commit arm)`);
   }
 }
 
@@ -129,7 +169,10 @@ function goldenResult() {
       'pre-paint-committed': true, 'revision-delta': 1, 'pending-drained': true,
       ordering: ['o1', 'o2', 'o3'], 'committed-value': 'o3', 'dom-value': 'o3',
       'caret-value': 'abXc', 'caret-pos': 3,
-      'ime-committed': 'が', 'ime-dom': 'が', 'ime-caret': 1, 'ime-revision-delta': 1,
+      'ordinary-revision-delta': 1, 'ordinary-commit-delta': 1,
+      'handwritten-commit-delta': 1,
+      'ime-committed': 'が', 'ime-dom': 'が', 'ime-caret': 1,
+      'ime-revision-delta': 1, 'ime-commit-delta': 1,
     },
     async: { 'pre-paint-committed': false, 'revision-delta': 0, eventual: 'abc' },
   };
@@ -146,13 +189,54 @@ function runMutationTeeth() {
       assertEngineResult('mutant', mutate((r) => { r.sync.ordering = ['o1', 'o3', 'o2']; }))),
     expectRejected('sync caret jumped to end', () =>
       assertEngineResult('mutant', mutate((r) => { r.sync['caret-pos'] = 4; }))),
+    // One-commit-per-input teeth — an EXTRA React commit and a VACUOUS
+    // (never-incrementing) commit counter must both redden the gate.
+    expectRejected('ordinary input produced an extra React commit', () =>
+      assertEngineResult('mutant', mutate((r) => { r.sync['ordinary-commit-delta'] = 2; }))),
+    expectRejected('ordinary commit counter vacuous (0 commits observed)', () =>
+      assertEngineResult('mutant', mutate((r) => { r.sync['ordinary-commit-delta'] = 0; }))),
+    expectRejected('ordinary input advanced the ViewCell twice', () =>
+      assertEngineResult('mutant', mutate((r) => { r.sync['ordinary-revision-delta'] = 2; }))),
+    // IME duplicate teeth — a duplicate revision OR a duplicate React commit at
+    // the composition boundary is rejected (`=== 1`, not `>= 1`).
     expectRejected('sync IME value wrong', () =>
       assertEngineResult('mutant', mutate((r) => { r.sync['ime-committed'] = 'x'; }))),
+    expectRejected('IME committed a duplicate revision (>= 1 accepted a duplicate)', () =>
+      assertEngineResult('mutant', mutate((r) => { r.sync['ime-revision-delta'] = 2; }))),
+    expectRejected('IME committed a duplicate React commit', () =>
+      assertEngineResult('mutant', mutate((r) => { r.sync['ime-commit-delta'] = 2; }))),
+    expectRejected('IME commit counter vacuous (0 commits observed)', () =>
+      assertEngineResult('mutant', mutate((r) => { r.sync['ime-commit-delta'] = 0; }))),
     expectRejected('async door accidentally committed pre-paint', () =>
       assertEngineResult('mutant', mutate((r) => { r.async['pre-paint-committed'] = true; }))),
     expectRejected('async door advanced the cell synchronously', () =>
       assertEngineResult('mutant', mutate((r) => { r.async['revision-delta'] = 1; }))),
   ];
+}
+
+// The evidence-only budget comparison must still BITE on the data: a tight
+// sample set keeps `within-10pct` true, an over-budget compiled control flips
+// it false, and a vacuous (zero) baseline is rejected as a broken measurement.
+// These teeth run over SYNTHETIC arrays — they prove the comparison is
+// non-vacuous WITHOUT ever gating the real measured latency.
+function runBudgetTeeth() {
+  const tight = Array(RECORDED_SAMPLES).fill(1.0);
+  const overBudget = Array(RECORDED_SAMPLES).fill(2.0); // 2x the baseline p95
+  const teeth = [];
+  const ok = engineLatencyEvidence('synthetic', tight, tight);
+  if (ok['within-10pct'] !== true) {
+    fail('budget tooth vacuous: a tight compiled p95 was not reported within 10% of the baseline');
+  }
+  teeth.push('tight compiled p95 reported within 10% of baseline');
+  const bad = engineLatencyEvidence('synthetic', overBudget, tight);
+  if (bad['within-10pct'] !== false) {
+    fail('budget tooth did not bite: a 2x compiled p95 was still reported within 10%');
+  }
+  teeth.push('over-budget compiled p95 (2x baseline) flagged outside 10%');
+  teeth.push(expectRejected('a zero baseline p95 is rejected as a broken measurement', () => {
+    withinBudget(1.0, 0);
+  }));
+  return teeth;
 }
 
 function writeReport(report) {
@@ -163,13 +247,21 @@ function writeReport(report) {
 function appendSummary(report) {
   const target = process.env.GITHUB_STEP_SUMMARY;
   if (!target || report.status !== 'pass') return;
-  const lines = ['### G-8 controlled-input correctness (real Chromium + WebKit)', '',
-    '| engine | pre-paint | 1-advance | ordering | caret | IME | async tooth |',
-    '|---|---|---|---|---|---|---|'];
+  const lines = [
+    '### G-8 controlled-input correctness (real Chromium + WebKit)',
+    '',
+    'Deterministic correctness — the hard gate. One attributable React commit ' +
+      'per ordinary input; the IME boundary commits EXACTLY once (one revision, ' +
+      'one commit).',
+    '',
+    '| engine | pre-paint | 1-advance | 1-commit | ordering | caret | IME=1 | async tooth |',
+    '|---|---|---|---|---|---|---|---|',
+  ];
   for (const e of ENGINES) {
-    lines.push(`| ${e} | ✓ | ✓ | ✓ | ✓ | ✓ | bit |`);
+    lines.push(`| ${e} | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | bit |`);
   }
-  fs.appendFileSync(target, `${lines.join('\n')}\n`, 'utf8');
+  fs.appendFileSync(target, `${lines.join('\n')}\n\n`, 'utf8');
+  fs.appendFileSync(target, buildPerformanceSummary(report.performance.engines), 'utf8');
 }
 
 async function driveEngine(name, url) {
@@ -202,8 +294,10 @@ async function main() {
   let tearingDown = false;
   try {
     // The runner's own checks must bite BEFORE any browser runs — a vacuous
-    // matrix assertion is a worse failure than a red gate.
+    // matrix assertion (or a vacuous budget comparison) is a worse failure than
+    // a red gate.
     const mutationTeeth = runMutationTeeth();
+    const budgetTeeth = runBudgetTeeth();
 
     shadow('compile', 'ui-g8');
     writePage(DEV);
@@ -223,17 +317,56 @@ async function main() {
       engines[name] = await driveEngine(name, url);
     }
 
+    // Comparative-latency evidence — derive the per-engine p95s, ratio, and
+    // within-10% OBSERVATION from the raw event-to-commit samples the fixture
+    // measured in the same warmed run. Evidence-only; the gate's pass/fail does
+    // NOT depend on any of these numbers (only their sample SHAPE is validated,
+    // inside engineLatencyEvidence). The stated relative budget is surfaced as
+    // an observation, not a threshold.
+    const perfEngines = ENGINES.map((name) => {
+      const lat = engines[name].latency;
+      return engineLatencyEvidence(name, lat['compiled-raw-ms'], lat['handwritten-raw-ms']);
+    });
+
     const report = {
       gate: 'G-8', status: 'pass',
-      contract: 'real-browser controlled-input correctness through the reusable event-prefix door',
+      contract: 'real-browser controlled-input correctness AND comparative event-to-commit latency through the reusable event-prefix door',
       engines: ENGINES,
-      tooth: 'the async-door regression fails the pre-paint + revision arms in every engine',
-      mutationTeeth,
+      // Deterministic correctness — the hard gate, kept SEPARATE from the
+      // comparative performance evidence below (canonical G-8 distinguishes the
+      // two).
+      correctness: {
+        posture: 'deterministic; hard-gated',
+        commitPosture: 'one attributable React commit per ordinary input and exactly one at the committed IME boundary; the IME boundary advances the ViewCell exactly once (=== 1, not >= 1)',
+        tooth: 'the async-door regression fails the pre-paint + revision arms in every engine',
+        mutationTeeth,
+      },
+      // Comparative latency — EVIDENCE ONLY; no wall-clock threshold. The p95
+      // ratio and within-10% observation are recorded, never gated; the budget
+      // comparison is kept non-vacuous by the budget teeth.
+      performance: {
+        posture: 'evidence-only; no wall-clock threshold',
+        contract: 'compiled reusable control event-to-commit p95 measured against an equivalent hand-written React control (useState/onChange) in the same warmed run',
+        percentileConvention: PERCENTILE_CONVENTION,
+        noisePolicy: NOISE_POLICY,
+        ratioBudget: RATIO_BUDGET,
+        budgetTeeth,
+        engines: perfEngines,
+      },
+      // Raw per-engine fixture output (sync/async matrix + raw latency samples)
+      // — the useful per-engine artifact preserved verbatim.
       results: engines,
     };
     writeReport(report);
     appendSummary(report);
     console.log(`G-8 PASS (${ENGINES.join(' + ')}) — report: ${REPORT}`);
+    for (const e of perfEngines) {
+      console.log(
+        `  [${e.engine}] event-to-commit p95: compiled ${e.compiled['p95-ms'].toFixed(3)}ms ` +
+          `vs hand-written ${e.handwritten['p95-ms'].toFixed(3)}ms ` +
+          `(ratio ${e['p95-ratio'].toFixed(3)}, within-10% ${e['within-10pct']}) — evidence only`,
+      );
+    }
   } catch (error) {
     writeReport({ gate: 'G-8', status: 'fail', error: error.stack || String(error) });
     throw error;
@@ -243,7 +376,10 @@ async function main() {
   }
 }
 
-module.exports = { assertEngineResult, assertSyncMatrix, assertAsyncTooth, goldenResult, runMutationTeeth };
+module.exports = {
+  assertEngineResult, assertSyncMatrix, assertAsyncTooth,
+  goldenResult, runMutationTeeth, runBudgetTeeth,
+};
 
 if (require.main === module) {
   main().catch((error) => {
