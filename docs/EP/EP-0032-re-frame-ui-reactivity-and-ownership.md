@@ -19,10 +19,12 @@ Type: standards-track
 > [`spec/006-ReactiveSubstrate.md` §The internal observation port](../../spec/006-ReactiveSubstrate.md)
 > is **normative since the S2 slice** (amendment merged with S2a, PR #5706,
 > 2026-07-12) — per EP-0009, where this EP and the spec differ, **the spec
-> governs**. Design provenance, all under
-> `ai/findings/new-substrate-synthesis/`: `03-reactivity-and-ownership.md`
-> (final), `drafts/spec-006-observation-port-amendment.md`, and
-> `spikes/s3-ownership-report.md`.
+> governs**. Design provenance: the `03-reactivity-and-ownership.md` study and the
+> `drafts/spec-006-observation-port-amendment.md` amendment graduated into that normative
+> `spec/006-ReactiveSubstrate.md` section (both tombstoned in the synthesis tree per
+> rf2-mgy7pz); the S-3 feasibility evidence lives on at
+> `ai/findings/new-substrate-synthesis/spikes/s3-ownership-report.md` (a durable
+> synthesis-tree survivor).
 
 ## Abstract
 

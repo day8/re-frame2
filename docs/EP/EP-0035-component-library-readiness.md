@@ -78,10 +78,13 @@ Non-goals:
 - **Specs:** `spec/004-Views.md`, `spec/004B-UI-Tree-and-Conversion.md`,
   `spec/006-ReactiveSubstrate.md`, `008-Testing`, `009-Instrumentation`.
 - **Provenance (local working analyses; `ai/` is local-only, content restated
-  in beads):** the owning delta doc
-  `ai/findings/new-substrate-synthesis/drafts/component-library-readiness.md`;
+  in beads):** the owning delta doc — graduated into this EP + the P0/P1 spec homes
+  (`spec/004-Views.md`, `spec/004B-UI-Tree-and-Conversion.md`,
+  `spec/006-ReactiveSubstrate.md`, `spec/008-Testing.md`, `spec/009-Instrumentation.md`),
+  from the tombstoned `drafts/component-library-readiness.md` (rf2-mgy7pz);
   the tri-synthesis consensus `synthesis.{fable,codex,grok}.md` under
-  `ai/findings/re-com-port/`; the plan §2 delta record; the 07 gate roster.
+  `ai/findings/re-com-port/`; the blessed table's delta record (`spec/API.md`
+  §"re-frame.ui — blessed public-surface freeze"); the 07 gate roster.
 
 ## Specification
 

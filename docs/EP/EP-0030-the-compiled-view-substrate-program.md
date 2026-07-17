@@ -97,8 +97,10 @@ EP-0031–EP-0034 — nor the component-library readiness package (EP-0035).
   `spec/006-ReactiveSubstrate.md` (observation port; adapter contract), `spec/008`
   (the `ui.test` contract home), `spec/009-Instrumentation.md` (evidence and catalogue
   rows), `spec/011` (SSR roots and hydration).
-- **Source dossier:** `ai/findings/new-substrate-synthesis/` (01–12, drafts, guide,
-  spikes, reviews) — the design record this EP family distills; retired per the Bead Plan.
+- **Source dossier:** `ai/findings/new-substrate-synthesis/README.md` (the tombstone
+  pointer map) — the design record this EP family distills, tombstoned per the Bead Plan
+  (rf2-mgy7pz); the decision surface now lives in this EP family + the `spec/` tree, with
+  `reviews/` and `spikes/` retained as durable evidence.
 
 ## Specification
 
@@ -117,7 +119,8 @@ a second adapter.
 
 ### The program decision record (ratified 2026-07-11)
 
-The full record is `ai/findings/new-substrate-synthesis/08-delivery.md` §5; the rulings:
+The full record is reproduced below — graduated into this EP from `08-delivery.md` §5 in
+the tombstoned synthesis tree (rf2-mgy7pz). The rulings:
 
 | # | Surface | Ruling |
 |---|---|---|
@@ -168,7 +171,7 @@ spikes feasibility-PASS before any production code.
 ### The demand-bar-gated public surface
 
 Every public name needed a named consumer **before Stage 1**, recorded in the blessed
-API table — `ai/findings/new-substrate-synthesis/12-implementation-plan.md` §2, with the
+API table — `spec/API.md` §"re-frame.ui — blessed public-surface freeze", with the
 §2b authoritative surface matrix (name → stage / owner / proof fixture / spec home).
 This EP references those tables rather than duplicating them; **anything not in the
 table is not part of `re-frame.ui`'s public surface** (the demand bar disciplines the new
@@ -296,11 +299,13 @@ rebuilds the playground. Sibling EPs name per-domain impacts.
 - **Program ratification (2026-07-11, Mike).** The 08 §5 decision record — R-1…R-6 plus
   the presence, adapters, proof-app, budget, and frame-chain rulings — is the ruled
   decision surface this EP records. Its provenance log is
-  `ai/findings/new-substrate-synthesis/09-review-disposition.md`. *(The adapters ruling's
+  `ai/findings/new-substrate-synthesis/reviews/09-review-disposition.md` (relocated per
+  rf2-mgy7pz; a pointer remains at the old `09-review-disposition.md` path). *(The adapters ruling's
   original "frozen compatibility adapters" / "reagent-slim removed" shape is superseded on
   the adapter-disposition point by the 2026-07-17 reframing below; all other rulings
   stand.)*
-- **API freeze (2026-07-12 00:39 AUSEST, Mike).** The 12 §2 public-surface table is
+- **API freeze (2026-07-12 00:39 AUSEST, Mike).** The `re-frame.ui` public-surface table
+  (graduated to `spec/API.md` §"re-frame.ui — blessed public-surface freeze") is
   blessed as-is as the v1 API freeze, governed by the row-level delta protocol; deltas
   #1–#5 (custom-element, `->react`, `spread`, `slot`/internal `render-fn`, safe-policy
   `spread`) are ruled and recorded in the table.
