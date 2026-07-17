@@ -99,34 +99,28 @@
     {:docstring docstring :opts opts :argv argv :body body}))
 
 (defn- split-defview-body
-  "Return `[lease-forms template]` for the closed v1 body grammar:
+  "Return `[lease-forms body-forms]` for the closed v1 body grammar:
 
-      direct-resolved-lease* final-template
+      direct-resolved-lease* (effect …)* final-template
 
-  A conditional lease keeps the declaration direct and makes its descriptor
-  conditional. No arbitrary statement body is opened."
+  Leading `(lease descriptor)` declarations are peeled here; the remaining
+  `body-forms` (leading `(effect …)` statements, then the one final template)
+  are analyzed as a hooks-region body. A conditional lease keeps the
+  declaration direct and makes its descriptor conditional; no arbitrary
+  statement body is opened."
   [e vname body]
   (loop [leases [] forms (seq body)]
     (cond
       (nil? forms)
       (fail :rf.ui.compile/multi-form-body
             (str "defview " vname ": leading lease declarations must be "
-                 "followed by exactly ONE template form")
+                 "followed by a template form")
             {:view vname})
 
       (ana/lease-declaration-form? e (first forms))
       (recur (conj leases (first forms)) (next forms))
 
-      (next forms)
-      (fail :rf.ui.compile/multi-form-body
-            (str "defview " vname ": after zero or more direct leading "
-                 "(lease descriptor) declarations, the body has exactly ONE "
-                 "template form (got " (count forms) " remaining). Conditional "
-                 "liveness is (lease (when p descriptor)); siblings wrap in "
-                 "[:<> ...], computation goes in (let ...)")
-            {:view vname})
-
-      :else [leases (first forms)])))
+      :else [leases (vec forms)])))
 
 (defn- capabilities [ast]
   (let [caps (volatile! #{})]
@@ -226,12 +220,16 @@
                     (assoc :self-children? children?
                            :self-closed-keys closed-keys))
         _       (ana/reject-reactive-binding! e0 argv)
-        e       (env/with-locals e0 header-syms)
-        [lease-forms template] (split-defview-body e vname body)
+        ;; The defview body is the UNCONDITIONAL hooks region — where `local` /
+        ;; `effect` host hooks are legal (cleared on entering any branch/loop/
+        ;; deferred callback).
+        e       (-> (env/with-locals e0 header-syms)
+                    (assoc :hooks-region? true))
+        [lease-forms body-forms] (split-defview-body e vname body)
         lease-declarations
         (mapv #(ana/analyze-lease-declaration e %1 %2)
               (range) lease-forms)
-        ast     (ana/analyze e template)
+        ast     (ana/analyze-view-body e body-forms)
         _       (doseq [w @(:warnings e)]
                   (binding [*out* *err*]
                     (println (str "WARNING re-frame.ui [" view-id "] "
@@ -245,7 +243,14 @@
                                   lease-declarations)
                     :template ast-projection}
                    ast-projection))
-        hs      (fingerprint/hook-signature-hash {:locals [] :effects []})
+        ;; The HMR hook signature: `local` sites (all `:local`) and `effect`
+        ;; sites (each `:connect`/`:deps`) in source order. Adding, removing, or
+        ;; changing the KIND of a host hook changes the signature, so the dev
+        ;; view remounts (React hook order must stay stable within a Fiber);
+        ;; `sub` sites stay excluded by design (Spec 004 §Hot reload).
+        hs      (fingerprint/hook-signature-hash
+                 {:locals (mapv (constantly :local) (:locals sites))
+                  :effects (mapv :kind (:effects sites))})
         manifest {:view-id view-id
                   :display-name display-name
                   :doc docstring
@@ -264,7 +269,10 @@
                   :as? (= :as (:mode hdr))
                   :template-fingerprint tf
                   :hook-signature hs
-                  :capabilities (capabilities ast)
+                  :capabilities (cond-> (capabilities ast)
+                                  (seq (:locals sites))       (conj :local)
+                                  (seq (:effects sites))      (conj :effect)
+                                  (seq (:dispatch-fns sites)) (conj :dispatch-fn))
                   :sites sites}
         args    {:vname vname
                  ;; The canonical current-namespace Var a self-recursive head

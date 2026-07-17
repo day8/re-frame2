@@ -322,7 +322,10 @@
             render-fn slot
             ;; S3 literal safe-spread policy — attr passthrough that cannot
             ;; clobber owned props or forfeit the sync door (rf2-isdqjv)
-            spread-safe}
+            spread-safe
+            ;; S3 host hooks — view-local ephemera, host effects, and the
+            ;; stable committed-frame dispatcher (rf2-vxgfnd.95.2)
+            local effect dispatch-fn}
          (set (keys (ns-publics 're-frame.ui))))
       "no reg-view family, no Form-1/2/3 helpers, no h macro, no view
        lookup, no ratom/cursor/reaction — Spec 004 §Removed forms"))

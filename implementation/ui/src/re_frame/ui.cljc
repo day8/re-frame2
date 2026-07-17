@@ -54,8 +54,9 @@
   structural tree + the DOM conversion table
   (jvm-tree-and-conversion-contract.md)."
   #?(:cljs (:require-macros [re-frame.ui]))
-  (:refer-clojure :exclude [spread])
+  (:refer-clojure :exclude [spread dispatch-fn])
   (:require [re-frame.error :as error]
+            [re-frame.ui.hooks]
             [re-frame.ui.lease-descriptor]
             [re-frame.ui.reactive :as reactive]
             #?@(:clj  [[re-frame.ui.compiler :as compiler]
@@ -335,6 +336,98 @@
         "defview body form, not a callable frame helper. Author it inside "
         "a compiled view body; outside views hold a frame with "
         "rf/capture-frame")
+   nil))
+
+(defn local
+  "(local init) is the compiler-owned view-local ephemera form: bound in a
+  defview's top-region `let`, it returns the THREE-TUPLE
+
+      [value set! update!]
+
+  — host component-local state, deliberately OUTSIDE re-frame2 epochs (not
+  observed by subs, not revertible by epoch restore, re-renders this view
+  only). `set!` stores its argument EXACTLY — a stored function is a value,
+  never an updater (no useState fn-overload). `update!` applies
+  `(f current & args)` to the LATEST host state (not the committed render's
+  value), so several same-turn host writers (key + pointer + timer + observer
+  callbacks) compose instead of last-write-wins — the multi-writer contract a
+  component library cannot build soundly itself.
+
+  Setter and updater are HOST-ONLY: calling them during a render pass fails
+  loud (a dev error — renders are speculative); committed same-view handlers
+  and `effect` callbacks may read and update. Two-element destructuring
+  `[value set!]` stays valid. On the JVM structural render `local` exposes the
+  INITIAL value, but invoking `set!`/`update!` raises `:rf.error/jvm-host-op`.
+
+  Doctrine (rf2-5sjbg lineage): product-meaning state lives in app-db behind
+  events; `local` is for keystroke-latency ephemera. When a field's every
+  keystroke IS product state, dispatch placeholders (`:rf.ui/value`) instead.
+
+  This var exists for symbol resolution only; a direct call fails loudly."
+  [_init]
+  (error/throw-error!
+   :rf.error/ui-tree-malformed 're-frame.ui/local
+   (str "(local init) executed outside compiler lowering — it is a lexical "
+        "defview form bound in a top-region let, not a callable helper. Author "
+        "it as (let [[value set! update!] (local init)] …) in the view body")
+   nil))
+
+(defn effect
+  "(effect [deps…] body…) / (effect :connect body…) is the compiler-owned host
+  effect form: a leading STATEMENT in a defview's top region (or a top-region
+  `let`/`do` body), before the final template.
+
+  The value-deps form runs its body after commit whenever the literal deps
+  change, COMPARED BY `rf=` (documented cost: broad values walk — keep deps
+  narrow); the body's return, when a function, is the cleanup honoured on
+  dep-change, disconnect, and unmount. `(effect :connect body…)` runs at each
+  connect (mount, or reveal after an Activity hide) with cleanup at each
+  disconnect — there is deliberately no \"once\"/\"mount\" name. StrictMode dev
+  replay is expected and MUST be idempotent-safe (that is what cleanup is for).
+
+  Effects synchronise with the host world (measurement, chart/animation
+  libraries attached via a ref); app state goes through events. Dispatch from
+  an effect with `(ui/dispatch-fn)`. `sub`/`lease`/`frame` inside an effect
+  body are compile errors (a deferred callback owns no render-time site).
+
+  On the JVM structural render effects DO NOT run — they are recorded as
+  capability metadata only.
+
+  This var exists for symbol resolution only; a direct call fails loudly."
+  [& _]
+  (error/throw-error!
+   :rf.error/ui-tree-malformed 're-frame.ui/effect
+   (str "(effect [deps…] body…) executed outside compiler lowering — it is a "
+        "lexical defview statement form, placed before the final template, not "
+        "a callable helper. Author it in a view's top region")
+   nil))
+
+(defn dispatch-fn
+  "(ui/dispatch-fn) is the compiler-owned STABLE committed-frame dispatcher for
+  imperative/foreign callbacks: a render-time site (like `(frame)`) whose value
+  is a per-view stable function
+
+      (fn ([event] [event opts]))
+
+  bound to the COMMITTED frame. Its identity is stable across renders (attach it
+  once as a listener); it reads the committed frame at CALL time and retargets
+  only on commit; and it FAILS LOUD in every non-connected state
+  (`:rf.error/dispatch-disconnected`) — the leaked-listener detector for an
+  external callback that outlived its view. Capture it in the view body and use
+  it from an `effect` callback or a foreign event bridge.
+
+  On the JVM structural render `dispatch-fn` exposes a dispatcher whose
+  invocation raises `:rf.error/jvm-host-op`. Like `frame`, it is finite and
+  render-time (loops and deferred callbacks are compile errors).
+
+  This var exists for symbol resolution only; a direct call fails loudly."
+  []
+  (error/throw-error!
+   :rf.error/ui-tree-malformed 're-frame.ui/dispatch-fn
+   (str "(ui/dispatch-fn) executed outside compiler lowering — it is a lexical "
+        "defview body form returning the committed-frame dispatcher, not a "
+        "callable helper. Author it inside a compiled view body; outside views "
+        "hold a frame with rf/capture-frame")
    nil))
 
 ;; ---------------------------------------------------------------------------

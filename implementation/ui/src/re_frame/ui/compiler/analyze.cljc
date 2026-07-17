@@ -26,7 +26,8 @@
   `:frame-provider` (S2c, rf2-vxgfnd.9) is the SCOPE form — legal anywhere,
   scoping a subtree to an already-live frame."
   #{:text :nothing :expr :element :fragment :view :foreign
-    :if :let :letfn :case :for :raw :html :frame-root :frame-provider :slot})
+    :if :let :letfn :case :for :raw :html :frame-root :frame-provider :slot
+    :hook-prefix})
 
 (defn literal-scalar? [x]
   (or (string? x) (number? x) (keyword? x) (boolean? x) (nil? x)))
@@ -42,6 +43,9 @@
 (def ^:private sub-fqns       #{'re-frame.ui/sub})
 (def ^:private lease-fqns     #{'re-frame.ui/lease})
 (def ^:private frame-fqns     #{'re-frame.ui/frame})
+(def ^:private local-fqns     #{'re-frame.ui/local})
+(def ^:private effect-fqns    #{'re-frame.ui/effect})
+(def ^:private dispatch-fn-fqns #{'re-frame.ui/dispatch-fn})
 (def ^:private frame-root-fqns #{'re-frame.ui/frame-root})
 (def ^:private frame-provider-fqns #{'re-frame.ui/frame-provider})
 
@@ -110,6 +114,10 @@
 
 (def ^:private runtime-sub-fqn 're-frame.ui.reactive/sub-read)
 (def ^:private runtime-frame-ops-fqn 're-frame.ui.frames/frame-ops)
+(def ^:private runtime-local-fqn 're-frame.ui.hooks/local-state)
+(def ^:private runtime-effect-value-fqn 're-frame.ui.hooks/effect-value)
+(def ^:private runtime-effect-connect-fqn 're-frame.ui.hooks/effect-connect)
+(def ^:private runtime-dispatch-fn-fqn 're-frame.ui.hooks/dispatch-fn)
 (def ^:private deferred-scope ::deferred-scope)
 (def ^:private transparent-macro-fqns
   "Closed macro set whose arguments are host-independent expression slots,
@@ -823,6 +831,81 @@
                                                      :path (:path e)
                                                      :expr-path (vec p)})
                         (with-same-meta f (list runtime-frame-ops-fqn))))
+
+                    ;; (local init) — view-local ephemera, a React useState hook.
+                    ;; Legal ONLY as a binding value in a defview's UNCONDITIONAL
+                    ;; top region (React hooks run once per render in fixed order):
+                    ;; not in a loop / branch / deferred callback / render-fn slot.
+                    (and (symbol? head) (not (contains? locals head))
+                         (env/resolves-to? e* head local-fqns))
+                    (do
+                      (when-not (= 2 (count f))
+                        (env/fail! e :rf.ui.compile/unsupported-form
+                                   "(local init) takes exactly one initial-value argument"
+                                   {:form f}))
+                      (when (or (nil? (:self-id e))
+                                (:in-loop? e)
+                                (contains? locals deferred-scope)
+                                (not (:hooks-region? e)))
+                        (if (:in-render-fn? e)
+                          (impure-slot-fail! e "local" f)
+                          (env/fail! e :rf.ui.compile/hook-misplaced
+                                     (str "(local init) is a host hook — legal ONLY as a "
+                                          "binding value in a defview's UNCONDITIONAL top "
+                                          "region: (let [[value set! update!] (local init)] "
+                                          "…). It cannot run in a loop, branch, deferred "
+                                          "callback, render-fn slot, or root expression "
+                                          "(host hooks run once per render in fixed order)")
+                                     {:form f})))
+                      (let [sid (lexical-site-id e :local f p)]
+                        (env/add-site! e :locals {:sid sid :path (:path e)
+                                                  :expr-path (vec p)})
+                        (with-same-meta
+                          f
+                          (list runtime-local-fqn
+                                (rw (second f) locals (conj p 1))))))
+
+                    ;; (ui/dispatch-fn) — the stable committed-frame dispatcher.
+                    ;; A render-time site like (frame): finite, not in a loop or
+                    ;; deferred callback. Its VALUE (a stable fn) is captured in
+                    ;; the body and used from effect/foreign callbacks later.
+                    (and (symbol? head) (not (contains? locals head))
+                         (env/resolves-to? e* head dispatch-fn-fqns))
+                    (do
+                      (when-not (= 1 (count f))
+                        (env/fail! e :rf.ui.compile/unsupported-form
+                                   (str "(ui/dispatch-fn) takes no arguments — it returns "
+                                        "the stable committed-frame dispatcher")
+                                   {:form f}))
+                      (when (or (nil? (:self-id e))
+                                (:in-loop? e)
+                                (contains? locals deferred-scope))
+                        (if (:in-render-fn? e)
+                          (impure-slot-fail! e "dispatch-fn" f)
+                          (env/fail! e :rf.ui.compile/frame-in-loop
+                                     (str "(ui/dispatch-fn) must be a finite render-time "
+                                          "site in a defview — it cannot run in a loop, "
+                                          "deferred callback, raw-fn/ref body, or root "
+                                          "expression. Capture it in the view body and use "
+                                          "it from an (effect …) or foreign callback")
+                                     {:form f})))
+                      (let [sid (lexical-site-id e :dispatch-fn f p)]
+                        (env/add-site! e :dispatch-fns {:sid sid :path (:path e)
+                                                        :expr-path (vec p)})
+                        (with-same-meta f (list runtime-dispatch-fn-fqn))))
+
+                    ;; (effect …) is a leading STATEMENT, spliced before the
+                    ;; final template by analyze-hooks-body. Reaching rw means it
+                    ;; appeared as an ordinary expression (a binding value, an
+                    ;; argument, a branch) — misplaced.
+                    (and (symbol? head) (not (contains? locals head))
+                         (env/resolves-to? e* head effect-fqns))
+                    (env/fail! e :rf.ui.compile/hook-misplaced
+                               (str "(effect …) is a host-effect STATEMENT — place it in a "
+                                    "defview's UNCONDITIONAL top region (or a top-region "
+                                    "let/do body) BEFORE the final template, never as an "
+                                    "expression, branch, or deferred callback")
+                               {:form f})
 
                    (fn-form? f) (rw-fn f locals p)
                    (contains? #{'let 'let* 'loop 'loop*} head) (rw-let f locals p)
@@ -2026,13 +2109,107 @@
                {:form form}))
   (first body))
 
+;; ---------------------------------------------------------------------------
+;; Host hooks — `effect` statements + the `local`/`effect` hooks region
+;; ---------------------------------------------------------------------------
+
+(defn effect-statement-form?
+  "True when `form` is a direct, unshadowed call resolving to public
+  `re-frame.ui/effect` — the only form allowed to occupy the leading statement
+  prefix of a hooks region (a defview's top body or a top-region let/do body)."
+  [e form]
+  (and (seq? form)
+       (symbol? (first form))
+       (not (contains? (:locals e) (first form)))
+       (env/resolves-to? e (first form) effect-fqns)))
+
+(defn- analyze-effect-statement
+  "Analyze one leading `(effect …)` statement -> the lowered runtime call form.
+  `(effect [deps…] body…)` compares deps by rf= (value deps); `(effect :connect
+  body…)` runs at each connect. The body is a DEFERRED callback (sub/lease/frame
+  inside are rejected); it is spliced before the template by `analyze-hooks-body`."
+  [e index form]
+  (when (or (nil? (:self-id e)) (not (:hooks-region? e)))
+    (env/fail! e :rf.ui.compile/hook-misplaced
+               (str "(effect …) is a host-effect statement — legal ONLY in a "
+                    "defview's UNCONDITIONAL top region (or a top-region let/do "
+                    "body), before the final template")
+               {:form form}))
+  (let [[_ deps-or-kw & body] form
+        sid (lexical-site-id e :effect form [:effect index])]
+    (when (empty? body)
+      (env/fail! e :rf.ui.compile/bad-effect
+                 (str "(effect [deps…] body…) / (effect :connect body…) needs a "
+                      "body form after the deps")
+                 {:form form}))
+    (letfn [(body-fn [] ; the deferred callback fn — the fn walk rejects sub/lease/frame
+              (walk-expr e [:effect index :body]
+                         (with-meta (apply list 'fn [] body) (meta form))))]
+      (cond
+        (= :connect deps-or-kw)
+        (do
+          (env/add-site! e :effects {:sid sid :kind :connect :index index
+                                     :path (:path e) :expr-path [:effect index]})
+          (with-meta (list runtime-effect-connect-fqn (body-fn)) (meta form)))
+
+        (vector? deps-or-kw)
+        (let [deps* (mapv (fn [i d] (walk-expr e [:effect index :dep i] d))
+                          (range) deps-or-kw)]
+          (env/add-site! e :effects {:sid sid :kind :deps :index index
+                                     :path (:path e) :expr-path [:effect index]})
+          (with-meta (list runtime-effect-value-fqn (body-fn) (vec deps*))
+            (meta form)))
+
+        :else
+        (env/fail! e :rf.ui.compile/bad-effect
+                   (str "(effect …) first argument must be a literal deps VECTOR "
+                        "(value deps compared by rf=) or the keyword :connect; got "
+                        (pr-str deps-or-kw))
+                   {:form form})))))
+
+(defn- analyze-hooks-body
+  "Analyze a hooks-region body: zero or more leading `(effect …)` STATEMENTS,
+  then exactly ONE final template. Returns the template AST, wrapped in a
+  `:hook-prefix` node carrying the lowered effect statement forms when any are
+  present (the emitters splice them before the template as a `do` sequence)."
+  [e head body form]
+  (loop [effects [] forms (seq body) index 0]
+    (cond
+      (nil? forms)
+      (env/fail! e :rf.ui.compile/multi-form-body
+                 (str head " needs exactly ONE final template after any leading "
+                      "(effect …) statements")
+                 {:form form})
+
+      (effect-statement-form? e (first forms))
+      (recur (conj effects (analyze-effect-statement e index (first forms)))
+             (next forms) (inc index))
+
+      (next forms)
+      (env/fail! e :rf.ui.compile/multi-form-body
+                 (str head " in template position takes leading (effect …) "
+                      "statements then exactly ONE template form — side effects "
+                      "don't belong in templates (statically-pure rule); siblings "
+                      "wrap in [:<> ...]")
+                 {:form form})
+
+      :else
+      (let [tmpl (analyze e (first forms))]
+        (if (seq effects)
+          {:op :hook-prefix :statements effects :body tmpl
+           :static? false :path (:path e)}
+          tmpl)))))
+
 (defn- analyze-if [e test then else form]
-  {:op :if :test (walk-expr e [:if :test] test)
-   :then (analyze (update e :path conj :then) then)
-   :else (if (some? else)
-           (analyze (update e :path conj :else) else)
-           {:op :nothing :static? true})
-   :static? false :path (:path e)})
+  ;; Branches are CONDITIONAL — host hooks (local/effect) are illegal below them
+  ;; (React hooks run unconditionally, once per render, in fixed order).
+  (let [eb (assoc e :hooks-region? false)]
+    {:op :if :test (walk-expr e [:if :test] test)
+     :then (analyze (update eb :path conj :then) then)
+     :else (if (some? else)
+             (analyze (update eb :path conj :else) else)
+             {:op :nothing :static? true})
+     :static? false :path (:path e)}))
 
 (defn- analyze-cond [e clauses form]
   (cond
@@ -2052,15 +2229,16 @@
   (let [[_ expr & clauses] form]
     (let [default? (odd? (count clauses))
           pairs    (partition 2 (if default? (butlast clauses) clauses))
-          default  (when default? (last clauses))]
+          default  (when default? (last clauses))
+          eb       (assoc e :hooks-region? false)]
       {:op :case
        :expr (walk-expr e [:case :expr] expr)
        :clauses (into []
                       (map-indexed (fn [i [test branch]]
-                                     [test (analyze (update e :path conj [:case i]) branch)]))
+                                     [test (analyze (update eb :path conj [:case i]) branch)]))
                       pairs)
        :default (if default?
-                  (analyze (update e :path conj :case-default) default)
+                  (analyze (update eb :path conj :case-default) default)
                   ::none)
        :static? false
        :path (:path e)})))
@@ -2080,9 +2258,14 @@
                   [e []]
                   (map-indexed vector pairs))
           bindings* (with-meta (vec rewritten) (meta bindings))
-          body-form (single-body! e (str head) body form)]
+          eb        (update e* :path conj :body)]
       {:op :let :bindings bindings*
-       :body (analyze (update e* :path conj :body) body-form)
+       ;; A top-region let keeps its body in the hooks region, so leading
+       ;; (effect …) statements are legal there; a let below a branch/loop is
+       ;; not, so it is the strict single-template body.
+       :body (if (:hooks-region? eb)
+               (analyze-hooks-body eb (str head) body form)
+               (analyze eb (single-body! eb (str head) body form)))
        :static? false :path (:path e)})))
 
 (defn- analyze-letfn [e form]
@@ -2161,7 +2344,8 @@
                            false (next ps) (conj out l r*))))
                 [scope out]))
             seq-exprs* (with-meta (vec rewritten) (meta seq-exprs))
-            e-body    (update e-final :path conj :for)
+            e-body    (-> e-final (update :path conj :for)
+                          (assoc :hooks-region? false))
             body-form (single-body! e "for" (vec body) form)
             _         (when (and (seq? body-form) (= 'for (first body-form)))
                         (env/fail! e :rf.ui.compile/nested-for-body
@@ -2200,6 +2384,14 @@
 ;; Dispatch
 ;; ---------------------------------------------------------------------------
 
+(defn analyze-view-body
+  "Analyze a defview body remainder (after leading lease declarations): zero or
+  more leading `(effect …)` statements, then exactly ONE final template. The
+  env must carry `:hooks-region? true` and `:self-id`. Returns the body AST
+  (a `:hook-prefix` node when effect statements are present)."
+  [e forms]
+  (analyze-hooks-body e "defview" forms (cons 'defview-body forms)))
+
 (defn- analyze-list [e form]
   (let [head (first form)]
     (if (and (symbol? head)
@@ -2222,7 +2414,9 @@
         case     (analyze-case e form)
         let      (analyze-let e form)
         letfn    (analyze-letfn e form)
-        do       (analyze e (single-body! e "do" (vec (rest form)) form))
+        do       (if (:hooks-region? e)
+                   (analyze-hooks-body e "do" (vec (rest form)) form)
+                   (analyze e (single-body! e "do" (vec (rest form)) form)))
         for      (analyze-for e form))
       (cond
         (raw-form? e form)
