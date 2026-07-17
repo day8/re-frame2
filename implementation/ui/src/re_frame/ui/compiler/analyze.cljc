@@ -120,6 +120,36 @@
 (defn- fn-form? [f]
   (and (seq? f) (contains? #{'fn 'fn* 'clojure.core/fn 'cljs.core/fn} (first f))))
 
+(defn- host-portable-argv?
+  "The raw `fn*` special form binds only simple (unqualified) symbols, with an
+  optional single trailing `& rest`. Applied ONLY to a raw `fn*` initializer:
+  its parameters are what the host compiler binds directly, so destructuring,
+  non-symbol/qualified parameters, and malformed `&` forms are host-illegal
+  (and a map argv otherwise reaches binding-plan as a raw
+  IllegalArgumentException). Macro `fn` / source `letfn` legally destructure —
+  their expansion owns that grammar — so they keep the looser argv shape."
+  [argv]
+  (and (vector? argv)
+       (let [[fixed tail] (split-with #(not= '& %) argv)]
+         (and (every? simple-symbol? fixed)
+              (case (count tail)
+                0 true                            ; no variadic marker
+                2 (simple-symbol? (second tail))  ; `& rest`: exactly one rest sym
+                false)))))                        ; bare `&`, or `& a b`
+
+(defn- host-arities-compatible?
+  "Bounded arity-overload check for a raw `fn*`: the host rejects two overloads
+  of the same fixed arity, or more than one variadic overload. (This is the
+  narrow host-portability seam, NOT a general Clojure arity grammar — the
+  fixed-vs-variadic param-count rule is left to the host compiler.)"
+  [argvs]
+  (let [variadic?   (fn [argv] (boolean (some #(= '& %) argv)))
+        fixed-count (fn [argv] (count (take-while #(not= '& %) argv)))
+        variadics   (filter variadic? argvs)
+        fixed       (map fixed-count (remove variadic? argvs))]
+    (and (<= (count variadics) 1)
+         (= (count fixed) (count (set fixed))))))
+
 (defn- fn-init-shape?
   "True when `init` is a structurally well-formed fn/fn* form — the only legal
   shape for a HOST letfn* binding initializer. Bounded grammar check, not a full
@@ -127,14 +157,31 @@
   otherwise throws a raw host `Don't know how to create ISeq` exception) and
   rejects a non-fn initializer such as a bare `42` up front. Accepted shapes are
   `(fn <name>? [argv] body*)` (single arity) and `(fn <name>? ([argv] body*)+)`
-  (one or more arity lists); every argv MUST be a vector."
+  (one or more arity lists); every argv MUST be a vector.
+
+  A RAW `fn*` (the host special form — not the `fn` macro) additionally binds
+  only host-portable parameters (`host-portable-argv?`) with non-duplicate
+  arities (`host-arities-compatible?`): the host compiler requires it, and
+  without it a destructuring/qualified/malformed argv is either silently
+  accepted here only to crash the later host compiler, or reaches binding-plan
+  as a raw IllegalArgumentException. Macro `fn` / source `letfn` legally
+  destructure, so their argv shape is left to their own expansion."
   [init]
   (and (fn-form? init)
-       (let [tail (cond-> (rest init) (symbol? (second init)) rest)]
-         (cond
-           (vector? (first tail)) true
-           (seq tail)             (every? #(and (seq? %) (vector? (first %))) tail)
-           :else                  false))))
+       (let [raw?    (= 'fn* (first init))
+             tail    (cond-> (rest init) (symbol? (second init)) rest)
+             arities (cond
+                       (vector? (first tail)) (list tail)   ; single arity
+                       (and (seq tail)
+                            (every? #(and (seq? %) (vector? (first %))) tail))
+                       tail                                  ; arity lists
+                       :else nil)]
+         (boolean
+          (and arities
+               (or (not raw?)
+                   (let [argvs (map first arities)]
+                     (and (every? host-portable-argv? argvs)
+                          (host-arities-compatible? argvs)))))))))
 
 (defn- raw-form? [e f]  (and (seq? f) (symbol? (first f)) (env/resolves-to? e (first f) ui-raw-fqns)))
 (defn- html-form? [e f] (and (seq? f) (symbol? (first f)) (env/resolves-to? e (first f) ui-html-fqns)))

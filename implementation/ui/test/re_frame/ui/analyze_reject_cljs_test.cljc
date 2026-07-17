@@ -400,6 +400,51 @@
          (reject-id '[:div {:title (letfn* [f (fn* f ([x] (sub [:q])))] (f 7))}]))
       "a reactive read inside a deferred local fn body is not a finite render site"))
 
+(deftest letfn*-raw-fn*-parameter-and-arity-grammar
+  ;; rf2-9rqmq — fn-init-shape? treated any vector as a well-formed argv and any
+  ;; vector-led arity list as valid, so host-illegal RAW `fn*` grammar escaped
+  ;; the UI compiler: a destructuring/qualified parameter or a malformed `&` was
+  ;; ACCEPTED (only to crash the later host compiler), and a malformed directive
+  ;; like `(fn* [{:keys 42}] …)` threw a raw IllegalArgumentException from
+  ;; binding-plan. The raw `fn*` special form binds only simple symbols with an
+  ;; optional single `& rest`, and rejects duplicate/incompatible arities — the
+  ;; UI analyzer must reject the same shapes, on the typed bad-let surface, and
+  ;; on BOTH hosts (the analyzer is pure — this IS the CLJ/CLJS parity fixture).
+  (testing "raw fn* parameters must be host-portable simple symbols"
+    (is (= :rf.ui.compile/bad-let
+           (reject-id '[:div {:title (letfn* [f (fn* [{:keys [x]}] x)] f)}]))
+        "a destructuring parameter is host-illegal in raw fn*")
+    (is (= :rf.ui.compile/bad-let
+           (reject-id '[:div {:title (letfn* [f (fn* [foo/bar] foo/bar)] f)}]))
+        "a qualified parameter is host-illegal in raw fn*")
+    (is (= :rf.ui.compile/bad-let
+           (reject-id '[:div {:title (letfn* [f (fn* [{:keys 42}] 1)] f)}]))
+        "a malformed directive is typed bad-let (never a raw IllegalArgumentException)")
+    (is (= :rf.ui.compile/bad-let
+           (reject-id '[:div {:title (letfn* [f (fn* [a & b c] a)] f)}]))
+        "a malformed & (two rest params) is host-illegal")
+    (is (= :rf.ui.compile/bad-let
+           (reject-id '[:div {:title (letfn* [f (fn* [a &] a)] f)}]))
+        "a bare & (no rest param) is host-illegal"))
+  (testing "raw fn* rejects duplicate / multiple-variadic arities"
+    (is (= :rf.ui.compile/bad-let
+           (reject-id '[:div {:title (letfn* [f (fn* ([x] x) ([y] y))] f)}]))
+        "two overloads of the same fixed arity are host-illegal")
+    (is (= :rf.ui.compile/bad-let
+           (reject-id '[:div {:title (letfn* [f (fn* ([& a] a) ([x & b] x))] f)}]))
+        "more than one variadic overload is host-illegal"))
+  (testing "the boundary is raw fn* ONLY — macro fn / source letfn destructuring stays legal"
+    (is (nil? (reject-id '[:div {:title (letfn* [f (fn [{:keys [x]}] x)] f)}]))
+        "macro fn owns its destructuring expansion — accepted")
+    (is (nil? (reject-id '[:div {:title (letfn* [f (fn [[a b]] a)] f)}]))
+        "macro fn nested/sequential destructuring — accepted")
+    (is (nil? (reject-id '[:div {:title (letfn* [f (fn* f ([x] x))] (f 7))}]))
+        "a legal named raw fn* retains its exact shape")
+    (is (nil? (reject-id '[:div {:title (letfn* [f (fn* [a & b] a)] f)}]))
+        "a legal raw fn* variadic (single trailing & rest) — accepted")
+    (is (nil? (reject-id '[:div {:title (letfn* [f (fn* ([] 0) ([x] x))] f)}]))
+        "legal distinct raw fn* fixed arities — accepted")))
+
 (deftest frame-finite-sites
   (is (= :rf.ui.compile/frame-in-loop
          (reject-id '(for [x xs] [:li {:key x} (:frame (frame))])))
