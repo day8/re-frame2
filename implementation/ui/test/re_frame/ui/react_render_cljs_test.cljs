@@ -351,6 +351,32 @@
   (is (string? (render (rt/jsx2 spread-view (js-obj "extra" {:value "ok"}))))
       "general ui/spread accepts any key — it is the visible-cost escape"))
 
+(deftest safe-spread-caller-key-canonicalization-deny
+  ;; rf2-izep3 — the every-build deny compares the CANONICAL emitted name, so
+  ;; alternate spellings (namespaced keyword / string / symbol), a non-map
+  ;; caller, and a non-nameable key are all rejected through the actual CLJS
+  ;; render/convert path — not only the exact keyword keys.
+  (testing "namespaced/string/symbol aliases of a denied key are rejected"
+    (doseq [attr [{:caller/ref "r"} {"ref" "r"} {:some/value "v"}
+                  {"checked" "c"} {:x/on-change [:hijack]}]]
+      (let [data (try (render (rt/jsx2 safe-spread-view (js-obj "attr" attr)))
+                      nil (catch :default e (ex-data e)))]
+        (is (= :rf.error/ui-tree-malformed (:rf.error/id data))
+            (str "alias denied: " (pr-str attr)))
+        (is (= 're-frame.ui/spread-safe (:where data))))))
+  (testing "a non-map caller (a sequence of pairs) is rejected"
+    (is (= :rf.error/ui-tree-malformed
+           (:rf.error/id (try (render (rt/jsx2 safe-spread-view
+                                               (js-obj "attr" [[:aria-label "x"]])))
+                              nil (catch :default e (ex-data e)))))))
+  (testing "a non-nameable key is rejected"
+    (is (= :rf.error/ui-tree-malformed
+           (:rf.error/id (try (render (rt/jsx2 safe-spread-view (js-obj "attr" {5 "x"})))
+                              nil (catch :default e (ex-data e)))))))
+  (testing "exact allowed keys (incl. a string spelling) still pass"
+    (is (string? (render (rt/jsx2 safe-spread-view
+                                  (js-obj "attr" {:aria-label "n" "data-x" "d"})))))))
+
 (deftest safe-spread-authored-owned-then-caller-eval-order
   ;; rf2-m5h0f — the authored (spread-safe owned caller) order is owned-then-
   ;; caller on CLJS (matching the JVM). Each expression runs EXACTLY once.

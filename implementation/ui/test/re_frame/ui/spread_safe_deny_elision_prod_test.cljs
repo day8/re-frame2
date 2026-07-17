@@ -47,6 +47,24 @@
                  (catch :default e (ex-data e)))]
       (is (= :rf.error/ui-tree-malformed (:rf.error/id data)))
       (is (= :on-change (:key data)))))
+  (testing "an ALTERNATE SPELLING of a denied key is denied in production too
+            (rf2-izep3 — the canonicalized grammar survives :advanced)"
+    (doseq [k [:caller/ref "value" 'checked]]
+      (let [data (try
+                   (rules/assert-safe-caller! {k "x"} @runtime-owned-handlers)
+                   nil
+                   (catch :default e (ex-data e)))]
+        (is (= :rf.error/ui-tree-malformed (:rf.error/id data))
+            (str "alternate spelling denied in the elided build: " (pr-str k)))
+        (is (= 're-frame.ui/spread-safe (:where data))))))
+  (testing "a non-map / non-nameable caller is rejected in production too"
+    (is (= :rf.error/ui-tree-malformed
+           (:rf.error/id (try (rules/assert-safe-caller! [[:aria-label "x"]]
+                                                         @runtime-owned-handlers)
+                              nil (catch :default e (ex-data e))))))
+    (is (= :rf.error/ui-tree-malformed
+           (:rf.error/id (try (rules/assert-safe-caller! {5 "x"} @runtime-owned-handlers)
+                              nil (catch :default e (ex-data e)))))))
   (testing "an allowed caller passes in production (no false-positive throw)"
     (is (= {:aria-label "x"}
            (rules/assert-safe-caller! {:aria-label "x"} @runtime-owned-handlers)))))

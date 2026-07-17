@@ -366,3 +366,20 @@
       (let [attrs (probe-input-attrs "ocls" "otitle" {})]
         (is (= "ocls" (get attrs "class")))
         (is (= "otitle" (get attrs "title")))))))
+
+;; rf2-izep3 — the JVM tree conversion shares the canonicalized caller-key
+;; grammar: an alternate spelling of a denied structural key in the RUNTIME
+;; caller is rejected too (the exhaustive grammar lives in the .cljc grammar
+;; test that runs on both hosts; this pins the JVM tree/element integration).
+(deftest safe-spread-jvm-tree-denies-alternate-spelling-caller-keys
+  (doseq [k [:caller/ref "ref" :some/value "checked" :ns/key]]
+    (is (= :rf.error/ui-tree-malformed
+           (:rf.error/id (try (tree/render nil-owned-probe
+                                           {:oc nil :ot nil :caller {k "x"}})
+                              nil (catch clojure.lang.ExceptionInfo e (ex-data e)))))
+        (str "JVM tree denies alternate spelling: " (pr-str k))))
+  (testing "a non-map runtime caller is rejected by the JVM tree"
+    (is (= :rf.error/ui-tree-malformed
+           (:rf.error/id (try (tree/render nil-owned-probe
+                                           {:oc nil :ot nil :caller [[:aria-label "x"]]})
+                              nil (catch clojure.lang.ExceptionInfo e (ex-data e))))))))
