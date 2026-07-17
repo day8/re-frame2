@@ -74,31 +74,41 @@
 (def format-view-id       adapter-context/format-view-id)
 
 (defn- reagent-class?
-  "Dependency-free copy of stock Reagent's `reagent-class?` shape.
+  "Dependency-free structural predicate for a Reagent-family Form-3 class
+  (a `create-class` result). Recognises BOTH supported Reagent
+  implementations — stock Reagent AND reagent-slim — without importing
+  either adapter into neutral core.
 
   `re-frame.views.source-coord-annotation` lives in the substrate-neutral core
   artefact, whose classpath intentionally contains neither stock Reagent nor
-  reagent-slim. Requiring `reagent.impl.component` here would therefore make a
-  core-only compile fail and would pull Reagent into UIx/Helix release bundles.
+  reagent-slim. Requiring `reagent.impl.component` (or `reagent2.impl.component`)
+  here would make a core-only compile fail and would pull a Reagent
+  implementation into UIx/Helix release bundles. So each supported class shape
+  is matched by its own structural marker instead:
 
-  Scope: **stock Reagent only.** Stock Reagent 2.x marks a `create-class`
-  constructor with `prototype.reagentRender`, and testing for that structurally
-  keeps this dev-only Hiccup walk neutral without inventing a second adapter
-  hook for one predicate.
+    - Stock Reagent 2.x marks a `create-class` constructor with
+      `prototype.reagentRender`.
+    - reagent-slim tags the constructor itself with `cljsReagentClass = true`
+      (slim's own `reagent2.impl.component/reagent-class?` keys off exactly
+      this) and installs `prototype.render` + a `cljsReagentRender` fn, never
+      `prototype.reagentRender`.
 
-  This predicate does NOT recognise a reagent-slim class: slim tags the
-  constructor itself (`cljsReagentClass` / `cljsReagentRender`) and installs
-  `prototype.render`, never `prototype.reagentRender`. A slim Form-3 class
-  therefore falls to the Form-2 `fn?` branch below — exactly as it did before
-  this predicate existed, so slim is unchanged rather than regressed. Left that
-  way deliberately: slim is scheduled for deletion, and this stock-Reagent
-  compatibility surface must not grow a slim-specific branch for it.
-  (`re-frame.test-helpers` carries its own slim-aware detection where the test
-  surface needs one.)"
+  Matching both markers keeps this dev-only Hiccup walk neutral without a
+  second adapter hook. reagent-slim is a first-class supported adapter
+  (rf2-ukq8qt / PR #6087 — NOT scheduled for deletion), so a slim Form-3 class
+  MUST be recognised here: otherwise it falls to the Form-2 `fn?` branch below,
+  is returned as a wrapper, and is later invoked as an ordinary function rather
+  than mounted as a class — losing its React lifecycle. (`re-frame.test-helpers`
+  carries its own slim-aware detection where the test surface needs one.)"
   [x]
   (and (fn? x)
-       (some? (some-> (gobj/get x "prototype")
-                      (gobj/get "reagentRender")))))
+       (or
+         ;; Stock Reagent: `create-class` installs `prototype.reagentRender`.
+         (some? (some-> (gobj/get x "prototype")
+                        (gobj/get "reagentRender")))
+         ;; reagent-slim: `create-class*` tags the constructor
+         ;; `cljsReagentClass = true` (mirrors slim's own reagent-class?).
+         (true? (gobj/get x "cljsReagentClass")))))
 
 (defn- dom-tag?
   "True if `head` is a Hiccup DOM-tag keyword. Reagent's React-fragment
@@ -125,10 +135,11 @@
   inner output — Reagent's renderer will call our returned fn just like
   the user's fn, and we get a chance to annotate the inner hiccup.
 
-  Form-3: a `reagent.core/create-class` value is callable too, but it is
-  a component class rather than a Form-2 render fn. Pass it through so
-  Reagent can mount the class; recursively wrapping it as Form-2 never
-  reaches the class renderer."
+  Form-3: a Reagent-family `create-class` value (stock Reagent or
+  reagent-slim) is callable too, but it is a component class rather than
+  a Form-2 render fn. Pass it through so the substrate can mount the
+  class; recursively wrapping it as Form-2 never reaches the class
+  renderer."
   [id coord-attr out]
   (cond
     ;; create-class values satisfy fn?, but Reagent must see the class itself
