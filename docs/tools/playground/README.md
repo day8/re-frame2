@@ -207,26 +207,47 @@ commit-back bot push: it keeps the deployed site authoritative without a
 write-back to `main` (the committed snapshot may briefly lag a docs publish,
 which is acceptable since the deploy always rebuilds).
 
-**SCI-bundle freshness guard (rf2-2h1yhk).** `playground-rf2.js` is a Closure
-`:advanced` build whose minified output is **not** cross-machine reproducible,
-so it is NOT byte-diffed (see the gate steps' rationale). That leaves a hole: a
-reserved-keyword rename in `implementation/machines/**` (e.g. the machine
-lifecycle creation marker `:rf.machine/bootstrap` → `:rf.machine/start`)
-re-bundles into a structurally-valid-but-stale artefact, and **no
-changed-surface fired the `playground` gate** because only
-`docs/tools/playground/**` and the committed bundles did. Two changes close it:
+**SCI-bundle freshness guard (rf2-2h1yhk; made mechanically honest in
+rf2-i3e3q).** `playground-rf2.js` is a Closure `:advanced` build whose minified
+output is **not** cross-machine reproducible, so it is NOT byte-diffed (see the
+gate steps' rationale). What IS cross-machine stable is the **set of source
+inputs** the bundle is compiled from, and that is exactly what the gate pins:
 
-- `report-changed-surfaces.sh` now sets `playground=true` for any
-  `implementation/machines/*` change, so the `tools-playground` job runs even
-  when the machines source — not the playground tree — is what changed.
-- `scripts/check-playground-sci-freshness.sh` (run as a `tools-playground`
-  step) asserts the **committed** `docs/cljs/playground-rf2.js` carries the
-  current creation marker (derived from `transition.cljc`'s `start-marker`
-  def, so it auto-tracks a future rename) and does **not** carry the retired
-  `:rf.machine/bootstrap`. It is a deterministic content check — it rebuilds
-  nothing — and is the static counterpart to the smoke's eager
-  `[:rf.machine/start]` cell (the runtime half). Run it locally from the repo
-  root: `sh scripts/check-playground-sci-freshness.sh`.
+- `scripts/playground-sci-input-digest.mjs` hashes the declared input roster —
+  the `core` / `reagent-slim` / `machines` / `flows` source trees + their
+  `deps.edn`, the SCI bundle source, the shadow build config, and the npm lock —
+  into one deterministic 64-hex digest (each file via `git hash-object`, so the
+  digest is identical on a Windows checkout and a Linux runner).
+- `docs/tools/playground/sci/scripts/copy-bundle.mjs` stamps that digest into the
+  bundle it emits as an unminified `//# rf2-sci-input-digest=<hex>` marker, so the
+  committed bundle records the inputs it was built from. Rebuilding through
+  `npm run build` refreshes the marker automatically — no hand-editing.
+- `scripts/check-playground-sci-freshness.sh` recomputes the digest from the
+  **current** inputs and compares it to the marker embedded in the **committed**
+  bundle (read from `HEAD`, so it is honest even in the PR-time job that rebuilds
+  the working-tree bundle before the gate runs). **Any** declared baked-in input
+  that changes without a rebuild leaves marker ≠ current inputs, and the gate
+  fails. It rebuilds nothing.
+
+  What this proves, exactly: the committed bundle was built from today's declared
+  inputs. It does **not** prove the Closure bytes are a reproducible build (they
+  are not), nor runtime behaviour — the headless-Chromium smoke, run against a
+  fresh rebuild, is the runtime half. The machine-lifecycle marker (the current
+  `:rf.machine/start` from `transition.cljc`, and the absence of the retired
+  `:rf.machine/bootstrap`) is retained as a fast, specific **diagnostic** for the
+  keyword-rename drift class. Run the gate locally from the repo root:
+  `sh scripts/check-playground-sci-freshness.sh`; prove it catches per-class
+  staleness with `sh scripts/check-playground-sci-freshness.selftest.sh`.
+
+  Coverage: the digest catches drift in any baked-in input **wherever the gate
+  runs**. The PR-time `tools-playground` job fires on `implementation/machines/*`
+  and `docs/tools/playground/**` changes (`report-changed-surfaces.sh`), so a
+  machines / SCI-config / lock drift is caught at PR time; the post-merge
+  freshness canary (`.github/workflows/post-merge-playground-freshness.yml`)
+  additionally fires on `implementation/core/**` +
+  `implementation/adapters/reagent-slim/**`, so a core / reagent-slim drift is
+  caught within minutes of merge. (Firing the heavy PR-time job on every core
+  change remains a deliberate cost trade-off — see that workflow's header.)
 
 ## mkdocs wiring
 
