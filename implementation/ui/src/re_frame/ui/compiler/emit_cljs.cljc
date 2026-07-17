@@ -550,6 +550,20 @@
     `(re-frame.ui.runtime/error-boundary
       ~fb-sym ~reset-key ~on-error-form ~child)))
 
+(defn emit-standalone
+  "Emit a CAPABILITY-FREE AST as a self-contained CLJS render form (no ViewCell
+  hook skeleton). Used by def-level constructors — re-frame.ui.react/lazy's
+  fallback template. Static elements the emitter would hoist to module-level
+  defs are bound in a local `let` instead (each is an immutable static React
+  element, built once when the enclosing thunk closure is minted)."
+  [ast]
+  (let [st   (new-state 'rf-ui-standalone)
+        body (emit-node ast st false)
+        defs (:defs @st)]
+    (if (seq defs)
+      `(let [~@(mapcat (fn [d] [(nth d 1) (nth d 2)]) defs)] ~body)
+      body)))
+
 (defn emit-node
   "AST node -> CLJS form (nil for a statically-absent child)."
   [node st inline?]

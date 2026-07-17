@@ -18,14 +18,26 @@
       template-fingerprint  \"tf1-\"  input: the view's template AST
                             fingerprint projection (source-location
                             metadata stripped; forms as read)
-      hook-signature-hash   \"hs1-\"  input: [1 {:locals [...] :effects [...]}]
+      hook-signature-hash   \"hs1-\"  input (shape 2, S3):
+                            [2 {:locals [...] :effects [...] :react [...]}]
                             — the ordered host-hook plan. `sub` sites are
                             deliberately EXCLUDED: dev's fixed full hook
                             skeleton makes adding your first sub a
                             same-signature edit (Spec 004 rewrite §Hot
-                            reload). At S1 both vectors are always empty
-                            (no reactivity in this slice); the input shape
-                            is the frozen contract.
+                            reload). `:react` carries the frozen
+                            re-frame.ui.react interop hooks as ordered
+                            {:kind :order} entries (kind + source-order
+                            position among ALL let-body host hooks, so a
+                            local↔react reorder — both live in the top-region
+                            let, interleaved in React hook order — changes the
+                            signature). Adding, removing, or reordering any
+                            wrapper changes the plan; editing a deps vector or
+                            setup body does NOT. The S1→S3 shape bump (integer
+                            1→2, prefix \"hs1-\" unchanged — the prefix versions
+                            the ALGORITHM, the integer the INPUT shape)
+                            re-serialises every hook signature: a deliberate
+                            one-time global remount wave when S3 lands (pre-
+                            alpha, no shim).
       build-digest          \"bd1-\"  input: the SORTED vector of
                             [view-id template-fingerprint hook-signature]
                             triples of every view in the build (sorted by
@@ -201,10 +213,16 @@
 
 (defn hook-signature-hash
   "\"hs1-\" digest of the ordered host-hook plan
-  `{:locals [...] :effects [...]}` (version-1 input shape; `sub` sites
-  excluded by design)."
-  [{:keys [locals effects] :or {locals [] effects []}}]
-  (digest "hs1-" [1 {:locals (vec locals) :effects (vec effects)}]))
+  `{:locals [...] :effects [...] :react [...]}` (shape-version 2, S3; `sub`
+  sites excluded by design). `:react` entries are `{:kind :order}` maps — the
+  wrapper kind plus its source-order position among ALL top-region let-body
+  host hooks (locals included), so a local↔react reorder changes the signature.
+  The leading integer versions the INPUT SHAPE; the \"hs1-\" prefix (unchanged)
+  versions the algorithm."
+  [{:keys [locals effects react] :or {locals [] effects [] react []}}]
+  (digest "hs1-" [2 {:locals  (vec locals)
+                     :effects (vec effects)
+                     :react   (vec react)}]))
 
 (defn build-digest
   "\"bd1-\" digest over `[[view-id template-fingerprint hook-signature] ...]`

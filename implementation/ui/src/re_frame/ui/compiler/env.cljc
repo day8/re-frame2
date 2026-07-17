@@ -56,8 +56,15 @@
    :hooks-region? false
    :path      []
    :warnings  (atom [])
+   ;; A shared monotonic ordinal over the LET-BODY host hooks (`local` +
+   ;; the six re-frame.ui.react hooks) in source order. Stamped on react-hook
+   ;; sites so the hook signature detects a local↔react reorder (both live in
+   ;; the same top-region let, interleaved in React hook order) — a per-category
+   ;; count vector alone could not. Effects are structurally before (hook-prefix)
+   ;; and do not advance it.
+   :hook-ordinal (atom 0)
    :sites     (atom {:events [] :subs [] :leases [] :htmls [] :frame-ops []
-                     :slots [] :locals [] :effects [] :dispatch-fns []})})
+                     :slots [] :locals [] :effects [] :dispatch-fns [] :react []})})
 
 (defn warn! [env w]
   (swap! (:warnings env) conj w)
@@ -66,6 +73,14 @@
 (defn add-site! [env kind site]
   (swap! (:sites env) update kind conj site)
   nil)
+
+(defn next-hook-ordinal!
+  "Advance and return (0-based) the shared body-hook ordinal — the source-order
+  position of a `local` / re-frame.ui.react hook among the top-region let-body
+  hooks. Locals advance it without storing it; react-hook sites store theirs, so
+  a local↔react reorder shifts a react ordinal and changes the hook signature."
+  [env]
+  (dec (long (swap! (:hook-ordinal env) inc))))
 
 (defn compile-error
   "All analyzer/emitter compile errors carry {:rf.ui.compile/error <id>}
@@ -107,6 +122,20 @@
            (let [m (meta v)]
              {:fqn  (symbol (str (ns-name (:ns m))) (str (:name m)))
               :meta m}))))))
+
+#?(:clj
+   (defn- jvm-lazy-value?
+     "JVM structural compile: `sym` resolves to a bound var whose value is a
+     re-frame.ui.react/lazy component (marked `:rf.ui/lazy` by lazy-jvm). Lets
+     the JVM emitter render a bare `[HeavyChart …]` head's fallback rather than
+     raise the foreign host-op — without any authored var metadata."
+     [env sym]
+     (boolean
+      (when-let [ns* (find-ns (:ns env))]
+        (when-let [v (try (ns-resolve ns* sym) (catch Exception _ nil))]
+          (and (var? v)
+               (bound? v)
+               (:rf.ui/lazy (try (deref v) (catch Exception _ nil)))))))))
 
 (defn resolve-sym
   "Resolve `sym` in the consuming namespace. Returns {:fqn sym :meta m}
@@ -154,8 +183,18 @@
 
     :else
     (if-let [{:keys [fqn meta]} (resolve-sym env sym)]
-      (if (:rf.ui/view meta)
+      (cond
+        (:rf.ui/view meta)
         {:kind :view :sym sym :fqn fqn :view-id (view-id-of fqn meta)}
+        ;; a re-frame.ui.react/lazy component: a foreign head that IS callable on
+        ;; the JVM structural render (it renders its fallback / nothing), so the
+        ;; JVM emitter invokes it instead of raising the foreign host-op. Detected
+        ;; by authored var meta OR (JVM structural compile) the marked value.
+        (or (:rf.ui/lazy meta)
+            #?(:clj (and (= :clj (:host env)) (jvm-lazy-value? env sym))
+               :cljs false))
+        {:kind :foreign :sym sym :fqn fqn :lazy? true}
+        :else
         {:kind :foreign :sym sym :fqn fqn})
       (fail! env :rf.ui.compile/unresolved-head
              (str "unresolved component head " sym " — require/refer it, or "

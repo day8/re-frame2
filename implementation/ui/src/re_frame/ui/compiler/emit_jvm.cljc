@@ -229,11 +229,17 @@
       call)))
 
 (defn- emit-foreign [node]
-  `(re-frame.ui.tree/jvm-host-op!
-    :foreign-component
-    ~(str "foreign React component " (:sym node) " in a JVM render — "
-          "foreign components never appear in the JVM tree; wrap the "
-          "subtree in ui/client-only (S3)")))
+  (if (:lazy? node)
+    ;; a re-frame.ui.react/lazy component IS callable on the JVM structural
+    ;; render: it renders its declared fallback (or nothing) and NEVER invokes
+    ;; the load thunk (which is not even emitted on the JVM). Props/children are
+    ;; irrelevant — the fallback is capability-free markup baked into the value.
+    `(~(:sym node) {})
+    `(re-frame.ui.tree/jvm-host-op!
+      :foreign-component
+      ~(str "foreign React component " (:sym node) " in a JVM render — "
+            "foreign components never appear in the JVM tree; wrap the "
+            "subtree in ui/client-only (S3)"))))
 
 (defn- emit-for [node]
   `(re-frame.ui.tree/keyed-run
