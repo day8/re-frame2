@@ -314,11 +314,31 @@
 ;; desync. CLJS stores the token unchanged.
 #?(:clj (def ^:private provenance-storage-version
           ;; Representation version of the private JVM provenance storage. BUMP when
-          ;; the holder shape changes so a reload over an older root REPLACES it. v2
-          ;; = the weak-identity `HashMap<WeakReference-key>` + `ReferenceQueue`
-          ;; (predecessor v1 was a raw synchronized `WeakHashMap<Throwable>` with NO
-          ;; version tag, so it reads uncurrent and is replaced).
-          2))
+          ;; the holder shape OR its stored VALUE representation changes, so a reload
+          ;; over an older root REPLACES it rather than mis-operating on retained
+          ;; entries.
+          ;;
+          ;; v3 (rf2-b0afn) = the weak-identity `HashMap<WeakReference-key>` +
+          ;; `ReferenceQueue` holder whose stored VALUES are the reload-stable raw
+          ;; channel SETs (`#{:always-on :trace}` / `#{:trace}`) (rf2-kia9st).
+          ;;
+          ;; v2 was the SAME holder shape but stored the `EmissionProvenance` DEFTYPE
+          ;; INSTANCE as each value (pre-rf2-kia9st / #6047). The current set-shaped
+          ;; reader [[source-covered-always-on?]] calls `contains?` DIRECTLY on the
+          ;; stored value, which THROWS `IllegalArgumentException` on a retained
+          ;; deftype instance — so a preserved v2 holder is a MID-READ throw hazard,
+          ;; NOT a compatible predecessor. #6047 changed the value shape but left the
+          ;; version at 2, so an old-v2→new-v2 upgrade read the pre-upgrade holder
+          ;; current and preserved its deftype-valued entries. Bumping 2→3 makes the
+          ;; value-shape upgrade an INCOMPATIBLE-holder transition: a v2 root reads
+          ;; uncurrent and is REPLACED (its deftype-valued entries dropped; any
+          ;; in-flight predecessor throwable reads uncovered so the disposal drain
+          ;; fails LOUD — an extra catalogued `:rf.error/observation-on-change-failed`
+          ;; record), never silently `contains?`-thrown mid-read.
+          ;;
+          ;; v1 (conceptual) was a raw synchronized `WeakHashMap<Throwable>` with NO
+          ;; version tag, so it too reads uncurrent and is replaced.
+          3))
 
 #?(:clj
    (defn- fresh-provenance-storage
@@ -334,8 +354,12 @@
    (defn- current-provenance-storage?
      "True when `s` is a CURRENT-version provenance storage holder — a Clojure map
      tagged with [[provenance-storage-version]]. A predecessor raw `WeakHashMap`
-     (`map?` false) or an older/newer-version holder reads false, so the load-time
-     reconciliation replaces it (rf2-qqvgk1)."
+     (`map?` false) reads false; so does an older-version holder — INCLUDING the
+     immediate-predecessor v2 holder whose stored VALUES are `EmissionProvenance`
+     deftype instances rather than raw channel sets (rf2-b0afn): same holder shape,
+     but its retained values would `contains?`-throw in [[source-covered-always-on?]],
+     so it is treated as INCOMPATIBLE. The load-time reconciliation replaces any such
+     root (rf2-qqvgk1 + rf2-b0afn)."
      [s]
      (and (map? s) (= provenance-storage-version (:version s)))))
 

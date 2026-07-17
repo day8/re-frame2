@@ -3498,6 +3498,96 @@
            (alter-var-root #'obs/provenance-storage (constantly saved)))))))
 
 ;; ===========================================================================
+;; rf2-b0afn — the JVM provenance value-shape upgrade is VERSIONED, so a
+;; preserved IMMEDIATE-PREDECESSOR v2 holder is reconciled as INCOMPATIBLE,
+;; never `contains?`-thrown mid-read.
+;;
+;; #6047 (rf2-kia9st) changed the stored VALUE from an `EmissionProvenance`
+;; deftype INSTANCE to its reload-stable raw channel SET, but LEFT the storage
+;; version at 2 — the SAME version the immediate predecessor declared. So a
+;; reload over a pre-#6047 v2 holder read it current (`map?` + `:version 2`) and
+;; PRESERVED it, retaining deftype-instance values; the new set-shaped
+;; `source-covered-always-on?` reader then called `contains?` on a retained
+;; deftype instance and threw `IllegalArgumentException` MID-READ — an in-flight
+;; disposal-drain read escaping instead of preserving full-drain/exact-once
+;; coverage. The existing real-reload fixture only attests with the NEW
+;; representation before reloading, so it proves new→new reload, NOT the shipped
+;; old-v2→new-v2 value-shape upgrade. Bumping 2→3 makes the value-shape upgrade an
+;; INCOMPATIBLE-holder transition: a v2 root reads uncurrent and is REPLACED (its
+;; deftype-valued entries dropped; any in-flight predecessor throwable reads
+;; uncovered so the drain fails LOUD), never silently `contains?`-thrown.
+;; JVM-only: CLJS uses `js/WeakMap` (fresh realm per page reload).
+;; ===========================================================================
+
+#?(:clj
+   (deftest jvm-provenance-storage-reload-replaces-an-immediate-predecessor-v2-holder
+     ;; RED-before / GREEN-after: seed the IMMEDIATE PREDECESSOR v2 holder — the
+     ;; SAME holder SHAPE (`map?` + `:version 2` + HashMap + ReferenceQueue), but
+     ;; whose stored VALUES are `EmissionProvenance` deftype INSTANCES (the pre-#6047
+     ;; representation) rather than raw channel sets. Before the version bump this
+     ;; holder read current, was preserved, and `source-covered-always-on?` threw
+     ;; `contains?`-on-`EmissionProvenance` mid-read; after the bump it reads
+     ;; INCOMPATIBLE and is reconciled (replaced) WITHOUT throwing.
+     (let [saved @#'obs/provenance-storage]
+       (try
+         (let [q         (java.lang.ref.ReferenceQueue.)
+               m         (java.util.HashMap.)
+               ;; A throwable held STRONGLY so its entry survives to be read — only
+               ;; the version reconciliation, never GC, decides its fate here.
+               t         (ex-info "predecessor-shaped boom" {})
+               ;; The predecessor VALUE shape: the `EmissionProvenance` deftype
+               ;; INSTANCE (what pre-#6047 attest-provenance! stored), NOT a set.
+               pred-val  @#'obs/provenance-both-channels]
+           ;; The predecessor value is the deftype instance, NOT a set — so the
+           ;; current set-shaped reader's `contains?` throws on it (the bug symptom).
+           (is (not (set? pred-val))
+               "the seeded predecessor value is an EmissionProvenance instance, not a set")
+           (.put m (#'obs/weak-identity-key t q) pred-val)
+           ;; The pre-#6047 v2 holder: identical SHAPE, version 2, deftype values.
+           (alter-var-root #'obs/provenance-storage
+                           (constantly {:version 2 :by-throwable m :queue q}))
+           ;; With the version bumped 2→3 this predecessor v2 holder is recognized
+           ;; as INCOMPATIBLE (its value shape changed); before the bump it read
+           ;; current (`map?` + `:version 2` matched) — so this precondition reddens
+           ;; if the fix is reverted.
+           (is (not (#'obs/current-provenance-storage? @#'obs/provenance-storage))
+               (str "the immediate-predecessor v2 holder is recognized as an "
+                    "INCOMPATIBLE root (its stored VALUE representation changed), "
+                    "not a compatible same-version holder"))
+           ;; The reload's load-time reconciliation REPLACES the incompatible holder
+           ;; with a fresh current-version one — WITHOUT reading (and `contains?`-
+           ;; throwing on) the retained deftype values.
+           (#'obs/ensure-current-provenance-storage!)
+           (let [installed @#'obs/provenance-storage]
+             (is (#'obs/current-provenance-storage? installed)
+                 "a fresh current-version holder is installed after the upgrade reload")
+             (is (= @#'obs/provenance-storage-version (:version installed))
+                 "the installed holder carries the CURRENT storage version")
+             (is (instance? java.util.HashMap (:by-throwable installed))
+                 "the fresh holder's inner map is the current plain HashMap")
+             (is (instance? java.lang.ref.ReferenceQueue (:queue installed))
+                 "the fresh holder carries its own paired ReferenceQueue"))
+           ;; Post-upgrade coverage behavior is EXPLICIT: the dropped predecessor
+           ;; throwable reads UNCOVERED — a total, non-throwing read that lets the
+           ;; disposal drain fail LOUD (its own catalogued
+           ;; :rf.error/observation-on-change-failed record), never a silent
+           ;; `contains?`-on-`EmissionProvenance` throw escaping mid-drain.
+           (is (false? (#'obs/source-covered-always-on? t))
+               (str "the dropped predecessor throwable reads uncovered WITHOUT "
+                    "throwing — the value-shape upgrade reconciles via the "
+                    "incompatible-holder path (fail-loud), not a mid-read throw"))
+           ;; And the port round-trips over the reload-installed storage — a fresh
+           ;; attestation reads covered exactly-once.
+           (let [t2 (ex-info "post-upgrade boom" {})]
+             (#'obs/attest-provenance! t2 @#'obs/provenance-both-channels)
+             (is (true? (#'obs/source-covered-always-on? t2))
+                 "a fresh attestation round-trips over the reconciled storage")
+             (is (false? (#'obs/source-covered-always-on? (ex-info "unbound" {})))
+                 "an unbound throwable still reads uncovered")))
+         (finally
+           (alter-var-root #'obs/provenance-storage (constantly saved)))))))
+
+;; ===========================================================================
 ;; ABI guard
 ;; ===========================================================================
 
