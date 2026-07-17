@@ -82,6 +82,22 @@ existing automated guards did not catch (the no-bead-id guard was scoped to
      `:reply-to`), the `[:rf.http/managed-abort …]` dispatch, and legitimate
      durable-ledger `:work/id` prose are deliberately allowed.
 
+  6. **UIx/Helix hooks stateful-component guidance (rf2-adm10).** The hooks
+     adapters (UIx / Helix) bridge a stateful component with an ordinary
+     `defui` / `defnc` plus the `use-subscribe` (read subs) and `use-frame`
+     (carry the frame) hooks — NOT the Reagent `reg-view` / render-time
+     `capture-frame` / `:contextType` idiom. `use-frame` is `capture-frame` in
+     hook position, reading the surrounding frame-provider / frame-root through
+     React context; a bare no-arg `capture-frame` in a plain hooks component
+     reads only the dynamic-var tier and raises under a context-only frame, and
+     `reg-view*` on these adapters is optional registry addressing, never the
+     source of a Reagent `:contextType`. Two narrow guards (no general prose
+     parser): (6a) the two authoritative hooks-guidance leaves (`patterns/
+     stateful-components.md`, `references/fundamentals/frames.md`) MUST each name
+     `use-frame` AND `use-subscribe`; (6b) no scanned-leaf line may attribute a
+     `:contextType` to a hooks adapter (`:contextType` co-located with UIx /
+     Helix on a line carrying no negation / Reagent-only cue).
+
 Scanned leaves (globbed, so a new leaf is covered automatically):
     SKILL.md, README.md, references/**/*.md, patterns/**/*.md,
     decision-trees/**/*.md.
@@ -332,6 +348,73 @@ def managed_http_recipe_problems(text: str) -> list[tuple[int, str]]:
     return problems
 
 
+# --- Rule 6: UIx/Helix hooks stateful-component guidance (rf2-adm10 repair).
+#     The hooks adapters (UIx / Helix) bridge a stateful component with an
+#     ordinary `defui` / `defnc` plus the `use-subscribe` (read subs) and
+#     `use-frame` (carry the frame) hooks — NOT the Reagent `reg-view` /
+#     render-time `capture-frame` / `:contextType` idiom. `use-frame` is
+#     `capture-frame` in hook position; it reads the surrounding frame-provider /
+#     frame-root through React context, which a bare no-arg `capture-frame` in a
+#     plain hooks component cannot (it reads only the dynamic-var tier and raises
+#     under a context-only frame). `reg-view*` is optional on these adapters —
+#     registry addressing only, never the source of a Reagent `:contextType`.
+#     Two narrow guards lock the fix (no general prose parser):
+#
+#     6a — the two authoritative hooks-guidance leaves (patterns/
+#          stateful-components.md and references/fundamentals/frames.md) MUST
+#          each name `use-frame` AND `use-subscribe`. Dropping either token means
+#          the corrected hooks frame-carry / sub-read spelling regressed back to
+#          a Reagent-only idiom. Positive-presence, per-file.
+#     6b — a scanned-leaf line MUST NOT attribute a Reagent `:contextType` to a
+#          hooks adapter. Fires on a line co-locating `:contextType` with `UIx`
+#          or `Helix`, UNLESS the line carries a negation / Reagent-only cue (the
+#          corrected prose says the hooks adapters have *no* `:contextType`).
+#          Line-scoped and cue-gated — a Reagent-only `:contextType` line (no
+#          UIx/Helix on it) never fires.
+HOOKS_LEAF_REQUIRED = (
+    ("patterns", "stateful-components.md"),
+    ("references", "fundamentals", "frames.md"),
+)
+HOOKS_REQUIRED_TOKENS = ("use-frame", "use-subscribe")
+CONTEXTTYPE_RE = re.compile(r":contextType\b")
+HOOKS_ADAPTER_RE = re.compile(r"\b(?:UIx|Helix)\b")
+# Negation / scoping cues that mark a legitimate "the hooks adapters have NO
+# :contextType" / "unlike Reagent" line. Word-boundaried so `non-reg-view` does
+# not read as a `no` cue.
+CONTEXTTYPE_ALLOW_RE = re.compile(
+    r"\bno\b|\bnot\b|\bnever\b|\bwithout\b|\bunlike\b|Reagent-only",
+    re.IGNORECASE,
+)
+HOOKS_CONTEXTTYPE_MSG = (
+    "HOOKS-CONTEXTTYPE: this line attributes a Reagent `:contextType` to a hooks "
+    "adapter (UIx / Helix). `:contextType` is Reagent's class-component "
+    "mechanism; the hooks adapters read the surrounding frame-provider / "
+    "frame-root through the `use-subscribe` / `use-frame` hooks (React context "
+    "in hook position) and have NO `:contextType`. `reg-view*` on these adapters "
+    "is optional registry addressing, never a source of a `:contextType`. State "
+    "the hooks spelling (or say the hooks adapters have *no* `:contextType`)."
+)
+
+
+def contextype_problems(line: str) -> list[str]:
+    """Rule 6b — a single line that co-locates `:contextType` with a hooks
+    adapter (UIx / Helix) and carries no negation / Reagent-only cue is the
+    retired 'reg-view* gives UIx/Helix a :contextType' teaching."""
+    if (
+        CONTEXTTYPE_RE.search(line)
+        and HOOKS_ADAPTER_RE.search(line)
+        and not CONTEXTTYPE_ALLOW_RE.search(line)
+    ):
+        return [HOOKS_CONTEXTTYPE_MSG]
+    return []
+
+
+def hooks_leaf_missing_tokens(body: str) -> list[str]:
+    """Rule 6a — tokens a hooks-guidance leaf must name (`use-frame`,
+    `use-subscribe`) that are absent from its body."""
+    return [t for t in HOOKS_REQUIRED_TOKENS if t not in body]
+
+
 # --- Rule 3: launcher points at BOTH canonical files, without regrowing the
 #     tree / locks sections. Operates on the whole authoring-prompt.md body
 #     (not the line-by-line leaf scan). `design.md` / `inputs.md` are the
@@ -439,7 +522,8 @@ def find_drift(files: list[Path]) -> tuple[list[str], int]:
         for lineno, line in enumerate(body.splitlines(), start=1):
             lines_checked += 1
             for label in (beadid_problems(line) + posture_problems(line)
-                          + reply_contract_problems(line)):
+                          + reply_contract_problems(line)
+                          + contextype_problems(line)):
                 problems.append(f"{rel}:{lineno}: {label}\n    {line.strip()}")
         # Rules 4 & 5a — the machine-registration footgun and the targetless
         # Managed-HTTP recipe are cross-line shapes (their tokens land on
@@ -449,6 +533,30 @@ def find_drift(files: list[Path]) -> tuple[list[str], int]:
             problems.append(f"{rel}:{start_lineno}: {label}")
         for start_lineno, label in managed_http_recipe_problems(body):
             problems.append(f"{rel}:{start_lineno}: {label}")
+
+    # Rule 6a — the two authoritative hooks-guidance leaves must name both hook
+    # idioms (`use-frame` carries the frame, `use-subscribe` reads subs) so the
+    # corrected UIx/Helix stateful-component spelling can't silently regress to a
+    # Reagent-only idiom. Positive-presence, per required leaf.
+    for parts in HOOKS_LEAF_REQUIRED:
+        leaf = SKILL_DIR.joinpath(*parts)
+        rel = leaf.relative_to(REPO_ROOT)
+        if not leaf.is_file():
+            problems.append(
+                f"{rel}: SETUP: authoritative UIx/Helix hooks-guidance leaf "
+                "missing — the Rule 6a anchor drifted from the skill layout."
+            )
+            continue
+        for token in hooks_leaf_missing_tokens(_slurp(leaf)):
+            problems.append(
+                f"{rel}: HOOKS-IDIOM-MISSING: this authoritative UIx/Helix "
+                f"stateful-component leaf no longer names `{token}`. The hooks "
+                "adapters read subs with `use-subscribe` and carry the frame "
+                "with the `use-frame` hook (the hook-position spelling of "
+                "capture-frame) — not the Reagent reg-view / render-time "
+                "capture-frame idiom. Restore the `{token}` spelling."
+                .replace("{token}", token)
+            )
 
     # Rule 3 — the launcher (authoring-prompt.md) is checked as a whole body,
     # not line-by-line, and lives under spec/ (out of the leaf scan above).
@@ -479,7 +587,8 @@ def run(*, verbose: bool, ci: bool) -> int:
     if verbose:
         print(
             "re-frame2 no-bead-id + verify-posture + launcher-canonical + "
-            "machine-handler-recipe + managed-http-recipe guard: scanned "
+            "machine-handler-recipe + managed-http-recipe + uix-helix-hooks "
+            "guard: scanned "
             f"{len(files)} user-facing leaves ({lines_checked} lines) plus the "
             "spec/authoring-prompt.md launcher."
         )
@@ -489,7 +598,9 @@ def run(*, verbose: bool, ci: bool) -> int:
             print(
                 "re-frame2-drift: no bead-id leaks, no agent-run verification-"
                 "posture drift, no bare reg-event + make-machine-handler recipe, "
-                "no retired Managed-HTTP reply-contract teaching, and the "
+                "no retired Managed-HTTP reply-contract teaching, the UIx/Helix "
+                "hooks leaves name use-frame + use-subscribe with no "
+                ":contextType misattribution, and the "
                 "launcher points at design.md + inputs.md without regrowing the "
                 "tree / locks."
             )
@@ -505,7 +616,9 @@ def run(*, verbose: bool, ci: bool) -> int:
         "gates, the skill names them), author machines with reg-machine (not a "
         "bare reg-event + make-machine-handler recipe), address every Managed-"
         "HTTP reply with an explicit :reply-to/:on-success/:on-failure (no "
-        "retired co-located `:rf/reply` default), and keep the launcher "
+        "retired co-located `:rf/reply` default), keep the UIx/Helix hooks "
+        "stateful-component leaves naming use-frame + use-subscribe (never a "
+        "reg-view / :contextType idiom), and keep the launcher "
         "pointing at the canonical design.md + inputs.md instead of re-holding "
         "the tree / locks."
     )
@@ -816,6 +929,39 @@ def _self_test() -> int:
         reply_contract_problems,
         "The durable work-ledger row is keyed by bare `:work/id`.",
         dirty=False, label="O3 durable-ledger :work/id prose (no reply-map context)",
+    )
+
+    # --- Rule 6b: :contextType attributed to a hooks adapter (rf2-adm10).
+    #     DRIFT fixture — the retired "reg-view* gives UIx/Helix a :contextType".
+    expect(
+        contextype_problems,
+        "A plain UIx / Helix fn registers via `reg-view*`, which gives it a live scope (a `:contextType`).",
+        dirty=True, label="P1 reg-view* :contextType attributed to UIx/Helix",
+    )
+    # CLEAN — the corrected prose says the hooks adapters have NO :contextType.
+    expect(
+        contextype_problems,
+        "The hooks adapters (UIx / Helix) read the frame via `use-subscribe` / `use-frame` and need no `:contextType`.",
+        dirty=False, label="Q1 hooks adapters explicitly have no :contextType",
+    )
+    # CLEAN — a Reagent-only :contextType line (no UIx/Helix on it) never fires.
+    expect(
+        contextype_problems,
+        "A `reg-view`-wrapped Reagent component participates via `:contextType`.",
+        dirty=False, label="Q2 Reagent-only :contextType line (no hooks adapter named)",
+    )
+
+    # --- Rule 6a: a hooks-guidance leaf must name use-frame AND use-subscribe.
+    #     hooks_leaf_missing_tokens returns [] (clean) / a non-empty list (drift).
+    expect(
+        hooks_leaf_missing_tokens,
+        "UIx bridges with an ordinary defui plus use-subscribe; carry the frame with the use-frame hook.",
+        dirty=False, label="R1 leaf names both use-frame and use-subscribe",
+    )
+    expect(
+        hooks_leaf_missing_tokens,
+        "UIx bridges with an ordinary defui plus use-subscribe.",  # no use-frame
+        dirty=True, label="R2 leaf drops the use-frame idiom",
     )
 
     if failures:
