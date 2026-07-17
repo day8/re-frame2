@@ -2001,6 +2001,60 @@
       (is (nil? (:node-version ev))))))
 
 ;; ===========================================================================
+;; current? is TOTAL across a throwing opaque-token equality (rf2-sbfqy)
+;; ===========================================================================
+;;
+;; A :story-override lease's :override-id / :version are OPAQUE app-supplied
+;; tokens — :override-id compared by plain `=`, :version by the core-local
+;; `node-value=` `rf=` spelling (which calls `=`). Their HOST equality is app
+;; code and MAY THROW. current? is the commit kept-check and is documented TOTAL
+;; and never-throw (Spec 006 §Error contract; Ownership; its docstring): a
+;; comparison that cannot ESTABLISH sameness classifies the site as NOT current,
+;; so the throw never escapes the predicate — the site retargets through the
+;; normal staged commit path instead. `BoomEq` throws from its equality on BOTH
+;; hosts (JVM `Object.equals`; CLJS `-equiv`), so the same adversarial fixture
+;; runs under `clojure -M:test` AND `npm run test:cljs`.
+
+(deftype BoomEq []
+  #?@(:clj  [Object
+             (equals [_ _] (throw (ex-info "boom-from-equals" {})))]
+      :cljs [IEquiv
+             (-equiv [_ _] (throw (ex-info "boom-from-equals" {})))]))
+
+(deftest current?-is-total-across-a-throwing-opaque-token-equality
+  ;; The bead's exact repro shape: a SUPPORTED :story-override target whose
+  ;; :version opaque token throws through host equality. It passes the port
+  ;; grammar and acquisition (validate-target! checks only key PRESENCE + the
+  ;; query shape, never a token's equality — acquire! stores the target as-is),
+  ;; so pre-fix the exception escaped LATER through current?'s node-value=
+  ;; version compare.
+  (testing "acquisition of a throwing-token override target succeeds"
+    (let [target {:kind :story-override :query [:obs/items]
+                  :value nil :override-id :slot :version (->BoomEq)}
+          lease  (obs/acquire! target (fn [_] (throw (ex-info "never" {}))))]
+      (is (obs/lease? lease))
+      (testing "current? returns false, never throws, when the VERSION compare throws"
+        (is (false? (obs/current? lease (assoc target :version (->BoomEq))))
+            "a throwing opaque-version equality → conservatively NOT current"))))
+  (testing "current? is total for a throwing OVERRIDE-ID equality too"
+    ;; :override-id is compared by plain `=` before the version compare; a
+    ;; throwing id token is likewise caught and read as not-current.
+    (let [target {:kind :story-override :query [:obs/items]
+                  :value nil :override-id (->BoomEq) :version 1}
+          lease  (obs/acquire! target (fn [_] (throw (ex-info "never" {}))))]
+      (is (false? (obs/current? lease (assoc target :override-id (->BoomEq)))))))
+  (testing "the guard does NOT blanket-swallow — the SAME opaque instance still reads current"
+    ;; node-value='s `identical?` arm short-circuits before `=` is ever called,
+    ;; so a version token IDENTICAL in both the lease and the compared target
+    ;; keeps the well-formed identity path unchanged and the site stays current.
+    (let [tok    (->BoomEq)
+          target {:kind :story-override :query [:obs/items]
+                  :value nil :override-id :slot :version tok}
+          lease  (obs/acquire! target (fn [_] (throw (ex-info "never" {}))))]
+      (is (true? (obs/current? lease target))
+          "an identical opaque version token retains without invoking `=`"))))
+
+;; ===========================================================================
 ;; cold-probe edge set ([S2-CONFIRM] — confirmed/corrected)
 ;; ===========================================================================
 

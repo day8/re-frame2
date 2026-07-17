@@ -1310,7 +1310,11 @@ commit path with honest ownership reporting ⟨S-3 §5; 09 codex2 F1⟩:
   plain `=`; `:version` is the movement token, compared by the frozen `rf=` law (the
   port's core-local `node-value=` spelling). NaN-to-NaN therefore **retains** — the
   observable counterexample that makes the split load-bearing: a plain-`=` version
-  compare would retarget a NaN-valued override on every commit, forever.
+  compare would retarget a NaN-valued override on every commit, forever. Because those
+  tokens are opaque and app-supplied, either comparison **may throw** through a hostile
+  host `equals`/`-equiv`; `current?` is total, so a throwing token compare reads **not
+  current** and the site retargets through the normal staged path rather than escaping
+  the predicate — never weakening the fail-loud contract of the port's non-predicate ops.
 
 *(Shape ruled and final; the lease semantics are pinned by the port's own fixtures, and
 the Tier-3 mounted Story-context fixture landed with the ViewCell layer.)*
@@ -1414,8 +1418,14 @@ The port and the public read API split deliberately ⟨09 codex2 F1 — binding�
   disposed node, or a value that is not a lease at all, each returns `false` rather than
   field-accessing the lease state and leaking a raw host error (a JVM `NullPointerException`,
   a CLJS `TypeError`) — a value that is not a live node lease is simply not current, and
-  owns no node. They are the commit path's cheap guard, so they answer rather than fail.
-  Every other operation names its typed rejection:
+  owns no node. `current?` is total across its comparisons too: the tokens it weighs —
+  a static override's opaque `:override-id`/`:version`, a subscription query's app args —
+  are **app-supplied, so their host equality may throw**; a comparison that cannot
+  **establish** sameness classifies the site as **not current** (the conservative
+  kept-check result — an unprovable site retargets through the normal staged commit path,
+  never painted stale), so the throw never escapes the predicate. They are the commit
+  path's cheap guard, so they answer rather than fail. Every other operation names its
+  typed rejection:
   - `:rf.error/no-such-sub` — the target's own query names an unregistered sub, at
     `probe` or `acquire!`. This is the **same catalogue id** the public surface records
     ([§What happens when a sub references an unknown sub](#what-happens-when-a-sub-references-an-unknown-sub));

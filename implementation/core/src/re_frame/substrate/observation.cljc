@@ -2125,36 +2125,55 @@
   query. An unchanged live lease is retained untouched by the caller; a
   disposed node (HMR), a destroyed/swapped frame, a restabilized query, or a
   moved/removed override fails the check and classifies the site as
-  retargeted. Pure read; never throws.
+  retargeted. TOTAL, pure read; never throws.
 
   Static (override) leases compare the consumer's OPAQUE slot identity by
   `=` and its OPAQUE movement token by the core-local spelling of the frozen
   `rf=` law. Thus an `rf=`-equal provider replacement (including NaN→NaN)
   retains, while any value/schema movement retargets, without this port
-  interpreting either token."
+  interpreting either token. Those slot/movement tokens (and a subscription
+  query's app args) are APP-SUPPLIED, so their host equality implementation
+  MAY THROW: a comparison that cannot ESTABLISH sameness classifies the site
+  as NOT current — the conservative kept-check result, since a site that
+  cannot be proven kept is retargeted through the normal staged commit path,
+  never painted stale — so the throw never propagates out of the predicate
+  (rf2-sbfqy)."
   [lease target]
-  ;; Pure no-throw predicate (rf2-vxgfnd.183): a non-lease reads FALSE rather
-  ;; than field-accessing lease-state and leaking a host error — current? is the
-  ;; commit kept-check, and a malformed value is simply "not current". `and`
-  ;; short-circuits before `@(lease-state lease)` so no raw NPE/TypeError escapes.
+  ;; TOTAL no-throw predicate (rf2-vxgfnd.183 + rf2-sbfqy): a non-lease reads
+  ;; FALSE rather than field-accessing lease-state and leaking a host error, and
+  ;; a THROWING opaque-token equality (the app-supplied :override-id/:version, or
+  ;; a subscription query's app args) is caught and read as NOT current. current?
+  ;; is the commit kept-check, and a value that cannot be PROVEN kept is simply
+  ;; "not current". `and` short-circuits before `@(lease-state lease)` so a
+  ;; non-lease never derefs; the `try` guards the ONE kept-check-comparison seam
+  ;; so no raw equality throw escapes. The catch is LOCAL to this predicate — the
+  ;; port's non-predicate ops (probe/acquire!/read/release!) keep their typed
+  ;; fail-loud contracts, never blanket-swallowing equality failures.
   (when interop/debug-enabled? (note-candidate-inspection! :current?))
   (and (lease? lease)
-       (let [st @(lease-state lease)]
-         (case (:lease-kind st)
-           :static
-           (let [lt (:target st)]
-             (and (= :story-override (:kind target))
-                  (= (:override-id lt) (:override-id target))
-                  (node-value= (:version lt) (:version target))
-                  (= (:query lt) (:query target))))
+       (try
+         (let [st @(lease-state lease)]
+           (case (:lease-kind st)
+             :static
+             (let [lt (:target st)]
+               (and (= :story-override (:kind target))
+                    (= (:override-id lt) (:override-id target))
+                    (node-value= (:version lt) (:version target))
+                    (= (:query lt) (:query target))))
 
-           :node
-           (and (= :live (:status st))
-                (= :subscription (:kind target))
-                (= (:frame-id st) (:frame-id target))
-                (= (:query-v st) (:query target))
-                (node-still-canonical? st))
+             :node
+             (and (= :live (:status st))
+                  (= :subscription (:kind target))
+                  (= (:frame-id st) (:frame-id target))
+                  (= (:query-v st) (:query target))
+                  (node-still-canonical? st))
 
+             false))
+         (catch #?(:clj Throwable :cljs :default) _
+           ;; A throwing opaque-token equality cannot ESTABLISH sameness →
+           ;; conservatively NOT current, so the site retargets through the
+           ;; normal staged commit path rather than escaping the predicate
+           ;; (rf2-sbfqy).
            false))))
 
 ;; ---- read -----------------------------------------------------------------------
