@@ -238,7 +238,7 @@
       (let [std-row (first (filter #(= [:interceptor :rf.interceptor/path]
                                        [(:kind %) (:id %)])
                                    (:descriptors (:image row))))]
-        (is (= :rf.prov/standard (:kind (:provenance std-row)))
+        (is (= :standard (:kind (:provenance std-row)))
             "the standard is surfaced with the framework-standard provenance marker")))))
 
 (deftest live-reads-fail-soft-empty-registry
