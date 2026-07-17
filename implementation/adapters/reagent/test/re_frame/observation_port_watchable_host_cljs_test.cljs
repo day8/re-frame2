@@ -34,13 +34,29 @@
 
   CLJS-only (Reagent is CLJS); ns ends in `-cljs-test` so the consolidated
   shadow-cljs `:node-test` build (`npm run test:cljs`, whose source-paths carry
-  `adapters/reagent`) picks it up headlessly — no DOM, no React."
+  `adapters/reagent`) picks it up headlessly — no DOM, no React.
+
+  rf2-r09qj (extension) — NaN moves NaN-STABLY through the PUBLIC acquire and
+  the ViewCell. A NaN→NaN recompute is the adversarial case for this channel:
+  clojure/cljs `=` (and Reagent's `=`-gated reaction-notify) treat `NaN ≠ NaN`,
+  so a NaN→NaN recompute genuinely FIRES the host watch — yet the movement law
+  (`node-value=` / `eq/rf=`, NaN self-equal on both hosts) is NO movement, so
+  the port must fan NO `:cause :value` note, advance NO node version, dirty NO
+  ViewCell, and drive NO render. A naive raw `not=` at the make-watch-handler
+  seam would spuriously fan a phantom movement against a stable node. These
+  proofs (a) stand an INDEPENDENT sentinel watch to show the host callback
+  genuinely ran (non-vacuous), (b) drive the movement through public `acquire!`
+  AND an integrated ViewCell (`re-frame.ui.reactive` — colocated on the
+  consolidated `:node-test` classpath, which carries both `ui/src` and
+  `adapters/reagent`), and (c) retain a real-movement positive control so
+  upstream suppression cannot make the assertions vacuous."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [reagent.ratom :as ratom]
             [re-frame.core :as rf]
             [re-frame.frame :as frame]
             [re-frame.adapter.reagent :as reagent-adapter]
             [re-frame.substrate.observation :as obs]
+            [re-frame.ui.reactive :as reactive]
             [re-frame.test-support :as test-support]))
 
 ;; A WATCHABLE host: the stock Reagent adapter's derived sub reactions are
@@ -67,6 +83,39 @@
 ;; auto-running reaction that derefs the sub, keeping the node warm + on the
 ;; push path so a value movement re-runs it (and fires the port's watch).
 (defn- make-driver [] (ratom/run! (deref (rf/subscribe [:obs/n]))))
+
+;; --- rf2-r09qj NaN-stability helpers ---------------------------------------
+
+;; The subscription target-key the ViewCell projects committed leases/values by
+;; (`re-frame.ui.reactive/target-key` of a `[:sub fid query]` target).
+(defn- tk [q] [:sub fid q])
+
+(defn- nan-num? [x] (and (number? x) (js/isNaN x)))
+
+;; An INDEPENDENT watch on the shared node reaction that counts ONLY NaN→NaN
+;; fires. It proves the underlying host callback actually RAN for the no-movement
+;; recompute (the port's make-watch-handler is a sibling watch on the same
+;; reaction, fired in the same notify sweep) — so a green "no fan-out" assertion
+;; cannot be vacuously green because the reaction never fired. Returns the
+;; sentinel counter atom and a `remove!` thunk.
+(defn- install-nan-sentinel! [reaction]
+  (let [hits (atom 0)
+        k    (gensym "rf-nan-sentinel")]
+    (add-watch reaction k
+               (fn [_ _ prev nu]
+                 (when (and (nan-num? prev) (nan-num? nu))
+                   (swap! hits inc))))
+    [hits (fn remove! [] (remove-watch reaction k))]))
+
+;; One ViewCell render+commit over the ambient frame, reading the sub through
+;; the reactive host (so the commit's `acquire!` installs the watch-bearing
+;; lease — the make-watch-handler value-movement channel under test).
+(defn- render+commit! [cell]
+  (let [[_ cap] (rf/with-frame fid
+                  (reactive/with-capture cell
+                    (fn [] (reactive/sub-read ::nan-site [:obs/n]))))]
+    (reactive/commit! cell cap))
+  cell)
 
 ;; ===========================================================================
 ;; the value-movement watch channel — {:cause :value} end-to-end
@@ -185,3 +234,124 @@
           (finally
             (obs/release! @lease)
             (ratom/dispose! driver)))))))
+
+;; ===========================================================================
+;; rf2-r09qj — NaN moves NaN-STABLY through the PUBLIC acquire path
+;; ===========================================================================
+
+(deftest watchable-host-nan-to-nan-fires-watch-but-fans-no-value-movement
+  (testing "on a WATCHABLE (Reagent) host, a NaN→NaN recompute FIRES the
+            underlying host watch (an independent sentinel proves the callback
+            ran) yet the port's node-value= gate emits NO {:cause :value} note
+            and advances NO node version — the make-watch-handler NaN-suppression
+            proven through PUBLIC acquire!. A raw not= at the seam (NaN≠NaN
+            natively) would spuriously fan a phantom value movement."
+    (register!)
+    (rf/dispatch-sync [:obs/set-n ##NaN])
+    (let [driver (make-driver)]
+      (ratom/flush!)                         ;; settle: node warm + active at NaN
+      (let [notes            (atom [])
+            target           (obs/resolve-target {:frame fid :query-v [:obs/n]})
+            lease            (obs/acquire! target (fn [ev] (swap! notes conj ev)))
+            reaction         (node-reaction)
+            [nan-hits nan-rm] (install-nan-sentinel! reaction)]
+        (try
+          ;; --- preconditions ---
+          (is (obs/lease? lease))
+          (is (satisfies? IWatchable reaction)
+              "the Reagent sub reaction IS IWatchable — the port armed its
+               per-lease value-movement watch")
+          (is (empty? @notes) "acquire! on a warm NaN node fans nothing")
+          (is (nan-num? (:value (lease-last lease))) "baseline observed the host NaN")
+          (let [v0 (:version (lease-last lease))]
+            ;; --- MOVE NaN→NaN: app-db moves (NaN≠NaN under map =), the reaction
+            ;; re-derives NaN, and Reagent's =-gated notify fires (NaN≠NaN). ---
+            (rf/dispatch-sync [:obs/set-n ##NaN])
+            (ratom/flush!)
+            (testing "the host watch fired but the port fanned nothing"
+              (is (pos? @nan-hits)
+                  "the underlying Reagent host watch FIRED for NaN→NaN — the
+                   port's make-watch-handler callback genuinely ran (non-vacuous)")
+              (is (empty? @notes)
+                  "NaN→NaN emitted NO {:cause :value} note — node-value= suppressed
+                   the fan-out (raw not= would fan a phantom movement)")
+              (is (= v0 (:version (lease-last lease)))
+                  "the node version did NOT advance — NaN=NaN under the movement law"))
+            (testing "positive control — a REAL move fans exactly once + advances"
+              (rf/dispatch-sync [:obs/set-n 5])
+              (ratom/flush!)
+              (is (= 1 (count @notes)) "exactly one {:cause :value} for a real move")
+              (is (= :value (:cause (first @notes))))
+              (is (> (:version (lease-last lease)) v0)
+                  "the real value movement advanced the node version")))
+          (finally
+            (nan-rm)
+            (obs/release! lease)
+            (ratom/dispose! driver)))))))
+
+;; ===========================================================================
+;; rf2-r09qj — NaN moves NaN-STABLY through an integrated ViewCell
+;; ===========================================================================
+
+(deftest viewcell-over-watchable-host-nan-to-nan-is-version-revision-render-stable
+  (testing "an integrated observation→ViewCell path over a WATCHABLE (Reagent)
+            host: a NaN→NaN recompute FIRES the host watch yet leaves the node
+            version, the cell revision, AND the render (listener notification)
+            count UNMOVED; a real value movement moves all three EXACTLY once.
+            This is the downstream contract the source bead names that the
+            plain-atom ViewCell coverage (non-watchable, no make-watch-handler)
+            cannot reach."
+    (register!)
+    (rf/dispatch-sync [:obs/set-n ##NaN])
+    (let [driver (make-driver)]
+      (ratom/flush!)
+      (let [cell    (reactive/make-cell ::nan-host)
+            renders (atom 0)]
+        (render+commit! cell)                ;; commit installs the watch-bearing lease
+        (let [unsub             (reactive/subscribe cell (fn [] (swap! renders inc)))
+              reaction          (node-reaction)
+              [nan-hits nan-rm] (install-nan-sentinel! reaction)
+              lease             (reactive/committed-lease cell (tk [:obs/n]))
+              ver0              (:version (obs/read lease))
+              rev0              (reactive/revision cell)]
+          (try
+            ;; --- preconditions: a real owned, watch-bearing lease at NaN ---
+            (is (some? lease) "the ViewCell committed a lease over the watchable host")
+            (is (obs/owned? lease)
+                "…a REAL owned observation node (so acquire! installed the watch)")
+            (is (nan-num? (get (reactive/committed-values cell) (tk [:obs/n])))
+                "the committed value is the host's NaN")
+            (is (= 0 rev0) "precondition: committed, no revision yet")
+            (is (= 0 @renders) "precondition: no render notifications yet")
+            ;; --- NaN→NaN: host watch fires, the port suppresses everything ---
+            (rf/dispatch-sync [:obs/set-n ##NaN])
+            (ratom/flush!)
+            (reactive/flush-dirty! cell)     ;; drain any pending notification
+            (testing "NaN→NaN leaves version + revision + render UNMOVED"
+              (is (pos? @nan-hits)
+                  "the host watch FIRED for NaN→NaN (the callback genuinely ran)")
+              (is (= ver0 (:version (obs/read lease)))
+                  "node version UNMOVED — NaN=NaN under the movement law")
+              (is (= rev0 (reactive/revision cell))
+                  "cell revision UNMOVED — make-watch-handler dirtied nothing")
+              (is (= 0 @renders) "ZERO renders — no listener notification fired"))
+            (testing "a re-render+commit finds no movement at step 5 either"
+              (render+commit! cell)
+              (reactive/flush-dirty! cell)
+              (is (= rev0 (reactive/revision cell))
+                  "a re-commit over the un-advanced node advances NO revision")
+              (is (= 0 @renders) "…and still no render"))
+            (testing "positive control — a REAL move moves all three EXACTLY once"
+              (rf/dispatch-sync [:obs/set-n 5])
+              (ratom/flush!)
+              (reactive/flush-dirty! cell)
+              (is (> (:version (obs/read lease)) ver0)
+                  "the real move advanced the node version")
+              (is (= (inc rev0) (reactive/revision cell))
+                  "the real move advanced the cell revision exactly once")
+              (is (= 1 @renders)
+                  "the real move fired exactly one render (listener notification)"))
+            (finally
+              (nan-rm)
+              (unsub)
+              (ratom/dispose! driver))))))))
