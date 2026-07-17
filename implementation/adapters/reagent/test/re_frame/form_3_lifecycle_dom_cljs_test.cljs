@@ -14,6 +14,7 @@
   consolidated node build loads the namespace but takes the no-DOM branch."
   (:require [cljs.test :refer-macros [async deftest is testing use-fixtures]]
             [reagent.core :as r]
+            [reagent.ratom :as ratom]
             [reagent.dom.client :as rdc]
             ["react" :as React]
             ["react-dom" :as react-dom]
@@ -474,5 +475,205 @@
                         (is (= {} (cache-state frame-a))
                             "real unmount restores the exact cache baseline"))
                       (cleanup!)
+                      (done!)))
+                  (.catch fail!)))))))))
+
+;; ---------------------------------------------------------------------------
+;; rf2-rjjry — the exceptional imperative-subscription recipe must be
+;; instance-safe. The copy-pasteable Form-3 (guided-handlers-state.md §M-11)
+;; `add-watch`es the cached reaction to re-feed an imperative widget. Equal
+;; `(frame, query-v)` subscriptions SHARE one reaction, so the watch key MUST be
+;; PER-MOUNT: a constant key lets a second mount clobber the first's callback,
+;; and either unmount then strips the sole surviving callback. This fixture
+;; mirrors the recipe and proves two same-frame/same-query mounts keep
+;; INDEPENDENT watches with a balanced cache.
+;; ---------------------------------------------------------------------------
+
+(def ^:private gauge-query [::gauge-value])
+
+(defn- setup-gauge! []
+  (rf/make-frame {:id frame-a :doc "Form-3 gauge fixture frame A"})
+  (rf/reg-event ::seed
+    (fn [{:keys [db]} [_ n]] {:db (assoc db :n n)}))
+  (rf/reg-sub ::gauge-value (fn [db _] (:n db)))
+  (rf/dispatch-sync [::seed 10] {:frame frame-a}))
+
+(defn- gauge-class
+  "Mirrors the copy-pasteable exceptional imperative-subscription Form-3 recipe.
+  A PER-MOUNT watch key (a fresh `gensym`, captured once in the outer callable)
+  keeps two same-query mounts' `add-watch` callbacks independent on the single
+  shared reaction — the constant `::feed` of the pre-fix recipe would clobber."
+  [feeds instance-id handle]
+  (let [{:keys [frame subscribe]} handle
+        watch-key (gensym "gauge-feed-")          ; PER-MOUNT — never a constant
+        !reaction (r/atom nil)
+        feed!     (fn [v] (swap! feeds update instance-id (fnil conj []) v))]
+    (r/create-class
+      {:display-name "rf2-form-3-gauge-fixture"
+       :reagent-render (fn [_] [:div.gauge {:data-gauge (name instance-id)}])
+       :component-did-mount
+       (fn [_this]
+         (let [reaction (subscribe gauge-query)]  ; ACQUIRE — shared reaction, ref-count +1
+           (reset! !reaction reaction)
+           (feed! @reaction)                        ; seed with the current value
+           (add-watch reaction watch-key
+                      (fn [_ _ _ v] (feed! v)))))    ; per-mount key — no sibling clobber
+       :component-will-unmount
+       (fn [_]
+         (remove-watch @!reaction watch-key)        ; strips only THIS mount's watch
+         (rf/unsubscribe frame gauge-query)         ; RELEASE — frame-first; ref-count -1
+         (reset! !reaction nil))})))
+
+(defn- register-gauge-fixture! [view-id feeds]
+  (rf/reg-view* view-id
+    (fn gauge-outer [instance-id]
+      (gauge-class feeds instance-id (rf/capture-frame)))))
+
+(defn- gauge-tree [view instance-ids]
+  [rf/frame-provider {:frame frame-a}
+   (into [:div]
+         (map (fn [id] (with-meta [view id] {:key (name id)})))
+         instance-ids)])
+
+(deftest two-imperative-watches-on-one-query-stay-independent
+  (testing "two same-frame/same-query Form-3 mounts share one cached reaction yet
+            keep INDEPENDENT per-mount add-watch callbacks: both receive updates,
+            unmounting one leaves the survivor live, and the shared reaction's
+            ref-count balances back to zero. A constant watch key (the pre-fix
+            recipe) would clobber the first callback and, on either unmount, strip
+            the sole survivor (rf2-rjjry)."
+    (if-not (browser?)
+      (is true ":node-test: no DOM — :browser-test exercises the two-watch fixture")
+      (async done
+        (let [act-fn (get-act)]
+          (if-not (fn? act-fn)
+            (do (is true "React flushSync unavailable in this runner") (done))
+            (let [feeds   (atom {})
+                  done?   (atom false)
+                  done!   (fn [] (when (compare-and-set! done? false true) (done)))
+                  view-id ::gauge-form-3
+                  _ (setup-gauge!)
+                  _ (register-gauge-fixture! view-id feeds)
+                  view (rf/view view-id)
+                  root (rdc/create-root (.createElement js/document "div"))
+                  rc   (fn [] (ref-count (cache-state frame-a) gauge-query))
+                  ;; Keep the shared reaction on the push path the way a mounted
+                  ;; consumer would: a cached sub reaction with NO live consumer is
+                  ;; dormant and never re-runs (so its imperative watches never
+                  ;; fire). `warm` subscribes ONCE (a stable +1 holder); `driver` is
+                  ;; an auto-running reaction that derefs the HELD reaction, so a
+                  ;; value movement re-runs the shared node — the observation-port
+                  ;; suites use the same `ratom/run!` stand-in for a mounted
+                  ;; ViewCell. This is warmth scaffolding, not the behaviour under
+                  ;; test — rf2-rjjry is about the per-mount watch KEY on that node.
+                  warm   (rf/subscribe gauge-query {:frame frame-a})
+                  driver (ratom/run! (deref warm))
+                  _ (ratom/flush!)
+                  base (rc)   ; ref-count contributed by the single warm-keeper hold
+                  cleanup! (fn [] (try (act-fn #(rdc/unmount root))
+                                       (catch :default _ nil)))
+                  fail! (fn [err]
+                          (is false (str "gauge fixture threw: " (pr-str err)))
+                          (cleanup!)
+                          (done!))]
+              (set! (.-IS_REACT_ACT_ENVIRONMENT js/globalThis) true)
+              (try
+                (act-fn #(rdc/render root (gauge-tree view [:g-one :g-two])))
+                (ratom/flush!)
+                (is (= {:g-one [10] :g-two [10]} @feeds)
+                    "both mounts seed from the same shared reaction")
+                (is (= (+ base 2) (rc))
+                    "the two mounts share one reaction — each adds one holder")
+
+                (act-fn #(do (rf/dispatch-sync [::seed 20] {:frame frame-a})
+                             (ratom/flush!)))
+                (is (= {:g-one [10 20] :g-two [10 20]} @feeds)
+                    "one shared-reaction change fires BOTH per-mount watches")
+
+                (act-fn #(rdc/render root (gauge-tree view [:g-one])))
+                (ratom/flush!)
+                (is (= (+ base 1) (rc))
+                    "unmounting one mount releases exactly one holder")
+                (act-fn #(do (rf/dispatch-sync [::seed 30] {:frame frame-a})
+                             (ratom/flush!)))
+                ;; Property-based, not exact-vector: the warmth driver can re-notify
+                ;; the surviving watch during the unmount re-render, so the survivor
+                ;; may carry a benign duplicate. What must hold: the survivor SEES 30
+                ;; and the unmounted mount NEVER does (its watch was removed).
+                (is (= 30 (last (:g-one @feeds)))
+                    "the survivor's watch keeps firing after its sibling unmounts")
+                (is (not (some #{30} (:g-two @feeds)))
+                    "the unmounted mount's watch was removed — it never sees 30")
+                (is (= [10 20] (:g-two @feeds))
+                    "the unmounted mount is frozen at its pre-unmount feed")
+
+                (act-fn #(rdc/unmount root))
+                (ratom/flush!)
+                (is (= base (rc))
+                    "both mounts' acquires release — cache back to the pre-mount baseline")
+                (ratom/dispose! driver)
+                (rf/unsubscribe frame-a gauge-query)
+                (ratom/flush!)
+                (is (= 0 (rc))
+                    "releasing the warm-keeper too returns the shared reaction to zero")
+                (done!)
+                (catch :default e (fail! e))))))))))
+
+(deftest gauge-watch-key-balances-under-strict-mode
+  (testing "React 19 StrictMode's did-mount → will-unmount → did-mount replay
+            leaves exactly one live acquire — the per-mount watch key, captured
+            once in the outer callable, is stable across the replay so each
+            remove-watch matches its add-watch — and a post-replay update still
+            feeds the widget; a real unmount then restores the ref-count baseline
+            (rf2-rjjry)."
+    (if-not (browser?)
+      (is true ":node-test: no DOM — :browser-test exercises StrictMode balance")
+      (async done
+        (let [act-fn (get-react-act)]
+          (if-not (fn? act-fn)
+            (do (is true "React.act unavailable in this runner") (done))
+            (let [feeds (atom {})
+                  done? (atom false)
+                  done! (fn [] (when (compare-and-set! done? false true) (done)))
+                  _ (setup-gauge!)
+                  klass (gauge-class feeds :strict-gauge (rf/capture-frame frame-a))
+                  root  (rdc/create-root (.createElement js/document "div"))
+                  tree  [rf/frame-provider {:frame frame-a} [klass :strict-gauge]]
+                  rc    (fn [] (ref-count (cache-state frame-a) gauge-query))
+                  ;; Warm-keeper — see the two-watch test above.
+                  warm   (rf/subscribe gauge-query {:frame frame-a})
+                  driver (ratom/run! (deref warm))
+                  _ (ratom/flush!)
+                  base (rc)
+                  cleanup! #(try (rdc/unmount root) (catch :default _ nil))
+                  fail! (fn [err]
+                          (is false (str "gauge StrictMode fixture threw: " (pr-str err)))
+                          (cleanup!)
+                          (done!))]
+              (set! (.-IS_REACT_ACT_ENVIRONMENT js/globalThis) true)
+              (-> (js/Promise.resolve (act-fn #(rdc/render root tree nil true)))
+                  (.then (fn [_] (settle-macrotasks 3)))
+                  (.then
+                    (fn [_]
+                      (is (= (+ base 1) (rc))
+                          "StrictMode replay leaves exactly one live acquire")
+                      (js/Promise.resolve
+                        (act-fn (fn []
+                                  (rf/dispatch-sync [::seed 15] {:frame frame-a})
+                                  (ratom/flush!))))))
+                  (.then
+                    (fn [_]
+                      (is (= 15 (last (get @feeds :strict-gauge)))
+                          "the per-mount watch survives the replay and feeds the update")
+                      (is (= (+ base 1) (rc))
+                          "the post-replay update did not duplicate the acquire")
+                      (js/Promise.resolve (act-fn #(rdc/unmount root)))))
+                  (.then (fn [_] (next-microtask)))
+                  (.then
+                    (fn [_]
+                      (is (= base (rc))
+                          "the real unmount restores the ref-count baseline")
+                      (ratom/dispose! driver)
+                      (rf/unsubscribe frame-a gauge-query)
                       (done!)))
                   (.catch fail!)))))))))

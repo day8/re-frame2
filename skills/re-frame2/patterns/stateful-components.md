@@ -96,7 +96,7 @@ Regime C (library-bridged: Framer Motion, React-Spring, GSAP, AutoAnimate) **is*
 
 - **`addEventListener` from a render body.** Fires with no carried frame — under EP-0002 a bare `dispatch` in the callback raises `:rf.error/no-frame-context` (there is no `:rf/default` to fall open to) — and leaks. The right home is the inner's mount hook with cleanup on unmount; carry the frame (Reagent: `capture-frame`; UIx/Helix: the `use-frame` hook) for any dispatch the listener fires after commit.
 - **Owning the library lifecycle in a render body.** `(js/MyLib. el opts)` from a Form-1 builds a fresh instance every render — leaking at the rate of reactive updates. Build it once in the mount hook.
-- **`@(subscribe …)` inside a lifecycle hook.** No reactive context after commit. Subscribe in the outer; pass the value as a prop.
+- **`@(subscribe …)` inside a lifecycle hook.** No reactive context after commit. Subscribe in the outer; pass the value as a prop. The lone exception (Reagent only) is a rare imperative widget re-fed from a hook: capture the frame's `:subscribe` in the outer callable, `add-watch` the reaction under a **per-mount** key (never a constant — equal `(frame, query-v)` subscriptions share one cached reaction, so a constant key clobbers a sibling's watch), and balance it with frame-first `(rf/unsubscribe frame query-v)` at unmount — the migration skill's *exceptional imperative-subscription Form-3* (guided-handlers-state.md §M-11). It is ref-count-balanced and does not relax the default above.
 - **Stashing the instance in `defonce` / top-level `def`.** Leaks across mounts and hot-reloads; breaks when the component mounts twice (two frames). The instance is per-mount — closure cell only.
 
 ## Worked example
