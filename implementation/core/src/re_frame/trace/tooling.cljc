@@ -680,73 +680,100 @@
 ;; of any reference to the rings state or listener atom — so a
 ;; production build that never `:requires` this ns DCEs the whole body.
 
-;; ---- reentrant fan-out ordering (rf2-1zxlsm) ------------------------------
+;; ---- reentrant fan-out scheduler (rf2-1zxlsm ordering + rf2-s522m sync) ----
 ;;
 ;; A listener callback may reentrantly emit a trace (dispatch, re-register a
-;; flow, create/destroy a frame — all emit). If that nested emit fanned out
-;; IMMEDIATELY, it would reach the still-unvisited listeners of the OUTER
-;; event before the outer loop resumed — so a later listener would observe the
-;; inner event B before the outer event A, reversing runtime emission order.
-;; Spec 009 §The listener contract (point 4) requires every listener to see
-;; events in the order the runtime fired them.
+;; flow, create/destroy a frame — all emit). Two delivery laws must BOTH hold for
+;; such a nested emit (Spec 009 §Listener invocation rules + §Emitting trace
+;; events):
 ;;
-;; The fix defers a reentrant fan-out: while an outer fan-out is in progress on
-;; this thread (`*listener-fanout-queue*` bound), a nested `deliver-to-tooling!`
-;; ENQUEUES `[event continue?]` instead of looping, and the outermost fan-out
-;; drains the queue — FIFO, transitively — after its own listener loop. Every
-;; listener therefore observes A before B, and B before any C a B-listener
-;; emits, and so on.
+;;   1. EMISSION ORDER (rf2-1zxlsm). Every listener sees events in the order the
+;;      runtime fired them. If a listener handling outer event A emits B, no
+;;      listener may observe B before A — a nested fan-out must not overtake the
+;;      still-in-progress outer one.
+;;   2. SYNCHRONOUS COMPLETION (rf2-s522m). `emit!` returns only after its event
+;;      has reached every eligible listener — for a NESTED emit too. A listener
+;;      that emits B and then inspects another listener's state must see B already
+;;      delivered (Spec 009: "the emit returns once every listener has been
+;;      invoked").
 ;;
-;; This defers ONLY the listener fan-out. The nested `emit!` still returns
-;; synchronously and its other effects run inline in emission order: the ring
-;; push below happens immediately (so the ring, too, holds A before B), epoch
-;; capture already fired in `re-frame.trace/deliver!` before this hook, and the
-;; classification projection ran in `emit!`. So the documented
-;; synchronous-return contract for a nested `emit!` is unchanged — no queue
-;; alters what `emit!` returns; only the ORDER listeners are notified is fixed.
+;; These pull against each other at the reentrant seam. When A's fan-out is paused
+;; inside listener Lk's callback and Lk emits B, law 2 says B must reach the
+;; not-yet-visited listeners before `emit!` returns, but law 1 says those
+;; listeners must see A before B. The ONLY schedule satisfying both is: advance A
+;; to the remaining listeners FIRST, then deliver B to all — all before the nested
+;; `emit!` returns. A fire-and-drain-later append (the prior design) satisfied
+;; law 1 but broke law 2: the nested emit returned before ANY listener saw B.
 ;;
-;; The queue is a plain vector consumed by an advancing index (never mutated
-;; mid-drain except by append), so appends made by a draining callback extend
-;; it and are picked up in FIFO order. Composes with rf2-eaxnai: the deferred
-;; item carries its OWN `continue?`, and the listener body already ran under the
-;; neutral continuation scope `re-frame.trace/deliver!` established.
+;; The scheduler is a shared, resumable driver over a FIFO event queue. A single
+;; `*fanout-ctx*` (bound for the duration of the outermost fan-out) holds:
+;;   :q       — FIFO vector of `[event continue?]`, appended by reentrant emits;
+;;   :head    — index of the event currently being delivered; `[0,:head)` done;
+;;   :entries — the listener snapshot for the current event (taken once, so a
+;;              resumed delivery neither re-snapshots nor double-delivers);
+;;   :lcursor — how many of `:entries` have received the current event.
+;; `drive-fanout!` walks this to completion: for each event, deliver to every
+;; remaining listener (advancing `:lcursor` BEFORE the call so a reentrant emit
+;; resumes at the NEXT listener), then advance `:head`. Delivery is strictly FIFO
+;; across events, so every listener sees A fully before B — law 1.
+;;
+;; A reentrant emit APPENDS its event and then calls `drive-fanout!` itself:
+;; because `:head` / `:lcursor` are shared, that call advances the paused outer
+;; delivery to completion and then delivers the reentrant event, all before the
+;; nested `emit!` returns — law 2. When control unwinds to the outer driver, its
+;; loop finds the queue drained (`:head` past the end) and stops, so no work is
+;; repeated. The delivery SCHEDULE (which listener sees which event, and in what
+;; order) is the same FIFO schedule the prior drain produced; only the nested
+;; `emit!`'s RETURN is now blocked until its event has been delivered. The ring
+;; push still happens inline in emission order (A pushed before the outer drive,
+;; B pushed when its reentrant `deliver-to-tooling!` runs), epoch capture already
+;; fired in `re-frame.trace/deliver!` before this hook, and classification ran in
+;; `emit!`.
+;;
+;; Composes with rf2-eaxnai: each queued event carries its OWN `continue?`
+;; snapshot; the driver consults it per event, so a listener that destroys the
+;; outer incarnation flips A's `continue?` false and suppresses A's remaining
+;; fan-out without touching a later event's authority. The listener body already
+;; ran under the neutral continuation scope `re-frame.trace/deliver!` established.
 ;;
 ;; ---- cross-thread fan-out serialization (rf2-uw7hg) -----------------------
 ;;
-;; The deferral queue above is thread-local (a dynamic binding), so it only
-;; orders SAME-thread reentrant emits. It says nothing about two emits racing on
-;; two JVM threads: each opens its OWN outermost fan-out and each would invoke
-;; the SAME registered listener callback CONCURRENTLY. That violates the public
-;; listener contract (`docs/api/re-frame.core.md`: "Delivery is synchronous: the
-;; callback returns before the next record") and Spec 009 §The listener contract,
-;; which require synchronous, in-order, event-at-a-time delivery PER listener —
-;; a callback the tool author was told can never re-enter itself would be run on
-;; two threads at once, and B could reach a listener before A even when A's emit
-;; began first.
+;; `*fanout-ctx*` is thread-local (a dynamic binding), so it only schedules
+;; SAME-thread reentrant emits. It says nothing about two emits racing on two JVM
+;; threads: each opens its OWN outermost fan-out and each would invoke the SAME
+;; registered listener callback CONCURRENTLY. That violates the public listener
+;; contract (`docs/api/re-frame.core.md`: "Delivery is synchronous: the callback
+;; returns before the next record") and Spec 009 §The listener contract, which
+;; require synchronous, in-order, event-at-a-time delivery PER listener — a
+;; callback the tool author was told can never re-enter itself would be run on two
+;; threads at once, and B could reach a listener before A even when A's emit began
+;; first.
 ;;
 ;; A single process-global monitor (`fanout-monitor`) serializes each OUTERMOST
-;; fan-out — its transitive drain included. Concurrent emits therefore linearize
-;; on monitor-acquisition order: the second thread cannot begin its fan-out until
-;; the first thread's outermost fan-out and every reentrant deferral it drained
-;; have completed. No listener callback ever overlaps itself, records reach each
-;; listener in a single defined order, and an emit still returns only after its
-;; record's callback has run (the monitor is held for the whole synchronous
-;; fan-out and released before `emit!` returns).
+;; fan-out — its whole `drive-fanout!` (outer advance + reentrant deliveries)
+;; included. Concurrent emits therefore linearize on monitor-acquisition order:
+;; the second thread cannot begin its fan-out until the first thread's outermost
+;; drive has fully drained. No listener callback ever overlaps itself, records
+;; reach each listener in a single defined order, and an emit still returns only
+;; after its record's callback has run (the monitor is held for the whole
+;; synchronous drive and released before `emit!` returns).
 ;;
 ;; Same-thread reentrancy does NOT re-acquire the monitor: a nested emit sees
-;; `*listener-fanout-queue*` already bound and takes the enqueue branch below, so
-;; it never reaches the lock — no self-deadlock, and the rf2-1zxlsm reentrant
-;; ordering is preserved verbatim. `locking` is a reentrant monitor regardless,
-;; so even a hypothetical re-entry could not deadlock on itself. CLJS is
-;; single-threaded (no concurrent emits): the `:cljs` arm runs the fan-out inline
-;; with no monitor, preserving production elision.
+;; `*fanout-ctx*` already bound and takes the append+drive branch below, so it
+;; never reaches the lock — no self-deadlock, and the reentrant schedule advances
+;; the SAME critical section. `locking` is a reentrant monitor regardless, so even
+;; a hypothetical re-entry could not deadlock on itself. CLJS is single-threaded
+;; (no concurrent emits): the `:cljs` arm runs the drive inline with no monitor,
+;; preserving production elision.
 
-(def ^:private ^:dynamic *listener-fanout-queue*
-  "When bound (an outermost listener fan-out is in progress on this thread), a
-  volatile holding a FIFO vector of `[event continue?]` deferrals. A trace
-  emitted reentrantly from inside a listener body enqueues here rather than
-  fanning out immediately, so every listener observes the outer event before
-  the reentrant one. nil at the top of the stack."
+(def ^:private ^:dynamic *fanout-ctx*
+  "When bound, the shared fan-out schedule for the outermost listener fan-out in
+  progress on this thread — a map of volatiles `{:q :head :entries :lcursor}`
+  (see the section note above). A trace emitted reentrantly from inside a listener
+  body appends to `:q` and drives the same schedule, so every listener observes
+  the outer event before the reentrant one (rf2-1zxlsm) AND the nested `emit!`
+  returns only after its event reached every listener (rf2-s522m). nil at the top
+  of the stack."
   nil)
 
 #?(:clj
@@ -754,92 +781,112 @@
      "Process-global JVM monitor serializing every OUTERMOST trace-listener
      fan-out across concurrent emits (rf2-uw7hg), so no registered listener
      callback is ever invoked on two threads at once and records reach each
-     listener in one defined order. Held for the whole synchronous fan-out +
-     drain. Reentrant same-thread emits never acquire it (they enqueue on
-     `*listener-fanout-queue*`). CLJS is single-threaded and has no counterpart."
+     listener in one defined order. Held for the whole synchronous drive.
+     Reentrant same-thread emits never acquire it (they advance the bound
+     `*fanout-ctx*` schedule). CLJS is single-threaded and has no counterpart."
      (Object.)))
 
-(defn- fan-out-to-listeners!
-  "Deliver `event` to every registered listener in registration order, isolating
-  per-listener throws and honouring the caller's exact-owner `continue?`
-  snapshot — a listener that destroys the outer incarnation flips `continue?`
-  false and suppresses the remaining fan-out (rf2-eaxnai). The single shared
-  fan-out body used by both the outer delivery and each drained deferral."
-  [event continue?]
-  (loop [entries (seq @listeners)]
-    (when (and entries (continue?))
-      (let [[_ f] (first entries)]
-        (try
-          (f event)
-          (catch #?(:clj Throwable :cljs :default) _ nil))
-        (when (continue?)
-          (recur (next entries)))))))
+(defn- drive-fanout!
+  "Drive the shared fan-out schedule `ctx` to completion: deliver every queued
+  event to every registered listener, FIFO across events and in registration
+  order within each event, resuming from the shared `:head` / `:entries` /
+  `:lcursor` cursors so a reentrant emit can advance a paused outer delivery to
+  every remaining listener BEFORE its own event is delivered.
+
+  Per-listener throws are isolated (rf2-1zxlsm exception isolation). Each event is
+  delivered under its OWN `continue?` snapshot (rf2-eaxnai): a listener that
+  destroys the outer incarnation flips that event's `continue?` false, which stops
+  its remaining fan-out and advances to the next queued event (evaluated under its
+  own predicate). `:lcursor` advances BEFORE the callback runs, so a reentrant
+  emit resuming this event delivers to the NEXT listener, never re-invoking the
+  current one. The listener snapshot per event is taken once (`:entries` nil ->
+  snapshot) so a resumed delivery is consistent even if the registry changes
+  mid-event."
+  [ctx]
+  (let [q       (:q ctx)
+        head    (:head ctx)
+        entries (:entries ctx)
+        lcursor (:lcursor ctx)]
+    (loop []
+      (when (< @head (count @q))
+        (when (nil? @entries)
+          (vreset! entries (vec (seq @listeners)))
+          (vreset! lcursor 0))
+        (let [[event continue?] (nth @q @head)
+              es                @entries]
+          (if (and (< @lcursor (count es)) (continue?))
+            (let [[_ f] (nth es @lcursor)]
+              (vreset! lcursor (inc @lcursor))
+              (try
+                (f event)
+                (catch #?(:clj Throwable :cljs :default) _ nil))
+              (recur))
+            (do (vswap! head inc)
+                (vreset! entries nil)
+                (recur))))))))
 
 (defn- run-outermost-fanout!
-  "Deliver `event` to every registered listener, then drain — FIFO, transitively
-  — every reentrant fan-out a listener deferred while it ran (rf2-1zxlsm). Binds
-  `*listener-fanout-queue*` so a nested emit from a listener body enqueues rather
-  than recursing; the index re-reads `(count @q)` each step so appends made
-  mid-drain are picked up in FIFO emission order.
-
-  On the JVM the caller runs this under `fanout-monitor` so concurrent emits
-  serialize (rf2-uw7hg); the binding + drain are the whole critical section."
+  "Seed a fresh fan-out schedule for `event`, bind it as `*fanout-ctx*` so
+  reentrant emits from listener bodies advance the SAME schedule, and drive it to
+  completion. On the JVM the caller runs this under `fanout-monitor` so concurrent
+  emits serialize (rf2-uw7hg); the binding + drive are the whole critical section."
   [event continue?]
-  (let [q (volatile! [])]
-    (binding [*listener-fanout-queue* q]
-      (fan-out-to-listeners! event continue?)
-      (loop [i 0]
-        (when (< i (count @q))
-          (let [[ev cont] (nth @q i)]
-            (fan-out-to-listeners! ev cont))
-          (recur (inc i)))))))
+  (let [ctx {:q       (volatile! [[event continue?]])
+             :head    (volatile! 0)
+             :entries (volatile! nil)
+             :lcursor (volatile! 0)}]
+    (binding [*fanout-ctx* ctx]
+      (drive-fanout! ctx))))
 
 (defn- deliver-to-tooling!
-  "Push `event` onto its in-flight frame's run-keyed ring (when the
-  run has a `:dispatch-id` and a `:frame`; frameless emits skip the
-  ring per the B3 ruling), then fan out to every registered listener.
-  Listener throws are isolated. No-op in production.
+  "Push `event` onto its in-flight frame's run-keyed ring (when the run has a
+  `:dispatch-id` and a `:frame`; frameless emits skip the ring per the B3
+  ruling), then fan out to every registered listener. Listener throws are
+  isolated. No-op in production.
 
   `retain?` (rf2-vxgfnd.244) gates ONLY the ring push. Under retentionless
   structural delivery (`re-frame.trace/call-with-structural-delivery`) it is
   false: an obsolete incarnation's terminal fact still streams live to every
-  listener, but no per-frame ring retains it — the fact carries the bare frame
-  id a same-id successor now shares, so a ring push would leak predecessor
-  evidence into the successor's ring. The default `true` arity preserves the
-  ordinary emit path. Retention is the ONLY thing gated; listener fan-out is
-  unconditional so the required terminal fact reaches live consumers exactly
-  once either way.
+  listener, but no per-frame ring retains it — the fact carries the bare frame id
+  a same-id successor now shares, so a ring push would leak predecessor evidence
+  into the successor's ring. The default `true` arity preserves the ordinary emit
+  path. Retention is the ONLY thing gated; listener fan-out is unconditional so
+  the required terminal fact reaches live consumers exactly once either way.
 
-  `continue?` (rf2-eaxnai) is the caller's exact-owner continuation SNAPSHOT.
-  The before/after checks consult it so that if a listener destroys the
-  outer incarnation A, the remaining listener fan-out is suppressed. It is a
-  standalone snapshot rather than a live read of the (private, unreachable
-  here) `*continuation-predicate*` precisely because `re-frame.trace/deliver!`
-  neutralises that dynamic var around this whole call — a listener BODY's
-  nested authored work (dispatch / destroy / create + `:initial-events` seed)
-  must run under ordinary always-continue authority, not inherit A's fence.
-  So the callback runs neutral while these checks retain A's predicate.
+  `continue?` (rf2-eaxnai) is the caller's exact-owner continuation SNAPSHOT,
+  consulted per event by the driver so that if a listener destroys the outer
+  incarnation A, A's remaining fan-out is suppressed. It is a standalone snapshot
+  rather than a live read of the (neutralised) `*continuation-predicate*` so a
+  listener BODY's nested authored work runs under ordinary always-continue
+  authority, not A's fence.
 
-  Reentrant fan-out is DEFERRED to preserve per-listener event order
-  (rf2-1zxlsm): a nested emit from inside a listener body enqueues on
-  `*listener-fanout-queue*` and is drained after the outer event has reached
-  every listener. The ring push still happens inline (emission order), so only
-  the listener fan-out is ordered here — see the section note above."
+  Reentrant fan-out is SCHEDULED, not fired immediately, to preserve BOTH delivery
+  laws (see the section note above): a nested emit from inside a listener body
+  appends to the bound `*fanout-ctx*` and drives it, advancing the paused outer
+  delivery to every remaining listener BEFORE delivering the nested event — so
+  every listener observes the outer event before the reentrant one (rf2-1zxlsm)
+  AND the nested `emit!` returns only after its event reached every listener
+  (rf2-s522m). The ring push still happens inline (emission order)."
   ([event continue?] (deliver-to-tooling! event continue? true))
   ([event continue? retain?]
    (when retain? (push-to-ring! event))
-   (if-let [q *listener-fanout-queue*]
-     ;; Reentrant emit from inside a listener body: defer so every listener
-     ;; observes the outer event before this one. The outermost fan-out (below)
-     ;; drains us. Ring retention already ran above, in emission order. Bound
-     ;; only on THIS thread, so this branch is what keeps a reentrant emit off
-     ;; the `fanout-monitor` — no self-deadlock.
-     (do (vswap! q conj [event continue?]) nil)
+   (if-let [ctx *fanout-ctx*]
+     ;; Reentrant emit from inside a listener body: append and drive the shared
+     ;; schedule. `drive-fanout!` advances the paused outer delivery to every
+     ;; remaining listener, then delivers this event, before we return — so the
+     ;; nested `emit!` completes synchronously (rf2-s522m) while every listener
+     ;; still sees the outer event first (rf2-1zxlsm). Ring retention already ran
+     ;; above, in emission order. `*fanout-ctx*` is bound only on THIS thread, so
+     ;; this branch is what keeps a reentrant emit off `fanout-monitor` — no
+     ;; self-deadlock.
+     (do (vswap! (:q ctx) conj [event continue?])
+         (drive-fanout! ctx)
+         nil)
      ;; Outermost fan-out. On the JVM `fanout-monitor` serializes it across
      ;; concurrent emits (rf2-uw7hg) so no listener callback overlaps itself and
      ;; records reach each listener in monitor-acquisition order; the monitor is
-     ;; held for the whole synchronous fan-out + drain. CLJS is single-threaded,
-     ;; so it runs inline with no monitor.
+     ;; held for the whole synchronous drive. CLJS is single-threaded, so it runs
+     ;; inline with no monitor.
      #?(:clj  (locking fanout-monitor (run-outermost-fanout! event continue?))
         :cljs (run-outermost-fanout! event continue?)))))
 
