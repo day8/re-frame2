@@ -457,7 +457,17 @@
       (is (false? (get-in ast [:props :events 0 :sync?])))
       (is (= [:rf.ui.compile/controlled-input-async-handler]
              (mapv :id warnings))
-          "a fallback site names the exact conditions it failed to prove"))
+          "a fallback site names the exact conditions it failed to prove")
+      ;; rf2-r0775 — the recovery guidance must name BOTH sync-door forms
+      ;; (#{:vector :ui-event} per controlled-event-sync?): a literal event
+      ;; vector OR a (ui/event …) handler. A reusable control that needs the
+      ;; native payload may not be expressible as a literal vector, so the
+      ;; diagnostic must not prescribe only the vector door.
+      (let [msg (:msg (first warnings))]
+        (is (re-find #"literal event vector" msg)
+            "the diagnostic still names the literal-event-vector door")
+        (is (re-find #"ui/event" msg)
+            "the diagnostic ALSO names the (ui/event …) door")))
     (testing "a bare fn at a controlled site still batches with the diagnostic"
       (let [{:keys [ast warnings]}
             (ana-full '[:input {:value value :on-input (fn [e] (js/console.log e))}])]

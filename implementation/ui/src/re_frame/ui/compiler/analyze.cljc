@@ -1583,11 +1583,13 @@
                                        :msg (str (:k handler)
                                                  " is paired with a controlled "
                                                  ":value/:checked prop, but its "
-                                                 "handler is not a literal data "
-                                                 "event. It stays on the ordinary "
-                                                 "batched path; use a literal event "
-                                                 "vector to open the controlled-"
-                                                 "input sync door")
+                                                 "handler is neither a literal event "
+                                                 "vector nor a (ui/event …) handler, "
+                                                 "so it stays on the ordinary batched "
+                                                 "path. Open the controlled-input sync "
+                                                 "door with a literal event vector, or "
+                                                 "a (ui/event …) handler when the "
+                                                 "native payload must flow")
                                        :form (:form handler)}))
                                    (assoc handler :sync? sync?)))
                                events0)
