@@ -1,41 +1,42 @@
 # Introduction
 
-re-frame2 is a ClojureScript framework for single-page apps. It is opinionated
-about **how computation runs**: everything interesting happens as a stream of
-[events](glossary.md#event) processed one at a time, through a fixed pipeline,
-against a single state map per running instance.
+To understand re-frame2, you need to understand how it does computation.
 
-That sounds abstract. A tiny counter makes it concrete.
+Which is an odd opening for an SPA library, I know. Bear with me.
 
-## A working counter
+## A working app
 
-Three registrations and a mount. Click **+** (edit the cell and press
-**`Ctrl-Enter`** / **`Cmd-Enter`** if you change the code):
+To assist explanations, here's a tiny application — a counter app:
+
+- an increment button
+- a displayed value that starts at 3, and increments on each button click
 
 ```cljs-rf2
 (require '[re-frame.core :as rf])
 
-(rf/reg-event :initialise
-  (fn [_ _] {:db {:value 0}}))
+;; calls to four registration functions
+(rf/reg-event :initialise (fn [_ _] {:db {:value 3}}))
+(rf/reg-event :inc        (fn [{:keys [db]} _] {:db (update db :value inc)}))
+(rf/reg-sub   :value      (fn [db _] (:value db 0)))
 
-(rf/reg-event :inc
-  (fn [{:keys [db]} _]
-    {:db (update db :value inc)}))
-
-(rf/reg-sub :value
-  (fn [db _] (:value db 0)))
-
-(rf/reg-view counter []
-  [:div
+(rf/reg-view counter [background]
+  [:div {:style {:background background}}
    [:span "Count: " @(subscribe [:value]) " "]
    [:button {:on-click #(dispatch [:inc])} "+"]])
 
 [rf/frame-root {:id :app :initial-events [[:initialise]]}
- [counter]]
+ [counter "lightyellow"]]
 ```
 
-You just saw the whole model. The rest of this page names the pieces; the rest of
-the Core track grows this same counter one concept at a time.
+You'll note that this application is simply a series of function calls, starting with `reg-`:
+
+- `reg-event` is called twice to register two event handlers
+- `reg-sub` is called once to register a subscription
+- `reg-view` is called once to register a view
+
+**A re-frame2 app is a set of registrations** in which an `id` (like `:inc` or `:initialise`) is associated with a function like `(fn [_ _] {:db {:value 3}})`.
+
+The re-frame2 runtime will look up these functions, via their ids, at specific points in the processing of an event. And it is for that reason that we need to understand how re-frame2 computes. Our job is to provide functions that slot into that computation.
 
 ## A re-frame2 app is a set of registrations
 
@@ -43,8 +44,8 @@ Look at the three `reg-*` calls. Each registers a function under an **id**:
 
 | Registration | Role |
 |---|---|
-| `reg-event` | **Write side** — given an event, return a *description* of what should change |
-| `reg-sub` | **Read side** — derive a view-facing value from app state |
+| `reg-event` | **Update phase** — given an event, return a *description* of what should change |
+| `reg-sub` | **Render phase** — derive a view-facing value from app state |
 | `reg-view` | **Render** — turn derived values into [hiccup](glossary.md#hiccup) (DOM-as-data) |
 
 In most libraries your code drives and the library assists. Here the **runtime**
@@ -67,14 +68,14 @@ a free-form cycle of callbacks:
 1. **Dispatch.** `#(dispatch [:inc])` puts the event vector `[:inc]` on a FIFO
    queue and returns immediately. Dispatch does not run the handler.
 2. **Dequeue.** Shortly after, the runtime takes the next event from the queue.
-3. **Write side.** It looks up the handler for `:inc`, builds a small **world** map
+3. **Update phase.** It looks up the handler for `:inc`, builds a small **world** map
    (at minimum today's [app-db](glossary.md#app-db) under `:db`), and calls the
    handler: `(handler world event)`.
 4. **Effects as data.** The handler returns `{:db next-map}` — a *description* of
    the next state. It does not mutate the old map.
-5. **Commit.** The runtime applies those effects: the frame's app-db reference
-   becomes the new map, atomically.
-6. **Read side.** Subscriptions whose inputs changed recompute. Views that
+5. **Commit phase.** The runtime executes those effects: the `:db` effect runs first,
+   and the frame's app-db reference becomes the new map, atomically.
+6. **Render phase.** Subscriptions whose inputs changed recompute. Views that
    depend on those values re-render. React reconciles the DOM.
 
 ```text
@@ -167,7 +168,7 @@ leans only on the one before it.
 You start with the **pure pipeline** — the whole model, no impurity yet, and enough
 to build real screens. Then **impurity** lets handlers reach the world (HTTP,
 storage, timers, recorded facts) and stay pure doing it. **Structure** arrives once
-an app grows — isolating worlds, and moving derivations to the write side.
+an app grows — isolating worlds, and moving derivations into event handlers (the update phase).
 **Operations** is for when something breaks. The **advanced** corners come last, and
 most apps never reach for them.
 
