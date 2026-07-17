@@ -66,6 +66,25 @@ Type: standards-track
 > read: **`frame-provider` (SCOPE) + `frame-root` (ENSURE)**. Normative homes:
 > `spec/002-Frames.md` §`frame-provider` / §`frame-root`.
 
+> **Amendment — one-way value/id routing + the `destroy-frame!` exact-incarnation
+> exception (rf2-csbbwu, rf2-moftbs).** The 2026-06-18 rulings below asked for a
+> public **frame-value → id accessor** (Open Issue #2) and taught frame values as
+> internal-only, with `dispatch` / `subscribe` callers told to "read its id and
+> pass the id" (§Operation target grammar; Open Issue #4). API-shrink #1
+> (rf2-csbbwu) **removed that accessor entirely**: the routing operations
+> (`dispatch` / `subscribe` / `app-db-value` / `frame-provider`) **normalize** a
+> frame value to its id, so callers pass the value **directly** — there is no
+> value→id accessor to reach for, and the frame **id** remains the canonical
+> serializable routing address. `destroy-frame!` is the one **lifecycle
+> exception** (rf2-moftbs): a frame **value** carries **exact-incarnation**
+> authority (tears down only the incarnation it names — a stale value no-ops
+> against a same-id successor), while a frame **id** keyword is
+> **address-directed** (tears down whatever incarnation is currently live). The
+> value→id-accessor answer to Open Issue #2, and the "frame values stay internal;
+> read its id and pass the id" framing in §Operation target grammar and Open
+> Issue #4, are superseded by this amendment. Normative homes:
+> `spec/002-Frames.md` §Destroy, `spec/API.md`, `spec/Conventions.md`.
+
 ## Abstract
 
 EP-0023 made `image -> frame -> event stream` the public model. The current
