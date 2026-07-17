@@ -66,8 +66,8 @@ Compose `use-effect` with the standard outer/inner split: the **outer** `defui` 
       [tile-id])
     ($ :div {:ref ref :class "tile merging"})))
 
-;; Outer — reads subs, hands props to the inner. Registered via reg-view.
-(rf/reg-view board-panel []
+;; Outer — reads subs, hands props to the inner. Plain UIx defui.
+(defui board-panel []
   (let [active-tile-id (uix-adapter/use-subscribe [:board/active-tile])]
     ($ tile-inner {:tile-id active-tile-id})))
 ```
