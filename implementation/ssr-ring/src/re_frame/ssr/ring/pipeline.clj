@@ -162,11 +162,13 @@
   `make-frame` explicitly (`:id frame-id`) — the same lifecycle order,
   through the ONE public constructor.
 
-  On failure mid-drain, the request slot AND any partial frame
-  registration are cleared so neither leaks across requests. The frame
-  may be registered in the `frames` atom (see frame.cljc — `swap!
-  frames` happens before `dispatch-sync`), so the best-effort destroy
-  is required even though `make-frame` threw."
+  On failure mid-drain, the request slot is cleared so it does not leak
+  across requests. The failed incarnation itself is NOT reaped here:
+  core construction is its exact-token owner — `make-frame` tears the
+  partial frame down with its exact installed token before rethrowing
+  (frame.cljc, PR #6072). A bare-id reap in the catch would be address-
+  directed and could destroy a same-id successor B seated in the window
+  after A's exact rollback released the per-id transaction (rf2-c6lp3)."
   [{:keys [initial-events fx-overrides ssr on-error]} request]
   ;; The alphabetic prefix keeps the payload frame id valid for strict EDN
   ;; readers; keyword construction itself does not validate local names.
@@ -188,11 +190,18 @@
                 ssr          (assoc :ssr           ssr)))]
         {:frame-id frame-id :frame frame-value})
       (catch Throwable t
+        ;; Clear only the request side channel. Core construction is the
+        ;; EXACT-TOKEN owner of the failed incarnation's rollback: `make-frame`
+        ;; already tore incarnation A down with its exact installed token before
+        ;; rethrowing (frame.cljc — the setup-runner + WON-install catch both
+        ;; destroy `installed-token`, PR #6072). A redundant bare-id
+        ;; `destroy-frame-quietly! frame-id` here would be ADDRESS-directed: once
+        ;; A's exact rollback releases the per-id transaction, a same-id
+        ;; successor B can be seated before this catch continues, and the keyword
+        ;; target would then pin and destroy B (rf2-c6lp3). So we do NOT reap by
+        ;; bare id — construction rollback owns exactly one incarnation, and the
+        ;; request slot is the only per-request state this catch owns.
         (ssr/clear-request! frame-id)
-        ;; Construction FAILED — no frame value was returned, so clean up any
-        ;; partial row address-directed by the gensym id (construction rollback
-        ;; is already exact internally, PR #5928).
-        (lifecycle/destroy-frame-quietly! frame-id)
         ;; Setup runs outside the handler body's catch, so contain a failing
         ;; caller hook here as well.
         {:short-circuit (lifecycle/safe-on-error on-error request t)}))))

@@ -19,6 +19,7 @@
             [re-frame.ssr :as ssr]
             [re-frame.ssr.ring :as ssr-ring]
             [re-frame.ssr.ring.lifecycle :as lifecycle]
+            [re-frame.ssr.ring.pipeline :as pipeline]
             [re-frame.ssr.ring.shell :as shell]
             [re-frame.ssr.ring.test-support :as ts]))
 
@@ -3137,6 +3138,67 @@
       (is (= "Internal error" (:body response))
           "locked generic body — the secondary throw's internals never
            reach the wire (rf2-kzvwq topology-leak contract held)"))))
+
+;; ===========================================================================
+;; rf2-c6lp3 — the setup-failure catch must NOT reap by bare id
+;;
+;; Core construction is the exact-token owner of a failed incarnation's
+;; rollback: `make-frame` tears incarnation A down with its exact installed
+;; token before rethrowing (frame.cljc, PR #6072). Once that exact rollback
+;; releases the per-id transaction, a same-id successor B can be seated before
+;; the SSR setup-failure catch continues. The old catch did a redundant
+;; ADDRESS-directed `destroy-frame-quietly! frame-id`; the bare keyword pins
+;; whichever incarnation currently holds the id — i.e. B — and destroys it.
+;; The fix removes that bare-id reap; the catch owns only the request slot.
+;; ===========================================================================
+
+(deftest setup-failure-catch-does-not-reap-same-id-successor
+  (testing "rf2-c6lp3: a same-id successor B seated during the setup-failure
+            window survives the catch. `setup-request-frame!` gensyms a frame
+            id, seeds the request slot, then calls `make-frame`. We model the
+            reproduced interleaving with `with-redefs`: `make-frame` seats a
+            live successor B at the SAME id (standing in for the incarnation
+            reseated after core's exact rollback of failed A) and then throws
+            as A's constructor would. The catch must clear the request slot and
+            short-circuit WITHOUT reaping B — before the fix the bare-id
+            `destroy-frame-quietly! frame-id` destroyed B."
+    (let [captured-id (atom nil)
+          b-token     (atom nil)
+          real-make   rf/make-frame]
+      (try
+        (with-redefs
+          [rf/make-frame
+           (fn [{:keys [id] :as _opts}]
+             ;; Incarnation A failed and core already rolled it back exactly; a
+             ;; same-id successor B is seated at the gensym id during the window,
+             ;; THEN A's constructor rethrows into `setup-request-frame!`.
+             (reset! captured-id id)
+             (real-make {:id id :doc "successor B" :platform :server})
+             (reset! b-token (frame/frame-incarnation-token id))
+             (throw (ex-info "incarnation A setup failed (already rolled back by core)"
+                             {:simulated true})))]
+          (let [result (pipeline/setup-request-frame!
+                         {;; A valid (empty) :initial-events so setup reaches the
+                          ;; `make-frame` call (our stub); the throw models A's
+                          ;; construction failing, not a bad-opt rejection.
+                          :initial-events []
+                          :on-error (fn [_req _t]
+                                      {:status 500 :headers {} :body "err"})}
+                         {:uri "/x" :request-method :get})]
+            (is (contains? result :short-circuit)
+                "setup failure short-circuits to the on-error 500 response")
+            (is (= 500 (get-in result [:short-circuit :status]))
+                "the configured on-error 500 is returned")))
+
+        ;; The load-bearing assertion: B's EXACT incarnation is still live after
+        ;; the catch. With the removed bare-id reap present it would be destroyed.
+        (is (frame/frame-incarnation-live? @captured-id @b-token)
+            "same-id successor B survives the setup-failure catch (no bare-id reap)")
+        (is (some? (frame/frame @captured-id))
+            "the id still resolves to a live frame (B), not a reaped/absent slot")
+        (finally
+          (when-let [id @captured-id]
+            (rf/destroy-frame! id)))))))
 
 ;; ===========================================================================
 ;; EP-0008 (rf2-hhutya) — HTTP-WIRE acceptance: the promoted SSR error
