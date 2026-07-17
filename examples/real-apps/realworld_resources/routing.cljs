@@ -211,12 +211,21 @@
 ;; back door: a protected route is unreachable while logged out, by any path. See
 ;; route guard: ../../../docs/routing/glossary.md#route-guard.
 
-(defn- resolve-nav-target [[ev-id a _b]]
+;; `current` is the current route slice ([:rf.runtime/routing :current]) — needed
+;; to resolve the reserved `:rf.route/self` target (stay on the current route,
+;; change only the query) the same way the runtime does. Without it a session
+;; that expires WHILE on a `:requires-auth` route could self-navigate straight
+;; past the guard: the raw `:rf.route/self` keyword carries no `:tags`.
+(defn- resolve-nav-target [[ev-id a _b] current]
   (case ev-id
-    :rf.route/navigate (if (map? a)                        ;; {:url ...} escape-hatch target
+    :rf.route/navigate (cond
+                         (= :rf.route/self a)              ;; reserved "stay here" target
+                         {:id (:route-id current) :params (or (:params current) {})}
+                         (map? a)                          ;; {:url ...} escape-hatch target
                          (when-let [{:keys [route-id params]} (routing/match-url (:url a))]
                            {:id route-id :params (or params {})})
-                         {:id a :params (or _b {})})        ;; route-id target
+                         :else                             ;; route-id target
+                         {:id a :params (or _b {})})
     :rf.route/url-requested  (let [{:keys [to params url]} a]
                          (cond
                            to  {:id to :params (or params {})}
@@ -238,7 +247,13 @@
          `:requires-auth`-tagged routes to login, stashing where they were going
          for a post-login bounce-back."}
   {:before (fn auth-guard-before [ctx]
-             (if-let [{:keys [id params]} (resolve-nav-target (get-in ctx [:coeffects :event]))]
+             ;; The route slice is framework runtime-db state — read it from the
+             ;; :rf.db/runtime coeffect so `:rf.route/self` resolves to the
+             ;; protected route the user is already on.
+             (if-let [{:keys [id params]} (resolve-nav-target
+                                            (get-in ctx [:coeffects :event])
+                                            (get-in ctx [:coeffects :rf.db/runtime
+                                                         :rf.runtime/routing :current]))]
                (let [route-meta  (rf/handler-meta :route id)
                      needs-auth? (boolean (some #{:requires-auth} (:tags route-meta)))
                      logged-in?  (some? (get-in ctx [:coeffects :db :auth :user]))]
