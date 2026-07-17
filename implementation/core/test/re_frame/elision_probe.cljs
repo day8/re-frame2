@@ -728,6 +728,56 @@
   (source-store/forget-descriptor! :event :rf.probe/image-frame-provenance
                                    "re-frame.elision-probe.image"))
 
+;; ---- rf2-v2j8e: inline-image :registrations :doc literal elision -----------
+;;
+;; `rf/image` is a value CONSTRUCTOR, so a LITERAL inline `:registrations`
+;; metadata map `{:doc "…"}` is built AT THE CALL SITE — before any runtime
+;; normalization runs. Per Spec 001 §Production elision contract a runtime strip
+;; (`image-assembly/strip-descriptor-documentation`) cannot DCE those call-site
+;; string bytes; only an OUTER `goog.DEBUG` gate at the authoring seam can. The
+;; `rf/image` MACRO (rf2-v2j8e) runs each literal doc-bearing inline metadata map
+;; through the SAME `(if interop/debug-enabled? <full> <stripped>)` gate the
+;; `reg-*` macros emit, so under DEBUG=true the `:doc` strings land in the
+;; control bundle and under :advanced + goog.DEBUG=false they DCE. The four
+;; distinctive sentinels below (one per supported inline kind — :reg-event /
+;; :reg-sub / :reg-fx / :reg-cofx) are pinned ABSENT in production /
+;; PRESENT in control by check-elision.cjs.
+;;
+;; This touch constructs an IMAGE VALUE only — it NEVER calls make-frame /
+;; assemble, so it does NOT root the image-ASSEMBLY path
+;; (PROD_ABSENT_WHEN_UNUSED — `re-frame.image-assembly/resolve-within-image`'s
+;; "is selected from" sentinel stays DCE-able), exactly like the sibling
+;; provenance touch. Constructing an image runs only the pure `re-frame.image`
+;; constructor (`registrations->inline-descriptors`), which is a separate slice
+;; from the assembler.
+
+(defn ^:export touch-image-inline-doc! []
+  (let [img (rf/image
+              {:id :rf.probe/inline-doc
+               :registrations
+               {:reg-event [[:rf.probe/inline-doc-event
+                             {:doc "rf2-v2j8e-image-inline-event-doc-sentinel"}
+                             (fn [{:keys [db]} _ev] {:db db})]]
+                :reg-sub   [[:rf.probe/inline-doc-sub
+                             {:doc "rf2-v2j8e-image-inline-sub-doc-sentinel"}
+                             (fn [db _q] db)]]
+                :reg-fx    [[:rf.probe/inline-doc-fx
+                             {:doc "rf2-v2j8e-image-inline-fx-doc-sentinel"}
+                             (fn [_m _args] nil)]]
+                :reg-cofx  [[:rf.probe/inline-doc-cofx
+                             {:doc "rf2-v2j8e-image-inline-cofx-doc-sentinel"}
+                             (fn [] :ok)]]}})]
+    ;; Root the constructed value so Closure cannot DCE the whole pure `image`
+    ;; call — which would leave the CONTROL-build sentinels vacuously absent and
+    ;; silently defeat the methodology check. The count is DEBUG-INDEPENDENT
+    ;; (four inline descriptors either way — the gate only strips `:doc` from the
+    ;; prod arm's metadata, never the descriptors), so it is safe in BOTH builds
+    ;; while the `:doc` strings ride the gate. If the inline descriptors were
+    ;; dropped the init-fn throws, failing the build run.
+    (when-not (= 4 (count (:rf.image/inline img)))
+      (throw (ex-info "elision-probe: rf/image inline descriptors missing"
+                      {:img img})))))
+
 ;; ---- entry point ----------------------------------------------------------
 
 ;; ---- rf2-tfiutq: ungated DIRECT-CALL dev-only diagnostic emit elision ------
@@ -900,6 +950,7 @@
   (touch-override-capture!)
   (touch-carried-op-cross-frame!)
   (touch-image-frame-provenance!)
+  (touch-image-inline-doc!)
   ;; Reference trace/emit! directly through the trace ns alias so its
   ;; body, not just the public re-frame.core re-export, is reachable.
   (trace/emit! :event :rf.probe/direct-touch {:source :probe}))

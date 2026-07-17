@@ -148,6 +148,69 @@
      [args]
      (map gate-doc-arg args)))
 
+;; ---- inline-image :registrations metadata gate (rf2-v2j8e) ---------------
+;;
+;; `rf/image` is a value CONSTRUCTOR, not a `reg-*` registration. Its inline
+;; `:registrations` sections carry per-entry metadata maps
+;; (`[id metadata body]`, EP-0026 §Inline Registration Grammar), and a LITERAL
+;; `{:doc "…"}` there is built AT THE CALL SITE — before the runtime
+;; `re-frame.image-assembly/strip-descriptor-documentation` normalization runs.
+;; Per Spec 001 §Production elision contract a runtime strip cannot DCE
+;; call-site string bytes; only an OUTER `goog.DEBUG` gate at the authoring seam
+;; can. The `rf/image` MACRO (re-frame.core, rf2-v2j8e) runs `gate-image-spec`
+;; over its spec so every LITERAL doc-bearing inline metadata map rides the SAME
+;; `(if interop/debug-enabled? <full> <stripped>)` gate the `reg-*` macros emit
+;; via `gate-doc-arg` — DCEing the `:doc` string under `:advanced` +
+;; `goog.DEBUG=false`, while the runtime strip still normalizes COMPUTED metadata
+;; on the stored descriptor.
+
+#?(:clj
+   (defn ^:private gate-inline-image-entry
+     "Gate the metadata slot of ONE inline `:registrations` entry FORM for
+     `:doc` string elision (rf2-v2j8e). An inline entry is a call-shaped tuple
+     `[id body]` (no metadata) or `[id metadata body]` (EP-0026 §Inline
+     Registration Grammar). Only a 3-tuple carries a metadata slot; when that
+     slot is a LITERAL doc-bearing map it is rewritten via [[gate-doc-arg]] to
+     `(if interop/debug-enabled? <full-map> <stripped-map>)`. Every other entry
+     shape — a 2-tuple, a non-vector, or a non-literal (computed) metadata map —
+     is returned UNCHANGED (its `:doc`, if any, still strips from the stored
+     descriptor via the runtime `strip-descriptor-documentation` normalization,
+     but its bytes are outside the macro's reach)."
+     [entry]
+     (if (and (vector? entry) (= 3 (count entry)))
+       (assoc entry 1 (gate-doc-arg (nth entry 1)))
+       entry)))
+
+#?(:clj
+   (defn gate-image-spec
+     "Rewrite an `rf/image` SPEC FORM so every LITERAL doc-bearing inline
+     `:registrations` metadata map crosses the compile-time production gate
+     (rf2-v2j8e). The image-authoring-boundary analogue of [[gate-doc-args]]:
+     walk each `:registrations` section's `[id metadata body]` entries and gate
+     their literal metadata slot via [[gate-inline-image-entry]].
+
+     Only a LITERAL spec map with a LITERAL `:registrations` map is walked; a
+     NON-literal spec (a symbol / computed map) or a non-literal `:registrations`
+     is returned UNCHANGED — the runtime `strip-descriptor-documentation`
+     normalization still elides `:doc` from computed-metadata descriptor storage,
+     but a computed map's string bytes are an unavoidable compile-time limitation
+     the macro cannot DCE. Pure — a syntactic rewrite over the spec form that
+     preserves runnable slots, authored ids, and every non-`:doc` metadata key
+     (`gate-doc-arg` strips ONLY the pure-documentation keys from its prod arm)."
+     [spec-form]
+     (if-not (and (map? spec-form) (map? (:registrations spec-form)))
+       spec-form
+       (update spec-form :registrations
+               (fn [registrations]
+                 (reduce-kv
+                   (fn [m section entries]
+                     (assoc m section
+                            (if (vector? entries)
+                              (mapv gate-inline-image-entry entries)
+                              entries)))
+                   (empty registrations)
+                   registrations))))))
+
 ;; ---- defreg-macro --------------------------------------------------------
 ;;
 ;; `defreg-macro` (rf2-bd6zl) is a macro-defining macro that emits a
