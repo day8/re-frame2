@@ -538,6 +538,18 @@ else
         reagent_slim_bundle=true
         ui_gates=true
         ;;
+      implementation/scripts/run-ui-g8.cjs)
+        # rf2-vxgfnd.95.10 — the complete G-8 compile/serve/dual-engine
+        # (Chromium + WebKit) controlled-input orchestrator. A launcher-only
+        # change must run the ui_gates job it owns (cljs-ui-g8); retain the
+        # generic scripts fan-out too.
+        cljs_node_test=true
+        cljs_browser=true
+        cljs_prod=true
+        bundle_isolation=true
+        reagent_slim_bundle=true
+        ui_gates=true
+        ;;
       implementation/scripts/check-ui-adapter-isolation.cjs)
         # The checker IS the focused re-frame.ui dependency-closure gate.
         # A checker-only PR must start the consolidated CLJS job that owns
