@@ -353,7 +353,18 @@ Three variations worth knowing:
   `re-frame.core/reg-view*` and capture the frame **once in the outer callable**
   (`(rf/capture-frame)` — the one live-resolver site in a Form-3); deref the
   captured `:subscribe` inside `:reagent-render`, never in a lifecycle callback
-  (reactive reads have no owner there, and the scope has already unwound).
+  (reactive reads have no owner there, and the scope has already unwound). The
+  one disciplined exception is a rare imperative widget re-fed as a sub's value
+  changes from a hook rather than React's render commit: it captures the frame's
+  `:subscribe` in the outer callable, `add-watch`es the reaction under a
+  **per-mount** watch key (never a constant — equal `(frame, query-v)`
+  subscriptions share **one** cached reaction, so a constant key clobbers a
+  sibling instance's watch), and balances the acquire with frame-first
+  `(rf/unsubscribe frame query-v)` at unmount. That is the *only* lifecycle use
+  of the captured `:subscribe`; see
+  [`guided-handlers-state.md`](../../../skills/re-frame-migration/references/guided-handlers-state.md)
+  §M-11 for the copy-pasteable form. It does not weaken the default: ordinary
+  reactive reads still belong in `:reagent-render`, not a hook.
 
   **Capture-once is a locked handle — safe only when the mount's frame is
   invariant.** `(rf/capture-frame)` locks to the **one** frame that is live when
