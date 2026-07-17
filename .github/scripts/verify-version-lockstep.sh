@@ -239,24 +239,32 @@ for artefact in "${ARTEFACTS[@]}"; do
   KNOWN_IMPL_PATHS["${ARTEFACT_PATHS[$artefact]}"]=1
 done
 # Adapters live under implementation/adapters/<name>/; their subpaths are
-# already registered (adapters/reagent, …). Walk both the flat
-# per-feature dirs and the adapters/ dir for :clein/build.
-while IFS= read -r deps_file; do
-  [[ -f "${deps_file}" ]] || continue
-  # Strip `;;` line comments before matching so a deps.edn that only
-  # MENTIONS :clein/build in prose (e.g. implementation/adapters/test-react/
-  # whose header documents that it deliberately carries NO :clein/build) is
-  # not mis-detected as publishable.
-  sed 's/;;.*$//' "${deps_file}" | grep -qF ':clein/build' || continue
-  # Derive the subpath relative to implementation/ (e.g. "resources" or
-  # "adapters/reagent").
-  subpath="${deps_file#"${REPO_ROOT}/implementation/"}"
-  subpath="${subpath%/deps.edn}"
+# already registered (adapters/reagent, …).
+#
+# rf2-zef0e — publishability is discovered via the shared EDN-AWARE authority
+# (implementation/scripts/lib/publishable-runtimes.cjs), the SAME structural
+# result the bundle-isolation gate consumes, instead of a duplicated textual
+# grep that could drift. The authority reads each deps.edn's real
+# :aliases/:clein/build KEY: a genuine alias survives `;` inside EDN strings,
+# and a :clein/build token inside a string, a `;` comment, or a `#_` discard
+# form (e.g. implementation/ui/ and implementation/adapters/test-react/ each
+# only MENTION the alias in prose) is correctly NOT treated as publishable. It
+# emits one implementation/-relative subpath per line for every publishable
+# artefact under implementation/ (bounded flat-plus-nested, same reach as the
+# previous `find -mindepth 2 -maxdepth 3`). If it cannot run we FAIL CLOSED
+# (exit) rather than skip the inventory guard.
+PUBLISHABLE_AUTHORITY="${REPO_ROOT}/implementation/scripts/lib/publishable-runtimes.cjs"
+if ! publishable_subpaths="$(node "${PUBLISHABLE_AUTHORITY}" "${REPO_ROOT}/implementation")"; then
+  echo "::error file=implementation/scripts/lib/publishable-runtimes.cjs::failed to enumerate publishable artefacts via the structural EDN authority (is node available on PATH?)"
+  exit 2
+fi
+while IFS= read -r subpath; do
+  [[ -z "${subpath}" ]] && continue
   if [[ -z "${KNOWN_IMPL_PATHS[$subpath]:-}" ]]; then
     echo "::error file=implementation/${subpath}/deps.edn::implementation/${subpath} declares a :clein/build (publishable) artefact but is NOT in the lockstep ARTEFACTS inventory — add it to ARTEFACT_PATHS / ARTEFACTS / NON_CORE in this script AND to the release.yml deploy matrix + release notes (rf2-qmhysc)"
     errors=$((errors + 1))
   fi
-done < <(find "${REPO_ROOT}/implementation" -mindepth 2 -maxdepth 3 -name deps.edn)
+done <<< "${publishable_subpaths}"
 
 # Tools/* deployable jars (rf2-lwtke). Each tools/<name>/deps.edn that
 # carries a :clein/build alias publishes to Clojars at the same lockstep
