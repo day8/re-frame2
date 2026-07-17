@@ -696,6 +696,35 @@
     :<- [:rf.xray/viewcell-evidence-ownership]
     (fn [[_history _ownership-rev] _query]
       (viewcell-evidence/rows)))
+
+  ;; -- evidence-schema version honesty (rf2-vxgfnd.95.7) --------------
+  ;;
+  ;; The versioned public `re-frame.ui.tool` projections stamp
+  ;; `:rf.ui.tool/version`. When a producer's version is NOT the one this
+  ;; Xray build understands, `rows` degrades to `[]` (never mis-parses an
+  ;; evolved shape as exact) and the panel surfaces the mismatch honestly
+  ;; instead of silently rendering nothing. Same two reactive axes +
+  ;; receipt fence as the rows query, so a foreign takeover / release
+  ;; recomputes it immediately.
+  (rf/reg-sub :rf.xray/viewcell-evidence-version
+    :<- [:rf.xray/epoch-history]
+    :<- [:rf.xray/viewcell-evidence-ownership]
+    (fn [[_history _ownership-rev] _query]
+      (viewcell-evidence/version-status)))
+
+  ;; -- static per-view manifest sites (rf2-vxgfnd.95.7) --------------
+  ;;
+  ;; Event-site provenance + dependency sites + manifest facts, read from
+  ;; the versioned public `view-manifest`/`view-dependencies`/
+  ;; `view-event-sites` projections for the DISTINCT views present in the
+  ;; receipt-fenced evidence rows (evidence-keyed empty-state law — a host
+  ;; with no compiled-view evidence projects no sites). Composes off the
+  ;; evidence sub so it inherits its ownership fence + reactive freshness;
+  ;; manifests carry no per-span ownership of their own.
+  (rf/reg-sub :rf.xray/view-evidence-sites
+    :<- [:rf.xray/viewcell-evidence]
+    (fn [rows _query]
+      (viewcell-evidence/view-sites (map :view-id rows))))
   nil)
 
 (defn install!

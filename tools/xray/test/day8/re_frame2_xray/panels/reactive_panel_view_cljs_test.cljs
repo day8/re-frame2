@@ -343,6 +343,116 @@
              (text-of tree "rf-xray-reactive-destroyed-caption"))
           "the explanatory caption renders"))))
 
+;; ---- mounted-view evidence (S3 · re-frame.ui.tool · rf2-vxgfnd.95.7) ---
+
+(defn- seed-evidence!
+  "Seed the three cumulative evidence subs the mounted-view + sites sections
+  read (independent of the epoch-scoped `:rf.xray/reactive-data`)."
+  [{:keys [rows version sites]}]
+  (rf/reg-sub :rf.xray/viewcell-evidence (fn [_db _q] (or rows [])))
+  (rf/reg-sub :rf.xray/viewcell-evidence-version (fn [_db _q] version))
+  (rf/reg-sub :rf.xray/view-evidence-sites (fn [_db _q] (or sites []))))
+
+(deftest mounted-view-evidence-row-renders-occurrence-lifecycle-and-honest-loss
+  (testing "rf2-vxgfnd.95.7 — an evidence row surfaces occurrence identity, the
+            honest Activity-hidden lifecycle label, and the floored loss count."
+    (facade/install!)
+    (rf/make-frame {:id :rf/xray})
+    (seed-reactive-data! {:has-event-bundle? false :focus {}})
+    (seed-evidence!
+      {:rows [{:occurrence 7 :view-id :cart/Row :root-id :page/shop
+               :connection :disconnected
+               :lifecycle {:intervals [{:state :disconnected
+                                        :reason :activity-hidden :proof :reconnect}]
+                           :dropped 0 :exact? true}
+               :causes #{:value} :count 4 :batches 2
+               :first-epoch 10 :latest-epoch 14
+               :targets [[:sub :rf/app [:a]]] :targets-exact? false
+               :dropped-count 70 :dropped-exact? false}]})
+    (let [tree (view/reactive-panel)
+          row  (text-of tree "rf-xray-reactive-viewcell-evidence-row-7")]
+      (is (some? row) "the occurrence-keyed row renders")
+      (is (re-find #"occ #7" row) "occurrence identity")
+      (is (re-find #"activity-hidden \(proven: reconnect\)" row)
+          "the qualified retroactive hide label renders with its proof")
+      (is (re-find #"≥70 dropped" row) "the floored loss is marked ≥, not exact")
+      (is (re-find #"4 renders" row) "the render count")
+      (is (re-find #"epochs 10→14" row) "the epoch span"))))
+
+(deftest mounted-view-evidence-empty-state-renders-honestly
+  (testing "no evidence → the honest empty placeholder, no fabricated rows."
+    (facade/install!)
+    (rf/make-frame {:id :rf/xray})
+    (seed-reactive-data! {:has-event-bundle? false :focus {}})
+    (seed-evidence! {:rows []})
+    (let [tree (view/reactive-panel)]
+      (is (has-testid? tree "rf-xray-reactive-viewcell-evidence-empty")
+          "empty placeholder renders when no incarnation has evidence"))))
+
+(deftest mounted-view-evidence-version-banner-renders-on-mismatch
+  (testing "rf2-vxgfnd.95.7 — a producer evidence-schema version this build
+            does not understand renders the honest degradation banner."
+    (facade/install!)
+    (rf/make-frame {:id :rf/xray})
+    (seed-reactive-data! {:has-event-bundle? false :focus {}})
+    (seed-evidence! {:rows [] :version {:version 9999 :supported? false}})
+    (let [tree   (view/reactive-panel)
+          banner (text-of tree "rf-xray-reactive-viewcell-evidence-version-banner")]
+      (is (some? banner) "the version-mismatch banner renders")
+      (is (re-find #"v9999" banner) "names the unrecognised version")
+      (is (re-find #"suppressed" banner) "explains rows are suppressed (no mis-parse)"))))
+
+(deftest mounted-view-evidence-version-banner-absent-when-supported
+  (testing "a supported (or absent) version renders NO banner."
+    (facade/install!)
+    (rf/make-frame {:id :rf/xray})
+    (seed-reactive-data! {:has-event-bundle? false :focus {}})
+    (seed-evidence! {:rows [] :version {:version 1 :supported? true}})
+    (let [tree (view/reactive-panel)]
+      (is (nil? (th/find-by-testid
+                  tree "rf-xray-reactive-viewcell-evidence-version-banner"))
+          "no banner on a supported version"))))
+
+(deftest compiled-view-sites-section-renders-dependencies-and-event-sites
+  (testing "rf2-vxgfnd.95.7 — the Compiled View Sites section surfaces
+            dependency + event-site provenance; :dynamic/opaque labelled."
+    (facade/install!)
+    (rf/make-frame {:id :rf/xray})
+    (seed-reactive-data! {:has-event-bundle? false :focus {}})
+    (seed-evidence!
+      {:sites [{:view-id :cart/Row
+                :source {:file "src/cart.cljs" :line 12 :column 3}
+                :capabilities #{:html}
+                :site-counts {:subs 2 :events 2}
+                :dependencies {:subscriptions [{:sid 1 :dynamic? false :query [:cart/total]}
+                                               {:sid 2 :dynamic? true}]
+                               :leases []}
+                :event-sites [{:prop :on-click :site-kind :literal
+                               :serializable? true :handler [:cart/add 3]}
+                              {:prop :on-blur :site-kind :dynamic
+                               :serializable? false :handler :opaque}]}]})
+    (let [tree   (view/reactive-panel)
+          events (text-of tree "rf-xray-reactive-view-site-events-_cart_Row")]
+      (is (has-testid? tree "rf-xray-reactive-view-sites-section")
+          "the Compiled View Sites section renders")
+      (is (has-testid? tree "rf-xray-reactive-view-site-row-_cart_Row")
+          "the per-view site row renders")
+      (is (has-testid? tree "rf-xray-reactive-view-site-code-_cart_Row")
+          "the [code] source chip renders for a manifest with a source coord")
+      (is (re-find #":cart/add" events) "a literal handler vector is shown")
+      (is (re-find #"opaque" events) "a dynamic handler is honestly labelled opaque"))))
+
+(deftest compiled-view-sites-section-absent-when-no-sites
+  (testing "no compiled-view sites → the section is absent entirely (the
+            evidence-keyed silent-when-zero grammar, not an empty caption)."
+    (facade/install!)
+    (rf/make-frame {:id :rf/xray})
+    (seed-reactive-data! {:has-event-bundle? false :focus {}})
+    (seed-evidence! {:sites []})
+    (let [tree (view/reactive-panel)]
+      (is (nil? (th/find-by-testid tree "rf-xray-reactive-view-sites-section"))
+          "the section does not render for a substrate-free host"))))
+
 ;; ---- legend (rf2-ad7zx.6) ---------------------------------------------
 
 (deftest legend-renders-three-swatches

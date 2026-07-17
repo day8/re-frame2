@@ -522,63 +522,214 @@
 ;; REMOVED — classification no longer propagates input → output, so there is no
 ;; `:rf.egress/output-sensitivity :rf.egress/public` declassify claim to surface.
 
-;; ---- ViewCell invalidation evidence (rf2-vxgfnd.146) --------------------
+;; ---- mounted-view evidence (S3 · re-frame.ui.tool · rf2-vxgfnd.95.7) -----
+;;
+;; Sourced from the VERSIONED PUBLIC `re-frame.ui.tool` projections
+;; (`explain-render` for the per-incarnation causes/lifecycle/loss;
+;; `view-manifest`/`view-dependencies`/`view-event-sites` for the static
+;; per-view sites) — NOT the raw tier read. Occurrence identity, the honest
+;; hide-vs-unmount lifecycle labels, observation-identity fidelity, and the
+;; explicit loss account all render truthfully; nothing inferred is shown as
+;; exact.
 
 (defn- causes-label
   [causes]
   (when (seq causes)
     (string/join "/" (map name (sort-by name causes)))))
 
+(defn- lifecycle-label
+  "Honest hide-vs-unmount label for a DISCONNECTED incarnation, read from the
+  latest lifecycle interval's qualified retroactive annotation (03 §4). nil
+  for a live `:connected` cell (it needs no teardown tag). NEVER fabricates:
+  a disconnect the runtime has not PROVEN stays `disconnected · unknown` —
+  `:activity-hidden` / `:unmounted` render only with their proof token."
+  [{:keys [connection lifecycle]}]
+  (when (= :disconnected connection)
+    (let [iv     (last (:intervals lifecycle))
+          proof  (:proof iv)]
+      (case (:reason iv)
+        :activity-hidden (str "activity-hidden"
+                              (when proof (str " (proven: " (name proof) ")")))
+        :unmounted       (str "unmounted"
+                              (when proof (str " (proven: " (name proof) ")")))
+        ;; :unknown / absent — no proof yet; the honest floor label.
+        "disconnected · unknown"))))
+
 (defn- evidence-tag
-  "One muted trailing summary per evidence row: occurrences · batches ·
-  epoch span · causes · shown targets · HONEST loss (`≥` when the
-  distinct-omission account saturated — never understated silently)."
-  [{:keys [first-epoch latest-epoch causes targets
+  "One muted trailing summary per evidence row: renders · batches · epoch
+  span · causes · shown targets (`~` when observation identity was made
+  opaque) · HONEST loss (`≥` when the distinct-omission account saturated —
+  never understated silently)."
+  [{:keys [first-epoch latest-epoch causes targets targets-exact?
            dropped-count dropped-exact?] :as row}]
   (let [n (:count row)
         b (:batches row)]
-    (str n " invalidation" (when (not= 1 n) "s")
+    (str n " render" (when (not= 1 n) "s")
          " · " b " batch" (when (not= 1 b) "es")
          (when (some? first-epoch)
            (str " · epochs " first-epoch "→" latest-epoch))
          (when-some [c (causes-label causes)] (str " · " c))
-         (when (seq targets) (str " · " (count targets) " targets"))
+         (when (seq targets)
+           (str " · " (count targets) (when-not targets-exact? "~") " targets"))
          (when (pos? (or dropped-count 0))
            (str " · " (if dropped-exact? "" "≥") dropped-count " dropped")))))
 
+(def ^:private version-banner-style
+  {:margin "0 0 8px 0" :padding "8px 12px"
+   :border-radius "6px"
+   :background (with-alpha :warning 12)
+   :border (str "1px solid " (with-alpha :warning 40))
+   :color (:text-secondary tokens)
+   :font-family sans-stack :font-size "11px"})
+
+(defn- viewcell-evidence-version-banner
+  "Honest evidence-schema mismatch banner (S3). When the `re-frame.ui.tool`
+  producer stamps a version this Xray build does not understand, `rows`
+  degrades to empty rather than mis-parse; this banner tells the operator WHY
+  the section is empty, so a stale-version deployment reads honestly instead
+  of looking like a substrate-free host."
+  []
+  (let [{:keys [version supported?]}
+        @(rf/subscribe [:rf.xray/viewcell-evidence-version])]
+    (when (and version (not supported?))
+      [:div {:data-testid "rf-xray-reactive-viewcell-evidence-version-banner"
+             :style version-banner-style}
+       (str "Evidence schema v" version
+            " is not recognised by this Xray build — mounted-view rows are "
+            "suppressed to avoid mis-parsing an evolved shape.")])))
+
 (defn- viewcell-evidence-section
-  "The CUMULATIVE ViewCell invalidation-evidence section — Xray's render
-  path over its owned `re-frame.ui.tool.evidence` projection
-  (rf2-vxgfnd.146). One row per live ViewCell instance, keyed by the
-  stable projection ordinal; unlike the epoch-scoped sections above,
-  the accumulators span the cell's whole observed life (dead cells are
-  pruned by the projection itself). Empty on hosts not running the
-  re-frame.ui substrate."
+  "The CUMULATIVE mounted-view evidence section — Xray's render path over the
+  VERSIONED PUBLIC `re-frame.ui.tool/explain-render` projection it owns
+  (rf2-vxgfnd.95.7, superseding the raw-tier read). One row per live
+  incarnation, keyed by its stable OCCURRENCE ordinal; unlike the epoch-scoped
+  sections above, the accumulators span the incarnation's whole observed life
+  (dead cells are pruned by the projection). Each row carries the honest
+  connection/hide-vs-unmount lifecycle label, the render causes, the epoch
+  span, observation-identity fidelity, and the explicit loss account. Empty on
+  hosts not running the re-frame.ui substrate."
   []
   (let [rows @(rf/subscribe [:rf.xray/viewcell-evidence])]
     [:section {:data-testid "rf-xray-reactive-viewcell-evidence-section"
                :style section-margin-top-style}
-     (section-label "viewcell-evidence" "ViewCell Invalidation Evidence")
+     (section-label "viewcell-evidence" "Mounted View Evidence")
+     (viewcell-evidence-version-banner)
      (if (seq rows)
        (into [:div {:data-testid "rf-xray-reactive-viewcell-evidence-list"
                     :style list-card-style}]
-             (for [{:keys [cell-id view-id root-id] :as row} rows]
-               ^{:key (str cell-id)}
+             (for [{:keys [occurrence view-id root-id] :as row} rows]
+               ^{:key (str occurrence)}
                [list-row {:testid (str "rf-xray-reactive-viewcell-evidence-row-"
-                                       cell-id)
+                                       occurrence)
                           :swatch-token :accent
-                          :primary (str (format-id view-id) " · cell #" cell-id
+                          :primary (str (format-id view-id) " · occ #" occurrence
                                         (when root-id
-                                          (str " · " (format-id root-id))))
+                                          (str " · " (format-id root-id)))
+                                        (when-some [ll (lifecycle-label row)]
+                                          (str " · " ll)))
                           :tag (evidence-tag row)}]))
        [:div {:data-testid "rf-xray-reactive-viewcell-evidence-empty"
               :style empty-placeholder-style}
-        "(no ViewCell evidence — the host is not running the re-frame.ui
-         substrate, or no invalidations have flushed yet)"])
+        "(no mounted-view evidence — the host is not running the re-frame.ui
+         substrate, or no renders have flushed yet)"])
      [:p {:data-testid "rf-xray-reactive-viewcell-evidence-caption"
           :style destroyed-caption-style}
-      "Cumulative per-cell invalidation evidence from the re-frame.ui
-       scheduler (bounded: capped target sample, honest drop account)"]]))
+      "Cumulative per-incarnation render evidence from the re-frame.ui
+       scheduler (occurrence identity · honest hide-vs-unmount labels · bounded
+       target sample + honest drop account)"]]))
+
+;; ---- compiled view sites (static manifest projection · rf2-vxgfnd.95.7) --
+;;
+;; Event-site provenance + dependency sites, read from the versioned public
+;; `view-manifest`/`view-dependencies`/`view-event-sites` projections for the
+;; compiled views present in the evidence. Honest about what it cannot know:
+;; a `:dynamic` sub/lease query or an opaque handler is labelled so — the tier
+;; never claims a raw callback's internals are inspectable.
+
+(defn- dependencies-summary
+  "One-line dependency summary — sub + lease counts with a `:dynamic` tally
+  (query shapes that carry a captured local, projected honestly). nil when a
+  view declares no dependency sites."
+  [{:keys [subscriptions leases]}]
+  (let [subs-n   (count subscriptions)
+        leases-n (count leases)
+        dyn-subs (count (filter :dynamic? subscriptions))]
+    (when (or (pos? subs-n) (pos? leases-n))
+      (str subs-n " sub" (when (not= 1 subs-n) "s")
+           (when (pos? dyn-subs) (str " (" dyn-subs " dynamic)"))
+           (when (pos? leases-n)
+             (str " · " leases-n " lease" (when (not= 1 leases-n) "s")))))))
+
+(defn- event-site-label
+  "Human label for one event-handler site — `:on-click · literal ·
+  [:cart/add id]` for a serializable literal/normalized vector, `:on-click ·
+  dynamic (opaque)` for a `ui/event`/bare-fn/dynamic handler the static
+  surface cannot inspect (04 §3 — never fabricate an event shape)."
+  [{:keys [prop site-kind handler]}]
+  (str (format-id prop) " · " (name site-kind)
+       (if (= :opaque handler)
+         " (opaque)"
+         (str " · " (pr-str handler)))))
+
+(def ^:private view-site-row-style
+  {:padding "8px 14px"
+   :border-top (str "1px solid " (:border-subtle tokens))
+   :font-family mono-stack :font-size "12px"
+   :color (:text-primary tokens)})
+
+(def ^:private view-site-detail-style
+  {:color (:text-tertiary tokens)
+   :font-family sans-stack :font-size "10px"
+   :margin-top "3px"})
+
+(defn- view-site-row
+  [{:keys [view-id source capabilities site-counts dependencies event-sites]}]
+  (let [coord    (when (string? (:file source)) source)
+        deps     (dependencies-summary dependencies)
+        caps     (when (seq capabilities)
+                   (string/join " · " (map name (sort-by name capabilities))))]
+    [:div {:data-testid (str "rf-xray-reactive-view-site-row-" (id-slug view-id))
+           :style view-site-row-style}
+     [:div {:style {:display "flex" :align-items "center" :gap "10px"}}
+      [:span {:style {:flex 1}} (format-id view-id)]
+      (when coord
+        [:span {:data-testid (str "rf-xray-reactive-view-site-code-" (id-slug view-id))
+                :on-click (fn [e] (open-source! coord e))
+                :style {:cursor "pointer" :color (:accent tokens)
+                        :font-family sans-stack :font-size "10px"}}
+         "[code]"])]
+     (when (or deps caps)
+       [:div {:style view-site-detail-style}
+        (->> [deps (when caps (str "caps " caps))] (remove nil?) (string/join " · "))])
+     (when (seq event-sites)
+       (into [:div {:data-testid (str "rf-xray-reactive-view-site-events-" (id-slug view-id))
+                    :style view-site-detail-style}]
+             (for [[i site] (map-indexed vector event-sites)]
+               ^{:key i}
+               [:div (event-site-label site)])))]))
+
+(defn- view-sites-section
+  "The COMPILED VIEW SITES section — per-view event-site provenance +
+  dependency sites from the static manifest projections, for the compiled
+  views present in the evidence (evidence-keyed: renders nothing on a host
+  with no compiled-view evidence). Honest about `:dynamic` queries and opaque
+  handlers."
+  []
+  (let [views @(rf/subscribe [:rf.xray/view-evidence-sites])]
+    (when (seq views)
+      [:section {:data-testid "rf-xray-reactive-view-sites-section"
+                 :style section-margin-top-style}
+       (section-label "view-sites" "Compiled View Sites")
+       (into [:div {:data-testid "rf-xray-reactive-view-sites-list"
+                    :style list-card-style}]
+             (for [{:keys [view-id] :as v} views]
+               ^{:key (str view-id)}
+               [view-site-row v]))
+       [:p {:data-testid "rf-xray-reactive-view-sites-caption"
+            :style destroyed-caption-style}
+        "Declared subscription/lease + event-handler sites from the compiler
+         manifest (before-mount evidence; :dynamic queries + opaque handlers
+         labelled, never fabricated)"]])))
 
 ;; ---- legend ------------------------------------------------------------
 
@@ -657,11 +808,13 @@
         [:div {:data-testid "rf-xray-reactive-pipeline-empty"
                :style {:padding "16px"}}
          (empty-state data)
-         ;; The evidence section is CUMULATIVE (not epoch-scoped), so it
-         ;; renders with or without a focused event-bundle. Plain
-         ;; function call — the subscribe must run inside THIS render's
-         ;; carried :rf/xray frame scope (the panel's delegation idiom).
-         (viewcell-evidence-section)]
+         ;; The evidence + compiled-view-sites sections are CUMULATIVE (not
+         ;; epoch-scoped), so they render with or without a focused
+         ;; event-bundle. Plain function call — the subscribe must run inside
+         ;; THIS render's carried :rf/xray frame scope (the panel's
+         ;; delegation idiom).
+         (viewcell-evidence-section)
+         (view-sites-section)]
         [:div {:data-testid "rf-xray-reactive-pipeline"
                :style {:padding "16px"}}
          [:section {:data-testid "rf-xray-reactive-flow-section"}
@@ -671,4 +824,5 @@
          (unmounted-views-section data)
          (destroyed-subs-section data)
          (viewcell-evidence-section)
+         (view-sites-section)
          (legend)])]]))

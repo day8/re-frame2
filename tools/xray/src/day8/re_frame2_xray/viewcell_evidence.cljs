@@ -62,15 +62,51 @@
 
   ## What the developer sees
 
-  `rows` shapes the bounded per-cell accumulators for Xray's query +
+  `rows` shapes the bounded per-INCARNATION evidence for Xray's query +
   render path — the `:rf.xray/viewcell-evidence` sub feeding the Views
-  panel's ViewCell Invalidation Evidence section: stable cell/view/root
-  identity plus first/latest frame-epoch, occurrence count, batch count,
-  the cause union, the bounded shown-target sample, and the HONEST loss
-  account (`:dropped-count` / `:dropped-exact?`). A host not running the
-  re-frame.ui substrate simply projects zero rows."
+  panel's mounted-view evidence section.
+
+  ## S3 — consume the VERSIONED PUBLIC projections (rf2-vxgfnd.95.7)
+
+  This ns owns the ViewCell evidence PROJECTION (install/receipt/ownership),
+  but it no longer reads the raw `re-frame.ui.tool.evidence/projection`
+  interim shape. It reads the DEV-ONLY VERSIONED PUBLIC tier
+  `re-frame.ui.tool` (rf2-vxgfnd.95.6) — the frozen read-only projections
+  a debugging consumer reads WITHOUT touching private React state, leases,
+  or the scheduler:
+
+    - `explain-render`   → the cumulative render CAUSES per live incarnation,
+                           carrying OCCURRENCE IDENTITY (`:occurrence`), the
+                           live `:connection` state, the honest hide-vs-unmount
+                           `:lifecycle` labels, cause set, first/latest epoch,
+                           the moving `:observations` (with `:identity-exact?`),
+                           and EXPLICIT `:loss` accounting.
+    - `view-manifest` / `view-dependencies` / `view-event-sites` → the STATIC
+                           registrar-manifest projections (`view-sites`) — a
+                           view's declared source, dependency sites (sub/lease,
+                           literal vs `:dynamic`), and event-handler sites
+                           (`:literal` / `:normalized` / `:dynamic`), available
+                           before mount.
+
+  Every projection stamps `:rf.ui.tool/version`; `version-status` reads it so
+  a consumer built against an older head DEGRADES honestly (an unrecognized
+  version suppresses row parsing rather than mis-reading an evolved shape)
+  instead of presenting a mis-parse as exact.
+
+  The ownership/receipt FENCE is unchanged and still load-bearing: the public
+  tier's reads (`explain-render` → `evidence/instance-records`) return the
+  shared slot's entries REGARDLESS of owner, so every AUTHORIZED read still
+  checks the exact span receipt AND that Xray still owns the tier — a foreign
+  takeover or a same-key reclaim never surfaces another span's data. Static
+  manifest projections carry no ownership (the registrar is not a per-span
+  slot), but `view-sites` is keyed off the receipt-fenced evidence rows'
+  view-ids, so absent evidence yields no sites (the evidence-keyed empty-state
+  law). A host not running the re-frame.ui substrate projects zero rows / zero
+  sites. All of it DCEs out of production (the whole `re-frame.ui.tool` tier is
+  `interop/debug-enabled?`-gated)."
   (:require [goog.object :as gobj]
             [re-frame.interop :as interop]
+            [re-frame.ui.tool :as tool]
             [re-frame.ui.tool.evidence :as evidence]))
 
 (def owner-id
@@ -257,37 +293,69 @@
   (sync-sentinel! false)
   nil)
 
+(defn- supported-version?
+  "True when the projection envelope carries EXACTLY the `re-frame.ui.tool`
+  schema version this Xray build understands. A different (older or newer)
+  producer version is degraded honestly rather than mis-parsed — the shape
+  may have evolved incompatibly."
+  [version]
+  (= version tool/schema-version))
+
+(defn- project-occurrence
+  "Shape ONE `re-frame.ui.tool/explain-render` occurrence into the
+  developer-facing row. The two loss axes stay DISTINCT and honest:
+  `:targets-exact?` is observation-identity fidelity (the shown targets kept
+  their exact identity), `:dropped-exact?` is completeness of the omitted-
+  target count (`false` ⇒ a floor)."
+  [{:keys [occurrence view-id root-id connection lifecycle causes
+           render-count batches first-epoch latest-epoch observations loss]}]
+  {:occurrence     occurrence
+   :view-id        view-id
+   :root-id        root-id
+   :connection     connection
+   :lifecycle      lifecycle
+   :causes         (or causes #{})
+   :count          (or render-count 0)
+   :batches        (or batches 0)
+   :first-epoch    first-epoch
+   :latest-epoch   latest-epoch
+   :targets        (:targets observations [])
+   :targets-exact? (boolean (:identity-exact? observations))
+   :dropped-count  (:dropped loss 0)
+   :dropped-exact? (boolean (:exact? loss))})
+
 (defn- project-rows
-  "Shape the tier `projection` into the developer-facing row vector."
+  "Shape the VERSIONED PUBLIC `re-frame.ui.tool/explain-render` projection
+  into the developer-facing row vector. `[]` when the producer version is not
+  the one this build understands (degrade — never mis-parse an evolved shape
+  as exact)."
   []
-  (into []
-        (map (fn [{:keys [cell-id view-id root-id evidence]}]
-               {:cell-id        cell-id
-                :view-id        view-id
-                :root-id        root-id
-                :first-epoch    (:first-epoch evidence)
-                :latest-epoch   (:latest-epoch evidence)
-                :count          (:count evidence)
-                :batches        (:batches evidence)
-                :causes         (:causes evidence)
-                :targets        (:targets evidence)
-                :dropped-count  (count (:dropped evidence))
-                :dropped-exact? (:dropped-exact? evidence)}))
-        (or (evidence/projection) [])))
+  (let [envelope (tool/explain-render)]
+    (if (supported-version? (:rf.ui.tool/version envelope))
+      (mapv project-occurrence (:occurrences envelope))
+      [])))
 
 (defn rows
-  "The developer-facing query projection over Xray's accumulated ViewCell
-  invalidation evidence — a vector, in stable `:cell-id` order:
+  "The developer-facing query projection over Xray's accumulated mounted-view
+  evidence — a vector, in stable `:occurrence` order, sourced from the
+  VERSIONED PUBLIC `re-frame.ui.tool/explain-render` projection (S3,
+  rf2-vxgfnd.95.7):
 
-    {:cell-id        ord      ; stable per-cell-instance ordinal
+    {:occurrence     ord      ; OCCURRENCE IDENTITY — stable per-incarnation
+                              ;   ordinal (two instances of one view distinct)
      :view-id        vid      ; the authoring view (defview identity)
      :root-id        rid|nil  ; the owning LIVE client root, or nil
+     :connection     state    ; the LIVE runtime lifecycle (:connected /
+                              ;   :disconnected — dead cells are pruned)
+     :lifecycle      {…}      ; bounded serializable lifecycle-fact log with
+                              ;   the HONEST hide-vs-unmount labels + loss
      :first-epoch    e0       ; anchor of the first delivered window
      :latest-epoch   eN       ; most recent movement
-     :count          n        ; total invalidation occurrences
+     :count          n        ; total invalidation/render occurrences
      :batches        b        ; flushed batches that delivered evidence
      :causes         #{…}     ; union cause set (:value/:hmr/:disposed)
      :targets        [tk …]   ; bounded shown sample of moving targets
+     :targets-exact? bool     ; observation-identity fidelity (false ⇒ opaque)
      :dropped-count  d        ; distinct omitted targets (honest loss)
      :dropped-exact? bool}    ; false ⇒ d is a lower bound (saturated)
 
@@ -302,18 +370,81 @@
   `[]` when the presented span is not the installed owner (never
   installed, uninstalled, a FOREIGN owner holds it, or the receipt names a
   superseded span — ownership authorization must mean no observation
-  through Xray), when empty, or in a production build (debug evidence
-  plane elided). Every read compares the exact receipt AND that Xray still
-  owns the tier, so cache invalidation alone can never authorize a stale
+  through Xray), when empty, when the producer's evidence-schema version is
+  not this build's (`version-status` surfaces the mismatch honestly), or in
+  a production build (the whole `re-frame.ui.tool` tier is elided). The public
+  tier reads `evidence/instance-records`, which returns the shared slot
+  REGARDLESS of owner, so every read compares the exact receipt AND that Xray
+  still owns the tier — cache invalidation alone can never authorize a stale
   reader (rf2-vxgfnd.238/.286)."
   ([] (rows (current-receipt)))
   ([receipt]
    ;; Exact authorization (rf2-vxgfnd.286): the receipt must name Xray's
    ;; CURRENT span AND Xray must still be the installed tier owner. The
-   ;; tier's `projection` read returns the shared slot's entries REGARDLESS
-   ;; of owner, so a bare read would expose a foreign owner's evidence or a
+   ;; public tier's read returns the shared slot's entries REGARDLESS of
+   ;; owner, so a bare read would expose a foreign owner's evidence or a
    ;; superseded span's — gate EVERY read on both.
    (if (and (some? receipt)
             (= receipt (current-receipt)))
      (project-rows)
      [])))
+
+(defn version-status
+  "The evidence-schema version honesty read (receipt-fenced) — `{:version v
+  :supported? bool}` for Xray's CURRENT span, or nil when Xray does not own
+  the projection / no envelope / production. `:supported? false` (a version
+  present but not this build's) means `rows` is suppressed to avoid a
+  mis-parse, and the panel surfaces the mismatch rather than pretending an
+  evolved shape is exact. The version rides EVERY `re-frame.ui.tool`
+  projection, so one read is representative."
+  ([] (version-status (current-receipt)))
+  ([receipt]
+   (when (and (some? receipt)
+              (= receipt (current-receipt)))
+     (when-some [version (:rf.ui.tool/version (tool/explain-render))]
+       {:version    version
+        :supported? (supported-version? version)}))))
+
+(defn view-sites
+  "The STATIC per-view manifest-site projections for `view-ids` — the
+  event-site provenance, dependency sites, and manifest facts a debugging
+  consumer reads from the compiler manifest BEFORE mount (S3,
+  rf2-vxgfnd.95.7). One entry per view-id that resolves to a registered
+  compiled view (unregistered / legacy-adapter ids are skipped — no
+  fabricated `(no manifest)` row); shaped from the VERSIONED PUBLIC
+  `view-manifest` / `view-dependencies` / `view-event-sites` projections:
+
+    {:view-id        vid
+     :source         {:file :line :column}?      ; the [code] chip source
+     :display-name   str?
+     :capabilities   #{…}                         ; :raw/:html/:foreign/…
+     :site-counts    {:subs n :events n :leases n …}
+     :template-fingerprint tf?
+     :dependencies   {:subscriptions [{…}] :leases [{…}]}  ; literal vs :dynamic
+     :event-sites    [{:prop :site-kind :classification :serializable?
+                       :handler …}]}              ; :literal/:normalized/:dynamic
+
+  These carry NO ownership (the registrar is not a per-span slot), so this
+  read is NOT receipt-fenced; callers key it off the receipt-fenced evidence
+  rows' view-ids so absent evidence yields no sites (the evidence-keyed
+  empty-state law). A view whose producer version is unrecognized is skipped
+  (degrade). nil-safe; distinct, first-seen view-id order preserved."
+  [view-ids]
+  (into []
+        (comp
+         (distinct)
+         (keep (fn [view-id]
+                 (let [m (tool/view-manifest view-id)]
+                   (when (supported-version? (:rf.ui.tool/version m))
+                     (let [deps   (tool/view-dependencies view-id)
+                           events (tool/view-event-sites view-id)]
+                       {:view-id              view-id
+                        :source               (:source m)
+                        :display-name         (:display-name m)
+                        :capabilities         (:capabilities m)
+                        :site-counts          (:site-counts m)
+                        :template-fingerprint (:template-fingerprint m)
+                        :dependencies         {:subscriptions (:subscriptions deps [])
+                                               :leases        (:leases deps [])}
+                        :event-sites          (:handlers events [])}))))))
+        (or view-ids [])))

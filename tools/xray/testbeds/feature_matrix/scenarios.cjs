@@ -1015,14 +1015,15 @@ async function runShellFeatureSweep(page) {
     { timeoutMs: 5000, description: 'epoch-scoped trace feed renders rows' },
   );
 
-  // rf2-vxgfnd.146 — the native ViewCell evidence consumer is wired by
-  // the REAL preload in this chrome runtime: (1) the install sentinel is
-  // present (the preload claimed the re-frame.ui.tool.evidence projection
-  // under Xray's stable owner identity), and (2) the Views panel renders
-  // the cumulative ViewCell Invalidation Evidence section (its EMPTY
-  // state here — the counter surface is Reagent-hosted, so no ViewCells
-  // deliver; the populated-row proof lives in the node suite). Removing
-  // the preload install or the panel consumer wiring fails this sweep.
+  // rf2-vxgfnd.146/.95.7 — the native mounted-view evidence consumer is
+  // wired by the REAL preload in this chrome runtime: (1) the install
+  // sentinel is present (the preload claimed the re-frame.ui.tool.evidence
+  // projection under Xray's stable owner identity), and (2) the Views panel
+  // renders the cumulative Mounted View Evidence section (its EMPTY state
+  // here — the counter surface is Reagent-hosted, so no ViewCells deliver;
+  // the populated-row proof lives in the node suite). Xray now consumes the
+  // VERSIONED PUBLIC `re-frame.ui.tool` projections, not the raw tier read.
+  // Removing the preload install or the panel consumer wiring fails this sweep.
   const evidenceInstalled = await page.evaluate(
     () => !!globalThis.__day8_re_frame2_xray_viewcell_evidence,
   );

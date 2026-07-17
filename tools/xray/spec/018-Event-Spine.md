@@ -713,6 +713,17 @@ sections that read top-to-bottom as the developer scans.
    call-site was captured. **Comes FIRST** per Mike's Q1 — the
    developer's first instinct ("who fired this?") gets the most
    prominent slot.
+   - **S3 view-site provenance (rf2-vxgfnd.95.7) — deferred, not fabricated.**
+     The S3 IA (§2A) planned a per-dispatch view-instance provenance line here
+     (`view :cart/row · site :on-click #17`), but that join needs a
+     dispatch-envelope view-site TAG the S3 producer (.95.6) does not emit —
+     attribution is emitted at the cause site, never reconstructed, so Xray
+     does NOT walk DOM/Fiber to synthesise it. Until that framework emit lands,
+     the STATIC event-site provenance (a compiled view's declared `:on-*`
+     handler sites, classified literal / normalized / opaque) surfaces in the
+     Views tab's Compiled View Sites section
+     ([spec/021 §3.4.2](./021-Dynamic-Panel-Designs.md)) from the manifest
+     projections, and this DISPATCH SITE line is unchanged.
 1a. **RECORDABLE COEFFECTS** (rf2-9fyn40 · EP-0010 · EP-0017 §9) — the
    dispatch envelope's flat `:rf.cofx` map, surfaced **RIGHT AFTER DISPATCH
    SITE** (it answers the same orienting "where did this state value come
