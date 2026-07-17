@@ -116,6 +116,33 @@
       (is (find-by-testid rendered "rf-xray-settings-epoch-history-value")
           "Epoch history numeric readout renders alongside the slider"))))
 
+(deftest general-section-restores-show-unchanged-subs-pin
+  (testing "rf2-16y3x — the General tab re-exposes the 'Always show
+            unchanged subs' pin (spec/021 §3.4). The control had been
+            removed while its `:general :show-unchanged-subs?` slot stayed,
+            so the spec/source promised a pin with no UI. The controlled
+            checkbox reflects the slot and writes via :rf.xray/settings-update."
+    (setup!)
+    (rf/with-frame :rf/xray
+      (rf/dispatch-sync [:rf.xray/settings-open])
+      (rf/dispatch-sync [:rf.xray/settings-select-tab :general]))
+    (rf/with-frame :rf/xray
+      (let [rendered (popup/Modal)
+            box      (find-by-testid rendered "rf-xray-settings-show-unchanged-subs")]
+        (is (some? box) "the restored show-unchanged-subs checkbox renders")
+        (is (= false (:checked (second box)))
+            "unchecked by default (slot default OFF)")
+        (is (fn? (:on-change (second box)))
+            "the checkbox carries an :on-change writer")))
+    ;; Flip the pin ON; the controlled checkbox reflects the slot on re-render.
+    (rf/with-frame :rf/xray
+      (rf/dispatch-sync [:rf.xray/settings-update :general :show-unchanged-subs? true]))
+    (rf/with-frame :rf/xray
+      (let [rendered (popup/Modal)
+            box      (find-by-testid rendered "rf-xray-settings-show-unchanged-subs")]
+        (is (= true (:checked (second box)))
+            "the checkbox reflects the flipped-on pin")))))
+
 ;; rf2-pu9sb moved the Epoch history slider from General to Buffer;
 ;; that move was reverted 2026-05-27 per Mike. The slot stays
 ;; `:general :epoch-history`; only the visual home moved. The
