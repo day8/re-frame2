@@ -173,45 +173,45 @@
 (deftest launch-diagnostics-names-unknown-flag
   (let [[d :as ds] (server/launch-diagnostics ["--no-eavl"])]
     (is (= 1 (count ds)))
-    (is (= :unknown-flag (:rf.config/issue d)))
-    (is (= "--no-eavl"   (:rf.config/input d)))
-    (is (= :warn         (:rf.config/severity d)))))
+    (is (= :unknown-flag (:issue d)))
+    (is (= "--no-eavl"   (:input d)))
+    (is (= :warn         (:severity d)))))
 
 (deftest launch-diagnostics-names-removed-flag
   (testing "renamed --allow-raw-state names the replacement"
     (let [[d] (server/launch-diagnostics ["--allow-raw-state"])]
-      (is (= :removed-flag (:rf.config/issue d)))
-      (is (re-find #"allow-sensitive-reads" (:rf.config/effect d)))))
+      (is (= :removed-flag (:issue d)))
+      (is (re-find #"allow-sensitive-reads" (:effect d)))))
   (testing "removed --allow-eval names the default-ON flip"
     (let [[d] (server/launch-diagnostics ["--allow-eval"])]
-      (is (= :removed-flag (:rf.config/issue d)))
-      (is (re-find #"--no-eval" (:rf.config/effect d))))))
+      (is (= :removed-flag (:issue d)))
+      (is (re-find #"--no-eval" (:effect d))))))
 
 (deftest launch-diagnostics-names-missing-value
   (testing "trailing valued flag with no value"
     (let [[d] (server/launch-diagnostics ["--port-file"])]
-      (is (= :missing-value (:rf.config/issue d)))
-      (is (= "--port-file"  (:rf.config/input d)))))
+      (is (= :missing-value (:issue d)))
+      (is (= "--port-file"  (:input d)))))
   (testing "valued flag immediately followed by another flag"
     (let [[d] (server/launch-diagnostics ["--http-port" "--no-eval"])]
-      (is (= :missing-value (:rf.config/issue d)))
-      (is (= "--http-port"  (:rf.config/input d)))))
+      (is (= :missing-value (:issue d)))
+      (is (= "--http-port"  (:input d)))))
   (testing "a valued flag WITH a value is clean"
     (is (= [] (server/launch-diagnostics ["--port-file" "/abs/nrepl.port"])))))
 
 (deftest launch-diagnostics-names-malformed-http-port
   (let [[d] (server/launch-diagnostics ["--http-port" "garbage"])]
-    (is (= :malformed-value (:rf.config/issue d)))
-    (is (re-find #"9630" (:rf.config/effect d)))))
+    (is (= :malformed-value (:issue d)))
+    (is (re-find #"9630" (:effect d)))))
 
 (deftest launch-diagnostics-names-malformed-resource-flag
   (testing "non-positive resource cap"
     (let [[d] (server/launch-diagnostics ["--max-concurrent-streams=0"])]
-      (is (= :malformed-value (:rf.config/issue d)))
-      (is (= "--max-concurrent-streams=0" (:rf.config/input d)))))
+      (is (= :malformed-value (:issue d)))
+      (is (= "--max-concurrent-streams=0" (:input d)))))
   (testing "non-numeric resource cap"
     (let [[d] (server/launch-diagnostics ["--abuse-window-ms=abc"])]
-      (is (= :malformed-value (:rf.config/issue d)))))
+      (is (= :malformed-value (:issue d)))))
   (testing "a valid positive resource cap is clean"
     (is (= [] (server/launch-diagnostics ["--max-events-per-sec=200"])))))
 
@@ -221,7 +221,7 @@
                #js {:RE_FRAME2_PAIR_MCP_MAX_STREAMS        "0"
                     :RE_FRAME2_PAIR_MCP_MAX_EVENTS_PER_SEC "not-a-number"})]
       (is (= 2 (count ds)))
-      (is (every? #(= :malformed-env (:rf.config/issue %)) ds))))
+      (is (every? #(= :malformed-env (:issue %)) ds))))
   (testing "valid + unset env is clean"
     (is (= [] (server/resource-env-diagnostics
                 #js {:RE_FRAME2_PAIR_MCP_MAX_STREAMS "15"})))
