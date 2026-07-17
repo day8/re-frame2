@@ -152,7 +152,7 @@
                                           #(uit/dispatch!
                                             f
                                             [::value-disable-value 1 2]))]
-                     (testing "all queued event writes finish before the read side"
+                     (testing "all queued event writes finish before the render phase"
                        (is (= {:enabled? false :value 2}
                               (rf/app-db-value f)))
                        (is (= (+ 3 epoch-before)

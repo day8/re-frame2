@@ -122,7 +122,7 @@
     [:output {:data-role "equal-value"}
      (str (:value v))]))
 
-(deftest mounted-rf-equal-recomputation-moves-no-read-side-surface
+(deftest mounted-rf-equal-recomputation-moves-no-render-surface
   (when (browser?)
     (reset! equality-computes 0)
     (rf/reg-sub ::equal-projection
@@ -160,9 +160,9 @@
               (uit/flush! #(uit/dispatch! f [::equal-noop]))
               (.then
                (fn []
-                 (testing "the write side really recomputed the projection"
+                 (testing "the projection really recomputed"
                    (is (> @equality-computes initial-computes)))
-                 (testing "rf=-equal output advances no mounted read-side surface"
+                 (testing "rf=-equal output advances no mounted render surface"
                    (is (= "1" (.-textContent
                                 (uit/query root "[data-role='equal-value']"))))
                    (is (= initial-version (:version (obs/read lease))))

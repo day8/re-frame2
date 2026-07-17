@@ -171,7 +171,7 @@
                                      :hot-body-by-index (vec (repeat 8 0))
                                      :commits 0}}
                          @pre)
-                      "write side did not coalesce before the read side"
+                      "update and commit phases did not coalesce before the render phase"
                       {:v v :label label :pre @pre})
              (ensure! (= expected projection) "post-drain work projection drift"
                       {:v v :label label :expected expected :actual projection})

@@ -209,7 +209,7 @@
                (assert-ownership! frame-id cells-by-count))
              (reset! evidence (body-evidence))
              (let [p (uit/flush! #(uit/dispatch! f [::write-next 0]))]
-               (testing "the complete queued write side precedes any read/render work"
+               (testing "the complete queued update and commit phases precede any read/render work"
                  (is (= 29 (:writes (rf/app-db-value f))))
                  (is (= (vec (repeat 29 1)) (site-values (rf/app-db-value f))))
                  (is (= "0" (rendered-values root 1)))

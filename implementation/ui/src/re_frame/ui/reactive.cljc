@@ -1632,8 +1632,8 @@
       (error/throw-error!
        :rf.error/flush-in-open-epoch where
        (str where " was called while frame " (pr-str frame-id)
-            " is still inside its event drain — let the queued write side "
-            "settle to drain quiescence before forcing the one read/render batch")
+            " is still inside its event drain — let the queued update and "
+            "commit phases settle to drain quiescence before forcing the one read/render batch")
        {:recovery :no-recovery
         :extra {:frame frame-id
                 :frame-epoch (frame/frame-commit-epoch frame-id)}}))))
