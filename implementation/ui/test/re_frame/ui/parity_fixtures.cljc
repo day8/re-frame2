@@ -340,6 +340,18 @@
   [{:keys [rows]}]
   [slot-table {:rows rows :render nil}])
 
+(defview slot-bad-arity-consumer
+  "rf2-ckviw end-to-end fixture: the consumer supplies a ONE-parameter renderer,
+  but slot-table invokes `(ui/slot render i r)` with TWO args. The mismatch is not
+  statically visible here (a prop-carried render-fn), so the carrier records arity
+  1 and the slot seam's `check-slot-arity!` fails didactically BEFORE invocation on
+  both hosts — never the native quirk (JS drops the surplus arg; the JVM throws
+  ArityException). NOT a member of `views`/`cases` — it throws on render by design."
+  [{:keys [rows]}]
+  [slot-table {:rows rows
+               :render (ui/render-fn [only-row]
+                         [:span.cell (:name only-row)])}])
+
 ;; ---------------------------------------------------------------------------
 ;; Cases — pure data; the SINGLE corpus both hosts consume
 ;; ---------------------------------------------------------------------------

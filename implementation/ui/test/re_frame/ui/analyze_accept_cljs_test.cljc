@@ -920,7 +920,10 @@
   ;; statically-referenced internal view head — a stateful replacement part is
   ;; a PURE slot body mounting a static defview that owns its own state. If this
   ;; regressed, the wave-2 registered-ui/view gate analysis would have to redo.
-  (let [ast (ana* '[:ul (slot (render-fn [x] [child-view {:v x} [:em "kid"]]))])
+  ;; NOTE the matched slot arity: each inline render-fn declares exactly the
+  ;; parameters the slot supplies (1 arg → 1 param), the fixed-arity contract
+  ;; (rf2-ckviw).
+  (let [ast (ana* '[:ul (slot (render-fn [x] [child-view {:v x} [:em "kid"]]) item)])
         slot (first (:children ast))
         body (get-in slot [:render-fn :body])]
     (is (= :slot (:op slot)))
@@ -928,7 +931,8 @@
     (is (= :app.views/child-view (:view-id body)))
     (testing "a slot body may also mount a static view under control flow / for"
       (let [ast2 (ana* '[:ul (slot (render-fn [xs]
-                                     (for [x xs] [child-view {:key (:id x) :v x}])))])
+                                     (for [x xs] [child-view {:key (:id x) :v x}]))
+                                   items)])
             body2 (get-in ast2 [:children 0 :render-fn :body])]
         (is (= :for (:op body2)))
         (is (= :view (get-in body2 [:body :op])) "the keyed for row is an internal view")))))

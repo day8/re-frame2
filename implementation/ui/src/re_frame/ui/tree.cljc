@@ -354,12 +354,14 @@
 ;; masquerade as tree content nor be sanitized as an ordinary opaque fn.
 ;; ---------------------------------------------------------------------------
 
-(defrecord RenderFn [f])
+(defrecord RenderFn [f arity])
 
 (defn render-fn
-  "Wrap a compiled pure-render closure as a `ui/render-fn` value."
-  [f]
-  (->RenderFn f))
+  "Wrap a compiled pure-render closure as a `ui/render-fn` value, recording its
+  fixed `arity` (the declared parameter count) so `check-slot-arity!` can enforce
+  the arity host-identically."
+  [f arity]
+  (->RenderFn f arity))
 
 (defn render-fn?
   "True when `x` is a compiled `ui/render-fn` value."
@@ -385,6 +387,25 @@
     (nil? x)       false
     (render-fn? x) true
     :else          (invalid-slot! x)))
+
+(defn check-slot-arity!
+  "Enforce the host-independent ui/slot ↔ ui/render-fn arity contract BEFORE
+  invocation: a slot passing `argc` runtime args to a render-fn compiled with a
+  different fixed arity is the didactic `:rf.error/ui-tree-malformed` (the arity
+  twin of `invalid-slot!`) on BOTH hosts — neither leans on the native call
+  quirk (JS silently drops surplus args; the JVM throws a raw ArityException)."
+  [rf argc]
+  (let [arity (:arity rf)]
+    (when (not= arity argc)
+      (error/throw-error!
+       :rf.error/ui-tree-malformed 're-frame.ui/slot
+       (str "a ui/slot passed " argc " argument" (when (not= 1 argc) "s")
+            " to a ui/render-fn that declares " arity " parameter"
+            (when (not= 1 arity) "s")
+            " — a render-fn is a fixed-arity callback; the slot must pass exactly "
+            "its declared parameters. Match the slot's argument count to the "
+            "render-fn's parameter vector")
+       {:extra {:expected arity :actual argc}}))))
 
 (defn sanitize-prop
   "View-boundary :props sanitization (top-level values only): render-fn

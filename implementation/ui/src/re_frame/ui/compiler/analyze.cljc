@@ -2091,7 +2091,14 @@
   remaining args are the library's runtime values, walked in the ambient
   (library-view) scope — a slot ARGUMENT is not deferred, so a `(sub …)` there
   is the library's own render-time read. The slot's output participates in the
-  surrounding children exactly like any other child (child-like memo cost)."
+  surrounding children exactly like any other child (child-like memo cost).
+
+  A render-fn is a FIXED-arity callback (Spec 004 §render slots), so the slot
+  boundary owns ONE host-independent arity contract: an INLINE render-fn's
+  parameter count is compared with the slot's argument count HERE and a mismatch
+  is a compile error; a PROP-carried render-fn carries its arity into the runtime
+  carrier and `check-slot-arity!` enforces it before invocation on both hosts —
+  neither leans on a native fixed/variadic call quirk (rf2-ckviw)."
   [e form]
   (when (< (count form) 2)
     (env/fail! e :rf.ui.compile/bad-slot
@@ -2100,27 +2107,45 @@
                {:form form}))
   (let [slotval (nth form 1)
         args    (drop 2 form)
+        argc    (count args)
+        inline? (render-fn-form? e slotval)
         sid     (lexical-site-id e :slot form (:path e))
         args*   (into []
                       (map-indexed (fn [i a] (walk-expr e [:slot :arg i] a)))
                       args)
-        node    (cond-> {:op :slot
-                         :args args*
-                         :sid sid
-                         :static? false
-                         :path (:path e)}
-                  (render-fn-form? e slotval)
-                  (assoc :render-fn (analyze-render-fn
-                                     (update e :path conj :slot-fn) slotval))
-                  (not (render-fn-form? e slotval))
-                  (assoc :slot-value (if (literal-scalar? slotval)
-                                       slotval
-                                       (walk-expr e [:slot :value] slotval))))]
-    (env/add-site! e :slots {:sid sid
-                             :path (:path e)
-                             :source-coord (event-source-coord e form)
-                             :inline? (contains? node :render-fn)})
-    node))
+        ;; Analyze the inline body FIRST (so an impure body throws
+        ;; impure-slot-body before the arity check), then compare arity.
+        rf-node (when inline?
+                  (analyze-render-fn (update e :path conj :slot-fn) slotval))]
+    (when inline?
+      (let [pc (count (:params rf-node))]
+        (when (not= pc argc)
+          (env/fail! e :rf.ui.compile/slot-arity
+                     (str "(ui/slot render-fn arg…) passes " argc " argument"
+                          (when (not= 1 argc) "s") " to an inline (ui/render-fn "
+                          (pr-str (:params rf-node)) " …) that declares " pc
+                          " parameter" (when (not= 1 pc) "s")
+                          " — a render-fn is a FIXED-arity callback, so the slot must "
+                          "pass exactly its declared parameters (host-identically, "
+                          "before invocation). "
+                          (if (< argc pc)
+                            "Pass the missing argument(s), or drop the unused parameter(s)"
+                            "Drop the surplus argument(s), or declare the extra parameter(s)"))
+                     {:form form :expected pc :actual argc}))))
+    (let [node (cond-> {:op :slot
+                        :args args*
+                        :sid sid
+                        :static? false
+                        :path (:path e)}
+                 inline?       (assoc :render-fn rf-node)
+                 (not inline?) (assoc :slot-value (if (literal-scalar? slotval)
+                                                    slotval
+                                                    (walk-expr e [:slot :value] slotval))))]
+      (env/add-site! e :slots {:sid sid
+                               :path (:path e)
+                               :source-coord (event-source-coord e form)
+                               :inline? inline?})
+      node)))
 
 ;; ---------------------------------------------------------------------------
 ;; ui/error-boundary + ui/client-only (S3) — the interop recovery/boundary forms

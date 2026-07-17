@@ -73,6 +73,8 @@
     :rf.ui.compile/bad-slot
     :rf.ui.compile/render-fn-misplaced
     :rf.ui.compile/impure-slot-body
+    ;; host-exact slot ↔ render-fn arity (rf2-ckviw)
+    :rf.ui.compile/slot-arity
     ;; props
     :rf.ui.compile/bad-class
     :rf.ui.compile/bad-style
@@ -354,6 +356,16 @@
     ["FIXED arg list"]]
    [:rf.ui.compile/bad-slot '(slot) ["render-fn value"]]
    [:rf.ui.compile/bad-slot '[:div {:title (slot r 1)}] ["child position"]]
+   ;; host-exact slot ↔ render-fn arity (rf2-ckviw): an INLINE render-fn's
+   ;; parameter count must match the slot's argument count — too-few and too-many
+   ;; are host-independent compile errors (JS silently drops surplus args; the
+   ;; JVM throws ArityException — the compiler owns ONE contract instead).
+   [:rf.ui.compile/slot-arity
+    '(slot (render-fn [a b] [:p a b]) x)
+    ["FIXED-arity" "declares 2 parameter"]]
+   [:rf.ui.compile/slot-arity
+    '(slot (render-fn [a] [:p a]) x y)
+    ["FIXED-arity" "Drop the surplus"]]
    [:rf.ui.compile/render-fn-misplaced
     '(render-fn [a] [:p a]) ["ui/slot" "prop value"]]
    [:rf.ui.compile/render-fn-misplaced
