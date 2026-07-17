@@ -336,3 +336,64 @@
               (.then
                (fn [] (rf/destroy-frame! f) (done))
                (fn [e] (rf/destroy-frame! f) (is false (str "mixed fixture: " e)) (done)))))))))
+
+;; ---------------------------------------------------------------------------
+;; mixed update! + controlled dispatch — the G-15 updater/dispatch causal arm
+;; ---------------------------------------------------------------------------
+;;
+;; CANONICAL G-15 DEFINITION (07-testing.md §5 :145; EP-0035 §Gates; EP-0034 §4):
+;; the atomic-local writer matrix must include a MIXED `update!`+dispatch arm —
+;; not merely `set!`+dispatch. The sibling `mixed-input` above proves
+;; `set-draft` (a `set!`) composes with a dispatch; it does NOT exercise the
+;; `update!` UPDATER (which applies `(f current & args)` to the LATEST host
+;; state) alongside a dispatch. This fixture closes that specific gap
+;; (rf2-vxgfnd.95.10, 2026-07-17 audit comment): two `update!` writers compose
+;; over the latest host state (0 -> 2) AND a live-payload dispatch rides the
+;; SAME sync door, all in ONE host render pass. It is the smallest focused
+;; causal proof of the updater/dispatch interaction; it does not duplicate the
+;; broader roster.
+
+(defview mixed-update-input []
+  (let [_ (swap! renders inc)
+        [n _ update-n] (local 0)]
+    ;; A compiler-proven controlled site (literal `:value` co-present with the
+    ;; `ui/event` handler on `:on-input`). In ONE turn the body runs two
+    ;; `update!` writers that compose over the LATEST host state and returns a
+    ;; runtime dispatch vector carrying the live payload.
+    [:input {:data-role "mixed-update"
+             :value (str n)
+             :on-input (ui/event [e]
+                         (update-n inc)
+                         (update-n inc)
+                         [::typed (.. e -target -value)])}]))
+
+(deftest mixed-local-update-and-controlled-dispatch-compose-in-one-pass
+  (if-not (browser?)
+    (is true ":node — browser gate runs mixed update! + dispatch")
+    (do
+      (rf/reg-event ::typed (fn [{:keys [db]} [_ v]] {:db (assoc db :typed v)}))
+      (reset-caps!)
+      (let [f (make-frame ::mixu {})]
+        (async done
+          (-> (uit/with-root [root [ui/frame-provider {:frame f} [mixed-update-input]]]
+                (let [el (uit/query root "[data-role='mixed-update']")]
+                  (-> (host-turn!)
+                      (.then
+                       (fn []
+                         (is (= "0" (.-value el)) "the updater local exposes its initial value")
+                         (reset! renders 0)
+                         (uit/flush!
+                          #(do (set! (.-value el) "go")
+                               (dispatch-native! el (js/Event. "input" #js {:bubbles true}))
+                               (host-turn!)))))
+                      (.then
+                       (fn []
+                         (is (= "2" (.-value el))
+                             "two update! writers composed over the LATEST host state (0 -> 2)")
+                         (is (= "go" (:typed (app-db ::mixu)))
+                             "the live-payload dispatch rode the same sync door in the same turn")
+                         (is (= 1 @renders)
+                             "the update! writers + sync-door dispatch settle in ONE host pass"))))))
+              (.then
+               (fn [] (rf/destroy-frame! f) (done))
+               (fn [e] (rf/destroy-frame! f) (is false (str "mixed update fixture: " e)) (done)))))))))
