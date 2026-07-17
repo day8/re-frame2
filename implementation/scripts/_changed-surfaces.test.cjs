@@ -646,6 +646,127 @@ test('NON-preload re-frame2-pair skill file does NOT arm examples_compile (scope
   assert.equal(result.skills_structural, 'true');
 });
 
+// rf2-11yjq — the shipped re-frame2-pair preload is dev-only RUNTIME. Its
+// stateful wrapper has TWO owning behavioral gates that examples_compile
+// (compile-only, rf2-k8yl5f) and skills_structural (source-shape + pure-core
+// node fixture) do NOT exercise:
+//   - cljs-browser (gated on cljs_browser) discovers
+//     re-frame.pair-dispatch-and-settle-dom-cljs-test, which imports
+//     re-frame2-pair.runtime and drives its real React/epoch settle behavior
+//     under headless Chromium.
+//   - mcp-conformance-re-frame2-pair (gated on mcp_live) boots the hermetic
+//     fixture with THIS exact preload and exercises live Pair operations across
+//     the MCP bridge.
+// Before this bead a preload-only change left both false — merging with both
+// owning behavioral gates SKIPPED (caught only by the nightly net, a PR-time
+// false-green). These assertions pin all four positive outputs (incl. a nested
+// path), the non-preload negative, and the two job-level gate wirings.
+
+const PRELOAD_RUNTIME_FILES = [
+  'skills/re-frame2-pair/preload/re_frame2_pair/runtime.cljs',
+  'skills/re-frame2-pair/preload/re_frame2_pair/pure.cljc',
+  'skills/re-frame2-pair/preload/re_frame2_pair/nested/deep.cljs',
+];
+for (const file of PRELOAD_RUNTIME_FILES) {
+  test(`${file} arms cljs_browser + mcp_live (owning behavioral gates) (rf2-11yjq)`, () => {
+    const result = classify(file);
+    assert.equal(
+      result.cljs_browser,
+      'true',
+      'the preload runtime is exercised by re-frame.pair-dispatch-and-settle-dom-cljs-test under cljs-browser',
+    );
+    assert.equal(
+      result.mcp_live,
+      'true',
+      'the preload boots the hermetic fixture under mcp-conformance-re-frame2-pair (gated on mcp_live)',
+    );
+    // regression: the rf2-k8yl5f coverage stays armed — this widens, not narrows
+    assert.equal(result.examples_compile, 'true');
+    assert.equal(result.skills_structural, 'true');
+  });
+}
+
+test('NON-preload re-frame2-pair skill file does NOT arm cljs_browser / mcp_live (scope discipline) (rf2-11yjq)', () => {
+  // Only the shipped preload RUNTIME arms the two expensive behavioral gates.
+  // Ordinary skill material (SKILL.md, references, redaction guides) drives no
+  // runtime + no live Pair op, so it keeps its structural-only classification.
+  const result = classify('skills/re-frame2-pair/SKILL.md');
+  assert.equal(
+    result.cljs_browser,
+    'false',
+    'a non-preload skill file drives no runtime; it must NOT arm cljs_browser',
+  );
+  assert.equal(
+    result.mcp_live,
+    'false',
+    'a non-preload skill file drives no live Pair op; it must NOT arm mcp_live',
+  );
+  assert.equal(result.skills_structural, 'true');
+});
+
+test('cljs-browser job is job-level gated on cljs_browser (browser consumer, rf2-11yjq)', () => {
+  const block = jobBlock(fs.readFileSync(WORKFLOW, 'utf8'), 'cljs-browser');
+  assert.match(block, /needs: detect_changed_surfaces/);
+  assert.match(
+    block,
+    /if: needs\.detect_changed_surfaces\.outputs\.cljs_browser == 'true'/,
+  );
+});
+
+test('mcp-conformance-re-frame2-pair job is job-level gated on mcp_live (live Pair consumer, rf2-11yjq)', () => {
+  const block = jobBlock(
+    fs.readFileSync(WORKFLOW, 'utf8'),
+    'mcp-conformance-re-frame2-pair',
+  );
+  assert.match(block, /needs: detect_changed_surfaces/);
+  assert.match(
+    block,
+    /if: needs\.detect_changed_surfaces\.outputs\.mcp_live == 'true'/,
+  );
+});
+
+// rf2-11yjq — acceptance criterion 2: delete + both rename endpoints of the
+// preload retain the same classification through the REAL Git-derived
+// discovery path (the --no-renames machinery emits BOTH endpoints of a rename,
+// rf2-vxgfnd.137). The preload case is pure path-pattern matching, so it arms
+// the behavioral gates whether the preload endpoint arrives as an add, a
+// modify, a delete, or either endpoint of a rename. (classifyViaGitDiscovery /
+// renameViaGitDiscovery are defined further down; both are hoisted function
+// declarations and only invoked when the test loop runs at end-of-file.)
+const PRELOAD_SOURCE = 'skills/re-frame2-pair/preload/re_frame2_pair/runtime.cljs';
+const PRELOAD_GATE_KEYS = ['examples_compile', 'skills_structural', 'cljs_browser', 'mcp_live'];
+
+test('DISCOVERY: ordinary delete of a preload file arms the behavioral gates (rf2-11yjq)', () => {
+  const result = classifyViaGitDiscovery(({ write, git, commit }) => {
+    write(PRELOAD_SOURCE, '(ns re-frame2-pair.runtime)\n');
+    write('README.md', '# scratch\n');
+    commit('seed');
+    git('rm', '-q', PRELOAD_SOURCE);
+    commit('delete preload file');
+  });
+  for (const key of PRELOAD_GATE_KEYS) {
+    assert.equal(result[key], 'true', `a preload delete must arm ${key} (deleted runtime endpoint)`);
+  }
+});
+
+test('DISCOVERY: rename OUT of the preload subtree arms the gates for the deleted endpoint (rf2-11yjq)', () => {
+  const result = renameViaGitDiscovery(PRELOAD_SOURCE, 'docs/moved-out-of-preload.cljs');
+  for (const key of PRELOAD_GATE_KEYS) {
+    assert.equal(
+      result[key],
+      'true',
+      `renaming the preload OUT must still arm ${key} (the --no-renames deleted endpoint)`,
+    );
+  }
+});
+
+test('DISCOVERY: rename INTO the preload subtree arms the gates for the added endpoint (rf2-11yjq)', () => {
+  const result = renameViaGitDiscovery('docs/incoming.cljs', PRELOAD_SOURCE);
+  for (const key of PRELOAD_GATE_KEYS) {
+    assert.equal(result[key], 'true', `renaming a file INTO the preload must arm ${key}`);
+  }
+});
+
 // rf2-3kewru — G-12 Arm 2 shells out to `clojure -Stree`. The CLJS job
 // that owns `test:ui-isolation` must therefore provision the Clojure CLI;
 // Arm 1 alone cannot detect a declared-but-currently-unused adapter dep.
