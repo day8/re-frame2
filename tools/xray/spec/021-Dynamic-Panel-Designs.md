@@ -689,7 +689,17 @@ the registration id) — so `:subs-skipped` stays cleanly distinct from
 `:subs-ran`, and Xray never claims no concrete instance was skipped when one
 was. Rows display + key by the full query vector (documented fallback to the
 registered id only when the skip evidence genuinely lacks a query-v);
-source-coordinate lookup keeps the registered id. It is NOT reconstructed by
+source-coordinate lookup keeps the registered id. Each row's `data-testid`
+(`rf-xray-reactive-unchanged-row-<selector>`) is minted through an INJECTIVE
+concrete-query selector (rf2-bk2c6) — the readable `id-slug` stem plus a
+stable content-hash of the full identity. `id-slug` alone is LOSSY: it
+flattens every non-alnum char to `_`, so distinct valid queries
+(`[:item/derived :a-b]` and `[:item/derived :a/b]` both slug to
+`__item_derived__a_b_`) would collapse onto one selector the DOM can no longer
+address independently. The hash suffix restores distinction while the SAME
+concrete query always hashes the same — so repeated evidence keeps ONE stable
+selector, matching the dedup contract; the React key, the visible label, and
+`data-query-v` still carry the full query vector unchanged. It is NOT reconstructed by
 filtering `:sub-runs` on `(complement :recomputed?)`, which is structurally
 always empty. The
 graph's `unchanged` (dashed, short-circuited) nodes are subs that RAN with
