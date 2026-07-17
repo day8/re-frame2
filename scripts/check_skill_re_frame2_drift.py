@@ -82,21 +82,33 @@ existing automated guards did not catch (the no-bead-id guard was scoped to
      `:reply-to`), the `[:rf.http/managed-abort …]` dispatch, and legitimate
      durable-ledger `:work/id` prose are deliberately allowed.
 
-  6. **UIx/Helix hooks stateful-component guidance (rf2-adm10).** The hooks
-     adapters (UIx / Helix) bridge a stateful component with an ordinary
-     `defui` / `defnc` plus the `use-subscribe` (read subs) and `use-frame`
-     (carry the frame) hooks — NOT the Reagent `reg-view` / render-time
-     `capture-frame` / `:contextType` idiom. `use-frame` is `capture-frame` in
-     hook position, reading the surrounding frame-provider / frame-root through
-     React context; a bare no-arg `capture-frame` in a plain hooks component
-     reads only the dynamic-var tier and raises under a context-only frame, and
+  6. **UIx/Helix hooks stateful-component guidance, causally exact (rf2-gq9bg;
+     follow-up to rf2-adm10).** The hooks adapters (UIx / Helix) bridge a
+     stateful component with an ordinary `defui` / `defnc` plus the adapter's
+     `use-subscribe` (read subs) and `use-frame` (carry the frame) hooks — NOT
+     the Reagent `reg-view` macro, a render-time / bare no-arg `capture-frame`,
+     or a `:contextType`. `use-frame` is `capture-frame` in hook position,
+     reading the surrounding frame-provider / frame-root through React context;
      `reg-view*` on these adapters is optional registry addressing, never the
-     source of a Reagent `:contextType`. Two narrow guards (no general prose
-     parser): (6a) the two authoritative hooks-guidance leaves (`patterns/
-     stateful-components.md`, `references/fundamentals/frames.md`) MUST each name
-     `use-frame` AND `use-subscribe`; (6b) no scanned-leaf line may attribute a
-     `:contextType` to a hooks adapter (`:contextType` co-located with UIx /
-     Helix on a line carrying no negation / Reagent-only cue).
+     frame wiring. The earlier guard was not causally exact: (6a) checked only
+     WHOLE-FILE presence of `use-frame` / `use-subscribe`, so a token-only
+     semantic reversal ("Do not use use-frame or use-subscribe; use reg-view
+     instead.") passed; (6b) was a line rule suppressed by ANY broad negation
+     cue, so "UIx is not special: reg-view* gives it :contextType." passed on
+     the stray far "not" while the valid comparison "UIx/Helix differ from
+     Reagent's :contextType mechanism." was falsely rejected. The rewrite is
+     SENTENCE-scoped (a bounded recipe-sentence carve, NOT a general prose
+     parser — a mixed Reagent+hooks line is checked per sentence): (6a) each
+     authoritative leaf (`patterns/stateful-components.md`, `references/
+     fundamentals/frames.md`) MUST carry a COHERENT recipe sentence naming an
+     ordinary `defui`/`defnc`, `use-subscribe`, AND `use-frame` together; (6b)
+     no hooks-recipe sentence may carry a residue shape — a `:contextType`
+     ATTRIBUTED to a hooks adapter (fires even under a stray far "not"; a
+     Reagent-owned/comparative `:contextType` and a tightly-scoped "no
+     `:contextType`" stay green), a token-only semantic reversal, a positive
+     `reg-view` MACRO registration (bare, not `reg-view*`), or a bare no-arg
+     `capture-frame` used as the frame-carry (the negated "cannot" warnings
+     stay green).
 
 Scanned leaves (globbed, so a new leaf is covered automatically):
     SKILL.md, README.md, references/**/*.md, patterns/**/*.md,
@@ -348,71 +360,242 @@ def managed_http_recipe_problems(text: str) -> list[tuple[int, str]]:
     return problems
 
 
-# --- Rule 6: UIx/Helix hooks stateful-component guidance (rf2-adm10 repair).
+# --- Rule 6: UIx/Helix hooks stateful-component recipe guidance, causally exact
+#     (rf2-gq9bg — follow-up to the rf2-adm10 repair).
 #     The hooks adapters (UIx / Helix) bridge a stateful component with an
-#     ordinary `defui` / `defnc` plus the `use-subscribe` (read subs) and
-#     `use-frame` (carry the frame) hooks — NOT the Reagent `reg-view` /
-#     render-time `capture-frame` / `:contextType` idiom. `use-frame` is
-#     `capture-frame` in hook position; it reads the surrounding frame-provider /
-#     frame-root through React context, which a bare no-arg `capture-frame` in a
-#     plain hooks component cannot (it reads only the dynamic-var tier and raises
-#     under a context-only frame). `reg-view*` is optional on these adapters —
-#     registry addressing only, never the source of a Reagent `:contextType`.
-#     Two narrow guards lock the fix (no general prose parser):
+#     ordinary `defui` / `defnc` plus the adapter's `use-subscribe` (read subs)
+#     and `use-frame` (carry the frame) hooks — NOT the Reagent `reg-view` macro,
+#     a render-time / bare no-arg `capture-frame`, or a `:contextType`.
+#     `use-frame` is `capture-frame` in hook position, reading the surrounding
+#     frame-provider / frame-root through React context (which a bare no-arg
+#     `capture-frame` in a plain hooks component cannot); `reg-view*` on these
+#     adapters is optional registry addressing, never the frame wiring.
 #
-#     6a — the two authoritative hooks-guidance leaves (patterns/
-#          stateful-components.md and references/fundamentals/frames.md) MUST
-#          each name `use-frame` AND `use-subscribe`. Dropping either token means
-#          the corrected hooks frame-carry / sub-read spelling regressed back to
-#          a Reagent-only idiom. Positive-presence, per-file.
-#     6b — a scanned-leaf line MUST NOT attribute a Reagent `:contextType` to a
-#          hooks adapter. Fires on a line co-locating `:contextType` with `UIx`
-#          or `Helix`, UNLESS the line carries a negation / Reagent-only cue (the
-#          corrected prose says the hooks adapters have *no* `:contextType`).
-#          Line-scoped and cue-gated — a Reagent-only `:contextType` line (no
-#          UIx/Helix on it) never fires.
+#     The previous guard was NOT causally exact. Rule 6a checked only WHOLE-FILE
+#     presence of `use-frame` / `use-subscribe`, so a token-only semantic reversal
+#     ("Do not use use-frame or use-subscribe; use reg-view instead.") passed —
+#     both tokens are present. Rule 6b was a line rule that suppressed ANY line
+#     carrying a broad negation cue, so "UIx is not special: reg-view* gives it
+#     :contextType." passed on the stray far-away "not", while the valid
+#     comparison "UIx/Helix differ from Reagent's :contextType mechanism." was
+#     falsely REJECTED. This rewrite is SENTENCE-scoped (a bounded recipe-sentence
+#     carve — NOT a general prose parser): a mixed Reagent+hooks physical line is
+#     checked per sentence, so a `:contextType` attributed to the Reagent wrapper
+#     never bleeds into the hooks sentence, and a far-away negation cannot mask a
+#     real attribution.
+#
+#     6a — COHERENCE FLOOR. Each authoritative hooks-guidance leaf (patterns/
+#          stateful-components.md, references/fundamentals/frames.md) MUST carry
+#          at least one COHERENT recipe sentence naming an ordinary `defui` /
+#          `defnc`, `use-subscribe`, AND `use-frame` together — proving the
+#          relationship, not just the scattered presence of two tokens.
+#     6b — no RESIDUE SHAPE in any hooks-recipe sentence (scanned leaf-wide; a
+#          hooks-recipe sentence names a hooks adapter or one of the two hooks):
+#            (i)   a `:contextType` positively ATTRIBUTED to a hooks adapter
+#                  ("reg-view* gives it :contextType") — fires even under a stray
+#                  far "not"; a Reagent-owned / comparative `:contextType`
+#                  ("Reagent's :contextType", "differ from Reagent's :contextType")
+#                  and an explicit tightly-scoped "no `:contextType`" stay green;
+#            (ii)  a token-only semantic reversal ("do not use use-frame /
+#                  use-subscribe", or "use reg-view instead");
+#            (iii) a positive registration of the hooks component via the Reagent
+#                  `reg-view` MACRO (bare `reg-view`, not the lawful `reg-view*`);
+#            (iv)  a bare no-arg `capture-frame` used as the hooks frame-carry
+#                  (`(:dispatch (rf/capture-frame))`, or a positive "carry … with
+#                  a (rf/capture-frame)") — the negated warnings that bare no-arg
+#                  capture-frame CANNOT read React context stay green.
 HOOKS_LEAF_REQUIRED = (
     ("patterns", "stateful-components.md"),
     ("references", "fundamentals", "frames.md"),
 )
-HOOKS_REQUIRED_TOKENS = ("use-frame", "use-subscribe")
-CONTEXTTYPE_RE = re.compile(r":contextType\b")
 HOOKS_ADAPTER_RE = re.compile(r"\b(?:UIx|Helix)\b")
-# Negation / scoping cues that mark a legitimate "the hooks adapters have NO
-# :contextType" / "unlike Reagent" line. Word-boundaried so `non-reg-view` does
-# not read as a `no` cue.
-CONTEXTTYPE_ALLOW_RE = re.compile(
-    r"\bno\b|\bnot\b|\bnever\b|\bwithout\b|\bunlike\b|Reagent-only",
+# A "hooks-recipe sentence" names a hooks adapter OR one of the two hooks — so a
+# semantic reversal naming only `use-frame` / `use-subscribe` (no adapter) is in
+# scope too.
+HOOKS_CTX_RE = re.compile(r"\b(?:UIx|Helix)\b|\buse-frame\b|\buse-subscribe\b")
+COMPONENT_FORM_RE = re.compile(r"\bdef(?:ui|nc)\b")
+USE_SUBSCRIBE_RE = re.compile(r"\buse-subscribe\b")
+USE_FRAME_RE = re.compile(r"\buse-frame\b")
+
+# Bounded sentence carve: split a physical line on a sentence terminator (`.` or
+# `)`) + whitespace + a sentence start (capital / markdown `*` / backtick / `(`).
+# This isolates the hooks sentence from a co-located Reagent sentence on the same
+# line. It is NOT a general prose parser — it only carves recipe sentences for
+# the co-location checks below.
+SENTENCE_SPLIT_RE = re.compile(r"(?<=[.)])\s+(?=[A-Z*`(])")
+
+
+def _hooks_sentences(text: str):
+    """Yield (lineno, sentence) for every sentence naming a hooks adapter or one
+    of the two hooks (`use-frame` / `use-subscribe`)."""
+    for lineno, line in enumerate(text.splitlines(), start=1):
+        for sent in SENTENCE_SPLIT_RE.split(line):
+            if HOOKS_CTX_RE.search(sent):
+                yield lineno, sent
+
+
+# 6b(i) — `:contextType` attributed to a hooks adapter.
+CONTEXTTYPE_RE = re.compile(r":contextType\b")
+# The `:contextType` on this sentence belongs to Reagent (possession /
+# comparison), NOT attributed to the hooks adapter.
+CONTEXTTYPE_REAGENT_OWNED_RE = re.compile(
+    r"Reagent(?:'s|-only)?[^.\n]{0,40}:contextType"
+    r"|:contextType[^.\n]{0,40}Reagent"
+    r"|\b(?:differ|differs|unlike|distinct|versus|compared? (?:to|with))\b"
+    r"[^.\n]{0,60}:contextType",
     re.IGNORECASE,
 )
+# The sentence explicitly says the hooks adapter has NO `:contextType` — the
+# negation must TIGHTLY scope the token (a far-away "not special" does NOT
+# suppress a real attribution).
+CONTEXTTYPE_NEGATED_RE = re.compile(
+    r"\b(?:no|not|never|without|needs?\s+no|has\s+no|have\s+no"
+    r"|no\s+need\s+(?:for|of)?)\b[^.\n]{0,8}:contextType",
+    re.IGNORECASE,
+)
+# A positive attribution verb governs the `:contextType` (the retired "reg-view*
+# gives UIx a :contextType" teaching).
+CONTEXTTYPE_ATTRIB_RE = re.compile(
+    r"\b(?:gives?|giving|grants?|granting|provides?|providing"
+    r"|attach(?:es|ing)?|gets?|getting|has|have|carr(?:y|ies|ying))\b"
+    r"[^.\n]{0,24}:contextType",
+    re.IGNORECASE,
+)
+
+# 6b(ii) — semantic reversal: steering hooks authors to the Reagent reg-view macro.
+REVERSAL_DISCOURAGE_RE = re.compile(
+    r"\b(?:do not|don'?t|never|avoid)\s+us(?:e|ing)\b"
+    r"[^.\n]{0,40}\buse-(?:frame|subscribe)\b",
+    re.IGNORECASE,
+)
+REVERSAL_STEER_RE = re.compile(
+    r"\buse\b[^.\n]{0,12}\breg-view\b(?!\*)[^.\n]{0,15}\binstead\b"
+    r"|\breg-view\b(?!\*)[^.\n]{0,20}\binstead\s+of\b"
+    r"[^.\n]{0,24}\buse-(?:frame|subscribe)\b",
+    re.IGNORECASE,
+)
+
+# 6b(iii) — positive registration via the Reagent `reg-view` MACRO (bare
+# `reg-view`, not the lawful optional `reg-view*` plain-fn registry addressing).
+REGVIEW_MACRO_POSITIVE_RE = re.compile(
+    r"\b(?:register(?:ed|s|ing)?|wrap(?:ped|s|ping)?|via|through)\b"
+    r"[^.\n]{0,20}\breg-view\b(?!\*)",
+    re.IGNORECASE,
+)
+REGVIEW_MACRO_NEGATED_RE = re.compile(
+    r"\b(?:no|not|never|without|needs?\s+no|drop|skip"
+    r"|no\s+need\s+(?:for|of)?)\b[^.\n]{0,12}\breg-view\b(?!\*)",
+    re.IGNORECASE,
+)
+
+# 6b(iv) — bare no-arg `capture-frame` as the hooks frame-carry. `capture` is
+# deliberately NOT a carry verb below, so the legitimate Reagent Form-3 line
+# "then capture `(rf/capture-frame)` from the body" stays green.
+BARE_CAPTURE_OPS_RE = re.compile(
+    r"\(:(?:dispatch|subscribe)\s+\(\s*(?:rf/)?capture-frame\s*\)\s*\)"
+)
+BARE_CAPTURE_CARRY_RE = re.compile(
+    r"\b(?:carry|carries|carrying|hold|holding|dispatch(?:es|ing)?)\b"
+    r"[^.\n]{0,40}\(\s*(?:rf/)?capture-frame\s*\)",
+    re.IGNORECASE,
+)
+BARE_CAPTURE_NEGATED_RE = re.compile(
+    r"\(\s*(?:rf/)?capture-frame\s*\)[^.\n]{0,40}"
+    r"\b(?:cannot|can'?t|re-?raises?|is not a hook)\b"
+    r"|\b(?:rather than|instead of)\b[^.\n]{0,30}"
+    r"(?:render-time\s+)?`?\(?\s*(?:rf/)?capture-frame",
+    re.IGNORECASE,
+)
+
 HOOKS_CONTEXTTYPE_MSG = (
-    "HOOKS-CONTEXTTYPE: this line attributes a Reagent `:contextType` to a hooks "
-    "adapter (UIx / Helix). `:contextType` is Reagent's class-component "
-    "mechanism; the hooks adapters read the surrounding frame-provider / "
-    "frame-root through the `use-subscribe` / `use-frame` hooks (React context "
-    "in hook position) and have NO `:contextType`. `reg-view*` on these adapters "
-    "is optional registry addressing, never a source of a `:contextType`. State "
+    "HOOKS-CONTEXTTYPE: this hooks-recipe sentence attributes a Reagent "
+    "`:contextType` to a hooks adapter (UIx / Helix). `:contextType` is "
+    "Reagent's class-component mechanism; the hooks adapters read the frame "
+    "through the `use-subscribe` / `use-frame` hooks (React context in hook "
+    "position) and have NO `:contextType`. `reg-view*` on these adapters is "
+    "optional registry addressing, never a source of a `:contextType`. State "
     "the hooks spelling (or say the hooks adapters have *no* `:contextType`)."
+)
+HOOKS_REVERSAL_MSG = (
+    "HOOKS-REVERSAL: this hooks-recipe sentence steers UIx / Helix authors AWAY "
+    "from the hook idiom — discouraging `use-frame` / `use-subscribe`, or "
+    "sending them to the Reagent `reg-view` macro instead. On the hooks adapters "
+    "an ordinary `defui` / `defnc` reads subs with `use-subscribe` and carries "
+    "the frame with the `use-frame` hook; `reg-view` is Reagent-only."
+)
+HOOKS_REGVIEW_MSG = (
+    "HOOKS-REGVIEW-MACRO: this hooks-recipe sentence registers the UIx / Helix "
+    "component via the Reagent `reg-view` MACRO. `reg-view` (and its injected "
+    "locals / `:contextType` wiring) is Reagent-only; a hooks component is an "
+    "ordinary `defui` / `defnc` that reads the frame through `use-subscribe` / "
+    "`use-frame`. `reg-view*` (the plain-fn surface) is optional registry "
+    "addressing only — never the frame wiring."
+)
+HOOKS_CAPTURE_MSG = (
+    "HOOKS-BARE-CAPTURE: this hooks-recipe sentence carries the frame with a "
+    "bare no-arg `capture-frame` (e.g. `(:dispatch (rf/capture-frame))`). On the "
+    "hooks adapters a no-arg `capture-frame` reads only the dynamic-var tier and "
+    "raises under a context-only frame — carry the frame with the `use-frame` "
+    "hook (capture-frame in hook position, which reads React context) instead."
 )
 
 
-def contextype_problems(line: str) -> list[str]:
-    """Rule 6b — a single line that co-locates `:contextType` with a hooks
-    adapter (UIx / Helix) and carries no negation / Reagent-only cue is the
-    retired 'reg-view* gives UIx/Helix a :contextType' teaching."""
+def hooks_sentence_problems(sentence: str) -> list[str]:
+    """Rule 6b — the residue shapes a hooks-recipe sentence must not carry."""
+    problems: list[str] = []
+
+    # (i) :contextType attributed to a hooks adapter.
     if (
-        CONTEXTTYPE_RE.search(line)
-        and HOOKS_ADAPTER_RE.search(line)
-        and not CONTEXTTYPE_ALLOW_RE.search(line)
+        CONTEXTTYPE_RE.search(sentence)
+        and HOOKS_ADAPTER_RE.search(sentence)
+        and not CONTEXTTYPE_REAGENT_OWNED_RE.search(sentence)
+        and not CONTEXTTYPE_NEGATED_RE.search(sentence)
+        and CONTEXTTYPE_ATTRIB_RE.search(sentence)
     ):
-        return [HOOKS_CONTEXTTYPE_MSG]
-    return []
+        problems.append(HOOKS_CONTEXTTYPE_MSG)
+
+    # (ii) token-only semantic reversal.
+    if REVERSAL_DISCOURAGE_RE.search(sentence) or REVERSAL_STEER_RE.search(sentence):
+        problems.append(HOOKS_REVERSAL_MSG)
+
+    # (iii) positive reg-view MACRO registration of the hooks component.
+    if (
+        HOOKS_ADAPTER_RE.search(sentence)
+        and REGVIEW_MACRO_POSITIVE_RE.search(sentence)
+        and not REGVIEW_MACRO_NEGATED_RE.search(sentence)
+    ):
+        problems.append(HOOKS_REGVIEW_MSG)
+
+    # (iv) bare no-arg capture-frame as the hooks carry.
+    if BARE_CAPTURE_OPS_RE.search(sentence) or (
+        HOOKS_ADAPTER_RE.search(sentence)
+        and BARE_CAPTURE_CARRY_RE.search(sentence)
+        and not BARE_CAPTURE_NEGATED_RE.search(sentence)
+    ):
+        problems.append(HOOKS_CAPTURE_MSG)
+
+    return problems
 
 
-def hooks_leaf_missing_tokens(body: str) -> list[str]:
-    """Rule 6a — tokens a hooks-guidance leaf must name (`use-frame`,
-    `use-subscribe`) that are absent from its body."""
-    return [t for t in HOOKS_REQUIRED_TOKENS if t not in body]
+def _coherent_recipe_sentence(text: str) -> str | None:
+    """The first sentence co-locating an ordinary `defui`/`defnc`, `use-subscribe`,
+    and `use-frame` — the canonical UIx/Helix stateful recipe block."""
+    for _lineno, sent in _hooks_sentences(text):
+        if (
+            HOOKS_ADAPTER_RE.search(sent)
+            and COMPONENT_FORM_RE.search(sent)
+            and USE_SUBSCRIBE_RE.search(sent)
+            and USE_FRAME_RE.search(sent)
+        ):
+            return sent
+    return None
+
+
+def hooks_leaf_incoherent(text: str) -> bool:
+    """Rule 6a — True when NO sentence in the leaf co-locates an ordinary
+    `defui`/`defnc`, `use-subscribe`, AND `use-frame` (the coherent recipe went
+    missing or was scattered across sentences)."""
+    return _coherent_recipe_sentence(text) is None
 
 
 # --- Rule 3: launcher points at BOTH canonical files, without regrowing the
@@ -522,8 +705,7 @@ def find_drift(files: list[Path]) -> tuple[list[str], int]:
         for lineno, line in enumerate(body.splitlines(), start=1):
             lines_checked += 1
             for label in (beadid_problems(line) + posture_problems(line)
-                          + reply_contract_problems(line)
-                          + contextype_problems(line)):
+                          + reply_contract_problems(line)):
                 problems.append(f"{rel}:{lineno}: {label}\n    {line.strip()}")
         # Rules 4 & 5a — the machine-registration footgun and the targetless
         # Managed-HTTP recipe are cross-line shapes (their tokens land on
@@ -533,11 +715,19 @@ def find_drift(files: list[Path]) -> tuple[list[str], int]:
             problems.append(f"{rel}:{start_lineno}: {label}")
         for start_lineno, label in managed_http_recipe_problems(body):
             problems.append(f"{rel}:{start_lineno}: {label}")
+        # Rule 6b — hooks-recipe residue shapes, checked PER SENTENCE (a mixed
+        # Reagent+hooks physical line is carved so a Reagent `:contextType` never
+        # bleeds into the hooks sentence, and a far-away negation cannot mask a
+        # real attribution). Scanned leaf-wide so a residue anywhere fails.
+        for lineno, sent in _hooks_sentences(body):
+            for label in hooks_sentence_problems(sent):
+                problems.append(f"{rel}:{lineno}: {label}\n    {sent.strip()}")
 
-    # Rule 6a — the two authoritative hooks-guidance leaves must name both hook
-    # idioms (`use-frame` carries the frame, `use-subscribe` reads subs) so the
-    # corrected UIx/Helix stateful-component spelling can't silently regress to a
-    # Reagent-only idiom. Positive-presence, per required leaf.
+    # Rule 6a — COHERENCE FLOOR. The two authoritative hooks-guidance leaves must
+    # each carry a single COHERENT recipe sentence (ordinary `defui`/`defnc` +
+    # `use-subscribe` + `use-frame` together), proving the relationship — not just
+    # the scattered presence of two tokens (which a semantic reversal that names
+    # both would satisfy).
     for parts in HOOKS_LEAF_REQUIRED:
         leaf = SKILL_DIR.joinpath(*parts)
         rel = leaf.relative_to(REPO_ROOT)
@@ -547,15 +737,16 @@ def find_drift(files: list[Path]) -> tuple[list[str], int]:
                 "missing — the Rule 6a anchor drifted from the skill layout."
             )
             continue
-        for token in hooks_leaf_missing_tokens(_slurp(leaf)):
+        if hooks_leaf_incoherent(_slurp(leaf)):
             problems.append(
-                f"{rel}: HOOKS-IDIOM-MISSING: this authoritative UIx/Helix "
-                f"stateful-component leaf no longer names `{token}`. The hooks "
-                "adapters read subs with `use-subscribe` and carry the frame "
-                "with the `use-frame` hook (the hook-position spelling of "
-                "capture-frame) — not the Reagent reg-view / render-time "
-                "capture-frame idiom. Restore the `{token}` spelling."
-                .replace("{token}", token)
+                f"{rel}: HOOKS-RECIPE-INCOHERENT: this authoritative UIx/Helix "
+                "stateful-component leaf no longer carries a single coherent "
+                "recipe sentence naming an ordinary `defui`/`defnc`, "
+                "`use-subscribe`, AND `use-frame` together. The hooks adapters "
+                "read subs with `use-subscribe` and carry the frame with the "
+                "`use-frame` hook (the hook-position spelling of capture-frame) "
+                "on an ordinary component — not the Reagent reg-view / "
+                "render-time capture-frame idiom. Restore the coherent recipe."
             )
 
     # Rule 3 — the launcher (authoring-prompt.md) is checked as a whole body,
@@ -599,8 +790,10 @@ def run(*, verbose: bool, ci: bool) -> int:
                 "re-frame2-drift: no bead-id leaks, no agent-run verification-"
                 "posture drift, no bare reg-event + make-machine-handler recipe, "
                 "no retired Managed-HTTP reply-contract teaching, the UIx/Helix "
-                "hooks leaves name use-frame + use-subscribe with no "
-                ":contextType misattribution, and the "
+                "hooks leaves each carry a coherent defui/defnc + use-subscribe + "
+                "use-frame recipe with no residue shape (no :contextType "
+                "attribution, semantic reversal, reg-view-macro registration, or "
+                "bare no-arg capture-frame carry), and the "
                 "launcher points at design.md + inputs.md without regrowing the "
                 "tree / locks."
             )
@@ -616,11 +809,12 @@ def run(*, verbose: bool, ci: bool) -> int:
         "gates, the skill names them), author machines with reg-machine (not a "
         "bare reg-event + make-machine-handler recipe), address every Managed-"
         "HTTP reply with an explicit :reply-to/:on-success/:on-failure (no "
-        "retired co-located `:rf/reply` default), keep the UIx/Helix hooks "
-        "stateful-component leaves naming use-frame + use-subscribe (never a "
-        "reg-view / :contextType idiom), and keep the launcher "
-        "pointing at the canonical design.md + inputs.md instead of re-holding "
-        "the tree / locks."
+        "retired co-located `:rf/reply` default), keep each UIx/Helix hooks "
+        "stateful-component leaf carrying a coherent defui/defnc + use-subscribe "
+        "+ use-frame recipe (never a reg-view-macro / bare-capture-frame / "
+        ":contextType-attribution / semantic-reversal residue), and keep the "
+        "launcher pointing at the canonical design.md + inputs.md instead of "
+        "re-holding the tree / locks."
     )
     return 1
 
@@ -931,38 +1125,88 @@ def _self_test() -> int:
         dirty=False, label="O3 durable-ledger :work/id prose (no reply-map context)",
     )
 
-    # --- Rule 6b: :contextType attributed to a hooks adapter (rf2-adm10).
-    #     DRIFT fixture — the retired "reg-view* gives UIx/Helix a :contextType".
+    # --- Rule 6 (rf2-gq9bg): causally-exact hooks-recipe guard. The three probes
+    #     the previous whole-file / broad-negation guard mis-classified, plus
+    #     legitimate corrected wording, then mutations against the REAL blocks.
+    #
+    #     S1/S2 were false NEGATIVES (accepted) and S3 a false POSITIVE (rejected)
+    #     under the old guard; they are now classified correctly.
     expect(
-        contextype_problems,
-        "A plain UIx / Helix fn registers via `reg-view*`, which gives it a live scope (a `:contextType`).",
-        dirty=True, label="P1 reg-view* :contextType attributed to UIx/Helix",
+        hooks_sentence_problems,
+        "Do not use use-frame or use-subscribe; use reg-view instead.",
+        dirty=True, label="S1 semantic reversal (both tokens present, still red)",
     )
-    # CLEAN — the corrected prose says the hooks adapters have NO :contextType.
     expect(
-        contextype_problems,
+        hooks_sentence_problems,
+        "UIx is not special: reg-view* gives it :contextType.",
+        dirty=True, label="S2 :contextType attributed under a stray far 'not'",
+    )
+    expect(
+        hooks_sentence_problems,
+        "UIx/Helix differ from Reagent's :contextType mechanism.",
+        dirty=False, label="S3 valid Reagent :contextType comparison stays green",
+    )
+    # CLEAN — the corrected wording the leaves actually use.
+    expect(
+        hooks_sentence_problems,
         "The hooks adapters (UIx / Helix) read the frame via `use-subscribe` / `use-frame` and need no `:contextType`.",
-        dirty=False, label="Q1 hooks adapters explicitly have no :contextType",
+        dirty=False, label="S4 hooks adapters explicitly have no :contextType",
     )
-    # CLEAN — a Reagent-only :contextType line (no UIx/Helix on it) never fires.
     expect(
-        contextype_problems,
+        hooks_sentence_problems,
         "A `reg-view`-wrapped Reagent component participates via `:contextType`.",
-        dirty=False, label="Q2 Reagent-only :contextType line (no hooks adapter named)",
+        dirty=False, label="S5 Reagent-only :contextType sentence (no hooks adapter)",
+    )
+    expect(
+        hooks_sentence_problems,
+        "On **Reagent** register it via `reg-view*`, then capture `(rf/capture-frame)` from the body; on UIx / Helix an ordinary `defui` / `defnc` reads subs with `use-subscribe` and carries the frame with `use-frame`.",
+        dirty=False, label="S6 lawful mixed recipe (reg-view* + Reagent capture) stays green",
     )
 
-    # --- Rule 6a: a hooks-guidance leaf must name use-frame AND use-subscribe.
-    #     hooks_leaf_missing_tokens returns [] (clean) / a non-empty list (drift).
-    expect(
-        hooks_leaf_missing_tokens,
-        "UIx bridges with an ordinary defui plus use-subscribe; carry the frame with the use-frame hook.",
-        dirty=False, label="R1 leaf names both use-frame and use-subscribe",
+    # Mutations against the REAL guarded blocks (not free-floating strings):
+    # each authoritative leaf's coherent recipe must be GREEN as shipped, its
+    # coherence floor must be load-bearing, and each residue injected into the
+    # real leaf text must turn it RED.
+    def _leaf_scan(text: str) -> list[str]:
+        return [p for _l, s in _hooks_sentences(text) for p in hooks_sentence_problems(s)]
+
+    residue_mutations = (
+        ("reg-view-macro",
+         "On UIx / Helix, register the component via `reg-view` to carry the frame."),
+        ("bare-capture",
+         "On UIx / Helix, dispatch via `(:dispatch (rf/capture-frame))` captured above the callback."),
+        ("semantic-reversal",
+         "On UIx / Helix, do not use use-frame or use-subscribe; use reg-view instead."),
+        ("contexttype-attribution",
+         "On UIx / Helix, `reg-view*` gives the component a `:contextType`."),
     )
-    expect(
-        hooks_leaf_missing_tokens,
-        "UIx bridges with an ordinary defui plus use-subscribe.",  # no use-frame
-        dirty=True, label="R2 leaf drops the use-frame idiom",
-    )
+    for parts in HOOKS_LEAF_REQUIRED:
+        leaf = SKILL_DIR.joinpath(*parts)
+        rel = "/".join(parts)
+        if not leaf.is_file():
+            print(f"SELF-TEST FAIL (T real leaf missing): {rel}")
+            failures += 1
+            continue
+        text = _slurp(leaf)
+        # The shipped leaf is legitimate wording — GREEN under the sentence scan.
+        shipped = _leaf_scan(text)
+        if shipped:
+            print(f"SELF-TEST FAIL (T real leaf flagged): {rel}: {shipped}")
+            failures += 1
+        # The shipped leaf carries a coherent recipe block.
+        if _coherent_recipe_sentence(text) is None:
+            print(f"SELF-TEST FAIL (T no coherent recipe in real leaf): {rel}")
+            failures += 1
+        # Each residue injected into the real leaf turns it RED.
+        for mut_label, residue in residue_mutations:
+            mutated = text + "\n\n" + residue + "\n"
+            if not _leaf_scan(mutated):
+                print(f"SELF-TEST FAIL (T {mut_label} mutation not caught): {rel}")
+                failures += 1
+        # The coherence floor is load-bearing: strip use-frame → incoherent.
+        if not hooks_leaf_incoherent(text.replace("use-frame", "the-frame")):
+            print(f"SELF-TEST FAIL (T coherence floor not load-bearing): {rel}")
+            failures += 1
 
     if failures:
         print(f"self-test: {failures} failure(s).")
