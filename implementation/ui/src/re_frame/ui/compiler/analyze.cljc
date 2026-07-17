@@ -1015,12 +1015,14 @@
                     ;; argument, a branch) — misplaced.
                     (and (symbol? head) (not (contains? locals head))
                          (env/resolves-to? e* head effect-fqns))
-                    (env/fail! e :rf.ui.compile/hook-misplaced
-                               (str "(effect …) is a host-effect STATEMENT — place it in a "
-                                    "defview's UNCONDITIONAL top region (or a top-region "
-                                    "let/do body) BEFORE the final template, never as an "
-                                    "expression, branch, or deferred callback")
-                               {:form f})
+                    (if (:in-render-fn? e)
+                      (impure-slot-fail! e "effect" f)
+                      (env/fail! e :rf.ui.compile/hook-misplaced
+                                 (str "(effect …) is a host-effect STATEMENT — place it in a "
+                                      "defview's UNCONDITIONAL top region (or a top-region "
+                                      "let/do body) BEFORE the final template, never as an "
+                                      "expression, branch, or deferred callback")
+                                 {:form f}))
 
                    (fn-form? f) (rw-fn f locals p)
                    (contains? #{'let 'let* 'loop 'loop*} head) (rw-let f locals p)
@@ -1890,6 +1892,21 @@
   [e head-info k kind form]
   (let [[_ bindings & body] form
         verb (if (= kind :ui-event) "ui/event" "ui/handler")]
+    ;; A committed callback authored as a component prop inside a render-fn slot
+    ;; body is the correctness-critical escape: a repeated slot reuses ONE lexical
+    ;; event-site key, so later rows overwrite the descriptor and every row's
+    ;; callback reads the last row's closure. The purity fence rejects it — the
+    ;; callback belongs to the owning view or a mounted defview (rf2-vtfzn).
+    (when (:in-render-fn? e)
+      (env/fail! e :rf.ui.compile/impure-slot-body
+                 (str "(" verb " …) at prop " k " inside a ui/render-fn slot body "
+                      "— a slot body is a PURE render fragment; a committed callback "
+                      "DISPATCHES / runs imperative work, which a slot body may not "
+                      "own (a repeated slot shares ONE lexical callback site, so "
+                      "every row would alias the last row's closure). Own the "
+                      "callback in the OWNING view, or MOUNT a defview that owns its "
+                      "handlers")
+                 {:prop k :form form}))
     (when-not (and (vector? bindings) (not (some #{'&} bindings))
                    (if (= kind :ui-event)
                      (= 1 (count bindings))
@@ -2191,6 +2208,19 @@
                         (pr-str fallback))
                    {:form form}))
       (let [on-error (:on-error opts)]
+        ;; :on-error DISPATCHES after the failing commit — a committed-callback
+        ;; dispatch surface. Inside a render-fn slot body it escapes the purity
+        ;; fence exactly like a component-prop callback, so reject it (the
+        ;; error-boundary and its :on-error belong to the owning view or a mounted
+        ;; defview; rf2-vtfzn). A fallback-only boundary stays legal in a slot.
+        (when (and (some? on-error) (:in-render-fn? e))
+          (env/fail! e :rf.ui.compile/impure-slot-body
+                     (str ":on-error inside a ui/render-fn slot body — a slot body "
+                          "is a PURE render fragment, and :on-error DISPATCHES after "
+                          "the failing commit, which a slot body may not own. Place "
+                          "the error-boundary (with its :on-error) in the OWNING "
+                          "view, or MOUNT a defview that owns the boundary")
+                     {:form form}))
         (when (and (some? on-error)
                    (not (and (vector? on-error) (keyword? (first on-error)))))
           (env/fail! e :rf.ui.compile/bad-error-boundary
@@ -2521,6 +2551,18 @@
   body…)` runs at each connect. The body is a DEFERRED callback (sub/lease/frame
   inside are rejected); it is spliced before the template by `analyze-hooks-body`."
   [e index form]
+  ;; The purity fence is TRANSITIVE: a render-fn slot body inherits the enclosing
+  ;; hooks region, so a leading (effect …) would otherwise reach this seam and be
+  ;; emitted as a React lifecycle hook INSIDE the deferred callback. A slot body
+  ;; is a PURE render fragment — its effects belong to the owning view or a
+  ;; mounted defview (rf2-vtfzn).
+  (when (:in-render-fn? e)
+    (env/fail! e :rf.ui.compile/impure-slot-body
+               (str "(effect …) inside a ui/render-fn slot body — a slot body is a "
+                    "PURE render fragment; a host effect is a lifecycle hook, which "
+                    "a slot body may not own. Run the effect in the OWNING view, or "
+                    "MOUNT a defview that owns its own effects")
+               {:form form}))
   (when (or (nil? (:self-id e)) (not (:hooks-region? e)))
     (env/fail! e :rf.ui.compile/hook-misplaced
                (str "(effect …) is a host-effect statement — legal ONLY in a "
