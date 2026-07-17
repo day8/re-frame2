@@ -16,10 +16,16 @@
   "A DISTINCT String instance carrying `s`, modelling Shadow's
   `(.toString StringWriter)`: every real `do-compile-cljs-resource` allocates a
   brand-new `:js` object — never an interned literal — even when the emitted
-  bytes are byte-identical to a prior compile. `identical?` on that object is
-  precisely the causal recompile signal `compiled-this-pass?` keys on, so a test
-  literal (interned, shared across every occurrence) would falsely read as a warm
-  cache hit. Use this for the `:js` of any output that models a fresh compile."
+  bytes are byte-identical to a prior compile. Use this for the `:js` of any
+  output that models a fresh compile.
+
+  NOTE: `:js` object identity is deliberately NOT the recompile signal any more
+  (rf2-v7wqk) — a non-scheduling hook can swap `:js` for a fresh String without
+  scheduling compilation, so a `:js`-identity test misclassifies. Compile
+  membership is now re-frame.ui's per-pass provenance MARKER: Shadow's compile
+  path replaces the whole output MAP (dropping the marker `:compile-prepare`
+  stamped), while an assoc/update-in on a retained output preserves it. `fresh-js`
+  here only makes a modelled compile carry a realistic distinct `:js`."
   ^String [^String s]
   (String. s))
 
@@ -285,21 +291,21 @@
               "evicting the ghost changes the accepted whole-build digest"))))))
 
 (deftest causal-membership-survives-colliding-and-backwards-stamps
-  ;; rf2-vxgfnd.255 / rf2-ialoij: final-schedule membership is decided by Shadow's
-  ;; CAUSAL compile evidence — a `:cached false` finish output whose `:js` artifact
-  ;; is a fresh object — never a `:compiled-at` wall-clock relationship. Shadow
+  ;; rf2-vxgfnd.255 / rf2-ialoij / rf2-v7wqk: final-schedule membership is decided
+  ;; by re-frame.ui's per-pass provenance MARKER — never a `:compiled-at`
+  ;; wall-clock relationship and never Shadow's `:js` object identity. Shadow
   ;; stamps `:compiled-at` with `System/currentTimeMillis`, which can EQUAL or
   ;; DECREASE across genuine compiles (same-ms, clock skew, a non-monotonic clock),
   ;; so any `>`/`>=`/`!=` stamp test misclassifies. In ONE warm pass, under the
   ;; SAME optimizer/compile controls (sequential + parallel):
-  ;;   * app.b is a genuine cache hit whose retained output object (same `:js`) is
-  ;;     unchanged, yet carries the maximal `:compiled-at` — it must stay accepted
-  ;;     and digest-stable;
-  ;;   * app.a is genuinely recompiled (a fresh `:js` object) and removed its final
-  ;;     view, but its stamp went BACKWARDS (Long/MAX_VALUE snapshot -> 1 finish) —
-  ;;     it must still be evicted.
+  ;;   * app.b is a genuine cache hit whose stamped retained output flows through
+  ;;     prepare -> finish unchanged, yet carries the maximal `:compiled-at` — it
+  ;;     must stay accepted and digest-stable;
+  ;;   * app.a is genuinely recompiled (Shadow replaces its whole output map,
+  ;;     dropping the marker) and removed its final view, but its stamp went
+  ;;     BACKWARDS (Long/MAX_VALUE snapshot -> 1 finish) — it must still be evicted.
   ;; A `(> now then)` test reads app.a's backwards stamp as untouched (ghost
-  ;; survives) and would evict the max-stamp app.b; the causal test does neither.
+  ;; survives) and would evict the max-stamp app.b; the marker test does neither.
   (doseq [parallel? [true false]]
     (testing (str (if parallel? "parallel" "sequential") " compilation")
       (let [good (-> (two-source-state :collide parallel?)
@@ -311,9 +317,10 @@
         (is (= {:app/a-view ["tfa-1" "hsa-1"] :app/b-view ["tfb-1" "hsb-1"]}
                (build/accepted-aggregate build/views good))
             "the accepted build declares both sources' views")
-        ;; The EXACT same retained object stands in for app.b across prepare and
-        ;; finish (a true cache hit at the maximal stamp). app.a is replaced with a
-        ;; fresh output object whose stamp is LOWER than its snapshot.
+        ;; app.b's stamped retained output flows through prepare -> finish (a true
+        ;; cache hit at the maximal stamp): it is NOT re-set at finish, so it keeps
+        ;; the marker prepare stamped. app.a is replaced with a fresh output map
+        ;; (no marker) whose stamp is LOWER than its snapshot.
         (let [warm-b-output {:resource-id app-b-rid :js (fresh-js "app.b = {};")
                              :compiled-at Long/MAX_VALUE :cached false}
               warm-input (-> good
@@ -330,7 +337,6 @@
                                      {:resource-id app-a-rid
                                       :js (fresh-js "app.a = {};")
                                       :compiled-at 1 :cached false})
-                           (assoc-in [:output app-b-rid] warm-b-output)
                            finish)
               views-after (build/accepted-aggregate build/views finished)]
           (is (not (contains?
@@ -348,20 +354,19 @@
               "the genuinely recompiled zero-declaration source is evicted despite its backwards stamp"))))))
 
 (deftest metadata-only-output-mutation-is-not-a-recompile
-  ;; rf2-vxgfnd.282 / rf2-ialoij: a fresh output MAP is NOT compile provenance.
-  ;; Shadow deep-merges build-local hooks after the inherited re-frame.ui hook, so
-  ;; a later :compile-prepare hook can annotate or normalize a source's STILL-VALID
-  ;; retained output with assoc/update-in — producing a NEW output MAP (but, assoc
-  ;; preserving nested values, the SAME `:js` object) WITHOUT scheduling any
-  ;; compilation. Under raw whole-output `identical?` provenance re-frame.ui
-  ;; misread that fresh map as a recompile, pre-touched the source, saw no registry
-  ;; macro, and silently EVICTED its accepted view. Shadow's causal fresh-compile
-  ;; evidence is the fresh `:js` artifact object its compile path allocates: a
-  ;; metadata-only mutation preserves the SAME `:js` object, a real recompile
-  ;; allocates a new one. Membership keys on `:cached false` plus that `:js` object,
-  ;; NOT the whole-map reference and NOT the `:compiled-at` stamp — so the survival
-  ;; and eviction arms below are distinguished with the stamp held EQUAL. Both arms
-  ;; run in sequential and parallel compile modes.
+  ;; rf2-vxgfnd.282 / rf2-ialoij / rf2-v7wqk: a fresh output MAP is NOT compile
+  ;; provenance. Shadow deep-merges build-local hooks after the inherited
+  ;; re-frame.ui hook, so a later :compile-prepare hook can annotate or normalize a
+  ;; source's STILL-VALID retained output with assoc/update-in — producing a NEW
+  ;; output MAP WITHOUT scheduling any compilation. Under raw whole-output
+  ;; `identical?` provenance re-frame.ui misread that fresh map as a recompile,
+  ;; pre-touched the source, saw no registry macro, and silently EVICTED its
+  ;; accepted view. The per-pass MARKER is preserved by any assoc/update-in on a
+  ;; retained output (a real recompile instead REPLACES the whole map, dropping
+  ;; it), so a metadata annotation survives and a real recompile evicts — the two
+  ;; arms below are distinguished with the `:compiled-at` stamp held EQUAL and,
+  ;; deliberately, WITHOUT relying on `:js` identity. Both arms run in sequential
+  ;; and parallel compile modes.
   (doseq [parallel? [true false]]
     (let [mode (if parallel? "parallel" "sequential")
           good (-> (two-source-state :meta parallel?)
@@ -389,18 +394,23 @@
 
       (testing (str mode " — later hook only annotates app.b's retained output")
         ;; No source is scheduled this warm pass. A later build-local prepare hook
-        ;; replaces app.b's still-valid output with a NEW map that ONLY adds
-        ;; metadata; assoc preserves the SAME `:js` object, so Shadow skips app.b.
-        ;; app.b must survive byte-identical and the digest must not move.
-        (let [prepared  (prepare warm-input)
-              mutated-b (assoc warm-b :shadow.build/annotation :normalized)
-              finished  (-> prepared
-                            (assoc-in [:output app-b-rid] mutated-b)
-                            finish)]
-          (is (not (identical? mutated-b warm-b))
+        ;; receives the build-state AFTER re-frame.ui's prepare (its output already
+        ;; marker-stamped) and replaces app.b's still-valid output with a NEW map
+        ;; that ONLY adds metadata; assoc preserves the marker, so Shadow skips
+        ;; app.b. app.b must survive byte-identical and the digest must not move.
+        (let [prepared    (prepare warm-input)
+              prepared-b  (get-in prepared [:output app-b-rid])
+              mutated-b   (assoc prepared-b :shadow.build/annotation :normalized)
+              finished    (-> prepared
+                              (assoc-in [:output app-b-rid] mutated-b)
+                              finish)]
+          (is (not (identical? mutated-b prepared-b))
               "the later hook produced a fresh output MAP for app.b")
+          (is (= (get prepared-b :re-frame.ui.compiler.build-hook/pass-marker)
+                 (get mutated-b :re-frame.ui.compiler.build-hook/pass-marker))
+              "but the metadata-only mutation preserved re-frame.ui's per-pass marker")
           (is (identical? (:js warm-b) (:js mutated-b))
-              "but the metadata-only mutation preserved Shadow's `:js` artifact object")
+              "and (incidentally) still the SAME `:js` object — but that is no longer the signal")
           (is (not (contains?
                     (get-in prepared [:compiler-env build/scratch-key :touched])
                     'app.b))
@@ -435,22 +445,125 @@
               "evicting the recompiled ghost changes the whole-build digest"))))))
 
 (deftest missing-per-pass-provenance-fails-loud-not-empty-schedule
-  ;; rf2-vxgfnd.255: an open pass whose prepare-time provenance snapshot is
-  ;; unobservable must fail loudly at finish rather than silently reconcile
+  ;; rf2-vxgfnd.255 / rf2-v7wqk: an open pass whose prepare-time provenance token
+  ;; is unobservable must fail loudly at finish rather than silently reconcile
   ;; against an assumed-empty compile schedule (which would leak ghost rows).
   (let [prepared (-> (two-source-state :no-prov false)
                      prepare
                      (declare 'app.a :app/a-view ["tfa-1" "hsa-1"])
                      (declare 'app.b :app/b-view ["tfb-1" "hsb-1"]))
         blinded (update-in prepared [:compiler-env build/scratch-key]
-                           dissoc :pass-output)
+                           dissoc :pass-token)
         ex (try (finish blinded) nil
                 (catch clojure.lang.ExceptionInfo e e))]
-    (is (some? (get-in prepared [:compiler-env build/scratch-key :pass-output]))
-        "an ordinary open pass records the provenance snapshot")
-    (is (some? ex) "finish with open scratch but no :pass-output must throw")
+    (is (some? (get-in prepared [:compiler-env build/scratch-key :pass-token]))
+        "an ordinary open pass records the per-pass provenance token")
+    (is (some? ex) "finish with open scratch but no :pass-token must throw")
     (is (= :re-frame.ui.compiler.build-hook/missing-pass-provenance
            (:re-frame.ui.compiler.build-hook/error (ex-data ex))))))
+
+(deftest non-scheduling-js-transform-is-not-a-recompile
+  ;; rf2-v7wqk — the P1 the per-pass marker fixes (red-before / green-after).
+  ;; `:cached` is STICKY on retained outputs, so a later non-scheduling
+  ;; :compile-prepare hook that replaces ONLY `[:output rid :js]` with a fresh
+  ;; String (equal bytes OR changed bytes) — scheduling NO compilation — leaves
+  ;; `:cached false` and a DIFFERENT `:js` object. The pre-fix `:cached false` +
+  ;; `:js`-identity test misread that as a recompile, pre-touched app.b, saw no
+  ;; registry macro, and EVICTED its valid accepted view — changing the whole-
+  ;; build digest. assoc preserves re-frame.ui's per-pass marker, so the marker
+  ;; test sees no compilation: the view and digest are retained. The metadata test
+  ;; above cannot catch this ordinary output-transforming shape because it
+  ;; deliberately preserves the nested `:js` object. Both equal-byte and
+  ;; changed-byte transforms; both compile schedules.
+  (doseq [parallel? [true false]
+          [byte-label new-js] [[:equal-bytes "app.b = {};"]
+                               [:changed-bytes "app.b = {/* transformed */};"]]]
+    (testing (str (if parallel? "parallel" "sequential") " / " (name byte-label))
+      (let [good (-> (two-source-state (keyword "jsx" (name byte-label)) parallel?)
+                     prepare
+                     (declare 'app.a :app/a-view ["tfa-1" "hsa-1"])
+                     (declare 'app.b :app/b-view ["tfb-1" "hsb-1"])
+                     finish)
+            digest-before (build/accepted-build-digest good)
+            views-before  (build/accepted-aggregate build/views good)
+            warm-a {:resource-id app-a-rid :js (fresh-js "app.a = {};")
+                    :compiled-at 1000 :cached false}
+            warm-b {:resource-id app-b-rid :js (fresh-js "app.b = {};")
+                    :compiled-at 1000 :cached false}
+            warm-input (-> good
+                           (assoc-in [:output carrier-rid :js]
+                                     build-hook/digest-sentinel)
+                           (assoc-in [:output app-a-rid] warm-a)
+                           (assoc-in [:output app-b-rid] warm-b))
+            prepared (prepare warm-input)
+            ;; A later non-scheduling hook swaps ONLY app.b's :js for a fresh
+            ;; String — no compilation. :cached stays false (sticky). assoc keeps
+            ;; every other key, including re-frame.ui's per-pass marker.
+            transformed-b (assoc (get-in prepared [:output app-b-rid])
+                                 :js (fresh-js new-js))
+            finished (-> prepared
+                         (assoc-in [:output app-b-rid] transformed-b)
+                         finish)]
+        (is (= {:app/a-view ["tfa-1" "hsa-1"] :app/b-view ["tfb-1" "hsb-1"]}
+               views-before)
+            "the accepted build declares both sources' views")
+        (is (false? (:cached transformed-b))
+            "a non-scheduling :js transform leaves :cached false (sticky)")
+        (is (not (identical? (:js transformed-b) (:js warm-b)))
+            "and yields a DIFFERENT :js object — the shape a :js-identity test misreads")
+        (is (not (contains?
+                  (get-in prepared [:compiler-env build/scratch-key :touched])
+                  'app.b))
+            "re-frame.ui does not pre-touch an output-present source at prepare")
+        (is (= views-before (build/accepted-aggregate build/views finished))
+            "an output :js transform is NOT a recompile; both accepted views survive")
+        (is (contains? (build/accepted-aggregate build/views finished) :app/b-view)
+            "app.b's accepted view is retained, not evicted as a ghost")
+        (is (= digest-before (build/accepted-build-digest finished))
+            "the whole-build digest is unchanged")))))
+
+(deftest ambiguous-per-source-provenance-fails-loud
+  ;; rf2-v7wqk / rf2-ialoij: per-source provenance that is MISSING/malformed (an
+  ;; unmarked output with no usable `:cached` flag) or CONTRADICTORY (an output
+  ;; carrying a STALE marker that is not this pass's token) must fail with a typed
+  ;; compiler error BEFORE any accepted candidate is published — never silently
+  ;; classified as untouched.
+  (let [marker-key :re-frame.ui.compiler.build-hook/pass-marker
+        warm-b {:resource-id app-b-rid :js (fresh-js "app.b = {};")
+                :compiled-at 1000 :cached false}
+        open (fn [build-id]
+               (let [good (-> (two-source-state build-id false)
+                              prepare
+                              (declare 'app.a :app/a-view ["tfa-1" "hsa-1"])
+                              (declare 'app.b :app/b-view ["tfb-1" "hsb-1"])
+                              finish)]
+                 (-> good
+                     (assoc-in [:output carrier-rid :js] build-hook/digest-sentinel)
+                     (assoc-in [:output app-a-rid]
+                               {:resource-id app-a-rid :js (fresh-js "app.a = {};")
+                                :compiled-at 1000 :cached false})
+                     (assoc-in [:output app-b-rid] warm-b)
+                     prepare)))
+        finish-ex (fn [prepared bad-b]
+                    (try (-> prepared (assoc-in [:output app-b-rid] bad-b) finish)
+                         nil
+                         (catch clojure.lang.ExceptionInfo e e)))]
+    (testing "unmarked output with no usable :cached flag"
+      (let [prepared (open :ambig-unmarked)
+            ex (finish-ex prepared {:resource-id app-b-rid :js (fresh-js "x")})]
+        (is (some? ex) "an unmarked output with no :cached must throw")
+        (is (= :re-frame.ui.compiler.build-hook/ambiguous-compile-evidence
+               (:re-frame.ui.compiler.build-hook/error (ex-data ex))))
+        (is (= :unmarked-output-missing-cached-flag (:reason (ex-data ex))))))
+    (testing "output carrying a stale (wrong-token) marker"
+      (let [prepared (open :ambig-stale)
+            stale-b (assoc (get-in prepared [:output app-b-rid])
+                           marker-key "not-this-pass-token")
+            ex (finish-ex prepared stale-b)]
+        (is (some? ex) "a stale provenance marker must throw")
+        (is (= :re-frame.ui.compiler.build-hook/ambiguous-compile-evidence
+               (:re-frame.ui.compiler.build-hook/error (ex-data ex))))
+        (is (= :stale-provenance-marker (:reason (ex-data ex))))))))
 
 (deftest interleaved-build-values-carry-isolated-digests
   (let [a (-> (shadow-state :a build-hook/digest-sentinel)
