@@ -97,10 +97,23 @@
 ;; Memo + registration
 ;; ---------------------------------------------------------------------------
 
-(defn memo-view
+(defn ^{:jsdoc ["@nosideeffects"]} memo-view
   "React.memo over the compiled render fn with the generated `rf=`
   comparator. This is the direct production path: no shell, slot, listener,
-  dynamic render lookup, or extra Fiber."
+  dynamic render lookup, or extra Fiber.
+
+  The `@nosideeffects` JSDoc annotation (Closure-native, always honoured — it
+  rides the type-info JSDoc channel Closure preserves) promises that building a
+  memoized component is side-effect-free. Under `:advanced` + goog.DEBUG=false a
+  production view def folds to exactly this call (the emitter's direct-React.memo
+  arm; the DEV `displayName` writes below are goog.DEBUG-stripped), so the
+  annotation lets Closure dead-code-eliminate an UNREFERENCED view def whole —
+  render fn and sentinel strings included. Without it Closure keeps the call as a
+  retained expression statement and a single-view import of a multi-view library
+  namespace drags in every unimported sibling (G-18 facade isolation, rf2-edpam).
+  The promise is honest where it matters: `memo-view` is reached ONLY on the
+  goog.DEBUG=false production arm, so no build both runs the `displayName` writes
+  and trusts this annotation."
   [render-fn compare-fn display-name]
   (let [c (react/memo render-fn compare-fn)]
     (when ^boolean js/goog.DEBUG

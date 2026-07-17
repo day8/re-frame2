@@ -828,7 +828,10 @@
               ~view-id ~render-sym compare# ~display-name (quote ~manifest))
              ;; The production arm is deliberately direct React.memo. Closure
              ;; folds away the sibling registration arm and with it every HMR
-             ;; slot/listener/dynamic-lookup/extra-Fiber helper.
+             ;; slot/listener/dynamic-lookup/extra-Fiber helper. `memo-view`
+             ;; carries an `@nosideeffects` JSDoc annotation, so Closure DCEs
+             ;; this call whole when the view def is UNREFERENCED (G-18 facade
+             ;; isolation, rf2-edpam).
              (re-frame.ui.runtime/memo-view
               ~(if host-render host-render-sym render-sym)
               compare# ~display-name))))
