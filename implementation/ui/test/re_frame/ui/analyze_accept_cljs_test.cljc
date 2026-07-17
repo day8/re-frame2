@@ -32,8 +32,11 @@
       spread      {:fqn 're-frame.ui/spread :meta {}}
       spread-safe {:fqn 're-frame.ui/spread-safe :meta {}}
       event       {:fqn 're-frame.ui/event :meta {}}
+      handler     {:fqn 're-frame.ui/handler :meta {}}
       render-fn   {:fqn 're-frame.ui/render-fn :meta {}}
       slot        {:fqn 're-frame.ui/slot :meta {}}
+      error-boundary {:fqn 're-frame.ui/error-boundary :meta {}}
+      client-only    {:fqn 're-frame.ui/client-only :meta {}}
       ..          {:fqn 'clojure.core/.. :meta {:macro true}}
       if-let      {:fqn 'clojure.core/if-let :meta {:macro true}}
       ->          {:fqn 'clojure.core/-> :meta {:macro true}}
@@ -273,6 +276,98 @@
     (is (= :dynamic (:classification (first (get-in ast [:props :events])))))
     (is (= 1 (count (:subs sites)))
         "dynamic handler classification runs at render, so its sub is finite")))
+
+;; ---------------------------------------------------------------------------
+;; S3 explicit callback boundaries (rf2-vxgfnd.95.3) — ui/handler, and the
+;; committed callbacks + C-13a opaque fn-props at component seams
+;; ---------------------------------------------------------------------------
+
+(deftest ui-handler-at-a-dom-site
+  (let [el (ana* '[:button {:on-click (handler [e] (.preventDefault e))} "x"])
+        h  (first (get-in el [:props :events]))]
+    (is (= :handler (:classification h))
+        "ui/handler — the explicit imperative committed callback (bare-fn shorthand)")
+    (is (false? (:serializable? h)))
+    (is (= 'fn (first (:form h)))
+        "the body lowers to a fn the runtime calls with the native event"))
+  ;; ui/handler is NOT a controlled-input sync-door class (imperative, not a vector)
+  (let [el (ana* '[:input {:value v :on-input (handler [e] (do-something e))}])
+        h  (first (get-in el [:props :events]))]
+    (is (= :handler (:classification h)))
+    (is (not (:sync? h)) "an imperative ui/handler never rides the sync door")))
+
+(deftest c13a-internal-fn-props-are-legal-opaque-values
+  (testing "a bare fn between INTERNAL views is a legal opaque value (marker nil)"
+    (let [en (first (get-in (ana* '[child-view {:cb (fn [x] x)}]) [:props :entries]))]
+      (is (nil? (:marker en)) "no framework invocation phase — an ordinary value")
+      (is (false? (:literal? en)))))
+  (testing "a foreign boundary still rejects a bare fn prop"
+    (is (thrown? #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo)
+                 (ana* '[ForeignComp {:cb (fn [x] x)}])))))
+
+(deftest committed-callbacks-at-component-seams
+  (testing "ui/event at a foreign prop is a committed event callback"
+    (let [{:keys [ast sites]}
+          (ana-full '[ForeignComp {:on-select (event [e] [:sel/pick e])}])
+          en (first (get-in ast [:props :entries]))]
+      (is (= :ui-event (:marker en)))
+      (is (= 'fn (first (:callback-fn en))) "the body lowers to a fn")
+      (is (= 1 (count (:events sites))) "it records an event site")))
+  (testing "ui/handler at a foreign prop is an imperative committed callback"
+    (let [en (first (get-in (ana* '[ForeignComp {:on-open (handler [a b] (do-it a b))}])
+                            [:props :entries]))]
+      (is (= :handler (:marker en)))
+      (is (= '[a b] (second (:callback-fn en))) "the full fixed arg list binds through")))
+  (testing "ui/event / ui/handler are equally legal at an INTERNAL-view seam"
+    (let [en (first (get-in (ana* '[child-view {:cb (handler [x] (use-it x))}])
+                            [:props :entries]))]
+      (is (= :handler (:marker en))
+          "a per-site stable identity at an internal-view seam (C-13a)")))
+  (testing "ui/event at a foreign prop capturing a loop binding is rejected"
+    (is (thrown? #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo)
+                 (ana* '(for [row rows]
+                          [ForeignComp {:key (:id row)
+                                        :on-select (event [e] [:pick (:id row)])}]))))))
+
+;; ---------------------------------------------------------------------------
+;; ui/error-boundary + ui/client-only (rf2-vxgfnd.95.3)
+;; ---------------------------------------------------------------------------
+
+(deftest error-boundary-lowers
+  (let [a (ana* '(error-boundary {:fallback child-view :reset-key k
+                                  :on-error [:err/log :ctx]}
+                                 [:div "guarded"]))]
+    (is (= :error-boundary (:op a)))
+    (is (= :view (:kind (:fallback a))) "the fallback resolves to a defview")
+    (is (true? (:has-reset-key? a)))
+    (is (= 'k (:reset-key a)) "the reset-key is a carried runtime value")
+    (is (= [:err/log :ctx] (:on-error a)) "the on-error event vector is carried")
+    (is (= :element (get-in a [:child :op])) "the single guarded child analyzes"))
+  (testing "minimal form: just a fallback + child"
+    (let [a (ana* '(error-boundary {:fallback child-view} [:p "x"]))]
+      (is (= :error-boundary (:op a)))
+      (is (false? (:has-reset-key? a)))
+      (is (nil? (:on-error a)))))
+  (testing "an on-error arg indexes its sub site (evaluated when the closure builds)"
+    (let [{:keys [ast sites]}
+          (ana-full '(error-boundary {:fallback child-view
+                                      :on-error [:err/log (sub [:ctx])]}
+                                     [:p "x"]))]
+      (is (= :error-boundary (:op ast)))
+      (is (= 1 (count (:subs sites))) "the (sub …) in :on-error is a finite site"))))
+
+(deftest client-only-lowers
+  (let [a (ana* '(client-only {:fallback [:div.skeleton "loading…"]}
+                              [ForeignComp {:p 1}]))]
+    (is (= :client-only (:op a)))
+    (is (= :element (get-in a [:fallback :op])) "the capability-free fallback analyzes")
+    (is (= :foreign (get-in a [:child :op])) "the browser-only client subtree analyzes"))
+  (testing "the fallback may be a static internal view or plain markup"
+    (is (= :client-only (:op (ana* '(client-only {:fallback [:span "…"]} [:div "live"]))))))
+  (testing "a capability in the fallback is a compile error"
+    (is (thrown? #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo)
+                 (ana* '(client-only {:fallback [:p (sub [:q])]} [:div "live"])))
+        "a reactive read in the fallback would tear on hydration")))
 
 (deftest deferred-callback-bodies-accept-opaque-host-macros
   ;; A deferred callback (ui/event / bare fn) is opaque host code: interop and
@@ -782,9 +877,10 @@
       (is (= :element (get-in e [:render-fn :body :op]))
           "the body is a COMPILED template node, not an opaque expression")
       (is (nil? (:value e)) "a render-fn prop carries no plain :value")))
-  (testing "an ordinary function prop is still the bare-fn error (not a slot)"
+  (testing "an ordinary function prop at a FOREIGN boundary is still the bare-fn error"
     (is (thrown? #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo)
-                 (ana* '[child-view {:row (fn [i x] [:li i x])}])))))
+                 (ana* '[ForeignComp {:row (fn [i x] [:li i x])}]))
+        "a foreign component invokes it at an unknown phase — reject")))
 
 (deftest ui-slot-lowers-and-indexes-its-site
   (testing "ui/slot over a prop-carried render-fn value"

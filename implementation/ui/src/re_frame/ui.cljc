@@ -539,6 +539,71 @@
         "callable helper. Author it at the element's handler position")
    nil))
 
+(defn handler
+  "(ui/handler [x] body…) — the explicit IMPERATIVE committed callback form,
+  the imperative sibling of `ui/event`. Its body runs after commit and its
+  return is IGNORED (no dispatch of a returned vector — that is `ui/event`); it
+  does imperative work (calling `(ui/dispatch-fn)`, driving a foreign widget,
+  measuring). Like every committed callback it is PER-SITE STABLE and reads the
+  COMMITTED values — one stable identity an external/foreign consumer attaches
+  once, every invocation reading the winning commit (the stale-closure boundary
+  law).
+
+  Legal at a DOM/custom-element `:on-*` site (the explicit spelling of the
+  bare-fn shorthand; the native event binds its parameter) and at a
+  FOREIGN-component or INTERNAL-view prop (the invoker's arguments bind through
+  verbatim). At an internal-view seam it gives a bare fn prop the per-site
+  stable identity a fresh closure lacks (C-13a).
+
+  This var exists for symbol resolution only; a direct call fails loudly."
+  [& _]
+  (error/throw-error!
+   :rf.error/ui-tree-malformed 're-frame.ui/handler
+   (str "(ui/handler [x] body…) executed outside compiler lowering — it is a "
+        "lexical committed-callback form for a :on-* site or a foreign/view "
+        "prop, not a callable helper. Author it at the callback position")
+   nil))
+
+(defn error-boundary
+  "(ui/error-boundary {:fallback view :reset-key val :on-error [:ev …]} child)
+  — the explicit error component. Catches render/lifecycle throws BELOW it
+  (React does not catch event-handler or async errors — those keep their own
+  typed paths). On catch the `:fallback` VIEW renders with `:error` + its
+  declared props and cannot recursively dispatch. `:on-error` (optional)
+  dispatches AFTER the failing commit through a live frame captured at the
+  owning view's render — never during render (I-1) — with the caught error
+  appended to the authored event vector. Changing `:reset-key` (compared `rf=`)
+  clears the caught error (retry = a state change that changes the key). The
+  JVM/SSR renders the CHILD under the server failure policy (per [011]) —
+  boundaries are a client recovery mechanism.
+
+  A template form, legal in child position; a direct call fails loud by design."
+  [& _]
+  (error/throw-error!
+   :rf.error/ui-tree-malformed 're-frame.ui/error-boundary
+   (str "(ui/error-boundary {:fallback view …} child) is a template form — the "
+        "compiler wires it into the runtime error boundary; it is never called "
+        "directly")
+   nil))
+
+(defn client-only
+  "(ui/client-only {:fallback tpl} client-tpl) — a browser-only subtree with a
+  MANDATORY, capability-free fallback (compiler-checked: the fallback carries no
+  reactive read / host state / effect / event handler, so the JVM/SSR and first
+  hydration render it deterministically). The JVM/SSR renders the fallback (a
+  `:rf.ui/boundary :client-only` node); the browser renders the client subtree
+  (the S3 activation). The one root phase-flip that swaps all sites in a single
+  update completes S5 (per [011]).
+
+  A template form, legal in child position; a direct call fails loud by design."
+  [& _]
+  (error/throw-error!
+   :rf.error/ui-tree-malformed 're-frame.ui/client-only
+   (str "(ui/client-only {:fallback tpl} client-tpl) is a template form — the "
+        "compiler renders the client subtree in the browser and the "
+        "capability-free fallback on the JVM/SSR; it is never called directly")
+   nil))
+
 ;; ---------------------------------------------------------------------------
 ;; Compiled render slots (S3) — the internal library-seam callback + invocation
 ;; ---------------------------------------------------------------------------

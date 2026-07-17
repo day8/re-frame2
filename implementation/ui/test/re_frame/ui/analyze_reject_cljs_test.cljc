@@ -477,9 +477,11 @@
   (is (= :rf.ui.compile/bare-fn-prop
          (reject-id '[ForeignComp {:on-select (fn [x] x)}]))
       "bare fn at a foreign boundary — invoker/phase unknown")
-  (is (= :rf.ui.compile/bare-fn-prop
-         (reject-id '[child-view {:cb #(inc %)}]))
-      "bare fn at a view boundary")
+  ;; C-13a (2026-07-16): a bare fn between INTERNAL views is a legal OPAQUE
+  ;; value — identity-compared, never invoked by the framework, no invocation
+  ;; phase. (Its ACCEPT fixture lives in analyze-accept-cljs-test.)
+  (is (nil? (reject-id '[child-view {:cb #(inc %)}]))
+      "bare fn at an INTERNAL-view boundary is a legal opaque value (C-13a)")
   (is (= :rf.ui.compile/bare-fn-prop
          (reject-id '[:div {:data-cb (fn [x] x)} "x"]))
       "bare fn at a non-event DOM prop")
@@ -491,6 +493,55 @@
   (is (= :rf.ui.compile/ref-on-view-s1
          (reject-id '[child-view {:ref r}]))
       ":ref forwarding on internal views lands S3 (conservative pin)"))
+
+(deftest ui-handler-grammar
+  (is (= :rf.ui.compile/bad-ui-handler
+         (reject-id '[:button {:on-click (handler [] (f))} "x"]))
+      "ui/handler binds at least the invoker's argument")
+  (is (= :rf.ui.compile/bad-ui-handler
+         (reject-id '[:button {:on-click (handler [a b] (f a b))} "x"]))
+      "ui/handler at a DOM site binds exactly the native event")
+  (is (= :rf.ui.compile/bad-ui-callback
+         (reject-id '[ForeignComp {:on-select (event [a b] [:x])}]))
+      "ui/event at a component prop binds exactly one invoker arg")
+  (is (= :rf.ui.compile/bad-ui-callback
+         (reject-id '[ForeignComp {:on-open (handler [& rest] (f rest))}]))
+      "a component-prop ui/handler is a fixed-arity vector (no &)"))
+
+(deftest error-boundary-grammar
+  (is (= :rf.ui.compile/bad-error-boundary
+         (reject-id '(error-boundary {} [:p "x"])))
+      ":fallback is required")
+  (is (= :rf.ui.compile/bad-error-boundary
+         (reject-id '(error-boundary {:fallback ForeignComp} [:p "x"])))
+      ":fallback must be a defview, not a foreign component")
+  (is (= :rf.ui.compile/bad-error-boundary
+         (reject-id '(error-boundary {:fallback child-view :catch true} [:p "x"])))
+      "the option set is closed")
+  (is (= :rf.ui.compile/bad-error-boundary
+         (reject-id '(error-boundary {:fallback child-view :on-error [oops]} [:p "x"])))
+      ":on-error is a literal event vector [:domain/event …]")
+  (is (= :rf.ui.compile/bad-error-boundary
+         (reject-id '(error-boundary {:fallback child-view} [:p "a"] [:p "b"])))
+      "exactly ONE guarded child"))
+
+(deftest client-only-grammar
+  (is (= :rf.ui.compile/bad-client-only
+         (reject-id '(client-only {} [:div "live"])))
+      ":fallback is required")
+  (is (= :rf.ui.compile/bad-client-only
+         (reject-id '(client-only {:fallback [:p "…"] :extra 1} [:div "live"])))
+      "the only option is :fallback")
+  (is (= :rf.ui.compile/bad-client-only
+         (reject-id '(client-only {:fallback [:p "…"]} [:a "x"] [:b "y"])))
+      "exactly ONE client child")
+  (is (= :rf.ui.compile/capability-in-fallback
+         (reject-id '(client-only {:fallback [:button {:on-click [:retry]} "r"]}
+                                  [:div "live"])))
+      "an event handler in the fallback is a capability — reject")
+  (is (= :rf.ui.compile/capability-in-fallback
+         (reject-id '(client-only {:fallback [:p (sub [:q])]} [:div "live"])))
+      "a reactive read in the fallback is a capability — reject"))
 
 (deftest element-props
   (is (= :rf.ui.compile/rejected-prop-spelling (reject-id '[:div {:class-name "x"}]))

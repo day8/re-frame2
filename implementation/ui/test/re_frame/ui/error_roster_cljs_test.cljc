@@ -62,6 +62,12 @@
     :rf.ui.compile/bad-handler-options
     :rf.ui.compile/contradictory-handler-options
     :rf.ui.compile/bad-ui-event
+    ;; explicit callback boundaries + interop recovery/boundary (S3, rf2-vxgfnd.95.3)
+    :rf.ui.compile/bad-ui-handler
+    :rf.ui.compile/bad-ui-callback
+    :rf.ui.compile/bad-error-boundary
+    :rf.ui.compile/bad-client-only
+    :rf.ui.compile/capability-in-fallback
     ;; compiled render slots (S3, rf2-ri0k6n)
     :rf.ui.compile/bad-render-fn
     :rf.ui.compile/bad-slot
@@ -204,8 +210,11 @@
       spread      {:fqn 're-frame.ui/spread :meta {}}
       spread-safe {:fqn 're-frame.ui/spread-safe :meta {}}
       event       {:fqn 're-frame.ui/event :meta {}}
+      handler     {:fqn 're-frame.ui/handler :meta {}}
       render-fn   {:fqn 're-frame.ui/render-fn :meta {}}
       slot        {:fqn 're-frame.ui/slot :meta {}}
+      error-boundary {:fqn 're-frame.ui/error-boundary :meta {}}
+      client-only    {:fqn 're-frame.ui/client-only :meta {}}
       frame-provider {:fqn 're-frame.ui/frame-provider :meta {}}
       child-view  {:fqn 'app.views/child-view
                    :meta {:rf.ui/view true :rf.ui/children? true}}
@@ -317,6 +326,22 @@
    [:rf.ui.compile/bad-ui-event
     '[:input {:on-input (event [a b] [:x])}]
     ["native event" "event vector" "ui/handler"]]
+   ;; explicit callback boundaries + interop recovery/boundary (S3, rf2-vxgfnd.95.3)
+   [:rf.ui.compile/bad-ui-handler
+    '[:button {:on-click (handler [a b] (f a b))} "x"]
+    ["native event" "ui/event"]]
+   [:rf.ui.compile/bad-ui-callback
+    '[ForeignComp {:on-select (event [a b] [:x])}]
+    ["event vector"]]
+   [:rf.ui.compile/bad-error-boundary
+    '(error-boundary {:fallback ForeignComp} [:p "x"])
+    ["defview" ":error"]]
+   [:rf.ui.compile/bad-client-only
+    '(client-only {} [:div "live"])
+    [":fallback" "capability-free"]]
+   [:rf.ui.compile/capability-in-fallback
+    '(client-only {:fallback [:p (sub [:q])]} [:div "live"])
+    ["CAPABILITY-FREE" "client subtree"]]
    ;; compiled render slots (S3, rf2-ri0k6n)
    [:rf.ui.compile/bad-render-fn
     '[child-view {:row (render-fn [a] [:p "a"] [:p "b"])}]

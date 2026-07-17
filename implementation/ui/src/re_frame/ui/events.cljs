@@ -344,11 +344,70 @@
   controlled-input sync bit exactly as a literal vector site does. Its outcome is
   classified at invocation (vector ⇒ dispatch, nil ⇒ no dispatch, anything else ⇒
   loud diagnostic), so the SITE proof is static while the prefix/payload stay
-  runtime values."
+  runtime values.
+
+  Reused VERBATIM at a foreign/internal-view component prop (flags 0 — the
+  controlled-input door is DOM-only): the foreign invoker's first argument binds
+  `e`, so the per-site-stable, committed-slot-reading machinery is identical
+  whether the invoker is a native DOM event or a foreign callback."
   [site-key f flags debug-site]
   (publish-candidate-site!
    site-key #js {:kind :event-fn :value f :flags flags :debugSite debug-site
                  :callback nil}))
+
+;; ---------------------------------------------------------------------------
+;; ui/handler — the explicit IMPERATIVE committed callback (S3)
+;;
+;; The imperative sibling of `ui/event`: its body runs after commit and its
+;; return is IGNORED (no dispatch of a returned vector). Per-site stable and
+;; committed-slot reading like every committed callback, so an external/foreign
+;; consumer attaches ONE stable identity and every invocation reads the winning
+;; commit — the stale-closure boundary law. The stable callback is VARIADIC so
+;; a foreign invoker's full argument list reaches the body verbatim (a DOM
+;; `:on-*` site simply passes the single native event; the bare-fn shorthand's
+;; explicit spelling).
+;; ---------------------------------------------------------------------------
+
+(defn- invoke-handler-site!
+  "Apply the LATEST committed `ui/handler` body to the invoker's args; the
+  return is imperative and dropped. No-ops after disconnect (committed = nil),
+  so a foreign callback that outlived its view is inert — never routed into a
+  torn-down owner."
+  [^js owner site-key args]
+  (when-some [committed (.-committed owner)]
+    (when-some [^js desc (unchecked-get committed site-key)]
+      (apply (.-value desc) args)))
+  nil)
+
+(defn- stable-handler-callback!
+  "The stable VARIADIC callback for a `ui/handler` site: the one already
+  committed (kept stable while the site stays mounted), one published earlier in
+  THIS render, else a freshly minted variadic forwarder. Mirrors
+  `stable-site-callback!`; an abandoned render seeds no callback (candidate/owner
+  split)."
+  [^js owner ^js sites site-key]
+  (let [committed (.-committed owner)
+        prior     (or (when (some? committed) (unchecked-get committed site-key))
+                      (unchecked-get sites site-key))]
+    (if (some? prior)
+      (.-callback ^js prior)
+      (fn [& args] (invoke-handler-site! owner site-key args)))))
+
+(defn handler-callback
+  "Return the stable callback for a compiler-proven `ui/handler` site — the
+  explicit imperative committed callback (Spec 004 §Handlers). `f` is the
+  compiled fixed-arity body; its return is IGNORED. At a DOM `:on-*` site the
+  native event binds its first parameter (the explicit form of the bare-fn
+  shorthand); at a foreign/internal-view prop the invoker's arguments bind
+  through verbatim."
+  [site-key f debug-site]
+  (let [^js candidate (capture-or-throw!)
+        sites         (.-sites candidate)
+        callback      (stable-handler-callback! (.-owner candidate) sites site-key)]
+    (unchecked-set sites site-key
+                   #js {:kind :handler :value f :flags 0 :debugSite debug-site
+                        :callback callback})
+    callback))
 
 ;; ---------------------------------------------------------------------------
 ;; ui/dispatch-fn — the stable committed-frame dispatcher (S3)
