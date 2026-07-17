@@ -1,6 +1,7 @@
 // Copy the advanced-compiled re-frame2 SCI bundle to its deployed location
 // (docs/cljs/playground-rf2.js), keeping shadow's out/ working tree (manifest,
 // cljs-runtime) out of the deployed docs/ dir. Run after `shadow-cljs release`.
+import { execFileSync } from "node:child_process";
 import { readFileSync, writeFileSync, mkdirSync, existsSync } from "node:fs";
 import { dirname, join, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -51,9 +52,34 @@ function normalizeRepoPaths(text) {
 const original = readFileSync(src, "utf8");
 const normalized = normalizeRepoPaths(original);
 
+// --- input-digest freshness marker (rf2-i3e3q) ------------------------------
+//
+// Append a deterministic, unminified digest of the exact source/config/lock
+// inputs this bundle was compiled from. `scripts/check-playground-sci-freshness.sh`
+// recomputes the same digest from the current inputs and compares it to this
+// marker, so a committed bundle that has drifted out of sync with its source
+// (an input changed without a rebuild) FAILS the gate. The digest is over the
+// INPUTS, not the Closure output, so it is cross-machine stable (a Windows and a
+// Linux rebuild of the same source embed the same marker even though their
+// minified identifiers differ). Computed via the ONE shared module the gate also
+// runs, so both sides agree byte-for-byte. Appended AFTER path normalisation so
+// the marker (hex only) is never rewritten.
+const digestScript = join(repoRoot, "scripts", "playground-sci-input-digest.mjs");
+const inputDigest = execFileSync("node", [digestScript], {
+  cwd: repoRoot,
+  encoding: "utf8",
+}).trim();
+if (!/^[0-9a-f]{64}$/.test(inputDigest)) {
+  console.error("ERROR: input digest is not a 64-hex string: " + JSON.stringify(inputDigest));
+  process.exit(1);
+}
+const withMarker =
+  normalized.replace(/\n*$/, "\n") + "//# rf2-sci-input-digest=" + inputDigest + "\n";
+
 mkdirSync(destDir, { recursive: true });
-writeFileSync(dest, normalized);
+writeFileSync(dest, withMarker);
 if (normalized !== original) {
   console.log("normalized absolute repo-root paths -> repo-relative in deployed bundle");
 }
+console.log("stamped rf2-sci-input-digest=" + inputDigest);
 console.log("copied playground-rf2.js -> " + dest);
