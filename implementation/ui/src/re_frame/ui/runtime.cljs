@@ -496,13 +496,26 @@
   compiled OWNED object (`owned-obj`) into the final props object: owned props
   WIN every collision (the caller can carry no owned/structural key — the guard
   denied them), and `className` composes with the owned classes first. Returns
-  the merged object."
+  the merged object.
+
+  NIL-MEANS-ABSENT (rf2-j4len): a compiled owned DYNAMIC prop whose value
+  normalizes to nil sits in `owned-obj` as an explicit null (the owned object
+  is a literal built once, so a nil `attr-val`/`class-val` still materializes
+  the key). Layer owned OVER caller KEY-BY-KEY, skipping any nil owned value, so
+  a nil owned prop stays ABSENT and the caller's value survives — matching the
+  JVM `tree/element`, which drops nil owned :norm/:dyn before layering the
+  caller attrs. `js/Object.assign` would copy the explicit null and erase the
+  caller's value (the divergence). General for every dynamic owned prop, not a
+  class-only patch; class then composes owned-first when both are non-nil."
   [caller-obj owned-obj]
-  (let [caller-class (unchecked-get caller-obj "className")
-        owned-class  (unchecked-get owned-obj "className")]
-    (js/Object.assign caller-obj owned-obj)
-    (when (and (some? caller-class) (some? owned-class))
-      (unchecked-set caller-obj "className" (str owned-class " " caller-class)))
+  (let [caller-class (unchecked-get caller-obj "className")]
+    (doseq [k (js/Object.keys owned-obj)]
+      (let [v (unchecked-get owned-obj k)]
+        (when (some? v)
+          (unchecked-set caller-obj k v))))
+    (let [owned-class (unchecked-get owned-obj "className")]
+      (when (and (some? caller-class) (some? owned-class))
+        (unchecked-set caller-obj "className" (str owned-class " " caller-class))))
     caller-obj))
 
 (defn jsx-spread2

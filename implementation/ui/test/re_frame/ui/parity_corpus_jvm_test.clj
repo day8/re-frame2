@@ -337,3 +337,32 @@
       (is (= :rf.error/ui-tree-malformed (:rf.error/id data)) "the deny fired")
       (is (= [[:owned "t"]] @eval-order)
           "owned evaluated before the every-build caller deny threw"))))
+
+;; rf2-j4len — a nil-normalized owned dynamic prop is ABSENT before layering, so
+;; the caller's value survives; a non-nil owned value wins; classes compose
+;; owned-first. Owned :class/:title are dynamic (from props) so they can be nil.
+;; The JVM tree already drops nil owned :norm/:dyn — this pins it and the CLJS
+;; host must AGREE.
+(defview nil-owned-probe [{:keys [oc ot caller]}]
+  [:input (ui/spread-safe {:class oc :title ot} caller)])
+
+(defn- probe-input-attrs [oc ot caller]
+  (:attrs (find-sem (semantic/normalize
+                     (assoc (nil-owned-probe {:oc oc :ot ot :caller caller})
+                            :rf.ui/tree-version tree/tree-version))
+                    (by-tag :input))))
+
+(deftest safe-spread-nil-owned-prop-absent-and-host-parity
+  (let [caller {:class "cc" :title "ct"}]
+    (testing "nil owned dynamic prop is absent: the caller value survives"
+      (let [attrs (probe-input-attrs nil nil caller)]
+        (is (= "cc" (get attrs "class")) "nil owned :class -> caller :class survives")
+        (is (= "ct" (get attrs "title")) "nil owned :title -> caller :title survives")))
+    (testing "non-nil owned wins; class composes owned-first"
+      (let [attrs (probe-input-attrs "oc" "ot" caller)]
+        (is (= "oc cc" (get attrs "class")) "class composes owned-first")
+        (is (= "ot" (get attrs "title")) "non-nil owned :title wins")))
+    (testing "owned present, caller absent: owned renders"
+      (let [attrs (probe-input-attrs "ocls" "otitle" {})]
+        (is (= "ocls" (get attrs "class")))
+        (is (= "otitle" (get attrs "title")))))))
