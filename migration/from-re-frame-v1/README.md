@@ -459,10 +459,13 @@ re-frame2's frame-routing for views relies on `reg-view`. A plain `(defn my-view
 
 The footgun bites a plain fn that depends on the surrounding frame. A plain fn is **safe** when it establishes its own frame scope (a `with-frame`, or a captured `capture-frame`); a single-frame app's plain fns are safe *inside* the one root `frame-provider` only when registered as views — a bare `rf/subscribe` in an unregistered plain fn under the root will still raise, because the plain fn can't read the context.
 
+The `frame-provider` is a **render-phase** scope, though — it does **not** preserve dynamic scope into a *later* callback. Even inside a registered `reg-view`, a bare fully-qualified `rf/dispatch` / `rf/subscribe` placed in an `:on-*` handler (or any deferred callback: a timer, a socket message, an imperative listener) fires *after* render has unwound the dynamic frame and popped the provider's React context, so it raises `:rf.error/no-frame-context` all the same. What survives the render boundary is a frame captured *at render time* — the `reg-view`-injected `dispatch` / `subscribe`, or an explicit `(rf/capture-frame)` — never a fresh `rf/dispatch`.
+
 **What to look for** in the codebase:
 
 1. Every Reagent fn referenced by a Var (or anonymous lambda) that is **not** registered via `rf/reg-view` and calls `rf/subscribe` / `rf/dispatch` (the ambient 1-arity forms), where it renders under a `frame-provider`.
 2. The hiccup subtree under each `(rf/frame-provider {:frame <id>} ...)` (or ENSURE `(rf/frame-root {:id <id>} ...)`).
+3. Bare fully-qualified `rf/dispatch` / `rf/subscribe` inside an `:on-*` (or other deferred) callback — **even in a `reg-view`**. The fix is the injected `dispatch` / `subscribe` captured at render, or an explicit `(rf/capture-frame)`, not a fresh `rf/dispatch`.
 
 The agent doesn't need to render the tree — a static walk over the hiccup forms inside the provider is enough. Cross-reference the registered set via `(rf/registrations :view)` to determine which Vars are `reg-view`-backed.
 

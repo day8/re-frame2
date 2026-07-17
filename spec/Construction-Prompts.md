@@ -577,7 +577,7 @@ The framework-registered `:rf/machine` sub returns the snapshot for any machine;
        :submitting  [spinner]
        :error-shown [:<>
                      [:p (str "Error: " (:error data))]
-                     [:button {:on-click #(rf/dispatch [:auth.login/flow [:dismiss]])}
+                     [:button {:on-click #(dispatch [:auth.login/flow [:dismiss]])}
                       "Try again"]]
        :authed      [:p "Welcome!"]
        :locked-out  [:p "Account locked."]

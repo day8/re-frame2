@@ -204,7 +204,7 @@ This namespace pairs with `render-to-string` in [re-frame.ssr.md](re-frame.ssr.m
 - **Description**: Build an attrs map carrying `:data-testid id`. The 2-arity merges `extra` into that map, and `:data-testid` always wins on collision. Use it at the view call site. Pair it with `find-by-testid` at the assertion site.
 - **Example**:
   ```clojure
-  [:button (th/testid "counter-inc" {:on-click #(rf/dispatch [:counter/inc])})
+  [:button (th/testid "counter-inc" {:on-click #(dispatch [:counter/inc])})
    "+"]
   ;; => [:button {:data-testid "counter-inc" :on-click ...} "+"]
   ```

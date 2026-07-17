@@ -108,17 +108,18 @@ Click into the cell and press **`Ctrl-Enter`** (**`Cmd-Enter`** on macOS):
     :unlocked {:on {:push {:target :locked}
                     :coin {:target :unlocked :action :take-coin}}}}})
 
-(defn turnstile-view []
-  (let [{:keys [state data]} (or @(rf/subscribe [:rf/machine :turnstile/flow])
+(rf/reg-view turnstile-view []
+  (let [{:keys [state data]} (or @(subscribe [:rf/machine :turnstile/flow])
                                  {:state :locked :data {:coins 0 :pushes 0}})
         open? (= state :unlocked)]
     [:div {:style {:font-family "sans-serif"}}
      [:p "state: " [:strong {:style {:color (if open? "green" "crimson")}} (str state)]]
      [:p "coins: " (:coins data) " · pushes: " (:pushes data)]
-     [:button {:on-click #(rf/dispatch [:turnstile/flow [:coin]])} "insert coin"]
-     [:button {:on-click #(rf/dispatch [:turnstile/flow [:push]])} "push"]]))
+     [:button {:on-click #(dispatch [:turnstile/flow [:coin]])} "insert coin"]
+     [:button {:on-click #(dispatch [:turnstile/flow [:push]])} "push"]]))
 
-[turnstile-view]
+[rf/frame-root {:id :demo}
+ [turnstile-view]]
 ```
 
 !!! tip "Try it"

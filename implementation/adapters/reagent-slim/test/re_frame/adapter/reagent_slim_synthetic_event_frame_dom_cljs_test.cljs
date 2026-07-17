@@ -1,54 +1,49 @@
-(ns re-frame.views-synthetic-event-frame-dom-cljs-test
-  "Real-DOM proof for the Core Views guide's synthetic-event frame advice
-  (rf2-xzgs3j).
+(ns re-frame.adapter.reagent-slim-synthetic-event-frame-dom-cljs-test
+  "reagent-slim half of the deferred-callback frame-law real-DOM matrix
+  (rf2-leeqp; completes the stock-Reagent proof rf2-xzgs3j /
+  `views-synthetic-event-frame-dom-cljs-test`).
 
-  The `docs/core/views.md` §\"imperative listeners lose the frame\" section
-  previously claimed that Hiccup `:on-*` attrs are 'wrapped so a `dispatch`
-  inside them carries the frame', and marked a bare
-  `#(rf/dispatch [:tile/finished])` in an `:on-animation-end` prop as the
-  RIGHT pattern. That is FALSE of the shipped adapters. Neither the Reagent
-  adapter (`re-frame.adapter.reagent`) nor reagent-slim wraps `:on-*`
-  callbacks to re-establish a frame binding: the handler is a plain closure
-  React invokes LATER, on a fresh JS stack, with no render in progress. At
-  that point:
+  WHAT THIS PINS. A view's `:on-*` handler runs LATER — on the user's
+  click, on a fresh JS stack, after the render that built it has
+  committed. By then the dynamic `re-frame.frame/*current-frame*` scope
+  has unwound and the `frame-provider`'s React context has been popped
+  back to the no-provider sentinel. So a bare, fully-qualified
+  `rf/dispatch` from an `:on-click` resolves NO frame and — EP-0002, no
+  `:rf/default` floor — raises `:rf.error/no-frame-context`; NOTHING
+  lands. What survives that boundary is the frame captured at RENDER
+  time: the `reg-view` macro's injected `dispatch` is exactly a
+  `(rf/capture-frame)` op bundle bound to the render frame, so the
+  UNqualified injected `dispatch` dispatches correctly after the render
+  boundary.
 
-    * the dynamic `re-frame.frame/*current-frame*` scope has unwound, and
-    * the frame-provider's React context value has been popped back to the
-      no-provider sentinel (context is a render-phase concept).
+  The stock-Reagent twin (`re-frame.views-synthetic-event-frame-dom-cljs-test`,
+  rf2-xzgs3j) proves this under `reagent.dom.client`. The existing
+  reagent-slim client-runtime smoke
+  (`adapters/reagent-slim/testbed/smoke.cjs`) proves only the
+  captured/injected HAPPY path. This suite closes the gap the bead flags:
+  the BARE-dispatch FAILURE under the day8/reagent-slim substrate
+  (`reagent2.dom.client` + `re-frame.adapter.reagent-slim`), with a real
+  synthetic click.
 
-  So a bare, fully-qualified `rf/dispatch` from an `:on-*` handler resolves
-  NO frame and — EP-0002, no `:rf/default` floor — raises
-  `:rf.error/no-frame-context` (see `re-frame.core/current-frame-id`,
-  implementation/core/src/re_frame/core.cljc:1118-1132, and
-  `frame/require-current-frame!`).
+  RIGOUR (rf2-leeqp acceptance). The working half settles on a CAUSAL
+  signal — `test-support/poll-until` waits for the frame's app-db to
+  actually advance, NOT a fixed sleep. A SINGLE idempotent finalizer
+  (`finalize!`) unmounts the root, removes the DOM node, destroys the
+  frame, and completes the async test on EVERY path — success,
+  poll timeout, or a throw from mount/setup.
 
-  What actually carries the frame into a deferred callback is capturing it
-  at RENDER time. The `reg-view` macro injects `dispatch` / `subscribe`
-  locals that are exactly a `(rf/capture-frame)` op bundle
-  (core_reg_view_macro.cljc:185-192), so the UNqualified injected `dispatch`
-  closes over the render frame and dispatches correctly after the render
-  boundary. The same is true of an explicit `(:dispatch (rf/capture-frame))`
-  or an explicit `{:frame …}` on the dispatch.
-
-  This suite fires a REAL synthetic click on a mounted `reg-view` and pins
-  both halves of the corrected advice:
-
-    1. bare `#(rf/dispatch [:evt])`     → raises :rf.error/no-frame-context
-                                          and nothing lands.
-    2. injected `#(dispatch [:evt])`    → dispatches successfully; the
-                                          frame's app-db advances.
-
-  Browser-only — a genuine synthetic event needs a real React root + real
-  DOM the Node runner can't fake. The `-dom-cljs-test$` suffix (rf2-2hrj8)
-  opts this file into the `:browser-test` build; `:node-test` still loads it
-  (matches `cljs-test$`) and the DOM branch self-gates on `(browser?)`,
-  exiting early under :node-test where `js/document` is absent."
+  Browser-only — a genuine synthetic event needs a real React root the
+  Node runner can't fake. The `-dom-cljs-test$` suffix opts this file
+  into the `:browser-test` build; `:node-test` still loads it (matches
+  `cljs-test$`) and the DOM branch self-gates on `(browser?)`, exiting
+  early where `js/document` is absent."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures async]]
-            [reagent.dom.client :as rdc]
+            [reagent2.dom.client :as rdc]
             ["react-dom" :as react-dom]
             [re-frame.core :as rf]
-            [re-frame.adapter.reagent :as reagent-adapter]
-            [re-frame.test-support :as test-support])
+            [re-frame.adapter.reagent-slim :as reagent-slim-adapter]
+            [re-frame.test-support :as test-support]
+            [re-frame.views])
   (:require-macros [re-frame.core :refer [reg-view]]))
 
 ;; `:ambient-frame nil` OPTS OUT of the fixture's default ambient
@@ -61,7 +56,7 @@
 ;; half awaits the async dispatch drain.
 (use-fixtures :each
   (test-support/make-reset-runtime-fixture
-    {:adapter reagent-adapter/adapter :async? true :ambient-frame nil}))
+    {:adapter reagent-slim-adapter/adapter :async? true :ambient-frame nil}))
 
 ;; ---- browser gate ----------------------------------------------------------
 
@@ -76,13 +71,14 @@
 
 ;; The proof view. Defined with the `reg-view` MACRO (not `reg-view*`) so the
 ;; UNqualified `dispatch` / `subscribe` below are the macro's render-time
-;; frame-captured injections — the exact surface the guide documents.
+;; frame-captured injections — the exact surface the guide documents — under
+;; the reagent-slim substrate (the `reg-view` carries the `:contextType`
+;; wiring slim needs to read the frame-provider's frame from React context).
 ;;
 ;;   * `syn-bare`     uses fully-qualified `rf/dispatch` — the ambient form.
 ;;                    It bypasses the injection and resolves the frame at
 ;;                    CLICK time, when there is none. Wrapped in try/catch to
-;;                    capture the raised error id (mirrors the setTimeout
-;;                    regression in dispatch_frame_capture_cljs_test).
+;;                    capture the raised error id.
 ;;   * `syn-captured` uses the injected `dispatch` — captured at render.
 (reg-view proof-view []
   (let [n @(subscribe [:syn/n])]
@@ -102,18 +98,20 @@
 (defn- query [mount-node testid]
   (.querySelector mount-node (str "[data-testid='" testid "']")))
 
-(deftest synthetic-event-frame-advice-real-dom-proof
-  "rf2-xzgs3j — real synthetic click proves the corrected guide advice.
+(deftest synthetic-event-frame-advice-real-dom-proof-reagent-slim
+  "rf2-leeqp — real synthetic click proves the deferred-callback frame law
+   under reagent-slim.
 
-   A `reg-view` mounted under a `frame-provider` carries two buttons. A real
-   DOM click on the bare `#(rf/dispatch …)` button raises
-   :rf.error/no-frame-context and lands nothing; a real DOM click on the
-   injected `#(dispatch …)` button dispatches successfully and the frame's
-   app-db advances after the render boundary."
+   A `reg-view` mounted under a `frame-provider` on a real `reagent2`
+   root carries two buttons. A real DOM click on the bare
+   `#(rf/dispatch …)` button raises :rf.error/no-frame-context and lands
+   nothing; a real DOM click on the injected `#(dispatch …)` button
+   dispatches successfully and the frame's app-db advances after the
+   render boundary. Settles on the causal app-db signal via poll-until."
   (if-not (browser?)
     (is true ":node-test: no DOM — the :browser-test runner exercises the assertions")
     (async done
-      (let [target     :syn/frame
+      (let [target     :syn.slim/frame
             done?      (atom false)
             ;; Resources are held in atoms so THE single finalizer can clean up
             ;; whatever was allocated, even if setup (createElement / mount /
@@ -126,8 +124,8 @@
             ;; completes the async test. No fixed sleeps anywhere.
             finalize!  (fn []
                          (when (compare-and-set! done? false true)
-                           (when-let [r @root-atom] (try (rdc/unmount r) (catch :default _ nil)))
-                           (when-let [n @node-atom] (try (.remove n)     (catch :default _ nil)))
+                           (when-let [r @root-atom] (try (.unmount r)  (catch :default _ nil)))
+                           (when-let [n @node-atom] (try (.remove n)   (catch :default _ nil)))
                            (try (rf/destroy-frame! target) (catch :default _ nil))
                            (done)))]
         (try
@@ -135,7 +133,7 @@
           (let [mount-node (.createElement js/document "div")]
             (reset! node-atom mount-node)
             (.appendChild (.-body js/document) mount-node)
-            (rf/make-frame {:id target :doc "rf2-xzgs3j synthetic-event proof frame"})
+            (rf/make-frame {:id target :doc "rf2-leeqp reagent-slim synthetic-event proof frame"})
             (rf/reg-event :syn/init (fn [{:keys [db]} _] {:db (assoc db :n 0)}))
             (rf/reg-event :syn/inc  (fn [{:keys [db]} _] {:db (update db :n inc)}))
             (rf/reg-sub :syn/n (fn [db _] (:n db)))
@@ -168,7 +166,7 @@
                 (.click captured)
                 (-> (test-support/poll-until
                       #(= 1 (:n (rf/app-db-value target)))
-                      {:label      "injected dispatch advances the render frame to {:n 1}"
+                      {:label      "reagent-slim injected dispatch advances the render frame to {:n 1}"
                        :timeout-ms 1000})
                     (.then (fn [_]
                              (is (= 1 (:n (rf/app-db-value target)))
@@ -182,5 +180,5 @@
                                        (pr-str (ex-message e))))
                               (finalize!)))))))
           (catch :default e
-            (is false (str "synthetic-event proof threw: " (pr-str e)))
+            (is false (str "reagent-slim synthetic-event proof threw: " (pr-str e)))
             (finalize!)))))))
