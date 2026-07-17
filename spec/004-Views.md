@@ -423,7 +423,8 @@ most views need only `sub` and bare event vectors.
 - **Exact-incarnation stable identity.** The bundle is cached per live frame incarnation,
   so repeated `(frame)` reads across re-renders return the **identical** map — it is
   `rf=`-stable and safe to thread through the memo comparator and effect deps, and a render
-  performs a single map lookup, not a bundle construction (see production cost below). A
+  performs a few bounded cache/lifecycle reads — never a bundle construction (see production
+  cost below). A
   destroyed-then-recreated frame — even under the **same id** — is a new incarnation and
   mints a fresh bundle.
 
@@ -448,8 +449,12 @@ most views need only `sub` and bare event vectors.
   so a production error boundary that swallows the throw still leaves the failure visible
   under `goog.DEBUG=false` (the §View identity error-emit axis).
 
-- **Production cost.** The hot path is one map lookup per render; the incarnation cache is
-  pruned when the frame is destroyed, so a bundle's closures never outlive the frame's id.
+- **Production cost.** The hot path is bounded per render — a live-incarnation token read, a
+  closing/liveness check, a cache lookup, and a token-identity compare — never a bundle
+  construction. Destroying a frame removes the incarnation cache's reference to its bundle,
+  but a caller that deliberately retained a stale bundle may still outlive that destruction;
+  every op is incarnation-fenced, so the carried bundle fails loud through the fence with
+  `:rf.error/frame-destroyed` rather than acting on a same-id replacement.
 
 ## Local state — `local` — and the placement rule (this Spec owns the rule)
 
