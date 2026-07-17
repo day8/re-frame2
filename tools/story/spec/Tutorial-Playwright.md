@@ -185,12 +185,13 @@ canonical pattern:
 ```clojure
 (rf/reg-view :app.ui/counter
   (fn [_]
-    (let [n @(rf/subscribe [:counter/value])]
+    (let [n        @(rf/subscribe [:counter/value])
+          dispatch (:dispatch (rf/capture-frame))]   ;; frame captured at render — survives the deferred click
       [:div
-       [:button {:on-click  #(rf/dispatch [:counter/decrement])
+       [:button {:on-click  #(dispatch [:counter/decrement])
                  :data-test "counter-decrement"} "−"]
        [:span {:data-test "counter-value"} n]
-       [:button {:on-click  #(rf/dispatch [:counter/increment])
+       [:button {:on-click  #(dispatch [:counter/increment])
                  :data-test "counter-increment"} "+"]])))
 ```
 

@@ -212,7 +212,8 @@ On CLJS, `dispatch`, `dispatch-sync`, and `subscribe` are macros in call positio
 - **Description**: Async dispatch: drops the event onto the frame's queue and returns immediately. This is the default.
 - **Example**:
   ```clojure
-  [:button {:on-click #(rf/dispatch [:counter/inc])} "+"]
+  ;; inside a reg-view: the injected `dispatch` captured the frame at render
+  [:button {:on-click #(dispatch [:counter/inc])} "+"]
   ```
 
 - **Fn form**: In VALUE position — passed rather than called, e.g. `(run! rf/dispatch events)` — `dispatch` resolves to the plain-fn value instead of expanding as a macro. It skips call-site stamping, so it composes through `map` / `comp` / `partial`. `opts` may carry `:frame` (a frame-id keyword or a live frame value). Returns `nil`. (A JVM programmatic caller reaches `re-frame.router/dispatch!` directly.)

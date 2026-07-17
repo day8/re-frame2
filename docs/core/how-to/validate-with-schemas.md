@@ -46,13 +46,12 @@ Now, what the registration buys you. From this point on, after every event handl
 
 ## Watch one catch a bug
 
-Theory's cheap. Here's a schema doing its job — live. In Conduit, an article's favorite count must never go below zero (you can't un-favorite past nobody). The rule appears **twice**, on purpose. The handler *guards* (`pos?` — real behaviour that ships to production). The schema *declares* (`[:int {:min 0}]` — the dev tripwire). The cell runs in the playground's frame, so no `with-frame` is needed. Click in and press **`Ctrl-Enter`** (**`Cmd-Enter`** on macOS) to evaluate, then drive it with the buttons.
+Theory's cheap. Here's a schema doing its job — live. In Conduit, an article's favorite count must never go below zero (you can't un-favorite past nobody). The rule appears **twice**, on purpose. The handler *guards* (`pos?` — real behaviour that ships to production). The schema *declares* (`[:int {:min 0}]` — the dev tripwire). The cell mounts under a `frame-root` that seeds a `:demo` [frame](../glossary.md#frame), so the buttons dispatch into a real frame — the same shape a production app uses. Click in and press **`Ctrl-Enter`** (**`Cmd-Enter`** on macOS) to evaluate, then drive it with the buttons.
 
 The piece to watch is the `[:int {:min 0}]` on the `[:howto.schema/article]` slice — that's the app-db schema from the last section. (Each `reg-event` *also* carries a small `{:schema [:cat ...]}` map describing its event vector; ignore those for now — they're event schemas, a few sections down.)
 
 ```cljs-rf2
-(require '[reagent2.core :as r]
-         '[re-frame.core :as rf])
+(require '[re-frame.core :as rf])
 
 ;; The slice's shape: a non-negative favorite count, and a favorited? flag.
 (rf/reg-app-schema [:howto.schema/article]
@@ -89,17 +88,17 @@ The piece to watch is the `[:int {:min 0}]` on the `[:howto.schema/article]` sli
 (rf/reg-sub :howto.schema/favorited?
   (fn [db _] (get-in db [:howto.schema/article :favorited?])))
 
-(defn favorite-button []
+(rf/reg-view favorite-button []
   [:div
-   [:button {:on-click #(rf/dispatch [:howto.schema/unfavorite])} "♥ unfavorite"]
+   [:button {:on-click #(dispatch [:howto.schema/unfavorite])} "♥ unfavorite"]
    [:span {:style {:margin "0 1em" :font-size "1.4em"}}
-    @(rf/subscribe [:howto.schema/favorites-count])]
-   [:button {:on-click #(rf/dispatch [:howto.schema/favorite])} "♥ favorite"]
+    @(subscribe [:howto.schema/favorites-count])]
+   [:button {:on-click #(dispatch [:howto.schema/favorite])} "♥ favorite"]
    [:div {:style {:margin-top "0.75em" :color "#666" :font-size "0.85em"}}
-    "favorited?: " (str @(rf/subscribe [:howto.schema/favorited?]))]])
+    "favorited?: " (str @(subscribe [:howto.schema/favorited?]))]])
 
-(rf/dispatch-sync [:howto.schema/initialise])
-[favorite-button]
+[rf/frame-root {:id :demo :initial-events [[:howto.schema/initialise]]}
+ [favorite-button]]
 ```
 
 Click `unfavorite` down to `0` and keep clicking: nothing happens, because the `pos?` guard stands. Now simulate the bug the schema exists to catch. **Delete the guard** — replace `(if (pos? n) (-> db …) db)` with just the `(-> db …)` threading — re-evaluate, and click `unfavorite` past zero. The handler writes `-1`, and `[:int {:min 0}]` rejects it. The browser console shows the `:rf.error/schema-validation-failure`, and the count on screen stays `0`: the candidate write was rejected before it installed, so app-db never held the bad value. Put the guard back when you're done.

@@ -56,7 +56,7 @@ The view is an ordinary function. The id is a positional argument:
     [:div.customer-card
      [:h3 (:name customer)]
      [:p  (:email customer)]
-     [:button {:on-click #(rf/dispatch [:customer/edit id])}
+     [:button {:on-click #(dispatch [:customer/edit id])}
       "Edit"]]))
 ```
 
@@ -103,7 +103,7 @@ Two positional args, two subs, two dispatch-scope ids:
     [:div.transfer
      [:div.from [:h3 (:name source)] [:p (:balance source)]]
      [:div.to   [:h3 (:name dest)]   [:p (:balance dest)]]
-     [:button {:on-click #(rf/dispatch [:account/transfer source-id dest-id 100])}
+     [:button {:on-click #(dispatch [:account/transfer source-id dest-id 100])}
       "Transfer $100"]]))
 ```
 

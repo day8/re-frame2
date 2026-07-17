@@ -48,17 +48,16 @@ evaluated at the SCI **top level** (NOT wrapped in `(do ...)`) so a leading
 `(require ...)`'s aliases reach its sibling top-level forms.
 
 ```cljs-rf2
-(require '[reagent2.core :as r]
-         '[re-frame.core :as rf])
+(require '[re-frame.core :as rf])
 (rf/reg-event :init (fn [_ _] {:db {:n 0}}))
 (rf/reg-event :inc  (fn [{:keys [db]} _] {:db (update db :n inc)}))
 (rf/reg-sub      :n    (fn [db _] (:n db)))
-(rf/dispatch-sync [:init])
-(defn counter []
+(rf/reg-view counter []
   [:div
-   [:span "count: " @(rf/subscribe [:n])]
-   [:button {:on-click #(rf/dispatch [:inc])} "inc"]])
-[counter]
+   [:span "count: " @(subscribe [:n])]
+   [:button {:on-click #(dispatch [:inc])} "inc"]])
+[rf/frame-root {:id :demo :initial-events [[:init]]}
+ [counter]]
 ```
 
 **Why this is NOT a Scittle plugin.** Scittle's `scittle.reagent.js` /
@@ -80,8 +79,12 @@ How re-frame2's API reaches a cell:
 - `dispatch` / `dispatch-sync` / `subscribe` are macro-in-call-position /
   fn-in-value-position on CLJS (Convention A), so `sci/copy-ns` already
   brings the plain-fn form in under their own names; the SCI config still
-  overrides those three entries with playground-local wrappers so every
-  cell dispatch/subscribe defaults to the playground's single frame.
+  overrides those three entries with playground-local wrappers so a
+  **frame-less** cell's dispatch/subscribe still resolve to the playground's
+  single frame. That is a fallback, not the shape to copy: a cell that
+  establishes its own frame (`frame-root` + `reg-view`, as the docs' cells do)
+  routes through it unchanged, exactly as a real app would — its `:on-*`
+  callbacks fire against the frame captured at render, not the harness default.
 
 **React 19 is bundled, not global.** reagent2 targets React 19, which **dropped
 its UMD build** — so the Phase-2 global-`React`-from-CDN trick is unavailable.

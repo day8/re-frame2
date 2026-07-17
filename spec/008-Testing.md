@@ -594,9 +594,9 @@ Assert rendered text after dispatching:
 Authoring side — emit a testid at the view call site:
 
 ```clojure
-(defn counter-button [label dispatch-ev]
+(defn counter-button [label on-click]
   [:button (th/testid (str "counter-" label)
-                      {:on-click #(rf/dispatch dispatch-ev)})
+                      {:on-click on-click})
    label])
 ```
 

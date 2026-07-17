@@ -1193,11 +1193,12 @@ renders against the variant's frame) or assertions (which read through
 ```clojure
 (rf/reg-view :app.ui/counter
   (fn [_]
-    (let [n @(rf/subscribe [:counter/value])]
+    (let [n        @(rf/subscribe [:counter/value])
+          dispatch (:dispatch (rf/capture-frame))]   ;; frame captured at render — survives the deferred click
       [:div
-       [:button {:on-click #(rf/dispatch [:counter/decrement])} "−"]
+       [:button {:on-click #(dispatch [:counter/decrement])} "−"]
        [:span.value n]
-       [:button {:on-click #(rf/dispatch [:counter/increment])} "+"]])))
+       [:button {:on-click #(dispatch [:counter/increment])} "+"]])))
 
 (story/reg-story :story.counter
   {:component :app.ui/counter
