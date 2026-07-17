@@ -12,9 +12,11 @@
   bound across destroy → re-init on the JVM.
 
   The rf2-vxgfnd.204 install-time replay (`install-adapter!` →
-  `rearm-hiccup-emitter!`) is a harmless idempotent no-op here: plain-atom does
-  not chain `:reagent/set-hiccup-emitter!`, so the durable `:ssr/current-hiccup-
-  emitter` slot has no chained applier to run — retention alone keeps the JVM
+  `rearm-hiccup-emitter!`) is a harmless no-op here: plain-atom publishes no
+  `:adapter/arm-hiccup-emitter-if-unarmed!` routed arm (rf2-h9szm — the replay is
+  routed to the installed adapter's own arm hook, not the broadcast
+  `:reagent/set-hiccup-emitter!` chain), so the durable `:ssr/current-hiccup-
+  emitter` slot has no per-adapter arm to run — retention alone keeps the JVM
   path armed."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]

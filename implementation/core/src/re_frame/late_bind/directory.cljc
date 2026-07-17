@@ -1010,6 +1010,15 @@
     :chained?    true
     :design-bead "rf2-00li"
     :description "Substrate-side source-coord injection on rendered React elements."}
+   {:key         :adapter/arm-hiccup-emitter-if-unarmed!
+    :producer-ns '[re-frame.adapter.reagent
+                   re-frame.adapter.reagent-slim
+                   re-frame.adapter.uix
+                   re-frame.adapter.helix
+                   re-frame.ui.substrate]
+    :chained?    true
+    :design-bead "rf2-h9szm"
+    :description "Precedence-safe, routed install-replay arm for the retained SSR hiccup emitter. `re-frame.substrate.adapter/install-adapter!` calls it (with the durable `:ssr/current-hiccup-emitter`) as part of its failure-atomic install transaction so a destroy → re-init cycle — or an SSR-before-adapter load order — re-arms the freshly-installed generation's `render-to-string` slot. Routed via `route-hook!` so ONLY the installed adapter's slot is re-armed (a loaded inactive adapter's arm never runs, so its throw cannot break the active boot); each adapter's impl arms its per-generation `emitter-cell` ONLY when otherwise unarmed, so a pre-init explicit custom emitter / reset is not silently overwritten by the retained default. Distinct from the broadcast `:reagent/set-hiccup-emitter!` chain the earlier replay used (rf2-h9szm). Not published by plain-atom / test-react, whose emitters are retained across a no-op dispose (no re-arm required)."}
 
    ;; ===========================================================================
    ;; GROUP 4 — HOT-RELOAD / DEV-TOOLING

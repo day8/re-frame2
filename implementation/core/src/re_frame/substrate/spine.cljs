@@ -2070,6 +2070,16 @@
      :dispose-adapter!            dispose-fn
      :set-hiccup-emitter!         (fn set-it! [f]
                                     (set-hiccup-emitter! emitter-cell f))
+     ;; rf2-h9szm — precedence-safe install-replay arm. Arms this generation's
+     ;; `emitter-cell` with the retained SSR default ONLY when the cell is
+     ;; otherwise unarmed, so a pre-init explicit custom emitter (or reset) is
+     ;; never silently overwritten by `install-adapter!`'s replay. Routed by the
+     ;; installed-adapter identity onto `:adapter/arm-hiccup-emitter-if-unarmed!`
+     ;; by `make-react-adapter` (below), so the replay re-arms ONLY the installed
+     ;; adapter's slot — an inactive adapter's arm never runs.
+     :arm-hiccup-emitter-if-unarmed! (fn arm-if-unarmed! [f]
+                                       (when (nil? @emitter-cell)
+                                         (set-hiccup-emitter! emitter-cell f)))
      :use-current-frame           use-current-frame
      :use-subscribe               use-subscribe
      :flush-views!                flush-views!
@@ -2216,6 +2226,14 @@
     ;; rf2-uo7v); behaviour is adapter-agnostic.
     (late-bind/chain-fn! :reagent/set-hiccup-emitter!
                          (:set-hiccup-emitter! spine-fns))
+    ;; rf2-h9szm — routed precedence-safe install-replay arm. Unlike the
+    ;; broadcast `:reagent/set-hiccup-emitter!` chain above (which every loaded
+    ;; adapter contributes to, and which `install-adapter!`'s replay must NOT
+    ;; use — one throwing setter would break the active boot), this hook is
+    ;; ROUTED via `route-hook!` so `install-adapter!`'s replay re-arms ONLY the
+    ;; installed adapter's slot, and only when it is otherwise unarmed.
+    (substrate-adapter/route-hook! adapter :adapter/arm-hiccup-emitter-if-unarmed!
+                                   (:arm-hiccup-emitter-if-unarmed! spine-fns))
     adapter))
 
 ;; ---- ratom-family spine (Reagent + reagent-slim) --------------------------
@@ -2468,7 +2486,14 @@
      ;; surface the SAME `flush-views!` Var with the SAME nil-return shape.
      :flush-views!               flush-views!
      :set-hiccup-emitter!        (fn set-it! [f]
-                                   (set-hiccup-emitter! emitter-cell f))}))
+                                   (set-hiccup-emitter! emitter-cell f))
+     ;; rf2-h9szm — precedence-safe install-replay arm (see the twin in
+     ;; `make-react-spine`). Arms this generation's `emitter-cell` with the
+     ;; retained SSR default ONLY when otherwise unarmed; routed onto
+     ;; `:adapter/arm-hiccup-emitter-if-unarmed!` by `make-ratom-adapter`.
+     :arm-hiccup-emitter-if-unarmed! (fn arm-if-unarmed! [f]
+                                       (when (nil? @emitter-cell)
+                                         (set-hiccup-emitter! emitter-cell f)))}))
 ;; rf2-6id3el: the ratom return map exposes ONLY the surfaces the adapter
 ;; assembler consumes. `make-ratom-adapter` reads none of the internal
 ;; cells; the `:active-roots-cell` / `:emitter-cell` cells stay INTERNAL to
@@ -2577,6 +2602,12 @@
     ;; string slot. `chain-fn!` (not `set-fn!`) is load-order-independent.
     (late-bind/chain-fn! :reagent/set-hiccup-emitter!
                          (:set-hiccup-emitter! spine-fns))
+    ;; rf2-h9szm — routed precedence-safe install-replay arm (twin of the
+    ;; `make-react-adapter` publication). ROUTED so `install-adapter!`'s replay
+    ;; re-arms ONLY the installed adapter's slot, and only when otherwise
+    ;; unarmed — NOT the broadcast `:reagent/set-hiccup-emitter!` chain above.
+    (substrate-adapter/route-hook! adapter :adapter/arm-hiccup-emitter-if-unarmed!
+                                   (:arm-hiccup-emitter-if-unarmed! spine-fns))
     ;; Each hook routes through `(substrate-adapter/current-adapter)` per
     ;; rf2-0d35 via `route-hook!`: this adapter's impl runs ONLY when it is
     ;; the (rf/init!)-installed one; otherwise it chains to the previously-

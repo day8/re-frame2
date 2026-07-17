@@ -12,8 +12,10 @@
         `:adapter/current-frame`, `:adapter/current-component`,
         `:adapter/ratom`, `:adapter/ratom?`,
         `:adapter/make-reaction`, `:adapter/add-on-dispose!`,
-        `:adapter/dispose!`, `:adapter/reactive?`, and
-        `:adapter/after-render`.
+        `:adapter/dispose!`, `:adapter/reactive?`,
+        `:adapter/after-render`, `:adapter/derived-container?`, and
+        `:adapter/arm-hiccup-emitter-if-unarmed!` (rf2-h9szm — the
+        routed, precedence-safe install-replay arm for the SSR emitter).
 
     (2) `late-bind/chain-fn!` - chained hooks where every contributor
         runs (independent of installed-adapter identity). Used for
@@ -43,6 +45,7 @@
     :adapter/reactive?
     :adapter/after-render
     :adapter/derived-container?
+    :adapter/arm-hiccup-emitter-if-unarmed!
     :reagent/set-hiccup-emitter!})
 
 (defn- producers
