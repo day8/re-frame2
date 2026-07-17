@@ -556,10 +556,22 @@ jobs:
           java-version: '21'
 
       - name: Set up Clojure CLI
-        uses: DeLaGuardo/setup-clojure@02f5a82b79a547523e664fe8a7a32ea14884d7b2  # 13.6.0
-        with:
-          cli: latest
-          github-token: ${{ secrets.GITHUB_TOKEN }}
+        # rf2-9sgj8 — resilient Clojure CLI install. setup-clojure's internal
+        # linux-install.sh curl has no retry, so a transient curl-35 / socket-
+        # hang-up reds the JVM job in setup before any test runs. Reuses the
+        # repo's clj-kondo curl-retry idiom (lint.yml) + a 3x backoff loop over
+        # the whole download+install (no github-token needed — the
+        # releases/latest/download redirect hits no GitHub API).
+        run: |
+          set -euo pipefail
+          for attempt in 1 2 3; do
+            curl -fsSL --retry 5 --retry-all-errors --retry-delay 3 -o /tmp/linux-install.sh \
+              https://github.com/clojure/brew-install/releases/latest/download/linux-install.sh \
+              && sudo bash /tmp/linux-install.sh && break
+            echo "Clojure CLI install attempt ${attempt}/3 failed; retrying in $((attempt * 10))s"
+            sleep "$((attempt * 10))"
+          done
+          clojure --version
 
       - name: Cache Maven / gitlibs
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5.0.5
@@ -604,10 +616,22 @@ jobs:
           java-version: '21'
 
       - name: Set up Clojure CLI
-        uses: DeLaGuardo/setup-clojure@02f5a82b79a547523e664fe8a7a32ea14884d7b2  # 13.6.0
-        with:
-          cli: latest
-          github-token: ${{ secrets.GITHUB_TOKEN }}
+        # rf2-9sgj8 — resilient Clojure CLI install. setup-clojure's internal
+        # linux-install.sh curl has no retry, so a transient curl-35 / socket-
+        # hang-up reds the JVM job in setup before any test runs. Reuses the
+        # repo's clj-kondo curl-retry idiom (lint.yml) + a 3x backoff loop over
+        # the whole download+install (no github-token needed — the
+        # releases/latest/download redirect hits no GitHub API).
+        run: |
+          set -euo pipefail
+          for attempt in 1 2 3; do
+            curl -fsSL --retry 5 --retry-all-errors --retry-delay 3 -o /tmp/linux-install.sh \
+              https://github.com/clojure/brew-install/releases/latest/download/linux-install.sh \
+              && sudo bash /tmp/linux-install.sh && break
+            echo "Clojure CLI install attempt ${attempt}/3 failed; retrying in $((attempt * 10))s"
+            sleep "$((attempt * 10))"
+          done
+          clojure --version
 
       - name: Cache Maven / gitlibs
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5.0.5
@@ -649,10 +673,22 @@ jobs:
           java-version: '21'
 
       - name: Set up Clojure CLI
-        uses: DeLaGuardo/setup-clojure@02f5a82b79a547523e664fe8a7a32ea14884d7b2  # 13.6.0
-        with:
-          cli: latest
-          github-token: ${{ secrets.GITHUB_TOKEN }}
+        # rf2-9sgj8 — resilient Clojure CLI install. setup-clojure's internal
+        # linux-install.sh curl has no retry, so a transient curl-35 / socket-
+        # hang-up reds the JVM job in setup before any test runs. Reuses the
+        # repo's clj-kondo curl-retry idiom (lint.yml) + a 3x backoff loop over
+        # the whole download+install (no github-token needed — the
+        # releases/latest/download redirect hits no GitHub API).
+        run: |
+          set -euo pipefail
+          for attempt in 1 2 3; do
+            curl -fsSL --retry 5 --retry-all-errors --retry-delay 3 -o /tmp/linux-install.sh \
+              https://github.com/clojure/brew-install/releases/latest/download/linux-install.sh \
+              && sudo bash /tmp/linux-install.sh && break
+            echo "Clojure CLI install attempt ${attempt}/3 failed; retrying in $((attempt * 10))s"
+            sleep "$((attempt * 10))"
+          done
+          clojure --version
 
       - name: Cache Maven / gitlibs
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5.0.5
@@ -874,10 +910,22 @@ jobs:
           java-version: '21'
 
       - name: Set up Clojure CLI
-        uses: DeLaGuardo/setup-clojure@02f5a82b79a547523e664fe8a7a32ea14884d7b2  # 13.6.0
-        with:
-          cli: latest
-          github-token: ${{ secrets.GITHUB_TOKEN }}
+        # rf2-9sgj8 — resilient Clojure CLI install. setup-clojure's internal
+        # linux-install.sh curl has no retry, so a transient curl-35 / socket-
+        # hang-up reds the JVM job in setup before any test runs. Reuses the
+        # repo's clj-kondo curl-retry idiom (lint.yml) + a 3x backoff loop over
+        # the whole download+install (no github-token needed — the
+        # releases/latest/download redirect hits no GitHub API).
+        run: |
+          set -euo pipefail
+          for attempt in 1 2 3; do
+            curl -fsSL --retry 5 --retry-all-errors --retry-delay 3 -o /tmp/linux-install.sh \
+              https://github.com/clojure/brew-install/releases/latest/download/linux-install.sh \
+              && sudo bash /tmp/linux-install.sh && break
+            echo "Clojure CLI install attempt ${attempt}/3 failed; retrying in $((attempt * 10))s"
+            sleep "$((attempt * 10))"
+          done
+          clojure --version
 
       - name: Cache Maven / gitlibs
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5.0.5
@@ -922,10 +970,22 @@ jobs:
           java-version: '21'
 
       - name: Set up Clojure CLI
-        uses: DeLaGuardo/setup-clojure@02f5a82b79a547523e664fe8a7a32ea14884d7b2  # 13.6.0
-        with:
-          cli: latest
-          github-token: ${{ secrets.GITHUB_TOKEN }}
+        # rf2-9sgj8 — resilient Clojure CLI install. setup-clojure's internal
+        # linux-install.sh curl has no retry, so a transient curl-35 / socket-
+        # hang-up reds the JVM job in setup before any test runs. Reuses the
+        # repo's clj-kondo curl-retry idiom (lint.yml) + a 3x backoff loop over
+        # the whole download+install (no github-token needed — the
+        # releases/latest/download redirect hits no GitHub API).
+        run: |
+          set -euo pipefail
+          for attempt in 1 2 3; do
+            curl -fsSL --retry 5 --retry-all-errors --retry-delay 3 -o /tmp/linux-install.sh \
+              https://github.com/clojure/brew-install/releases/latest/download/linux-install.sh \
+              && sudo bash /tmp/linux-install.sh && break
+            echo "Clojure CLI install attempt ${attempt}/3 failed; retrying in $((attempt * 10))s"
+            sleep "$((attempt * 10))"
+          done
+          clojure --version
 
       - name: Cache Maven / gitlibs
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5.0.5
@@ -968,10 +1028,22 @@ jobs:
           java-version: '21'
 
       - name: Set up Clojure CLI
-        uses: DeLaGuardo/setup-clojure@02f5a82b79a547523e664fe8a7a32ea14884d7b2  # 13.6.0
-        with:
-          cli: latest
-          github-token: ${{ secrets.GITHUB_TOKEN }}
+        # rf2-9sgj8 — resilient Clojure CLI install. setup-clojure's internal
+        # linux-install.sh curl has no retry, so a transient curl-35 / socket-
+        # hang-up reds the JVM job in setup before any test runs. Reuses the
+        # repo's clj-kondo curl-retry idiom (lint.yml) + a 3x backoff loop over
+        # the whole download+install (no github-token needed — the
+        # releases/latest/download redirect hits no GitHub API).
+        run: |
+          set -euo pipefail
+          for attempt in 1 2 3; do
+            curl -fsSL --retry 5 --retry-all-errors --retry-delay 3 -o /tmp/linux-install.sh \
+              https://github.com/clojure/brew-install/releases/latest/download/linux-install.sh \
+              && sudo bash /tmp/linux-install.sh && break
+            echo "Clojure CLI install attempt ${attempt}/3 failed; retrying in $((attempt * 10))s"
+            sleep "$((attempt * 10))"
+          done
+          clojure --version
 
       - name: Cache Maven / gitlibs
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5.0.5
@@ -1016,10 +1088,22 @@ jobs:
           java-version: '21'
 
       - name: Set up Clojure CLI
-        uses: DeLaGuardo/setup-clojure@02f5a82b79a547523e664fe8a7a32ea14884d7b2  # 13.6.0
-        with:
-          cli: latest
-          github-token: ${{ secrets.GITHUB_TOKEN }}
+        # rf2-9sgj8 — resilient Clojure CLI install. setup-clojure's internal
+        # linux-install.sh curl has no retry, so a transient curl-35 / socket-
+        # hang-up reds the JVM job in setup before any test runs. Reuses the
+        # repo's clj-kondo curl-retry idiom (lint.yml) + a 3x backoff loop over
+        # the whole download+install (no github-token needed — the
+        # releases/latest/download redirect hits no GitHub API).
+        run: |
+          set -euo pipefail
+          for attempt in 1 2 3; do
+            curl -fsSL --retry 5 --retry-all-errors --retry-delay 3 -o /tmp/linux-install.sh \
+              https://github.com/clojure/brew-install/releases/latest/download/linux-install.sh \
+              && sudo bash /tmp/linux-install.sh && break
+            echo "Clojure CLI install attempt ${attempt}/3 failed; retrying in $((attempt * 10))s"
+            sleep "$((attempt * 10))"
+          done
+          clojure --version
 
       - name: Cache Maven / gitlibs
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5.0.5
@@ -1065,10 +1149,22 @@ jobs:
           java-version: '21'
 
       - name: Set up Clojure CLI
-        uses: DeLaGuardo/setup-clojure@02f5a82b79a547523e664fe8a7a32ea14884d7b2  # 13.6.0
-        with:
-          cli: latest
-          github-token: ${{ secrets.GITHUB_TOKEN }}
+        # rf2-9sgj8 — resilient Clojure CLI install. setup-clojure's internal
+        # linux-install.sh curl has no retry, so a transient curl-35 / socket-
+        # hang-up reds the JVM job in setup before any test runs. Reuses the
+        # repo's clj-kondo curl-retry idiom (lint.yml) + a 3x backoff loop over
+        # the whole download+install (no github-token needed — the
+        # releases/latest/download redirect hits no GitHub API).
+        run: |
+          set -euo pipefail
+          for attempt in 1 2 3; do
+            curl -fsSL --retry 5 --retry-all-errors --retry-delay 3 -o /tmp/linux-install.sh \
+              https://github.com/clojure/brew-install/releases/latest/download/linux-install.sh \
+              && sudo bash /tmp/linux-install.sh && break
+            echo "Clojure CLI install attempt ${attempt}/3 failed; retrying in $((attempt * 10))s"
+            sleep "$((attempt * 10))"
+          done
+          clojure --version
 
       - name: Cache Maven / gitlibs
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5.0.5
@@ -1111,10 +1207,22 @@ jobs:
           java-version: '21'
 
       - name: Set up Clojure CLI
-        uses: DeLaGuardo/setup-clojure@02f5a82b79a547523e664fe8a7a32ea14884d7b2  # 13.6.0
-        with:
-          cli: latest
-          github-token: ${{ secrets.GITHUB_TOKEN }}
+        # rf2-9sgj8 — resilient Clojure CLI install. setup-clojure's internal
+        # linux-install.sh curl has no retry, so a transient curl-35 / socket-
+        # hang-up reds the JVM job in setup before any test runs. Reuses the
+        # repo's clj-kondo curl-retry idiom (lint.yml) + a 3x backoff loop over
+        # the whole download+install (no github-token needed — the
+        # releases/latest/download redirect hits no GitHub API).
+        run: |
+          set -euo pipefail
+          for attempt in 1 2 3; do
+            curl -fsSL --retry 5 --retry-all-errors --retry-delay 3 -o /tmp/linux-install.sh \
+              https://github.com/clojure/brew-install/releases/latest/download/linux-install.sh \
+              && sudo bash /tmp/linux-install.sh && break
+            echo "Clojure CLI install attempt ${attempt}/3 failed; retrying in $((attempt * 10))s"
+            sleep "$((attempt * 10))"
+          done
+          clojure --version
 
       - name: Cache Maven / gitlibs
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5.0.5
@@ -1159,10 +1267,22 @@ jobs:
           java-version: '21'
 
       - name: Set up Clojure CLI
-        uses: DeLaGuardo/setup-clojure@02f5a82b79a547523e664fe8a7a32ea14884d7b2  # 13.6.0
-        with:
-          cli: latest
-          github-token: ${{ secrets.GITHUB_TOKEN }}
+        # rf2-9sgj8 — resilient Clojure CLI install. setup-clojure's internal
+        # linux-install.sh curl has no retry, so a transient curl-35 / socket-
+        # hang-up reds the JVM job in setup before any test runs. Reuses the
+        # repo's clj-kondo curl-retry idiom (lint.yml) + a 3x backoff loop over
+        # the whole download+install (no github-token needed — the
+        # releases/latest/download redirect hits no GitHub API).
+        run: |
+          set -euo pipefail
+          for attempt in 1 2 3; do
+            curl -fsSL --retry 5 --retry-all-errors --retry-delay 3 -o /tmp/linux-install.sh \
+              https://github.com/clojure/brew-install/releases/latest/download/linux-install.sh \
+              && sudo bash /tmp/linux-install.sh && break
+            echo "Clojure CLI install attempt ${attempt}/3 failed; retrying in $((attempt * 10))s"
+            sleep "$((attempt * 10))"
+          done
+          clojure --version
 
       - name: Cache Maven / gitlibs
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5.0.5
@@ -1197,10 +1317,22 @@ jobs:
           java-version: '21'
 
       - name: Set up Clojure CLI
-        uses: DeLaGuardo/setup-clojure@02f5a82b79a547523e664fe8a7a32ea14884d7b2  # 13.6.0
-        with:
-          cli: latest
-          github-token: ${{ secrets.GITHUB_TOKEN }}
+        # rf2-9sgj8 — resilient Clojure CLI install. setup-clojure's internal
+        # linux-install.sh curl has no retry, so a transient curl-35 / socket-
+        # hang-up reds the JVM job in setup before any test runs. Reuses the
+        # repo's clj-kondo curl-retry idiom (lint.yml) + a 3x backoff loop over
+        # the whole download+install (no github-token needed — the
+        # releases/latest/download redirect hits no GitHub API).
+        run: |
+          set -euo pipefail
+          for attempt in 1 2 3; do
+            curl -fsSL --retry 5 --retry-all-errors --retry-delay 3 -o /tmp/linux-install.sh \
+              https://github.com/clojure/brew-install/releases/latest/download/linux-install.sh \
+              && sudo bash /tmp/linux-install.sh && break
+            echo "Clojure CLI install attempt ${attempt}/3 failed; retrying in $((attempt * 10))s"
+            sleep "$((attempt * 10))"
+          done
+          clojure --version
 
       - name: Cache Maven / gitlibs
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5.0.5
@@ -1235,10 +1367,22 @@ jobs:
           java-version: '21'
 
       - name: Set up Clojure CLI
-        uses: DeLaGuardo/setup-clojure@02f5a82b79a547523e664fe8a7a32ea14884d7b2  # 13.6.0
-        with:
-          cli: latest
-          github-token: ${{ secrets.GITHUB_TOKEN }}
+        # rf2-9sgj8 — resilient Clojure CLI install. setup-clojure's internal
+        # linux-install.sh curl has no retry, so a transient curl-35 / socket-
+        # hang-up reds the JVM job in setup before any test runs. Reuses the
+        # repo's clj-kondo curl-retry idiom (lint.yml) + a 3x backoff loop over
+        # the whole download+install (no github-token needed — the
+        # releases/latest/download redirect hits no GitHub API).
+        run: |
+          set -euo pipefail
+          for attempt in 1 2 3; do
+            curl -fsSL --retry 5 --retry-all-errors --retry-delay 3 -o /tmp/linux-install.sh \
+              https://github.com/clojure/brew-install/releases/latest/download/linux-install.sh \
+              && sudo bash /tmp/linux-install.sh && break
+            echo "Clojure CLI install attempt ${attempt}/3 failed; retrying in $((attempt * 10))s"
+            sleep "$((attempt * 10))"
+          done
+          clojure --version
 
       - name: Cache Maven / gitlibs
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5.0.5
@@ -1273,10 +1417,22 @@ jobs:
           java-version: '21'
 
       - name: Set up Clojure CLI
-        uses: DeLaGuardo/setup-clojure@02f5a82b79a547523e664fe8a7a32ea14884d7b2  # 13.6.0
-        with:
-          cli: latest
-          github-token: ${{ secrets.GITHUB_TOKEN }}
+        # rf2-9sgj8 — resilient Clojure CLI install. setup-clojure's internal
+        # linux-install.sh curl has no retry, so a transient curl-35 / socket-
+        # hang-up reds the JVM job in setup before any test runs. Reuses the
+        # repo's clj-kondo curl-retry idiom (lint.yml) + a 3x backoff loop over
+        # the whole download+install (no github-token needed — the
+        # releases/latest/download redirect hits no GitHub API).
+        run: |
+          set -euo pipefail
+          for attempt in 1 2 3; do
+            curl -fsSL --retry 5 --retry-all-errors --retry-delay 3 -o /tmp/linux-install.sh \
+              https://github.com/clojure/brew-install/releases/latest/download/linux-install.sh \
+              && sudo bash /tmp/linux-install.sh && break
+            echo "Clojure CLI install attempt ${attempt}/3 failed; retrying in $((attempt * 10))s"
+            sleep "$((attempt * 10))"
+          done
+          clojure --version
 
       - name: Cache Maven / gitlibs
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5.0.5
@@ -1322,10 +1478,22 @@ jobs:
           java-version: '21'
 
       - name: Set up Clojure CLI
-        uses: DeLaGuardo/setup-clojure@02f5a82b79a547523e664fe8a7a32ea14884d7b2  # 13.6.0
-        with:
-          cli: latest
-          github-token: ${{ secrets.GITHUB_TOKEN }}
+        # rf2-9sgj8 — resilient Clojure CLI install. setup-clojure's internal
+        # linux-install.sh curl has no retry, so a transient curl-35 / socket-
+        # hang-up reds the JVM job in setup before any test runs. Reuses the
+        # repo's clj-kondo curl-retry idiom (lint.yml) + a 3x backoff loop over
+        # the whole download+install (no github-token needed — the
+        # releases/latest/download redirect hits no GitHub API).
+        run: |
+          set -euo pipefail
+          for attempt in 1 2 3; do
+            curl -fsSL --retry 5 --retry-all-errors --retry-delay 3 -o /tmp/linux-install.sh \
+              https://github.com/clojure/brew-install/releases/latest/download/linux-install.sh \
+              && sudo bash /tmp/linux-install.sh && break
+            echo "Clojure CLI install attempt ${attempt}/3 failed; retrying in $((attempt * 10))s"
+            sleep "$((attempt * 10))"
+          done
+          clojure --version
 
       - name: Cache Maven / gitlibs
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5.0.5
@@ -1375,10 +1543,22 @@ jobs:
           java-version: '21'
 
       - name: Set up Clojure CLI
-        uses: DeLaGuardo/setup-clojure@02f5a82b79a547523e664fe8a7a32ea14884d7b2  # 13.6.0
-        with:
-          cli: latest
-          github-token: ${{ secrets.GITHUB_TOKEN }}
+        # rf2-9sgj8 — resilient Clojure CLI install. setup-clojure's internal
+        # linux-install.sh curl has no retry, so a transient curl-35 / socket-
+        # hang-up reds the JVM job in setup before any test runs. Reuses the
+        # repo's clj-kondo curl-retry idiom (lint.yml) + a 3x backoff loop over
+        # the whole download+install (no github-token needed — the
+        # releases/latest/download redirect hits no GitHub API).
+        run: |
+          set -euo pipefail
+          for attempt in 1 2 3; do
+            curl -fsSL --retry 5 --retry-all-errors --retry-delay 3 -o /tmp/linux-install.sh \
+              https://github.com/clojure/brew-install/releases/latest/download/linux-install.sh \
+              && sudo bash /tmp/linux-install.sh && break
+            echo "Clojure CLI install attempt ${attempt}/3 failed; retrying in $((attempt * 10))s"
+            sleep "$((attempt * 10))"
+          done
+          clojure --version
 
       - name: Cache Maven / gitlibs
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5.0.5
@@ -1431,10 +1611,22 @@ jobs:
           java-version: '21'
 
       - name: Set up Clojure CLI
-        uses: DeLaGuardo/setup-clojure@02f5a82b79a547523e664fe8a7a32ea14884d7b2  # 13.6.0
-        with:
-          cli: latest
-          github-token: ${{ secrets.GITHUB_TOKEN }}
+        # rf2-9sgj8 — resilient Clojure CLI install. setup-clojure's internal
+        # linux-install.sh curl has no retry, so a transient curl-35 / socket-
+        # hang-up reds the JVM job in setup before any test runs. Reuses the
+        # repo's clj-kondo curl-retry idiom (lint.yml) + a 3x backoff loop over
+        # the whole download+install (no github-token needed — the
+        # releases/latest/download redirect hits no GitHub API).
+        run: |
+          set -euo pipefail
+          for attempt in 1 2 3; do
+            curl -fsSL --retry 5 --retry-all-errors --retry-delay 3 -o /tmp/linux-install.sh \
+              https://github.com/clojure/brew-install/releases/latest/download/linux-install.sh \
+              && sudo bash /tmp/linux-install.sh && break
+            echo "Clojure CLI install attempt ${attempt}/3 failed; retrying in $((attempt * 10))s"
+            sleep "$((attempt * 10))"
+          done
+          clojure --version
 
       - name: Cache Maven / gitlibs
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5.0.5
@@ -1480,10 +1672,22 @@ jobs:
           java-version: '21'
 
       - name: Set up Clojure CLI
-        uses: DeLaGuardo/setup-clojure@02f5a82b79a547523e664fe8a7a32ea14884d7b2  # 13.6.0
-        with:
-          cli: latest
-          github-token: ${{ secrets.GITHUB_TOKEN }}
+        # rf2-9sgj8 — resilient Clojure CLI install. setup-clojure's internal
+        # linux-install.sh curl has no retry, so a transient curl-35 / socket-
+        # hang-up reds the JVM job in setup before any test runs. Reuses the
+        # repo's clj-kondo curl-retry idiom (lint.yml) + a 3x backoff loop over
+        # the whole download+install (no github-token needed — the
+        # releases/latest/download redirect hits no GitHub API).
+        run: |
+          set -euo pipefail
+          for attempt in 1 2 3; do
+            curl -fsSL --retry 5 --retry-all-errors --retry-delay 3 -o /tmp/linux-install.sh \
+              https://github.com/clojure/brew-install/releases/latest/download/linux-install.sh \
+              && sudo bash /tmp/linux-install.sh && break
+            echo "Clojure CLI install attempt ${attempt}/3 failed; retrying in $((attempt * 10))s"
+            sleep "$((attempt * 10))"
+          done
+          clojure --version
 
       - name: Cache Maven / gitlibs
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5.0.5
@@ -1525,10 +1729,22 @@ jobs:
           java-version: '21'
 
       - name: Set up Clojure CLI
-        uses: DeLaGuardo/setup-clojure@02f5a82b79a547523e664fe8a7a32ea14884d7b2  # 13.6.0
-        with:
-          cli: latest
-          github-token: ${{ secrets.GITHUB_TOKEN }}
+        # rf2-9sgj8 — resilient Clojure CLI install. setup-clojure's internal
+        # linux-install.sh curl has no retry, so a transient curl-35 / socket-
+        # hang-up reds the JVM job in setup before any test runs. Reuses the
+        # repo's clj-kondo curl-retry idiom (lint.yml) + a 3x backoff loop over
+        # the whole download+install (no github-token needed — the
+        # releases/latest/download redirect hits no GitHub API).
+        run: |
+          set -euo pipefail
+          for attempt in 1 2 3; do
+            curl -fsSL --retry 5 --retry-all-errors --retry-delay 3 -o /tmp/linux-install.sh \
+              https://github.com/clojure/brew-install/releases/latest/download/linux-install.sh \
+              && sudo bash /tmp/linux-install.sh && break
+            echo "Clojure CLI install attempt ${attempt}/3 failed; retrying in $((attempt * 10))s"
+            sleep "$((attempt * 10))"
+          done
+          clojure --version
 
       - name: Cache Maven / gitlibs
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5.0.5
@@ -1570,10 +1786,22 @@ jobs:
           java-version: '21'
 
       - name: Set up Clojure CLI
-        uses: DeLaGuardo/setup-clojure@02f5a82b79a547523e664fe8a7a32ea14884d7b2  # 13.6.0
-        with:
-          cli: latest
-          github-token: ${{ secrets.GITHUB_TOKEN }}
+        # rf2-9sgj8 — resilient Clojure CLI install. setup-clojure's internal
+        # linux-install.sh curl has no retry, so a transient curl-35 / socket-
+        # hang-up reds the JVM job in setup before any test runs. Reuses the
+        # repo's clj-kondo curl-retry idiom (lint.yml) + a 3x backoff loop over
+        # the whole download+install (no github-token needed — the
+        # releases/latest/download redirect hits no GitHub API).
+        run: |
+          set -euo pipefail
+          for attempt in 1 2 3; do
+            curl -fsSL --retry 5 --retry-all-errors --retry-delay 3 -o /tmp/linux-install.sh \
+              https://github.com/clojure/brew-install/releases/latest/download/linux-install.sh \
+              && sudo bash /tmp/linux-install.sh && break
+            echo "Clojure CLI install attempt ${attempt}/3 failed; retrying in $((attempt * 10))s"
+            sleep "$((attempt * 10))"
+          done
+          clojure --version
 
       - name: Cache Maven / gitlibs
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5.0.5
@@ -1616,10 +1844,22 @@ jobs:
           java-version: '21'
 
       - name: Set up Clojure CLI
-        uses: DeLaGuardo/setup-clojure@02f5a82b79a547523e664fe8a7a32ea14884d7b2  # 13.6.0
-        with:
-          cli: latest
-          github-token: ${{ secrets.GITHUB_TOKEN }}
+        # rf2-9sgj8 — resilient Clojure CLI install. setup-clojure's internal
+        # linux-install.sh curl has no retry, so a transient curl-35 / socket-
+        # hang-up reds the JVM job in setup before any test runs. Reuses the
+        # repo's clj-kondo curl-retry idiom (lint.yml) + a 3x backoff loop over
+        # the whole download+install (no github-token needed — the
+        # releases/latest/download redirect hits no GitHub API).
+        run: |
+          set -euo pipefail
+          for attempt in 1 2 3; do
+            curl -fsSL --retry 5 --retry-all-errors --retry-delay 3 -o /tmp/linux-install.sh \
+              https://github.com/clojure/brew-install/releases/latest/download/linux-install.sh \
+              && sudo bash /tmp/linux-install.sh && break
+            echo "Clojure CLI install attempt ${attempt}/3 failed; retrying in $((attempt * 10))s"
+            sleep "$((attempt * 10))"
+          done
+          clojure --version
 
       - name: Cache Maven / gitlibs
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5.0.5
@@ -1683,10 +1923,22 @@ jobs:
           java-version: '21'
 
       - name: Set up Clojure CLI
-        uses: DeLaGuardo/setup-clojure@02f5a82b79a547523e664fe8a7a32ea14884d7b2  # 13.6.0
-        with:
-          cli: latest
-          github-token: ${{ secrets.GITHUB_TOKEN }}
+        # rf2-9sgj8 — resilient Clojure CLI install. setup-clojure's internal
+        # linux-install.sh curl has no retry, so a transient curl-35 / socket-
+        # hang-up reds the JVM job in setup before any test runs. Reuses the
+        # repo's clj-kondo curl-retry idiom (lint.yml) + a 3x backoff loop over
+        # the whole download+install (no github-token needed — the
+        # releases/latest/download redirect hits no GitHub API).
+        run: |
+          set -euo pipefail
+          for attempt in 1 2 3; do
+            curl -fsSL --retry 5 --retry-all-errors --retry-delay 3 -o /tmp/linux-install.sh \
+              https://github.com/clojure/brew-install/releases/latest/download/linux-install.sh \
+              && sudo bash /tmp/linux-install.sh && break
+            echo "Clojure CLI install attempt ${attempt}/3 failed; retrying in $((attempt * 10))s"
+            sleep "$((attempt * 10))"
+          done
+          clojure --version
 
       - name: Cache Maven / gitlibs
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5.0.5
@@ -1732,10 +1984,22 @@ jobs:
           java-version: '21'
 
       - name: Set up Clojure CLI
-        uses: DeLaGuardo/setup-clojure@02f5a82b79a547523e664fe8a7a32ea14884d7b2  # 13.6.0
-        with:
-          cli: latest
-          github-token: ${{ secrets.GITHUB_TOKEN }}
+        # rf2-9sgj8 — resilient Clojure CLI install. setup-clojure's internal
+        # linux-install.sh curl has no retry, so a transient curl-35 / socket-
+        # hang-up reds the JVM job in setup before any test runs. Reuses the
+        # repo's clj-kondo curl-retry idiom (lint.yml) + a 3x backoff loop over
+        # the whole download+install (no github-token needed — the
+        # releases/latest/download redirect hits no GitHub API).
+        run: |
+          set -euo pipefail
+          for attempt in 1 2 3; do
+            curl -fsSL --retry 5 --retry-all-errors --retry-delay 3 -o /tmp/linux-install.sh \
+              https://github.com/clojure/brew-install/releases/latest/download/linux-install.sh \
+              && sudo bash /tmp/linux-install.sh && break
+            echo "Clojure CLI install attempt ${attempt}/3 failed; retrying in $((attempt * 10))s"
+            sleep "$((attempt * 10))"
+          done
+          clojure --version
 
       - name: Set up Node.js
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e  # v6.4.0
@@ -1848,10 +2112,22 @@ jobs:
           cache-dependency-path: implementation/package-lock.json
 
       - name: Set up Clojure CLI
-        uses: DeLaGuardo/setup-clojure@02f5a82b79a547523e664fe8a7a32ea14884d7b2  # 13.6.0
-        with:
-          cli: latest
-          github-token: ${{ secrets.GITHUB_TOKEN }}
+        # rf2-9sgj8 — resilient Clojure CLI install. setup-clojure's internal
+        # linux-install.sh curl has no retry, so a transient curl-35 / socket-
+        # hang-up reds the JVM job in setup before any test runs. Reuses the
+        # repo's clj-kondo curl-retry idiom (lint.yml) + a 3x backoff loop over
+        # the whole download+install (no github-token needed — the
+        # releases/latest/download redirect hits no GitHub API).
+        run: |
+          set -euo pipefail
+          for attempt in 1 2 3; do
+            curl -fsSL --retry 5 --retry-all-errors --retry-delay 3 -o /tmp/linux-install.sh \
+              https://github.com/clojure/brew-install/releases/latest/download/linux-install.sh \
+              && sudo bash /tmp/linux-install.sh && break
+            echo "Clojure CLI install attempt ${attempt}/3 failed; retrying in $((attempt * 10))s"
+            sleep "$((attempt * 10))"
+          done
+          clojure --version
 
       - name: Cache Maven / gitlibs (shadow-cljs deps)
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5.0.5
@@ -1948,10 +2224,22 @@ jobs:
           cache-dependency-path: implementation/package-lock.json
 
       - name: Set up Clojure CLI
-        uses: DeLaGuardo/setup-clojure@02f5a82b79a547523e664fe8a7a32ea14884d7b2  # 13.6.0
-        with:
-          cli: latest
-          github-token: ${{ secrets.GITHUB_TOKEN }}
+        # rf2-9sgj8 — resilient Clojure CLI install. setup-clojure's internal
+        # linux-install.sh curl has no retry, so a transient curl-35 / socket-
+        # hang-up reds the JVM job in setup before any test runs. Reuses the
+        # repo's clj-kondo curl-retry idiom (lint.yml) + a 3x backoff loop over
+        # the whole download+install (no github-token needed — the
+        # releases/latest/download redirect hits no GitHub API).
+        run: |
+          set -euo pipefail
+          for attempt in 1 2 3; do
+            curl -fsSL --retry 5 --retry-all-errors --retry-delay 3 -o /tmp/linux-install.sh \
+              https://github.com/clojure/brew-install/releases/latest/download/linux-install.sh \
+              && sudo bash /tmp/linux-install.sh && break
+            echo "Clojure CLI install attempt ${attempt}/3 failed; retrying in $((attempt * 10))s"
+            sleep "$((attempt * 10))"
+          done
+          clojure --version
 
       - name: Cache Maven / gitlibs (shadow-cljs deps)
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5.0.5
@@ -2019,10 +2307,22 @@ jobs:
           node-version: '24'
 
       - name: Set up Clojure CLI
-        uses: DeLaGuardo/setup-clojure@02f5a82b79a547523e664fe8a7a32ea14884d7b2  # 13.6.0
-        with:
-          cli: latest
-          github-token: ${{ secrets.GITHUB_TOKEN }}
+        # rf2-9sgj8 — resilient Clojure CLI install. setup-clojure's internal
+        # linux-install.sh curl has no retry, so a transient curl-35 / socket-
+        # hang-up reds the JVM job in setup before any test runs. Reuses the
+        # repo's clj-kondo curl-retry idiom (lint.yml) + a 3x backoff loop over
+        # the whole download+install (no github-token needed — the
+        # releases/latest/download redirect hits no GitHub API).
+        run: |
+          set -euo pipefail
+          for attempt in 1 2 3; do
+            curl -fsSL --retry 5 --retry-all-errors --retry-delay 3 -o /tmp/linux-install.sh \
+              https://github.com/clojure/brew-install/releases/latest/download/linux-install.sh \
+              && sudo bash /tmp/linux-install.sh && break
+            echo "Clojure CLI install attempt ${attempt}/3 failed; retrying in $((attempt * 10))s"
+            sleep "$((attempt * 10))"
+          done
+          clojure --version
 
       - name: Cache Maven / gitlibs (framework + shadow-cljs deps)
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5.0.5
@@ -2071,10 +2371,22 @@ jobs:
           cache-dependency-path: implementation/package-lock.json
 
       - name: Set up Clojure CLI
-        uses: DeLaGuardo/setup-clojure@02f5a82b79a547523e664fe8a7a32ea14884d7b2  # 13.6.0
-        with:
-          cli: latest
-          github-token: ${{ secrets.GITHUB_TOKEN }}
+        # rf2-9sgj8 — resilient Clojure CLI install. setup-clojure's internal
+        # linux-install.sh curl has no retry, so a transient curl-35 / socket-
+        # hang-up reds the JVM job in setup before any test runs. Reuses the
+        # repo's clj-kondo curl-retry idiom (lint.yml) + a 3x backoff loop over
+        # the whole download+install (no github-token needed — the
+        # releases/latest/download redirect hits no GitHub API).
+        run: |
+          set -euo pipefail
+          for attempt in 1 2 3; do
+            curl -fsSL --retry 5 --retry-all-errors --retry-delay 3 -o /tmp/linux-install.sh \
+              https://github.com/clojure/brew-install/releases/latest/download/linux-install.sh \
+              && sudo bash /tmp/linux-install.sh && break
+            echo "Clojure CLI install attempt ${attempt}/3 failed; retrying in $((attempt * 10))s"
+            sleep "$((attempt * 10))"
+          done
+          clojure --version
 
       - name: Cache Maven / gitlibs (shadow-cljs deps)
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5.0.5
@@ -2138,10 +2450,22 @@ jobs:
           cache-dependency-path: implementation/package-lock.json
 
       - name: Set up Clojure CLI
-        uses: DeLaGuardo/setup-clojure@02f5a82b79a547523e664fe8a7a32ea14884d7b2  # 13.6.0
-        with:
-          cli: latest
-          github-token: ${{ secrets.GITHUB_TOKEN }}
+        # rf2-9sgj8 — resilient Clojure CLI install. setup-clojure's internal
+        # linux-install.sh curl has no retry, so a transient curl-35 / socket-
+        # hang-up reds the JVM job in setup before any test runs. Reuses the
+        # repo's clj-kondo curl-retry idiom (lint.yml) + a 3x backoff loop over
+        # the whole download+install (no github-token needed — the
+        # releases/latest/download redirect hits no GitHub API).
+        run: |
+          set -euo pipefail
+          for attempt in 1 2 3; do
+            curl -fsSL --retry 5 --retry-all-errors --retry-delay 3 -o /tmp/linux-install.sh \
+              https://github.com/clojure/brew-install/releases/latest/download/linux-install.sh \
+              && sudo bash /tmp/linux-install.sh && break
+            echo "Clojure CLI install attempt ${attempt}/3 failed; retrying in $((attempt * 10))s"
+            sleep "$((attempt * 10))"
+          done
+          clojure --version
 
       - name: Cache Maven / gitlibs (shadow-cljs deps)
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5.0.5
@@ -2207,10 +2531,22 @@ jobs:
           cache-dependency-path: implementation/package-lock.json
 
       - name: Set up Clojure CLI
-        uses: DeLaGuardo/setup-clojure@02f5a82b79a547523e664fe8a7a32ea14884d7b2  # 13.6.0
-        with:
-          cli: latest
-          github-token: ${{ secrets.GITHUB_TOKEN }}
+        # rf2-9sgj8 — resilient Clojure CLI install. setup-clojure's internal
+        # linux-install.sh curl has no retry, so a transient curl-35 / socket-
+        # hang-up reds the JVM job in setup before any test runs. Reuses the
+        # repo's clj-kondo curl-retry idiom (lint.yml) + a 3x backoff loop over
+        # the whole download+install (no github-token needed — the
+        # releases/latest/download redirect hits no GitHub API).
+        run: |
+          set -euo pipefail
+          for attempt in 1 2 3; do
+            curl -fsSL --retry 5 --retry-all-errors --retry-delay 3 -o /tmp/linux-install.sh \
+              https://github.com/clojure/brew-install/releases/latest/download/linux-install.sh \
+              && sudo bash /tmp/linux-install.sh && break
+            echo "Clojure CLI install attempt ${attempt}/3 failed; retrying in $((attempt * 10))s"
+            sleep "$((attempt * 10))"
+          done
+          clojure --version
 
       - name: Cache Maven / gitlibs (shadow-cljs deps)
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5.0.5
@@ -2261,10 +2597,22 @@ jobs:
           cache-dependency-path: implementation/package-lock.json
 
       - name: Set up Clojure CLI
-        uses: DeLaGuardo/setup-clojure@02f5a82b79a547523e664fe8a7a32ea14884d7b2  # 13.6.0
-        with:
-          cli: latest
-          github-token: ${{ secrets.GITHUB_TOKEN }}
+        # rf2-9sgj8 — resilient Clojure CLI install. setup-clojure's internal
+        # linux-install.sh curl has no retry, so a transient curl-35 / socket-
+        # hang-up reds the JVM job in setup before any test runs. Reuses the
+        # repo's clj-kondo curl-retry idiom (lint.yml) + a 3x backoff loop over
+        # the whole download+install (no github-token needed — the
+        # releases/latest/download redirect hits no GitHub API).
+        run: |
+          set -euo pipefail
+          for attempt in 1 2 3; do
+            curl -fsSL --retry 5 --retry-all-errors --retry-delay 3 -o /tmp/linux-install.sh \
+              https://github.com/clojure/brew-install/releases/latest/download/linux-install.sh \
+              && sudo bash /tmp/linux-install.sh && break
+            echo "Clojure CLI install attempt ${attempt}/3 failed; retrying in $((attempt * 10))s"
+            sleep "$((attempt * 10))"
+          done
+          clojure --version
 
       - name: Cache Maven / gitlibs (shadow-cljs deps)
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5.0.5
@@ -2323,10 +2671,22 @@ jobs:
           cache-dependency-path: implementation/package-lock.json
 
       - name: Set up Clojure CLI
-        uses: DeLaGuardo/setup-clojure@02f5a82b79a547523e664fe8a7a32ea14884d7b2  # 13.6.0
-        with:
-          cli: latest
-          github-token: ${{ secrets.GITHUB_TOKEN }}
+        # rf2-9sgj8 — resilient Clojure CLI install. setup-clojure's internal
+        # linux-install.sh curl has no retry, so a transient curl-35 / socket-
+        # hang-up reds the JVM job in setup before any test runs. Reuses the
+        # repo's clj-kondo curl-retry idiom (lint.yml) + a 3x backoff loop over
+        # the whole download+install (no github-token needed — the
+        # releases/latest/download redirect hits no GitHub API).
+        run: |
+          set -euo pipefail
+          for attempt in 1 2 3; do
+            curl -fsSL --retry 5 --retry-all-errors --retry-delay 3 -o /tmp/linux-install.sh \
+              https://github.com/clojure/brew-install/releases/latest/download/linux-install.sh \
+              && sudo bash /tmp/linux-install.sh && break
+            echo "Clojure CLI install attempt ${attempt}/3 failed; retrying in $((attempt * 10))s"
+            sleep "$((attempt * 10))"
+          done
+          clojure --version
 
       - name: Cache Maven / gitlibs (shadow-cljs deps)
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5.0.5
@@ -2399,10 +2759,22 @@ jobs:
           cache-dependency-path: implementation/package-lock.json
 
       - name: Set up Clojure CLI
-        uses: DeLaGuardo/setup-clojure@02f5a82b79a547523e664fe8a7a32ea14884d7b2  # 13.6.0
-        with:
-          cli: latest
-          github-token: ${{ secrets.GITHUB_TOKEN }}
+        # rf2-9sgj8 — resilient Clojure CLI install. setup-clojure's internal
+        # linux-install.sh curl has no retry, so a transient curl-35 / socket-
+        # hang-up reds the JVM job in setup before any test runs. Reuses the
+        # repo's clj-kondo curl-retry idiom (lint.yml) + a 3x backoff loop over
+        # the whole download+install (no github-token needed — the
+        # releases/latest/download redirect hits no GitHub API).
+        run: |
+          set -euo pipefail
+          for attempt in 1 2 3; do
+            curl -fsSL --retry 5 --retry-all-errors --retry-delay 3 -o /tmp/linux-install.sh \
+              https://github.com/clojure/brew-install/releases/latest/download/linux-install.sh \
+              && sudo bash /tmp/linux-install.sh && break
+            echo "Clojure CLI install attempt ${attempt}/3 failed; retrying in $((attempt * 10))s"
+            sleep "$((attempt * 10))"
+          done
+          clojure --version
 
       - name: Cache Maven / gitlibs (Story/Xray shadow-cljs deps)
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5.0.5
@@ -2553,10 +2925,22 @@ jobs:
           cache-dependency-path: implementation/package-lock.json
 
       - name: Set up Clojure CLI
-        uses: DeLaGuardo/setup-clojure@02f5a82b79a547523e664fe8a7a32ea14884d7b2  # 13.6.0
-        with:
-          cli: latest
-          github-token: ${{ secrets.GITHUB_TOKEN }}
+        # rf2-9sgj8 — resilient Clojure CLI install. setup-clojure's internal
+        # linux-install.sh curl has no retry, so a transient curl-35 / socket-
+        # hang-up reds the JVM job in setup before any test runs. Reuses the
+        # repo's clj-kondo curl-retry idiom (lint.yml) + a 3x backoff loop over
+        # the whole download+install (no github-token needed — the
+        # releases/latest/download redirect hits no GitHub API).
+        run: |
+          set -euo pipefail
+          for attempt in 1 2 3; do
+            curl -fsSL --retry 5 --retry-all-errors --retry-delay 3 -o /tmp/linux-install.sh \
+              https://github.com/clojure/brew-install/releases/latest/download/linux-install.sh \
+              && sudo bash /tmp/linux-install.sh && break
+            echo "Clojure CLI install attempt ${attempt}/3 failed; retrying in $((attempt * 10))s"
+            sleep "$((attempt * 10))"
+          done
+          clojure --version
 
       - name: Cache Maven / gitlibs (shadow-cljs deps)
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5.0.5
@@ -2670,10 +3054,22 @@ jobs:
           cache-dependency-path: implementation/package-lock.json
 
       - name: Set up Clojure CLI
-        uses: DeLaGuardo/setup-clojure@02f5a82b79a547523e664fe8a7a32ea14884d7b2  # 13.6.0
-        with:
-          cli: latest
-          github-token: ${{ secrets.GITHUB_TOKEN }}
+        # rf2-9sgj8 — resilient Clojure CLI install. setup-clojure's internal
+        # linux-install.sh curl has no retry, so a transient curl-35 / socket-
+        # hang-up reds the JVM job in setup before any test runs. Reuses the
+        # repo's clj-kondo curl-retry idiom (lint.yml) + a 3x backoff loop over
+        # the whole download+install (no github-token needed — the
+        # releases/latest/download redirect hits no GitHub API).
+        run: |
+          set -euo pipefail
+          for attempt in 1 2 3; do
+            curl -fsSL --retry 5 --retry-all-errors --retry-delay 3 -o /tmp/linux-install.sh \
+              https://github.com/clojure/brew-install/releases/latest/download/linux-install.sh \
+              && sudo bash /tmp/linux-install.sh && break
+            echo "Clojure CLI install attempt ${attempt}/3 failed; retrying in $((attempt * 10))s"
+            sleep "$((attempt * 10))"
+          done
+          clojure --version
 
       - name: Cache Maven / gitlibs (shadow-cljs deps)
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5.0.5
@@ -2752,10 +3148,22 @@ jobs:
           java-version: '21'
 
       - name: Set up Clojure CLI
-        uses: DeLaGuardo/setup-clojure@02f5a82b79a547523e664fe8a7a32ea14884d7b2  # 13.6.0
-        with:
-          cli: latest
-          github-token: ${{ secrets.GITHUB_TOKEN }}
+        # rf2-9sgj8 — resilient Clojure CLI install. setup-clojure's internal
+        # linux-install.sh curl has no retry, so a transient curl-35 / socket-
+        # hang-up reds the JVM job in setup before any test runs. Reuses the
+        # repo's clj-kondo curl-retry idiom (lint.yml) + a 3x backoff loop over
+        # the whole download+install (no github-token needed — the
+        # releases/latest/download redirect hits no GitHub API).
+        run: |
+          set -euo pipefail
+          for attempt in 1 2 3; do
+            curl -fsSL --retry 5 --retry-all-errors --retry-delay 3 -o /tmp/linux-install.sh \
+              https://github.com/clojure/brew-install/releases/latest/download/linux-install.sh \
+              && sudo bash /tmp/linux-install.sh && break
+            echo "Clojure CLI install attempt ${attempt}/3 failed; retrying in $((attempt * 10))s"
+            sleep "$((attempt * 10))"
+          done
+          clojure --version
 
       - name: Cache Maven / gitlibs
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5.0.5
@@ -2797,10 +3205,22 @@ jobs:
           java-version: '21'
 
       - name: Set up Clojure CLI
-        uses: DeLaGuardo/setup-clojure@02f5a82b79a547523e664fe8a7a32ea14884d7b2  # 13.6.0
-        with:
-          cli: latest
-          github-token: ${{ secrets.GITHUB_TOKEN }}
+        # rf2-9sgj8 — resilient Clojure CLI install. setup-clojure's internal
+        # linux-install.sh curl has no retry, so a transient curl-35 / socket-
+        # hang-up reds the JVM job in setup before any test runs. Reuses the
+        # repo's clj-kondo curl-retry idiom (lint.yml) + a 3x backoff loop over
+        # the whole download+install (no github-token needed — the
+        # releases/latest/download redirect hits no GitHub API).
+        run: |
+          set -euo pipefail
+          for attempt in 1 2 3; do
+            curl -fsSL --retry 5 --retry-all-errors --retry-delay 3 -o /tmp/linux-install.sh \
+              https://github.com/clojure/brew-install/releases/latest/download/linux-install.sh \
+              && sudo bash /tmp/linux-install.sh && break
+            echo "Clojure CLI install attempt ${attempt}/3 failed; retrying in $((attempt * 10))s"
+            sleep "$((attempt * 10))"
+          done
+          clojure --version
 
       - name: Cache Maven / gitlibs
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5.0.5
@@ -2843,10 +3263,22 @@ jobs:
           java-version: '21'
 
       - name: Set up Clojure CLI
-        uses: DeLaGuardo/setup-clojure@02f5a82b79a547523e664fe8a7a32ea14884d7b2  # 13.6.0
-        with:
-          cli: latest
-          github-token: ${{ secrets.GITHUB_TOKEN }}
+        # rf2-9sgj8 — resilient Clojure CLI install. setup-clojure's internal
+        # linux-install.sh curl has no retry, so a transient curl-35 / socket-
+        # hang-up reds the JVM job in setup before any test runs. Reuses the
+        # repo's clj-kondo curl-retry idiom (lint.yml) + a 3x backoff loop over
+        # the whole download+install (no github-token needed — the
+        # releases/latest/download redirect hits no GitHub API).
+        run: |
+          set -euo pipefail
+          for attempt in 1 2 3; do
+            curl -fsSL --retry 5 --retry-all-errors --retry-delay 3 -o /tmp/linux-install.sh \
+              https://github.com/clojure/brew-install/releases/latest/download/linux-install.sh \
+              && sudo bash /tmp/linux-install.sh && break
+            echo "Clojure CLI install attempt ${attempt}/3 failed; retrying in $((attempt * 10))s"
+            sleep "$((attempt * 10))"
+          done
+          clojure --version
 
       - name: Cache Maven / gitlibs
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5.0.5
@@ -2897,10 +3329,22 @@ jobs:
           java-version: '21'
 
       - name: Set up Clojure CLI
-        uses: DeLaGuardo/setup-clojure@02f5a82b79a547523e664fe8a7a32ea14884d7b2  # 13.6.0
-        with:
-          cli: latest
-          github-token: ${{ secrets.GITHUB_TOKEN }}
+        # rf2-9sgj8 — resilient Clojure CLI install. setup-clojure's internal
+        # linux-install.sh curl has no retry, so a transient curl-35 / socket-
+        # hang-up reds the JVM job in setup before any test runs. Reuses the
+        # repo's clj-kondo curl-retry idiom (lint.yml) + a 3x backoff loop over
+        # the whole download+install (no github-token needed — the
+        # releases/latest/download redirect hits no GitHub API).
+        run: |
+          set -euo pipefail
+          for attempt in 1 2 3; do
+            curl -fsSL --retry 5 --retry-all-errors --retry-delay 3 -o /tmp/linux-install.sh \
+              https://github.com/clojure/brew-install/releases/latest/download/linux-install.sh \
+              && sudo bash /tmp/linux-install.sh && break
+            echo "Clojure CLI install attempt ${attempt}/3 failed; retrying in $((attempt * 10))s"
+            sleep "$((attempt * 10))"
+          done
+          clojure --version
 
       # rf2-80y2h: mcp-base now carries a CLJS test target (shadow-cljs
       # :node-test build) covering the `.cljc` `:cljs` reader-conditional
@@ -2967,10 +3411,22 @@ jobs:
           java-version: '21'
 
       - name: Set up Clojure CLI
-        uses: DeLaGuardo/setup-clojure@02f5a82b79a547523e664fe8a7a32ea14884d7b2  # 13.6.0
-        with:
-          cli: latest
-          github-token: ${{ secrets.GITHUB_TOKEN }}
+        # rf2-9sgj8 — resilient Clojure CLI install. setup-clojure's internal
+        # linux-install.sh curl has no retry, so a transient curl-35 / socket-
+        # hang-up reds the JVM job in setup before any test runs. Reuses the
+        # repo's clj-kondo curl-retry idiom (lint.yml) + a 3x backoff loop over
+        # the whole download+install (no github-token needed — the
+        # releases/latest/download redirect hits no GitHub API).
+        run: |
+          set -euo pipefail
+          for attempt in 1 2 3; do
+            curl -fsSL --retry 5 --retry-all-errors --retry-delay 3 -o /tmp/linux-install.sh \
+              https://github.com/clojure/brew-install/releases/latest/download/linux-install.sh \
+              && sudo bash /tmp/linux-install.sh && break
+            echo "Clojure CLI install attempt ${attempt}/3 failed; retrying in $((attempt * 10))s"
+            sleep "$((attempt * 10))"
+          done
+          clojure --version
 
       # rf2-ir6a0 — Node.js is required for the
       # `emitted_test_run_test.clj` slice (compiles + runs the emitted
@@ -3066,10 +3522,22 @@ jobs:
           java-version: '21'
 
       - name: Set up Clojure CLI
-        uses: DeLaGuardo/setup-clojure@02f5a82b79a547523e664fe8a7a32ea14884d7b2  # 13.6.0
-        with:
-          cli: latest
-          github-token: ${{ secrets.GITHUB_TOKEN }}
+        # rf2-9sgj8 — resilient Clojure CLI install. setup-clojure's internal
+        # linux-install.sh curl has no retry, so a transient curl-35 / socket-
+        # hang-up reds the JVM job in setup before any test runs. Reuses the
+        # repo's clj-kondo curl-retry idiom (lint.yml) + a 3x backoff loop over
+        # the whole download+install (no github-token needed — the
+        # releases/latest/download redirect hits no GitHub API).
+        run: |
+          set -euo pipefail
+          for attempt in 1 2 3; do
+            curl -fsSL --retry 5 --retry-all-errors --retry-delay 3 -o /tmp/linux-install.sh \
+              https://github.com/clojure/brew-install/releases/latest/download/linux-install.sh \
+              && sudo bash /tmp/linux-install.sh && break
+            echo "Clojure CLI install attempt ${attempt}/3 failed; retrying in $((attempt * 10))s"
+            sleep "$((attempt * 10))"
+          done
+          clojure --version
 
       - name: Set up Node.js
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e  # v6.4.0
@@ -3149,10 +3617,22 @@ jobs:
           java-version: '21'
 
       - name: Set up Clojure CLI
-        uses: DeLaGuardo/setup-clojure@02f5a82b79a547523e664fe8a7a32ea14884d7b2  # 13.6.0
-        with:
-          cli: latest
-          github-token: ${{ secrets.GITHUB_TOKEN }}
+        # rf2-9sgj8 — resilient Clojure CLI install. setup-clojure's internal
+        # linux-install.sh curl has no retry, so a transient curl-35 / socket-
+        # hang-up reds the JVM job in setup before any test runs. Reuses the
+        # repo's clj-kondo curl-retry idiom (lint.yml) + a 3x backoff loop over
+        # the whole download+install (no github-token needed — the
+        # releases/latest/download redirect hits no GitHub API).
+        run: |
+          set -euo pipefail
+          for attempt in 1 2 3; do
+            curl -fsSL --retry 5 --retry-all-errors --retry-delay 3 -o /tmp/linux-install.sh \
+              https://github.com/clojure/brew-install/releases/latest/download/linux-install.sh \
+              && sudo bash /tmp/linux-install.sh && break
+            echo "Clojure CLI install attempt ${attempt}/3 failed; retrying in $((attempt * 10))s"
+            sleep "$((attempt * 10))"
+          done
+          clojure --version
 
       - name: Set up Node.js
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e  # v6.4.0
@@ -3245,10 +3725,22 @@ jobs:
           java-version: '21'
 
       - name: Set up Clojure CLI
-        uses: DeLaGuardo/setup-clojure@02f5a82b79a547523e664fe8a7a32ea14884d7b2  # 13.6.0
-        with:
-          cli: latest
-          github-token: ${{ secrets.GITHUB_TOKEN }}
+        # rf2-9sgj8 — resilient Clojure CLI install. setup-clojure's internal
+        # linux-install.sh curl has no retry, so a transient curl-35 / socket-
+        # hang-up reds the JVM job in setup before any test runs. Reuses the
+        # repo's clj-kondo curl-retry idiom (lint.yml) + a 3x backoff loop over
+        # the whole download+install (no github-token needed — the
+        # releases/latest/download redirect hits no GitHub API).
+        run: |
+          set -euo pipefail
+          for attempt in 1 2 3; do
+            curl -fsSL --retry 5 --retry-all-errors --retry-delay 3 -o /tmp/linux-install.sh \
+              https://github.com/clojure/brew-install/releases/latest/download/linux-install.sh \
+              && sudo bash /tmp/linux-install.sh && break
+            echo "Clojure CLI install attempt ${attempt}/3 failed; retrying in $((attempt * 10))s"
+            sleep "$((attempt * 10))"
+          done
+          clojure --version
 
       - name: Set up Node.js
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e  # v6.4.0
@@ -3408,10 +3900,22 @@ jobs:
           java-version: '21'
 
       - name: Set up Clojure CLI
-        uses: DeLaGuardo/setup-clojure@02f5a82b79a547523e664fe8a7a32ea14884d7b2  # 13.6.0
-        with:
-          cli: latest
-          github-token: ${{ secrets.GITHUB_TOKEN }}
+        # rf2-9sgj8 — resilient Clojure CLI install. setup-clojure's internal
+        # linux-install.sh curl has no retry, so a transient curl-35 / socket-
+        # hang-up reds the JVM job in setup before any test runs. Reuses the
+        # repo's clj-kondo curl-retry idiom (lint.yml) + a 3x backoff loop over
+        # the whole download+install (no github-token needed — the
+        # releases/latest/download redirect hits no GitHub API).
+        run: |
+          set -euo pipefail
+          for attempt in 1 2 3; do
+            curl -fsSL --retry 5 --retry-all-errors --retry-delay 3 -o /tmp/linux-install.sh \
+              https://github.com/clojure/brew-install/releases/latest/download/linux-install.sh \
+              && sudo bash /tmp/linux-install.sh && break
+            echo "Clojure CLI install attempt ${attempt}/3 failed; retrying in $((attempt * 10))s"
+            sleep "$((attempt * 10))"
+          done
+          clojure --version
 
       - name: Set up Node.js
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e  # v6.4.0
@@ -3489,10 +3993,22 @@ jobs:
           java-version: '21'
 
       - name: Set up Clojure CLI
-        uses: DeLaGuardo/setup-clojure@02f5a82b79a547523e664fe8a7a32ea14884d7b2  # 13.6.0
-        with:
-          cli: latest
-          github-token: ${{ secrets.GITHUB_TOKEN }}
+        # rf2-9sgj8 — resilient Clojure CLI install. setup-clojure's internal
+        # linux-install.sh curl has no retry, so a transient curl-35 / socket-
+        # hang-up reds the JVM job in setup before any test runs. Reuses the
+        # repo's clj-kondo curl-retry idiom (lint.yml) + a 3x backoff loop over
+        # the whole download+install (no github-token needed — the
+        # releases/latest/download redirect hits no GitHub API).
+        run: |
+          set -euo pipefail
+          for attempt in 1 2 3; do
+            curl -fsSL --retry 5 --retry-all-errors --retry-delay 3 -o /tmp/linux-install.sh \
+              https://github.com/clojure/brew-install/releases/latest/download/linux-install.sh \
+              && sudo bash /tmp/linux-install.sh && break
+            echo "Clojure CLI install attempt ${attempt}/3 failed; retrying in $((attempt * 10))s"
+            sleep "$((attempt * 10))"
+          done
+          clojure --version
 
       - name: Cache Maven / gitlibs
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5.0.5
@@ -3518,10 +4034,21 @@ jobs:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
 
       - name: Set up Babashka
-        uses: DeLaGuardo/setup-clojure@02f5a82b79a547523e664fe8a7a32ea14884d7b2  # 13.6.0
-        with:
-          bb: latest
-          github-token: ${{ secrets.GITHUB_TOKEN }}
+        # rf2-9sgj8 — resilient Babashka install (same setup-clojure curl-35 /
+        # socket-hang-up flake class as the Clojure CLI installs above).
+        # Reuses the repo's clj-kondo curl-retry idiom (lint.yml) + a 3x backoff
+        # loop; the bb installer pulls from raw.githubusercontent.com, which
+        # 429s under rate limiting — hence --retry-all-errors (lint.yml note).
+        run: |
+          set -euo pipefail
+          for attempt in 1 2 3; do
+            curl -fsSL --retry 5 --retry-all-errors --retry-delay 3 -o /tmp/bb-install \
+              https://raw.githubusercontent.com/babashka/babashka/master/install \
+              && sudo bash /tmp/bb-install && break
+            echo "Babashka install attempt ${attempt}/3 failed; retrying in $((attempt * 10))s"
+            sleep "$((attempt * 10))"
+          done
+          bb --version
 
       - name: Run re-frame2-pair structural tests
         working-directory: skills/re-frame2-pair
@@ -3602,10 +4129,22 @@ jobs:
           java-version: '21'
 
       - name: Set up Clojure CLI
-        uses: DeLaGuardo/setup-clojure@02f5a82b79a547523e664fe8a7a32ea14884d7b2  # 13.6.0
-        with:
-          cli: latest
-          github-token: ${{ secrets.GITHUB_TOKEN }}
+        # rf2-9sgj8 — resilient Clojure CLI install. setup-clojure's internal
+        # linux-install.sh curl has no retry, so a transient curl-35 / socket-
+        # hang-up reds the JVM job in setup before any test runs. Reuses the
+        # repo's clj-kondo curl-retry idiom (lint.yml) + a 3x backoff loop over
+        # the whole download+install (no github-token needed — the
+        # releases/latest/download redirect hits no GitHub API).
+        run: |
+          set -euo pipefail
+          for attempt in 1 2 3; do
+            curl -fsSL --retry 5 --retry-all-errors --retry-delay 3 -o /tmp/linux-install.sh \
+              https://github.com/clojure/brew-install/releases/latest/download/linux-install.sh \
+              && sudo bash /tmp/linux-install.sh && break
+            echo "Clojure CLI install attempt ${attempt}/3 failed; retrying in $((attempt * 10))s"
+            sleep "$((attempt * 10))"
+          done
+          clojure --version
 
       - name: Set up Node.js
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e  # v6.4.0
@@ -3687,10 +4226,22 @@ jobs:
           node-version: '24'
 
       - name: Set up Clojure CLI
-        uses: DeLaGuardo/setup-clojure@02f5a82b79a547523e664fe8a7a32ea14884d7b2  # 13.6.0
-        with:
-          cli: latest
-          github-token: ${{ secrets.GITHUB_TOKEN }}
+        # rf2-9sgj8 — resilient Clojure CLI install. setup-clojure's internal
+        # linux-install.sh curl has no retry, so a transient curl-35 / socket-
+        # hang-up reds the JVM job in setup before any test runs. Reuses the
+        # repo's clj-kondo curl-retry idiom (lint.yml) + a 3x backoff loop over
+        # the whole download+install (no github-token needed — the
+        # releases/latest/download redirect hits no GitHub API).
+        run: |
+          set -euo pipefail
+          for attempt in 1 2 3; do
+            curl -fsSL --retry 5 --retry-all-errors --retry-delay 3 -o /tmp/linux-install.sh \
+              https://github.com/clojure/brew-install/releases/latest/download/linux-install.sh \
+              && sudo bash /tmp/linux-install.sh && break
+            echo "Clojure CLI install attempt ${attempt}/3 failed; retrying in $((attempt * 10))s"
+            sleep "$((attempt * 10))"
+          done
+          clojure --version
 
       - name: Cache Maven / gitlibs (playground SCI bundle deps)
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5.0.5
