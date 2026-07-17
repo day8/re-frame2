@@ -1,5 +1,7 @@
 # Examples
 
+<a id="routing-examples"></a>
+
 Runnable routing apps in the repo. Build something yourself first
 ([tutorial](tutorial.md) or [the model](concepts.md)), then open these in order.
 

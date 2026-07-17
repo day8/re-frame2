@@ -1,5 +1,7 @@
 # Managed HTTP
 
+<a id="managed-http-reference"></a>
+
 `:rf.http/managed` is the one [effect](../core/glossary.md#effect) for talking to a
 server. Describe the request as data; the runtime decodes, classifies failures,
 retries, and cancels; the reply arrives as an ordinary [event](../core/glossary.md#event).
@@ -7,6 +9,8 @@ retries, and cancels; the reply arrives as an ordinary [event](../core/glossary.
 This page is the **model and reference** — every key, every contract. Build first with
 the [tutorial](tutorial.md). Idea underneath: [Why no await](continuations-are-data.md).
 API surfaces (interceptors, stubs, traces): [re-frame.http](../api/re-frame.http.md).
+
+<a id="setup"></a>
 
 !!! note "Optional artefact"
 
@@ -135,6 +139,8 @@ Three small handlers, each doing one thing. This is the shape to prefer when the
 ??? info "From re-frame v1"
 
     Your `:http-xhrio`-style success/failure events map straight onto `:on-success` / `:on-failure` — the [migration page](../core/25-from-re-frame-v1.md) walks the translation.
+
+<a id="one-handler"></a>
 
 ### One handler with :reply-to
 
@@ -297,6 +303,8 @@ The real discipline isn't *whether* to retry but *what*. Read-only fetches are s
     `:retry` owns **transport retry** only — decisions that are a pure function of failure category and attempt count. The moment a retry decision depends on anything else ("after a 401, refresh the token, *then* retry"; "the body says retry-after 5s"), it becomes **semantic retry**, and that belongs in a [state machine](../machines/concepts.md) driving the request, with transport `:retry` still active inside each attempt the machine launches. One test: pure-function-of-category stays here; stateful-decision graduates to a machine.
 
 ## Cancellation: supersession and abort
+
+<a id="the-search-box-race-cured"></a>
 
 Three related surfaces, one per situation.
 

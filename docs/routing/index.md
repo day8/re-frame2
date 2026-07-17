@@ -21,6 +21,8 @@ testable like everything else.
 Route [loaders](glossary.md#loader) run on the server too — one data-fetch story
 with [SSR](../ssr/index.md), no separate server router.
 
+<a id="in-this-section"></a>
+
 ## Start here
 
 1. **[Tutorial](tutorial.md)** — three-page app grown step by step (routes, links,

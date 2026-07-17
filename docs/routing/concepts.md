@@ -1,5 +1,7 @@
 # The model
 
+<a id="routing-the-url-is-a-sub"></a>
+
 This page is the **routing model** — three moves, then the refinements you hit next
 (loaders, guards, not-found, URL binding). Full recipes for leave/enter guards live
 in the how-tos; API signatures live in [re-frame.routing](../api/re-frame.routing.md).
@@ -64,6 +66,8 @@ splat (`*rest`), root (`/`).
 
 `:params` and `:query` take [schemas](../core/how-to/validate-with-schemas.md) that
 **validate and coerce** — `?page=2` arrives as integer `2`.
+
+<a id="carrying-global-state-through-the-url"></a>
 
 ```clojure
 (rf/reg-route :app/search
@@ -141,6 +145,7 @@ ranking cascade: [API `reg-route`](../api/re-frame.routing.md#reg-route).
 | `:bypass-guards?` | Set `#{:leave :enter}` to skip named guards |
 
 <a id="navigate-in-place"></a>
+<a id="navigate-in-place-change-the-query-stay-on-the-route"></a>
 
 **Stay on this route, change query** — reserved target `:rf.route/self`:
 
@@ -178,10 +183,14 @@ listener that decides eligibility itself — plain primary-button click, no modi
 no `:target`/`:download`, a same-origin in-app `href` — and dispatches
 `:rf.route/url-requested` on a match, letting the browser follow every click it rejects.
 
+<a id="what-happens-in-order"></a>
+
 ### Order of effects
 
 Navigate runs in a **locked order**: update route slice in runtime-db → push URL →
 dispatch loaders. State before URL on purpose.
+
+<a id="navigating-to-a-raw-url-string"></a>
 
 Raw URL escape hatch: `(rf/dispatch [:rf.route/navigate {:url "/articles/intro"}])`.
 
@@ -260,6 +269,8 @@ changed params; identical params don't re-fire):
 
 Runs client- and server-side. On loader failure, `:transition` → `:error`; optional
 `:on-error` event fires once (first error wins; later loaders still run).
+
+<a id="when-a-loader-fails"></a>
 
 ### Declaring resources instead
 
@@ -429,6 +440,8 @@ tests).
 `route-url` / `match-url` stay path-form; strategy encodes `#` at the edges.
 `routing/with-base-path` for deploy under a subpath. SSR ignores strategies (path
 form on the wire; client re-encodes on hydrate).
+
+<a id="converting-routes--urls-by-hand"></a>
 
 ### Codec by hand
 

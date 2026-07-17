@@ -298,7 +298,7 @@
 ;; source of truth, and this interceptor is the single place that reads it.
 ;; The day the token changes, you change it once. See the HTTP guide on
 ;; interceptors:
-;; ../../../docs/async/http.md#interceptors-stamp-every-request-once
+;; ../../../docs/async/http-going-further.md#interceptors-stamp-every-request-once
 ;;
 ;; No token? It hands the ctx straight back, so login, register, and
 ;; public-read endpoints sail through unsigned, exactly as they should.
