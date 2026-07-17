@@ -164,7 +164,7 @@
           (is (= ["1" "1"] (leaf-texts c))
               "deferred off the synchronous drain — no synchronous repaint, subtree consistent")
           (is (= [1 1] @leaf-render-values)
-              "all eight write-side epochs completed with zero synchronous reads/renders")
+              "all eight event epochs completed with zero synchronous reads/renders")
           ;; MICROTASK checkpoint (before any paint): the coalesced flush
           ;; has run; committing React shows the WHOLE subtree at final v9,
           ;; consistently. A macrotask-scheduled flush would still be pending

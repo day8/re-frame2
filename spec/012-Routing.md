@@ -1527,7 +1527,7 @@ The story / devcard / SSR cases all benefit:
 
 ## URL strategies
 
-The router is **path-form** on the write side: `route-url` builds `/active`, `match-url` reads `/active`, and the whole navigation drain threads path-form URLs. But the browser's address bar can carry a **different shape** — `#/active` for a hash-URL app (no-server-rewrite static hosting; the shape most secretary-era re-frame v1 apps actually are). A **`:url-strategy`** is the thin skin between the two: a frame-level config map consulted at exactly **four** egress/ingress points, so the router's path-form model is unchanged and only the browser-facing shape differs.
+The router is **path-form** internally: `route-url` builds `/active`, `match-url` reads `/active`, and the whole navigation drain threads path-form URLs. But the browser's address bar can carry a **different shape** — `#/active` for a hash-URL app (no-server-rewrite static hosting; the shape most secretary-era re-frame v1 apps actually are). A **`:url-strategy`** is the thin skin between the two: a frame-level config map consulted at exactly **four** egress/ingress points, so the router's path-form model is unchanged and only the browser-facing shape differs.
 
 A frame declares its strategy alongside `:url-bound?`:
 

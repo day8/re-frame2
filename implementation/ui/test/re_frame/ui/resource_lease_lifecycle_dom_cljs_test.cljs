@@ -292,7 +292,7 @@
                              (.-textContent
                               (uit/query root "[data-role='lease-write-count']"))))
                       (is (= 1 (:read-bodies @batch-evidence))
-                          "eight write-side epochs settle before one read body")
+                          "eight event epochs settle before one read body")
                       (is (= (inc revision0) (reactive/revision reader-cell))
                           "the aggregate ViewCell revision advances once"))))))
            (.then (fn []
