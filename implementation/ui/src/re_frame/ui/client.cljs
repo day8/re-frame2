@@ -1404,6 +1404,33 @@
       (finally
         (reset! disposing-live-roots? false)))))
 
+(defn- reclaim-and-retire-quarantine!
+  "Terminal recovery for one exact cleanup-failure quarantine whose host handle
+  React consumed: adapter-reclaim its exact container, retire that spent reporter
+  authority, then release the identity-fenced claim. The `reclaim → retire →
+  release` order is fixed — retirement runs only once the reclaim PROVES the
+  surface free, and a FAILED reclaim throws above it, skipping BOTH retirement
+  and release so the claim stays quarantined AND reporter-authoritative
+  fail-closed (rf2-nd7z9h).
+
+  Retirement targets the EXACT `incarnation` CAPTURED before the reclaim — never
+  a fresh registry read. `reclaim-consumed-container!` runs synchronous host code
+  (`replaceChildren`), during which a custom-element callback or a low-level/test
+  seam can install a same-id SUCCESSOR into `live-roots`. A bare-id lookup after
+  the reclaim would then resolve to that innocent successor: it would retire the
+  successor's reporter while `release-root!`'s identity fence correctly preserves
+  the successor's claim — leaving it live WITHOUT reporter authority (its teardown
+  could settle before React's cleanup) and strongly retaining the failed
+  predecessor's dead token. Passing the captured predecessor `incarnation` keeps
+  retirement bound to the predecessor, so a bypass-installed successor is never
+  disturbed and the stale snapshot never owns a replacement it did not admit
+  (rf2-j7225). Returns nil."
+  [root-id ^Root root incarnation]
+  (reclaim-consumed-container! root)
+  (reactive/retire-root-reporter! incarnation)
+  (release-root! root-id root)
+  nil)
+
 (defn drain-live-roots!
   "Drain one exact snapshot of every public compiled client Root.
 
@@ -1441,16 +1468,13 @@
           ;; handle consumed. Adapter destruction owns terminal container reclaim.
           quarantined?
           (try
-            (reclaim-consumed-container! root)
-            ;; rf2-nd7z9h — the terminal reclaim proved this consumed surface
-            ;; free, so this exact incarnation's reporter authority is spent:
-            ;; retire it BEFORE releasing the claim so `live-reporters` cannot
-            ;; strongly retain a dead incarnation across recovery cycles (nor
-            ;; leave stale reporter-deferred teardown authority for its old
-            ;; token). A FAILED reclaim throws above and skips both retirement and
-            ;; release, keeping quarantine AND reporter authority fail-closed.
-            (reactive/retire-root-reporter! (:root-incarnation current))
-            (release-root! root-id root)
+            ;; rf2-nd7z9h / rf2-j7225 — reclaim the consumed surface, then retire
+            ;; THIS captured incarnation's spent reporter authority BEFORE releasing
+            ;; the claim (never re-read the registry: a successor installed during
+            ;; the synchronous reclaim keeps its own reporter + claim). A FAILED
+            ;; reclaim throws and skips both, keeping quarantine AND reporter
+            ;; authority fail-closed.
+            (reclaim-and-retire-quarantine! root-id root (:root-incarnation current))
             (catch :default recovery-error
               (vswap! errors conj recovery-error)))
 
@@ -1471,16 +1495,20 @@
               (mark-cleanup-failure-quarantine! root-id root)
               (when (exact-cleanup-failure-quarantine? root-id root)
                 (try
-                  (reclaim-consumed-container! root)
                   ;; `unmount!*` just classified this exact root as cleanup-failed.
-                  ;; Successful adapter reclaim proves the surface free; the
-                  ;; identity fence prevents a stale snapshot releasing a successor.
+                  ;; Successful adapter reclaim proves the surface free; the identity
+                  ;; fence prevents a stale snapshot releasing a successor.
                   ;; rf2-nd7z9h — retire this incarnation's reporter authority too,
                   ;; between the successful reclaim and the claim release, so the
                   ;; reporter ledger returns to baseline (a failed reclaim throws
                   ;; above and retains both quarantine and reporter authority).
-                  (reactive/retire-root-reporter! (root-incarnation-of root-id))
-                  (release-root! root-id root)
+                  ;; rf2-j7225 — retire the EXACT incarnation CAPTURED in `current`,
+                  ;; NOT a fresh `root-incarnation-of` read: the synchronous reclaim
+                  ;; can install a same-id successor, and a bare-id lookup would then
+                  ;; retire the successor's reporter while the identity fence keeps
+                  ;; its claim — the very stale-snapshot ownership `current` fences.
+                  (reclaim-and-retire-quarantine!
+                   root-id root (:root-incarnation current))
                   (catch :default recovery-error
                     (vswap! errors conj recovery-error)))))))))
     ;; PRESENCE (seq/count), not truthiness: a non-empty error vector whose FIRST
