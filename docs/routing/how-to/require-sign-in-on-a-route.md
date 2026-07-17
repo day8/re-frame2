@@ -48,14 +48,23 @@ Guard `:rf.route/navigate` alone and the third row defeats you: a logged-out rea
 (:require [re-frame.routing :as routing])   ;; match-url lives here, not on rf/
 
 (defn- nav-target
-  "Normalise any navigation event to {:id <route-id> :params <map>}, or nil."
-  [[ev-id a b]]
+  "Normalise any navigation event to {:id <route-id> :params <map>}, or nil.
+  `current` is the current route slice ([:rf.runtime/routing :current]) — the
+  reserved :rf.route/self target resolves to the route you are already on, so
+  pass it in and the guard resolves self exactly as the runtime does."
+  [[ev-id a b] current]
   (case ev-id
     :rf.route/navigate
-    (if (map? a)                                       ;; {:url ...} escape-hatch target
+    (cond
+      (= :rf.route/self a)                               ;; reserved "stay here" target
+      {:id (:route-id current) :params (or (:params current) {})}
+
+      (map? a)                                           ;; {:url ...} escape-hatch target
       (when-let [{:keys [route-id params]} (routing/match-url (:url a))]
         {:id route-id :params (or params {})})
-      {:id a :params (or b {})})                        ;; route-id target — unchanged
+
+      :else                                              ;; route-id target — unchanged
+      {:id a :params (or b {})})
 
     :rf.route/url-requested
     (let [{:keys [to params url]} a]
@@ -79,6 +88,17 @@ route id — so the guard resolves it through `match-url` exactly as the runtime
 reading the route's `:tags`. Guard only the route-id form and a logged-out
 `[:rf.route/navigate {:url "/settings"}]` walks straight in.
 
+`:rf.route/navigate` carries a **third** target form: the reserved `:rf.route/self`,
+which means *stay on the current route; change only the query* (search, pagination, tab
+switches). It is not a registered route id — the runtime resolves it from the current route
+slice, so the guard must too. Miss it and the check fails **open** in the one place it
+matters most: a reader whose session has expired *while sitting on a protected route* can
+self-navigate (a `?page=2`, a tab switch) and the guard, seeing the literal keyword rather
+than the route they're on, waves it through. Resolving `:rf.route/self` against the current
+slice — `(:route-id current)` — makes the guard see `:app/settings`'s `:requires-auth` tag
+and fail **closed**, bouncing the expired session to login. That's why the interceptor reads
+the current slice out of the `:rf.db/runtime` coeffect and threads it into `nav-target`.
+
 ## 3. Redirect with skip-and-dispatch
 
 Now the guard itself: one interceptor, registered once, that runs `:before` every event. For a navigation toward a `:requires-auth` route with no signed-in user, it **skips** the original handler (so the protected route never commits and its loaders never fire) and dispatches the login navigation instead:
@@ -88,7 +108,12 @@ Now the guard itself: one interceptor, registered once, that runs `:before` ever
   {:doc "Redirect logged-out readers away from :requires-auth routes."}
   {:before
    (fn [ctx]
-     (if-let [{:keys [id]} (nav-target (get-in ctx [:coeffects :event]))]
+     ;; The current route slice is framework runtime-db state — read it from
+     ;; the :rf.db/runtime coeffect so the reserved :rf.route/self target
+     ;; resolves to the protected route the reader is already on.
+     (if-let [{:keys [id]} (nav-target (get-in ctx [:coeffects :event])
+                                       (get-in ctx [:coeffects :rf.db/runtime
+                                                    :rf.runtime/routing :current]))]
        (let [needs-auth? (contains? (:tags (rf/handler-meta :route id)) :requires-auth)
              signed-in?  (some? (get-in ctx [:coeffects :db :auth :user]))]
          (if (and needs-auth? (not signed-in?))

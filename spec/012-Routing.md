@@ -1407,13 +1407,20 @@ A cross-cutting guard interceptor **must cover all three entry doors**, or it fa
 
 ;; Resolve the target route + params from ANY of the three navigation
 ;; events (fail-closed coverage — do not guard only :rf.route/navigate).
-(defn- nav-target [event]
+;; `current` is the current route slice ([:rf.runtime/routing :current]) — the
+;; reserved :rf.route/self target resolves against it, exactly as the runtime
+;; resolves it (§:rf.route/self — navigate-in-place).
+(defn- nav-target [event current]
   (let [[ev-id a b] event]
     (case ev-id
-      :rf.route/navigate          (if (map? a)                  ;; {:url ...} escape-hatch target
+      :rf.route/navigate          (cond
+                                    (= :rf.route/self a)          ;; reserved "stay here" target
+                                    {:id (:route-id current) :params (or (:params current) {})}
+                                    (map? a)                      ;; {:url ...} escape-hatch target
                                     (when-let [{:keys [route-id params]} (routing/match-url (:url a))]
                                       {:id route-id :params (or params {})})
-                                    {:id a :params (or b {})})  ;; a = route-id
+                                    :else                         ;; a = route-id
+                                    {:id a :params (or b {})})
       :rf.route/url-requested           (let [{:keys [to params url]} a]
                                     (cond
                                       to  {:id to :params (or params {})}
@@ -1428,7 +1435,11 @@ A cross-cutting guard interceptor **must cover all three entry doors**, or it fa
          cross-cutting rule spanning many routes, so an interceptor not :can-enter."}
   {:before
    (fn before [ctx]
-     (if-let [{:keys [id]} (nav-target (get-in ctx [:coeffects :event]))]
+     ;; The route slice is framework runtime-db state — read it from the
+     ;; :rf.db/runtime coeffect so `:rf.route/self` resolves to the current route.
+     (if-let [{:keys [id]} (nav-target (get-in ctx [:coeffects :event])
+                                       (get-in ctx [:coeffects :rf.db/runtime
+                                                    :rf.runtime/routing :current]))]
        (let [route-meta (rf/handler-meta :route id)
              gated?     (boolean (some #{:beta-section} (:tags route-meta)))
              enabled?   (get-in ctx [:coeffects :db :flags :beta])]
@@ -1449,7 +1460,7 @@ A cross-cutting guard interceptor **must cover all three entry doors**, or it fa
                 :interceptors [:app/section-lockout]})
 ```
 
-The `:rf.route/navigate` door itself carries **two target forms** (per [§Target form](#target-form--route-id-url-string-or-reserved)): a route-id, and the `{:url …}` escape hatch (deep links, redirects). A raw URL is not a route id, so the normaliser routes the `{:url …}` form through `match-url` exactly as the runtime does before the guard reads `handler-meta` — otherwise `[:rf.route/navigate {:url "/admin"}]` resolves `handler-meta` on a map, sees no tags, and slips past the gate. This is the target-union mirror of the three-door rule: cover both forms of the door too.
+The `:rf.route/navigate` door itself carries **three target forms** (per [§Target form](#target-form--route-id-url-string-or-reserved)): a route-id, the `{:url …}` escape hatch (deep links, redirects), and the reserved `:rf.route/self`. A raw URL is not a route id, so the normaliser routes the `{:url …}` form through `match-url` exactly as the runtime does before the guard reads `handler-meta` — otherwise `[:rf.route/navigate {:url "/admin"}]` resolves `handler-meta` on a map, sees no tags, and slips past the gate. `:rf.route/self` is not a route id either: it means *stay on the current route, change only the query*, and the runtime resolves its id from the current route slice ([§`:rf.route/self` — navigate-in-place](#rfrouteself--navigate-in-place)). The guard must resolve it the same way — from `[:rf.runtime/routing :current]` in the `:rf.db/runtime` coeffect — or it fails **open** exactly where it is most dangerous: a session that expires *while already on a `:requires-auth` route* self-navigates (a query change, a tab switch) and the guard, reading the bare `:rf.route/self` keyword, sees no tags and waves it through. This is the target-union mirror of the three-door rule: cover all three forms of the door too.
 
 Guards are interceptors, not a special routing mechanism. They are registered once and referenced by id; they compose — list multiple refs in the `:interceptors` chain and they layer in order. Prefer `:can-enter` when the policy belongs to one route; reach for a frame-`:interceptors` guard when it spans many routes uniformly, and cover all three doors when you do.
 

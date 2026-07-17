@@ -493,18 +493,26 @@ There's one trap here, and it's the kind that passes every casual test. Navigati
 
     If you gate only the programmatic `:rf.route/navigate`, the guard *fails open* the moment someone types `/settings` into the address bar — the protected route loads with no user. The fix is to normalise all three navigation events to one shape, then gate once.
 
-That normaliser is `nav-target` below. The link-click and URL-bar cases carry a raw URL string rather than a route id — and so can `:rf.route/navigate`, whose `{:url "/settings"}` *escape-hatch* target (deep links, redirects) is a URL, not a route id. All three lean on `routing/match-url` to turn that URL back into a route before the guard reads its `:tags`; skip it on the navigate branch and a logged-out `[:rf.route/navigate {:url "/settings"}]` walks in:
+That normaliser is `nav-target` below. The link-click and URL-bar cases carry a raw URL string rather than a route id — and so can `:rf.route/navigate`, whose `{:url "/settings"}` *escape-hatch* target (deep links, redirects) is a URL, not a route id. All three lean on `routing/match-url` to turn that URL back into a route before the guard reads its `:tags`; skip it on the navigate branch and a logged-out `[:rf.route/navigate {:url "/settings"}]` walks in.
+
+`:rf.route/navigate` has a **third** target form too: the reserved `:rf.route/self` — *stay on the current route, change only the query* (search, pagination, tabs). It is not a route id; the runtime resolves it from the current route slice, so `nav-target` takes that slice (`current`) and resolves self the same way. This closes the trap's nastiest corner: a session that *expires while the user is already on `/settings`* would otherwise self-navigate (a filter toggle, `?page=2`) straight past a guard that only knows how to read route ids and URLs — the raw keyword carries no `:requires-auth` tag. Resolved to `:conduit.user/settings`, the self-nav is gated and the stale session is bounced to login:
 
 ```clojure
 (defn- nav-target
   "Normalise any navigation event to {:id route-id :params m};
-   nil for non-navigation events (the guard stands aside)."
-  [[event-id a b]]
+   nil for non-navigation events (the guard stands aside). `current` is the
+   current route slice ([:rf.runtime/routing :current]) — the reserved
+   :rf.route/self target resolves against it, as the runtime resolves it."
+  [[event-id a b] current]
   (case event-id
-    :rf.route/navigate          (if (map? a)                          ;; {:url ...} escape-hatch target
+    :rf.route/navigate          (cond
+                                  (= :rf.route/self a)                ;; reserved "stay here" target
+                                  {:id (:route-id current) :params (or (:params current) {})}
+                                  (map? a)                            ;; {:url ...} escape-hatch target
                                   (when-let [m (routing/match-url (:url a))]
                                     {:id (:route-id m) :params (or (:params m) {})})
-                                  {:id a :params (or b {})})            ;; route-id target
+                                  :else                               ;; route-id target
+                                  {:id a :params (or b {})})
     :rf.route/url-requested           (if-let [to (:to a)]
                                   {:id to :params (or (:params a) {})}
                                   (when-let [m (routing/match-url (:url a))]
@@ -517,7 +525,12 @@ That normaliser is `nav-target` below. The link-click and URL-bar cases carry a 
   {:doc "Bounce signed-out users away from :requires-auth routes; stash the target."}
   {:before
    (fn [ctx]
-     (let [{:keys [id params]} (nav-target (get-in ctx [:coeffects :event]))
+     ;; The route slice is framework runtime-db state — read it from the
+     ;; :rf.db/runtime coeffect so the reserved :rf.route/self target resolves
+     ;; to the protected route the user is already on.
+     (let [{:keys [id params]} (nav-target (get-in ctx [:coeffects :event])
+                                           (get-in ctx [:coeffects :rf.db/runtime
+                                                        :rf.runtime/routing :current]))
            needs-auth? (when id
                          (contains? (:tags (rf/handler-meta :route id)) :requires-auth))
            signed-in?  (some? (get-in ctx [:coeffects :db :auth :user]))]
@@ -535,6 +548,7 @@ That normaliser is `nav-target` below. The link-click and URL-bar cases carry a 
 You register the guard once, under the id `:conduit/auth-guard` — exactly like registering an event or a sub — and then the frame's chain *references* that id. A few pieces are doing precise work:
 
 - **`routing/match-url`** is the URL codec from `re-frame.routing` (`(:require [re-frame.routing :as routing])`) — **not** the `rf/` front porch. It's a pure function, `url → {:route-id :params :query :fragment :validation-failed?}` (or `nil` for a URL that matches nothing), and it runs on both hosts. `nav-target` uses it for the two cases that arrive as a raw URL string.
+- **The current route slice** (`current`, read from the `:rf.db/runtime` coeffect at `[:rf.runtime/routing :current]`) is what resolves the reserved `:rf.route/self` target — a self-nav means "the route I'm already on," so the guard reads that route's id from the slice, exactly as the runtime does, and then checks its `:tags`.
 - **`rf/handler-meta :route id`** reads the route's [registration](../../core/glossary.md#registration) metadata — including its `:tags` — without activating it. It's the introspection seam pair tools use too, so the guard asks the registry the same question Xray would.
 - **`:rf/skip-handler? true`** tells the runtime to skip the event's own handler. For a navigation that means the protected route never commits and its `:on-match` loads (`[:settings/load]`) never fire — a signed-out user can't even trigger the route's data fetch.
 - **The stash** lands the destination at `[:auth :return-to]` — the same spot `submit-success` read earlier — and the guard dispatches the login navigation instead.

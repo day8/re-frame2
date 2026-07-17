@@ -230,13 +230,19 @@ The fix is to normalise all three to one target, then redirect identically:
 ;; Adapted from examples/real-apps/realworld_http/routing.cljs
 (defn- nav-target
   "Normalise a navigation event to {:id <route-id> :params <map>}; nil for
-   non-navigation events (the guard short-circuits)."
-  [[ev-id a b]]
+   non-navigation events (the guard short-circuits). `current` is the current
+   route slice ([:rf.runtime/routing :current]) — the reserved :rf.route/self
+   target resolves against it, exactly as the runtime resolves it."
+  [[ev-id a b] current]
   (case ev-id
-    :rf.route/navigate          (if (map? a)                             ;; {:url ...} escape-hatch target
+    :rf.route/navigate          (cond
+                                  (= :rf.route/self a)                   ;; reserved "stay here" target
+                                  {:id (:route-id current) :params (or (:params current) {})}
+                                  (map? a)                               ;; {:url ...} escape-hatch target
                                   (when-let [{:keys [route-id params]} (routing/match-url (:url a))]
                                     {:id route-id :params (or params {})})
-                                  {:id a :params (or b {})})              ;; route-id target
+                                  :else                                  ;; route-id target
+                                  {:id a :params (or b {})})
     :rf.route/url-requested           (let [{:keys [to params url]} a]     ;; route-link click
                                   (cond
                                     to  {:id to :params (or params {})}
@@ -254,7 +260,12 @@ Now the guard itself. An *event* interceptor's `ctx` splits into two halves: `:c
   {:doc "Redirect logged-out users away from :requires-auth routes; stash the target."}
   {:before
    (fn [ctx]
-     (if-let [{:keys [id params]} (nav-target (get-in ctx [:coeffects :event]))]
+     ;; The current route slice is framework runtime-db state — read it from the
+     ;; :rf.db/runtime coeffect so the reserved :rf.route/self target resolves to
+     ;; the protected route the user is already on.
+     (if-let [{:keys [id params]} (nav-target (get-in ctx [:coeffects :event])
+                                              (get-in ctx [:coeffects :rf.db/runtime
+                                                           :rf.runtime/routing :current]))]
        (let [needs-auth? (contains? (:tags (rf/handler-meta :route id)) :requires-auth)
              logged-in?  (some? (get-in ctx [:coeffects :db :auth :user]))]
          (if (and needs-auth? (not logged-in?))
@@ -272,6 +283,7 @@ Now the guard itself. An *event* interceptor's `ctx` splits into two halves: `:c
 Two helpers do the reading, and both are *pure* — they compute from their arguments without touching app-db, which is exactly why the guard can call them inline:
 
 - **`routing/match-url`** parses a URL string into a map — `{:route-id :params :query :fragment :validation-failed?}` — or `nil` when nothing matches. (Its inverse, `routing/route-url`, builds a URL from a route id and params.) Note the namespace: it lives in `re-frame.routing`, **not** on the `rf/` facade. `nav-target` reaches for it in **three** places: the link-click and URL-bar events carry a raw URL, and `:rf.route/navigate` accepts a `{:url "/settings"}` **escape-hatch target** (deep links, redirects) that is a URL, not a route id — resolve it the same way the runtime does, or a logged-out `[:rf.route/navigate {:url "/settings"}]` slips past the tag check.
+- **The reserved `:rf.route/self` target** is the *third* form `:rf.route/navigate` accepts — *stay on the current route, change only the query* (search, pagination, tabs). It is not a route id; the runtime resolves it from the current route slice, so the guard resolves it the same way, off `current`. Miss it and the guard fails **open** exactly where it hurts: a session that expires *while the user sits on a protected route* can self-navigate (`?page=2`, a tab switch) and — because the raw keyword carries no `:requires-auth` tag — slip past the check. That is why the guard reads the current slice from the `:rf.db/runtime` coeffect and threads it into `nav-target`: resolved to `:app/settings`, the self-nav is gated and the expired session is bounced to login.
 - **`rf/handler-meta`** reads back the metadata you stamped at registration. `(rf/handler-meta :route id)` returns that route's registration map; the guard pulls its `:tags` and checks for `:requires-auth`.
 
 The redirect works by *skip-and-dispatch*. `:rf/skip-handler?` — the public short-circuit primitive an interceptor's `:before` sets on its ctx — stops the original handler, so the protected slice never commits and its `:on-match` loads never fire. The guard then dispatches the login navigation itself.
