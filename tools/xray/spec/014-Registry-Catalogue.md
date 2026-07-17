@@ -125,20 +125,57 @@ The fix is a SECOND axis alongside the boolean gate — a
   (e.g. the evidence ownership listener).
 
 Bump `schema-version` and pair it with a `migrate-schema!` clause
-whenever a change adds a handler an already-registered older process
-would otherwise never install. Version `1` is the ViewCell evidence
-reactivity bridge; version `2` (rf2-vxgfnd.95.7) adds the S3 view-evidence
-consumption subs `:rf.xray/viewcell-evidence-version` +
+whenever a gated registration change would otherwise strand an
+already-registered older process behind a page reload — an ADD (a handler
+newer code registers that the old install never ran) **or** a REPLACE (a
+gated registration whose body/topology newer code changes; the umbrella
+no-ops it because the id is unchanged, and the name-set snapshots don't see
+it because the id is unchanged — rf2-sa8j3). A migration clause is idempotent
+because re-frame's registrar replaces each handler in place, and replacing a
+sub also **evicts its stale cache** via the registrar replacement-hook, so a
+held subscription rebuilds against the new body without a reload. Version `1`
+is the ViewCell evidence reactivity bridge; version `2` (rf2-vxgfnd.95.7) adds
+the S3 view-evidence consumption subs `:rf.xray/viewcell-evidence-version` +
 `:rf.xray/view-evidence-sites` to that same bridge (see
 [spec/021 §3.4.1–§3.4.2](./021-Dynamic-Panel-Designs.md)), both installed via
 `reactive-panel/install-viewcell-evidence-bridge!` so the bridge stays
-panel-owned; `migrate-schema!` reaches it through the `reactive-panel` facade
-the orchestrator already requires (the idempotent re-install adds only the
-missing delta of subs). Tests drive
-the upgrade via `registry/simulate-legacy-registration!` (test-only:
-poses the umbrella-set / no-schema-stamp sentinels of a pre-#5915
-process); `reset-for-test!` clears both the boolean gate and the schema
-stamp.
+panel-owned; version `3` (rf2-sa8j3) is the first REPLACEMENT delta — the
+`:rf.xray/reactive-data` sub grew from two inputs to four (the panel-local
+`:rf.xray/reactive-show-unchanged?` quick-toggle + the Settings
+show-unchanged pin), so the clause re-runs the owning `reactive-panel`
+facade's `install!` to re-register it (evicting the stale two-input
+reaction). `migrate-schema!` reaches each delta through the `reactive-panel`
+facade the orchestrator already requires (the idempotent re-install applies
+only the missing/changed delta).
+
+Tests drive the upgrade via `registry/simulate-legacy-registration!`
+(test-only: poses the umbrella-set / no-schema-stamp sentinels of a pre-#5915
+process, i.e. schema 0) or `registry/simulate-registration-at-schema!`
+(test-only: poses an INTERMEDIATE installed schema so a fixture can isolate
+the newest migration clause); `reset-for-test!` clears both the boolean gate
+and the schema stamp. `schema-version` is a **public read-only** contract
+number: the governance pin
+`schema-version-is-pinned-so-changed-registrations-name-a-migration` in
+`registry_cljs_test.cljs` reads it and the shipped reactive-data topology, so
+any gated registration edit — add or replace — must consciously bump
+`schema-version` (or record an explicit no-migration rationale) and update
+the pin.
+
+#### Fresh-install atomicity (rf2-g2jf3)
+
+The umbrella flips to `true` BEFORE the bulk leaf install and stamps
+`installed-schema` only AFTER the last installer. So the bulk block is
+wrapped: if any registrar / leaf installer throws mid-install, the guard
+rolls the umbrella back to `false` and rethrows, leaving the fresh install
+**retryable** (the next `register-xray-handlers!` replays every installer;
+partial registrar writes are replaced in place) and `installed-schema`
+**unstamped** — the migration seam can never mistake a failed fresh install
+for a live-upgrade delta and stamp the registry "current" over a partial
+install. `registered?`/`installed-schema` are published current only after
+every installer succeeds. Regression:
+`fresh-install-retryable-after-partial-failure-rf2-g2jf3` (a throw-once
+mid-list leaf; a second call must replay the whole bulk, not run a
+bridge-only migration).
 
 ### Production registration carries no test seams (rf2-e8330v / xxo3zz F3)
 

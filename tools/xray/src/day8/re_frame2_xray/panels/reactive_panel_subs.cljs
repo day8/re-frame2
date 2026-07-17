@@ -790,3 +790,39 @@
     (fn [[_history] _query]
       (viewcell-evidence/rows)))
   nil)
+
+(defn install-legacy-reactive-data-sub-for-test!
+  "TEST-ONLY (rf2-sa8j3): register the PREDECESSOR two-input
+  `:rf.xray/reactive-data` sub — the shape before f012c70e6f added the
+  panel-local `:rf.xray/reactive-show-unchanged?` quick-toggle + the
+  `[:rf.xray/setting :general :show-unchanged-subs?]` pin. The two-input body
+  reads only `:rf.xray/focus` + `:rf.xray/epoch-history` and hard-codes
+  `:show-unchanged? false`, so it CANNOT respond to either disclosure axis —
+  the observable that distinguishes it from the current four-input sub.
+
+  The changed-handler live-upgrade fixture installs this to model an
+  already-registered process that installed reactive-data under OLD code; the
+  schema-3 migration must REPLACE it with the four-input sub (and evict the
+  stale cache). Registered from THIS ns so its image-assembly source
+  coordinate matches the production sub the migration re-registers — a
+  different source ns would trip the duplicate-id image guard, exactly as the
+  sibling `install-legacy-viewcell-evidence-sub-for-test!` documents. Never
+  call from production. Returns nil."
+  []
+  (rf/reg-sub :rf.xray/reactive-data
+    :<- [:rf.xray/focus]
+    :<- [:rf.xray/epoch-history]
+    (fn [[focus history] _query]
+      (let [record   (focused-epoch-record history (:epoch-id focus))
+            topology (try (subs-tooling/sub-topology) (catch :default _ nil))
+            proj     (project-record record topology)]
+        (merge proj
+               {:focus             focus
+                :frame             (:frame focus)
+                :dispatch-id       (:dispatch-id focus)
+                :triggered-by      (when record (triggered-by record))
+                :seed-paths        (when record (seed-paths record))
+                ;; The predecessor had no disclosure axes — hard-false.
+                :show-unchanged?   false
+                :has-event-bundle? (some? record)}))))
+  nil)
