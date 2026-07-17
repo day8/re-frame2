@@ -64,6 +64,7 @@
   lookup."
   (:require [re-frame.frame :as frame]
             [re-frame.fx :as fx]
+            [re-frame.machines.data-validation :as data-validation]
             [re-frame.machines.parallel :as parallel]
             [re-frame.machines.path-walk :as path-walk]
             [re-frame.machines.paths :as paths]
@@ -190,27 +191,47 @@
   `:dispatch-later` completion to this PRIVATE id BEFORE core override
   resolution, so `do-fx` looked up `:fx-overrides` under the private id and a
   `{:fx-overrides {:dispatch capture-fn}}` never intercepted the completion.
-  Here we resolve the CANONICAL override FIRST: when the completion's authored
-  id (`:dispatch-later` for a numeric `:ms`, else `:dispatch`) has an override
-  that GENUINELY APPLIES — a fn-value or a keyword redirect to a REGISTERED,
-  NON-PROTECTED fx, per `re-frame.fx/override-applies?` — in the SAME effective
-  override map `do-fx` used (per-frame ⋈ per-call, per-call winning), we route
-  the canonical `[fx-id args]` back through the shared core seam
-  `re-frame.fx/handle-one-fx` (the identical resolution a normal dispatch flows
-  through). The override captures / redirects the completion, queues nothing,
-  and folds nothing — the framework-produced path never runs, so no coordinate
-  is stamped onto the normal transport.
+  Here we take ONE structured resolution of the CANONICAL override
+  (`:dispatch-later` for a numeric `:ms`, else `:dispatch`) from the SHARED
+  policy `re-frame.fx/classify-fx-override`, against the SAME effective override
+  map `do-fx` used (per-frame ⋈ per-call, per-call winning), then consume THAT
+  ONE disposition (rf2-5g6qq):
 
-  Every OTHER disposition — no override, a nil/false noop, an UNREGISTERED
-  keyword, a MALFORMED value, or a redirect to a PROTECTED internal id — is NOT
-  an applied override: it falls through to the recordable transport below, so
-  the join still folds EXACTLY ONCE on the framework-produced coordinate (the
-  pre-fix `real-override?` gate routed these to `handle-one-fx`, where the
-  fall-through re-dispatched a coordinate-less `:dispatch` that the parent's
-  fence suppressed `:attempt-unverified`, hanging the join). The canonical
-  `:rf.error/override-fallthrough` diagnostic for a real-but-non-applying
-  override is still surfaced through the ONE override engine
-  (`re-frame.fx/resolve-fx-with-overrides`) before the transport runs.
+    - `:applied-fn` / `:applied-redirect` — a fn-value or a keyword redirect to a
+      REGISTERED, NON-PROTECTED fx GENUINELY pre-empts the completion. We route
+      the PRE-RESOLVED effect through the shared core seam
+      `re-frame.fx/handle-one-fx` (empty overrides for a redirect target, the
+      captured fn for a fn-value) so execution CANNOT re-decide applies-vs-
+      fallthrough — a concurrent register / unregister can never flip the
+      single disposition into a coordinate-less transport. The override captures
+      / redirects the completion, queues nothing, and folds nothing — the
+      framework-produced path never runs, so no coordinate is stamped.
+
+    - `:noop` / `:fallthrough` / `:protected-rejection` — no override, a nil/false
+      noop, an UNREGISTERED keyword, a MALFORMED value, or a redirect to a
+      PROTECTED internal id is NOT an applied override: it falls through to the
+      recordable transport below, so the join still folds EXACTLY ONCE on the
+      framework-produced coordinate (the pre-fix `real-override?` gate routed
+      these to `handle-one-fx`, where the fall-through re-dispatched a
+      coordinate-less `:dispatch` that the parent's fence suppressed
+      `:attempt-unverified`, hanging the join). The canonical
+      `:rf.error/override-fallthrough` diagnostic for a real-but-non-applying
+      override is surfaced through the ONE shared emit path
+      (`re-frame.fx/emit-override-fallthrough!`) before the transport runs.
+
+  EXACT-OWNER FENCE (rf2-5g6qq, modelled on rf2-8nxsh). Both the fallthrough
+  diagnostic emit AND the transport fan synchronous callbacks: an always-on
+  `:errors` listener can destroy owner frame A (and publish same-id successor B)
+  DURING the diagnostic emit. The pre-fix seam then UNCONDITIONALLY called
+  `child-dispatch!` afterward — immediate router dispatch fired the completion
+  after A was gone, and a delayed completion reserved a `dispatch-later-timers`
+  slot AFTER destroy had already released that table (a post-cleanup timer that
+  fires dead-on-arrival). So we recheck exact-owner continuation
+  (`data-validation/owner-continuation`, bound to A's raw owner token) AFTER the
+  emit and BEFORE the router dispatch / numeric-ms timer reservation: if A is
+  gone, neither lands on A nor on an unrelated same-id B. The `:applied-*`
+  branch's `handle-one-fx` is itself exact-owner-fenced by core, so it needs no
+  extra guard.
 
   RESERVED / NON-OVERRIDABLE / NON-REDIRECTABLE (rf2-2lzk8a). It re-dispatches
   ONLY the pre-built completion carrier it was handed (never traverses arbitrary
@@ -245,62 +266,85 @@
         ;; ⋈ per-call, per-call winning (mirrors `router/apply-overrides`). The
         ;; per-call tier rides the emitting child's dispatch envelope.
         overrides    (merge (:fx-overrides (:config frame-record))
-                            (:fx-overrides envelope))]
-    (if (fx/override-applies? overrides canonical-id)
-      ;; OVERRIDE GENUINELY APPLIES (rf2-ulsbgr / rf2-2lzk8a): a fn-value or a
-      ;; keyword redirect to a REGISTERED, NON-PROTECTED fx pre-empts the
-      ;; completion. Route the canonical `:dispatch` / `:dispatch-later` back
-      ;; through the shared core override-resolution seam so the override
-      ;; intercepts the completion exactly as it would a normal dispatch.
-      ;; `handle-one-fx` (not `do-fx`) keeps the single `:event/do-fx` boundary
-      ;; marker on the outer walk (the nav-token wrapper precedent). No
-      ;; `child-dispatch!` → no fold, no queue, and no coordinate stamped onto
-      ;; the normal transport. `override-applies?` (NOT the coarser
-      ;; `real-override?`) is the gate: a nil/false noop, an UNREGISTERED-keyword
-      ;; / MALFORMED value, and a redirect to a PROTECTED internal id all fall
-      ;; through to the recordable transport below — so the join still folds on
-      ;; the framework-produced coordinate (rf2-2lzk8a).
+                            (:fx-overrides envelope))
+        origin-event-id (when (vector? origin-event) (first origin-event))
+        ;; ONE structured override resolution from the shared policy
+        ;; (rf2-5g6qq). Consumed below WITHOUT re-consulting the registrar /
+        ;; protected-target rule, so a concurrent register / unregister cannot
+        ;; flip an applies-preflight into a coordinate-less transport. This is
+        ;; the SAME policy `resolve-fx-with-overrides` consumes — join
+        ;; duplicates no registrar / protected-target lookup.
+        disposition  (fx/classify-fx-override overrides canonical-id)
+        ;; Exact-owner continuation predicate, captured ONCE against A's raw
+        ;; owner token (rf2-5g6qq / rf2-8nxsh): true while the incarnation that
+        ;; owns the in-flight event may still run framework continuation, false
+        ;; once a synchronous callback (a fallthrough `:errors` listener) has
+        ;; destroyed A / published same-id B.
+        continue?    (data-validation/owner-continuation frame-id)]
+    (case (:disposition disposition)
+      ;; OVERRIDE GENUINELY APPLIES (rf2-ulsbgr / rf2-2lzk8a): route the
+      ;; PRE-RESOLVED effect through the shared core seam. `handle-one-fx` (not
+      ;; `do-fx`) keeps the single `:event/do-fx` boundary marker on the outer
+      ;; walk (the nav-token wrapper precedent) and is itself exact-owner-fenced
+      ;; by core. No `child-dispatch!` → no fold, no queue, no coordinate stamped.
+      ;;
+      ;; A fn-value override is churn-immune (no registrar dependency); pass it
+      ;; as the sole override so execution resolves to the SAME fn.
+      :applied-fn
+      (fx/handle-one-fx
+        frame-id
+        (if (number? ms) [canonical-id {:ms ms :event event}] [canonical-id event])
+        (fx/platform-for-frame-record frame-record)
+        {canonical-id (:override disposition)}
+        origin-event
+        envelope)
+
+      ;; A keyword redirect to a REGISTERED, NON-PROTECTED fx: invoke the
+      ;; PRE-RESOLVED target directly with EMPTY overrides, so `handle-one-fx`
+      ;; cannot re-resolve the canonical id to a fallthrough transport under
+      ;; mid-flight churn (rf2-5g6qq). If the target was unregistered since
+      ;; classification, this is an honest `:rf.error/no-such-fx` — never a
+      ;; coordinate-less completion.
+      :applied-redirect
       (fx/handle-one-fx
         frame-id
         (if (number? ms)
-          [:dispatch-later {:ms ms :event event}]
-          [:dispatch event])
+          [(:target disposition) {:ms ms :event event}]
+          [(:target disposition) event])
         (fx/platform-for-frame-record frame-record)
-        overrides
+        {}
         origin-event
         envelope)
-      ;; NON-APPLYING / UNOVERRIDDEN: the normal recordable transport. A REAL
-      ;; but non-applying override on the canonical id (an unregistered keyword,
-      ;; a malformed value, or a redirect to a protected internal id) must still
-      ;; surface its canonical `:rf.error/override-fallthrough` through the ONE
-      ;; override engine — but it does NOT strip the completion of its coordinate.
-      ;; Drive the engine purely for that diagnostic (its resolved id, the
-      ;; canonical id, is discarded — the coordinate rides the transport below),
-      ;; so a misconfigured override on a join completion is as visible as on any
-      ;; other dispatch, then the recordable transport runs EXACTLY ONCE and the
-      ;; join folds (rf2-2lzk8a). nil/false noop emits nothing.
+
+      ;; :noop / :fallthrough / :protected-rejection — the normal recordable
+      ;; transport. A REAL but non-applying override surfaces its canonical
+      ;; `:rf.error/override-fallthrough` through the ONE shared emit path FIRST
+      ;; (a `:noop` emits nothing); it does NOT strip the completion of its
+      ;; coordinate. That emit fans synchronous listeners, so recheck exact-owner
+      ;; continuation before the transport: if a fallthrough listener destroyed
+      ;; A, neither the immediate router dispatch nor the numeric-ms timer
+      ;; reservation runs (rf2-5g6qq).
+      ;;
+      ;; The recordable causal-envelope fact rides `:rf.cofx`; `:source
+      ;; :machine-action` matches the child's original `:dispatch` stamp; the
+      ;; `:rf.machine/internal?` front-of-queue ordering + override / lineage /
+      ;; mint-policy inheritance are lifted from `envelope` by `child-dispatch!`.
+      ;; A `:dispatch-later` completion carries its numeric `:ms` + `:source-detail`
+      ;; for EVERY delay INCLUDING ZERO (rf2-21hsb1) — the canonical
+      ;; `child-dispatch!` path treats every numeric `:ms` as host-clock-delayed,
+      ;; so a `:dispatch-later {:ms 0}` yields through the frame-owned timer (a
+      ;; render/scheduling boundary, Spec 002 §long-running work) rather than
+      ;; folding synchronously. A direct `:dispatch` completion (nil `:ms`)
+      ;; enqueues immediately in the current drain.
       (do
-        (when (fx/real-override? overrides canonical-id)
-          (fx/resolve-fx-with-overrides
-            canonical-id overrides frame-id origin-event
-            (when (vector? origin-event) (first origin-event))))
-        ;; The normal recordable transport. The recordable causal-
-      ;; envelope fact rides `:rf.cofx`; `:source :machine-action` matches the
-      ;; child's original `:dispatch` stamp; the `:rf.machine/internal?`
-      ;; front-of-queue ordering + override / lineage / mint-policy inheritance
-      ;; are lifted from `envelope` by `child-dispatch!`. A `:dispatch-later`
-      ;; completion carries its numeric `:ms` + `:source-detail` for EVERY delay
-      ;; INCLUDING ZERO (rf2-21hsb1) — the canonical `child-dispatch!` path treats
-      ;; every numeric `:ms` as host-clock-delayed, so a `:dispatch-later {:ms 0}`
-      ;; yields through the frame-owned timer (a render/scheduling boundary,
-      ;; Spec 002 §long-running work) rather than folding synchronously. A direct
-      ;; `:dispatch` completion (nil `:ms`) enqueues immediately in the current
-      ;; drain — it alone carries no numeric `:ms` and no synthetic delayed detail.
-      (fx/child-dispatch!
-        frame-id envelope event
-        (cond-> {:source  :machine-action
-                 :rf.cofx {:rf.machine/join-attempt attempt}}
-          (number? ms) (assoc :ms ms :source-detail {:ms ms}))))))
+        (fx/emit-override-fallthrough!
+          disposition canonical-id overrides frame-id origin-event origin-event-id)
+        (when (continue?)
+          (fx/child-dispatch!
+            frame-id envelope event
+            (cond-> {:source  :machine-action
+                     :rf.cofx {:rf.machine/join-attempt attempt}}
+              (number? ms) (assoc :ms ms :source-detail {:ms ms})))))))
   nil)
 
 (defn- stamp-fx-entry
