@@ -65,6 +65,24 @@ Two contract facts, each pinned against the shipped spec:
     ambient calls and lets an AFTER recipe hide behind a BEFORE example
     (rf2-vxgfnd.94.20).
 
+  * **Form-3 captured-`subscribe` acquisition — the exceptional imperative
+    subscription (rf2-v84zn).** The ONE Form-3 that holds a live reactive
+    subscription outside render captures the frame once in the outer callable and
+    MUST both destructure `subscribe` from that bundle
+    (`{:keys [frame subscribe]} (rf/capture-frame)`) AND acquire its reaction
+    through that captured local inside `:component-did-mount`
+    (`(let [reaction (subscribe query-v)] …)`) — never the ambient `rf/subscribe`,
+    whose ambient frame lookup a lifecycle hook (render scope already unwound)
+    cannot satisfy, so it raises `:rf.error/no-frame-context`. Rule 5 above (bare
+    arity) covers `subscribe-once` / `unsubscribe`; it never required the acquire
+    to route through the captured op, so swapping `(subscribe query-v)` for
+    `(rf/subscribe query-v)` at the acquire site left the guard green. This narrow
+    Rule-5b check pins that acquire + its matching destructuring in the ONE
+    canonical fenced example — identified by the once-capture, the mount hook, and
+    the frame-first teardown that marks the long-lived-reaction branch, so it never
+    fires on the dispatch-only route-2 examples, the `capture-frame` rename recipe,
+    or explanatory prose. See `form3_captured_subscribe_problems`.
+
   * **Form-3 capture-once retarget invariance — a RELATIONSHIP + POLARITY +
     cross-owner check (rf2-aalo4n, rf2-gjrlz).** The reagent-slim FORM-3.md is the
     adopter-facing owner of the Form-3 capture-once recipe; guided-handlers-
@@ -922,6 +940,173 @@ def form3_context_problems(text: str) -> list[tuple[int, str, str]]:
 
 
 # ---------------------------------------------------------------------------
+# Rule 5b — Form-3 captured-`subscribe` acquisition (rf2-v84zn).
+#
+# The exceptional imperative-subscription Form-3 is the ONE Form-3 that holds a
+# live reactive subscription OUTSIDE render (a JS widget re-fed from a hook as a
+# sub's value changes). It captures the frame ONCE in the `reg-view*` outer
+# callable and MUST both (1) destructure `subscribe` from that bundle
+# (`{:keys [frame subscribe]} (rf/capture-frame)`) and (2) ACQUIRE its reaction
+# through that captured local inside `:component-did-mount`
+# (`(let [reaction (subscribe query-v)] …)`). The ambient `rf/subscribe` is wrong
+# there: a lifecycle hook fires after the render/resolver scope has unwound, so an
+# ambient `subscribe` finds no frame and raises `:rf.error/no-frame-context`
+# (the same unwind that re-raises a fresh `(rf/capture-frame)` in a hook).
+#
+# Rule 5 (`form3_context_problems`) only reads `subscribe-once` / `unsubscribe`
+# bare arity; it never required the acquire to route through the captured op, so
+# swapping `(subscribe query-v)` for `(rf/subscribe query-v)` at the acquire site
+# left BOTH the baseline and the mutated scan empty — a false green after the
+# central ownership rule regressed (rf2-v84zn).
+#
+# The check keys on the ONE canonical fenced example so it never fires on the
+# dispatch-only route-2 examples (they destructure `{:keys [dispatch]}` and never
+# `unsubscribe`), the M-68 `capture-frame` rename recipe (no lifecycle hook), the
+# route-1 outer/inner pattern, or explanatory prose (it scans fenced Clojure code
+# only, with strings / `;` comments blanked). This is deliberately NOT a Clojure
+# parser and does NOT touch Rule 5 or the capture-once retarget teeth (rf2-gjrlz).
+# ---------------------------------------------------------------------------
+
+# The once-captured frame-op destructuring that binds `subscribe`:
+# `{:keys [… subscribe …]} (rf/capture-frame)`. The `subscribe` local is the
+# matching destructuring the acquire must route through.
+FORM3_CAPTURE_SUBSCRIBE_DESTRUCTURE_RE = re.compile(
+    r"\{:keys\s+\[[^\]]*\bsubscribe\b[^\]]*\]\}\s*"
+    r"\((?:rf/|re-frame\.core/)?capture-frame\b"
+)
+# The `capture-frame` call — the once-capture landmark of the outer callable.
+FORM3_CAPTURE_FRAME_CALL_RE = re.compile(r"\((?:rf/|re-frame\.core/)?capture-frame\b")
+# The frame-first `unsubscribe` CALL — the teardown that marks the long-lived
+# reaction branch. Used only as an identifier landmark; Rule 5 owns its arity.
+FORM3_UNSUBSCRIBE_CALL_RE = re.compile(r"\((?:rf/|re-frame\.core/)unsubscribe\b")
+# An AMBIENT `subscribe` acquire — the regression: `(rf/subscribe …)` /
+# `(re-frame.core/subscribe …)`. The `(?![-\w])` excludes `subscribe-once`.
+FORM3_AMBIENT_SUBSCRIBE_RE = re.compile(
+    r"\((?:rf/|re-frame\.core/)subscribe(?![-\w])"
+)
+# A CAPTURED (bare) `subscribe` acquire — `(subscribe …)`, the destructured
+# local. The leading `(` sits immediately before `subscribe`, so a namespaced
+# `(rf/subscribe …)` (a `/` precedes `subscribe`) never matches this.
+FORM3_CAPTURED_SUBSCRIBE_RE = re.compile(r"\(subscribe(?![-\w])")
+FORM3_DIDMOUNT_RE = re.compile(r":component-did-mount\b")
+
+FORM3_AMBIENT_SUBSCRIBE_PROBLEM = (
+    "FORM3-AMBIENT-SUBSCRIBE-ACQUIRE: the exceptional imperative-subscription "
+    "Form-3 acquires its long-lived reaction through the AMBIENT `rf/subscribe`. A "
+    "`:component-did-mount` hook fires after the render/resolver scope has unwound, "
+    "so an ambient `subscribe` finds no frame and raises "
+    "`:rf.error/no-frame-context`. Acquire through the `subscribe` destructured "
+    "ONCE from `(rf/capture-frame)` in the outer callable — "
+    "`(let [reaction (subscribe query-v)] …)` — never `(rf/subscribe …)`. "
+    "(rf2-v84zn.)"
+)
+FORM3_MISSING_ACQUIRE_PROBLEM = (
+    "FORM3-CAPTURED-SUBSCRIBE-UNUSED: the exceptional imperative-subscription "
+    "Form-3 destructures `subscribe` from `(rf/capture-frame)` but never acquires "
+    "its reaction through that captured local in `:component-did-mount`. The one "
+    "lifecycle use of the captured `subscribe` is the acquire — "
+    "`(let [reaction (subscribe query-v)] …)`. (rf2-v84zn.)"
+)
+FORM3_MISSING_DESTRUCTURE_PROBLEM = (
+    "FORM3-CAPTURE-DESTRUCTURE-MISSING: the exceptional imperative-subscription "
+    "Form-3 (it captures the frame once and tears down with frame-first "
+    "`(rf/unsubscribe frame query-v)`) must destructure `subscribe` from the "
+    "once-captured frame ops — `{:keys [frame subscribe]} (rf/capture-frame)` — and "
+    "acquire its reaction through that captured local in `:component-did-mount`. "
+    "(rf2-v84zn.)"
+)
+
+
+def _fenced_code_blocks(text: str) -> list[tuple[int, str]]:
+    """`(start_lineno, block_text)` for each fenced code block's INTERIOR.
+
+    `start_lineno` is the file line number (1-based) of the block's first
+    interior line, so a match offset inside `block_text` maps back to a file
+    line. Fence recognition matches `_lex_scan` / `_markdown_sections` (a run of
+    ``` or ~~~), so an inner fence of the other delimiter cannot close a block."""
+    blocks: list[tuple[int, str]] = []
+    in_fence: str | None = None
+    buf: list[str] = []
+    buf_start = 0
+    for lineno, line in enumerate(text.splitlines(), start=1):
+        fence_m = FENCE_RE.match(line)
+        if in_fence is not None:
+            if fence_m and fence_m.group(1)[0] == in_fence:
+                blocks.append((buf_start, "\n".join(buf)))
+                in_fence = None
+                buf = []
+            else:
+                buf.append(line)
+        elif fence_m:
+            in_fence = fence_m.group(1)[0]
+            buf = []
+            buf_start = lineno + 1  # first interior line
+    return blocks
+
+
+def _code_masked(block_text: str) -> str:
+    """`block_text` with string / char-literal / `;` comment characters blanked to
+    spaces (offsets preserved). A fenced block is wholly code, so `_clj_kind`
+    classifies it directly; blanking non-code keeps a call-shaped token or a
+    landmark word inside a string / comment from being read as real code
+    (rf2-6m5qb shares the same lexical basis)."""
+    kind = _clj_kind(block_text)
+    return "".join(
+        ch if kind[i] == _LEX_CODE else " " for i, ch in enumerate(block_text)
+    )
+
+
+def _block_line_at(block_text: str, offset: int, buf_start: int) -> tuple[int, str]:
+    """`(file_lineno, stripped_source_line)` for `block_text[offset]`."""
+    lineno = buf_start + block_text.count("\n", 0, offset)
+    line_start = block_text.rfind("\n", 0, offset) + 1
+    line_end = block_text.find("\n", offset)
+    if line_end == -1:
+        line_end = len(block_text)
+    return lineno, block_text[line_start:line_end].strip()
+
+
+def form3_captured_subscribe_problems(text: str) -> list[tuple[int, str, str]]:
+    """Rule 5b — the exceptional imperative-subscription Form-3 must destructure
+    `subscribe` from the once-captured frame ops AND acquire its reaction through
+    that captured local in `:component-did-mount` (rf2-v84zn).
+
+    Returns `(lineno, label, excerpt)`, matching `form3_context_problems` so
+    `find_drift` formats it identically. The example is identified by three
+    structural landmarks read over fenced Clojure code (strings / comments
+    blanked): the outer-callable `(rf/capture-frame)`, the `:component-did-mount`
+    hook, and the frame-first `(rf/unsubscribe …)` teardown that marks the
+    long-lived-reaction branch. None of the three is the thing verified, so the
+    check catches BOTH a dropped `subscribe` destructuring and an acquire swapped
+    to the ambient `rf/subscribe`."""
+    found: list[tuple[int, str, str]] = []
+    for buf_start, block in _fenced_code_blocks(text):
+        code = _code_masked(block)
+        if not (
+            FORM3_CAPTURE_FRAME_CALL_RE.search(code)
+            and FORM3_DIDMOUNT_RE.search(code)
+            and FORM3_UNSUBSCRIBE_CALL_RE.search(code)
+        ):
+            continue  # not the exceptional imperative-subscription Form-3
+        # (1) matching destructuring — `subscribe` from the once-captured ops.
+        if not FORM3_CAPTURE_SUBSCRIBE_DESTRUCTURE_RE.search(code):
+            m = FORM3_CAPTURE_FRAME_CALL_RE.search(code)
+            lineno, excerpt = _block_line_at(block, m.start(), buf_start)
+            found.append((lineno, FORM3_MISSING_DESTRUCTURE_PROBLEM, excerpt))
+            continue
+        # (2) acquire through the captured local, never the ambient op.
+        ambient = FORM3_AMBIENT_SUBSCRIBE_RE.search(code)
+        if ambient:
+            lineno, excerpt = _block_line_at(block, ambient.start(), buf_start)
+            found.append((lineno, FORM3_AMBIENT_SUBSCRIBE_PROBLEM, excerpt))
+        elif not FORM3_CAPTURED_SUBSCRIBE_RE.search(code):
+            m = FORM3_CAPTURE_SUBSCRIBE_DESTRUCTURE_RE.search(code)
+            lineno, excerpt = _block_line_at(block, m.start(), buf_start)
+            found.append((lineno, FORM3_MISSING_ACQUIRE_PROBLEM, excerpt))
+    return found
+
+
+# ---------------------------------------------------------------------------
 # M-1 public-namespace classifier + kickoff / slicing anchors (rf2-3fc89f.35).
 #
 # A second, structurally distinct defect class the M-11/M-13 line-scanner above
@@ -1384,6 +1569,9 @@ def find_drift(files: list[Path]) -> tuple[list[str], int]:
         for lineno, label, excerpt in form3_context_problems(text):
             rel = path.relative_to(REPO_ROOT)
             problems.append(f"{rel}:{lineno}: {label}\n    {excerpt}")
+        for lineno, label, excerpt in form3_captured_subscribe_problems(text):
+            rel = path.relative_to(REPO_ROOT)
+            problems.append(f"{rel}:{lineno}: {label}\n    {excerpt}")
     return problems, lines_checked
 
 
@@ -1417,7 +1605,8 @@ def run(*, verbose: bool, ci: bool) -> int:
                 "contract-drift: no plain-fn-inherits-frame (M-11), "
                 "moved-to-frame-level-:on-error (M-13), boot-smoke Pair "
                 "partition-mismatch (Rule 4), Form-3 bare-lifecycle targeting "
-                "(Rule 5), Form-3 capture-once retarget-invariance drift "
+                "(Rule 5), Form-3 captured-subscribe acquisition (Rule 5b — "
+                "rf2-v84zn), Form-3 capture-once retarget-invariance drift "
                 "(rf2-aalo4n), or M-1 classifier / kickoff-anchor drift found."
             )
         return 0
@@ -1515,6 +1704,49 @@ def _live_corpus_mutation_problems() -> list[str]:
     return problems
 
 
+# The captured acquire the exceptional Form-3 actually ships, and the ambient
+# regression the bead reproduced (rf2-v84zn). Kept as anchors so the live teeth
+# report STALE rather than going vacuous if the recipe is re-authored.
+LIVE_CAPTURED_ACQUIRE = "(let [reaction (subscribe query-v)]"
+LIVE_AMBIENT_ACQUIRE = "(let [reaction (rf/subscribe query-v)]"
+
+
+def _live_captured_subscribe_problems() -> list[str]:
+    """Run Rule 5b against a MUTATION OF THE SHIPPED guided-handlers-state.md, not
+    hand-written prose (rf2-v84zn). The shipped exceptional Form-3 must be clean,
+    and swapping its captured `(subscribe query-v)` acquire for the ambient
+    `(rf/subscribe query-v)` — the exact false-green the bead reproduced — must
+    trip the guard. If the recipe is re-authored so the anchor no longer matches,
+    this reports STALE instead of quietly proving nothing."""
+    if not GUIDED_HANDLERS_MD.is_file():
+        return [
+            f"SETUP: {GUIDED_HANDLERS_MD.name} missing — the captured-subscribe "
+            "live teeth cannot run."
+        ]
+    text = _slurp(GUIDED_HANDLERS_MD)
+    if form3_captured_subscribe_problems(text):
+        return [
+            "LIVE-CAPTURED-SUBSCRIBE-DIRTY: the shipped guided-handlers-state.md "
+            "exceptional Form-3 already trips Rule 5b, so the mutation tooth below "
+            "cannot prove the guard has bite. Fix the guidance (or the rule) first."
+        ]
+    if LIVE_CAPTURED_ACQUIRE not in text:
+        return [
+            "LIVE-CAPTURED-SUBSCRIBE-STALE: guided-handlers-state.md no longer "
+            f"contains the captured acquire `{LIVE_CAPTURED_ACQUIRE}`, so the Rule "
+            "5b mutation tooth is vacuous — the exceptional Form-3 recipe was "
+            "re-authored. Re-point LIVE_CAPTURED_ACQUIRE at the current recipe."
+        ]
+    mutated = text.replace(LIVE_CAPTURED_ACQUIRE, LIVE_AMBIENT_ACQUIRE)
+    if not form3_captured_subscribe_problems(mutated):
+        return [
+            "LIVE-CAPTURED-SUBSCRIBE-UNDETECTED: swapping the LIVE captured acquire "
+            "for the ambient `rf/subscribe` did not trip Rule 5b — the guard is "
+            "blind to the false-green the bead reproduced (rf2-v84zn)."
+        ]
+    return []
+
+
 def _self_test() -> int:
     failures = 0
 
@@ -1531,6 +1763,16 @@ def _self_test() -> int:
     def expect_text(text: str, *, dirty: bool, label: str) -> None:
         nonlocal failures
         got = bool(form3_context_problems(text))
+        if got != dirty:
+            print(
+                f"SELF-TEST FAIL ({label}): expected dirty={dirty}, got "
+                f"{got} for multiline text: {text!r}"
+            )
+            failures += 1
+
+    def expect_captured(text: str, *, dirty: bool, label: str) -> None:
+        nonlocal failures
+        got = bool(form3_captured_subscribe_problems(text))
         if got != dirty:
             print(
                 f"SELF-TEST FAIL ({label}): expected dirty={dirty}, got "
@@ -2158,6 +2400,124 @@ def _self_test() -> int:
     # is the exact rf2-3fc89f.35 false-positive the corrected filter removes.
     for ns in ("re-frame.adapter.reagent", "re-frame.adapter.uix", "re-frame.spec"):
         m1_expect(ns, bad_invert, "flag", f"M1-regression-detected {ns}")
+
+    # --- Rule 5b fixtures — captured-subscribe acquisition (rf2-v84zn) ----------
+    # A structurally faithful copy of the ONE canonical exceptional Form-3: the
+    # frame captured once (destructuring `subscribe`), the mount-hook acquire
+    # through that captured local, and the frame-first teardown. Mutations derive
+    # from it via `.replace`, mirroring the K-cases.
+    CANON = (
+        "**The exceptional imperative-subscription Form-3.**\n\n"
+        "```clojure\n"
+        "(re-frame.core/reg-view* ::live-gauge\n"
+        "  (fn [gauge-id]\n"
+        "    (let [{:keys [frame subscribe]} (rf/capture-frame)  ; captured ONCE\n"
+        "          query-v   [:gauge/reading gauge-id]\n"
+        "          watch-key (gensym \"gauge-feed-\")]\n"
+        "      (reagent.core/create-class\n"
+        "        {:reagent-render (fn [_] [:div.gauge])\n"
+        "         :component-did-mount\n"
+        "         (fn [this]\n"
+        "           (let [reaction (subscribe query-v)]           ; ACQUIRE\n"
+        "             (add-watch reaction watch-key\n"
+        "               (fn [_ _ _ v] (feed-gauge! v)))))\n"
+        "         :component-will-unmount\n"
+        "         (fn [_]\n"
+        "           (remove-watch @!reaction watch-key)\n"
+        "           (rf/unsubscribe frame query-v))}))))\n"  # RELEASE — frame-first
+        "```"
+    )
+    expect_captured(CANON, dirty=False, label="VC1 canonical captured acquire is clean")
+    # VC2 — the exact bead repro: the captured acquire swapped for ambient.
+    expect_captured(
+        CANON.replace("(let [reaction (subscribe query-v)]",
+                      "(let [reaction (rf/subscribe query-v)]"),
+        dirty=True, label="VC2 ambient rf/subscribe acquire is flagged (was false-green)",
+    )
+    # VC3 — matching destructuring dropped (subscribe no longer bound from capture).
+    expect_captured(
+        CANON.replace("{:keys [frame subscribe]}", "{:keys [frame]}"),
+        dirty=True, label="VC3 dropped subscribe destructuring is flagged",
+    )
+    # VC4 — destructures subscribe but never acquires through it in did-mount.
+    expect_captured(
+        CANON.replace(
+            "         (fn [this]\n"
+            "           (let [reaction (subscribe query-v)]           ; ACQUIRE\n"
+            "             (add-watch reaction watch-key\n"
+            "               (fn [_ _ _ v] (feed-gauge! v)))))\n",
+            "         (fn [this]\n"
+            "           (reset! !widget (mk-gauge! this)))\n",
+        ),
+        dirty=True, label="VC4 destructured subscribe never used to acquire is flagged",
+    )
+    # VC5 — the fully-namespaced ambient acquire is caught too.
+    expect_captured(
+        CANON.replace("(let [reaction (subscribe query-v)]",
+                      "(let [reaction (re-frame.core/subscribe query-v)]"),
+        dirty=True, label="VC5 re-frame.core/subscribe ambient acquire is flagged",
+    )
+    # VC6 — out of scope: the dispatch-only route-2 example destructures only
+    # `dispatch` and never `unsubscribe`, so it is not the exceptional Form-3.
+    expect_captured(
+        "**Route 2 — capture the frame in the outer callable.**\n\n"
+        "```clojure\n"
+        "(re-frame.core/reg-view* ::chart\n"
+        "  (fn [series]\n"
+        "    (let [{:keys [dispatch]} (rf/capture-frame)\n"
+        "          !inst (r/atom nil)]\n"
+        "      (reagent.core/create-class\n"
+        "        {:reagent-render (fn [series] [:div.chart])\n"
+        "         :component-did-mount    (fn [this] (dispatch [:chart/mounted]))\n"
+        "         :component-will-unmount (fn [_] (dispatch [:chart/unmounted]))}))))\n"
+        "```",
+        dirty=False, label="VC6 dispatch-only route-2 example is not flagged",
+    )
+    # VC7 — out of scope: the M-68 `capture-frame` rename recipe destructures
+    # subscribe but has no lifecycle hook and no teardown.
+    expect_captured(
+        "```clojure\n"
+        ";; after\n"
+        "(let [{:keys [dispatch subscribe frame]} (rf/capture-frame)\n"
+        "      db (rf/app-db-value frame)]\n"
+        "  ...)\n"
+        "```",
+        dirty=False, label="VC7 capture-frame rename recipe (no lifecycle) is not flagged",
+    )
+    # VC8 — out of scope: prose carrying every landmark in inline code, but no
+    # fenced block to scan.
+    expect_captured(
+        "When a hook must read a sub, acquire it in `:component-did-mount` through "
+        "the captured `subscribe`, capture once via `(rf/capture-frame)`, pair with "
+        "`(rf/unsubscribe frame query-v)`, and never a bare `(rf/subscribe query-v)`.",
+        dirty=False, label="VC8 explanatory prose (no fence) is not flagged",
+    )
+    # VC9 — Rule 5 territory: a bare subscribe-once lifecycle block with no capture
+    # and no unsubscribe CALL is not the exceptional Form-3 (Rule 5 owns it).
+    expect_captured(
+        "**Form-3 lifecycle.**\n\n"
+        "```clojure\n"
+        ":component-did-mount\n"
+        "(fn [_] (rf/subscribe-once query-v {:frame frame}))\n"
+        "```",
+        dirty=False, label="VC9 Rule-5 subscribe-once block is not a Rule-5b target",
+    )
+    # VC10 — lexical: an ambient acquire spelled inside a `;` comment must NOT flag
+    # (the real acquire is the captured local). Proves strings/comments are blanked.
+    expect_captured(
+        CANON.replace(
+            "           (let [reaction (subscribe query-v)]           ; ACQUIRE\n",
+            "           ;; never write (rf/subscribe query-v) in a hook\n"
+            "           (let [reaction (subscribe query-v)]\n",
+        ),
+        dirty=False, label="VC10 ambient token inside a comment does not flag",
+    )
+
+    # Rule 5b live-corpus teeth: the shipped exceptional Form-3 must be clean, and
+    # the bead's exact acquire swap must trip the guard against the LIVE recipe.
+    for problem in _live_captured_subscribe_problems():
+        print(f"SELF-TEST FAIL (captured-subscribe live): {problem}")
+        failures += 1
 
     # --- Live-corpus mutation teeth (rf2-vxgfnd.94.15) --------------------------
     for problem in _live_corpus_mutation_problems():
