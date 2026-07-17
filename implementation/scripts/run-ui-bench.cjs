@@ -140,9 +140,20 @@ function emittedJsGolden() {
   //           a class-property specialization regressing to generic lowering (or
   //           the control view being swapped back to the specialized shape)
   //           moves this count and the runtime red control together.
+  //           The `class-val(dyn)` tail element is itself a CALL over the row's
+  //           dynamic `:class` expr, so Closure keeps a nested parenthesized
+  //           form there — the real emit is
+  //           `CI(new T(null,2,5,U,["todo-item",EI(p(e)?"done":null)],null))`,
+  //           where `EI(...)`/`p(...)` carry inner `)`. The between-runs must
+  //           therefore be paren-tolerant (`[^;]*?`, not `[^)]*`): a `[^)]`
+  //           bound stops at class-val's first inner `)` and false-counts 0
+  //           even though the generic lowering is fully intact. The `[^;]`
+  //           bound still confines the match to this one element expression,
+  //           and the unforgeable `new VEC(...["todo-item",` head plus the
+  //           `)),"data-priority":` close keep the assertion tight.
   const todoGenericClassLowering = countMatches(
     src,
-    /(?:\(0,[$\w]+(?:\.[$\w]+)*\.jsxs\)|[$\w]+)\("li",\{className:[$\w]+\(new [$\w.]+\([^)]*\["todo-item",[^)]*\)\),"data-priority":/g,
+    /(?:\(0,[$\w]+(?:\.[$\w]+)*\.jsxs\)|[$\w]+)\("li",\{className:[$\w]+\(new [$\w.]+\([^;]*?\["todo-item",[^;]*?\)\),"data-priority":/g,
   );
 
   const MIN_DIRECT = 10;
