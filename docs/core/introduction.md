@@ -2,20 +2,20 @@
 
 To understand re-frame2, you need to understand how it does computation.
 
-Which is an odd opening for an SPA library, I know. Bear with me.
+Which is an odd opening for a Single Page Application (SPA) library, I know. But bear with me.
 
 ## A working app
 
 To assist explanations, here's a tiny application — a counter app:
 
 - an increment button
-- a displayed value that starts at 3, and increments on each button click
+- a displayed value that gets incremented on each button click
 
 ```cljs-rf2
 (require '[re-frame.core :as rf])
 
 ;; calls to four registration functions
-(rf/reg-event :initialise (fn [_ _] {:db {:value 3}}))
+(rf/reg-event :initialise (fn [_ [_ v]] {:db {:value v}}))
 (rf/reg-event :inc        (fn [{:keys [db]} _] {:db (update db :value inc)}))
 (rf/reg-sub   :value      (fn [db _] (:value db 0)))
 
@@ -23,41 +23,72 @@ To assist explanations, here's a tiny application — a counter app:
   [:div {:style {:background background}}
    [:span "Count: " @(subscribe [:value]) " "]
    [:button {:on-click #(dispatch [:inc])} "+"]])
-
-[rf/frame-root {:id :app :initial-events [[:initialise]]}
- [counter "lightyellow"]]
 ```
 
-You'll note that this application is simply a series of function calls, starting with `reg-`:
+None of this code has been explained yet, but all you need
+to grasp at the moment is that this entire application is simply a series of function calls,
+starting with `reg-`. Four function calls:
 
-- `reg-event` is called twice to register two event handlers
-- `reg-sub` is called once to register a subscription
-- `reg-view` is called once to register a view
+- To start with, `reg-event` is called twice (to register two event handlers)
+- then, `reg-sub` is called once (to register a subscription handler)
+- and finally, `reg-view` is called once (to register a view)
 
-**A re-frame2 app is a set of registrations** in which an `id` (like `:inc` or `:initialise`) is associated with a function like `(fn [_ _] {:db {:value 3}})`.
+**A re-frame2 app is a set of registrations**. Each registration associates:
 
-The re-frame2 runtime will look up these functions, via their ids, at specific points in the processing of an event. And it is for that reason that we need to understand how re-frame2 computes. Our job is to provide functions that slot into that computation.
+- an `id` (like `:inc` or `:initialise` above)
+- with a function like `(fn [_ _] {:db {:value 3}})`.
 
-## A re-frame2 app is a set of registrations
+We don't **yet** need to understand what these functions are doing, but we do need to latch on to the idea that programming re-frame2 involves:
 
-Look at the three `reg-*` calls. Each registers a function under an **id**:
+- writing functions
+- and registering them with an `id`
 
-| Registration | Role |
-|---|---|
-| `reg-event` | **Update phase** — given an event, return a *description* of what should change |
-| `reg-sub` | **Render phase** — derive a view-facing value from app state |
-| `reg-view` | **Render** — turn derived values into [hiccup](glossary.md#hiccup) (DOM-as-data) |
+Later, when the application is running, and the user is clicking buttons etc., these functions will be called by the re-frame2 computational engine to perform certain calculations.
 
-In most libraries your code drives and the library assists. Here the **runtime**
-drives: it looks up handlers by id and runs them at the right stage of a fixed
-pipeline. Your registrations are the instruction set.
+## Running our app
 
-Two more registration kinds appear later, when you need them:
+We might have created the Counter app (via those 4 registrations), but we haven't run it yet. To do that, we need to create a `frame`, which provides an isolated execution context.
 
-- `reg-fx` — perform impure effects (HTTP, storage, …) described by handlers
-- `reg-cofx` — supply recorded world facts (time, random id, …) *into* handlers
+In fact, to double the excitement, let's create two `frames` and have two instances of our Counter app on the page at the same time: one with a blue background and one with a lavender background:
 
-Counter needs neither. Built-in `:db` is enough.
+```cljs-rf2
+[:div
+   [rf/frame-root
+     {:id :app1
+      :initial-events [[:initialise 3]]}
+     [counter "LightBlue"]]
+   [rf/frame-root
+     {:id :app2
+      :initial-events [[:initialise 10]]}
+     [counter "LavenderBlush"]]]
+```
+
+This code is `hiccup` (a data structure representing DOM). And in this in-browser dev environment, hiccup at the end of an interactive block is rendered, which is why we see the application running.
+
+That hiccup is:
+
+- a `[:div ...]`
+- containing two child `frame-root` nodes
+- each `frame-root` wraps the previously registered `counter` view, like this: `[counter "a colour"]`
+
+When you see `frame-root` think of **Provider** in the **React Context** sense. A `frame-root` is like a wrapping view node which provides context to its child views — in this case a `frame` (an isolated execution context) is ambiently available to each of the two `counter` views, which are in different branches of the DOM.
+
+Experiment/edit this code:
+
+1. Change `"LavenderBlush"` to `"green"`
+2. Change `[:initialise 3]` to `[:initialise 4]`
+
+Press **`Ctrl-Enter`** / **`Cmd-Enter`** after doing your edits.
+
+## Isolated execution context
+
+The isolated execution context provided by a `frame` reifies:
+
+- state — an immutable map which starts off as `{}`
+- a queue of events
+- some caches for performance
+
+In our Counter app, state starts as `{}`, and then immediately after frame creation becomes `{:value 3}` (in `:app1`) once `:initialise` runs. After the "+" button gets clicked the first time it is `{:value 4}`. Then `{:value 5}`, etc. re-frame2 calls this state `app-db` for reasons explained later.
 
 ## The event pipeline in one pass
 
@@ -151,7 +182,7 @@ per frame are rare — [Images](images.md).
 | Registrations | The instruction set (`reg-event`, `reg-sub`, `reg-view`, …) |
 | Events | The instructions (vectors of intent) |
 | Frame | One running machine (app-db + queue + caches) |
-| Pipeline | Fixed fold: write → commit → read |
+| Pipeline | Fixed fold: update → commit → render |
 
 ```text
 app-state = reduce(event-pipeline, initial-state, events)
