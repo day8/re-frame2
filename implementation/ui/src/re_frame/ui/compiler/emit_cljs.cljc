@@ -524,6 +524,9 @@
     :view     (emit-component node st inline?)
     :foreign  (emit-component node st inline?)
     :slot     (emit-slot node st)
+    ;; Leading (effect …) statements spliced before the template: a `do`
+    ;; sequences the lowered effect hook calls, then renders the template.
+    :hook-prefix `(do ~@(:statements node) ~(emit-node (:body node) st inline?))
     :if       `(if ~(:test node)
                  ~(emit-node (:then node) st false)
                  ~(emit-node (:else node) st false))
@@ -635,7 +638,13 @@
         ;; React.memo to the raw body with zero ViewCell hooks.
         has-subs?  (boolean (seq (:subs (:sites manifest))))
         has-leases? (boolean (seq leases))
-        has-events? (boolean (seq (:events (:sites manifest))))
+        has-locals? (boolean (seq (:locals (:sites manifest))))
+        ;; A ui/dispatch-fn site reads the committed frame through the EventOwner
+        ;; exactly like an :on-* handler site, so it selects an event-owner
+        ;; wrapper (which also consumes the frame context for provider retargets).
+        has-dispatch-fns? (boolean (seq (:dispatch-fns (:sites manifest))))
+        has-events? (boolean (or (seq (:events (:sites manifest)))
+                                 has-dispatch-fns?))
         ;; rf2-vxgfnd.253 (extending .228): a `(frame)` site resolves the AMBIENT
         ;; committed frame, and so does EVERY sub target and EVERY lease owner (a
         ;; sub/lease site implicitly captures the ambient frame/incarnation). So
@@ -657,7 +666,16 @@
         rendered   (if (seq lease-binds)
                      `(let [~@lease-binds] ~body)
                      body)
-        inner      (if (seq binds) `(let [~@binds] ~rendered) rendered)
+        inner-body (if (seq binds) `(let [~@binds] ~rendered) rendered)
+        ;; DEV: a local-bearing body runs under the render-phase guard so a
+        ;; (local …) set!/update! invoked during render fails loud. Production
+        ;; (goog.DEBUG false) emits the body directly — no flag, no thunk.
+        inner      (if has-locals?
+                     `(if ~(with-meta 'js/goog.DEBUG {:tag 'boolean})
+                        (re-frame.ui.hooks/with-local-render-guard
+                         (fn [] ~inner-body))
+                        ~inner-body)
+                     inner-body)
         host-render (cond
                       (and has-subs? has-leases? has-events?)
                       're-frame.ui.viewcell/render-subs-leases-and-events

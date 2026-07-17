@@ -285,6 +285,10 @@
     :view     (emit-view node)
     :foreign  (emit-foreign node)
     :slot     (emit-slot node)
+    ;; Leading (effect …) statements: a `do` sequences the JVM effect stubs
+    ;; (no-ops) then renders the template. `local` mutators / dispatch-fn stay
+    ;; unevaluated in their statement bodies until a host test invokes them.
+    :hook-prefix `(do ~@(:statements node) ~(emit-node (:body node)))
     :if       `(if ~(:test node)
                  ~(emit-node (:then node))
                  ~(emit-node (:else node)))

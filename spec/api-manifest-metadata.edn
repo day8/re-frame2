@@ -342,7 +342,17 @@
   ;; public var + the `export-surface-is-exactly-the-blessed-set` JVM row landed
   ;; with this feature — this row + the spec/API.md §Compiled views row are the
   ;; projection reconciliation.
-  {:namespace "re-frame.ui" :var "spread-safe"    :kind :fn    :facade? false :tier :advanced    :owner "004" :status "Spec-004 S3" :runtime-verified? true}]
+  {:namespace "re-frame.ui" :var "spread-safe"    :kind :fn    :facade? false :tier :advanced    :owner "004" :status "Spec-004 S3" :runtime-verified? true}
+  ;; local / effect / dispatch-fn (rf2-vxgfnd.95.2) — the S3 host hooks:
+  ;; view-local ephemera (the P0-1 [value set! update!] three-tuple), passive
+  ;; host effects (rf= value-deps / :connect), and the stable committed-frame
+  ;; dispatcher for imperative/foreign callbacks. All resolution-only `defn`s
+  ;; (compiler-lowered in a defview body); their live public vars + the
+  ;; `export-surface-is-exactly-the-blessed-set` JVM row landed with this
+  ;; feature.
+  {:namespace "re-frame.ui" :var "local"          :kind :fn    :facade? false :tier :front-porch :owner "004" :status "Spec-004 S3" :runtime-verified? true}
+  {:namespace "re-frame.ui" :var "effect"         :kind :fn    :facade? false :tier :advanced    :owner "004" :status "Spec-004 S3" :runtime-verified? true}
+  {:namespace "re-frame.ui" :var "dispatch-fn"    :kind :fn    :facade? false :tier :advanced    :owner "004" :status "Spec-004 S3" :runtime-verified? true}]
 
  ;; --------------------------------------------------------------------------
  ;; API.md var-rows that are KNOWINGLY absent from the manifest. The
@@ -361,9 +371,8 @@
    ;; §Compiled views but NOT yet defined in re-frame.ui (the S1 blessed export
    ;; set that IS live is rowed under :cljs-only above). Each ships at its stage;
    ;; move it into a :cljs-only row (and delete its entry here) when it lands.
-   "local"                  ; spec/API.md §Compiled views — S3 host component-local state, unshipped
-   "effect"                 ; spec/API.md §Compiled views — S3 passive host effect, unshipped
-   "dispatch-fn"            ; spec/API.md §Compiled views — S3 committed-frame dispatcher, unshipped
+   ;; local / effect / dispatch-fn shipped S3 (rf2-vxgfnd.95.2) — now rowed
+   ;; under :cljs-only above.
    "presence"               ; spec/API.md §Compiled views — S4 enter/exit retention, unshipped
    "presence-phase"         ; spec/API.md §Compiled views — S4 presence-phase read, unshipped
    "->react"                ; spec/API.md §Compiled views — S6 React-component export bridge, unshipped

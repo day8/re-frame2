@@ -53,6 +53,9 @@
     :rf.ui.compile/sub-in-loop
     :rf.ui.compile/lease-in-loop
     :rf.ui.compile/frame-in-loop
+    ;; host hooks (S3, rf2-vxgfnd.95.2) — local / effect placement + effect grammar
+    :rf.ui.compile/hook-misplaced
+    :rf.ui.compile/bad-effect
     ;; handlers
     :rf.ui.compile/loop-capturing-handler
     :rf.ui.compile/bad-event-vector
@@ -154,8 +157,13 @@
     custom_element_conflict_jvm_test
                              custom-element-conflict (needs TWO declaring
                              sources in one build — not reachable by
-                             macroexpanding a single form)"
+                             macroexpanding a single form)
+    local_effect_dispatch_fn_jvm_test
+                             bad-effect (a malformed effect deps arg is only
+                             reachable in a hooks region — the full defview
+                             expansion path, rf2-vxgfnd.95.2)"
   #{:rf.ui.compile/custom-element-conflict
+    :rf.ui.compile/bad-effect
     :rf.ui.compile/bad-root-id
     :rf.ui.compile/bad-disambiguator
     :rf.ui.compile/bad-root-opts
@@ -187,6 +195,9 @@
       sub         {:fqn 're-frame.ui/sub :meta {}}
       lease       {:fqn 're-frame.ui/lease :meta {}}
       frame       {:fqn 're-frame.ui/frame :meta {}}
+      local       {:fqn 're-frame.ui/local :meta {}}
+      effect      {:fqn 're-frame.ui/effect :meta {}}
+      dispatch-fn {:fqn 're-frame.ui/dispatch-fn :meta {}}
       raw         {:fqn 're-frame.ui/raw :meta {}}
       html        {:fqn 're-frame.ui/html :meta {}}
       raw-fn      {:fqn 're-frame.ui/raw-fn :meta {}}
@@ -269,6 +280,11 @@
    [:rf.ui.compile/frame-in-loop
     '[:button {:on-click (fn [_] (do-send! (:dispatch (frame))))} "x"]
     ["finite render-time site"]]
+   ;; host hooks (S3, rf2-vxgfnd.95.2): a `local` outside the unconditional
+   ;; hooks region (here, a prop value) and an `effect` used as an expression.
+   [:rf.ui.compile/hook-misplaced '[:div {:title (local 1)}] ["host hook" "top region"]]
+   [:rf.ui.compile/hook-misplaced
+    '[:div {:title (effect [x] (f x))}] ["host-effect STATEMENT"]]
    ;; rf2-vxgfnd.252 — a bare reactive authoring var escaping into computed
    ;; callee / value flow (distinct throw site: the leaf value-flow guard).
    [:rf.ui.compile/unsupported-form

@@ -49,9 +49,15 @@
    :locals    #{}
    :loop-syms #{}
    :in-loop?  false
+   ;; True in a defview's UNCONDITIONAL top region (the body + top-region
+   ;; let/do bodies), where host hooks (`local` / `effect`) are legal; cleared
+   ;; on entering a branch / loop / deferred callback. Set by the defview
+   ;; driver; false everywhere else (root forms, ui.test).
+   :hooks-region? false
    :path      []
    :warnings  (atom [])
-   :sites     (atom {:events [] :subs [] :leases [] :htmls [] :frame-ops [] :slots []})})
+   :sites     (atom {:events [] :subs [] :leases [] :htmls [] :frame-ops []
+                     :slots [] :locals [] :effects [] :dispatch-fns []})})
 
 (defn warn! [env w]
   (swap! (:warnings env) conj w)

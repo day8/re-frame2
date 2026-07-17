@@ -6,6 +6,7 @@
   cannot retarget a callback.  The DOM receives one stable callback per lexical
   site, while invocation reads the latest COMMITTED event template and locked
   frame operations."
+  (:refer-clojure :exclude [dispatch-fn])
   (:require [re-frame.error :as error]
             [re-frame.interop :as interop]
             [re-frame.registrar :as registrar]
@@ -69,7 +70,10 @@
        :committed nil
        :nativeRefs nil
        :onceFired nil
-       :frameOps nil})
+       :frameOps nil
+       ;; The per-view stable committed-frame dispatcher (ui/dispatch-fn),
+       ;; minted lazily and kept stable across renders and reconnects.
+       :dispatchFn nil})
 
 (defn- make-candidate
   "A fresh ownership-free candidate for one render.  `sites` is a js-object
@@ -80,7 +84,11 @@
   #js {:owner owner
        :frameId frame-id
        :sites (js-obj)
-       :nativeRefs {}})
+       :nativeRefs {}
+       ;; A ui/dispatch-fn site with no DOM handler sites still needs the
+       ;; committed frame resolved at commit; this flag carries that intent
+       ;; from render (a dispatch-fn call) to `commit!`.
+       :needsFrameOps false})
 
 (defn with-capture
   "Evaluate `thunk` under a fresh event candidate.  Returns the pair
@@ -130,7 +138,8 @@
   frame-op bundle directly, allowing callback semantics to be tested without a
   React host or the retired process-global dispatch hook."
   ([owner ^js capture]
-   (let [frame-ops (when (pos? (alength (js/Object.keys (.-sites capture))))
+   (let [frame-ops (when (or (pos? (alength (js/Object.keys (.-sites capture))))
+                             (.-needsFrameOps capture))
                      (if-some [frame-id (.-frameId capture)]
                        (frames/frame-ops-for frame-id)
                        ;; Preserve the canonical no-frame-context failure for a
@@ -151,6 +160,10 @@
   (set! (.-committed owner) nil)
   (set! (.-nativeRefs owner) nil)
   (set! (.-onceFired owner) nil)
+  ;; Drop the committed frame so a leaked ui/dispatch-fn cannot route into a
+  ;; released frame; the :disconnected lifecycle gate is authoritative, and the
+  ;; stable dispatcher itself survives so an Activity reveal reuses it.
+  (set! (.-frameOps owner) nil)
   nil)
 
 (defn- capture-or-throw! []
@@ -336,6 +349,48 @@
   (publish-candidate-site!
    site-key #js {:kind :event-fn :value f :flags flags :debugSite debug-site
                  :callback nil}))
+
+;; ---------------------------------------------------------------------------
+;; ui/dispatch-fn — the stable committed-frame dispatcher (S3)
+;; ---------------------------------------------------------------------------
+
+(defn- fail-dispatch-disconnected!
+  [^js owner event]
+  (error/throw-error!
+   :rf.error/dispatch-disconnected 're-frame.ui/dispatch-fn
+   (str "a (ui/dispatch-fn) dispatcher fired while its view was "
+        (name (.-lifecycle owner)) " — a committed-frame dispatcher rejects "
+        "dispatch in every non-connected state (the leaked-listener detector). "
+        "Unregister the external listener in the (effect …) cleanup that "
+        "created it, so it never outlives the view")
+   {:extra {:view-id (.-viewId owner)
+            :state (.-lifecycle owner)
+            :event event}}))
+
+(defn dispatch-fn
+  "Render-time site: return this view's per-view STABLE committed-frame
+  dispatcher. Its identity is stable across renders and reconnects (attach it
+  as a listener once); it reads the COMMITTED frame at call time and retargets
+  only on commit; and it rejects in every non-connected state with
+  `:rf.error/dispatch-disconnected` (the leaked-listener detector). Marks the
+  candidate so a dispatch-fn-only view (no DOM handler sites) still resolves the
+  committed frame at commit."
+  []
+  (let [^js candidate (capture-or-throw!)
+        ^js owner     (.-owner candidate)]
+    (set! (.-needsFrameOps candidate) true)
+    (or (.-dispatchFn owner)
+        (let [f (fn stable-dispatch
+                  ([event] (stable-dispatch event nil))
+                  ([event opts]
+                   (if (and (keyword-identical? :connected (.-lifecycle owner))
+                            (some? (.-frameOps owner)))
+                     ((:dispatch (.-frameOps owner))
+                      event
+                      (if (some? opts) (assoc opts :source :ui) {:source :ui}))
+                     (fail-dispatch-disconnected! owner event))))]
+          (set! (.-dispatchFn owner) f)
+          f))))
 
 ;; ---------------------------------------------------------------------------
 ;; Literal passive handler maps — narrow native-listener seam
