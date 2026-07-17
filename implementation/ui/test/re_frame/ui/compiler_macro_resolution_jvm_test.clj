@@ -361,6 +361,76 @@
                (emit-var-js aenv (symbol "cljs.user" (name verb))))
             (str "the qualified " verb " head resolves to the current-namespace Var"))))))
 
+;; ---------------------------------------------------------------------------
+;; rf2-eukmp — the WHOLE production do-form, not isolated symbols
+;; ---------------------------------------------------------------------------
+;;
+;; PR #6053 fixed the recursive JSX HEAD (self-fqn) but left the view's own
+;; declare/def on the raw bare name. The focused rows above compile EXTRACTED
+;; reference symbols in isolation and check the raw def is bare — a FALSE GREEN:
+;; a bare `(def sub …)` in a ns referring re-frame.ui/sub resolves the def NAME
+;; through the same-named `:refer` (cljs.analyzer/resolve-var ranks `:uses` above
+;; `:defs` and IGNORES `:excludes`), so the WHOLE form both clobbers the public
+;; authoring Var (`re_frame.ui.sub = …`) and leaves the qualified self head
+;; (`cljs.user.sub`) undefined — the split identity. The row below analyzes AND
+;; compiles the ENTIRE emitted `(declare/defn/def)` do-form as one unit through
+;; real cljs.analyzer + cljs.compiler. Against pre-fix output every assertion is
+;; RED (the def targets re-frame.ui/<verb>, the JS assigns re_frame.ui.<verb>).
+
+(defn- analyze-whole-form
+  "Analyze the COMPLETE production do-form in the referred cljs.user ns (warnings
+  silenced) and compile it to JS as ONE unit — never extracted symbols in
+  isolation. `emit-defview` has already run for `do-form`, so any same-named
+  refer shadowing it completes is live in the analyzer state this reads."
+  [aenv do-form]
+  (binding [cljs-analyzer/*cljs-warnings*
+            (zipmap (keys cljs-analyzer/*cljs-warnings*) (repeat false))]
+    (let [ast       (cljs-analyzer/analyze (assoc aenv :context :statement) do-form)
+          def-names (atom [])]
+      (walk/postwalk
+       (fn [x]
+         (when (and (map? x) (= :def (:op x))) (swap! def-names conj (:name x)))
+         x)
+       ast)
+      {:def-names @def-names :js (cljs-comp/emit-str ast)})))
+
+(defn- munged-ref?
+  "True iff `js` references the exact munged Var `pre.<verb>` at an identifier
+  boundary (so `re_frame.ui.frame` does not spuriously match
+  `re_frame.ui.frames`, nor `cljs.user.sub` match `cljs.user.sub$render`)."
+  [js pre verb]
+  (boolean (re-find (re-pattern (str (java.util.regex.Pattern/quote (str pre "." (name verb)))
+                                     "(?![A-Za-z0-9_$])"))
+                    js)))
+
+(deftest real-cljs-recursive-defview-whole-form-defines-current-ns-var
+  ;; rf2-eukmp acceptance. Reverting the emitter's canonical-Var alignment
+  ;; (leaving the def/declare to resolve through the refer) fails every row.
+  (with-referred-cljs-env
+    (fn [aenv]
+      (doseq [verb '[sub lease frame]]
+        (let [self-fqn      (symbol "cljs.user" (name verb))
+              authoring-fqn (symbol "re-frame.ui" (name verb))
+              args          (self-emit-args aenv verb)
+              do-form       (emit-cljs/emit-defview args)
+              {:keys [def-names js]} (analyze-whole-form aenv do-form)]
+          (testing (str "whole form: the view def defines the current-ns Var (" verb ")")
+            (is (some #(= self-fqn %) def-names)
+                (str "a def in the whole form targets cljs.user/" verb))
+            (is (not-any? #(= authoring-fqn %) def-names)
+                (str "no def targets the authoring Var re-frame.ui/" verb)))
+          (testing (str "whole form: emitted JS assigns the current-ns Var, never the authoring Var (" verb ")")
+            (is (str/includes? js (str "cljs.user." (name verb) " ="))
+                (str "the emitted JS assigns cljs.user." (name verb)))
+            (is (not (str/includes? js (str "re_frame.ui." (name verb) " =")))
+                (str "the emitted JS never assigns (clobbers) re_frame.ui." (name verb))))
+          (testing (str "whole form: def + recursive head share ONE current-ns Var, authoring Var untouched (" verb ")")
+            (is (munged-ref? js "cljs.user" verb)
+                (str "the recursive head references cljs.user." (name verb)))
+            (is (not (munged-ref? js "re_frame.ui" verb))
+                (str "zero re_frame.ui." (name verb)
+                     " reference anywhere in the whole emitted form"))))))))
+
 (deftest a-non-recursive-defview-emits-no-self-declaration
   ;; Preserve unrelated behavior: a view that does NOT reference itself emits no
   ;; forward declaration and no fqn rewrite — the self-head machinery is inert.
