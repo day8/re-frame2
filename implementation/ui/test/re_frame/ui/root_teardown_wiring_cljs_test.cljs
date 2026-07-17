@@ -115,7 +115,12 @@
 (deftest tearing-down-root-diagnostics-carry-complete-ownership-evidence
   ;; rf2-vxgfnd.277/.291: the three existing root diagnostics keep their IDs,
   ;; but the transitional ownership state must be machine-readable on every
-  ;; admission/render arm. A throwing host gives a stable quarantined claim.
+  ;; admission/render arm. This pins the MERELY-DEFERRED `:tearing-down` arm — a
+  ;; committed reporter plus a normally-returning `.unmount` whose teardown React
+  ;; defers (rf2-vxgfnd.275), so `on-settled` is held and the claim stays a stable
+  ;; deferred `:tearing-down` WITHOUT cleanup-failure. (A throwing `.unmount` is now
+  ;; the DISTINCT cleanup-failure quarantine — rf2-sddbc — whose reuse diagnostics
+  ;; are the consumed-container family, pinned in root-registry-cljs-test.)
   ;; This is the IMPLEMENTATION-side tooth of the Root lifecycle drift gate
   ;; (rf2-vizyct): it pins the runtime `:existing {… :tearing-down? true}`
   ;; ex-data, paired with the CONTRACT-side spec-009 row anchors in
@@ -124,17 +129,21 @@
   (let [container     (js-obj)
         site          {:file "teardown.cljs" :line 11 :column 7}
         arriving-site {:file "retry.cljs" :line 22 :column 3}
-        boom          (js/Error. "host cleanup failed")
-        react-root    #js {:unmount (fn [] (throw boom))}
+        incarnation   (reactive/make-root-incarnation)
+        react-root    #js {:unmount (fn [] nil)}
         root          (client/->Root react-root container :rtw/diagnostic)]
     (client/register-live-root!
      {:root-id :rtw/diagnostic :provenance :authored :site site}
-     container root)
-    (is (identical? boom
-                    (try (client/unmount!* root) nil
-                         (catch :default e e))))
+     container root incarnation)
+    ;; commit the reporter so the normally-returning `.unmount` is classified a
+    ;; DEFERRED host teardown: the claim holds `:tearing-down` (no cleanup-failure).
+    (reactive/report-root-commit! incarnation)
+    (is (nil? (client/unmount!* root)))
     (is (true? (:tearing-down?
                 (client/live-root-entry :rtw/diagnostic))))
+    (is (not (:cleanup-failure?
+              (client/live-root-entry :rtw/diagnostic)))
+        "a deferred teardown is NOT cleanup-failure — the deferred diagnostics apply")
     (let [duplicate
           (captured-error
            #(client/check-root-claim!

@@ -168,12 +168,18 @@
                    (fn [e]
                      (unexpected! done "public-root adapter disposal rejected" e))))))))
 
-(deftest throwing-public-root-cleanup-is-total-and-container-is-reusable
+(deftest throwing-public-root-cleanup-is-total-and-container-fails-closed
+  ;; rf2-sddbc — a throwing/consumed host `.unmount` reclaimed by adapter disposal
+  ;; releases the root-id + identifier-prefix (a same-id re-mount on a FRESH
+  ;; container is the ergonomic recovery), but the EXACT container is recorded
+  ;; fail-closed: clearing its DOM + React marker is a snapshot, never proof that
+  ;; host authority the `.unmount` may have QUEUED before it threw has settled.
   (when (browser?)
     (async done
       (rf/reg-sub ::adapter-value (fn [db _] (:value db)))
       (frame/replace-app-db! :rf/default {:value 7})
       (let [container (js/document.createElement "div")
+            fresh     (js/document.createElement "div")
             cleanup   (js/Error. "public root cleanup failed")
             cell-base (reactive/root-cell-count)
             root-cell (atom nil)]
@@ -202,30 +208,106 @@
                    nil))))
             (.then
              (fn []
-               (is (= #{} (client/live-root-ids)))
-               (is (= "" (.-textContent container))
-                   "the adapter fallback empties a consumed host container")
+               (is (= #{} (client/live-root-ids))
+                   "the id/prefix are released — no permanent :tearing-down strand")
                (is (= cell-base (reactive/root-cell-count)))
-               (is (not-any? #(str/starts-with? % "__reactContainer$")
-                             (array-seq
-                              (js/Object.getOwnPropertyNames container)))
-                   "the pinned React ownership marker is cleared for re-use")
+               (is (true? (client/container-consumed? container))
+                   "the exact consumed node is recorded fail-closed")
+               ;; rf2-sddbc — reuse of the EXACT container is REJECTED fail-closed
+               ;; with the honest fresh-node recovery (RED before the fix: it mounted).
+               (let [err (try
+                           (ui/mount [observed-root {:label "x" :renders (atom 0)}]
+                                     container {:root-id :adapter-public/throwing})
+                           nil (catch :default e e))]
+                 (is (= :rf.error/root-container-consumed
+                        (:rf.error/id (ex-data err)))
+                     "exact-container reuse fails closed — never admitted onto a poisoned node")
+                 (is (= :use-a-fresh-container (:recovery (ex-data err)))))
+               ;; the ergonomic recovery: the SAME root-id on a FRESH container
                (act-promise
                 #(ui/mount [observed-root {:label "fresh" :renders (atom 0)}]
-                           container {:root-id :adapter-public/throwing}))))
+                           fresh {:root-id :adapter-public/throwing}))))
             (.then
              (fn []
-               (is (str/starts-with? (.-textContent container) "fresh:")
-                   "the same root-id and container can mount a fresh generation")
+               (is (str/starts-with? (.-textContent fresh) "fresh:")
+                   "the same root-id re-mounts on a FRESH container (the recovery)")
+               (is (false? (client/container-consumed? fresh)))
                (act-promise rf/destroy-adapter!)))
             (.then (fn [] (done))
                    (fn [e]
-                     (unexpected! done "throwing-root recovery rejected" e))))))))
+                     (unexpected! done "throwing-root fail-closed recovery rejected" e))))))))
+
+(deftest throwing-unmount-that-queues-dom-mutation-cannot-clobber-a-successor
+  ;; rf2-sddbc — the counterexample the captured-dispatch queue-then-throw arm
+  ;; missed: a host `.unmount` SCHEDULES a late `container.replaceChildren(...)` and
+  ;; THEN throws. Adapter destroy reclaims the quarantine (clears DOM + marker,
+  ;; releases the id/prefix), but that is a SNAPSHOT, not proof the queued host task
+  ;; settled — no incarnation fence protects RAW DOM mutation. So the EXACT container
+  ;; is fail-closed and the successor mounts on a FRESH node the queued predecessor
+  ;; task can neither clobber nor replace. RED before the fix: the exact container
+  ;; was reusable, and the queued replaceChildren then replaced the successor tree.
+  (when (browser?)
+    (async done
+      (rf/reg-sub ::adapter-value (fn [db _] (:value db)))
+      (frame/replace-app-db! :rf/default {:value 7})
+      (let [container (js/document.createElement "div")
+            fresh     (js/document.createElement "div")
+            cleanup   (js/Error. "queue-then-throw host cleanup")
+            root*     (volatile! nil)
+            sentinel  (js/document.createElement "section")]
+        (set! (.-textContent sentinel) "PREDECESSOR-CLOBBER")
+        (-> (act-promise
+             #(vreset! root*
+                       (ui/mount [observed-root {:label "owned" :renders (atom 0)}]
+                                 container {:root-id :adapter-public/queue-throw})))
+            (.then
+             (fn []
+               ;; SCHEDULE a late DOM mutation against the container, THEN throw.
+               (let [^client/Root root @root*]
+                 (set! (.-unmount (.-react-root root))
+                       (fn []
+                         (js/queueMicrotask
+                          (fn [] (.replaceChildren container sentinel)))
+                         (throw cleanup))))
+               (is (identical? cleanup (thrown-value rf/destroy-adapter!))
+                   "the throwing host cleanup error still propagates")))
+            (.then
+             (fn []
+               (is (= #{} (client/live-root-ids)) "the id/prefix are released")
+               (is (true? (client/container-consumed? container))
+                   "the exact queued-then-threw container is fail-closed")
+               (rf/init! ui/adapter)
+               ;; the exact container is REJECTED fail-closed …
+               (let [err (try
+                           (ui/mount [observed-root {:label "x" :renders (atom 0)}]
+                                     container {:root-id :adapter-public/queue-throw})
+                           nil (catch :default e e))]
+                 (is (= :rf.error/root-container-consumed
+                        (:rf.error/id (ex-data err)))
+                     "exact-container reuse fails closed"))
+               ;; … the successor mounts on a FRESH node instead.
+               (act-promise
+                #(ui/mount [observed-root {:label "successor" :renders (atom 0)}]
+                           fresh {:root-id :adapter-public/queue-throw}))))
+            (.then (fn [] (next-macrotask)))          ;; flush the queued replaceChildren
+            (.then
+             (fn []
+               (is (str/starts-with? (.-textContent fresh) "successor:")
+                   "the successor tree on the fresh node is intact")
+               (is (not (str/includes? (.-textContent fresh) "PREDECESSOR-CLOBBER"))
+                   "the queued predecessor task cannot clobber or replace the successor tree")
+               (is (= "PREDECESSOR-CLOBBER" (.-textContent container))
+                   "the queued replaceChildren landed harmlessly on the fail-closed old node")
+               (act-promise rf/destroy-adapter!)))
+            (.then (fn [] (done))
+                   (fn [e]
+                     (unexpected! done "queue-then-throw clobber fence rejected" e))))))))
 
 (deftest adapter-destroy-reclaims-a-preexisting-failed-first-mount-quarantine
   (when (browser?)
     (async done
       (let [container   (js/document.createElement "div")
+            fresh       (js/document.createElement "div")
             info        {:root-id :adapter-public/failed-first
                          :provenance :authored
                          :identifier-prefix "rf2-failed-first-"}
@@ -257,17 +339,21 @@
              (fn []
                (is (empty? (client/live-root-ids))
                    "adapter destroy reclaims a quarantine created before its drain")
+               (is (true? (client/container-consumed? container))
+                   "rf2-sddbc — the failed-first quarantine's exact container is fail-closed")
                (rf/init! ui/adapter)
+               ;; rf2-sddbc — the ergonomic recovery is the SAME id/prefix on a
+               ;; FRESH container; the exact old container stays fail-closed.
                (act-promise
                 #(vreset!
                   successor
                   (client/mount*
-                   info container
+                   info fresh
                    (fn [] (React/createElement admission-probe))
                    nil nil)))))
             (.then
              (fn []
-               (is (= "admitted" (.-textContent container)))
+               (is (= "admitted" (.-textContent fresh)))
                (is (identical?
                     @successor
                     (:root (client/live-root-entry
@@ -289,6 +375,7 @@
   (when (browser?)
     (async done
       (let [container   (js/document.createElement "div")
+            fresh       (js/document.createElement "div")
             cleanup     (js/Error. "preexisting public cleanup failed")
             predecessor (volatile! nil)
             successor   (volatile! nil)]
@@ -315,11 +402,14 @@
              (fn []
                (is (empty? (client/live-root-ids)))
                (is (= "" (.-textContent container)))
+               (is (true? (client/container-consumed? container))
+                   "rf2-sddbc — the reclaimed public-unmount quarantine's node is fail-closed")
                (rf/init! ui/adapter)
+               ;; rf2-sddbc — recover the SAME root-id on a FRESH container.
                (act-promise
                 #(vreset!
                   successor
-                  (ui/mount [admission-probe] container
+                  (ui/mount [admission-probe] fresh
                             {:root-id :adapter-public/prequarantined})))))
             (.then
              (fn []
@@ -329,7 +419,7 @@
                     @successor
                     (:root (client/live-root-entry
                             :adapter-public/prequarantined))))
-               (is (= "admitted" (.-textContent container)))
+               (is (= "admitted" (.-textContent fresh)))
                (act-promise rf/destroy-adapter!)))
             (.then (fn [] (done))
                    (fn [e]
@@ -682,6 +772,7 @@
   (when (browser?)
     (async done
       (let [container (js/document.createElement "div")
+            fresh     (js/document.createElement "div")
             pred*     (volatile! nil)
             pred-inc  (volatile! nil)
             succ-inc  (volatile! nil)
@@ -707,9 +798,12 @@
                (is (= #{} (client/live-root-ids)))
                (is (false? (reactive/live-reporter? @pred-inc))
                    "the reclaimed quarantine retired the predecessor reporter")
+               (is (true? (client/container-consumed? container))
+                   "rf2-sddbc — the predecessor's poisoned container is fail-closed")
                (rf/init! ui/adapter)
-               ;; the exact id + container re-mounts a fresh incarnation
-               (act-promise #(mount-retire-probe! container :succ))))
+               ;; rf2-sddbc — the same id re-mounts a fresh incarnation on a FRESH
+               ;; container (the exact old node stays fail-closed).
+               (act-promise #(mount-retire-probe! fresh :succ))))
             (.then
              (fn []
                (vreset! succ-inc

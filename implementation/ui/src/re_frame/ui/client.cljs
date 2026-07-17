@@ -93,6 +93,39 @@
   ;; later incarnation that the already-taken snapshot cannot own.
   (atom false))
 
+(defonce ^:private consumed-containers
+  ;; The exact DOM container nodes whose public Root suffered a THROWING/consumed
+  ;; host `.unmount` and were terminally reclaimed (rf2-sddbc). A host cleanup that
+  ;; QUEUES late DOM work — a microtask that `replaceChildren`s the node — and THEN
+  ;; throws leaves that queued host authority UNSETTLED and unobservable in-process:
+  ;; the adapter reclaim clearing the node's current DOM + React ownership marker is
+  ;; a SNAPSHOT, never proof the queued task has run. So the exact node is
+  ;; FAIL-CLOSED for reuse — a fresh `mount`/`create-root` onto it is rejected
+  ;; (`:rf.error/root-container-consumed`) and the ergonomic recovery is a FRESH
+  ;; node. This is a WeakSet DENYLIST of exact nodes (identity `.has`, GC-weak so a
+  ;; node the app drops is collected) — NOT a task tracker or scheduler; it records
+  ;; only THAT a node is poisoned, never WHAT work is pending. The root-id and
+  ;; identifier-prefix are released normally, so the same root-id re-mounted on a
+  ;; fresh container (the recovery) and unrelated fresh roots are unaffected. The
+  ;; WeakRef capability this leans on is already required (see the JavaScript host
+  ;; capability boundary), so `js/WeakSet` is always present.
+  (atom (js/WeakSet.)))
+
+(defn container-consumed?
+  "Whether `container` is a FAIL-CLOSED consumed surface (tool/test read): an exact
+  node a throwing/consumed host `.unmount` poisoned and an adapter reclaim retired
+  into the consumed denylist (rf2-sddbc). A nil/absent container reads false."
+  [container]
+  (and (some? container) (.has ^js/WeakSet @consumed-containers container)))
+
+(defn- mark-container-consumed!
+  "Record `container` as a fail-closed consumed surface — a node whose Root's host
+  `.unmount` threw/consumed the handle and whose id/prefix claim an adapter reclaim
+  is about to release. Fenced fail-closed against reuse thereafter (rf2-sddbc)."
+  [container]
+  (when (some? container) (.add ^js/WeakSet @consumed-containers container))
+  nil)
+
 (defn live-root-ids
   "The root-ids whose claims this document still owns (tool/test read).
   Includes active roots and exact claims held `:tearing-down` through deferred
@@ -114,23 +147,33 @@
   []
   (reset! live-roots {})
   (reset! disposing-live-roots? false)
+  (reset! consumed-containers (js/WeakSet.))
   nil)
 
 (declare current-adapter-generation)
 
 (defn- predecessor-teardown-in-flight?
   "True when a live-root claim from a PRIOR adapter generation is still
-  `:tearing-down` — a DEFERRED host root teardown scheduled by the predecessor
-  generation's `destroy-adapter!` drain that React (react-dom 19.2 refusing an
-  in-render unmount) has not yet settled (rf2-9pyles). Keyed to the EXACT adapter
-  generation each claim was registered under (`:adapter-generation`), so an
-  ordinary SAME-generation deferred `unmount!` mid-settlement does NOT block a
-  sibling mount — only an UNSETTLED PREDECESSOR generation does. A claim with no
-  recorded generation (a low-level test/tool seam that registered with no adapter
-  installed) is never counted."
+  `:tearing-down` and its host teardown is genuinely SETTLEMENT-PENDING — a
+  DEFERRED host root teardown scheduled by the predecessor generation's
+  `destroy-adapter!` drain that React (react-dom 19.2 refusing an in-render
+  unmount) has not yet settled (rf2-9pyles). Keyed to the EXACT adapter generation
+  each claim was registered under (`:adapter-generation`), so an ordinary
+  SAME-generation deferred `unmount!` mid-settlement does NOT block a sibling mount
+  — only an UNSETTLED PREDECESSOR generation does. A claim with no recorded
+  generation (a low-level test/tool seam that registered with no adapter installed)
+  is never counted.
+
+  A `:cleanup-failure?` quarantine is EXCLUDED (rf2-sddbc): a throwing host
+  `.unmount` never fires `on-settled`, so its claim is TERMINAL, not in flight —
+  it will never settle and release. Counting it here would globally fence every
+  successor Root forever (even on unrelated fresh containers). Its fail-closed
+  reach is instead the EXACT poisoned container alone (`consumed-containers` +
+  `check-root-claim!`); only a genuine deferred-return teardown globally fences."
   [current-generation]
   (some (fn [[_ entry]]
           (and (:tearing-down? entry)
+               (not (:cleanup-failure? entry))
                (some? (:adapter-generation entry))
                (not (identical? (:adapter-generation entry) current-generation))))
         @live-roots))
@@ -316,18 +359,33 @@
   prefix is injective over root-id, so this backstops AUTHORED
   `:identifier-prefix` opts that can still alias distinct roots and collide
   `use-id` output). The prefix arm is a no-op when no effective prefix is
-  present (bare infos)."
+  present (bare infos). A container a throwing/consumed host `.unmount` poisoned
+  is fail-closed with `:rf.error/root-container-consumed` (rf2-sddbc — recovery is
+  a FRESH node), checked ahead of the ordinary in-use arm."
   [where {:keys [root-id provenance site identifier-prefix]} container]
   (require-container! where root-id container)
   (when-let [existing (get @live-roots root-id)]
     (error/throw-error!
      :rf.error/duplicate-root-id where
-     (if (:tearing-down? existing)
+     (cond
+       (:cleanup-failure? existing)
+       ;; rf2-sddbc — a throwing/consumed host `.unmount` left this id held by a
+       ;; CONSUMED root. There is NO settlement signal ("re-mount after settlement"
+       ;; would be dishonest): the id frees only when the adapter is destroyed and
+       ;; reinstalled (its drain reclaims the quarantine), and the exact old
+       ;; container is fail-closed regardless.
+       (str "root-id " (pr-str root-id) " is held by a CONSUMED root — its host "
+            "`.unmount` threw and its exact container is fail-closed. There is no "
+            "settlement to wait for; the id frees only when the adapter is "
+            "destroyed and reinstalled. Use a distinct :root-id with a fresh "
+            "container, or destroy + re-init the adapter to reclaim it")
+       (:tearing-down? existing)
        ;; rf2-vxgfnd.182 — a deferred host teardown still owns this id.
        (str "root-id " (pr-str root-id) " is tearing down — a host teardown is "
             "in flight (a deferred React unmount that returned but has not yet "
             "settled). The root-id frees once teardown settles; re-mount after "
             "settlement, or use a distinct :root-id and a fresh container")
+       :else
        (str "root-id " (pr-str root-id) " is already live in this document — "
             "root-ids are page-unique identity. "
             (if (= :derived (:provenance existing) provenance)
@@ -337,6 +395,29 @@
       :extra {:root-id  root-id
               :existing (select-keys existing [:provenance :site :tearing-down?])
               :arriving {:provenance provenance :site site}}}))
+  ;; rf2-sddbc — a container a throwing/consumed host `.unmount` POISONED is
+  ;; fail-closed, whether the marker rides an unreleased cleanup-failure claim
+  ;; (isolated `unmount!`, pre-destroy) or the adapter reclaim already released the
+  ;; id/prefix and recorded the exact node in `consumed-containers`. Clearing its
+  ;; DOM + React marker was a SNAPSHOT, never proof a queued host task settled, so
+  ;; recovery is a FRESH node — NEVER a wait-for-settlement.
+  (let [cf-owner (when-let [owner (container-owner container)]
+                   (when (:cleanup-failure? (get @live-roots owner)) owner))]
+    (when (or cf-owner (container-consumed? container))
+      (error/throw-error!
+       :rf.error/root-container-consumed where
+       (str "the container for root " (pr-str root-id) " is a CONSUMED surface"
+            (if cf-owner
+              (str " still owned by cleanup-failure quarantine " (pr-str cf-owner))
+              "")
+            " — a prior root's host `.unmount` threw and React consumed that "
+            "handle. Its teardown may have QUEUED late DOM work that has not "
+            "settled, so this exact node can never be proven free; clearing its "
+            "DOM and React marker was a snapshot, not settlement. Mount into a "
+            "FRESH container node")
+       {:recovery :use-a-fresh-container
+        :extra (cond-> {:root-id root-id}
+                 cf-owner (assoc :owner-root-id cf-owner))})))
   (when-let [owner (container-owner container)]
     (error/throw-error!
      :rf.error/root-container-in-use where
@@ -1273,9 +1354,13 @@
   emits a console diagnostic stating the handle is consumed (no manual escape),
   that the id/container/prefix claim is quarantined rather than released, and
   that recovery is a FRESH container. The adapter-wide destroy path performs a
-  container-clearing fallback itself (including the pinned React root marker) so
-  the same container can be reused after re-init; an isolated public `unmount!`
-  leaves host recovery to its caller. The diagnostic is goog.DEBUG-gated
+  container-clearing fallback itself (including the pinned React root marker) and
+  releases the id/identifier-prefix for a same-id re-mount on a FRESH container —
+  but the EXACT container node stays FAIL-CLOSED (`consumed-containers`, rf2-sddbc):
+  clearing its DOM is a snapshot, not proof that host authority the throwing
+  `.unmount` may have QUEUED before it threw has settled, so reusing that exact
+  node is rejected (`:rf.error/root-container-consumed`). An isolated public
+  `unmount!` leaves host recovery to its caller. The diagnostic is goog.DEBUG-gated
   (Closure-DCE'd from production — I-12). Returns nil."
   [^Root root]
   (when (and (some? root)
@@ -1407,11 +1492,21 @@
 (defn- reclaim-and-retire-quarantine!
   "Terminal recovery for one exact cleanup-failure quarantine whose host handle
   React consumed: adapter-reclaim its exact container, retire that spent reporter
-  authority, then release the identity-fenced claim. The `reclaim → retire →
-  release` order is fixed — retirement runs only once the reclaim PROVES the
-  surface free, and a FAILED reclaim throws above it, skipping BOTH retirement
-  and release so the claim stays quarantined AND reporter-authoritative
-  fail-closed (rf2-nd7z9h).
+  authority, FAIL-CLOSE the exact container, then release the identity-fenced claim.
+  The `reclaim → retire → mark-consumed → release` order is fixed — the steps below
+  the reclaim run only once it returns, and a FAILED reclaim throws above them,
+  skipping ALL of them so the claim stays quarantined AND reporter-authoritative
+  fail-closed (rf2-nd7z9h; while quarantined the still-`:tearing-down` claim itself
+  fences the exact container).
+
+  rf2-sddbc — the reclaim CLEARS the container's DOM + React ownership marker, but
+  that is a SNAPSHOT, not proof that host authority the throwing `.unmount` QUEUED
+  before it threw (a scheduled `replaceChildren`) has settled. So the release frees
+  ONLY the identity (root-id + identifier-prefix) for a same-id re-mount on a fresh
+  container; the exact container node is recorded in `consumed-containers` and stays
+  FAIL-CLOSED against reuse (`check-root-claim!` → `:rf.error/root-container-consumed`).
+  Recording BEFORE the release means the exact node is never momentarily reusable
+  between leaving `live-roots` and entering the consumed denylist.
 
   Retirement targets the EXACT `incarnation` CAPTURED before the reclaim — never
   a fresh registry read. `reclaim-consumed-container!` runs synchronous host code
@@ -1428,6 +1523,7 @@
   [root-id ^Root root incarnation]
   (reclaim-consumed-container! root)
   (reactive/retire-root-reporter! incarnation)
+  (mark-container-consumed! (.-container root))
   (release-root! root-id root)
   nil)
 

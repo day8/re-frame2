@@ -651,6 +651,83 @@
     (client/release-root! rid @succ-root)))
 
 ;; ---------------------------------------------------------------------------
+;; rf2-sddbc — a throwing/consumed host `.unmount` FAILS the EXACT container
+;; closed. Adapter reclaim releases the id/prefix (a same-id re-mount on a FRESH
+;; container is the ergonomic recovery), but the exact node is recorded fail-closed
+;; because a queued host task (a scheduled `replaceChildren`) may not have settled —
+;; clearing the DOM + React marker is a snapshot, NOT proof of settlement.
+;; ---------------------------------------------------------------------------
+
+(deftest adapter-reclaim-frees-the-id-but-fails-the-exact-container-closed
+  (let [old   (js-obj)
+        fresh (js-obj)
+        boom  (js/Error. "queue-then-throw host cleanup")
+        root  (client/->Root #js {:unmount (fn [] (throw boom))} old :reg/consumed)]
+    (client/register-live-root!
+     {:root-id :reg/consumed :provenance :authored
+      :identifier-prefix "rf2-consumed-"}
+     old root)
+    (is (identical? boom (try (client/dispose-live-roots!) nil (catch :default e e)))
+        "the throwing host cleanup error still propagates as primary")
+    ;; the id/prefix are RELEASED — the registry is clean, NOT stranded :tearing-down
+    (is (= #{} (client/live-root-ids))
+        "adapter reclaim released the id/prefix — no permanent :tearing-down strand")
+    (is (true? (client/container-consumed? old))
+        "the exact consumed node is recorded fail-closed")
+    (is (false? (client/container-consumed? fresh)))
+    ;; exact-container reuse (ANY id) is fail-closed with the fresh-node recovery.
+    ;; RED before rf2-sddbc: reclaim released the claim, so check-root-claim! ADMITTED.
+    (let [{:keys [id data msg]}
+          (thrown-error #(client/check-root-claim!
+                          're-frame.ui/mount
+                          {:root-id :reg/consumed :provenance :authored} old))]
+      (is (= :rf.error/root-container-consumed id)
+          "exact-container reuse fails closed — never admitted onto a poisoned node")
+      (is (= :use-a-fresh-container (:recovery data)))
+      (is (= :reg/consumed (:root-id data)))
+      (is (error/message-has-id-token? msg)))
+    ;; the ergonomic recovery — the SAME root-id on a FRESH container — is admitted
+    (is (nil? (thrown-error #(client/check-root-claim!
+                              're-frame.ui/mount
+                              {:root-id :reg/consumed :provenance :authored} fresh)))
+        "the same root-id re-mounts on a fresh container (the recovery path)")
+    ;; an UNRELATED fresh id/container is never blocked (criterion 4)
+    (is (nil? (thrown-error #(client/check-root-claim!
+                              're-frame.ui/mount
+                              {:root-id :reg/unrelated :provenance :authored} (js-obj))))
+        "unrelated fresh roots admit — the quarantine fences only its exact node")))
+
+(deftest isolated-throwing-unmount-consumes-container-and-id-message-is-honest
+  ;; An ISOLATED unmount! whose host `.unmount` throws quarantines fail-closed
+  ;; BEFORE any adapter destroy: the exact container reads consumed (via the
+  ;; unreleased cleanup-failure owner), and reusing the SAME root-id reports
+  ;; HONESTLY — no "re-mount after settlement" (there is no settlement signal).
+  (let [c    (js-obj)
+        root (root-with-throwing-unmount :reg/iso c)]
+    (client/register-live-root! {:root-id :reg/iso :provenance :authored} c root)
+    (is (thrown-with-msg? js/Error #"host teardown boom" (client/unmount!* root)))
+    (is (:cleanup-failure? (client/live-root-entry :reg/iso))
+        "the isolated throwing unmount is a cleanup-failure quarantine")
+    ;; reuse of the exact container by a DIFFERENT id → consumed (owner named)
+    (let [{:keys [id data]}
+          (thrown-error #(client/check-root-claim!
+                          're-frame.ui/mount
+                          {:root-id :reg/other :provenance :authored} c))]
+      (is (= :rf.error/root-container-consumed id))
+      (is (= :reg/iso (:owner-root-id data)))
+      (is (= :use-a-fresh-container (:recovery data))))
+    ;; reuse of the exact root-id → duplicate-root-id, but the message is HONEST
+    (let [{:keys [id msg]}
+          (thrown-error #(client/check-root-claim!
+                          're-frame.ui/mount
+                          {:root-id :reg/iso :provenance :authored} (js-obj)))]
+      (is (= :rf.error/duplicate-root-id id))
+      (is (not (re-find #"after settlement" msg))
+          "the cleanup-failure id message does NOT promise a settlement that never comes")
+      (is (re-find #"CONSUMED|fresh container|destroyed and reinstalled" msg)
+          "…it directs to a fresh container / adapter re-init instead"))))
+
+;; ---------------------------------------------------------------------------
 ;; React root options
 ;; ---------------------------------------------------------------------------
 

@@ -315,8 +315,12 @@ boundary** — not merely when the host `.unmount` returns (see [§Public Root t
 settlement](#public-root-teardown-lifecycle-and-settlement)); a throwing
 host unmount remains observable but cannot strand siblings. If React consumed a
 throwing Root handle before clearing its container, the adapter clears the remaining
-DOM and the pinned React container-ownership marker so a subsequent `rf/init!` can
-mount the same root-id into the same container. The first cleanup error stays primary;
+DOM and the pinned React container-ownership marker and releases the **root-id and
+identifier-prefix** so a subsequent `rf/init!` can re-mount the same root-id into a
+**fresh** container. The **exact consumed container node** is NOT proven free — a
+throwing `.unmount` may have queued late host DOM work that has not settled — so it is
+recorded fail-closed (see [§Settlement independence](#settlement-independence)) and its
+reuse fails loud. The first cleanup error stays primary;
 later cleanup failures remain attached as diagnostic evidence.
 
 The adapter is single-use after disposal; restart requires `(install-adapter!)` again.
@@ -401,32 +405,52 @@ Settlement fires in the two cases a cell-connectivity probe would miss:
 - **A throwing host `.unmount`.** The exact generation is force-dead (every cell of that
   incarnation reaped, its leases released) and the host error rethrows, but `on-settled` is NOT
   fired. The container cannot be proven free in-process, so the claim **fails closed** — quarantined
-  `:tearing-down`, never released into a possibly-still-scheduled React teardown. A second
-  `unmount!` is a no-op (the tearing-down guard); recovery is a fresh container. The adapter-wide
-  drain may afterwards prove the container free — clearing its DOM and deleting the pinned React
-  container-ownership marker — and release the quarantine so the exact id/container is reusable
-  after re-init; an isolated public `unmount!` leaves that recovery to its caller.
+  `:tearing-down` (`:cleanup-failure?`), never released into a possibly-still-scheduled React
+  teardown. A second `unmount!` is a no-op (the tearing-down guard); recovery is a fresh container.
+  The adapter-wide drain may afterwards **reclaim** the consumed surface — clearing its DOM and
+  deleting the pinned React container-ownership marker, retiring the spent reporter authority, and
+  releasing the **root-id + identifier-prefix** so the same root-id re-mounts on a **fresh**
+  container after re-init. That reclaim is NOT proof the surface settled: a throwing `.unmount`
+  may have **queued** late host DOM work (a scheduled `replaceChildren`) before it threw, and that
+  authority is unobservable in-process, so clearing the current DOM + marker is a **snapshot**, not
+  a settlement boundary. The **exact container node** is therefore recorded fail-closed (a
+  WeakSet denylist of poisoned nodes — not a task tracker), and its reuse is rejected with
+  `:rf.error/root-container-consumed` (recovery: a fresh node). An isolated public `unmount!`
+  leaves that reclaim to its caller; until it runs, the still-`:tearing-down` quarantine itself
+  fences the exact id/container/prefix.
 
 #### Tearing-down reuse diagnostics
 
 Because a `:tearing-down` claim keeps occupying its id/container/prefix, any attempt to reuse that
 exact identity during the deferred window is rejected fail-closed — never admitted onto a container
-React is still scheduled to clear. **No new error id is introduced**: the three catalogued root
-diagnostics ([Spec 009](009-Instrumentation.md)) each gain a tearing-down cause and emit
-`:tearing-down? true` in their `:existing` evidence.
+React is still scheduled to clear. A **merely deferred** teardown reuses the three catalogued root
+diagnostics ([Spec 009](009-Instrumentation.md)), which each gain a tearing-down cause and emit
+`:tearing-down? true` in their `:existing` evidence; a **throwing/consumed** teardown adds one new
+id, `:rf.error/root-container-consumed` (rf2-sddbc), because its recovery (a fresh node — never a
+wait-for-settlement) is genuinely distinct.
 
 - **`:rf.error/duplicate-root-id`** — a reentrant `mount` / `create-root` (and `hydrate-root`, once
-  S5 wires it through the same pre-render admission check) claiming the same root-id. The message
-  names the in-flight deferred unmount and directs the caller to re-mount after settlement or use a
-  distinct `:root-id` with a fresh container. Client data carries `:existing` with the owner's
+  S5 wires it through the same pre-render admission check) claiming the same root-id. For a
+  **deferred** owner the message names the in-flight deferred unmount and directs the caller to
+  re-mount after settlement or use a distinct `:root-id` with a fresh container; for a
+  **`:cleanup-failure?`** owner (a throwing `.unmount`) it is HONEST that there is no settlement to
+  wait for — the id frees only when the adapter is destroyed and reinstalled, and the exact
+  container is fail-closed regardless. Client data carries `:existing` with the owner's
   `:provenance`, `:site`, and `:tearing-down? true`, plus the ordinary `:arriving` evidence.
-- **`:rf.error/root-container-in-use`** — a mount whose container is still owned by a tearing-down
-  root. The node frees once teardown settles; recovery is a fresh node or a re-mount after
-  settlement. Data carries `:owner-root-id` and `:existing {:tearing-down? true}`.
+- **`:rf.error/root-container-in-use`** — a mount whose container is still owned by a **merely
+  deferred** tearing-down root. The node frees once teardown settles; recovery is a fresh node or a
+  re-mount after settlement. Data carries `:owner-root-id` and `:existing {:tearing-down? true}`.
+- **`:rf.error/root-container-consumed`** — a mount onto a container a **throwing/consumed** host
+  `.unmount` poisoned (rf2-sddbc). Checked ahead of the in-use arm. The node can NEVER be proven
+  free (queued host work is unobservable), so recovery is a fresh node — never a wait-for-settlement.
+  Two arms: an isolated `unmount!` quarantine still holding the `:cleanup-failure?` claim (`:owner-root-id`
+  names it), and the post-reclaim `consumed-containers` denylist (id/prefix already released for a
+  same-id re-mount on a fresh node). Data carries `:root-id` and optional `:owner-root-id`.
 - **`:rf.error/root-not-live`** — a `render!` into a tearing-down Root. A tearing-down root is not
   live: its React tree is being unmounted, so rendering into it would drive a consumed/unmounting
   handle. It fails the same loud way as an unmounted or superseded root; recover by recreating the
-  root after settlement. Data carries `:existing {:tearing-down? true}`.
+  root after settlement (a throwing-cleanup quarantine recreates onto a fresh container). Data
+  carries `:existing {:tearing-down? true}`.
 
 The effective-prefix arm (`:rf.error/duplicate-identifier-prefix`) is fenced the same way, since
 the prefix is quarantined as part of the one claim.
@@ -440,9 +464,12 @@ its synchronous `nil` completion; no asynchronous Promise boundary is introduced
 honest without awaiting the microtask because the still-`:tearing-down` claims survive the drain (a
 fresh `install-adapter!` / `rf/init!` does not wipe the registry), so the pre-render admission check
 fail-closes reuse of the exact id/container until settlement, and the post-destroy admission
-breadcrumb meanwhile rejects any fresh public-root creation with `:rf.error/adapter-disposed`. The
-exact id/container becomes reusable only once the deferred settlement releases the claim (or the
-adapter's container reclaim proves it free on the throwing path).
+breadcrumb meanwhile rejects any fresh public-root creation with `:rf.error/adapter-disposed`. A
+**deferred** exact id/container becomes reusable once the deferred settlement releases the claim. On
+the **throwing** path the adapter's container reclaim releases the id/prefix (a same-id re-mount on a
+fresh container) but does NOT prove the exact node free — the node is recorded fail-closed
+(`:rf.error/root-container-consumed`), so on that path the exact **container** is never reusable;
+recovery is a fresh node.
 
 #### Successor-generation settlement fence
 
@@ -456,16 +483,21 @@ call time and mutate a **same-id successor frame** the new generation reseated. 
 close this window; either is individually sufficient for its axis, and together they are exact:
 
 1. **Successor root-admission fence.** While any live-root claim registered under a **prior** adapter
-   generation is still `:tearing-down` (a deferred host teardown React has not settled), the pre-render
+   generation is still `:tearing-down` **and its teardown is genuinely settlement-pending** (a
+   deferred host teardown React has not settled — NOT a `:cleanup-failure?` quarantine), the pre-render
    admission check rejects a fresh public compiled Root — under **any** id, not merely the exact
    quarantined one — with the typed lifecycle error `:rf.error/adapter-teardown-in-flight` (Spec 009).
    This is **distinct** from the pre-`init!` `:rf.error/adapter-disposed` breadcrumb: a fresh adapter
    *is* installed, but the successor generation cannot admit a Root — and so cannot ENSURE a fresh
    same-id frame — until the predecessor settles. Because the claim records the exact generation it
    was admitted under, an ordinary **same-generation** deferred `unmount!` mid-settlement never blocks
-   a sibling mount; only an unsettled **predecessor** generation does. Once the deferred settlement
-   releases the predecessor claim (or the throwing-path container reclaim proves it free), admission
-   reopens and the exact id/container is reusable.
+   a sibling mount; only an unsettled **predecessor** generation does. A `:cleanup-failure?` quarantine
+   is EXCLUDED (rf2-sddbc): a throwing `.unmount` never settles, so counting it would globally fence
+   every successor Root **forever**; its fail-closed reach is instead the exact poisoned container
+   alone (`:rf.error/root-container-consumed`), leaving unrelated fresh roots free to admit. Once the
+   deferred settlement releases the predecessor claim, admission reopens and the exact id/container is
+   reusable; on the throwing path the reclaim releases the id/prefix (a same-id re-mount on a **fresh**
+   container) while the exact container stays fail-closed.
 
 2. **Incarnation-keyed frame-capture fence.** A frame api (`capture-frame`, and the `reg-view`
    render-time injection) captured against a **live** frame pins that frame's exact incarnation (its
@@ -494,9 +526,14 @@ teardown React itself still owns, not adapter-internal observer/value state carr
 `dispose-adapter!` / `install-adapter!`. The successor generation installs fresh and holds no
 predecessor state; it is merely **fenced from admitting Roots** until the host teardown it did not
 perform has settled. Cleanup failure remains **fail-closed** — a throwing host `.unmount` never fires
-`on-settled`, so its claim stays quarantined `:tearing-down` and continues to fence the successor
-until an explicit, exact-incarnation adapter container reclaim proves the surface free; re-`init!`
-alone never silently unblocks it.
+`on-settled`, so its claim stays quarantined `:tearing-down` (`:cleanup-failure?`); an exact-incarnation
+adapter container reclaim retires its reporter and releases the id/prefix (a same-id re-mount on a
+fresh container), but does NOT prove the exact node free — a throwing `.unmount` may have queued late
+host DOM work, unobservable in-process. So the exact container node stays fail-closed
+(`:rf.error/root-container-consumed`, rf2-sddbc); the reclaim is a snapshot, not an affirmative
+settlement boundary, and re-`init!` alone never silently unblocks that node. Unlike a deferred
+teardown, a cleanup-failure quarantine does NOT globally fence the successor generation — only its
+exact container — so unrelated fresh roots admit normally.
 
 ### JavaScript host capability boundary
 

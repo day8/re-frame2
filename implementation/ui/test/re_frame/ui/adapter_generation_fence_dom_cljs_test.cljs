@@ -212,10 +212,12 @@
 ;; ===========================================================================
 ;; The queue-then-throw host arm (bead NOTES / rf2-vxgfnd.275 §queue arm): a
 ;; predecessor `.unmount` SCHEDULES a late captured dispatch, then THROWS.
-;; Destroy reclaims the quarantine (clears DOM + React marker), an immediate
-;; init mounts a successor on the exact id/container, and the queued predecessor
-;; dispatch must NOT enter same-id frame B — clearing DOM/markers is not
-;; settlement, and the incarnation fence is the last-line guard.
+;; Destroy reclaims the quarantine (clears DOM + React marker, releases the
+;; id/prefix), an immediate init mounts a successor on a FRESH container (the
+;; exact old container is fail-closed per rf2-sddbc — clearing DOM/markers is a
+;; snapshot, not settlement), and the queued predecessor dispatch must NOT enter
+;; same-id frame B: the incarnation fence is the last-line STATE boundary, a
+;; SEPARATE guard from the container fail-close.
 ;; ===========================================================================
 
 (deftest queue-then-throw-cleanup-cannot-enter-a-same-id-successor
@@ -225,6 +227,7 @@
       (frame/replace-app-db! :qt/frame {})
       (rf/reg-event :qt/mutate (fn [{:keys [db]} _] {:db (assoc db :leaked? true)}))
       (let [container (js/document.createElement "div")
+            fresh     (js/document.createElement "div")
             root*     (volatile! nil)
             cap       (rf/capture-frame :qt/frame)        ;; pins incarnation A
             errors    (atom [])
@@ -248,20 +251,23 @@
                (is (identical? cleanup (thrown-value rf/destroy-adapter!)))
                (is (= #{} (client/live-root-ids))
                    "the throwing quarantine was reclaimed by adapter destroy")
+               (is (true? (client/container-consumed? container))
+                   "rf2-sddbc — the exact throwing container is fail-closed")
                ;; Fresh successor generation FIRST (so the frame teardown/rebuild
                ;; below runs against a live adapter), then frame A destroyed + a
-               ;; fresh SAME-ID frame B reusing the EXACT id/container.
+               ;; fresh SAME-ID frame B reusing the exact frame id; the successor
+               ;; Root mounts on a FRESH container (the old one is fail-closed).
                (rf/init! ui/adapter)
                (rf/destroy-frame! :qt/frame)
                (rf/make-frame {:id :qt/frame})
                (frame/replace-app-db! :qt/frame {})
                (act-promise
-                #(ui/mount [cell-less-root] container {:root-id :qt/root}))))
+                #(ui/mount [cell-less-root] fresh {:root-id :qt/root}))))
             (.then (fn [] (next-macrotask)))          ;; flush the queued dispatch
             (.then
              (fn []
-               (is (= "cell-less" (.. container -firstChild -textContent))
-                   "the exact id/container mounted a fresh successor generation")
+               (is (= "cell-less" (.. fresh -firstChild -textContent))
+                   "the same frame id mounted a fresh successor generation on a fresh node")
                (is (nil? (:leaked? (rf/app-db-value :qt/frame)))
                    "the queued predecessor captured dispatch did not enter same-id
                     frame B — clearing DOM/markers was not treated as settlement")
