@@ -389,6 +389,102 @@
         (contains? reserved-prop-keys (str/lower-case nm))
         (contains? jsx-source-prop-names nm))))
 
+;; ---- inline-style map serialisation (rf2-l6h6a) ---------------------------
+;;
+;; A hiccup `:style` whose value is a MAP must serialise to a CSS declaration
+;; string (`{:margin "0 1em"}` → `margin:0 1em`), NOT the EDN print of the map
+;; (`{:margin &quot;0 1em&quot;}`). The server HTML must match what the client
+;; React path emits from the same style object, or React 19 logs a hydration
+;; attribute mismatch on first load (rf2-l6h6a — surfaced by the generated SSR
+;; scaffold's counter-value span).
+;;
+;; The rules mirror `react-dom/server`'s `pushStyleAttribute` — the same
+;; contract the reagent-slim static-markup emitter pins in its IMPL-SPEC §8.3.
+;; It is duplicated here by intent: bundle isolation forbids `re-frame.ssr`
+;; requiring the adapter, exactly as `void-elements` is duplicated in
+;; `emit.cljc`.
+
+(defn- style-name->css
+  "camelCase style-property name → kebab CSS name, matching React's
+  `pushStyleAttribute` conversion: insert `-` before each upper-case char,
+  lower-case, then `^ms- → -ms-` (so `msFlex` → `-ms-flex`). An already-kebab
+  name (`margin-top`) has no upper-case chars and is returned unchanged."
+  [raw]
+  (-> raw
+      (str/replace #"([A-Z])" "-$1")
+      (str/lower-case)
+      (str/replace #"^ms-" "-ms-")))
+
+;; React 19.2.0's `unitlessNumber` set, mirrored verbatim from the authoritative
+;; `reagent2.dom.server/unitless-style-props` (camelCase keys), then reprojected
+;; ONCE to the kebab CSS names `style-name->css` produces so a numeric value can
+;; be classified without re-deriving the camelCase form. Deriving the kebab set
+;; from the camelCase source (rather than hand-transcribing) preserves React's
+;; own quirks — e.g. the capital-K typo `WebKitBoxFlexGroup` reprojects to
+;; `-web-kit-box-flex-group`, which a real `:-webkit-box-flex-group`/
+;; `:WebkitBoxFlexGroup` prop never matches, so it gets `px` exactly as React
+;; does (byte-parity with `react-dom/server`).
+(def ^:private unitless-style-props-camel
+  #{"animationIterationCount" "aspectRatio" "borderImageOutset"
+    "borderImageSlice" "borderImageWidth" "boxFlex" "boxFlexGroup"
+    "boxOrdinalGroup" "columnCount" "columns" "flex" "flexGrow"
+    "flexPositive" "flexShrink" "flexNegative" "flexOrder" "gridArea"
+    "gridRow" "gridRowEnd" "gridRowSpan" "gridRowStart" "gridColumn"
+    "gridColumnEnd" "gridColumnSpan" "gridColumnStart" "fontWeight"
+    "lineClamp" "lineHeight" "opacity" "order" "orphans" "scale"
+    "tabSize" "widows" "zIndex" "zoom" "fillOpacity" "floodOpacity"
+    "stopOpacity" "strokeDasharray" "strokeDashoffset" "strokeMiterlimit"
+    "strokeOpacity" "strokeWidth" "MozAnimationIterationCount" "MozBoxFlex"
+    "MozBoxFlexGroup" "MozLineClamp" "msAnimationIterationCount" "msFlex"
+    "msZoom" "msFlexGrow" "msFlexNegative" "msFlexOrder" "msFlexPositive"
+    "msFlexShrink" "msGridColumn" "msGridColumnSpan" "msGridRow"
+    "msGridRowSpan" "WebkitAnimationIterationCount" "WebkitBoxFlex"
+    "WebKitBoxFlexGroup" "WebkitBoxOrdinalGroup" "WebkitColumnCount"
+    "WebkitColumns" "WebkitFlex" "WebkitFlexGrow" "WebkitFlexPositive"
+    "WebkitFlexShrink" "WebkitLineClamp"})
+
+(def ^:private unitless-style-css-names
+  (into #{} (map style-name->css) unitless-style-props-camel))
+
+(defn- style-token->str
+  "Serialise a scalar style value to its string form: keyword/symbol → name
+  (so `:red` / `:flex` render bare), everything else `str`-ed."
+  [v]
+  (if (or (keyword? v) (symbol? v)) (name v) (str v)))
+
+(defn style-map->css
+  "Serialise a hiccup `:style` MAP to an HTML inline-style declaration string,
+  matching `react-dom/server`'s `pushStyleAttribute` so the server HTML agrees
+  with the client React render (rf2-l6h6a):
+
+    - camelCase property names → kebab CSS names (`:marginTop` → `margin-top`);
+    - a NUMERIC value gets a `px` suffix unless it is `0` or the property is
+      unitless (`:flex-grow`, `:z-index`, `:opacity`, …); numbers are
+      canonicalised cross-runtime (`hash/canonical-number`) so a JVM `1.0`
+      and a CLJS `1` emit the same `1px`;
+    - an entry whose value is nil / boolean / \"\" is omitted entirely (no
+      empty `prop:` declaration);
+    - CSS custom properties (`--foo`) pass through name + value verbatim (no
+      `px` logic)."
+  [m]
+  (->> m
+       (keep (fn [[k v]]
+               (when (and (some? v) (not (boolean? v)) (not= "" v))
+                 (let [raw (name k)]
+                   (if (str/starts-with? raw "--")
+                     ;; CSS custom property: name + value verbatim.
+                     (str raw ":" (style-token->str v))
+                     (let [css-name (style-name->css raw)]
+                       (str css-name ":"
+                            (if (number? v)
+                              (let [n (hash/canonical-number v)]
+                                (if (or (zero? v)
+                                        (contains? unitless-style-css-names css-name))
+                                  n
+                                  (str n "px")))
+                              (style-token->str v)))))))))
+       (str/join ";")))
+
 (defn attr-string
   "Render an attribute map as ` k1=\"v1\" k2=\"v2\"` (leading space when
   non-empty; empty string when the map is empty). Boolean `true` emits
@@ -424,25 +520,31 @@
                            (true? v)  (validate-attr-name! k)
                            (false? v) nil
                            (nil? v)   nil
-                           :else      (str (validate-attr-name! k)
-                                           "=\""
-                                           ;; A numeric attribute VALUE is
-                                           ;; canonicalised the same way the
-                                           ;; render-tree hash serialises it
-                                           ;; (rf2-0ypnnk) so a whole-valued
-                                           ;; double renders `value="0"` (not
-                                           ;; the JVM `value="0.0"`) and the
-                                           ;; emitted HTML matches the hash
-                                           ;; byte-for-byte cross-runtime.
-                                           ;; Without this the hash would
-                                           ;; AGREE while the server/client
-                                           ;; attribute strings diverged — a
-                                           ;; silent hydration inconsistency.
-                                           (escape-attr
-                                             (if (number? v)
-                                               (hash/canonical-number v)
-                                               v))
-                                           "\"")))
+                           :else
+                           (let [rendered-val
+                                 (cond
+                                   ;; A map-valued `:style` serialises to a CSS
+                                   ;; declaration string, matching react-dom/
+                                   ;; server's `pushStyleAttribute` so the server
+                                   ;; HTML agrees with the client React render
+                                   ;; (rf2-l6h6a). A string `:style` value is
+                                   ;; already CSS and rides the default branch
+                                   ;; verbatim.
+                                   (and (map? v) (= "style" (name k)))
+                                   (style-map->css v)
+                                   ;; A numeric attribute VALUE is canonicalised
+                                   ;; the same way the render-tree hash serialises
+                                   ;; it (rf2-0ypnnk) so a whole-valued double
+                                   ;; renders `value="0"` (not the JVM
+                                   ;; `value="0.0"`) and the emitted HTML matches
+                                   ;; the hash byte-for-byte cross-runtime.
+                                   ;; Without this the hash would AGREE while the
+                                   ;; server/client attribute strings diverged — a
+                                   ;; silent hydration inconsistency.
+                                   (number? v) (hash/canonical-number v)
+                                   :else       v)]
+                             (str (validate-attr-name! k)
+                                  "=\"" (escape-attr rendered-val) "\""))))
                        attrs)]
     (if (seq rendered)
       (str " " (str/join " " rendered))
