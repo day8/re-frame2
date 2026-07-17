@@ -420,6 +420,59 @@
         (is (nil? (:mount-incomplete (frames/installed-plan-entry fid)))
             "the foreign controller never mutates the owner's record")))))
 
+(deftest split-envelope-superseder-with-foreign-outer-root-stays-loud
+  (testing "a superseding receipt whose INNER writes are the legitimate owner's
+            but whose OUTER :root-id was swapped for a foreign controller is a
+            SPLIT ENVELOPE: authenticating only the inner write fields would let
+            it silently settle the overtaken write (rf2-x2vrh). The envelope must
+            be authenticated — outer controller = the write it presents — so the
+            abort emits exactly one evidence-mismatch and never mutates the
+            current owner-authoritative record."
+    (let [fid    :sup/split-envelope
+          rcpt-a (frames/execute-frame-plans! :root/owner [(plan fid "cfa-aaaaaaaaaaaaaa")])
+          rcpt-b (frames/execute-frame-plans! :root/owner [(plan fid "cfb-bbbbbbbbbbbbbb")])]
+      (is (= [:root/owner] (mapv :root-id (:writes rcpt-b)))
+          "sanity: B's inner writes legitimately name the owner root")
+      (is (= "cfb-bbbbbbbbbbbbbb" (:config-fingerprint (frames/installed-plan-entry fid)))
+          "sanity: B is the live owner-authoritative record before the OLD abort")
+      ;; Tamper ONLY B's OUTER controller identity; the inner writes stay
+      ;; :root/owner — the exact split the inner-only guard misses.
+      (let [tampered-b (assoc rcpt-b :root-id :root/foreign)
+            mismatches (capture-mismatches
+                        #(frames/abort-preflight-attempt! rcpt-a tampered-b))]
+        (is (= 1 (count mismatches))
+            "the un-authenticated split envelope cannot suppress the mismatch")
+        (is (= :record-revision-mismatch (:reason (first mismatches)))
+            "…the overtaken write is surfaced, not silently settled")
+        (is (= fid (:frame (first mismatches))))
+        (let [entry (frames/installed-plan-entry fid)]
+          (is (= :root/owner (owner-root entry))
+              "B remains the owner-authoritative record")
+          (is (= "cfb-bbbbbbbbbbbbbb" (:config-fingerprint entry))
+              "…at B's config, unmutated by the rejected settlement")
+          (is (nil? (:mount-incomplete entry))
+              "the split-envelope abort never mutates the current record"))))))
+
+(deftest same-root-superseder-with-authentic-envelope-still-settles-silently
+  (testing "the envelope authentication does NOT over-tighten the benign path:
+            an ordinary same-root A→B receipt whose outer controller matches its
+            inner writes still settles the overtaken write silently, B stays
+            authoritative (rf2-x2vrh control)"
+    (let [fid    :sup/authentic-envelope
+          rcpt-a (frames/execute-frame-plans! :root/owner [(plan fid "cfa-aaaaaaaaaaaaaa")])
+          rcpt-b (frames/execute-frame-plans! :root/owner [(plan fid "cfb-bbbbbbbbbbbbbb")])]
+      (is (= :root/owner (:root-id rcpt-b))
+          "sanity: B's outer envelope legitimately names the owner root")
+      (let [mismatches (capture-mismatches
+                        #(frames/abort-preflight-attempt! rcpt-a rcpt-b))]
+        (is (empty? mismatches)
+            "an authentic same-root envelope settles the overtaken write silently")
+        (let [entry (frames/installed-plan-entry fid)]
+          (is (= :root/owner (owner-root entry)) "B still owns the record")
+          (is (= "cfb-bbbbbbbbbbbbbb" (:config-fingerprint entry)) "…at B's config")
+          (is (nil? (:mount-incomplete entry))
+              "the authentic abort did not clobber B's live record"))))))
+
 (deftest reincarnation-not-suppressed-even-under-a-superseding-receipt
   (testing "if the frame is destroyed after the superseding attempt refreshed it,
             the OLD receipt's abort finds no record for it and stays dev-loud —

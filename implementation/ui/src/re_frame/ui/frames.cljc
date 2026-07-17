@@ -542,30 +542,42 @@
 
 (defn- superseding-index
   "Index a superseding attempt's receipt writes by `frame-id →
-  {:root-id :rev}` for the benign-supersession check. A nil receipt / no
-  writes yields `{}`. Only the render-supersession abort path (a later
-  `render!*` seating a new attempt for the SAME root) supplies one; every
+  {:root-id :rev :receipt-root-id}` for the benign-supersession check. Each
+  entry carries the receipt's OUTER `:root-id` — the controller that presents
+  the write — alongside the write's own root/rev, so `benign-supersession?`
+  can AUTHENTICATE the envelope: a legitimate receipt's outer controller equals
+  the root of every write it minted (execute-frame-plans* stamps both from the
+  same arriving root), so an entry whose outer controller was swapped for a
+  foreign root can never silently settle another attempt's write. A nil
+  receipt / no writes yields `{}`. Only the render-supersession abort path (a
+  later `render!*` seating a new attempt for the SAME root) supplies one; every
   other abort/finalize path passes none, so out-of-band stale settlements stay
   dev-loud."
-  [superseding-receipt]
+  [{receipt-root-id :root-id :as superseding-receipt}]
   (into {}
         (map (fn [{:keys [frame-id root-id rev]}]
-               [frame-id {:root-id root-id :rev rev}]))
+               [frame-id {:root-id root-id :rev rev
+                          :receipt-root-id receipt-root-id}]))
         (:writes superseding-receipt)))
 
 (defn- benign-supersession?
   "True when an aborted write was LEGITIMATELY overtaken by the superseding
   same-root attempt, so its revision mismatch is EXPECTED SETTLEMENT rather than
-  an authority failure. Suppression is precise: the superseding attempt must own
-  this exact frame-id, under the SAME root as the aborted write, and the CURRENT
-  record must BE that superseding write (its rev, its root). Anything else — a
-  foreign-root receipt, a pruned/missing record, a reincarnation, or a divergence
-  the superseding attempt does not account for — is NOT benign and stays
-  dev-loud. `superseding` is the `superseding-index` map (empty for the
-  non-supersession settlement paths, so those never suppress)."
+  an authority failure. Suppression is precise: the superseding receipt's
+  ENVELOPE must be AUTHENTIC — its outer controller root must match the write it
+  presents — that write must own this exact frame-id, under the SAME root as the
+  aborted write, and the CURRENT record must BE that superseding write (its rev,
+  its root). Anything else — a split envelope (a foreign outer controller
+  presenting the owner's intact inner write), a foreign-root write, a
+  pruned/missing record, a reincarnation, or a divergence the superseding attempt
+  does not account for — is NOT benign and stays dev-loud. `superseding` is the
+  `superseding-index` map (empty for the non-supersession settlement paths, so
+  those never suppress)."
   [superseding receipt-root-id {:keys [frame-id root-id]} record]
-  (when-some [{sup-root :root-id sup-rev :rev} (get superseding frame-id)]
+  (when-some [{sup-root :root-id sup-rev :rev sup-receipt-root :receipt-root-id}
+              (get superseding frame-id)]
     (and (= receipt-root-id root-id)            ; the aborted write names its own root
+         (= sup-receipt-root sup-root)          ; the superseding ENVELOPE vouches for its own write
          (= sup-root root-id)                   ; the superseding write is the SAME root
          (some? record)
          (= sup-rev (:rev record))              ; current authority IS that attempt
