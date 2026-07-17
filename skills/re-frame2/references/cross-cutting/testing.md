@@ -67,15 +67,15 @@ A test that needs a *different instruction set* (a fake HTTP fx, a swapped coeff
 
 ```clojure
 (deftest cart-add-isolated
-  (let [frame (rf/make-frame
-                {:images     [(rf/image {:select-ns {:include ["shop.cart.**"
-                                                               "shop.test-doubles.**"]}})]
-                 :initial-events [[:rf/set-db {:cart/items []}]]})]
+  (rf/with-new-frame [frame (rf/make-frame
+                              {:images     [(rf/image {:select-ns {:include ["shop.cart.**"
+                                                                             "shop.test-doubles.**"]}})]
+                               :initial-events [[:rf/set-db {:cart/items []}]]})]
     (rf/dispatch-sync [:cart/add "SKU-1"] {:frame frame})
     (is (= ["SKU-1"] @(rf/subscribe [:cart/items] {:frame frame})))))
 ```
 
-- **The frame is a local frame value** (no `:id`) — born in the test, discarded with it, never claiming a public frame id. `make-frame` returns the frame value (the lifecycle token); a test passes it directly (or its id) to `dispatch-sync` / `subscribe` — both accept either form, no accessor needed. That is the direct-frame-value test pattern (EP-0024).
+- **The frame is a local frame value** (no `:id`) — it never claims a *public* frame id, but it is **not** discarded when the test returns. `make-frame` mints a process-unique `:rf.frame/…` address and registers the frame, so it stays in `rf/frame-ids` **until destroyed**; a bare unreleased `make-frame` leaks and contaminates later tests. `make-frame` frames are **caller-owned** — wrap them in `rf/with-new-frame` (eval-bind-run-destroy; the value carries its exact incarnation token, so its `destroy-frame!` on exit — success or throw — tears down that incarnation only). `make-frame` returns the frame value (the lifecycle token); a test passes it directly (or its id) to `dispatch-sync` / `subscribe` — both accept either form, no accessor needed. That is the direct-frame-value test pattern (EP-0024).
 - **Override behaviour through a later image**, not a global install: compose a small overrides image *after* the app image (its `:registrations` shadow the earlier ones — image order decides, the later image wins), then read the `:rf.gen/shadows` report on `rf/frame-generation` to assert exactly what it overrode. A swap is data the test states rather than last-writer-wins on a shared table. There is no `:replace` / `:replace-standard` declared-winner key — image order is the only mechanism.
 - For an ordinary single-frame test, keep it on `make-reset-runtime-fixture` + `with-new-frame`. A frame created with no `:images` resolves against the shared registrar; pass `:images [...]` to isolate behaviour. **Isolate *behaviour* with a later overrides image; isolate *state* with a fresh frame** — there is no realm / app / module install surface (see [`fundamentals/images.md` §Frame isolation is the whole isolation story](../fundamentals/images.md#frame-isolation-is-the-whole-isolation-story)).
 
