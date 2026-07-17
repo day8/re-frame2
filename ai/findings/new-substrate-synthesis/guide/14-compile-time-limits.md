@@ -62,8 +62,12 @@ single linear template.
 ## Reactive sites must be finite
 
 Every `(sub …)` and `(lease …)` is a **compile-indexed site** on the view's single
-React bridge ([12](12-how-it-works.md)). Sites may sit in branches — `sub` is not a
-hook — but they may not appear inside an unbounded loop body.
+React bridge ([12](12-how-it-works.md)). A `(sub …)` may sit in a branch — `sub` is not
+a hook — but no site may appear inside an unbounded loop body. A `(lease …)` is
+stricter still: it is a *leading declaration*, never an expression, so it may not sit in
+a branch at all. Conditional liveness moves into the descriptor —
+`(lease (when live? descriptor))` (see [03](03-state.md#resource-liveness-lease)); a
+`lease` in expression position is `:rf.ui.compile/unsupported-form`.
 
 | You cannot | Why | Do this instead |
 |---|---|---|
@@ -85,10 +89,12 @@ hook — but they may not appear inside an unbounded loop body.
          [order-row {:key id :id id}])])
 ```
 
-Conditional reads remain legal:
+Conditional reads remain legal — and a conditional *lease* keeps the `lease` as a
+leading declaration, moving the condition into its descriptor:
 
 ```clojure
-(let [details (when expanded? (sub [:orders/details id]))] …)   ; ✓
+(let [details (when expanded? (sub [:orders/details id]))] …)   ; ✓ conditional read
+(lease (when expanded? {:resource :orders/details :params {:id id}}))   ; ✓ conditional lease
 ```
 
 ---
