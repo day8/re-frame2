@@ -17,8 +17,8 @@
   non-decisive, while the decisive child's terminal continues to ride the
   resolution trace — the two emits sit on opposite arms of the fold's
   `(:resolved? resolution)` split, so no child is double-published.
-  Duplicate pre-resolution signals are suppressed by the exact-authority
-  gate (rf2-nvxehu); post-resolution arrivals remain `:stale`; survivors
+  Duplicate pre-resolution signals are suppressed by the exact-attempt
+  fold fence (rf2-nvxehu); post-resolution arrivals remain `:stale`; survivors
   cancelled by `:any`/failure resolution still close exactly once as
   `:cancelled`.
 
@@ -226,7 +226,7 @@
       (is (= [:completed] (terminals-for a))
           "the duplicate added NO second terminal (suppressed, not re-published)")
       ;; Resolve, then :a's EXACT-CURRENT completion re-arrives post-resolution
-      ;; (the late-completion path is gated on exact authority — rf2-ixjd48).
+      ;; (the late-completion path is gated on the exact-attempt fence — rf2-ixjd48).
       (rf/dispatch-sync [b [:go]])
       (is (true? (:resolved? (join-state :jct/p5))))
       (rf/dispatch-sync

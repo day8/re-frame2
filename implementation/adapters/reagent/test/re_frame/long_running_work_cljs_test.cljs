@@ -136,7 +136,7 @@
     ;; via :after-yield loops and dispatch :work/child-done on entry
     ;; to their terminal state. dispatch-sync doesn't fire :after
     ;; timers, so for the headless test we synthesise the
-    ;; child-done events directly — carrying the exact-authority
+    ;; child-done events directly — carrying the exact-attempt
     ;; stamp the member child's boundary would have stamped
     ;; (rf2-nvxehu; see synth-child-done!). With the stamp, the
     ;; runtime's join interceptor treats them identically to live

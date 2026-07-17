@@ -1005,7 +1005,7 @@
               (not (contains? join-state :children)))
           {:rf.db/runtime runtime-db :fx []}
 
-          ;; Validate OWNERSHIP + EXACT AUTHORITY *before* the
+          ;; Validate OWNERSHIP + EXACT-ATTEMPT COORDINATE *before* the
           ;; resolved-vs-unresolved classification (rf2-ixjd48). Pre-fix the
           ;; `:resolved?` branch ran FIRST and attributed ANY matching event
           ;; shape to the CURRENT attempt: it built a `:late-completion` record

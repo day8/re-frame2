@@ -620,7 +620,7 @@
           ;; Re-dispatch :a's EXACT-CURRENT completion AFTER resolution (a
           ;; genuine current survivor draining post-latch). It flows through
           ;; the :resolved? late-completion branch — which the fix now gates on
-          ;; exact authority, so the carrier is stamped for the current attempt
+          ;; the exact-attempt fence, so the carrier is stamped for the current attempt
           ;; (rf2-ixjd48).
           (let [j (get-in (frame-db) [:rf.runtime/machines :spawned :sup/latek [:hydrating]])]
             (rf/dispatch-sync
