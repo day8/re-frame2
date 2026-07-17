@@ -4007,6 +4007,96 @@
       (is (zero? (reduce + 0 (map count (vals (state/terminal-silence-marks-snapshot)))))
           "a nil bundle opens no deferred-silence window — no mark accreted (bounded)"))))
 
+;; ---- rf2-hclxos — nil terminal-evidence STILL cleans the exact-owner stores ----
+;;
+;; PR #5939 made a nil terminal-evidence bundle PUBLISH nothing when the pre-dissoc
+;; `:epoch/snapshot-frame-destroyed` hook throws (frame.cljc converts the throw to
+;; nil). But cleanup authority comes SEPARATELY from the frame-id + owner-token, so
+;; `on-frame-destroyed!` must still DROP the destroyed incarnation's id-keyed stores
+;; even when the bundle is nil. Before the fix the exact-owner `cleanup-frame-owner!`
+;; transaction nested INSIDE `(when terminal-evidence ...)`, so a snapshot failure
+;; suppressed cleanup too and a same-id successor B inherited A's history /
+;; observation / buffer / last-settled-epoch / mount attribution.
+;;
+;; This regression drives the throwing-snapshot repro through the FULL destroy path
+;; and proves: (1) the destroyed id's public history is [] after destroy; (2) a
+;; same-id successor B, BEFORE its first epoch, inherits none of A's records (no
+;; `[:audit/seed]`, distinct token); (3) the #5939 non-fabrication invariant still
+;; holds — no `:halted-destroy` record, no owed silence, no accreted mark. The
+;; sibling #5939 (`terminal-publish-noops-on-nil-bundle-no-fabrication`) and #5956
+;; integrated fixtures never READ destroyed / pre-first-epoch successor history; this
+;; one does. Reverting the cleanup beneath the evidence guard fails assertion (1).
+
+(deftest destroy-cleans-exact-owner-stores-when-snapshot-evidence-is-nil
+  (testing "a throwing :epoch/snapshot-frame-destroyed hook yields nil terminal-
+            evidence (#5939), but the destroyed incarnation's id-keyed epoch stores
+            are STILL dropped — cleanup authority is the frame-id + owner-token, not
+            the snapshot bundle — so a same-id successor B inherits nothing (rf2-hclxos)"
+    (let [id            :test/nil-evidence-cleanup
+          cb            ::nil-evidence-cb
+          records       (atom [])
+          traces        (record-trace!)
+          original-snap (late-bind/get-fn :epoch/snapshot-frame-destroyed)]
+      (rf/make-frame {:id id})
+      (rf/reg-event :seed (fn [_ _] {:db {:audit/seed :from-A}}))
+      ;; cb OBSERVES A: delivery of the settled :seed record stamps its observation
+      ;; of the frame, so a FABRICATING publish would have a real observer to
+      ;; (wrongly) silence — making the non-fabrication assertion meaningful.
+      (rf/register-listener! :epoch cb (fn [r] (swap! records conj r)))
+      (rf/dispatch-sync [:seed] {:frame id})
+      (reset! records [])                          ; drop the :seed :ok record
+      (let [a-token (frame/frame-incarnation-token id)]
+        ;; A settled one epoch: its id-keyed history holds the [:audit/seed] record.
+        (is (= 1 (count (rf/epoch-history id)))
+            "A settled one epoch before destroy")
+        (is (= :from-A (get-in (first (rf/epoch-history id)) [:db-after :audit/seed]))
+            "A's settled record carries [:audit/seed] :from-A")
+        (try
+          ;; Fail the PRE-dissoc snapshot for this id (delegate every other id):
+          ;; destroy-frame! converts the throw to nil terminal-evidence and threads
+          ;; it to on-frame-destroyed! (#5939). Teardown is best-effort — it does
+          ;; NOT abort — so destroy-frame! returns normally.
+          (late-bind/set-fn! :epoch/snapshot-frame-destroyed
+            (fn [& args]
+              (if (= id (first args))
+                (throw (ex-info "snapshot blew" {:why :test}))
+                (when original-snap (apply original-snap args)))))
+          (rf/destroy-frame! id)
+
+          ;; (1) EXACT-OWNER STORE CLEANUP ran despite the nil bundle — the destroyed
+          ;;     id's history is [] (it still equalled A's [:audit/seed] before fix).
+          (is (= [] (rf/epoch-history id))
+              "destroyed id's epoch-history is [] even though the snapshot threw")
+          (is (nil? (frame/frame-incarnation-token id))
+              "A is fully destroyed — no live incarnation owns the id")
+
+          ;; (2) #5939 NON-FABRICATION still holds: the nil bundle publishes nothing.
+          (is (empty? (filterv #(= :halted-destroy (:outcome %)) @records))
+              "no :halted-destroy record is fabricated from the nil bundle")
+          (is (empty? (filterv #(= :rf.epoch.cb/silenced-on-frame-destroy
+                                    (:operation %))
+                               @traces))
+              "no silencing fires — the snapshot that would have owed it produced nothing")
+          (is (zero? (reduce + 0 (map count
+                                      (vals (state/terminal-silence-marks-snapshot)))))
+              "a nil bundle opens no deferred-silence window — no mark accreted (bounded)")
+
+          ;; (3) SAME-ID SUCCESSOR B, BEFORE its first epoch, inherits nothing.
+          (rf/make-frame {:id id})
+          (let [b-token (frame/frame-incarnation-token id)]
+            (is (some? b-token) "same-id B is live after A's destroy")
+            (is (not= a-token b-token)
+                "B is a FRESH incarnation — distinct token from destroyed A")
+            (is (= [] (rf/epoch-history id))
+                "same-id B exposes no A history before its first epoch")
+            (is (not-any? #(= :from-A (get-in % [:db-after :audit/seed]))
+                          (rf/epoch-history id))
+                "B carries none of A's [:audit/seed] records"))
+          (finally
+            (late-bind/set-fn! :epoch/snapshot-frame-destroyed original-snap)
+            (when (frame/frame id) (rf/destroy-frame! id))
+            (rf/unregister-listener! :epoch cb)))))))
+
 ;; ---- capture-buffer cross-contamination from out-of-drain emits -----------
 ;;
 ;; The `capture-event!` fn must skip every `:rf.epoch/*` op the namespace
