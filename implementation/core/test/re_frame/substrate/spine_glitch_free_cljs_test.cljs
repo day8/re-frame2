@@ -370,6 +370,159 @@
           "the bare reset! drained immediately (no epoch open) and notified
            once with the recomputed value"))))
 
+;; ---- direct source mutation: earlier dependent throw does NOT suppress -----
+;; ---- the later sibling's derived work (rf2-2u4rw depth-zero entry) ---------
+
+(deftest direct-source-earlier-throw-still-drains-later-sibling
+  (testing "a DIRECT raw source reset (depth zero, bypassing replace-container!)
+            fires the source's watches ONE AT A TIME through the atom's own
+            notify loop. TWO derived dependents watch the source; the EARLIER
+            (first-firing) dependent's recompute throws. Before rf2-2u4rw the
+            depth-zero drain re-raised that failure inline, so it escaped the
+            atom's uncontained notify loop and the LATER dependent's watch never
+            marked/enqueued — a supported direct mutation suppressing sibling
+            derived work. Now the drain captures the escape on the SCHEDULER's
+            :escaped cell and DEFERS it, so the atom loop continues to the later
+            sibling (which marks + drains its own flush); the later sibling's
+            drain then surfaces the earlier failure. Net: the later sibling's
+            derived work runs, THEN the original first failure surfaces once,
+            with identity preserved, and the scheduler recovers cleanly."
+    (let [scheduler    (spine/make-scheduler)
+          make-derived (spine/make-derived-value-fn "rf-b1-" scheduler)
+          src          (atom 1)
+          boom?        (atom false)
+          later-ran    (atom 0)
+          sentinel     (js/Error. "earlier boom")
+          ;; EARLIER dependent — constructed first, so its watch fires first and
+          ;; its flush drains first. Throws the sentinel on demand.
+          earlier      (make-derived [src]
+                         (fn [x] (when @boom? (throw sentinel)) x))
+          ;; LATER dependent — the sibling a re-raising depth-zero drain would
+          ;; have suppressed (its watch never firing because the atom loop
+          ;; aborted). Counts its cascade-time flushes.
+          later        (make-derived [src]
+                         (fn [x] (when @boom? (swap! later-ran inc)) (* x 10)))
+          later-notes  (atom [])]
+      ;; Lazy baselines (the sub-cache reads on subscribe), before arming.
+      (is (= 1 @earlier) "earlier baseline")
+      (is (= 10 @later) "later baseline")
+      (add-watch later :w (fn [_ _ prev nu] (swap! later-notes conj [prev nu])))
+      (reset! boom? true)
+      (let [caught (atom ::none)]
+        (try (reset! src 2)
+             (catch :default e (reset! caught e)))
+        (is (identical? sentinel @caught)
+            "the EARLIER dependent's failure surfaced to the caller with EXACT
+             identity — deferred on :escaped, re-raised after the later sibling")
+        (is (= 1 @later-ran)
+            "the LATER sibling's flush STILL ran (its watch marked/enqueued) —
+             a re-raising depth-zero drain would have suppressed it entirely")
+        (is (= [[10 20]] @later-notes)
+            "the later sibling notified its own watcher with the settled value
+             BEFORE the earlier failure surfaced"))
+      ;; Recovery: disarm and reset AGAIN — both dependents re-mark + flush,
+      ;; proving neither the :escaped cell nor a dirty? guard was left stuck.
+      (reset! boom? false)
+      (reset! later-notes [])
+      (reset! src 3)
+      (is (= 3 @earlier) "earlier recovered — its dirty? guard was cleared")
+      (is (= [[20 30]] @later-notes)
+          "a later clean reset re-marks + flushes the later sibling — scheduler
+           state (:escaped, queue, flushing?) fully recovered"))))
+
+(deftest direct-source-both-dependents-throw-surfaces-earliest
+  (testing "when BOTH direct dependents throw (earlier first), the EARLIEST
+            escape is the one surfaced (presence capture across the sequential
+            per-watch drains) — the later dependent's own throw is dropped in
+            favour of the first. (rf2-2u4rw)"
+    (let [scheduler    (spine/make-scheduler)
+          make-derived (spine/make-derived-value-fn "rf-b1b-" scheduler)
+          src          (atom 1)
+          boom?        (atom false)
+          first-err    (js/Error. "first boom")
+          earlier      (make-derived [src] (fn [x] (when @boom? (throw first-err)) x))
+          later        (make-derived [src] (fn [x] (when @boom? (throw (js/Error. "second boom"))) x))]
+      (is (= 1 @earlier) "earlier baseline")
+      (is (= 1 @later) "later baseline")
+      (reset! boom? true)
+      (let [caught (atom ::none)]
+        (try (reset! src 2)
+             (catch :default e (reset! caught e)))
+        (is (identical? first-err @caught)
+            "the earliest (first-firing dependent's) failure surfaced by
+             identity; the later dependent's throw was superseded")))))
+
+;; ---- with-epoch body/finally failure ordering (rf2-2u4rw epoch entry) ------
+
+(deftest with-epoch-body-throw-wins-over-drain-throw
+  (testing "a `with-epoch` body that QUEUES work and then throws E1, whose
+            queued drain then throws E2, surfaces E1 (the earliest escape) to
+            the caller — NOT E2. A bare try/finally would let JavaScript's
+            finally-replaces-try semantics surface E2 and lose the primary E1.
+            rf2-2u4rw seeds the body escape onto :escaped BEFORE draining so the
+            drain's E2 cannot displace it; the drain still attempts the queued
+            tail, and E1 surfaces once with exact identity, scheduler clean."
+    (let [scheduler    (spine/make-scheduler)
+          make-derived (spine/make-derived-value-fn "rf-b2-" scheduler)
+          replace!     (spine/make-replace-container-fn scheduler)
+          root         (spine/make-state-container {:a 1})
+          boom?        (atom false)
+          e1           (js/Error. "E1 body")
+          ;; A derived whose flush recompute throws E2 during the drain (its
+          ;; :a slice moves, so it recomputes and throws when armed).
+          drain-thrower (make-derived [root]
+                          (fn [db] (when @boom? (throw (js/Error. "E2 drain")))
+                            (:a db)))]
+      (is (= 1 @drain-thrower) "baseline deref")
+      (reset! boom? true)
+      (let [caught (atom ::none)]
+        ;; Body: reset root (queues drain-thrower's flush at depth 1), THEN
+        ;; throw E1. The outermost close drains (flush throws E2) and must
+        ;; surface E1.
+        (try (#'spine/with-epoch scheduler
+               (fn []
+                 (reset! root {:a 2})   ;; queues the flush (no drain yet)
+                 (throw e1)))           ;; E1 escapes the body after queueing
+             (catch :default e (reset! caught e)))
+        (is (identical? e1 @caught)
+            "E1 (the body's earliest escape) surfaced with exact identity — the
+             drain's E2 did not displace it (rf2-2u4rw)"))
+      ;; Scheduler recovered: a normal replace! after the failure flushes
+      ;; cleanly (queue/flushing?/:escaped all clean).
+      (reset! boom? false)
+      (let [notes (atom [])]
+        (add-watch drain-thrower :w (fn [_ _ _ nu] (swap! notes conj nu)))
+        (replace! root {:a 5})
+        (is (= [5] @notes)
+            "a later replace! flushes normally — scheduler state fully restored
+             after the body-throw + drain-throw cascade")
+        (is (= 5 @drain-thrower) "the derived value settled to the new slice"))))
+
+  (testing "the body-over-drain primary is preserved by PRESENCE: a body that
+            throws a FALSEY value (`nil` / `false`, both legal CLJS throws)
+            still wins over a truthy drain E2, with exact identity. (rf2-2u4rw)"
+    (doseq [thrown-val [false nil]]
+      (let [scheduler    (spine/make-scheduler)
+            make-derived (spine/make-derived-value-fn "rf-b2f-" scheduler)
+            root         (spine/make-state-container {:a 1})
+            boom?        (atom false)
+            _drain-thrower (make-derived [root]
+                             (fn [db] (when @boom? (throw (js/Error. "E2 drain")))
+                               (:a db)))]
+        (is (= 1 @_drain-thrower) "baseline deref")
+        (reset! boom? true)
+        (let [caught (atom ::none)
+              threw? (atom false)]
+          (try (#'spine/with-epoch scheduler
+                 (fn [] (reset! root {:a 2}) (throw thrown-val)))
+               (catch :default e (reset! threw? true) (reset! caught e)))
+          (is @threw?
+              (str "with-epoch SURFACED the `" (pr-str thrown-val) "` body throw"))
+          (is (identical? thrown-val @caught)
+              (str "the surfaced value IS the original `" (pr-str thrown-val)
+                   "` body throw — earliest primary preserved by presence, not "
+                   "truthiness, over the truthy drain E2")))))))
+
 ;; ---- native derived fan-out: rf= movement law ----------------------------
 ;; (rf2-vxgfnd.203)
 

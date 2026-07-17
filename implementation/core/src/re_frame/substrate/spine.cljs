@@ -97,24 +97,47 @@
 ;; single-threaded JS event loop and never escape the adapter closure —
 ;; `volatile!` is the right primitive, no CAS cost.
 
+(def ^:private capture-none
+  "Presence sentinel shared by the failure seams — the derived fan-out's
+  first-thrown capture (`notify`) and the scheduler's earliest-escape cell
+  (`:escaped`, read/written by `drain-scheduler!` + `with-epoch`). A distinct
+  object identity so a subscriber / recompute that throws `nil`/`false` (both
+  legal CLJS throws) is still recorded and re-raised by PRESENCE — never masked
+  by a truthiness test (rf2-vxgfnd.203, rf2-qcmzc, rf2-2u4rw)."
+  (js-obj))
+
+(defn- pick-third
+  "Reducing fn that returns the map value, discarding accumulator + key.
+  Hoisted (top-level, allocated once) so `sole-val` pays no per-call closure."
+  [_ _ v]
+  v)
+
+(defn- sole-val
+  "The single value of a one-entry map, WITHOUT the map-seq + `MapEntry`
+  `(val (first m))` allocates (rf2-2u4rw common-path preservation). `reduce-kv`
+  walks the backing array directly and returns the sole value; `nil`/`false`
+  values survive (it returns whatever `pick-third` yields). Caller guarantees
+  exactly one entry (the `(case (count ws) 1 …)` fast path)."
+  [m]
+  (reduce-kv pick-third nil m))
+
 (defn make-scheduler
   "Return a fresh per-adapter epoch scheduler cell. Each adapter owns its
   own so multiple React-shaped adapters can coexist in a test bundle
-  without sharing an epoch queue."
+  without sharing an epoch queue.
+
+  `:escaped` is the scheduler-lifetime EARLIEST-ESCAPE cell (rf2-2u4rw):
+  the first thunk failure a drain contains, held by PRESENCE across the
+  sequential sibling-watch drains of a single direct source mutation and
+  across the `with-epoch` body/finally boundary, so the earliest primary
+  failure surfaces once (E1 over any later E2) after all owned work is
+  attempted. One volatile per scheduler — no per-drain capture allocation."
   []
   {:depth     (volatile! 0)   ;; open-epoch nesting depth
    :flushing? (volatile! false)
    :queue     (volatile! [])  ;; ordered queue of pending flush thunks
-   :queued    (volatile! #{})}) ;; identity set guarding double-enqueue
-
-(def ^:private capture-none
-  "Presence sentinel shared by the two failure seams — the derived fan-out's
-  first-thrown capture (`notify`) and the scheduler drain's first-escape
-  capture (`drain-scheduler!`). A distinct object identity so a subscriber /
-  recompute that throws `nil`/`false` (both legal CLJS throws) is still
-  recorded and re-raised by PRESENCE — never masked by a truthiness test
-  (rf2-vxgfnd.203, rf2-qcmzc)."
-  (js-obj))
+   :queued    (volatile! #{}) ;; identity set guarding double-enqueue
+   :escaped   (volatile! capture-none)}) ;; earliest-escape cell (rf2-2u4rw)
 
 (defn- drain-scheduler!
   "Drain the scheduler's pending flush thunks in enqueue order until the
@@ -124,14 +147,14 @@
   notifies its watchers — which may enqueue downstream thunks that the
   same loop then drains, preserving topological order.
 
-  Per-thunk isolation WITH first-escape surfacing (rf2-l3lelt + rf2-qcmzc).
-  On the production sub graph a flush thunk never throws: the spine
-  compute-fn is `subs.memo/validate-and-trace`, which brackets the user sub
-  body in `try/catch`, emits `:rf.error/sub-exception`, and recovers to nil.
-  A non-catching compute-fn (a RAW derived value built by tooling/tests),
+  Per-thunk isolation WITH earliest-escape surfacing (rf2-l3lelt + rf2-qcmzc
+  + rf2-2u4rw). On the production sub graph a flush thunk never throws: the
+  spine compute-fn is `subs.memo/validate-and-trace`, which brackets the user
+  sub body in `try/catch`, emits `:rf.error/sub-exception`, and recovers to
+  nil. A non-catching compute-fn (a RAW derived value built by tooling/tests),
   or a throwing derived SUBSCRIBER (whose escape the fan-out `notify`
   re-raises after delivering every sibling), CAN throw though — and this
-  seam owes TWO disciplines at once:
+  seam owes THREE disciplines at once:
 
     1. Don't STRAND the tail (rf2-l3lelt). A throw propagating out of a bare
        drain loop stranded every downstream thunk still queued behind it:
@@ -144,65 +167,90 @@
     2. Don't SWALLOW the failure (rf2-qcmzc). The earlier per-thunk guard
        DISCARDED every escape (`(catch :default _ nil)`), so a programmer
        error in a raw derived value / subscriber vanished silently and the
-       fan-out's careful re-raise reached a dead end — the source bead's
-       observability criterion unmet. Instead the loop CAPTURES the FIRST
-       escape by PRESENCE (`capture-none`, not truthiness — `nil`/`false`
-       are legal CLJS throws whose identity must survive), keeps draining
-       the tail, restores scheduler state in the `finally`, and THEN
-       re-raises the retained value to the caller (`replace-container!` / a
-       direct source mutation) — the established caller/error channel. The
-       primary failure surfaces WITH identity preserved, AFTER every sibling
-       has been delivered.
+       fan-out's careful re-raise reached a dead end. Instead the loop
+       CAPTURES the escape by PRESENCE into the scheduler's `:escaped` cell
+       (`capture-none`, not truthiness — `nil`/`false` are legal CLJS throws
+       whose identity must survive), keeps draining the tail, restores queue/
+       flushing state in the `finally`, and surfaces the escape through the
+       caller/error channel — identity preserved, AFTER every sibling.
 
-  The throwing thunk's own `dirty?` was already cleared by `flush!` before
-  `recompute`, so it leaves no stuck guard either. Queued / re-entrant
-  writes a subscriber triggers mid-drain are a later pass; the FIRST escape
-  is the one surfaced."
-  [{:keys [flushing? queue queued] :as _scheduler}]
+    3. Preserve the EARLIEST across the depth-zero source-atom entry
+       (rf2-2u4rw). A direct `reset!` fires its source's watches ONE AT A
+       TIME through the atom's own (uncontained) notify loop; each derived
+       dependent's watch marks-dirty and, at depth zero, drains here. Were
+       this drain to re-raise the FIRST dependent's failure, that throw would
+       escape the atom's notify loop and the LATER dependents' watches would
+       never mark/enqueue — a supported direct mutation suppressing sibling
+       derived work. So the capture lives on the SCHEDULER (`:escaped`),
+       surviving across those sequential per-watch drains, and a drain
+       re-raises ONLY a STALE escape — one already present at its entry,
+       deferred by an EARLIER sibling drain. A FRESH escape (captured in THIS
+       drain) is left in `:escaped` so the atom's notify loop continues to the
+       later sibling; that sibling's drain (or the terminal `with-epoch`
+       close) then surfaces the earliest primary. Net: the later sibling
+       marks/drains, THEN the original first failure surfaces once.
+
+  `:escaped` is a scheduler-lifetime volatile (allocated once by
+  `make-scheduler`), so an ordinary empty/one-subscriber drain allocates
+  NOTHING here — the cursor is a loop binding, not a per-drain volatile
+  (rf2-2u4rw common-path preservation). The throwing thunk's own `dirty?`
+  was already cleared by `flush!` before `recompute`, so it leaves no stuck
+  guard either."
+  [{:keys [flushing? queue queued escaped] :as _scheduler}]
   (when-not @flushing?
     (vreset! flushing? true)
-    ;; Walk the live `@queue` by index rather than re-slicing the head: a
-    ;; thunk may `schedule-flush!` downstream thunks, which `conj` onto the
-    ;; same vector, so re-reading `(count @queue)` each step keeps the
-    ;; running loop observing newly-enqueued thunks in enqueue order. The
-    ;; cursor advances and the entry leaves `queued` BEFORE the thunk runs,
-    ;; so a thunk that throws is already considered consumed (matching the
-    ;; old head-pop-before-call ordering). The per-thunk `try/catch` (see the
-    ;; docstring) BOTH isolates a throwing thunk so the loop drains the
-    ;; downstream tail to completion AND retains its escape for surfacing;
-    ;; the `finally` then restores scheduler state for the next epoch.
-    (let [cursor   (volatile! 0)
-          captured (volatile! capture-none)]
+    ;; A STALE escape present at entry was deferred by a preceding sibling
+    ;; drain (a direct depth-zero mutation whose earlier dependent threw);
+    ;; this drain drains the later sibling's owned work, then re-raises it.
+    (let [stale-at-entry? (not (identical? capture-none @escaped))]
       (try
-        (loop []
-          (when (< @cursor (count @queue))
-            (let [thunk (nth @queue @cursor)]
+        ;; Walk the live `@queue` by index rather than re-slicing the head: a
+        ;; thunk may `schedule-flush!` downstream thunks, which `conj` onto the
+        ;; same vector, so re-reading `(count @queue)` each step keeps the
+        ;; running loop observing newly-enqueued thunks in enqueue order. The
+        ;; entry leaves `queued` and the cursor advances BEFORE the thunk runs,
+        ;; so a thunk that throws is already considered consumed (matching the
+        ;; old head-pop-before-call ordering). The per-thunk `try/catch`
+        ;; isolates a throwing thunk (drains the tail) AND retains its escape.
+        (loop [cursor 0]
+          (when (< cursor (count @queue))
+            (let [thunk (nth @queue cursor)]
               (vswap! queued disj thunk)
-              (vswap! cursor inc)
-              ;; Per-thunk isolation + first-escape capture (rf2-l3lelt +
-              ;; rf2-qcmzc): retain the FIRST escape by presence so it can be
-              ;; surfaced after the drain, while the loop still drains the
-              ;; not-yet-run tail. `capture-none`/`nil`/`false` safe.
               (try (thunk)
                    (catch :default e
-                     (when (identical? capture-none @captured)
-                       (vreset! captured e)))))
-            (recur)))
+                     (when (identical? capture-none @escaped)
+                       (vreset! escaped e)))))
+            (recur (inc cursor))))
         (finally
           ;; The loop consumes `@queue` to empty on every non-re-entrant exit
-          ;; (per-thunk capture means no throw escapes the loop), so the
-          ;; cursor reaches the end and this releases the backing vector for
-          ;; the next epoch. Re-entrant drains short-circuit on `@flushing?`
-          ;; above and never reach here.
+          ;; (per-thunk capture means no throw escapes the loop), so this
+          ;; releases the backing vector for the next epoch. Re-entrant drains
+          ;; short-circuit on `@flushing?` above and never reach here.
           (vreset! queue [])
           (vreset! flushing? false)))
-      ;; Scheduler state is restored; NOW surface the FIRST retained escape
-      ;; through the caller/error channel (rf2-qcmzc). Re-raised OUTSIDE the
-      ;; try/finally so scheduler state is clean for the next epoch even on
-      ;; this path, and so the `finally`'s own resets can never mask the
-      ;; primary failure.
-      (when-not (identical? capture-none @captured)
-        (throw @captured)))))
+      ;; Queue/flushing state is restored. Surface ONLY a stale escape — one
+      ;; present at entry (a deferred earlier-sibling failure). A fresh escape
+      ;; captured in THIS drain is left in `:escaped` so the atom's own notify
+      ;; loop can still fire the later sibling watches; the following sibling
+      ;; drain (stale-at-entry) or the terminal `with-epoch` close surfaces it.
+      ;; Re-raised OUTSIDE the try/finally so the `finally`'s resets can never
+      ;; mask the primary failure (rf2-qcmzc + rf2-2u4rw).
+      (when stale-at-entry?
+        (let [e @escaped]
+          (vreset! escaped capture-none)
+          (throw e))))))
+
+(defn- surface-escaped!
+  "If the scheduler holds a retained earliest escape, clear it and re-raise it
+  (by presence — `nil`/`false` survive). The terminal surfacing helper for
+  `with-epoch`'s outermost close (rf2-2u4rw): after the drain has attempted
+  every owned thunk and restored state, any escape a FRESH-capture drain
+  deferred surfaces here, once."
+  [{:keys [escaped] :as _scheduler}]
+  (when-not (identical? capture-none @escaped)
+    (let [e @escaped]
+      (vreset! escaped capture-none)
+      (throw e))))
 
 (defn- schedule-flush!
   "Enqueue `thunk` on the scheduler (dedup by identity within the current
@@ -216,18 +264,50 @@
     (drain-scheduler! scheduler)))
 
 (defn- with-epoch
-  "Run `body-thunk` inside an open epoch on `scheduler`; the outermost
-  close drains the pending flush queue. Nested epochs (a re-entrant
-  `replace-container!` during a flush) only drain at the outermost
-  boundary so coalescing spans the whole synchronous cascade."
-  [{:keys [depth] :as scheduler} body-thunk]
+  "Run `body-thunk` inside an open epoch on `scheduler`; the outermost close
+  drains the pending flush queue. Nested epochs (a re-entrant
+  `replace-container!` during a flush) only drain at the outermost boundary so
+  coalescing spans the whole synchronous cascade.
+
+  Body/finally failure ordering (rf2-2u4rw). `body-thunk` (the bracketed
+  `reset!`) can queue work and THEN throw E1 — e.g. a `replace-container!`
+  whose reset fires a watch that itself throws after other watches already
+  enqueued flushes. The outermost close must still drain that queued tail, but
+  the drain can throw its own E2. A bare `try/finally` would let JavaScript's
+  finally-replaces-try semantics surface E2 and LOSE E1 — the caller-visible
+  primary would no longer be the earliest escape. So the body's escape is
+  caught, recorded as the earliest (`:escaped`) BEFORE the drain runs so a
+  drain E2 cannot displace it, the drain attempts every owned thunk and
+  restores scheduler state, and the EARLIEST (E1 over E2) surfaces once via
+  `surface-escaped!`. `depth` is decremented on both the success and throw
+  paths so nested-epoch accounting stays correct. `capture-none` presence
+  (not truthiness) keeps a `false`/`nil` body throw representable."
+  [{:keys [depth escaped] :as scheduler} body-thunk]
   (vswap! depth inc)
-  (try
-    (body-thunk)
-    (finally
-      (vswap! depth dec)
-      (when (zero? @depth)
-        (drain-scheduler! scheduler)))))
+  (let [body-escaped (try
+                       (body-thunk)
+                       capture-none
+                       (catch :default e e))]
+    (vswap! depth dec)
+    (if (zero? @depth)
+      (do
+        ;; Body threw E1 → it escaped earliest, so it is the PRIMARY. Seed
+        ;; `:escaped` before draining so the drain's own escape can't displace
+        ;; it (rf2-2u4rw with-epoch entry). A clean body leaves `:escaped`
+        ;; untouched; the drain then owns any flush escape.
+        (when-not (identical? capture-none body-escaped)
+          (when (identical? capture-none @escaped)
+            (vreset! escaped body-escaped)))
+        ;; Always attempt the queued tail. `drain-scheduler!` re-raises a
+        ;; stale escape (the seeded E1) itself; `surface-escaped!` covers the
+        ;; clean-body / drain-only escape the drain deferred (this outermost
+        ;; close is terminal — no later sibling drain follows).
+        (drain-scheduler! scheduler)
+        (surface-escaped! scheduler))
+      ;; Nested epoch close: the outer epoch owns the drain + surfacing;
+      ;; propagate a body escape upward so it reaches that boundary.
+      (when-not (identical? capture-none body-escaped)
+        (throw body-escaped)))))
 
 ;; ---- container ------------------------------------------------------------
 ;;
@@ -473,9 +553,12 @@
                                  ;; Single subscriber: no sibling to protect →
                                  ;; no capture cell, invoke directly. A throw
                                  ;; propagates through `flush!` into the drain,
-                                 ;; which surfaces it (rf2-qcmzc) — same outcome,
-                                 ;; zero extra allocation on the common path.
-                                 1 ((val (first ws)) prev nu)
+                                 ;; which surfaces it (rf2-qcmzc). `sole-val`
+                                 ;; extracts the lone watcher WITHOUT the map-seq
+                                 ;; + `MapEntry` `(val (first ws))` allocates —
+                                 ;; genuinely allocation-free on the common path
+                                 ;; (rf2-2u4rw).
+                                 1 ((sole-val ws) prev nu)
                                  ;; Two+ subscribers: attempt each independently,
                                  ;; capture the FIRST escape by presence, re-raise
                                  ;; after delivery (surfaced via the drain).
