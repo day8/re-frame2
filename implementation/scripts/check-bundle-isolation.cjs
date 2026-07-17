@@ -873,7 +873,7 @@ function assertPositiveControlComplete(artefacts = ARTEFACTS, controls = POSITIV
   };
 }
 
-// ----- canonical publishable-artefact coverage (rf2-sh0sp4) ------------------
+// ----- canonical publishable-runtime coverage (rf2-sh0sp4 / rf2-klyw5) -------
 
 // assertPositiveControlComplete only cross-checks this script's own two local
 // tables (ARTEFACTS <-> POSITIVE_CONTROL): an artefact absent from BOTH is
@@ -881,64 +881,157 @@ function assertPositiveControlComplete(artefacts = ARTEFACTS, controls = POSITIV
 // the gate — a separately published, browser-reachable optional runtime omitted
 // from every internal table stayed green. This check closes that hole by
 // deriving the REQUIRED set from the SAME canonical authority the release
-// lockstep uses (.github/scripts/verify-version-lockstep.sh): every
-// implementation/*/deps.edn carrying a `:clein/build` alias is a published
-// artefact. The browser-optional runtimes among them MUST each carry a primary
-// isolation entry here. It is filesystem-derived, so adding a new browser-
-// optional artefact (a new implementation/<name>/deps.edn with :clein/build,
-// not in the exclusion set below) without an ARTEFACTS entry fails
-// automatically — the check does NOT compare two copies of its own local table.
+// lockstep uses (.github/scripts/verify-version-lockstep.sh): every publishable
+// artefact deps.edn carrying a `:clein/build` alias is a published artefact.
+// Each browser-optional runtime among them MUST map either to a primary generic
+// ARTEFACTS entry here OR to a real dedicated isolation gate
+// (DEDICATED_ISOLATION_GATES below). It is filesystem-derived, so a NEW
+// browser-optional artefact — a new implementation/<name>/deps.edn OR a new
+// implementation/adapters/<name>/deps.edn with :clein/build, not in the
+// exclusion set — that is neither generic-gated nor dedicated-gated fails
+// automatically (FAIL-CLOSED). The check does NOT compare two copies of its own
+// local table.
 //
-// Excluded (published, but NOT a browser-optional runtime — each with reason):
+// Traversal mirrors the release lockstep's bounded FLAT-plus-ADAPTERS shape:
+// per-feature + core-tier artefacts live at implementation/<name>/; substrate
+// adapters live one directory deeper at implementation/adapters/<name>/. The
+// pre-rf2-klyw5 scan read only the top level, so a newly publishable adapter was
+// never enrolled (rf2-klyw5 NOTES — a second counterexample to rf2-sh0sp4 AC6).
+//
+// Excluded from the REQUIRED set (published, but NOT a browser-optional client
+// runtime — each with reason):
 //   core     — always present (the lockstep root; every app loads it, so it is
 //              never isolated from the counter bundle).
-//   ui       — always present (the compiled-view substrate; every adapter loads
-//              it, so it is never isolated from the counter bundle).
 //   ssr-ring — JVM-only ring server adapter (all .clj; no CLJS runtime body can
 //              reach a production client bundle).
-// Substrate adapters (implementation/adapters/*) are always present with their
-// substrate and live one directory deeper, so the top-level scan skips them.
-const NON_BROWSER_OPTIONAL = new Set(['core', 'ui', 'ssr-ring']);
+// `ui` is deliberately NOT excluded (rf2-klyw5): day8/re-frame2-ui is a separate
+// browser-capable substrate artefact that the adapters do NOT depend on, so the
+// old "always present, every adapter loads it" premise was false and let a
+// future publishable UI stay unguarded. Because implementation/ui/deps.edn
+// carries no real :clein/build today (only a comment mentioning the alias), UI
+// is not discovered and pre-publication stays green NATURALLY; when
+// rf2-vxgfnd.99.2 makes UI publishable, it must land a UI isolation entry/gate
+// in that same slice or this coverage check fails and names `ui`.
+const NON_BROWSER_OPTIONAL = new Set(['core', 'ssr-ring']);
+
+// Nested substrate-adapter tier, relative to implementation/ (matches the
+// lockstep authority's implementation/adapters/<name>/ layout).
+const ADAPTERS_DIR = 'adapters';
+
+// Browser-optional runtimes covered by a REAL dedicated isolation gate rather
+// than a generic ARTEFACTS entry. Each substrate adapter ships in the counter/
+// login example matrix and is proven isolated by an adapter-specific gate (the
+// per-feature artefacts, by contrast, must be ABSENT from the no-feature counter
+// bundle, which the generic ARTEFACTS sentinels prove). A discovered runtime
+// mapped here is accounted for; a discovered runtime mapped NOWHERE fails closed.
+// Keep this to the set of EXISTING dedicated gates only — do not add a runtime
+// here without a real gate script proving its isolation.
+const DEDICATED_ISOLATION_GATES = {
+  reagent:
+    'check-uix-helix-reagent-free.cjs + check-login-bundle-isolation.cjs ' +
+    '(reagent is the counter/login reference substrate; its fingerprints are ' +
+    'the positive control both gates assert present, and absent from uix/helix)',
+  uix:
+    'check-uix-helix-reagent-free.cjs + check-login-bundle-isolation.cjs ' +
+    '(uix bundles must be reagent- and helix-free)',
+  helix:
+    'check-uix-helix-reagent-free.cjs + check-login-bundle-isolation.cjs ' +
+    '(helix bundles must be reagent- and uix-free)',
+  'reagent-slim':
+    'check-reagent-slim-bundle-isolation.cjs (test:reagent-slim:bundle-isolation ' +
+    '— slim bundle free of stock reagent + react-dom/server; classic bundle ' +
+    'free of the reagent2.* rewrite)',
+};
 
 // Strip deps.edn line comments (`;` to EOL) so a header comment MENTIONING
-// `:clein/build` (several artefact deps.edn headers do) is not mistaken for a
-// real build alias.
+// `:clein/build` (several artefact deps.edn headers do — implementation/ui's is
+// exactly such a comment) is not mistaken for a real build alias.
 function stripEdnComments(edn) {
   return edn.replace(/;[^\n]*/g, '');
 }
 
-function canonicalBrowserOptionalArtefacts() {
-  const out = [];
-  let entries;
+// True when <root>/<relPath>/deps.edn declares a REAL (non-comment) :clein/build
+// alias — i.e. the directory is a separately publishable artefact.
+function hasRealBuildAlias(root, relPath) {
+  let deps;
   try {
-    entries = fs.readdirSync(ROOT, { withFileTypes: true });
+    deps = fs.readFileSync(path.join(root, relPath, 'deps.edn'), 'utf8');
+  } catch (_e) {
+    return false; // no deps.edn — not a publishable artefact directory
+  }
+  return /:clein\/build/.test(stripEdnComments(deps));
+}
+
+// Discover every publishable browser-optional runtime under implementation/,
+// using the lockstep authority's bounded flat-plus-adapters traversal. Returns
+// `{ name, relPath }` records; `name` is the directory leaf (unique across both
+// tiers) and `relPath` is the implementation/-relative path for diagnostics.
+function discoverBrowserOptionalRuntimes(root = ROOT) {
+  const out = [];
+
+  // Flat per-feature + core-tier artefacts: implementation/<name>/deps.edn.
+  let flat;
+  try {
+    flat = fs.readdirSync(root, { withFileTypes: true });
   } catch (_e) {
     return out; // implementation/ unreadable — nothing to require (fails safe elsewhere)
   }
-  for (const ent of entries) {
-    if (!ent.isDirectory() || NON_BROWSER_OPTIONAL.has(ent.name)) continue;
-    let deps;
-    try {
-      deps = fs.readFileSync(path.join(ROOT, ent.name, 'deps.edn'), 'utf8');
-    } catch (_e) {
-      continue; // no deps.edn — not a publishable artefact directory
+  for (const ent of flat) {
+    if (!ent.isDirectory()) continue;
+    if (ent.name === ADAPTERS_DIR) continue;         // descended into below
+    if (NON_BROWSER_OPTIONAL.has(ent.name)) continue;
+    if (hasRealBuildAlias(root, ent.name)) {
+      out.push({ name: ent.name, relPath: ent.name });
     }
-    if (/:clein\/build/.test(stripEdnComments(deps))) {
-      out.push(ent.name);
+  }
+
+  // Nested substrate adapters: implementation/adapters/<name>/deps.edn. The
+  // pre-rf2-klyw5 top-level-only scan skipped these; the lockstep authority
+  // scans them, so a newly publishable adapter must be enrolled here too.
+  let adapters;
+  try {
+    adapters = fs.readdirSync(path.join(root, ADAPTERS_DIR), { withFileTypes: true });
+  } catch (_e) {
+    adapters = []; // no adapters/ dir — nothing nested to require
+  }
+  for (const ent of adapters) {
+    if (!ent.isDirectory()) continue;
+    const relPath = `${ADAPTERS_DIR}/${ent.name}`;
+    if (hasRealBuildAlias(root, relPath)) {
+      out.push({ name: ent.name, relPath });
     }
   }
   return out;
 }
 
-// Every browser-optional publishable runtime must carry a primary ARTEFACTS
-// entry. A member of the canonical inventory with no isolation entry means a
-// separately published optional runtime could leak into a production bundle
-// with nothing to catch it.
-function assertCanonicalInventoryCovered() {
-  const required = canonicalBrowserOptionalArtefacts();
-  const have = new Set(ARTEFACTS.map((a) => a.name));
-  const missing = required.filter((n) => !have.has(n));
-  return { required, missing, ok: missing.length === 0 };
+// Every discovered browser-optional publishable runtime must map to a real
+// isolation gate — either a generic ARTEFACTS entry (per-feature runtimes, which
+// must be ABSENT from the no-feature counter bundle) or an explicit existing
+// dedicated gate (substrate adapters, proven isolated by adapter-specific gates).
+// A discovered runtime mapped to NEITHER means a separately published optional
+// runtime could leak into a production bundle with nothing to catch it — so the
+// gate fails closed and names it.
+function assertCanonicalInventoryCovered(required = discoverBrowserOptionalRuntimes()) {
+  const generic = new Set(ARTEFACTS.map((a) => a.name));
+  const covered = [];
+  const missing = [];
+  for (const rt of required) {
+    if (generic.has(rt.name)) {
+      covered.push({ ...rt, via: 'generic' });
+    } else if (DEDICATED_ISOLATION_GATES[rt.name]) {
+      covered.push({ ...rt, via: 'dedicated', gate: DEDICATED_ISOLATION_GATES[rt.name] });
+    } else {
+      missing.push(rt);
+    }
+  }
+  return {
+    required,
+    covered,
+    missing,
+    genericCount: covered.filter((c) => c.via === 'generic').length,
+    dedicatedCount: covered.filter((c) => c.via === 'dedicated').length,
+    ok: missing.length === 0,
+  };
 }
 
 // ----- main ------------------------------------------------------------------
@@ -1017,7 +1110,8 @@ function main() {
         `${ARTEFACTS.length} artefact entries; ${internalChecked} internal sentinels absent; ` +
         `${allowListChecked} allow-list budgets ok; ` +
         `${positiveChecked} emitted positive-control sentinels present; ` +
-        `${coverage.required.length} canonical browser-optional runtimes covered; ` +
+        `${coverage.required.length} canonical browser-optional runtimes covered ` +
+        `(${coverage.genericCount} generic, ${coverage.dedicatedCount} dedicated); ` +
         `bundle=${bundleDir} (${blob.length} chars)`
     );
     process.exit(0);
@@ -1069,14 +1163,16 @@ function main() {
       console.error('');
     }
     if (!coverage.ok) {
-      console.error('Canonical inventory coverage (rf2-sh0sp4):');
-      console.error(`  Browser-optional publishable runtime(s) with NO isolation entry: ${coverage.missing.join(', ')}`);
+      console.error('Canonical inventory coverage (rf2-sh0sp4 / rf2-klyw5):');
+      console.error(`  Browser-optional publishable runtime(s) with NO isolation gate: ${coverage.missing.map((rt) => rt.relPath).join(', ')}`);
       console.error('  Each is a separately published day8/re-frame2-<name> artefact');
-      console.error('  (implementation/<name>/deps.edn carries :clein/build) with a CLJS');
-      console.error('  runtime that could leak into a production bundle unguarded. Add a');
-      console.error('  primary ARTEFACTS entry with live runtime sentinels + a positive');
-      console.error('  control. If it is genuinely not a browser-optional runtime (always-');
-      console.error('  present or JVM-only), add it to NON_BROWSER_OPTIONAL with a reason.');
+      console.error('  (implementation/<path>/deps.edn carries :clein/build) with a CLJS');
+      console.error('  runtime that could leak into a production bundle unguarded. Either');
+      console.error('  add a primary ARTEFACTS entry with live runtime sentinels + a');
+      console.error('  positive control, or — for a substrate adapter proven by an adapter-');
+      console.error('  specific gate — map it in DEDICATED_ISOLATION_GATES. If it is');
+      console.error('  genuinely not a browser-optional runtime (always-present or JVM-');
+      console.error('  only), add it to NON_BROWSER_OPTIONAL with a reason.');
       console.error('');
     }
     if (positiveFailures.length) {
@@ -1113,6 +1209,13 @@ if (require.main === module) {
 module.exports = {
   ARTEFACTS,
   POSITIVE_CONTROL,
+  NON_BROWSER_OPTIONAL,
+  DEDICATED_ISOLATION_GATES,
+  ADAPTERS_DIR,
   assertPositiveControlComplete,
   checkArtefact,
+  stripEdnComments,
+  hasRealBuildAlias,
+  discoverBrowserOptionalRuntimes,
+  assertCanonicalInventoryCovered,
 };
