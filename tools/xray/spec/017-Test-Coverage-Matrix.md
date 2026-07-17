@@ -242,6 +242,28 @@ only. The CLJS render-fidelity harness
 (`panels.epoch.machine-epochs-harness-cljs-test`) drives the substrate
 directly and is decoupled from this view.
 
+**Parallel `:always`-round BROWSER proof (rf2-gy9ln).** The render-fidelity
+harness above is Node-only, while browser selection runs `-dom-cljs-test`
+namespaces; the nightly `runMachineEpochs` asserts per-frame snapshots and
+explicitly delegates deep microstep render fidelity to the CLJS unit. So
+removing the projection/view clause for parent-owned parallel `:always` rounds
+(rf2-bvwv4q) could leave every browser check green. The focused browser proof
+`panels.epoch.machine-epochs-always-round-dom-cljs-test` closes that gap: it
+drives the REAL co-selected parallel-round machine (`:go` moves both regions
+`:idle → :staged`, then a parent round co-selects both `:staged → :done`),
+captures the emitted `:rf.machine/transition` + `:rf.machine.microstep/
+transition` traces, and mounts the REAL render layers into a real Chromium DOM
+(Reagent adapter → `reagent.dom.client` → `flushSync`). It asserts (1) the
+SHARED machine-cascade mini-pipeline renders TWO first-class `[ALWAYS]` round
+rows (regions `:a` then `:b`, shared `data-cascade-round-index` 0) with NO
+`[ACTION]` row — the round is ACTIONLESS yet the rows are visible — and (2) the
+focused-event section's chart wrapper renders `data-fired-edge-ids` carrying the
+FOUR real regional edges (`:a`/`:b` direct `:go` events + `:a`/`:b` `:always`
+rounds), computed from the real trace via `extract-fired-edge-ids`. Filtering
+`:rf.machine.microstep/transition` out of the projection drops the round rows;
+filtering it out of the fired-edge derivation drops the two `:always` edges —
+either reddens the proof.
+
 ## Cross-references
 
 - [`000-Vision.md`](./000-Vision.md) - panel inventory and the five canonical questions.
