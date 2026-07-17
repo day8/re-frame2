@@ -34,7 +34,10 @@
    (b) same on lazy first-event birth.
    (c) `:always` guard FALSE at birth → stays in the initial leaf.
    (d) compound initial cascade where a deep initial leaf has an `:always`.
-   (e) parallel — each region's birth `:always` settles independently.
+   (e) parallel — every region's enabled birth `:always` is selected in the
+       PARENT's frozen birth round (not region-locally): uncoupled guards
+       land each region where its own seed dictates; a sibling-reading guard
+       converges across re-freezes in the ONE birth macrostep.
    (f) no-`:always` machines unaffected (birth identical to before)."
   (:require
    #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
@@ -245,10 +248,15 @@
       (is (= :idle state) "no `:always` — birth lands on the plain initial state")
       (is (= {:seeded? true} data) ":data is the declared seed, unchanged"))))
 
-(deftest pure-birth-parallel-regions-settle-independently
-  (testing "(e) parallel — each region's birth `:always` settles
-            independently (region L's guard true → settles to :l-ready;
-            region R's guard false → stays at its initial leaf)"
+(deftest pure-birth-parallel-regions-settle-in-parent-round
+  (testing "(e) parallel — every region's enabled birth `:always` is selected
+            in the PARENT's frozen birth round. With UNCOUPLED guards each
+            region lands where its own seed dictates (region L's guard true →
+            :l-ready; region R's guard false → stays at its initial leaf) —
+            the outcome the superseded region-local model happens to share,
+            but the mechanism is the parent-owned freeze/select/apply round,
+            not independent regional settling (the coupled case below is what
+            the region-local model cannot satisfy)"
     (let [m {:type    :parallel
              :data    {:l? true :r? false}
              :guards  {:l? (fn [{data :data}] (:l? data))
@@ -264,6 +272,42 @@
           "region :left's birth `:always` (guard true) settled to :l-ready")
       (is (= :r-boot (:right state))
           "region :right's birth `:always` (guard false) stayed at its initial leaf"))))
+
+(deftest pure-birth-parallel-coupled-always-converges-in-one-parent-round
+  ;; rf2-nqovj — the EXECUTABLE guard for the corrected "parent-owned, not
+  ;; region-local" teaching claim. Region :watcher's birth `:always` reads a
+  ;; `:data` flag that region :writer only sets in :writer's OWN birth
+  ;; `:always` action. `:region-order` puts :watcher FIRST, so the superseded
+  ;; "each region settles independently" model — drain :watcher's `:always`
+  ;; loop to quiescence before visiting :writer — would evaluate :watcher's
+  ;; guard while the flag is still absent and STRAND it at :wa-boot. The real
+  ;; parent-owned loop freezes the whole configuration per round: round 1
+  ;; selects only :writer (which writes the flag), the parent RE-FREEZES, and
+  ;; round 2 selects :watcher against the now-written view. Both converge in
+  ;; the ONE birth macrostep. If this ever reverts to region-local settling,
+  ;; the :watcher assertion goes red — the phrase cannot quietly return.
+  (testing "(e′) a sibling-reading birth `:always` converges across re-freezes
+            in the parent's birth macrostep — the region-local model cannot"
+    (let [m {:type         :parallel
+             :region-order [:watcher :writer]
+             :data         {:seed? true}
+             :guards       {:seed?    (fn [{data :data}] (:seed? data))
+                            :written? (fn [{data :data}] (true? (:written data)))}
+             :actions      {:write (fn [{data :data}] {:data (assoc data :written true)})}
+             :regions      {:watcher {:initial :wa-boot
+                                      :states  {:wa-boot  {:always [{:guard :written? :target :wa-ready}]}
+                                                :wa-ready {}}}
+                            :writer  {:initial :w-boot
+                                      :states  {:w-boot {:always [{:guard :seed? :target :w-done :action :write}]}
+                                                :w-done {}}}}}
+          {:keys [state data]} (boot m)]
+      (is (= :w-done (:writer state))
+          "region :writer's birth `:always` fired and wrote the shared flag")
+      (is (= :wa-ready (:watcher state))
+          "region :watcher READ :writer's same-birth write in a LATER parent
+           round and settled — parent-owned rounds, not region-local settling")
+      (is (true? (:written data))
+          "the shared `:data` flag :writer set is visible in the committed birth"))))
 
 (deftest pure-birth-always-depth-limit-surfaces-as-failed-macrostep
   (testing "a birth `:always` cycle trips `:always-depth-limit` and surfaces
@@ -356,9 +400,10 @@
       (is (= [:outer :resolved] (:state (snapshot :rf2-505ic/compound)))
           "birth cascaded :outer→:inner then settled :inner's `:always` to [:outer :resolved]"))))
 
-(deftest live-eager-start-parallel-regions-settle
-  (testing "(e) eager start on a parallel machine — each region's birth
-            `:always` settles independently"
+(deftest live-eager-start-parallel-regions-settle-in-parent-round
+  (testing "(e) eager start on a parallel machine — every region's enabled
+            birth `:always` is selected in the PARENT's frozen birth round
+            (uncoupled guards: L's true → :l-ready, R's false → stays put)"
     (let [m {:type    :parallel
              :data    {:l? true :r? false}
              :guards  {:l? (fn [{data :data}] (:l? data))
