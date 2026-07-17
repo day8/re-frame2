@@ -16,6 +16,11 @@
       reactive flush → useSyncExternalStore → React rerender — and proves it
       stays inside awaited React `act()` (zero 'not wrapped in act(...)'
       warnings escape).
+    - rf2-6sslj gives that zero-warning proof a REAL CAUSAL negative control
+      (`unacted-post-mount-update-warns-and-is-caught`): it drives the SAME
+      post-mount update WITHOUT an act boundary and proves React emits — and the
+      shared capture CATCHES — the real 'not wrapped in act(...)' warning, so the
+      positive zero is meaningful rather than vacuous.
 
   Runs on the re-frame.ui REACTIVE adapter (`ui/adapter`). .24/.25 resolve the
   scoped frame identically under any substrate (the `:adapter/current-frame`
@@ -158,6 +163,45 @@
         (.finally result restore!)
         (do (restore!) result)))))
 
+;; --- un-acted settlement seam for the causal negative control (rf2-6sslj) -----
+;;
+;; The positive fixture proves ZERO act warnings when the post-mount compiled-sub
+;; update rides the awaited-act `ui.test/flush!` idiom. That zero is only
+;; meaningful if the SAME `with-console-error-capture`, on the SAME
+;; dispatch→observation→microtask→React-commit path, genuinely CATCHES React's
+;; real warning when the act boundary is ABSENT. `act-warning-detector-has-teeth`
+;; proves the predicate + counter against SIMULATED warning text (cross-runtime,
+;; node included); the CAUSAL proof — a real un-acted React commit that actually
+;; emits the warning — is `unacted-post-mount-update-warns-and-is-caught` below.
+;;
+;; Driving that un-acted path needs a settle boundary the framework's own
+;; machinery reaches WITHOUT an act wrapper. A synchronous `flush-pending!` right
+;; after dispatch is too EARLY — value-movement `on-change` marks the cell on a
+;; COALESCED MICROTASK (reactive/schedule-flush!), so a synchronous flush drains
+;; an empty registry and the DOM never repaints (the trap the .138 author hit and
+;; documented). So the seam is HONEST host time: dispatch OUTSIDE act, then yield
+;; to the host MACROTASK queue — which drains the whole microtask cascade (the
+;; coalesced mark, the armed flush, and React's own sync-commit work) — and poll
+;; to a bounded fixed point. No act, no `ui.test/flush!`, no public surface, no
+;; console suppression: just `setTimeout` and the shared capture.
+(defn- await-macrotask
+  "A Promise that resolves on the next host MACROTASK — a boundary that first
+  drains the entire pending microtask queue (the coalesced reactive flush + the
+  React sync-commit work), so an un-acted commit has fully landed by the time it
+  resolves."
+  []
+  (js/Promise. (fn [resolve _] (js/setTimeout resolve 0))))
+
+(defn- drive-until!
+  "Yield through host macrotasks until `done?` is truthy or `budget` turns are
+  spent, returning a Promise. BOUNDED, so a path that never satisfies `done?`
+  lets the caller's assertion fail RED rather than hang — the deterministic-red
+  contract the negative control needs (never an unbounded settle)."
+  [done? budget]
+  (if (or (done?) (not (pos? budget)))
+    (js/Promise.resolve nil)
+    (.then (await-macrotask) (fn [_] (drive-until! done? (dec budget))))))
+
 ;; reset-live-roots! / reset-installed-plans! / reset-scheduler! are BOOKKEEPING
 ;; resets — a clean framework slate between tests. They are NOT host teardown:
 ;; each test OWNS the React root it mounts and `ui/unmount!`s it in a `finally`
@@ -283,16 +327,92 @@
                (assert-torn-down! root)
                (done))))))))
 
+(deftest unacted-post-mount-update-warns-and-is-caught
+  ;; rf2-6sslj — the CAUSAL negative control for the zero-warning assertion in
+  ;; `sub-under-frame-provider-resolves-scoped-frame-ambiently`. That positive
+  ;; test drives the post-mount compiled-`sub` update through the awaited-act
+  ;; `ui.test/flush!` idiom and asserts `with-console-error-capture` counts ZERO
+  ;; "not wrapped in act(...)" warnings. Alone, that zero could be VACUOUS: a
+  ;; capture that can never OBSERVE a real un-acted commit proves nothing about
+  ;; whether it WOULD catch one, so removing the act boundary need not fail for
+  ;; the claimed reason (the .138 proof gap this bead closes).
+  ;;
+  ;; This drives the SAME mounted dispatch→observation→microtask→React-commit
+  ;; path WITHOUT any act boundary. IS_REACT_ACT_ENVIRONMENT stays true (the
+  ;; fixture enabled it), so when the framework's OWN coalesced microtask flush
+  ;; fires outside act — advance-revision! → useSyncExternalStore notify → React
+  ;; rerender + commit — React emits the REAL "not wrapped in act(...)"
+  ;; console.error. The SAME `with-console-error-capture` the positive path relies
+  ;; on FORWARDS it (diagnostics preserved) and COUNTS it, turning the real
+  ;; warning into a deterministic RED assertion (`(pos? @warnings)`). The DOM
+  ;; really repaints n=43, so this is a GENUINE post-mount React commit — not a
+  ;; no-op that happens to warn for an unrelated reason. Mount + teardown stay
+  ;; under `act!`, so root/ViewCell/frame/observation ownership returns to
+  ;; baseline. Browser-only: a headless substrate wires no reactive→React commit,
+  ;; so there is no un-acted commit to warn about.
+  (when (browser?)
+    (reg!)
+    (rf/make-frame {:id :app/unacted})
+    (rf/dispatch-sync [:test/set-db {:n 42}] {:frame :app/unacted})
+    (let [c        (container)
+          warnings (atom 0)
+          root     (act!
+                    #(ui/mount [provider-wrap {:frame-id :app/unacted}] c
+                               {:root-id :dom-scope/unacted}))]
+      (is (re-find #"n=42" (.-innerHTML c))
+          "the ambient (sub …) rendered the frame-provider-scoped seed at mount")
+      (async done
+        (-> (js/Promise.resolve)
+            (.then
+             (fn []
+               (with-console-error-capture warnings
+                 (fn []
+                   ;; Dispatch OUTSIDE act — no `act!`, no `ui.test/flush!`. This
+                   ;; marks the mounted ViewCell dirty and ARMS the coalesced
+                   ;; microtask flush; the flush + React commit then run outside
+                   ;; any act scope while IS_REACT_ACT_ENVIRONMENT is true, so
+                   ;; React warns. Yield to the host macrotask queue (draining the
+                   ;; whole microtask cascade) and poll to the fixed point where
+                   ;; the real warning has been caught.
+                   (uit/dispatch! :app/unacted [:test/set-db {:n 43}])
+                   (drive-until! #(pos? @warnings) 30)))))
+            (.then
+             (fn []
+               (is (re-find #"n=43" (.-innerHTML c))
+                   (str "the un-acted dispatch drove the SAME compiled ambient "
+                        "(sub …) commit path — the DOM really repainted n=43, so "
+                        "the warning came from a genuine post-mount React commit, "
+                        "not a no-op"))
+               (is (pos? @warnings)
+                   (str "the un-acted commit escaped act while "
+                        "IS_REACT_ACT_ENVIRONMENT was true, so React emitted the "
+                        "real 'not wrapped in act(...)' warning and the SAME "
+                        "with-console-error-capture the positive test relies on "
+                        "CAUGHT it — the detector has teeth on a REAL warning, so "
+                        "the positive zero is meaningful"))))
+            (.catch
+             (fn [e]
+               (is false (str "un-acted negative control rejected: "
+                              (some-> e .-message)))))
+            (.then
+             (fn []
+               (assert-torn-down! root)
+               (done))))))))
+
 (deftest act-warning-detector-has-teeth
   ;; rf2-vxgfnd.138 proof discipline — the zero-warning assertion above is only
   ;; meaningful if its predicate genuinely matches React's act diagnostic AND
   ;; the capture actually COUNTS it (fails, not merely prints). Prove both here
   ;; WITHOUT emitting a real warning (a real one would itself violate the
   ;; zero-warning contract), so this runs cross-runtime — including under
-  ;; `:node-test`, where the DOM-mount body above is gated out. Removing the
-  ;; update's `act!` boundary makes the live capture behave exactly like the
-  ;; simulated warning below: `counter` increments and `(zero? @counter)` is
-  ;; false.
+  ;; `:node-test`, where the DOM-mount body above is gated out. This is the
+  ;; PREDICATE + COUNTER proof (against simulated warning text); the CAUSAL proof
+  ;; that a real un-acted commit actually emits — and this same capture catches —
+  ;; React's warning is the browser-only `unacted-post-mount-update-warns-and-is-
+  ;; caught` above (rf2-6sslj). Removing the update's `act!` boundary makes the
+  ;; live capture behave exactly like the simulated warning below: `counter`
+  ;; increments and `(zero? @counter)` is false — which the causal negative
+  ;; control demonstrates end to end on the real React runtime.
   (testing "the predicate recognises React's real wording, not unrelated errors"
     (is (act-warning?
          "Warning: An update to n-view inside a test was not wrapped in act(...)."))
