@@ -206,6 +206,13 @@ MAPPINGS: list[Mapping] = [
             "read-sub",
             "read-dom",
             "read-ui",
+            # S3 compiled-view inspection — live view work routes to the
+            # re-frame2-pair skill, same as read-sub/read-dom/read-ui above.
+            "read-view-manifest",
+            "read-view-dependencies",
+            "read-view-event-sites",
+            "read-mounted-views",
+            "explain-render",
             "record",
             "read-recording",
             "watch-until",
