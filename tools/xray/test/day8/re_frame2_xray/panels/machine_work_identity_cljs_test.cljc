@@ -129,7 +129,7 @@
                          :rf.machine.spawn-all/all-completed}
                        (:operation %))}]
       ;; Attempt A is cancelled by parent exit, but retain its exact carried
-      ;; authority to model a delayed completion arriving after re-entry.
+      ;; join-attempt coordinate to model a delayed completion arriving after re-entry.
       (rf/dispatch-sync [parent-id [:start]])
       (let [attempt-a (:rf/attempt (join-state))
             auth-a    (join-attempt)]
@@ -139,7 +139,7 @@
           (is (not= attempt-a attempt-b))
 
           ;; The unchanged PUBLIC completion event is delivered with the
-          ;; framework's carried recordable authority for attempt A.
+          ;; framework's carried recordable join-attempt coordinate for attempt A.
           (rf/dispatch-sync
             [parent-id [:child/done :only]]
             {:rf.cofx {:rf.machine/join-attempt auth-a}})
@@ -163,16 +163,17 @@
                 "attempt A suppression never contaminates attempt B")))))))
 
 (deftest post-resolution-superseded-straggler-is-stale-completion-not-late
-  ;; rf2-ixjd48 / rf2-w82021 — THE POST-RESOLUTION AUTHORITY PATH, driven
+  ;; rf2-ixjd48 / rf2-w82021 — THE POST-RESOLUTION EXACT-ATTEMPT PATH, driven
   ;; through the REAL producer (not a hand-authored trace). Attempt A's
   ;; completion is held; the parent re-enters, attempt B is seeded and RESOLVES;
   ;; THEN A's exact carrier drains against B's already-resolved join. The
-  ;; producer runs the exact-authority gate BEFORE the `:resolved?` branch
-  ;; (join.cljc), so A is classified `:attempt-superseded` `stale-completion` —
-  ;; NOT a `join-resolved` late-completion. This pins the behaviour the bead
-  ;; found the Xray docs/fixtures had framed as pre-resolution-only: authority
+  ;; producer runs the `attempt-superseded` exact-attempt gate BEFORE the
+  ;; `:resolved?` branch (join.cljc), so A is classified `:attempt-superseded`
+  ;; `stale-completion` — NOT a `join-resolved` late-completion. This pins the
+  ;; behaviour the bead found the Xray docs/fixtures had framed as
+  ;; pre-resolution-only: the `attempt-unverified` / `attempt-superseded`
   ;; suppression fires on the POST-resolution path too, and the Xray consumer
-  ;; must see an authority-suppression arc for attempt A, never a late-completion
+  ;; must see an attempt-suppression arc for attempt A, never a late-completion
   ;; terminal.
   (testing "a superseded straggler arriving AFTER the successor join resolved is
             a stale-completion (:attempt-superseded), and NO late-completion fires"
@@ -204,7 +205,7 @@
             (is (some #{:rf.machine.spawn-all/stale-completion} ops)
                 "the superseded straggler emits stale-completion")
             (is (not-any? #{:rf.machine.spawn-all/late-completion} ops)
-                "a post-resolution AUTHORITY failure is NOT a late-completion"))
+                "a post-resolution exact-attempt failure is NOT a late-completion"))
           ;; (2) the stale row carries the :attempt-superseded reason + attempt-A's
           ;; OWN work identity (never attempt B's current one).
           (let [stale  (->> @traces
@@ -214,11 +215,11 @@
                 work-a (get-in stale [:tags :rf.reply/work-id])]
             (is (= :rf.machine.spawn-all/attempt-superseded
                    (get-in stale [:tags :rf.reply/stale-reason]))
-                "post-resolution authority failure carries :attempt-superseded")
+                "post-resolution exact-attempt failure carries :attempt-superseded")
             (is (= attempt-a (nth work-a 3))
                 "the superseded evidence carries attempt A's own token, not B's")
             ;; (3) the Xray consumer classifies attempt A's arc as
-            ;; authority-suppression, and attempt B's resolved arc is untouched.
+            ;; attempt-suppression, and attempt B's resolved arc is untouched.
             (let [arcs  (reply-envelope/races-by-work-id @traces)
                   arc-a (get arcs work-a)]
               (is (contains? (:phases arc-a) :stale-suppressed)

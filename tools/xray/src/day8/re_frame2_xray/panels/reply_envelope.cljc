@@ -451,28 +451,35 @@
    :rf.route.nav-token/stale-suppressed    :stale-suppressed
    :rf.machine.timer/stale-after           :stale-suppressed
    :rf.http/stale-suppressed               :stale-suppressed
-   ;; rf2-hj4skn / rf2-ixjd48 — the `:spawn-all` join's TWO exact-authority
+   ;; rf2-hj4skn / rf2-ixjd48 — the `:spawn-all` join's TWO exact-attempt
    ;; stale rows (005 §`:spawn-all` join-child completion / 009 §op-type
-   ;; vocabulary). The producer runs the exact-authority / closed-attempt fold
-   ;; gate BEFORE the resolved-vs-unresolved classification (join.cljc), so the
-   ;; two ops split on AUTHORITY, not on resolution state:
-   ;;   - `:rf.machine.spawn-all/stale-completion` — an AUTHORITY-SUPPRESSED
-   ;;     completion carrier that failed the fold gate, on EITHER side of
-   ;;     resolution (a post-resolution unstamped/superseded carrier is
-   ;;     suppressed HERE, never as a late-completion) (`:rf.reply/stale-reason`
-   ;;     one of `:rf.machine.spawn-all/attempt-unverified` /
-   ;;     `.../attempt-superseded` / `.../duplicate-completion`);
+   ;; vocabulary). The producer's ordered exact-attempt fence runs the
+   ;; `attempt-unverified` / `attempt-superseded` gates BEFORE the `:resolved?`
+   ;; check and the `duplicate-completion` gate AFTER it (join.cljc), so the
+   ;; two ops split on the exact-attempt coordinate + the `:resolved?` latch,
+   ;; NOT on an authentication-style authority claim:
+   ;;   - `:rf.machine.spawn-all/stale-completion` — an ATTEMPT-SUPPRESSED
+   ;;     completion carrier that failed the exact-attempt fence. The
+   ;;     coordinate-less (`:attempt-unverified`) and prior-attempt
+   ;;     (`:attempt-superseded`) carriers are gated BEFORE `:resolved?`, so
+   ;;     each suppresses on EITHER side of resolution (a post-resolution
+   ;;     unstamped/superseded carrier is suppressed HERE, never as a
+   ;;     late-completion); the `:duplicate-completion` carrier is exact-current
+   ;;     but already-closed and is gated AFTER `:resolved?`, so it fires only
+   ;;     in a still-live unresolved join (`:rf.reply/stale-reason` one of
+   ;;     `:rf.machine.spawn-all/attempt-unverified` / `.../attempt-superseded`
+   ;;     / `.../duplicate-completion`);
    ;;   - `:rf.machine.spawn-all/late-completion` — the POST-resolution
    ;;     `:resolved?`-latched straggler that is EXACT-CURRENT for its own
-   ;;     attempt (the only carrier that passes authority yet still arrives
-   ;;     after its own join resolved) (`:rf.reply/stale-reason
+   ;;     attempt (the only carrier that clears the exact-attempt fence yet
+   ;;     still arrives after its own join resolved) (`:rf.reply/stale-reason
    ;;     :rf.machine.spawn-all/join-resolved`).
    ;; Both carry the canonical `:status :stale` / `:rf.reply/work-status
    ;; :suppressed` reply facts additively on the public `:child-id` / `:kind`
    ;; shape. NEITHER name matches a `stale-suppress` / `suppressed` /
    ;; `completed` suffix (`stale-completion` / `late-completion` end in
    ;; `-completion`, not `-completed`), so the heuristic returned nil for
-   ;; both and their exact-authority evidence was silently dropped — enumerate
+   ;; both and their exact-attempt evidence was silently dropped — enumerate
    ;; them explicitly. The NON-DECISIVE
    ;; `:rf.machine.spawn-all/child-completed` terminal is a REAL `:completed`
    ;; (its `-completed` suffix classifies correctly) and is NOT lowered here;
@@ -668,7 +675,7 @@
                  ;; :spawned-id …}`, the machine `:after` timer stamps
                  ;; `{:carried … :current …}`. Surface it (summarized for
                  ;; PRIVACY, the SAME contract `reply-row` uses) so the
-                 ;; exact-authority correlation the operator diagnoses a
+                 ;; exact-attempt correlation the operator diagnoses a
                  ;; superseded / unverified / duplicate / post-resolution join
                  ;; completion FROM is not silently dropped.
                  :correlation (when (contains? tags :rf.reply/correlation)
