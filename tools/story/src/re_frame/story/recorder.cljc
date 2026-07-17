@@ -371,7 +371,7 @@
                    :type :edn}]}
    {:id          :rf.assert/no-warnings
     :label       "no-warnings"
-    :hint        "Assert no :rf.warn/* events seen during play."
+    :hint        "Assert no :rf.warning/* events seen during play."
     :fields      []}
    {:id          :rf.assert/effect-emitted
     :label       "effect-emitted"

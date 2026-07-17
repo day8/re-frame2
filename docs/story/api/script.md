@@ -44,7 +44,7 @@ The assertion vocabulary auto-registers at Story load (from the first `reg-*` ca
 | `:rf.assert/sub-equals` | `[query-vec expected]` | `(= @(subscribe query-vec) expected)`. **Honesty rule:** NOT satisfied by a `:sub-overrides` pin — it evaluates through `compute-sub`, which an override never touches. |
 | `:rf.assert/dispatched?` | `[event-vec]` | was this event dispatched into the frame during the script? (Script-phase only — not setup.) |
 | `:rf.assert/state-is` | `[machine-id state]` | the active state of a `reg-machine` machine. |
-| `:rf.assert/no-warnings` | `[]` | no `:rf.warn/*` events fired during the run. |
+| `:rf.assert/no-warnings` | `[]` | no `:rf.warning/*` events fired during the run. |
 | `:rf.assert/effect-emitted` | `[fx-id]` or `[fx-id pred]` | the fx was emitted; the optional `pred` is a unary fn over the matched fx-id keyword. |
 
 Plus the tape-evaluated `:rf.assert/schema-error` (minted by the result boundary against the epoch tape, not dispatched), which requires the `:schema` capability and fails the run on a tape schema violation.
