@@ -1180,12 +1180,15 @@
         (late-bind/set-fn! machines-key (fn [_frame-id] (reset! fired? true)))
         (rf/dispatch-sync [:step] {:frame :test/main})
         (let [target-record (last (rf/epoch-history :test/main))
-              ;; drive perform-restore! directly against a frame whose container
-              ;; is gone (the validate-then-destroy / destroyed-frame branch):
-              ;; live-container-or-fail returns :fail and perform-restore! bails
-              ;; with false BEFORE the success telemetry / quiesce chain.
+              ;; Capture the incarnation token while the frame is still live (as
+              ;; restore-epoch! does at precondition time), then destroy it and
+              ;; drive perform-restore! directly against the now-gone incarnation
+              ;; (the validate-then-destroy / destroyed-frame branch): the
+              ;; write-boundary incarnation gate refuses and perform-restore!
+              ;; bails with false BEFORE the success telemetry / quiesce chain.
+              token (frame/frame-incarnation-token :test/main)
               _ (rf/destroy-frame! :test/main)
-              result (tool-pair/perform-restore! :test/main target-record)]
+              result (tool-pair/perform-restore! :test/main token target-record)]
           (is (false? result) "perform-restore! returns false for the destroyed frame")
           (is (false? @fired?)
               "the quiesce chain did NOT fire for a restore that wrote nothing"))
@@ -4899,17 +4902,18 @@
     (rf/dispatch-sync [:inc]  {:frame :test/short-lived})
 
     (let [target-id (-> (rf/epoch-history :test/short-lived) first :epoch-id)
-          ;; (1) Validate against the LIVE frame — passes, yields the epoch.
-          {:keys [outcome epoch]} (tool-pair/check-restore-preconditions!
-                                    :test/short-lived target-id)]
+          ;; (1) Validate against the LIVE frame — passes, yields the epoch and
+          ;; the exact incarnation token the checks resolved against.
+          {:keys [outcome epoch incarnation-token]}
+          (tool-pair/check-restore-preconditions! :test/short-lived target-id)]
       (is (= :ok outcome) "precondition validation passed against the live frame")
 
       ;; (2) The race: the frame is destroyed in the validate→write window.
       (rf/destroy-frame! :test/short-lived)
 
-      ;; (3) Perform the write at the boundary — the container is now nil.
+      ;; (3) Perform the write at the boundary — the resolved incarnation is gone.
       (let [recorded (record-trace!)
-            result   (tool-pair/perform-restore! :test/short-lived epoch)]
+            result   (tool-pair/perform-restore! :test/short-lived incarnation-token epoch)]
         (is (false? result)
             "perform-restore! reports HONEST failure (false) — NOT a synthetic
              success — when the frame disappeared between validate and write")
@@ -5059,21 +5063,22 @@
     (rf/dispatch-sync [:inc]  {:frame :test/short-lived})
 
     (let [target-id (-> (rf/epoch-history :test/short-lived) first :epoch-id)
-          {:keys [outcome epoch]} (tool-pair/check-restore-preconditions!
-                                    :test/short-lived target-id)]
+          {:keys [outcome epoch incarnation-token]}
+          (tool-pair/check-restore-preconditions! :test/short-lived target-id)]
       (is (= :ok outcome) "precondition validation passed against the live frame")
 
       (let [real-write frame/replace-frame-state!
             recorded   (record-trace!)
-            ;; The post-liveness window: live-container-or-fail (inside
-            ;; perform-restore!) resolves a LIVE container, THEN this redef'd
-            ;; write destroys the frame and delegates to the real write, which
-            ;; now returns nil against the destroyed frame.
+            ;; The post-liveness window: the write-boundary incarnation gate
+            ;; (inside perform-restore!) passes against the LIVE incarnation, THEN
+            ;; this redef'd exact-incarnation write destroys the frame and
+            ;; delegates to the real 3-arity write, which now returns nil against
+            ;; the destroyed incarnation.
             result     (with-redefs [frame/replace-frame-state!
-                                     (fn [frame-id fs]
+                                     (fn [frame-id token fs]
                                        (rf/destroy-frame! frame-id)
-                                       (real-write frame-id fs))]
-                         (tool-pair/perform-restore! :test/short-lived epoch))]
+                                       (real-write frame-id token fs))]
+                         (tool-pair/perform-restore! :test/short-lived incarnation-token epoch))]
         (is (false? result)
             "perform-restore! reports HONEST failure (false) — the nil write
              return is checked, not ignored")
@@ -5085,6 +5090,91 @@
           (is (= :test/short-lived (:frame (:tags ev))) "tags carry :frame"))
         (is (not-any? #(= :rf.epoch/restored (:operation %)) @recorded)
             "no :rf.epoch/restored success trace for the post-liveness drop")))))
+
+;; rf2-bjh6y — the write boundary is fenced to the EXACT frame incarnation the
+;; preconditions resolved against, not the bare id. If incarnation A is
+;; destroyed and a same-id SUCCESSOR B is seated BETWEEN precondition resolution
+;; and the physical write, the restore MUST refuse — installing A's captured
+;; state into B (reported as success) is the defect. The reproduction drives the
+;; two phases directly with the successor interposed, exactly as the public
+;; restore-epoch! sequences them: validate (live A) → destroy A + create B →
+;; perform! with A's now-stale token. Before the fence: {:restore-result true,
+;; :b-db-after {:owner :A :n 1}} — A's state overwrote B. After: the stale write
+;; is rejected via the SAME :rf.error/no-such-handler path a destroyed-frame race
+;; uses, and B is left byte-for-byte untouched.
+
+(deftest restore-fenced-to-exact-incarnation-leaves-same-id-successor-untouched
+  (testing "rf2-bjh6y — a restore whose preconditions resolve against incarnation
+            A, then A is destroyed and a same-id SUCCESSOR B is created BEFORE the
+            write, REJECTS the stale install: returns false, leaves B's app-db
+            byte-for-byte unchanged (A's state is NOT installed into B), emits
+            :rf.error/no-such-handler (kind :frame), and emits no
+            :rf.epoch/restored success trace."
+    (rf/make-frame {:id :test/succ})
+    (rf/reg-event :set-owner (fn [_ [_ owner n]] {:db {:owner owner :n n}}))
+
+    ;; Incarnation A records an epoch at {:owner :A :n 1}, then advances so that
+    ;; epoch is a genuine rewind target (distinct from the current state).
+    (rf/dispatch-sync [:set-owner :A 1] {:frame :test/succ})
+    (rf/dispatch-sync [:set-owner :A 2] {:frame :test/succ})
+    (let [a-target-id (some (fn [r] (when (= {:owner :A :n 1} (:db-after r)) (:epoch-id r)))
+                            (rf/epoch-history :test/succ))
+          ;; (1) Resolve preconditions against LIVE incarnation A — yields the
+          ;; target epoch AND A's exact incarnation token.
+          {:keys [outcome epoch incarnation-token]}
+          (tool-pair/check-restore-preconditions! :test/succ a-target-id)]
+      (is (some? a-target-id) "seeded an A epoch whose db-after is {:owner :A :n 1}")
+      (is (= :ok outcome) "preconditions passed against live incarnation A")
+
+      ;; (2) Interpose: destroy A, seat a same-id SUCCESSOR B (a fresh
+      ;; incarnation — distinct :drain-lock), and give B its own app-db.
+      (rf/destroy-frame! :test/succ)
+      (rf/make-frame {:id :test/succ})
+      (rf/dispatch-sync [:set-owner :B 99] {:frame :test/succ})
+      (is (= {:owner :B :n 99} (rf/app-db-value :test/succ))
+          "successor B seeded to {:owner :B :n 99}")
+
+      ;; (3) Drive the write with A's now-stale token + epoch.
+      (let [recorded    (record-trace!)
+            b-db-before (rf/app-db-value :test/succ)
+            result      (tool-pair/perform-restore! :test/succ incarnation-token epoch)
+            b-db-after  (rf/app-db-value :test/succ)]
+        (is (false? result)
+            (str "the stale cross-incarnation restore must be REJECTED; got "
+                 (pr-str result)))
+        (is (= {:owner :B :n 99} b-db-after)
+            (str "successor B must be byte-for-byte unchanged — A's {:owner :A :n 1} "
+                 "must NOT install into B; b-db-before " (pr-str b-db-before)
+                 " b-db-after " (pr-str b-db-after)))
+        (is (has-error-op? @recorded :rf.error/no-such-handler)
+            ":rf.error/no-such-handler fired for the lost incarnation")
+        (let [ev (some #(when (= :rf.error/no-such-handler (:operation %)) %) @recorded)]
+          (is (= :frame (:kind (:tags ev))) "the typed failure carries :kind :frame")
+          (is (= :test/succ (:frame (:tags ev))) "the typed failure carries :frame"))
+        (is (not-any? #(= :rf.epoch/restored (:operation %)) @recorded)
+            "no :rf.epoch/restored success trace for the rejected stale restore")))))
+
+(deftest restore-within-incarnation-through-fence-still-succeeds
+  (testing "rf2-bjh6y control — with the SAME precheck → token → perform seam but
+            NO incarnation churn, the restore installs and returns true: the
+            exact-incarnation fence rejects only a lost incarnation, never an
+            ordinary live one."
+    (rf/make-frame {:id :test/ctl})
+    (rf/reg-event :set-n (fn [_ [_ n]] {:db {:n n}}))
+    (rf/dispatch-sync [:set-n 1] {:frame :test/ctl})
+    (rf/dispatch-sync [:set-n 2] {:frame :test/ctl})
+    (let [target-id (some (fn [r] (when (= {:n 1} (:db-after r)) (:epoch-id r)))
+                          (rf/epoch-history :test/ctl))
+          {:keys [outcome epoch incarnation-token]}
+          (tool-pair/check-restore-preconditions! :test/ctl target-id)]
+      (is (= :ok outcome) "preconditions passed against the live frame")
+      (is (= {:n 2} (rf/app-db-value :test/ctl)) "current state is {:n 2} before restore")
+      (let [recorded (record-trace!)
+            result   (tool-pair/perform-restore! :test/ctl incarnation-token epoch)]
+        (is (true? result) "an ordinary within-incarnation restore still succeeds")
+        (is (= {:n 1} (rf/app-db-value :test/ctl)) "app-db rewound to the target epoch")
+        (is (some #(= :rf.epoch/restored (:operation %)) @recorded)
+            ":rf.epoch/restored success trace fired for the live-incarnation restore")))))
 
 ;; rf2-obi8rr — the resources restore-reconcile success rows
 ;; (:rf.resource/restored / :rf.resource/owner-released) must NOT leak when the
@@ -5156,16 +5246,16 @@
         (rf/dispatch-sync [:seed-res] {:frame :test/obi8rr-fail})
         (let [target-id (-> (rf/epoch-history :test/obi8rr-fail) last :epoch-id)]
           (rf/dispatch-sync [:clear-res] {:frame :test/obi8rr-fail})
-          (let [{:keys [outcome epoch]} (tool-pair/check-restore-preconditions!
-                                          :test/obi8rr-fail target-id)]
+          (let [{:keys [outcome epoch incarnation-token]}
+                (tool-pair/check-restore-preconditions! :test/obi8rr-fail target-id)]
             (is (= :ok outcome) "precondition validation passed against the live frame")
             (let [real-write frame/replace-frame-state!
                   recorded   (record-trace!)
                   result     (with-redefs [frame/replace-frame-state!
-                                           (fn [fid fs]
+                                           (fn [fid token fs]
                                              (rf/destroy-frame! fid)
-                                             (real-write fid fs))]
-                               (tool-pair/perform-restore! :test/obi8rr-fail epoch))]
+                                             (real-write fid token fs))]
+                               (tool-pair/perform-restore! :test/obi8rr-fail incarnation-token epoch))]
               (is (false? result) "perform-restore! reports honest failure for the nil-write teardown")
               (is (not-any? #(= :rf.epoch/restored (:operation %)) @recorded)
                   "no :rf.epoch/restored (the install never landed)")
