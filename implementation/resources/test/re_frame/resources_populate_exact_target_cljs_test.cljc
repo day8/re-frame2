@@ -35,7 +35,11 @@
        stale-suppression boundary);
     7. a map-form `:patches` updates the exact key only;
     8. a `{:from-db …}` populate target that resolves NIL is FAIL-CLOSED
-       (dropped, recorded in the settlement trace — never an implicit global).
+       (dropped, recorded in the settlement trace — never an implicit global);
+    9. when ONE success plan targets the SAME exact key through BOTH `:patches`
+       AND `:populates`, POPULATE wins — the fixed `patches → populates → removes
+       → invalidates` order applies the populate last (rf2-8sqr1, closing the
+       rf2-5gj77s acceptance gap: this is the RED-if-reversed contract tooth).
 
   The transport is exercised end-to-end by overriding `:rf.http/managed` with a
   capturing stub that synthesises the transport's reply-event-append shape."
@@ -440,3 +444,63 @@
           "and never under an implicit global"))
     (testing "the dropped target's resolver id is recorded as :target-unresolved"
       (is (= [:t/session] (:target-unresolved (:patch-summary trace)))))))
+
+;; ===========================================================================
+;; 9. Same-key patch/populate OVERLAP — POPULATE wins (rf2-8sqr1)
+;; ===========================================================================
+
+(deftest same-key-patch-populate-overlap-populate-wins
+  ;; The missing executable contract tooth for the fixed success-plan arm order
+  ;; (`mutation-events/success-handler`: apply-patches → apply-populates →
+  ;; apply-removes → invalidate). When ONE success plan targets the SAME exact
+  ;; canonical key through BOTH `:patches` AND `:populates`, the populate is
+  ;; applied LAST and therefore WINS — its authoritative seed OVERWRITES the
+  ;; patched value on the shared observable field. The source comment pins it:
+  ;; "populate wins on a key written by both (it ran last)".
+  ;;
+  ;; RED-IF-REVERSED: this test FAILS if apply-patches / apply-populates are
+  ;; swapped — with populate first, the patch would then transform the seeded
+  ;; populate value and PATCH would win (:winner would read "patch"). Closes the
+  ;; rf2-5gj77s acceptance gap (existing tests exercise patch #7 and populate #1
+  ;; INDEPENDENTLY; none drives both arms against the same key in one plan).
+  (reg-article-resource!)
+  (rf/reg-mutation :m/patch-and-populate
+    {:scope :rf.scope/global
+     :params-schema [:map [:slug :string]]
+     ;; PATCH the shared key's observable :winner field to "patch" (reads the
+     ;; existing :data — so a reversed order would let it transform the seeded
+     ;; populate value).
+     :patches (fn [{:keys [slug]} _result]
+                {{:resource :r/article :params {:slug slug} :scope :rf.scope/global}
+                 (fn [old _r] (assoc old :winner "patch"))})
+     ;; POPULATE the SAME exact key authoritatively — a seed that REPLACES the
+     ;; entry's :data wholesale with {:slug … :winner "populate"}.
+     :populates (fn [{:keys [slug]} result]
+                  {{:resource :r/article :params {:slug slug} :scope :rf.scope/global}
+                   (assoc result :winner "populate")})}
+    (fn [{:keys [slug]} _] {:request {:method :put :url (str "/a/" slug)}}))
+  ;; seed real :data on the owned entry so the PATCH arm actually applies (a
+  ;; patch on a key with no data is a no-op — populate seeds, patch transforms).
+  (rf/dispatch-sync [:rf.resource/ensure {:resource :r/article :scope :rf.scope/global
+                                          :params {:slug "w"} :owner [:v :a]}])
+  (reply-success! @last-managed-args {:slug "w" :title "seeded" :winner "seed"})
+  (reset! last-managed-args nil)
+  (rf/dispatch-sync [:rf.mutation/execute
+                     {:mutation :m/patch-and-populate :params {:slug "w"} :instance :ov1}])
+  (reply-success! @last-managed-args {:slug "w"})
+  (testing "POPULATE won the shared :winner field — the authoritative seed
+            replaced the patched value wholesale (populate ran last)"
+    (let [e (entry global-article-key)]
+      (is (= "populate" (:winner (:data e)))
+          "populate applied after patch, so it wins the overlapping field")
+      (is (= {:slug "w" :winner "populate"} (:data e))
+          "populate SEEDS authoritatively — its value is the whole :data, not a
+           patch-transformed one")
+      (is (= :loaded (:status e)))))
+  (testing "BOTH arms genuinely engaged the SAME key (proving a real overlap,
+            not a vacuous no-op patch)"
+    (let [ps (:patch-summary (instance :ov1))]
+      (is (= [global-article-key] (:patched ps))
+          "the patch arm applied to the shared key")
+      (is (= [global-article-key] (:populated ps))
+          "the populate arm applied to the SAME shared key"))))
