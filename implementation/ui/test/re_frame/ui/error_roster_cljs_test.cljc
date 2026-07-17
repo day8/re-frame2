@@ -382,6 +382,22 @@
    [:rf.ui.compile/impure-slot-body
     '(slot (render-fn [a] [:div {:ref r} "x"]))
     ["commit-phase" "Mount a defview"]]
+   ;; transitive purity fence (rf2-vtfzn): a COMMITTED-CALLBACK / dispatch surface
+   ;; authored inside a render-fn body escapes the fence unless rejected. A
+   ;; component-prop ui/event / ui/handler is the correctness-critical one — a
+   ;; repeated slot shares ONE lexical callback site, aliasing every row's
+   ;; closure to the last row. (The leading (effect …) statement needs a hooks
+   ;; region and is exercised in effect-inside-render-fn-is-impure below.)
+   [:rf.ui.compile/impure-slot-body
+    '(slot (render-fn [row] [child-view {:on-pick (event [e] [:pick (:id row)])}]) item)
+    ["DISPATCHES" "alias the last row"]]
+   [:rf.ui.compile/impure-slot-body
+    '(slot (render-fn [row] [child-view {:on-pick (handler [e] (do-it (:id row)))}]) item)
+    ["DISPATCHES" "alias the last row"]]
+   [:rf.ui.compile/impure-slot-body
+    '(slot (render-fn [a] (error-boundary {:fallback child-view :on-error [:oops a]}
+                                          [:p "x"])) item)
+    [":on-error" "DISPATCHES"]]
    ;; props
    [:rf.ui.compile/bad-class '[:div {:class {(kw) true}} "x"] ["literal names"]]
    [:rf.ui.compile/bad-style '[:div {:style {(kw) 1}} "x"] ["dynamic expression"]]
@@ -437,6 +453,32 @@
   (doseq [[id form names] analyzer-roster]
     (testing (str id " <- " (pr-str form))
       (assert-row! (reject form) id form names))))
+
+(deftest effect-inside-render-fn-is-impure
+  ;; rf2-vtfzn — the primary escape: a render-fn slot body INHERITS the enclosing
+  ;; hooks region, so a leading (effect …) in a top-region let inside the body was
+  ;; accepted and emitted as a React lifecycle hook INSIDE the deferred callback.
+  ;; This needs a hooks-region env (a slot authored in a defview's top region), so
+  ;; it cannot ride the mk-env roster table above.
+  (let [e (assoc (mk-env) :hooks-region? true :top-region? true)
+        ex (try (ana/analyze e '(slot (render-fn [a]
+                                        (let [x 1] (effect [] (side-effect! x a)) [:div]))
+                                      item))
+                nil
+                (catch #?(:clj clojure.lang.ExceptionInfo
+                          :cljs cljs.core/ExceptionInfo) ex ex))]
+    (assert-row! ex :rf.ui.compile/impure-slot-body
+                 '(slot (render-fn [a] (let [x 1] (effect [] (side-effect! x a)) [:div])) item)
+                 ["lifecycle hook" "MOUNT a defview"]))
+  (testing "mutation control — the SAME effect in a real defview top region is LEGAL"
+    ;; the fence must fire ONLY inside :in-render-fn?, not on a legitimate
+    ;; top-region effect: a leading (effect …) in a genuine hooks region (no
+    ;; render-fn wrapper) still lowers to a :hook-prefix, so the fence is not
+    ;; over-firing on ordinary top-region effects.
+    (let [e   (assoc (mk-env) :hooks-region? true :top-region? true)
+          ast (ana/analyze e '(let [x 1] (effect [] (side-effect! x)) [:div "ok"]))]
+      (is (= :hook-prefix (get-in ast [:body :op]))
+          "a leading (effect …) in a genuine defview top region stays legal"))))
 
 (deftest dynamic-props-map-diagnostic
   ;; hiccup structure makes a non-map/non-spread props position a CHILD,
