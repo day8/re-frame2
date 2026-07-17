@@ -424,7 +424,8 @@
                 "the accepted desired plan is unchanged — capture-2 never overwrote it")))))))
 
 ;; ===========================================================================
-;; rf2-77pb08 — LINEARIZE the final body-authority validation WITH publication.
+;; rf2-77pb08 — SETTLE the final body-authority validation WITH publication
+;; across TWO axes of DIFFERING STRENGTH.
 ;;
 ;; PR #5938 (.214/.260) proved the fence catches an authority change landing at
 ;; or before the final SAMPLE. But that fence sampled the authority and then
@@ -433,27 +434,41 @@
 ;; re-registration (registry axis) landing AFTER the sample but BEFORE the swap
 ;; published a stale generation-0 capture that connected and owned leases.
 ;;
-;; `publish-commit!` fuses validation and publication into ONE compare-and-set!
-;; transition (cell-local axis) gated on the registered-slot identity token
-;; (registry axis). The `:pre-publish` seam fires ONCE, in EXACTLY that former
-;; gap — between an attempt's authority sample and its publish CAS — so these
-;; fixtures land the advance where nothing could catch it before, on BOTH the
-;; cell-local and registry authority axes, and prove nothing publishes.
+;; `publish-commit!` closes that gap ASYMMETRICALLY — each axis carries the
+;; strength it can on re-frame2's single-threaded CLJS host:
+;;   - CELL-LOCAL axis — a GENUINE single-atom CAS linearization: the capture
+;;     generation is validated against the SAME cell-state snapshot the publish
+;;     `compare-and-set!` commits, so validation and publication are ONE atomic
+;;     transition.
+;;   - REGISTRY axis — a BEST-EFFORT slot-identity check, NOT fused into the CAS:
+;;     the registered slot is sampled once as a token and rechecked `identical?`
+;;     IMMEDIATELY BEFORE the CAS. Sound on the single-threaded host (nothing
+;;     preempts between the recheck and the CAS), but it is not a single-atom
+;;     linearization.
+;; The `:pre-publish` seam fires ONCE, in EXACTLY that former gap — between an
+;; attempt's authority sample and its publish CAS — so these fixtures land the
+;; advance where nothing could catch it before, on BOTH axes, and prove nothing
+;; publishes.
 ;;
 ;; MUTATION TOOTH: revert `publish-commit!` to a sample-then-independent-swap
 ;; (so the `:pre-publish` advance lands between the two) and every assertion
 ;; below flips red — the interposed advance then publishes and connects.
 ;; `.cljc` ending `-cljs-test` runs on node (`test:cljs`) AND JVM
-;; (`clojure -M:test`); the accompanying `-race-jvm-test` exercises the same CAS
-;; under GENUINE two-thread concurrency.
+;; (`clojure -M:test`); the accompanying `-race-jvm-test` exercises the same
+;; publish path — both axes — under GENUINE two-thread concurrency.
 ;; ===========================================================================
 
-;; ---- Registry axis: a re-registration in the sample→publish window ----------
-;; The view's HMR slot is the token; a mid-window `register-view-generation!`
-;; swaps `view-generations` to a fresh slot object, failing the `identical?`
-;; gate so the loop re-reads a MOVED revision and rejects.
+;; ---- Registry axis: a re-registration before the final slot-identity check --
+;; The registry axis is a BEST-EFFORT identity check, NOT a single-atom
+;; linearization. The view's HMR slot is sampled once as a token; a
+;; `register-view-generation!` landing at `:pre-publish` (BEFORE the final
+;; `identical?` recheck) swaps `view-generations` to a fresh slot object, so the
+;; recheck fails and the loop re-reads a MOVED revision and rejects. This
+;; exercises the recheck→re-validate path only — it does NOT interpose in the
+;; residual token-recheck→cell-CAS window (a single-fire barrier cannot, and that
+;; window is unreachable on the single-threaded CLJS host anyway).
 
-(deftest pre-publish-registration-is-linearized-registry-axis
+(deftest pre-publish-registration-is-identity-checked-registry-axis
   (rf/reg-sub :r/a (fn [db _] (:a db)))
   (seed! {:a 1})
   (let [vid  ::linz-registry-view
@@ -466,7 +481,7 @@
                            (reregister-barrier vid :pre-publish hs0)]
                    (reactive/commit! cell cap))]
       (is (= :stale result)
-          "a re-registration interposed between the sample and the publish CAS is fenced")
+          "a re-registration before the final slot-identity check is rejected — the moved token fails the recheck")
       (is (= :fresh (reactive/lifecycle cell)) "a fenced candidate never connects")
       (is (empty? (reactive/committed-sites cell)) "no dependency set published")
       (is (nil? (entry [:r/a])) "the staged lease was released — zero-owner node")
