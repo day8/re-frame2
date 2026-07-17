@@ -14,6 +14,20 @@
 
  :dev-http {8280 "resources/public"}
 
+ ;; re-frame.ui compiles your views (reg-view / defui / defnc) and publishes a
+ ;; whole-build digest its runtime asserts was finalized. Both settings are
+ ;; load-bearing and NON-NEGOTIABLE for correctness — without them a browser
+ ;; build boots into
+ ;; "re-frame.ui build digest was not finalized ...":
+ ;;   - :build-hooks runs the compiler hook that finalizes the digest on every
+ ;;     build.
+ ;;   - :cache-blockers keeps re-frame.ui's macro-driven registrations a pure
+ ;;     function of the current build inputs (a cache-loaded ns never re-runs
+ ;;     its registrations, leaving the registries incomplete on a warm-cache
+ ;;     start).
+ :cache-blockers #{re-frame.ui}
+ :build-defaults {:build-hooks [(re-frame.ui.compiler.build-hook/hook)]}
+
  :builds
  {:app
   {:target     :browser

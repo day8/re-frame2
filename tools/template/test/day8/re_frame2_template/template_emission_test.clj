@@ -1000,6 +1000,66 @@
         (finally
           (delete-recursively tmp))))))
 
+;; The emitted client boot must ADOPT the server-painted DOM on a payload-backed
+;; load — `hydrate-root`, NOT an unconditional `create-root` after `ssr/hydrate!`
+;; (the pre-fix bug: state-only hydrate then a fresh mount that discards the
+;; server HTML). This static shape test pins BOTH startup branches and the
+;; single-retained-root guard without a brittle whole-file snapshot; the emitted
+;; scaffold's browser proof (emitted_test_run_test.clj's DOM-adoption tier) is
+;; the behavioural tooth (rf2-w1k3i).
+(deftest reagent-ssr-client-adopts-server-dom-static-test
+  (testing ":include-ssr? true emits a core.cljc whose payload-backed client
+            path calls hydrate-root (adopts the server DOM) and whose
+            nil-payload path calls create-root + render (mounts fresh), with
+            exactly one retained root guarded across HMR/init reruns (rf2-w1k3i)"
+    (let [tmp (tmp-dir "rf2-emission-ssr-hydrate-")]
+      (try
+        (let [proj (run-template-opts! tmp "acme/my-app"
+                                       {:substrate :reagent :include-ssr? true})
+              core (slurp (io/file proj "src/acme/my_app/core.cljc"))]
+          ;; -- both startup branches are present --
+          (is (.contains core "hydrate-root")
+              "core.cljc's payload branch ADOPTS the server DOM via
+               reagent.dom.client/hydrate-root (the pre-fix scaffold had none)")
+          (is (.contains core "create-root")
+              "core.cljc's nil-payload / client-only branch still mounts a fresh
+               root via create-root + render")
+          (is (.contains core "ssr/hydrate!")
+              "core.cljc seeds + verifies STATE through ssr/hydrate! before mount")
+
+          ;; -- the ssr/hydrate! payload discriminates the two branches --
+          (is (re-find #"(?s)\bif\s+payload\b" core)
+              "core.cljc BRANCHES on the ssr/hydrate! payload (server-rendered
+               vs plain-load discriminator)")
+          (is (re-find #"(?s)\bif\s+payload\b[\s\S]*?\(rdc/hydrate-root" core)
+              "the payload (server-rendered) branch adopts via rdc/hydrate-root")
+
+          ;; -- adopt-first order: hydrate-root (payload) precedes create-root
+          ;;    (nil), and create-root NEVER precedes hydrate-root. Together
+          ;;    these reject an unconditional create-root after ssr/hydrate!. --
+          (is (re-find #"(?s)\(rdc/hydrate-root[\s\S]*?\(rdc/create-root" core)
+              "hydrate-root (payload branch) precedes create-root (nil branch) —
+               the corrected `if payload adopt else mount` order")
+          (is (not (re-find #"(?s)\(rdc/create-root[\s\S]*?\(rdc/hydrate-root" core))
+              "core.cljc must NOT call create-root before hydrate-root — an
+               unconditional create-root after ssr/hydrate! would mount a fresh
+               React tree instead of adopting the server-painted DOM (rf2-w1k3i)")
+
+          ;; -- exactly one retained root, guarded across HMR/init reruns --
+          (is (.contains core "defonce")
+              "the React root is held in a defonce atom so it is retained across
+               hot reloads (one root owns the container)")
+          (is (re-find #"(?s)\(if\s+@react-root" core)
+              "init GUARDS on the retained root: a hot-reload rerun re-renders
+               into the same root rather than re-hydrating or creating a second
+               root (rf2-w1k3i)")
+          (is (re-find #"(?s)\(if\s+@react-root[\s\S]*?\(rdc/render\s+@react-root[\s\S]*?ssr/hydrate!" core)
+              "the retained-root rerun path re-renders into @react-root and does
+               NOT re-run ssr/hydrate! — a rerun must not re-seed the server
+               slice over live interactive state (rf2-w1k3i)"))
+        (finally
+          (delete-recursively tmp))))))
+
 ;; --- :css :tailwind --------------------------------------------------------
 ;;
 ;; The Tailwind overlay overwrites the plain-CSS `app.css` + `index.html`
