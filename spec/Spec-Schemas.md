@@ -1908,18 +1908,30 @@ Common keys (`:category`, `:failing-id`, `:reason`, `:frame`) are inherited from
   ;; the consumer's call. Per Tool-Pair §Surface behaviour against
   ;; destroyed frames.
   ;;
-  ;; :observed-gen is the reserved callback generation the silence is
-  ;; attributed to (a process-monotonic int token). The emit runs OUTSIDE the
-  ;; ledger locks, so this qualifier — not a lock — preserves generation
-  ;; authority: a receiver whose current generation for cb-id no longer equals
-  ;; the carried :observed-gen self-filters the superseded signal (rf2-8b9twg).
-  ;; The receiver reads that current generation through the supported
-  ;; re-frame.epoch/epoch-listener-generation query (rf2-6ys5n), not the private
-  ;; registry. Per 009 §The delayed-silence emission linearization law.
+  ;; :cb-id is the listener id VERBATIM — the SAME open comparable-ID domain the
+  ;; public register-epoch-listener! / register-listener! :epoch and the
+  ;; epoch-listener-generation query accept: ANY comparable value (a keyword,
+  ;; string, number, vector, …). The runtime emits the raw registered id, so this
+  ;; schema MUST NOT narrow it below what registration accepts — :any is the
+  ;; open-identifier domain (as for :rf.epoch/id / :rf.reply/work-id), NOT a
+  ;; keyword|string restriction.
+  ;;
+  ;; :observed-gen is the callback GENERATION the silence is attributed to — an
+  ;; OPAQUE, EQUALITY-ONLY token, NOT a public integer or ordering contract. Its
+  ;; internal representation is a process-monotonic counter, but that is an
+  ;; implementation detail consumers must never depend on (no arithmetic, no
+  ;; ordering); the schema is :any so no int/order contract leaks. A consumer
+  ;; compares it for EQUALITY only, against the current generation read through
+  ;; the supported re-frame.epoch/epoch-listener-generation query (rf2-6ys5n),
+  ;; never the private registry. The emit runs OUTSIDE the ledger locks, so this
+  ;; qualifier — not a lock — preserves generation authority: a receiver whose
+  ;; current generation for cb-id no longer equals the carried :observed-gen
+  ;; self-filters the superseded signal (rf2-8b9twg). Per 009 §The delayed-silence
+  ;; emission linearization law.
   [:map
    [:frame :keyword]
-   [:cb-id [:or :keyword :string]]
-   [:observed-gen :int]])
+   [:cb-id :any]
+   [:observed-gen :any]])
 
 ;; --- warnings: SSR / authoring-time advisories ---
 

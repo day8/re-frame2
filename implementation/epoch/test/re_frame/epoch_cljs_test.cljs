@@ -861,3 +861,51 @@
           ;; owner ledger, then unregister cb.
           (epoch.listeners/on-frame-destroyed! id token-b nil)
           (rf/unregister-listener! :epoch cb))))))
+
+;; ---- rf2-4go8s — a NON-KEYWORD comparable listener id round-trips -----------
+
+(deftest non-keyword-comparable-cb-id-round-trips-through-silencing-cljs
+  (testing "rf2-4go8s (CLJS) — `register-epoch-listener!` accepts ANY comparable
+            value as the listener id, not only keyword|string. A NON-KEYWORD id
+            (a vector) registers, answers the generation query, and is emitted
+            VERBATIM as the silencing signal's `:cb-id` — raw-ID preservation —
+            and the generation self-filter works identically on it. This is the
+            end-to-end proof the emitted `:cb-id` domain is the same comparable-ID
+            domain the public register/query API accepts (Spec-Schemas
+            EpochCbSilencedOnFrameDestroyTags :cb-id :any, widened from the stale
+            keyword|string narrowing)."
+    (let [cb-id [:my-app/epoch-log 7]]         ; a vector — NOT a keyword|string
+      (is (nil? (rf/epoch-listener-generation cb-id))
+          "an unregistered non-keyword id has no generation")
+      (rf/make-frame {:id :test/non-kw-cljs})
+      (rf/reg-event :seed-nonkw (fn [{:keys [db]} _] {:db {:n 0}}))
+      (let [recorded (atom [])]
+        (rf/register-listener! :trace ::recorder-nonkw (fn [ev] (swap! recorded conj ev)))
+        (rf/register-listener! :epoch cb-id (fn [_] nil))
+        (is (some? (rf/epoch-listener-generation cb-id))
+            "the non-keyword id answers the generation query once registered")
+        ;; Observe the frame under the live generation, then destroy it.
+        (rf/dispatch-sync [:seed-nonkw] {:frame :test/non-kw-cljs})
+        (let [g-observed (rf/epoch-listener-generation cb-id)]
+          (rf/destroy-frame! :test/non-kw-cljs)
+          (let [tags (->> @recorded
+                          (filter #(= :rf.epoch.cb/silenced-on-frame-destroy
+                                      (:operation %)))
+                          first
+                          :tags)]
+            (is (some? tags) "a silence fired for the destroyed frame")
+            ;; RAW-ID PRESERVATION: the emitted :cb-id is the vector VERBATIM.
+            (is (= cb-id (:cb-id tags))
+                "the emitted :cb-id is the raw non-keyword id, not narrowed/coerced")
+            (is (vector? (:cb-id tags))
+                "and it is genuinely a non-keyword comparable value")
+            (is (= g-observed (:observed-gen tags))
+                "the silence names the generation that observed the frame")
+            ;; GENERATION-QUALIFIED SELF-FILTER on the non-keyword id.
+            (is (= (:observed-gen tags) (rf/epoch-listener-generation cb-id))
+                "live signal matches the current generation — APPLY")
+            (rf/register-listener! :epoch cb-id (fn [_] nil))  ; supersede G→H
+            (is (not= (:observed-gen tags) (rf/epoch-listener-generation cb-id))
+                "a superseded signal no longer matches — DISCARD")))
+        (rf/unregister-listener! :trace ::recorder-nonkw)
+        (rf/unregister-listener! :epoch cb-id)))))
