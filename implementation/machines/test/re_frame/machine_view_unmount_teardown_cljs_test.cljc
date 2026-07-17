@@ -1,13 +1,30 @@
 (ns re-frame.machine-view-unmount-teardown-cljs-test
-  "rf2-jqn5im (split from rf2-gtk57a) — the EXECUTABLE proof of the
-  view-unmount ↔ machine-lifecycle contract.
+  "rf2-jqn5im / rf2-kmdi9 — the FAST HEADLESS shape/channel half of the
+  view-unmount ↔ machine-lifecycle contract proof.
 
   rf2-gtk57a corrected a stale Cross-Spec Interaction 22 claim: a bare
   VIEW UNMOUNT does NOT tear a machine down. The prose correction landed
-  in PR #6014; this suite is its behavioural regression guard — the
-  fixture PAIR the doc worker could not own (it needs the machines
-  runtime + a mounted-view teardown signal, which the spec/conformance/
-  EDN corpus cannot express).
+  in PR #6014; this suite is the headless regression guard on the
+  machines RUNTIME side of that contract.
+
+  SCOPE — this file is deliberately NOT a mounted integration proof.
+  `fire-view-unmounted!` (below) invokes the production
+  `re-frame.views/emit-view-unmounted!` DIRECTLY (CLJS) / replays the
+  identical trace through the same late-bind hook (JVM); it never mounts
+  or unmounts a real view. It therefore proves only DIRECT-EMITTER
+  behaviour — the exact op-type / channel / tags a teardown emit carries,
+  and the machine runtime's (non-)reaction to it — and CANNOT catch a
+  regression in hook installation, per-instance reaction disposal, React
+  cleanup, or a machine effect wired around the REAL host-unmount path.
+  Those are proven by the sibling MOUNTED integration file (rf2-kmdi9):
+  `machine_view_unmount_teardown_mounted_dom_cljs_test.cljs`, which mounts
+  a `reg-view*` view participating in a live machine through a real React
+  root and unmounts it via the actual `reagent.dom.client` teardown path,
+  so its `:rf.view/unmounted` assertion is green ONLY when the real
+  hook-install → reaction-disposal → React-cleanup chain works — exactly
+  the chain this direct-emitter file bypasses. Keep this file as the fast
+  shape/channel coverage that runs on BOTH the JVM and Node headless
+  runners; the mounted proof runs under `:browser-test`.
 
   Ground truth (READ-ONLY anchors, cited so a reviewer can trace the
   contract to source):
@@ -111,14 +128,17 @@
   (filter #(= op (:operation %)) @traces))
 
 (defn- fire-view-unmounted!
-  "Fire the REAL view-unmount teardown signal that a mounted view emits on
-  its instance teardown (Reagent `componentWillUnmount` / React
-  `useEffect` empty-deps cleanup). CLJS: invoke the production
+  "Fire the view-unmount teardown emit a mounted view's instance teardown
+  would produce — as a DIRECT-EMITTER probe, NOT a real mount/unmount (see
+  the ns SCOPE note; the real host-unmount path is proven by the mounted
+  sibling file). CLJS: invoke the production
   `re-frame.views/emit-view-unmounted!` directly — the exact function the
-  unmount hook's dispose callback calls. JVM (views.cljs is CLJS-only):
-  replay the identical emit through the SAME `:trace/emit!` late-bind hook
-  views.cljs / spine.cljs reach it by, with the identical op-type
-  (`:rf.view`), channel (`:rf.view/unmounted`), and tags."
+  unmount hook's dispose callback calls, but reached here WITHOUT the hook
+  install / reaction disposal / React cleanup that would normally lead to
+  it. JVM (views.cljs is CLJS-only): replay the identical emit through the
+  SAME `:trace/emit!` late-bind hook views.cljs / spine.cljs reach it by,
+  with the identical op-type (`:rf.view`), channel (`:rf.view/unmounted`),
+  and tags."
   [view-id render-key frame-id]
   #?(:cljs (views/emit-view-unmounted! view-id render-key frame-id)
      :clj  (when-let [emit! (late-bind/get-fn-cached :trace/emit!)]
@@ -229,42 +249,67 @@
             "EXACTLY ONE [:machine actor-id] resource lease released on destroy")))))
 
 (deftest explicit-destroy-releases-owned-after-timer
-  (testing "rf2-jqn5im — an explicit destroy of a machine holding an armed
-            :after timer RELEASES that owned timer: the after-timers registry
-            entry keyed to the actor is reaped, and the timer never fires."
-    ;; Capture-only host clock so no real wall-clock timer is armed (the registry
-    ;; bookkeeping still runs) — deterministic on both JVM and Node.
-    (with-redefs [interop/schedule-after! (fn [_thunk _ms] ::handle)]
-      (rf/reg-machine :edt/waiter
-        {:initial :idle :data {}
-         :states  {:idle    {:on {:go :waiting}}
-                   :waiting {:after {60000 {:target :done}}}
-                   :done    {}}})
-      (rf/dispatch-sync [:edt/waiter [:rf.machine/start]])
-      (rf/dispatch-sync [:edt/waiter [:go]])
-      (is (= :waiting (mtest/machine-state :edt/waiter))
-          "precondition: entered the :after-bearing state")
-      ;; The actor owns its :after timers via the registry key's `:parent`
-      ;; (`re-frame.machines.timer/after-timer-key`); destroy filters on the
-      ;; same `:parent = actor-id` to cancel them.
-      (let [owned #(->> (get @timer/after-timers :rf/default {})
-                        keys
-                        (filter (fn [k] (= :edt/waiter (:parent k)))))]
-        (is (= 1 (count (owned)))
-            "precondition: the machine armed exactly one owned :after timer")
+  (testing "rf2-jqn5im / rf2-kmdi9 — an explicit destroy of a machine holding an
+            armed :after timer RELEASES that owned timer: the after-timers
+            registry entry keyed to the actor is reaped, and DRIVING the
+            released timer's captured host-clock thunk fires NO stale transition
+            (no :after-elapsed, no snapshot resurrection)."
+    ;; Capture the host-clock THUNK (not just a handle) so the cancellation
+    ;; control is EXECUTABLE — after destroy we invoke the exact closure the
+    ;; real wall-clock would have called on elapse and prove it is a claim-
+    ;; suppressed no-op. No real timer is armed (deterministic on JVM + Node).
+    ;; This closes the vacuous "never fired" gap: the old redef discarded the
+    ;; thunk, so "no :after-elapsed" was trivially true — nothing ever drove it.
+    (let [captured-thunk (atom nil)]
+      (with-redefs [interop/schedule-after!
+                    (fn [thunk _ms] (reset! captured-thunk thunk) ::handle)]
+        (rf/reg-machine :edt/waiter
+          {:initial :idle :data {}
+           :states  {:idle    {:on {:go :waiting}}
+                     :waiting {:after {60000 {:target :done}}}
+                     :done    {}}})
+        (rf/dispatch-sync [:edt/waiter [:rf.machine/start]])
+        (rf/dispatch-sync [:edt/waiter [:go]])
+        (is (= :waiting (mtest/machine-state :edt/waiter))
+            "precondition: entered the :after-bearing state")
+        (is (fn? @captured-thunk)
+            "precondition: the host clock CAPTURED the actor's :after thunk — the
+             cancellation control below is genuinely executable, not vacuous")
+        ;; The actor owns its :after timers via the registry key's `:parent`
+        ;; (`re-frame.machines.timer/after-timer-key`); destroy filters on the
+        ;; same `:parent = actor-id` to cancel them.
+        (let [owned #(->> (get @timer/after-timers :rf/default {})
+                          keys
+                          (filter (fn [k] (= :edt/waiter (:parent k)))))]
+          (is (= 1 (count (owned)))
+              "precondition: the machine armed exactly one owned :after timer")
 
-        (let [traces (capture! ::edt)]
-          (rf/reg-event ::destroy (fn [_ _] {:fx [[:rf.machine/destroy :edt/waiter]]}))
-          (rf/dispatch-sync [::destroy])
+          (let [traces (capture! ::edt)]
+            (rf/reg-event ::destroy (fn [_ _] {:fx [[:rf.machine/destroy :edt/waiter]]}))
+            (rf/dispatch-sync [::destroy])
 
-          (is (empty? (owned))
-              "the actor's :after timer registry entry was REAPED on destroy —
-               the owned timer is released")
-          (is (empty? (ops-of traces #_"synthetic timer-elapsed" :rf.machine.timer/after-elapsed))
-              "the released timer never fired an :after-elapsed after destroy")
-          (let [fx (ops-of traces fx-destroyed)]
-            (is (= 1 (count fx))
-                "exactly one :rf.machine/destroyed fired for the explicit destroy")
-            (is (= :explicit (-> fx first :tags :reason))
-                "the destroy carries :reason :explicit"))
-          (is (nil? (snapshot :edt/waiter)) "snapshot cleared on destroy"))))))
+            (is (empty? (owned))
+                "the actor's :after timer registry entry was REAPED on destroy —
+                 the owned timer is released")
+
+            ;; EXECUTABLE cancellation control (rf2-kmdi9): drive the captured
+            ;; thunk exactly as the real host clock would on elapse, AFTER the
+            ;; destroy reaped the entry. `claim-entry!` finds no slot for this
+            ;; attempt's token → the dispatch is suppressed → no :after-elapsed,
+            ;; no snapshot resurrection. If a future change stranded the entry
+            ;; (or let the thunk dispatch unconditionally), this drive would
+            ;; produce an :after-elapsed and red the test.
+            (@captured-thunk)
+
+            (is (empty? (ops-of traces :rf.machine.timer/after-elapsed))
+                "driving the released timer's thunk after destroy fires NO
+                 :after-elapsed — the reap dropped the entry so claim-entry!
+                 finds no slot and suppresses the stale dispatch")
+            (is (nil? (snapshot :edt/waiter))
+                "driving the released thunk did NOT resurrect the destroyed
+                 machine's snapshot — no stale transition consequence")
+            (let [fx (ops-of traces fx-destroyed)]
+              (is (= 1 (count fx))
+                  "exactly one :rf.machine/destroyed fired for the explicit destroy")
+              (is (= :explicit (-> fx first :tags :reason))
+                  "the destroy carries :reason :explicit"))))))))
