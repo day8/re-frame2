@@ -182,7 +182,7 @@
   SAME shared bound.
 
   An open router drain fails loud through the SHARED guard rather than publishing
-  a partial read side. Exceptions from the thunk propagate unchanged (the pending
+  a partial render phase. Exceptions from the thunk propagate unchanged (the pending
   publication does not run when the thunk throws). The 0-arity flushes
   already-pending work with an empty thunk; a no-op flush stays a no-op. This
   override is installed ONLY on the first-party adapter — the generic spine
@@ -191,7 +191,7 @@
   ([f]
    (reactive/guard-open-drain! 're-frame.ui.substrate/flush-render!)
    (let [spine-flush (:flush-render! spine-adapter)]
-     ;; One React sync-commit boundary: run the write side, then publish the
+     ;; One React sync-commit boundary: run the update and commit phases, then publish the
      ;; pending ViewCell notifications so React commits them before returning.
      (spine-flush (fn [] (f) (reactive/flush-pending!)))
      ;; Drain any commit-triggered re-dirty to a BOUNDED fixed point — each pass

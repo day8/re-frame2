@@ -68,11 +68,11 @@ The milestone click raises a natural question: when the handler returns *two* th
 
 When the runtime starts processing events, it
 [**drains the queue to completion**](glossary.md#drain--run-to-completion) before
-any view re-renders. The dequeued event runs its full write side. Then any events
-its handler `:fx`-dispatched run theirs — until the queue is empty. Only then does
-the read side run, **once**.
+any view re-renders. The dequeued event runs its update and commit phases in full.
+Then any events its handler `:fx`-dispatched run theirs — until the queue is empty.
+Only then does the render phase run, **once**.
 
-> **Write side runs per event; read side runs once per drain, at settle.**
+> **Update and commit run per event; render runs once per drain, at settle.**
 
 That is dispatch semantics, not a mode. There is no opt-out.
 

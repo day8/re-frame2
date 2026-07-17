@@ -63,7 +63,7 @@ The tag union lets one selector sub resolve the whole active configuration to a 
 
 ## Why tags exist
 
-Per Spec 005 §State tags §What tags are *not*: tags are **not** an additional state machine, not flow-state predicates, not a way to encode transitions. They are a **query convenience** — a view-facing projection of "what does the currently-active configuration mean?" The state machine is still the source of truth; tags are the read-side index.
+Per Spec 005 §State tags §What tags are *not*: tags are **not** an additional state machine, not flow-state predicates, not a way to encode transitions. They are a **query convenience** — a view-facing projection of "what does the currently-active configuration mean?" The state machine is still the source of truth; tags are the render-phase index over it.
 
 If a tag would only ever match exactly one state, the tag is redundant — query the state directly (`(= :loading (:state snap))`). Tags earn their tokens by matching N states with a shared intent.
 

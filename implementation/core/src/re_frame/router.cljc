@@ -671,7 +671,7 @@
   the epoch record / trace stream. Keyword-id and `nil` entries (both already
   EDN — id-valued redirect / explicit no-override) pass through unchanged.
   Marker-izes AT THE EMISSION SITE (the run-start trace tag construction
-  below), per rf2-yigokd's ruling — the sharp write-side class
+  below), per rf2-yigokd's ruling — the sharp update-phase class
   (`:interceptor-overrides`, which edits the pre-commit chain) is EDN by
   construction (EP-0022 retired value-valued replacements), so only
   `:fx-overrides` needs this walk.

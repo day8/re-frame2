@@ -616,31 +616,41 @@ For the user-facing API surface (signatures, status, cross-references) see [API.
 
 ## Event-pipeline vocabulary — the terms one event traverses
 
-> This is the authoritative home for the **event-pipeline** vocabulary — the fixed stage sequence one event traverses, its write/read split at the commit seam, the world/frame pair, and the pipeline / run / epoch triple. Every Spec, doc, tool, and example spells these the same way; the mechanical contracts live in [002-Frames §Run-to-completion dispatch](002-Frames.md#run-to-completion-dispatch-drain-semantics) (drain / dispatch vocabulary) and [009-Instrumentation §Cascade projection](009-Instrumentation.md#event-bundle-projection-group-by-event--domino-bucket) (trace vocabulary). The retired **event cascade** / **the loop** / **six dominoes** framings are demoted (see the deprecation table below); they survive only as a first-contact mnemonic, never as formal terms.
+> This is the authoritative home for the **event-pipeline** vocabulary — the fixed stage sequence one event traverses, its three **phases** (**update → commit → render**), the world/frame pair, and the pipeline / run / epoch triple. Every Spec, doc, tool, and example spells these the same way; the mechanical contracts live in [002-Frames §Run-to-completion dispatch](002-Frames.md#run-to-completion-dispatch-drain-semantics) (drain / dispatch vocabulary) and [009-Instrumentation §Cascade projection](009-Instrumentation.md#event-bundle-projection-group-by-event--domino-bucket) (trace vocabulary). The retired **event cascade** / **the loop** / **six dominoes** framings are demoted, and the former **write side** / **read side** grouping is retired in favour of the phases (see the deprecation table below); they survive only as a first-contact mnemonic, never as formal terms.
 
 ### The core terms
 
 | Term | Is | Is not |
 |---|---|---|
-| **event pipeline** | The **fixed stage sequence one event traverses**. It has a **write side** and a **read side**, split at the **commit** seam — nothing crosses between them except the committed value. The write side is **transactional up to the commit** (a handler's `:db` write either commits in full or not at all); it is **best-effort after** it (post-commit effects fire in order but are not rolled back on a later failure — per [002 §`:fx` ordering and atomicity guarantees](002-Frames.md#fx-ordering-and-atomicity-guarantees)). | Not a loop, not a run-to-fixed-point family (that is a **drain**), not a single traversal (that is a **pipeline run**). Not "the six dominoes" as a formal term. |
+| **event pipeline** | The **fixed stage sequence one event traverses**. It has three **phases** — **update** (compute the description of change), **commit** (execute the declared effects), **render** (the world reacts) — and nothing crosses from commit to render except the committed value. The pipeline is **transactional up to the `:db` write** (a handler's `:db` write either commits in full or not at all) and **best-effort after** it (post-commit effects fire in order but are not rolled back on a later failure — per [002 §`:fx` ordering and atomicity guarantees](002-Frames.md#fx-ordering-and-atomicity-guarantees)). | Not a loop, not a run-to-fixed-point family (that is a **drain**), not a single traversal (that is a **pipeline run**). Not "the six dominoes" as a formal term. |
 | **world** | The **map of declared facts assembled for a handler** — the coeffects a handler reads plus the app-state entry. **App-state is one entry in the world, always present, but not otherwise special**: it sits alongside every other declared fact and is committed by the same seam. | Not a synonym for app-db. Not a privileged root the other facts hang off. |
 | **frame** | A **running world** — a world under a live runtime (its own queue, drain state, caches, and resolved image generation). The isolated runtime boundary the corpus already names; see [§Frame vocabulary](#frame-vocabulary--one-name-per-frame-fact) below for the five frame facts. | Not the static world map on its own (a world becomes a frame when a runtime drives it). |
-| **commit** | The **seam** between the write side and the read side. The one place the write side's assembled-and-transformed value becomes durable; the only thing that crosses to the read side. Write side is transactional up to here, best-effort after. | Not a stage that transforms the value further; it is the boundary the value passes through unchanged once decided. |
+| **commit** | Two tightly-coupled uses, one anchor. The **commit phase** is the phase in which the declared effects execute. The **`:db` write** is one of those effects — special **only** in that it is guaranteed to run **first**, atomically, before any other effect; that write is the anchor **pre-commit** / **post-commit** measure from, and the only thing that crosses to the render phase. Transactional up to the `:db` write, best-effort after. | Not a stage that transforms the value further; the `:db` write is not a privileged tier above the other effects — it is the first of them. |
+
+### The phases
+
+The pipeline's three **phases** are the teaching-level grouping — every doc, tool, and diagnostic names them the same way:
+
+| Phase | What it is |
+|---|---|
+| **update phase** | The handler runs: a **pure computation** from the event and the assembled world to a *description* of effects. Nothing has happened yet — the phase produces intent, as data. |
+| **commit phase** | The declared effects **execute**. The **`:db` effect is one of them**, special only in that it is guaranteed to run **first** — the app-state snapshot transitions atomically, in one step, before any other effect fires — then the remaining effects run in source order. Transactional up to the `:db` write, best-effort after (**pre-commit** / **post-commit** are positions relative to that write). A validation failure at the phase's boundary aborts with nothing committed. |
+| **render phase** | The world reacts: subscriptions whose inputs changed recompute, and the views they feed re-render. |
 
 ### The stages
 
-The pipeline stages, in order, split across the commit seam:
+The finer-grained stage sequence, grouped by phase:
 
-| Side | Stage | What it does |
+| Phase | Stage | What it does |
 |---|---|---|
-| **write** | **assemble** | Build the **world** — gather the declared facts (coeffects + app-state) the handler will read. |
-| **write** | **transform** | Run the handler over the world; produce the intended new value and the declared effects. |
-| **write** | **commit** | The seam. Make the write durable (the `:db` write transitions atomically, one step, before any effect runs). |
-| **write** | **perform** | Run the declared effects in source order — best-effort, post-commit. |
-| **read** | **derive** | Recompute the subscriptions whose inputs the commit invalidated. |
-| **read** | **render** | Repaint the views the derivation changed. |
+| **update** | **assemble** | Build the **world** — gather the declared facts (coeffects + app-state) the handler will read. |
+| **update** | **transform** | Run the handler over the world; produce the intended new value and the declared effects. |
+| **commit** | **commit** | Execute the **`:db` effect** — the app-state write transitions atomically, one step, guaranteed first among the effects. |
+| **commit** | **perform** | Run the remaining declared effects in source order — best-effort, post-commit. |
+| **render** | **derive** | Recompute the subscriptions whose inputs the commit invalidated. |
+| **render** | **render** | Repaint the views the derivation changed. |
 
-**Write side runs per event; read side runs once per drain at settle.** A [**drain**](002-Frames.md#run-to-completion-dispatch-drain-semantics) processes the originating event plus every event its handlers dispatch, each running its own full **assemble → transform → commit → perform** write side, back-to-back to fixed point. The read side (**derive → render**) runs **once**, at drain settle, over the final committed state — not once per event. This is why **drain** is kept as a distinct term: it is the scheduling unit that bounds when the read side runs.
+**The update and commit phases run per event; the render phase runs once per drain at settle.** A [**drain**](002-Frames.md#run-to-completion-dispatch-drain-semantics) processes the originating event plus every event its handlers dispatch, each running its own full **assemble → transform → commit → perform** sequence, back-to-back to fixed point. The render phase (**derive → render**) runs **once**, at drain settle, over the final committed state — not once per event. This is why **drain** is kept as a distinct term: it is the scheduling unit that bounds when the render phase runs.
 
 ### The triple — pipeline / run / epoch
 
@@ -649,13 +659,15 @@ Three distinct nouns for three distinct things; do not use one for another:
 | Noun | Is |
 |---|---|
 | **pipeline** | The **structure** — the fixed stage sequence itself (assemble → transform → commit → perform → derive → render). It does not "happen"; it is the shape every traversal follows. |
-| **run** (a **pipeline run**) | **One traversal** of the pipeline — one dequeued event going from assemble to commit (and the drain's shared read side at settle). This is the unit that replaces the retired "event cascade" for a *single* traversal. |
+| **run** (a **pipeline run**) | **One traversal** of the pipeline — one dequeued event going through its update and commit phases (and the drain's shared render phase at settle). This is the unit that replaces the retired "event cascade" for a *single* traversal. |
 | **epoch** | The **record a run leaves** — one [`:rf/epoch-record`](Spec-Schemas.md#rfepoch-record) per dequeued event, the durable, snapshottable boundary a run produces (per [002 §Drain versus event — the epoch unit](002-Frames.md#drain-versus-event--the-epoch-unit)). |
 
 ### Deprecations
 
 | Retired term | Replacement | Note |
 |---|---|---|
+| **write side** | **update phase** (the handler's pure computation) or **commit phase** (effect execution), or "the update and commit phases" for the per-event half collectively | Retired 2026-07-17. The old grouping treated the `:db` write as a seam *between* sides; the phase model states the truth directly — the `:db` write is an ordinary effect, guaranteed to run first within the commit phase. **Exception:** the Resources scope-tripwire pair ("write-side" mutation-path / "read-side" subscription-path warnings, [016-Resources](016-Resources.md)) is a different sense — dataflow direction, not pipeline position — and keeps its wording pending its own rename. |
+| **read side** | **render phase** | Retired 2026-07-17. Same Resources-sense exception as above. |
 | **event cascade** (the event-traversal sense) | **pipeline run** (one traversal) **or** **drain** (the to-fixed-point family) | Choose by what you mean: a single event's traversal is a **run**; the run-to-completion family of events is a **drain**. |
 | **the loop** | *(no formal replacement)* | Demoted to a **first-contact mnemonic** at most — legitimate only in an introductory "here's the shape" gloss, never as a formal term in a contract, catalogue, or API. |
 | **six dominoes** / **the six dominoes** | *(no formal replacement)* | Same demotion — a first-contact mnemonic at most. The stages are named **assemble → transform → commit → perform → derive → render**; that is the formal vocabulary. |

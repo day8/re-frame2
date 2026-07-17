@@ -62,7 +62,7 @@
 
   The sixth frozen invariant, stated correctly: THE RENDER BATCH BOUNDARY
   IS DRAIN QUIESCENCE, NOT EPOCH CLOSE. An event/frame EPOCH is a
-  write-side commit + diagnostic-evidence unit (one per dequeued event —
+  commit-phase + diagnostic-evidence unit (one per dequeued event —
   Spec 002 §Drain versus event); it is NOT a React render boundary. A
   single run-to-completion drain may settle SEVERAL queued events, each
   committing its OWN epoch record, before the host regains control — and
@@ -1614,8 +1614,8 @@
   "The SHARED open-event-drain guard — the DEV-tier `:rf.error/flush-in-open-epoch`
   signal (03 §11; Spec 006 §Epoch finalization). Reject a synchronous
   registry-flush forced from `where` while a frame's run-to-completion event
-  drain is STILL OPEN: flushing there could publish a partially-settled queued
-  write side (a torn read/render). The single owner of the ruling — reused by
+  drain is STILL OPEN: flushing there could publish partially-settled queued
+  update/commit work (a torn read/render). The single owner of the ruling — reused by
   BOTH `ui.test/flush!` (the test all-roots spelling) and the first-party
   adapter's `flush-render!` (the production synchronous render-commit), so there
   is ONE guard, not two copies drifting apart.
@@ -1624,7 +1624,7 @@
   event-pipeline run and SURVIVES a handler destroying its own frame — a live
   registry scan cannot, since destroy removes the active frame before the handler
   returns, which used to let a destroy-self-then-flush call cross the guard and
-  deliver read-side work inside the still-open run. Throws BEFORE the registry is
+  deliver render-phase work inside the still-open run. Throws BEFORE the registry is
   touched (no partial flush); a no-op outside any drain."
   [where]
   (when (some? frame/*run-frame-state-before*)

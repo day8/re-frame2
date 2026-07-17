@@ -1,6 +1,6 @@
 # Views: pure functions of data
 
-Write side and derivations are in place
+The update and commit phases are in place, and so are the derivations
 ([events](events.md) → [app-db](app-db.md) → [subscriptions](subscriptions.md)).
 This page is the last pure stage of the [event pipeline](glossary.md#event-pipeline):
 turn derived values into a screen.

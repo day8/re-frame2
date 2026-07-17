@@ -12,7 +12,7 @@ One thing before we start, so nobody sits through theory they don't need: you do
 
 The anchor here is a spreadsheet — the same one the [subscriptions](subscriptions.md) page told you to hold onto, now asked to carry the whole framework. Every cell is either an entered value or a formula over other cells, and the engine recalculates exactly the cells downstream of an edit. That's the whole idea. A value declares its inputs, and it recomputes when those inputs move.
 
-re-frame2's [subscriptions](subscriptions.md) are exactly spreadsheet cells. (A subscription is the read side of your app: a *derivation* — a value computed from other values by a pure function, which is all "derivation" means anywhere on this page.) You write a formula; the framework recomputes it when its inputs change; you never recompute it by hand.
+re-frame2's [subscriptions](subscriptions.md) are exactly spreadsheet cells. (A subscription lives in your app's render phase: it's a *derivation* — a value computed from other values by a pure function, which is all "derivation" means anywhere on this page.) You write a formula; the framework recomputes it when its inputs change; you never recompute it by hand.
 
 ??? info "Coming from Solid / Vue / Preact signals?"
 

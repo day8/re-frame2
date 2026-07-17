@@ -18,7 +18,8 @@
   port's per-lease `on-change` watch — the real trigger of the tear the
   .40 fix addresses. Two sibling ViewCells share one sub
   (each `defview` instance owns its own `useSyncExternalStore`); one
-  `dispatch-sync` drains a parent plus eight queued write-side events. We
+  `dispatch-sync` drains a parent plus eight queued events (each runs its
+  update and commit phases inside the one drain). We
   assert the whole subtree stays
   CONSISTENT (never torn) at every observable checkpoint and reflects the
   moved value by the MICROTASK checkpoint — before any macrotask/paint.
@@ -127,7 +128,7 @@
   (rf/reg-event :rf.tear/seed (fn [_ _] {:db {:n 1}}))
   (rf/reg-event :rf.tear/bump (fn [{:keys [db]} _] {:db (update db :n inc)}))
   ;; Parent + eight queued children are ONE run-to-completion drain. Every
-  ;; child performs its write side; ViewCell notification remains coalesced
+  ;; child runs its update and commit phases; ViewCell notification remains coalesced
   ;; until the one post-drain microtask read/render pass.
   (rf/reg-event :rf.tear/burst
                 (fn [_ _]
@@ -150,7 +151,7 @@
               "both sibling ViewCells mounted, sharing the sub at v1")
           (is (= [1 1] @leaf-render-values)
               "initial mount rendered each sibling exactly once")
-          ;; MOVE the sub through eight queued write-side events in one
+          ;; MOVE the sub through eight queued events (update + commit each) in one
           ;; synchronous drain. Each move fires each lease's `on-change`, but
           ;; dirty-cell identity dedup arms ONE microtask read/render pass; no
           ;; event causes its own render.

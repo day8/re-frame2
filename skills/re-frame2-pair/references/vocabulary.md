@@ -11,17 +11,21 @@ If you arrived here from a source-only / spec-only question, you're in the wrong
   (e.g. `:app/main`). Most apps run a single frame; `:rf/default` is an
   ordinary app frame an app may register, with no framework privilege (EP-0002
   — not auto-created, not a fallback).
-- **epoch** — one assembled run of the six dominoes for a given dispatch; the
-  unit of `epoch-history` and `restore-epoch`.
+- **epoch** — one assembled **pipeline run** for a given dispatch (its update
+  and commit phases, plus the drain's render phase at settle); the unit of
+  `epoch-history` and `restore-epoch`.
 - **app-db** — a frame's reactive root atom; read via `app-db/snapshot`,
   written via REPL ops (ephemeral) or source edits (permanent).
 - **dispatch** — the event-entry op (`(rf/dispatch ...)` / the `dispatch`
   structured op).
-- **subscribe** / **reg-sub** — the read-side of the cascade and its
-  registration form. `sub-cache` is the per-frame memoisation surface.
-- **reg-event** — the write-side handler registration form (the one
+- **subscribe** / **reg-sub** — the render-phase surface of the pipeline
+  (subscriptions recompute and views re-render once per drain, at settle)
+  and its registration form. `sub-cache` is the per-frame memoisation
+  surface.
+- **reg-event** — the update-phase handler registration form (the one
   public event-registration form; its handler returns an effects map,
-  conventionally `{:db ...}` to write app-db).
+  conventionally `{:db ...}` — the effect the commit phase runs first to
+  transition app-db).
 - **reg-fx** — effect-handler registrations; surfaced through
   `:effects` projections on each epoch record.
 - **reg-machine** — state-machine handler registrations (Spec 005).

@@ -238,7 +238,7 @@
     (if (pos? (bit-and flags sync-flag))
       (do
         ((:dispatch-sync frame-ops) event opts)
-        ;; The write-side drain has reached quiescence. Advance each dirty
+        ;; The update/commit drain has reached quiescence. Advance each dirty
         ;; ViewCell once; React owns the one host batch.
         (reactive/flush-frame! (:frame frame-ops)))
       ((:dispatch frame-ops) event opts))))

@@ -26,7 +26,7 @@ first stop.
 
 **When *not* a flow.** If only views read the derivation, keep a
 [subscription](subscriptions.md). Reach for a flow when a **handler** (or schema,
-or another write-side path) must read the answer as plain app-db data.
+or another update- or commit-phase path) must read the answer as plain app-db data.
 
 ## Your first flow
 
@@ -204,8 +204,8 @@ of flows. Tens of flows usually means subs or machines are being misused.
 | **Named stages / lifecycle** | [machine](../machines/concepts.md) |
 | Not sure | [Where should this value live?](where-state-lives.md) — cheapest home first |
 
-Materialise only when a handler, schema, or other write-side path must read the
-answer as plain app-db state. That is the whole bar.
+Materialise only when a handler, schema, or other update- or commit-phase path must
+read the answer as plain app-db state. That is the whole bar.
 
 ??? note "Going deeper"
 
@@ -219,7 +219,7 @@ answer as plain app-db state. That is the whole bar.
 You can `reg-flow` a rule — `:inputs` to watch, an `:output-path` to write, a pure
 derive fn — and the framework recomputes it in the *same commit* whenever an input
 changes, so handlers read the answer as plain app-db data. Reach for one only when a
-handler, schema, or other write-side path needs the value; otherwise keep a
+handler, schema, or other update- or commit-phase path needs the value; otherwise keep a
 [subscription](subscriptions.md). That is enough to ship a flow.
 
 ## Going further
