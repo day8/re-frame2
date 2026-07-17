@@ -298,12 +298,18 @@ built on it is not v1).
 | bare fn at a **foreign-component** boundary | unknown | unknown | unknown | no | **compile error** — choose `ui/event`/`ui/handler`/`ui/render-fn`/`ui/raw-fn` |
 | `(ui/raw-fn f)` | foreign, identity-as-protocol | passed through | its closure | no | APIs that treat callback identity as data; also the callback-ref form |
 
-**The narrow bare-fn law (R-4).** Bare fns are legal **only** in known native
-event properties, where the invoker and phase are known. One callback never serves both
-phases. A day-one **strict lint** — `{:re-frame.ui/bare-handlers :warn}` (or `:error`) —
-lets a team adopt explicit-everywhere as policy without a language change; the language
-itself stays permissive (flipping it later would break source; the lint is the honest
-lever).
+**The narrow bare-fn law (R-4).** As an *invoked callback*, a bare fn is legal **only**
+in known native event properties, where the invoker and phase are known. One callback
+never serves both phases. A day-one **strict lint** — `{:re-frame.ui/bare-handlers :warn}`
+(or `:error`) — lets a team adopt explicit-everywhere as policy without a language change;
+the language itself stays permissive (flipping it later would break source; the lint is
+the honest lever). **An ordinary fn prop between INTERNAL views** (compile-resolved Vars)
+is **not** a callback position: it is a **legal opaque value** — identity-compared like
+any other prop, never invoked by the framework, promising **no** invocation phase; the
+receiving view's own contract decides its use (C-13a). To opt a fn into a *phase*, use
+`ui/handler` (the per-site stable identity a fresh closure lacks) or `ui/render-fn`. Bare
+fns at a **foreign-component** boundary and in non-event native positions stay rejected —
+the narrow law governs the callback case, not opaque data props.
 
 **Refs.** `:ref` is a reserved React slot, never an event property — the bare-fn
 shorthand does NOT apply. Object refs are preferred. A callback ref MUST be explicit
@@ -462,9 +468,13 @@ most views need only `sub` and bare event vectors.
 (let [[text set-text] (local "")] …)
 ```
 
-`(local init)` → `[value set!]` — **host component-local state, deliberately outside
-re-frame2 epochs**: not observed by subs, not revertible by epoch restore, re-renders
-this view only. `set!` during render is a dev error
+`(local init)` → `[value set! update!]` — **host component-local state, deliberately
+outside re-frame2 epochs**: not observed by subs, not revertible by epoch restore,
+re-renders this view only. `set!` stores its argument **exactly** — a stored function is
+a value, never a React-style updater (no `useState` fn-overload); `update!` applies
+`(f current & args)` to the **latest** host state (not the committed render's value), so
+several same-turn host writers compose instead of last-write-wins. Two-element
+destructuring `[value set!]` stays valid. `set!`/`update!` during render is a dev error
 (`:rf.warning/render-phase-set!`). There is no frame-resident variant and none is
 reserved — if frame-resident ephemera is ever built it will be a new name with its own
 semantics.
