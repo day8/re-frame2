@@ -541,7 +541,7 @@
    `(rf/replace-frame-state! frame-id {:rf.db/app v})` (Tool-Pair
    §Pair-tool writes; rf2-t3lftq — API-shrink #3 consolidated the former
    `rf/replace-app-db!` into this app-only partial-map form). That
-   surface bypasses the dispatch loop (no event, no cascade) but DOES
+   surface bypasses the event pipeline (no event, no pipeline run) but DOES
    record a synthetic `:rf/epoch-record` with `:event-id
    :rf.epoch/db-replaced` so that `restore-epoch` can rewind past the
    injection. Use sparingly — prefer `dispatch` for any change you want

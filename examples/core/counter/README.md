@@ -6,7 +6,7 @@ The counter is the first example because it shows the shortest path a
 click can take through re-frame2, with nothing else in the way. The
 maths doesn't matter. The path does.
 
-That path is a loop. A click **dispatches** an
+That path is the **event pipeline**. A click **dispatches** an
 [event](../../../docs/core/glossary.md#event) — a plain data vector,
 `[:counter/inc]`, that just says "something happened". The event does
 nothing on its own. The runtime hands it to the registered
@@ -30,7 +30,7 @@ re-derives the count and the
 
 State flows **in** through events and **out** through subscriptions,
 and never the other way. That one-directional shape is the whole idea.
-Every richer example is the same loop with more parts.
+Every richer example is the same pipeline with more parts.
 
 ## What this demonstrates
 
@@ -116,5 +116,5 @@ counter/
 shadow-cljs watch examples/counter
 ```
 
-Then open the served page. The minus and plus buttons drive the loop
+Then open the served page. The minus and plus buttons drive the event pipeline
 described above.

@@ -215,7 +215,7 @@ Under the two-partition frame contract (per [002 §The two-partition frame contr
 | `(rf/replace-frame-state! frame-id {:rf.db/runtime runtime-db})` | **only** the runtime-db partition | privileged runtime / full-frame tool injection of subsystem state (the former `replace-runtime-db!`) |
 | `(rf/replace-frame-state! frame-id {:rf.db/app app-db :rf.db/runtime runtime-db})` | **both** partitions atomically | the full-frame install for tool-driven replay / fixture install |
 
-Every call bypasses the dispatch loop, calls `replace-container!` on the frame-state substrate container, and records a synthetic `:rf/epoch-record` so `restore-epoch!` can rewind past the injection. A present partition key never silently touches the OTHER partition; an ABSENT key is carried forward from the frame's current value, not nilled.
+Every call bypasses the event pipeline, calls `replace-container!` on the frame-state substrate container, and records a synthetic `:rf/epoch-record` so `restore-epoch!` can rewind past the injection. A present partition key never silently touches the OTHER partition; an ABSENT key is carried forward from the frame's current value, not nilled.
 
 **Use cases the surface covers:**
 
