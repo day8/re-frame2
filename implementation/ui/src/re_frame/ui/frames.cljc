@@ -188,6 +188,11 @@
             [re-frame.interop :as interop]
             [re-frame.late-bind :as late-bind]
             [re-frame.live-frame :as live-frame]
+            ;; The reserved `:rf/redacted` egress sentinel. The dead-incarnation
+            ;; emit seam redacts a stale bundle's captured payload to it AT
+            ;; SOURCE (rf2-01ihi), so no same-id successor's elision policy can
+            ;; ever be borrowed to un-redact it downstream.
+            [re-frame.privacy :as privacy]
             ;; The dev-only warning seam (`trace/emit! :warning …`) the
             ;; cross-frame carried-subscribe honesty diagnostic rides
             ;; (rf2-vxgfnd.231). ui ships ABOVE core, so this is a plain static
@@ -1097,18 +1102,43 @@
   HERE — before delegating to core's dispatch/subscribe — so the same failure is
   never ALSO fanned by core's router/subs frame-destroyed path (source-level
   provenance; no double emission). Centralizing all arms through this one helper
-  keeps their two-channel contract from drifting. Never returns."
+  keeps their two-channel contract from drifting. Never returns.
+
+  ## Fail closed for stale-bundle payload egress (rf2-01ihi)
+
+  This seam fires ONLY for a DEAD captured incarnation (a stale bundle op, or a
+  `(frame)` read that resolved a dead incarnation). By the time it runs,
+  `frame-id` NO LONGER names the incarnation the `payload` was captured for: a
+  same-id destroy→reincarnation may have reseated a SUCCESSOR under `frame-id`,
+  or the frame may be absent. The captured incarnation owned the ONLY elision
+  authority for its payload, and that authority is gone with it.
+
+  `emit-error-both!` → `dispatch-on-error!` elides the record's `:event` through
+  `elision/elide-wire-value` under THIS `frame-id`, and that walk fails closed
+  ONLY when `frame-id` is UNRESOLVABLE. A live successor makes it resolvable, so
+  the walk would BORROW the successor's (unrelated, possibly permissive) policy
+  and project incarnation A's raw payload off-box — under BOTH the corpus-wide
+  record AND the frame-owned observability sink route, which `dispatch-on-error!`
+  feeds the RAW event. We therefore redact the payload BODY to the reserved
+  `:rf/redacted` sentinel HERE, at the only site that knows the incarnation is
+  dead: the structural event/query HEAD still rides `:event-id`, no successor
+  policy can be borrowed, and no policy-snapshot machinery is introduced. The
+  absent-frame and destroyed-without-successor arms fail closed identically."
   [frame-id op payload reason]
-  (error-emit/emit-error-both!
-   :rf.error/frame-destroyed
-   payload                         ;; attempted event/query vector (elided as :event); nil for :capture
-   (when payload (first payload))  ;; :event-id / sub-id — the vector head
-   frame-id
-   nil                             ;; no exception — a dead-incarnation op, not a caught throw
-   0                               ;; elapsed-ms — not a timed path
-   (interop/now-ms)                ;; time
-   {:frame frame-id :op op :event payload :reason :frame-destroyed} ;; dev-trace tags (axis 2)
-   {:op op})                       ;; category-specific attribution for the always-on record (axis 1)
+  (let [;; Body redacted at source (rf2-01ihi) — a dead incarnation has no
+        ;; trustworthy policy for its captured payload on EITHER channel. nil
+        ;; for the `:capture` arm (no op was invoked, so no payload to redact).
+        redacted-event (when (some? payload) privacy/redacted-sentinel)]
+    (error-emit/emit-error-both!
+     :rf.error/frame-destroyed
+     redacted-event                  ;; attempted event/query body, redacted at source (elided as :event); nil for :capture
+     (when payload (first payload))  ;; :event-id / sub-id — the structural vector head (survives)
+     frame-id
+     nil                             ;; no exception — a dead-incarnation op, not a caught throw
+     0                               ;; elapsed-ms — not a timed path
+     (interop/now-ms)                ;; time
+     {:frame frame-id :op op :event redacted-event :reason :frame-destroyed} ;; dev-trace tags (axis 2)
+     {:op op}))                      ;; category-specific attribution for the always-on record (axis 1)
   (error/throw-error!
    :rf.error/frame-destroyed 're-frame.ui/frame
    reason

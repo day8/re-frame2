@@ -24,9 +24,11 @@
   so these tests run only under prod-mode compilation."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core                 :as rf]
+            [re-frame.elision              :as elision]
             [re-frame.error-emit           :as error-emit]
             [re-frame.frame                :as frame]
             [re-frame.live-frame           :as live-frame]
+            [re-frame.privacy              :as privacy]
             [re-frame.substrate.plain-atom :as plain-atom]
             [re-frame.test-support         :as test-support]
             [re-frame.ui.frames            :as frames]))
@@ -69,6 +71,52 @@
           (is (= :dispatch-sync (:op r)) ":op names the failing bundle operation")
           (is (= :prod.ops/set-n (:event-id r)) ":event-id is the attempted head")
           (is (number? (:time r)) ":time is a wall-clock millis number"))))))
+
+(defn- deep-contains? [x target]
+  (cond
+    (= x target)    true
+    (map? x)        (boolean (some (fn [[k v]] (or (deep-contains? k target)
+                                                   (deep-contains? v target))) x))
+    (sequential? x) (boolean (some #(deep-contains? % target) x))
+    (set? x)        (boolean (some #(deep-contains? % target) x))
+    :else           false))
+
+(deftest stale-bundle-across-reincarnation-fails-closed-under-prod
+  (testing "Per rf2-01ihi: under `:advanced` + goog.DEBUG=false — where the dev
+            trace (axis 2) is DCE'd and the always-on record is the SOLE
+            surviving channel — a stale bundle op fired after a same-id
+            reincarnation redacts the attempted payload at source. Incarnation A
+            owns a sensitive elision policy; successor B is unclassified. The
+            production-survivable record must NOT borrow B's permissive policy to
+            ship A's raw secret; it fails closed to `:rf/redacted` while the
+            structural head, op, and frame survive."
+    (rf/reg-event :prod.reinc/classify
+      (fn [{:keys [db]} _]
+        {:db        (assoc-in db [:secret] "A-owned")
+         :sensitive [[:secret]]}))
+    (make-frame! :prod.reinc/id {:n 1})
+    (let [stale (rf/with-frame :prod.reinc/id (frames/frame-ops))
+          seen  (atom [])]
+      ((:dispatch-sync stale) [:prod.reinc/classify])
+      (is (contains? (elision/sensitive-declarations :prod.reinc/id) [:secret])
+          "incarnation A owns a sensitive elision policy")
+      (frame/destroy-frame! :prod.reinc/id)
+      (make-frame! :prod.reinc/id {:n 41})       ;; unclassified successor B
+      (is (empty? (elision/sensitive-declarations :prod.reinc/id))
+          "successor B is permissive")
+      (rf/register-listener! :errors :prod/recorder (fn [r] (swap! seen conj r)))
+      (is (thrown? js/Error ((:dispatch-sync stale) [:audit/secret {:password :TOP-SECRET}]))
+          "the stale op still fails loud with the typed error under prod")
+      (let [reports (filter #(= :rf.error/frame-destroyed (:error %)) @seen)]
+        (is (= 1 (count reports)) "EXACTLY ONE always-on record survives prod")
+        (let [r (first reports)]
+          (is (= :prod.reinc/id (:frame r)) ":frame names the captured incarnation")
+          (is (= :dispatch-sync (:op r)))
+          (is (= :audit/secret (:event-id r)) ":event-id is the structural head")
+          (is (= privacy/redacted-sentinel (:event r))
+              ":event fails closed to the reserved sentinel — no borrowed successor policy")
+          (is (not (deep-contains? r :TOP-SECRET))
+              "the raw secret reaches the production record NOWHERE"))))))
 
 (deftest absent-capture-fans-one-always-on-record-under-prod
   (testing "Per rf2-vxgfnd.230: the absent/closing `(frame)` CAPTURE arm follows
