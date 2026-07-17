@@ -350,14 +350,111 @@ FORM3_BARE_ARITY = 1
 _OPENERS = "([{"
 _CLOSERS = ")]}"
 
+# --- Shared lexical pass (rf2-6m5qb) ----------------------------------------
+# A small Markdown-aware Clojure classifier is the shared basis for BOTH
+# call-head discovery (a `(rf/subscribe-once …)` inside a string or a `;`
+# comment is NOT a call, so `(log/debug "(rf/subscribe-once query-v)")` must not
+# be flagged) AND balanced-form arity reading (a string / char literal is one
+# opaque argument; a `;`-to-EOL comment is neither an argument nor bracket
+# structure, so a bare multiline call with a comment stays arity 1 instead of
+# being inflated past the bare threshold).
+#
+# Crucially the Clojure lexis (string / char / comment) is honoured ONLY inside
+# code contexts — fenced code blocks and inline-code (backtick) spans. In
+# Markdown prose a `;` is ordinary punctuation and a `"` an ordinary quote, so
+# prose is left CODE: a call head in prose inline code is still discoverable, and
+# a prose semicolon does not hide the rest of a line. It is deliberately NOT a
+# Clojure reader — only enough to keep call-head discovery and bracket/arity
+# counting honest at the string / char / comment boundaries.
+_LEX_CODE = 0     # brackets, symbols, whitespace, and all Markdown prose
+_LEX_STRING = 1   # inside a "…" string literal (both quotes included)
+_LEX_CHAR = 2     # a \x character literal (backslash + its target char)
+_LEX_COMMENT = 3  # a ; comment, to end of line (the ; through the last non-\n)
 
-def _read_form(text: str, start: int, body_start: int) -> tuple[int, int, int] | None:
+
+def _clj_kind(text: str) -> bytearray:
+    """Pure Clojure lexical classification of a CODE region (no Markdown).
+
+    A single pass; each region is consumed whole so lexical contexts cannot nest
+    wrongly (a `;` inside a string is string, a `"` inside a comment is comment,
+    a `\\;` char literal does not open a comment). Callers pass only text already
+    known to be code (a fenced line or an inline-code span)."""
+    n = len(text)
+    kind = bytearray(n)  # defaults to _LEX_CODE (0)
+    i = 0
+    while i < n:
+        ch = text[i]
+        if ch == '"':  # string literal — opaque, honours \" escapes
+            kind[i] = _LEX_STRING
+            i += 1
+            while i < n and text[i] != '"':
+                if text[i] == "\\" and i + 1 < n:
+                    kind[i] = _LEX_STRING
+                    kind[i + 1] = _LEX_STRING
+                    i += 2
+                    continue
+                kind[i] = _LEX_STRING
+                i += 1
+            if i < n:  # the closing quote
+                kind[i] = _LEX_STRING
+                i += 1
+            continue
+        if ch == "\\":  # character literal — backslash + its target char
+            kind[i] = _LEX_CHAR
+            if i + 1 < n:
+                kind[i + 1] = _LEX_CHAR
+            i += 2
+            continue
+        if ch == ";":  # comment to end of line
+            while i < n and text[i] != "\n":
+                kind[i] = _LEX_COMMENT
+                i += 1
+            continue
+        i += 1  # ordinary code (brackets / symbols / whitespace / newline)
+    return kind
+
+
+def _lex_scan(text: str) -> bytearray:
+    """Markdown-aware classification: Clojure lexing only inside code contexts.
+
+    A fenced code block and each inline-code (backtick) span is lexed with
+    `_clj_kind`; everything else (Markdown prose, the fence/backtick delimiters)
+    stays `_LEX_CODE`. So a string inside a fenced example is opaque, but a `;`
+    or `"` in an English sentence is not mistaken for a comment/string that would
+    swallow a following call head (rf2-6m5qb)."""
+    n = len(text)
+    kind = bytearray(n)  # prose + delimiters default to _LEX_CODE (0)
+    in_fence: str | None = None
+    pos = 0
+    for line in text.split("\n"):
+        ll = len(line)
+        fence_m = FENCE_RE.match(line)
+        if in_fence is not None:  # inside a fenced block: whole line is code
+            kind[pos:pos + ll] = _clj_kind(line)
+            if fence_m and fence_m.group(1)[0] == in_fence:
+                in_fence = None
+        elif fence_m:  # the opening fence line — delimiters stay code
+            in_fence = fence_m.group(1)[0]
+        else:  # Markdown prose: lex only the inline-code span interiors
+            for m in INLINE_CODE_RE.finditer(line):
+                s, e = m.start(), m.end()
+                kind[pos + s:pos + e] = _clj_kind(line[s:e])
+        pos += ll + 1  # + 1 for the newline that split() removed
+    return kind
+
+
+def _read_form(
+    text: str, start: int, body_start: int, kind: bytearray
+) -> tuple[int, int, int] | None:
     """Read the balanced form at `text[start] == '('`.
 
-    `body_start` is the index just past the head symbol. Returns
-    `(start, end, arity)` — `end` just past the closing paren, `arity` the count
-    of top-level argument forms — or None if the form does not close within
-    `FORM3_CALL_SCAN_LIMIT`.
+    `body_start` is the index just past the head symbol; `kind` is the shared
+    `_lex_scan` classification of `text`. Returns `(start, end, arity)` — `end`
+    just past the closing paren, `arity` the count of top-level argument forms —
+    or None if the form does not close within `FORM3_CALL_SCAN_LIMIT`. Strings
+    and char literals are opaque single arguments; `;` comments are skipped
+    entirely so their words and any stray brackets can neither inflate arity nor
+    corrupt the bracket depth (rf2-6m5qb).
     """
     limit = min(len(text), start + FORM3_CALL_SCAN_LIMIT)
     depth = 0
@@ -365,24 +462,26 @@ def _read_form(text: str, start: int, body_start: int) -> tuple[int, int, int] |
     in_arg = False
     i = start
     while i < limit:
-        ch = text[i]
+        k = kind[i]
         counts = depth == 1 and i >= body_start and not in_arg
 
-        if ch == '"':  # string literal — opaque to the bracket counter
+        if k == _LEX_STRING or k == _LEX_CHAR:  # opaque literal — one argument
             if counts:
                 arity += 1
                 in_arg = True
             i += 1
-            while i < limit and text[i] != '"':
-                i += 2 if text[i] == "\\" else 1
+            while i < limit and kind[i] == k:
+                i += 1
+            continue
+        if k == _LEX_COMMENT:  # `;`-to-EOL — not an argument, not structure
+            if depth == 1:
+                in_arg = False
             i += 1
+            while i < limit and kind[i] == _LEX_COMMENT:
+                i += 1
             continue
-        if ch == "\\":  # character literal — `\(` must not move the counter
-            if counts:
-                arity += 1
-                in_arg = True
-            i += 2
-            continue
+
+        ch = text[i]
         if ch in _OPENERS:
             if counts:
                 arity += 1
@@ -411,10 +510,17 @@ def _read_form(text: str, start: int, body_start: int) -> tuple[int, int, int] |
 
 
 def _form3_call_sites(text: str) -> list[tuple[int, int, int]]:
-    """`(start, end, arity)` for every balanced subscribe-once/unsubscribe form."""
+    """`(start, end, arity)` for every balanced subscribe-once/unsubscribe form.
+
+    Call heads are discovered over the shared `_lex_scan` mask so a call-shaped
+    token inside a string / char literal / comment is skipped, not read as a
+    call (rf2-6m5qb)."""
+    kind = _lex_scan(text)
     sites = []
     for m in FORM3_CALL_HEAD_RE.finditer(text):
-        site = _read_form(text, m.start(), m.end())
+        if kind[m.start()] != _LEX_CODE:  # head inside a string / comment / char
+            continue
+        site = _read_form(text, m.start(), m.end(), kind)
         if site is not None:
             sites.append(site)
     return sites
@@ -425,23 +531,45 @@ FORM3_BARE_LIFECYCLE_NEGATION_RE = re.compile(
 )
 # Example-polarity markers (rf2-vxgfnd.94.20). A BEFORE / negative-example
 # marker exempts the calls that FOLLOW it; an AFTER / corrected marker ends that
-# exemption. Both are matched by POSITION, not per block, so a historical BEFORE
-# example cannot hide an affirmative recipe sitting beside it in the same fence.
+# exemption. Both are matched by POSITION, so a historical BEFORE example cannot
+# hide an affirmative recipe sitting beside it in the same fence. The markers are
+# read only over Markdown prose and `;` comment text (`_polarity_scan_text`), so
+# a `(log/debug "BEFORE")` string cannot forge an exemption (rf2-6m5qb).
+#
+# `not recommended` / `n't recommended` is NEGATIVE prose — the author is naming
+# an anti-pattern — so it must exempt the call it owns, NOT be read as an
+# affirmative `recommended` marker. The positive `recommended` therefore carries
+# a `not `/`n't ` negative-lookbehind, and the negated forms live in the negative
+# set (rf2-6m5qb).
 FORM3_NEGATIVE_EXAMPLE_RE = re.compile(
-    r"\bBEFORE\b|(?i:bad example|negative example|anti-pattern|do not copy)",
+    r"\bBEFORE\b|(?i:bad example|negative example|anti-pattern|do not copy"
+    r"|(?:not|n't) recommended)",
 )
 FORM3_POSITIVE_EXAMPLE_RE = re.compile(
-    r"\bAFTER\b|(?i:recommended|good example|do this instead"
-    r"|correct(?:ed)?\s+(?:example|recipe|form|shape|version))",
+    r"\bAFTER\b|(?i:good example|do this instead"
+    r"|correct(?:ed)?\s+(?:example|recipe|form|shape|version)"
+    r"|(?<!not )(?<!n't )recommended)",
 )
 FORM3_SENTENCE_BOUNDARY_RE = re.compile(r"[.!?](?:[*_`]+)?\s+")
 
 # Structural Markdown boundaries (rf2-vxgfnd.94.20). Lifecycle context must not
 # leak past a heading or thematic break, else a `## Form-3 lifecycle` section
-# makes every legal ambient call in later sections a false failure.
+# makes every legal ambient call in later sections a false failure. ATX (`#…`),
+# Setext (a paragraph underlined by `===`/`---`), and CommonMark thematic breaks
+# — including the spaced `* * *` / `- - -` / `_ _ _` forms — all bound context
+# (rf2-6m5qb).
 ATX_HEADING_RE = re.compile(r"^ {0,3}#{1,6}(?:\s|$)")
-THEMATIC_BREAK_RE = re.compile(r"^ {0,3}(?:-{3,}|\*{3,}|_{3,})\s*$")
+THEMATIC_BREAK_RE = re.compile(
+    r"^ {0,3}(?:(?:-[ \t]*){3,}|(?:\*[ \t]*){3,}|(?:_[ \t]*){3,})$"
+)
+# A Setext underline: a run of `=` (H1) or `-` (H2), no internal spaces. Only a
+# heading when a paragraph line directly precedes it — see `_markdown_sections`.
+SETEXT_UNDERLINE_RE = re.compile(r"^ {0,3}(?:=+|-+)[ \t]*$")
 FENCE_RE = re.compile(r"^ {0,3}(`{3,}|~{3,})")
+
+# Inline-code spans in Markdown prose (single/multi backtick). Their interior is
+# code, so an example-polarity label is not read from it (`_polarity_scan_text`).
+INLINE_CODE_RE = re.compile(r"`+[^`]*`+")
 
 FORM3_BARE_LIFECYCLE_PROBLEM = (
     "FORM3-BARE-LIFECYCLE: a Form-3 lifecycle callback has no ambient "
@@ -595,7 +723,11 @@ def _markdown_sections(text: str) -> list[list[tuple[int, list[str]]]]:
       context must not cross one: a `## Form-3 lifecycle` section does not make
       a legal ambient call three headings later illegal (rf2-vxgfnd.94.20). The
       heading line itself opens the new section, so a `## Form-3 lifecycle`
-      heading still establishes context for the prose beneath it.
+      heading still establishes context for the prose beneath it. Headings are
+      recognised in all three CommonMark shapes — ATX (`#…`), Setext (a
+      paragraph underlined by `===`/`---`), and spaced/compact thematic breaks —
+      so a Setext-headed lifecycle section is still bounded and a later Setext
+      heading still ends the prior context (rf2-6m5qb).
     """
     sections: list[list[tuple[int, list[str]]]] = []
     section: list[tuple[int, list[str]]] = []
@@ -632,6 +764,24 @@ def _markdown_sections(text: str) -> list[list[tuple[int, list[str]]]]:
             fence = fence_m.group(1)[0]
             continue
 
+        # Setext heading: an `=`/`-` underline directly under a (non-fence)
+        # paragraph turns that paragraph into a heading (H1/H2). Checked before
+        # the thematic-break branch because a `---` under a paragraph is a Setext
+        # H2 underline, NOT a thematic break (CommonMark). The accumulated
+        # paragraph opens the new section, exactly like an ATX heading; the
+        # underline itself is consumed.
+        if (
+            SETEXT_UNDERLINE_RE.match(line)
+            and current
+            and not FENCE_RE.match(current[0])
+        ):
+            heading_lines = current
+            current = []          # keep the heading out of the ending section
+            end_section()
+            current = heading_lines  # `start` already points at the heading text
+            end_block()
+            continue
+
         if ATX_HEADING_RE.match(line) or THEMATIC_BREAK_RE.match(line):
             end_section()
             if ATX_HEADING_RE.match(line):
@@ -651,10 +801,54 @@ def _markdown_sections(text: str) -> list[list[tuple[int, list[str]]]]:
     return sections
 
 
+def _polarity_scan_text(block: str) -> str:
+    """Blank the regions where an example-polarity label must NOT be read.
+
+    A `BEFORE` / `AFTER` / negative-example / `not recommended` label is honoured
+    only in Markdown prose (outside a fenced code block, outside an inline-code
+    span) and in Clojure `;` comment text (the shape the corpus uses inside a
+    fence, e.g. `;; BEFORE (v1)`). Fenced code tokens, string/char-literal
+    contents, and inline-code spans are blanked to spaces — offsets preserved, so
+    the marker positions still line up with call positions — so that a
+    `(log/debug "BEFORE")` cannot forge an exemption (rf2-6m5qb).
+    """
+    kept: list[str] = []
+    in_fence: str | None = None
+    for line in block.split("\n"):
+        fence_m = FENCE_RE.match(line)
+        if in_fence is not None:  # inside a fenced code block
+            if fence_m and fence_m.group(1)[0] == in_fence:
+                in_fence = None
+            # keep only `;` comment text; blank code + string contents
+            kind = _clj_kind(line)
+            kept.append(
+                "".join(
+                    ch if kind[i] == _LEX_COMMENT else " "
+                    for i, ch in enumerate(line)
+                )
+            )
+            continue
+        if fence_m:  # the opening fence line — code, blank it
+            in_fence = fence_m.group(1)[0]
+            kept.append(" " * len(line))
+            continue
+        # Markdown prose — keep it, but blank inline-code span interiors.
+        kept.append(
+            INLINE_CODE_RE.sub(lambda m: " " * (m.end() - m.start()), line)
+        )
+    return "\n".join(kept)
+
+
 def _example_polarity_events(block: str) -> list[tuple[int, bool]]:
-    """`(offset, exempt?)` for every example-polarity marker in `block`."""
-    events = [(m.start(), True) for m in FORM3_NEGATIVE_EXAMPLE_RE.finditer(block)]
-    events += [(m.start(), False) for m in FORM3_POSITIVE_EXAMPLE_RE.finditer(block)]
+    """`(offset, exempt?)` for every example-polarity marker in `block`.
+
+    Markers are read only over the prose / comment text of the block
+    (`_polarity_scan_text` blanks fenced code, strings, and inline-code spans),
+    so a label inside a code string cannot forge one (rf2-6m5qb). Offsets are
+    preserved by the blanking, so they still align with call positions."""
+    scan = _polarity_scan_text(block)
+    events = [(m.start(), True) for m in FORM3_NEGATIVE_EXAMPLE_RE.finditer(scan)]
+    events += [(m.start(), False) for m in FORM3_POSITIVE_EXAMPLE_RE.finditer(scan)]
     events.sort()
     return events
 
@@ -682,9 +876,13 @@ def form3_context_problems(text: str) -> list[tuple[int, str, str]]:
       lifecycle context. Without the section bound a single `## Form-3
       lifecycle` heading poisons every later legal ambient call.
     * **Exemption.** A BEFORE / negative-example marker exempts the calls that
-      FOLLOW it, up to the next AFTER / corrected marker or the end of the
-      section. Applying it per block instead let an affirmative AFTER recipe
-      hide beside a historical BEFORE example in the same fence.
+      FOLLOW it, within its own block and the one concrete example block it
+      introduces, up to the next AFTER / corrected marker. It owns only that
+      concrete example: an unmarked block does NOT propagate an inherited
+      exemption further, so a historical BEFORE cannot bless an ordinary later
+      affirmative recipe in the same section (rf2-6m5qb closes the indefinite
+      carry). Applying it per block instead let an affirmative AFTER recipe hide
+      beside a historical BEFORE example in the same fence.
     * **Negation.** Stays call-line local: a nearby paragraph explaining that a
       bare call throws must not bless a later affirmative recipe.
 
@@ -695,19 +893,23 @@ def form3_context_problems(text: str) -> list[tuple[int, str, str]]:
     found: list[tuple[int, str, str]] = []
     for section in _markdown_sections(text):
         recent: list[str] = []
-        exempt = False
+        carried = False  # exemption inherited from the immediately preceding block
         for start, lines in section:
             block = "\n".join(lines)
             context = "\n\n".join([*recent[-3:], block])
             events = _example_polarity_events(block)
             if FORM3_LIFECYCLE_RE.search(context):
                 for offset, excerpt, pos in _block_bare_calls(lines):
-                    if _polarity_at(events, pos, exempt):
+                    if _polarity_at(events, pos, carried):
                         continue  # a BEFORE / negative example — historical
                     found.append(
                         (start + offset, FORM3_BARE_LIFECYCLE_PROBLEM, excerpt)
                     )
-            exempt = _polarity_at(events, len(block), exempt)
+            # A block's polarity carries forward exactly one block — to the
+            # concrete example a trailing BEFORE/negative label introduces — and
+            # then lapses. An unmarked block resets the carry, so the exemption
+            # cannot leak across the whole section (rf2-6m5qb).
+            carried = events[-1][1] if events else False
             recent.append(block)
     return found
 
@@ -1588,6 +1790,182 @@ def _self_test() -> int:
         "Seed the library with `(rf/subscribe-once query-v)` at mount.",
         dirty=True,
         label="J2 a heading inside a fence does not reset context",
+    )
+
+    # === rf2-6m5qb: lexical / polarity / Markdown-boundary gaps ================
+    # Each pair is the EXACT pre-fix repro: a construct that previously BYPASSED
+    # the guard now trips it (dirty=True), and a construct that previously
+    # FALSE-FIRED now passes (dirty=False).
+
+    # --- Gap 1: Clojure lexical context (LEX) ----------------------------------
+    # LEX-1: a bare multiline call whose sole argument is followed by a `;`
+    # comment. Pre-fix `_read_form` counted the comment words as arguments
+    # (arity ~6), so the call slipped past the bare threshold. It is arity 1.
+    expect_text(
+        "**Form-3 lifecycle.** A hook has no ambient frame.\n\n"
+        "```clojure\n:component-did-mount\n(fn [_]\n"
+        "  (rf/subscribe-once\n"
+        "    query-v  ; the live query vector to read once\n"
+        "    ))\n```",
+        dirty=True, label="LEX-1 bare call + trailing comment stays arity-1 (was bypass)",
+    )
+    # LEX-2: a comment BEFORE the sole argument must also not inflate arity.
+    expect_text(
+        "**Form-3 lifecycle.** A hook has no ambient frame.\n\n"
+        "```clojure\n:component-did-mount\n(fn [_]\n"
+        "  (rf/subscribe-once  ; read the current value once\n"
+        "    query-v))\n```",
+        dirty=True, label="LEX-2 comment before the sole argument stays arity-1",
+    )
+    # LEX-3: a `;`-comment or stray brackets inside the form must not corrupt the
+    # bracket depth — the frame-qualified call is arity 2 and legal.
+    expect_text(
+        "**Form-3 lifecycle.** A hook has no ambient frame.\n\n"
+        "```clojure\n:component-did-mount\n(fn [_]\n"
+        "  (rf/subscribe-once\n"
+        "    query-v  ; note: a stray ) ] } in a comment is inert\n"
+        "    {:frame frame}))\n```",
+        dirty=False, label="LEX-3 comment brackets do not corrupt depth; arity-2 clean",
+    )
+    # LEX-4: a call-shaped token inside a STRING is not a call. Pre-fix
+    # `_form3_call_sites` matched the head inside the log string and flagged it;
+    # the real call is frame-qualified, so the block is wholly clean.
+    expect_text(
+        "**Form-3 lifecycle.** Log the query for debugging.\n\n"
+        "```clojure\n:component-did-mount\n(fn [_]\n"
+        '  (log/debug "calling (rf/subscribe-once query-v) now")\n'
+        "  (rf/subscribe-once query-v {:frame frame}))\n```",
+        dirty=False, label="LEX-4 call-shaped text inside a string is clean (was false-fire)",
+    )
+    # LEX-5: a call-shaped token inside a `;` comment is not a call either.
+    expect_text(
+        "**Form-3 lifecycle.** A hook has no ambient frame.\n\n"
+        "```clojure\n:component-did-mount\n(fn [_]\n"
+        "  ;; avoid the bare (rf/subscribe-once query-v) here\n"
+        "  (rf/subscribe-once query-v {:frame frame}))\n```",
+        dirty=False, label="LEX-5 call-shaped text inside a comment is clean",
+    )
+    # LEX-6: a prose semicolon must not hide a following bare call — the Clojure
+    # lexis is scoped to code contexts, not English punctuation.
+    expect_text(
+        "**Form-3 lifecycle.** A hook has no ambient frame; so read the current "
+        "value with `(rf/subscribe-once query-v)` at mount.",
+        dirty=True, label="LEX-6 prose ';' does not mask a following inline-code call",
+    )
+    # LEX-7/8: a character literal is one opaque argument, and a bracket-shaped
+    # char (`\\]`) must not be read as a closing paren that miscounts arity.
+    expect_text(
+        "**Form-3 lifecycle.** A hook has no ambient frame.\n\n"
+        "```clojure\n(rf/subscribe-once \\])\n```",
+        dirty=True, label="LEX-7 bracket-shaped char literal is one arg (bare)",
+    )
+    expect_text(
+        "**Form-3 lifecycle.** A hook has no ambient frame.\n\n"
+        "```clojure\n(rf/subscribe-once \\x {:frame frame})\n```",
+        dirty=False, label="LEX-8 char literal + frame opts is arity-2 clean",
+    )
+
+    # --- Gap 2: example polarity (POL) -----------------------------------------
+    # POL-1: a historical BEFORE example must not bless a later UNLABELLED
+    # affirmative recipe. Pre-fix the exemption carried across every block until
+    # a positive marker, so the second recipe slipped through.
+    expect_text(
+        "**Form-3 lifecycle — BEFORE.** The old v1 shape.\n\n"
+        "`(rf/subscribe-once old-query)`\n\n"
+        "Seed the chart at mount with `(rf/subscribe-once query-v)`.",
+        dirty=True, label="POL-1 carried BEFORE cannot bless a later recipe (was bypass)",
+    )
+    # POL-2: the BEFORE still owns the ONE concrete example it introduces — that
+    # example stays exempt (the fix scopes, it does not disable, the exemption).
+    expect_text(
+        "**Form-3 lifecycle — BEFORE.** The old v1 shape.\n\n"
+        "`(rf/subscribe-once old-query)`",
+        dirty=False, label="POL-2 BEFORE still exempts the example it owns",
+    )
+    # POL-3: a `BEFORE` inside a code STRING is not a polarity label, so it cannot
+    # exempt a following unsafe call. Pre-fix the string `"BEFORE"` forged one.
+    expect_text(
+        "**Form-3 lifecycle.** A hook has no ambient frame.\n\n"
+        "```clojure\n:component-did-mount\n(fn [_]\n"
+        '  (log/debug "BEFORE")\n'
+        "  (rf/subscribe-once query-v))\n```",
+        dirty=True, label="POL-3 string 'BEFORE' does not forge an exemption (was bypass)",
+    )
+    # POL-4: `;; BEFORE` / `;; AFTER` COMMENT labels are still honoured per call —
+    # the BEFORE example is exempt, the AFTER recipe is not.
+    expect_text(
+        "**Form-3 lifecycle.** Capture the frame in the outer callable.\n\n"
+        "```clojure\n"
+        ";; BEFORE (v1) — no frame to name\n"
+        "(rf/subscribe-once old-query)\n"
+        ";; AFTER (v2) — the recipe to copy\n"
+        "(rf/subscribe-once query-v)\n"
+        "```",
+        dirty=True, label="POL-4 comment BEFORE/AFTER labels still work per call",
+    )
+    # POL-5: ordinary negative prose ("Not recommended: …") is a negative label,
+    # so it exempts the anti-pattern it names. Pre-fix the `recommended` substring
+    # read as a POSITIVE marker and falsely flagged the call.
+    expect_text(
+        "**Form-3 lifecycle.** Not recommended: seed with "
+        "`(rf/subscribe-once query-v)`.",
+        dirty=False, label="POL-5 'Not recommended:' is negative prose (was false-fire)",
+    )
+    # POL-6: a plain `recommended` recipe is still POSITIVE — a bare call it
+    # presents is flagged.
+    expect_text(
+        "**Form-3 lifecycle.** The recommended shape is "
+        "`(rf/subscribe-once query-v)` at mount.",
+        dirty=True, label="POL-6 plain 'recommended' recipe is still positive/dirty",
+    )
+
+    # --- Gap 3: Markdown structural boundaries (MD) ----------------------------
+    # MD-1: a Setext H2 heading (`text` underlined by `---`) bounds lifecycle
+    # context like an ATX `##`. Pre-fix the `---` read as a thematic break that
+    # split the heading text away from its section, so the bare call went unseen.
+    expect_text(
+        "Form-3 lifecycle\n---\n\n"
+        "A hook has no ambient frame; seed with `(rf/subscribe-once query-v)`.",
+        dirty=True, label="MD-1 Setext-H2 lifecycle section flags a bare call (was bypass)",
+    )
+    # MD-2: a Setext H1 heading (`text` underlined by `===`) ENDS the prior
+    # lifecycle context, so a later ambient call is legal. Pre-fix `===` was
+    # unrecognised and the lifecycle context leaked into the ambient section.
+    expect_text(
+        "## Form-3 lifecycle\n\n"
+        "Capture the frame in the outer callable.\n\n"
+        "Ambient reads in a registered view\n"
+        "==================================\n\n"
+        "In a registered view `(rf/subscribe-once query-v)` reads the "
+        "provider frame.",
+        dirty=False, label="MD-2 Setext-H1 ends lifecycle context (was false-fire)",
+    )
+    # MD-3: the Setext heading itself establishes context for its own section, so
+    # a bare call beneath a Setext-headed lifecycle section is still dirty.
+    expect_text(
+        "Form-3 lifecycle\n"
+        "================\n\n"
+        "A hook has no ambient frame. Seed with `(rf/subscribe-once query-v)`.",
+        dirty=True, label="MD-3 Setext-H1 heading establishes context for its section",
+    )
+    # MD-4: a CommonMark SPACED thematic break (`* * *`) resets bounded context
+    # like a compact `---`. Pre-fix only the compact forms matched.
+    expect_text(
+        "## Form-3 lifecycle\n\n"
+        "Capture the frame in the outer callable.\n\n"
+        "* * *\n\n"
+        "In an ordinary registered view, `(rf/subscribe-once [:todos/all])` "
+        "reads the provider frame.",
+        dirty=False, label="MD-4 spaced thematic break '* * *' resets context (was false-fire)",
+    )
+    # MD-5: a spaced `- - -` thematic break resets context too.
+    expect_text(
+        "## Form-3 lifecycle\n\n"
+        "Capture the frame in the outer callable.\n\n"
+        "- - -\n\n"
+        "In an ordinary registered view, `(rf/subscribe-once [:todos/all])` "
+        "reads the provider frame.",
+        dirty=False, label="MD-5 spaced thematic break '- - -' resets context",
     )
 
     # --- M-1 classifier fixtures (rf2-3fc89f.35) --------------------------------
