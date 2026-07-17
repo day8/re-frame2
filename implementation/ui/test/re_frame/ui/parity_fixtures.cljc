@@ -353,6 +353,54 @@
                          [:span.cell (:name only-row)])}])
 
 ;; ---------------------------------------------------------------------------
+;; Component-library PROOF PACK (readiness §7; EP-0035) — representative
+;; library-shaped components donated to the parity corpus as a rolling consumer
+;; (the substrate takes no re-com build dependency). These prove CROSS-HOST
+;; STRUCTURAL equivalence of the component-library shapes; the behavioural
+;; guarantees ride the owning gates (controlled-input sync door / IME / caret =
+;; G-8; multi-writer local = G-15; safe-spread deny = G-17; slot purity = G-16;
+;; manifest + production absence = G-7/G-11; single-view import = G-18).
+;; ---------------------------------------------------------------------------
+
+(defview pp-controlled-input
+  "Proof pack — reusable controlled text input (the event-prefix control's
+  STRUCTURAL shell; the synchronous door + IME/caret behaviour is G-8). A
+  literal :value co-present with the handler is the controlled site."
+  [{:keys [value]}]
+  [:input.pp-input {:type :text :value value :read-only true
+                    :on-input [:pp/typed :rf.ui/value]}])
+
+(defview pp-list-cell
+  "Proof pack — a reusable list rendering each row through an INLINE compiled
+  render slot (keys/occurrences preserved; JVM structure faithful)."
+  [{:keys [rows]}]
+  [:ul.pp-list
+   (for [[i r] (map-indexed vector rows)]
+     [:li.pp-cell {:key (:id r)}
+      (ui/slot (ui/render-fn [idx row] [:span.pp-body (str idx ":" (:name row))]) i r)])])
+
+(defview pp-safe-form-control
+  "Proof pack — a form control forwarding caller attrs through the spread-safe
+  policy onto its owned input: owned props win, aria-*/data-* pass through, the
+  controlled site is retained."
+  [{:keys [value attrs]}]
+  [:input.pp-form (ui/spread-safe {:type :text :value value :read-only true
+                                   :on-input [:pp/typed :rf.ui/value]}
+                                  attrs)])
+
+(defview pp-schema-described
+  "Proof pack — a schema-described component: its literal props schema drives the
+  view-manifest projection (Story/docs/Xray) and is proven production-absent
+  under G-7/G-11. Structurally it is ordinary markup."
+  {:props [:map
+           [:label {:doc "the field label"} :string]
+           [:hint {:doc "optional helper text" :optional true} :string]]}
+  [{:keys [label hint]}]
+  [:div.pp-described
+   [:span.pp-label label]
+   (when hint [:small.pp-hint hint])])
+
+;; ---------------------------------------------------------------------------
 ;; Cases — pure data; the SINGLE corpus both hosts consume
 ;; ---------------------------------------------------------------------------
 
@@ -382,6 +430,10 @@
    :children-flow   children-flow
    :slot-consumer   slot-consumer
    :slot-empty      slot-empty
+   :pp-controlled-input   pp-controlled-input
+   :pp-list-cell          pp-list-cell
+   :pp-safe-form-control  pp-safe-form-control
+   :pp-schema-described   pp-schema-described
    :page            page})
 
 (def cases
@@ -426,4 +478,12 @@
                                                                     {:id 3 :name "third"}]}}
    {:id :slot-empty           :view :slot-empty      :props {:rows [{:id 1 :name "x"}
                                                                     {:id 2 :name "y"}]}}
+   {:id :pp-controlled-input  :view :pp-controlled-input :props {:value "typed & <kept>"}}
+   {:id :pp-list-cell         :view :pp-list-cell       :props {:rows [{:id 1 :name "a & <b>"}
+                                                                       {:id 2 :name "second"}]}}
+   {:id :pp-safe-form-control :view :pp-safe-form-control :props {:value "v & <x>"
+                                                                  :attrs {:aria-label "field"
+                                                                          :data-testid "pp"
+                                                                          :class "extra"}}}
+   {:id :pp-schema-described  :view :pp-schema-described :props {:label "Name" :hint "your full name"}}
    {:id :page                 :view :page            :props {:items items-3 :on? true}}])
