@@ -6,11 +6,11 @@
   the views, the Reagent mount, and a `run` fn that points `:rf.http/managed` at
   the canned-failure stub through per-frame :fx-overrides.
 
-  The demo tells one story — the lockout. Three failed attempts walk the machine
-  round the loop :submitting -> :error-shown -> :idle, and then a fourth submit
-  trips the `:under-retry-limit` guard and the machine settles into :locked-out.
-  For that to play out, every request has to fail, which is exactly why we wire
-  in the canned-FAILURE stub here."
+  The demo tells one story — the lockout. Two failed attempts walk the machine
+  round the loop :submitting -> :error-shown -> :idle, and then a third submit
+  trips the `:under-retry-limit` guard and the machine settles into :locked-out
+  (three attempts total). For that to play out, every request has to fail, which
+  is exactly why we wire in the canned-FAILURE stub here."
   (:require [reagent.dom.client :as rdc]
             [re-frame.core :as rf]
             [re-frame.adapter.reagent :as reagent-adapter]
@@ -127,8 +127,8 @@
   ;; views all resolve to this frame.
   ;;
   ;; `:fx-overrides` redirects `:rf.http/managed` to the canned-FAILURE stub, so
-  ;; every login attempt fails on purpose — the lockout demo can't lock anyone
-  ;; out without three failures to work with.
+  ;; every login attempt fails on purpose — the lockout demo reaches
+  ;; `:locked-out` when the third failing attempt trips the retry guard.
   ;;
   ;; One subtlety worth pausing on: the machine seeds itself on its first event,
   ;; but the DRAFT slice does not. So `:initial-events` seeds the draft before

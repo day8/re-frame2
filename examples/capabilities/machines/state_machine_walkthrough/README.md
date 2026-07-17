@@ -3,7 +3,7 @@
 This example puts a login form in your browser — an email field, a password
 field, a **Sign in** button. Fill it in and submit. The attempt fails, and an
 error message appears with a **Dismiss** button. It fails *every* time, on
-purpose. After three rejections, a fourth submit locks the account: the form
+purpose. After two rejections, a third submit locks the account: the form
 disappears and an "Account locked" panel takes its place. Across the top, a
 banner names the machine's current state the whole way through, so you watch it
 step `:idle → :submitting → :error-shown` and back, then finally settle in
@@ -53,8 +53,8 @@ at it, poke here.
   while a request is in flight; `:auth/locked` swaps the form for a lockout
   panel. That is *ask, don't tell*: the view never names a state keyword, so
   adding a sixth busy state wouldn't touch it. The demo wires the request to
-  always fail (more below), so what you watch is the lockout path — three
-  rejected attempts, then a fourth that the retry guard rejects, parking the
+  always fail (more below), so what you watch is the lockout path — two
+  rejected attempts, then a third that the retry guard rejects, parking the
   machine in `:locked-out`.
 
 - **The same flow tested as pure function calls.** Feed a starting
@@ -127,7 +127,7 @@ shadow-cljs watch examples/state-machine-walkthrough
 ```
 
 Then open the served [`index.html`](index.html) and watch the lockout path:
-three rejected attempts, then a fourth that parks the machine in `:locked-out`.
+two rejected attempts, then a third that parks the machine in `:locked-out`.
 
 ## Cross-references
 

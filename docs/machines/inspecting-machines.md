@@ -121,9 +121,9 @@ Because a machine is an event handler, every guard evaluation, action run, and t
 {:operation :rf.machine/guard-evaluated
  :tags {:actor-id :auth.login/flow             ;; the LIVE instance (a singleton's id == its type)
         :guard-id :under-retry-limit
-        :input    {:data {:attempts 3} :event [:auth.login/failure {…}]}
+        :input    {:data {:attempts 2} :event [:auth.login/failure {…}]}
         :state    :submitting                  ;; the active state the guard ran against
-        :outcome  :fail}}                       ;; :pass | :fail | :threw
+        :outcome  :fail}}                       ;; :pass | :fail | :threw  (rejects on the third failure)
 
 ;; one trace record per user-declared action invocation
 {:operation :rf.machine/action-ran
@@ -162,7 +162,7 @@ When you've found the guard that blocked a transition and want to *read it*, ask
 (rf/handler-meta :machine-guard [:auth.login/flow :under-retry-limit])
 ;; => {:rf/guard-id        :under-retry-limit
 ;;     :rf/machine-id      :auth.login/flow
-;;     :rf.handler/source  "(fn [{data :data}] (< (:attempts data) 3))"
+;;     :rf.handler/source  "(fn [{data :data}] (< (:attempts data) 2))"
 ;;     :handler-fn         #<fn>
 ;;     :ns … :line … :file …}
 
@@ -206,12 +206,14 @@ Use the same `login-flow` value from the [tutorial](tutorial.md#the-complete-mac
     (is (= :submitting (:state (result/snap r))))
     (is (= :rf.http/managed (ffirst (result/fx r)))))
 
-  ;; at the retry limit the first failure candidate is skipped → :locked-out
+  ;; at the retry limit (two failures already recorded) the first failure
+  ;; candidate is skipped → the third failure records its error and locks out
   (let [r (machines/machine-transition
             login-flow
-            {:state :submitting :data {:attempts 3 :error nil}}
+            {:state :submitting :data {:attempts 2 :error nil}}
             [:auth.login/failure {:error {:message "bad creds"}}])]
-    (is (= :locked-out (:state (result/snap r))))))
+    (is (= :locked-out (:state (result/snap r))))
+    (is (= 3 (get-in (result/snap r) [:data :attempts])))))
 ```
 
 The return value is a **Result map**. Discriminate with `result/ok?` / `result/fail?`;

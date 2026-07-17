@@ -62,9 +62,11 @@
     ;; A guard is a pure yes/no question asked of one map: {:data ... :event ...}.
     ;; `data` is the snapshot's :data slot, handed to you directly. Say yes here
     ;; and the transition fires; say no and the machine looks at the next option.
+    ;; The guard checks the PRE-action :attempts, so it passes for the first two
+    ;; failures and rejects on the third — three attempts total.
     ;; See docs/machines/glossary.md#guard.
     (fn [{data :data}]
-      (< (:attempts data) 3))}
+      (< (:attempts data) 2))}
 
    :actions
    {:clear-error
@@ -87,22 +89,14 @@
               :on-failure [:walkthrough.login/flow [:walkthrough.login/failure]]}]]})
 
     :record-error
-    ;; The classified failure map rides under :error.
+    ;; The classified failure map rides under :error. This is the action the
+    ;; terminal failure runs too — so the third, locking-out failure is counted
+    ;; (attempts → 3) and its message retained, not discarded on the way to
+    ;; :locked-out.
     (fn [{data :data [_ {:keys [error]}] :event}]
       {:data (-> data
                  (update :attempts inc)
                  (assoc :error (or (:message error) "Login failed.")))})
-
-    :lock-account
-    (fn [_]
-      {:fx [[:rf.http/managed
-             ;; Fire-and-forget: the account is already locked in the UI, so
-             ;; both reply branches are silenced (`nil`). Every managed request
-             ;; must address its reply (Spec 014 §Reply addressing) — silencing
-             ;; is the explicit choice, not an omission.
-             {:request    {:method :post :url "/api/auth/lock"}
-              :on-success nil
-              :on-failure nil}]]})
 
     :store-session
     (fn [{[_ {:keys [value]}] :event}]
@@ -127,7 +121,7 @@
                                    :guard  :under-retry-limit
                                    :action :record-error}
                                   {:target :locked-out
-                                   :action :lock-account}]}}
+                                   :action :record-error}]}}
 
     :error-shown
     {:on {:walkthrough.login/dismiss {:target :idle}
