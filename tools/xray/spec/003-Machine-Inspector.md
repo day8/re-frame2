@@ -937,6 +937,14 @@ microsteps carry no `:region` and continue to ride the transition's
 structured `:cascade` (above). The returned ids are the EXACT canonical
 machines-viz edge-ids the live chart mints (agreement by construction).
 
+**Browser proof (rf2-gy9ln).** The round RENDER — the `[ALWAYS]` round rows
+(`data-cascade-round-index`, actionless-round visibility) AND the four regional
+`data-fired-edge-ids` this section derives — is pinned by a real-Chromium
+`-dom-cljs-test` mount driven off real parallel-round trace evidence
+(`panels.epoch.machine-epochs-always-round-dom-cljs-test`); see
+[`017-Test-Coverage-Matrix.md`](017-Test-Coverage-Matrix.md) §Parallel
+`:always`-round BROWSER proof.
+
 ### Guard-blocked edge highlight on the topology chart (rf2-fzrzlw)
 
 A guard-blocked no-op (above) emits NO `:rf.machine/transition`, so the chart's
