@@ -9,6 +9,7 @@
   (:refer-clojure :exclude [dispatch-fn])
   (:require [re-frame.error :as error]
             [re-frame.interop :as interop]
+            [re-frame.live-frame :as live-frame]
             [re-frame.registrar :as registrar]
             [re-frame.trace :as trace :include-macros true]
             [re-frame.ui.frames :as frames]
@@ -212,18 +213,31 @@
   ;; Takes the event VECTOR (not its head) so the `(first ...)` extraction is
   ;; itself inside the DEV-only guard and costs nothing on the production render
   ;; path (the whole body elides under `:advanced`).
-  [event debug-site]
+  ;;
+  ;; `frame-target` scopes the existence check to the frame whose SEALED IMAGE
+  ;; GENERATION dispatch resolves the handler through — the RENDER-captured frame
+  ;; at render time, the COMMITTED frame at invocation time. Resolving through the
+  ;; same `live-frame/call-with-frame-resolution` seam dispatch uses (which binds
+  ;; `registrar/*generation*`) is what keeps this an honest early-typo detector:
+  ;; a bare process-registrar read would warn FALSELY for an id registered only
+  ;; in the frame's image, and SUPPRESS a valid warning for an id present only
+  ;; process-current but absent from the frame image. A nil / non-live target
+  ;; binds nothing and reads the process registrar (byte-identical to before).
+  [event frame-target debug-site]
   (when interop/debug-enabled?
     (let [event-id (first event)]
       (when (and (keyword? event-id)
-                 (nil? (registrar/lookup :event event-id)))
+                 (nil? (live-frame/call-with-frame-resolution
+                        frame-target
+                        (fn [] (registrar/lookup :event event-id)))))
         (trace/emit!
          :warning :rf.warning/unregistered-event-id
          (merge
           {:event-id event-id
-           :reason (str "compiled data handler references an event id that is "
-                        "not currently registered. A lazily loaded module may "
-                        "register it before invocation; rendering continues")
+           :reason (str "handler references an event id not registered in the "
+                        "frame that resolves this dispatch. A lazily loaded "
+                        "module may register it before the callback fires; the "
+                        "site stays live and dispatches")
            :recovery :warned-and-continued}
           (debug-site-tags debug-site)))))))
 
@@ -288,8 +302,12 @@
 
                 (vector? result)
                 (do
-                  (warn-dynamic-placeholder! result (.-debugSite desc))
-                  (warn-unregistered! result (.-debugSite desc))
+                  (when interop/debug-enabled?
+                    (warn-dynamic-placeholder! result (.-debugSite desc))
+                    ;; Resolve existence through the COMMITTED frame's own image
+                    ;; generation — the exact frame this dispatch routes into.
+                    (warn-unregistered! result (:frame (.-frameOps owner))
+                                        (.-debugSite desc)))
                   (dispatch-committed! owner flags result (.-debugSite desc)))
 
                 :else
@@ -333,7 +351,11 @@
 (defn data-handler
   "Return the stable callback for a compiler-proven data handler site."
   [site-key template flags debug-site]
-  (warn-unregistered! template debug-site)
+  ;; Resolve existence through the RENDER-captured frame's generation — the
+  ;; frame React observed for this render, matching what the committed callback
+  ;; dispatches into. The whole DEV read (frame-id included) elides in production.
+  (when interop/debug-enabled?
+    (warn-unregistered! template (.-frameId ^js (capture-or-throw!)) debug-site))
   (publish-candidate-site!
    site-key #js {:kind :data :value template :flags flags :debugSite debug-site
                  :callback nil}))
@@ -576,8 +598,9 @@
 
     (vector? v)
     (do
-      (warn-dynamic-placeholder! v debug-site)
-      (warn-unregistered! v debug-site)
+      (when interop/debug-enabled?
+        (warn-dynamic-placeholder! v debug-site)
+        (warn-unregistered! v (.-frameId ^js (capture-or-throw!)) debug-site))
       (publish-candidate-site!
        site-key #js {:kind :data :value v :flags 0 :debugSite debug-site
                      :callback nil}))
@@ -599,8 +622,9 @@
               "map literally at the element site")
          {:extra {:value v :unsupported-dynamic-options
                   (cond-> [] capture (conj :capture) passive (conj :passive))}}))
-      (warn-dynamic-placeholder! event debug-site)
-      (warn-unregistered! event debug-site)
+      (when interop/debug-enabled?
+        (warn-dynamic-placeholder! event debug-site)
+        (warn-unregistered! event (.-frameId ^js (capture-or-throw!)) debug-site))
       (publish-candidate-site!
        site-key #js {:kind :data
                      :value event
