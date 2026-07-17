@@ -1,15 +1,16 @@
 #!/usr/bin/env node
 'use strict';
 
-// rf2-vxgfnd.195 / rf2-ialoij — the FIFTH real-Shadow arm for final-schedule
-// reconciliation, complementing the synthetic JVM fixtures that fabricate build
-// state and outputs (compiler_digest_carrier_jvm_test.clj's
+// rf2-vxgfnd.195 / rf2-ialoij / rf2-v7wqk — the FIFTH real-Shadow arm for
+// final-schedule reconciliation, complementing the synthetic JVM fixtures that
+// fabricate build state and outputs (compiler_digest_carrier_jvm_test.clj's
 // later-prepare-hook-forced-recompile / colliding-and-backwards-stamps /
-// metadata-only / missing-provenance arms). Those cannot prove Shadow hook
-// deep-merge/order, an actual build-local :compile-prepare hook, real
-// sequential/parallel scheduling, output-marker retention, or fail-loud
-// behaviour — but here the FRESH `:js` object Shadow's real compile path
-// allocates is genuine, not a hand-built stand-in.
+// metadata-only / non-scheduling-js-transform / missing- and
+// ambiguous-provenance arms). Those cannot prove Shadow hook deep-merge/order,
+// an actual build-local :compile-prepare hook, real sequential/parallel
+// scheduling, per-pass marker retention, or fail-loud behaviour — but here the
+// FRESH output map Shadow's real compile path allocates (dropping re-frame.ui's
+// per-pass marker) is genuine, not a hand-built stand-in.
 //
 // This gate drives ONE real Shadow 3.4.10 warm watch daemon per compile mode
 // through:
@@ -22,29 +23,30 @@
 //      retained output and rewrites its source viewless, forcing Shadow to
 //      recompile app-a AFTER re-frame.ui observed the schedule. app-a was NOT
 //      pre-touched at prepare, so ONLY reconcile-final-schedule at :compile-
-//      finish (reading Shadow's causal per-source compile evidence — app-a's
-//      fresh, :cached false output carrying a new :js artifact object) can evict
-//      it. The accepted row is evicted, the digest moves, and app-b (a true
-//      cache hit) stays byte-identical;
+//      finish (reading re-frame.ui's per-pass marker — app-a's fresh compiled
+//      output map LACKS the token :compile-prepare stamped) can evict it. The
+//      accepted row is evicted, the digest moves, and app-b (a true cache hit,
+//      its stamped output retained) stays byte-identical;
 //   4. a FAIL-LOUD pass — a build-local hook drops re-frame.ui's per-pass
-//      :pass-output provenance from the open scratch; reconciliation must FAIL
+//      :pass-token provenance from the open scratch; reconciliation must FAIL
 //      the build rather than silently reconcile against an assumed-empty
 //      schedule.
 // Both the PARALLEL (:ui-final-schedule) and SEQUENTIAL
 // (:ui-final-schedule-seq, :parallel-build false) compile schedules are proven.
 //
 // TEETH (documented mutation/revert; run at development time, NOT committed):
-//   * Restore build-hook/compiled-this-pass?'s old wall-clock body (a
-//     `(> now then)` on :compiled-at, rf2-ialoij) — a real-host recompile whose
-//     fresh output lands in the SAME millisecond as its prepare snapshot is then
-//     misread as untouched, so app-a's ghost can survive the FORCED-EVICT pass.
-//     The deterministic same-/backwards-stamp misclassification is proven
-//     unconditionally by the digest-carrier JVM arms.
+//   * Replace build-hook/compiled-this-pass?'s marker check with the old
+//     `:cached false` + `:js`-identity body (rf2-v7wqk) — a non-scheduling hook
+//     that swaps only a retained output's `:js` for a fresh String is then
+//     misread as a recompile, so a cache-hit sibling's ghost is evicted and the
+//     digest moves on a pass that compiled nothing. The deterministic
+//     output-transforming misclassification is proven unconditionally by the
+//     digest-carrier JVM arm non-scheduling-js-transform-is-not-a-recompile.
 //   * Delete the `(reconcile-final-schedule build-state)` call in
 //     re-frame.ui.compiler.build-hook/hook's :compile-finish branch → the
 //     FORCED-EVICT pass keeps app-a's ghost row (a-present stays true,
 //     view-count stays 2, digest unchanged) → this gate goes RED.
-//   * Make reconcile-final-schedule proceed silently when :pass-output is absent
+//   * Make reconcile-final-schedule proceed silently when :pass-token is absent
 //     (drop the missing-pass-provenance throw) → the FAIL-LOUD pass SUCCEEDS
 //     instead of failing → this gate goes RED.
 // Both were exercised red-before-green during development.

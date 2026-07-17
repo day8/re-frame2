@@ -17,13 +17,13 @@
       re-frame.ui already observed the schedule) and rewrite its in-memory source
       to a VIEWLESS namespace (its final ui/defview removed). re-frame.ui saw
       app-a as an output-present cache hit and did NOT pre-touch it; only
-      `reconcile-final-schedule` at :compile-finish — reading Shadow's causal
-      per-source compile evidence (app-a's fresh, `:cached false` recompiled
-      output carries a new `:js` artifact object) — can evict its now-absent
-      accepted view.
+      `reconcile-final-schedule` at :compile-finish — reading re-frame.ui's OWN
+      per-pass provenance marker (app-a's fresh compiled output map LACKS the
+      token :compile-prepare stamped onto retained outputs) — can evict its
+      now-absent accepted view.
 
     blind-provenance — model a hook that destroys the per-pass compile-schedule
-      evidence: drop re-frame.ui's :pass-output snapshot from the open scratch.
+      evidence: drop re-frame.ui's :pass-token from the open scratch.
       `reconcile-final-schedule` must then FAIL LOUD at :compile-finish rather
       than silently reconcile against an assumed-empty schedule.
 
@@ -88,9 +88,9 @@
                            ";; final-schedule fixture: viewless forced recompile\n")))
 
         ;; A later hook that destroys the per-pass provenance re-frame.ui needs to
-        ;; reconcile: drop the :pass-output snapshot from the open scratch.
+        ;; reconcile: drop the :pass-token from the open scratch.
         (and blind? scratch)
-        (update-in [:compiler-env build/scratch-key] dissoc :pass-output)))
+        (update-in [:compiler-env build/scratch-key] dissoc :pass-token)))
 
     :compile-finish
     (let [snap  (build/accepted-snapshot build-state)
