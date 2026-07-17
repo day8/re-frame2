@@ -139,7 +139,7 @@ The v1 framework prefix `:re-frame/*` is **not** a runtime-resolved alias in v2.
 
 The v1 `re-frame.alpha` namespace is **not part of v2**. The generalised `reg`/`sub`/`reg-sub-lifecycle` surface — together with the built-in lifecycle policies `:safe`, `:no-cache`, `:reactive`, `:forever` and the query-map `:re-frame/q` shape — is removed. This is pre-v1 cleanup, not deprecation. The canonical surfaces are:
 
-- **Per-kind registration macros**: `reg-event`, `reg-sub`, `reg-fx`, `reg-cofx`, `reg-flow`, `reg-route`, `reg-machine`, `reg-app-schema`, `reg-view`, `ui/defview`. (`ui/defview` — the compiled-view substrate's registration macro (`re-frame.ui`, artifact `day8/re-frame2-ui`) — registers under the same registrar `:view` kind as `reg-view`; `reg-view` remains until the S7 adapter deletion wave, per [Spec 004 §Removed forms](004-Views.md#removed-forms--normative-absences).)
+- **Per-kind registration macros**: `reg-event`, `reg-sub`, `reg-fx`, `reg-cofx`, `reg-flow`, `reg-route`, `reg-machine`, `reg-app-schema`, `reg-view`, `ui/defview`. (`ui/defview` — the compiled-view substrate's registration macro (`re-frame.ui`, artifact `day8/re-frame2-ui`) — registers under the same registrar `:view` kind as `reg-view`; `reg-view` lives on as part of the stock-Reagent compatibility/interop adapter, per [Spec 004 §Removed forms](004-Views.md#removed-forms--normative-absences).)
 - **Vector-form subscribe**: `(rf/subscribe [::id arg])`.
 - **Compiled-view lint config**: `{:re-frame.ui/bare-handlers :warn|:error}` is the reserved build-config lint key that opts a team into explicit-everywhere handler policy (rejecting the permissive bare-fn shorthand at native event properties). The `re-frame.ui` namespace is reserved for such compiled-view build/lint config keys, per [Spec 004 §Handlers](004-Views.md#handlers-are-data--the-callback-law).
 
@@ -1508,7 +1508,7 @@ The convention extends `dispatch` / `subscribe`'s opts-map shape — `:frame` is
 
 ## `reg-view` auto-id derivation rule
 
-The `reg-view` macro auto-derives the registered id from the symbol you supply — this convention is the **live carrier** for the frozen stock-Reagent tier's derivation rule (per [Spec 004 §Removed forms — normative absences](004-Views.md#removed-forms--normative-absences), which freezes the `reg-view` family and names Conventions as its carrier):
+The `reg-view` macro auto-derives the registered id from the symbol you supply — this convention is the **live carrier** for the stock-Reagent compatibility/interop tier's derivation rule (per [Spec 004 §Removed forms — normative absences](004-Views.md#removed-forms--normative-absences), which carries the `reg-view` family in that tier and names Conventions as its carrier):
 
 ```
 id = (keyword (str *ns*) (str sym))
