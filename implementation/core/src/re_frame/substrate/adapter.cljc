@@ -75,28 +75,46 @@
   (atom {:installed nil :disposed? false}))
 
 (defn- rearm-hiccup-emitter!
-  "Replay the retained SSR hiccup emitter (rf2-vxgfnd.204) into the freshly-
-  installed adapter generation. `re-frame.ssr.emit` publishes the current
-  emitter durably under `:ssr/current-hiccup-emitter` at ns-load; the React-
-  shaped adapters (re-frame.ui, UIx, Helix) clear their per-generation
-  `emitter-cell` on `dispose-adapter!`, so a public destroy → re-init cycle —
-  or an SSR-before-adapter load order — would otherwise leave `render-to-string`
+  "Re-arm the retained SSR hiccup emitter (rf2-vxgfnd.204) into the freshly-
+  installed adapter generation — ROUTED to that generation ALONE and
+  PRECEDENCE-SAFE (rf2-h9szm). `re-frame.ssr.emit` retains the current emitter
+  durably under `:ssr/current-hiccup-emitter` at ns-load; the React-shaped
+  adapters (re-frame.ui, UIx, Helix) and the ratom family (Reagent /
+  reagent-slim) clear their per-generation `emitter-cell` on
+  `dispose-adapter!`, so a public destroy → re-init cycle — or an
+  SSR-before-adapter load order — would otherwise leave `render-to-string`
   unarmed (`:rf.error/no-hiccup-emitter-bound`).
 
-  Re-applies through the adapter-agnostic `:reagent/set-hiccup-emitter!` chain
-  (the same mechanism a single `(require 're-frame.ssr)` uses to auto-wire every
-  loaded adapter's slot), so the installed adapter's slot is re-armed from the
-  single authoritative source rather than from any adapter-retained state.
-  Idempotent and stale-safe: it always applies the SAME current emitter and
-  never clears, so it cannot overwrite a replacement generation's slot with a
-  disposed generation's emitter. A no-op when re-frame.ssr is not loaded (the
-  durable slot is unset) — `render-to-string` then throws the honest
-  `:rf.error/no-hiccup-emitter-bound` — and on hosts whose adapters do not chain
-  the hook (the JVM/plain-atom emitter is retained across its no-op dispose)."
+  Applies through the `:adapter/arm-hiccup-emitter-if-unarmed!` late-bind hook
+  each React/ratom adapter publishes via `route-hook!` — NOT the adapter-
+  agnostic `:reagent/set-hiccup-emitter!` broadcast the earlier shape used
+  (rf2-h9szm). Two consequences:
+
+    1. ROUTED — the hook dispatches to the (rf/init!)-installed adapter ALONE
+       (per `route-hook!` stable-token routing). A loaded-but-inactive adapter's
+       setter never runs, so its throw cannot break the ACTIVE adapter's boot.
+       The earlier broadcast re-armed EVERY loaded adapter and let any one
+       adapter's throwing setter propagate through the whole install.
+    2. PRECEDENCE-SAFE — the hook arms the slot ONLY when it is otherwise
+       unarmed. A pre-init explicit custom emitter (or reset) is therefore NOT
+       silently overwritten by the retained default; the explicit direct
+       override remains authoritative (per Spec 006 §`set-hiccup-emitter!`
+       last-call-wins), and the default is supplied only to an otherwise-unarmed
+       fresh generation.
+
+  Stale-safe: it always applies the SAME current emitter and never clears, so it
+  cannot overwrite a replacement generation's slot with a disposed generation's
+  emitter. A no-op when re-frame.ssr is not loaded (the durable slot is unset) —
+  `render-to-string` then throws the honest `:rf.error/no-hiccup-emitter-bound`
+  — and on hosts whose adapters do not publish the hook (the JVM/plain-atom and
+  test-react emitters are retained across their no-op dispose, so no re-arm is
+  required). Raising is the caller's contract: `install-adapter!` runs this
+  inside its failure-atomic transaction, so a throwing arm rolls the install
+  back rather than half-installing."
   []
   (when-let [emitter (late-bind/get-fn :ssr/current-hiccup-emitter)]
-    (when-let [apply-emitter! (late-bind/get-fn :reagent/set-hiccup-emitter!)]
-      (apply-emitter! emitter))))
+    (when-let [arm-if-unarmed! (late-bind/get-fn :adapter/arm-hiccup-emitter-if-unarmed!)]
+      (arm-if-unarmed! emitter))))
 
 (defn install-adapter!
   "Install the adapter for this process. Once. A second call without an
@@ -108,7 +126,19 @@
   Re-arms the retained SSR hiccup emitter for the fresh generation
   (`rearm-hiccup-emitter!`, rf2-vxgfnd.204) so a destroy → re-init cycle — or an
   SSR-before-adapter load order — leaves `render-to-string` correctly armed
-  after disposal cleared the previous generation's emitter slot."
+  after disposal cleared the previous generation's emitter slot.
+
+  FAILURE-ATOMIC (rf2-h9szm). Seating the generation and re-arming its retained
+  SSR emitter is ONE transaction. If the re-arm throws (an inactive or the
+  active adapter's setter, or the retained emitter fn), the just-seated
+  generation is rolled back — bounded EXACT-generation cleanup (`identical?` on
+  the generation token, so a concurrent replacement install is never clobbered),
+  the re-arm exception preserved as PRIMARY, the process left in a clean
+  never-installed state so an immediate retry installs fresh. Boot is therefore
+  all-or-nothing: fully installed, or cleanly failed with a consistent adapter
+  state — never the half-installed / partial-armed boot the earlier
+  seat-then-replay order left when the replay's `:reagent/set-hiccup-emitter!`
+  broadcast propagated a step throw AFTER the generation was already seated."
   [adapter]
   (let [entry {:adapter adapter :generation (fresh-adapter-generation)}]
     (swap! adapter-lifecycle-state
@@ -120,9 +150,27 @@
                 "A second install-adapter! was called without an intervening (rf/destroy-adapter!); the existing adapter remains installed (per Spec 006 §Single adapter per process)."
                 {:extra {:installed (:adapter installed)
                          :attempted adapter}}))
-             (assoc state :installed entry :disposed? false))))
-  (rearm-hiccup-emitter!)
-  adapter)
+             (assoc state :installed entry :disposed? false)))
+    ;; The generation is now seated. Re-arm the SSR emitter as part of the SAME
+    ;; install transaction: on failure roll the EXACT generation back so a
+    ;; throwing re-arm cannot leave a half-installed / partial-armed boot
+    ;; (rf2-h9szm). The `identical?` guard bounds the cleanup to the generation
+    ;; THIS call seated — a concurrent replacement install (a different token)
+    ;; is never erased by this rollback, symmetric with `dispose-adapter!`'s
+    ;; finally. `:disposed? false` restores the never-installed diagnosis (a
+    ;; failed install disposed nothing), so a retry surfaces
+    ;; `:rf.error/no-adapter-installed`, not `:rf.error/adapter-disposed`.
+    (try
+      (rearm-hiccup-emitter!)
+      (catch #?(:clj Throwable :cljs :default) e
+        (swap! adapter-lifecycle-state
+               (fn [state]
+                 (if (identical? (:generation entry)
+                                 (get-in state [:installed :generation]))
+                   (assoc state :installed nil :disposed? false)
+                   state)))
+        (throw e)))
+    adapter))
 
 (defn current-adapter
   "Return the discriminator keyword identifying the installed adapter, or

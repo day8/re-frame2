@@ -88,3 +88,26 @@
   (is (nil? (rf/init! ui/adapter)))
   (is (re-find #"<div>ok</div>" (render!))
       "gen2 renders — the replacement generation's emitter is armed, not stranded by gen1's dispose"))
+
+(deftest a-pre-init-explicit-custom-emitter-survives-the-install-replay
+  ;; rf2-h9szm PRECEDENCE — under the real ui adapter on an SSR-loaded classpath,
+  ;; an EXPLICIT custom emitter armed before init is NOT silently overwritten by
+  ;; install-replay of the retained default. The replay arms only an otherwise-
+  ;; unarmed slot, so the explicit direct override remains authoritative. Before
+  ;; the fix the replay's unconditional broadcast clobbered the custom emitter
+  ;; with the retained default.
+  ;;
+  ;; The public last-call-wins setter chain (`:reagent/set-hiccup-emitter!`) arms
+  ;; every loaded adapter's cell, so the finally restores them all to the retained
+  ;; default — no sibling adapter test observes the custom emitter.
+  (let [default   (late-bind/get-fn :ssr/current-hiccup-emitter)
+        set-chain (late-bind/get-fn :reagent/set-hiccup-emitter!)
+        custom    (fn [_tree _opts] "CUSTOM-EMITTER-MARKER")]
+    (try
+      (set-chain custom)                        ;; explicit override, pre-init
+      (is (nil? (rf/init! ui/adapter)))
+      (is (= "CUSTOM-EMITTER-MARKER" (render!))
+          "install-replay left the explicit custom emitter authoritative — the retained default did not win")
+      (finally
+        ;; Restore the retained default into every loaded adapter's slot.
+        (set-chain default)))))
