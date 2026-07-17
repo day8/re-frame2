@@ -1,4 +1,4 @@
-(ns re-frame.join-exact-auth-cljs-test
+(ns re-frame.join-exact-attempt-cljs-test
   "rf2-nvxehu — join folds and reaps are FENCED to the EXACT child attempt and
   resolved join (a fail-closed correlation record, not authentication).
 
@@ -119,10 +119,10 @@
   read (see `exact-current-coordinate-accepted-from-any-source-metadata-slot-not-read`),
   so tests present crafted coordinates on the coeffect, not on the event. A
   MISMATCHED coordinate fails closed; an EXACT-CURRENT one folds regardless of
-  source. nil `auth` dispatches the bare, coordinate-less public carrier."
-  [parent-kw inner auth]
-  (if auth
-    (rf/dispatch-sync [parent-kw inner] {:rf.cofx {:rf.machine/join-attempt auth}})
+  source. nil `coordinate` dispatches the bare, coordinate-less public carrier."
+  [parent-kw inner coordinate]
+  (if coordinate
+    (rf/dispatch-sync [parent-kw inner] {:rf.cofx {:rf.machine/join-attempt coordinate}})
     (rf/dispatch-sync [parent-kw inner])))
 
 ;; ---------------------------------------------------------------------------
@@ -270,7 +270,7 @@
       (is (= [:rf.machine.spawn-all/attempt-superseded] (stale-reasons))))))
 
 (deftest wrong-child-for-correct-actor-is-superseded
-  (testing "rf2-nvxehu — a carrier claiming child :b with an auth record
+  (testing "rf2-nvxehu — a carrier claiming child :b with an attempt coordinate
             minted for child :a (correct actor A, correct token) fails the
             logical-child-id clause"
     (let [j (reg-join-parent! :jea/p5 :jea/p5a :jea/p5b)]

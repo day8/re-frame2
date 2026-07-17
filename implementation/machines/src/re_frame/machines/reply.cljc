@@ -361,7 +361,7 @@
   :rf.machine.spawn-all/join-resolved` — the join is latched `:resolved?`);
   the 3-arity threads an explicit `stale-reason` for the other suppression
   classes (rf2-nvxehu): `:rf.machine.spawn-all/attempt-unverified` (a
-  completion carrier with no runtime attempt authentication),
+  completion carrier with no runtime-stamped attempt coordinate),
   `:rf.machine.spawn-all/attempt-superseded` (a carrier bound to a PRIOR
   child attempt / wrong actor after respawn or re-entry), and
   `:rf.machine.spawn-all/duplicate-completion` (an exact re-completion of an
