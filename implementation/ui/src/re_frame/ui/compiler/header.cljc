@@ -84,10 +84,15 @@
        (do (when-not (and (vector? v) (every? symbol? v))
              (fail :rf.ui.compile/bad-defview-args
                    (str k " needs a vector of symbols") {:form v}))
-           (doseq [s v]
-             (reserved-slot-check! (if-let [ns* (namespace k)]
-                                     (keyword ns* (name s))
-                                     (keyword (name s))))))
+           ;; Derive each group key with the CANONICAL transform the binding plan
+           ;; uses (`bp/key-group-directive-fn`), so `{:keys [acct/key]}` derives
+           ;; the qualified `:acct/key` — NOT a bare `:key` from `(keyword (name
+           ;; s))` — while a genuinely bare `:keys [key]`/`:keys [ref]` still
+           ;; derives the reserved `:key`/`:ref` and fails. One namespace rule for
+           ;; the diagnostic and the plan, so equivalent host spellings agree.
+           (let [group-key (bp/key-group-directive-fn k)]
+             (doseq [s v]
+               (reserved-slot-check! (group-key s)))))
 
        (keyword? k)
        (fail :rf.ui.compile/bad-defview-args
