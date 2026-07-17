@@ -51,9 +51,17 @@
 (rf/reg-view Panel
   "The Reactive panel's root view. Plain function-call delegation to
   the body so the React-context frame tier resolves through the
-  facade reg-view wrapper to leaf subscribes."
+  facade reg-view wrapper to leaf subscribes.
+
+  The reg-view-injected `dispatch` (the frame-aware dispatcher captured
+  at render time, closing over the surrounding instance frame) is threaded
+  into `reactive-panel` so the panel-local disclosure toggle's deferred
+  `:on-click` lands on THIS Xray instance's frame after render scope
+  unwinds — not a bare global `rf/dispatch` that leaks to `:rf/default`
+  / emits `:rf.error/no-frame-context` (rf2-16y3x). Same contract as the
+  Settings `Modal` threading `dispatch` into `popup-view`."
   []
-  (view/reactive-panel))
+  (view/reactive-panel dispatch))
 
 (def install-viewcell-evidence-bridge!
   "See `reactive-panel-subs/install-viewcell-evidence-bridge!`. Re-exported

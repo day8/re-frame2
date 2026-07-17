@@ -516,8 +516,14 @@
   `:rf.xray/reactive-toggle-unchanged` quick-toggle.
 
   Rows key + test-id + label by CONCRETE query-v (rf2-cj2yx), so distinct
-  parameterizations of one registered sub stay individually visible."
-  [data]
+  parameterizations of one registered sub stay individually visible.
+
+  `dispatch` (rf2-16y3x) is the facade-injected frame-aware dispatcher: the
+  toggle's deferred `:on-click` calls IT, not a bare global `rf/dispatch`,
+  so the flip lands on the surrounding Xray instance's frame after render
+  scope unwinds (a bare dispatch would leak to `:rf/default` / emit
+  `:rf.error/no-frame-context` and leave the disclosure state untouched)."
+  [dispatch data]
   (let [rows  (:subs-skipped data)
         n     (count rows)
         open? (boolean (:show-unchanged? data))]
@@ -528,7 +534,7 @@
                  :data-open   (str open?)
                  :aria-expanded (str open?)
                  :on-click    (fn [_e]
-                                (rf/dispatch [:rf.xray/reactive-toggle-unchanged]))
+                                (dispatch [:rf.xray/reactive-toggle-unchanged]))
                  :style       unchanged-toggle-style}
         (str (if open? "Hide" "Show") " " n " unchanged sub" (when (not= 1 n) "s")
              " " (if open? "▴" "▾"))]
@@ -820,9 +826,17 @@
 
   Renders the left → right REACTIVE FLOW graph (rf2-ad7zx.6) followed by
   the UNMOUNTED VIEWS + DESTROYED SUBSCRIPTIONS sections and the closing
-  legend."
-  []
-  (let [data @(rf/subscribe [:rf.xray/reactive-data])]
+  legend.
+
+  `dispatch` (rf2-16y3x) is the frame-aware dispatcher the facade `Panel`
+  reg-view injects and threads down — the panel-local unchanged-subs
+  disclosure toggle's deferred `:on-click` calls it (never a bare global
+  `rf/dispatch`) so the click lands on the surrounding instance frame after
+  render scope unwinds. The 0-arity is a test convenience (plain-fn mounts
+  that never click the toggle); production always threads a real dispatcher."
+  ([] (reactive-panel nil))
+  ([dispatch]
+   (let [data @(rf/subscribe [:rf.xray/reactive-data])]
     [:section {:data-testid "rf-xray-reactive"
                :style {:height "100%"
                        :display "flex"
@@ -848,9 +862,9 @@
          [:section {:data-testid "rf-xray-reactive-flow-section"}
           (section-label "flow" "Reactive Flow" {:title-case? true})
           (flow-graph data)]
-         (unchanged-subs-section data)
+         (unchanged-subs-section dispatch data)
          (unmounted-views-section data)
          (destroyed-subs-section data)
          (viewcell-evidence-section)
          (view-sites-section)
-         (legend)])]]))
+         (legend)])]])))

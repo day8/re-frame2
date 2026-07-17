@@ -456,6 +456,7 @@
         auto-open?      @(rf/subscribe [:rf.xray/setting :general :auto-open-on-error?])
         epoch-history   @(rf/subscribe [:rf.xray/setting :general :epoch-history])
         show-ungrouped? @(rf/subscribe [:rf.xray/show-ungrouped?])
+        show-unchanged-subs? @(rf/subscribe [:rf.xray/setting :general :show-unchanged-subs?])
         editor-override @(rf/subscribe [:rf.xray/setting :general :editor-override])
         host-editor     @(rf/subscribe [:rf.xray/editor-host-default])]
     [:div {:data-testid "rf-xray-settings-section-general"}
@@ -642,11 +643,45 @@
        "Default OFF — Xray is silent-by-default. Useful when "
        "debugging SSR / REPL flows."]]
 
-     ;; Removed 2026-05-27 — "Always show unchanged subs in the
-     ;; Reactive panel" toggle. The `:show-unchanged-subs?` setting
-     ;; slot stays; default OFF keeps the per-event-bundle footer
-     ;; disclosure pattern (spec/021 §3.4) — unchanged subs are
-     ;; coverage signal, not signal-of-the-moment.
+     ;; ── Always show unchanged subs (spec/021 §3.4 pin) ──────────
+     ;;
+     ;; Restored rf2-16y3x. The `:show-unchanged-subs?` `:general` slot
+     ;; is the always-expand pin for the Views panel's memo-hit "Show N
+     ;; unchanged subs" disclosure. Default OFF keeps the per-event-bundle
+     ;; footer-collapsed pattern (unchanged subs are coverage signal, not
+     ;; signal-of-the-moment); flipping ON expands the disclosure for
+     ;; every event-bundle. Composes with the panel-local quick-toggle —
+     ;; either axis (this pin OR the panel toggle) opens the disclosure
+     ;; (`reactive-panel-subs/:rf.xray/reactive-data` folds the two into
+     ;; `:show-unchanged?`). The slot had been kept while its control was
+     ;; removed on 2026-05-27, leaving spec/021 + the source acceptance
+     ;; promising a pin with no UI; this restores the operator-facing
+     ;; control.
+     [:div {:style (field-style)}
+      [:label {:style {:display "flex" :align-items "center" :gap "8px"
+                       :cursor "pointer"
+                       :font-size (:body type-scale)
+                       :color (:text-primary tokens)}}
+       [:input {:data-testid "rf-xray-settings-show-unchanged-subs"
+                :type        "checkbox"
+                :checked     (boolean show-unchanged-subs?)
+                :on-change   #(dispatch
+                                [:rf.xray/settings-update
+                                 :general :show-unchanged-subs?
+                                 (boolean (.. % -target -checked))])}]
+       "Always show unchanged subs in the Views panel"]
+      [:p {:style (hint-style)}
+       "Pins the Views panel's "
+       [:code {:style {:font-family mono-stack
+                       :color (:text-tertiary tokens)}}
+        "Show N unchanged subs"]
+       " disclosure open for every event-bundle (memo-hit subs that "
+       "short-circuited without recomputing). Default OFF — the footer "
+       "disclosure stays collapsed until you expand it per event-bundle. "
+       "Setting: "
+       [:code {:style {:font-family mono-stack
+                       :color (:text-tertiary tokens)}}
+        ":general :show-unchanged-subs?"] "."]]
 
      ;; Removed 2026-05-27 — "Use system colors" toggle (the manual
      ;; HCM-mode activator). The OS-level `@media (forced-colors:

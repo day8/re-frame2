@@ -69,6 +69,29 @@
   captured frame-aware dispatcher."
   #":on-[a-z-]+\s+#?\(rf/dispatch(-sync)?\b")
 
+(def ^:private deferred-fn-bare-dispatch-pattern
+  "Matches the DEFERRED-MULTILINE bare-dispatch leak the adjacency-only
+  `on-handler-global-dispatch-pattern` above misses (rf2-16y3x): an
+  `:on-<event>` wired to a multi-line `(fn [args] …)` whose FIRST body
+  form is a single-arg bare `(rf/dispatch [ev])` / `(rf/dispatch-sync
+  [ev])` carrying NO `{:frame …}` opt —
+
+      :on-click    (fn [_e]
+                     (rf/dispatch [:some/event]))
+
+  This is exactly the reactive-panel unchanged-subs toggle bug: after
+  render scope unwinds the ambient frame is gone, so the bare dispatch
+  leaks to `:rf/default` / emits `:rf.error/no-frame-context`, leaving
+  the instance's state untouched. `\\s` spans newlines (Java regex), so
+  the callback body need not be single-line. NARROW by design: it does
+  NOT trip a dispatch carrying an explicit `{:frame frame}` opt (the
+  `\\]\\s*\\)` tail requires the event vector to close the dispatch call)
+  nor a callback whose first form is a guard like `(.stopPropagation e)`
+  — those are the correct/pre-existing shapes. The fix is to call a
+  captured frame-aware dispatcher (the reg-view-injected `dispatch`
+  threaded down, a `dispatch-fn`, or `(:dispatch (rf/capture-frame))`)."
+  #":on-[a-z-]+\s+#?\(fn\s+\[[^\]]*\]\s*\(rf/dispatch(-sync)?\s+\[[^\]]*\]\s*\)")
+
 ;; ---- allowlist ----------------------------------------------------------
 
 (def ^:private pending-migration
@@ -156,9 +179,35 @@
                                    :pattern pattern-kw
                                    :line    (str/trim line)})))))))))
 
+(defn- strip-comment-lines
+  "Drop `;;`-leading comment lines so a whole-file (multiline) scan does
+  not match a pattern that appears only in a line comment. Docstrings are
+  left intact — the deferred-dispatch pattern is code-shaped and does not
+  occur in prose, and stripping them would need a reader."
+  [^String text]
+  (->> (str/split-lines text)
+       (remove #(re-find #"^\s*;;" %))
+       (str/join "\n")))
+
+(defn- multiline-offenders
+  "Return a seq of `{:file rel :pattern <kw>}` for every non-allowlisted
+  file whose WHOLE SOURCE TEXT (comment lines stripped) matches `pattern`
+  — the multiline scan the line-by-line `offenders` can't do (rf2-16y3x).
+  No reader / parser: one DOTALL-free `re-find` over the file text, where
+  `\\s` already spans newlines."
+  [pattern pattern-kw]
+  (let [root (src-root)]
+    (->> (cljs-source-files root)
+         (remove #(pending-migration (rel-path root %)))
+         (keep (fn [^java.io.File f]
+                 (when (re-find pattern (strip-comment-lines (slurp f)))
+                   {:file (rel-path root f) :pattern pattern-kw}))))))
+
 (defn- report [offs]
   (str/join "\n  "
-            (map (fn [{:keys [file line]}] (str file " — " line)) offs)))
+            (map (fn [{:keys [file line]}]
+                   (if line (str file " — " line) (str file)))
+                 offs)))
 
 ;; ---- tests --------------------------------------------------------------
 
@@ -193,6 +242,58 @@
              "reg-view-injected `dispatch`, a threaded `dispatch-fn`, or "
              "`(:dispatch (rf/capture-frame))`). Offenders:\n  "
              (report offs)))))
+
+(deftest no-deferred-fn-bare-dispatch-in-migrated-files
+  ;; rf2-16y3x — the reactive-panel unchanged-subs toggle installed a
+  ;; DEFERRED `(fn [_e] (rf/dispatch [ev]))` on-click. The bare dispatch
+  ;; fired after render scope unwound (ambient frame gone) → leaked to
+  ;; `:rf/default` / `:rf.error/no-frame-context`, leaving Xray state
+  ;; untouched. The adjacency-only guard above missed the multiline
+  ;; callback; this whole-file scan catches it so it cannot regress.
+  (let [offs (multiline-offenders deferred-fn-bare-dispatch-pattern
+                                  :deferred-fn-bare-dispatch)]
+    (is (empty? offs)
+        (str "rf2-16y3x — a DEFERRED multiline bare `(fn [args] (rf/dispatch "
+             "[ev]))` (no `{:frame …}` opt, dispatch as the callback's first "
+             "form) is wired to an `:on-*` handler in a de-singletoned (or "
+             "new) file. After render unwinds the ambient frame is gone, so "
+             "the bare dispatch leaks to `:rf/default` and the instance's "
+             "state never changes. Call a captured frame-aware dispatcher "
+             "(the reg-view-injected `dispatch` threaded down, a "
+             "`dispatch-fn`, or `(:dispatch (rf/capture-frame))`). "
+             "Offenders:\n  "
+             (report offs)))))
+
+(deftest deferred-fn-bare-dispatch-pattern-catches-multiline-callback
+  ;; Causal red/green for the guard (rf2-16y3x): the pattern MUST match the
+  ;; deferred multiline bug shape (which the old adjacency-only pattern
+  ;; missed) and MUST NOT match the fixed shape (a threaded `dispatch`) nor
+  ;; a dispatch carrying an explicit `{:frame …}` opt nor a guard-first
+  ;; callback. Proves the strengthened guard is causally sound without a
+  ;; parser.
+  (let [bug     (str ":on-click    (fn [_e]\n"
+                     "               (rf/dispatch [:rf.xray/reactive-toggle-unchanged]))")
+        bug-1ln ":on-click (fn [_e] (rf/dispatch [:x/y]))"
+        fixed   (str ":on-click    (fn [_e]\n"
+                     "               (dispatch [:rf.xray/reactive-toggle-unchanged]))")
+        framed  (str ":on-click (fn [^js e]\n"
+                     "            (rf/dispatch [:x/y] {:frame frame}))")
+        guarded (str ":on-click (fn [e]\n"
+                     "            (.stopPropagation e)\n"
+                     "            (rf/dispatch [:x/y] {:frame frame}))")]
+    (is (re-find deferred-fn-bare-dispatch-pattern bug)
+        "catches the multiline deferred bare-dispatch bug shape")
+    (is (re-find deferred-fn-bare-dispatch-pattern bug-1ln)
+        "also catches the single-line form")
+    ;; The OLD adjacency-only pattern demonstrably MISSED the multiline shape.
+    (is (not (re-find on-handler-global-dispatch-pattern bug))
+        "the pre-existing adjacency-only guard missed this multiline callback")
+    (is (not (re-find deferred-fn-bare-dispatch-pattern fixed))
+        "does NOT flag a threaded frame-aware `dispatch` (the fix)")
+    (is (not (re-find deferred-fn-bare-dispatch-pattern framed))
+        "does NOT flag a dispatch carrying an explicit {:frame …} opt")
+    (is (not (re-find deferred-fn-bare-dispatch-pattern guarded))
+        "does NOT flag a guard-first callback with an explicit frame opt")))
 
 (deftest pending-migration-allowlist-stays-honest
   ;; The allowlist must only name files that ACTUALLY still carry a
