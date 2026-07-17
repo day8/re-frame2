@@ -1,5 +1,5 @@
 (ns re-frame.spawn-all-authority-catalogue-test
-  "The AUTHORITATIVE catalogue/schema proof for `:spawn-all` exact authority
+  "The AUTHORITATIVE catalogue/schema proof for `:spawn-all` exact-attempt folding
   (rf2-p53o47, completed rf2-2ai15g).
 
   This pins the normative facts the spec/catalogue reconciliation landed so a
@@ -21,7 +21,7 @@
        unregistered-child `:spawn-all` fixture validates the COMPLETE
        `:rf.runtime/machines` runtime-db against the extracted `Machines` form
        during the legal pre-parent-exit interval; a sentinel carrying
-       `:children`/authority, and a token-less live join, both fail. Key
+       `:children`/coordinate, and a token-less live join, both fail. Key
        completeness derives from ONE producer/consumer boundary (rf2-64uoa): the
        real runtime-produced join's COMPLETE key set equals the extracted schema's
        REQUIRED set (the consumer contract) unioned with an explicit
@@ -31,7 +31,7 @@
        Each required key is additionally guarded by targeted mutation, and the
        `:cancelled` tombstone is proven end-to-end: an explicitly cancelled child
        leaves a tombstone the schema REQUIRES and the runtime HONOURS, so a late
-       authority cannot resurrect it (rf2-y7venl).
+       coordinate cannot resurrect it (rf2-y7venl).
 
     2. CATALOGUE — `:rf.machine.spawn-all/child-completed` emits
        `:rf.reply/correlation` (Spec 009 detailed row + `join.cljc`), carrying
@@ -274,7 +274,7 @@
 
 ;; ---------------------------------------------------------------------------
 ;; 1b. SCHEMA + BEHAVIOUR — a cancelled child leaves a `:cancelled` TOMBSTONE the
-;;     schema REQUIRES and the runtime HONOURS (late authority cannot resurrect)
+;;     schema REQUIRES and the runtime HONOURS (late coordinate cannot resurrect)
 ;; ---------------------------------------------------------------------------
 
 (deftest cancelled-child-tombstone-is-required-and-honoured
@@ -284,11 +284,11 @@
             dissociating `:cancelled` FAILS it (the tombstone set is REQUIRED,
             not optional — an open map would otherwise accept the dissoc), and a
             LATE exact-current completion carrier for the cancelled child
-            is SUPPRESSED as a duplicate terminal. A late/rejoining authority can
+            is SUPPRESSED as a duplicate terminal. A late/rejoining coordinate can
             never resurrect or mis-attribute a cancelled child."
     (let [j         (reg-destroyable-join-parent! :sac/tomb :sac/tomba :sac/tombb)
           spawned-a (get-in j [:children :a])
-          ;; the exact join authority a late carrier would present — captured
+          ;; the exact-attempt coordinate a late carrier would present — captured
           ;; from the LIVE attempt so it is genuinely exact-current, not forged.
           auth      {:parent-id  :sac/tomb
                      :invoke-id  [:racing]
@@ -313,7 +313,7 @@
         (is (not (m/validate InvokeAllJoinState (dissoc tombstoned :cancelled)))
             "dissociating :cancelled FAILS the extracted schema — the tombstone is required")
         ;; a LATE exact-current completion carrier for :a cannot resurrect
-        ;; it. The authority rides the recordable `:rf.cofx` slot
+        ;; it. The coordinate rides the recordable `:rf.cofx` slot
         ;; (rf2-nsbwft — the metadata slot is not read).
         (mtest/reset-captured!)
         (rf/dispatch-sync [:sac/tomb [:child/done :a]]
@@ -394,7 +394,7 @@
             `:rf.runtime/machines` runtime-db validates against the extracted
             `Machines` form during the legal pre-parent-exit interval, the
             sentinel validates as the reject arm, and both a sentinel carrying
-            authority keys and a token-less live join FAIL the extracted
+            coordinate keys and a token-less live join FAIL the extracted
             `:spawned` union."
     (let [ok-child {:initial :running :data {} :states {:running {}}}
           ;; :sac/missing is NEVER reg-machine'd — the unregistered child TYPE.
@@ -431,12 +431,12 @@
             "the real sentinel validates against the extracted InvokeAllRejectedState")
         (is (m/validate SpawnedSlot {:sac/rparent {[:forking] sentinel}})
             "the sentinel is accepted by the extracted :spawned union")
-        ;; ... but a sentinel that ALSO carries authority is NOT a clean reject:
+        ;; ... but a sentinel that ALSO carries a coordinate is NOT a clean reject:
         ;; the closed map rejects the extra keys, and it is not a live join.
         (is (not (m/validate InvokeAllRejectedState (assoc sentinel :children {:a :a#1})))
             "a sentinel carrying :children FAILS the closed reject schema")
         (is (not (m/validate SpawnedSlot {:sac/rparent {[:forking] (assoc sentinel :rf/attempt 9)}}))
-            "a sentinel carrying an authority token FAILS the :spawned union")
+            "a sentinel carrying an attempt token FAILS the :spawned union")
         ;; a token-less live join fails BOTH arms → fails the union.
         (let [live (join-state :sac/live [:racing])]
           (is (m/validate SpawnedSlot {:sac/live {[:racing] live}})
@@ -489,8 +489,8 @@
       (is (true? (:resolved? (join-state :sac/p3 [:racing]))) "the :any join resolved")
       (mtest/reset-captured!)
       ;; :a's EXACT-CURRENT completion re-completes AFTER the :resolved? latch
-      ;; flipped — the late-completion path is gated on exact authority
-      ;; (rf2-ixjd48), so the carrier presents the current attempt's authority
+      ;; flipped — the late-completion path is gated on the exact-attempt fence
+      ;; (rf2-ixjd48), so the carrier presents the current attempt's coordinate
       ;; on the recordable `:rf.cofx` slot (rf2-nsbwft).
       (rf/dispatch-sync
         [:sac/p3 [:child/done :a]]

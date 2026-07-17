@@ -1,5 +1,5 @@
 (ns re-frame.join-parallel-recordable-controls-cljs-test
-  "rf2-lud4af — the exact-authority fold gate, driven through the RECORDABLE
+  "rf2-lud4af — the exact-attempt fold fence, driven through the RECORDABLE
   `:rf.cofx` transport (`:rf.machine/join-attempt`) in the AMBIGUOUS PARALLEL
   shape.
 
@@ -8,7 +8,7 @@
   METADATA. This file re-drives the same control classes in the two-region
   parallel shape where both regions reuse the SAME logical child id `:worker`
   and the SAME `:child/done` / `:child/failed` completion keywords — the exact
-  ambiguity `select-parallel-joins-by-exact-authority` (rf2-wsrtlw) routes —
+  ambiguity `select-parallel-joins-by-exact-attempt` (rf2-wsrtlw) routes —
   and it carries every forged / legitimate carrier on the recordable
   `:rf.cofx` fact rather than metadata, so the coverage matches the delivery
   channel the rf2-lud4af transport actually uses (metadata does not survive an
@@ -90,7 +90,7 @@
         (spawned-joins)))
 
 (defn- auth-for
-  "The exact-authority tuple for `:worker` in the region named by
+  "The exact-attempt tuple for `:worker` in the region named by
   `[invoke-id join-state]`, with optional per-key `overrides` (to forge a
   wrong-spawned-id / wrong-invoke carrier)."
   ([invoke-id js] (auth-for invoke-id js {}))
@@ -154,7 +154,7 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest parallel-unstamped-carrier-suppressed-unverified
-  (testing "rf2-lud4af — a bare completion carrier with NO recordable authority
+  (testing "rf2-lud4af — a bare completion carrier with NO recordable coordinate
             (never flowed through a member child's boundary) folds nothing in
             either region and is classified :attempt-unverified."
     (reg-and-start!)

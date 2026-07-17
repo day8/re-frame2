@@ -1,7 +1,7 @@
 (ns re-frame.join-reserved-dispatch-semantics-test
   "rf2-lud4af — the `:spawn-all` join-completion transport
   (`:rf.machine/join-dispatch`) preserves the FULL reserved-dispatch
-  contract while still recording the exact join authority.
+  contract while still recording the exact-attempt coordinate.
 
   #5856 rewrote a member child's completion `:dispatch` / `:dispatch-later`
   into `:rf.machine/join-dispatch`, whose handler built a PARTIAL child-opts
@@ -180,7 +180,7 @@
                 :attempt    (:rf/attempt (join-state :lud4af/rp))
                 :work-generation 1}
                (get-in opts [:rf.cofx :rf.machine/join-attempt]))
-            "the recordable join-attempt exact-authority tuple rides :rf.cofx"))
+            "the recordable join-attempt coordinate rides :rf.cofx"))
       (is (= #{:a} (:done (join-state :lud4af/rp)))
           "and the completion still folded end-to-end (the observer is pass-through)")
       (is (empty? (stale-reasons)) "no stale suppression for the genuine completion"))))
@@ -266,7 +266,7 @@
             round-trip of BOTH the recorded event and its recorded :rf.cofx;
             after restoring the pre-event runtime-db, strict-replaying the
             recorded pair reproduces the SAME :done fold. Stripping the recorded
-            authority fact is a fail-closed :attempt-unverified drop, never a
+            coordinate fact is a fail-closed :attempt-unverified drop, never a
             silent replay-success no-op."
     (rf/reg-event ::restore-runtime (fn [_ [_ rt]] {:rf.db/runtime rt}))
     (rf/reg-machine :lud4af/rca (mk-child :lud4af/rcp))
@@ -297,11 +297,11 @@
         (is (= #{:a} (:done (join-state :lud4af/rcp)))
             "the round-tripped recorded event + cofx strict-replayed the SAME fold")
         (is (empty? (stale-reasons)) "faithful replay — no stale suppression")
-        ;; Restore + replay WITHOUT the recorded authority → fail-closed stale drop.
+        ;; Restore + replay WITHOUT the recorded coordinate → fail-closed stale drop.
         (rf/dispatch-sync [::restore-runtime pre-fold-runtime])
         (mtest/reset-captured!)
         (rf/dispatch-sync (edn-roundtrip rec-event) {:rf.cofx (edn-roundtrip {})})
         (is (= #{} (:done (join-state :lud4af/rcp)))
-            "replay with the authority fact stripped folded nothing")
+            "replay with the coordinate fact stripped folded nothing")
         (is (= [:rf.machine.spawn-all/attempt-unverified] (stale-reasons))
-            "stripping the recorded authority is a typed stale drop, not a silent no-op")))))
+            "stripping the recorded coordinate is a typed stale drop, not a silent no-op")))))
