@@ -119,11 +119,16 @@
 ;; registration schema the process last installed, so a live-upgraded
 ;; process runs the bounded migration for each version it is behind.
 
-(def ^:private schema-version
-  "Current registration-schema version. Bump when a code change adds a
-  handler that an ALREADY-registered older process would otherwise never
-  install (the umbrella `registered?` gate no-ops its whole leaf install
-  on `:after-load`); pair each bump with a `migrate-schema!` clause below.
+(def schema-version
+  "Current registration-schema version. Bump when a code change ADDS a
+  handler an ALREADY-registered older process would otherwise never install,
+  OR CHANGES (replaces) a gated registration's body/topology the umbrella
+  `registered?` gate would otherwise leave at its old shape — on
+  `:after-load` the umbrella no-ops the whole leaf install, so BOTH a new id
+  and a changed body stay behind until a full page reload. Pair each bump
+  with a `migrate-schema!` clause below. Public (a read-only contract number):
+  the governance pin in `registry_cljs_test.cljs` reads it so any gated
+  registration edit — add OR replace — must name a schema bump (rf2-sa8j3).
 
   Version history:
     1 — ViewCell evidence REACTIVITY BRIDGE (rf2-vxgfnd.286 / rf2-ykaq4u):
@@ -139,8 +144,22 @@
         version honesty) and `:rf.xray/view-evidence-sites` (static per-view
         manifest sites). A schema-1 process has the bridge but not these two,
         so the migration re-runs the bridge install (idempotent — reg-sub
-        replaces in place) to add exactly the missing delta."
-  2)
+        replaces in place) to add exactly the missing delta.
+    3 — Reactive-data topology REPLACEMENT (rf2-sa8j3): a CHANGED handler
+        body, not a new id. `:rf.xray/reactive-data` went from two inputs to
+        four (adding the panel-local `:rf.xray/reactive-show-unchanged?`
+        quick-toggle + the `[:rf.xray/setting :general :show-unchanged-subs?]`
+        pin) inside `reactive-panel/install!` — the umbrella + the name-set
+        snapshot both no-op a REPLACEMENT (same id, changed body), so a
+        schema-2 process re-running `register-xray-handlers!` retained the OLD
+        two-input body until a page reload. The migration re-runs the owning
+        `reactive-panel` facade's `install!`: re-frame's registrar replaces
+        each handler in place AND the sub-cache replacement-hook evicts the
+        stale reactive-data reaction, so a live-upgraded process reaches the
+        four-input topology (held Views subscriptions invalidated) with no
+        reload. Generalises the seam — a gated registration REPLACEMENT is a
+        schema delta exactly as an ADDITION is."
+  3)
 
 (defonce ^:private installed-schema
   ;; The registration-schema version this process has installed, or nil
@@ -154,13 +173,16 @@
 
 (defn- migrate-schema!
   "Bring an already-registered older-schema process up to `schema-version`
-  by installing EXACTLY the handlers newer schema versions add — the
-  bounded live-upgrade seam (rf2-ykaq4u). `from` is the process's installed
-  schema (0 ⇒ pre-schema-versioning, i.e. a pre-#5915 process). Each clause
-  is additive, idempotent (re-frame's registrar replaces in place), and
-  gated on `from` predating the version that introduced its handler — so
-  this is NOT an unconditional whole-registry re-registration; only the
-  missing delta is installed, and only for a process that is behind."
+  by installing EXACTLY the bounded delta newer schema versions introduce —
+  a handler newer versions ADD, or a gated registration whose BODY/topology
+  newer versions CHANGE (replace) — the live-upgrade seam (rf2-ykaq4u /
+  rf2-sa8j3). `from` is the process's installed schema (0 ⇒
+  pre-schema-versioning, i.e. a pre-#5915 process). Each clause is idempotent
+  (re-frame's registrar replaces in place; replacing a sub also evicts its
+  stale cache via the registrar replacement-hook), and gated on `from`
+  predating the version that introduced its delta — so this is NOT an
+  unconditional whole-registry re-registration; only the missing/changed
+  delta is installed, and only for a process that is behind."
   [from]
   (when (< from 1)
     ;; schema 1 — the ViewCell evidence REACTIVITY BRIDGE. A pre-#5915
@@ -179,7 +201,23 @@
     ;; bridge without them; re-running the (idempotent) bridge install adds
     ;; exactly the missing two subs — reg-sub replaces in place, so the
     ;; already-present bridge handlers are untouched.
-    (reactive-panel/install-viewcell-evidence-bridge!)))
+    (reactive-panel/install-viewcell-evidence-bridge!))
+  (when (< from 3)
+    ;; schema 3 — the Reactive-data topology REPLACEMENT (rf2-sa8j3). The
+    ;; `:rf.xray/reactive-data` sub changed from two inputs to four inside
+    ;; `reactive-panel/install!` (adding the `:rf.xray/reactive-show-
+    ;; unchanged?` quick-toggle + the Settings show-unchanged pin). That is a
+    ;; CHANGED body, not a new id, so neither the umbrella nor an
+    ;; addition-only migration would replace the OLD two-input sub a schema-2
+    ;; process cached. Re-run the owning `reactive-panel` facade's `install!`:
+    ;; re-frame's registrar replaces each handler in place and the sub-cache
+    ;; replacement-hook evicts the stale `:rf.xray/reactive-data` reaction, so
+    ;; a held Views subscription rebuilds against the current four-input body
+    ;; — no page reload. Idempotent, and reached only for a behind process:
+    ;; a fresh boot stamps `installed-schema` current inside the umbrella
+    ;; block, so the seam's `(< schema-version schema-version)` guard is false
+    ;; there and this clause never double-registers on a fresh boot.
+    (reactive-panel/install!)))
 
 (defn register-xray-handlers!
   "Idempotent registration of Xray's :rf.xray/* events, subs, fxs.
@@ -1152,4 +1190,21 @@
   []
   (reset! registered? true)
   (reset! installed-schema nil)
+  nil)
+
+(defn simulate-registration-at-schema!
+  "TEST-ONLY (rf2-sa8j3): pose the sentinels to model an ALREADY-registered
+  process that installed schema `n` under OLDER code and is now running NEWER
+  code whose `schema-version` is ahead of `n`. The umbrella gate is SET (its
+  full install ran) and `installed-schema` is stamped `n`, so a subsequent
+  `register-xray-handlers!` no-ops the umbrella and reaches ONLY the migration
+  seam — running exactly the `(< n …)` clauses that post-date the posed
+  schema. Complements `simulate-legacy-registration!` (which poses the
+  pre-schema-versioning nil stamp, i.e. schema 0): this poses an INTERMEDIATE
+  schema so a fixture can isolate the newest migration clause. Poses only the
+  sentinels; the fixture registers whatever predecessor handler shape it
+  needs. Never call from production. Returns nil."
+  [n]
+  (reset! registered? true)
+  (reset! installed-schema n)
   nil)

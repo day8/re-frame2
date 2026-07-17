@@ -56,9 +56,12 @@
             [re-frame.core :as rf]
             [re-frame.frame :as frame]
             [re-frame.registrar :as registrar]
+            [re-frame.subs.tooling :as subs-tooling]
             [day8.re-frame2-xray.config :as config]
             [day8.re-frame2-xray.focus :as focus]
             [day8.re-frame2-xray.panel-registry :as panel-registry]
+            [day8.re-frame2-xray.panels.reactive-panel-subs :as reactive-panel-subs]
+            [day8.re-frame2-xray.panels.routing :as routing]
             [day8.re-frame2-xray.registry :as registry]
             [day8.re-frame2-xray.self-noise :as self-noise]
             [day8.re-frame2-xray.test-support :as xray-test-support]
@@ -1075,6 +1078,151 @@
         (is (some? (rf/subscribe [q-v]))
             (str q-v " must resolve through rf/subscribe after
                  register-xray-handlers!"))))))
+
+;; ---- registration-schema seam: fresh-install atomicity (rf2-g2jf3) ------
+;;
+;; `register-xray-handlers!` flips the `registered?` umbrella BEFORE the
+;; ~900-line bulk leaf install and stamps `installed-schema` only AFTER the
+;; last installer. Pre-fix, a throw mid-install exited with
+;; `{registered? true, installed-schema nil}`: the next call's umbrella
+;; permanently skipped the unfinished bulk install, and the migration seam
+;; mis-read the nil stamp as schema 0 — stamping the registry "current" over
+;; a PARTIAL install. The fix wraps the bulk block so a throw rolls the
+;; umbrella back to false and rethrows, leaving the fresh install RETRYABLE
+;; and the schema UNSTAMPED. The observable: a THROW-ONCE mid-list leaf, then
+;; a second call that REPLAYS the whole bulk (not a bridge-only migration).
+
+(deftest fresh-install-retryable-after-partial-failure-rf2-g2jf3
+  (testing "rf2-g2jf3 — a throw mid bulk-install rolls the umbrella back so
+            the fresh install stays retryable and never advances the schema"
+    ;; The `@calls` counter is the snapshot-independent observable: the
+    ;; runtime fixture restores a registrar SNAPSHOT that already carries the
+    ;; xray handlers, so 'handler present/absent' cannot distinguish a
+    ;; completed install from a partial one. What DOES distinguish them is
+    ;; whether the bulk block RE-RUNS — i.e. whether `compare-and-set!`
+    ;; succeeds a second time, which happens only if the umbrella was rolled
+    ;; back to false (the fix) rather than left set with a mis-stamped schema
+    ;; (the bug). `routing/install!` is a THROW-ONCE mid-list leaf.
+    (let [orig-install routing/install!
+          calls        (atom 0)]
+      (with-redefs [routing/install!
+                    (fn []
+                      (swap! calls inc)
+                      (if (= 1 @calls)
+                        (throw (ex-info "rf2-g2jf3 throw-once mid-list leaf" {}))
+                        (orig-install)))]
+        (testing "the mid-list installer throw propagates loudly"
+          (is (thrown-with-msg? js/Error #"rf2-g2jf3 throw-once"
+                (registry/register-xray-handlers!)))
+          (is (= 1 @calls) "the throwing installer ran exactly once"))
+        (testing "a SECOND call REPLAYS the whole bulk install — the umbrella
+                  rolled back to false and the schema was never stamped past
+                  the failure, so this is a fresh re-install (which re-runs
+                  routing AND every installer after it), NOT a bridge-only
+                  migration over a falsely-advanced schema"
+          (registry/register-xray-handlers!)
+          (is (= 2 @calls)
+              "compare-and-set succeeded again → the bulk block re-ran
+               (pre-fix the umbrella stayed set + the schema was mis-stamped
+               current, so the retry no-ops the umbrella and runs only a
+               bridge migration — routing never re-runs and calls stalls at 1)"))
+        (testing "the completed install is now idempotent — schema stamped
+                  current, so a further reload no-ops"
+          (registry/register-xray-handlers!)
+          (is (= 2 @calls)
+              "a third call no-ops — umbrella set + migration at current
+               schema, no re-run"))))))
+
+;; ---- registration-schema seam: changed handlers migrate too (rf2-sa8j3) --
+;;
+;; The `registered?` umbrella + the name-set snapshots above cover ADDED
+;; registrations. They do NOT cover a CHANGED body: a sub that gains inputs
+;; keeps its id, so the umbrella no-ops it and the name set is untouched.
+;; `:rf.xray/reactive-data` went two → four inputs inside
+;; `reactive-panel/install!` (f012c70e6f), so an already-registered process
+;; retained the OLD two-input body until a page reload. The schema-3
+;; migration re-runs the owning `reactive-panel` facade `install!`, replacing
+;; the sub (and evicting its stale cache) so the four-input topology reaches a
+;; live-upgraded process.
+
+(defn- reactive-data-input-ids
+  "The static `:<-` input sub-ids of `:rf.xray/reactive-data`, read off the
+  live `sub-topology` (each `[query-id args]` reduced to its head). `[]` when
+  the sub is unregistered."
+  []
+  (let [inputs (:inputs (get (subs-tooling/sub-topology) :rf.xray/reactive-data))]
+    (mapv #(if (vector? %) (first %) %) (or inputs []))))
+
+(deftest changed-reactive-data-migrates-as-a-schema-delta-rf2-sa8j3
+  (testing "rf2-sa8j3 — a live process holding the PREDECESSOR two-input
+            reactive-data upgrades to the current four-input topology via the
+            schema migration, invalidating the held cache — no page reload"
+    ;; 1. Full current boot: reactive-data is the four-input sub; frame live.
+    (setup-xray-frame!)
+    ;; 2. DOWNGRADE (from the canonical ns, so image assembly sees one source
+    ;;    coord per id) to model a process that cached the OLD two-input sub.
+    (reactive-panel-subs/install-legacy-reactive-data-sub-for-test!)
+    ;; 3. Pose the sentinels: umbrella SET + installed-schema at 2 — the
+    ;;    schema BEFORE the reactive-data replacement bump — so
+    ;;    register-xray-handlers! no-ops the umbrella and runs ONLY the
+    ;;    reactive-data migration clause (`(< 2 3)`).
+    (registry/simulate-registration-at-schema! 2)
+    ;; Turn the disclosure toggle ON — the axis only the four-input sub reads.
+    (rf/with-frame :rf/xray
+      (rf/dispatch-sync [:rf.xray/reactive-set-unchanged true]))
+
+    (testing "PRECONDITION — the cached two-input predecessor ignores the axis"
+      (is (= [:rf.xray/focus :rf.xray/epoch-history]
+             (reactive-data-input-ids))
+          "downgraded to the pre-f012c70e6f two-input topology")
+      (is (false? (rf/with-frame :rf/xray
+                    (:show-unchanged? @(rf/subscribe [:rf.xray/reactive-data]))))
+          "the two-input body hard-codes show-unchanged? false — the toggle is
+           invisible to it"))
+
+    ;; 4. The live upgrade: :after-load re-runs register-xray-handlers!. The
+    ;;    umbrella no-ops; the schema-3 migration re-registers the four-input
+    ;;    reactive-data through the reactive-panel facade.
+    (registry/register-xray-handlers!)
+
+    (testing "the REPLACEMENT migrated — the four-input topology is restored"
+      (is (= [:rf.xray/focus :rf.xray/epoch-history
+              :rf.xray/reactive-show-unchanged? :rf.xray/setting]
+             (reactive-data-input-ids))
+          "reactive-data is back to the four-input topology"))
+    (testing "the held cache was invalidated — a read now honours the toggle
+              the predecessor could not see"
+      (is (true? (rf/with-frame :rf/xray
+                   (:show-unchanged? @(rf/subscribe [:rf.xray/reactive-data]))))
+          "the replaced four-input sub resolves show-unchanged? through the
+           reactive axis — the stale two-input reaction was evicted"))))
+
+;; ---- schema-delta governance pin (rf2-sa8j3) ----------------------------
+;;
+;; The name-set snapshots catch ADDED registrations; this pin catches CHANGED
+;; ones. It ties `schema-version` to the shipped reactive-data topology, so
+;; ANY gated registration edit — add OR replace — must consciously bump
+;; `schema-version` + pair a `migrate-schema!` clause (or record an explicit
+;; no-migration rationale) and update the pins here. Mirrors the drift-guard
+;; discipline of `focus-valid-panels-mirrors-live-dynamic-registry`.
+
+(def ^:private expected-schema-version 3)
+
+(deftest schema-version-is-pinned-so-changed-registrations-name-a-migration
+  (testing "registry/schema-version matches the governance pin"
+    (is (= expected-schema-version registry/schema-version)
+        (str "registration-schema version changed. If you ADDED or CHANGED a "
+             "gated registration, bump schema-version, pair a migrate-schema! "
+             "clause (or document why no migration is needed), then update "
+             "expected-schema-version. rf2-sa8j3.")))
+  (testing "the schema-3 reactive-data topology is the current shipped shape"
+    (setup-xray-frame!)
+    (is (= [:rf.xray/focus :rf.xray/epoch-history
+            :rf.xray/reactive-show-unchanged? :rf.xray/setting]
+           (reactive-data-input-ids))
+        (str "reactive-data topology drifted from the schema-" expected-schema-version
+             " pin. A changed sub topology is a schema delta — bump "
+             "schema-version + add a migrate-schema! clause. rf2-sa8j3."))))
 
 ;; ---- Machine tab fit-on-entry signal (rf2-6tw7t) ------------------------
 ;;
