@@ -76,15 +76,26 @@
   timestamp is taken the instant the post-commit Promise resolves — before any
   delta scan, counter comparison, or DOM query — so the sample is the true
   dispatch-to-commit span and is independent of the V-scaled audit work done by
-  the correctness cycle. Returns the elapsed milliseconds."
+  the correctness cycle.
+
+  rf2-6k4cm — the `:pre-hot` witness (app-db `:hot` immediately before THIS
+  timed dispatch) is read here, adjacent to the dispatch it guards, and returned
+  WITH this exact timed cycle. It is read before `started`, so it sits OUTSIDE
+  the measured interval and leaves the dispatch-to-commit span unchanged. Being
+  sourced from the timed cycle's own dispatch — not from `sample!` entry — makes
+  it causal to the measurement: any drain that preceded this cycle shows up as a
+  nonzero witness, so a warmed cycle can never masquerade as the cold first
+  drain. Returns `{:elapsed-ms <ms> :pre-hot <app-db :hot at dispatch>}`."
   [frame]
-  (let [started (js/performance.now)]
+  (let [pre-hot (:hot (rf/app-db-value frame))
+        started (js/performance.now)]
     (-> (uit/flush!
          (fn []
            ;; dispatch! completes all eight write epochs synchronously; the
            ;; render phase runs when flush!'s Promise advances to the commit.
            (uit/dispatch! frame [::fixture/step fixture/queued-writes])))
-        (.then (fn [_] (- (js/performance.now) started))))))
+        (.then (fn [_] {:elapsed-ms (- (js/performance.now) started)
+                        :pre-hot pre-hot})))))
 
 (defn- correctness-cycle!
   "Exact push-work accounting for ONE drain — UNTIMED. Owns the O(V) live-cell
@@ -207,19 +218,72 @@
   correctness so the reported `:elapsed-ms` is a true first-drain
   dispatch-to-commit span — never the second dispatch after this sample's own
   O(V) audit, DOM read, and cache/React warm-up. `:timing-pre-hot` is the
-  app-db `:hot` value captured immediately BEFORE the timing dispatch (outside
-  the measured interval): the mount seed leaves it 0 and every drain adds
-  `queued-writes`, so for the `cold` sample it is 0 — the causal proof that the
-  timer measured the FIRST post-mount dispatch, before any correctness-cycle
-  dispatch or audit. The exact counts still come from a cycle never on the clock."
+  witness `timing-cycle!` read of app-db `:hot` immediately BEFORE its own timed
+  dispatch (outside the measured interval) and returned WITH that cycle
+  (rf2-6k4cm): the mount seed leaves it 0 and every drain adds `queued-writes`,
+  so for the `cold` sample it is 0 — the CAUSAL proof that the timer measured the
+  FIRST post-mount dispatch. Because it rides the timed cycle rather than being
+  read at `sample!` entry, running correctness before timing advances it to
+  `queued-writes` and the cold-first control fails; it cannot pass vacuously.
+  The exact counts still come from a cycle never on the clock."
   [root frame v label]
-  (let [timing-pre-hot (:hot (rf/app-db-value frame))]
-    (-> (timing-cycle! frame)
-        (.then (fn [elapsed]
-                 (-> (correctness-cycle! root frame v label)
-                     (.then (fn [c]
-                              (assoc c :elapsed-ms elapsed
-                                     :timing-pre-hot timing-pre-hot)))))))))
+  ;; rf2-6k4cm — the timed cycle runs FIRST and reports its OWN pre-hot witness;
+  ;; `:timing-pre-hot` is that witness, so it is causal to the measured dispatch.
+  ;; Inverting these two stages (correctness before timing) would advance the
+  ;; witness off the mount seed and redden the cold-first control — it can no
+  ;; longer stay 0 while the timer measures a warmed second drain.
+  (-> (timing-cycle! frame)
+      (.then (fn [{:keys [elapsed-ms pre-hot]}]
+               (-> (correctness-cycle! root frame v label)
+                   (.then (fn [c]
+                            (assoc c :elapsed-ms elapsed-ms
+                                   :timing-pre-hot pre-hot))))))))
+
+;; rf2-6k4cm — the CAUSAL cold-first order control. The gate's `assertColdIsFirstDrain`
+;; rests on `:timing-pre-hot` being 0 for the cold sample. Forging that field, or
+;; asserting a value read before either cycle, does NOT prove the witness tracks the
+;; timed dispatch — it can stay 0 while the timer secretly measures a warmed second
+;; drain. This control runs the two cycles in BOTH orders on FRESH frames and returns
+;; each timed cycle's OWN witness. Because the witness now rides `timing-cycle!`'s
+;; dispatch, the two orders DIVERGE: timing-first witnesses the mount seed 0,
+;; correctness-first witnesses `queued-writes`. The runner asserts the divergence, so
+;; a non-causal witness (0 in both) is rejected. This is source/order evidence — it
+;; runs correctness before timing for real, not a JSON mutation.
+(defn- timed-witness!
+  "Mount a FRESH v-sized fixture, run the two cycles in `order` (`:timing-first`
+  or `:correctness-first`), and return the TIMED cycle's own `:pre-hot` witness.
+  Tears the frame down on every exit."
+  [v order]
+  (let [frame (rf/make-frame {:initial-events [[:rf/set-db (fixture/seed v)]]})]
+    (-> (uit/with-root [root [ui/frame-provider {:frame frame}
+                              [fixture/app {:v v}]]]
+          (if (= order :correctness-first)
+            ;; A correctness drain advances app-db :hot off the mount seed BEFORE
+            ;; the timed cycle runs; the timed cycle must then witness that advance.
+            (-> (correctness-cycle! root frame v "order-control")
+                (.then (fn [_] (timing-cycle! frame)))
+                (.then (fn [timed] (:pre-hot timed))))
+            ;; The true cold order: the timed cycle runs first, so it witnesses 0.
+            (-> (timing-cycle! frame)
+                (.then (fn [timed] (:pre-hot timed))))))
+        (.then (fn [pre-hot]
+                 (rf/destroy-frame! frame)
+                 pre-hot)
+               (fn [e]
+                 (rf/destroy-frame! frame)
+                 (throw e))))))
+
+(defn- order-control!
+  "Report each order's timed-cycle witness for the runner's causal cold-first
+  control: `:timing-first` (expected 0, passes) and `:correctness-first`
+  (expected `queued-writes`, fails)."
+  [v]
+  (-> (timed-witness! v :timing-first)
+      (.then (fn [timing-first]
+               (-> (timed-witness! v :correctness-first)
+                   (.then (fn [correctness-first]
+                            {:timing-first timing-first
+                             :correctness-first correctness-first})))))))
 
 (defn- run-size! [v]
   (let [frame (rf/make-frame {:initial-events [[:rf/set-db (fixture/seed v)]]})
@@ -283,32 +347,42 @@
               sizes)
       (.then
        (fn [results]
-         (let [projections (mapv #(get-in % [:cold :projection]) results)]
-           (ensure! (apply = projections)
-                    "candidate-work projection depends on V"
-                    {:projections projections})
-           {:gate "G-13"
-            :status "pass"
-            :sizes sizes
-            :queued-writes fixture/queued-writes
-            :affected-viewcells fixture/hot-count
-            :fixed-shell-idle-cells fixture/idle-shell-count
-            :timing-posture "evidence-only; no threshold"
-            ;; rf2-vxgfnd.210 — the explicit candidate-work axis plus the HONEST
-            ;; scope of what the counts prove. `port-fan-out` (C*Q, summed over
-            ;; all V live cells with the V−C non-affected cells contributing
-            ;; zero) is the named V-independent candidate-work projection. The
-            ;; counts prove V-independent DELIVERED push work (fan-out
-            ;; occurrences + sub recomputes + renders + one commit). A pure
-            ;; membership SCAN that inspects V candidates but delivers to only C
-            ;; is observable only by a production-side counter at the port's
-            ;; candidate-iteration choke point — out of this gate's reach — and
-            ;; is tracked by timing evidence alone, never asserted by a count
-            ;; nor by a wall-clock threshold.
-            :candidate-work-projection "port-fan-out"
-            :proof-scope
-            "v-independent delivered push work; pure candidate scan is timing-evidence-only"
-            :results results})))))
+         ;; rf2-6k4cm — run the causal cold-first order control on a fresh frame
+         ;; (both orders), then fold its witnesses into the result the runner asserts.
+         (-> (order-control! (first sizes))
+             (.then
+              (fn [order]
+                (let [projections (mapv #(get-in % [:cold :projection]) results)]
+                  (ensure! (apply = projections)
+                           "candidate-work projection depends on V"
+                           {:projections projections})
+                  {:gate "G-13"
+                   :status "pass"
+                   :sizes sizes
+                   :queued-writes fixture/queued-writes
+                   :affected-viewcells fixture/hot-count
+                   :fixed-shell-idle-cells fixture/idle-shell-count
+                   ;; rf2-6k4cm — the timed-cycle witness under both cycle orders.
+                   ;; `:timing-first` is the real cold order (0); `:correctness-first`
+                   ;; is a drain before the timer (queued-writes). The runner proves
+                   ;; the cold-first control accepts the former and rejects the latter.
+                   :cold-first-order-control order
+                   :timing-posture "evidence-only; no threshold"
+                   ;; rf2-vxgfnd.210 — the explicit candidate-work axis plus the HONEST
+                   ;; scope of what the counts prove. `port-fan-out` (C*Q, summed over
+                   ;; all V live cells with the V−C non-affected cells contributing
+                   ;; zero) is the named V-independent candidate-work projection. The
+                   ;; counts prove V-independent DELIVERED push work (fan-out
+                   ;; occurrences + sub recomputes + renders + one commit). A pure
+                   ;; membership SCAN that inspects V candidates but delivers to only C
+                   ;; is observable only by a production-side counter at the port's
+                   ;; candidate-iteration choke point — out of this gate's reach — and
+                   ;; is tracked by timing evidence alone, never asserted by a count
+                   ;; nor by a wall-clock threshold.
+                   :candidate-work-projection "port-fan-out"
+                   :proof-scope
+                   "v-independent delivered push work; pure candidate scan is timing-evidence-only"
+                   :results results}))))))))
 
 (defn -main []
   (-> (execute!)

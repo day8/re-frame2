@@ -108,6 +108,66 @@ function assertColdIsFirstDrain(cold, where = 'cold timing evidence') {
   return cold;
 }
 
+// rf2-6k4cm — the CAUSAL cold-first order control. `assertColdIsFirstDrain`
+// above proves ONE reported witness is 0, but a witness read at `sample!` entry
+// (before either cycle) stays 0 no matter which cycle the timer actually
+// measures — so that assertion can pass while the "cold" span is a warmed second
+// drain. This closes the gap: the fixture runs the two cycles in BOTH orders on
+// fresh frames and reports each TIMED cycle's OWN pre-hot witness. With the
+// witness sourced from the timed dispatch, the orders MUST diverge —
+// `timing-first` (the real cold order) sees the mount seed 0; `correctness-first`
+// (a correctness drain BEFORE the timer) sees `queuedWrites`. This asserts the
+// divergence: timing-first passes the cold-first assertion, correctness-first
+// fails it, and a non-causal witness that stays 0 in BOTH orders is rejected.
+// `queuedWrites` is the fixture's per-drain :hot advance (8). Returns the order
+// control on success.
+function assertColdOrderControl(order, queuedWrites, where = 'cold-first order control') {
+  if (!order || typeof order !== 'object') {
+    throw evidenceFail(`${where}: order control is missing (got ${JSON.stringify(order)})`);
+  }
+  if (typeof queuedWrites !== 'number' || !Number.isFinite(queuedWrites) || queuedWrites <= 0) {
+    throw evidenceFail(
+      `${where}: queued-writes must be a positive finite number; got ${JSON.stringify(queuedWrites)}`,
+    );
+  }
+  const timingFirst = order['timing-first'];
+  const correctnessFirst = order['correctness-first'];
+  // The real cold order: the timed cycle ran before any drain, so its witness is
+  // the mount seed and the cold-first assertion must ACCEPT it.
+  if (timingFirst !== COLD_FIRST_DRAIN_PRE_HOT) {
+    throw evidenceFail(
+      `${where}: timing-first witness is not the mount seed ${COLD_FIRST_DRAIN_PRE_HOT} ` +
+        `(got ${JSON.stringify(timingFirst)}); the timed cycle did not measure the first drain`,
+    );
+  }
+  assertColdIsFirstDrain({ 'timing-pre-hot': timingFirst }, `${where} (timing-first)`);
+  // The inverted order: a correctness drain committed `queuedWrites` before the
+  // timed cycle, so a CAUSAL witness MUST advance to it. A witness still equal to
+  // the mount seed here proves the value was captured before the timed dispatch —
+  // exactly the vacuous, non-causal control this check exists to reject.
+  if (correctnessFirst !== queuedWrites) {
+    throw evidenceFail(
+      `${where}: correctness-first witness did not advance to queued-writes ` +
+        `(got ${JSON.stringify(correctnessFirst)}, expected ${queuedWrites}); the pre-hot witness ` +
+        'is not sourced from the timed dispatch — a non-causal, vacuous cold-first control',
+    );
+  }
+  // ...and the cold-first assertion MUST REJECT that inverted-order witness.
+  let rejected = false;
+  try {
+    assertColdIsFirstDrain({ 'timing-pre-hot': correctnessFirst }, `${where} (correctness-first)`);
+  } catch (_) {
+    rejected = true;
+  }
+  if (!rejected) {
+    throw evidenceFail(
+      `${where}: the cold-first assertion accepted the correctness-first witness ` +
+        `(${JSON.stringify(correctnessFirst)}) — the control does not depend on the timed dispatch order`,
+    );
+  }
+  return order;
+}
+
 function fmt(x) {
   return Number(x).toFixed(3);
 }
@@ -158,5 +218,6 @@ module.exports = {
   validateWarmSamples,
   summarizeWarm,
   assertColdIsFirstDrain,
+  assertColdOrderControl,
   buildSummary,
 };

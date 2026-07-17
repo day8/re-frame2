@@ -29,6 +29,7 @@ const {
   validateWarmSamples,
   summarizeWarm,
   assertColdIsFirstDrain,
+  assertColdOrderControl,
   buildSummary,
 } = require('./lib/g13-timing-evidence.cjs');
 
@@ -213,6 +214,65 @@ test('assertColdIsFirstDrain rejects any nonzero pre-hot (a later warmed drain)'
 test('assertColdIsFirstDrain rejects a missing pre-hot witness', () => {
   assert.throws(() => assertColdIsFirstDrain({ label: 'cold' }), /first post-mount dispatch/);
   assert.throws(() => assertColdIsFirstDrain(null, 'V=500'), /cold sample is missing/);
+});
+
+// ----- assertColdOrderControl: the CAUSAL cold-first control (rf2-6k4cm) ------
+//
+// The fixture runs both cycle orders on fresh frames and reports each TIMED
+// cycle's own pre-hot witness. This control asserts the two orders DIVERGE — the
+// only evidence that the witness is sourced from the timed dispatch, not from a
+// point (sample! entry) that stays 0 regardless of which cycle the timer measures.
+
+const QUEUED_WRITES = 8;
+
+test('assertColdOrderControl accepts the causal 0 / queued-writes divergence', () => {
+  // Real inverted execution advances :hot by queued-writes before the timer, so a
+  // causal witness reports 0 (timing-first) vs 8 (correctness-first).
+  const order = { 'timing-first': 0, 'correctness-first': QUEUED_WRITES };
+  assert.equal(assertColdOrderControl(order, QUEUED_WRITES), order);
+});
+
+test('assertColdOrderControl REJECTS a correctness-first witness that stayed 0 (the vacuous, non-causal control)', () => {
+  // THE TEETH. A witness captured before the timed dispatch stays 0 in BOTH
+  // orders — the exact false-green this bead repairs. It must be rejected even
+  // though the per-sample cold-first assertion (0 === 0) would still pass.
+  const collapsed = { 'timing-first': 0, 'correctness-first': 0 };
+  assert.throws(
+    () => assertColdOrderControl(collapsed, QUEUED_WRITES, 'V=100 cold-first order control'),
+    /non-causal, vacuous cold-first control/,
+  );
+  assert.throws(
+    () => assertColdOrderControl(collapsed, QUEUED_WRITES, 'V=100 cold-first order control'),
+    /V=100 cold-first order control/,
+  );
+});
+
+test('assertColdOrderControl rejects a correctness-first witness that advanced by the wrong amount', () => {
+  assert.throws(
+    () => assertColdOrderControl({ 'timing-first': 0, 'correctness-first': 16 }, QUEUED_WRITES),
+    /did not advance to queued-writes/,
+  );
+});
+
+test('assertColdOrderControl rejects a timing-first witness that left the mount seed', () => {
+  // If the timed cycle did NOT run first, its witness is nonzero and the reported
+  // "cold" span is a warmed drain — the control must reject it.
+  assert.throws(
+    () => assertColdOrderControl({ 'timing-first': 8, 'correctness-first': QUEUED_WRITES }, QUEUED_WRITES),
+    /timing-first witness is not the mount seed/,
+  );
+});
+
+test('assertColdOrderControl rejects a missing order control', () => {
+  assert.throws(() => assertColdOrderControl(null, QUEUED_WRITES), /order control is missing/);
+  assert.throws(() => assertColdOrderControl(undefined, QUEUED_WRITES, 'V=500'), /V=500/);
+});
+
+test('assertColdOrderControl rejects a non-positive queued-writes basis', () => {
+  assert.throws(
+    () => assertColdOrderControl({ 'timing-first': 0, 'correctness-first': 8 }, 0),
+    /queued-writes must be a positive finite number/,
+  );
 });
 
 // ----- runner ----------------------------------------------------------------
