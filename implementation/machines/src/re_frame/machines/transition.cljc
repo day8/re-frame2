@@ -1486,28 +1486,32 @@
 (defn- target-path
   "Compute the absolute target path for a transition. Per Spec 005:
    - `:same-state` sentinel → the declaring state's OWN path (`decl-path`).
-     Names a SELF-transition, which is INTERNAL BY DEFAULT under the
-     XState-v5 model re-frame2 tracks: a target landing on the active path
-     (here the declaring state itself) fires NEITHER `:exit` NOR `:entry` —
+     Names a SELF-transition, which is NON-REENTERING BY DEFAULT under the
+     XState-v5 model re-frame2 tracks (XState's word for that geometry is
+     \"internal\" — a PARITY label, NOT re-frame2's runtime `internal?`
+     flag, which `compute-cascade-paths` reserves for the TARGETLESS no-op):
+     a target landing on the active path (here the declaring state itself)
+     fires NEITHER `:exit` NOR `:entry` on the target node —
      only the transition's `:action` runs, and (on a compound) the active
      descendants below the target re-resolve to their `:initial`. It becomes
      an EXTERNAL self-transition — the state is exited and re-entered
      (`:exit` then `:entry` both fire, with the `:action` in between; a
      compound restarts its `:after` timers and respawns its `:spawn`
      children) — ONLY when the transition opts in with `:reenter? true`.
-     That internal/external distinction and the external-restart geometry —
+     That non-reentering/external distinction and the external-restart geometry —
      pulling the LCA up to the declaring state's parent so the state appears
      in both the exit and entry cascades — are `compute-cascade-paths`' job;
      here `:same-state` simply names the declaring state as the target. Per
      Spec 005 §Self-transitions + Spec-Schemas TransitionTarget.
    - keyword target → sibling at decl-path's level (replace last element).
      A keyword that names the declaring state's OWN key resolves to
-     `decl-path` too, so it is the same internal-by-default self-transition
+     `decl-path` too, so it is the same non-reentering self-transition
      as `:same-state` — external (exit + re-entry) only under
      `:reenter? true` (Spec 005 §Self-transitions).
    - vector target → absolute path from root.
-   - nil target (internal transition) → nil; the caller wraps the call
-     in `some->>` so the nil short-circuits the initial-cascade descent.
+   - nil target (the TARGETLESS `internal?` transition) → nil; the caller
+     wraps the call in `some->>` so the nil short-circuits the
+     initial-cascade descent.
 
   When target is neither vector nor keyword, the `cond` falls through to
   nil, which is the internal-transition contract."
