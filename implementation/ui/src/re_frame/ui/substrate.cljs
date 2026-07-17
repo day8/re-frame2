@@ -106,15 +106,54 @@
    spine-fns
    {:kind :rf.adapter/ui :frame-provider frame-provider-component}))
 
+;; PRESENCE, not JS truthiness, decides whether the public-root drain and the
+;; generic spine dispose failed (rf2-s2cfv). Either can throw a legitimately falsy
+;; value (false/nil); each slot holds this identity sentinel until a throw records
+;; into it, so a falsy failure is preserved — thrown in primary order, never lost
+;; to a truthy `cond`. Compared only by `identical?`.
+(defonce ^:private no-dispose-error #js {})
+
 (defn- attach-secondary-cleanup!
-  [primary secondary]
-  (when (and primary secondary)
-    (try
-      (js/Object.defineProperty
-       primary "rfUiAdapterCleanupError"
-       #js {:value secondary :configurable true})
-      (catch :default _ nil)))
+  "Preserve `primary` as the thrown value; when a secondary cleanup failure is
+  PRESENT (not merely truthy), retain it on the primary as
+  `rfUiAdapterCleanupError` for diagnostics. Presence — not truthiness — gates the
+  attach, so a falsy secondary is real. A primitive primary (nil/false/number)
+  cannot carry a property, so the secondary rides the always-on console diagnostic
+  instead and stays observable. `primary` is returned UNCHANGED either way — never
+  coerced or replaced (rf2-s2cfv)."
+  [primary secondary-present? secondary]
+  (when secondary-present?
+    (let [attached?
+          (try
+            (js/Object.defineProperty
+             primary "rfUiAdapterCleanupError"
+             #js {:value secondary :configurable true})
+            true
+            (catch :default _ false))]
+      (when (and (not attached?) (exists? js/console))
+        (.warn js/console
+               (str "[re-frame.ui] an adapter spine cleanup failure could not "
+                    "ride the primary rejection (a primitive reason cannot carry "
+                    "a diagnostic property); the primary is rethrown unchanged. "
+                    "Secondary cleanup error:")
+               secondary))))
   primary)
+
+(defn ^:no-doc dispose-outcome
+  "The disposal outcome policy, decided by failure PRESENCE (never JS truthiness):
+  a public-root drain failure is PRIMARY (a present spine failure rides it as a
+  diagnostic), else a spine-only failure is thrown, else disposal is clean.
+  `root-present?`/`spine-present?` are decided by presence at the call site, so a
+  legitimately falsy drain/spine failure (false/nil) is preserved and correctly
+  ordered. Returns `[:throw reason]` or `[:ok]`. Extracted as the ONE place the
+  presence decision lives, so it is unit-checkable off the DOM (rf2-s2cfv)."
+  [root-present? root-error spine-present? spine-error]
+  (cond
+    root-present?
+    [:throw (attach-secondary-cleanup! root-error spine-present? spine-error)]
+
+    spine-present? [:throw spine-error]
+    :else          [:ok]))
 
 (defn- dispose-adapter!
   "Dispose public compiled roots first, then the generic React spine. Both
@@ -125,8 +164,8 @@
   [with-root-admission-closed! drain-live-roots!]
   (with-root-admission-closed!
    (fn []
-     (let [root-error  (volatile! nil)
-           spine-error (volatile! nil)]
+     (let [root-error  (volatile! no-dispose-error)
+           spine-error (volatile! no-dispose-error)]
        (try
          (drain-live-roots!)
          (catch :default e
@@ -135,12 +174,13 @@
          ((:dispose-adapter! spine-adapter))
          (catch :default e
            (vreset! spine-error e)))
-       (cond
-         @root-error
-         (throw (attach-secondary-cleanup! @root-error @spine-error))
-
-         @spine-error (throw @spine-error)
-         :else nil)))))
+       ;; PRESENCE-decided (rf2-s2cfv): a falsy drain/spine failure (false/nil) is
+       ;; preserved, thrown in primary order, and never lost to a truthy `cond`.
+       (let [[outcome reason]
+             (dispose-outcome
+              (not (identical? @root-error no-dispose-error))  @root-error
+              (not (identical? @spine-error no-dispose-error)) @spine-error)]
+         (when (= :throw outcome) (throw reason)))))))
 
 (defn- ui-flush-render!
   "The first-party adapter's `:flush-render!` — the ViewCell-settling override of

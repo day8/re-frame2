@@ -458,6 +458,61 @@
         "the consumed incarnation is removed from root ownership")))
 
 ;; ===========================================================================
+;; rf2-s2cfv — a host `.unmount` that throws a FALSY value (false/nil) is a REAL
+;; host failure, tracked by PRESENCE not JS truthiness: the exact generation is
+;; force-dead (fail-closed), the identical falsy value is rethrown, and it is
+;; never taken for a success/deferred teardown. CLJS-only — the JVM cannot
+;; `throw` a non-Throwable, so a falsy host error is a JS-runtime concern.
+;; ===========================================================================
+
+#?(:cljs
+   (deftest throwing-a-false-host-unmount-force-deads-the-generation-and-rethrows
+     (rf/reg-sub :rt/a (fn [db _] (:a db)))
+     (let [fid     (make-frame! :rt/frame {:a 1})
+           inc     (reactive/make-root-incarnation)
+           cell    (doto (render+commit! (reactive/make-cell ::v) fid [[:rt/a]])
+                     (reactive/attach-root! inc))
+           outcome (try (reactive/teardown-root! inc (fn [] (throw false)))
+                        [::settled]
+                        (catch :default e [::threw e]))]
+       (is (= [::threw false] outcome)
+           "the falsy host error is rethrown, never swallowed by truthiness")
+       (is (= :dead (reactive/lifecycle cell))
+           "the exact consumed generation is force-dead — the fail-closed sweep ran")
+       (is (nil? (ref-count fid [:rt/a])) "force-dead released the observation owner")
+       (is (zero? (reactive/root-cell-count inc)) "the consumed incarnation is dropped"))))
+
+#?(:cljs
+   (deftest throwing-a-nil-host-unmount-force-deads-the-generation-and-rethrows
+     (rf/reg-sub :rt/a (fn [db _] (:a db)))
+     (let [fid     (make-frame! :rt/frame {:a 1})
+           inc     (reactive/make-root-incarnation)
+           cell    (doto (render+commit! (reactive/make-cell ::v) fid [[:rt/a]])
+                     (reactive/attach-root! inc))
+           outcome (try (reactive/teardown-root! inc (fn [] (throw nil)))
+                        [::settled]
+                        (catch :default e [::threw e]))]
+       (is (= [::threw nil] outcome)
+           "a nil host error is rethrown, never taken for a clean/deferred teardown")
+       (is (= :dead (reactive/lifecycle cell)) "the exact generation is force-dead")
+       (is (nil? (ref-count fid [:rt/a])))
+       (is (zero? (reactive/root-cell-count inc))))))
+
+#?(:cljs
+   (deftest throwing-a-false-host-unmount-without-generation-rethrows-without-guessing
+     (rf/reg-sub :rt/a (fn [db _] (:a db)))
+     (let [fid     (make-frame! :rt/frame {:a 1})
+           cell    (render+commit! (reactive/make-cell ::v) fid [[:rt/a]])
+           outcome (try (reactive/teardown-root! (fn [] (throw false)))
+                        [::settled]
+                        (catch :default e [::threw e]))]
+       (is (= [::threw false] outcome)
+           "the original falsy host error propagates, never masked")
+       (is (= :connected (reactive/lifecycle cell))
+           "no generation evidence → the orphaned cell is not falsely killed")
+       (is (= 1 (ref-count fid [:rt/a]))))))
+
+;; ===========================================================================
 ;; rf2-vxgfnd.182 — the DEFERRED-vs-SYNCHRONOUS host-teardown discriminator
 ;;
 ;; react-dom 19.2 refuses a SYNCHRONOUS unmount from inside render/commit: the
