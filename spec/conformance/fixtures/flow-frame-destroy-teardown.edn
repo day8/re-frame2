@@ -1,9 +1,15 @@
 ;; Conformance fixture: flow/frame-destroy-teardown
 ;; Per Spec 013 §Frame-destroy teardown and Spec 002 §Destroy — flows are
 ;; frame-scoped, so `destroy-frame!` MUST release every per-frame piece of
-;; flow state: the per-frame flow-registry slot, every `last-inputs` row
-;; for the destroyed frame, and any `:flow` registrar entry whose last
-;; owning frame was the destroyed one. Sibling frames' state is preserved.
+;; flow state held for the destroyed frame: its slot in the SOLE per-frame
+;; flow store `{frame-id {flow-id flow-map}}` and every `last-inputs`
+;; dirty-check row. Sibling frames' state is preserved.
+;;
+;; SINGLE STORE (rf2-en00bk): there is NO frame-blind flow registrar. The
+;; `:flow` registrar kind is RESERVED but its slot is intentionally EMPTY —
+;; `reg-flow` writes only to the per-frame store — so nothing is ever
+;; "re-pointed" on destroy; the destroyed frame's slot is simply dropped
+;; and a sibling frame keeps its own independent slot.
 ;;
 ;; This is a normative requirement (rf2-0q0du / rf2-wbtjn): without
 ;; lockstep teardown a long-running SSR JVM with per-request frame churn
@@ -16,23 +22,25 @@
 ;; dirty-check cache, it tears down `:fc/a` via the harness-level
 ;; `{:destroy-frame :fc/a}` step and asserts:
 ;;
-;;   - `:flow-registry-after`         — frame :fc/a's slot is empty;
+;;   - `:flow-registry-after`         — frame :fc/a's slot is gone;
 ;;                                       :fc/b's slot still holds :area.
 ;;   - `:flow-last-inputs-after`      — last-inputs for :area no longer
 ;;                                       holds a :fc/a row; :fc/b's row
 ;;                                       is preserved.
-;;   - `:registrar-flow-slots-after`  — the :flow registrar slot for
-;;                                       :area survives because :fc/b
-;;                                       still owns it.
+;;   - `:registrar-flow-slots-after`  — the reserved `:flow` registrar
+;;                                       stays EMPTY before and after
+;;                                       teardown (no flow id is ever
+;;                                       written to it).
 ;;
-;; A second teardown destroys `:fc/scratch`, which is the sole owner of
-;; `:area-sole`. Its `:flow` registrar slot MUST drop (no surviving
-;; frame still registers it).
+;; A second teardown destroys `:fc/scratch`, the sole owner of
+;; `:area-sole`; its per-frame store slot and last-inputs row drop
+;; entirely (no surviving frame still registers it), asserted via the
+;; `:fc/scratch` / `:area-sole` empty entries below.
 
 {:fixture/id           :flow/frame-destroy-teardown
  :fixture/spec-version "1.0"
  :fixture/capabilities #{:core/event-handler :core/fx :flow/basic :flow/toggle :flow/frame-scoped}
- :fixture/doc          "destroy-frame! releases every per-frame piece of flow state (registry slot, last-inputs rows, registrar entries the destroyed frame was last owner of). Sibling frames' state is preserved. The teardown is normative — without it, long-running SSR JVM hosts with per-request frame churn leak flow definitions and cached input vectors indefinitely."
+ :fixture/doc          "destroy-frame! releases every per-frame piece of flow state for the destroyed frame (its slot in the sole per-frame flow store {frame-id {flow-id flow-map}} and its last-inputs dirty-check rows). Sibling frames' state is preserved; the reserved :flow registrar slot stays empty throughout (rf2-en00bk single store). The teardown is normative — without it, long-running SSR JVM hosts with per-request frame churn leak flow definitions and cached input vectors indefinitely."
 
  :fixture/registry
  {:event {:reg-area      {:doc "Emit :rf.fx/reg-flow for :area against the dispatching frame."}
@@ -73,11 +81,12 @@
   ;; Sole-owner :area-sole on :fc/scratch.
   {:event [:reg-area-sole] :frame :fc/scratch}
   {:event [:seed 11 13]    :frame :fc/scratch}
-  ;; Harness teardown step — destroy :fc/a. :area survives on :fc/b;
-  ;; registrar slot for :area is preserved.
+  ;; Harness teardown step — destroy :fc/a. :area survives on :fc/b
+  ;; (its own independent store slot); the reserved `:flow` registrar
+  ;; stays empty.
   {:destroy-frame :fc/a}
-  ;; Destroy :fc/scratch — sole owner of :area-sole; its registrar slot
-  ;; clears.
+  ;; Destroy :fc/scratch — sole owner of :area-sole; its per-frame store
+  ;; slot and last-inputs row drop entirely.
   {:destroy-frame :fc/scratch}]
 
  :fixture/expect
@@ -85,20 +94,25 @@
   ;; :fc/b is the only surviving frame holding flow state.
   {:fc/b {:w 7 :h 9 :rect {:area 63}}}
 
-  ;; Per-frame flow registry. :fc/a and :fc/scratch are gone.
-  ;; :fc/b retains :area.
+  ;; Per-frame flow store. :fc/a and :fc/scratch are gone.
+  ;; :fc/b retains :area; :fc/scratch's slot is empty (destroyed),
+  ;; proving the sole-owner destroy dropped :area-sole's store slot.
   :flow-registry-after
-  {:fc/b #{:area}}
+  {:fc/b       #{:area}
+   :fc/scratch #{}}
 
   ;; Per-flow, per-frame last-inputs map. After destroy:
   ;;   :area on :fc/a — gone (destroyed)
   ;;   :area on :fc/b — preserved
   ;;   :area-sole on :fc/scratch — gone (destroyed; whole flow-id row drops)
   :flow-last-inputs-after
-  {:area #{:fc/b}}
+  {:area      #{:fc/b}
+   :area-sole #{}}
 
-  ;; :flow registrar slots after destroy.
-  ;;   :area      — still present (frame :fc/b is still an owner)
-  ;;   :area-sole — gone (the sole owner :fc/scratch was destroyed)
+  ;; The reserved `:flow` registrar stays EMPTY before and after teardown
+  ;; (rf2-en00bk single store) — no flow id is ever written to it, so no
+  ;; slot survives (or ever existed) for either a destroyed or a surviving
+  ;; frame. The per-frame release is asserted by `:flow-registry-after` /
+  ;; `:flow-last-inputs-after` above.
   :registrar-flow-slots-after
-  #{:area}}}
+  #{}}}
