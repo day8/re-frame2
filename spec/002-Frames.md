@@ -537,7 +537,7 @@ Transient state is frame-scoped and torn down on `destroy-frame!` (per [§Destro
 ;; dispatch-syncs each :initial-events step into it in order, returns the frame VALUE.
 ```
 
-Atomic create-and-register. There is no way to obtain an unregistered frame; this avoids orphan-frame states. The return value is the **live frame value** (the lifecycle token — `dispatch` / `subscribe` / `destroy-frame!` accept the value or its id interchangeably, per [§Frame addressing](#frame-addressing--the-frame-id-is-the-whole-public-address)).
+Atomic create-and-register. There is no way to obtain an unregistered frame; this avoids orphan-frame states. The return value is the **live frame value** (the lifecycle token). The routing operations `dispatch` / `subscribe` accept the value or its id interchangeably — they normalize the target to its id (per [§Frame addressing](#frame-addressing--the-frame-id-is-the-whole-public-address)). `destroy-frame!` accepts either too, but is the one **lifecycle exception**: passing the returned **value** tears down EXACTLY the incarnation this call produced (a stale value no-ops against a same-id successor), while passing the **id** is address-directed (see [§Destroy](#destroy)).
 
 **Construction is one fail-fast per-frame-id transaction.** After pure config preflight and before any adapter allocation callback or mutable publication, `make-frame` reserves its frame id. The reservation remains held through provisional registry seating, trace-policy publication, synchronous `:initial-events`, lifecycle trace emission, registration hooks, and the final transition (or exact rollback). A same-id construction attempt — including synchronous re-entry from an adapter, setup event, trace listener, or hook, and a competing JVM thread — fails immediately with `:rf.error/frame-construction-in-progress`; it never waits, queues, adopts the provisional row, or allocates a competing container. A different frame id proceeds independently. The internal admission primitive accepts a **set** of ids and claims all or none in one CAS; its one-shot handoff permits exactly one reserved id to enter the ordinary construction engine without turning same-owner callback re-entry into blanket re-entrancy.
 
@@ -607,9 +607,18 @@ The framework stamps each setup dispatch with the frame's id automatically — t
 ### Destroy
 
 ```clojure
-(rf/destroy-frame! :todo)     ;; by id …
-(rf/destroy-frame! frame)     ;; … or by the frame value (its id is read off the value)
+(rf/destroy-frame! :todo)     ;; by id — ADDRESS-directed: tears down whatever incarnation is live under :todo now
+(rf/destroy-frame! frame)     ;; by the frame value — EXACT-incarnation: tears down only the incarnation this value names
+
+;; Exact-incarnation vs address-directed, side by side:
+(let [a (rf/make-frame {:id :todo})]      ;; incarnation A
+  (rf/destroy-frame! :todo)               ;; A gone (address-directed by id)
+  (let [b (rf/make-frame {:id :todo})]    ;; incarnation B now live under :todo
+    (rf/destroy-frame! a)                 ;; NO-OP — stale value A never touches successor B
+    (rf/destroy-frame! :todo)))           ;; B gone — the keyword intentionally targets whatever is current
 ```
+
+**Two teardown grammars — exact-value vs address-directed (rf2-moftbs).** The two spellings above are **not** interchangeable. A frame **value** returned by `make-frame` is an opaque **exact-incarnation lifecycle token**: `destroy-frame!` on it tears down ONLY the incarnation that construction produced, so a stale value for incarnation A **no-ops** against a fresh same-id successor B seated in between — the owner (`with-new-frame`, a Story replay, an SSR per-request scope) that created the value releases exactly what it created, never a successor reseated under the same id. A frame **id keyword** is **address-directed**: `destroy-frame!` on it tears down whatever incarnation is currently live under that id when the call begins. (A token-less *derived-read* value — one obtained from an internal `live-frame` / image-view read rather than the construction call — carries no authority and is address-directed too.) This lifecycle authority is unique to `destroy-frame!`: the routing operations (`dispatch` / `subscribe` / `app-db-value` / `frame-provider`) merely **normalize** a value to its id, so for them a value and its id are byte-identical targets — none is incarnation-pinned. The token's representation stays hidden; there is no accessor that unwraps it.
 
 **One ownership path (EP-0024).** `destroy-frame!` removes the **one unified frame value** from the **one** live registry and runs per-subsystem teardown exactly once. Because a live frame is a single value (not an image-loaded object paired with a separate backing record), there is **no second public registry whose cleanup can succeed or fail independently** — teardown walks one structure. Teardown remains best-effort where individual cleanup hooks are host-transient, but the ownership path is one path (per [EP-0024 §Teardown](../docs/EP/EP-0024-unified-frame-identity-and-lifecycle.md#teardown)).
 
@@ -900,7 +909,7 @@ Some use cases need a frame *per mount* rather than a named singleton — devcar
 ```clojure
 (rf/make-frame {:images [counter-image]}) → <frame value>   ;; the live frame VALUE (representation hidden)
 (rf/dispatch [:counter/inc] {:frame frame})                  ;; pass the value directly — no accessor needed
-(rf/destroy-frame! frame)                                    ;; the value (or its id) destroys it
+(rf/destroy-frame! frame)                                    ;; tears down EXACTLY this incarnation (a same-id successor is untouched)
 
 (rf/make-frame {:id :counter :initial-events [[:counter/init]]})  ;; the named-singleton path — same constructor
 
@@ -915,7 +924,7 @@ Some use cases need a frame *per mount* rather than a named singleton — devcar
 
 `opts` is a **map** — a non-map `opts` (`nil`, a keyword, a vector, …) is rejected at the public boundary with `:rf.error/make-frame-bad-opts` (the all-defaults frame is `(make-frame {})`, never `(make-frame nil)`). The opts map accepts **image-selection** keys — `:images` (a **non-empty** vector — the assembled registration set the frame resolves against; `:images []` is an error and **omitting `:images` resolves the default image** over the whole source store, see [§Image resolution and composition](#image-resolution-and-composition)), `:id` (optional — registers the frame in the one live-frame registry; duplicate-id is **idempotent replacement**, not a blanket fail-loud — see [§Duplicate id](#duplicate-id--idempotent-replacement)), and `:adapter` — **and** the **record-config** keys `:initial-events` (seed app-db via a leading `[:rf/set-db {…}]` step), `:fx-overrides`, `:platform`, `:ssr`, `:doc`, `:preset`, `:tags`, `:interceptors`, `:drain-depth`, in the same call. (There is no `:capabilities` image-selection key — image-declared host capabilities are not supported ([EP-0026](../docs/EP/EP-0026-image-api-simplification.md)); a `:capabilities` key is not special-cased and flows through as ordinary record-config.) A second arity `(make-frame opts descriptors)` resolves `:images` against an explicit descriptor pool instead of the live source store (tests / harnesses / a pre-snapshotted store). A frame created **without** an `:id` is a direct local reference that bypasses the registry — appropriate for local tests and harnesses where the frame is created, used, and discarded in one scope (per [EP-0023 §Frame](../docs/EP/EP-0023-image-loaded-frames.md): a registration id like `:counter/inc` can be reused across images; a live frame id cannot name two live registered frames at once).
 
-**The frame value's representation is hidden; pass it directly.** `make-frame` returns the value; `dispatch` / `subscribe` / `destroy-frame!` / `app-db-value` / `frame-provider` all accept the value OR its id interchangeably (API-shrink #1, rf2-csbbwu — the API commits to ONE frame-target grammar, so there is no separate value→id accessor to reach for). A frame's id is still its public routing address in the registry sense (per [EP-0024 §Operation target grammar](../docs/EP/EP-0024-unified-frame-identity-and-lifecycle.md#operation-target-grammar)) — but callers holding a value never need to unwrap it.
+**The frame value's representation is hidden; pass it directly.** `make-frame` returns the value; the routing operations `dispatch` / `subscribe` / `app-db-value` / `frame-provider` all accept the value OR its id interchangeably (API-shrink #1, rf2-csbbwu — they normalize a value to its id, so there is no separate value→id accessor to reach for). `destroy-frame!` accepts either too, but is the one **lifecycle exception**: the value is an exact-incarnation token (tears down only the incarnation it names — a stale value no-ops against a same-id successor), while the id is address-directed (tears down whatever incarnation is currently live), per [§Destroy](#destroy). A frame's id is still its public routing address in the registry sense (per [EP-0024 §Operation target grammar](../docs/EP/EP-0024-unified-frame-identity-and-lifecycle.md#operation-target-grammar)) — but callers holding a value never need to unwrap it.
 
 > **Single constructor.** `make-frame` is one constructor honouring both image-selection and record-config key families. The advanced `re-frame.frame/make-frame` is internal or absent. There is no `:rf.error/make-frame-record-only-key` redirect.
 
