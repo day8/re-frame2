@@ -3,7 +3,7 @@
   EFFECTIVE cofx mint policy end-to-end, not merely by carrying the policy
   keyword in the transport opts.
 
-  The rf2-lud4af / rf2-t154jx suites proved the recordable `:rf.machine/join-auth`
+  The rf2-lud4af / rf2-t154jx suites proved the recordable `:rf.machine/join-attempt`
   fact rides `:rf.cofx`, survives an EDN round-trip, and that the transport
   re-dispatch carries `:rf.cofx/mint-policy :strict` in its opts. But every join
   completion TARGET in those suites declared NO generator-backed coeffect
@@ -12,7 +12,7 @@
   a transport that silently fell back to `:live` minting would have passed
   exact-head CI unchanged. The alleged replay case supplied `:rf.cofx` but never
   `:rf.cofx/mint-policy :strict`, so it ran under the runtime default `:live`;
-  stripping the join-auth exercised the private authority gate, not strict
+  stripping the join-attempt exercised the private authority gate, not strict
   rejection of a MISSING RECORDED FACT.
 
   These tests add ONE real generator-backed recordable coeffect to a join

@@ -71,22 +71,24 @@
 
 (defn- synth-child-done!
   "Synthesise one child's :on-child-done arrival, carrying the SAME
-   exact-authority stamp the member child's own handler boundary would
-   have stamped (rf2-nvxehu). The join interceptor authenticates every
-   completion carrier to the exact join attempt — parent/invoke identity,
-   logical child id, exact current actor id, exact per-attempt token — so
-   a bare hand-dispatched carrier is suppressed as :attempt-unverified.
-   A headless test that bypasses the live children (dispatch-sync fires
-   no :after timers) therefore reads the runtime-owned join state and
-   presents the equivalent `:rf/join-auth` on the protected recordable
-   `:rf.cofx` transport (rf2-nsbwft — the single authority carrier; event
-   metadata is never read)."
+   exact-attempt coordinate the member child's own handler boundary would
+   have stamped (rf2-nvxehu). The join interceptor checks every completion
+   carrier's coordinate for exact-current EQUALITY with the join attempt —
+   parent/invoke identity, logical child id, exact current actor id, exact
+   per-attempt token — so a bare hand-dispatched carrier is suppressed as
+   :attempt-unverified. A headless test that bypasses the live children
+   (dispatch-sync fires no :after timers) therefore reads the runtime-owned
+   join state and presents the equivalent exact-current `:rf/join-attempt`
+   coordinate on the recordable `:rf.cofx` slot (rf2-nsbwft — the one
+   coordinate slot; the metadata slot is not read). An exact-current
+   coordinate is accepted regardless of source, including this deliberate
+   test authoring."
   [f shard]
   (let [js (join-state f)]
     (rf/dispatch-sync
       [:work/flow [:work/child-done shard]]
       {:frame   f
-       :rf.cofx {:rf.machine/join-auth {:parent-id  :work/flow
+       :rf.cofx {:rf.machine/join-attempt {:parent-id  :work/flow
                                         :invoke-id  [:working]
                                         :child-id   shard
                                         :spawned-id (get-in js [:children shard])

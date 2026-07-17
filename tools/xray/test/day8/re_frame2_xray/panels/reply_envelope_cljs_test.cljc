@@ -706,7 +706,7 @@
   ;; rf2-ixjd48 / rf2-w82021 — the producer runs the exact-authority /
   ;; closed-attempt fold gate BEFORE the resolved-vs-unresolved classification
   ;; (join.cljc `intercept-spawn-all-event`: the `(nil? auth)` and
-  ;; `(not (join-auth-current? ...))` gates precede the `(:resolved? join-state)`
+  ;; `(not (join-attempt-current? ...))` gates precede the `(:resolved? join-state)`
   ;; branch). So a carrier that FAILS authority is emitted as
   ;; `:rf.machine.spawn-all/stale-completion` REGARDLESS of resolution state —
   ;; a post-resolution unstamped/superseded straggler is suppressed HERE, never

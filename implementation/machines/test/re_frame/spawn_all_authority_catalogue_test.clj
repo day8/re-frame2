@@ -85,8 +85,8 @@
   (non-`:final?`) terminal and dispatches its completion back to
   `parent-id` THROUGH its own handler boundary, so `stamp-join-completion-fx`
   rewrites the completion into the `:rf.machine/join-dispatch` transport and
-  the runtime records its exact join authority on the recordable `:rf.cofx`
-  fact `:rf.machine/join-auth` (event metadata is never an authority carrier)."
+  the runtime stamps its exact-attempt coordinate on the recordable `:rf.cofx`
+  fact `:rf.machine/join-attempt` (the metadata slot is not read)."
   [parent-id]
   {:initial :running
    :data    {:id nil}
@@ -127,7 +127,7 @@
 (defn- reg-destroyable-join-parent!
   "Like `reg-join-parent!` for an `:all` join, but the parent exposes a `:kill`
   event that imperatively tears down a named spawned child WHILE IT IS STILL
-  IN-PROGRESS — an authenticated explicit teardown, so the runtime records a
+  IN-PROGRESS — a membership-verified explicit teardown, so the runtime records a
   cancellation TOMBSTONE. Returns the seeded live join state."
   [parent-kw child-a-kw child-b-kw]
   (rf/reg-machine child-a-kw (mk-child parent-kw))
@@ -229,12 +229,12 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest cancelled-child-tombstone-is-required-and-honoured
-  (testing "rf2-y7venl — an authenticated IN-PROGRESS explicit teardown of a
+  (testing "rf2-y7venl — a membership-verified IN-PROGRESS explicit teardown of a
             spawned child durably records a `:cancelled` tombstone: the live
             tombstoned join validates against the extracted `InvokeAllJoinState`,
             dissociating `:cancelled` FAILS it (the tombstone set is REQUIRED,
             not optional — an open map would otherwise accept the dissoc), and a
-            LATE exact-authenticated completion carrier for the cancelled child
+            LATE exact-current completion carrier for the cancelled child
             is SUPPRESSED as a duplicate terminal. A late/rejoining authority can
             never resurrect or mis-attribute a cancelled child."
     (let [j         (reg-destroyable-join-parent! :sac/tomb :sac/tomba :sac/tombb)
@@ -252,7 +252,7 @@
       (rf/dispatch-sync [:sac/tomb [:kill spawned-a]])
       (let [tombstoned (join-state :sac/tomb [:racing])]
         (is (= #{:a} (:cancelled tombstoned))
-            "the authenticated in-progress teardown durably tombstones child :a")
+            "the membership-verified in-progress teardown durably tombstones child :a")
         (is (false? (:resolved? tombstoned))
             "the :all join is NOT resolved — :b is still live")
         ;; the live TOMBSTONED join validates against the extracted schema ...
@@ -263,12 +263,12 @@
         ;; a runtime that stopped seeding `:cancelled` would be caught here.
         (is (not (m/validate InvokeAllJoinState (dissoc tombstoned :cancelled)))
             "dissociating :cancelled FAILS the extracted schema — the tombstone is required")
-        ;; a LATE exact-authenticated completion carrier for :a cannot resurrect
-        ;; it. The authority rides the protected recordable `:rf.cofx` transport
-        ;; (rf2-nsbwft — event metadata is never an authority carrier).
+        ;; a LATE exact-current completion carrier for :a cannot resurrect
+        ;; it. The authority rides the recordable `:rf.cofx` slot
+        ;; (rf2-nsbwft — the metadata slot is not read).
         (mtest/reset-captured!)
         (rf/dispatch-sync [:sac/tomb [:child/done :a]]
-                          {:rf.cofx {:rf.machine/join-auth auth}})
+                          {:rf.cofx {:rf.machine/join-attempt auth}})
         (let [after (join-state :sac/tomb [:racing])
               stale (first (mtest/events-of :rf.machine.spawn-all/stale-completion))]
           (is (= #{} (:done after))
@@ -281,25 +281,30 @@
               "the late carrier is classified a duplicate terminal against the tombstone"))))))
 
 ;; ---------------------------------------------------------------------------
-;; 1bb. SECURITY — public event metadata is NEVER a join-completion authority
-;;      carrier (rf2-nsbwft). Freshness is not provenance.
+;; 1bb. NARROWING — the join-completion coordinate is read ONLY from the
+;;      recordable `:rf.cofx` slot; the event-vector metadata slot is not read
+;;      (rf2-nsbwft). This is a slot narrowing, not a secrecy boundary
+;;      (rf2-cpbjfp).
 ;; ---------------------------------------------------------------------------
 
-(deftest public-metadata-tuple-cannot-forge-completion
-  (testing "rf2-nsbwft — THE COUNTEREXAMPLE. A public `rf/dispatch-sync`
-            carrying an EXACT-CURRENT `:rf/join-auth` metadata tuple — every
-            field read straight off live runtime state (parent/invoke identity,
-            logical child id, current spawned instance address, current attempt
-            token) — is NOT an authority carrier. It fails closed as
-            `:attempt-unverified` and folds NOTHING: no `:done` fold, no
-            resolution. Event metadata is never an authority-mint channel;
-            freshness is not provenance. Pre-fix `carrier-auth`'s metadata
-            fallback accepted it and flipped the unresolved join from
-            `:done #{}` to `:done #{:a}` without child `:a` ever completing."
+(deftest exact-current-metadata-tuple-folds-nothing-slot-not-read
+  (testing "rf2-nsbwft / rf2-cpbjfp — a public `rf/dispatch-sync` carrying an
+            EXACT-CURRENT `:rf/join-attempt` coordinate on event-vector METADATA
+            — every field read straight off live runtime state (parent/invoke
+            identity, logical child id, current spawned instance address, current
+            attempt token) — folds NOTHING: no `:done` fold, no resolution. Not
+            because the coordinate is a forgery (it is exact-current, and the
+            fence accepts exact-current coordinates on the cofx slot regardless
+            of source), but because the METADATA SLOT IS NOT READ — a pure
+            narrowing. `:attempt-unverified` is the fail-closed classification.
+            Pre-fix `carrier-attempt`'s metadata fallback read it and flipped the
+            unresolved join from `:done #{}` to `:done #{:a}` without child `:a`
+            ever completing."
     (let [j (reg-join-parent! :sac/forge :sac/forgea :sac/forgeb
                               {:join :all :on-all-complete [:all/done]})
           a (get-in j [:children :a])
-          ;; The STRONGEST possible forge: every tuple field matches live state.
+          ;; An exact-current coordinate — every field matches live state — but
+          ;; presented on the metadata slot, which is not read.
           exact-current {:parent-id  :sac/forge
                          :invoke-id  [:racing]
                          :child-id   :a
@@ -307,23 +312,24 @@
                          :attempt    (:rf/attempt j)}]
       (is (= #{} (:done j)) "precondition: child :a has not completed")
       (mtest/reset-captured!)
-      ;; Forge via public event-vector metadata — the pre-fix authority fallback.
+      ;; Present the exact-current coordinate on event-vector metadata — the
+      ;; pre-fix metadata fallback read it; the fence no longer does.
       (rf/dispatch-sync [:sac/forge (with-meta [:child/done :a]
-                                      {:rf/join-auth exact-current})])
+                                      {:rf/join-attempt exact-current})])
       (let [after (join-state :sac/forge [:racing])
             stale (first (mtest/events-of :rf.machine.spawn-all/stale-completion))]
         (is (= #{} (:done after))
-            "the forged public-metadata carrier folded NOTHING (fail-closed)")
+            "the metadata-borne coordinate folded NOTHING (slot not read)")
         (is (false? (:resolved? after))
-            "the join did not resolve on the forgery")
+            "the join did not resolve on the metadata carrier")
         (is (some? stale)
-            "a stale-completion suppression fired for the forged carrier")
+            "a stale-completion suppression fired for the coordinate-less carrier")
         (is (= :rf.machine.spawn-all/attempt-unverified
                (:rf.reply/stale-reason (:tags stale)))
-            "event metadata is not an authority carrier — classified :attempt-unverified"))
+            "the metadata slot is not read — classified :attempt-unverified"))
       ;; And a REAL child completion (through its own handler boundary, so the
-      ;; authority rides the recordable `:rf.cofx` transport) still folds — the
-      ;; fix removes ONLY the metadata channel, not the legitimate one.
+      ;; coordinate rides the recordable `:rf.cofx` slot) still folds — the fix
+      ;; removes ONLY the metadata read, not the framework-produced path.
       (rf/dispatch-sync [a [:go]])
       (is (= #{:a} (:done (join-state :sac/forge [:racing])))
           "a real child completion still folds once through the recordable transport"))))
@@ -436,10 +442,10 @@
       ;; :a's EXACT-CURRENT completion re-completes AFTER the :resolved? latch
       ;; flipped — the late-completion path is gated on exact authority
       ;; (rf2-ixjd48), so the carrier presents the current attempt's authority
-      ;; on the protected recordable `:rf.cofx` transport (rf2-nsbwft).
+      ;; on the recordable `:rf.cofx` slot (rf2-nsbwft).
       (rf/dispatch-sync
         [:sac/p3 [:child/done :a]]
-        {:rf.cofx {:rf.machine/join-auth {:parent-id  :sac/p3
+        {:rf.cofx {:rf.machine/join-attempt {:parent-id  :sac/p3
                                           :invoke-id  [:racing]
                                           :child-id   :a
                                           :spawned-id a
@@ -462,7 +468,7 @@
                       {:join :all :on-all-complete [:all/done]})
     (mtest/reset-captured!)
     ;; A bare hand-dispatched completion never flowed through the member
-    ;; child's boundary, so it carries no runtime `:rf/join-auth` stamp.
+    ;; child's boundary, so it carries no runtime `:rf/join-attempt` stamp.
     (rf/dispatch-sync [:sac/p4 [:child/done :a]])
     (let [stale (first (mtest/events-of :rf.machine.spawn-all/stale-completion))]
       (is (some? stale) "the stale-completion op fired")

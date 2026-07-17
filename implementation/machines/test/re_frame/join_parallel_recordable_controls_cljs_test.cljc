@@ -1,6 +1,6 @@
 (ns re-frame.join-parallel-recordable-controls-cljs-test
   "rf2-lud4af — the exact-authority fold gate, driven through the RECORDABLE
-  `:rf.cofx` transport (`:rf.machine/join-auth`) in the AMBIGUOUS PARALLEL
+  `:rf.cofx` transport (`:rf.machine/join-attempt`) in the AMBIGUOUS PARALLEL
   shape.
 
   `join_exact_auth_cljs_test` covers the wrong-invoke / wrong-actor /
@@ -37,7 +37,7 @@
 (defn- mk-worker
   "A worker child that dispatches `:child/done` / `:child/failed` back to the
   parent carrying its own `:worker` logical id — through its OWN handler
-  boundary, so the runtime stamps the exact `:rf/join-auth` on the recordable
+  boundary, so the runtime stamps the exact `:rf/join-attempt` on the recordable
   `:rf.cofx` for its region's attempt."
   []
   {:initial :running
@@ -107,7 +107,7 @@
   recordable `:rf.cofx` fact (nil auth dispatches the bare, unstamped carrier)."
   [inner auth]
   (if auth
-    (rf/dispatch-sync [parent-kw inner] {:rf.cofx {:rf.machine/join-auth auth}})
+    (rf/dispatch-sync [parent-kw inner] {:rf.cofx {:rf.machine/join-attempt auth}})
     (rf/dispatch-sync [parent-kw inner])))
 
 (defn- stale-reasons []

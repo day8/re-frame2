@@ -13,12 +13,12 @@
     - Live delayed dispatch: `stamp-fx-entry` handled `:dispatch` /
       `:dispatch-n` but NOT the reserved `:dispatch-later` `{:ms n :event event}`
       shape, so a child completing through `:dispatch-later` reached the parent
-      unauthenticated and was suppressed, hanging an `:all` join forever.
+      coordinate-less and was suppressed, hanging an `:all` join forever.
 
   The fix carries the exact authority on the RECORDABLE `:rf.cofx` causal-
-  envelope fact `:rf.machine/join-auth` (via the `:rf.machine/join-dispatch`
+  envelope fact `:rf.machine/join-attempt` (via the `:rf.machine/join-dispatch`
   transport `stamp-fx-entry` rewrites both `:dispatch` and `:dispatch-later`
-  completions into), and reads it back through `carrier-auth`. The public event
+  completions into), and reads it back through `carrier-attempt`. The public event
   value and closed grammar are unchanged; missing / tampered authority is
   validated through the existing typed stale policy, never a silent no-op."
   (:require
@@ -57,7 +57,7 @@
 (defn- mk-child
   "A dispatching child: on `:go` transitions to a plain terminal and dispatches
   its completion back to `parent-id` via `:dispatch` (through its OWN handler
-  boundary, so the runtime attaches the recordable `:rf.machine/join-auth`)."
+  boundary, so the runtime attaches the recordable `:rf.machine/join-attempt`)."
   [parent-id]
   {:initial :running
    :data    {:id nil}
@@ -137,7 +137,7 @@
 
 (deftest recorded-authority-survives-edn-roundtrip-and-folds
   (testing "rf2-t154jx — the exact authority rides the RECORDABLE :rf.cofx fact
-            :rf.machine/join-auth, so an EDN-roundtripped recorded event + causal
+            :rf.machine/join-attempt, so an EDN-roundtripped recorded event + causal
             coeffects strict-replays into the SAME fold. Removing the recordable
             authority fact makes the replay a fail-closed stale drop, never a
             silent replay-success no-op."
@@ -147,7 +147,7 @@
     (rf/dispatch-sync [:jt/rp [:start]])
     (let [auth        (auth-for :jt/rp)
           rec-event   (edn-roundtrip [:jt/rp [:child/done :a]])
-          rec-cofx    (edn-roundtrip {:rf.machine/join-auth auth})]
+          rec-cofx    (edn-roundtrip {:rf.machine/join-attempt auth})]
       (mtest/reset-captured!)
       ;; Strict replay: redispatch the recorded event PLUS its recorded causal
       ;; coeffects (the `:rf.cofx` map, EDN-roundtripped).
@@ -175,7 +175,7 @@
     (rf/dispatch-sync [:jt/mp [:start]])
     (let [auth        (auth-for :jt/mp)
           ;; The #5839 wire shape: authority on inner-event METADATA.
-          meta-event  [:jt/mp (with-meta [:child/done :a] {:rf/join-auth auth})]
+          meta-event  [:jt/mp (with-meta [:child/done :a] {:rf/join-attempt auth})]
           replayed    (edn-roundtrip meta-event)]  ;; EDN drops metadata
       (mtest/reset-captured!)
       (rf/dispatch-sync replayed)
@@ -188,14 +188,14 @@
 ;; live delayed dispatch
 ;; ---------------------------------------------------------------------------
 
-(deftest zero-delay-dispatch-later-completion-defers-then-authenticates-and-folds
+(deftest zero-delay-dispatch-later-completion-defers-then-folds-on-coordinate
   (testing "rf2-21hsb1 / rf2-t154jx — a real child completing through a
             zero-delay :dispatch-later is DEFERRED on the host clock (it does NOT
             fold synchronously — rf2-21hsb1; the canonical child-dispatch! path
             treats every numeric :ms including zero as host-clock-delayed). Once
             the controlled host-clock callback fires, the re-dispatched
             completion retains :source-detail {:ms 0} + the recordable
-            :rf.machine/join-auth, authenticates (the delayed path #5839's
+            :rf.machine/join-attempt, folds (the delayed path #5839's
             metadata stamp never covered), and folds the join exactly once.
             (This test previously asserted a SYNCHRONOUS fold — the (pos? ms)
             regression rf2-21hsb1 corrects.)"
@@ -224,14 +224,14 @@
       (let [opts (completion-opts sink :jt/dp :a)]
         (is (some? opts) "the host-clock callback re-dispatched the completion carrier")
         (is (= {:ms 0} (:source-detail opts)) "retains :source-detail {:ms 0} (rf2-21hsb1)")
-        (is (some? (get-in opts [:rf.cofx :rf.machine/join-auth]))
+        (is (some? (get-in opts [:rf.cofx :rf.machine/join-attempt]))
             "the recordable join authority rode the deferred zero-delay completion")
         ;; Deliver the deferred completion (its recorded event + causal cofx): it
-        ;; authenticates and folds the join exactly once.
+        ;; folds the join exactly once.
         (rf/dispatch-sync [:jt/dp [:child/done :a]] {:rf.cofx (:rf.cofx opts)})
         (is (= #{:a} (:done (join-state :jt/dp)))
-            "after the callback fires, the delayed completion authenticates and folds :a exactly once")
-        (is (empty? (stale-reasons)) "no stale suppression for the authenticated delayed completion")))))
+            "after the callback fires, the delayed completion folds :a exactly once")
+        (is (empty? (stale-reasons)) "no stale suppression for the recordable delayed completion")))))
 
 (deftest old-attempt-delayed-completion-across-reentry-is-superseded
   (testing "rf2-t154jx — an old-attempt completion arriving across re-entry with
@@ -250,7 +250,7 @@
         (mtest/reset-captured!)
         ;; The stale straggler delivered with attempt-1 authority on the cofx.
         (rf/dispatch-sync [:jt/op [:child/done :a]]
-                          {:rf.cofx {:rf.machine/join-auth attempt1-auth}})
+                          {:rf.cofx {:rf.machine/join-attempt attempt1-auth}})
         (is (= #{} (:done (join-state :jt/op)))
             "the old-attempt delayed completion folded nothing")
         (is (= [:rf.machine.spawn-all/attempt-superseded] (stale-reasons))

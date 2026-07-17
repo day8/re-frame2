@@ -687,13 +687,13 @@
                    verbatim onto the child dispatch. `build-envelope` preserves
                    a supplied `:rf.cofx` (extra owner-qualified keys kept) and
                    fills `:rf/time-ms`, so an owner-qualified fact — the
-                   machines join-authority tuple `:rf.machine/join-auth` — is
+                   machines join exact-attempt coordinate `:rf.machine/join-attempt` — is
                    recorded and re-presented on strict replay (rf2-t154jx).
 
   Public so the machines `:rf.machine/join-dispatch` fx routes a `:spawn-all`
   child's completion carrier through the SAME seam that preserves every
-  reserved-dispatch guarantee, adding ONLY its private `:rf.cofx` authority
-  fact — never a second effect duplicating the semantics."
+  reserved-dispatch guarantee, adding ONLY its `:rf.cofx` exact-attempt
+  coordinate fact — never a second effect duplicating the semantics."
   [frame-id parent-envelope event {:keys [source ms source-detail] rf-cofx :rf.cofx}]
   (let [opts (cond-> (assoc (child-dispatch-opts frame-id parent-envelope) :source source)
                (some? source-detail) (assoc :source-detail source-detail)

@@ -22,7 +22,7 @@
   The fix (rf2-lud4af) routes `join-dispatch-fx` through the single shared
   core seam `re-frame.fx/child-dispatch!` — the SAME implementation the
   `:dispatch` / `:dispatch-later` reserved-fx bodies use — adding ONLY the
-  private recordable `:rf.machine/join-auth` `:rf.cofx` fact and the
+  private recordable `:rf.machine/join-attempt` `:rf.cofx` fact and the
   `:source :machine-action` stamp. These tests assert every lost guarantee
   is restored; each is red against the pre-fix partial-opts / raw-timeout
   handler (the mutation teeth)."
@@ -56,7 +56,7 @@
 (defn- mk-child
   "A dispatching child: on `:go` transitions to a plain terminal and dispatches
   its completion back to `parent-id` via `:dispatch` (through its OWN handler
-  boundary, so the runtime attaches the recordable `:rf.machine/join-auth`)."
+  boundary, so the runtime attaches the recordable `:rf.machine/join-attempt`)."
   [parent-id]
   {:initial :running
    :data    {:id nil}
@@ -127,7 +127,7 @@
 ;; (1) + (2) — the completion transport inherits the full reserved-dispatch
 ;;             opts (fx-overrides / interceptor-overrides / trace-id / origin /
 ;;             strict mint policy) and stamps :source :machine-action, while
-;;             recording the private join-auth fact.
+;;             recording the private join-attempt fact.
 ;; ---------------------------------------------------------------------------
 
 (deftest join-completion-transport-inherits-reserved-dispatch-opts
@@ -136,7 +136,7 @@
             :fx-overrides, :interceptor-overrides, :trace-id, :origin, and the
             per-call :rf.cofx/mint-policy :strict — plus :source :machine-action,
             the front-of-queue :rf.machine/internal? flag, and the recordable
-            :rf.machine/join-auth cofx fact. The pre-fix partial-opts handler
+            :rf.machine/join-attempt cofx fact. The pre-fix partial-opts handler
             dropped every inherited key (mutation tooth)."
     (rf/reg-machine :lud4af/ca (mk-child :lud4af/rp))
     (rf/reg-machine :lud4af/cb (mk-child :lud4af/rp))
@@ -179,8 +179,8 @@
                 :spawned-id a
                 :attempt    (:rf/attempt (join-state :lud4af/rp))
                 :work-generation 1}
-               (get-in opts [:rf.cofx :rf.machine/join-auth]))
-            "the recordable join-auth exact-authority tuple rides :rf.cofx"))
+               (get-in opts [:rf.cofx :rf.machine/join-attempt]))
+            "the recordable join-attempt exact-authority tuple rides :rf.cofx"))
       (is (= #{:a} (:done (join-state :lud4af/rp)))
           "and the completion still folded end-to-end (the observer is pass-through)")
       (is (empty? (stale-reasons)) "no stale suppression for the genuine completion"))))
@@ -285,8 +285,8 @@
                                        @sink)
             rec-cofx  (:rf.cofx rec-opts)]
         (is (some? rec-event) "captured the actual recorded completion event")
-        (is (some? (:rf.machine/join-auth rec-cofx))
-            "the actual record carries the recordable :rf.machine/join-auth fact")
+        (is (some? (:rf.machine/join-attempt rec-cofx))
+            "the actual record carries the recordable :rf.machine/join-attempt fact")
         ;; RESTORE pre-event runtime-db (the restore-epoch analogue): same
         ;; attempt-1 tokens + spawned instances, :done #{}.
         (rf/dispatch-sync [::restore-runtime pre-fold-runtime])

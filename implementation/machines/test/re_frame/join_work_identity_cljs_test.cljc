@@ -148,7 +148,7 @@
   (get-in (mtest/runtime-db)
           [:rf.runtime/machines :spawned parent-id [:racing]]))
 
-(defn- join-auth [actor-id]
+(defn- join-attempt [actor-id]
   (get-in (mtest/runtime-db)
           [:rf.runtime/machines :snapshots actor-id :data :rf/join-child]))
 
@@ -167,11 +167,11 @@
         (mtest/captured-events)))
 
 (defn- forged-completion! [parent-id auth]
-  ;; Authority rides the protected recordable `:rf.cofx` transport (rf2-nsbwft) —
-  ;; the single authority carrier the parent reads, never event metadata.
+  ;; Authority rides the recordable `:rf.cofx` slot (rf2-nsbwft) —
+  ;; the one coordinate slot the parent reads; the metadata slot is not read.
   (rf/dispatch-sync
     [parent-id [:child/done (:child-id auth)]]
-    {:rf.cofx {:rf.machine/join-auth auth}}))
+    {:rf.cofx {:rf.machine/join-attempt auth}}))
 
 (defn- capture-dispatch! [sink f]
   (let [real (late-bind/get-fn :router/dispatch!)]
@@ -200,7 +200,7 @@
               ;; keyword suffix (or a distinct sentinel if the opaque attempt
               ;; itself happens to be 7). The interceptor must derive from the
               ;; durable join spec/attempt, never trust this carried value.
-              tampered-auth (assoc (join-auth :jwi/fixed-a#7)
+              tampered-auth (assoc (join-attempt :jwi/fixed-a#7)
                                    :work-generation tampered-generation)]
           (mtest/reset-captured!)
           (forged-completion! :jwi/numeric-parent tampered-auth)
@@ -222,7 +222,7 @@
                             :jwi/spec-change-fixed-a#7
                             :jwi/spec-change-fixed-b :all)
     (let [attempt-a (:rf/attempt (join-state :jwi/spec-change-parent))
-          auth-a    (join-auth :jwi/spec-change-fixed-a#7)
+          auth-a    (join-attempt :jwi/spec-change-fixed-a#7)
           old-work  [:rf.work/machine :jwi/spec-change-fixed-a#7
                      [:racing] attempt-a]]
       (rf/dispatch-sync [:jwi/spec-change-parent [:abort]])
@@ -269,7 +269,7 @@
           "A's physical teardown is classified as post-terminal cleanup"))))
 
 (deftest imperative-destroy-of-a-done-folded-child-is-post-terminal-cleanup
-  (testing "an unresolved :all join authenticates A's done fold before destroy"
+  (testing "an unresolved :all join folds A's done completion before destroy"
     (register-imperative-destroy-parent!
       :jwi/direct-done-parent :jwi/direct-done-a-type :jwi/direct-done-b-type
       :jwi/direct-done-a#7 :jwi/direct-done-b :all
@@ -286,7 +286,7 @@
              (-> (events-of :rf.machine/destroyed) first :tags :reason))))))
 
 (deftest imperative-destroy-of-a-failed-folded-child-is-post-terminal-cleanup
-  (testing "an unresolved :any join authenticates A's failed fold before destroy"
+  (testing "an unresolved :any join folds A's failed completion before destroy"
     (register-imperative-destroy-parent!
       :jwi/direct-failed-parent
       :jwi/direct-failed-a-type :jwi/direct-failed-b-type
@@ -331,7 +331,7 @@
           (let [[event opts] (first @pending)]
             (rf/dispatch-sync event opts))
           (is (= #{} (:done (join-state :jwi/delayed-cancel-parent)))
-              "the authenticated late carrier cannot fold")
+              "the exact-current late carrier cannot fold")
           (is (= #{:a} (:cancelled (join-state :jwi/delayed-cancel-parent))))
           (is (= [:cancelled] (terminal-statuses-for work-a))
               "cancellation remains the attempt's sole terminal")
@@ -367,7 +367,7 @@
     (register-fixed-parent! :jwi/parent :jwi/a-type :jwi/b-type
                             :jwi/fixed-a :jwi/fixed-b :all)
     (let [attempt-1 (:rf/attempt (join-state :jwi/parent))
-          auth-a-1 (join-auth :jwi/fixed-a)]
+          auth-a-1 (join-attempt :jwi/fixed-a)]
       ;; A is non-decisive; B is decisive. Both are accepted terminals from
       ;; the same attempt, but each has its own actor-specific work id.
       (rf/dispatch-sync [:jwi/fixed-a [:go]])

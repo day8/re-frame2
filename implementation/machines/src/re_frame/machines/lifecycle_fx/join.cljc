@@ -14,18 +14,25 @@
       children. Forged / unknown ids are rejected with the
       `:rf.error/machine-spawn-all-bad-child-id` error trace and a
       no-op fx (the join state is NOT mutated).
-   3b. Authenticates the carrier to the EXACT join attempt (rf2-nvxehu):
-      the exact-authority tuple the member child's own handler boundary
-      stamped must match the current join's parent/invoke identity, logical
-      child id, exact current actor id, and exact attempt token. The SINGLE
-      authority carrier is the recordable `:rf.machine/join-auth`
-      causal-envelope fact on the completion's `:rf.cofx` (it survives both
-      the event/coeffect recording + strict-replay path and delayed dispatch).
-      Event-vector `:rf/join-auth` metadata is NEVER an authority carrier
-      (rf2-nsbwft) — freshness is not provenance, so an exact-current metadata
-      tuple hand-authored onto an ordinary public event folds nothing.
-      Unstamped / superseded / duplicate carriers are suppressed stale
-      (`:rf.machine.spawn-all/stale-completion`) with zero mutation.
+   3b. Fences the carrier to the EXACT join attempt (rf2-nvxehu / rf2-cpbjfp).
+      The completion carries an exact-attempt COORDINATE — a recordable,
+      serialisable, inspectable, replayable correlation record, NOT a secret /
+      capability / signature — that the member child's own handler boundary
+      stamped: parent/invoke identity, logical child id, exact current actor
+      id, and exact attempt token. It folds only on FULL exact-current equality
+      with runtime-owned join state. This is a fail-closed fence against
+      ACCIDENTS (stale / cross-attempt / wrong-actor / duplicate completions),
+      NOT authentication: re-frame2 is single-trust-domain — we trust the
+      programmer and gate accidents. The one coordinate slot the parent reads
+      is the recordable `:rf.machine/join-attempt` causal-envelope fact on the
+      completion's `:rf.cofx` (the framework-produced normal path — it survives
+      both the event/coeffect recording + strict-replay path and delayed
+      dispatch, which event-vector metadata does not, so the metadata slot is
+      not read). An exact-current coordinate folds regardless of source —
+      normal transport, faithful replay, tooling, or deliberate app authoring;
+      a missing / stale / cross-attempt / wrong-actor / duplicate coordinate
+      fails closed (`:rf.machine.spawn-all/stale-completion`) with zero
+      mutation.
    4. Adds `<child-id>` to `:done` or `:failed`. A NON-DECISIVE fold (the
       join does not resolve on it) publishes the child's canonical work
       terminal at fold time via `:rf.machine.spawn-all/child-completed`
@@ -72,45 +79,56 @@
 (declare intercept-fold)
 
 ;; ---------------------------------------------------------------------------
-;; Attempt authentication (rf2-nvxehu) + recordable transport (rf2-t154jx).
+;; Exact-attempt fence (rf2-nvxehu / rf2-cpbjfp) + recordable transport
+;; (rf2-t154jx).
 ;;
 ;; A `:spawn-all` child's completion carrier is the PUBLIC event shape
 ;; `[<parent-id> [<done-kw> <child-id> & extra]]` — it carries no actor or
 ;; attempt identity, so after parent re-entry / child respawn a STALE carrier
 ;; from a prior attempt is indistinguishable from a live one by value. The
-;; runtime therefore authenticates carriers through the existing PRIVATE
-;; lifecycle path: at spawn, each child's `:data` gets the framework-reserved
-;; `:rf/join-child` membership record (parent/invoke identity, logical child
-;; id, its own spawned instance address, the join's completion event
-;; keywords, and the opaque per-attempt token `spawn-all-init-fx` minted into
-;; the join state).
+;; runtime therefore correlates each completion to its exact attempt through
+;; the existing PRIVATE lifecycle path: at spawn, each child's `:data` gets the
+;; framework-reserved `:rf/join-child` membership record (parent/invoke
+;; identity, logical child id, its own spawned instance address, the join's
+;; completion event keywords, and the opaque per-attempt token
+;; `spawn-all-init-fx` minted into the join state).
+;;
+;; This coordinate is a replayable CORRELATION RECORD, NOT authentication.
+;; re-frame2 is single-trust-domain (spec/Security.md — trust the explicit
+;; invoker; gate accidents, not theoretical attacks): the coordinate is
+;; recordable / serializable / inspectable / replayable / caller-suppliable,
+;; NEVER a secret / capability / signature. Its job is to make stale /
+;; cross-attempt / wrong-actor / duplicate completions fail closed — closing
+;; real correctness hazards — not to defend the app author against their own
+;; process.
 ;;
 ;; TRANSPORT (rf2-t154jx). When the child's own handler emits a matching
 ;; completion dispatch, `stamp-join-completion-fx` (called at the handler-return
 ;; boundary in `registration.cljc`) REWRITES that outbound `:dispatch` /
 ;; `:dispatch-later` completion into the framework-internal `:rf.machine/
 ;; join-dispatch` fx, which re-dispatches the UNCHANGED public completion event
-;; with the exact-authority tuple attached as the RECORDABLE causal-envelope
-;; fact `:rf.machine/join-auth` on the dispatch's `:rf.cofx`. That channel is
+;; with the exact-attempt coordinate attached as the RECORDABLE causal-envelope
+;; fact `:rf.machine/join-attempt` on the dispatch's `:rf.cofx`. That channel is
 ;; part of the event/coeffect recording + strict-replay contract and is
 ;; preserved through delayed dispatch — UNLIKE event-vector metadata, which an
 ;; EDN round-trip (strict replay) drops and which the retired `:dispatch-n` /
-;; delayed paths never carried. The parent reads the auth back off its `:rf/cofx`
-;; (`carrier-auth`) and NOWHERE ELSE; event-vector metadata is never an authority
-;; carrier (rf2-nsbwft — freshness is not provenance). The public event value is
-;; untouched, no
+;; delayed paths never carried. So the recordable `:rf.cofx` fact is the ONE
+;; coordinate slot the parent reads (`carrier-attempt`); the metadata slot is
+;; not a fallback (reading it was a pure narrowing — the framework-produced path
+;; always populates the cofx). The public event value is untouched, and no
 ;; application control surface is added (a reserved-`:rf.machine/*` fx that
 ;; dispatches ONLY the pre-built carrier it was handed — never traversing
-;; arbitrary effects), and only a dispatch that flowed through the member
-;; child's own boundary carries the stamp.
+;; arbitrary effects).
 ;;
-;; The interceptor's fold branch then requires the stamp to match
+;; The interceptor's fold branch then requires the coordinate to equal
 ;; runtime-owned join state EXACTLY — parent/invoke identity, logical child
 ;; id, exact current actor id, exact attempt token — before a `:done` /
-;; `:failed` fold. Unstamped, superseded (prior attempt / wrong actor / old
-;; delayed straggler), and duplicate carriers are classified stale and perform
-;; ZERO mutation (no fold, no terminal publication, no resolution, no reap) —
-;; never a silent replay-success no-op.
+;; `:failed` fold. An exact-current coordinate folds regardless of source
+;; (normal transport, faithful replay, tooling, or deliberate app authoring —
+;; direct authoring is UNSUPPORTED, not prohibited). Missing, superseded (prior
+;; attempt / wrong actor / old delayed straggler), and duplicate coordinates are
+;; classified stale and perform ZERO mutation (no fold, no terminal publication,
+;; no resolution, no reap) — never a silent replay-success no-op.
 ;; ---------------------------------------------------------------------------
 
 (defn- join-completion-event?
@@ -130,13 +148,14 @@
                   (= error-kw (first inner)))
               (= child-id (second inner))))))
 
-(defn- join-auth-of
-  "The exact-authority tuple the interceptor verifies, projected from a child's
-  `:rf/join-child` membership record `rec`: parent/invoke identity, logical
-  child id, the child's own spawned instance address, and the opaque per-attempt
-  token. Work generation is carried as evidence for a SUPERSEDED attempt, whose
-  old join spec no longer exists. It is NEVER authoritative for an exact-current
-  carrier: those paths derive the discriminator from durable join/spec state."
+(defn- join-attempt-of
+  "The exact-attempt coordinate the interceptor fences on, projected from a
+  child's `:rf/join-child` membership record `rec`: parent/invoke identity,
+  logical child id, the child's own spawned instance address, and the opaque
+  per-attempt token. Work generation is carried as evidence for a SUPERSEDED
+  attempt, whose old join spec no longer exists. It is NEVER decisive for an
+  exact-current carrier: those paths derive the discriminator from durable
+  join/spec state."
   [rec]
   (select-keys rec [:parent-id :invoke-id :child-id :spawned-id :attempt
                     :work-generation]))
@@ -144,13 +163,13 @@
 (defn join-dispatch-fx
   "fx handler for `:rf.machine/join-dispatch` (rf2-t154jx) — the framework-
   internal transport that carries a `:spawn-all` child's completion carrier to
-  its parent WITH the exact-authority tuple on the RECORDABLE `:rf.cofx`
-  causal-envelope fact `:rf.machine/join-auth`. `stamp-fx-entry` rewrites a
+  its parent WITH the exact-attempt coordinate on the RECORDABLE `:rf.cofx`
+  causal-envelope fact `:rf.machine/join-attempt`. `stamp-fx-entry` rewrites a
   member child's OWN outbound `:dispatch` / `:dispatch-later` completion into
   this fx at the child's handler-return boundary; the parent's join interceptor
-  reads the auth back off its `:rf/cofx` (`carrier-auth`). The authority thus
-  survives BOTH the event/coeffect recording + strict-replay path AND the
-  delayed-dispatch path (event-vector metadata survives neither).
+  reads the coordinate back off its `:rf/cofx` (`carrier-attempt`). The
+  coordinate thus survives BOTH the event/coeffect recording + strict-replay
+  path AND the delayed-dispatch path (event-vector metadata survives neither).
 
   A THIN handler over the shared core reserved-dispatch seam
   `re-frame.fx/child-dispatch!` (rf2-lud4af). Routing the completion carrier
@@ -162,8 +181,8 @@
   emitter is always a machine child) — and a DELAYED completion (a
   `:dispatch-later` form, ANY numeric `:ms` including zero — rf2-21hsb1) rides
   the frame-owned `:dispatch-later` timer table, cancelled on frame destroy,
-  rather than a raw host timeout. The transport adds ONLY its private recordable
-  `:rf.machine/join-auth` `:rf.cofx` fact and stamps `:source :machine-action`;
+  rather than a raw host timeout. The transport adds ONLY its recordable
+  `:rf.machine/join-attempt` `:rf.cofx` fact and stamps `:source :machine-action`;
   the public completion event VALUE is unchanged.
 
   CANONICAL DISPATCH OVERRIDES INTERCEPT FIRST (rf2-ulsbgr) — ONE EXPLICIT,
@@ -179,38 +198,41 @@
   the canonical `[fx-id args]` back through the shared core seam
   `re-frame.fx/handle-one-fx` (the identical resolution a normal dispatch flows
   through). The override captures / redirects the completion, queues nothing,
-  folds nothing, and NO private join authority is minted — an application
-  override can never forge or replay the recordable authority into the normal
-  transport.
+  and folds nothing — the framework-produced path never runs, so no coordinate
+  is stamped onto the normal transport.
 
   Every OTHER disposition — no override, a nil/false noop, an UNREGISTERED
   keyword, a MALFORMED value, or a redirect to a PROTECTED internal id — is NOT
-  an applied override: it falls through to the recordable authenticated
-  transport below, so the join still folds EXACTLY ONCE and authority never
-  leaks out of the authenticated path (the pre-fix `real-override?` gate routed
-  these to `handle-one-fx`, where the fall-through re-dispatched an UNAUTHENTICATED
-  `:dispatch` that the parent suppressed `:attempt-unverified`, hanging the join).
-  The canonical `:rf.error/override-fallthrough` diagnostic for a real-but-non-
-  applying override is still surfaced through the ONE override engine
+  an applied override: it falls through to the recordable transport below, so
+  the join still folds EXACTLY ONCE on the framework-produced coordinate (the
+  pre-fix `real-override?` gate routed these to `handle-one-fx`, where the
+  fall-through re-dispatched a coordinate-less `:dispatch` that the parent's
+  fence suppressed `:attempt-unverified`, hanging the join). The canonical
+  `:rf.error/override-fallthrough` diagnostic for a real-but-non-applying
+  override is still surfaced through the ONE override engine
   (`re-frame.fx/resolve-fx-with-overrides`) before the transport runs.
 
-  Not an application control surface — reserved-`:rf.machine/*` internal, it
-  re-dispatches ONLY the pre-built completion carrier it was handed (never
-  traverses arbitrary / custom effect payloads). The transport id itself is
-  NON-AUTHORABLE and NON-REDIRECTABLE (rf2-2lzk8a): `:rf.machine/join-dispatch`
-  is a member of core's `rejected-reserved-fx-ids`, so a DIRECT override of it
-  is rejected (`:rf.error/reserved-fx-override`, real body runs — an app can
-  neither capture nor suppress the authenticated payload) and a REDIRECT whose
+  RESERVED / NON-OVERRIDABLE / NON-REDIRECTABLE (rf2-2lzk8a). It re-dispatches
+  ONLY the pre-built completion carrier it was handed (never traverses arbitrary
+  / custom effect payloads). `:rf.machine/join-dispatch` is a member of core's
+  `rejected-reserved-fx-ids`, so a DIRECT override of it is rejected
+  (`:rf.error/reserved-fx-override`, the real body runs) and a REDIRECT whose
   target is it is refused (no privilege escalation, no self-recursive
-  StackOverflowError).
+  StackOverflowError). This protects the FRAMEWORK PATH from capture or
+  suppression — an override can neither swallow nor rewrite the transport — it
+  does NOT make the coordinate unforgeable. Direct app emission of a
+  `[:rf.machine/join-dispatch …]` fx is UNSUPPORTED but not security-prohibited
+  (rf2-cpbjfp): like any hand-authored coordinate it still folds ONLY on
+  exact-current equality with runtime-owned join state, and fails closed
+  otherwise — the same honest stance as the cofx route.
 
   ctx carries `:frame`, `:envelope` (the emitting child's dispatch envelope),
   and `:event` (the originating event, threaded by `re-frame.fx/do-fx`). args:
-  `{:event <[parent-id inner-event]> :rf/join-auth <auth-tuple> :ms <ms?>}`. A
+  `{:event <[parent-id inner-event]> :rf/join-attempt <coordinate> :ms <ms?>}`. A
   NUMERIC `:ms` (from a `:dispatch-later` completion, INCLUDING `:ms 0` —
   rf2-21hsb1) arms a frame-owned delayed dispatch; a nil `:ms` (a direct
   `:dispatch` completion) dispatches immediately in the current drain."
-  [{:keys [frame envelope] origin-event :event} {:keys [event ms] auth :rf/join-auth}]
+  [{:keys [frame envelope] origin-event :event} {:keys [event ms] attempt :rf/join-attempt}]
   (let [frame-id     (frame/require-frame-stamp!
                        frame :rf.machine/join-dispatch
                        {:where 'rf.machine/join-dispatch :event-id (first event)})
@@ -232,12 +254,12 @@
       ;; intercepts the completion exactly as it would a normal dispatch.
       ;; `handle-one-fx` (not `do-fx`) keeps the single `:event/do-fx` boundary
       ;; marker on the outer walk (the nav-token wrapper precedent). No
-      ;; `child-dispatch!` → no fold, no queue, and no private authority minted.
-      ;; `override-applies?` (NOT the coarser `real-override?`) is the gate: a
-      ;; nil/false noop, an UNREGISTERED-keyword / MALFORMED value, and a
-      ;; redirect to a PROTECTED internal id all fall through to the
-      ;; authenticated transport below — so the join still folds and authority
-      ;; never leaks out of the authenticated path (rf2-2lzk8a).
+      ;; `child-dispatch!` → no fold, no queue, and no coordinate stamped onto
+      ;; the normal transport. `override-applies?` (NOT the coarser
+      ;; `real-override?`) is the gate: a nil/false noop, an UNREGISTERED-keyword
+      ;; / MALFORMED value, and a redirect to a PROTECTED internal id all fall
+      ;; through to the recordable transport below — so the join still folds on
+      ;; the framework-produced coordinate (rf2-2lzk8a).
       (fx/handle-one-fx
         frame-id
         (if (number? ms)
@@ -251,12 +273,12 @@
       ;; but non-applying override on the canonical id (an unregistered keyword,
       ;; a malformed value, or a redirect to a protected internal id) must still
       ;; surface its canonical `:rf.error/override-fallthrough` through the ONE
-      ;; override engine — but it does NOT strip the completion of authority.
+      ;; override engine — but it does NOT strip the completion of its coordinate.
       ;; Drive the engine purely for that diagnostic (its resolved id, the
-      ;; canonical id, is discarded — we authenticate below), so a misconfigured
-      ;; override on a join completion is as visible as on any other dispatch,
-      ;; then the authenticated transport runs EXACTLY ONCE and the join folds
-      ;; (rf2-2lzk8a). nil/false noop emits nothing.
+      ;; canonical id, is discarded — the coordinate rides the transport below),
+      ;; so a misconfigured override on a join completion is as visible as on any
+      ;; other dispatch, then the recordable transport runs EXACTLY ONCE and the
+      ;; join folds (rf2-2lzk8a). nil/false noop emits nothing.
       (do
         (when (fx/real-override? overrides canonical-id)
           (fx/resolve-fx-with-overrides
@@ -277,15 +299,15 @@
       (fx/child-dispatch!
         frame-id envelope event
         (cond-> {:source  :machine-action
-                 :rf.cofx {:rf.machine/join-auth auth}}
+                 :rf.cofx {:rf.machine/join-attempt attempt}}
           (number? ms) (assoc :ms ms :source-detail {:ms ms}))))))
   nil)
 
 (defn- stamp-fx-entry
   "Rewrite one fx-vector entry that dispatches this child's OWN completion
   carrier into the `:rf.machine/join-dispatch` transport (rf2-t154jx), carrying
-  the exact-authority tuple on the recordable `:rf.cofx` fact rather than event
-  metadata. Handles the direct `:dispatch` form and the reserved
+  the exact-attempt coordinate on the recordable `:rf.cofx` fact rather than
+  event metadata. Handles the direct `:dispatch` form and the reserved
   `:dispatch-later` `{:ms n :event event}` form (the delayed path #5839's
   metadata stamp never covered); the retired top-level `:dispatch-n` arm is
   gone. Every non-completion entry rides through untouched. The public
@@ -295,27 +317,27 @@
     (let [[fx-id arg] fx-entry]
       (cond
         (and (= :dispatch fx-id) (join-completion-event? arg rec))
-        [:rf.machine/join-dispatch {:event arg :rf/join-auth (join-auth-of rec)}]
+        [:rf.machine/join-dispatch {:event arg :rf/join-attempt (join-attempt-of rec)}]
 
         (and (= :dispatch-later fx-id)
              (map? arg)
              (join-completion-event? (:event arg) rec))
         [:rf.machine/join-dispatch {:event        (:event arg)
-                                    :rf/join-auth (join-auth-of rec)
+                                    :rf/join-attempt (join-attempt-of rec)
                                     :ms           (:ms arg)}]
 
         :else fx-entry))
     fx-entry))
 
 (defn stamp-join-completion-fx
-  "The child-boundary half of the exact-authority contract (rf2-nvxehu /
+  "The child-boundary half of the exact-attempt fence (rf2-nvxehu /
   rf2-t154jx). Given the effects map a `:spawn-all` child's handler is about to
   return and the child's `:rf/join-child` membership record (nil for every
   non-join-child actor — the common case, a no-op), REWRITE each outbound
   completion carrier in `:fx` (direct `:dispatch` and reserved `:dispatch-later`
   forms) targeting this child's own join into the `:rf.machine/join-dispatch`
-  transport, which re-dispatches the unchanged public event with the exact
-  authority attached on the RECORDABLE `:rf.cofx` fact `:rf.machine/join-auth`.
+  transport, which re-dispatches the unchanged public event with the exact-attempt
+  coordinate attached on the RECORDABLE `:rf.cofx` fact `:rf.machine/join-attempt`.
   Called from the machine-handler return boundary
   (`registration.cljc/commit-or-finalize`), so it covers action fx,
   bootstrap-entry fx, and the finalize path uniformly — the existing private
@@ -327,56 +349,53 @@
     (update effects :fx (fn [fxs] (mapv #(stamp-fx-entry % join-child) fxs)))
     effects))
 
-(defn- carrier-auth
-  "The completion carrier's `:rf/join-auth` exact-authority tuple (rf2-nvxehu),
-  read from the SINGLE protected carrier: the recordable transport (rf2-t154jx).
-  The runtime carries it as the framework-owned recordable causal-envelope fact
-  `:rf.machine/join-auth` on the dispatching child's `:rf.cofx` (attached by the
-  `:rf.machine/join-dispatch` fx, threaded onto the machine def's `:rf/cofx` by
-  `prepare-machine-ctx`). That channel survives BOTH the event/coeffect recording
-  + strict-replay path AND the delayed-dispatch path, and only the internal
-  transport — or a faithful strict replay of a recorded completion + its causal
-  coeffects — populates it.
+(defn- carrier-attempt
+  "The completion carrier's `:rf/join-attempt` exact-attempt coordinate
+  (rf2-nvxehu), read from the ONE coordinate slot: the recordable `:rf.cofx`
+  fact `:rf.machine/join-attempt` (rf2-t154jx), which the framework-produced
+  transport (`:rf.machine/join-dispatch`) attaches and `prepare-machine-ctx`
+  threads onto the machine def's `:rf/cofx`. That channel survives BOTH the
+  event/coeffect recording + strict-replay path AND the delayed-dispatch path.
 
-  Event-vector metadata is NEVER an authority carrier (rf2-nsbwft): freshness is
-  not provenance. A `:rf/join-auth` hand-authored onto an ORDINARY public event
-  vector is ignored, so an ordinary `rf/dispatch` can never mint join-completion
-  authority — even when every tuple field matches live runtime state (an
-  exact-current metadata tuple fails closed as `:attempt-unverified`). Removing
-  the metadata read is a pure narrowing: the recordable cofx already carries the
-  authority on every legitimate path (the immediate `:dispatch` and delayed
-  `:dispatch-later` completions both flow through `child-dispatch!`'s `:rf.cofx`),
-  and metadata never survived recording/replay or delayed dispatch anyway.
+  Only the cofx slot is read; event-vector metadata is NOT a fallback
+  (rf2-nsbwft). This is a pure NARROWING, not a secrecy boundary: the recordable
+  cofx already carries the coordinate on every framework-produced path (the
+  immediate `:dispatch` and delayed `:dispatch-later` completions both flow
+  through `child-dispatch!`'s `:rf.cofx`), and metadata never survived
+  recording/replay or delayed dispatch anyway. A coordinate hand-authored onto
+  the cofx is accepted the same as any other — it still folds ONLY on
+  exact-current equality (rf2-cpbjfp); the honesty is that this is a correlation
+  record, not authentication.
 
-  The transport it arrived on is still never itself trusted — every clause is
-  validated against runtime-owned join state downstream (`join-auth-current?`),
-  so a stale/tampered/replayed carrier that does not match the live attempt is
-  fail-closed regardless."
+  The coordinate is never trusted for its own sake — every clause is checked
+  against runtime-owned join state downstream (`join-attempt-current?`), so a
+  stale / cross-attempt / replayed coordinate that does not equal the live
+  attempt fails closed regardless of how it arrived."
   [machine]
-  (get-in machine [:rf/cofx :rf.machine/join-auth]))
+  (get-in machine [:rf/cofx :rf.machine/join-attempt]))
 
-(defn- join-auth-current?
-  "True iff the carrier's `:rf/join-auth` stamp matches the CURRENT join
+(defn- join-attempt-current?
+  "True iff the carrier's `:rf/join-attempt` stamp matches the CURRENT join
   attempt exactly: same parent/invoke identity, same logical child id, the
   stamped actor is the actor CURRENTLY mapped to that child, and the
   stamped attempt token equals the live join state's `:rf/attempt`. Every
   clause is verified against runtime-owned state — nothing is trusted from
   the carrier beyond equality with what the runtime already knows."
-  [auth parent-id invoke-id child-id join-state]
-  (and (map? auth)
-       (= parent-id (:parent-id auth))
-       (= invoke-id (:invoke-id auth))
-       (= child-id  (:child-id auth))
-       (some? (:attempt auth))
-       (= (:rf/attempt join-state) (:attempt auth))
-       (= (get-in join-state [:children child-id]) (:spawned-id auth))))
+  [attempt parent-id invoke-id child-id join-state]
+  (and (map? attempt)
+       (= parent-id (:parent-id attempt))
+       (= invoke-id (:invoke-id attempt))
+       (= child-id  (:child-id attempt))
+       (some? (:attempt attempt))
+       (= (:rf/attempt join-state) (:attempt attempt))
+       (= (get-in join-state [:children child-id]) (:spawned-id attempt))))
 
 (defn- join-work-generation
   "Derive one child's canonical work discriminator from DURABLE join state.
   The child spec supplies explicit fixed-vs-generated provenance; fixed uses
   the named attempt, while a known-generated child uses its allocator address
-  generation. Exact-current carried auth never supplies or overrides this
-  decision."
+  generation. An exact-current carried coordinate never supplies or overrides
+  this decision."
   [join-state child-id spawned-id attempt]
   (when-let [child-spec (some #(when (= child-id (:id %)) %)
                               (get-in join-state [:spec :children]))]
@@ -396,19 +415,19 @@
   effect map. ZERO mutation: no fold, no terminal publication, no
   resolution, no reap. The exact-current post-resolution carrier keeps its
   own `:rf.machine.spawn-all/late-completion` trace — this op covers the
-  ownership/authority suppression classes on BOTH the pre- and
+  ownership / exact-attempt suppression classes on BOTH the pre- and
   post-resolution paths (rf2-ixjd48).
 
   `spawned-id` is the completion's OWN spawned-instance address: the
-  CARRIER's stamped id (`(:spawned-id auth)`) for an `:attempt-superseded`
+  CARRIER's stamped id (`(:spawned-id attempt)`) for an `:attempt-superseded`
   straggler — NOT the current join's `[:children child-id]` — so the stale
   evidence never borrows the current attempt's work identity (rf2-ixjd48).
-  For `:attempt-unverified` there is no carrier authority to read, so the
+  For `:attempt-unverified` there is no carried coordinate to read, so the
   caller passes the live child mapping (the slot the carrier claimed); for
   `:duplicate-completion` the carrier is exact-current, so the two coincide.
 
-  `work-generation` is sourced from the same authority as `spawned-id`:
-  carried auth for a superseded carrier, otherwise the current child's private
+  `work-generation` is sourced the same way as `spawned-id`: the carried
+  coordinate for a superseded carrier, otherwise the current child's private
   runtime record. Fixed-id stale evidence therefore never borrows a successor
   attempt's work identity."
   [frame-id parent-id invoke-id child-id spawned-id work-generation kind
@@ -610,7 +629,7 @@
   two emits sit on opposite arms of the fold's `(:resolved? resolution)`
   split (`intercept-fold`), so a child attempt can never publish its
   terminal twice; duplicate pre-resolution signals are suppressed upstream
-  by the exact-authority gate, and post-resolution arrivals stay `:stale`.
+  by the exact-attempt fence, and post-resolution arrivals stay `:stale`.
 
   `kind` is the arriving child's fold kind (`:done` / `:failed`);
   `child-extra` is its forwarded payload (the `:value` for a `:done`,
@@ -651,7 +670,7 @@
   (`emit-resolution-traces!`); the two emits sit on opposite arms of the
   fold's `(:resolved? resolution)` split, so each child attempt has
   exactly ONE terminal authority. Duplicate pre-resolution signals never
-  reach here (suppressed by the exact-authority gate) and post-resolution
+  reach here (suppressed by the exact-attempt fence) and post-resolution
   arrivals stay `:stale` — one terminal per work attempt, closed."
   [frame-id parent-id invoke-id join-state'' child-id work-generation kind
    child-extra completed-at]
@@ -862,32 +881,33 @@
   (let [inner-id (first inner-event)
         child-id (second inner-event)
         matches  (find-active-spawn-alls machine snapshot inner-id)
-        ;; The completion carrier's exact-authority tuple, read from the SINGLE
-        ;; protected carrier — the recordable `:rf.cofx` transport (nil for an
-        ;; unstamped / hand-crafted carrier; event metadata is never read).
-        auth     (carrier-auth machine)
-        ;; Select the candidate join by EXACT AUTHORITY, BEFORE the fold gate
-        ;; (rf2-wsrtlw). When more than one active `:spawn-all` matches the
+        ;; The completion carrier's exact-attempt coordinate, read from the ONE
+        ;; coordinate slot — the recordable `:rf.cofx` fact (nil for an
+        ;; unstamped / hand-crafted carrier; the metadata slot is not read).
+        attempt  (carrier-attempt machine)
+        ;; Select the candidate join by EXACT-ATTEMPT MATCH, BEFORE the fold
+        ;; gate (rf2-wsrtlw). When more than one active `:spawn-all` matches the
         ;; event id (two parallel regions legitimately reusing the SAME
         ;; `:on-child-done` AND the SAME logical child id), routing by child-id
-        ;; ownership alone mis-routes an authenticated R2 carrier to R1's join
+        ;; ownership alone mis-routes an exact-current R2 carrier to R1's join
         ;; (declaration order), where the fold gate rejects it
-        ;; `:attempt-superseded` and R2 hangs. Instead: for an AUTHENTICATED
-        ;; carrier, select the match whose LIVE join-state IS the exact attempt
-        ;; the auth names — same parent/invoke identity, same `:rf/attempt`
-        ;; token, and child-id mapped to the auth's spawned instance address.
-        ;; This routes the completion to the region whose join actually spawned
-        ;; the child, independent of declaration order or child-id reuse.
-        authoritative?
+        ;; `:attempt-superseded` and R2 hangs. Instead: for a carrier bearing a
+        ;; coordinate, select the match whose LIVE join-state IS the exact
+        ;; attempt the coordinate names — same parent/invoke identity, same
+        ;; `:rf/attempt` token, and child-id mapped to the coordinate's spawned
+        ;; instance address. This routes the completion to the region whose join
+        ;; actually spawned the child, independent of declaration order or
+        ;; child-id reuse.
+        exact-attempt-match?
         (fn [{invoke-id :invoke-id}]
-          (and (map? auth)
-               (= parent-id (:parent-id auth))
-               (= invoke-id (:invoke-id auth))
-               (some? (:attempt auth))
+          (and (map? attempt)
+               (= parent-id (:parent-id attempt))
+               (= invoke-id (:invoke-id attempt))
+               (some? (:attempt attempt))
                (let [js (get-in runtime-db (paths/spawned-path parent-id invoke-id))]
                  (and (map? js)
-                      (= (:rf/attempt js) (:attempt auth))
-                      (= (get-in js [:children child-id]) (:spawned-id auth))))))
+                      (= (:rf/attempt js) (:attempt attempt))
+                      (= (get-in js [:children child-id]) (:spawned-id attempt))))))
         ;; child-id ownership fallback for an UNSTAMPED / malformed / unknown
         ;; carrier — it routes to a real owning join so the fold gate's
         ;; fail-closed suppression fires stable typed evidence
@@ -897,7 +917,7 @@
         owns?    (fn [{invoke-id :invoke-id}]
                    (let [js (get-in runtime-db (paths/spawned-path parent-id invoke-id))]
                      (and (map? js) (contains? (:children js) child-id))))
-        match    (or (some #(when (authoritative? %) %) matches)
+        match    (or (some #(when (exact-attempt-match? %) %) matches)
                      (some #(when (owns? %) %) matches)
                      (first matches))
         ;; Resolve the live frame from the runtime-stamped machine
@@ -948,7 +968,7 @@
           ;; from the current join's `[:children child-id]`, so an old-attempt
           ;; straggler, an unstamped carrier, or an unknown child all forged
           ;; evidence carrying the current attempt's spawned/work identity.
-          ;; Ordering the ownership + authority gates ahead of `:resolved?`
+          ;; Ordering the ownership + exact-attempt gates ahead of `:resolved?`
           ;; means ONLY an exact-current carrier may enter the post-resolution
           ;; late-completion path; every other carrier is classified the SAME
           ;; way it is on the pre-resolution path — resolved or not — with ZERO
@@ -974,15 +994,15 @@
                                   :recovery   :event-dropped})
               {:rf.db/runtime runtime-db :fx []})
 
-          ;; Exact-authority gate (rf2-nvxehu). The carrier must prove it
-          ;; belongs to THIS join attempt: the `:rf/join-auth` tuple the member
-          ;; child's own handler boundary stamped (`stamp-join-completion-fx`)
+          ;; Exact-attempt fence (rf2-nvxehu). The carrier's coordinate must
+          ;; equal THIS join attempt: the `:rf/join-attempt` coordinate the
+          ;; member child's own handler boundary stamped (`stamp-join-completion-fx`)
           ;; and carried on the recordable `:rf.cofx` transport (rf2-t154jx) —
-          ;; resolved via `carrier-auth` above as `auth` — must match the
+          ;; resolved via `carrier-attempt` above as `attempt` — must equal the
           ;; current join's parent/invoke identity, logical child id, exact
-          ;; current actor id, and exact attempt token. An UNSTAMPED carrier (a
-          ;; hand-crafted dispatch that never flowed through the member child's
-          ;; boundary, OR a strict replay whose recordable authority fact was
+          ;; current actor id, and exact attempt token. A carrier with NO
+          ;; coordinate (a hand-crafted dispatch that never flowed through the
+          ;; member child's boundary, OR a strict replay whose recordable fact was
           ;; stripped) is `:attempt-unverified`; a SUPERSEDED one (a prior
           ;; attempt's straggler after parent re-entry / child respawn —
           ;; including a `:fixed-actor-id` respawn where the actor id alone
@@ -992,12 +1012,12 @@
           ;; evidence (`:rf.reply/stale-reason` on the stale-completion trace) —
           ;; never a silent replay-success no-op.
           ;;
-          ;; The unstamped carrier has no authority to source a work identity
+          ;; The coordinate-less carrier has nothing to source a work identity
           ;; from, so its evidence carries the live child mapping (the slot it
           ;; CLAIMED); the superseded carrier carries the CARRIER's OWN stamped
           ;; `:spawned-id`, so the evidence never borrows the current attempt's
           ;; work identity (rf2-ixjd48).
-          (nil? auth)
+          (nil? attempt)
           (suppress-stale-completion!
             frame-id parent-id invoke-id child-id
             (get-in join-state [:children child-id])
@@ -1007,11 +1027,11 @@
             kind completed-at runtime-db
             :rf.machine.spawn-all/attempt-unverified)
 
-          (not (join-auth-current? auth parent-id invoke-id child-id join-state))
+          (not (join-attempt-current? attempt parent-id invoke-id child-id join-state))
           (suppress-stale-completion!
             frame-id parent-id invoke-id child-id
-            (:spawned-id auth)
-            (:work-generation auth)
+            (:spawned-id attempt)
+            (:work-generation attempt)
             kind completed-at runtime-db
             :rf.machine.spawn-all/attempt-superseded)
 
@@ -1069,10 +1089,11 @@
              :fx []})
 
           ;; CLOSED exact attempt in a still-live join: either the child was
-          ;; already folded, or an authenticated explicit teardown published
+          ;; already folded, or a membership-verified explicit teardown published
           ;; cancellation and durably tombstoned it before callbacks. Both are
           ;; duplicate terminal claims and must suppress without folding, even
-          ;; when an already-queued/delayed carrier retains exact auth. Actor
+          ;; when an already-queued/delayed carrier retains an exact-current
+          ;; coordinate. Actor
           ;; liveness is deliberately irrelevant; final-state auto-destroy has
           ;; no cancellation tombstone and its legitimate queued completion
           ;; still folds (rf2-ir4t5v).
@@ -1099,7 +1120,7 @@
 
 (defn- intercept-fold
   "The verified fold body of `intercept-spawn-all-event` — the carrier has
-  passed the live-join / child-ownership / exact-authority gates. Read
+  passed the live-join / child-ownership / exact-attempt fence. Read
   'compute resolution; emit traces; build fx; write back': three named
   acts plus an assoc-in."
   [frame-id parent-id invoke-id spec join-state child-id work-generation kind
