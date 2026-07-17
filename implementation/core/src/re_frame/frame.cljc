@@ -1435,9 +1435,20 @@
   recognized partition keys before delegating. Callers wanting the former
   single-partition helpers compose a one-key map:
   `(replace-frame-state! id {app-partition-key new-app-db})` /
-  `(replace-frame-state! id {runtime-partition-key new-runtime-db})`."
-  [id frame-state]
-  (commit-frame-transition! id (select-keys frame-state [app-partition-key runtime-partition-key])))
+  `(replace-frame-state! id {runtime-partition-key new-runtime-db})`.
+
+  The 3-arity is the EXACT-INCARNATION variant (mirrors
+  `commit-frame-transition!`'s own 2/3-arity split): it resolves the write
+  through `owner-token`'s own frame record and installs nothing — returning
+  `nil` — unless `owner-token` still names the live incarnation, so a same-id
+  successor reseated under `id` after the caller captured its token can never
+  receive the write. Epoch restore (`perform-restore!`) threads the token it
+  validated preconditions against so a time-travel install lands only on the
+  exact frame incarnation it resolved (rf2-bjh6y)."
+  ([id frame-state]
+   (commit-frame-transition! id (select-keys frame-state [app-partition-key runtime-partition-key])))
+  ([id owner-token frame-state]
+   (commit-frame-transition! id owner-token (select-keys frame-state [app-partition-key runtime-partition-key]))))
 
 (defn- swap-partition!
   "Mutate ONE partition `pk` of `id`'s physical frame-state container in place:

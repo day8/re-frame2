@@ -345,7 +345,13 @@
   Failure modes (each is a no-op on the frame-state and emits a
   structured error trace):
 
-    :rf.error/no-such-handler          (kind :frame) — frame not registered
+    :rf.error/no-such-handler          (kind :frame) — frame not registered,
+                                         OR the resolved incarnation was
+                                         destroyed / replaced by a same-id
+                                         successor between validation and the
+                                         write (the restore is fenced to the
+                                         EXACT incarnation it resolved — a
+                                         successor is left untouched; rf2-bjh6y)
     :rf.epoch/restore-during-drain     — called while drain is in flight
     :rf.epoch/restore-unknown-epoch    — epoch-id not in current history
     :rf.epoch/restore-non-ok-record    — target epoch's :outcome is not :ok
@@ -359,9 +365,13 @@
   [frame-id epoch-id]
   (if-not interop/debug-enabled?
     false
-    (let [{:keys [outcome epoch op tags]} (tool-pair/check-restore-preconditions! frame-id epoch-id)]
+    (let [{:keys [outcome epoch op tags incarnation-token]}
+          (tool-pair/check-restore-preconditions! frame-id epoch-id)]
       (case outcome
-        :ok   (tool-pair/perform-restore! frame-id epoch)
+        ;; Carry the EXACT incarnation token the preconditions resolved against
+        ;; to the write boundary, so a same-id successor seated in between never
+        ;; receives this epoch's state (rf2-bjh6y).
+        :ok   (tool-pair/perform-restore! frame-id incarnation-token epoch)
         :fail (do (tool-pair/emit-precondition-failure! op tags)
                   false)))))
 
