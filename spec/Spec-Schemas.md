@@ -457,7 +457,7 @@ The metadata map accepted by `reg-interceptor` ([EP-0022](../docs/EP/EP-0022-reg
 > **Owner:** [004-Views §Removed forms — normative absences](004-Views.md#removed-forms--normative-absences)
 > **Status:** v1-required
 
-The metadata map accepted by `reg-view` / `reg-view*` (the frozen stock-Reagent compatibility tier — Spec-Schemas is its live registry-slot-shape carrier per the [004 §Removed forms](004-Views.md#removed-forms--normative-absences) transition annex). **Registry identity is distinct from slot metadata.** The `^{:rf/id ...}` symbol-meta override *selects the registry key* the view registers under (the id, per [Conventions §`reg-view` auto-id derivation rule](Conventions.md#reg-view-auto-id-derivation-rule)); the macro consumes it to choose the id and then removes it from the stamped slot, so `:rf/id` is **not** a slot-metadata field. The fields below are what actually lands in the slot.
+The metadata map accepted by `reg-view` / `reg-view*` (the stock-Reagent compatibility/interop tier — Spec-Schemas is its live registry-slot-shape carrier per the [004 §Removed forms](004-Views.md#removed-forms--normative-absences) transition annex). **Registry identity is distinct from slot metadata.** The `^{:rf/id ...}` symbol-meta override *selects the registry key* the view registers under (the id, per [Conventions §`reg-view` auto-id derivation rule](Conventions.md#reg-view-auto-id-derivation-rule)); the macro consumes it to choose the id and then removes it from the stamped slot, so `:rf/id` is **not** a slot-metadata field. The fields below are what actually lands in the slot.
 
 ```clojure
 (def ViewMeta

@@ -555,7 +555,7 @@ enter/exit retention is out of scope):
 |---|---|
 | `(ui/raw react-element)` | embed an existing React element (child position; SSR paths need a `client-only` sibling fallback) |
 | `[ForeignComponent {…}]` | foreign React head; open props, JS values pass through; callbacks per §The decision table |
-| `(ui/->react view)` | export a view as a React component — the outward migration bridge. **v1, lands S6** with the migration wave. Contract: the compat-boundary contract §3 (promotes as `spec/004A-Reagent-Compat.md` at the deletion wave) — memoised per view id (returns the stable shell), no new React root/manifest/preflight; the exported view scopes frames, never creates them |
+| `(ui/->react view)` | export a view as a React component — the outward migration bridge. **v1, lands S6** with the migration wave. Contract: the compat-boundary contract §3 (promotes as `spec/004A-Reagent-Compat.md` at the S7 wave) — memoised per view id (returns the stable shell), no new React root/manifest/preflight; the exported view scopes frames, never creates them |
 | `(ui/element type props & children)` | runtime-chosen element/component **[WAVE-2]** |
 | `(ui/view id)` | registry-addressed component; production use requires production registry entries (dev-only string ids cannot serve prod lookup) **[WAVE-2]** |
 | `(ui/spread base overrides)` | the one generic runtime prop-map conversion — **v1**; the conversion architecture's single dynamic-map path, driven by the owning rule table |
@@ -906,11 +906,11 @@ path + generation, released/remounted on ambiguity.
   manifests, cause vectors, histories, warning text, and `data-rf2-*` strings are on the
   scanned absence roster. The always-on Spec 009 error contracts remain.
 - **[TRANSITION]** The `[view-id instance-token]` `:render-key` wire shape and the
-  `[:rf.view/anonymous nil]` fallback for unregistered render fns remain emitted by the
-  UIx/Helix/slim adapters until the deletion wave, and by the frozen stock-Reagent
-  compatibility tier thereafter; the compiled substrate emits its own versioned evidence
-  schema (integer render-key + separate `:view-id` + `occurrence-path`) in the 009
-  catalogue.
+  `[:rf.view/anonymous nil]` fallback for unregistered render fns are emitted by the
+  Reagent, UIx, and reagent-slim adapters — the compatibility/interop tier that lives on —
+  and by the Helix adapter until it is removed at S7; the compiled substrate emits its own
+  versioned evidence schema (integer render-key + separate `:view-id` + `occurrence-path`)
+  in the 009 catalogue.
 
 ## The JVM structural subset
 
@@ -982,8 +982,8 @@ Compile budgets (expansion p95, watch-loop rebuild) are gated per
 There is exactly **one** component form. The following do not exist in this contract:
 
 - **Form-1 / Form-2 / Form-3.** No closure-form components, no class components, no
-  outer/inner render split; the Forms live on only in the frozen stock-Reagent
-  compatibility tier (live normative home: the compatibility appendix
+  outer/inner render split; the Forms live on only in the stock-Reagent
+  compatibility/interop tier (live normative home: the compatibility appendix
   `spec/004A-Reagent-Compat.md`, per §8 of the compat-boundary contract), taught on one
   migration page only. Form-2 local state is `local`;
   Form-3 lifecycle work is
