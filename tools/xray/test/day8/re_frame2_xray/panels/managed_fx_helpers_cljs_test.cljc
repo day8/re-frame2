@@ -185,6 +185,83 @@
     (is (= :error (:status rec)))
     (is (= :rf.machine/invoke-failed (-> rec :failure :kind)))))
 
+;; ---- (2c′) rf2-off92 — command-vs-trace law for machine destroy --------
+;;
+;; `:rf.machine/destroy` (no trailing `-ed`) is the reserved fx-id — a
+;; COMMAND the runtime consumes — and never appears as a trace `:operation`.
+;; The real fx-substrate terminal is `:rf.machine/destroyed`. These tests pin
+;; that law at the collector, at the cancel-cause reader, and at the terminal
+;; projection so the impossible command-as-trace branch cannot return.
+
+(deftest machine-collector-excludes-command-includes-terminal
+  (testing "the machine-invoke collector drops the fx-id COMMAND and keeps
+            the real fx-substrate terminal (rf2-off92)"
+    (is (not (contains? h/machine-invoke-trace-operations :rf.machine/destroy))
+        ":rf.machine/destroy is a command, never a trace operation")
+    (is (contains? h/machine-invoke-trace-operations :rf.machine/destroyed)
+        "the real fx-substrate terminal must be collected"))
+  (testing "surface-events-for filters the impossible command out even when
+            it is injected into the event-bundle's :other slot"
+    (let [injected [(surface-ev :rf.machine/destroy {:id :some/actor})
+                    (surface-ev :rf.machine/destroyed {:reason :explicit})]
+          kept     (#'h/surface-events-for injected :machine-invoke)]
+      (is (= [:rf.machine/destroyed] (mapv :operation kept))
+          "only the real terminal survives the collector"))))
+
+(deftest machine-destroy-command-is-not-a-cancel-cause
+  (testing "surface-events->cancel-cause must not read the impossible
+            command-as-trace `:rf.machine/destroy` as :actor-destroyed —
+            machine-disappearance cancellation is the cancellation-cascade
+            projection's job, not this HTTP-abort reader (rf2-off92)"
+    (is (nil? (#'h/surface-events->cancel-cause
+               [(surface-ev :rf.machine/destroy {:id :some/actor})]))
+        "the impossible command-as-trace branch must be gone"))
+  (testing "the HTTP-abort causes this reader really owns still resolve"
+    (is (= :actor-destroyed
+           (#'h/surface-events->cancel-cause
+            [(surface-ev :rf.http/aborted-on-actor-destroy {:request-id :r})])))
+    (is (= :user
+           (#'h/surface-events->cancel-cause
+            [(surface-ev :rf.http/aborted {:request-id :r})])))))
+
+(deftest machine-destroy-terminal-projection-is-successful-non-cancelled
+  (testing "a handled destroy plus a timestamped real `:rf.machine/destroyed`
+            terminal yields a successful, non-cancelled record whose duration
+            derives from the terminal timing (rf2-off92)"
+    (let [args      {:machine-id :checkout/main :fixed-actor-id :m-001}
+          fx-ev     (fx-handled :rf.machine/destroy args)          ; issued @1000
+          destroyed (surface-ev :rf.machine/destroyed
+                                {:reason :explicit :spawned-id :m-001}
+                                1250)
+          rec       (h/machine-invoke-adapter fx-ev [destroyed])]
+      (is (= :machine-invoke (:surface rec)))
+      (is (= :rf.machine/destroy (:fx-id rec)))
+      (is (= :ok (:status rec))            "a handled destroy is successful")
+      (is (nil? (:cancel-cause rec))       "destruction is not an HTTP cancel")
+      (is (= :completed (:phase rec)))
+      (is (nil? (:failure rec)))
+      (is (= 250 (:duration-ms rec))       "duration derives from the terminal")
+      (is (some? (:wire rec))))))
+
+(deftest machine-destroy-event-bundle-excludes-injected-command
+  (testing "even with the impossible `:rf.machine/destroy` operation injected
+            into the event-bundle, the walker's record stays OK / non-cancelled
+            and derives its terminal timing from `:rf.machine/destroyed`"
+    (let [event-bundle {:dispatch-id 42
+                        :frame :rf/default
+                        :effects [(fx-handled :rf.machine/destroy
+                                              {:machine-id :checkout/main
+                                               :fixed-actor-id :m-001})]
+                        :other   [(surface-ev :rf.machine/destroy
+                                              {:id :m-001})               ; impossible; must be dropped
+                                  (surface-ev :rf.machine/destroyed
+                                              {:reason :explicit} 1250)]}
+          rec          (first (h/event-bundle->managed-fx-records event-bundle))]
+      (is (= :machine-invoke (:surface rec)))
+      (is (= :ok (:status rec)))
+      (is (nil? (:cancel-cause rec)))
+      (is (= 250 (:duration-ms rec))))))
+
 ;; ---- (2d) SSR-fx adapter -----------------------------------------------
 
 (deftest ssr-fx-adapter-set-status
