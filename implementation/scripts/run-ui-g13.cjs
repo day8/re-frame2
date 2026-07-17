@@ -22,6 +22,7 @@ const {
   validateWarmSamples,
   summarizeWarm,
   assertColdIsFirstDrain,
+  assertColdOrderControl,
   buildSummary,
 } = require('./lib/g13-timing-evidence.cjs');
 
@@ -286,6 +287,15 @@ function assertDevResult(result) {
   if (!sameJson(roster, [100, 500])) {
     fail(`workload roster is not exactly one V=100 then one V=500: ${JSON.stringify(roster)}`);
   }
+  // rf2-6k4cm — the CAUSAL cold-first order control. The fixture ran the timing
+  // and correctness cycles in BOTH orders on fresh frames and reported each timed
+  // cycle's OWN pre-hot witness. Because the witness rides the timed dispatch (not
+  // sample! entry), the orders diverge — timing-first sees the mount seed 0 and
+  // passes assertColdIsFirstDrain; correctness-first sees queued-writes and fails
+  // it. This asserts the divergence, so the earlier per-size cold-first checks can
+  // no longer pass vacuously: a witness that stayed 0 in both orders (captured
+  // before the timed dispatch) is rejected here.
+  assertColdOrderControl(result['cold-first-order-control'], result['queued-writes']);
   const expected = expectedProjection();
   const projections = [];
   for (const size of result.results || []) {
@@ -375,6 +385,19 @@ function assertMutationTeeth(result) {
     ['correctness ran before the cold timer', (r) => {
       r.results[0].cold['timing-pre-hot'] = 8;
     }],
+    // rf2-6k4cm — the CAUSAL order-control teeth. Unlike the forged-field tooth
+    // above (which only asserts the assertion rejects a nonzero value), these pin
+    // the SOURCE-order evidence the fixture actually produced. If the pre-hot
+    // witness were captured before the timed dispatch (the non-causal regression),
+    // the correctness-first witness would collapse to the mount seed and the gate
+    // must go red; timing-first must stay the mount seed; the control cannot vanish.
+    ['order control correctness-first collapsed to the mount seed (non-causal witness)', (r) => {
+      r['cold-first-order-control']['correctness-first'] = 0;
+    }],
+    ['order control timing-first advanced off the mount seed', (r) => {
+      r['cold-first-order-control']['timing-first'] = 8;
+    }],
+    ['order control absent', (r) => { delete r['cold-first-order-control']; }],
     // rf2-vxgfnd.212 — workload-roster teeth. Each must fail validation, proving
     // the exact one-to-one V=100/V=500 roster before projections are compared.
     // 'duplicate V=100' is the bead's exact false-green: the V=500 row silently
