@@ -10,6 +10,7 @@
             [re-frame.error :as error]
             [re-frame.registrar :as registrar]
             [re-frame.ui.client :as client]
+            [re-frame.ui.reactive :as reactive]
             [re-frame.ui.runtime :as runtime]))
 
 (use-fixtures :each
@@ -585,6 +586,69 @@
         "the consumed handle's .unmount returns without effect")
     (is (= 1 @calls)
         "the re-called .unmount is a NO-OP — it never re-drives a real teardown")))
+
+(deftest reclaim-installed-successor-keeps-reporter-authority-and-claim
+  ;; rf2-j7225 — `reclaim-consumed-container!` runs SYNCHRONOUS host code
+  ;; (`replaceChildren`), and a custom-element callback or a low-level/test seam
+  ;; can install a same-id SUCCESSOR (B) into `live-roots` DURING that reclaim.
+  ;; Recovery must retire the reporter authority of the EXACT captured predecessor
+  ;; (A) — never a fresh `(root-incarnation-of root-id)` read, which now resolves
+  ;; to B: retiring B leaves it LIVE WITHOUT reporter authority (its teardown could
+  ;; settle before React's cleanup) while `release-root!`'s identity fence
+  ;; correctly PRESERVES B's claim, and A's dead token stays strongly retained.
+  ;; A bypass-installed replacement is not owned by the stale disposal snapshot.
+  (let [rid       :reg/reclaim-successor
+        container (js-obj)
+        a-inc     (reactive/make-root-incarnation)
+        a-boom    (js/Error. "predecessor host unmount boom")
+        a-root    (client/->Root #js {:unmount (fn [] (throw a-boom))} container rid)
+        succ-root (volatile! nil)
+        succ-inc  (volatile! nil)]
+    ;; Predecessor A: a committed root (reporter-live), NOT tearing-down, so the
+    ;; drain visits it on the `:else`/unmount!* recovery arm.
+    (client/register-live-root!
+     {:root-id rid :provenance :authored} container a-root a-inc)
+    (reactive/report-root-commit! a-inc)
+    (is (true? (reactive/live-reporter? a-inc))
+        "the committed predecessor holds live reporter authority")
+    ;; The reclaim seam installs + commits a same-id successor B synchronously,
+    ;; the moment `reclaim-consumed-container!` calls `replaceChildren`.
+    (unchecked-set
+     container "replaceChildren"
+     (fn []
+       (let [b-inc  (reactive/make-root-incarnation)
+             b-root (client/->Root #js {:unmount (fn [] nil)} container rid)]
+         (vreset! succ-root b-root)
+         (vreset! succ-inc b-inc)
+         (client/register-live-root!
+          {:root-id rid :provenance :authored} container b-root b-inc)
+         (reactive/report-root-commit! b-inc))))
+    ;; Drain: A is not pre-quarantined, so unmount!* A throws (its host `.unmount`),
+    ;; the `:else` recovery reclaims (installing B), then retires + releases.
+    (is (identical? a-boom
+                    (try (client/dispose-live-roots!) nil (catch :default e e)))
+        "the predecessor host teardown error still propagates as primary")
+    ;; B was installed DURING the reclaim — a DISTINCT incarnation…
+    (is (some? @succ-inc))
+    (is (not (identical? a-inc @succ-inc))
+        "the same-id successor is a distinct incarnation")
+    ;; …and its claim survives release-root!'s identity fence (true both before and
+    ;; after the fix — the fence was never the bug).
+    (is (contains? (client/live-root-ids) rid)
+        "the bypass-installed successor's live claim survives")
+    (is (identical? @succ-root (:root (client/live-root-entry rid)))
+        "the surviving claim is the successor B, not the failed predecessor A")
+    ;; The DISCRIMINATING assertions — RED before rf2-j7225 (the bare-id lookup
+    ;; retired B and stranded A), GREEN after (the captured token retires A only):
+    (is (false? (reactive/live-reporter? a-inc))
+        "the failed predecessor's reporter is retired via the CAPTURED incarnation")
+    (is (true? (reactive/live-reporter? @succ-inc))
+        "the same-id successor keeps reporter authority — recovery never re-read the
+         mutable registry after the synchronous reclaim")
+    ;; Restore the reporter ledger to baseline regardless of outcome (idempotent).
+    (reactive/retire-root-reporter! a-inc)
+    (reactive/retire-root-reporter! @succ-inc)
+    (client/release-root! rid @succ-root)))
 
 ;; ---------------------------------------------------------------------------
 ;; React root options
