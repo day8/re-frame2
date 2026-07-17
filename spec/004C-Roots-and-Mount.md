@@ -492,9 +492,9 @@ server in sight (guide 01):
 `(ui.test/render root-or-view opts)` accepts exactly two forms:
 
 1. **A view reference** (compile-resolved Var/symbol of a `defview`). Props ride
-   `{:props p}`. Frames ride `{:frame f}` XOR `{:app-db v}` (test frame minted); with
-   neither, structural rendering proceeds and any `sub` raises
-   `:rf.error/no-frame-context` — honest, not defaulted.
+   `{:props p}`. A frame rides `{:frame f}` — mint it with `rf/make-frame` +
+   `:initial-events`; with no frame, structural rendering proceeds and any `sub`
+   raises `:rf.error/no-frame-context` — honest, not defaulted.
 2. **A literal root form** — the same literal top-region grammar `mount` takes,
    wrappers included, tightened to exactly **one mounted view** per test root
    (§1.1's authored-`:root-id` multi-view allowance does not apply here; two views →
@@ -503,8 +503,9 @@ server in sight (guide 01):
    - `{:props p}` is **rejected** (didactic: props live in the form);
    - the form's `frame-root` plans run preflight ENSURE against the test registrar,
      minting fresh test frames from the plans;
-   - `{:frame f}`/`{:app-db v}` alongside a plan-bearing root form is **rejected**
-     (*"the root form owns its frames — pass a bare view to control the frame"*).
+   - `{:frame f}` alongside a plan-bearing root form is **rejected**
+     (*"the root form owns its frames — pass a bare view to control the frame"*);
+     with a plan-free form it combines.
      `[S1-CONFIRM]` — 07 §2 is silent on this combination; rejection is the
      conservative contract (no ambiguity about which frame is ambient).
 
@@ -544,5 +545,5 @@ unregisters (a leaked registration failing a later mount is a test-harness bug, 
    alongside the Spec 011 payload-encoding rows.
 2. **§7** — entry-point-closure scoping as the build-time projection of "one page" for
    duplicate root-id detection (vs. whole-build strictness).
-3. **§9** — rejection of `{:frame …}`/`{:app-db …}` combined with a plan-bearing root
+3. **§9** — rejection of `{:frame …}` combined with a plan-bearing root
    form in `ui.test/render`.
