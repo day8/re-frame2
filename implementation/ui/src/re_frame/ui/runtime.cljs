@@ -449,7 +449,7 @@
       (.-children props))))
 
 (def ^js ErrorBoundary
-  (let [ctor  (fn ErrorBoundary [props]
+  (let [ctor  (fn ErrorBoundary [^js props]
                 (this-as this
                   (.call react/Component this props)
                   (set! (.-state this) #js {:error nil :resetKey (.-resetKey props)})
@@ -464,7 +464,7 @@
     ;; getDerivedStateFromProps — a changed :reset-key clears the caught error
     ;; (rf= so structural keys retry once, value-equal keys do not).
     (set! (.-getDerivedStateFromProps ctor)
-          (fn [props state]
+          (fn [^js props ^js state]
             (when-not (eq/rf= (.-resetKey props) (.-resetKey state))
               #js {:error nil :resetKey (.-resetKey props)})))
     ;; componentDidCatch — post-commit; dispatch :on-error through the captured
@@ -473,7 +473,7 @@
     (set! (.-componentDidCatch proto)
           (fn [error _info]
             (this-as this
-              (when-some [on-error (.-onError (.-props this))]
+              (when-some [on-error (.-onError ^js (.-props this))]
                 (on-error error)))))
     (set! (.-render proto) (fn [] (this-as this (error-boundary-render this))))
     (when ^boolean js/goog.DEBUG
