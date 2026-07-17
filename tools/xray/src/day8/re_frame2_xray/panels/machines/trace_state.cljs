@@ -363,17 +363,31 @@
 
 (defn- handled-regions-from-cascade
   "rf2-l8ls6w — the SET of region names a parallel macrostep actually HANDLED
-  this transition, read off the trace's structured `:cascade`. Each cascade
+  the EXTERNAL event, read off the trace's structured `:cascade`. Each cascade
   step carries `:region <region-name>` (stamped by the single-machine engine
   from the synthetic region-spec's `:rf/region` — `transition.cljc` §structured
   cascade steps); a region that handled the event contributes at least one
-  step (`:exit` / `:action` / `:entry`), a RESTING region (declined the event)
-  contributes none. This is the discriminator that distinguishes a HANDLED-
-  unchanged region (a real self/internal transition with `before == after` +
-  a non-empty cascade) from a region that simply did not move. Returns the set
-  of non-nil `:region`s present in the cascade."
+  EVENT step (`:exit` / `:action` / `:entry`), a RESTING region (declined the
+  event) contributes none. This is the discriminator that distinguishes a
+  HANDLED-unchanged region (a real self/internal transition whose EVENT target
+  is the resting state + a non-empty event cascade) from a region that simply
+  did not move.
+
+  rf2-v528f — `:kind :microstep` steps are EXCLUDED. A parallel macrostep's
+  `:cascade` interleaves the event-handling steps with one `:kind :microstep`
+  step per parent-owned `:always` ROUND (`parallel.cljc` — each carries the
+  round's `:region`). A region that DECLINED the event but participated in
+  stabilization (took an `:always` round) contributes ONLY microstep steps, so
+  counting them would mark it event-handled and mint a PHANTOM event edge. Event
+  handling is derived from the non-microstep (`:exit` / `:action` / `:entry`)
+  steps alone; the round edges light off the standalone round evidence
+  (`microstep-region-rounds`), not this set. Returns the set of non-nil
+  `:region`s present in the non-microstep cascade steps."
   [cascade]
-  (into #{} (keep :region) cascade))
+  (into #{}
+        (comp (remove #(= :microstep (:kind %)))
+              (keep :region))
+        cascade))
 
 (defn- region-local-fired-ids
   "rf2-8ncxrf — fired-edge ids for ONE region that CHANGED state (its
@@ -583,15 +597,17 @@
       region-local/region-level edge ALSO matches cannot happen — the root
       `:on` is suppressed ENTIRELY when any region handles the event, Spec
       005; so the three are mutually exclusive per region.)
-    - **rf2-l8ls6w / rf2-pdvtxt — region HANDLED but UNCHANGED.** `before ==
-      after` yet the region appears in the `:cascade` (a real self/internal
-      transition fired with a non-empty cascade). Two self/internal edge
-      shapes are lit, in order: a LEAF self/internal edge (`region-self-
-      internal-fired-ids`, region-scoped in-region source), else a region-ROOT
-      targetless/action-only `:on` fallback (`region-machine-internal-fired-
-      ids`, `:machine-level? true` `:internal? true` sourced from the region
-      CONTAINER — rf2-pdvtxt). A region that simply DECLINED the event
-      (RESTING — absent from the cascade) lights nothing.
+    - **rf2-l8ls6w / rf2-pdvtxt / rf2-v528f — region HANDLED but UNCHANGED.**
+      `before == the EVENT target` (the event left the region resting) yet the
+      region appears in the `:cascade` (a real self/internal transition fired
+      with a non-empty event cascade) — EVEN when a later `:always` round then
+      moves the region on, so the settled `after` differs (rf2-v528f). Two
+      self/internal edge shapes are lit, in order: a LEAF self/internal edge
+      (`region-self-internal-fired-ids`, region-scoped in-region source), else a
+      region-ROOT targetless/action-only `:on` fallback (`region-machine-
+      internal-fired-ids`, `:machine-level? true` `:internal? true` sourced from
+      the region CONTAINER — rf2-pdvtxt). A region that simply DECLINED the
+      event (RESTING — absent from the event cascade) lights nothing.
 
   `handled-regions` is the set of region names the cascade recorded (from
   `handled-regions-from-cascade`). Per-region `from` / `to` are coerced
@@ -606,10 +622,17 @@
   does not exist. When a region has rounds, this lights the DIRECT event edge
   against the FIRST round's `:from` (the state the event committed, not the
   settled state — the parallel analog of the single-active `direct-event-
-  target`), PLUS each round's own regional `:always` edge. A region that
-  DECLINED the event but later took an `:always` round (its first round's
-  `:from` equals its pre-event state) gains NO phantom event edge — only its
-  round edges light. Returns a seq of ids."
+  target`), PLUS each round's own regional `:always` edge.
+
+  rf2-v528f — the event edge is derived from `before` vs the EVENT target (the
+  first round's `:from`), NOT `before` vs the settled `after`. So a region that
+  handled the event with a SELF/INTERNAL transition (`before == event-target`)
+  and THEN took an `:always` round still lights its self/internal event edge —
+  the round moving the region on no longer suppresses it. Conversely a region
+  that DECLINED the event but later took an `:always` round (its first round's
+  `:from` equals its pre-event state, and it is ABSENT from the non-microstep
+  event cascade) gains NO phantom event edge — only its round edges light.
+  Returns a seq of ids."
   [edges before-map after-map event* handled-regions region->rounds]
   (when event*
     (mapcat
@@ -647,17 +670,21 @@
                   (seq (region-machine-on-fired-ids edges region ev-to* event*))
                   (region-root-on-fired-ids edges region ev-to* event*))
 
-              ;; HANDLED-but-UNCHANGED with NO round: a real self/internal
-              ;; transition (before == after + a non-empty cascade). A LEAF
-              ;; self/internal edge wins; else a region-ROOT targetless/action-
-              ;; only `:on` fallback (rf2-pdvtxt). A RESTING region (= but
-              ;; absent from the cascade) lights nothing. A region that DECLINED
-              ;; the event but later took a round has `rounds`, so it never
-              ;; reaches here (rf2-bvwv4q — no phantom event edge); only its
-              ;; `always-ids` light.
+              ;; HANDLED-but-UNCHANGED on the EVENT: a real self/internal
+              ;; transition whose EVENT target is the resting state
+              ;; (`region-before == event-target`) with a non-empty event
+              ;; cascade — EVEN when a later `:always` round then moves the
+              ;; region on, so the settled `region-after` differs (rf2-v528f).
+              ;; The discriminator is the EVENT target, not the settled state.
+              ;; A LEAF self/internal edge wins; else a region-ROOT targetless/
+              ;; action-only `:on` fallback (rf2-pdvtxt). `handled-regions` is
+              ;; derived from the NON-microstep cascade steps (rf2-v528f), so a
+              ;; region that DECLINED the event but took a round is ABSENT and
+              ;; lights no phantom event edge — only its `always-ids` light. A
+              ;; RESTING region (unchanged + absent from the event cascade)
+              ;; lights nothing.
               (and from*
-                   (empty? rounds)
-                   (= region-before region-after)
+                   (= region-before event-target)
                    (contains? handled-regions region))
               (or (seq (region-self-internal-fired-ids edges region from* event*))
                   (region-machine-internal-fired-ids edges region event*))

@@ -1105,6 +1105,126 @@
       (is (= #{a-go a-always b-always} fired)
           "b lights ONLY its :always round edge — no phantom :go edge for the
            region that declined the event"))))
+
+;; ---- extract-fired-edge-ids: HANDLED self/internal EVENT then an :always ----
+;; ROUND (rf2-v528f)
+;;
+;; A parallel region can HANDLE the external event with a real SELF/INTERNAL
+;; transition (before == the EVENT target — the region rests) and THEN take a
+;; parent-owned `:always` round that moves it on. The runtime commits ONE
+;; aggregate `:rf.machine/transition` whose SETTLED `:after` is the round's
+;; target, PLUS a standalone `:rf.machine.microstep/transition` per round, AND
+;; stamps the event-handling action step + a `:kind :microstep` round step into
+;; the aggregate `:cascade`. Before rf2-v528f the handled-unchanged branch
+;; required `(empty? rounds)` and diffed the SETTLED before/after, so the
+;; region's self/internal EVENT edge was DROPPED and only the round edge lit.
+;; The fix keys handled-unchanged off `(region-before == event-target)` and
+;; derives the event-handled-region set from the NON-microstep cascade steps.
+
+(deftest extract-fired-edge-ids-parallel-internal-then-round-keeps-event-edge
+  (testing "rf2-v528f — region :a HANDLES :go with a targetless/INTERNAL
+            transition (:arm action, stays :idle) and THEN a round moves
+            :idle→:done; BOTH the :go internal event edge AND the :always round
+            edge light — the settled :idle→:done no longer swallows the event
+            edge. region :b co-selects :idle→:staged (event) then :staged→:done."
+    (let [def       {:type    :parallel
+                     :regions {:a {:initial :idle
+                                   :states  {:idle {:on     {:go {:action :arm}}
+                                                    :always {:target :done :guard :armed?}}
+                                             :done {}}}
+                               :b {:initial :idle
+                                   :states  {:idle   {:on {:go :staged}}
+                                             :staged {:always :done}
+                                             :done   {}}}}}
+          projected (:edges (chart-layout/project-definition def))
+          a-go      (region-edge-id projected :a [:idle]   [:idle]   :go)   ;; internal self
+          a-always  (region-edge-id projected :a [:idle]   [:done]   :always)
+          b-go      (region-edge-id projected :b [:idle]   [:staged] :go)
+          b-always  (region-edge-id projected :b [:staged] [:done]   :always)
+          ;; LIVE runtime shape: ONE aggregate transition whose :cascade carries
+          ;; :a's event action step + :b's event exit/entry steps + one
+          ;; `:kind :microstep` round step per region, PLUS one standalone
+          ;; `:rf.machine.microstep/transition` per co-selected round.
+          events    [{:operation :rf.machine/transition
+                      :tags {:actor-id :par/arm
+                             :before {:state {:a :idle :b :idle}}
+                             :after  {:state {:a :done :b :done}}
+                             :event  [:go]
+                             :cascade [{:kind :action    :region :a :state []       :action :arm}
+                                       {:kind :exit      :region :b :state [:idle]}
+                                       {:kind :entry     :region :b :state [:staged]}
+                                       {:kind :microstep :region :a :microstep-index 0
+                                        :from :idle   :to :done}
+                                       {:kind :microstep :region :b :microstep-index 0
+                                        :from :staged :to :done}]}}
+                     {:operation :rf.machine.microstep/transition
+                      :tags {:actor-id :par/arm :region :a
+                             :from :idle :to :done :microstep-index 0}}
+                     {:operation :rf.machine.microstep/transition
+                      :tags {:actor-id :par/arm :region :b
+                             :from :staged :to :done :microstep-index 0}}]
+          fired     (trace-state/extract-fired-edge-ids def events :par/arm)]
+      (is (every? string? [a-go a-always b-go b-always])
+          "all four real edges exist in the projection (:a's :go is an internal self edge)")
+      (is (contains? fired a-go)
+          "the HANDLED self/internal :go EVENT edge for :a lights (rf2-v528f — was dropped
+           because a later :always round set the handled-unchanged (empty? rounds) guard false)")
+      (is (= #{a-go a-always b-go b-always} fired)
+          "exactly the four real edges light — the event edge survives the later round"))))
+
+(deftest extract-fired-edge-ids-parallel-microstep-only-region-not-event-handled
+  (testing "rf2-v528f — a region present in the aggregate :cascade ONLY via a
+            `:kind :microstep` round step is NOT treated as event-handled: no
+            phantom event edge is minted even though the projection has a
+            matchable :go internal self edge for it. Kills the 'count microsteps
+            as event handling' mutation."
+    ;; :a moves on :go (:idle→:staged) then rounds :staged→:done — event-handled
+    ;; via :exit/:entry. :b's ONLY structured presence is its `:kind :microstep`
+    ;; round step (:idle→:ready) — the trace omits any :b event step, modelling a
+    ;; region that did NOT handle :go yet took an :always round. :b's def carries
+    ;; a :go internal self edge PRECISELY so a microstep-counting derivation would
+    ;; have a phantom to (wrongly) light; the fix leaves it dark.
+    (let [def       {:type    :parallel
+                     :regions {:a {:initial :idle
+                                   :states  {:idle   {:on {:go :staged}}
+                                             :staged {:always :done}
+                                             :done   {}}}
+                               :b {:initial :idle
+                                   :states  {:idle  {:on     {:go {:action :note}} ;; internal self
+                                                     :always :ready}
+                                             :ready {}}}}}
+          projected (:edges (chart-layout/project-definition def))
+          a-go      (region-edge-id projected :a [:idle]   [:staged] :go)
+          a-always  (region-edge-id projected :a [:staged] [:done]   :always)
+          b-go      (region-edge-id projected :b [:idle]   [:idle]   :go)   ;; the phantom candidate
+          b-always  (region-edge-id projected :b [:idle]   [:ready]  :always)
+          events    [{:operation :rf.machine/transition
+                      :tags {:actor-id :par/mstep
+                             :before {:state {:a :idle :b :idle}}
+                             :after  {:state {:a :done :b :ready}}
+                             :event  [:go]
+                             ;; :a handled :go (exit/entry); :b appears ONLY as a
+                             ;; :kind :microstep round step — never an event step.
+                             :cascade [{:kind :exit      :region :a :state [:idle]}
+                                       {:kind :entry     :region :a :state [:staged]}
+                                       {:kind :microstep :region :a :microstep-index 0
+                                        :from :staged :to :done}
+                                       {:kind :microstep :region :b :microstep-index 0
+                                        :from :idle :to :ready}]}}
+                     {:operation :rf.machine.microstep/transition
+                      :tags {:actor-id :par/mstep :region :a
+                             :from :staged :to :done :microstep-index 0}}
+                     {:operation :rf.machine.microstep/transition
+                      :tags {:actor-id :par/mstep :region :b
+                             :from :idle :to :ready :microstep-index 0}}]
+          fired     (trace-state/extract-fired-edge-ids def events :par/mstep)]
+      (is (every? string? [a-go a-always b-go b-always])
+          "the projection HAS a :b :go internal self edge — a microstep-counting
+           derivation would light it as a phantom")
+      (is (not (contains? fired b-go))
+          "no phantom :go event edge for :b (present only via a :kind :microstep step)")
+      (is (= #{a-go a-always b-always} fired)
+          ":b lights ONLY its :always round edge; microstep presence is not event handling"))))
 ;; REGION-QUALIFIED targets. The before/after region-map shows the move, but
 ;; the moved region's edge is sourced from the synthetic MACHINE-ROOT chip
 ;; (region-qualified :to-path), NOT a region-local edge — so the region-local
