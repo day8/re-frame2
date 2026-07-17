@@ -259,16 +259,17 @@
       (is (= 0 @body-runs)
           "the disposed reaction's flush did not recompute on drain"))))
 
-;; ---- throw mid-drain does NOT strand downstream thunks --------------------
-;; (rf2-l3lelt)
+;; ---- throw mid-drain: drains the tail (no strand) AND surfaces ------------
+;; (rf2-l3lelt + rf2-qcmzc)
 
 (deftest throwing-thunk-mid-drain-does-not-strand-downstream
   (testing "a derived value whose compute-fn THROWS during the epoch drain
             must not strand the downstream thunks still queued behind it:
-            the throw is contained (it does not escape replace-container!),
-            the surviving sibling drains its flush in the SAME epoch, and —
-            critically — its dirty? guard is cleared so a LATER source change
-            can re-enqueue it (no stuck-dirty strand).
+            the surviving sibling drains its flush in the SAME epoch (BEFORE
+            the throw surfaces), its dirty? guard is cleared so a LATER source
+            change can re-enqueue it (no stuck-dirty strand), AND the throw is
+            SURFACED to the caller after the drain completes (rf2-qcmzc)
+            rather than swallowed by the per-thunk guard.
 
             Wiring mirrors the real graph: both layer-1 values watch the root
             and so both enqueue a flush thunk on the ONE shared scheduler per
@@ -295,13 +296,18 @@
       ;; Arm the throw, then ONE replace-container! queues BOTH flush thunks;
       ;; the thrower's recompute throws mid-drain.
       (reset! boom? true)
-      (is (nil? (replace! root {:a 99 :b 20}))
-          "the mid-drain throw is contained — replace-container! returns
-           normally (the per-thunk guard swallows; the throw does not escape
-           the drain)")
+      (let [caught (atom ::none)]
+        (try (replace! root {:a 99 :b 20})
+             (catch :default e (reset! caught e)))
+        (is (instance? js/Error @caught)
+            "the mid-drain recompute throw is SURFACED to the caller AFTER the
+             drain (rf2-qcmzc) — no longer swallowed by the per-thunk guard")
+        (is (= "boom" (.-message @caught))
+            "the surfaced value is the original thrown error (identity carried
+             through the drain's caller/error channel)"))
       (is (= [[10 20]] @notes)
-          "the survivor's flush STILL ran in the same epoch — it was not
-           stranded behind the throwing thunk")
+          "the survivor's flush STILL ran in the same epoch BEFORE the throw
+           surfaced — it was not stranded behind the throwing thunk")
       (is (= 20 @survivor) "survivor deref reflects the settled value")
       ;; The load-bearing strand assertion: disarm the throw and change the
       ;; survivor's slice AGAIN. With the bug its dirty? was stuck true (its
@@ -330,8 +336,11 @@
       (add-watch thrower :w (fn [_ _ prev nu] (swap! notes conj [prev nu])))
       ;; First write throws mid-drain.
       (reset! boom? true)
-      (is (nil? (replace! root {:a 2 :b 10}))
-          "the throw is contained")
+      (let [caught (atom ::none)]
+        (try (replace! root {:a 2 :b 10})
+             (catch :default e (reset! caught e)))
+        (is (instance? js/Error @caught)
+            "the throw is SURFACED to the caller after the drain (rf2-qcmzc)"))
       (is (= [] @notes)
           "the throwing flush did not notify (its recompute never returned)")
       ;; Disarm; a fresh change must re-enqueue + flush the (formerly
@@ -399,9 +408,10 @@
   (testing "with the throwing subscriber registered FIRST (drained first), a
             later sibling still receives the same movement. Bare `run!`
             aborted at the throw and skipped every later subscriber; the fan-
-            out now attempts each independently. The throw is contained — it
-            re-raises through the scheduler's per-thunk drain isolation, so
-            replace-container! returns normally. (rf2-vxgfnd.203)"
+            out now attempts each independently, then re-raises the captured
+            failure AFTER delivery — the drain surfaces it to the caller
+            (rf2-qcmzc), so replace-container! throws the primary value while
+            every sibling still fired. (rf2-vxgfnd.203 + rf2-qcmzc)"
     (let [{:keys [make-derived replace! root]} (build-graph)
           l1      (make-derived [root] (fn [db] (:a db)))
           a-fired (atom 0)
@@ -412,12 +422,17 @@
                          (swap! a-fired inc)
                          (throw (js/Error. "subscriber A boom"))))
       (add-watch l1 :b (fn [_ _ _ _] (swap! b-fired inc)))
-      (is (nil? (replace! root {:a 2 :b 10}))
-          "the subscriber throw is contained — replace-container! returns nil")
-      (is (= 1 @a-fired) "the throwing subscriber ran")
-      (is (= 1 @b-fired)
-          "the later sibling STILL fired despite A throwing (bare run! would
-           have skipped it)"))))
+      (let [caught (atom ::none)]
+        (try (replace! root {:a 2 :b 10})
+             (catch :default e (reset! caught e)))
+        (is (= 1 @a-fired) "the throwing subscriber ran")
+        (is (= 1 @b-fired)
+            "the later sibling STILL fired despite A throwing (bare run! would
+             have skipped it)")
+        (is (and (instance? js/Error @caught)
+                 (= "subscriber A boom" (.-message @caught)))
+            "A's throw is SURFACED to the caller AFTER B was delivered
+             (rf2-qcmzc) — not swallowed inside the fan-out")))))
 
 (deftest throwing-subscriber-delivery-is-order-independent
   (testing "a throwing subscriber in the MIDDLE of the registration order does
@@ -436,17 +451,25 @@
                          (swap! fired conj :a)
                          (throw (js/Error. "middle subscriber boom"))))
       (add-watch l1 :c (fn [_ _ _ _] (swap! fired conj :c)))
-      (is (nil? (replace! root {:a 2 :b 10}))
-          "the middle throw is contained")
-      (is (= #{:a :b :c} @fired)
-          "every subscriber fired — the earlier (:b), the thrower (:a), AND the
-           later (:c) sibling a bare run! would have skipped"))))
+      (let [caught (atom ::none)]
+        (try (replace! root {:a 2 :b 10})
+             (catch :default e (reset! caught e)))
+        (is (= #{:a :b :c} @fired)
+            "every subscriber fired — the earlier (:b), the thrower (:a), AND the
+             later (:c) sibling a bare run! would have skipped")
+        (is (and (instance? js/Error @caught)
+                 (= "middle subscriber boom" (.-message @caught)))
+            "the middle subscriber's throw is SURFACED to the caller after ALL
+             siblings were delivered (rf2-qcmzc)")))))
 
-(deftest falsey-subscriber-throws-are-contained-by-presence
+(deftest falsey-subscriber-throws-are-surfaced-by-presence
   (testing "a subscriber that throws a FALSEY value (`false` / `nil` — both
             legal CLJS throws) is captured by PRESENCE, so a later sibling
-            still fires and the primary failure is not masked by a truthiness
-            test. (rf2-vxgfnd.203)"
+            still fires AND the primary failure is SURFACED to the caller with
+            its exact identity — never masked by a truthiness test. Against
+            #5961 the falsey value was captured but the whole failure was then
+            swallowed by the drain, so the caller saw nil either way; this pins
+            that the caller observes the ORIGINAL falsey throw. (rf2-qcmzc)"
     (doseq [thrown-val [false nil]]
       (let [{:keys [make-derived replace! root]} (build-graph)
             l1      (make-derived [root] (fn [db] (:a db)))
@@ -454,8 +477,159 @@
         (is (= 1 @l1) "baseline deref establishes prev-state")
         (add-watch l1 :a (fn [_ _ _ _] (throw thrown-val)))
         (add-watch l1 :b (fn [_ _ _ _] (swap! b-fired inc)))
-        (is (nil? (replace! root {:a 2 :b 10}))
-            (str "a `" (pr-str thrown-val) "` throw is contained"))
+        (let [caught (atom ::none)
+              threw? (atom false)]
+          (try (replace! root {:a 2 :b 10})
+               (catch :default e (reset! threw? true) (reset! caught e)))
+          (is @threw?
+              (str "replace! SURFACED the `" (pr-str thrown-val) "` throw — "
+                   "presence capture means a falsey primary is not lost"))
+          (is (identical? thrown-val @caught)
+              (str "the surfaced value IS the original `" (pr-str thrown-val)
+                   "` throw — identity preserved by presence, not truthiness"))
+          (is (= 1 @b-fired)
+              (str "sibling still fired after the `" (pr-str thrown-val)
+                   "` throw — captured by presence, delivered before surfacing")))))))
+
+;; ---- native derived subscriber failures SURFACE after fan-out -------------
+;; (rf2-qcmzc)
+;;
+;; #5961 contained a throwing derived subscriber (every sibling still
+;; delivers) and re-raised the captured value AFTER delivery — but that
+;; re-raise escaped `flush!` straight into `drain-scheduler!`'s per-thunk
+;; `(catch :default _ nil)`, which DISCARDED it. So the primary failure
+;; vanished silently: `replace-container!` returned normally and the
+;; programmer error never surfaced. These tests observe the ORIGINAL thrown
+;; value at the caller (identity preserved), which is exactly what the
+;; swallowing #5961 path could not deliver — they are RED against #5961.
+
+(deftest primary-subscriber-throw-surfaces-with-object-identity
+  (testing "the FIRST subscriber's thrown value is SURFACED to the caller with
+            EXACT object identity preserved, AFTER every later sibling has been
+            delivered. #5961 delivered the siblings but the drain swallowed the
+            primary, so the caller never observed the thrown object; rf2-qcmzc
+            surfaces it through the drain's caller/error channel. (rf2-qcmzc)"
+    (let [{:keys [make-derived replace! root]} (build-graph)
+          l1       (make-derived [root] (fn [db] (:a db)))
+          ;; A distinct object — assert IDENTITY, not just class/message, so
+          ;; nothing along the fan-out→drain→caller path can substitute a
+          ;; look-alike.
+          sentinel (js/Error. "primary failure")
+          b-fired  (atom 0)]
+      (is (= 1 @l1) "baseline deref establishes prev-state")
+      ;; :a registered FIRST → throws the sentinel; :b registered second.
+      (add-watch l1 :a (fn [_ _ _ _] (throw sentinel)))
+      (add-watch l1 :b (fn [_ _ _ _] (swap! b-fired inc)))
+      (let [caught (atom ::none)]
+        (try (replace! root {:a 2 :b 10})
+             (catch :default e (reset! caught e)))
+        (is (identical? sentinel @caught)
+            "the EXACT thrown object surfaced to the caller — identity preserved
+             through the fan-out capture AND the drain caller/error channel")
         (is (= 1 @b-fired)
-            (str "sibling still fired after a `" (pr-str thrown-val)
-                 "` throw — captured by presence, not truthiness"))))))
+            "the later sibling was delivered BEFORE the primary surfaced")))))
+
+(deftest single-subscriber-throw-surfaces-on-fast-path
+  (testing "the allocation-free single-subscriber fast path still SURFACES a
+            throwing subscriber's failure with identity preserved. With exactly
+            one watcher there is no sibling to protect, so the fan-out invokes
+            it directly (no capture volatile) and its throw propagates through
+            flush! into the drain, which surfaces it to the caller. Guards
+            against the fast path silently dropping the sole subscriber's throw.
+            (rf2-qcmzc common-path preservation)"
+    (let [{:keys [make-derived replace! root]} (build-graph)
+          l1       (make-derived [root] (fn [db] (:a db)))
+          sentinel (js/Error. "solo boom")]
+      (is (= 1 @l1) "baseline deref establishes prev-state")
+      (add-watch l1 :only (fn [_ _ _ _] (throw sentinel)))
+      (let [caught (atom ::none)]
+        (try (replace! root {:a 2 :b 10})
+             (catch :default e (reset! caught e)))
+        (is (identical? sentinel @caught)
+            "the sole subscriber's throw surfaced with identity preserved on the
+             allocation-free fast path")))))
+
+;; ---- watcher add/remove during fan-out lands on the NEXT wave --------------
+;; (rf2-qcmzc — snapshot semantics)
+
+(deftest watcher-add-remove-during-fan-out-snapshots-to-next-wave
+  (testing "the fan-out iterates a SNAPSHOT of the watcher map (@watchers is an
+            immutable map derefed once). A subscriber that add-watches / remove-
+            watches DURING fan-out therefore lands on the NEXT movement, not the
+            current one: a watcher REMOVED mid-fan-out still fires this wave (it
+            is in the snapshot), and a watcher ADDED mid-fan-out does NOT fire
+            this wave (it is not). On the following movement the roles flip.
+            (rf2-qcmzc)"
+    (let [{:keys [make-derived replace! root]} (build-graph)
+          l1      (make-derived [root] (fn [db] (:a db)))
+          a-count (atom 0)
+          c-count (atom 0)
+          d-count (atom 0)
+          mutated (atom false)]
+      (is (= 1 @l1) "baseline deref establishes prev-state")
+      ;; Registration (== iteration) order: :a, :mutator, :c. The mutator, on
+      ;; the FIRST wave only, adds :d and removes :c — mutating the watchers
+      ;; atom mid-fan-out.
+      (add-watch l1 :a (fn [_ _ _ _] (swap! a-count inc)))
+      (add-watch l1 :mutator (fn [_ _ _ _]
+                               (when-not @mutated
+                                 (reset! mutated true)
+                                 (add-watch l1 :d (fn [_ _ _ _] (swap! d-count inc)))
+                                 (remove-watch l1 :c))))
+      (add-watch l1 :c (fn [_ _ _ _] (swap! c-count inc)))
+      ;; Wave 1 (1→2): snapshot = [:a :mutator :c]. :a fires; :mutator adds :d +
+      ;; removes :c; :c STILL fires (in the snapshot); :d does NOT (not in it).
+      (replace! root {:a 2 :b 10})
+      (is (= 1 @a-count) "wave 1: :a fired")
+      (is (= 1 @c-count)
+          "wave 1: :c fired from the SNAPSHOT even though the mutator removed it
+           mid-fan-out — the removal lands on the next wave")
+      (is (= 0 @d-count)
+          "wave 1: :d added mid-fan-out did NOT fire this wave — it lands on the
+           next wave")
+      ;; Wave 2 (2→3): watcher map is now {:a :mutator :d} (:c gone, :d present).
+      (replace! root {:a 3 :b 10})
+      (is (= 2 @a-count) "wave 2: :a fired again")
+      (is (= 1 @c-count) "wave 2: :c did NOT fire — it was removed on wave 1")
+      (is (= 1 @d-count)
+          "wave 2: :d NOW fires — the mid-fan-out add took effect on this wave"))))
+
+;; ---- re-entrant write from a subscriber during fan-out --------------------
+;; (rf2-qcmzc — pins current behavior; full re-entrant-write ordering is a
+;; later pass per the bead)
+
+(deftest re-entrant-write-from-subscriber-coalesces-into-outer-drain
+  (testing "a subscriber that performs a re-entrant replace! during fan-out has
+            its write coalesced into the SAME outer drain: the nested epoch's
+            drain is a no-op while the outer drain still holds `flushing?`, so
+            the re-enqueued flush is picked up by the running outer loop. The
+            derived value settles to the re-entrant value and the subscriber
+            observes BOTH movements in order. Pins the current behavior — the
+            bead scopes full queued / re-entrant-write ordering to a later pass.
+            (rf2-qcmzc)"
+    (let [{:keys [make-derived replace! root]} (build-graph)
+          l1    (make-derived [root] (fn [db] (:a db)))
+          seen  (atom [])
+          done? (atom false)]
+      (is (= 1 @l1) "baseline deref establishes prev-state")
+      (add-watch l1 :w (fn [_ _ prev nu]
+                         (swap! seen conj [prev nu])
+                         (when-not @done?
+                           (reset! done? true)
+                           ;; Re-entrant write DURING fan-out (single subscriber
+                           ;; → exercises the fast path). Guarded so it fires
+                           ;; exactly once (an unconditional re-entrant write
+                           ;; would spin forever).
+                           (replace! root {:a 3 :b 10}))))
+      (replace! root {:a 2 :b 10})
+      (is (= [[1 2] [2 3]] @seen)
+          "the subscriber saw the original 1→2 movement then the re-entrant 2→3
+           movement, both drained within the one outer epoch")
+      (is (= 3 @l1) "the derived value settled to the re-entrant value")
+      ;; A subsequent ordinary write still flushes cleanly — the scheduler state
+      ;; was fully restored after the re-entrant cascade (no stuck flushing?).
+      (reset! seen [])
+      (replace! root {:a 4 :b 10})
+      (is (= [[3 4]] @seen)
+          "a later write flushes normally — scheduler state restored after the
+           re-entrant cascade"))))

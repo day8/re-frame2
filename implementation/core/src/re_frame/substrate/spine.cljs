@@ -107,64 +107,102 @@
    :queue     (volatile! [])  ;; ordered queue of pending flush thunks
    :queued    (volatile! #{})}) ;; identity set guarding double-enqueue
 
+(def ^:private capture-none
+  "Presence sentinel shared by the two failure seams — the derived fan-out's
+  first-thrown capture (`notify`) and the scheduler drain's first-escape
+  capture (`drain-scheduler!`). A distinct object identity so a subscriber /
+  recompute that throws `nil`/`false` (both legal CLJS throws) is still
+  recorded and re-raised by PRESENCE — never masked by a truthiness test
+  (rf2-vxgfnd.203, rf2-qcmzc)."
+  (js-obj))
+
 (defn- drain-scheduler!
   "Drain the scheduler's pending flush thunks in enqueue order until the
   queue is empty. Re-entrant-safe: an in-progress drain swallows nested
   drain requests (the running loop already observes newly-enqueued
-  thunks). Each thunk recomputes its derived value and, on a `=`-change,
+  thunks). Each thunk recomputes its derived value and, on a movement,
   notifies its watchers — which may enqueue downstream thunks that the
   same loop then drains, preserving topological order.
 
-  Per-thunk throw isolation (rf2-l3lelt). On the production sub graph a
-  flush thunk never throws: the spine compute-fn is
-  `subs.memo/validate-and-trace`, which brackets the user sub body in
-  `try/catch`, emits `:rf.error/sub-exception`, and recovers to nil. A
-  non-catching compute-fn (a RAW derived value built by tooling/tests)
-  can throw, though — and a throw propagating out of the bare drain loop
-  STRANDED every downstream thunk still queued behind it: the `finally`
-  retained them in `@queue`, but their `dirty?` flag stayed `true`, so
-  `mark-dirty!` (guarded by `(when-not @dirty? …)`) could never re-enqueue
-  them on a later source change — a latent stuck-dirty strand. Mirroring
-  `drain-after-render-queue!`, each thunk now runs inside its own
-  `try/catch` that swallows: one misbehaving thunk cannot strand the rest,
-  and the loop drains to completion (the throwing thunk's own `dirty?` was
-  already cleared by `flush!` before `recompute`, so it leaves no stuck
-  guard either)."
+  Per-thunk isolation WITH first-escape surfacing (rf2-l3lelt + rf2-qcmzc).
+  On the production sub graph a flush thunk never throws: the spine
+  compute-fn is `subs.memo/validate-and-trace`, which brackets the user sub
+  body in `try/catch`, emits `:rf.error/sub-exception`, and recovers to nil.
+  A non-catching compute-fn (a RAW derived value built by tooling/tests),
+  or a throwing derived SUBSCRIBER (whose escape the fan-out `notify`
+  re-raises after delivering every sibling), CAN throw though — and this
+  seam owes TWO disciplines at once:
+
+    1. Don't STRAND the tail (rf2-l3lelt). A throw propagating out of a bare
+       drain loop stranded every downstream thunk still queued behind it:
+       the `finally` retained them in `@queue`, but their `dirty?` flag
+       stayed `true`, so `mark-dirty!` (guarded by `(when-not @dirty? …)`)
+       could never re-enqueue them on a later source change — a latent
+       stuck-dirty strand. So each thunk runs inside its own `try/catch` and
+       the loop drains every remaining thunk to completion regardless.
+
+    2. Don't SWALLOW the failure (rf2-qcmzc). The earlier per-thunk guard
+       DISCARDED every escape (`(catch :default _ nil)`), so a programmer
+       error in a raw derived value / subscriber vanished silently and the
+       fan-out's careful re-raise reached a dead end — the source bead's
+       observability criterion unmet. Instead the loop CAPTURES the FIRST
+       escape by PRESENCE (`capture-none`, not truthiness — `nil`/`false`
+       are legal CLJS throws whose identity must survive), keeps draining
+       the tail, restores scheduler state in the `finally`, and THEN
+       re-raises the retained value to the caller (`replace-container!` / a
+       direct source mutation) — the established caller/error channel. The
+       primary failure surfaces WITH identity preserved, AFTER every sibling
+       has been delivered.
+
+  The throwing thunk's own `dirty?` was already cleared by `flush!` before
+  `recompute`, so it leaves no stuck guard either. Queued / re-entrant
+  writes a subscriber triggers mid-drain are a later pass; the FIRST escape
+  is the one surfaced."
   [{:keys [flushing? queue queued] :as _scheduler}]
   (when-not @flushing?
     (vreset! flushing? true)
     ;; Walk the live `@queue` by index rather than re-slicing the head: a
     ;; thunk may `schedule-flush!` downstream thunks, which `conj` onto the
     ;; same vector, so re-reading `(count @queue)` each step keeps the
-    ;; running loop observing newly-enqueued thunks in enqueue order —
-    ;; identical to the previous incremental-`subvec` drain, but without
-    ;; building a chain of nested subvec views per cascade step. The
+    ;; running loop observing newly-enqueued thunks in enqueue order. The
     ;; cursor advances and the entry leaves `queued` BEFORE the thunk runs,
     ;; so a thunk that throws is already considered consumed (matching the
-    ;; old head-pop-before-call ordering). A per-thunk `try/catch` (see the
-    ;; docstring) isolates a throwing thunk so the loop still drains the
-    ;; downstream tail to completion; the `finally` then releases the
-    ;; backing vector for the next epoch.
-    (let [cursor (volatile! 0)]
+    ;; old head-pop-before-call ordering). The per-thunk `try/catch` (see the
+    ;; docstring) BOTH isolates a throwing thunk so the loop drains the
+    ;; downstream tail to completion AND retains its escape for surfacing;
+    ;; the `finally` then restores scheduler state for the next epoch.
+    (let [cursor   (volatile! 0)
+          captured (volatile! capture-none)]
       (try
         (loop []
           (when (< @cursor (count @queue))
             (let [thunk (nth @queue @cursor)]
               (vswap! queued disj thunk)
               (vswap! cursor inc)
-              ;; Per-thunk throw isolation (rf2-l3lelt): swallow so one
-              ;; throwing thunk cannot strand the not-yet-drained tail —
-              ;; mirrors `drain-after-render-queue!`'s per-callback guard.
-              (try (thunk) (catch :default _ nil)))
+              ;; Per-thunk isolation + first-escape capture (rf2-l3lelt +
+              ;; rf2-qcmzc): retain the FIRST escape by presence so it can be
+              ;; surfaced after the drain, while the loop still drains the
+              ;; not-yet-run tail. `capture-none`/`nil`/`false` safe.
+              (try (thunk)
+                   (catch :default e
+                     (when (identical? capture-none @captured)
+                       (vreset! captured e)))))
             (recur)))
         (finally
-          ;; The loop now consumes `@queue` to empty on every
-          ;; non-re-entrant exit (per-thunk isolation means no throw escapes
-          ;; the loop), so the cursor reaches the end and this releases the
-          ;; backing vector for the next epoch. Re-entrant drains still
-          ;; short-circuit on `@flushing?` above and never reach here.
+          ;; The loop consumes `@queue` to empty on every non-re-entrant exit
+          ;; (per-thunk capture means no throw escapes the loop), so the
+          ;; cursor reaches the end and this releases the backing vector for
+          ;; the next epoch. Re-entrant drains short-circuit on `@flushing?`
+          ;; above and never reach here.
           (vreset! queue [])
-          (vreset! flushing? false))))))
+          (vreset! flushing? false)))
+      ;; Scheduler state is restored; NOW surface the FIRST retained escape
+      ;; through the caller/error channel (rf2-qcmzc). Re-raised OUTSIDE the
+      ;; try/finally so scheduler state is clean for the next epoch even on
+      ;; this path, and so the `finally`'s own resets can never mask the
+      ;; primary failure.
+      (when-not (identical? capture-none @captured)
+        (throw @captured)))))
 
 (defn- schedule-flush!
   "Enqueue `thunk` on the scheduler (dedup by identity within the current
@@ -314,13 +352,6 @@
   (or ^boolean (js/Object.is a b)
       (= a b)))
 
-(def ^:private capture-none
-  "Presence sentinel for the derived fan-out's first-thrown capture: a distinct
-  object identity so a subscriber that throws `nil`/`false` (both legal CLJS
-  throws) is still recorded and re-raised by PRESENCE — never masked by a
-  truthiness test (rf2-vxgfnd.203)."
-  (js-obj))
-
 (defn build-recompute-fn
   "Arity-specialised recompute-closure factory for a derived value.
 
@@ -407,26 +438,48 @@
           ;;      The `unset` baseline is never `rf=` a real value, so the first
           ;;      post-construction change still notifies (unchanged).
           ;;
-          ;;   2. CONTAIN a throwing subscriber. Bare `run!` aborted at the
-          ;;      first throw, skipping every later sibling, and the scheduler's
-          ;;      per-thunk drain guard silently swallowed the escape — so ONE
-          ;;      subscriber could permanently suppress another's invalidation,
-          ;;      order-dependently. Instead: snapshot the callbacks (an
-          ;;      add/remove-watch during fan-out is an immutable-map swap, so
-          ;;      this seq is stable and the change lands on the NEXT wave),
-          ;;      attempt EVERY subscriber independently, capture the FIRST
-          ;;      thrown value by PRESENCE (`capture-none`, not truthiness —
-          ;;      `nil`/`false` are legal CLJS throws), then re-raise it AFTER
-          ;;      delivery so the primary failure still surfaces through the
-          ;;      established scheduler error channel (the drain's per-thunk
-          ;;      isolation, rf2-l3lelt) rather than disappearing inside the
-          ;;      fan-out. `vals` over the map (rather than `doseq` over
-          ;;      map-entries) skips a map-entry seq allocation; the zero-
-          ;;      subscriber and no-move paths allocate nothing extra.
+          ;;   2. CONTAIN a throwing subscriber, then SURFACE the primary
+          ;;      failure. Bare `run!` aborted at the first throw, skipping
+          ;;      every later sibling, so ONE subscriber could permanently
+          ;;      suppress another's invalidation, order-dependently. Instead:
+          ;;      snapshot the callbacks (an add/remove-watch during fan-out is
+          ;;      an immutable-map swap, so this seq is stable and the change
+          ;;      lands on the NEXT wave), attempt EVERY subscriber
+          ;;      independently, capture the FIRST thrown value by PRESENCE
+          ;;      (`capture-none`, not truthiness — `nil`/`false` are legal
+          ;;      CLJS throws), then re-raise it AFTER delivery. That re-raise
+          ;;      escapes `flush!` into `drain-scheduler!`, which (rf2-qcmzc)
+          ;;      retains it by presence, drains the rest, restores scheduler
+          ;;      state, and re-raises it to the caller (`replace-container!` /
+          ;;      a direct source mutation) — the established caller/error
+          ;;      channel. So the primary failure SURFACES with identity
+          ;;      preserved rather than disappearing inside the fan-out. (The
+          ;;      earlier code re-raised into a per-thunk drain guard that
+          ;;      SWALLOWED it — the swallow rf2-qcmzc removes.)
+          ;;
+          ;;      Common-path preservation (rf2-vxgfnd.203). The dominant
+          ;;      cardinality is one subscriber (a cache entry's own watch);
+          ;;      that path — and the zero-subscriber / no-move paths — allocate
+          ;;      NOTHING extra: `count` on the map is O(1), and the single
+          ;;      subscriber (no sibling to protect) is invoked directly, its
+          ;;      throw propagating straight through `flush!` into the drain,
+          ;;      which surfaces it identically. Only two-plus subscribers pay
+          ;;      the capture volatile + `run!` closure.
           notify         (fn [prev nu]
                            (when-not (rf= prev nu)
-                             (let [ws (vals @watchers)]
-                               (when (seq ws)
+                             (let [ws @watchers]
+                               (case (count ws)
+                                 0 nil
+                                 ;; Single subscriber: no sibling to protect →
+                                 ;; no capture cell, invoke directly. A throw
+                                 ;; propagates through `flush!` into the drain,
+                                 ;; which surfaces it (rf2-qcmzc) — same outcome,
+                                 ;; zero extra allocation on the common path.
+                                 1 ((val (first ws)) prev nu)
+                                 ;; Two+ subscribers: attempt each independently,
+                                 ;; capture the FIRST escape by presence, re-raise
+                                 ;; after delivery (surfaced via the drain).
+                                 ;; `vals` over the map skips a map-entry seq.
                                  (let [captured (volatile! capture-none)]
                                    (run! (fn [w]
                                            (try
@@ -434,7 +487,7 @@
                                              (catch :default e
                                                (when (identical? capture-none @captured)
                                                  (vreset! captured e)))))
-                                         ws)
+                                         (vals ws))
                                    (when-not (identical? capture-none @captured)
                                      (throw @captured)))))))
           ;; Baseline derived value. LAZY (rf2-ee38b.1 P2): seeded with the
