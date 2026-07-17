@@ -8,6 +8,7 @@
   node suite — react-dom/server needs a JS host)."
   (:require [clojure.string :as str]
             [clojure.test :refer [deftest is testing]]
+            [re-frame.ui :as ui :refer [defview]]
             [re-frame.ui.compiler.emit-jvm :as emit-jvm]
             [re-frame.ui.compiler.env :as env]
             [re-frame.ui.compiler.root :as root]
@@ -283,3 +284,56 @@
       (is (= [:chat/frame] (mapv :frame-id (:plans (analyze-mount-form wrapped)))))
       (is (= {:history 10}
              (:config (first (:plans (analyze-mount-form nested)))))))))
+
+;; ---------------------------------------------------------------------------
+;; ui/spread-safe — JVM half of the dual-host spread-safe corrections
+;; (rf2-m5h0f authored eval order; rf2-j4len nil-owned absence + host parity).
+;; The CLJS half lives in react-render-cljs-test; both hosts must AGREE.
+;; ---------------------------------------------------------------------------
+
+(defonce ^:private eval-order (atom []))
+(defn- omark! [v] (swap! eval-order conj [:owned v]) v)
+(defn- cmark! [v] (swap! eval-order conj [:caller v]) v)
+(defn- oboom! [] (swap! eval-order conj [:owned :boom]) (throw (ex-info "owned boom" {})))
+(defn- cboom! [] (swap! eval-order conj [:caller :boom]) (throw (ex-info "caller boom" {})))
+
+;; owned + caller both literal-at-site so their value expressions ride the
+;; compiled spread-safe path.
+(defview order-probe []
+  [:input.op (ui/spread-safe {:title (omark! "t")} {:data-x (cmark! "c")})])
+(defview order-owned-throws []
+  [:input.op (ui/spread-safe {:title (omark! "t") :lang (oboom!)}
+                             {:data-x (cmark! "c")})])
+(defview order-caller-throws []
+  [:input.op (ui/spread-safe {:title (omark! "t")} {:data-x (cboom!)})])
+(defview order-denial [{:keys [attr]}]
+  [:input.op (ui/spread-safe {:title (omark! "t") :value "owned"
+                              :on-change [:set :rf.ui/value]}
+                             attr)])
+
+(deftest safe-spread-authored-owned-then-caller-eval-order
+  ;; rf2-m5h0f — the JVM already forces the authored owned-then-caller order via
+  ;; its opts-map literal; pin it (and single-eval) so it stays that way and
+  ;; agrees with the CLJS host.
+  (testing "success: owned before caller, once each"
+    (reset! eval-order [])
+    (is (map? (tree/render order-probe {})))
+    (is (= [[:owned "t"] [:caller "c"]] @eval-order)
+        "owned evaluates before caller, each exactly once"))
+  (testing "owned throws: the caller is never reached"
+    (reset! eval-order [])
+    (try (tree/render order-owned-throws {}) (catch Exception _))
+    (is (= [[:owned "t"] [:owned :boom]] @eval-order)
+        "owned ran (and threw) before any caller expression"))
+  (testing "caller throws: owned already ran"
+    (reset! eval-order [])
+    (try (tree/render order-caller-throws {}) (catch Exception _))
+    (is (= [[:owned "t"] [:caller :boom]] @eval-order)
+        "owned evaluated first, then the caller expression threw"))
+  (testing "caller denial throws: owned already ran"
+    (reset! eval-order [])
+    (let [data (try (tree/render order-denial {:attr {:ref "r"}})
+                    nil (catch clojure.lang.ExceptionInfo e (ex-data e)))]
+      (is (= :rf.error/ui-tree-malformed (:rf.error/id data)) "the deny fired")
+      (is (= [[:owned "t"]] @eval-order)
+          "owned evaluated before the every-build caller deny threw"))))
