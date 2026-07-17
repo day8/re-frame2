@@ -157,11 +157,46 @@ either way: **I/O ends in events, and events are the only writers.**
 
 ## Testing the seam without a network
 
-Headless tests never touch a real HTTP client. Install the shared
-[test namespace fixture](08-testing.md#test-namespace-setup), register the
-resource, override `:rf.http/managed` with a capturing stub, then replay the
-transport's reply envelope yourself. Loading, success, failure, and retry all
-drive the **real** ensure → settle → sub path:
+Headless tests never touch a real HTTP client. The
+[test namespace setup](08-testing.md#test-namespace-setup) installs the JVM
+adapter; a resource test adds two things beside it — the resource and
+managed-HTTP artefacts on the require list, and a **capturing** `:rf.http/managed`
+fixture that records what the runtime lowered into an atom instead of doing I/O.
+The fx-handler is the ordinary binary `(fn [ctx args] …)`, so the capture is one
+line:
+
+```clojure
+(ns metrics.ui-test
+  (:require [clojure.string :as str]
+            [clojure.test :refer [deftest is use-fixtures]]
+            [re-frame.core :as rf]
+            [re-frame.fx :as fx]
+            [re-frame.substrate.plain-atom :as plain-atom]
+            [re-frame.test-support :as test-support]
+            [re-frame.ui.test :as ui.test]
+            ;; load-bearing: register the resource events/subs, the
+            ;; managed-HTTP fx surface, the per-test reset hook, and the
+            ;; param validator — an app that uses resources already has these
+            ;; on its classpath.
+            [re-frame.resources]
+            [re-frame.resources.test-support]
+            [re-frame.http.managed]
+            [re-frame.schemas]))
+
+;; the last args the runtime lowered into :rf.http/managed — no network runs
+(def managed-args (atom nil))
+
+(use-fixtures :each
+  (test-support/make-reset-runtime-fixture
+    {:adapter plain-atom/adapter :ambient-frame nil})
+  (fn [f]                                    ; capture the transport, do no I/O
+    (reset! managed-args nil)
+    (fx/reg-fx :rf.http/managed (fn [_ctx args] (reset! managed-args args)))
+    (f)))
+```
+
+With `managed-args` defined and the transport captured, the loading → success →
+sub path runs for real. `latency-tile` is the view from §2 above:
 
 ```clojure
 (deftest latency-tile-loads-and-recovers
@@ -184,9 +219,26 @@ drive the **real** ensure → settle → sub path:
                        "42"))))
 ```
 
-`@managed-args` is whatever the capturing `:rf.http/managed` stub recorded (its
+`@managed-args` is now defined: the capturing stub recorded it, and its
 `:on-success` is the runtime-owned `[:rf.resource.internal/succeeded …]` reply
-target). To pin a pure presentation state instead, stub the sub:
+target — so `(conj (:on-success @managed-args) {:status :ok :value …})` appends
+the envelope exactly as the live transport does. Replaying the **failure**
+envelope instead drives the error branch and its real retry; continue the same
+test:
+
+```clojure
+;; failure: replay {:status :error :error …} → the tile offers Retry
+(ui.test/dispatch! frame (conj (:on-failure @managed-args)
+                               {:status :error :error {:kind :rf.http/http-5xx}}))
+;; the retry control carries a real refetch event as data — assert it, then fire it
+(is (= [:rf.resource/refetch {:resource :metrics/latency-feed}]
+       (:on-click (ui.test/attrs
+                    (ui.test/find (ui.test/render [latency-tile] {:frame frame})
+                                  :button)))))
+(ui.test/dispatch! frame [:rf.resource/refetch {:resource :metrics/latency-feed}])
+```
+
+To pin a pure presentation state instead, stub the sub:
 
 ```clojure
 (ui.test/render [latency-tile]

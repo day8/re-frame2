@@ -15,7 +15,12 @@
   path, and the app-db counterpart (raw `:rf.http/managed` with
   `:on-success`/`:on-failure` handlers consuming the uniform reply envelope) is
   proven too. A false claim in the chapter reddens a deftest below, so the
-  transport / resource / app-db seams cannot drift apart.
+  transport / resource / app-db seams cannot drift apart. `guide07-chapter-
+  forms-stay-truth-bound` (rf2-qww2o) additionally binds the chapter's
+  load-bearing FORMS — keys, url, envelopes, app-db writes, retry intent, and
+  the self-contained `managed-args` atom + capturing `:rf.http/managed`
+  override the runnable snippet dereferences — so a Markdown-only drift reddens
+  even while these hand-copied deftests stay green.
 
   The managed-HTTP transport is exercised WITHOUT a network: `:rf.http/managed`
   is overridden with a capturing stub and the test replays the transport's
@@ -290,6 +295,59 @@
                                  {:status :ok :value {:p95 42}}))
       (is (str/includes?
             (uit/text (uit/render [latency-plain-tile] {:frame frame})) "42")))))
+
+(deftest guide07-chapter-forms-stay-truth-bound
+  ;; rf2-qww2o — the three deftests above PROVE the server-data behaviour with
+  ;; forms held here in the test. This gate BINDS those forms to the chapter
+  ;; text: every load-bearing key, path, envelope, app-db write, retry intent,
+  ;; and — crucially — the SELF-CONTAINED capturing fixture (the `managed-args`
+  ;; atom + the capturing `:rf.http/managed` override the runnable snippet
+  ;; dereferences) must appear verbatim in `07-servers.md`. A drift in the
+  ;; Markdown (a wrong key/url/envelope/refetch, or a snippet that again omits
+  ;; the atom/override) reddens HERE even while the executable deftests keep
+  ;; their own copies green.
+  (let [servers (slurp-guide "07-servers.md")
+        has?    (fn [needle] (str/includes? servers needle))]
+    (testing "§1 register — the 3-slot grammar, fail-closed scope, url, decode"
+      (is (has? "(rf/reg-resource :metrics/latency-feed"))
+      (is (has? ":scope") "the required scope key is shown")
+      (is (has? ":rf.scope/global") "the explicit global scope value")
+      (is (has? ":params-schema [:map]"))
+      (is (has? "{:method :get :url \"/api/metrics/latency\"}")
+          "the exact request the executable gate lowers verbatim")
+      (is (has? ":decode") "the Spec 014 decode key rides through")
+      (is (has? ":json") "the decode value"))
+    (testing "§2 view — lease liveness + passive [:rf/resource …] read"
+      (is (has? "(lease {:resource :metrics/latency-feed})"))
+      (is (has? "(sub [:rf/resource {:resource :metrics/latency-feed}])")))
+    (testing "the ensure cause the lease drives under the hood"
+      (is (has? "[:rf.resource/ensure")))
+    (testing "retry intent — the control carries a real refetch event as data"
+      (is (has? "[:rf.resource/refetch {:resource :metrics/latency-feed}]")))
+    (testing "the uniform reply envelope — success and failure shapes"
+      (is (has? ":status :ok") "success envelope tag")
+      (is (has? ":value") "success carries the decoded body under :value")
+      (is (has? ":status :error") "failure envelope tag")
+      (is (has? "{:status :ok :value {:p95 42}}")
+          "the exact success envelope the gate replays as the last reply arg"))
+    (testing "§Firing a request without a resource — the app-db seam"
+      (is (has? ":on-success [:metrics/latency-arrived]"))
+      (is (has? ":on-failure [:metrics/latency-failed]"))
+      (is (has? "(assoc db :latency {:status :loaded :p95 (:p95 value)})")
+          "the success handler consumes the envelope's :value into app-db")
+      (is (has? "(sub [:metrics/latency])")
+          "the plain tile reads ordinary app-db"))
+    (testing "the runnable testing snippet is SELF-CONTAINED (rf2-qww2o)"
+      (is (has? "(def managed-args (atom nil))")
+          "the managed-args atom is DEFINED in the chapter, not private to this test")
+      (is (has? "(fx/reg-fx :rf.http/managed")
+          "the capturing :rf.http/managed override is INSTALLED in the chapter")
+      (is (has? "(reset! managed-args args)")
+          "the override CAPTURES the lowered args into managed-args")
+      (is (has? "(conj (:on-success @managed-args)")
+          "success replays the transport's reply-append shape onto the captured target")
+      (is (has? "(conj (:on-failure @managed-args)")
+          "failure replays the transport's reply-append shape onto the captured target"))))
 
 (deftest lifecycle-recipe-is-installed-and-owned
   (let [getting-started (slurp-guide "01-getting-started.md")
