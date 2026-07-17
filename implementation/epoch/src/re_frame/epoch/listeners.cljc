@@ -391,10 +391,16 @@
 
   The id-keyed store DROP is compare-owned (`state/cleanup-frame-owner!`): it
   runs only while `owner-token` still owns the stores, so stale A can never
-  erase a fresh same-id B. PUBLICATION of A's already-snapshotted terminal
-  record and its structural trailers is INDEPENDENT of winning that comparison —
-  the evidence was bound to A's exact incarnation before dissoc and is A's to
-  deliver whether or not A still owns the stores (rf2-vxgfnd.151). Live
+  erase a fresh same-id B. That drop runs UNCONDITIONALLY of terminal-evidence —
+  cleanup authority is the frame-id + owner-token, not the snapshot bundle — so a
+  throwing pre-dissoc snapshot hook (nil terminal-evidence, PR #5939) still frees
+  A's history / buffer / observation / last-settled-epoch / mount attribution and
+  no same-id successor inherits them (rf2-hclxos). PUBLICATION of A's already-
+  snapshotted terminal record and its structural trailers is INDEPENDENT of
+  winning that comparison AND conditional on a non-nil bundle — the evidence was
+  bound to A's exact incarnation before dissoc and is A's to deliver whether or
+  not A still owns the stores (rf2-vxgfnd.151); a nil bundle bound nothing and
+  publishes nothing. Live
   observation is re-read INSIDE each per-identity claim AFTER the compare-owned
   cleanup, so a winning cleanup has already dropped this incarnation's own stamps
   while a losing one leaves the successor's — exactly the re-arm evidence the
@@ -410,37 +416,48 @@
                          frame-id fs-before fs-after committed-at)))
   ([frame-id owner-token terminal-evidence]
    ;; Sole-condition `interop/debug-enabled?` gate so :advanced + goog.DEBUG=false
-   ;; dead-code-eliminates this whole publish path (Spec 009 §Production builds);
-   ;; the nil-bundle check nests INSIDE it, never folded into the gate condition.
-   ;; A non-nil bundle means `snapshot-terminal-destroy-evidence!` participated
-   ;; (debug on) and opened the deferred-silence window; that is the exact
-   ;; condition under which we must publish AND close it. A nil bundle (no epoch
-   ;; layer) opened nothing and has nothing to publish.
+   ;; dead-code-eliminates this whole path (Spec 009 §Production builds). Two
+   ;; concerns split INSIDE the gate: (1) exact-owner STORE CLEANUP runs
+   ;; UNCONDITIONALLY of terminal-evidence; (2) terminal-record/silencing
+   ;; PUBLICATION stays conditional on a non-nil bundle. Neither is folded into
+   ;; the gate condition itself.
    (when interop/debug-enabled?
+     ;; (1) EXACT-OWNER STORE CLEANUP — runs whether or not terminal-evidence is
+     ;; nil. Cleanup authority is the frame-id + owner-token, NOT the snapshot
+     ;; bundle: a throwing `:epoch/snapshot-frame-destroyed` hook yields nil
+     ;; terminal-evidence (frame.cljc converts the throw to nil — PR #5939), but the
+     ;; destroyed incarnation's id-keyed stores must STILL be dropped or a same-id
+     ;; successor B inherits A's history / buffer / observation / last-settled-epoch
+     ;; / mount attribution (rf2-hclxos). The drop stays compare-owned
+     ;; (`cleanup-frame-owner!`): A erases ONLY its own stores while `owner-token`
+     ;; still owns them, so a stale A that lost the comparison to a claimed same-id
+     ;; B no-ops and leaves B untouched (fail-closed, no cross-incarnation wipe).
+     ;; The return value is intentionally ignored for the silencing decision below —
+     ;; winning this comparison is NOT the same fact as "no successor re-armed the
+     ;; observers" (a claim without delivery loses it; a re-arm-then-destroy wins
+     ;; it), which the per-identity claim resolves precisely.
+     (state/cleanup-frame-owner!
+       frame-id owner-token
+       (fn []
+         ;; Data-only exact-owner transaction: no external callback runs
+         ;; between owner comparison and the complete drop.
+         (state/drop-frame-observation! frame-id)
+         (state/drop-frame-history! frame-id)
+         (state/drop-frame-buffer! frame-id)
+         (state/drop-last-settled-epoch! frame-id)
+         (state/drop-frame-mount-attribution! frame-id)
+         true))
+     ;; (2) TERMINAL-RECORD + SILENCING PUBLICATION — conditional on a non-nil
+     ;; bundle. A non-nil bundle means `snapshot-terminal-destroy-evidence!`
+     ;; participated (debug on) and opened the deferred-silence window; that is the
+     ;; exact condition under which we must publish AND close it. A nil bundle (the
+     ;; snapshot hook threw, or no epoch layer) opened no window and bound no
+     ;; evidence — it publishes and fabricates nothing (#5939), yet the store
+     ;; cleanup above already ran.
      (when terminal-evidence
        (try
         (let [{:keys [record listener-snapshot silenced-cbs baseline-silence-seq]}
               terminal-evidence]
-         ;; Compare-owned store drop: A erases ONLY its own id-keyed stores. If a
-         ;; same-id B has already claimed them, this no-ops and leaves B untouched.
-         ;; The return value is intentionally ignored for the silencing decision —
-         ;; winning this comparison is NOT the same fact as "no successor re-armed
-         ;; the observers" (a claim without delivery loses it; a re-arm-then-destroy
-         ;; wins it), which the per-identity claim below resolves precisely. The
-         ;; DROP itself still runs here so a winning A frees its stores (and leaves
-         ;; the live observation ledger showing the successor's re-arm evidence
-         ;; when A loses).
-         (state/cleanup-frame-owner!
-           frame-id owner-token
-           (fn []
-             ;; Data-only exact-owner transaction: no external callback runs
-             ;; between owner comparison and the complete drop.
-             (state/drop-frame-observation! frame-id)
-             (state/drop-frame-history! frame-id)
-             (state/drop-frame-buffer! frame-id)
-             (state/drop-last-settled-epoch! frame-id)
-             (state/drop-frame-mount-attribution! frame-id)
-             true))
          ;; Publish A's terminal RECORD + trailers regardless of the cleanup
          ;; comparison — the evidence was snapshotted before dissoc and belongs to
          ;; A's incarnation (rf2-vxgfnd.151). A late predecessor terminal record may
