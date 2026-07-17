@@ -1218,41 +1218,101 @@
   per call."
   #{:key :ref :value :checked})
 
-(defn spread-safe-denied-key?
-  "Is `k` denied to a `ui/spread-safe` caller map, given the component's
-  `owned-handler-keys` (the literal `:on-*` keys of its owned map)?"
-  [k owned-handler-keys]
-  (or (contains? spread-safe-denied-structural k)
-      (contains? owned-handler-keys k)))
+(def ^:private spread-safe-denied-structural-names
+  "The CANONICAL emitted names of the denied structural keys — the form both
+  host converters reduce a caller key to via `(name k)`. The deny law compares
+  canonical NAMES, so `:key`/`:ref`/`:value`/`:checked` AND every alternate
+  spelling that canonicalizes to one of them (`:caller/ref`, `\"ref\"`, `'ref`)
+  are denied uniformly (rf2-izep3)."
+  (into #{} (map name) spread-safe-denied-structural))
 
-(defn- spread-safe-denial-reason [k owned-handler-keys]
+(defn caller-key-name
+  "The CANONICAL emitted name of a `ui/spread-safe` caller key — `(name k)`,
+  the SAME canonicalization both host converters apply (namespace dropped, so
+  `:caller/ref` -> \"ref\", `\"ref\"` -> \"ref\", `'ref` -> \"ref\"). Returns
+  nil when `k` is NOT a nameable attribute key (a keyword, string, or symbol);
+  a non-nameable key is malformed — rejected by `assert-safe-caller!` — not
+  merely 'not denied'."
+  [k]
+  (when (or (keyword? k) (string? k) (symbol? k))
+    (name k)))
+
+(defn spread-safe-denied-key?
+  "Is caller key `k` denied to a `ui/spread-safe` caller map, given the
+  component's `owned-handler-keys` (the literal `:on-*` keys of its owned map)?
+  Compares the CANONICAL emitted name (`(name k)`) against the denied
+  structural/controlled names and the canonical owned-handler names, so
+  alternate spellings — a namespaced keyword, string, or symbol — that
+  canonicalize to the same React/DOM name cannot bypass the law. A non-nameable
+  key is not 'denied' here (it is rejected as malformed by
+  `assert-safe-caller!`); returns false so the literal/compile-time path reports
+  it through its own channel."
+  [k owned-handler-keys]
+  (boolean
+   (when-some [n (caller-key-name k)]
+     (or (contains? spread-safe-denied-structural-names n)
+         (some (fn [h] (= n (name h))) owned-handler-keys)))))
+
+(defn- spread-safe-denial-reason [n owned-names]
   (cond
-    (= :key k)                       "a structural identity slot (keys are literal at the site)"
-    (= :ref k)                       "a reserved React ref slot"
-    (contains? #{:value :checked} k) "the controlled-input contract the sync door proves"
-    (contains? owned-handler-keys k) "an owned event handler the component controls"
-    :else                            "owned by the component"))
+    (= "key" n)                        "a structural identity slot (keys are literal at the site)"
+    (= "ref" n)                        "a reserved React ref slot"
+    (contains? #{"value" "checked"} n) "the controlled-input contract the sync door proves"
+    (contains? owned-names n)          "an owned event handler the component controls"
+    :else                              "owned by the component"))
 
 (defn assert-safe-caller!
-  "EVERY-BUILD guard for `(ui/spread-safe owned caller)`: throw
-  `:rf.error/ui-tree-malformed` if the runtime `caller` map names a denied key
-  (the structural/controlled/identity set plus the component's
-  `owned-handler-keys`). NOT `goog.DEBUG`-gated — the denial is a production
-  invariant a component library relies on, so it survives an advanced build
-  exactly like the compiled lease-descriptor grammar guard. Returns `caller`."
+  "EVERY-BUILD guard for `(ui/spread-safe owned caller)`. CANONICALIZES and
+  VALIDATES the caller BEFORE the deny (rf2-izep3): the `caller` must be an
+  author-space attr MAP (or nil = empty); each key must be a nameable attribute
+  key; then its CANONICAL emitted name (`(name k)`) is compared against the
+  denied structural/controlled names and the canonical `owned-handler-keys`
+  names. Alternate spellings — a namespaced keyword, string, or symbol that
+  canonicalizes to the same React/DOM name — therefore cannot bypass the law,
+  and a non-map caller (e.g. a sequence of pairs) or a non-nameable key can no
+  longer slip through the old map-only / raw-key guard. A non-map caller, a
+  non-nameable key, or a denied key throws `:rf.error/ui-tree-malformed`,
+  consistently on BOTH hosts. NOT `goog.DEBUG`-gated — the denial is a
+  production invariant a component library relies on, so it survives an advanced
+  build exactly like the compiled lease-descriptor grammar guard. Returns
+  `caller`."
   [caller owned-handler-keys]
-  (when (map? caller)
-    (reduce-kv
-     (fn [_ k _]
-       (when (spread-safe-denied-key? k owned-handler-keys)
-         (error/throw-error!
-          :rf.error/ui-tree-malformed 're-frame.ui/spread-safe
-          (str "(ui/spread-safe owned caller) — the caller attr map may not "
-               "carry " (pr-str k) ": it is "
-               (spread-safe-denial-reason k owned-handler-keys)
-               ", denied in every build so it can never clobber an owned prop. "
-               "Forward it through the visible-cost (ui/spread base overrides) "
-               "instead, or drop it from the caller map")
-          {:extra {:key k}})))
-     nil caller))
+  (when (some? caller)
+    (when-not (map? caller)
+      (error/throw-error!
+       :rf.error/ui-tree-malformed 're-frame.ui/spread-safe
+       (str "(ui/spread-safe owned caller) — the caller must be an author-space "
+            "attr MAP (or nil), not a " (name (:type (error/diag-value-summary caller)))
+            ". A non-map caller (e.g. a sequence of pairs) cannot be canonicalized "
+            "and checked against the owned-key deny law; pass a map literal or a "
+            "map-valued expression")
+       {:extra {:caller (error/diag-value-summary caller)}}))
+    (let [owned-names (into #{} (map name) owned-handler-keys)]
+      (reduce-kv
+       (fn [_ k _]
+         (let [n (caller-key-name k)]
+           (cond
+             (nil? n)
+             (error/throw-error!
+              :rf.error/ui-tree-malformed 're-frame.ui/spread-safe
+              (str "(ui/spread-safe owned caller) — the caller attr key " (pr-str k)
+                   " is not a nameable attribute key (a keyword, string, or symbol), "
+                   "so it has no canonical DOM/React name to check against the "
+                   "owned-key deny law. Use a keyword attr key")
+              {:extra {:key k}})
+
+             (or (contains? spread-safe-denied-structural-names n)
+                 (contains? owned-names n))
+             (error/throw-error!
+              :rf.error/ui-tree-malformed 're-frame.ui/spread-safe
+              (str "(ui/spread-safe owned caller) — the caller attr map may not "
+                   "carry " (pr-str k) ": it is "
+                   (spread-safe-denial-reason n owned-names)
+                   ", denied in every build so it can never clobber an owned prop "
+                   "(an alternate spelling — a namespaced keyword, string, or symbol "
+                   "— canonicalizes to the same name and is denied too). Forward it "
+                   "through the visible-cost (ui/spread base overrides) instead, or "
+                   "drop it from the caller map")
+              {:extra {:key k}}))))
+       nil caller)))
   caller)

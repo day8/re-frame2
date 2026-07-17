@@ -819,6 +819,22 @@
     (is (= #{} (get-in el [:props :safe-spread :owned-handler-keys])))
     (is (false? (:static? el)))))
 
+(deftest spread-safe-literal-caller-denies-alternate-spellings
+  ;; rf2-izep3 — the COMPILE-TIME literal-caller denial shares the canonicalized
+  ;; grammar (`rules/spread-safe-denied-key?`), so a namespaced/string/symbol
+  ;; alias of a denied key is rejected at compile time, not only the exact
+  ;; keyword. Owned :on-change makes on-change aliases denied too.
+  (doseq [caller '[{:x/ref "r"} {"ref" "r"} {:some/value "v"} {"checked" "c"}
+                   {:evil/on-change [:hijack]}]]
+    (is (thrown? #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo)
+                 (ana* [:input (list 'spread-safe
+                                     {:value 'v :on-change [:set :rf.ui/value]}
+                                     caller)]))
+        (str "literal alternate spelling denied at compile: " (pr-str caller))))
+  (testing "an exact allowed literal caller (incl. a string spelling) still analyzes"
+    (is (some? (ana* '[:div.card (spread-safe {:role "region"}
+                                              {:aria-label "x" "data-y" "y"})])))))
+
 (deftest raw-and-raw-fn-props-mark
   (let [v (ana* '[ForeignComp {:el (raw host-el) :cb (raw-fn f)}])]
     (is (= [:foreign :ui/raw-fn]
