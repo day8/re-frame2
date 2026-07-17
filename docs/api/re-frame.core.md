@@ -481,6 +481,8 @@ The view layer is **substrate-agnostic**. The shared dataflow — frames, subscr
   ```
 - **Description**: **Not an app-facing surface** — the internal constructor behind `capture-frame` and the `reg-view` injection sugar. It is a public Var only so the `reg-view` macro's emitted body can reference it fully-qualified. Call `capture-frame` instead.
 
+<a id="with-frame--with-new-frame"></a>
+
 ### `with-frame`
 
 - **Kind**: macro
