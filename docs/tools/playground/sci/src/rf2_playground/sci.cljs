@@ -67,6 +67,9 @@
             [re-frame.core :as rf]
             [re-frame.router :as router]
             [re-frame.subs :as subs]
+            ;; Consumed (not re-exposed to cells) for page-owned registration
+            ;; ownership + clear-on-disposal — see `disposePage` (rf2-u4pqs).
+            [re-frame.registrar :as registrar]
             [re-frame.views]
             [re-frame.machines]
             ;; flows artefact (Spec 007): required for its late-bind hooks so
@@ -260,8 +263,35 @@
   (when-not (contains? (rf/frame-ids) app-frame)
     (rf/make-frame {:id app-frame})))
 
+;; Page-owned registration ownership (rf2-u4pqs). Cells reach re-frame2's
+;; process-global `reg-*` API directly (the `sci/copy-ns` over `re-frame.core`),
+;; so a cell's `reg-event` / `reg-sub` / `reg-view` / `reg-machine` writes a
+;; `(kind, id)` into the ONE process registrar. Those registrations are
+;; PAGE-OWNED — nothing scopes them to the outgoing document — so `disposePage`
+;; must clear them on each instant nav, or a later page can dispatch/subscribe
+;; through an id it never registered (the outgoing cell's leaked handler still
+;; resolves). To tell page-owned from FRAMEWORK/BUNDLE-INIT baseline (the
+;; machines/flows artefacts' `:rf/machine` sub + `:rf.machine/*` fxs, the
+;; adapter's installs — global, spanning every page), snapshot the registrar's
+;; `(kind, id)` set ONCE, right after the framework is fully booted (adapter
+;; installed) and BEFORE any cell has evaluated. Everything registered after the
+;; snapshot is a cell's work, so `disposePage` clears exactly `current −
+;; baseline` and leaves the baseline intact.
+(defonce ^:private baseline-registrations
+  ;; {kind #{id …}} captured once at first init; nil until captured. Holds the
+  ;; framework/bundle-init registrations that intentionally span pages.
+  (atom nil))
+
+(defn- capture-registration-baseline! []
+  (when (nil? @baseline-registrations)
+    (reset! baseline-registrations
+            (into {} (map (fn [k] [k (registrar/ids k)])) registrar/kinds))))
+
 (defn- ensure-init! []
   (ensure-adapter!)
+  ;; Snapshot the framework baseline after the adapter's process-global installs
+  ;; and before the cell about to be evaluated registers anything (rf2-u4pqs).
+  (capture-registration-baseline!)
   (ensure-app-frame!))
 
 ;; ---------------------------------------------------------------------------
@@ -349,7 +379,7 @@
   "Release every PAGE-OWNED resource this bundle created for the OUTGOING
   document. The JS bootstrap calls it on each Material `navigation.instant`
   page swap (a `window.document$` emission) BEFORE the incoming page's cells
-  mount. Two process-global leaks close here:
+  mount. Three process-global leaks close here:
 
     1. Detached React roots. `roots` is a cache keyed by each cell's result
        element. An instant nav discards the whole `<main>` (and every cell in
@@ -372,13 +402,27 @@
        navigating between pages can't reuse another cell's frame state and
        returning to a page reproduces its documented initial state.
 
+    3. Page-owned registrations (rf2-u4pqs). Cells write `(kind, id)`
+       registrations straight into the process-global registrar
+       (`reg-event`/`reg-sub`/`reg-view`/`reg-machine`), and those are NOT
+       scoped to the outgoing document. Re-eval on the NEXT page overwrites only
+       COLLIDING ids — it does NOT protect a later page that dispatches or
+       subscribes to an id it never registers itself: without teardown the
+       outgoing cell's leaked handler still resolves, so the fresh page silently
+       reuses another cell's registration (the rf2-io9mdr isolation break this
+       step closes). We clear exactly the page-owned set — `current − baseline`,
+       where `baseline` is the framework/bundle-init snapshot captured at
+       `ensure-init!` — via `registrar/unregister!`, so a later page's dispatch/
+       subscribe through a cleared page-only id raises the ordinary
+       `:rf.error/no-such-handler` / `:rf.error/no-such-sub` instead of hitting a
+       leaked handler.
+
   NOT reset: the adapter install (process-global, reused across pages) and the
   framework registrations the machines/flows artefacts install at bundle init
   (the `:rf/machine` sub, `:rf.machine/*` fxs, `:rf/flow` slots — global, not
-  page-owned; a machine/flow cell on a later page still resolves them). A cell's
-  OWN `reg-event`/`reg-sub`/`reg-view` registrations are re-established by that
-  cell's re-eval on mount (registration is by-id overwrite), so no page-owned
-  registration survives into a colliding id on the next page.
+  page-owned; a machine/flow cell on a later page still resolves them). Those
+  are the BASELINE captured before any cell evaluated, so step 3's
+  `current − baseline` diff never clears them.
 
   Idempotent + defensive: safe to call when nothing was created (empty cache,
   no frames) and each teardown is guarded so one failure can't strand the rest.
@@ -393,6 +437,20 @@
   ;;    mutates the live registry — can't disturb the iteration.
   (doseq [id (rf/frame-ids)]
     (try (rf/destroy-frame! id) (catch :default _ nil)))
+  ;; 3. Clear page-owned registrations (rf2-u4pqs) so a later page cannot
+  ;;    dispatch/subscribe through an outgoing cell's (kind,id) it never
+  ;;    re-registered. `current − baseline` is exactly the cells' registrations;
+  ;;    the framework/bundle-init baseline (captured in `ensure-init!`) is
+  ;;    preserved. The per-kind id set is realised ONCE before removal (a
+  ;;    snapshot — `unregister!` mutates the registry), and each removal is
+  ;;    guarded so one failure can't strand the rest. No-op before any cell ran
+  ;;    (baseline nil ⇒ nothing page-owned yet).
+  (when-let [baseline @baseline-registrations]
+    (doseq [kind registrar/kinds]
+      (let [baseline-ids (get baseline kind #{})]
+        (doseq [id (registrar/ids kind)]
+          (when-not (contains? baseline-ids id)
+            (try (registrar/unregister! kind id) (catch :default _ nil)))))))
   nil)
 
 ;; ---------------------------------------------------------------------------
