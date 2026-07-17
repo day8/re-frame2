@@ -336,3 +336,19 @@
                "(late-bind/set-fn! ...) call site in implementation/**/src "
                "— add a publication or remove the entry:\n  "
                (str/join "\n  " missing-publish))))))
+
+(deftest epoch-destroy-bundle-directory-lists-full-terminal-evidence
+  (testing "The :epoch/snapshot-frame-destroyed entry names the COMPLETE terminal-evidence bundle (rf2-q5xq4a)"
+    ;; The producer (re-frame.epoch.listeners/snapshot-terminal-destroy-evidence!)
+    ;; and the consumer (on-frame-destroyed!) both require :baseline-silence-seq to
+    ;; decide delayed callback silence across re-arm and the A->B->nil ABA; omitting
+    ;; it from the central late-bind directory made it an incomplete ABI description.
+    ;; This focused drift check fails if any bundle field is dropped from the entry.
+    (let [desc (:description (directory/entry :epoch/snapshot-frame-destroyed))]
+      (is (some? desc)
+          ":epoch/snapshot-frame-destroyed must have a directory entry")
+      (doseq [field [":record" ":listener-snapshot" ":silenced-cbs" ":baseline-silence-seq"]]
+        (is (str/includes? desc field)
+            (str ":epoch/snapshot-frame-destroyed directory description must name the "
+                 "terminal-evidence bundle field " field " — the ABI drift with the "
+                 "producer/consumer is exactly what rf2-q5xq4a reconciled."))))))
