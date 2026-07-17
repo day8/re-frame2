@@ -126,6 +126,49 @@ from ordinary Clojure code fails loud** (they are not runtime helpers).
   bound to the **committed** frame. Ops fail loud after the frame incarnation dies
   (`:rf.error/frame-destroyed`). Outside views use `rf/capture-frame`.
 
+### `local`
+
+- **Kind**: function (compile-time authoring form)
+- **Signature**: `(local init) → [value set! update!]` (bound in a `defview` top-region `let`)
+- **Description**: Host component-local ephemera, deliberately **outside re-frame2
+  epochs** — not observed by subs, not revertible by epoch restore, re-renders this
+  view only. The **P0-1** three-tuple: `set!` stores its argument **exactly** (a stored
+  function is a value, never an updater — no `useState` fn-overload); `update!` applies
+  `(f current & args)` to the **latest host state** so several same-turn writers
+  (key + pointer + timer + observer) compose instead of last-write-wins. Setter/updater
+  are **host-only** — a mutation during render fails loud; committed same-view handlers
+  and `effect` callbacks may read/update. On the JVM structural render `local` exposes
+  the initial value; `set!`/`update!` raise `:rf.error/jvm-host-op`.
+- **Placement**: legal only in a `defview`'s unconditional top region (not a loop,
+  branch, deferred callback, or render-fn slot → `:rf.ui.compile/hook-misplaced`).
+
+### `effect`
+
+- **Kind**: function (compile-time authoring form)
+- **Signature**: `(effect [deps…] body…)` / `(effect :connect body…)` (a leading statement)
+- **Description**: Passive host effect for synchronising with the world outside the tree
+  (measurement, chart/animation libraries via a ref). The value-deps form re-runs its
+  body after commit whenever the literal deps change, compared by **`rf=`**; a returned
+  function is the cleanup honoured on dep-change, disconnect, and unmount. `:connect`
+  runs at each connect (mount / Activity reveal) with cleanup at each disconnect — there
+  is deliberately no "once"/"mount" name. StrictMode dev replay is expected and must be
+  idempotent-safe (that is what cleanup is for). `sub`/`lease`/`frame` inside an effect
+  body are compile errors. On the JVM effects do not run (capability metadata only).
+- **Placement**: a leading statement in a `defview` top region (or a top-region `let`/
+  `do` body) before the template (`:rf.ui.compile/hook-misplaced` otherwise).
+
+### `dispatch-fn`
+
+- **Kind**: function (compile-time authoring form)
+- **Signature**: `(dispatch-fn) → (fn ([event] [event opts]))`
+- **Description**: The per-view **stable** committed-frame dispatcher for imperative /
+  foreign callbacks. Its identity is stable across renders (attach it as a listener
+  once); it reads the **committed** frame at call time and retargets only on commit; and
+  it **fails loud in every non-connected state** (`:rf.error/dispatch-disconnected`) —
+  the leaked-listener detector for a callback that outlived its view. Capture it in the
+  view body and use it from an `effect` callback or a foreign event bridge. On the JVM a
+  dispatch invocation raises `:rf.error/jvm-host-op`.
+
 ### `raw`
 
 - **Kind**: function (template interop form)
