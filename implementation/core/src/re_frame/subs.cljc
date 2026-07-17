@@ -492,6 +492,17 @@
    :runtime-db  frame/runtime-db-container
    :frame-state frame/frame-state-container})
 
+(def ^:private single-source-container-slot-for
+  "`input-kind → frame-RECORD slot` for the single-source container. Mirrors
+  `single-source-container-for`, whose fns re-resolve `frame-id` through the
+  registry (`(k (frame id))`) — this reads the slot off an ALREADY-resolved
+  record instead. A CAPTURED build (rf2-7w1im) reads its lone signal source off
+  the exact incarnation record the outer fence validated, never a same-id
+  successor re-resolved by bare id in the post-comparison window."
+  {:db          :app-db
+   :runtime-db  :runtime-db
+   :frame-state :frame-state})
+
 ;; ---- the cache ------------------------------------------------------------
 
 (defn- cache-key
@@ -920,6 +931,35 @@
   (-> (into [] (comp (drop-while #(not= query-v %)) (map first)) building)
       (conj (first query-v))))
 
+(defn- emit-frame-destroyed-recovery!
+  "Fan the always-on + dev-trace `:rf.error/frame-destroyed` recovery signal for a
+  subscribe that resolved a missing/destroyed frame — or, for a CAPTURED read, a
+  same-id successor whose incarnation differs from the pinned
+  `expected-incarnation` (rf2-dlld6 / rf2-7w1im). No exception (an invalid op);
+  recovery is `:replaced-with-default` (nil), `elapsed-ms 0`. Reached via the
+  `:error-emit/emit-error-both` late-bind hook (subs cannot static-require
+  error-emit — load cycle). Shared by BOTH seams of the one exact-incarnation
+  captured subscribe operation — the outer `subscribe-in-frame` fence and the
+  durable `build-and-cache!*` fence — so a stale capture emits identically
+  wherever the supersession is detected."
+  [frame-id query-v]
+  (when-let [emit-error-both!
+             (late-bind/get-fn-cached :error-emit/emit-error-both)]
+    (emit-error-both!
+      :rf.error/frame-destroyed
+      query-v                       ;; attempted query-vector (as :event)
+      (first query-v)               ;; sub-id (as :event-id)
+      frame-id
+      nil                           ;; no exception — invalid op
+      0                             ;; elapsed-ms
+      (interop/now-ms)              ;; time
+      {:frame    frame-id
+       :query-v  query-v
+       :recovery :replaced-with-default}))
+  ;; RECOVER to nil (the `:replaced-with-default` value the subscribe surfaces),
+  ;; independent of the emit hook's own return.
+  nil)
+
 (defn- build-and-cache!*
   "Build the reaction for query-v and cache it. Per Spec 006 §Lookup
   algorithm: recursively resolve the input query-vectors (the literal
@@ -953,8 +993,34 @@
   nil-yielding reaction, but DO NOT store it in the cache. The miss is
   transient — a later registration (boot order, lazy load) must let the
   next subscribe build a fresh reaction against the real body. We
-  achieve this by branching here on nil meta."
-  [frame-id query-v]
+  achieve this by branching here on nil meta.
+
+  `expected-incarnation` (rf2-7w1im) is the EXACT incarnation token a captured
+  subscribe pinned, threaded through from `subscribe-in-frame`. It makes the
+  DURABLE build one exact-incarnation operation: the frame record is resolved
+  ONCE here and, when the token is non-nil, VALIDATED against it up front — a
+  same-id successor installed in the window between the outer `subscribe-in-frame`
+  comparison and this build recover-but-emits `:rf.error/frame-destroyed` and
+  returns nil rather than reading the successor's container, recursively
+  resolving inputs in it, or installing/adopting a reaction in its sub-cache. The
+  validated record then feeds the container read, the recursive input subscribes,
+  and the cache write — so nothing re-resolves the bare id back to the successor.
+  A nil `expected-incarnation` (ambient / address-directed) re-resolves by id
+  exactly as before — unchanged."
+  [frame-id query-v expected-incarnation]
+  (let [frame-record (frame/frame frame-id)]
+   (if (and (some? expected-incarnation)
+            (or (nil? frame-record)
+                (not (identical? expected-incarnation
+                                 (:drain-lock frame-record)))))
+     ;; rf2-7w1im: the captured incarnation was superseded between the outer
+     ;; subscribe-in-frame comparison and this durable build — recover-but-emit
+     ;; and DO NOT read/build/cache into the same-id successor (identical posture
+     ;; to the outer fence; one exact-incarnation operation).
+     (do (emit-frame-destroyed-recovery! frame-id query-v) nil)
+     ;; else — the existing build, against the validated `frame-record` for a
+     ;; captured read (never a bare-id re-resolve), or re-resolved by id for the
+     ;; unchanged ambient/address-directed path.
   (let [query-id      (first query-v)
         sub-meta      (registrar/lookup :sub query-id)
         _             (when (nil? sub-meta)
@@ -1046,7 +1112,14 @@
         ;; `:frame-state` container propagates on a change to EITHER partition.
         ;; Layer-2+ subscribes each realized input.
         inputs        (cond
-                        container-fn [(container-fn frame-id)]
+                        ;; rf2-7w1im: a CAPTURED build reads its lone single-source
+                        ;; signal off the VALIDATED record (never a bare-id
+                        ;; re-resolve that could land on a same-id successor); the
+                        ;; ambient/address-directed build re-resolves by id as before.
+                        container-fn [(if (some? expected-incarnation)
+                                        (get frame-record
+                                             (single-source-container-slot-for input-kind))
+                                        (container-fn frame-id))]
                         input-error? []
                         ;; Push this query-v onto the per-thread build stack for
                         ;; the duration of input resolution ONLY (rf2-x76af2.24):
@@ -1080,8 +1153,17 @@
                                        ;; unchanged.
                                        (let [acquired (volatile! [])]
                                          (try
+                                           ;; rf2-7w1im: fence the recursive input
+                                           ;; subscribes to the SAME captured
+                                           ;; incarnation — a same-id successor
+                                           ;; installed mid-build cannot have this
+                                           ;; layer-2+ sub recursively resolve its
+                                           ;; inputs in it. nil (ambient) is the
+                                           ;; unchanged 2-arity input read.
                                            (mapv (fn [input-q]
-                                                   (let [r (subscribe-in-frame frame-id input-q)]
+                                                   (let [r (subscribe-in-frame
+                                                             frame-id input-q
+                                                             expected-incarnation)]
                                                      (vswap! acquired conj input-q)
                                                      r))
                                                  input-qs)
@@ -1140,7 +1222,14 @@
         ;; re-materializes cleanly on the next subscribe.
         sub-meta      (when-not input-error? sub-meta)
         input-signals input-qs
-        cache         (:sub-cache (frame/frame frame-id))
+        ;; rf2-7w1im: a CAPTURED build installs/adopts into the VALIDATED
+        ;; incarnation's sub-cache (never a bare-id re-resolve that could adopt a
+        ;; same-id successor's cache); the ambient/address-directed build
+        ;; re-resolves by id as before (nil when the frame was torn down mid-build,
+        ;; driving the not-cached symmetric-release branch unchanged).
+        cache         (if (some? expected-incarnation)
+                        (:sub-cache frame-record)
+                        (:sub-cache (frame/frame frame-id)))
         k             (cache-key query-v)]
     ;; EP-0025 — sub-output sensitivity PROPAGATION is removed. A sub no longer
     ;; inherits its inputs' (or its layer-1 app-db's) sensitivity; there is no
@@ -1219,7 +1308,9 @@
                                     m)))]
                 (if (identical? winner-reaction (get-in post [k :reaction]))
                   winner-reaction
-                  (compute-and-cache! frame-id query-v)))))))
+                  ;; rf2-7w1im: the collision-retry rebuild stays fenced to the
+                  ;; SAME captured incarnation.
+                  (compute-and-cache! frame-id query-v expected-incarnation)))))))
       ;; Not cached (frame torn down mid-build, or no-such-sub miss).
       ;; Symmetric input release on the escaped-caching path: a layer-2+ build
       ;; already subscribed each `:<-` input above (bumping their ref-counts),
@@ -1239,7 +1330,7 @@
                    (seq input-signals))
           (doseq [input-q input-signals]
             (release-input-ref! frame-id input-q :not-cached-release)))
-        reaction))))
+        reaction))))))
 
 (defn- compute-and-cache!
   "Cycle-guarding entry to the reactive sub build (rf2-x76af2.24). Detects a
@@ -1248,39 +1339,45 @@
   recovers it to a structured `:rf.error/sub-cycle` + nil-yielding reaction
   instead of a raw host StackOverflowError. Delegates the actual
   materialisation to `build-and-cache!*`, which pushes the per-thread marker
-  across its input resolution."
-  [frame-id query-v]
-  (let [construction-key [frame-id (cache-key query-v)]
-        stack            *subs-under-construction*]
-    (when (some #(= construction-key %) stack)
-      ;; This query-v is already resolving its inputs higher on the stack — a
-      ;; `:<-` cycle. Throw the sentinel to unwind the WHOLE partial build so no
-      ;; half-wired cyclic reaction is cached; the outermost build (below)
-      ;; catches it, emits the diagnostic error and recovers to nil.
-      (throw (sub-cycle-ex frame-id query-v
-               (sub-cycle-path stack construction-key query-v))))
-    (if (empty? stack)
-      ;; Outermost build: a cycle thrown anywhere in the input recursion unwinds
-      ;; to here. Emit the structured error (diagnostic, mirroring flow-cycle)
-      ;; and recover to a nil-yielding reaction — NOT cached, mirroring the
-      ;; no-such-sub miss so a later registration fix rebuilds cleanly.
-      (try
-        (build-and-cache!* frame-id query-v)
-        (catch #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo) e
-          (if (= :rf.error/sub-cycle (:rf.error/id (ex-data e)))
-            (do
-              (emit-sub-cycle! frame-id query-v (:cycle (ex-data e)) :subscribe)
-              ;; Observation-port acquire path only (rf2-vxgfnd.27): record the
-              ;; cycle so `acquire!` throws typed `:rf.error/sub-cycle`
-              ;; (fail-loud → the ViewCell error boundary) rather than lease
-              ;; this never-cached nil reaction. sub-cycle stays DIAGNOSTIC (009
-              ;; catalogue) — the port throws the typed carrier but does NOT
-              ;; promote it to the always-on axis. No-op on the subscribe path.
-              (record-acquire-recovery! :cycle {:cycle   (:cycle (ex-data e))
-                                                :query-v query-v})
-              (adapter/make-derived-value [] (constantly nil)))
-            (throw e))))
-      (build-and-cache!* frame-id query-v))))
+  across its input resolution.
+
+  `expected-incarnation` (rf2-7w1im, 3-arity) is the captured incarnation token
+  threaded straight through to `build-and-cache!*`'s exact-incarnation fence; nil
+  (the observation-port acquire path + the ambient/address-directed miss) is the
+  unchanged bare-id build."
+  ([frame-id query-v] (compute-and-cache! frame-id query-v nil))
+  ([frame-id query-v expected-incarnation]
+   (let [construction-key [frame-id (cache-key query-v)]
+         stack            *subs-under-construction*]
+     (when (some #(= construction-key %) stack)
+       ;; This query-v is already resolving its inputs higher on the stack — a
+       ;; `:<-` cycle. Throw the sentinel to unwind the WHOLE partial build so no
+       ;; half-wired cyclic reaction is cached; the outermost build (below)
+       ;; catches it, emits the diagnostic error and recovers to nil.
+       (throw (sub-cycle-ex frame-id query-v
+                (sub-cycle-path stack construction-key query-v))))
+     (if (empty? stack)
+       ;; Outermost build: a cycle thrown anywhere in the input recursion unwinds
+       ;; to here. Emit the structured error (diagnostic, mirroring flow-cycle)
+       ;; and recover to a nil-yielding reaction — NOT cached, mirroring the
+       ;; no-such-sub miss so a later registration fix rebuilds cleanly.
+       (try
+         (build-and-cache!* frame-id query-v expected-incarnation)
+         (catch #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo) e
+           (if (= :rf.error/sub-cycle (:rf.error/id (ex-data e)))
+             (do
+               (emit-sub-cycle! frame-id query-v (:cycle (ex-data e)) :subscribe)
+               ;; Observation-port acquire path only (rf2-vxgfnd.27): record the
+               ;; cycle so `acquire!` throws typed `:rf.error/sub-cycle`
+               ;; (fail-loud → the ViewCell error boundary) rather than lease
+               ;; this never-cached nil reaction. sub-cycle stays DIAGNOSTIC (009
+               ;; catalogue) — the port throws the typed carrier but does NOT
+               ;; promote it to the always-on axis. No-op on the subscribe path.
+               (record-acquire-recovery! :cycle {:cycle   (:cycle (ex-data e))
+                                                 :query-v query-v})
+               (adapter/make-derived-value [] (constantly nil)))
+             (throw e))))
+       (build-and-cache!* frame-id query-v expected-incarnation)))))
 
 ;; ---- the sub-override subscribe seam (CLJS, dev-only) --------------------
 ;;
@@ -1436,59 +1533,51 @@
    (live-frame/call-with-frame-resolution
      (live-frame/frame-resolution-target frame-id)
      (fn []
-   (or
-     #?(:cljs
-        (when interop/debug-enabled?
-          (resolve-sub-override frame-id query-v)))
-     (let [frame-record (frame/frame frame-id)]
+   (let [frame-record (frame/frame frame-id)
+         ;; rf2-7w1im: resolve the record ONCE and decide supersession up front,
+         ;; so a CAPTURED read consumes EXACTLY the validated incarnation across
+         ;; the override, hit, and miss seams — one exact-incarnation operation.
+         ;; `expected-incarnation` nil (the ambient / explicit address-directed
+         ;; read, and every layer-2+ recursive input resolution) → never
+         ;; superseded, so every clause below stays byte-identical to the
+         ;; pre-fence behaviour.
+         superseded? (and (some? expected-incarnation)
+                          (not (identical? expected-incarnation
+                                           (:drain-lock frame-record))))]
+     (or
+       ;; rf2-7w1im: the CLJS dev sub-override seam now sits INSIDE the
+       ;; incarnation fence — a stale captured subscribe must NOT surface an
+       ;; override for a superseded incarnation (the override short-circuits
+       ;; build-and-cache, so consulted ahead of the fence it would escape it
+       ;; entirely). An UNFENCED read (`superseded?` is false whenever
+       ;; `expected-incarnation` is nil) still consults it exactly as before —
+       ;; INCLUDING ahead of the missing-frame branch — and a LIVE captured read
+       ;; (incarnation still valid) keeps its override too.
+       #?(:cljs
+          (when (and interop/debug-enabled? (not superseded?))
+            (resolve-sub-override frame-id query-v)))
        (cond
-         ;; Missing or destroyed frame: emit + return nil rather than
-         ;; deref-ing nil and exploding. Subscribe RECOVERS (returns nil)
-         ;; AND emits a
-         ;; production-survivable `:rf.error/frame-destroyed` through the
-         ;; always-on error-emit listener (surface #4) so a subscribe
-         ;; during a teardown / hot-reload race recovers safely while a
-         ;; real use-after-destroy bug stays observable on the
-         ;; production-watched stream. Reached via the
-         ;; `:error-emit/dispatch-on-error` late-bind hook (subs cannot
-         ;; static-require `re-frame.error-emit` — load cycle). The
-         ;; `:frame`-stampable record carries `frame-id` + the attempted
-         ;; `query-v` (as `:event`) for frame + shipper attribution.
+         ;; Missing or destroyed frame, OR a superseded captured read (rf2-dlld6 /
+         ;; rf2-7w1im): recover-but-emit `:rf.error/frame-destroyed` and return
+         ;; nil rather than deref-ing nil, reading a same-id successor's app-db,
+         ;; or caching a reaction in its sub-cache. Production-survivable
+         ;; (surface #4) so a subscribe during a teardown / hot-reload race
+         ;; recovers safely while a real use-after-destroy bug stays observable on
+         ;; the production-watched stream.
          ;;
-         ;; rf2-dlld6: the SAME recover-but-emit also covers a superseded
-         ;; captured read — `frame-record` resolved a same-id successor B whose
-         ;; `:drain-lock` differs from the `expected-incarnation` a
-         ;; `capture-frame` op pinned (A destroyed + B installed after the
-         ;; capture's liveness pre-check). The token is compared against the
-         ;; record we just resolved for the read, so a stale capture can neither
-         ;; read B's app-db nor cache a reaction in B's sub-cache. A nil
-         ;; `expected-incarnation` (ambient / address-directed / layer-2+ input)
-         ;; leaves the clause a pure `(nil? frame-record)` test.
-         (or (nil? frame-record)
-             (and (some? expected-incarnation)
-                  (not (identical? expected-incarnation
-                                   (:drain-lock frame-record)))))
-         (do
-           ;; Both channels via the shared helper: axis 1 the
-           ;; always-on listener (survives prod elision), axis 2 the dev trace
-           ;; (DCEs under `:advanced` + `goog.DEBUG=false`). No exception —
-           ;; invalid op; `elapsed-ms 0`. Reached via the
-           ;; `:error-emit/emit-error-both` hook (subs cannot static-require
-           ;; error-emit — load cycle).
-           (when-let [emit-error-both!
-                      (late-bind/get-fn-cached :error-emit/emit-error-both)]
-             (emit-error-both!
-               :rf.error/frame-destroyed
-               query-v                       ;; attempted query-vector (as :event)
-               (first query-v)               ;; sub-id (as :event-id)
-               frame-id
-               nil                           ;; no exception — invalid op
-               0                             ;; elapsed-ms
-               (interop/now-ms)             ;; time
-               {:frame    frame-id
-                :query-v  query-v
-                :recovery :replaced-with-default}))
-           nil)
+         ;; rf2-dlld6: the `expected-incarnation` comparison (folded into
+         ;; `superseded?`) is made against the record we JUST resolved for the
+         ;; read — A destroyed + a same-id successor B installed after the
+         ;; capture's liveness pre-check resolves B here, whose `:drain-lock`
+         ;; differs from the pinned token — so validation and consumption are one
+         ;; exact-incarnation operation. rf2-7w1im: the DURABLE build/read past
+         ;; this cond (a miss, or a hit's concurrent-eviction rebuild) carries the
+         ;; SAME token into `build-and-cache!*`, which re-fences it, so a
+         ;; supersession in the post-comparison window cannot retarget B either. A
+         ;; nil `expected-incarnation` leaves the clause a pure
+         ;; `(nil? frame-record)` test.
+         (or (nil? frame-record) superseded?)
+         (emit-frame-destroyed-recovery! frame-id query-v)   ;; emits, returns nil
 
          :else
          (let [cache (:sub-cache frame-record)
@@ -1517,8 +1606,12 @@
                                    m)))]
                (if (identical? reaction (get-in new [k :reaction]))
                  reaction
-                 (compute-and-cache! frame-id query-v)))
-             (compute-and-cache! frame-id query-v))))))))))) ;; close fn + call-with-frame-resolution + normalize-target let + 3-arity + subscribe-in-frame
+                 ;; rf2-7w1im: the hit's concurrent-eviction rebuild carries the
+                 ;; captured token so the rebuild is fenced to the SAME
+                 ;; incarnation (never a bare-id retarget to a same-id successor).
+                 (compute-and-cache! frame-id query-v expected-incarnation)))
+             ;; Miss: the durable build carries the captured token (rf2-7w1im).
+             (compute-and-cache! frame-id query-v expected-incarnation))))))))))) ;; close or + let[frame-record superseded?] + fn + call-with-frame-resolution + normalize-target let + 3-arity + subscribe-in-frame
 
 (defn subscribe
   "Per Spec 006 §Lookup algorithm. Returns the reaction for query-v;

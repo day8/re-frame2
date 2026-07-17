@@ -1667,14 +1667,23 @@
         raced?  (atom false)]
     (with-redefs
       [subs/compute-and-cache!
-       (fn [frame-id query-v]
-         (let [reaction (real-cc frame-id query-v)]
-           ;; Displace the just-built canonical node ONCE, in the
-           ;; build→canonical-check window, with the frame left LIVE.
-           (when (and (= query-v [:obs/items])
-                      (compare-and-set! raced? false true))
-             (displace-node! [:obs/items] reaction))
-           reaction))]
+       ;; rf2-7w1im: `compute-and-cache!` is now 2/3-arity — the captured-
+       ;; incarnation token rides the optional 3rd arg. Mirror BOTH fixed arities
+       ;; (the acquire path calls the 2-arity via static dispatch; the internal
+       ;; token-carrying self-call / recursive input calls the 3-arity). The
+       ;; displacer acts ONLY on the 2-arity ENTRY; the 3-arity is a pure
+       ;; pass-through, so it never re-triggers.
+       (fn
+         ([frame-id query-v]
+          (let [reaction (real-cc frame-id query-v nil)]
+            ;; Displace the just-built canonical node ONCE, in the
+            ;; build→canonical-check window, with the frame left LIVE.
+            (when (and (= query-v [:obs/items])
+                       (compare-and-set! raced? false true))
+              (displace-node! [:obs/items] reaction))
+            reaction))
+         ([frame-id query-v expected-incarnation]
+          (real-cc frame-id query-v expected-incarnation)))]
       (let [[[outcome lease] records] (with-error-records #(obs/acquire! target (fn [_])))]
         (is (true? @raced?) "the displacement fired in the build→check window")
         (testing "acquire! did NOT throw or fan a false frame-destroyed while the frame is live"
@@ -1708,13 +1717,18 @@
         builds  (atom 0)]
     (with-redefs
       [subs/compute-and-cache!
-       (fn [frame-id query-v]
-         (let [reaction (real-cc frame-id query-v)]
-           (when (= query-v [:obs/items])
-             ;; Evict the first K builds in-window; the (K+1)th settles.
-             (when (<= (swap! builds inc) k)
-               (evict-node! [:obs/items])))
-           reaction))]
+       ;; rf2-7w1im: 2/3-arity shim (see acquire-live-cache-displacement) — act
+       ;; only on the 2-arity entry; the 3-arity is a pass-through.
+       (fn
+         ([frame-id query-v]
+          (let [reaction (real-cc frame-id query-v nil)]
+            (when (= query-v [:obs/items])
+              ;; Evict the first K builds in-window; the (K+1)th settles.
+              (when (<= (swap! builds inc) k)
+                (evict-node! [:obs/items])))
+            reaction))
+         ([frame-id query-v expected-incarnation]
+          (real-cc frame-id query-v expected-incarnation)))]
       (let [[[outcome lease] records] (with-error-records #(obs/acquire! target (fn [_])))]
         (is (= (inc k) @builds) "converged on the very next build after K displacements")
         (is (= :ok outcome) "acquire! converged on a lease — it did not spin or throw")
@@ -1739,13 +1753,18 @@
           raced?  (atom false)]
       (with-redefs
         [subs/compute-and-cache!
-         (fn [frame-id query-v]
-           (let [reaction (real-cc frame-id query-v)]
-             (when (and (= query-v [:obs/items63])
-                        (compare-and-set! raced? false true))
-               ;; Destroy the targeted incarnation in the window — token → nil.
-               (frame/destroy-frame! race-fid))
-             reaction))]
+         ;; rf2-7w1im: 2/3-arity shim (see acquire-live-cache-displacement) — act
+         ;; only on the 2-arity entry; the 3-arity is a pass-through.
+         (fn
+           ([frame-id query-v]
+            (let [reaction (real-cc frame-id query-v nil)]
+              (when (and (= query-v [:obs/items63])
+                         (compare-and-set! raced? false true))
+                ;; Destroy the targeted incarnation in the window — token → nil.
+                (frame/destroy-frame! race-fid))
+              reaction))
+           ([frame-id query-v expected-incarnation]
+            (real-cc frame-id query-v expected-incarnation)))]
         (let [[[outcome e] records] (with-error-records #(obs/acquire! target (fn [_])))]
           (is (true? @raced?) "the destruction fired in the build→check window")
           (is (= :threw outcome) "a real teardown still throws — it is not retargeted")
@@ -1779,15 +1798,20 @@
         builds  (atom 0)]
     (with-redefs
       [subs/compute-and-cache!
-       (fn [frame-id query-v]
-         (let [reaction (real-cc frame-id query-v)]
-           (when (= query-v [:obs/items])
-             ;; Displace EVERY build in-window, leaving the frame (and its
-             ;; incarnation token) LIVE — the storm never settles, so the bounded
-             ;; retry exhausts its budget with the incarnation demonstrably alive.
-             (swap! builds inc)
-             (evict-node! [:obs/items]))
-           reaction))]
+       ;; rf2-7w1im: 2/3-arity shim (see acquire-live-cache-displacement) — act
+       ;; only on the 2-arity entry; the 3-arity is a pass-through.
+       (fn
+         ([frame-id query-v]
+          (let [reaction (real-cc frame-id query-v nil)]
+            (when (= query-v [:obs/items])
+              ;; Displace EVERY build in-window, leaving the frame (and its
+              ;; incarnation token) LIVE — the storm never settles, so the bounded
+              ;; retry exhausts its budget with the incarnation demonstrably alive.
+              (swap! builds inc)
+              (evict-node! [:obs/items]))
+            reaction))
+         ([frame-id query-v expected-incarnation]
+          (real-cc frame-id query-v expected-incarnation)))]
       (let [[[outcome e] records] (with-error-records #(obs/acquire! target (fn [_])))]
         (is (= :threw outcome) "the exhausted retry is fail-loud")
         (is (some? (frame/frame fid))

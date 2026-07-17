@@ -21,6 +21,7 @@
             [re-frame.core :as rf]
             [re-frame.frame :as frame]
             [re-frame.registrar :as registrar]
+            [re-frame.subs :as subs]
             [re-frame.substrate.plain-atom :as plain-atom]
             [re-frame.test-support :as test-support]))
 
@@ -290,6 +291,123 @@
           "no reaction/cache entry was installed in same-id successor B's sub-cache")
       (is (some #(= :rf.error/frame-destroyed (:operation %)) @errs)
           "the superseded subscribe recover-but-emits :rf.error/frame-destroyed"))))
+
+;; ---- rf2-7w1im: the POST-comparison boundary (not only the pre-check) -------
+;;
+;; rf2-dlld6 (above) made the OUTER subscribe-in-frame comparison validate the
+;; captured incarnation — but that comparison and the DURABLE build it delegates
+;; a miss / hit-eviction rebuild to were still separate operations. On the
+;; concurrent JVM host frame A can be destroyed AND a same-id successor B
+;; installed in the window between the comparison returning "A" and
+;; `compute-and-cache!` re-resolving the bare id — so a comparison-passing
+;; capture leaked its read / cache-write / recursive-input resolution into B.
+;; rf2-7w1im carries the pinned incarnation THROUGH the build (compute-and-cache!
+;; → build-and-cache!*), which re-fences it and reads the container / writes the
+;; sub-cache / subscribes inputs off the validated record, so the whole captured
+;; subscribe is ONE exact-incarnation operation.
+;;
+;; These fixtures interpose ONE-SHOT on `subs/compute-and-cache!` — entered only
+;; AFTER the outer comparison validated A and delegated the miss/rebuild — and,
+;; at that boundary, destroy A and reseat a same-id successor B (seeded with
+;; :B-value) BEFORE the real build runs. That is exactly the JVM interleaving the
+;; earlier `frame-incarnation-live?` pre-check interposition (rf2-dlld6) CANNOT
+;; reach: it fires at the pre-check, before the outer comparison. Deterministic +
+;; single-threaded (the swap runs inside the interposed call), so no latch.
+
+(defn- run-supersede-at-build
+  "Interpose ONE-SHOT on `subs/compute-and-cache!`: the first time it is entered
+  for `trigger-qv` (the post-comparison durable-build boundary — the outer
+  `subscribe-in-frame` has already validated incarnation A and delegated the miss
+  / hit-eviction rebuild here), destroy A and reseat a same-id successor B seeded
+  with :B-value, THEN delegate to the real build. Reproduces A destroyed + B
+  installed AFTER the outer comparison but before the durable read/cache-write.
+  Fires exactly once; every later call (incl. the destroy/create machinery's own,
+  and the entry sub's build when `trigger-qv` is an INPUT query) takes the real
+  path."
+  [frame-id trigger-qv op]
+  (let [real  @#'subs/compute-and-cache!
+        fired (atom false)]
+    (with-redefs [subs/compute-and-cache!
+                  (fn [& args]
+                    (when (and (= trigger-qv (second args))
+                               (compare-and-set! fired false true))
+                      (rf/destroy-frame! frame-id)
+                      (rf/make-frame {:id frame-id :doc "incarnation B (successor)"})
+                      (rf/dispatch-sync [:fh/seed :B-value] {:frame frame-id}))
+                    (apply real args))]
+      (op))))
+
+(deftest stale-capture-subscribe-post-comparison-miss-does-not-retarget-successor
+  (testing "rf2-7w1im (miss arm) — a captured subscribe whose OUTER incarnation
+            comparison validated A, then superseded by same-id B AFTER that
+            comparison but BEFORE the durable build (compute-and-cache!), must not
+            read B, install a reaction in B, or return B's value. It returns nil,
+            emits exactly one :rf.error/frame-destroyed, and leaves B's db +
+            sub-cache untouched. MUTATION TOOTH: if the build falls back to a bare
+            frame id (drops the token / re-resolves), it reads and caches B and
+            this fails."
+    (rf/reg-event :fh/seed (fn [{:keys [db]} [_ v]] {:db {:value v}}))
+    (rf/reg-sub :fh/value (fn [db _] (:value db)))
+    (rf/make-frame {:id :fh/race :doc "incarnation A"})
+    (rf/dispatch-sync [:fh/seed :A-value] {:frame :fh/race})
+    (let [{:keys [subscribe]} (rf/capture-frame :fh/race)   ;; pins A
+          errs   (atom [])
+          _      (rf/register-listener! :trace ::pcb-miss (fn [ev] (swap! errs conj ev)))
+          result (run-supersede-at-build :fh/race [:fh/value]
+                   #(subscribe [:fh/value]))]
+      (rf/unregister-listener! :trace ::pcb-miss)
+      (is (nil? result)
+          "the post-comparison-superseded subscribe returns nil — it did NOT resolve into B")
+      (is (= :B-value (:value (rf/app-db-value :fh/race)))
+          "successor B's app-db is intact (untouched by the stale build)")
+      (is (empty? @(:sub-cache (frame/frame :fh/race)))
+          "no reaction/cache entry was installed in successor B's sub-cache")
+      (is (= 1 (count (filter #(= :rf.error/frame-destroyed (:operation %)) @errs)))
+          "exactly one :rf.error/frame-destroyed emit"))))
+
+(deftest live-capture-subscribe-miss-still-reads-its-own-incarnation
+  (testing "rf2-7w1im (genuine-subscribe control) — with NO interposition a
+            captured subscribe that misses builds against its OWN incarnation,
+            caches in its OWN sub-cache, and reads its value; the fence rejects
+            ONLY a superseded read, never a genuine same-incarnation one."
+    (rf/reg-event :fh/seed (fn [{:keys [db]} [_ v]] {:db {:value v}}))
+    (rf/reg-sub :fh/value (fn [db _] (:value db)))
+    (rf/make-frame {:id :fh/live :doc "incarnation A"})
+    (rf/dispatch-sync [:fh/seed :A-value] {:frame :fh/live})
+    (let [{:keys [subscribe]} (rf/capture-frame :fh/live)
+          reaction (subscribe [:fh/value])]
+      (is (some? reaction) "a live captured subscribe on a miss builds a reaction")
+      (is (= :A-value @reaction) "and reads its own incarnation's value")
+      (is (contains? @(:sub-cache (frame/frame :fh/live)) [:fh/value])
+          "the reaction is cached in its own frame's sub-cache"))))
+
+(deftest stale-capture-subscribe-recursive-input-not-resolved-in-successor
+  (testing "rf2-7w1im (recursive-input arm) — a captured layer-2 subscribe whose
+            ENTRY build validated A, then superseded by same-id B before the
+            layer-1 INPUT build, must not recursively resolve the input in B. The
+            input build's fence rejects; neither the entry nor its input installs
+            a reaction in successor B's sub-cache. MUTATION TOOTH: if the input
+            subscribe drops the token it resolves in B and B's sub-cache gains
+            [:fh/value]."
+    (rf/reg-event :fh/seed (fn [{:keys [db]} [_ v]] {:db {:value v}}))
+    (rf/reg-sub :fh/value (fn [db _] (:value db)))
+    (rf/reg-sub :fh/derived :<- [:fh/value] (fn [v _] [:derived v]))
+    (rf/make-frame {:id :fh/race :doc "incarnation A"})
+    (rf/dispatch-sync [:fh/seed :A-value] {:frame :fh/race})
+    (let [{:keys [subscribe]} (rf/capture-frame :fh/race)   ;; pins A
+          errs   (atom [])
+          _      (rf/register-listener! :trace ::pcb-rec (fn [ev] (swap! errs conj ev)))
+          ;; Fire at the INPUT build ([:fh/value]) — AFTER the entry [:fh/derived]
+          ;; build validated A and began resolving its inputs.
+          _      (run-supersede-at-build :fh/race [:fh/value]
+                   #(subscribe [:fh/derived]))]
+      (rf/unregister-listener! :trace ::pcb-rec)
+      (is (= :B-value (:value (rf/app-db-value :fh/race)))
+          "successor B's app-db is intact")
+      (is (empty? @(:sub-cache (frame/frame :fh/race)))
+          "neither :fh/derived nor its input :fh/value is installed in successor B's sub-cache")
+      (is (some #(= :rf.error/frame-destroyed (:operation %)) @errs)
+          "the recursive input's build fence emits :rf.error/frame-destroyed"))))
 
 ;; ---- contract: (capture-frame) outside any scope RAISES (EP-0002) ---------
 ;;

@@ -22,6 +22,7 @@
        failure trace."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
+            [re-frame.frame :as frame]
             [re-frame.subs :as subs]
             [re-frame.late-bind :as late-bind]
             [re-frame.schemas.malli]                ;; install the default Malli validator
@@ -178,3 +179,57 @@
                              "any value surfaces when the sub declares no schema")))))]
       (is (not-any? #{:rf.error/schema-validation-failure} errors)
           "no validation runs when the sub has no :schema"))))
+
+;; ---- 4 · rf2-7w1im — the override seam sits INSIDE the incarnation fence ---
+;;
+;; The resolve-sub-override consult is CLJS-dev-specific and, pre-fix, ran BEFORE
+;; the frame-record / expected-incarnation fence — so a HIT short-circuited
+;; build-and-cache and ESCAPED the fence entirely. A stale captured subscribe
+;; (its pinned `:rf.frame/expected-incarnation` superseded by a same-id
+;; successor) would therefore surface an override value for a torn-down
+;; incarnation. rf2-7w1im gates the consult on `(not superseded?)`, so a
+;; superseded captured read recover-but-emits before the override can return.
+
+(deftest stale-captured-subscribe-is-fenced-before-override-resolution
+  (testing "rf2-7w1im — a stale captured subscribe (pinned
+            :rf.frame/expected-incarnation superseded by a same-id successor) is
+            FENCED before resolve-sub-override can return a value: it recovers to
+            nil and emits :rf.error/frame-destroyed, and the pinned override is
+            NOT surfaced for the superseded incarnation. A LIVE captured subscribe
+            (matching incarnation) still surfaces the override — existing
+            behaviour retained. MUTATION TOOTH: with the pre-fix ordering (override
+            ahead of the fence) the stale subscribe returns :override-value and
+            the nil assertion fails."
+    (rf/reg-sub :fh/ovr (fn [db _] (:v db)))
+    (rf/make-frame {:id :fh/ovr-frame :doc "incarnation A"})
+    (let [a-token (frame/frame-incarnation-token :fh/ovr-frame)]
+      ;; Supersede A with a same-id successor B.
+      (rf/destroy-frame! :fh/ovr-frame)
+      (rf/make-frame {:id :fh/ovr-frame :doc "incarnation B (successor)"})
+      (let [b-token (frame/frame-incarnation-token :fh/ovr-frame)]
+        (is (and (some? a-token) (some? b-token) (not (identical? a-token b-token)))
+            "B is a distinct incarnation from A")
+        (with-overrides* {[:fh/ovr] :override-value}
+          (fn []
+            ;; STALE captured subscribe (pinned to A): the fence must win over the
+            ;; override.
+            (let [errors (collect-errors
+                           (fn []
+                             (let [r (subs/subscribe
+                                       [:fh/ovr]
+                                       {:frame :fh/ovr-frame
+                                        :rf.frame/expected-incarnation a-token})]
+                               (is (nil? r)
+                                   "stale captured subscribe returns nil — the override is NOT surfaced")
+                               (when (some? r)
+                                 (is (not= :override-value @r)
+                                     "the superseded incarnation's override must never surface")))))]
+              (is (some #{:rf.error/frame-destroyed} errors)
+                  "the fenced stale subscribe emits :rf.error/frame-destroyed"))
+            ;; LIVE captured subscribe (pinned to B): override behaviour retained.
+            (let [r (subs/subscribe
+                      [:fh/ovr]
+                      {:frame :fh/ovr-frame
+                       :rf.frame/expected-incarnation b-token})]
+              (is (= :override-value @r)
+                  "a LIVE captured subscribe still surfaces the override (existing behaviour retained)"))))))))
