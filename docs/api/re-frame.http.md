@@ -345,7 +345,7 @@ Test-support surface for driving the pipeline without the network: canned-reply 
   ```
 - **Description**: Lexical-scope stubbing.
   - `route-map` is `{[<method> <url>] {:reply {:ok <value>}}}` (success) or `{[<method> <url>] {:reply {:failure <failure-map>}}}` (failure).
-  - Inside the body, requests matching a stubbed route bypass the real client. The helper registers a per-scope stub fx with a process-unique `:rf.test/managed-http-stub-<n>` id, under the test-runner-internal `:rf.test/*` fx-stub family, so nested scopes compose. It then installs the matching `:rf.http/managed` override for the body's dynamic extent.
+  - Inside the body, requests matching a stubbed route bypass the real client. The helper binds one stable override target — `:rf.test/managed-http-scope-stub`, in the test-runner-internal `:rf.test/*` fx-stub family, registered once when `re-frame.http.test-support` loads — as the `:rf.http/managed` override for the body's dynamic extent, and carries the scope's route map on a dynamic var. It mints **no** per-scope fx and performs no registrar write; nested scopes compose because an inner scope's route-map binding shadows the outer's and restores it on exit. Because the target is registered at load time rather than minted per scope, it resolves through the sealed image generation of a frame created before the scope was entered — a `dispatch-sync` in a pre-created frame still routes through the stub.
   - Plain `dispatch-sync` calls auto-route by method + URL with no manual `:fx-overrides`. A per-call `:fx-overrides` still wins.
   - Routes match against the post-`:before` request (the method + URL the pipeline would actually issue). A request with no matching route receives a synthesised `:rf.http/transport` failure reply.
   - The façade macro needs `re-frame.http.test-support` in the require closure. Without it, the call raises `:rf.error/http-artefact-missing`.
@@ -357,7 +357,7 @@ Test-support surface for driving the pipeline without the network: canned-reply 
   ```clojure
   (with-managed-request-stubs* route-map body-fn)
   ```
-- **Description**: Plain-fn surface beneath the macro, for computed route-maps or non-literal bodies. Like the macro, it installs the `:rf.http/managed` override for `body-fn`'s dynamic extent, so dispatches inside auto-route with no manual `:fx-overrides`.
+- **Description**: Plain-fn surface beneath the macro, for computed route-maps or non-literal bodies. Like the macro, it binds the `:rf.http/managed` override (to the stable `:rf.test/managed-http-scope-stub` target) plus the scope's route map for `body-fn`'s dynamic extent, so dispatches inside auto-route with no manual `:fx-overrides`.
 - **Example**:
   ```clojure
   ;; Computed route-map / non-literal body — use the fn form.
@@ -376,7 +376,7 @@ Test-support surface for driving the pipeline without the network: canned-reply 
   (install-managed-request-stubs! route-map)
   ```
 - **Description**: Lower-level than `with-managed-request-stubs`. Use it when stubs span multiple `deftest`s. It registers the `:rf.http/managed-test-stub` fx — the stable, documented `:fx-overrides` target — which persists until `uninstall-managed-request-stubs!`. Returns the stub fx-id.
-  - Unlike the wrapper, this does **not** install the `:rf.http/managed` override. Dispatch with `{:fx-overrides {:rf.http/managed :rf.http/managed-test-stub}}` (or wrap dispatches in `with-fx-overrides`) to route through it.
+  - Unlike the wrapper, this does **not** bind the `:rf.http/managed` override. Dispatch with `{:fx-overrides {:rf.http/managed :rf.http/managed-test-stub}}` (or wrap dispatches in `with-fx-overrides`) to route through it.
   - Nested installs snapshot the prior handler and restore it on uninstall (LIFO).
   - Not a `re-frame.core` façade export — call it through its home namespace `re-frame.http.test-support`.
 - **Example**:

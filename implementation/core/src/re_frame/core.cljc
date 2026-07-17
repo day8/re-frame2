@@ -1439,9 +1439,11 @@
 
 #?(:clj
    (defmacro with-managed-request-stubs
-     "Install stubs, run body, uninstall. `stubs` is
-     `{[method url] {:reply <:ok|:failure>}}`. Implementation ships in
-     `day8/re-frame2-http` (rf2-5kpd). Per Spec 014 §Testing."
+     "Bind the `:rf.http/managed` stub override plus the scope's route map for
+     the body's dynamic extent, run body (bindings unwind on exit; no registrar
+     mutation). `stubs` is `{[method url] {:reply <:ok|:failure>}}`.
+     Implementation ships in `day8/re-frame2-http` (rf2-5kpd). Per Spec 014
+     §Testing."
      [stubs & body]
      `(re-frame.core/with-managed-request-stubs* ~stubs (fn [] ~@body))))
 
@@ -2539,11 +2541,12 @@
 ;; home namespace `re-frame.http.test-support` (require it from your test ns).
 ;; The ergonomic `with-managed-request-stubs` macro stays on the façade.
 
-(def ^{:doc "Fn-form: install stubs, run `thunk`, uninstall. The plumbing
-  the `with-managed-request-stubs` macro routes through. Implementation
-  ships in `day8/re-frame2-http` under `re-frame.http.test-support`
-  (rf2-lwmgw). Per Spec 014 §Testing. Late-bound via
-  `:http/with-managed-request-stubs*`."}
+(def ^{:doc "Fn-form: bind the `:rf.http/managed` stub override plus the scope's
+  route map for `thunk`'s dynamic extent, run `thunk` (bindings unwind on exit;
+  no registrar mutation). The plumbing the `with-managed-request-stubs` macro
+  routes through. Implementation ships in `day8/re-frame2-http` under
+  `re-frame.http.test-support` (rf2-lwmgw). Per Spec 014 §Testing. Late-bound
+  via `:http/with-managed-request-stubs*`."}
   with-managed-request-stubs*      rf-http/with-managed-request-stubs*)
 
 (def ^{:doc "Clear an HTTP interceptor by `id` from a frame's
