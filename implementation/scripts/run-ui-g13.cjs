@@ -17,6 +17,7 @@ const {
   startLocalHttpServer,
 } = require('./lib/local-browser-harness.cjs');
 const { classifyReleaseBundle } = require('./lib/read-release-bundle.cjs');
+const { productionDepsMap, mapHasSymbolKey } = require('./lib/edn.cjs');
 const {
   validateWarmSamples,
   summarizeWarm,
@@ -159,28 +160,6 @@ function assertNoProductionSentinels(blob) {
   }
 }
 
-// Extract the PRODUCTION `:deps {…}` map text from a deps.edn string. The
-// dependency-boundary proof is scoped to this block: a `:test` alias's
-// `:extra-deps` never reaches the G-13 shadow builds (they resolve their
-// classpath from shadow-cljs.edn's own :source-paths, not ui/deps.edn's test
-// alias) and is out of scope. `:deps` occurs once at top level — `:extra-deps`
-// carries no `:deps` substring — so the first occurrence is the production map;
-// a balanced-brace scan returns exactly its text.
-function productionDepsBlock(depsEdn) {
-  const key = depsEdn.indexOf(':deps');
-  if (key < 0) fail('ui/deps.edn has no production :deps map');
-  const open = depsEdn.indexOf('{', key);
-  if (open < 0) fail('ui/deps.edn :deps is not a map');
-  let depth = 0;
-  for (let i = open; i < depsEdn.length; i += 1) {
-    const ch = depsEdn[i];
-    if (ch === '{') depth += 1;
-    else if (ch === '}' && (depth -= 1) === 0) return depsEdn.slice(open, i + 1);
-  }
-  fail('ui/deps.edn production :deps map is unbalanced');
-  return '';
-}
-
 function assertLeaseFreeAdvanced(blob, uiDepsOverride = null, mintControlBlob = null) {
   const reactiveSource = fs.readFileSync(
     path.join(IMPL, 'ui', 'src', 're_frame', 'ui', 'reactive.cljc'), 'utf8');
@@ -235,11 +214,17 @@ function assertLeaseFreeAdvanced(blob, uiDepsOverride = null, mintControlBlob = 
   // Guide-07 server-data fixture legitimately declares day8/re-frame2-resources
   // under `:test` (it drives the real ensure/reply path), which never reaches
   // the measured shadow builds. Scope the two checks to the production `:deps`.
-  const uiProdDeps = productionDepsBlock(uiDeps);
-  if (!/day8\/re-frame2\s+\{/.test(uiProdDeps)) {
+  //
+  // Read the real top-level `:deps` map with an EDN reader and inspect its
+  // actual keys — never a text slice. A balanced-brace byte scan false-greens
+  // whenever a `}` hides in a comment or string, or a `:deps` hides in a `#_`
+  // reader-discarded form; the parser sees EDN structure, so those variants
+  // cannot slip a forbidden dependency past the boundary.
+  const uiProdDeps = productionDepsMap(uiDeps, fail);
+  if (!mapHasSymbolKey(uiProdDeps, 'day8/re-frame2')) {
     fail('UI dependency positive control omitted day8/re-frame2');
   }
-  if (/day8\/re-frame2-resources\s+\{/.test(uiProdDeps)) {
+  if (mapHasSymbolKey(uiProdDeps, 'day8/re-frame2-resources')) {
     fail('UI artefact dependency boundary retained day8/re-frame2-resources');
   }
 }
