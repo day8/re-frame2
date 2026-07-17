@@ -1,0 +1,88 @@
+(ns re-frame.ui.route-link-dom-cljs-test
+  "Browser fixture for the compiled `ui/route-link` defview (rf2-vxgfnd.95.5).
+
+  Proves the browser-specific value of the compiled view: mounted in a real
+  React root it renders a REAL DOM `<a href=…>` with the route's strategy-encoded
+  href (href truth — copy-link / open-in-new-tab / keyboard activation all rely
+  on a real href) and forwards arbitrary passthrough attributes onto the anchor.
+  A native anchor (`:target=\"_blank\"`) renders its native attribute so the
+  browser owns the click.
+
+  The full click law (plain-left intercept + `:source :router` committed-frame
+  dispatch; modifier / middle / native deferral; caller `:on-click`-first veto)
+  is proven against synthetic events in `route_link_seam_cljs_test` — the same
+  node-with-synthetic-events pattern routing itself uses for `rf/route-link`
+  (`route_link_cljs_test`). Driving a REAL plain-left click here would run the
+  routing cascade and navigate the Playwright page (destroying the execution
+  context), so the DOM fixture deliberately stops at the render contract.
+
+  routing rides the TEST classpath (deps.edn :test alias) so its late-bind hooks
+  publish; production `re-frame.ui` never requires it."
+  (:require [cljs.test :refer-macros [async deftest is testing use-fixtures]]
+            [re-frame.core :as rf]
+            [re-frame.test-support :as test-support]
+            [re-frame.ui :as ui]
+            [re-frame.ui.reactive :as reactive]
+            [re-frame.ui.test :as uit]
+            ;; publishes :routing/link-model + :routing/activate-link!
+            [re-frame.routing]))
+
+(defn- browser? []
+  (and (exists? js/document) (some? (.-createElement js/document))))
+
+(use-fixtures :each
+  (test-support/make-reset-runtime-fixture
+   {:adapter ui/adapter
+    :ambient-frame nil
+    :async? true
+    :init-fn reactive/reset-scheduler!}))
+
+(deftest ui-route-link-renders-a-real-anchor-with-encoded-href-and-passthrough
+  (when (browser?)
+    (rf/reg-route :route/home {} "/home")
+    (rf/reg-route :route/user {} "/users/:id")
+    (rf/reg-route :route/user {} "/users/:id")
+    (let [f (rf/make-frame {:id :route-link/host :initial-events [[:rf/set-db {}]]})]
+      (async done
+        (-> (uit/with-root
+              [root [ui/frame-provider {:frame f}
+                     [:nav
+                      [ui/route-link {:to :route/home
+                                      :class "nav"
+                                      :aria-label "Home"
+                                      :data-testid "home"} "Home"]
+                      [ui/route-link {:to :route/user :params {:id "42"}} "User 42"]]]]
+              (let [home (uit/query root "a[data-testid='home']")
+                    user (uit/query root "a:not([data-testid])")]
+                (testing "the compiled defview mounts real DOM anchors"
+                  (is (some? home) "the home route-link mounted a real <a>")
+                  (is (some? user) "the user route-link mounted a real <a>"))
+                (testing "href truth — strategy-encoded (history default → path-form)"
+                  (is (= "/home" (.getAttribute home "href")))
+                  (is (= "/users/42" (.getAttribute user "href")) "params synthesise into the href"))
+                (testing "children + arbitrary passthrough attrs reach the DOM"
+                  (is (= "Home" (.-textContent home)))
+                  (is (= "nav" (.getAttribute home "class")))
+                  (is (= "Home" (.getAttribute home "aria-label")))
+                  (is (= "home" (.getAttribute home "data-testid"))))))
+            (.then (fn [] (rf/destroy-frame! f) (done))
+                   (fn [e]
+                     (rf/destroy-frame! f)
+                     (is false (str "route-link DOM fixture rejected: " e))
+                     (done))))))))
+
+(deftest ui-route-link-native-anchor-renders-its-native-attribute
+  (when (browser?)
+    (rf/reg-route :route/home {} "/home")
+    (let [f (rf/make-frame {:id :route-link/host2 :initial-events [[:rf/set-db {}]]})]
+      (async done
+        (-> (uit/with-root
+              [root [ui/frame-provider {:frame f}
+                     [ui/route-link {:to :route/home :target "_blank"} "Home"]]]
+              (let [a (uit/query root "a")]
+                (testing "a native anchor renders its target so the browser owns the click"
+                  (is (= "_blank" (.getAttribute a "target")))
+                  (is (= "/home" (.getAttribute a "href"))))))
+            (.then (fn [] (rf/destroy-frame! f) (done))
+                   (fn [e] (rf/destroy-frame! f)
+                     (is false (str "native-anchor fixture rejected: " e)) (done))))))))

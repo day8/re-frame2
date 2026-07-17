@@ -763,10 +763,15 @@
        ;; name at the reference site. Non-recursive views emit unchanged.
        ~@(when (:self-ref? @st) [`(declare ~vname)])
        ~@(:defs @st)
-       (defn ~render-sym [~props-sym]
+       ;; The `$render` / `$host_render` fns are compiler-internal implementation
+       ;; helpers, never public API — `^:no-doc` so they stay off the documented /
+       ;; manifest public surface (the CLJS api-manifest probe treats a fully-rowed
+       ;; ns like `re-frame.ui` as exact, and a framework-authored `defview` there
+       ;; would otherwise leak these two helpers as untracked public vars).
+       (defn ~(vary-meta render-sym assoc :no-doc true) [~props-sym]
          ~inner)
        ~@(when host-render
-           [`(defn ~host-render-sym [~props-sym]
+           [`(defn ~(vary-meta host-render-sym assoc :no-doc true) [~props-sym]
                (~host-render
                 ~view-id (fn [] (~render-sym ~props-sym))))])
        (def ~(vary-meta vname merge var-meta)

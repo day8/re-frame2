@@ -39,5 +39,15 @@
                        ;; (they depend on core; ui depends on core — no cycle).
                        day8/re-frame2-resources {:local/root "../resources"}
                        day8/re-frame2-http      {:local/root "../http"}
-                       day8/re-frame2-schemas   {:local/root "../schemas"}}
+                       day8/re-frame2-schemas   {:local/root "../schemas"}
+                       ;; TEST-ONLY: the compiled `ui/route-link` defview
+                       ;; (rf2-vxgfnd.95.5) consumes the routing-owned
+                       ;; `:routing/link-model` / `:routing/activate-link!`
+                       ;; late-bound seam. The integration tests
+                       ;; (route_link_*_test) load routing to publish those hooks
+                       ;; and exercise the anchor + click law end-to-end.
+                       ;; Production `re-frame.ui` never `:require`s routing —
+                       ;; the seam is reached through core's late-bind registry
+                       ;; (`ui -> core late-bind <- routing`, no cycle).
+                       day8/re-frame2-routing   {:local/root "../routing"}}
          :main-opts   ["-m" "re-frame.test-quiet.runner"]}}}

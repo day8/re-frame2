@@ -513,6 +513,14 @@
    {:key         :routing/route-link
     :producer-ns 're-frame.routing
     :description "Reagent / SSR `[rf/route-link ...]` view component renderer."}
+   {:key         :routing/link-model
+    :producer-ns 're-frame.routing
+    :design-bead "rf2-vxgfnd.95.5"
+    :description "PURE substrate-neutral link-model seam `(fn [target render-frame]) -> {:href :payload :native?}` published on BOTH hosts and consumed by the compiled `re-frame.ui/route-link` defview. Owns the whole routing calculation for one link render: strategy-encoded href (one of the four strategy consult points on CLJS; path-form `identity` encode on the JVM/SSR shell), the path-form `[:rf.route/url-requested {...}]` dispatch payload (the navigation identity), and native-anchor detection (`:target`≠`_self` / `:download` → the browser owns the click). Encapsulating route-url synthesis + strategy encode + payload + native detection behind ONE hook keeps routing internals (strategy encode, frame capture, source stamping) off the seam, so the optional re-frame.ui artefact reaches route-link semantics without a static require on routing (`ui -> core late-bind <- routing`, the packaging-independence rule). Unbound when routing is absent → the ui view fails loud with `:rf.error/routing-artefact-missing` naming the link site. Per Spec 012 §Linking from views and the rf2-5yovjt ruling."}
+   {:key         :routing/activate-link!
+    :producer-ns 're-frame.routing
+    :design-bead "rf2-vxgfnd.95.5"
+    :description "CLJS-only route-link activation op `(fn [event on-click render-frame payload native?])` consumed by the compiled `re-frame.ui/route-link` defview: THE router-attributed click decision — run the caller `:on-click` first, defer to the browser on `defaultPrevented` / native? / a non-plain-left (modifier or auxiliary-button) click, else `.preventDefault` + `router/dispatch!` the payload to the captured render frame with `:source :router`. Keeps the modifier/native/veto click law inside routing so the ui artefact reimplements NONE of it (footgun-ownership). Unbound on the JVM (SSR emits a handler-free anchor) and when routing is absent."}
    {:key         :routing/current-url
     :producer-ns 're-frame.routing
     :description "Read the current browser URL as pathname+search+hash (CLJS) / \"/\" (JVM)."}

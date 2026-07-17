@@ -440,3 +440,11 @@
 ;; resolve identically server- and client-side.
 #?(:cljs (late-bind/set-fn! :routing/route-link route-link)
    :clj  (late-bind/set-fn! :routing/route-link route-link-render-ssr))
+
+;; The substrate-neutral link seam consumed by the compiled `re-frame.ui/route-link`
+;; defview (rf2-vxgfnd.95.5). `link-model` is PURE and published on BOTH hosts (the
+;; JVM/SSR shell needs the path-form href + native? too); `activate-link!` is the
+;; CLJS-only click op (SSR has no DOM click to intercept). ui reaches these through
+;; the late-bind directory without a static require on routing.
+(late-bind/set-fn! :routing/link-model link/link-model)
+#?(:cljs (late-bind/set-fn! :routing/activate-link! link/activate-link!))
