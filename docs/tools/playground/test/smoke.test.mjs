@@ -750,35 +750,68 @@ assert(
   `plain cell still evals to 6 alongside rf2 cell (got ${JSON.stringify(c1afterRf2.text)})`
 );
 
-// --- rf2-io9mdr: instant-navigation isolation + detached-root release --------
+// --- rf2-io9mdr + rf2-u4pqs: instant-navigation isolation --------------------
 //
 // Material's navigation.instant swaps <main> and re-fires window.document$
 // WITHOUT reloading the page, so the playground bootstrap re-scans the fresh
-// DOM but every prior page's React root + re-frame2 frame is still alive
-// process-globally. This section simulates one such nav: it (1) records the
-// live root count from page 1, (2) tears the page-1 cell DOM out and injects a
-// "page 2" whose cells REUSE a page-1 frame id (:rf2smoke/frame) with a fresh
-// seed and register a fresh machine, then (3) drives the SAME entrypoint a real
-// document$ emission would (window.__rf2PlaygroundLoad).
+// DOM but every prior page's React root + re-frame2 frame + registration is
+// still alive process-globally. This section simulates one such nav: it (1)
+// registers a page-owned event id (:page1/stale) and records the live root
+// count from page 1, (2) tears the page-1 cell DOM out and injects a "page 2"
+// whose cells REUSE a page-1 frame id (:rf2smoke/frame) with a fresh seed,
+// register a fresh machine, AND dispatch :page1/stale without re-registering it,
+// then (3) drives the SAME entrypoint a real document$ emission would
+// (window.__rf2PlaygroundLoad).
 //
-// Proves the fix (rf2-io9mdr):
-//   - Detached roots released: post-nav live root count is page-2's cell count
-//     (2), NOT the accumulated 8 + 2 = 10. Without disposePage the roots leak.
-//   - Frame isolation / seed replay: :rf2smoke/frame carried {:rv 2} from
-//     page 1; page 2 re-`make-frame`s the SAME id with :initial-events. Idempotent
-//     replacement PRESERVES durable app-db and never REPLAYS the seed (Spec 002
-//     §Duplicate id policy), so without the destroy-frame! in disposePage the
-//     :label seed is skipped and the cell renders "label: ". With the fix the
-//     frame is destroyed on nav, recreated fresh, and the seed replays.
-//   - Framework registrations survive: a fresh machine cell resolves reg-machine
-//     + the :rf/machine sub after dispose destroyed every frame (incl.
-//     :rf/default) — disposePage reaps page-owned frames but NOT the machines
-//     artefact's bundle-init framework registrations.
+// Proves the fix:
+//   - Detached roots released (rf2-io9mdr): post-nav live root count is page-2's
+//     cell count (3), NOT the accumulated 11 + 3 = 14. Without disposePage the
+//     roots leak.
+//   - Frame isolation / seed replay (rf2-io9mdr): :rf2smoke/frame carried {:rv 2}
+//     from page 1; page 2 re-`make-frame`s the SAME id with :initial-events.
+//     Idempotent replacement PRESERVES durable app-db and never REPLAYS the seed
+//     (Spec 002 §Duplicate id policy), so without the destroy-frame! in
+//     disposePage the :label seed is skipped and the cell renders "label: ".
+//     With the fix the frame is destroyed on nav, recreated fresh, and the seed
+//     replays.
+//   - Page-owned registrations cleared (rf2-u4pqs): page 2 dispatches
+//     :page1/stale (an id ONLY page 1 registered) into its own fresh frame
+//     WITHOUT re-registering it. disposePage cleared the page-owned registration,
+//     so the dispatch is a no-op and the leaked-value probe reads "leaked:"
+//     (nil), not "leaked: true". Without the fix the leaked handler runs and the
+//     probe reads "leaked: true" — the isolation break this bead closes.
+//   - Framework registrations survive (rf2-u4pqs): a fresh machine cell resolves
+//     reg-machine + the :rf/machine sub after dispose cleared page-owned
+//     registrations and destroyed every frame (incl. :rf/default) — disposePage
+//     reaps page-owned frames + registrations but PRESERVES the machines
+//     artefact's bundle-init framework baseline (:rf/machine sub, :rf.machine/*
+//     fxs, captured before any cell ran).
+// rf2-u4pqs: register a PAGE-OWNED event id (:page1/stale) as a real page-1
+// cell BEFORE the nav. It is post-baseline (the framework baseline was snapshotted
+// at the first cell mount), so disposePage must clear it on the instant nav — the
+// page-2 leak-probe cell below dispatches it WITHOUT re-registering and must not
+// reach this handler. Mounting it adds one live root (page 1 now holds 11).
+await page.evaluate(() => {
+  const host = document.createElement("div");
+  const cell = document.createElement("pre");
+  cell.className = "language-cljs-rf2";
+  cell.textContent = [
+    "(require '[re-frame.core :as rf])",
+    "(rf/reg-event :page1/stale",
+    "  (fn [{:keys [db]} _] {:db (assoc db :leaked-registration true)}))",
+    '[:span#rf2-p1-stale "page1 registered :page1/stale"]',
+  ].join("\n");
+  host.appendChild(cell);
+  document.body.appendChild(host);
+  window.__rf2PlaygroundMountAll();
+});
+await page.waitForSelector("#rf2-p1-stale", { timeout: 20000 });
+
 const rootsBeforeNav = await page.evaluate(() => window.rf2sci.liveRootCount());
 console.log("live roots before nav:", rootsBeforeNav);
 assert(
-  rootsBeforeNav === 10,
-  `page 1 holds one root per rf2 cell (10) before nav (got ${rootsBeforeNav})`
+  rootsBeforeNav === 11,
+  `page 1 holds one root per rf2 cell (10 + the :page1/stale registrar = 11) before nav (got ${rootsBeforeNav})`
 );
 
 await page.evaluate(() => {
@@ -812,8 +845,28 @@ await page.evaluate(() => {
     "    [:div [:span#rf2-nav-tog \"tog: \" (str (:state snap))]]))",
     "[tog2]",
   ].join("\n");
+  // rf2-u4pqs leak-probe: page 2 dispatches :page1/stale (page 1's id) WITHOUT
+  // re-registering it, into its OWN fresh frame, then reads back through a
+  // page-2-owned sub whether the leaked handler ran. If page 1's registration
+  // survived the nav, the handler writes {:leaked-registration true} and the
+  // probe renders "leaked: true"; with the fix disposePage cleared the
+  // page-owned :page1/stale, the dispatch is a no-op (:rf.error/no-such-handler
+  // recovers), and the probe renders "leaked:".
+  const cellC = document.createElement("pre");
+  cellC.className = "language-cljs-rf2";
+  cellC.textContent = [
+    "(require '[re-frame.core :as rf])",
+    "(rf/reg-sub :page2/leaked? (fn [db _] (:leaked-registration db)))",
+    "(rf/reg-view leak-probe []",
+    '  [:div [:span#rf2-nav-leak "leaked: " (str @(subscribe [:page2/leaked?]))]])',
+    "(rf/make-frame {:id :page2/probe})",
+    "(rf/dispatch-sync [:page1/stale] {:frame :page2/probe})",
+    "[rf/frame-provider {:frame :page2/probe}",
+    " [leak-probe]]",
+  ].join("\n");
   host.appendChild(cellA);
   host.appendChild(cellB);
+  host.appendChild(cellC);
   document.body.appendChild(host);
   // Drive the same path Material's document$ subscription drives on a page swap.
   window.__rf2PlaygroundLoad();
@@ -822,6 +875,7 @@ await page.evaluate(() => {
 // Page 2's cells auto-mount (rf2 render cells run on mount).
 await page.waitForSelector("#rf2-nav-label", { timeout: 20000 });
 await page.waitForSelector("#rf2-nav-tog", { timeout: 20000 });
+await page.waitForSelector("#rf2-nav-leak", { timeout: 20000 });
 
 const navLabel = (await page.locator("#rf2-nav-label").innerText()).trim();
 console.log("page 2 reused-frame cell:", JSON.stringify(navLabel));
@@ -837,11 +891,21 @@ assert(
   `machine framework registrations survive dispose (got ${JSON.stringify(navTog)})`
 );
 
+// rf2-u4pqs: the page-owned :page1/stale registration was cleared on the nav, so
+// page 2's dispatch through it never reaches page 1's handler — the leaked value
+// does NOT land. "leaked:" (nil) proves isolation; "leaked: true" is the leak.
+const navLeak = (await page.locator("#rf2-nav-leak").innerText()).trim();
+console.log("page 2 leak-probe cell:", JSON.stringify(navLeak));
+assert(
+  navLeak === "leaked:",
+  `page-owned :page1/stale registration cleared on nav — page 2 cannot dispatch through the outgoing cell's id (got ${JSON.stringify(navLeak)})`
+);
+
 const rootsAfterNav = await page.evaluate(() => window.rf2sci.liveRootCount());
 console.log("live roots after nav:", rootsAfterNav);
 assert(
-  rootsAfterNav === 2,
-  `detached page-1 roots released — count is page-2 cells only, not accumulated (got ${rootsAfterNav})`
+  rootsAfterNav === 3,
+  `detached page-1 roots released — count is page-2 cells only (nav-view + machine + leak-probe = 3), not accumulated (got ${rootsAfterNav})`
 );
 
 assert(pageErrors.length === 0, `no uncaught page errors (saw: ${JSON.stringify(pageErrors)})`);
