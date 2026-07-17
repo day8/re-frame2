@@ -483,7 +483,7 @@
   Overriding any of these installs/clears durable frame runtime-db state
   (machines, flows), drops a correctness-critical nav-token, or — for the
   private `:rf.machine/join-dispatch` join-completion transport (rf2-2lzk8a) —
-  captures/forges/replays exact join authority. The override is ignored,
+  captures or suppresses it, subverting the exact-attempt correlation fence. The override is ignored,
   `:rf.error/reserved-fx-override` is emitted, and the real reserved/registered
   body runs. In production the effective override map is stripped of these keys
   LOUDLY before `do-fx` (see `strip-rejected-overrides`).

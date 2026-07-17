@@ -1,25 +1,25 @@
 (ns re-frame.join-recordable-transport-cljs-test
-  "rf2-t154jx — carry `:spawn-all` join authority through REPLAY and DELAYED
+  "rf2-t154jx — carry the `:spawn-all` join-attempt coordinate through REPLAY and DELAYED
   dispatch.
 
   #5839 placed the only exact-attempt credential in METADATA on the inner
-  completion event vector. That authority did not survive two supported delivery
+  completion event vector. That coordinate did not survive two supported delivery
   paths:
 
     - Recorded strict replay: event metadata is NOT part of the event/coeffect
       recording contract; an EDN round-trip drops it, so replaying a real
       completion silently no-op'd instead of reproducing the fold — violating
-      replay-faithfulness (rf2-nvxehu's exact-authority promise).
+      replay-faithfulness (rf2-nvxehu's exact-attempt promise).
     - Live delayed dispatch: `stamp-fx-entry` handled `:dispatch` /
       `:dispatch-n` but NOT the reserved `:dispatch-later` `{:ms n :event event}`
       shape, so a child completing through `:dispatch-later` reached the parent
       coordinate-less and was suppressed, hanging an `:all` join forever.
 
-  The fix carries the exact authority on the RECORDABLE `:rf.cofx` causal-
+  The fix carries the exact-attempt coordinate on the RECORDABLE `:rf.cofx` causal-
   envelope fact `:rf.machine/join-attempt` (via the `:rf.machine/join-dispatch`
   transport `stamp-fx-entry` rewrites both `:dispatch` and `:dispatch-later`
   completions into), and reads it back through `carrier-attempt`. The public event
-  value and closed grammar are unchanged; missing / tampered authority is
+  value and closed grammar are unchanged; missing / tampered coordinate is
   validated through the existing typed stale policy, never a silent no-op."
   (:require
    #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
@@ -100,7 +100,7 @@
                         :on {:abort :idle}}}}))
 
 (defn- auth-for
-  "Build the exact-authority tuple a live child :a completion carries, from the
+  "Build the exact-attempt tuple a live child :a completion carries, from the
   live join-state."
   [parent-kw]
   (let [j (join-state parent-kw)]
@@ -136,10 +136,10 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest recorded-authority-survives-edn-roundtrip-and-folds
-  (testing "rf2-t154jx — the exact authority rides the RECORDABLE :rf.cofx fact
+  (testing "rf2-t154jx — the exact-attempt coordinate rides the RECORDABLE :rf.cofx fact
             :rf.machine/join-attempt, so an EDN-roundtripped recorded event + causal
             coeffects strict-replays into the SAME fold. Removing the recordable
-            authority fact makes the replay a fail-closed stale drop, never a
+            coordinate fact makes the replay a fail-closed stale drop, never a
             silent replay-success no-op."
     (rf/reg-machine :jt/ca (mk-child :jt/rp))
     (rf/reg-machine :jt/cb (mk-child :jt/rp))
@@ -155,14 +155,14 @@
       (is (= #{:a} (:done (join-state :jt/rp)))
           "the EDN-roundtripped completion + recorded cofx folded :a (replay-faithful)")
       (is (empty? (stale-reasons)) "no stale suppression for the faithful replay")
-      ;; Remove the recordable authority fact → fail-closed stale drop.
+      ;; Remove the recordable coordinate fact → fail-closed stale drop.
       (mtest/reset-captured!)
       (rf/dispatch-sync (edn-roundtrip [:jt/rp [:child/done :b]])
                         {:rf.cofx (edn-roundtrip {})})
       (is (= #{:a} (:done (join-state :jt/rp)))
-          ":b did NOT fold — the completion with its recordable authority removed is suppressed")
+          ":b did NOT fold — the completion with its recordable coordinate removed is suppressed")
       (is (= [:rf.machine.spawn-all/attempt-unverified] (stale-reasons))
-          "stripping the recordable authority fact is a typed stale drop, not a silent no-op"))))
+          "stripping the recordable coordinate fact is a typed stale drop, not a silent no-op"))))
 
 (deftest metadata-only-carrier-is-dropped-on-replay
   (testing "rf2-t154jx — a metadata-only carrier (what #5839 produced) does NOT
@@ -174,7 +174,7 @@
     (reg-parent! :jt/mp :jt/ma :jt/mb)
     (rf/dispatch-sync [:jt/mp [:start]])
     (let [auth        (auth-for :jt/mp)
-          ;; The #5839 wire shape: authority on inner-event METADATA.
+          ;; The #5839 wire shape: coordinate on inner-event METADATA.
           meta-event  [:jt/mp (with-meta [:child/done :a] {:rf/join-attempt auth})]
           replayed    (edn-roundtrip meta-event)]  ;; EDN drops metadata
       (mtest/reset-captured!)
@@ -225,7 +225,7 @@
         (is (some? opts) "the host-clock callback re-dispatched the completion carrier")
         (is (= {:ms 0} (:source-detail opts)) "retains :source-detail {:ms 0} (rf2-21hsb1)")
         (is (some? (get-in opts [:rf.cofx :rf.machine/join-attempt]))
-            "the recordable join authority rode the deferred zero-delay completion")
+            "the recordable join-attempt coordinate rode the deferred zero-delay completion")
         ;; Deliver the deferred completion (its recorded event + causal cofx): it
         ;; folds the join exactly once.
         (rf/dispatch-sync [:jt/dp [:child/done :a]] {:rf.cofx (:rf.cofx opts)})
@@ -235,7 +235,7 @@
 
 (deftest old-attempt-delayed-completion-across-reentry-is-superseded
   (testing "rf2-t154jx — an old-attempt completion arriving across re-entry with
-            attempt-1 authority on the recordable cofx is classified
+            attempt-1 coordinate on the recordable cofx is classified
             :attempt-superseded and cannot fold into the successor join."
     (rf/reg-machine :jt/oa (mk-child :jt/op))
     (rf/reg-machine :jt/ob (mk-child :jt/op))
@@ -248,7 +248,7 @@
       (let [j2 (join-state :jt/op)]
         (is (not= (:attempt attempt1-auth) (:rf/attempt j2)) "attempt 2 minted a new token")
         (mtest/reset-captured!)
-        ;; The stale straggler delivered with attempt-1 authority on the cofx.
+        ;; The stale straggler delivered with attempt-1 coordinate on the cofx.
         (rf/dispatch-sync [:jt/op [:child/done :a]]
                           {:rf.cofx {:rf.machine/join-attempt attempt1-auth}})
         (is (= #{} (:done (join-state :jt/op)))

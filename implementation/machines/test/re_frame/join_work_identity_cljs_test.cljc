@@ -3,7 +3,7 @@
 
   A fixed actor address is reusable after teardown, so its name cannot identify
   a join attempt. These tests drive real CLJ/CLJS machine cascades and require
-  every reply-bearing path to reuse the runtime-minted `:rf/attempt` authority
+  every reply-bearing path to reuse the runtime-minted `:rf/attempt` token
   as the fixed actor's existing machine-work-id generation slot. Generated
   `<type>#<n>` actors keep their actor-name generation, and a normal fixed-id
   single spawn keeps generation 1."
@@ -167,7 +167,7 @@
         (mtest/captured-events)))
 
 (defn- forged-completion! [parent-id auth]
-  ;; Authority rides the recordable `:rf.cofx` slot (rf2-nsbwft) —
+  ;; The coordinate rides the recordable `:rf.cofx` slot (rf2-nsbwft) —
   ;; the one coordinate slot the parent reads; the metadata slot is not read.
   (rf/dispatch-sync
     [parent-id [:child/done (:child-id auth)]]
@@ -389,7 +389,7 @@
                 "late evidence retains the exact current attempt identity"))
 
           ;; Re-enter the same parent/invoke path. The fixed actor addresses
-          ;; are intentionally identical; only the carried authority can
+          ;; are intentionally identical; only the carried coordinate can
           ;; distinguish A from B.
           (rf/dispatch-sync [:jwi/parent [:abort]])
           (rf/dispatch-sync [:jwi/parent [:start]])
@@ -405,7 +405,7 @@
               (let [a2-terminal (work-id-of (first (events-of
                                                      :rf.machine.spawn-all/child-completed)))]
                 (is (= a1-terminal old-stale)
-                    "the stale carrier uses attempt A's carried authority")
+                    "the stale carrier uses attempt A's carried coordinate")
                 (is (= [:rf.work/machine :jwi/fixed-a [:racing] attempt-2]
                        a2-terminal))
                 (is (not= old-stale a2-terminal)

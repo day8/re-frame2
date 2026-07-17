@@ -314,7 +314,7 @@
         ;; A `:spawn-all` child's private membership is the canonical REPLY
         ;; source of its parent/invoke coordinates (per-child spawn args use the
         ;; distinct `:rf/spawn-all-id`, so no public single-spawn `:rf/invoke-id`
-        ;; stamp is required) and the runtime-minted exact attempt authority.
+        ;; stamp is required) and the runtime-minted exact-attempt coordinate.
         ;; Keep the ordinary parent/invoke locals unchanged: they also govern
         ;; single-`:spawn` callbacks + teardown-slot pruning, and a join child
         ;; must not enter either path merely because reply identity needs the
@@ -324,7 +324,7 @@
         invoke-id   (:rf/invoke-id child-data)
         reply-parent-id (or parent-id (:parent-id join-child))
         reply-invoke-id (or invoke-id (:invoke-id join-child))
-        ;; Thread that authority into the SAME
+        ;; Thread that coordinate into the SAME
         ;; canonical machine work-id generation slot used by its join fold, so
         ;; a fixed-id final leaf cannot publish a parallel generation-1 arc.
         ;; Ordinary `:spawn` data has no membership record and stays unchanged.

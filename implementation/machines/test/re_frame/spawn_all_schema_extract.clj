@@ -3,7 +3,7 @@
   forms from `spec/Spec-Schemas.md`, and narrow reads of the authoritative
   `spec/009-Instrumentation.md` catalogue rows (rf2-2ai15g).
 
-  The `:spawn-all` exact-authority proof must validate runtime-produced
+  The `:spawn-all` exact-attempt proof must validate runtime-produced
   records against the EXECUTABLE canonical schema — not a hand-copied mirror
   that can silently drift from the markdown (the precursor rf2-p53o47 proof
   carried a `^:private` handwritten `InvokeAllJoinState` copy; this replaces
@@ -70,7 +70,7 @@
   Spec-Schemas.md. Every enumerated key is REQUIRED here (the authoritative
   document): `:rf/attempt` (a token-less child-bearing join is not a valid live
   shape) and the `:cancelled` explicit-teardown TOMBSTONE set (a tombstone-less
-  live join cannot honour a cancellation, so a late authority could resurrect a
+  live join cannot honour a cancellation, so a late coordinate could resurrect a
   cancelled child — rf2-y7venl)."
   []
   (extract-def-form (spec-schemas-text) 'InvokeAllJoinState))

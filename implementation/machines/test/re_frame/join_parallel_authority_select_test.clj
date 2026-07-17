@@ -1,8 +1,8 @@
 (ns re-frame.join-parallel-authority-select-test
-  "rf2-wsrtlw — select parallel `:spawn-all` joins by EXACT AUTHORITY before
+  "rf2-wsrtlw — select parallel `:spawn-all` joins by EXACT-ATTEMPT COORDINATE before
   folding.
 
-  #5839's exact-authority check runs AFTER the runtime has selected which
+  #5839's exact-attempt check runs AFTER the runtime has selected which
   active `:spawn-all` join owns an inbound completion. That selection was by
   child-id ownership (first owning match in declaration order). When two active
   parallel regions legitimately reuse BOTH the completion event keyword AND the
@@ -35,7 +35,7 @@
 (defn- mk-worker
   "A worker child that dispatches `done-kw` / `err-kw` back to `parent-id`
   carrying its own `:worker` logical id — through its OWN handler boundary, so
-  the runtime records the exact join authority on the recordable `:rf.cofx` fact
+  the runtime records the exact-attempt coordinate on the recordable `:rf.cofx` fact
   `:rf.machine/join-attempt` for its region's attempt."
   [parent-id done-kw err-kw]
   {:initial :running
@@ -59,7 +59,7 @@
   sharing `:child/done` / `:child/failed` across regions but resolving to a
   region-distinct `on-complete` event. The shared `:worker` logical id + shared
   `:child/done` keyword across regions is exactly the ambiguity the fix routes by
-  exact authority; completing `:worker` alone is NON-DECISIVE (the `:all` join
+  exact-attempt coordinate; completing `:worker` alone is NON-DECISIVE (the `:all` join
   still awaits `:helper`), so the join-state persists to be asserted on."
   [worker-type on-complete ready-state]
   {:initial :idle
