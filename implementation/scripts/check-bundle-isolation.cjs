@@ -62,8 +62,10 @@ const {
   countSubstring,
 } = require('./lib/read-release-bundle.cjs');
 const { assertSentinelSet } = require('./lib/sentinel-scan.cjs');
+const { pathDeclaresBuildAlias } = require('./lib/publishable-runtimes.cjs');
 
 const ROOT = path.resolve(__dirname, '..');
+const SCRIPTS_DIR = __dirname;
 const report = createGateReporter();
 
 // ----- the bundle-isolation contract ----------------------------------------
@@ -89,6 +91,9 @@ const report = createGateReporter();
 const ARTEFACTS = [
   {
     name: 'schemas',
+    // Publishable per-feature runtime at implementation/schemas/. `relPath` is
+    // what canonical coverage keys on (exact path, never leaf name).
+    relPath: 'schemas',
     internalSentinels: [
       // schemas.cljc — `reg-app-schemas` validates its arg is a map.
       { source: 're-frame.schemas/reg-app-schemas (app-schemas-bad-arg)',
@@ -100,6 +105,7 @@ const ARTEFACTS = [
 
   {
     name: 'machines',
+    relPath: 'machines',
     internalSentinels: [
       // machines.cljc — `resolve-guard` ex-info on unresolved keyword.
       { source: 're-frame.machines/resolve-guard (machine-unresolved-guard)',
@@ -117,6 +123,7 @@ const ARTEFACTS = [
 
   {
     name: 'routing',
+    relPath: 'routing',
     internalSentinels: [
       // routing.cljc — `route` lookup ex-info.
       { source: 're-frame.routing route-by-id (no-such-route)',
@@ -131,6 +138,7 @@ const ARTEFACTS = [
 
   {
     name: 'flows',
+    relPath: 'flows',
     internalSentinels: [
       // flows.cljc — topological-sort cycle detection.
       { source: 're-frame.flows topo-sort (flow-cycle)',
@@ -156,6 +164,7 @@ const ARTEFACTS = [
 
   {
     name: 'http',
+    relPath: 'http',
     internalSentinels: [
       // http/managed.cljc — managed-abort fx (registered only when the
       // ns is loaded; the keyword string survives :advanced).
@@ -211,6 +220,7 @@ const ARTEFACTS = [
   // assembly remain reachable while the debug-only restore trace ids DCE.
   {
     name: 'epoch',
+    relPath: 'epoch',
     internalSentinels: [
       { source: 're-frame.epoch.listeners listener failure diagnostic',
         sentinel: 'rf.epoch.cb/listener-exception' },
@@ -231,6 +241,7 @@ const ARTEFACTS = [
 
   {
     name: 'ssr',
+    relPath: 'ssr',
     internalSentinels: [
       // ssr.cljc — namespace-prefix on every server-only fx and trace
       // op (`:rf.server/respond`, `:rf.server/redirect`, ...). The
@@ -273,6 +284,7 @@ const ARTEFACTS = [
   // resources artefact's own src tree (verified repo-wide).
   {
     name: 'resources',
+    relPath: 'resources',
     internalSentinels: [
       // registry.cljc — `reg-resource` spec validator ex-info reason.
       { source: 're-frame.resources.registry reg-resource (resource-bad-spec)',
@@ -873,30 +885,40 @@ function assertPositiveControlComplete(artefacts = ARTEFACTS, controls = POSITIV
   };
 }
 
-// ----- canonical publishable-runtime coverage (rf2-sh0sp4 / rf2-klyw5) -------
+// ----- canonical publishable-runtime coverage (rf2-sh0sp4 / rf2-klyw5 / rf2-zef0e) -------
 
 // assertPositiveControlComplete only cross-checks this script's own two local
 // tables (ARTEFACTS <-> POSITIVE_CONTROL): an artefact absent from BOTH is
 // defined away, not detected. That is exactly how the resources runtime slipped
 // the gate — a separately published, browser-reachable optional runtime omitted
 // from every internal table stayed green. This check closes that hole by
-// deriving the REQUIRED set from the SAME canonical authority the release
-// lockstep uses (.github/scripts/verify-version-lockstep.sh): every publishable
-// artefact deps.edn carrying a `:clein/build` alias is a published artefact.
-// Each browser-optional runtime among them MUST map either to a primary generic
-// ARTEFACTS entry here OR to a real dedicated isolation gate
-// (DEDICATED_ISOLATION_GATES below). It is filesystem-derived, so a NEW
-// browser-optional artefact — a new implementation/<name>/deps.edn OR a new
-// implementation/adapters/<name>/deps.edn with :clein/build, not in the
-// exclusion set — that is neither generic-gated nor dedicated-gated fails
-// automatically (FAIL-CLOSED). The check does NOT compare two copies of its own
-// local table.
+// deriving the REQUIRED set STRUCTURALLY from the real publishable surface: the
+// shared EDN-aware authority (scripts/lib/publishable-runtimes.cjs) that reads
+// each deps.edn's real `:aliases/:clein/build` KEY — the SAME parsed fact the
+// release lockstep (.github/scripts/verify-version-lockstep.sh) consumes. Each
+// browser-optional runtime among them MUST map — BY EXACT implementation-
+// relative PATH — either to a generic ARTEFACTS entry (whose `relPath` equals
+// the runtime's path) OR to a dedicated isolation gate whose descriptor
+// VALIDATES (real checker file + invoked package command). A runtime mapped to
+// NEITHER fails automatically (FAIL-CLOSED). The check does NOT compare two
+// copies of its own local table.
+//
+// rf2-zef0e makes the enrolment causal — the fail-closed claim can no longer be
+// discharged by text or names:
+//   - Discovery is EDN-structural (via publishable-runtimes.cjs): a genuine
+//     `:clein/build` survives `;` inside strings (so a real runtime is never
+//     silently omitted), and a token inside a string / comment / `#_` discard is
+//     NOT invented as an alias.
+//   - Coverage is keyed by EXACT relative path, so a future
+//     implementation/adapters/schemas can NOT inherit the flat
+//     implementation/schemas generic gate via a colliding directory leaf.
+//   - Dedicated coverage is a MACHINE-READABLE descriptor validated against real
+//     wiring (validateDedicatedGate), so a fictional prose entry, a removed
+//     checker, or an uninvoked command can NOT enrol a runtime.
 //
 // Traversal mirrors the release lockstep's bounded FLAT-plus-ADAPTERS shape:
 // per-feature + core-tier artefacts live at implementation/<name>/; substrate
-// adapters live one directory deeper at implementation/adapters/<name>/. The
-// pre-rf2-klyw5 scan read only the top level, so a newly publishable adapter was
-// never enrolled (rf2-klyw5 NOTES — a second counterexample to rf2-sh0sp4 AC6).
+// adapters live one directory deeper at implementation/adapters/<name>/.
 //
 // Excluded from the REQUIRED set (published, but NOT a browser-optional client
 // runtime — each with reason):
@@ -908,10 +930,11 @@ function assertPositiveControlComplete(artefacts = ARTEFACTS, controls = POSITIV
 // browser-capable substrate artefact that the adapters do NOT depend on, so the
 // old "always present, every adapter loads it" premise was false and let a
 // future publishable UI stay unguarded. Because implementation/ui/deps.edn
-// carries no real :clein/build today (only a comment mentioning the alias), UI
-// is not discovered and pre-publication stays green NATURALLY; when
-// rf2-vxgfnd.99.2 makes UI publishable, it must land a UI isolation entry/gate
-// in that same slice or this coverage check fails and names `ui`.
+// carries no real :clein/build today (only a comment mentioning the alias, which
+// the EDN-aware authority correctly ignores), UI is not discovered and
+// pre-publication stays green NATURALLY; when rf2-vxgfnd.99.2 makes UI
+// publishable, it must land a UI isolation entry/gate in that same slice or this
+// coverage check fails and names `ui`.
 const NON_BROWSER_OPTIONAL = new Set(['core', 'ssr-ring']);
 
 // Nested substrate-adapter tier, relative to implementation/ (matches the
@@ -919,53 +942,95 @@ const NON_BROWSER_OPTIONAL = new Set(['core', 'ssr-ring']);
 const ADAPTERS_DIR = 'adapters';
 
 // Browser-optional runtimes covered by a REAL dedicated isolation gate rather
-// than a generic ARTEFACTS entry. Each substrate adapter ships in the counter/
-// login example matrix and is proven isolated by an adapter-specific gate (the
-// per-feature artefacts, by contrast, must be ABSENT from the no-feature counter
-// bundle, which the generic ARTEFACTS sentinels prove). A discovered runtime
-// mapped here is accounted for; a discovered runtime mapped NOWHERE fails closed.
+// than a generic ARTEFACTS entry. KEYED BY EXACT implementation-relative PATH
+// (never leaf name) so a future implementation/adapters/<x> can not inherit a
+// flat implementation/<x> generic gate through a colliding directory leaf. Each
+// value is a MACHINE-READABLE descriptor: `checkers` are the real gate-script
+// filenames under scripts/, and `command` is the package.json script that
+// invokes them. validateDedicatedGate() confirms every checker file EXISTS and
+// that `command` is a real package script whose body INVOKES each checker — so a
+// truthy prose string, a removed checker, or an uninvoked command fails closed.
 // Keep this to the set of EXISTING dedicated gates only — do not add a runtime
-// here without a real gate script proving its isolation.
+// here without a real, invoked gate script proving its isolation.
 const DEDICATED_ISOLATION_GATES = {
-  reagent:
-    'check-uix-helix-reagent-free.cjs + check-login-bundle-isolation.cjs ' +
-    '(reagent is the counter/login reference substrate; its fingerprints are ' +
-    'the positive control both gates assert present, and absent from uix/helix)',
-  uix:
-    'check-uix-helix-reagent-free.cjs + check-login-bundle-isolation.cjs ' +
-    '(uix bundles must be reagent- and helix-free)',
-  helix:
-    'check-uix-helix-reagent-free.cjs + check-login-bundle-isolation.cjs ' +
-    '(helix bundles must be reagent- and uix-free)',
-  'reagent-slim':
-    'check-reagent-slim-bundle-isolation.cjs (test:reagent-slim:bundle-isolation ' +
-    '— slim bundle free of stock reagent + react-dom/server; classic bundle ' +
-    'free of the reagent2.* rewrite)',
+  'adapters/reagent': {
+    checkers: ['check-uix-helix-reagent-free.cjs', 'check-login-bundle-isolation.cjs'],
+    command: 'test:bundle-isolation',
+    note: 'reagent is the counter/login reference substrate; its fingerprints are ' +
+      'the positive control both gates assert present, and absent from uix/helix',
+  },
+  'adapters/uix': {
+    checkers: ['check-uix-helix-reagent-free.cjs', 'check-login-bundle-isolation.cjs'],
+    command: 'test:bundle-isolation',
+    note: 'uix bundles must be reagent- and helix-free',
+  },
+  'adapters/helix': {
+    checkers: ['check-uix-helix-reagent-free.cjs', 'check-login-bundle-isolation.cjs'],
+    command: 'test:bundle-isolation',
+    note: 'helix bundles must be reagent- and uix-free',
+  },
+  'adapters/reagent-slim': {
+    checkers: ['check-reagent-slim-bundle-isolation.cjs'],
+    command: 'test:reagent-slim:bundle-isolation',
+    note: 'slim bundle free of stock reagent + react-dom/server; classic bundle ' +
+      'free of the reagent2.* rewrite',
+  },
 };
 
-// Strip deps.edn line comments (`;` to EOL) so a header comment MENTIONING
-// `:clein/build` (several artefact deps.edn headers do — implementation/ui's is
-// exactly such a comment) is not mistaken for a real build alias.
-function stripEdnComments(edn) {
-  return edn.replace(/;[^\n]*/g, '');
+// Package.json scripts map, read once. Used to prove a dedicated gate's declared
+// command is a REAL invoked package script (not just a name in prose).
+function readPackageScripts(root = ROOT) {
+  try {
+    const pkg = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'));
+    return pkg.scripts || {};
+  } catch (_e) {
+    return {};
+  }
 }
 
-// True when <root>/<relPath>/deps.edn declares a REAL (non-comment) :clein/build
-// alias — i.e. the directory is a separately publishable artefact.
-function hasRealBuildAlias(root, relPath) {
-  let deps;
-  try {
-    deps = fs.readFileSync(path.join(root, relPath, 'deps.edn'), 'utf8');
-  } catch (_e) {
-    return false; // no deps.edn — not a publishable artefact directory
+// A dedicated-gate descriptor is CAUSAL only when it is wired to real, invoked
+// machinery. Returns `{ ok, reasons }`: ok iff `gate` is a
+// `{ checkers: [...], command }` map whose every checker file EXISTS in
+// scriptsDir AND whose command is a package.json script whose body INVOKES every
+// checker. A truthy prose string, a nonexistent checker, or an uninvoked/absent
+// command all fail — so enrolment can not be discharged by editing this table.
+function validateDedicatedGate(gate, { scriptsDir = SCRIPTS_DIR, scripts = readPackageScripts() } = {}) {
+  if (!gate || typeof gate !== 'object' || Array.isArray(gate)) {
+    return { ok: false, reasons: ['descriptor is not a { checkers, command } map (a prose string does not enrol a runtime)'] };
   }
-  return /:clein\/build/.test(stripEdnComments(deps));
+  const reasons = [];
+  const checkers = Array.isArray(gate.checkers) ? gate.checkers : [];
+  const command = typeof gate.command === 'string' ? gate.command : null;
+  if (checkers.length === 0) reasons.push('no checker script(s) declared');
+  for (const checker of checkers) {
+    if (!fs.existsSync(path.join(scriptsDir, checker))) {
+      reasons.push(`checker script does not exist: ${checker}`);
+    }
+  }
+  if (!command) {
+    reasons.push('no package/CI command declared');
+  } else {
+    const body = scripts[command];
+    if (body === undefined) {
+      reasons.push(`declared command is not an invoked package.json script: ${command}`);
+    } else {
+      for (const checker of checkers) {
+        if (!body.includes(checker)) {
+          reasons.push(`package command '${command}' does not invoke checker: ${checker}`);
+        }
+      }
+    }
+  }
+  return { ok: reasons.length === 0, reasons };
 }
 
 // Discover every publishable browser-optional runtime under implementation/,
-// using the lockstep authority's bounded flat-plus-adapters traversal. Returns
-// `{ name, relPath }` records; `name` is the directory leaf (unique across both
-// tiers) and `relPath` is the implementation/-relative path for diagnostics.
+// using the shared EDN-aware authority (`pathDeclaresBuildAlias`, the SAME
+// parsed `:aliases/:clein/build` fact the release lockstep consumes) over the
+// lockstep's bounded flat-plus-adapters traversal. Returns `{ name, relPath }`
+// records; `name` is the directory leaf and `relPath` is the implementation/-
+// relative path — coverage keys on `relPath` so leaf collisions can't launder a
+// runtime through the wrong gate.
 function discoverBrowserOptionalRuntimes(root = ROOT) {
   const out = [];
 
@@ -980,7 +1045,7 @@ function discoverBrowserOptionalRuntimes(root = ROOT) {
     if (!ent.isDirectory()) continue;
     if (ent.name === ADAPTERS_DIR) continue;         // descended into below
     if (NON_BROWSER_OPTIONAL.has(ent.name)) continue;
-    if (hasRealBuildAlias(root, ent.name)) {
+    if (pathDeclaresBuildAlias(root, ent.name)) {
       out.push({ name: ent.name, relPath: ent.name });
     }
   }
@@ -997,31 +1062,52 @@ function discoverBrowserOptionalRuntimes(root = ROOT) {
   for (const ent of adapters) {
     if (!ent.isDirectory()) continue;
     const relPath = `${ADAPTERS_DIR}/${ent.name}`;
-    if (hasRealBuildAlias(root, relPath)) {
+    if (pathDeclaresBuildAlias(root, relPath)) {
       out.push({ name: ent.name, relPath });
     }
   }
   return out;
 }
 
-// Every discovered browser-optional publishable runtime must map to a real
-// isolation gate — either a generic ARTEFACTS entry (per-feature runtimes, which
-// must be ABSENT from the no-feature counter bundle) or an explicit existing
-// dedicated gate (substrate adapters, proven isolated by adapter-specific gates).
-// A discovered runtime mapped to NEITHER means a separately published optional
-// runtime could leak into a production bundle with nothing to catch it — so the
-// gate fails closed and names it.
-function assertCanonicalInventoryCovered(required = discoverBrowserOptionalRuntimes()) {
-  const generic = new Set(ARTEFACTS.map((a) => a.name));
+// The exact implementation-relative PATHS a generic ARTEFACTS entry proves
+// isolated — the per-feature publishable runtimes, each declaring `relPath`.
+// Keyed by path, never leaf name: a generic entry covers exactly the path it
+// declares, so a nested adapter with a colliding leaf is not silently absorbed.
+function genericCoveragePaths(artefacts = ARTEFACTS) {
+  return new Set(artefacts.filter((a) => a.relPath).map((a) => a.relPath));
+}
+
+// Every discovered browser-optional publishable runtime must map — BY EXACT
+// implementation-relative PATH — to a real isolation gate: a generic ARTEFACTS
+// entry whose `relPath` equals the runtime's path (per-feature runtimes, which
+// must be ABSENT from the no-feature counter bundle) OR a dedicated gate whose
+// descriptor VALIDATES (real checker file + invoked package command). A runtime
+// mapped to NEITHER means a separately published optional runtime could leak
+// into a production bundle with nothing to catch it — so the gate fails closed
+// and names it (with the reason its would-be gate was rejected).
+function assertCanonicalInventoryCovered(required = discoverBrowserOptionalRuntimes(), opts = {}) {
+  const {
+    dedicatedGates = DEDICATED_ISOLATION_GATES,
+    scriptsDir = SCRIPTS_DIR,
+    scripts = readPackageScripts(),
+  } = opts;
+  const generic = genericCoveragePaths();
   const covered = [];
   const missing = [];
   for (const rt of required) {
-    if (generic.has(rt.name)) {
+    if (generic.has(rt.relPath)) {
       covered.push({ ...rt, via: 'generic' });
-    } else if (DEDICATED_ISOLATION_GATES[rt.name]) {
-      covered.push({ ...rt, via: 'dedicated', gate: DEDICATED_ISOLATION_GATES[rt.name] });
+      continue;
+    }
+    const gate = dedicatedGates[rt.relPath];
+    const validation = validateDedicatedGate(gate, { scriptsDir, scripts });
+    if (gate && validation.ok) {
+      covered.push({ ...rt, via: 'dedicated', gate });
     } else {
-      missing.push(rt);
+      missing.push({
+        ...rt,
+        reasons: gate ? validation.reasons : ['no isolation gate mapped for this exact path'],
+      });
     }
   }
   return {
@@ -1163,16 +1249,23 @@ function main() {
       console.error('');
     }
     if (!coverage.ok) {
-      console.error('Canonical inventory coverage (rf2-sh0sp4 / rf2-klyw5):');
-      console.error(`  Browser-optional publishable runtime(s) with NO isolation gate: ${coverage.missing.map((rt) => rt.relPath).join(', ')}`);
+      console.error('Canonical inventory coverage (rf2-sh0sp4 / rf2-klyw5 / rf2-zef0e):');
+      console.error('  Browser-optional publishable runtime(s) with NO valid isolation gate:');
+      for (const rt of coverage.missing) {
+        console.error(`    - ${rt.relPath}: ${(rt.reasons || []).join('; ')}`);
+      }
       console.error('  Each is a separately published day8/re-frame2-<name> artefact');
-      console.error('  (implementation/<path>/deps.edn carries :clein/build) with a CLJS');
-      console.error('  runtime that could leak into a production bundle unguarded. Either');
-      console.error('  add a primary ARTEFACTS entry with live runtime sentinels + a');
-      console.error('  positive control, or — for a substrate adapter proven by an adapter-');
-      console.error('  specific gate — map it in DEDICATED_ISOLATION_GATES. If it is');
-      console.error('  genuinely not a browser-optional runtime (always-present or JVM-');
-      console.error('  only), add it to NON_BROWSER_OPTIONAL with a reason.');
+      console.error('  (implementation/<path>/deps.edn carries a real :aliases/:clein/build)');
+      console.error('  with a CLJS runtime that could leak into a production bundle');
+      console.error('  unguarded. Either add a primary ARTEFACTS entry keyed by its exact');
+      console.error('  `relPath` (with live runtime sentinels + a positive control), or —');
+      console.error('  for a substrate adapter proven by an adapter-specific gate — map its');
+      console.error('  exact path in DEDICATED_ISOLATION_GATES with a REAL descriptor');
+      console.error('  ({ checkers: [<existing gate script>], command: <invoked package');
+      console.error('  script> }); a prose string, a nonexistent checker, or an uninvoked');
+      console.error('  command is rejected. If it is genuinely not a browser-optional');
+      console.error('  runtime (always-present or JVM-only), add it to NON_BROWSER_OPTIONAL');
+      console.error('  with a reason.');
       console.error('');
     }
     if (positiveFailures.length) {
@@ -1214,8 +1307,10 @@ module.exports = {
   ADAPTERS_DIR,
   assertPositiveControlComplete,
   checkArtefact,
-  stripEdnComments,
-  hasRealBuildAlias,
+  pathDeclaresBuildAlias,
   discoverBrowserOptionalRuntimes,
+  genericCoveragePaths,
+  validateDedicatedGate,
+  readPackageScripts,
   assertCanonicalInventoryCovered,
 };
