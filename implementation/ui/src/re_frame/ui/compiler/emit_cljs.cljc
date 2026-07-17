@@ -17,7 +17,13 @@
   (:require [clojure.string :as str]
             [clojure.walk :as walk]
             [re-frame.ui.compiler.analyze :as ana]
-            [re-frame.ui.rules :as rules]))
+            [re-frame.ui.rules :as rules]
+            ;; JVM-only: a self-recursive view completes the same-named `:refer`
+            ;; shadowing in the LIVE CLJS analyzer state so its def/declare
+            ;; resolve to the current-ns Var (see `emit-defview`). Never loaded on
+            ;; the CLJS host — the emitter only mutates analyzer state on the JVM
+            ;; macro-expansion path.
+            #?(:clj [cljs.env])))
 
 (def ^:private props-sym 'rf-ui-props)
 
@@ -771,6 +777,25 @@
                             :rf.ui/children? children?}
                      docstring   (assoc :doc docstring)
                      closed-keys (assoc :rf.ui/closed-prop-keys (vec closed-keys)))]
+    ;; A self-recursive view whose name collides with a same-named `:refer`
+    ;; (e.g. `(defview sub …)` where the ns refers re-frame.ui/sub) must resolve
+    ;; its OWN declare/def/head to the current-namespace Var, not the refer. The
+    ;; CLJS analyzer already signals this shadowing on the def (its `:redef`
+    ;; warning: "sub … replaced by <ns>/sub", and it adds sub to `:excludes`) —
+    ;; but cljs.analyzer/resolve-var ranks `:uses` (refers) ABOVE `:defs` and
+    ;; ignores `:excludes`, so a bare def name still resolves through the refer
+    ;; and BOTH clobbers the public authoring Var (`re_frame.ui.sub = …`) and
+    ;; leaves the qualified self head (`<ns>.sub`) undefined — the split identity.
+    ;; Completing the shadowing the analyzer already intends — dropping the view's
+    ;; own name from the live ns `:uses` — makes the declare, the def, and the
+    ;; recursive head share the one canonical current-ns Var. JVM-only: this is
+    ;; the macro-expansion path with the live compiler env; non-recursive views
+    ;; and the CLJS-host golden path are untouched.
+    #?(:clj
+       (when (and (:self-ref? @st) self-fqn (some? cljs.env/*compiler*))
+         (swap! cljs.env/*compiler* update-in
+                [:cljs.analyzer/namespaces (symbol (namespace self-fqn)) :uses]
+                dissoc vname)))
     `(do
        ;; A self-recursive view forward-declares its Var so the `$render` fn
        ;; (emitted before the view's own `(def …)`) may reference the
