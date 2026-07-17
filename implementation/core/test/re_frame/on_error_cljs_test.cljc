@@ -734,6 +734,129 @@
         (is (not (contains? r :source-coord))
             "no captured coords ⇒ the :source-coord slot is ABSENT, not nil")))))
 
+;; ============================================================================
+;; rf2-7xlvt — CORE capture-frame stale-op source-coord is OPERATION-REALM EXACT
+;; ----------------------------------------------------------------------------
+;; The synchronous capture pre-check seam — `router/emit-captured-frame-
+;; superseded!`, reached from `core/capture-dispatch!` + `core/capture-
+;; subscribe!` — recover-but-emits `:rf.error/frame-destroyed` when a
+;; `capture-frame` op finds its pinned incarnation superseded. Before rf2-7xlvt
+;; it DROPPED the already-known operation realm, so `error-emit/error-source-
+;; coord` fell back to the legacy `[:sub]`-then-`[:event]` probe (the correct
+;; fallback for the realm-ambiguous bare router / subs emitters, UNSOUND here
+;; where the realm IS known). That misattributed a stale captured DISPATCH to a
+;; same-keyword SUBSCRIPTION's coord, and a stale captured SUBSCRIBE to an
+;; unrelated EVENT's coord (instead of OMITTING `:source-coord`). This seam
+;; KNOWS the realm (`:dispatch` / `:dispatch-sync` / `:subscribe`); it now
+;; carries it through the shared frame-destroyed emit boundary so the resolved
+;; coord names the correct definition (dispatch → `[:event]`, subscribe →
+;; `[:sub]`) — or is omitted when the realm's own coord is genuinely absent.
+;;
+;; These drive the REAL capture seam (a `capture-frame` api pinned to a live
+;; frame, then destroyed + reseated as a same-id successor) against distinct
+;; sentinel `[:event id]` / `[:sub id]` coords seeded into the always-on
+;; `error-coords-by-id` registry — the same registry the runtime resolves —
+;; and assert the delivered record's `:source-coord` names the correct realm.
+;; ============================================================================
+
+(def ^:private xlvt-event-coord
+  {:ns 're-frame.on-error-cljs-test.xlvt-events :file "xlvt_events.cljc" :line 7})
+
+(def ^:private xlvt-sub-coord
+  {:ns 're-frame.on-error-cljs-test.xlvt-subs :file "xlvt_subs.cljc" :line 13})
+
+(defn- capture-superseded-record
+  "Pin a `capture-frame` api to a LIVE frame, destroy that frame and reseat a
+  same-id successor B (superseding the pin exactly like the bead's repro), run
+  `seed` to populate the always-on `error-coords-by-id` registry, then invoke
+  the captured `op-key` op (`:dispatch` / `:dispatch-sync` / `:subscribe`) with
+  the vector `[id]`. The synchronous `capture-target-superseded?` pre-check sees
+  the pin gone, so the op recover-but-emits through `emit-captured-frame-
+  superseded!` (never leaking into B). Returns the vector of always-on records
+  the listener saw — exactly one per stale op."
+  [op-key id seed]
+  (let [fid  :xlvt/target]
+    (rf/make-frame {:id fid :doc "capture target A"})
+    (let [h (rf/capture-frame fid)]
+      (rf/destroy-frame! fid)
+      (rf/make-frame {:id fid :doc "same-id successor B"})
+      (let [seen (atom [])]
+        (source-coords/forget-error-coords!)
+        (seed)
+        (rf/register-listener! :errors :xlvt/recorder
+                               (fn [record] (swap! seen conj record)))
+        (case op-key
+          :dispatch      ((:dispatch h) [id])
+          :dispatch-sync ((:dispatch-sync h) [id])
+          :subscribe     ((:subscribe h) [id]))
+        @seen))))
+
+(defn- seed-both [id]
+  (fn []
+    (source-coords/remember-error-coords! :event id xlvt-event-coord)
+    (source-coords/remember-error-coords! :sub   id xlvt-sub-coord)))
+
+(deftest stale-captured-dispatch-resolves-the-event-coord-not-the-collision-sub
+  (testing "rf2-7xlvt — a stale captured `:dispatch` whose id is BOTH an event
+            AND a same-keyword sub resolves the EVENT coord. Pre-fix the realm
+            was dropped and the `[:sub]`-first fallback stole the sub's coord."
+    (let [records (capture-superseded-record :dispatch :audit/collide
+                                             (seed-both :audit/collide))]
+      (is (= 1 (count records)) "exactly one always-on record per stale op")
+      (let [r (first records)]
+        (is (= :rf.error/frame-destroyed (:error r)))
+        (is (= xlvt-event-coord (:source-coord r))
+            "stale captured dispatch resolves the EVENT coord, never the collision sub's")))))
+
+(deftest stale-captured-dispatch-sync-shares-the-event-realm
+  (testing "rf2-7xlvt — a stale captured `:dispatch-sync` shares the dispatch
+            realm: the EVENT coord, never the same-keyword sub's."
+    (let [records (capture-superseded-record :dispatch-sync :audit/collide
+                                             (seed-both :audit/collide))]
+      (is (= 1 (count records)))
+      (is (= xlvt-event-coord (:source-coord (first records)))
+          "stale captured dispatch-sync resolves the EVENT coord"))))
+
+(deftest stale-captured-subscribe-resolves-the-sub-coord-not-the-collision-event
+  (testing "rf2-7xlvt — the inverse collision direction: a stale captured
+            `:subscribe` whose id is BOTH resolves the SUB coord, never the
+            same-keyword event's."
+    (let [records (capture-superseded-record :subscribe :audit/collide
+                                             (seed-both :audit/collide))]
+      (is (= 1 (count records)))
+      (is (= xlvt-sub-coord (:source-coord (first records)))
+          "stale captured subscribe resolves the SUB coord"))))
+
+(deftest stale-captured-subscribe-omits-coord-when-only-event-registered
+  (testing "rf2-7xlvt — a stale captured `:subscribe` for an id that is ONLY an
+            EVENT (no sub coord) OMITS `:source-coord` rather than stealing the
+            unrelated event's. Pre-fix the `[:sub]`-then-`[:event]` fallback
+            returned the EVENT coord — the wrong realm."
+    (let [records (capture-superseded-record
+                    :subscribe :audit/collide
+                    (fn [] (source-coords/remember-error-coords!
+                             :event :audit/collide xlvt-event-coord)))]
+      (is (= 1 (count records)))
+      (let [r (first records)]
+        (is (= :rf.error/frame-destroyed (:error r)))
+        (is (not (contains? r :source-coord))
+            "no sub coord ⇒ :source-coord is ABSENT, never the unrelated event's")))))
+
+(deftest stale-captured-dispatch-omits-coord-when-only-sub-registered
+  (testing "rf2-7xlvt — the inverse omit: a stale captured `:dispatch` for an id
+            that is ONLY a SUB (no event coord) OMITS `:source-coord` rather than
+            stealing the unrelated sub's. Pre-fix the `[:sub]`-first fallback
+            returned the SUB coord — the wrong realm."
+    (let [records (capture-superseded-record
+                    :dispatch :audit/collide
+                    (fn [] (source-coords/remember-error-coords!
+                             :sub :audit/collide xlvt-sub-coord)))]
+      (is (= 1 (count records)))
+      (let [r (first records)]
+        (is (= :rf.error/frame-destroyed (:error r)))
+        (is (not (contains? r :source-coord))
+            "no event coord ⇒ :source-coord is ABSENT, never the unrelated sub's")))))
+
 (deftest non-recovery-categories-fan-out-to-listener
   (testing "Per rf2-2hvga (= B / widen): every catalogued production-
             reachable runtime `:rf.error/*` — frame-destroyed,

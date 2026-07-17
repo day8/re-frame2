@@ -1227,11 +1227,15 @@
   `dispatch-fn` (the `dispatch-impl` / `dispatch-sync-impl` alias, preserving the
   single `with-redefs` interception seam). `frame-target` is a keyword id OR a
   frame VALUE; the recover-but-emit stamps the normalized frame id (identity for
-  a keyword) so the diagnostic carries an id, never a value map (rf2-vclh63)."
-  [dispatch-fn frame-target captured-incarnation event opts]
+  a keyword) so the diagnostic carries an id, never a value map (rf2-vclh63).
+  `op` (rf2-7xlvt) is the ALREADY-KNOWN operation realm — `:dispatch` or
+  `:dispatch-sync` — carried through the recover-but-emit so the frame-destroyed
+  source-coord resolves under `[:event id]` exactly, never the realm-ambiguous
+  fallback that could steal a same-keyword subscription's coord."
+  [dispatch-fn op frame-target captured-incarnation event opts]
   (if (capture-target-superseded? frame-target captured-incarnation)
     (router/emit-captured-frame-superseded!
-      event (frame/frame-target->id frame-target) opts)
+      event (frame/frame-target->id frame-target) op opts)
     ;; rf2-dlld6: the `capture-target-superseded?` pre-check above and the
     ;; ordinary address-directed dispatch below are SEPARATE operations. On the
     ;; concurrent JVM host frame A can be destroyed AND a same-id successor B
@@ -1257,11 +1261,13 @@
   wrapper). The async-safe, recover-but-emit sibling of the SYNCHRONOUS throwing
   `re-frame.ui.frames/fence-subscribe`; reuses the dispatch fence's emit seam,
   passing `subscribe-call-site` as the `:rf.trace/call-site` so the drop is
-  attributed to the subscribe coord."
+  attributed to the subscribe coord, and the `:subscribe` operation realm
+  (rf2-7xlvt) so the frame-destroyed source-coord resolves under `[:sub id]`
+  exactly — never a same-keyword event's coord."
   [subscribe-thunk frame-target captured-incarnation query-v subscribe-call-site]
   (if (capture-target-superseded? frame-target captured-incarnation)
     (router/emit-captured-frame-superseded!
-      query-v (frame/frame-target->id frame-target)
+      query-v (frame/frame-target->id frame-target) :subscribe
       {:rf.trace/call-site subscribe-call-site})
     (subscribe-thunk)))
 
@@ -1315,15 +1321,15 @@
     {:frame frame
      :dispatch
      (fn dispatch-fn
-       ([event]      (capture-dispatch! dispatch-impl frame captured-incarnation
+       ([event]      (capture-dispatch! dispatch-impl :dispatch frame captured-incarnation
                                         event (merge dispatch-opts {:frame frame})))
-       ([event opts] (capture-dispatch! dispatch-impl frame captured-incarnation
+       ([event opts] (capture-dispatch! dispatch-impl :dispatch frame captured-incarnation
                                         event (merge dispatch-opts opts {:frame frame}))))
      :dispatch-sync
      (fn dispatch-sync-fn
-       ([event]      (capture-dispatch! dispatch-sync-impl frame captured-incarnation
+       ([event]      (capture-dispatch! dispatch-sync-impl :dispatch-sync frame captured-incarnation
                                         event (merge dispatch-opts {:frame frame})))
-       ([event opts] (capture-dispatch! dispatch-sync-impl frame captured-incarnation
+       ([event opts] (capture-dispatch! dispatch-sync-impl :dispatch-sync frame captured-incarnation
                                         event (merge dispatch-opts opts {:frame frame}))))
      :subscribe
      ;; rf2-tdjv7p: fence subscribe on the SAME incarnation pin as dispatch — a
