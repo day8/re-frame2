@@ -418,10 +418,12 @@
 ;;
 ;; Per Spec 002 §Frame target resolution — the carried invariant (EP-0002):
 ;; **frame identity is carried, not found.** A frame-scoped operation reads
-;; its frame from the causal token it holds — the dynamic scope a `with-frame`
-;; / frame-provider established, or a frame stamp it captured. It never
-;; *synthesises* one from absence: there is no process-global `:rf/default`
-;; floor that catches operations issued under no scope at all.
+;; its frame from the causal token it holds — the ambient scope established
+;; by `with-frame` (dynamic var) or by the closest enclosing frame boundary,
+;; a `frame-provider` (SCOPE) or a `frame-root` (ENSURE), or a frame stamp it
+;; captured. It never *synthesises* one from absence: there is no process-
+;; global `:rf/default` floor that catches operations issued under no scope
+;; at all.
 ;;
 ;; The rationale leads with **replay determinism + temporal non-locality**,
 ;; NOT purity (per EP-0002 §Resolved Decisions R1-R7):
@@ -574,9 +576,11 @@
                              "context — no carried frame stamp and no established "
                              "scope. Frame identity is carried, not found: declare "
                              "your root frame (rf/make-frame) and run the operation "
-                             "inside that scope (with-frame / a frame-provider), or "
-                             "pass an explicit {:frame <id>}. Per Spec 002 §The error "
-                             "and its ladder.")}
+                             "inside that scope (with-frame, or an enclosing frame "
+                             "boundary — a frame-provider that scopes an existing "
+                             "frame, or a frame-root that ensures one), or pass an "
+                             "explicit {:frame <id>}. Per Spec 002 §The error and "
+                             "its ladder.")}
           ;; Capture-site ancestry off the in-scope handler scope: the
           ;; cascade's dispatch-id correlates a stampless continuation back
           ;; to the cascade that captured the callback. nil outside any

@@ -1499,9 +1499,10 @@
   "Per Spec 006 §Lookup algorithm. Returns the reaction for query-v;
   build-and-cache on miss; reuse on hit. The 1-arity ambient form
   resolves the active frame through the carried-invariant scope/hold
-  chain via `frame/require-current-frame!` (EP-0002): a `with-frame` /
-  frame-provider scope (the `:adapter/current-frame` late-bind hook)
-  or a captured `*current-frame*` stamp. There is NO
+  chain via `frame/require-current-frame!` (EP-0002): a `with-frame`
+  scope, or the closest enclosing frame boundary — a `frame-provider`
+  (SCOPE) or a `frame-root` (ENSURE), via the `:adapter/current-frame`
+  late-bind hook — or a captured `*current-frame*` stamp. There is NO
   `:rf/default` floor — a subscribe issued under no established scope
   raises `:rf.error/no-frame-context` rather than silently reading the
   wrong frame. Pass the public opts form `(subscribe query-v {:frame
