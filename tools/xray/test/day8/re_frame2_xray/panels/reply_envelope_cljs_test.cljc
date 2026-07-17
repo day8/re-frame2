@@ -612,7 +612,7 @@
 ;; public shape) PLUS the additive `:rf.reply/*` reply-envelope facts. This is a
 ;; PROJECTION table (op + stale-reason -> row): the ordered exact-attempt
 ;; classification itself is proven producer-backed in the machines suite
-;; (`join_exact_auth_cljs_test`) and, for the Xray arc, in
+;; (`join_exact_attempt_cljs_test`) and, for the Xray arc, in
 ;; `machine_work_identity_cljs_test`'s
 ;; `post-resolution-superseded-straggler-is-stale-completion-not-late`.
 ;;
