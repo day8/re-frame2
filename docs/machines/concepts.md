@@ -271,13 +271,15 @@ Full rules: see schemas section of
 <a id="self-transitions-internal-by-default-external-on-demand"></a>
 <a id="wildcard-transitions-handle-a-whole-class-of-events"></a>
 
-Self-moves are **internal by default** — the turnstile's push-while-locked counts a
-push without leaving `:locked`. Three shapes:
+Self-moves **don't re-enter by default** — the turnstile's push-while-locked counts a
+push without leaving `:locked`. (XState calls that non-reentering shape "internal";
+re-frame2's runtime `internal?` flag is narrower — it's the **targetless** no-op alone,
+never a targeted self/ancestor move.) Three shapes:
 
 | Shape | Effect |
 |---|---|
-| No `:target` | Action only — no exit/entry; timers and spawns undisturbed |
-| `:target` same state, no `:reenter?` | Action; **compounds** re-resolve descendants to `:initial` |
+| No `:target` (targetless) | The `internal?` no-op: action only — no exit/entry; timers and spawns undisturbed; descendants preserved |
+| `:target` same state, no `:reenter?` | Non-reentering: the target survives, but **compounds** re-resolve descendants to `:initial` (a leaf self-target has none, so it's action-only) |
 | `:reenter? true` | Full exit → action → entry (timers reset, spawns restart) |
 
 A self-rescheduling poll uses the external form so `:entry` re-fires:
