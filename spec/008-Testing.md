@@ -611,9 +611,9 @@ This complements the JVM-runnable list in [§Normative surface §JVM-runnable bo
 `re-frame.ui.test` (alias `ui.test`) is the test surface for the compiled-view
 substrate `re-frame.ui` ([004-Views.md](004-Views.md)). It is the compiled-view
 counterpart of the legacy hiccup-walk `re-frame.test-helpers` above (which serves the
-frozen Reagent compatibility tier); the two do not mix. The hiccup-walk `test-helpers`
-are [TRANSITION] — they freeze with the stock-Reagent compatibility tier at the adapter
-deletion wave.
+Reagent compatibility tier); the two do not mix. The hiccup-walk `test-helpers`
+are [TRANSITION] — they belong to the stock-Reagent compatibility tier, which lives on
+(only Helix is removed at S7; see EP-0030 Resolved Decisions, 2026-07-17).
 
 **Two tiers.** A test runs at exactly one tier; a tier-mismatched call is a typed error
 (`:rf.error/ui-test-tier-mismatch`) pointing at the other tier's surface.

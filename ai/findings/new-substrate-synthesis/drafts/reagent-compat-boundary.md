@@ -12,12 +12,22 @@
 > the S6 migration wave, when both doors are implemented and the boundary fixtures
 > exist. House style: `⟨source⟩` provenance tags; British "serialisable".
 
+> **Disposition reframing (2026-07-17, Mike — EP-0030 Resolved Decisions).** Stock Reagent
+> is **not frozen**: it lives on as a first-class, actively-supported coexisting adapter,
+> and `re-frame.ui` is a new experimental substrate offered alongside it, not its
+> replacement. This contract is **unchanged** — the interop mechanism (one installed
+> adapter, shared React context object, the three granularities, HMR-inward, teardown)
+> stays valid precisely because Reagent coexists with the `ui` host. Only the label is
+> retired: read every "frozen (Reagent) tier" below as "the (coexisting) Reagent
+> compatibility tier." reagent-slim is likewise kept; only Helix is removed at S7.
+
 ## 1. Scope: two rendering tiers, one installed adapter, three granularities
 
 **The two tiers.** The **new-UI tier** is `re-frame.ui` — compiled `defview`s under a
-`ui` host root. The **frozen Reagent tier** is stock Reagent — Form-1/2/3, the
+`ui` host root. The **Reagent compatibility tier** is stock Reagent — Form-1/2/3, the
 `reg-view` family, the ratom substrate, the checked-in Spec 006 Reagent adapter —
-correct but frozen per the ratified Adapters decision. ⟨08 §5 Adapters, 08 §6⟩
+a first-class, actively-supported coexisting adapter per the Adapters decision (EP-0030
+Resolved Decisions, 2026-07-17: Reagent lives on, not frozen). ⟨08 §5 Adapters, 08 §6⟩
 
 **The v1 adapter-selection law is unchanged.** A process installs exactly one adapter
 at boot. Its surviving browser choices are `ui/adapter`, `reagent-adapter/adapter`, and
@@ -26,7 +36,7 @@ Nothing in this boundary contract adds per-frame or within-frame adapter selecti
 The two directions below are ordinary React-value interop (`ui/raw` takes an element;
 `ui/->react` returns a component), not a mechanism that installs or routes to a second
 adapter. A use case that truly requires two installed adapters remains separate-process
-work in v1. UIx is a separately-owned frozen compatibility adapter, primarily governed
+work in v1. UIx is a separately-owned compatibility adapter (coexisting, not frozen), primarily governed
 by Spec 006/API/Conventions/Ownership; it is not folded into this Reagent-specific
 boundary or the Reagent-specific 004A appendix. ⟨checked-in Spec 006 §Adapter selection
 at boot / §Single adapter per process; 08 §5 Adapters⟩
@@ -81,7 +91,7 @@ are created at conversion time (Reagent's reactive machinery attaches inside the
 components' own lifecycles) — so the inward door is speculative-render-safe under I-1.
 ⟨I-1, 03 §3⟩
 
-**Reactivity inside the subtree.** The frozen tier's ratom/reaction machinery runs
+**Reactivity inside the subtree.** The Reagent tier's ratom/reaction machinery runs
 untouched: legacy components track their derefs and force-update through Reagent's own
 queue. One page therefore runs two render schedulers — Reagent's inside the embedded
 subtree, the `ui` commit machinery outside it. That is bounded by the boundary and
@@ -95,7 +105,7 @@ reads the ambient frame only if it is **registered** (`reg-view` attaches the
 `:contextType`); a plain fn cannot read provider context and its ambient frame op
 raises `:rf.error/no-frame-context` (§4). For registered legacy views inside an inward
 boundary, the frame arrives via React context — which requires the compiled substrate's
-context tier and the frozen tier's provider to be **the same context object**. The
+context tier and the Reagent tier's provider to be **the same context object**. The
 checked-in precedent already demands exactly this shape: the shared React Context in
 `re-frame.adapter.context` exists "so a mixed-substrate app's frame-provider chain
 composes across substrates" (checked-in `spec/API.md` §UIx adapter notes). This
@@ -108,7 +118,7 @@ contract therefore REQUIRES:
   site — embedded registered legacy views read it at runtime. **[S6-CONFIRM]** the
   mechanism (always-on provider vs. raw-site-triggered retention).
 - Until both are confirmed, the **conservative authoring rule** stands: place an
-  explicit frozen-tier `[rf/frame-provider {:frame the-frame-id}]` at the top of the
+  explicit Reagent-tier `[rf/frame-provider {:frame the-frame-id}]` at the top of the
   embedded hiccup (frame id obtained on the `ui` side — a literal, or `(frame)` ops).
   Redundant-but-harmless once the shared-object rule is confirmed.
 
@@ -120,31 +130,31 @@ handler table's foreign-boundary compile error does not reach inside it). They c
 committed-slot promise. The blessed dispatch bridge is `(ui/dispatch-fn)` created in
 the owning `ui` view and passed down as a prop — stable identity, committed-frame
 targeting, loud failure when disconnected. Legacy code inside the subtree otherwise
-dispatches through its own frozen-tier paths (injected lexical `dispatch` in registered
+dispatches through its own Reagent-tier paths (injected lexical `dispatch` in registered
 views, captured ops). ⟨02 §3, 03 §6⟩
 
 **Teardown inward.** React unmount of the boundary site unmounts the legacy class
-components; Reagent reactions dispose in `componentWillUnmount` per the frozen
+components; Reagent reactions dispose in `componentWillUnmount` per the Reagent tier's
 contract; `reagent-adapter/with-resource-lease` releases on unmount as today. No
 compat-tier resource survives the boundary unmount. **Activity/presence caveat:** the
-frozen tier predates Activity semantics — do not place embedded legacy subtrees under
+Reagent tier predates Activity semantics — do not place embedded legacy subtrees under
 `ui` Activity-hidden or presence-retained regions until a compat-suite fixture proves
 class-component hide/reveal lifecycle behaviour. **[S6-CONFIRM]** (fixture named in
 §7). ⟨03 §4, 02 §7⟩
 
-**HMR inward.** Editing legacy code reloads through the frozen tier's existing
+**HMR inward.** Editing legacy code reloads through the Reagent tier's existing
 (weaker) story: the embedded subtree re-renders when the boundary site next re-renders
 (the `ui` HMR generation bump re-renders the site, re-invoking `as-element`; legacy
 state preservation then follows plain React reconciliation — same class, state kept).
 No `ui`-grade HMR guarantees (hook-signature analysis, site identity, generation
-tracking) exist inside the frozen subtree; an edit that remounts the enclosing `ui`
+tracking) exist inside the embedded Reagent subtree; an edit that remounts the enclosing `ui`
 view remounts the legacy subtree and loses its local ratom state. Stated honestly, not
 patched. ⟨03 §10⟩
 
 **SSR inward.** A `ui/raw` site is opaque to the JVM emitter: on SSR paths it requires
 the `client-only` sibling fallback (the existing 02 §6 rule — the fallback must be
 capability-free per 06 §3). Mixed-tier server rendering inside one root is NOT
-supported: a legacy view that needs server output stays on the frozen tier's own SSR
+supported: a legacy view that needs server output stays on the Reagent tier's own SSR
 path (the checked-in render-tree/hiccup contract) at whole-root granularity — i.e.
 granularity 1, sibling roots. ⟨02 §6, 06 §1, 06 §3⟩
 
@@ -171,7 +181,7 @@ foreign-boundary work; both doors exist before the repo migration needs them.
   exports are scope-only by construction.) ⟨03 §8, 06 §2⟩
 - **Frame acquisition.** The exported view resolves its frame by the compiled
   substrate's ordinary chain: explicit pin → dynamic binding → React context → loud
-  `:rf.error/no-frame-context`. Under the §2 shared-context-object rule, a frozen-tier
+  `:rf.error/no-frame-context`. Under the §2 shared-context-object rule, a Reagent-tier
   `[rf/frame-provider {:frame …}]` (SCOPE) or `[rf/frame-root {:id …}]` (ENSURE) above the
   exported component in the legacy tree scopes it with **zero extra spelling**. With no
   frame boundary above it, the exported view fails loud — never a silent default. **[S6-CONFIRM]**
@@ -195,7 +205,7 @@ Consequences, stated so nobody discovers them in production:
   namespace+name-preserving encoding. Blessed spellings: (a) single-segment unqualified
   prop names (`[:> Exported {:product p}]`), where the two encodings coincide
   **[S6-CONFIRM** — the identity claim rides the S1 props-ABI freeze**]**; (b) the
-  frozen tier's conversion-bypassing interop head `[:r> Exported #js {…ABI slots…}]`
+  Reagent tier's conversion-bypassing interop head `[:r> Exported #js {…ABI slots…}]`
   (the same escape the checked-in `rf/frame-provider` mount uses); (c) rename
   hyphenated/namespaced props at the boundary. Dev builds diagnose a received slot that
   matches no declared slot but whose de-camelisation does
@@ -216,13 +226,13 @@ fails in every non-connected state. ⟨03 §3–§4, 03 §11⟩
 **HMR outward.** Editing the `defview` source takes the full `ui` HMR path (stable
 shell, hook-signature hash, site identity) — the exported component IS the shell, so
 subtree state survives both legacy-parent re-renders and same-signature edits. Editing
-the legacy parent re-renders per the frozen tier's existing behaviour; the stable
+the legacy parent re-renders per the Reagent tier's existing behaviour; the stable
 component object keeps React from remounting the exported subtree. ⟨03 §10⟩
 
-**SSR outward — unsupported in v1.** The frozen tier's server path renders hiccup on
+**SSR outward — unsupported in v1.** The Reagent tier's server path renders hiccup on
 the JVM; an exported React component is not renderable there. On legacy server-rendered
 pages an exported subtree must be excluded from server markup (render a placeholder
-container server-side; the subtree renders client-side after mount). The frozen tier
+container server-side; the subtree renders client-side after mount). The Reagent tier
 has no `ui/client-only`, so this is an application convention, not a checked form;
 accept the client-side pop-in or migrate that page's root to a `ui` root (granularity
 1) to get real SSR. Stated honestly; no better story is promised for v1. ⟨06 §1, 06 §3⟩
@@ -254,7 +264,7 @@ inherits it. ⟨checked-in spec/006 §Plain-fn footgun⟩
 **The class that does NOT complete step 1 unchanged:** plain (unregistered) fns making
 **ambient** frame-scoped calls — a render-time `@(rf/subscribe [:q])` or a
 `#(rf/dispatch [:ev])` closure handed to the DOM. Two failure modes, one deferred:
-render-time derefs fail loudly at first render (and the frozen tier's dev-time plain-fn
+render-time derefs fail loudly at first render (and the Reagent tier's dev-time plain-fn
 warning surfaces them); dispatch closures fail **at interaction time** — grep for them,
 do not discover them by clicking.
 
@@ -285,7 +295,7 @@ checklist flag every site):
    existing boot on legacy roots). A boundary crossing never creates, re-seeds, or
    destroys a frame; unmounting either side of a boundary leaves frames live.
 4. **Teardown is total on each side's own terms.** `ui` cells release ownership
-   synchronously at disconnect (commit contract); frozen-tier reactions/leases dispose
+   synchronously at disconnect (commit contract); Reagent-tier reactions/leases dispose
    per the checked-in adapter contract. The compat suite carries a boundary leak
    fixture in both directions (§7).
 
@@ -296,14 +306,14 @@ checklist flag every site):
 | | Inward (`ui/raw`) | Outward (`->react`) | Sibling roots |
 |---|---|---|---|
 | **SSR** | `client-only` sibling fallback mandatory; no mixed-tier JVM render | **Unsupported v1** — placeholder container server-side, client-side render after mount | Full: each root uses its own tier's SSR path |
-| **HMR** | `ui` guarantees outside the boundary only; legacy subtree = frozen-tier reload behaviour; enclosing-view remount loses legacy local state | Full `ui` HMR inside the export (stable shell); legacy parent edits = frozen-tier behaviour | Full per root, each on its own tier's story |
+| **HMR** | `ui` guarantees outside the boundary only; legacy subtree = Reagent-tier reload behaviour; enclosing-view remount loses legacy local state | Full `ui` HMR inside the export (stable shell); legacy parent edits = Reagent-tier behaviour | Full per root, each on its own tier's story |
 | **Activity/presence** | Do not place legacy subtrees under hidden/retained regions pending the §7 fixture **[S6-CONFIRM]** | `ui` semantics apply normally | n/a |
 
 ⟨02 §6, 03 §10, 06 §1–§3⟩
 
 ## 7. The retained CI surface — three suites, one Reagent smoke here (Q59)
 
-W9's shared-matrix collapse and W13's compatibility freezes name **three different
+W9's shared-matrix collapse and W13's compatibility suites name **three different
 causal suites**. The plan names all three explicitly; no reading of "all legacy
 coverage is retired" is correct. ⟨11 W9/W13, 09 codex2 row 7⟩
 
@@ -313,8 +323,9 @@ contract surface: the Tier-1 parity corpus, the Tier-3 ownership/commit walkthro
 owner instead of treating the legacy shared parameterisation as product parity. Built
 from S1 (`ui.test` critical path) onward. ⟨07 §1–§3, 11 W9⟩
 
-**Suite 2 — the frozen-Reagent compatibility suite** (`reagent-compat`). Pinned once at
-the freeze, then maintenance-only (bugs fixed when they block migration):
+**Suite 2 — the Reagent compatibility suite** (`reagent-compat`). The coexisting Reagent
+adapter's pinned contract surface, maintained as a first-class adapter (not a one-time
+freeze):
 
 - the checked-in Spec 006 adapter-contract fixtures against `reagent-adapter/adapter`
   (state container, subscribe-container, derived values, flush, dispose);
@@ -324,16 +335,16 @@ the freeze, then maintenance-only (bugs fixed when they block migration):
 - distinct `frame-provider` SCOPE fixtures and `frame-root` ENSURE fixtures (each
   rejecting the other's key — `frame-provider` given `:id`, `frame-root` given `:frame`);
   `with-resource-lease`; the sub-override subscribe seam (Story's `:sub-overrides` rung
-  keeps working on the frozen tier);
+  keeps working on the Reagent tier);
 - **new boundary fixtures, both directions** (the 12 §2 `->react` row's named
   fixtures): inward raw-embedding with frame scoping + teardown/leak check; outward
   export under a legacy provider with frame acquisition, teardown/leak check, and the
   stable-component-object-across-HMR assertion; the Activity/class-component lifecycle
   probe (§2 **[S6-CONFIRM]**).
 
-**Suite 3 — the frozen-UIx compatibility suite** (`uix-compat`). Separately owned by
+**Suite 3 — the UIx compatibility suite** (`uix-compat`). Separately owned by
 Spec 006/API/Conventions/Ownership, pinned from the existing UIx adapter-contract and
-UIx-specific CLJS coverage at the S7 freeze, then maintenance-only. It keeps the UIx
+UIx-specific CLJS coverage, and maintained as the coexisting UIx adapter evolves. It keeps the UIx
 classpath probe and exactly one UIx mount → subscribe → dispatch → re-render browser
 smoke. It is not a feature-parity suite and gains no new `re-frame.ui` capabilities.
 
@@ -345,7 +356,7 @@ each for `re-frame.ui`, Reagent, and UIx. ⟨08 §5 Adapters, 11 W13⟩
 
 ## 8. The normative home after the Spec-004 rewrite: a live compatibility appendix (Q58)
 
-Per the binding disposition (row 4): frozen stock Reagent gets a **live compatibility
+Per the binding disposition (row 4): stock Reagent gets a **live compatibility
 appendix** — an addressable current contract, NOT git-history/tag provenance. ⟨09
 codex2 row 4⟩
 
@@ -353,17 +364,18 @@ codex2 row 4⟩
 compatibility tier (live appendix to Spec 004)."** It sorts beside the rewritten
 `spec/004-Views.md`, which points at it from §Removed forms; `spec/Ownership.md`'s
 re-scoped Reagent row names it as the owning spec. It lands **with the S7
-compatibility-freeze / Helix-and-slim deletion wave** (until then the pre-rewrite
+Helix-removal wave** (until then the pre-rewrite
 004/006 text still governs the shipping adapters via
-the [TRANSITION] markers). Contents: the freeze rules (correct-but-frozen, no new
-capabilities, no `ui`-feature parity, sunset unpromised/demand-reviewed post-1.0), the
+the [TRANSITION] markers). Contents: the compatibility-tier rules (the coexisting Reagent
+adapter's live, actively-supported contract; the interop boundary; a distinct compiled
+substrate means no *automatic* `ui`-feature parity), the
 preserved normative sections for Form-1/2/3 + the `reg-view` family + the Reagent
 adapter + frame-context resolution (carried forward from the pre-rewrite revisions as
 live text, with the git tag as provenance only), **this boundary contract promoted into
 it**, and the three-suite CI surface (§7).
 
 **API/facade export rows the appendix retains** (moved under a
-`v1 (frozen — compat tier)` status, not deleted; this supersedes the rewrite draft's
+`v1 (compat tier)` status, not deleted; this supersedes the rewrite draft's
 ripple instructions to *remove* them — they relocate):
 
 | Row | Kind / tier today | Retained because |
@@ -385,10 +397,10 @@ the asymmetry footnote (re-worded, not deleted — the pair still exists, in the
 appendix); the `reg-view` auto-id derivation section (also re-homed as the `defview`
 id rule — the same derivation serves both, stated once each side). The UIx adapter rows
 are **retained in their existing Spec 006/API/Conventions/Ownership homes**, not moved
-into 004A; the Helix rows delete with that adapter. No new
-capabilities are ever added to a retained row (the freeze rule); any new export
-touching the compat tier still passes the standing diff-time facade-classification
-rule. ⟨checked-in spec/API.md §Registration + §View ergonomics + §Reagent adapter,
+into 004A; the Helix rows delete with that adapter. New capabilities on a retained row
+are a separate decision (the compat tier is a distinct substrate, not automatically at
+`ui`-feature parity); any new export touching the compat tier still passes the standing
+diff-time facade-classification rule. ⟨checked-in spec/API.md §Registration + §View ergonomics + §Reagent adapter,
 checked-in spec/Conventions.md, 09 codex2 row 4⟩
 
 **Required cross-edits noted for their owners** (not made here): the rewrite draft's
@@ -403,7 +415,7 @@ fold-in per the disposition. ⟨09 codex2 rows 4–5⟩
    `re-frame.adapter.context` (load-bearing for both directions; §2, §3).
 2. **Provider retention under erasure** — production builds keep the live frame
    Provider above `ui/raw` sites; mechanism (always-on vs. site-triggered) (§2).
-3. **Activity/class-component lifecycle** — fixture proving frozen-tier behaviour under
+3. **Activity/class-component lifecycle** — fixture proving Reagent-tier behaviour under
    `ui` Activity/presence retention before lifting the §2 authoring restriction (§2, §6).
 4. **Outward prop-encoding identity claim** — single-segment unqualified names encode
    identically on both sides of `[:> Exported {…}]`; rides the S1 props-ABI freeze (§3).
@@ -419,6 +431,6 @@ fold-in per the disposition. ⟨09 codex2 rows 4–5⟩
   §§2–3 (per direction), §5 (ownership/teardown), §6 (SSR/HMR).
 - **Q57** (which plain fns complete step 1 unchanged; prescribed rewrite): §4.
 - **Q58** (live normative home + retained facade/API/Conventions rows): §8.
-- **Q59** (deleted vs retained CI): §7 — deleted: Helix/slim-only coverage and the
-  legacy cross-adapter parity framing; retained: `ui-conformance` (new),
-  `reagent-compat` (pinned), `uix-compat` (pinned), and one browser smoke for each.
+- **Q59** (deleted vs retained CI): §7 — deleted: Helix-only coverage and the
+  legacy cross-adapter parity framing (reagent-slim is kept); retained: `ui-conformance`
+  (new), `reagent-compat` (pinned), `uix-compat` (pinned), and one browser smoke for each.

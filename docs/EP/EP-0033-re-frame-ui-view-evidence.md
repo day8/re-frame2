@@ -214,8 +214,8 @@ information architecture — from dilution by panels bought before demand.
 
 Pre-alpha; no shims. The legacy `[view-id instance-token]` `:render-key` wire
 shape and the cloneElement/post-render attribution path remain emitted by the
-frozen adapters until the deletion wave (`[TRANSITION]` in Spec 004); the compiled
-substrate emits its own versioned schema from day one, and the legacy attribution
+coexisting adapters (`[TRANSITION]` in Spec 004); the compiled
+substrate emits its own versioned schema from day one, and its interim legacy attribution
 machinery is deleted once equivalent evidence is live (.95.7).
 
 ## Bead Plan / Reference Implementation

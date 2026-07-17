@@ -9,7 +9,7 @@ surface matrix (§2b), and the stage→bead plan with hot-zone sequencing.
 
 ## 1. Where the artifact lands
 
-- **`implementation/ui/`** — new artefact beside `core/` and (for now) `adapters/`:
+- **`implementation/ui/`** — new artefact beside `core/` and the retained `adapters/`:
   `src/re_frame/ui/*.cljc` (compiler — runs on JVM during CLJS compilation), `*.cljs`
   (client kernel), `test/` per repo convention, own `deps.edn` with a `:test` alias.
 - **Hot-zone touches at landing** (sequence, never parallel): top-level
@@ -191,21 +191,21 @@ Epic `EPIC: re-frame.ui program` with per-stage children. Sequencing constraints
   time (verify none is in flight before dispatching)**.
 - **S6 epic — repo adoption**: migrator (W1) → examples (W4) → tools' own UIs (W7b) →
   template (W8) → docs/guide + skills (W2/W3/W6) → CI matrix rewrite (W9) → one-time
-  benchmarks vs the legacy trio (W11). *RealWorld-resources full app + Story + Xray
-  green = the proof.* Primary examples/templates/docs teach only `re-frame.ui`; a
-  minimum compatibility reference remains for Reagent/UIx.
-- **S7 epic — compatibility freeze + deletion wave**: the soak gates (two green
-  nightlies + one week no-fallback) → Helix/reagent-slim deleted; stock Reagent + the
-  `reg-view` family and UIx frozen as compatibility adapters; tag cut; meta-docs
-  (W12/W13). Retain `day8/re-frame2-uix`, its public exports, pinned compatibility
-  suite + one smoke, classpath probe, changed-surface classifier arm, release test/deploy
-  leaf, and minimum compatibility reference. The import-deletion grep covers only
-  Helix/reagent-slim. Reagent's live view contract moves to the Reagent-specific 004A
+  benchmarks vs the legacy adapters (W11). *RealWorld-resources full app + Story + Xray
+  green = the proof.* Examples/templates/docs teach `re-frame.ui` as a new experimental
+  option alongside the retained Reagent/UIx/reagent-slim adapters.
+- **S7 epic — Helix-removal wave**: the soak gates (two green
+  nightlies + one week no-fallback) → **only Helix deleted**; stock Reagent + the
+  `reg-view` family, UIx, and reagent-slim live on as first-class, actively-supported
+  adapters; tag cut; meta-docs (W12/W13). Retain `day8/re-frame2-uix`, its public exports,
+  pinned compatibility suite + one smoke, classpath probe, changed-surface classifier arm,
+  release test/deploy leaf, and the compatibility reference. The import-deletion grep
+  covers only Helix. Reagent's live view contract moves to the Reagent-specific 004A
   appendix; UIx remains primarily owned by Spec 006/API/Conventions/Ownership.
 
 **Adapter-selection invariant through S7.** v1 keeps exactly one installed adapter per
-process. The surviving browser boot choices are `re-frame.ui`, stock Reagent, and UIx;
-there is no per-frame or within-frame selector. Foreign React-component boundaries
+process. The surviving browser boot choices are `re-frame.ui`, stock Reagent, UIx, and
+reagent-slim; there is no per-frame or within-frame selector. Foreign React-component boundaries
 (`ui/raw`, `ui/->react`, and ordinary React elements) do not install or select another
 adapter.
 

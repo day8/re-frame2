@@ -2229,6 +2229,8 @@ The adapter that the core uses on the server is the **plain-atom adapter** (or "
 
 ## CLJS reference scope
 
+> **[SUPERSEDED — adapter disposition reframed 2026-07-17, Mike; EP-0030 Resolved Decisions.]** The "frozen stock-Reagent tier" and "UIx / Helix / reagent-slim scheduled for removal at the Spec 004 S7 deletion wave" framing in this section — and in the [TRANSITION] callouts that link here — is superseded on the adapter-disposition point. **Reagent, UIx, and reagent-slim live on as first-class, actively-supported adapters** (not frozen, not retiring), and **only Helix is removed** at S7. `re-frame.ui` is a *new experimental* compiled substrate offered alongside them, not their replacement. The adapter API contract and each adapter's technical lifecycle role are unchanged; only the "frozen / retiring / deletion-wave" labeling is retired — read "deletion wave" as "Helix-removal wave." A follow-up bead reconciles the scattered references across the spec tree.
+
 The CLJS reference ships across multiple Maven artefacts (per [Conventions §Adapter shipping convention](Conventions.md#adapter-shipping-convention)):
 
 - **`day8/re-frame2`** — the substrate-agnostic core (the registrar, the drain, the dispatch envelope, the trace stream, sub topology, sub computation, effect-map interpretation) plus the adapter API contract, the **plain-atom (headless) adapter** used by SSR and headless tests, and (per Decision 2) the shared React frame Context object at `re-frame.adapter.context` that every React-shaped adapter consumes.

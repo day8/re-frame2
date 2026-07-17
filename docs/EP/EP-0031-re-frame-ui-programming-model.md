@@ -17,7 +17,7 @@ Type: standards-track
 
 ## Abstract
 
-`re-frame.ui` replaces the adapter-era view story with one authoring contract:
+`re-frame.ui` introduces, for the new compiled substrate, one authoring contract:
 **`defview` is the one component form** (one props map, memoized by default on a
 generated `rf=` comparator); **templates are hiccup with the ambiguities removed**,
 compiled — never interpreted — under a closed macro grammar in expression positions;
@@ -216,8 +216,9 @@ S3).
 
 ### 6. Removed forms — normative absences [spec-live S1]
 
-Form-1/2/3 and the `reg-view` family (frozen into the compat tier, live home
-`spec/004A-Reagent-Compat.md` at S7); positional view args; plain render fns as
+Form-1/2/3 and the `reg-view` family (not `re-frame.ui` forms — they belong to the
+coexisting Reagent compatibility tier, live home `spec/004A-Reagent-Compat.md` at S7);
+positional view args; plain render fns as
 frame-aware views; ratoms/cursors/reactions (a second state model);
 `:on-mount`/`:on-unmount`; Suspense-as-loading; the `h` macro and bare-keyword
 view heads. Absences are compile errors + export checks from the first slice.
@@ -249,10 +250,11 @@ inputs the guarantee exists for would forfeit it.
 
 ## Backwards Compatibility
 
-Pre-alpha: clean breaks, no shims. The UIx/Helix/reagent-slim adapters remain
-shipping surfaces under Spec 004's [TRANSITION] markers until the deletion wave; the
-Reagent-tier forms freeze (not delete) into `spec/004A-Reagent-Compat.md` at S7.
-Migration rides `ui/->react` per-subtree co-mounting (S6; mechanics in doc 10).
+Pre-alpha: clean breaks, no shims. The Reagent, UIx, and reagent-slim adapters live on
+as first-class shipping surfaces under Spec 004's [TRANSITION] markers; the Reagent-tier
+forms are retained (not deleted), with their live home `spec/004A-Reagent-Compat.md`
+landing at S7. Only Helix is removed, at the S7 removal wave. Migration rides
+`ui/->react` per-subtree co-mounting (S6; mechanics in doc 10).
 
 ## Bead Plan / Reference Implementation
 
@@ -266,7 +268,7 @@ the rf2-vxgfnd.22 boundary review).
 literal-only door is declared conforming); `rf2-ri0k6n` `ui/slot` — open (S3→S4
 compiler surface); `rf2-isdqjv` safe-spread policy — open (blocks final S3
 conformance); `.95.10` closes the stage. Later: custom-element assertion (S4),
-`client-only` phase flip (S5), `->react` (S6), 004A freeze (S7).
+`client-only` phase flip (S5), `->react` (S6), 004A landing + Helix removal (S7).
 
 **Guide-impact assessment (EP-0009 rule 5).** The teaching seams are guide 03
 (state) and guide 04 (events), and both are already written to this contract:

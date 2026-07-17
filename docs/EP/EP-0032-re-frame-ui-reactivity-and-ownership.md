@@ -68,7 +68,7 @@ Non-goals:
 
 - the view programming model itself — `defview`, templates, handlers, `local`,
   effects, presence — is EP-0031's surface; this EP takes it as given;
-- the adapter decision (which view layers exist, freeze, or retire) is EP-0030's;
+- the adapter decision (which view layers exist, are retained, or retire) is EP-0030's;
 - no change to the closed public adapter API contract (the 11-key spec map) or
   to public `subscribe`/`subscribe-once` semantics;
 - resource freshness under Activity reveal belongs to Spec 016, not the lease.
@@ -273,7 +273,8 @@ Evidence and landing record (epic `rf2-vxgfnd`):
 
 Guide impact: the new-substrate guide's reactivity chapters teach hot reload as
 the default workflow and the three-state lifecycle as the tool vocabulary; no
-legacy-adapter guide changes (those tiers are frozen per EP-0030).
+legacy-adapter guide changes (those coexisting adapters are unaffected by this work; they
+live on per EP-0030).
 
 ## Resolved Decisions
 
