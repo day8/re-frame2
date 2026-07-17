@@ -585,13 +585,24 @@
 ;; ===========================================================================
 
 (deftest image-resolves-on-the-facade
-  (testing "re-frame.core/image is the public `rf/image` constructor — it
-            resolves to the re-frame.image/image var and builds an image value
-            through the facade (EP-0023 §Image, §Public API)"
-    ;; The facade var IS the constructor — `rf/image` and
-    ;; `re-frame.image/image` are the identical fn.
-    (is (identical? @#'rf/image @#'image/image)
-        "rf/image aliases re-frame.image/image (same constructor var value)")
+  (testing "re-frame.core/image is the public `rf/image` constructor — a MACRO
+            (rf2-v2j8e) that gates literal inline `:doc` bytes at the authoring
+            seam then delegates to the re-frame.image/image value fn, and builds
+            an image value through the facade (EP-0023 §Image, §Public API)"
+    ;; rf2-v2j8e — the facade `rf/image` is a MACRO: `rf/image` is value-oriented,
+    ;; but a LITERAL inline `:registrations` metadata map `{:doc "…"}` is built at
+    ;; the call site before any runtime normalization runs, and per Spec 001
+    ;; §Production elision contract a runtime strip cannot DCE those call-site
+    ;; string bytes. The macro gates each literal doc-bearing inline metadata slot
+    ;; behind `(if interop/debug-enabled? <full> <stripped>)` then delegates to
+    ;; the unchanged value constructor `re-frame.image/image`.
+    (is (:macro (meta #'rf/image))
+        "rf/image is a macro (the compile-time :doc-elision authoring seam)")
+    (is (fn? @#'image/image)
+        "re-frame.image/image stays a plain value fn (programmatic / computed-spec callers)")
+    (is (= 're-frame.image/image
+           (first (macroexpand-1 '(re-frame.core/image {:id :x}))))
+        "rf/image expands to a re-frame.image/image constructor call")
     ;; And it actually constructs the normalized, INERT image value through the
     ;; facade — a `rf/image` call is data, not registration.
     (let [img (rf/image {:id :docs.counter/v2
@@ -604,4 +615,17 @@
           "no :registrations → empty inline-descriptor vector")
       (is (= img (rf/image {:id :docs.counter/v2
                             :select-ns {:include ["docs.quickstart.counter.v2"]}}))
-          "PURE: equal spec maps return equal image values"))))
+          "PURE: equal spec maps return equal image values"))
+    ;; rf2-v2j8e — a LITERAL inline `:doc` metadata slot is rewritten at
+    ;; expansion time to the `(if interop/debug-enabled? <full> <stripped>)`
+    ;; gate Closure constant-folds under :advanced + goog.DEBUG=false, DCEing the
+    ;; `:doc` string bytes (the elision-probe pins the CLJS bundle absence). A
+    ;; NON-literal / computed spec passes through un-gated to the runtime strip.
+    (let [gated   (macroexpand-1
+                    '(re-frame.core/image
+                       {:registrations {:reg-event [[:x {:doc "gated"} identity]]}}))
+          ungated (macroexpand-1 '(re-frame.core/image some-computed-spec))]
+      (is (re-find #"interop/debug-enabled\?" (pr-str gated))
+          "a literal inline :doc metadata slot rides the debug-gate for prod byte elision")
+      (is (not (re-find #"interop/debug-enabled\?" (pr-str ungated)))
+          "a non-literal spec is passed through un-gated (runtime strip handles it)"))))

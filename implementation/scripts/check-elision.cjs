@@ -538,6 +538,30 @@ const DEV_ONLY_SENTINELS = [
   // gate DCEs it. The sentinel is the distinctive `:doc` value head.
   { source: 're-frame.core/reg-machine (literal opts-map :doc elision)',
     sentinel: 'rf2-tfiutq-machine-opts-doc-sentinel' },
+  // re-frame.core/image — LITERAL inline `:registrations` metadata `:doc`
+  // elision (rf2-v2j8e). `rf/image` is a value CONSTRUCTOR, so a literal inline
+  // registration metadata map `{:doc "…"}` is built AT THE CALL SITE before the
+  // runtime `image-assembly/strip-descriptor-documentation` normalization runs;
+  // per Spec 001 §Production elision contract a runtime strip cannot DCE those
+  // call-site string bytes. rf2-v2j8e makes `rf/image` a MACRO that runs each
+  // literal doc-bearing inline metadata slot through `gate-image-spec` →
+  // `gate-doc-arg`, emitting the same `(if interop/debug-enabled? <full>
+  // <stripped>)` gate Closure constant-folds under :advanced + goog.DEBUG=false.
+  // The elision-probe's `touch-image-inline-doc!` constructs an image whose
+  // inline `:registrations` carry one distinctive `:doc` sentinel per supported
+  // inline kind (:reg-event / :reg-sub / :reg-fx / :reg-cofx); under DEBUG=true
+  // the dev arm keeps each string (control bundle), under DEBUG=false the gate
+  // DCEs it. Four sentinels — one per kind — pin the whole grammar. (The touch
+  // constructs a VALUE only, never make-frame/assemble, so it does not perturb
+  // the PROD_ABSENT_WHEN_UNUSED `resolve-within-image` assembly-DCE contract.)
+  { source: 're-frame.core/image (inline :reg-event literal :doc elision)',
+    sentinel: 'rf2-v2j8e-image-inline-event-doc-sentinel' },
+  { source: 're-frame.core/image (inline :reg-sub literal :doc elision)',
+    sentinel: 'rf2-v2j8e-image-inline-sub-doc-sentinel' },
+  { source: 're-frame.core/image (inline :reg-fx literal :doc elision)',
+    sentinel: 'rf2-v2j8e-image-inline-fx-doc-sentinel' },
+  { source: 're-frame.core/image (inline :reg-cofx literal :doc elision)',
+    sentinel: 'rf2-v2j8e-image-inline-cofx-doc-sentinel' },
   // ---- rf2-tfiutq: ungated DIRECT-CALL dev-only diagnostic prose ----------
   //
   // The ~18 app-facing dev-only warning/diagnostic emits (resources /

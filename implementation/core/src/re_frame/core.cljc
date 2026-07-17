@@ -95,13 +95,17 @@
             ;; EP-0023 (rf2-32siq3.17): the public `rf/image` constructor —
             ;; an IMAGE value, the selected registration-set value a frame
             ;; resolves against (EP-0023 §Image, §Public API). PURE inert data
-            ;; (no realm, no registrar, no side effect), re-exported below as
-            ;; `rf/image`. `re-frame.image` lives in the core artefact and
-            ;; pulls only `clojure.string` + `re-frame.error` (the core
-            ;; spine), so it is bundle-isolation neutral; an app that never
+            ;; (no realm, no registrar, no side effect). The runtime CONSTRUCTOR
+            ;; `re-frame.image/image` is re-exported below through the `rf/image`
+            ;; MACRO (rf2-v2j8e), which gates literal inline `:registrations`
+            ;; `:doc` bytes at the authoring seam before delegating to the fn
+            ;; (required with NO alias so the facade `image` macro name does not
+            ;; collide with a require-alias). `re-frame.image` lives in the core
+            ;; artefact and pulls only `clojure.string` + `re-frame.error` (the
+            ;; core spine), so it is bundle-isolation neutral; an app that never
             ;; constructs an image leaves the constructor as Closure-DCE dead
             ;; code.
-            [re-frame.image :as image]
+            [re-frame.image]
             ;; EP-0023 collapse slice 2 (rf2-32siq3.32): the runnable-object
             ;; live-frame ns. Required for the ONE public frame constructor
             ;; `make-frame` (re-exported below as `rf/make-frame`) plus its
@@ -166,6 +170,7 @@
                                     reg-error-projector reg-head
                                     reg-http-interceptor
                                     reg-view reg-machine defmachine
+                                    image
                                     dispatch dispatch-sync subscribe
                                     ->interceptor
                                     with-frame with-new-frame
@@ -753,19 +758,38 @@
 
 ;; ---- images (EP-0023) ----------------------------------------------------
 
-(def ^{:doc "Construct an IMAGE value — the selected registration-set value a
-  frame resolves against (EP-0023 §Image / EP-0026 §Image Keys). `rf/image` is
-  the public constructor; `spec` is a map carrying EXACTLY three public keys —
-  `:id` (optional), `:select-ns` (the `{:include [globs] :exclude [globs]}`
-  selection map, selecting registered descriptors by their `:rf.provenance/ns`),
-  and `:registrations` (inline registrar-keyed sections). Returns a normalized,
-  INERT image value — PURE: no realm, no registrar, no side effect (an image
-  is data, not registration). Supplied to `make-frame` via the
-  `:images` vector; composition resolves by image order (the later image wins,
-  EP-0026 §Layered Resolution). The EP-0023 keys `:include-ns` / `:exclude-ns` /
-  `:replace` / `:replace-standard` / `:rf.image/requires` are RETIRED (EP-0026)
-  and fail loud. See `re-frame.image/image`."}
-  image    image/image)
+#?(:clj
+   (defmacro image
+     "Construct an IMAGE value — the selected registration-set value a frame
+     resolves against (EP-0023 §Image / EP-0026 §Image Keys). `rf/image` is the
+     public constructor; `spec` is a map carrying EXACTLY three public keys —
+     `:id` (optional), `:select-ns` (the `{:include [globs] :exclude [globs]}`
+     selection map, selecting registered descriptors by their
+     `:rf.provenance/ns`), and `:registrations` (inline registrar-keyed
+     sections). Returns a normalized, INERT image value — PURE: no realm, no
+     registrar, no side effect (an image is data, not registration). Supplied to
+     `make-frame` via the `:images` vector; composition resolves by image order
+     (the later image wins, EP-0026 §Layered Resolution). The EP-0023 keys
+     `:include-ns` / `:exclude-ns` / `:replace` / `:replace-standard` /
+     `:rf.image/requires` are RETIRED (EP-0026) and fail loud.
+
+     A MACRO (not a plain fn) purely to elide production bytes at the authoring
+     seam (rf2-v2j8e): `rf/image` is value-oriented, but a LITERAL inline
+     `:registrations` metadata map `{:doc \"…\"}` is constructed AT THE CALL SITE
+     before any runtime normalization runs, and per Spec 001 §Production elision
+     contract a runtime strip cannot DCE those call-site string bytes. The macro
+     runs `gate-image-spec` over the spec so each literal doc-bearing inline
+     metadata slot rides the same `(if interop/debug-enabled? <full> <stripped>)`
+     gate the `reg-*` macros emit, DCEing the `:doc` string under `:advanced` +
+     `goog.DEBUG=false`. It then delegates to the runtime CONSTRUCTOR
+     `re-frame.image/image` (which stays a plain value fn for programmatic /
+     computed-spec callers), so an image built from a NON-literal spec is
+     unchanged and its stored descriptors are still `:doc`-normalized at
+     assembly by `image-assembly/strip-descriptor-documentation`. See
+     `re-frame.image/image`."
+     {:arglists '([spec])}
+     [spec]
+     `(re-frame.image/image ~(rm/gate-image-spec spec))))
 
 ;; ---- frame management ----------------------------------------------------
 
