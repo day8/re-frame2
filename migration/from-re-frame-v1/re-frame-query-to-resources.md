@@ -131,9 +131,9 @@ A typical `re-frame-query`-style article fetch: a query keyed by slug, ensured o
 
 ;; The view reads it passively — no fetching, no observer registration.
 (rf/reg-view article-page []
-  (let [slug  (:slug @(rf/subscribe [:rf.route/params]))
-        state @(rf/subscribe [:rf/resource
-                              {:resource :article/by-slug :params {:slug slug}}])]
+  (let [slug  (:slug @(subscribe [:rf.route/params]))
+        state @(subscribe [:rf/resource
+                           {:resource :article/by-slug :params {:slug slug}}])]
     (cond
       (:loading? state)                              [article-skeleton]
       (and (:error state) (not (:has-data? state)))  [article-error (:error state)]
@@ -183,13 +183,13 @@ A typical `re-frame-query`-style article fetch: a query keyed by slug, ensured o
 
 ;; The form fires the write and watches it through instance-keyed subs.
 (rf/reg-view article-form [article]
-  (let [{:keys [pending? error?]} @(rf/subscribe [:rf/mutation {:instance :form/article-save}])]
+  (let [{:keys [pending? error?]} @(subscribe [:rf/mutation {:instance :form/article-save}])]
     [:button {:disabled pending?
-              :on-click #(rf/dispatch [:rf.mutation/execute
-                                       {:mutation :article/save
-                                        :params   article
-                                        :instance :form/article-save
-                                        :cause    [:form-submit :article/save]}])}
+              :on-click #(dispatch [:rf.mutation/execute
+                                    {:mutation :article/save
+                                     :params   article
+                                     :instance :form/article-save
+                                     :cause    [:form-submit :article/save]}])}
      (if pending? "Saving…" "Save")]))
 ```
 

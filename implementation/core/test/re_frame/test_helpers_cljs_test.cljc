@@ -395,3 +395,21 @@
           hit  (h/find-by-testid tree "go")]
       (is (some? hit))
       (is (fn? (h/extract-handler hit :on-click))))))
+
+;; ---------------------------------------------------------------------------
+;; Deferred-callback frame-law guard (rf2-1yi8d)
+;; ---------------------------------------------------------------------------
+;; The copyable `testid` example in the docstring must show the
+;; `reg-view`-injected `dispatch`, not a bare qualified `rf/dispatch`. A
+;; deferred `:on-*` callback runs after the render scope unwinds and the
+;; `frame-provider`'s React context has been popped, so a bare `rf/dispatch`
+;; there resolves no frame and raises `:rf.error/no-frame-context` (EP-0002,
+;; no `:rf/default` floor). This fixture pins the docstring so the positive
+;; example cannot revert to the unlawful bare form.
+(deftest testid-docstring-teaches-injected-dispatch-not-bare
+  (let [doc (:doc (meta #'h/testid))]
+    (is (some? doc) "testid must carry a docstring")
+    (is (re-find #"#\(dispatch " doc)
+        "the testid example must dispatch through the reg-view-injected `dispatch`")
+    (is (nil? (re-find #"#\(rf/dispatch " doc))
+        "the testid example must NOT use a bare deferred `rf/dispatch` (raises :rf.error/no-frame-context)")))

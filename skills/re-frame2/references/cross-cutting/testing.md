@@ -261,7 +261,7 @@ When a fixture didn't stash the tree, or you need the `:on-click`-fires-the-righ
 - `testid` — the **authoring** helper that standardises the attrs fragment at view call sites; use it whenever you write a new view that wants a test handle:
 
 ```clojure
-[:button (h/testid "counter-inc" {:on-click #(rf/dispatch [:counter/inc])}) "+"]
+[:button (h/testid "counter-inc" {:on-click #(dispatch [:counter/inc])}) "+"]
 ```
 
 **Why walk the view, not just assert state?** State-only assertions (`(is (= 2 (:n db)))`) catch handler bugs but miss two classes the hiccup-walk catches — *state-correct, view-broken* (handler updated db, view reads the wrong path / forgets a branch) and *wrong-frame dispatch* (`:on-click` dispatches into the wrong frame; host-frame state never changes). Both surface on JVM and Node-CLJS with no browser.
