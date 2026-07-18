@@ -295,6 +295,18 @@
       (seq chs)       (assoc :children chs)
       (not (seq chs)) (assoc :children []))))
 
+(defn presence
+  "The JVM/SSR structural node for `(ui/presence {:timeout-ms n} …)`: a fragment
+  carrying the `:rf.ui/presence {:phase :present :timeout-ms n}` diagnostic
+  marker (§004B — the \"presence metadata exposed structurally\"; a droppable
+  reserved key, stripped by semantic normalization). The JVM has no lifecycle,
+  so every retained child renders `:present`."
+  [timeout-ms & xs]
+  (let [chs (apply children xs)]
+    (cond-> {:rf.ui/presence {:phase :present :timeout-ms timeout-ms}}
+      (seq chs)       (assoc :children chs)
+      (not (seq chs)) (assoc :children []))))
+
 (defn view-boundary
   "Wrap one internal-view expansion (Q12: view-boundary nodes are real
   nodes, nesting recursively). `props` is the props map the view fn
@@ -309,12 +321,14 @@
         chs (cond
               (nil? body) nil
               ;; fragment-rooted view: boundary adopts the fragment's children.
-              ;; A boundary-marked fragment (`:rf.ui/boundary`, e.g. a root-level
-              ;; ui/client-only fallback) is NOT adopted — its marker is a
+              ;; A marker-bearing fragment (`:rf.ui/boundary`, e.g. a root-level
+              ;; ui/client-only fallback; or `:rf.ui/presence`, a root-level
+              ;; ui/presence boundary) is NOT adopted — its marker is a
               ;; load-bearing child node that must survive as its own node.
               (and (map? body) (not (contains? body :tag))
                    (not (contains? body :view-id)) (not (contains? body :html))
                    (not (contains? body :rf.ui/boundary))
+                   (not (contains? body :rf.ui/presence))
                    (contains? body :children)
                    (not (contains? body :key)))
               (let [c (:children body)] (when (seq c) c))

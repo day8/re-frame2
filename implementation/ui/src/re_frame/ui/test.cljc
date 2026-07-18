@@ -71,6 +71,7 @@
             [re-frame.registrar :as registrar]
             [re-frame.router :as router]
             [re-frame.ui.eq :as eq]
+            [re-frame.ui.presence-runtime :as presence]
             [re-frame.ui.reactive :as reactive]
             #?@(:clj [[re-frame.ui.compiler.emit-jvm :as emit-jvm]
                       [re-frame.ui.compiler.env :as env]
@@ -829,6 +830,36 @@
                           (pr-str thunk))
                      {:got thunk}))
         (flush-async! thunk)))))
+
+;; ---------------------------------------------------------------------------
+;; flush-presence! — the S4 fake-clock transition advance (rf2-uckeg)
+;; ---------------------------------------------------------------------------
+
+#?(:clj
+   (defn flush-presence!
+     "`(flush-presence!)` — advance presence transitions on the JVM Tier-1 host.
+     The JVM structural render has no lifecycle (presence renders :present, no
+     retention timers), so this is a synchronous no-op returning nil. Present
+     for host-parity: a `.cljc` test body can call it on either host."
+     ([] nil)
+     ([_ms] nil))
+   :cljs
+   (do
+     (defn flush-presence!
+       "Advance the presence fake clock so retained (:unmounting) children reach
+       their :timeout-ms removal WITHOUT wall-clock sleeps — the S4 twin of
+       `flush!`. `(flush-presence!)` advances to quiescence (every pending exit
+       fires); `(flush-presence! ms)` advances the logical clock by `ms`, firing
+       only the exits that come due. The advance + its removal commits run inside
+       awaited React `act`; the returned Promise settles at the framework/React
+       fixed point (drive an enter/exit assertion after awaiting it). The
+       open-event-drain guard runs synchronously first."
+       ([]
+        (guard-open-drain!)
+        (flush-async! (fn [] (presence/advance-clock!) nil)))
+       ([ms]
+        (guard-open-drain!)
+        (flush-async! (fn [] (presence/advance-clock! ms) nil))))))
 
 ;; ---------------------------------------------------------------------------
 ;; render (S1: JVM structural render — root-identity-and-mount §9)

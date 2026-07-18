@@ -522,6 +522,16 @@
            (.push ~arr ~row)))
        ~arr)))
 
+(defn- emit-presence
+  "`ui/presence` → the runtime retention boundary. The compiled keyed children
+  (a `for` emits a JS array) are handed as one array; the boundary tracks them
+  by React key across renders, driving the :mounting/:present/:unmounting phase
+  each child reads with `(presence-phase)`."
+  [node st]
+  `(re-frame.ui.presence-runtime/presence-boundary
+    ~(:timeout-ms node)
+    (cljs.core/array ~@(children-forms st (:children node) false))))
+
 (defn- emit-frame-root
   "A top-region `frame-root` SCOPES its preflight-ensured frame to its
   children through the shared React frame context (rf2-vxgfnd.25 —
@@ -620,6 +630,7 @@
     :foreign  (emit-component node st inline?)
     :slot     (emit-slot node st)
     :error-boundary (emit-error-boundary node st)
+    :presence (emit-presence node st)
     ;; S3: the browser renders the client subtree directly (activation). The
     ;; capability-free fallback is the JVM/SSR path only; the single-update SSR
     ;; phase-flip (fallback→client per root) completes S5.

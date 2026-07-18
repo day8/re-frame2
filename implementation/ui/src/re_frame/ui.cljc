@@ -58,6 +58,7 @@
   (:require [re-frame.error :as error]
             [re-frame.ui.hooks]
             [re-frame.ui.lease-descriptor]
+            [re-frame.ui.presence-runtime :as presence-rt]
             [re-frame.ui.reactive :as reactive]
             [re-frame.ui.route-link-seam :as rl]
             #?@(:clj  [[re-frame.ui.compiler :as compiler]
@@ -604,6 +605,34 @@
         "compiler renders the client subtree in the browser and the "
         "capability-free fallback on the JVM/SSR; it is never called directly")
    nil))
+
+(defn presence
+  "(ui/presence {:timeout-ms n} keyed-children) — declarative enter/exit
+  retention, deliberately bounded (NOT an animation system). Keyed children
+  pass :mounting → :present → :unmounting; an exiting child stays mounted until
+  its exit completes OR the MANDATORY :timeout-ms safety bound fires, whichever
+  first, then removal is terminal and exactly-once (all ownership released).
+  Removal-then-reinsertion of a key interrupts the exit and re-enters. Unkeyed
+  children under a presence boundary are a build failure. Read a child's phase
+  with (ui/presence-phase).
+
+  A template form — the compiler wires it into the runtime retention boundary;
+  a direct call fails loud by design."
+  [& _]
+  (error/throw-error!
+   :rf.error/ui-tree-malformed 're-frame.ui/presence
+   (str "(ui/presence {:timeout-ms n} children) is a template form — the "
+        "compiler wires it into the runtime enter/exit retention boundary; it "
+        "is never called directly")
+   nil))
+
+(defn presence-phase
+  "(ui/presence-phase) — the single presence-phase read: :mounting / :present /
+  :unmounting inside a (ui/presence …) boundary, :present outside one (so
+  presence-aware children stay reusable anywhere). A render-time read (a React
+  context read on CLJS); the JVM structural render always yields :present."
+  []
+  (presence-rt/presence-phase))
 
 ;; ---------------------------------------------------------------------------
 ;; Compiled render slots (S3) — the internal library-seam callback + invocation

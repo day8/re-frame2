@@ -27,7 +27,7 @@
   scoping a subtree to an already-live frame."
   #{:text :nothing :expr :element :fragment :view :foreign
     :if :let :letfn :case :for :raw :html :frame-root :frame-provider :slot
-    :error-boundary :client-only
+    :error-boundary :client-only :presence
     :hook-prefix})
 
 (defn literal-scalar? [x]
@@ -44,6 +44,7 @@
 (def ^:private ui-slot-fqns   #{'re-frame.ui/slot})
 (def ^:private error-boundary-fqns #{'re-frame.ui/error-boundary})
 (def ^:private client-only-fqns #{'re-frame.ui/client-only})
+(def ^:private presence-fqns #{'re-frame.ui/presence})
 (def ^:private sub-fqns       #{'re-frame.ui/sub})
 (def ^:private lease-fqns     #{'re-frame.ui/lease})
 (def ^:private frame-fqns     #{'re-frame.ui/frame})
@@ -194,6 +195,7 @@
 (defn- slot-form? [e f] (and (seq? f) (symbol? (first f)) (env/resolves-to? e (first f) ui-slot-fqns)))
 (defn- error-boundary-form? [e f] (and (seq? f) (symbol? (first f)) (env/resolves-to? e (first f) error-boundary-fqns)))
 (defn- client-only-form? [e f] (and (seq? f) (symbol? (first f)) (env/resolves-to? e (first f) client-only-fqns)))
+(defn- presence-form? [e f] (and (seq? f) (symbol? (first f)) (env/resolves-to? e (first f) presence-fqns)))
 
 ;; ---------------------------------------------------------------------------
 ;; Expression rewriting — lexical site indexing + loop finiteness
@@ -2377,6 +2379,88 @@
      :path (:path e)}))
 
 ;; ---------------------------------------------------------------------------
+;; ui/presence (S4, rf2-uckeg) — declarative enter/exit retention
+;; ---------------------------------------------------------------------------
+
+(def ^:private presence-opt-keys #{:timeout-ms})
+
+(defn- presence-keyed-child?
+  "A presence child must be STATICALLY keyed — the identity the runtime tracks
+  across renders. A `(for …)` is keyed by construction (analyze-for enforces
+  every row's `:key`); a literal element/view/foreign/fragment must carry a
+  `:key`. A branch (if/let/case) is keyed when each rendered arm is."
+  [ast]
+  (case (:op ast)
+    :for true
+    (:element :fragment) (boolean (get-in ast [:key :present?]))
+    (:view :foreign) (boolean (get-in ast [:props :key :present?]))
+    :if (and (presence-keyed-child? (:then ast)) (presence-keyed-child? (:else ast)))
+    :let (presence-keyed-child? (:body ast))
+    :letfn (presence-keyed-child? (:body ast))
+    :case (and (every? presence-keyed-child? (map second (:clauses ast)))
+               (or (= ::none (:default ast)) (presence-keyed-child? (:default ast))))
+    :nothing true                       ; a statically-absent arm is fine
+    false))
+
+(defn- analyze-presence
+  "(ui/presence {:timeout-ms n} keyed-children) — the three-phase enter/exit
+  retention boundary. `:timeout-ms` is MANDATORY (the terminal safety bound —
+  unit suffixed on the key) and a positive number literal. Children must be
+  statically KEYED (a `(for …)` with `:key`, or keyed element/view rows) —
+  unkeyed presence children are a build failure (§Presence)."
+  [e form]
+  (let [opts  (nth form 1 nil)
+        body  (drop 2 form)]
+    (when-not (map? opts)
+      (env/fail! e :rf.ui.compile/bad-presence
+                 (str "(ui/presence {:timeout-ms n} children) needs a literal opts "
+                      "map with a mandatory :timeout-ms (the terminal safety bound)")
+                 {:form form}))
+    (let [bad (remove presence-opt-keys (keys opts))]
+      (when (seq bad)
+        (env/fail! e :rf.ui.compile/bad-presence
+                   (str "unknown presence option" (when (next bad) "s") " "
+                        (str/join ", " (map pr-str bad))
+                        " — the only option is :timeout-ms")
+                   {:form form})))
+    (when-not (contains? opts :timeout-ms)
+      (env/fail! e :rf.ui.compile/bad-presence
+                 (str ":timeout-ms is MANDATORY on (ui/presence …) — the terminal "
+                      "safety bound: a retained exiting child is removed when its "
+                      "exit completes OR :timeout-ms fires, whichever first")
+                 {:form form}))
+    (let [t (:timeout-ms opts)]
+      (when-not (and (number? t) (pos? t))
+        (env/fail! e :rf.ui.compile/bad-presence
+                   (str ":timeout-ms must be a positive number of milliseconds; got "
+                        (pr-str t))
+                   {:form form})))
+    (when (empty? body)
+      (env/fail! e :rf.ui.compile/bad-presence
+                 "(ui/presence {:timeout-ms n} children) needs at least one keyed child"
+                 {:form form}))
+    (let [child-asts (into []
+                           (map-indexed
+                            (fn [i c]
+                              (analyze (-> e (update :path conj :presence i)
+                                           (assoc :hooks-region? false))
+                                       c)))
+                           body)]
+      (doseq [ast child-asts]
+        (when-not (presence-keyed-child? ast)
+          (env/fail! e :rf.ui.compile/presence-unkeyed-child
+                     (str "children under (ui/presence …) must be KEYED — a "
+                          "(for [x xs] [row {:key (:id x)} …]) or keyed element/view "
+                          "rows. Presence tracks children by key across renders, so "
+                          "unkeyed presence children are a build failure")
+                     {:form form})))
+      {:op :presence
+       :timeout-ms (:timeout-ms opts)
+       :children child-asts
+       :static? false
+       :path (:path e)})))
+
+;; ---------------------------------------------------------------------------
 ;; Reactive authoring verbs in head position (rf2-vxgfnd.266)
 ;; ---------------------------------------------------------------------------
 ;;
@@ -2930,6 +3014,9 @@
 
         (client-only-form? e form)
         (analyze-client-only e form)
+
+        (presence-form? e form)
+        (analyze-presence e form)
 
         (render-fn-form? e form)
         (env/fail! e :rf.ui.compile/render-fn-misplaced
