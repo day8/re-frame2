@@ -44,4 +44,4 @@ The pure function that maps a rich internal trace to a sanitized, client-safe `:
 
 ### **suspense boundary**
 
-The streaming marker `:rf/suspense-boundary` — an `:id`, a `:fallback`, a subtree. The server flushes the page shell with fallbacks in place (fast first byte), then streams each boundary's subtree in as its data resolves. One boundary failing keeps its fallback and traces; the rest of the page streams on. Recipe: [Streaming](streaming.md).
+The streaming component `ssr/boundary` — an `:id`, a `:fallback`, a subtree. It defers the subtree on the server and renders it in the browser, so one view serves both hosts (`:rf/suspense-boundary` survives only as internal wire syntax). The server flushes the page shell with fallbacks in place (fast first byte), then streams each boundary's subtree in as its data resolves. One boundary failing keeps its fallback and traces; the rest of the page streams on. Recipe: [Streaming](streaming.md).

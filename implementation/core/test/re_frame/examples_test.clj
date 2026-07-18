@@ -532,6 +532,17 @@
           (is (clojure.string/includes? (:template c) "class=\"card\"")
               (str "resolved chunk must carry the rendered card body; got "
                    (:template c)))))
+      ;; rf2-ycz3k — the drain's `:failed?` reaches the wire. The server has
+      ;; always known which boundaries blew up and used to DROP it, leaving
+      ;; the client to infer failure from absent state. The final payload now
+      ;; names them in its serialisable runtime slice, so the client's
+      ;; boundary re-renders the fallback it declared.
+      (is (= #{:card.flaky} (:failed-boundaries result))
+          "the failed boundary is reported by the drain")
+      (is (= #{:card.flaky}
+             (get-in (:rf/runtime-db (:final-payload result))
+                     [:rf.runtime/ssr :streaming :failed-boundaries]))
+          "and rides the final payload's runtime-db slice")
       ;; Final payload carries the canonical :rf/* keys.
       (is (= 1 (:rf/version (:final-payload result))))
       (is (some? (:rf/render-hash (:final-payload result))))

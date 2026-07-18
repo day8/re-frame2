@@ -11,27 +11,31 @@ timings.
 
 That's *streaming SSR*: the page stops waiting on its slowest part. It's
 the React-18 / Next.js `loading.js` move — ship the shell first, fill the
-holes as the data lands. In re-frame2 it's *one marker*, not a component
-API. You wrap every slow region of the
-[view](../../../../docs/core/glossary.md#view) in a
-[`:rf/suspense-boundary`](../../../../docs/ssr/concepts.md#streaming-rfsuspense-boundary)
+holes as the data lands. In re-frame2 you wrap every slow region of the
+[view](../../../../docs/core/glossary.md#view) in an
+[`ssr/boundary`](../../../../docs/ssr/concepts.md#streaming-ssrboundary)
 and name a `:fallback` to show in the meantime:
 
 ```clojure
-[:rf/suspense-boundary
+[ssr/boundary
  {:id :card.revenue :fallback [card-skeleton :revenue]}
  [card-view :revenue]]
 ```
+
+That is one form for both runtimes. On the server it becomes a deferred
+region; in the browser it renders the card. There is no server-flavoured
+copy of the view and no reader conditional.
 
 Note the children are **Var references**, not keywords. A bare
 `[:dashboard/card :revenue]` head is an HTML element, never a view — the
 runtime doesn't intercept the keyword case to dispatch through the view
 registry (see
 [Conventions §Render-tree shape vs runtime lookup](../../../../spec/Conventions.md)),
-so it would paint `<card>revenue</card>` in the browser. The JVM SSR
-emitter *does* resolve keyword heads through the registry, which is what
-makes that mistake so easy to ship: the server renders it correctly and
-only the client goes wrong.
+so it would paint `<card>revenue</card>`. That rule now holds on **every**
+host, server included: the JVM SSR emitter is a pure hiccup → HTML
+function with no registry lookup, so a keyword head paints the same
+element there as it does in the browser. Render trees reference views by
+Var (`card-view`, which `reg-view` defs for you) or by `(rf/view :id)`.
 
 One caveat up front: this demo runs **offline**, with no Clojure server.
 Instead of fetching from three real services, `:rf/server-init` seeds all
@@ -45,13 +49,14 @@ companion to
 
 ## What this demonstrates
 
-- **The whole streaming API is one marker.** Wrap a subtree with
-  `:rf/suspense-boundary`, name a `:fallback`, and give it a stable
-  `:id`. The streaming walker emits the fallback
+- **The whole streaming API is one component.** Wrap a subtree with
+  `ssr/boundary`, name a `:fallback`, and give it a stable `:id`. The
+  streaming walker emits the fallback
   [hiccup](../../../../docs/core/glossary.md#hiccup) into the shell and
   flushes it on the first byte, then renders the real subtree and streams
   it in as its own chunk. There's no streaming-render mode and no
-  per-host API — the marker *is* the contract.
+  per-host API — and because the boundary is a component rather than a
+  keyword, the same form is what the browser renders too.
 
 - **Each chunk carries its own slice of state.** A streamed-in card is no
   use if its [subscriptions](../../../../docs/core/glossary.md#subscription)
@@ -106,27 +111,37 @@ against *each* with a `{:frame …}` override, because that's where the
 its per-request frame-id from the payload, so the client's explicit
 `:frame` stands rather than tripping a frame-id mismatch.
 
-The other subtlety is that `:rf/suspense-boundary` is a **server-only**
-marker. It means something to the streaming shell walker and to nothing
-else — there is no client-side rendering for it. So the browser's render
-tree carries the resolved card directly, and `card-slot` in
-[`core.cljc`](core.cljc) is the single reader-conditional where the two
-runtimes part company. Leaving the marker in a client render tree is a
-quiet failure rather than a loud one: its name passes the DOM tag grammar,
-so React paints a phantom `<suspense-boundary>` element instead of raising
-anything.
+The other subtlety is the boundary itself. `ssr/boundary` is a
+**component**, not a hiccup keyword, and that is load-bearing rather than
+cosmetic. A keyword head is an HTML element on every host, so a marker
+left in a client render tree paints a phantom `<suspense-boundary>`
+element — a quiet failure, not a loud one. And the marker could not be
+given client semantics either: stock Reagent is an external dependency
+whose element dispatch isn't ours to extend, and UIx / Helix views are
+`defui` / `$` forms where a hiccup keyword head cannot occur at all. A
+callable component is the one form expressible everywhere, so that is the
+authoring surface. `:rf/suspense-boundary` still exists, demoted to
+internal wire syntax between the component and the shell walker.
 
-Which cards the client can actually render falls out of app-db, not out of
-the boundary structure. `card-view` renders the skeleton when its card
-isn't in app-db yet — which is the true state for a chunk still in flight,
-and the permanent state for `:card.flaky`, whose boundary failed and
-therefore shipped no delta. That's why the client's render agrees with the
-DOM the stream painted without having to know which boundaries succeeded.
+Which fallback the client shows is the boundary's business, not every
+view's. `:card.flaky`'s boundary failed on the server, so the final
+payload reports it in its failed set, and the boundary that declared
+`[card-skeleton :flaky]` re-renders exactly that. `card-view` needs no
+defensive nil branch duplicating the skeleton to keep the client's render
+agreeing with the DOM the stream painted.
+
+Hydration waits for **readiness**. The streaming runtime signals
+`:on-ready` once the last chunk has landed, every delta is consumed, and
+every `<rf-suspense>` mount it created has been unwrapped; only then does
+`run` hydrate. Those wrappers are transport, and hydrating while they are
+still in the DOM is a structural mismatch on every boundary — the page's
+content can be byte-correct and React will still discard it.
 
 The `.cljc` shape mirrors [`examples/capabilities/ssr/ssr/core.cljc`](../ssr/core.cljc):
-the server branch lives in `:clj`, the browser branch in `:cljs`. The
-`:clj` branch is what a Ring streaming adapter would invoke per request;
-the `:cljs` branch is what the page bootstraps once the chunks land. One
+the server entry point lives in `:clj`, the browser bootstrap in `:cljs`.
+The `:clj` branch is what a Ring streaming adapter would invoke per
+request; the `:cljs` branch is what the page bootstraps once the chunks
+land. The *views* are shared verbatim — only the entry points differ. One
 artefact, two runtimes — the same trick the non-streaming SSR example
 plays, with the streaming counterparts swapped in.
 

@@ -22,7 +22,7 @@ So read this page as a translation table, not a feature comparison. The capabili
 | `redirect()` / `notFound()` | The data effects `:rf.server/redirect` / a routing miss your [error projector](concepts.md#when-the-server-throws) maps to `404`. |
 | `cookies().set(...)` | The `:rf.server/set-cookie` effect — a structured map; [response control](response.md). |
 | The `Metadata` API / `generateMetadata` | [`reg-head`](head.md) — a head model *derived from app-db*, shaped exactly like a sub. |
-| `<Suspense fallback>` + `loading.js` (streaming) | [`:rf/suspense-boundary`](streaming.md) — one hiccup marker with a `:fallback`, streams its subtree in as a chunk. |
+| `<Suspense fallback>` + `loading.js` (streaming) | [`ssr/boundary`](streaming.md) — one component with a `:fallback`, streams its subtree in as a chunk. |
 | Hydration mismatch (console warning, content flash) | A [hydration mismatch](glossary.md#hydration-mismatch) caught by a structural hash comparison — a structured trace you can alert on, plus a strict mode that fails CI. |
 | `unstable_cache` / `fetch` cache | A [resource](../resources/glossary.md#resource) — preloaded server-side, ridden across in the payload, renders without a duplicate fetch. |
 | `next/server` runtime, route handlers, middleware | The Ring host adapter (`day8/re-frame2-ssr-ring`). One handler constructor; the lifecycle is yours to read, not a framework you configure. |
@@ -67,7 +67,7 @@ re-frame2 folds both into the same data discipline everything else obeys. The [h
 
 React 18 streaming and Next.js's `loading.js` give you `<Suspense>` boundaries — a real component with a `fallback` prop, plus conventions about where `loading.js` lives in the route tree. It's powerful and it's a surface to learn.
 
-re-frame2's [`:rf/suspense-boundary`](streaming.md) is one declarative hiccup marker: an `:id`, a `:fallback`, a subtree. The walker flushes the shell with fallbacks in place (your first byte), then streams each region in as its data resolves. Failure isolation is free; the final chunk is the canonical full payload — if deltas and payload disagree, the payload wins. Details: [Streaming](streaming.md).
+re-frame2's [`ssr/boundary`](streaming.md) is one declarative component: an `:id`, a `:fallback`, a subtree. It is the same form on the server and in the browser. The walker flushes the shell with fallbacks in place (your first byte), then streams each region in as its data resolves. Failure isolation is free; the final chunk is the canonical full payload — if deltas and payload disagree, the payload wins. Details: [Streaming](streaming.md).
 
 ---
 

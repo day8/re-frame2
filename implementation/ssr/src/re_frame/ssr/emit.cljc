@@ -572,8 +572,14 @@
          ;; splice `(rest el)` through `emit-children`, which would stringify
          ;; the component ref and dump the props map as raw EDN into the
          ;; markup (garbage output, not a rendered component). The author
-         ;; must wrap the React component in a `reg-view` (which the SSR
-         ;; emitter resolves) or render it client-only.
+         ;; wraps the React component in a `reg-view` and references THAT
+         ;; by its callable head — the Var `reg-view` defs, or
+         ;; `(rf/view :id)`. rf2-ycz3k: this used to say the wrapping
+         ;; reg-view was something "the SSR emitter resolves", which has
+         ;; been false since rf2-j81hs made the emitter a pure
+         ;; hiccup → HTML function with no registry lookup. Nothing
+         ;; resolves an id here; the CALLABLE head is what the emitter
+         ;; invokes, which is why the spelling has to be in the message.
          (= :> head)
          (error/throw-error!
            :rf.error/ssr-reagent-native-head
@@ -583,8 +589,12 @@
                 "rendered server-side — it targets a "
                 "React component and there is no React "
                 "on the JVM. Wrap the component in a "
-                "reg-view for SSR, or render it "
-                "client-only.")
+                "reg-view and reference that view by its "
+                "CALLABLE head — the Var reg-view defs "
+                "(`[my-view …]`) or `[(rf/view :my/id) …]` "
+                "— or render it client-only. A bare "
+                "keyword head is an HTML element, not a "
+                "view reference.")
            {:recovery :wrap-in-reg-view-or-render-client-only
             :extra    {:element el}})
 
