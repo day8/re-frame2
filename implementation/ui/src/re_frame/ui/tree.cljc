@@ -172,8 +172,16 @@
   accumulator via the rule table shared by `ui/spread`, `ui/spread-safe`, and
   the JVM tree builder: on-* -> events, :class merges, :style normalizes,
   :key/:ref skipped, custom-element `properties` classified. `properties` is
-  the tag's property set (nil for plain DOM)."
+  the tag's property set (nil for plain DOM).
+
+  Every key is FIRST put through `rules/assert-spread-prop-key!` — the JVM twin
+  of the CLJS `runtime/convert-prop-map!` guard, the runtime half of the
+  analyzer's literal rejected-spelling deny (rf2-5pr75). A LITERAL element's
+  per-prop dynamic values also fold through here, but their keys are literal and
+  the analyzer already rejected those spellings, so the guard can only fire on a
+  key that arrived inside a runtime map."
   [properties [m es pp] k v]
+  (rules/assert-spread-prop-key! k)
   (let [n (name k)]
     (cond
       (nil? v)                   [m es pp]

@@ -1444,3 +1444,82 @@
                :else
                (assoc acc (keyword (caller-key-name k)) v))))
          {} caller)))))
+
+;; ---------------------------------------------------------------------------
+;; ui/spread + ui/spread-safe — the RUNTIME rejected-spelling deny (EVERY build)
+;;
+;; `rejected-prop-spellings` ("one spelling per name, and it is a node variant")
+;; is enforced on LITERAL props by the analyzer (`check-rejected-spelling!`),
+;; which cannot see a prop map assembled at RUNTIME. A `(ui/spread base
+;; overrides)` map therefore reached the host converters unchecked, and
+;; `react-prop-name` passes an unrecognized name VERBATIM — so
+;; `{:dangerouslySetInnerHTML #js {:__html s}}` landed in React's raw-markup
+;; slot with NO visible `(ui/html …)` trust assertion anywhere in the source
+;; (rf2-5pr75). The deny below closes that at the ONE runtime seam both hosts
+;; fold a spread map through (`runtime/convert-prop-map!` on CLJS,
+;; `tree/fold-dyn-entry` on the JVM), so `ui/spread` and the `ui/spread-safe`
+;; caller map are covered together.
+;; ---------------------------------------------------------------------------
+
+(def ^:private rejected-prop-slots
+  "`rejected-prop-spellings` reduced to the canonical emitted SLOTS the host
+  converters actually write into (`caller-key-slot` — the same rf2-xdvob
+  canonicalization the spread-safe owned-key deny compares), each mapped to the
+  didactic replacement its compile error names.
+
+  Comparing SLOTS rather than literal keywords is what makes the deny TOTAL for
+  the one spelling that carries a trust boundary: every alias of React's
+  raw-markup prop — `\"dangerouslySetInnerHTML\"`, `'dangerouslySetInnerHTML`,
+  the namespaced `:x/dangerouslySetInnerHTML` — reduces to the SAME slot and is
+  denied, while a spelling that reduces to any OTHER slot (`:dangerouslysetinnerhtml`)
+  cannot reach React's slot at all and needs no deny. No legitimate prop
+  collides: `:class` slots to `className` and `:for` to `htmlFor`, distinct from
+  the rejected `:class-name` / `:html-for`."
+  (into {}
+        (keep (fn [[k replacement]]
+                (when-some [slot (caller-key-slot k)] [slot replacement])))
+        rejected-prop-spellings))
+
+(defn spread-rejected-key?
+  "Is runtime prop key `k` a rejected spelling — the runtime twin of the
+  analyzer's literal `check-rejected-spelling!`? Compares `k`'s canonical
+  emitted slot, so every alias reaches the same verdict on both hosts. A
+  non-nameable key has no slot and is not 'rejected' here (the converters
+  report it through their own channel)."
+  [k]
+  (contains? rejected-prop-slots (caller-key-slot k)))
+
+(defn assert-spread-prop-key!
+  "EVERY-BUILD deny for ONE prop key arriving through a RUNTIME prop map — a
+  `(ui/spread base overrides)` map or a `(ui/spread-safe owned caller)` caller
+  map. A rejected spelling throws `:rf.error/ui-tree-malformed`, NOT
+  `goog.DEBUG`-gated, so an `:advanced` production build is exactly as safe as
+  dev — the same production-reachability the sibling `assert-safe-caller!`
+  owned-key deny has, and the only defensible choice for a key whose whole
+  meaning is 'bypass HTML escaping'.
+
+  The key is denied on PRESENCE, value irrelevant: `rejected-prop-spellings`
+  rejects the NAME, so a nil value is still an illegal spelling, and a
+  value-dependent guard would be a trust check with a hole in it.
+
+  DENY, not silently drop. Dropping would be fail-safe against injection but
+  invisible twice over: an author who MEANT raw markup would ship a silently
+  empty element, and an author who did NOT would never learn their forwarded
+  prop map carries a smuggled key. The message names the escape — `(ui/html …)`,
+  the visible trust assertion — exactly as the compile error does.
+
+  `re-frame.ui` sanitises NOTHING: the fix is not to clean the markup but to
+  require it be asserted at a visible site."
+  [k]
+  (when-some [replacement (get rejected-prop-slots (caller-key-slot k))]
+    (error/throw-error!
+     :rf.error/ui-tree-malformed 're-frame.ui/spread
+     (str "a runtime spread prop map may not carry " (pr-str k)
+          ": it is not a prop — one spelling per name, ambiguities removed — and "
+          "the rule holds for a map assembled at RUNTIME exactly as it does for "
+          "literal props, which the compiler checks and this map it cannot see. "
+          "Use " replacement ". An alternate spelling (kebab, already-camel, a "
+          "namespaced keyword, string, or symbol) canonicalizes to the same "
+          "emitted slot and is denied too, so raw markup can never reach the DOM "
+          "without the visible (ui/html ...) trust assertion at the site")
+     {:extra {:key k}})))
