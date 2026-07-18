@@ -103,7 +103,14 @@
     :dispatch-fns []
     :frame-ops    []
     :locals       [{:sid "sid1-l"}]
-    :htmls        []}})
+    :htmls        []
+    ;; S4-C compile-tier a11y findings. A SUPPRESSED finding is still a site —
+    ;; it carries its reason so a tool can show what an author silenced and why.
+    :diagnostics  [{:sid "sid1-d1" :id :rf.ui.compile/a11y-click-non-interactive
+                    :tag :div :path [:div 0] :suppressed? false}
+                   {:sid "sid1-d2" :id :rf.ui.compile/a11y-missing-accessible-name
+                    :tag :button :path [:button 2] :suppressed? true
+                    :reason "named by the adjacent legend"}]}})
 
 ;; ---------------------------------------------------------------------------
 ;; helpers for connected-instance evidence (driven through the reactive seam,
@@ -169,8 +176,19 @@
              (:interop-sites vm))
           "the frozen re-frame.ui.react interop sites are surfaced")
       (is (= {:subs 2 :events 5 :leases 2 :effects 0 :dispatch-fns 0 :frame-ops 0
-              :render-slots 1 :interop 2 :locals 1 :htmls 0}
+              :render-slots 1 :interop 2 :locals 1 :htmls 0 :diagnostics 2}
              (:site-counts vm))))
+
+    (testing "compile-tier a11y diagnostics ride the manifest projection"
+      (is (= [{:sid "sid1-d1" :id :rf.ui.compile/a11y-click-non-interactive
+               :tag :div :suppressed? false}
+              {:sid "sid1-d2" :id :rf.ui.compile/a11y-missing-accessible-name
+               :tag :button :suppressed? true
+               :reason "named by the adjacent legend"}]
+             (:diagnostics vm))
+          (str "the compiler-minted site id, the finding id, and a suppressed "
+               "finding's REASON all reach the consumer; the raw template path "
+               "stays private")))
 
     (testing "the raw props schema rides alongside the derived per-prop view"
       (is (= (:props-schema demo-manifest) (:props-schema vm))))))

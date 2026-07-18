@@ -12,6 +12,7 @@
   branches. Rejected forms throw compile errors with
   {:rf.ui.compile/error <id>} ex-data (the S1e roster keys off the ids)."
   (:require [clojure.string :as str]
+            [re-frame.ui.compiler.a11y :as a11y]
             [re-frame.ui.compiler.binding-plan :as bp]
             [re-frame.ui.compiler.build :as build]
             [re-frame.ui.compiler.env :as env]
@@ -1908,20 +1909,28 @@
                                                 :static? (string? s)
                                                 :serializable? (string? s)
                                                 :path (:path e)})
-                       {:op :html :form s* :static? (string? s)})))]
-      {:op :element
-       :tag tag
-       :custom? custom?
-       :void? (contains? rules/void-tags tag)
-       :props props
-       :html html-ast
-       :children children
-       :static? (and (:static? props)
-                     (nil? (:spread props))
-                     (nil? (:safe-spread props))
-                     (if html-kid? (:static? html-ast) (every? node-static? children))
-                     true)
-       :path (:path e)})))
+                       {:op :html :form s* :static? (string? s)})))
+          node     {:op :element
+                    :tag tag
+                    :custom? custom?
+                    :void? (contains? rules/void-tags tag)
+                    :props props
+                    :html html-ast
+                    :children children
+                    :static? (and (:static? props)
+                                  (nil? (:spread props))
+                                  (nil? (:safe-spread props))
+                                  (if html-kid?
+                                    (:static? html-ast)
+                                    (every? node-static? children))
+                                  true)
+                    :path (:path e)}]
+      ;; The compile-tier a11y roster (S4-C) reads the ANALYZED node — literal
+      ;; facts only — and validates the element's suppression metadata. It mints
+      ;; findings, never rejections: the node is returned unchanged.
+      (a11y/check-element! e form node
+                           (fn [expr-path] (lexical-site-id e :a11y form expr-path)))
+      node)))
 
 ;; ---------------------------------------------------------------------------
 ;; Compiled render slots — `ui/render-fn` callback + `ui/slot` invocation (S3)
@@ -1965,7 +1974,10 @@
           e*      (-> e
                       (env/with-locals binders)
                       (assoc :in-render-fn? true :in-loop? false :loop-syms #{})
-                      (dissoc :top-region?)
+                      ;; a render-fn body is DEFERRED — it runs wherever the
+                      ;; matching `ui/slot` is invoked, so it is not inline
+                      ;; parent-render markup any more.
+                      (dissoc :top-region? :presence-inline?)
                       (update :path conj :render-fn))]
       {:params params
        :body   (analyze e* (first body))})))
@@ -2484,7 +2496,15 @@
                            (map-indexed
                             (fn [i c]
                               (analyze (-> e (update :path conj :presence i)
-                                           (assoc :hooks-region? false))
+                                           ;; INLINE literal markup under a
+                                           ;; presence boundary is evaluated in
+                                           ;; the parent's render — outside the
+                                           ;; per-child phase Provider — so it
+                                           ;; provably cannot read its own
+                                           ;; (ui/presence-phase). S4-C check 4
+                                           ;; keys off exactly this fact.
+                                           (assoc :hooks-region? false
+                                                  :presence-inline? true))
                                        c)))
                            body)]
       (doseq [ast child-asts]

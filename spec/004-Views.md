@@ -264,6 +264,82 @@ stage-conformance assertion ship with the S4 epic** (the API.md table stages the
 S4). `ui/custom-element` is added to the 12 §2 freeze table as the delta protocol's
 first row-level delta.
 
+### Compile-tier warnings
+
+Beside the rejection roster the compiler carries a **warning** tier: findings
+that are *probably* a mistake but are legal, so they are reported and the build
+continues. A warning **never fails a build** — no severity configuration, no
+`--strict` mode, no promotion path. Every warning id lives in the same
+`:rf.ui.compile/*` namespace as the errors and, for the same reason, carries
+**no Spec 009 catalogue row**: detection happens at `defview` expansion and
+nothing is ever emitted at runtime, so there is no trace event to catalogue
+(Spec 009's own catalogue contract is about runtime-emitted events).
+
+Every warning names its **stable site id** — the compiler-minted lexical site
+identity — so the line in the build log and the finding in a tool are the same
+fact, and re-running the build reproduces the id.
+
+**Template-shape warnings.**
+
+| id | fires when |
+|---|---|
+| `:rf.ui.compile/placeholder-not-top-level` | a `:rf.ui/*` placeholder keyword is nested inside an event-vector argument, where it dispatches as an ordinary keyword instead of splicing |
+| `:rf.ui.compile/bare-fn-in-loop` | a bare `fn` handler is authored inside a `for` row — it works, at a per-row closure cost, and defeats the data idiom |
+| `:rf.ui.compile/controlled-input-async-handler` | a controlled `:value`/`:checked` input's change handler is neither a literal event vector nor `(ui/event …)`, so it misses the controlled-input sync door |
+
+**Accessibility diagnostics.** Four checks, and the boundary around them is the
+point: **re-frame2 is not an accessibility framework.** These do not replace an
+audit, a linter, or a human — they catch a small number of defects the compiler
+can *prove* from the template it already analyzed, and they are silent about
+everything else.
+
+| id | fires when | stays silent when |
+|---|---|---|
+| `:rf.ui.compile/a11y-missing-accessible-name` | a literal `:button`, `:a` with an `:href`, or `:img` is **provably** nameless: no `:aria-label` / `:aria-labelledby` / `:title` (and no `:alt` on an `:img`), and — for the content-named controls — a wholly literal subtree containing no text | any dynamic child, `(sub …)`, branch, child view, foreign component, `ui/html`, or props spread could supply the name; `:alt ""` (a declared decorative image); `aria-hidden` / `role="presentation"` markup |
+| `:rf.ui.compile/a11y-invalid-literal-aria` | a literal `aria-*` name is absent from the pinned WAI-ARIA states-and-properties table, or a **literal** value falls outside that attribute's token set / numeric kind | the value is computed at runtime (the name is still checked); the value is a valid token, a boolean, or a number; the attribute is free-form text or an IDREF |
+| `:rf.ui.compile/a11y-click-non-interactive` | a literal generic host element carries an `:on-click` with no native interactive semantics and **no** `:role` at all — keyboard and assistive-technology users cannot reach it | any `:role` (even a dynamic one), a props spread, `contenteditable`, `aria-hidden`, a custom element, or an explicitly focusable element that already handles keys |
+| `:rf.ui.compile/a11y-presence-exit-interactive` | focusable markup is authored **inline** under a `(ui/presence …)` boundary, so it stays in the tab order for the whole exit window | the child is a view or foreign component (it can read its own phase); the markup is not focusable; `:disabled`, `:tab-index -1`, `inert`, `aria-hidden`, or a props spread |
+
+The fourth check is the compile-time counterpart of §Presence's author
+obligation, and its trigger is structural rather than stylistic. Because the
+boundary is DOM-agnostic, a presence-aware child owns its exit accessibility by
+stamping `inert` / `aria-hidden` against `(presence-phase)` = `:unmounting`.
+Inline literal markup **cannot** do that: the phase Provider wraps the child
+element, so inline props are evaluated in the parent's render, outside it. The
+warning therefore fires on exactly the shape where the remedy is unavailable in
+place, and its recovery is to extract a keyed child view. It never warns on
+`ui/presence` as such — the idiomatic keyed-child-view form in §Presence is
+silent.
+
+**The high-confidence charter.** Each check fires only on a defect provable
+from the local template AST. The moment a shape carries information the
+compiler cannot see, the check goes **silent** — an uncertain case produces
+nothing, never a hedged warning. There is deliberately no heuristic tier, no
+confidence score, and no configuration to lower the bar: a false positive
+teaches authors to ignore the channel, which costs more than the miss. Out of
+scope by construction: cross-view analysis (a child view's body is that view's
+business), CSS or computed-style inference, IDREF and document-wide lookups,
+colour contrast, runtime checking, and rule plugins.
+
+**Suppression carries a reason.** A finding is silenced by metadata on the
+offending form:
+
+```clojure
+^{:rf.ui/suppress {:rf.ui.compile/a11y-click-non-interactive
+                   "drag surface; the keyboard path is the toolbar button"}}
+[:div {:on-click [:canvas/select]} …]
+```
+
+The map's keys must be ids from this roster and every reason a non-blank
+literal string — a malformed suppression is the compile error
+`:rf.ui.compile/bad-suppress`, never a silent no-op, because a suppression that
+quietly stopped suppressing is the worst outcome the mechanism can produce.
+There are no wildcards, no project-wide disables, and no second config file:
+suppression is per-site and argued. A suppressed finding **remains a manifest
+fact** carrying its reason — it prints nothing, but tooling can list what a
+codebase has waived and why. The metadata never becomes a DOM prop and nothing
+is stripped at runtime.
+
 ## Handlers are data — the callback law
 
 **Canonical: the event vector.** A vector in an `:on-*` position is the event intent,
@@ -1299,6 +1375,11 @@ stages in small batches, 011 → S5).
 - **Presence ruling** — wrapper form, no reserved nodes; `:timeout-ms` mandatory (it *is*
   the exit retention duration, and the boundary stays DOM-agnostic — rf2-0ufty);
   `presence-phase` returns `:present` outside a boundary (§Presence).
+- **Compile-tier a11y diagnostics** — the four `:rf.ui.compile/a11y-*` checks are
+  COMPILE warnings with no Spec 009 catalogue row (detection is at expansion; nothing
+  is emitted at runtime), governed by a high-confidence charter — an unprovable case is
+  silence, never a hedged warning — and suppressed per site with a mandatory reason
+  (rf2-74vlo, §Compile-tier warnings). re-frame2 is not an accessibility framework.
 - **Refs policy** — `:ref` reserved; object refs preferred; callback refs explicit
   `ui/raw-fn` (§Handlers).
 - **`:on-mount`/`:on-unmount` rejected** — mechanical React lifecycle cannot carry

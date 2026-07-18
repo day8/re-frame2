@@ -134,12 +134,25 @@
     ;; ui.test surface (S1d, rf2-vxgfnd.4 — same fold)
     :rf.ui.compile/bad-test-render-form
     :rf.ui.compile/bad-test-root
-    :rf.ui.compile/ui-test-jvm-only})
+    :rf.ui.compile/ui-test-jvm-only
+    ;; a11y-diagnostic suppression grammar (S4-C, rf2-74vlo) — a malformed
+    ;; ^{:rf.ui/suppress {<id> "reason"}} is loud, never a silent no-op
+    :rf.ui.compile/bad-suppress})
 
 (def frozen-warning-roster
-  "Dev WARNINGS (env/warn!, never thrown) — same namespace, same freeze."
-  #{:rf.ui.compile/placeholder-not-top-level
-    :rf.ui.compile/bare-fn-in-loop})
+  "Dev WARNINGS (env/warn!, never thrown) — same namespace, same freeze.
+  Warning-tier ids carry NO Spec 009 catalogue row for the same reason the
+  error tier does not: detection is at macroexpansion, and nothing is ever
+  emitted at runtime (Spec 004 §Compile-tier warnings)."
+  #{;; template-shape warnings (S1)
+    :rf.ui.compile/placeholder-not-top-level
+    :rf.ui.compile/bare-fn-in-loop
+    :rf.ui.compile/controlled-input-async-handler
+    ;; high-confidence a11y diagnostics (S4-C, rf2-74vlo)
+    :rf.ui.compile/a11y-missing-accessible-name
+    :rf.ui.compile/a11y-invalid-literal-aria
+    :rf.ui.compile/a11y-click-non-interactive
+    :rf.ui.compile/a11y-presence-exit-interactive})
 
 (def ^:private jvm-tier-ids
   "Ids thrown only inside the JVM-side expansion pipeline
@@ -470,7 +483,15 @@
    [:rf.ui.compile/bad-cond '(cond a) [":else"]]
    [:rf.ui.compile/bad-let '(let [x] [:p "a"]) ["even bindings"]]
    [:rf.ui.compile/bad-let '(letfn (f) [:p "a"]) ["fnspecs vector"]]
-   [:rf.ui.compile/bad-if '(if a [:p "a"] [:p "b"] [:p "c"]) ["test then else"]]])
+   [:rf.ui.compile/bad-if '(if a [:p "a"] [:p "b"] [:p "c"]) ["test then else"]]
+   ;; a11y suppression grammar (S4-C, rf2-74vlo) — an unknown id, a blank
+   ;; reason, and a non-map payload all reject; a suppression that silently
+   ;; stopped suppressing would be the worst failure mode of the mechanism.
+   ;; (The full grammar table lives in a11y_diagnostics_cljs_test.)
+   [:rf.ui.compile/bad-suppress
+    '^{:rf.ui/suppress {:rf.ui.compile/a11y-nope "reason"}}
+    [:div {:on-click [:x/y]} "z"]
+    ["a11y-click-non-interactive"]]])
 
 (deftest analyzer-tier-roster
   (doseq [[id form names] analyzer-roster]
@@ -549,15 +570,45 @@
     (ana/analyze e form)
     @(:warnings e)))
 
+(def ^:private a11y-suite-warning-ids
+  "The S4-C a11y ids, frozen HERE but exercised — in BOTH the firing and the
+  silent direction, which is the load-bearing half — by their owning suite
+  `re-frame.ui.a11y-diagnostics-cljs-test`."
+  #{:rf.ui.compile/a11y-missing-accessible-name
+    :rf.ui.compile/a11y-invalid-literal-aria
+    :rf.ui.compile/a11y-click-non-interactive
+    :rf.ui.compile/a11y-presence-exit-interactive})
+
+(def warning-roster
+  "[id warning-producing-form [message fragments]] — the dev-warning table."
+  ;; NB each row isolates ONE warning: the click handlers sit on `:button`
+  ;; rather than a generic element so the S4-C a11y roster stays silent and
+  ;; the assertion below can demand an exact singleton.
+  [[:rf.ui.compile/bare-fn-in-loop
+    '(for [x xs] [:button {:key x :on-click (fn [] x)} "y"])
+    ["event vector or a keyed child view"]]
+   [:rf.ui.compile/placeholder-not-top-level
+    '[:button {:on-click [:a/b {:v :rf.ui/value}]} "x"]
+    ["top-level"]]
+   [:rf.ui.compile/controlled-input-async-handler
+    '[:input {:value v :on-change some-callback}]
+    ["literal event vector" "ui/event"]]])
+
 (deftest warning-tier-roster
-  (let [[w :as ws] (warnings-for '(for [x xs] [:li {:key x :on-click (fn [] x)} "y"]))]
-    (is (= [:rf.ui.compile/bare-fn-in-loop] (mapv :id ws)))
-    (is (str/includes? (:msg w) "event vector or a keyed child view")
-        "bare-fn-in-loop names both escapes"))
-  (let [[w :as ws] (warnings-for '[:button {:on-click [:a/b {:v :rf.ui/value}]} "x"])]
-    (is (= [:rf.ui.compile/placeholder-not-top-level] (mapv :id ws)))
-    (is (str/includes? (:msg w) "top-level")
-        "placeholder-not-top-level names the splice rule")))
+  (doseq [[id form fragments] warning-roster]
+    (testing (str id " <- " (pr-str form))
+      (let [[w :as ws] (warnings-for form)]
+        (is (= [id] (mapv :id ws)) (str (pr-str form) " warns exactly [" id "]"))
+        (doseq [f fragments]
+          (is (and w (str/includes? (:msg w) f))
+              (str id " must name " (pr-str f) " — got: " (:msg w))))))))
+
+(deftest warning-roster-is-frozen-and-complete
+  (is (= frozen-warning-roster
+         (into a11y-suite-warning-ids (map first) warning-roster))
+      (str "every frozen WARNING id has an exercised form (here or in its "
+           "named owning suite), and no warning is emitted outside the frozen "
+           "roster — additions/renames edit frozen-warning-roster deliberately")))
 
 ;; ---------------------------------------------------------------------------
 ;; Header tier — the Q2 surface (host-shared fns; runs on both hosts)

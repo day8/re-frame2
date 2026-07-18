@@ -991,9 +991,11 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest warning-table
+  ;; the row is a `:button` so the S4-C a11y roster stays silent and this
+  ;; assertion isolates the ONE warning it is about
   (is (= [:rf.ui.compile/bare-fn-in-loop]
          (mapv :id (:warnings (ana-full '(for [x xs]
-                                           [:li {:key x :on-click (fn [] x)} x])))))
+                                           [:button {:key x :on-click (fn [] x)} x])))))
       "bare fns in loops warn (per-row closures work but defeat the data idiom)")
   (is (= [:rf.ui.compile/placeholder-not-top-level]
          (mapv :id (:warnings (ana-full '[:input {:on-input [:a/b [:rf.ui/value]]}]))))

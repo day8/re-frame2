@@ -130,6 +130,12 @@
                                  (:slots sites))
      :interop-sites        (mapv #(select-keys % [:sid :kind :order])
                                  (:react sites))
+     ;; The compile-tier a11y findings (S4-C, Spec 004 §Compile-tier warnings).
+     ;; SUPPRESSED findings ride along carrying their reason — a suppression is
+     ;; an inspectable fact, not an erasure — so a tool can show what an author
+     ;; silenced and why. Site ids are compiler-minted; nothing re-derives them.
+     :diagnostics          (mapv #(select-keys % [:sid :id :tag :suppressed? :reason])
+                                 (:diagnostics sites))
      :template-fingerprint (:template-fingerprint m)
      :hook-signature       (:hook-signature m)
      :site-counts          {:subs         (count (:subs sites))
@@ -141,7 +147,8 @@
                             :render-slots (count (:slots sites))
                             :interop      (count (:react sites))
                             :locals       (count (:locals sites))
-                            :htmls        (count (:htmls sites))}}))
+                            :htmls        (count (:htmls sites))
+                            :diagnostics  (count (:diagnostics sites))}}))
 
 (defn view-manifest
   "The versioned public projection of the compiled view `view-id`'s manifest —
