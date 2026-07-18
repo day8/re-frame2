@@ -29,6 +29,11 @@
   The wall clock is DISABLED throughout, so the logical advance is the sole
   removal driver — the determinism the whole rung exists for.
 
+  This namespace establishes EVERYTHING it consumes and is run standalone as
+  well as in the consolidated bundle (rf2-i36h6). In particular it awaits each
+  Promise-backed advance through the run loop's own settle seam rather than
+  assuming a macrotask yield outran React `act`; see `flush-presence-step!`.
+
   The final block (rf2-iz0t8) covers the PROMISE-BACKED-ness itself rather
   than the clock: resolved and rejected thenable controls driven through the
   real run loop and the real interactive stepper. Those need a host whose
@@ -79,46 +84,91 @@
   (presence-rt/schedule-exit!
     300 #(router/dispatch-sync! [:presence/exited] {:frame shared/presence-frame})))
 
-(defn- after-tick
-  "Yield one macrotask — exactly what the run loop does after an async-yield
-  step (`runner/async-yield-step-types`). The framework verb holds a SINGLE
-  in-flight act token, so calling it again before the previous act settles is
-  the framework's own `:rf.error/ui-test-overlapping-act` misuse error. A
-  `setTimeout` 0 runs only after the microtask queue has drained to empty, so
-  the act has settled. A test driving `exec-step!` DIRECTLY owes the same
-  yield the loop gives — including after the LAST advance, or the still-active
-  act leaks into the next test."
-  [f]
-  (js/setTimeout f 0))
+(def ^:private settle-step-result!
+  "The private SETTLED-result seam, reached via var-quote — the same
+  established Story-test seam `shared/exec-step!` uses, one step further down
+  the run loop. `(settle-step-result! idx step provisional k)` calls `k` with
+  the step's FINAL result: for a Promise-backed `[:flush-presence]` that means
+  once the host's thenable has settled, for every other step immediately."
+  @#'re/settle-step-result!)
+
+(defn- flush-presence-step!
+  "Drive ONE `[:flush-presence …]` step to completion and hand `k` its SETTLED
+  step-result. These are the two moves `runner-events/run-loop!` makes for a
+  Promise-backed presence host, in this order:
+
+    1. AWAIT the advance's thenable (`settle-step-result!`). On CLJS the
+       framework verb runs its advance inside React `act` and its Promise
+       settles on act's OWN task — so 'the advance is over' is a fact ONLY
+       that thenable can report.
+    2. THEN yield one macrotask, so the React commits the advance queued have
+       landed before the next step reads them.
+
+  A test driving `exec-step!` DIRECTLY owes BOTH. This namespace used to owe
+  only the yield, on the premise that a `setTimeout` 0 lands after the act has
+  settled. It does not: a macrotask is not ordered against act's own task, and
+  whenever the yield lost that race the NEXT step threw
+  `:rf.error/ui-test-overlapping-act` and advanced NOTHING.
+
+  That made this namespace's pass ORDER-DEPENDENT (rf2-i36h6): green under
+  `npm run test:cljs`, where a namespace ahead of it had already exercised the
+  act path, and RED for anyone narrowing to it alone — a result carrying no
+  information, and actively misleading to a developer whose own bug it is not.
+  The fix is to establish the settlement HERE, the way the run loop does,
+  rather than to pin a suite order that would only hide the next instance."
+  [idx step k]
+  (settle-step-result!
+    idx step (shared/exec-step! shared/presence-frame idx step)
+    (fn [settled] (js/setTimeout #(k settled) 0))))
+
+(defn- advance-reached-the-verb!
+  "POSITIVE CONTROL for one advance. The retention assertions around it hold
+  in TWO different worlds — the advance ran, or the advance never happened at
+  all (`pending-count` is unchanged either way below `:timeout-ms`, and a
+  never-fired exit leaves `:toast` nil exactly like a not-yet-due one). The
+  STEP-RESULT is what tells those worlds apart, so every advance is checked
+  through it: a reached, settled advance carries no `:exception` and no
+  `:cannot-run?`. Without this the overlapping-act failure above would have
+  surfaced only as a downstream retention assertion two ticks later, which is
+  precisely why it read as somebody else's bug."
+  [result]
+  (is (nil? (:exception result))
+      "the advance REACHED the framework verb and settled cleanly")
+  (is (nil? (:cannot-run? result))
+      "a presence host was installed — this is a real advance, not a refusal"))
 
 (deftest real-flush-presence-advances-the-framework-clock
   (async done
     (install-real-presence-host!)
     (schedule-real-exit!)
     (is (= 1 (presence-rt/pending-count)) "one exit retained")
-    (shared/exec-step! shared/presence-frame 0 [:flush-presence 100])
-    ;; The advance + its removal callbacks run synchronously inside the awaited
-    ;; act; only the React commits settle on the microtask queue.
-    (is (= 1 (presence-rt/pending-count))
-        "below :timeout-ms the exit is STILL retained — the partial-advance
-         arity is what lets a script observe the :unmounting phase")
-    (is (nil? (:toast (shared/db))))
-    (after-tick
-      (fn []
-        (shared/exec-step! shared/presence-frame 1 [:flush-presence])
-        (is (zero? (presence-rt/pending-count))
-            "advancing to quiescence fired the retained exit")
-        (is (= :removed (:toast (shared/db)))
-            "the terminal removal is observable to the next script step")
-        (after-tick
-          (fn []
-            ;; exactly-once: a further advance re-fires nothing.
-            (shared/exec-step! shared/presence-frame 2 [:flush-presence])
-            (is (zero? (presence-rt/pending-count)))
-            (is (= :removed (:toast (shared/db))))
-            ;; Yield once more so THIS act settles before the test ends — an
-            ;; act still in flight would collide with the next test's advance.
-            (after-tick done)))))))
+    (flush-presence-step!
+      0 [:flush-presence 100]
+      (fn [r]
+        (advance-reached-the-verb! r)
+        (is (= 1 (presence-rt/pending-count))
+            "below :timeout-ms the exit is STILL retained — the partial-advance
+             arity is what lets a script observe the :unmounting phase")
+        (is (nil? (:toast (shared/db))))
+        (flush-presence-step!
+          1 [:flush-presence]
+          (fn [r]
+            (advance-reached-the-verb! r)
+            (is (zero? (presence-rt/pending-count))
+                "advancing to quiescence fired the retained exit")
+            (is (= :removed (:toast (shared/db)))
+                "the terminal removal is observable to the next script step")
+            (flush-presence-step!
+              2 [:flush-presence]
+              (fn [r]
+                ;; exactly-once: a further advance re-fires nothing.
+                (advance-reached-the-verb! r)
+                (is (zero? (presence-rt/pending-count)))
+                (is (= :removed (:toast (shared/db))))
+                ;; `flush-presence-step!` already awaited THIS act and yielded
+                ;; past its commits, so no act is in flight as the test ends —
+                ;; one would collide with the next test's advance.
+                (done)))))))))
 
 (deftest real-playback-settles-a-presence-bearing-script
   (async done
