@@ -39,6 +39,7 @@
             [re-frame.core :as rf]
             [re-frame.frame :as frame]
             [re-frame.source-coords.open-endpoint :as open-endpoint]
+            [re-frame.substrate.plain-atom :as plain-atom]
             [re-frame.story.canonical :as canonical]
             [re-frame.story.config :as story-config]
             [re-frame.story.ui.open-in-editor :as story-open]
@@ -93,9 +94,24 @@
 (defn- install-story! [] (story-open/install!))
 (defn- install-xray!  [] (xray-open/install!))
 
+(defn- ensure-adapter!
+  "Install the plain-atom test adapter unless one is already installed.
+
+  Per rf2-oslyz: `rf/make-frame` needs a state-container factory, and this
+  namespace supplied none — every test here failed with
+  `:rf.error/no-adapter-installed` when the selector ran it ALONE, and only
+  passed in the consolidated run because some earlier namespace happened to
+  have called `init!` first. A suite whose green depends on a neighbour is
+  not a suite. `init!` throws when an adapter is already installed, which is
+  the idempotent case, so the throw is the no-op branch."
+  []
+  (try (rf/init! plain-atom/adapter)
+       (catch :default _ nil)))
+
 (defn- fresh-frames!
   "Story's public event lands on `:rf/default`; Xray's on `:rf/xray`."
   []
+  (ensure-adapter!)
   (frame/ensure-default-frame!)
   (rf/make-frame {:id :rf/xray}))
 
