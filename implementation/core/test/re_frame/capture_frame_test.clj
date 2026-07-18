@@ -501,6 +501,107 @@
       (is (= 1 (count (filter #(= :rf.error/frame-destroyed (:operation %)) @errs)))
           "EXACTLY ONE :rf.error/frame-destroyed for the post-token-match sync loss"))))
 
+;; ---- rf2-iqfbg: a live target is NOT reported destroyed when only the ------
+;;      ORIGINATING event OWNER dies -------------------------------------------
+;;
+;; rf2-a2x2w (above) made a falsey `enqueued?` / `drained?` recover-but-emit one
+;; `:rf.error/frame-destroyed`, to cover a captured target A lost after its token
+;; match. But that falsey result is NOT target-specific: the enqueue/drain path
+;; guards on `target-live?`, which FUSES `owner-live?` with target-incarnation
+;; liveness. So the enqueue also fences out (falsey) when only the ORIGINATING
+;; event OWNER died — a benign framework-owned-tail cutoff (a callback keeps
+;; running after it destroyed its own frame and issues a captured dispatch) —
+;; while the captured target is fully LIVE. Pre-fix the a2x2w gate emitted a
+;; FALSE `:rf.error/frame-destroyed` naming the live target frame, mis-steering
+;; off-box diagnostics at the wrong frame / lifecycle failure.
+;;
+;; These fixtures bind a genuine exact owner token for `:audit/owner`, capture a
+;; DIFFERENT live target `:audit/target`, then interpose ONE-SHOT on the router's
+;; `emit-dispatched-trace!` seam (the first thing the captured op's `:else`
+;; branch does, after the token comparison passed) to destroy ONLY the owner —
+;; the exact production outcome when continuation dies during that callback-
+;; bearing seam. The MUTATION TOOTH is the emit COUNT: pre-fix these emitted one
+;; false frame-destroyed for the live target; the fix keeps owner-continuation
+;; cutoff SILENT (zero emits) while the target stays untouched.
+
+(defn- run-owner-death-at-dispatch
+  "Interpose ONE-SHOT on `router/emit-dispatched-trace!` (reached in the captured
+  op's `:else` branch only after the token comparison passed): the first entry
+  destroys ONLY the originating event `owner-id` — the captured TARGET is left
+  fully live — THEN delegates to the real seam. `emit-dispatched-trace!` returns
+  `(target-live?)`, which now reads `owner-live?` false and short-circuits the
+  enqueue/drain to falsey WITHOUT the target ever being touched. Reproduces the
+  originating owner's continuation dying during the callback-bearing dispatch
+  seam while the captured target stays live."
+  [owner-id op]
+  (let [real  @#'router/emit-dispatched-trace!
+        fired (atom false)]
+    (with-redefs [router/emit-dispatched-trace!
+                  (fn
+                    ([envelope sync?]
+                     (real envelope sync?))
+                    ([envelope sync? continue?]
+                     (when (compare-and-set! fired false true)
+                       (rf/destroy-frame! owner-id))   ;; kill ONLY the owner
+                     (real envelope sync? continue?)))]
+      (op))))
+
+(deftest live-target-not-reported-destroyed-when-only-owner-dies-async
+  (testing "rf2-iqfbg (async) — a captured async dispatch whose ORIGINATING event
+            OWNER dies during the dispatch seam, while the captured TARGET stays
+            LIVE, DROPS the operation (target untouched) and emits NO
+            :rf.error/frame-destroyed. The falsey `enqueued?` is an owner-
+            continuation cutoff, NOT target destruction. ADVERSARIAL MUTATION
+            TOOTH: pre-fix (the a2x2w gate `(and capture-op (not enqueued?))`)
+            emitted a FALSE frame-destroyed naming the still-live target frame."
+    (rf/reg-event :audit/touch (fn [{:keys [db]} _] {:db (assoc db :marked-by :owner-death)}))
+    (rf/make-frame {:id :audit/owner  :doc "originating event owner"})
+    (rf/make-frame {:id :audit/target :doc "captured target A (stays live)"})
+    (let [owner-token  (frame/frame-incarnation-token :audit/owner)
+          target-token (frame/frame-incarnation-token :audit/target)
+          {:keys [dispatch]} (rf/capture-frame :audit/target)   ;; pins target A
+          errs (atom [])]
+      (rf/register-listener! :trace ::iqfbg-async (fn [ev] (swap! errs conj ev)))
+      (frame/call-with-event-owner-token :audit/owner owner-token
+        (fn [] (run-owner-death-at-dispatch :audit/owner #(dispatch [:audit/touch]))))
+      (rf/unregister-listener! :trace ::iqfbg-async)
+      (is (nil? (frame/frame :audit/owner))
+          "precondition: the interpose actually destroyed the originating owner")
+      (is (frame/frame-incarnation-live? :audit/target target-token)
+          "the captured TARGET incarnation is STILL LIVE — only the owner died")
+      (is (nil? (:marked-by (rf/app-db-value :audit/target)))
+          "owner-continuation cutoff drops the op — the live target is untouched")
+      (is (zero? (count (filter #(= :rf.error/frame-destroyed (:operation %)) @errs)))
+          "NO frame-destroyed: a live target is never reported destroyed for an owner cutoff"))))
+
+(deftest live-target-not-reported-destroyed-when-only-owner-dies-sync
+  (testing "rf2-iqfbg (dispatch-sync) — a captured dispatch-sync whose ORIGINATING
+            event OWNER dies during the dispatch seam, while the captured TARGET
+            stays LIVE, processes NOTHING (target untouched) and emits NO
+            :rf.error/frame-destroyed. The falsey `drained?` is an owner-
+            continuation cutoff, NOT target destruction. ADVERSARIAL MUTATION
+            TOOTH: pre-fix (the a2x2w gate `(and capture-op (not drained?))`)
+            emitted a FALSE frame-destroyed naming the still-live target frame."
+    (rf/reg-event :audit/touch (fn [{:keys [db]} _] {:db (assoc db :marked-by :owner-death)}))
+    (rf/make-frame {:id :audit/owner  :doc "originating event owner"})
+    (rf/make-frame {:id :audit/target :doc "captured target A (stays live)"})
+    (let [owner-token  (frame/frame-incarnation-token :audit/owner)
+          target-token (frame/frame-incarnation-token :audit/target)
+          {:keys [dispatch-sync]} (rf/capture-frame :audit/target)   ;; pins target A
+          errs (atom [])]
+      (rf/register-listener! :trace ::iqfbg-sync (fn [ev] (swap! errs conj ev)))
+      (frame/call-with-event-owner-token :audit/owner owner-token
+        (fn [] (run-owner-death-at-dispatch :audit/owner #(dispatch-sync [:audit/touch]))))
+      (rf/unregister-listener! :trace ::iqfbg-sync)
+      (is (nil? (frame/frame :audit/owner))
+          "precondition: the interpose actually destroyed the originating owner")
+      (is (frame/frame-incarnation-live? :audit/target target-token)
+          "the captured TARGET incarnation is STILL LIVE — only the owner died")
+      (is (nil? (:marked-by (rf/app-db-value :audit/target)))
+          "owner-continuation cutoff drops the op — the live target is untouched")
+      (is (zero? (count (filter #(= :rf.error/frame-destroyed (:operation %)) @errs)))
+          "NO frame-destroyed: a live target is never reported destroyed for an owner cutoff"))))
+
 ;; ---- contract: (capture-frame) outside any scope RAISES (EP-0002) ---------
 ;;
 ;; rf2-jue6sp: the no-arg capture form captures ONLY when a real scope

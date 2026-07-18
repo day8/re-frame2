@@ -3974,14 +3974,32 @@
                          (ensure-drain-scheduled! frame-id frame-record router
                                                   envelope target-live?))]
          ;; rf2-a2x2w (gap 2, async): a CAPTURED dispatch that passed the exact-
-         ;; incarnation token comparison above but then lost A in the window
-         ;; before the enqueue linearized (the `target-live?` / incarnation
-         ;; guard fenced it out) would otherwise SILENTLY return — B untouched,
-         ;; but no diagnostic. Recover-but-emit exactly once: the enqueue never
-         ;; happened, so this is the SOLE emit for the rejection, realm-exact via
+         ;; incarnation token comparison above but then lost its pinned target A
+         ;; in the window before the enqueue linearized (the incarnation guard
+         ;; fenced it out) would otherwise SILENTLY return — B untouched, but no
+         ;; diagnostic. Recover-but-emit exactly once: the enqueue never happened,
+         ;; so this is the SOLE emit for the rejection, realm-exact via
          ;; `capture-op`. An ordinary address-directed dispatch (nil `capture-op`)
          ;; stays silent on this benign post-resolve teardown race, unchanged.
-         (when (and capture-op (not enqueued?))
+         ;;
+         ;; rf2-iqfbg: a falsey `enqueued?` alone is NOT proof the captured
+         ;; TARGET was destroyed. `target-live?` — the predicate the enqueue path
+         ;; guards on — FUSES `owner-live?` with target-incarnation liveness, so
+         ;; the enqueue also fences out when only the ORIGINATING event owner
+         ;; died: a benign continuation cutoff (framework-owned tail after the
+         ;; owner destroyed itself) that leaves the captured target A fully live.
+         ;; Emit ONLY when the target incarnation ITSELF is gone. Owner-
+         ;; continuation cutoff is the HIGHER-PRIORITY silent outcome — checked
+         ;; FIRST via `(owner-live?)` — so a dead owner is never misreported as a
+         ;; destroyed (still-live) target frame. Genuine target loss (owner still
+         ;; live, the pinned incarnation no longer live) still recover-but-emits
+         ;; exactly once. Both re-reads are monotonic for a fixed token/owner
+         ;; (a destroyed incarnation never revives under the same token), so the
+         ;; final decision is stable.
+         (when (and capture-op
+                    (not enqueued?)
+                    (owner-live?)
+                    (not (frame/frame-incarnation-live? frame-id target-token)))
            (trace/with-call-site (:call-site envelope)
              (emit-frame-destroyed! (first event) event (:frame envelope)
                                     capture-op))))))))
@@ -4185,16 +4203,32 @@
             (finally
               (swap! router assoc :in-sync-drain? false)))))]
            ;; rf2-a2x2w (gap 2, sync): a CAPTURED dispatch-sync that passed the
-           ;; exact-incarnation token comparison but then lost A before the
-           ;; synchronous drain-lock acquire — `drain-block!` CAS-acquires, re-
-           ;; checks incarnation liveness, and on a lost A resets the lock
-           ;; WITHOUT running the seed-push (returns falsey) — would otherwise
+           ;; exact-incarnation token comparison but then lost its pinned target A
+           ;; before the synchronous drain-lock acquire — `drain-block!` CAS-
+           ;; acquires, re-checks incarnation liveness, and on a lost A resets the
+           ;; lock WITHOUT running the seed-push (returns falsey) — would otherwise
            ;; SILENTLY return. Recover-but-emit exactly once: the seed-push never
            ;; ran, so this is the SOLE emit for the rejection, realm-exact via
            ;; `capture-op`. An ordinary address-directed dispatch-sync (nil
            ;; `capture-op`) stays silent on the benign post-resolve teardown
            ;; race, unchanged.
-           (when (and capture-op (not drained?))
+           ;;
+           ;; rf2-iqfbg: a falsey `drained?` alone is NOT proof the captured
+           ;; TARGET was destroyed. `target-live?` — which both the trace and the
+           ;; inner drain guard test — FUSES `owner-live?` with target-incarnation
+           ;; liveness, so the drain also fences out when only the ORIGINATING
+           ;; event owner died: a benign continuation cutoff that leaves the
+           ;; captured target A fully live. Emit ONLY when the target incarnation
+           ;; ITSELF is gone. Owner-continuation cutoff is the HIGHER-PRIORITY
+           ;; silent outcome — checked FIRST via `(owner-live?)` — so a dead owner
+           ;; is never misreported as a destroyed (still-live) target frame.
+           ;; Genuine target loss (owner still live, the pinned incarnation no
+           ;; longer live) still recover-but-emits exactly once.
+           (when (and capture-op
+                      (not drained?)
+                      (owner-live?)
+                      (not (frame/frame-incarnation-live?
+                             (:frame envelope) target-token)))
              (trace/with-call-site call-site
                (emit-frame-destroyed! (first event) event (:frame envelope)
                                       capture-op))))))
