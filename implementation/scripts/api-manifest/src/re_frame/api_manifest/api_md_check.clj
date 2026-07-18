@@ -171,6 +171,54 @@
   [cells]
   (first (keep-indexed (fn [i c] (when (= "Tier" (str/trim c)) i)) cells)))
 
+(defn parse-var-rows
+  "Pure var-row parser over `[[line-no line-text] ...]` indexed API.md lines
+   (rf2-asxo3 — extracted from `parse-api-md-var-rows` so parser DISAPPEARANCE
+   is unit-testable with synthetic lines, mirroring the reconcile /
+   option-guard pure cores). Returns the `[{:var :qualifier :tier :doc-kind
+   :line :raw} ...]` vector.
+
+   A row whose `M/Fn` cell is NOT a recognised var-kind marker (`var-kind-
+   marker?` — e.g. the marker drifted to an unknown spelling like `Macro`) is
+   SKIPPED: it never becomes a var-row. That is the disappearance the two-sided
+   root-verb kind guard must not silently pass — it turns a dropped root-verb
+   row into a caught `:kind-row-missing`, not a green (rf2-asxo3)."
+  [indexed-lines]
+  (loop [lines    indexed-lines
+         tier-idx nil
+         acc      (transient [])]
+    (if-let [[[n line] & more] (seq lines)]
+      (let [cells (table-row-cells line)]
+        (cond
+          (nil? cells)
+          ;; A non-table line ends the current table's column context.
+          (recur more nil acc)
+
+          (header-row? cells)
+          (recur more (tier-col-index cells) acc)
+
+          (separator-row? cells)
+          (recur more tier-idx acc)
+
+          :else
+          (let [first-cell (first cells)
+                kind-cell  (second cells)
+                m          (re-matches #"`([^`]+)`" (str/trim first-cell))]
+            (if (and tier-idx m (var-kind-marker? kind-cell)
+                     (< tier-idx (count cells)))
+              (if-let [tier (first-tier-token (nth cells tier-idx))]
+                (let [[qualifier bare] (parse-first-cell-ident (second m))]
+                  (recur more tier-idx
+                         (conj! acc {:var       bare
+                                     :qualifier qualifier
+                                     :tier      tier
+                                     :doc-kind  (documented-kind kind-cell)
+                                     :line      n
+                                     :raw       (second m)})))
+                (recur more tier-idx acc))
+              (recur more tier-idx acc)))))
+      (persistent! acc))))
+
 (defn parse-api-md-var-rows
   "Parse spec/API.md and return `[{:var <bare-name> :qualifier <ns-or-alias
    or nil> :tier <kw> :doc-kind <:macro/:fn/:var or nil> :line <n> :raw
@@ -189,43 +237,16 @@
    which would pick up tier words that appear in prose Notes cells. A
    var-row is a row whose first cell is one back-tick identifier and whose
    second cell is a var-kind marker; a table with no `Tier` column
-   contributes no rows (its surface is keyword-registrations / schemas)."
+   contributes no rows (its surface is keyword-registrations / schemas).
+
+   The pure loop is extracted as `parse-var-rows` (rf2-asxo3) so parser
+   DISAPPEARANCE — a deleted row, or a row whose M/Fn marker drifted to an
+   unknown spelling and is therefore SKIPPED — is unit-testable against
+   synthetic lines; the two-sided root-verb kind guard turns that
+   disappearance into a caught problem rather than a silent green."
   []
   (with-open [r (io/reader @api-md-file)]
-    (loop [lines (map-indexed (fn [i line] [(inc i) line]) (line-seq r))
-           tier-idx nil
-           acc (transient [])]
-      (if-let [[[n line] & more] (seq lines)]
-        (let [cells (table-row-cells line)]
-          (cond
-            (nil? cells)
-            ;; A non-table line ends the current table's column context.
-            (recur more nil acc)
-
-            (header-row? cells)
-            (recur more (tier-col-index cells) acc)
-
-            (separator-row? cells)
-            (recur more tier-idx acc)
-
-            :else
-            (let [first-cell (first cells)
-                  kind-cell  (second cells)
-                  m          (re-matches #"`([^`]+)`" (str/trim first-cell))]
-              (if (and tier-idx m (var-kind-marker? kind-cell)
-                       (< tier-idx (count cells)))
-                (if-let [tier (first-tier-token (nth cells tier-idx))]
-                  (let [[qualifier bare] (parse-first-cell-ident (second m))]
-                    (recur more tier-idx
-                           (conj! acc {:var       bare
-                                       :qualifier qualifier
-                                       :tier      tier
-                                       :doc-kind  (documented-kind kind-cell)
-                                       :line      n
-                                       :raw       (second m)})))
-                  (recur more tier-idx acc))
-                (recur more tier-idx acc)))))
-        (persistent! acc)))))
+    (parse-var-rows (map-indexed (fn [i line] [(inc i) line]) (line-seq r)))))
 
 (defn reconcile
   "Pure reconciler (rf2-41j0a — extracted so the qualifier-resolution
@@ -303,6 +324,18 @@
 ;; flip M -> Fn (or unmount! Fn -> M) and stay GREEN. This guard restores the
 ;; comparison for the Spec-004C root verbs: each documented kind must equal
 ;; the manifest `:kind` for the `re-frame.ui` row of that name.
+;;
+;; Made EXACT-ROW + POLARITY-SAFE (rf2-asxo3). The first cut compared BARE var
+;; names over whatever rows survived in `api-rows`, which left two holes: a
+;; foreign same-name qualified row (`other.ui/render!`) matched a root verb by
+;; bare name and could falsely prove OR contradict it; and a DELETED row — or a
+;; row whose `M/Fn` marker drifted to an unknown spelling and was therefore
+;; dropped by the parser — vanished from `api-rows`, so the one-way
+;; keep-over-present-rows stayed green. The guard now (1) resolves the qualifier
+;; exactly (`root-ui-row?`), and (2) reconciles the REQUIRED SET of four verbs,
+;; requiring EXACTLY ONE `re-frame.ui` row each — so deletion, duplication, an
+;; unknown kind marker, or a foreign qualifier can no longer false-green or
+;; false-red the check.
 ;; ---------------------------------------------------------------------------
 
 (def root-verb-namespace
@@ -318,37 +351,76 @@
    pinned is an intentional one-line addition here."
   #{"create-root" "render!" "hydrate-root" "unmount!"})
 
+(defn- root-ui-row?
+  "True when an API.md var-row denotes a `re-frame.ui` root-lifecycle verb
+   (rf2-asxo3): its bare var is one of `root-verb-kinds` AND its qualifier
+   resolves EXACTLY to `re-frame.ui` — a BARE row (the documented convention
+   for the root verbs) or a qualifier that maps through `aliases` (else
+   verbatim) to `re-frame.ui`. A foreign same-name qualified row
+   (`other.ui/render!`) resolves to `other.ui`, is NOT a root-verb row, and so
+   can neither falsely PROVE nor falsely CONTRADICT the real `re-frame.ui`
+   row — the exactness hole the bare-name comparison had."
+  [aliases {:keys [var qualifier]}]
+  (and (boolean (root-verb-kinds var))
+       (or (nil? qualifier)
+           (= root-verb-namespace (get aliases qualifier qualifier)))))
+
 (defn root-verb-kind-problems
-  "Pure documented-kind reconciler for the Spec-004C root verbs (rf2-e9q33).
-   For every API.md var-row naming one of `root-verb-kinds`, the DOCUMENTED
-   kind (its `M/Fn` marker mapped to `:macro` / `:fn` / `:var`) must equal
-   the manifest `:kind` for the `re-frame.ui` row of that name. Returns the
-   seq of problem maps; empty when every root verb's documented kind matches.
+  "Two-sided documented-kind reconciler for the Spec-004C root verbs
+   (rf2-e9q33; made EXACT-ROW + POLARITY-SAFE — rf2-asxo3). For EACH of the
+   four `root-verb-kinds` verbs there must be EXACTLY ONE `re-frame.ui` API.md
+   var-row whose DOCUMENTED kind (its `M/Fn` marker mapped to `:macro` / `:fn`
+   / `:var`) equals the manifest `:kind` of the `re-frame.ui` row of that name.
+   Returns the seq of problem maps; empty when all four verbs reconcile.
 
    `rows`     — manifest rows (each `{:namespace :var :kind ...}`).
-   `api-rows` — parsed API.md var-rows `{:var :doc-kind :line :raw ...}`.
+   `api-rows` — parsed API.md var-rows `{:var :qualifier :doc-kind :line :raw}`.
+   `aliases`  — `{alias -> namespace}` adapter `:as` aliases (defaults to
+                `adapter-aliases`) for EXACT qualifier resolution.
 
-   Row ABSENCE (a root verb dropped from API.md or the manifest) is the
-   `reconcile` / `gen --check` existence guard's job, not this kind guard's:
-   this fires only when a row is PRESENT on both sides with a disagreeing
-   kind — the wrong-Var-kind drift the tier reconcile could not see."
-  [{:keys [rows api-rows]}]
+   EXACT-ROW: `root-ui-row?` honours the preserved qualifier, so a foreign
+   same-name row (`other.ui/render!`) is not counted as the root verb — it can
+   neither prove nor contradict the real row (the bare-name comparison could).
+
+   POLARITY-SAFE: the reconcile is driven by the REQUIRED SET, not by whatever
+   rows survive in `api-rows`. So a DELETED row, a row the parser DROPPED for an
+   unknown `M/Fn` marker, or a DUPLICATED row is CAUGHT (`:kind-row-missing` /
+   `:kind-row-duplicated`) instead of silently disappearing. A verb absent from
+   the manifest — no `re-frame.ui` row to resolve against — is
+   `:kind-manifest-absent`. Present-on-both-sides disagreements stay
+   `:kind-mismatch` / `:kind-unmarked`."
+  [{:keys [rows api-rows aliases] :or {aliases adapter-aliases}}]
   (let [manifest-kind (into {}
                             (for [{:keys [namespace var kind]} rows
                                   :when (and (= namespace root-verb-namespace)
                                              (root-verb-kinds var))]
-                              [var kind]))]
-    (keep (fn [{:keys [var doc-kind line raw]}]
-            (when-let [mkind (and (root-verb-kinds var)
-                                  (get manifest-kind var))]
-              (cond
-                (nil? doc-kind)
-                {:kind :kind-unmarked :var var :raw raw :line line
-                 :manifest-kind mkind}
-                (not= doc-kind mkind)
-                {:kind :kind-mismatch :var var :raw raw :line line
-                 :doc-kind doc-kind :manifest-kind mkind})))
-          api-rows)))
+                              [var kind]))
+        rows-by-var   (group-by :var (filter #(root-ui-row? aliases %) api-rows))]
+    (mapcat
+     (fn [v]
+       (let [mkind (get manifest-kind v)
+             vrows (get rows-by-var v)]
+         (cond
+           (nil? mkind)
+           [{:kind :kind-manifest-absent :var v}]
+
+           (empty? vrows)
+           [{:kind :kind-row-missing :var v :manifest-kind mkind}]
+
+           (next vrows)
+           [{:kind :kind-row-duplicated :var v :manifest-kind mkind
+             :lines (mapv :line vrows)}]
+
+           :else
+           (let [{:keys [doc-kind line raw]} (first vrows)]
+             (cond
+               (nil? doc-kind)
+               [{:kind :kind-unmarked :var v :raw raw :line line
+                 :manifest-kind mkind}]
+               (not= doc-kind mkind)
+               [{:kind :kind-mismatch :var v :raw raw :line line
+                 :doc-kind doc-kind :manifest-kind mkind}])))))
+     (sort root-verb-kinds))))
 
 ;; ---------------------------------------------------------------------------
 ;; create-root LITERAL-OPTION guard (rf2-e9q33).
@@ -370,18 +442,29 @@
    option-grammar the gate pins (rf2-e9q33)."
   #"^\s*\|\s*`create-root`\s*\|")
 
+(def ^:private option-bridge
+  "The connective allowed between an option token and its polarity word: up to
+   40 chars that stay in the SAME table cell (`(?!\\|)`) and carry NO negation
+   (`not` / `n't` / `no` / `never`) (rf2-asxo3). A tempered dot — each step
+   asserts the forbidden forms do not START here, then consumes one char — so a
+   negated or far-prose clause cannot bridge the token to the polarity word."
+  "(?:(?!\\|)(?!\\bnot\\b)(?!n't)(?!\\bno\\b)(?!\\bnever\\b).){0,40}")
+
 (def ^:private root-id-required-re
-  "The create-root row must assert authored `:root-id` is REQUIRED — the
-   `:root-id` token followed, within the SAME table cell (`[^|]`), by
-   `required` (rf2-e9q33)."
-  #":root-id[^|]{0,60}\brequired\b")
+  "The create-root row must assert authored `:root-id` is REQUIRED, EXACTLY
+   (rf2-e9q33; tightened rf2-asxo3): the WHOLE `:root-id` token — a trailing
+   `-`/word char (`(?![-\\w])`) rejects a `:root-id-v2` prefix drift — bridged
+   by `option-bridge` (same cell, no negation) to `required`. So `:root-id is
+   not required`, `:root-id-v2 required`, and far-away prose no longer pass."
+  (re-pattern (str ":root-id(?![-\\w])" option-bridge "\\brequired\\b")))
 
 (def ^:private disambiguator-invalid-re
-  "The create-root row must assert `:disambiguator` is INVALID — the
-   `:disambiguator` token followed, within the SAME table cell (`[^|]`), by
-   `invalid` (rf2-e9q33). A row that drops this — or renames it to admit the
-   option — goes red."
-  #":disambiguator[^|]{0,60}\binvalid\b")
+  "The create-root row must assert `:disambiguator` is INVALID, EXACTLY
+   (rf2-e9q33; tightened rf2-asxo3): the WHOLE `:disambiguator` token (no
+   `:disambiguator-old` prefix drift) bridged by `option-bridge` to `invalid`.
+   A row that drops it, renames the token, or reverses the polarity
+   (`:disambiguator is not invalid`, silently admitting the option) goes red."
+  (re-pattern (str ":disambiguator(?![-\\w])" option-bridge "\\binvalid\\b")))
 
 (defn read-api-md-lines
   "Read spec/API.md as `[[line-no line-text] ...]` (1-based). Shared by
@@ -584,10 +667,13 @@
                      (projection/ep0017-keyword-drift-problems "spec/API.md" api-md-lines)
                      (projection/ep0011-reply-vocab-drift-problems "spec/API.md" api-md-lines)
                      (projection/ep0015-privacy-vocab-drift-problems "spec/API.md" api-md-lines))
-        ;; Documented-kind guard for the Spec-004C root verbs (rf2-e9q33):
-        ;; each root verb's M/Fn marker must match the manifest :kind — the
-        ;; wrong-Var-kind drift the tier reconcile could not see.
-        kind-probs (root-verb-kind-problems {:rows rows :api-rows api-rows})
+        ;; Documented-kind guard for the Spec-004C root verbs (rf2-e9q33;
+        ;; exact-row + polarity-safe rf2-asxo3): EXACTLY ONE `re-frame.ui` row
+        ;; per verb, its M/Fn marker matching the manifest :kind — deletion,
+        ;; duplication, an unknown kind marker, or a foreign same-name row are
+        ;; all caught, not silently dropped.
+        kind-probs (root-verb-kind-problems {:rows rows :api-rows api-rows
+                                             :aliases adapter-aliases})
         ;; Literal-option guard for the create-root row (rf2-e9q33): authored
         ;; :root-id REQUIRED and :disambiguator INVALID must both stay pinned.
         opt-probs  (create-root-option-problems api-md-lines)
@@ -620,17 +706,27 @@
 
       (seq kind-probs)
       (do (binding [*out* *err*]
-            (println "DRIFT: spec/API.md documents a Spec-004C root verb with the wrong Var kind.")
+            (println "DRIFT: spec/API.md root-verb KIND guard failed (exact-row + polarity-safe).")
             (println "create-root / render! / hydrate-root are MACROS; unmount! is a FUNCTION.")
-            (println "Each root-verb row's M/Fn marker must match the manifest :kind. Problems:")
-            (doseq [{:keys [kind raw line doc-kind manifest-kind]} kind-probs]
+            (println "EXACTLY ONE re-frame.ui var-row per verb, its M/Fn marker matching the")
+            (println "manifest :kind. Problems:")
+            (doseq [{:keys [kind var raw line doc-kind manifest-kind lines]} kind-probs]
               (case kind
                 :kind-mismatch
-                (println (format "  L%-4d KIND:    `%s` API.md marks %s; manifest :kind is %s"
+                (println (format "  L%-4d KIND:       `%s` API.md marks %s; manifest :kind is %s"
                                  line raw doc-kind manifest-kind))
                 :kind-unmarked
-                (println (format "  L%-4d KIND:    `%s` carries no var-kind marker; manifest :kind is %s"
-                                 line raw manifest-kind)))))
+                (println (format "  L%-4d KIND:       `%s` carries no var-kind marker; manifest :kind is %s"
+                                 line raw manifest-kind))
+                :kind-row-missing
+                (println (format "  %-13s MISSING:    no re-frame.ui var-row (deleted, or an unknown M/Fn marker dropped it); manifest :kind is %s"
+                                 var manifest-kind))
+                :kind-row-duplicated
+                (println (format "  %-13s DUPLICATED: %d re-frame.ui var-rows at lines %s; exactly one required"
+                                 var (count lines) (pr-str lines)))
+                :kind-manifest-absent
+                (println (format "  %-13s NO-MANIFEST: the manifest carries no re-frame.ui :kind for this verb"
+                                 var)))))
           false)
 
       (seq opt-probs)

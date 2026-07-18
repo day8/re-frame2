@@ -221,43 +221,58 @@
    {:namespace "re-frame.ui"   :var "unmount!"     :kind :fn}
    {:namespace "re-frame.core" :var "reg-event"    :kind :fn}])
 
+(def ^:private root-rows-in-sync
+  "The four Spec-004C root verbs documented IN SYNC — bare re-frame.ui rows
+   with the committed kinds (create-root/render!/hydrate-root = macro,
+   unmount! = fn). The two-sided guard (rf2-asxo3) requires all four, so each
+   adversarial fixture MUTATES one row and keeps the other three in sync, which
+   isolates a single problem instead of tripping three missing-row false
+   positives."
+  [{:var "create-root"  :qualifier nil :doc-kind :macro :line 254 :raw "create-root"}
+   {:var "render!"      :qualifier nil :doc-kind :macro :line 255 :raw "render!"}
+   {:var "hydrate-root" :qualifier nil :doc-kind :macro :line 256 :raw "hydrate-root"}
+   {:var "unmount!"     :qualifier nil :doc-kind :fn    :line 257 :raw "unmount!"}])
+
 (defn- kind-problems-for [api-rows]
   (c/root-verb-kind-problems {:rows root-manifest-rows :api-rows api-rows}))
 
+(defn- mutate-row
+  "`root-rows-in-sync` with the row for `v` merged with `changes`."
+  [v changes]
+  (mapv #(if (= v (:var %)) (merge % changes) %) root-rows-in-sync))
+
+(defn- drop-row
+  "`root-rows-in-sync` with the row for `v` removed (simulates a deletion)."
+  [v]
+  (vec (remove #(= v (:var %)) root-rows-in-sync)))
+
 (deftest root-verbs-in-sync-produce-no-kind-problems
-  (testing "the committed documented kinds (create-root/render!/hydrate-root
-            = macro, unmount! = fn) reconcile clean against the manifest"
-    (is (empty? (kind-problems-for
-                  [{:var "create-root"  :doc-kind :macro :line 252 :raw "create-root"}
-                   {:var "render!"      :doc-kind :macro :line 253 :raw "render!"}
-                   {:var "hydrate-root" :doc-kind :macro :line 254 :raw "hydrate-root"}
-                   {:var "unmount!"     :doc-kind :fn    :line 255 :raw "unmount!"}])))))
+  (testing "the four in-sync root rows (create-root/render!/hydrate-root =
+            macro, unmount! = fn) reconcile clean against the manifest"
+    (is (empty? (kind-problems-for root-rows-in-sync)))))
 
 (deftest create-root-flipped-macro-to-fn-goes-red
   (testing "THE BUG (rf2-e9q33): a create-root row whose M/Fn marker flipped
-            M -> Fn (documented :fn) fails against the manifest :macro"
-    (let [problems (kind-problems-for
-                     [{:var "create-root" :doc-kind :fn :line 252 :raw "create-root"}])]
+            M -> Fn (documented :fn) fails against the manifest :macro; the
+            other three rows stay in sync so exactly one problem is isolated"
+    (let [problems (kind-problems-for (mutate-row "create-root" {:doc-kind :fn}))]
       (is (= 1 (count problems)))
       (is (= :kind-mismatch (:kind (first problems))))
       (is (= :fn    (:doc-kind (first problems))))
       (is (= :macro (:manifest-kind (first problems))))
-      (is (= 252 (:line (first problems)))))))
+      (is (= 254 (:line (first problems)))))))
 
 (deftest render-and-hydrate-flipped-to-fn-go-red
   (testing "render! and hydrate-root flipped M -> Fn each fail on kind"
     (is (= [:kind-mismatch]
-           (map :kind (kind-problems-for
-                        [{:var "render!" :doc-kind :fn :line 253 :raw "render!"}]))))
+           (map :kind (kind-problems-for (mutate-row "render!" {:doc-kind :fn})))))
     (is (= [:kind-mismatch]
-           (map :kind (kind-problems-for
-                        [{:var "hydrate-root" :doc-kind :fn :line 254 :raw "hydrate-root"}]))))))
+           (map :kind (kind-problems-for (mutate-row "hydrate-root" {:doc-kind :fn})))))))
 
 (deftest unmount-documented-as-anything-but-fn-goes-red
   (testing "unmount! documented as a macro (Fn -> M) fails — the acceptance
             criterion 'unmount! documented as anything other than a function'"
-    (let [problems (kind-problems-for
-                     [{:var "unmount!" :doc-kind :macro :line 255 :raw "unmount!"}])]
+    (let [problems (kind-problems-for (mutate-row "unmount!" {:doc-kind :macro}))]
       (is (= 1 (count problems)))
       (is (= :kind-mismatch (:kind (first problems))))
       (is (= :macro (:doc-kind (first problems))))
@@ -267,19 +282,134 @@
   (testing "a root verb whose marker pins no kind (e.g. a `Component` cell,
             doc-kind nil) is flagged :kind-unmarked rather than silently
             passing"
-    (let [problems (kind-problems-for
-                     [{:var "create-root" :doc-kind nil :line 252 :raw "create-root"}])]
+    (let [problems (kind-problems-for (mutate-row "create-root" {:doc-kind nil}))]
       (is (= 1 (count problems)))
       (is (= :kind-unmarked (:kind (first problems))))
       (is (= :macro (:manifest-kind (first problems)))))))
 
 (deftest non-root-var-rows-are-not-kind-checked
-  (testing "the guard fires ONLY for the named root verbs — an unrelated
-            var-row (even one carried in the manifest) contributes no kind
-            problem regardless of its documented kind"
+  (testing "the guard fires ONLY for the named root verbs — unrelated var-rows
+            alongside the in-sync root rows contribute no kind problem
+            regardless of their documented kind"
     (is (empty? (kind-problems-for
-                  [{:var "reg-event" :doc-kind :macro :line 1 :raw "reg-event"}
-                   {:var "some-tooling-fn" :doc-kind :var :line 2 :raw "some-tooling-fn"}])))))
+                  (into root-rows-in-sync
+                        [{:var "reg-event" :qualifier nil :doc-kind :macro :line 1 :raw "reg-event"}
+                         {:var "some-tooling-fn" :qualifier nil :doc-kind :var :line 2 :raw "some-tooling-fn"}]))))))
+
+;; ---------------------------------------------------------------------------
+;; Root-verb KIND guard — EXACT-ROW + POLARITY-SAFE (rf2-asxo3).
+;;
+;; The first cut compared BARE var names over whatever rows survived in
+;; api-rows. Two holes: a foreign same-name qualified row (other.ui/render!)
+;; matched a root verb by bare name (false prove/contradict), and a DELETED
+;; row — or a row the parser dropped for an unknown M/Fn marker — vanished from
+;; api-rows, leaving the one-way keep silently green. These fixtures pin the
+;; exact-qualifier resolution and the two-sided required-set reconcile.
+;; ---------------------------------------------------------------------------
+
+(deftest foreign-qualified-row-does-not-false-red
+  (testing "THE EXACTNESS BUG, false-RED half (rf2-asxo3): a foreign same-name
+            qualified row (other.ui/render!) with a WRONG kind, ALONGSIDE the
+            real bare render! row, is NOT counted as the root verb — the real
+            row keeps the check green"
+    (is (empty? (kind-problems-for
+                  (conj root-rows-in-sync
+                        {:var "render!" :qualifier "other.ui" :doc-kind :fn
+                         :line 400 :raw "other.ui/render!"}))))))
+
+(deftest foreign-qualified-row-cannot-false-green-a-deleted-row
+  (testing "THE EXACTNESS BUG, false-GREEN half (rf2-asxo3): with the real bare
+            render! deleted, a foreign other.ui/render! — even with the CORRECT
+            kind — does not satisfy the requirement; render! is flagged missing"
+    (let [problems (kind-problems-for
+                     (conj (drop-row "render!")
+                           {:var "render!" :qualifier "other.ui" :doc-kind :macro
+                            :line 400 :raw "other.ui/render!"}))]
+      (is (= 1 (count problems)))
+      (is (= :kind-row-missing (:kind (first problems))))
+      (is (= "render!" (:var (first problems)))))))
+
+(deftest re-frame-ui-qualified-row-is-accepted
+  (testing "an EXPLICITLY re-frame.ui-qualified row resolves as the root verb
+            (bare is the documented convention, but the exact qualifier counts)"
+    (is (empty? (kind-problems-for
+                  (conj (drop-row "render!")
+                        {:var "render!" :qualifier "re-frame.ui" :doc-kind :macro
+                         :line 255 :raw "re-frame.ui/render!"}))))))
+
+(deftest deleted-root-row-is-caught
+  (testing "THE POLARITY BUG (rf2-asxo3): a root verb DELETED from API.md — no
+            longer in api-rows — is caught :kind-row-missing, not silently green"
+    (let [problems (kind-problems-for (drop-row "unmount!"))]
+      (is (= 1 (count problems)))
+      (is (= :kind-row-missing (:kind (first problems))))
+      (is (= "unmount!" (:var (first problems))))
+      (is (= :fn (:manifest-kind (first problems)))))))
+
+(deftest duplicated-root-row-is-caught
+  (testing "two re-frame.ui rows for the same verb (a stray duplicate) is
+            caught :kind-row-duplicated — exactly one is required"
+    (let [problems (kind-problems-for
+                     (conj root-rows-in-sync
+                           {:var "render!" :qualifier nil :doc-kind :macro
+                            :line 260 :raw "render!"}))]
+      (is (= 1 (count problems)))
+      (is (= :kind-row-duplicated (:kind (first problems))))
+      (is (= "render!" (:var (first problems))))
+      (is (= [255 260] (:lines (first problems)))))))
+
+(deftest manifest-missing-root-verb-is-caught
+  (testing "a verb absent from the MANIFEST (no re-frame.ui :kind to resolve
+            against) is :kind-manifest-absent — the comparison cannot silently
+            skip a verb it cannot resolve"
+    (let [problems (c/root-verb-kind-problems
+                     {:rows     (remove #(= "unmount!" (:var %)) root-manifest-rows)
+                      :api-rows root-rows-in-sync})]
+      (is (= 1 (count problems)))
+      (is (= :kind-manifest-absent (:kind (first problems))))
+      (is (= "unmount!" (:var (first problems)))))))
+
+;; ---------------------------------------------------------------------------
+;; END-TO-END parser disappearance (rf2-asxo3).
+;;
+;; The pure `parse-var-rows` core lets us feed synthetic indexed API.md lines.
+;; A root verb whose M/Fn marker drifted to an UNKNOWN spelling (`Macro`, not
+;; the blessed `M`) is SKIPPED by the real parser — proving the disappearance
+;; is real, and that the two-sided guard turns it into a caught missing row.
+;; ---------------------------------------------------------------------------
+
+(def ^:private synthetic-api-md-lines
+  "A minimal API.md table (with a Tier column) documenting the four root verbs;
+   render! carries an UNKNOWN M/Fn marker (`Macro`) so the parser drops it."
+  [[1 "| Name | M/Fn | Signature | Stage | Tier | Notes |"]
+   [2 "|------|------|-----------|-------|------|-------|"]
+   [3 "| `create-root`  | M     | sig | S1 | advanced | n |"]
+   [4 "| `render!`      | Macro | sig | S1 | advanced | n |"]
+   [5 "| `hydrate-root` | M     | sig | S1 | advanced | n |"]
+   [6 "| `unmount!`     | Fn    | sig | S1 | advanced | n |"]])
+
+(deftest unknown-kind-marker-disappears-then-is-caught
+  (testing "END-TO-END (rf2-asxo3): a root verb whose M/Fn marker is an unknown
+            spelling (`Macro`) is DROPPED by the real parser"
+    (let [parsed (c/parse-var-rows synthetic-api-md-lines)]
+      (is (= #{"create-root" "hydrate-root" "unmount!"} (set (map :var parsed)))
+          "render! must have DISAPPEARED from the parse (unknown marker skipped)")
+      (testing "and the two-sided kind guard turns that disappearance into a
+                caught :kind-row-missing rather than a silent green"
+        (let [problems (c/root-verb-kind-problems
+                         {:rows root-manifest-rows :api-rows parsed})]
+          (is (= 1 (count problems)))
+          (is (= :kind-row-missing (:kind (first problems))))
+          (is (= "render!" (:var (first problems)))))))))
+
+(deftest parse-var-rows-recovers-blessed-markers
+  (testing "control: with all four markers the blessed M/Fn spellings, the pure
+            parser recovers all four verbs and the guard is clean"
+    (let [ok-lines (assoc-in synthetic-api-md-lines [3 1]
+                             "| `render!` | M | sig | S1 | advanced | n |")
+          parsed   (c/parse-var-rows ok-lines)]
+      (is (= #{"create-root" "render!" "hydrate-root" "unmount!"} (set (map :var parsed))))
+      (is (empty? (c/root-verb-kind-problems {:rows root-manifest-rows :api-rows parsed}))))))
 
 (deftest live-root-verb-kinds-match-the-manifest
   (testing "the committed spec/API.md documents each Spec-004C root verb with
@@ -375,6 +505,69 @@
             (no live option-grammar drift)"
     (is (empty? (c/create-root-option-problems (c/read-api-md-lines)))
         "live drift: create-root row lost :root-id-required or :disambiguator-invalid")))
+
+;; ---------------------------------------------------------------------------
+;; create-root option grammar — EXACT + POLARITY-SAFE (rf2-asxo3).
+;;
+;; The first regexes matched `:root-id[^|]{0,60}required` (and the disambiguator
+;; analogue), so `:root-id is not required`, `:root-id-v2 required`,
+;; `:disambiguator is not invalid`, and `:disambiguator-old invalid` all
+;; false-greened: negation, a token prefix/suffix, or reversed polarity slipped
+;; through. The tightened regexes pin the WHOLE token (a trailing `-`/word char
+;; rejects the prefix drift) and forbid an intervening negation, close to the
+;; token. These fixtures pin each enumerated failure form goes RED.
+;; ---------------------------------------------------------------------------
+
+(defn- option-probe
+  "Run the option guard over a single create-root row whose Notes cell is
+   `notes`."
+  [notes]
+  (c/create-root-option-problems
+    [[254 (str "| `create-root` | M | opts | S1 | advanced | " notes " |")]]))
+
+(deftest option-negation-fails-root-id-required
+  (testing "a NEGATED :root-id assertion (`is not required`) no longer
+            false-greens — the option is admitted, so the pin fails"
+    (is (= [:root-id-not-required]
+           (map :kind (option-probe
+                        "`:root-id` is not required and `:disambiguator` is invalid"))))))
+
+(deftest option-reversed-polarity-fails-disambiguator-invalid
+  (testing "a REVERSED-polarity :disambiguator assertion (`is not invalid`,
+            silently admitting the option) is caught :disambiguator-admitted"
+    (is (= [:disambiguator-admitted]
+           (map :kind (option-probe
+                        "`:root-id` required and `:disambiguator` is not invalid"))))))
+
+(deftest option-token-prefix-fails-root-id
+  (testing "a DIFFERENT token (`:root-id-v2`) does not satisfy the :root-id pin
+            — the whole-token boundary rejects the prefix drift"
+    (is (= [:root-id-not-required]
+           (map :kind (option-probe
+                        "`:root-id-v2` required and `:disambiguator` is invalid"))))))
+
+(deftest option-token-prefix-fails-disambiguator
+  (testing "a DIFFERENT token (`:disambiguator-old`) does not satisfy the
+            :disambiguator pin"
+    (is (= [:disambiguator-admitted]
+           (map :kind (option-probe
+                        "`:root-id` required and `:disambiguator-old` invalid"))))))
+
+(deftest option-far-prose-fails
+  (testing "the polarity word must sit CLOSE to the token; far-away unrelated
+            prose between them no longer bridges the pin"
+    (is (= [:root-id-not-required]
+           (map :kind (option-probe
+                        (str "`:root-id` is one of several options that may or may not "
+                             "eventually be required and `:disambiguator` is invalid")))))))
+
+(deftest option-in-sync-committed-clause-passes
+  (testing "the committed create-root clause (authored :root-id **required**;
+            :disambiguator is invalid) still reconciles clean under the
+            tightened regexes"
+    (is (empty? (option-probe
+                  (str "authored `:root-id` **required** — a missing id is "
+                       "`:rf.ui.compile/missing-root-id` and `:disambiguator` is invalid"))))))
 
 ;; ---------------------------------------------------------------------------
 ;; re-frame.ui.test HOST-SIGNATURE guard — JVM (:clj) lane (rf2-5bcdi;
