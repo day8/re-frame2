@@ -78,8 +78,9 @@ Non-goals:
   (R-8 below) deliberately matches the XState-v6 duration ruling.
 - **Specs:** `spec/004-Views.md`, `spec/004B-UI-Tree-and-Conversion.md`,
   `spec/006-ReactiveSubstrate.md`, `008-Testing`, `009-Instrumentation`.
-- **Provenance (local working analyses; `ai/` is local-only, content restated
-  in beads):** the owning delta doc — graduated into this EP + the P0/P1 spec homes
+- **Provenance (working analyses; `ai/` is local-only by default, with a few trees
+  force-tracked as a temporary exception — `git ls-files ai/` is the roster — and
+  content restated in beads):** the owning delta doc — graduated into this EP + the P0/P1 spec homes
   (`spec/004-Views.md`, `spec/004B-UI-Tree-and-Conversion.md`,
   `spec/006-ReactiveSubstrate.md`, `spec/008-Testing.md`, `spec/009-Instrumentation.md`),
   from the tombstoned `drafts/component-library-readiness.md` (rf2-mgy7pz);
@@ -238,7 +239,7 @@ than tracking it.
 |---|---|---|
 | P0-1 three-tuple `local` + G-15 | `rf2-vxgfnd.95.2` (amended notes authoritative over its original scope) | closed |
 | P0-2 sync-door widening + widened G-8 | `rf2-8k14ia` — the pre-conformance **correction** filed after `.95.1` merged (the completeness audit fixed the epic's truncated reference to it); blocked `.95.10` | closed |
-| P0-3 `ui/slot` + G-16 (+ absorbed bare-alias dev warning) | `rf2-ri0k6n`; blocked `.95.10`; S3→S4 compiler surface | closed |
+| P0-3 `ui/slot` + G-16 (the delta as filed also folded in the bare-alias dev warning) | `rf2-ri0k6n` — `ui/slot` + G-16; blocked `.95.10`; S3→S4 compiler surface. The bare-alias dev warning was **not** delivered under `rf2-ri0k6n`: it shipped separately as `rf2-vxgfnd.95.15`, also closed. | closed |
 | P1-4 safe-spread policy + G-17 | `rf2-isdqjv`; blocked `.95.10` | closed |
 | C-6 interop blessing + fixtures | `rf2-vxgfnd.95.4` | closed |
 | C-13a fn-prop fixtures | `rf2-vxgfnd.95.3` (kept distinct from `rf2-ri0k6n`'s internal-slot fixtures) | closed |

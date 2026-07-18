@@ -259,8 +259,10 @@ parity and slot-arity arms do run); G-18, whose fixture and
 out of the required matrix until they go green; G-2/G-9 (wire with the stages shipping
 their subjects); root-manifest hydration + failed-root isolation (S5 — the S-4 spike
 passed dual-host structural output only); G-10 and the remaining
-absence/equivalence/budget gates plus the one-time W11 trio table (S6). S3 has landed
-and S4 is in flight; S5–S7 have not started.
+absence/equivalence/budget gates plus the one-time W11 trio table (S6). S3 closed
+2026-07-18, and S4 (`rf2-vxgfnd.96`) closed and was declared conforming. The stages
+after S4 ride their own epics — S5 `rf2-vxgfnd.97`, S6 `rf2-vxgfnd.98`, S7
+`rf2-vxgfnd.99`; for a stage still in flight the epic is the state, not this page.
 
 ## Rationale
 

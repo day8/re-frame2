@@ -260,11 +260,14 @@ the removed surface survive.
 
 The program epic is **`rf2-vxgfnd`** (`EPIC: re-frame.ui program (S1–S7)`), with
 per-stage child epics filed at the *prior* stage boundary so every brief cites
-then-current contracts. Status at this EP's acceptance: **S1 and S2 are merged**
-(S1's six children landed 2026-07-12; S2 core verified S3-ready under the
-`rf2-vxgfnd.22` adversarial boundary review), and **S3 is in flight** as epic
-`rf2-vxgfnd.95` with children `.95.1`–`.95.10` plus the directed readiness children
-(`rf2-8k14ia`, `rf2-ri0k6n`, `rf2-isdqjv`). Trigger-gated spikes (`ui/tpl`, registered
+then-current contracts. **S1 and S2 merged** (S1's six children landed 2026-07-12;
+S2 core verified S3-ready under the `rf2-vxgfnd.22` adversarial boundary review);
+**S3 closed 2026-07-18** as epic `rf2-vxgfnd.95`, its children `.95.1`–`.95.10` and
+the directed readiness children (`rf2-8k14ia`, `rf2-ri0k6n`, `rf2-isdqjv`) closed
+with it; and **S4** (`rf2-vxgfnd.96`) closed and was declared conforming. The stages
+after S4 ride their own epics — S5 `rf2-vxgfnd.97`, S6 `rf2-vxgfnd.98`, S7
+`rf2-vxgfnd.99`. This paragraph records stages that have closed; for a stage still in
+flight the epic is the state, not this page. Trigger-gated spikes (`ui/tpl`, registered
 `ui/view`, `ui/portal`, `defview-alias`, reset-key `local`) sit on the program epic,
 not in stage scope, until their named triggers fire. The **re-com native port is a
 separate directed epic, `rf2-6ajm6z`** — deliberately not a program stage, so component
@@ -340,6 +343,7 @@ rebuilds the playground. Sibling EPs name per-domain impacts.
 Keep EP-0030 `accepted` while the stages land; it moves to `final` when S7 completes —
 every gate green, the demand-bar prune done, **Helix removed** behind the soak gates, and
 the retained adapters' continued-support posture recorded in their spec homes. The
-program's shape is already proving itself: two stages merged under adversarial boundary
-reviews, the third in flight, and the first external consumer (re-com) driving real
-contract work through the API freeze's own delta protocol rather than around it.
+program's shape is already proving itself: S1–S3 merged under adversarial boundary
+reviews, S4 closed and declared conforming, and the first external consumer (re-com)
+driving real contract work through the API freeze's own delta protocol rather than
+around it.
