@@ -34,13 +34,18 @@ guard and retired-namespace guard are DEFERRED until a real miss motivates them.
     This is the check that guards the class rf2-0lb6xc closed (≈14 impl-emitted
     namespaces that lacked a Conventions row).
 
-    A reservation is a `:rf.<ns>/*` GLOB row of that table — NOT an incidental
-    member mention. rf2-qriq8: the earlier extractor took EVERY `:rf.*` token
-    anywhere in the doc, so a specific-member spelling like `:rf.world/inputs`
-    in prose, a link, or a row body granted reservation to `:rf.world/*` — a
-    namespace could then exist in code with no reserved-namespace row and the
-    gate stayed green. Now only a `/*` glob within the reserved-namespace table
-    reserves; a specific-member spelling never does. Retired accepted-input
+    A reservation is a `:rf.<ns>/*` GLOB in the **Sub-namespace (first) cell**
+    of a non-retired row of that table — NOT an incidental mention anywhere in
+    the row. rf2-qriq8: the earliest extractor took EVERY `:rf.*` token anywhere
+    in the doc, so a specific-member spelling like `:rf.world/inputs` in prose
+    or a link granted reservation to `:rf.world/*`. rf2-ox5we closed the rest of
+    that gap: a glob in a row's Used-for / Spec cell is an *example*, a
+    *cross-reference*, or a *negative statement* ("there is no `:rf.spec/*`
+    trace namespace"; "the `:rf.timer/*` reservation is deferred") — reading
+    reservations from a row BODY made the checker bless namespaces the table
+    explicitly says do not exist. Reservation is now STRUCTURAL: a namespace is
+    reserved iff it is glob-declared in its own row's first column. Retired
+    accepted-input
     tombstones deliberately retained in source (the `:rf.world/inputs`
     did-you-mean spelling — Conventions §The tombstone rule) are classified as
     non-emitting: an accepted-input spelling, not a framework-emitted/reserved
@@ -261,6 +266,16 @@ def _reserved_ns_table_region(conventions_text: str) -> str:
     return "\n".join(region)
 
 
+def _subnamespace_cell(row: str) -> str:
+    """A reserved-namespace table row's **Sub-namespace (first) cell** — the one
+    cell a reservation may be declared in (rf2-ox5we). A markdown row is
+    `| <sub-namespace> | <used for> | <spec> |`, so splitting on `|` puts the
+    first cell at index 1. Not a Markdown parser: one positional cell read on
+    rows already confined to the reserved-namespace table region."""
+    cells = row.split("|")
+    return cells[1] if len(cells) > 1 else ""
+
+
 def _row_is_retired(row: str) -> bool:
     """True when a reserved-namespace table row is a RETIRED / non-reservation
     tombstone, so none of its globs reserve anything (rf2-5kzwf). Two authoring
@@ -270,29 +285,39 @@ def _row_is_retired(row: str) -> bool:
     substring test for "retired" anywhere in the row — an active row may cite a
     retired draft spelling in its prose and must keep its reservation."""
     cells = row.split("|")
-    subnamespace = cells[1] if len(cells) > 1 else ""
     used_for = cells[2] if len(cells) > 2 else ""
-    return "~~" in subnamespace or bool(_BOLD_RETIRED_RE.match(used_for.strip()))
+    return "~~" in _subnamespace_cell(row) or bool(
+        _BOLD_RETIRED_RE.match(used_for.strip())
+    )
 
 
 def reserved_namespaces(conventions_text: str) -> set[str]:
     """The set of `:rf.*` namespaces Conventions RESERVES — the namespace of
-    every `:rf.<ns>/*` glob DECLARATION in an ACTIVE reserved-namespace table
-    row. A glob row is the reservation form; a specific-member spelling
-    (`:rf.world/inputs`) in prose, a link, or a row body is NOT a reservation
-    (rf2-qriq8 — that false green is exactly the gap this check now closes).
-    The glob may sit in a row's first column or, for a framework-internal
-    sub-namespace declared under its parent (e.g. `:rf.route.internal/*` in the
-    `:rf.route/*` row), that row's body — a `/*` glob is an explicit reservation
-    wherever it sits IN an active row, whereas a member reference never
-    reserves. RETIRED rows contribute nothing at all (rf2-5kzwf): a namespace
-    the contract has withdrawn must not keep reserving itself, in either
-    column, or reintroducing its vocabulary would stay a false green."""
+    every `:rf.<ns>/*` glob DECLARATION in the **Sub-namespace (first) cell** of
+    an ACTIVE reserved-namespace table row. Reservation is structural: a row's
+    first column IS the declaration; everything after it is descriptive prose.
+
+    Two false greens this closes. (1) rf2-qriq8: a specific-member spelling
+    (`:rf.world/inputs`) in prose or a link never reserves — only a `/*` glob
+    does. (2) rf2-ox5we: a `/*` glob in a row's Used-for / Spec cell no longer
+    reserves either, because a row body cannot be trusted to mean "reserved" —
+    it also carries examples, cross-references, and outright NEGATIVE statements
+    (the `:rf.schema/*` row says there is no `:rf.spec/*` trace namespace; the
+    `:rf.work/*` row says the `:rf.timer/*` reservation is deferred). Body
+    extraction reserved both of those namespaces the table denies. A genuine
+    framework-internal child sub-namespace earns its OWN row instead
+    (`:rf.route.internal/*`, `:rf.interceptor.path/*`, …) — the same
+    parent-then-child shape the table already uses for `:rf.machine.event/*`,
+    `:rf.ssr.payload/*`, and `:rf.ui.compile/*`.
+
+    RETIRED rows contribute nothing at all (rf2-5kzwf): a namespace the contract
+    has withdrawn must not keep reserving itself, or reintroducing its
+    vocabulary would stay a false green."""
     return {
         m.group(1)
         for row in _reserved_ns_table_region(conventions_text).splitlines()
         if not _row_is_retired(row)
-        for m in _RF_NS_GLOB_RE.finditer(row)
+        for m in _RF_NS_GLOB_RE.finditer(_subnamespace_cell(row))
     }
 
 
@@ -365,9 +390,11 @@ _FIX_B = (
     "  `:rf.<ns>/*` glob row in the spec/Conventions.md reserved-namespace table\n"
     "  (the 'single-root reserved set'). Add a reserved-namespace row (this is\n"
     "  the class rf2-0lb6xc closed) — the reserved-namespace scheme is the\n"
-    "  collision protection + greppability anchor for framework-owned ids. A\n"
-    "  prose / row-body mention of a specific member does NOT reserve the\n"
-    "  namespace (rf2-qriq8): the reservation must be a `:rf.<ns>/*` glob row."
+    "  collision protection + greppability anchor for framework-owned ids. The\n"
+    "  glob must sit in the row's Sub-namespace (FIRST) cell: a mention in a\n"
+    "  row's Used-for / Spec prose does not reserve (rf2-qriq8 / rf2-ox5we). A\n"
+    "  framework-internal child sub-namespace gets its OWN row directly under\n"
+    "  its parent's, not a sentence inside the parent's body."
 )
 
 
@@ -483,10 +510,27 @@ def _run_self_tests(verbose: bool = False) -> int:
         "| `:rf.machine/*` | Machine lifecycle | 005 |\n"
         "| `:rf.ui/*` | UI-domino namespace | 009 |\n"
         "| `:rf.ui.tool/*` | UI-tool inspector namespace | 009 |\n"
+        # Framework-internal child sub-namespaces: each has its OWN first-column
+        # row (rf2-ox5we), while its parent's body still CROSS-REFERENCES it.
+        # Both halves matter — the row is what reserves, the body mention is
+        # inert prose that must not.
         "| `:rf.route/*` | Routing; internal sub-ns `:rf.route.internal/*` | 012 |\n"
+        "| `:rf.route.internal/*` | Internal routing events | 012 |\n"
         "| `:rf.mutation/*` | Mutations; internal `:rf.mutation.internal/*` | 016 |\n"
+        "| `:rf.mutation.internal/*` | Internal mutation replies | 016 |\n"
         "| `:rf.resource/*` | Resources; internal `:rf.resource.internal/*` | 016 |\n"
+        "| `:rf.resource.internal/*` | Internal resource replies | 016 |\n"
         "| `:rf.interceptor/*` | Interceptors; `:rf.interceptor.path/*` | 002 |\n"
+        "| `:rf.interceptor.path/*` | Path-interceptor internals | 002 |\n"
+        # An ACTIVE row whose body carries a glob in a PROSE EXAMPLE — the
+        # rf2-ox5we repro shape. It must NOT reserve `rf.auditfake`.
+        "| `:rf.flow/*` | Flows. A prose example mentions `:rf.auditfake/*`. | 002 |\n"
+        # An ACTIVE row whose body DENIES a namespace. Body extraction used to
+        # reserve the very namespaces the table says do not exist — the live
+        # `:rf.schema/*` row ("there is no `:rf.spec/*` trace namespace") and
+        # `:rf.work/*` row ("the `:rf.timer/*` reservation is deferred").
+        "| `:rf.schema/*` | Schemas. There is no `:rf.spec/*` trace namespace; "
+        "the `:rf.timer/*` reservation is deferred. | 010 |\n"
         # An ACTIVE row citing a retired DRAFT spelling mid-prose — it keeps its
         # reservation (the live `:rf.cofx/*` row has exactly this shape).
         "| `:rf.cofx/*` | Coeffects. The retired draft opt is gone. | 002 |\n"
@@ -499,8 +543,9 @@ def _run_self_tests(verbose: bool = False) -> int:
         "| ~~`:rf.reload/*`~~ | **RETIRED (rf2-lxwpob).** Was the hot-reload "
         "report namespace (`:rf.reload/diff`). | EP-0023 |\n"
         "\n"
-        "Prose AFTER the table: the retired draft opt `:rf.world/inputs` and a\n"
-        "made-up `:rf.auditfake/member` mention — neither reserves a namespace.\n"
+        "Prose AFTER the table: the retired draft opt `:rf.world/inputs`, a\n"
+        "made-up `:rf.prosefake/member` mention, and even a stray glob\n"
+        "`:rf.prosefake/*` — outside the table, none of them reserves.\n"
     )
     catalogue = catalogue_ids(synthetic_009)
     reserved = reserved_namespaces(synthetic_conventions)
@@ -524,23 +569,20 @@ def _run_self_tests(verbose: bool = False) -> int:
         """The namespaces an emitted source fires CHECK B on against reserved_set."""
         return {ns for ns in emitted_namespaces(mask(src)) if ns not in reserved_set}
 
-    # A glob-declared namespace passes — INCLUDING one declared in a row BODY
-    # (the framework-internal `:rf.route.internal/*` sub-namespace under its
-    # parent's row), which the live table relies on (rf.route.internal /
-    # rf.mutation.internal / rf.resource.internal / rf.interceptor.path are each
-    # declared under their parent's row rather than in their own first column).
-    expect("B: glob-declared namespaces pass (incl body-declared sub-ns)",
+    # A namespace glob-declared in its own row's FIRST COLUMN passes.
+    expect("B: first-column glob-declared namespaces pass",
            b_fire('(trace :rf.machine/transition [:rf/x] '
                   ':rf.route.internal/settle-transition)', reserved) == set())
     expect("B: unreserved namespace FIRES",
            b_fire('(trace :rf.zzznew/frobnicate 1)', reserved) == {"rf.zzznew"})
 
-    # (1) arbitrary-prose / specific-member mention does NOT reserve — the
-    #     rf2-qriq8 gap (an ordinary mention used to grant reservation).
-    expect("B: prose member mention does NOT reserve (rf.auditfake)",
-           "rf.auditfake" not in reserved)
+    # (1) a mention OUTSIDE the reserved-namespace table never reserves — not a
+    #     member spelling, not even a glob (the rf2-qriq8 gap: an ordinary
+    #     mention used to grant reservation).
+    expect("B: prose outside the table does NOT reserve (rf.prosefake)",
+           "rf.prosefake" not in reserved)
     expect("B: emitting an only-prose-mentioned namespace FIRES",
-           b_fire('(x :rf.auditfake/member)', reserved) == {"rf.auditfake"})
+           b_fire('(x :rf.prosefake/member)', reserved) == {"rf.prosefake"})
 
     # (2) row deletion turns the check red: dropping the `:rf.ui.tool/*` row
     #     un-reserves it (its glob lives only in that row).
@@ -587,14 +629,44 @@ def _run_self_tests(verbose: bool = False) -> int:
     expect("B: active row citing 'retired' mid-prose STILL reserves",
            b_fire('(x :rf.cofx/declared)', reserved) == set())
 
-    # (7) Regression guard for the four framework-internal sub-namespaces that
-    #     are declared as globs in their PARENT's row body rather than in their
-    #     own first column. These are legitimate ACTIVE reservations; the
-    #     retired-row skip must leave every one of them intact.
-    expect("B: all four body-declared internal sub-namespaces still reserve",
+    # (7) Regression guard for the four framework-internal sub-namespaces. They
+    #     are legitimate ACTIVE reservations carrying real implementation
+    #     vocabulary, and each now holds its OWN first-column row (rf2-ox5we
+    #     moved them out of their parents' row bodies). Neither the retired-row
+    #     skip nor the first-column rule may drop any of them.
+    expect("B: all four internal sub-namespaces still reserve (own rows)",
            b_fire('(x :rf.route.internal/settle :rf.mutation.internal/apply '
                   ':rf.resource.internal/evict :rf.interceptor.path/get)',
                   reserved) == set())
+
+    # (8) STRUCTURAL FIRST-COLUMN RULE (rf2-ox5we) — the remaining half of the
+    #     rf2-qriq8 gap. A `:rf.<ns>/*` glob in an ACTIVE row's BODY is prose:
+    #     an example, a cross-reference, or a negative statement. It must not
+    #     reserve, and emitting a member of it must turn CHECK B red.
+    #
+    #     (8a) the bead's repro: a prose example inside the `:rf.flow/*` row.
+    expect("B: a glob in an active row's BODY does NOT reserve (rf.auditfake)",
+           "rf.auditfake" not in reserved)
+    expect("B: emitting a body-glob-only namespace FIRES",
+           b_fire('(x :rf.auditfake/member)', reserved) == {"rf.auditfake"})
+
+    #     (8b) the live-table instances: rows that DENY a namespace used to
+    #          reserve it. Body extraction blessed `:rf.spec/*` (which the
+    #          `:rf.schema/*` row says does not exist) and `:rf.timer/*` (which
+    #          the `:rf.work/*` row says is deferred) — a namespace could ship
+    #          in code on the strength of the sentence denying it.
+    expect("B: a namespace a row body DENIES does not reserve",
+           {"rf.spec", "rf.timer"}.isdisjoint(reserved))
+    expect("B: emitting a denied namespace FIRES",
+           b_fire('(x :rf.spec/trace :rf.timer/after)', reserved)
+           == {"rf.spec", "rf.timer"})
+
+    #     (8c) the parent row that CROSS-REFERENCES its child keeps its own
+    #          first-column reservation — the first-column rule must not
+    #          over-reach and un-reserve the parent along with the body glob.
+    expect("B: a parent row citing its child in prose STILL reserves",
+           b_fire('(x :rf.route/navigate :rf.interceptor/path)', reserved)
+           == set())
 
     if failures:
         sys.stderr.write(f"\n{failures} self-test failure(s).\n")
