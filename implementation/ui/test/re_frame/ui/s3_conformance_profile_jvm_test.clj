@@ -23,11 +23,15 @@
   catalogued surface (S3 entries + explicitly-listed non-S3 publics), so ANY
   addition / removal / rename of a public var fails the test until the catalogue
   is updated in lockstep. The human profile
-  (spec/conformance/S3-view-conformance-profile.md) is validated ROW BY ROW —
-  each frozen verb's §1 table row must name its direct-call error AND its gate,
-  and the §6 gate roster must name exactly the certified S3 arms — rather than by
-  whole-document token presence, so moving a name into unrelated prose or
-  swapping a gate is caught."
+  (spec/conformance/S3-view-conformance-profile.md) is validated ROW BY ROW for
+  ALL THREE rosters — each frozen verb's §1.1 row must name its direct-call error
+  AND its gate; the §1.2 `route-link` row its view-id, absent-artefact error,
+  contract fragments AND both proof homes; each §1.3 wrapper row its host
+  primitive, kind, direct-call behaviour AND contract fragments (with §1.3 naming
+  the shared JVM/CLJS proof homes); and the §6 gate roster exactly the certified
+  S3 arms — rather than by whole-document token presence, so deleting a row,
+  moving a name into unrelated prose, or swapping a contract, proof home or gate
+  between rows is caught."
   (:require [clojure.java.io :as io]
             [clojure.set :as set]
             [clojure.string :as str]
@@ -78,7 +82,14 @@
                 :absent-error :rf.error/routing-artefact-missing
                 :jvm-proof    "re-frame.ui.route-link-jvm-test"
                 :cljs-proof   "re-frame.ui.route-link-dom-cljs-test"
-                :contract     "ordinary compiled defview; real <a href>; plain left-click dispatches :source :router; native/modifier clicks defer to the browser"}})
+                :contract     "ordinary compiled defview; real <a href>; plain left-click dispatches :source :router; native/modifier clicks defer to the browser"
+                ;; The small EXACT fragments the §1.2 row must carry, so swapping
+                ;; the contract out of the row (or into another row) is red.
+                :row-fragments ["ordinary compiled `defview`"
+                                "not a fail-loud stub"
+                                "real `<a href>`"
+                                "`:source :router`"
+                                "native/modifier clicks defer to the browser"]}})
 
 ;; ---------------------------------------------------------------------------
 ;; (3) The frozen `re-frame.ui.react` INTEROP TIER — seven wrappers (Spec 004
@@ -89,14 +100,56 @@
 ;; re-frame.ui.react-interop-jvm-test; real React client behaviour ->
 ;; re-frame.ui.react-interop-dom-cljs-test.
 ;; ---------------------------------------------------------------------------
+;; `:host` is the wrapped React primitive the row must name; `:row-fragments`
+;; are the small EXACT contract fragments the §1.3 row must carry (so swapping
+;; two wrappers' contracts, or hollowing one out, is red). All seven share the
+;; two proof homes, but each entry names its own so dropping or swapping a proof
+;; association is red per wrapper rather than tier-wide.
 (def frozen-react-wrappers
-  {'use-ref           {:kind :hook :error :rf.error/ui-tree-malformed}
-   'use-effect        {:kind :hook :error :rf.error/ui-tree-malformed}
-   'use-layout-effect {:kind :hook :error :rf.error/ui-tree-malformed}
-   'use-effect-event  {:kind :hook :error :rf.error/ui-tree-malformed}
-   'use-context       {:kind :hook :error :rf.error/ui-tree-malformed}
-   'use-id            {:kind :hook :error :rf.error/ui-tree-malformed}
-   'lazy              {:kind :macro}})
+  {'use-ref           {:kind :hook :error :rf.error/ui-tree-malformed :host "useRef"
+                       :jvm-proof "re-frame.ui.react-interop-jvm-test"
+                       :cljs-proof "re-frame.ui.react-interop-dom-cljs-test"
+                       :row-fragments ["host ref object"
+                                       "read/write via `.current`"
+                                       "assignment never re-renders"]}
+   'use-effect        {:kind :hook :error :rf.error/ui-tree-malformed :host "useEffect"
+                       :jvm-proof "re-frame.ui.react-interop-jvm-test"
+                       :cljs-proof "re-frame.ui.react-interop-dom-cljs-test"
+                       :row-fragments ["passive after-paint effect"
+                                       "setup returns a cleanup"
+                                       "`[]` = connect-only"]}
+   'use-layout-effect {:kind :hook :error :rf.error/ui-tree-malformed :host "useLayoutEffect"
+                       :jvm-proof "re-frame.ui.react-interop-jvm-test"
+                       :cljs-proof "re-frame.ui.react-interop-dom-cljs-test"
+                       :row-fragments ["after DOM mutation"
+                                       "the measure-before-paint door"]}
+   ;; React 19.2 `useEffectEvent` — latest committed values, UNSTABLE identity
+   ;; (a fresh fn each render), no deps array, never in a deps vector, never
+   ;; called during render. Shipped native with no shim (hooks.cljc), proven in
+   ;; re-frame.ui.react-interop-dom-cljs-test.
+   'use-effect-event  {:kind :hook :error :rf.error/ui-tree-malformed :host "useEffectEvent"
+                       :jvm-proof "re-frame.ui.react-interop-jvm-test"
+                       :cljs-proof "re-frame.ui.react-interop-dom-cljs-test"
+                       :row-fragments ["latest render's committed values"
+                                       "identity is **not** stable"
+                                       "a fresh fn each render"
+                                       "takes no deps"
+                                       "must never appear in a deps vector nor be called during render"]}
+   'use-context       {:kind :hook :error :rf.error/ui-tree-malformed :host "useContext"
+                       :jvm-proof "re-frame.ui.react-interop-jvm-test"
+                       :cljs-proof "re-frame.ui.react-interop-dom-cljs-test"
+                       :row-fragments ["**foreign** Context object"
+                                       "never React context"]}
+   'use-id            {:kind :hook :error :rf.error/ui-tree-malformed :host "useId"
+                       :jvm-proof "re-frame.ui.react-interop-jvm-test"
+                       :cljs-proof "re-frame.ui.react-interop-dom-cljs-test"
+                       :row-fragments ["host-generated tree-positional id token"
+                                       "SSR determinism rides the root contract"]}
+   'lazy              {:kind :macro :host "React.lazy"
+                       :jvm-proof "re-frame.ui.react-interop-jvm-test"
+                       :cljs-proof "re-frame.ui.react-interop-dom-cljs-test"
+                       :row-fragments ["code-splitting over a foreign `load-thunk`"
+                                       "not a loading-orchestration surface"]}})
 
 ;; Public vars of `re-frame.ui` that are NOT part of the S3 surface — the boot
 ;; adapter + the S1/S1b/S1c/S2 forms, catalogued in the Spec 004 family. Listed
@@ -248,13 +301,25 @@
         rows       (filter #(= token (first-cell %)) lines)]
     (when (= 1 (count rows)) (first rows))))
 
+(defn- section-between
+  "The region of `text` from header `from` up to header `to`, so a claim is read
+  from the section that owns it rather than from incidental prose elsewhere."
+  [text from to]
+  (let [start (str/index-of text from)
+        end   (str/index-of text to)]
+    (when (and start end (< start end)) (subs text start end))))
+
 (defn- roster-section
   "The §6 gate-roster region of `text` (from the `## 6.` header to `## 7.`), so a
   gate is read from a real roster row, not from incidental prose elsewhere."
   [text]
-  (let [start (str/index-of text "## 6.")
-        end   (str/index-of text "## 7.")]
-    (when (and start end) (subs text start end))))
+  (section-between text "## 6." "## 7."))
+
+(defn- interop-section
+  "The §1.3 React-interop-tier region — the section that owns the shared wrapper
+  proof homes (they are stated once for the tier, not per row)."
+  [text]
+  (section-between text "### 1.3" "## 2."))
 
 (deftest profile-catalogues-every-verb-row-exactly
   (testing "each frozen S3 verb has one §1 table row naming its direct-call error AND its gate"
@@ -272,6 +337,66 @@
                   (str token "'s row must name its direct-call error " error))
               (is (str/includes? row (str "**" gate "**"))
                   (str token "'s row must name its proving gate " gate)))))))))
+
+(deftest profile-catalogues-the-framework-view-row-exactly
+  (testing "the §1.2 route-link row names its view-id, absent-artefact error, contract, and BOTH proof homes"
+    (let [lines (str/split-lines (slurp (profile-doc)))]
+      (doseq [[view {:keys [view-id absent-error jvm-proof cljs-proof row-fragments]}] frozen-s3-view]
+        (let [token (str "`ui/" view "`")
+              row   (table-row-for lines token)]
+          (is (some? row)
+              (str "the profile must catalogue " token " in exactly one table row"))
+          (when row
+            (is (str/includes? row (str view-id))
+                (str token "'s row must name its registered view-id " view-id))
+            (is (str/includes? row (str absent-error))
+                (str token "'s row must name its absent-artefact error " absent-error))
+            (is (str/includes? row jvm-proof)
+                (str token "'s row must name its JVM proof home " jvm-proof))
+            (is (str/includes? row cljs-proof)
+                (str token "'s row must name its CLJS proof home " cljs-proof))
+            (doseq [fragment row-fragments]
+              (is (str/includes? row fragment)
+                  (str token "'s row must carry its contract fragment: " fragment)))))))))
+
+(deftest profile-catalogues-every-react-wrapper-row-exactly
+  (testing "each frozen wrapper has one §1.3 row naming its host primitive, kind, direct-call behaviour, and contract"
+    (let [lines (str/split-lines (slurp (profile-doc)))]
+      (doseq [[wrapper {:keys [kind error host row-fragments]}] frozen-react-wrappers]
+        (let [token (str "`react/" wrapper "`")
+              row   (table-row-for lines token)]
+          (is (some? row)
+              (str "the profile must catalogue " token " in exactly one table row"))
+          (when row
+            (is (str/includes? row (str "`" host "`"))
+                (str token "'s row must name the host primitive it wraps: " host))
+            (case kind
+              :hook  (do (is (str/includes? row "host hook")
+                             (str token "'s row must classify it as a host hook"))
+                         (is (str/includes? row (str error))
+                             (str token "'s row must name its direct-call error " error)))
+              :macro (do (is (str/includes? row "def-level macro")
+                             (str token "'s row must classify it as a def-level macro"))
+                         (is (str/includes? row "compile error")
+                             (str token "'s row must state its compile-error direct-call behaviour"))))
+            (doseq [fragment row-fragments]
+              (is (str/includes? row fragment)
+                  (str token "'s row must carry its contract fragment: " fragment)))))))))
+
+(deftest profile-names-the-react-wrapper-proof-homes
+  (testing "§1.3 names the JVM + CLJS proof homes every wrapper rides — dropping or swapping one is red"
+    (let [section (interop-section (slurp (profile-doc)))]
+      (is (some? section) "the profile must have a §1.3 interop-tier section and a §2 header")
+      (when section
+        (doseq [[wrapper {:keys [jvm-proof cljs-proof]}] frozen-react-wrappers]
+          (is (str/includes? section jvm-proof)
+              (str "§1.3 must name " wrapper "'s JVM proof home " jvm-proof))
+          (is (str/includes? section cljs-proof)
+              (str "§1.3 must name " wrapper "'s CLJS proof home " cljs-proof)))
+        ;; the JVM home proves three distinct things; naming it is not enough
+        (doseq [aspect ["structural subset" "position law" "HMR signature"]]
+          (is (str/includes? section aspect)
+              (str "§1.3 must state the JVM proof home covers the " aspect)))))))
 
 (deftest profile-gate-roster-is-exactly-the-arm-set
   (testing "the §6 gate roster names EXACTLY the certified S3 arms — dropping / adding / renaming a roster gate is red"

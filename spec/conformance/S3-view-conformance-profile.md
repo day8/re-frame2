@@ -12,8 +12,11 @@ those gates (browser / JVM / elision suites), not re-asserted in prose here.
 The frozen surface and the gate references are kept honest by an executable drift
 guard, `implementation/ui/test/re_frame/ui/s3_conformance_profile_jvm_test.clj`:
 its `frozen-s3-verbs`, `frozen-s3-view`, and `frozen-react-wrappers` maps are the
-source of truth this document restates, and it fails if this profile omits a
-frozen verb or an S3 gate.
+source of truth this document restates. All three rosters are bound row by row:
+the guard fails if a §1 row is missing or duplicated, or if a row stops naming
+the error, gate, view-id, host primitive, kind, contract fragments, or proof
+homes its map entry fixes — so deleting a row, or swapping a contract or proof
+home between rows, is red.
 
 ## 1. Frozen S3 surface
 
