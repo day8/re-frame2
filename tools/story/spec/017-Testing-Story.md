@@ -934,6 +934,8 @@ not every step is legal in both positions:
 | `[:dispatch event-vector]` | settled event dispatch | `:headless` |
 | `[:wait-until predicate-spec]` | settle-on-condition; deterministic if queue/state-based | depends on predicate |
 | `[:wait ms]` | bounded wall-clock sleep; the explicit determinism opt-out | runner-dependent |
+| `[:flush-presence]` | advance the presence clock to quiescence (every retained exit fires) | `:headless` |
+| `[:flush-presence ms]` | advance the presence clock by `ms` (only the exits due fire) | `:headless` |
 | `[:assert assertion-vector]` | checkpoint assertion at this point in the script; illegal in `:setup` | depends on assertion |
 | `[:click selector]` | DOM click | `:dom` / `:browser` |
 | `[:type selector text]` | DOM text input | `:dom` / `:browser` |
@@ -1000,6 +1002,10 @@ on caller.
   REFUSES a program containing a bare `[:wait ms]` with `:cannot-run`
   rather than running it flakily. `[:wait-until pred]` is the
   deterministic alternative and SHOULD be preferred.
+- **`[:flush-presence]` / `[:flush-presence ms]`** advances the
+  compiled-view PRESENCE clock (Spec 004 §Presence) — the fake-clock twin
+  of `[:wait ms]`, and the reason a presence-bearing variant needs no
+  determinism opt-out. See §Presence-bearing variants below.
 - **`[:assert assertion-vector]`** evaluates a `:rf.assert/*` assertion
   atom at THIS exact point in the script — the in-script checkpoint
   position of the one assertion atom (§Inline script assertions vs
@@ -1044,6 +1050,62 @@ checkpoint) or to the terminal `:assertions` slot. The reject runs on the
 fully-resolved setup (inherited ⧺ composed ⧺ own), so a misplaced verdict
 surfaces before any run — the same way the other `:rf.error/story-*` plan
 errors do.
+
+#### Presence-bearing variants
+
+A variant whose view renders a `(ui/presence {:timeout-ms n} …)` boundary
+(Spec 004 §Presence) RETAINS a removed keyed child in the `:unmounting`
+phase until the `:timeout-ms` safety bound fires. That retention is a
+CLOCK, not a queue, so no rung of the settled-boundary ladder can settle
+it: draining the router (`:headless`), flushing reactions
+(`:cljs-reactive`) and awaiting a React commit (`:dom`) all leave the
+retained child exactly where it is, and the next step races the timeout.
+The only wall-clock answer would be `[:wait ms]` — which the determinism
+gate REFUSES (§The bare-`[:wait ms]` opt-out).
+
+`[:flush-presence]` is the deterministic answer. It advances the presence
+FAKE CLOCK through the framework's own verb
+(`re-frame.ui.test/flush-presence!`), firing due exits with no wall-clock
+sleep:
+
+- `[:flush-presence]` advances to quiescence — every pending exit fires,
+  so every retained child reaches its terminal removal;
+- `[:flush-presence ms]` advances the logical clock by `ms` — only the
+  exits that come due fire, so a script can observe a child still RETAINED
+  in `:unmounting` and only THEN drive its removal.
+
+Phases are asserted the ordinary way. `(ui/presence-phase)` is a
+render-time read, so a presence-aware view renders its phase (typically as
+an attribute — `{:data-phase (name (ui/presence-phase))}`) and the script
+asserts on what was rendered:
+
+```clojure
+:script [[:dispatch [:toasts/dismiss 2]]
+         ;; the dismissed toast is RETAINED, still mounted, :unmounting
+         [:assert-dom "[data-msg=b]" :text "b"]
+         [:flush-presence 100]                    ; below :timeout-ms
+         [:assert-dom "[data-msg=b]" :visible]    ; still retained
+         [:flush-presence]                        ; to quiescence
+         [:assert-dom "[data-msg=b]" :hidden]]    ; terminal removal
+```
+
+Story does NOT model presence, own a clock, or reimplement the three-phase
+machine — `re-frame.story.play.presence` is a thin seam that CALLS the
+framework verb. Because Story's shipped jar must not depend on the
+pre-publication `day8/re-frame2-ui`, the verb is INSTALLED by a
+`re-frame.ui`-hosted shell
+(`re-frame.story.play.presence/install-presence-flush!`, registering the
+`:flush-presence!` late-bind hook) rather than `:require`d.
+
+`[:flush-presence]` requires NO capability token and does not lift
+`:required-runner` to `:dom` — the presence clock is a process-global
+fake-clock registry, and a host with no presence runtime advances a
+no-op. That mirrors the framework's own JVM arm of `flush-presence!`,
+which is a documented no-op for host parity so a `.cljc` body reads the
+same on either host. It is deliberately NOT a `:cannot-run` refusal: a
+refusal exists to stop a step passing FALSELY, and there is no false pass
+here — the DOM assertion that FOLLOWS the advance carries the `:dom`
+requirement, as it always did.
 
 **Source metadata is preserved for narrative projection.** The runner
 keeps the script step on every step-result and trace record, and the
@@ -1783,7 +1845,9 @@ tokens it requires:
 
 - `[:dispatch …]` / `[:dispatch-sync …]` → `#{:app-db}` (the headless
   floor drains the queue to a fixed point); `[:wait …]` / `[:wait-until
-  …]` → `#{}` (the boundary ladder governs flush, not the capability set);
+  …]` / `[:flush-presence …]` → `#{}` (the boundary ladder governs flush,
+  not the capability set; the presence clock is a process-global registry
+  and a host without one advances a no-op — §Presence-bearing variants);
   `[:click …]` / `[:type …]` / `[:focus …]` / `[:assert-dom …]` →
   `#{:dom}`.
 - An in-script `[:assert <atom>]` checkpoint folds the WRAPPED atom's
@@ -3216,6 +3280,14 @@ running it flakily. The refusal is a **pure pre-flight** — computed before
 any replay — and carries `:reason :determinism-wall-clock-wait` and the
 offending `:wait-steps`. (A virtual clock that would make `[:wait ms]`
 deterministic remains a non-goal, §P1 non-goals.)
+
+`[:flush-presence]` is NOT a wall-clock step and is never refused: it
+advances the compiled-view presence FAKE clock (§Presence-bearing
+variants), so a variant that would otherwise reach for `[:wait ms]` to
+outlast a `:timeout-ms` retention keeps its deterministic verdict. This is
+not the general virtual clock the non-goal rules out — it advances exactly
+one bounded framework registry (the presence exit scheduler), through the
+framework's own verb.
 
 ### Pure / JVM-testable
 

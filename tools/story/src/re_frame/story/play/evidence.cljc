@@ -426,8 +426,9 @@
   open a narrative span over the epochs they settle. `:dispatch` and
   `:dispatch-sync` both commit at least one epoch; DOM-driving steps
   (`:click` / `:type` / `:focus`) commit epochs through the synthetic
-  event they fire. Pure assertion / wait steps (`:assert` / `:assert-db`
-  / `:assert-dom` / `:wait` / `:wait-until`) commit no epoch of their own
+  event they fire. Pure assertion / settle steps (`:assert` / `:assert-db`
+  / `:assert-dom` / `:wait` / `:wait-until` / `:flush-presence`) commit no
+  epoch of their own
   — their beats (if any) belong to the preceding dispatch — so they are
   NOT span-openers. (An `[:assert …]` checkpoint DOES dispatch its wrapped
   `:rf.assert/*` atom, but that is a verdict, not behaviour-under-test, so

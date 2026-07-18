@@ -81,6 +81,28 @@
                                      JVM (no DOM / substrate), so
                                      `render-variant` returns `:cannot-run`.
 
+  - `:flush-presence!`             — a `re-frame.ui`-hosted shell →
+                                     `re-frame.story.play.presence` (consumed
+                                     by the `[:flush-presence]` script step).
+                                     Advances the compiled-view PRESENCE fake
+                                     clock so a variant rendering a
+                                     `(ui/presence …)` boundary settles its
+                                     retained (`:unmounting`) children
+                                     deterministically, with no wall-clock
+                                     sleep. Signature: `(f ms-or-nil) → any`
+                                     — nil means 'to quiescence', mirroring
+                                     the two arities of the framework verb
+                                     `re-frame.ui.test/flush-presence!`.
+                                     Story's shipped jar must not depend on
+                                     the pre-publication `day8/re-frame2-ui`,
+                                     so the verb arrives through this hook
+                                     rather than a `:require`. Absent on a
+                                     host with no presence runtime, where the
+                                     advance is a no-op (host parity with the
+                                     framework's own JVM arm), NOT a refusal.
+                                     Install via
+                                     `re-frame.story.play.presence/install-presence-flush!`.
+
   - `:render-hiccup`               — a host that can render the active view
                                      to a HICCUP TREE (data) → the play
                                      runner's browser-tier executor

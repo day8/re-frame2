@@ -55,12 +55,24 @@
   with `:cannot-run` (the capability registry requires `:dom`), and they
   run under a `:dom` / `:browser` runner.
 
+  `[:flush-presence]` / `[:flush-presence ms]` advances the compiled-view
+  PRESENCE clock (Spec 004 §Presence) so a variant whose view renders a
+  `(ui/presence {:timeout-ms n} …)` boundary settles its retained
+  (`:unmounting`) children DETERMINISTICALLY — the fake-clock twin of
+  `[:wait ms]`, and the reason a presence-bearing variant does not need the
+  determinism opt-out. It routes through
+  `re-frame.story.play.presence` to the framework's own
+  `re-frame.ui.test/flush-presence!`; with no presence host installed it is
+  a no-op (host parity, exactly as the framework's JVM arm is).
+
   | Step                               | Semantics                                                     |
   |------------------------------------|---------------------------------------------------------------|
   | `[:dispatch event-vec]`            | settled dispatch — drain through `settled-boundary`           |
   | `[:dispatch-sync event-vec]`       | low-level synchronous dispatch escape (not the author form)   |
   | `[:wait-until predicate-spec]`     | deterministic settle-on-condition (queue/state)               |
   | `[:wait ms]`                       | bounded wall-clock sleep — the explicit determinism opt-out   |
+  | `[:flush-presence]`                | advance the presence clock to quiescence (fires every exit)   |
+  | `[:flush-presence ms]`             | advance the presence clock by `ms` (fires the exits due)      |
   | `[:assert assertion-vector]`       | in-script checkpoint assertion (illegal in `:setup`)          |
   | `[:assert-db path value]`          | Assert `(= (get-in @app-db path) value)`                      |
   | `[:assert-db path :pred fn-or-sym]`| Assert custom predicate — `fn` is preferred (works under advanced CLJS); `symbol` is the JVM/dev escape hatch (resolved at run time, fragile under advanced CLJS munging) |
@@ -103,8 +115,10 @@
   step grammar across `:setup` and `:script` (spec/017 §Script step
   grammar). `:assert` is the in-script checkpoint atom
   (the wrapped `:rf.assert/*` assertion); `:wait-until` is the
-  deterministic settle-on-condition; `:focus` is the DOM focus step."
-  #{:dispatch :dispatch-sync :wait :wait-until
+  deterministic settle-on-condition; `:focus` is the DOM focus step;
+  `:flush-presence` is the deterministic presence-clock advance (the
+  fake-clock twin of `:wait`)."
+  #{:dispatch :dispatch-sync :wait :wait-until :flush-presence
     :assert :assert-db :assert-dom
     :click :type :focus})
 
@@ -117,9 +131,18 @@
 (def async-yield-step-types
   "Steps that put work on an async queue the runner cannot directly
   flush — `:click` / `:type` / `:focus` (synthetic DOM events whose
-  handlers re-enter the dispatch chain) and `:wait` (the runner sleeps
-  explicitly). The driver yields one tick AFTER these steps so the
-  queued effects drain before the next step runs.
+  handlers re-enter the dispatch chain), `:wait` (the runner sleeps
+  explicitly) and `:flush-presence`. The driver yields one tick AFTER
+  these steps so the queued effects drain before the next step runs.
+
+  `:flush-presence` is here because the framework verb it calls
+  (`re-frame.ui.test/flush-presence!`) is Promise-backed on CLJS: the
+  clock advance and its removal callbacks run SYNCHRONOUSLY inside the
+  awaited `act`, but the React commits that unmount the retained subtree
+  settle on the microtask queue. A `setTimeout` 0 yield runs after the
+  microtask queue has drained to empty, so the next step observes the
+  committed removal rather than racing it. On the JVM the verb is a
+  synchronous no-op and the run loop recurs in tail position regardless.
 
   `:dispatch` is not in this set: a `[:dispatch …]` step settles through
   `settled-boundary` (spec/017) — in headless the `dispatch-sync!`
@@ -136,7 +159,7 @@
 
   Steps NOT in this set (`:dispatch`, `:dispatch-sync`, `:wait-until`,
   `:assert`, `:assert-db`, `:assert-dom`) recur synchronously on CLJS."
-  #{:click :type :focus :wait})
+  #{:click :type :focus :wait :flush-presence})
 
 (declare step-type)
 
@@ -189,6 +212,14 @@
                       (and (= 2 (count step))
                            (number? (nth step 1))
                            (not (neg? (nth step 1)))))
+    ;; `[:flush-presence]` (to quiescence) / `[:flush-presence ms]` (advance
+    ;; the logical clock by ms) — the two arities of the framework verb
+    ;; `re-frame.ui.test/flush-presence!`, no more.
+    :flush-presence (boolean
+                      (or (= 1 (count step))
+                          (and (= 2 (count step))
+                               (number? (nth step 1))
+                               (not (neg? (nth step 1))))))
     ;; `[:wait-until predicate-spec]` — deterministic settle-on-condition.
     ;; The predicate-spec is `[:db path expected]`, `[:db path :pred fn]`,
     ;; or `[:queue-empty]`. A 2-arity vector whose payload is itself a
@@ -665,6 +696,9 @@
     :dispatch-sync  (str "dispatch-sync " (pr-str (second step)))
     :wait           (str "wait " (second step) "ms")
     :wait-until     (str "wait-until " (pr-str (second step)))
+    :flush-presence (if (= 1 (count step))
+                      "flush-presence"
+                      (str "flush-presence " (second step) "ms"))
     :assert         (str "assert " (pr-str (second step)))
     :assert-db      (cond
                       (and (= 4 (count step)) (= :pred (nth step 2)))
@@ -770,6 +804,17 @@
   "Return the ms duration from a `:wait` step, or nil."
   [step]
   (when (= :wait (step-type step))
+    (nth step 1 nil)))
+
+(defn step-presence-ms
+  "Return the ms to advance the presence clock by from a
+  `[:flush-presence ms]` step, or nil — for the bare `[:flush-presence]`
+  (advance to quiescence) AND for any non-`:flush-presence` step. The two
+  cases are distinguished by the step TAG, never by this nil: nil here
+  means exactly what nil means to `re-frame.ui.test/flush-presence!` — the
+  no-arg arity."
+  [step]
+  (when (= :flush-presence (step-type step))
     (nth step 1 nil)))
 
 (defn step-assertion

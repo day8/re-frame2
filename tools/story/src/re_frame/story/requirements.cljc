@@ -230,13 +230,19 @@
   "Capability tokens each SCRIPT/SETUP step tag requires (spec/017 §Script
   step grammar + §Runner requirements). `:dispatch` needs only `:app-db`
   (the headless floor drains the queue to fixed point); DOM-driving steps
-  need `:dom`. `:wait` / `:wait-until` require nothing of their own — the
-  predicate / wall-clock dictates the settlement, and the boundary ladder
-  (`settled-boundary`) governs flush, not the capability set."
+  need `:dom`. `:wait` / `:wait-until` / `:flush-presence` require nothing
+  of their own — the predicate / wall-clock / presence clock dictates the
+  settlement, and the boundary ladder (`settled-boundary`) governs flush,
+  not the capability set. `:flush-presence` in particular does NOT require
+  `:dom`: the presence clock is a process-global fake-clock registry, and a
+  host with no presence runtime advances a no-op (host parity — see
+  `re-frame.story.play.presence`). The DOM assertion that FOLLOWS the
+  advance carries the `:dom` requirement, as it always did."
   {:dispatch       #{:app-db}
    :dispatch-sync  #{:app-db}
    :wait           #{}
    :wait-until     #{}
+   :flush-presence #{}
    :assert-db      #{:app-db}
    :assert         #{:app-db}   ; in-script checkpoint — tokens come from its assertion atom
    :assert-dom     #{:dom}

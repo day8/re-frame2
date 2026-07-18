@@ -492,6 +492,8 @@
   - `[:dispatch-sync event-vec]`         — synchronous dispatch escape
   - `[:wait-until predicate-spec]`       — deterministic settle-on-condition
   - `[:wait ms]`                         — sleep N ms (determinism opt-out)
+  - `[:flush-presence]`                  — advance the presence clock to quiescence
+  - `[:flush-presence ms]`               — advance the presence clock by N ms
   - `[:assert assertion-vec]`            — in-script `:rf.assert/*` checkpoint
   - `[:assert-db path value]`            — equality assertion
   - `[:assert-db path :pred fn-sym]`     — predicate assertion
