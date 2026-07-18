@@ -330,7 +330,11 @@
 ;; compiles to the same save/restore the old atom hand-rolled.
 ;; ---------------------------------------------------------------------------
 
-(def ^:private ^:dynamic *ambient* nil) ;; {:cell <cell> :capture <volatile>} | nil
+;; {:cell <cell> :capture <volatile> :owner <Thread|nil>} | nil
+;; `:owner` is the JVM thread that opened the capture (nil on CLJS) — see
+;; `ensure-capture-owner!` (rf2-vxgfnd.171). It rides INSIDE the conveyed value
+;; because binding conveyance into `future`/`pmap` is the hazard it detects.
+(def ^:private ^:dynamic *ambient* nil)
 
 (defn- fresh-capture
   [generation]
@@ -873,6 +877,70 @@
 
 ;; ---- read + query stabilization ---------------------------------------------
 
+;; ---- render-capture thread ownership (rf2-vxgfnd.171) -----------------------
+;;
+;; The ambient capture is a `volatile!` reached through a `^:dynamic` Var. On
+;; CLJS that is exactly right: one thread, and `binding` buys save/restore for
+;; free. On the JVM the Var ALSO gives two concurrent top-level renders disjoint
+;; captures (rf2-1llvoh) — but Clojure CONVEYS dynamic bindings into `future` /
+;; `pmap` workers. A render body that forks its site reads and joins them hands
+;; every child thread the SAME non-thread-safe volatile, and their `vswap!`s
+;; race: sites are silently lost and the surviving order is nondeterministic.
+;;
+;; The implementation contract is a deterministic, compiler-ordered capture, and
+;; a capture with sites missing flows into commit/release logic as MISSING
+;; OWNERSHIP. Losing sites quietly is strictly worse than refusing an
+;; unsupported parallel render body, so the contract is enforced rather than
+;; engineered around. (Supporting parallel render bodies would need an atomic
+;; capture plus a deterministic site order; that is a different design, not a
+;; guard.)
+;;
+;; The owner travels WITH the capture value, in the ambient map itself — NOT in
+;; thread-local state. That is the whole point: conveyance is precisely the
+;; mechanism at fault, so a check that lived in a `^:dynamic` Var or a
+;; ThreadLocal would either be conveyed along with the capture (seeing the
+;; child's own state and agreeing) or fail to reach the child at all. A value
+;; carried inside the conveyed map is read identically by every thread that
+;; receives it, so the child compares the ORIGINATING thread against its own and
+;; disagrees. This holds for any conveyance route — `future`, `pmap`,
+;; `bound-fn`, an executor submission — because none of them rewrite the value.
+;;
+;; Separate top-level renders on different threads each open their OWN
+;; `with-capture` and so record their own owner: they stay valid and isolated.
+
+(defn- capture-owner
+  "The thread that owns a render capture, recorded when `with-capture` opens it.
+  `nil` on CLJS — a single-threaded host has no question to ask, and the guard
+  below compiles away entirely."
+  []
+  #?(:clj  (Thread/currentThread)
+     :cljs nil))
+
+(defn- ensure-capture-owner!
+  "Reject a capture mutation attempted from a thread other than the one that
+  opened the capture. Called BEFORE any probe or `vswap!`, so a rejected fork
+  commits no partial ownership.
+
+  JVM-only by construction: on CLJS `owner` is always `nil` and this whole body
+  reader-conditionals away."
+  [where owner sid query-or-descriptor]
+  #?(:clj
+     (when (and (some? owner)
+                (not (identical? owner (Thread/currentThread))))
+       (error/throw-error!
+        :rf.error/ui-tree-malformed
+        where
+        (str "render capture is single-threaded, but this site ran on a child "
+             "thread of the render that opened it — a render body may not fork "
+             "its site reads (future/pmap convey the ambient capture, and the "
+             "forked writes race, silently losing sites). Read the sites on the "
+             "render thread; fork only work that performs no site reads.")
+        {:extra {:site-id        sid
+                 :owner-thread   (.getName ^Thread owner)
+                 :current-thread (.getName (Thread/currentThread))
+                 :query          query-or-descriptor}}))
+     :cljs nil))
+
 (defn sub-read
   "The one bridge `(sub query)` lowers to on both hosts. The compiler calls
   `(sub-read sid query)`; `sid` is the stable lexical ownership key. Resolves
@@ -901,7 +969,7 @@
        {:extra {:query query}})
      (sub-read nil query)))
   ([sid query]
-   (let [{:keys [cell capture]} *ambient*
+   (let [{:keys [cell capture owner]} *ambient*
          _ (when (and (some? cell) (nil? sid))
              (error/throw-error!
                :rf.error/ui-tree-malformed
@@ -909,6 +977,12 @@
                (str "nil lexical site id reached an active ViewCell capture — "
                     "compiled render reads must carry a non-nil site id")
                {:extra {:query query}}))
+         ;; Reject a conveyed child thread BEFORE the probe, so a forked read
+         ;; neither mutates the capture nor performs observation work whose
+         ;; ordering it could not honour (rf2-vxgfnd.171).
+         _ (when (some? cell)
+             (ensure-capture-owner! 're-frame.ui.reactive/sub-read
+                                    owner sid query))
          prior-record (when (some? cell)
                         (get (:committed @(state cell)) sid))
          prior-query  (:query prior-record)
@@ -962,7 +1036,7 @@
   capture, and the later passive resource reconciler alone changes ownership."
   [sid descriptor]
   (let [descriptor (ui-lease/validate-descriptor! descriptor)
-        {:keys [cell capture]} *ambient*]
+        {:keys [cell capture owner]} *ambient*]
     (when (or (nil? cell) (nil? capture) (nil? sid))
       (error/throw-error!
        :rf.error/ui-tree-malformed
@@ -970,6 +1044,11 @@
        "compiled lease-site must execute once with a non-nil lexical id inside its ViewCell capture"
        {:extra {:site-id sid
                 :descriptor-summary (error/diag-value-summary descriptor)}}))
+    ;; Reject a conveyed child thread BEFORE pinning an incarnation or touching
+    ;; the capture — a forked lease must mint no desired ownership
+    ;; (rf2-vxgfnd.171).
+    (ensure-capture-owner! 're-frame.ui.reactive/lease-site
+                           owner sid (error/diag-value-summary descriptor))
     (when (some? descriptor)
       (let [frame-id    (frame/require-current-frame!
                          :lease {:where 're-frame.ui/lease})
@@ -1004,7 +1083,11 @@
 
   The ambient slot is a dynamic var: `binding` gives the save/restore for
   free on single-threaded CLJS and THREAD-LOCAL isolation on the JVM, so two
-  concurrent Tier-1 renders own disjoint captures (rf2-1llvoh).
+  concurrent Tier-1 renders own disjoint captures (rf2-1llvoh). The JVM ALSO
+  conveys that binding into `future`/`pmap` workers, which would hand child
+  threads of ONE render the same non-thread-safe capture — so the capture
+  records its owning thread and a conveyed site read is refused rather than
+  allowed to race (rf2-vxgfnd.171).
 
   Each render is ALSO a slice-memo scope: on the JVM `with-slice-memo` opens a
   thread-local per-render slice (discarded on return) so sibling probes share a
@@ -1013,7 +1096,7 @@
   synchronous pass), so the hot path allocates nothing extra."
   [^ViewCell cell thunk]
   (let [cap (volatile! (fresh-capture (:generation @(state cell))))]
-    (binding [*ambient* {:cell cell :capture cap}]
+    (binding [*ambient* {:cell cell :capture cap :owner (capture-owner)}]
       #?(:clj  (with-slice-memo (fn [] (let [el (thunk)] [el @cap])))
          :cljs (let [el (thunk)] [el @cap])))))
 
