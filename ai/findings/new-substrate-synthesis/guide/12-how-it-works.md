@@ -258,12 +258,13 @@ against order B's id, why Activity hide releases everything and reveal reacquire
 corrects, and why frame destruction can mark cells dead loudly.
 
 On the write side, every dispatched event runs the ordinary re-frame2
-run-to-completion drain. Only when the drain reaches quiescence does each dirty cell
-advance its revision — once, no matter how many of its sites changed — and React gets
-one render batch for the views whose values actually moved. Unchanged derivations
-return identical references, so child memo comparators short-circuit. One drain, one
-notification per affected view, one commit per root: that is
-[10](10-performance.md)'s model, mechanically.
+run-to-completion drain. Its dirty cells collect in a pending render batch that closes at
+the next host checkpoint; only then does each cell advance its revision — once, no matter
+how many of its sites changed — and React gets one render batch for the views whose
+values actually moved. Unchanged derivations return identical references, so child memo
+comparators short-circuit. A drain is never split across batches, and drains that finish
+before the same checkpoint simply share one: per batch, one notification per affected
+view and one commit per root. That is [10](10-performance.md)'s model, mechanically.
 
 ## Memoisation that is correct, not heuristic
 

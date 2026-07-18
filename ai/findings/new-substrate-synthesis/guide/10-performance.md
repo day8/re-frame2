@@ -21,12 +21,13 @@ taught.
 ## The model in one paragraph
 
 Each queued event executes and commits its frame transition → exactly the dirty
-subscriptions recompute → when the run-to-completion drain reaches quiescence, views
-whose values actually changed get **one** notification for the whole drain → React
-re-renders those memo boundaries in one batch → unchanged results return *identical
-references*, so child comparators short-circuit and the cascade stops. A real host
-yield starts a separate drain and batch. Static parts were built once at load. The
-profiler exists to confirm this, not to negotiate with it.
+subscriptions recompute → views whose values actually changed get **one** notification
+for the pending render batch, which closes at the next host checkpoint → React re-renders
+those memo boundaries in one batch → unchanged results return *identical references*, so
+child comparators short-circuit and the cascade stops. A whole drain always lands in one
+batch; back-to-back drains with nothing yielding between them may share it, and a real
+host yield is what forces a new one. Static parts were built once at load. The profiler
+exists to confirm this, not to negotiate with it.
 
 ## The little you do think about
 

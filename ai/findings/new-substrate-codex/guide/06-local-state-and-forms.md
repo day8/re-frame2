@@ -63,7 +63,7 @@ Register narrow events/subscriptions:
          [::email-edited (.-value (.-currentTarget e))])}]]))
 ```
 
-The field's event epoch changes one projection and schedules the field once. The compiler supplies a stable handler; no `useCallback` is needed.
+The field's event changes one projection and schedules the field once. The compiler supplies a stable handler; no `useCallback` is needed.
 
 ## Narrow form projections
 

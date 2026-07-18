@@ -155,7 +155,7 @@ Implement:
 - ViewCell/capture/commit, reversible connect/disconnect, and permanent death;
 - `ui/sub`, dynamic dependency sets, query stabilization, value stabilization;
 - ambient and explicit frames;
-- adapter epoch dirty-set coalescing;
+- adapter dirty-set coalescing at the host checkpoint;
 - root/nested frame components;
 - `flush!` and `flush-render!` integration.
 

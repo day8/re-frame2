@@ -115,8 +115,8 @@ The source is short, but the runtime path is precise:
 2. It dispatches `[::increment]` into `:app/main` with the event site's source identity.
 3. re-frame2 runs the handler and replaces app-db.
 4. `::value` recomputes and changes.
-5. The counter's ViewCell is marked dirty once for that epoch.
-6. React renders `counter` once and commits `1`.
+5. The counter's ViewCell is marked dirty once, arming the pending render batch.
+6. The batch closes at the next host microtask checkpoint; React renders `counter` once and commits `1`.
 7. Xray links the click site, event, app-db change, subscription, and render.
 
 No callback is allocated on the update, and there is no Reagent render queue or runtime markup walk.

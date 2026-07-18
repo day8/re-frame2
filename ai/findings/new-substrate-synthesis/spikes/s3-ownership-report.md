@@ -62,8 +62,8 @@ throwaway, no PR to main) · React **19.2.0** (from a pinned fresh install match
   canonical node cache keyed by query, refcount ownership with **per-lease unique
   callbacks**, the **synchronous zero-owner disposal edge** (no grace period — so
   acquire-before-release is load-bearing, as 03 §3 demands), per-event epochs, layered
-  recompute with a value-equality cut, one notification per cell per epoch at epoch
-  close (I-5/I-6), registry epoch + sub re-registration (HMR), and typed errors for
+  recompute with a value-equality cut, one notification per cell per render batch
+  (I-5/I-6), registry epoch + sub re-registration (HMR), and typed errors for
   the R-2 edge questions. The spine's documented bug classes (sibling watch-key
   clobber, pinned disposed reaction, redundant recompute storm, abandoned-mount leak —
   `implementation/core/src/re_frame/substrate/spine.cljs`) are encoded as fixtures.
@@ -81,8 +81,8 @@ throwaway, no PR to main) · React **19.2.0** (from a pinned fresh install match
 | 1b | **startTransition abort** (3,000-row transition, interrupted mid-flight by flushSync, then abandoned) | interrupted at 223/3000 renders, 0 commits, 0 acquires; **3/3 per-slice probe-memo tables GC-collected** |
 | 2 | **Commit-gap**: source advanced between render and commit (newly-observed site — the case only the commit evidence check can catch) | corrected **before paint** (within the same synchronous flush, no macrotask), exactly 1 commit-correction, exactly 1 corrective re-render |
 | 3 | **Conditional sites attach/detach only at commit** | sync toggle attaches/detaches exactly at commit (dropped node disposed); mid-transition probes never touch the committed set; interrupt+rebase leaves it intact; completion attaches at commit; phase guard: 0 render-phase ownership ops |
-| 4 | **Two siblings share one node** | refcount 1→2→1, callbacks **distinct by construction** (owners keyed by lease identity — clobber impossible), both notified once per epoch, survivor unaffected by sibling unmount. **Retarget**: acquire-before-release kept a shared node alive through site retargeting (0 disposals, node identity preserved); raw-graph contrast confirms release-first *would* churn (dispose+recreate) |
-| 5 | **StrictMode double-invoke** | double render + full effect replay settles to **one owner per site**, acquire/release balanced to exactly one live lease, **one notification per cell per epoch**, teardown balanced to zero |
+| 4 | **Two siblings share one node** | refcount 1→2→1, callbacks **distinct by construction** (owners keyed by lease identity — clobber impossible), both notified once per render batch, survivor unaffected by sibling unmount. **Retarget**: acquire-before-release kept a shared node alive through site retargeting (0 disposals, node identity preserved); raw-graph contrast confirms release-first *would* churn (dispose+recreate) |
+| 5 | **StrictMode double-invoke** | double render + full effect replay settles to **one owner per site**, acquire/release balanced to exactly one live lease, **one notification per cell per render batch**, teardown balanced to zero |
 | 6 | **Probe memo**: 100 sibling rows probing a shared parent chain | memo ON: shared parent computed **1×** per pass (99 memo hits); memo OFF: **100×**; commit created each canonical node exactly once (102 nodes). Abandoned pass: 0 owners, 0 nodes, memo tables **2/2 GC-unreachable** |
 | 7 | **Activity** (real `React.Activity`, 19.2 stable export) | hide: ownership fully released (0 owners, 0 nodes), cell disconnected, `dispatch-fn` throws `:rf.error/dispatch-disconnected`, **zero invalidations delivered while hidden**; reveal: reacquired + corrected to the value dispatched while hidden, **local `useState` retained** (`a2:7`); unmount total |
 | 8 | **HMR node replacement** (`reRegSub` disposes canonical node, notifies cause `:hmr`) | cell re-read the **new** canonical node; no pinned disposed node; release-after-dispose a safe no-op; teardown total |

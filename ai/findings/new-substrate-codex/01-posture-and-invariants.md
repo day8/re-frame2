@@ -58,7 +58,7 @@ The re-frame2 graph may still hold ten derivation-node leases. That is real appl
 
 ### I-4: External-store snapshots are cached scalars
 
-`ViewCell.getSnapshot` returns a numeric revision. It returns the same number until the committed dependency set is invalidated. A source update advances it at most once per re-frame2 epoch.
+`ViewCell.getSnapshot` returns a numeric revision. It returns the same number until the committed dependency set is invalidated. A source update advances it at most once per render batch — the pending read/render window that closes at the next CLJS host microtask checkpoint, or at an explicit headless/test flush.
 
 The snapshot never allocates a new map or vector merely because React asks for it. Subscription values remain in re-frame2 derivation nodes and are read during render.
 
@@ -68,11 +68,13 @@ A derivation-node notification records its node, version, epoch, and cause on af
 
 The component recomputes its reads during React render with current props and current frame. This structurally avoids the stale-props and “zombie child” family documented by React-Redux.
 
-### I-6: One notification per cell per epoch
+### I-6: One notification per cell per render batch
 
-The substrate keeps a dirty-cell set inside the adapter's derivation epoch. At epoch close it advances and notifies each cell once, regardless of how many of that cell's dependencies changed.
+The substrate keeps one adapter-level dirty-cell set. The pending window is armed by the first dirty mark and closes at the next host microtask checkpoint, or at an explicit headless/test flush. When it closes, each dirty cell advances and is notified once, regardless of how many of that cell's dependencies changed and regardless of how many epochs marked it.
 
-This is not debounce-by-time. It is exact coalescing at the re-frame2 transaction boundary.
+This is not debounce-by-time. It is exact coalescing at the host checkpoint, keyed on the cell's pending state rather than on the epoch tag that rode the mark.
+
+An epoch is a write and evidence unit — one per dequeued event — not a React render boundary. Several events settled before the same checkpoint share one batch and produce one render, so no render count may be read off the epoch count.
 
 ### I-7: Client markup is compiled, never interpreted
 
@@ -169,9 +171,9 @@ The existing `subscribe` API couples “obtain a handle” with incrementing its
 
 This is a substrate-internal observation port, not a second application subscription API.
 
-### Spec 006: epoch-close notification
+### Spec 006: host-checkpoint render batch
 
-The new adapter's epoch scheduler owns one fixed internal final phase: flush its dirty ViewCell set after derivations settle and before the epoch closes. This is an implementation guarantee of that adapter, not a callback added to the generic adapter map, and it imposes no ViewCell concept on other adapters.
+The new adapter's UI scheduler owns one fixed internal final phase: flush its dirty ViewCell set when the pending render batch closes at the host microtask checkpoint. It takes no hook from router drain finalization and observes no drain boundary at all. This is an implementation guarantee of that adapter, not a callback added to the generic adapter map, and it imposes no ViewCell concept on other adapters.
 
 ## Non-goals
 

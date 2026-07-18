@@ -251,7 +251,7 @@ schema-violations specifically.
 
 ## Performance
 
-- **Render per epoch**: O(visible-violations) — typically 0–5.
+- **Render cost per update**: O(visible-violations) — typically 0–5.
 - **Diff per dispatch**: 0 (the timeline reads existing trace events;
   no extra work on the hot path).
 - **Empty state**: O(0) — the panel renders the rows for registered

@@ -1,6 +1,15 @@
 # re-frame2 UI guide
 
-This is the proposed user manual for the blank-slate `day8/re-frame2-ui` design. The library does not exist yet; examples are normative API sketches and should become executable documentation during implementation.
+> **Historical — superseded design proposal, not authoritative.**
+> This manual belongs to a July 2026 proposal for a blank-slate React substrate, retained for
+> history. Its examples are proposal sketches, not normative API, and they describe no shipped
+> behaviour. The authoritative reactive-substrate contract is
+> [`spec/006-ReactiveSubstrate.md`](../../../../spec/006-ReactiveSubstrate.md) — in particular
+> invariant 6 and *Render-batch finalization — the host-checkpoint boundary* — and the authoritative
+> view contract is [`spec/004-Views.md`](../../../../spec/004-Views.md). Where this guide and those
+> specs disagree, the specs win.
+
+This is the proposed user manual for the blank-slate `day8/re-frame2-ui` design. The library was never built; the examples are design sketches from the proposal, and they were never normative.
 
 ## The model in sixty seconds
 
