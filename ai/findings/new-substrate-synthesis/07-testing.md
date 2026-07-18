@@ -38,7 +38,9 @@ way to create and initialise frames — `rf/make-frame` + `:initial-events`, wit
 helper and `render`'s `{:app-db v}` frame-minting option were removed as a second
 initialisation grammar.
 
-At S2, Tier-3 tests drive framework state with `dispatch!`. DOM mechanics already owned
+Tier-3 tests drive framework state with the S1 `dispatch!`, reused unchanged inside a
+mounted root — S2 adds the mounted surface around it, not a mounted dispatch variant.
+DOM mechanics already owned
 by the host or a foreign component use platform properties and native events directly;
 compiled event-vector delivery through `dispatchEvent` becomes live with S3's committed
 handlers. No gesture DSL sits between a test and the browser.

@@ -105,7 +105,8 @@ classify through the existing handler decision table; `aria-*`/`data-*`/`title`/
 class/style pass through. General `ui/spread` remains the visible-cost escape — and its
 presence at a controlled site continues to disqualify the sync door; **the policy form
 is what preserves the controlled proof** under `:attr`-style passthrough (36 re-com
-files). Exact spelling (second arity vs sibling name) is the amendment bead's call.
+files). The exact spelling — second arity versus sibling name — was the amendment
+bead's call, and it landed as the **sibling name** `ui/spread-safe`.
 
 ### P1-5 · Stable manifest docs/slot projection
 

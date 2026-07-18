@@ -183,7 +183,8 @@ return as row-level deltas for re-ruling; the freeze itself is not reopened. Fiv
 are ruled under it: **#1** `ui/custom-element` to v1 (2026-07-12), **#2** `ui/->react`
 (the outward migration bridge, lands S6), **#3** `ui/spread` (the single dynamic-map
 conversion path), **#4** `ui/slot` + internal `render-fn` widening (directed
-2026-07-16), **#5** the literal safe-policy `spread` form (2026-07-16). Guide examples
+2026-07-16), **#5** `ui/spread-safe`, the literal safe-policy sibling of `ui/spread`
+(2026-07-16). Guide examples
 authored by this project never count as independent demand for platform-scale features
 — the rule that keeps resumability research-tier.
 
@@ -308,8 +309,8 @@ rebuilds the playground. Sibling EPs name per-domain impacts.
 - **API freeze (2026-07-12 00:39 AUSEST, Mike).** The `re-frame.ui` public-surface table
   (graduated to `spec/API.md` §"re-frame.ui — blessed public-surface freeze") is
   blessed as-is as the v1 API freeze, governed by the row-level delta protocol; deltas
-  #1–#5 (custom-element, `->react`, `spread`, `slot`/internal `render-fn`, safe-policy
-  `spread`) are ruled and recorded in the table.
+  #1–#5 (custom-element, `->react`, `spread`, `slot`/internal `render-fn`,
+  `spread-safe`) are ruled and recorded in the table.
 - **Conditional S3 advance (2026-07-15, Mike; recorded in `rf2-vxgfnd.95` NOTES).** S3
   starts immediately in parallel with the bounded S2 correction tail, overriding the
   epic's original entry condition; S2's truth conditions stand — it is not declared

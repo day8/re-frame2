@@ -288,7 +288,8 @@ subscription-derived computation — those belong in app-db behind an event.
   dev-only string ids can't serve dynamic prod lookup).
 - `(ui/spread base overrides)` — the one generic runtime prop-map conversion (v1).
   **[AMENDED 2026-07-16 — readiness P1-4]** A **literal safe-policy form** joins it
-  (exact spelling decided at spec landing): compiler-visible allow/deny where denied
+  as a distinct sibling name — landed at spec landing as `(ui/spread-safe owned
+  caller)`, not as a second `spread` arity: compiler-visible allow/deny where denied
   structural/controlled/identity keys (`:key` `:ref` `:value` `:checked` owned
   `:on-*`) fail in **every build**, allowed `:on-*` values classify through the §3
   decision table, and `aria-*`/`data-*`/ordinary attrs pass through. The policy form

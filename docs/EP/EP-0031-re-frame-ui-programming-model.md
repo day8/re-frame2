@@ -205,7 +205,7 @@ vectors/prefixes and dispatch `(conj prefix payload…)`.
 | `ui/raw` | embed a React element; SSR needs a `client-only` sibling | spec-live S1 (boundary corpus completes S4) |
 | `ui/html` | trusted markup, low-friction — the visible call *is* the contract; manifests record the site | spec-live S1 |
 | `ui/spread` | the one generic runtime prop-map conversion, driven by the 004B rule table | spec-live S1 |
-| `ui/spread` safe-policy form | compiler-visible allow/deny: denied structural/controlled/identity keys (`:key` `:ref` `:value` `:checked` owned `:on-*`) fail in **every build**; allowed `:on-*` classify through the decision table; `aria-*`/`data-*` pass; preserves the controlled proof under passthrough | **accepted → S3, bead rf2-isdqjv** (delta #5, 2026-07-16; spelling at spec landing) |
+| `ui/spread-safe` | the literal safe-policy **sibling** of `ui/spread` (a distinct name, not a second `spread` arity) — compiler-visible allow/deny: denied structural/controlled/identity keys (`:key` `:ref` `:value` `:checked` owned `:on-*`) fail in **every build**; allowed `:on-*` classify through the decision table; `aria-*`/`data-*` pass; preserves the controlled proof under passthrough | **accepted → S3, bead rf2-isdqjv** (delta #5, 2026-07-16; spelling resolved at spec landing to `ui/spread-safe`) |
 | `ui/slot` | compiler-owned invocation of `ui/render-fn` values at **internal** render seams (row/cell/part renderers): only `render-fn` or `nil`; body compiled under the closed grammar, pure render phase; keys/fingerprints/`ui.test` structure preserved | **accepted → S3→S4, bead rf2-ri0k6n** (delta #4, 2026-07-16) |
 | `ui/client-only` | mandatory capability-free fallback; one root phase-flip | accepted → S3 (flip completes S5) |
 | `ui/error-boundary` | the explicit error component — catches render/lifecycle throws; `:on-error` dispatches after the failing commit; `:reset-key` clears | accepted → S3 |
@@ -286,8 +286,10 @@ Xray-before-any-click, and library controls that keep the IME/caret guarantee.
 
 None open on the decision surface. Named residuals — gates or bounded spec-landing
 choices, not design questions: the G-8 real-browser matrix (including the reusable
-event-prefix arm); the exact `ui/slot` name and safe-spread spelling (second arity
-vs sibling), both delegated to spec landing by the 2026-07-16 direction.
+event-prefix arm). The two spellings delegated to spec landing by the 2026-07-16
+direction are **now settled**: the render-slot invocation landed as `ui/slot`, and
+the safe-spread form landed as the sibling name `ui/spread-safe` (the second-arity
+option was not taken).
 
 ## Resolved Decisions
 
@@ -307,8 +309,8 @@ vs sibling), both delegated to spec landing by the 2026-07-16 direction.
   the event-template projection form stays rejected.
 - **Blessed API-table deltas (12 §2 delta protocol):** #2 `->react` v1-lands-S6
   (2026-07-12, delegated authority); #3 `spread` v1 at S1 (2026-07-12); #4 `ui/slot`
-  + internal `render-fn` widening (directed 2026-07-16); #5 `spread` safe-policy
-  form (directed 2026-07-16). (#1, `custom-element`, ruled 2026-07-12, is recorded
+  + internal `render-fn` widening (directed 2026-07-16); #5 `spread-safe`, the
+  literal safe-policy sibling of `spread` (directed 2026-07-16). (#1, `custom-element`, ruled 2026-07-12, is recorded
   in §2 above.)
 - **Internal fn-props + library event-prefix convention (2026-07-16, C-13a/C-13b).**
   Fn props between internal views are opaque identity-compared values with no
