@@ -1608,6 +1608,62 @@ test('run-ui-g8.cjs launcher change arms ui_gates (rf2-vxgfnd.95.10)', () => {
   assert.equal(classify('implementation/scripts/run-ui-g8.cjs').ui_gates, 'true');
 });
 
+// rf2-kxork — G-18 library facade isolation promoted into the required matrix.
+// The checker was donated RED (#6182) and parked outside CI; #6195 repaired the
+// DCE mechanism and it now passes, so it becomes a standing regression net.
+// These three tests are the wiring's own proof: the classifier must arm the
+// gate, the job must be surface-gated and actually run it, and the required
+// aggregator must depend on it. Remove any one of those and a test reds.
+
+test('the G-18 facade-isolation checker fires the gate it implements (rf2-kxork)', () => {
+  const result = classify('implementation/scripts/check-ui-facade-isolation.cjs');
+  assert.equal(
+    result.ui_gates,
+    'true',
+    'a checker-only PR must satisfy the cljs-ui-facade-isolation job condition',
+  );
+  // widens, never narrows: the generic scripts surface stays armed
+  assert.equal(result.cljs_node_test, 'true');
+});
+
+test('implementation/ui proof-pack + DCE surface arms G-18 (rf2-kxork)', () => {
+  // The library the gate imports from, and the compiler/runtime surface whose
+  // DCE behaviour it measures, both live under implementation/ui/**.
+  assert.equal(
+    classify('implementation/ui/proof-pack/re_frame/ui/proof_pack/library.cljs').ui_gates,
+    'true',
+  );
+  assert.equal(
+    classify('implementation/ui/src/re_frame/ui/compiler/emit_cljs.cljc').ui_gates,
+    'true',
+  );
+  assert.equal(
+    classify('implementation/ui/src/re_frame/ui/runtime.cljs').ui_gates,
+    'true',
+  );
+  // the two proof-pack builds are declared in the build-config trio
+  assert.equal(classify('implementation/shadow-cljs.edn').ui_gates, 'true');
+});
+
+test('cljs-ui-facade-isolation is surface-gated and runs the G-18 gate (rf2-kxork)', () => {
+  const block = jobBlock(fs.readFileSync(WORKFLOW, 'utf8'), 'cljs-ui-facade-isolation');
+  assert.match(block, /needs: detect_changed_surfaces/);
+  assert.match(
+    block,
+    /if: needs\.detect_changed_surfaces\.outputs\.ui_gates == 'true'/,
+  );
+  assert.match(block, /npm run test:ui-facade-isolation/);
+});
+
+test('all-required-passed aggregator needs cljs-ui-facade-isolation (rf2-kxork)', () => {
+  const block = jobBlock(fs.readFileSync(WORKFLOW, 'utf8'), 'all-required-passed');
+  assert.match(
+    block,
+    /- cljs-ui-facade-isolation\r?\n/,
+    'aggregator must list cljs-ui-facade-isolation in needs:',
+  );
+});
+
 // rf2-vxgfnd.90 — re-frame.ui now ships REAL DOM tests
 // (`*-dom-cljs-test.{cljs,cljc}`) in the `:browser-test` build (the S1c/S2
 // mount + reactivity + frame-scope keystone fixtures — the ONLY place

@@ -572,6 +572,20 @@ else
         cljs_node_test=true
         ui_gates=true
         ;;
+      implementation/scripts/check-ui-facade-isolation.cjs)
+        # rf2-kxork — the checker IS the G-18 library-facade-isolation gate
+        # (cljs-ui-facade-isolation, gated on ui_gates). A checker-only PR must
+        # fire the job it implements, otherwise the gate could silently edit
+        # itself out of CI — the same self-protection the G-1/G-13/G-8
+        # launchers and the two sibling ui checkers above already carry.
+        # cljs_node_test stays armed so the checker keeps the generic
+        # implementation/scripts/* coverage too; this widens, never narrows.
+        # No cljs_browser/bundle_isolation fan-out: G-18 is a shadow-cljs
+        # release plus a bundle string inspection — it drives no browser and
+        # no packaging boundary beyond its own two proof-pack builds.
+        cljs_node_test=true
+        ui_gates=true
+        ;;
       implementation/scripts/check-ui-digest-carrier.cjs)
         # This checker IS the real-browser digest-carrier proof hosted by
         # cljs-browser. A checker-only PR must start that Playwright-owning

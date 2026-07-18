@@ -14,18 +14,27 @@
 //   isolation (single-view): the imported `controlled-input` sentinel PRESENT,
 //     and the five unimported siblings' sentinels ABSENT.
 //
-// FIXTURE-FIRST STATUS: as of landing this fixture, the isolation assertion is
-// RED — the unimported sibling render functions are retained because the
-// production `defview` arm binds `re-frame.ui.runtime/memo-view`'s
-// `React.memo(renderFn, cmp)` call to a top-level `def`, and Closure does not
-// treat that call as side-effect-free, so the unreferenced def (and its render
-// fn + sentinel strings) survive `:advanced`. Per EP-0035 readiness §4 that is
-// exactly the structural failure that JUSTIFIES a substrate packaging change
-// (pure-annotating the emitted view def / memo-view so an unreferenced view
-// DCEs). That change touches the shipped emitter/runtime and is tracked
-// separately (see bead rf2-edpam); this gate is the
-// acceptance test for it and is intentionally NOT in the required CI matrix
-// until it goes green.
+// STATUS (rf2-kxork): GREEN and REQUIRED. This fixture landed RED in #6182 —
+// unimported sibling render functions were retained because the production
+// `defview` arm bound `re-frame.ui.runtime/memo-view`'s `React.memo(renderFn,
+// cmp)` call to a top-level `def`, which Closure does not treat as
+// side-effect-free, so the unreferenced def (and its render fn + sentinel
+// strings) survived `:advanced`. #6195 repaired that packaging behaviour and
+// the isolation assertion now passes, so the gate has been promoted from
+// parked acceptance test to standing regression net: it runs as the
+// `cljs-ui-facade-isolation` job in .github/workflows/test.yml (fired by the
+// ui_gates surface) and the required `all-required-passed` aggregator
+// `needs:` it.
+//
+// SCOPE BOUND — read before adding a view. IMPORTED/SIBLINGS below is a
+// HARDCODED roster, not one derived from the library source. The gate proves
+// the isolation contract for exactly the six views it names; a SEVENTH view
+// added to library.cljs is invisible to it, and would be retained in the
+// single-view bundle without turning this gate red (verified by probe under
+// rf2-kxork). Adding a view to the proof-pack library therefore REQUIRES
+// adding its sentinel here. Deriving the roster from the library source is
+// tracked separately (rf2-r4q98) — do not read the current PASS as covering
+// views absent from these two lists.
 
 const path = require('path');
 const { spawnSync } = require('child_process');
@@ -96,10 +105,11 @@ function main() {
   if (retained.length) {
     problems.push(
       `isolation: ${retained.length} unimported sibling view(s) retained in the advanced single-view ` +
-      `bundle -> ${retained.join(', ')}. This is the fixture-first STRUCTURAL FAILURE (EP-0035 readiness ` +
-      `§4): unreferenced view defs bound to React.memo(...) are not DCE'd. Remediation is a substrate ` +
-      `packaging change to the emitted view def / memo-view purity — off-limits to the conformance bead; ` +
-      `tracked by rf2-edpam.`);
+      `bundle -> ${retained.join(', ')}. A single-view import must not drag its siblings into the ` +
+      `bundle (EP-0035 readiness §4). This is the REGRESSION #6195 fixed: unreferenced view defs bound ` +
+      `to React.memo(...) stop being DCE'd when the emitted view def / memo-view loses its purity ` +
+      `annotation, so suspect a change to the defview emitter (compiler/emit_cljs.cljc) or to ` +
+      `memo-view (ui/runtime.cljs).`);
   }
 
   if (problems.length) {

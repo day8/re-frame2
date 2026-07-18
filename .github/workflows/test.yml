@@ -864,6 +864,65 @@ jobs:
           path: implementation/out/ui-g8.json
           if-no-files-found: error
 
+  cljs-ui-facade-isolation:
+    name: CLJS ui G-18 library facade isolation (:advanced single-view DCE)
+    # rf2-kxork — G-18 (07 §5, EP-0035 readiness §4) promoted into the required
+    # matrix. #6182 donated this fixture-first checker RED (unreferenced view
+    # defs bound to React.memo(...) survived :advanced); #6195 repaired the DCE
+    # mechanism and it now passes, so the acceptance test for that repair
+    # becomes a standing regression net rather than a parked fixture.
+    #
+    # The gate builds the two proof-pack :advanced bundles and greps them:
+    #   - positive control (proof-pack-all): all six sentinels PRESENT, so an
+    #     absence in the single-view build is genuine elision, not a renamed
+    #     or missing literal (non-vacuity).
+    #   - isolation (proof-pack-single): the ONE imported view's sentinel
+    #     PRESENT and the five unimported siblings' sentinels ABSENT.
+    #
+    # No browser: it is a shadow-cljs release plus a bundle string inspection,
+    # so it needs the JDK/Node/Maven trio only — no Playwright install.
+    # Fired by the ui_gates surface (implementation/ui/** — which contains the
+    # proof-pack library and the compiler/runtime DCE surface it exercises —
+    # the build-config trio, or the checker script itself).
+    needs: detect_changed_surfaces
+    if: needs.detect_changed_surfaces.outputs.ui_gates == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: implementation
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654  # v5.2.0
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Set up Node.js
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e  # v6.4.0
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: implementation/package-lock.json
+
+      - name: Cache Maven / gitlibs (shadow-cljs deps)
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5.0.5
+        with:
+          path: |
+            ~/.m2/repository
+            ~/.gitlibs
+          key: ${{ runner.os }}-cljs-${{ hashFiles('implementation/shadow-cljs.edn', 'implementation/package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-cljs-
+
+      - name: npm install
+        run: npm ci
+
+      - name: G-18 library facade isolation gate
+        run: npm run test:ui-facade-isolation
+
   jvm-reagent:
     name: Diagnostic skip-ok JVM reagent-adapter classpath probe
     needs: detect_changed_surfaces
@@ -3729,6 +3788,7 @@ jobs:
       - cljs-ui-g1
       - cljs-ui-g13
       - cljs-ui-g8
+      - cljs-ui-facade-isolation
       - jvm-reagent
       - jvm-reagent-slim
       - jvm-uix
