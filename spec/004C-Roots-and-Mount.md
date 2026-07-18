@@ -8,13 +8,15 @@
 > [011](011-SSR.md)). The ratified identity model is preserved exactly — a
 > **root** is one React DOM render/hydration unit, a **frame** is one re-frame2
 > state world, roots ↔ frames are many-to-many, and mount position is never
-> identity. `[S1-CONFIRM]` marks a conservative contract written where the
-> synthesis is silent — confirm before the surface hardens; not an open hole.
+> identity. `[S1-CONFIRM]` marks a conservative contract adopted where no other
+> Spec ruled the combination — confirm before the surface hardens; not an open hole.
+> Discharged entries are struck from the register below as their stage lands.
 
 ## 1. Root identity — required, host-authored, derivable
 
 **Every root has a `root-id`. It is REQUIRED identity** — the root descriptor, the root
-manifest, instance records (04 §1), and duplicate detection all key on it. It is
+manifest, instance records ([004 §View identity and the instrumentation surface](004-Views.md#view-identity-and-the-instrumentation-surface)),
+and duplicate detection all key on it. It is
 **host-authored** (`:root-id` in the root opts map, §3), with a **derivation default**
 so the single-root common case stays one-liner clean:
 
@@ -86,11 +88,11 @@ normalization `N` it hashes are owned by
 [004B-UI-Tree-and-Conversion.md](004B-UI-Tree-and-Conversion.md)
 (§Semantic normalization). The `:template-fingerprint`, `:build-digest`, and
 hook-signature-hash algorithms are defined by the S1 compiler-slice PR (rf2-vxgfnd.2);
-this draft pins only the fields and their comparison semantics.
+this Spec pins only the fields and their comparison semantics.
 
 **Root Manifest v1 (Stage 5)** = Root Descriptor v1 (minus dev-only
 `:root-id-provenance`) **plus the render-time extension keys**, exactly the
-hydration-salient fields 06 §2 shows:
+hydration-salient fields carried by [011 §Root Manifest v1](011-SSR.md#root-manifest-v1):
 
 | Extension key | Meaning | When produced |
 |---|---|---|
@@ -226,8 +228,8 @@ id" gap is closed here:
 |---|---|---|
 | `:root-id` | identity | authored root-id (§1.1); immutable for the root's lifetime |
 | `:disambiguator` | identity | scalar; only meaningful when `:root-id` is absent (§1.2) |
-| `:identifier-prefix` | rendering | string fed to React's `identifierPrefix` (`use-id`). Default: `"rf2-" + root-id-slug + "-"` (§1) — `:page/shop` → `"rf2-page_Sshop-"`. (06 §2's `"rf2-shop-"` example is an authored value, not the derived default.) |
-| `:on-uncaught-error` `:on-caught-error` `:on-recoverable-error` | host | plain CLJS fns passed to the React root options. Host-tier option maps are **not** template positions — the §02 §3 handler boundary law does not apply here. Invoked by React outside the re-frame2 commit path; to dispatch they must go through a live frame handle. |
+| `:identifier-prefix` | rendering | string fed to React's `identifierPrefix` (`use-id`). Default: `"rf2-" + root-id-slug + "-"` (§1) — `:page/shop` → `"rf2-page_Sshop-"`. A shorter prefix such as `"rf2-shop-"` is only ever an **authored** value — the derivation never elides the namespace segment. |
+| `:on-uncaught-error` `:on-caught-error` `:on-recoverable-error` | host | plain CLJS fns passed to the React root options. Host-tier option maps are **not** template positions — the [004 §Handlers are data — the callback law](004-Views.md#handlers-are-data--the-callback-law) boundary law does not apply here. Invoked by React outside the re-frame2 commit path; to dispatch they must go through a live frame handle. |
 
 Identity opts must be **compile-time literals** at `mount`/`create-root` sites — they feed
 the descriptor and build-time duplicate detection; host-behaviour opts may be runtime
@@ -307,14 +309,14 @@ positional locators — an id is stable under fragment reordering, which is the 
   `hydrate-root` discovers the manifest *positionally* (adjacent to its `dom-node`) and
   takes identity from its *content*. `[S1-CONFIRM]` — the concrete script-element
   convention (`type`/`data-rf-root` attribute names) must be pinned in one place with
-  the Spec 011 payload-encoding rows; this draft requires only adjacent-sibling
+  the Spec 011 payload-encoding rows; this Spec requires only adjacent-sibling
   discovery + content-borne identity.
 - **Client-only mounts have no element-locator** — the host passes the DOM node
   directly; the descriptor never contains a locator (it is a manifest extension key,
   §2). Identity is root-id alone.
 - Hydration with a locator that resolves to no element (manifest present, container
   gone — fragment composition bugs) is `:rf.error/root-container-missing` (§7), scoped
-  to that root per the 06 §2 failure-isolation contract.
+  to that root per the failure-isolation contract of §7 below.
 
 ## 5. Extracting view-id and serialised props from a root form
 
@@ -351,15 +353,17 @@ top-region wrappers, in document order.)
   `:initial-events`/config *expressions* evaluate at preflight (runtime values are
   legal); the `:config-fingerprint` hashes the plan's **static source form** (id +
   config forms), which is what conflict detection compares (§7). A `frame-root`
-  anywhere outside a root form's top region is already a compile error (03 §8); this
-  draft adds nothing there.
+  anywhere outside a root form's top region is already a compile error
+  ([004 §Roots and mounting](004-Views.md#roots-and-mounting)); this Spec adds nothing
+  there.
 - **`frame-provider` references are dynamic:** `frame-provider` scopes a live frame
   *handle* (per the rf2-nyea0r split) — handles are runtime values, so provider-scoped
   frames are **not statically extractable** and do not appear in `:frame-plans`.
   Instead, the **manifest's** `:frame-payload-ids` (render-time) records the full
   referenced set the server render actually scoped: plan ids ∪ provider-scoped frame
-  ids. That is how 06 §2's `:page/shop` example lists `:frame/session` without a plan
-  for it. Descriptor = static plans; manifest = full render-time reference set;
+  ids. That is how a manifest can list a provider-scoped frame — say `:frame/session` —
+  that no static plan declares. Descriptor = static plans; manifest = full render-time
+  reference set;
   additive per §2's compatibility rule.
 - Payload install remains **idempotent and order-independent** (ratified): the first
   hydrating root referencing a payload installs it; later roots find it live and do
@@ -368,7 +372,7 @@ top-region wrappers, in document order.)
 ## 7. Duplicate and conflict detection — fail-loud, three layers
 
 All ids below follow the one-catalogue `:rf.error/*` scheme (Spec 009 rows land with
-their stage per the 03 §11 posture); each carries a data map naming both parties with
+their stage); each carries a data map naming both parties with
 source coordinates in dev.
 
 **Layer 1 — build time (S1).** The compiler indexes every
@@ -444,7 +448,7 @@ prefix-uniqueness backstop share the roster:
 | `:rf.error/root-not-live` | `render!` on a `Root` whose id is no longer live — `unmount!`ed, tearing-down, or superseded by a newer root claiming the same id (guarded like `unmount!`, but fails loud rather than no-op, before any side effect) |
 | `:rf.error/root-manifest-invalid` | manifest missing/unreadable at hydrate, schema-version incompatible, identity opts passed client-side, unserialisable props at emit, prefix conflict |
 | `:rf.error/frame-payload-conflict` | below |
-| `:rf.error/root-hydration-mismatch` | fingerprint/digest disagreement (existing 03 §11 row — unchanged) |
+| `:rf.error/root-hydration-mismatch` | fingerprint/digest disagreement (an existing Spec 009 catalogue row — unchanged by this Spec) |
 
 **Payload/frame-config conflict — fail-loud at preflight.** At any root's preflight
 (hydration or client mount), before install/hydrate:
@@ -459,14 +463,14 @@ arm carries data `{:frame-id … :installed {:config-fingerprint … :installed-
 record *verbatim*, so it may instead carry `:adopted-by`/`:adopted true` (a boot-
 authoritative frame this root only scopes) or an extra `:mount-incomplete true` (a
 sibling mount that threw mid-run). The installed frame and the roots already using it
-are untouched — exactly 06 §2's failure scoping ("a bad frame payload affects exactly
-the roots referencing it"). There is no first-wins silent merge and no last-wins
+are untouched — failure scoping is precise: **a bad frame payload affects exactly the
+roots referencing it.** There is no first-wins silent merge and no last-wins
 overwrite. A **same-root** re-declaration whose fingerprint differs is a surgical
 **refresh** (an HMR config edit — durable state survives, `:initial-events` re-recorded
 not replayed), **not** a conflict; a **matching** fingerprint is the ratified idempotent
 no-op (no re-seed). Layer 1 additionally rejects at build time two *plans* for one
 frame-id with differing config fingerprints inside one entry closure (compile error —
-the didactic message points at boot/event infrastructure per 03 §8). (The S5 hydrate
+the didactic message points at boot/event infrastructure, per [004 §Roots and mounting](004-Views.md#roots-and-mounting)). (The S5 hydrate
 arm — a referenced payload id already installed with a different **content** digest —
 carries its own content-`:digest` slot when server rendering lands: the same error id,
 a distinct conflict trigger.)
@@ -485,7 +489,7 @@ server in sight (guide 01):
 | manifest / digests / fingerprint validation | none — nothing to validate against; hydration errors cannot occur by construction |
 | frame plans | extracted and preflighted identically to the SSR path (§6) — ENSURE semantics do not fork on mount kind |
 | duplicate detection | Layers 1 and 3 (§7); Layer 2 does not exist without a server |
-| phase | no `:phase` anywhere — phase is a manifest key; the 06 §3 `client-only` phase flip does not apply (there is no fallback pass) |
+| phase | no `:phase` anywhere — phase is a manifest key; the `client-only` root phase flip ([004 §Interop and boundaries](004-Views.md#interop-and-boundaries)) does not apply (there is no fallback pass) |
 
 ## 9. `ui.test/render` — accepted root-or-view forms
 
@@ -510,13 +514,17 @@ server in sight (guide 01):
    - `{:frame f}` alongside a plan-bearing root form is **rejected**
      (*"the root form owns its frames — pass a bare view to control the frame"*);
      with a plan-free form it combines.
-     `[S1-CONFIRM]` — 07 §2 is silent on this combination; rejection is the
-     conservative contract (no ambiguity about which frame is ambient).
+     No other Spec ruled this combination; rejection is the conservative contract
+     (no ambiguity about which frame is ambient), and it ships as the
+     `:rf.error/ui-test-bad-opts` `:frame`-branch.
 
 A runtime-assembled vector is the same compile error as at `mount` (§3). In both
 forms, `{:sub-overrides {query value}}` combines freely — it is the explicit JVM
-override door (03 §3), with `:owned? false` honesty unchanged. Registrations come from
-the loaded namespaces (07 §2 `frame`).
+override door ([006 §The static override lease](006-ReactiveSubstrate.md#the-static-override-lease)),
+with `:owned? false` honesty unchanged. Registrations come from the loaded namespaces;
+`ui.test` has no frame constructor — mint one with `rf/make-frame`
+([002 §`make-frame`](002-Frames.md#make-frame--atomic-create-and-register-and-the-canonical-config-grammar)),
+per [008 §The `ui.test` contract](008-Testing.md#the-uitest-contract--headless-testing-for-compiled-views).
 
 **Test-scope identity:** each `ui.test/render` call is its own document scope — root
 identity derives normally (so descriptor-shaped assertions work) but the duplicate
@@ -528,8 +536,8 @@ unregisters (a leaked registration failing a later mount is a test-harness bug, 
 
 | Surface | Stage |
 |---|---|
-| Root Descriptor v1, mount grammar + identity opts, derivation + slug, Layer-1 + Layer-3 duplicate detection, client mount/`create-root`/`render!`/`unmount!`, `ui.test/render` forms, frame-plan-conflict preflight (the `:config-fingerprint` ENSURE arm — build tier S1c, client-mount/`render!` runtime tier S2c) | **S1** (the 08 §2 "root descriptor" row, now defined) |
-| Root Manifest v1 extension keys, `hydrate-root` preflight (manifest discovery/validation → payload install → hydrate), locator generation, Layer-2 registry, payload-**content-digest** conflict preflight (the hydrate arm of `:rf.error/frame-payload-conflict` only — the plan-fingerprint arm ships at S1c/S2c, row above), `render-static` identity participation | **S5** (12 §3's "root manifests" row, now the additive extension of S1) |
+| Root Descriptor v1, mount grammar + identity opts, derivation + slug, Layer-1 + Layer-3 duplicate detection, client mount/`create-root`/`render!`/`unmount!`, `ui.test/render` forms, frame-plan-conflict preflight (the `:config-fingerprint` ENSURE arm — build tier S1c, client-mount/`render!` runtime tier S2c) | **S1** (the S1 "root descriptor" deliverable, defined by §2 above; stage roster per [EP-0030 §Stages S1–S7](../docs/EP/EP-0030-the-compiled-view-substrate-program.md#stages-s1s7)) |
+| Root Manifest v1 extension keys, `hydrate-root` preflight (manifest discovery/validation → payload install → hydrate), locator generation, Layer-2 registry, payload-**content-digest** conflict preflight (the hydrate arm of `:rf.error/frame-payload-conflict` only — the plan-fingerprint arm ships at S1c/S2c, row above), `render-static` identity participation | **S5** (the S5 "root manifests" deliverable — the additive extension of S1; see [011 §Root Manifest v1](011-SSR.md#root-manifest-v1)) |
 
 ## Q24–Q28 coverage
 
@@ -549,5 +557,8 @@ unregisters (a leaked registration failing a later mount is a test-harness bug, 
    alongside the Spec 011 payload-encoding rows.
 2. **§7** — entry-point-closure scoping as the build-time projection of "one page" for
    duplicate root-id detection (vs. whole-build strictness).
-3. **§9** — rejection of `{:frame …}` combined with a plan-bearing root
-   form in `ui.test/render`.
+3. ~~**§9** — rejection of `{:frame …}` combined with a plan-bearing root form in
+   `ui.test/render`.~~ **DISCHARGED at S1.** The rejection ships: `re-frame.ui.test`
+   raises `:rf.error/ui-test-bad-opts` when a plan-bearing root form carries `:frame`
+   (a plan-bearing form owns its frames — a frame plan and an explicit frame are two
+   ways to say one thing). The conservative contract was confirmed, not revised.

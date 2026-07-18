@@ -1147,7 +1147,7 @@ may run, restart, or be abandoned) from *committing* (which alone may own resour
 the port splits "read a subscription's value" (render-safe, ownership-free) from "own a
 subscription node" (commit-only), so the sub-cache's ref-counting and synchronous
 disposal contract ([§Reference counting and disposal](#reference-counting-and-disposal))
-is never driven from a speculative render. ⟨03 §3, I-1/I-2⟩
+is never driven from a speculative render (invariants I-1/I-2).
 
 ### Scope — outside the closed public adapter contract, one named consumer
 
@@ -1159,13 +1159,14 @@ states it — six required functions, three optional functions, one lifecycle fu
 plus the `:kind` discriminator (the 11-key adapter spec map) — **closed for v1**.
 Existing adapters (Reagent, reagent-slim, UIx, Helix, plain-atom, SSR) implement none of the
 port's operations and are unchanged by this section. No feature predicate is added; a consumer cannot branch on
-the port's presence because the port is not consumable. ⟨03 §3⟩
+the port's presence because the port is not consumable.
 
 **The seam, named.** The port's concrete surface is the namespace
 **`re-frame.substrate.observation`** in the core artifact (`day8/re-frame2`), a sibling
 of the existing `re-frame.substrate.*` internals. Its **sole consumer** is the
 **`day8/re-frame2-ui`** artifact's view runtime. The seam is versioned by two rules
-⟨09 codex2 F1; R-6, 08 §5⟩:
+(the second follows from the lockstep release train recorded in
+[EP-0030 §Resolved Decisions](../docs/EP/EP-0030-the-compiled-view-substrate-program.md#resolved-decisions)):
 
 1. **Lockstep release train (R-6).** Core and UI artifacts release together; the port
    may change shape between releases without deprecation ceremony because no third
@@ -1183,7 +1184,7 @@ During render, each executed subscription site resolves a first-class **observat
 target** via `resolve-target` — the **only** resolution point: ambient frame, explicit
 frame pins, and the Story override context all resolve there, and no later phase
 re-resolves context. A target is a **stable identity**; it carries **no node handle and
-no `:value`/`:version`** for the `:subscription` kind. ⟨S-3 §5⟩
+no `:value`/`:version`** for the `:subscription` kind.
 
 ```clojure
 {:kind :subscription  :frame-id :app  :query [:cart/total]}
@@ -1197,7 +1198,7 @@ no `:value`/`:version`** for the `:subscription` kind. ⟨S-3 §5⟩
   in a named frame. It deliberately does NOT capture the node: under hot reload the
   node resolved at render can be disposed by commit time, so `acquire!` re-resolves the
   canonical node by identity at acquire. A captured handle could pin a disposed node;
-  an identity re-resolved at acquire cannot. ⟨S-3 §5, fixture 8⟩
+  an identity re-resolved at acquire cannot.
 - A `:story-override` target names a pinned value resolved from the Story override
   context ([§The sub-override subscribe seam](#the-sub-override-subscribe-seam-debug-gated)).
   The pinned value rides the target because the value IS the resolution — there is no
@@ -1229,7 +1230,7 @@ what this render observed — never a handle:
 Probe may read a live cached node; otherwise it computes pure against the current frame
 snapshot through the slice memo (below), creating no cache entry, no watch, and no
 disposal obligation. Cold probes (`:node-version nil`) are first-class: the commit
-evidence comparison falls back to `rf=` on value for them. ⟨S-3 §5, fixture 2⟩
+evidence comparison falls back to `rf=` on value for them.
 
 ### The six frozen invariants
 
@@ -1286,8 +1287,6 @@ These are normative (R-2). Each names the bug class it deletes.
    N-epochs⇒N-renders equation.)*
 
 ### The port operations (final)
-
-⟨S-3 §5 — the sole shape source; 09 codex2 F1⟩
 
 ```clojure
 (resolve-target site-ctx)     ; render: the ONLY resolution point → target
@@ -1348,7 +1347,7 @@ would misread as unchanged.
 ### The static override lease
 
 `acquire!` on a `:story-override` target returns a **static lease** — one uniform
-commit path with honest ownership reporting ⟨S-3 §5; 09 codex2 F1⟩:
+commit path with honest ownership reporting:
 
 - `:owned? false` — tools and instance records show the site as not owning a real
   subscription;
@@ -1373,7 +1372,7 @@ the Tier-3 mounted Story-context fixture landed with the ViewCell layer.)*
 
 ### Transactional multi-acquire — staging and rollback
 
-Commit's dependency reconciliation is transactional ⟨09 codex2 F1 — binding⟩:
+Commit's dependency reconciliation is transactional — **binding**:
 
 1. Every newly-observed or retargeted target is acquired **before anything is
    released** (invariant 3), and the resulting leases are **staged** — provisional,
@@ -1433,7 +1432,7 @@ registry lookup on the commit hot path (I-12 production erasure).
 
 ### Callback and reentrancy rules
 
-Spike-validated ⟨S-3 §5, µ⟩:
+Spike-validated:
 
 - `on-change` is **constant-work**: mark-dirty with node-key/version/epoch/cause; it
   never computes (invariant 6, I-5).
@@ -1443,7 +1442,7 @@ Spike-validated ⟨S-3 §5, µ⟩:
   *caused by* the epoch-close notify — are outside the fan-out and always legal.
 
 Conservative rules written ahead of S-3 exercise, now confirmed by the S2a
-implementation ⟨09 codex2 F1⟩:
+implementation:
 
 - `acquire!` and `release!` themselves **never invoke `on-change` synchronously** — no
   fan-out during acquire/release. Acquire returns state via the lease; movement in the
@@ -1462,7 +1461,7 @@ implementation ⟨09 codex2 F1⟩:
 
 ### Error contract — internally fail-loud, publicly recover-to-nil
 
-The port and the public read API split deliberately ⟨09 codex2 F1 — binding⟩:
+The port and the public read API split deliberately — **binding**:
 
 - **The port is fail-loud everywhere except its two predicates.** Every port operation
   that can fail throws typed, with one deliberate exception: the kept-check predicates
@@ -1725,8 +1724,7 @@ Bounded reuse is never stale-value authority: an interposed later render at a mo
 fails the tag check and mints a fresh table rather than serving the stale memoized value. A
 time-sliced pass spanning k slices builds k tables, so the economy is **once-per-slice, not
 once-per-pass** — bounded, allocation-trivial, and requiring zero React internals; an
-interrupted or abandoned slice's table becomes unreachable garbage. ⟨S-3 §5, fixtures
-1b/6⟩
+interrupted or abandoned slice's table becomes unreachable garbage.
 
 **The memo is an economy, never an authority.** A stale memoized value that survives
 into a committed capture is harmless because the **two-guard rule** already covers it:
