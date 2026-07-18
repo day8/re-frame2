@@ -523,6 +523,28 @@
      ;; unchanged.
      (number? el)      (hash/canonical-number el)
      (boolean? el)     ""
+     ;; A keyword or symbol CHILD is spelled by its `name` — no leading
+     ;; colon, namespace dropped (rf2-53lsj).
+     ;;
+     ;; These used to fall through to `escape-html`, whose `(str s)`
+     ;; keeps a keyword's colon and a symbol's namespace, so the JVM
+     ;; emitted `<card>:revenue</card>` and `<div>a/b</div>` where every
+     ;; client substrate paints `<card>revenue</card>` and `<div>b</div>`.
+     ;; Measured on both hosts: Reagent routes a `named?` child through
+     ;; `(name x)` before handing it to React, which is why the namespace
+     ;; disappears — `:a/b` and `'a/b` both paint `b`.
+     ;;
+     ;; rf2-j81hs aligned the HEAD meaning of a keyword and left the
+     ;; CHILD spelling diverging; a text-node mismatch is not cosmetic,
+     ;; because React hydration reconciles text nodes as well as element
+     ;; structure, so the server's ":revenue" could not hydrate cleanly
+     ;; against the client's "revenue". Same rule, same reason: one
+     ;; render tree means one thing on every host.
+     ;;
+     ;; `(or (keyword? el) (symbol? el))` rather than `named?` — the
+     ;; latter is CLJS-only, and this is a `.cljc` emitter.
+     (or (keyword? el) (symbol? el))
+     (html/escape-html (name el))
      (vector? el)
      (let [head (first el)]
        (cond

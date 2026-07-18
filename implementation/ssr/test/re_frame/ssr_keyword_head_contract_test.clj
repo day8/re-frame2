@@ -23,12 +23,33 @@
   only two emitters that ever diverged from it — the standard emitter and
   the streaming shell walker.
 
+  ## The child spelling (rf2-53lsj)
+
+  rf2-j81hs aligned the HEAD and stopped there, leaving the two hosts
+  emitting different TEXT for the identical tree:
+
+      [:dashboard/card :revenue]  JVM -> <card>:revenue</card>
+                              Reagent -> <card>revenue</card>
+
+  Its cross-host test acknowledged the difference and argued past it —
+  \"element structure is what hydration reconciles\". React hydration
+  reconciles TEXT nodes too, so that was the same bug one layer down,
+  institutionalised under a name (`client-markup-matches-the-jvm-emitter`)
+  that claimed more than it asserted.
+
+  A keyword or symbol child is now spelled by its `name` on every host:
+  no leading colon, and the NAMESPACE IS DROPPED (`:a/b` paints `b`).
+  That second half is the part a colon-stripping fix gets wrong; Reagent
+  routes a named child through `(name x)`, it does not trim the printed
+  form. Namespaced symbols were measured to diverge the same way and are
+  fixed by the same arm.
+
   The client half of the same contract is pinned substrate-side in
   `implementation/adapters/reagent/test/re_frame/ssr_keyword_head_contract_cljs_test.cljs`,
-  which asserts the SAME head paints the SAME element there. Together the
-  two files are the cross-host proof."
+  which asserts the SAME head paints the SAME element AND the same bytes.
+  Together the two files are the cross-host proof."
   (:require [clojure.string :as str]
-            [clojure.test :refer [deftest is testing use-fixtures]]
+            [clojure.test :refer [are deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.ssr.emit :as emit]
             [re-frame.ssr.streaming :as streaming]
@@ -61,8 +82,14 @@
             view still emits a custom element. The keyword's `name` is the
             tag (matching `parse-tag`'s `(name tag)` on every client
             substrate); its namespace is dropped; the trailing argument is
-            a text child."
-    (is (= "<card>:revenue</card>"
+            a text child.
+
+            rf2-53lsj — the text child is spelled by the keyword's `name`
+            too: no leading colon, namespace dropped. These are the exact
+            bytes Reagent + react-dom/server paints for the same tree
+            (measured, and pinned as a cross-host equality in the CLJS
+            twin)."
+    (is (= "<card>revenue</card>"
            (emit/render-to-string [:dashboard/card :revenue] nil))))
 
   (testing "the registration is genuinely present — this test would be
@@ -76,8 +103,53 @@
   (testing "an unregistered keyword head emits the identical element —
             registration state does not change the head's meaning, which
             is the whole content of the one-grammar rule"
-    (is (= "<card>:revenue</card>"
+    (is (= "<card>revenue</card>"
            (emit/render-to-string [:never-registered/card :revenue] nil)))))
+
+(deftest scalar-children-are-spelled-by-name
+  (testing "rf2-53lsj — a keyword or symbol CHILD is spelled by its `name`:
+            no leading colon, namespace dropped. #6378 aligned the head
+            meaning and left the child spelling diverging, so the same raw
+            tree still produced different TEXT on the two hosts — and
+            React hydration reconciles text nodes, not just elements.
+
+            Every expectation here was measured against Reagent +
+            react-dom/server before it was written; the CLJS twin asserts
+            the same strings from the other side."
+    (are [expected tree] (= expected (emit/render-to-string tree nil))
+      "<div>revenue</div>" [:div :revenue]
+      "<div>b</div>"       [:div :a/b]
+      "<div>leaf</div>"    [:div :ns.deep/leaf]
+      "<div>sym</div>"     [:div 'sym]
+      "<div>b</div>"       [:div 'a/b]
+      "<div>revenue growth</div>" [:div :revenue " " :growth]
+      "<div>1a</div>"      [:div 1 :a]))
+
+  (testing "the namespace is DROPPED, not rendered — the case a
+            colon-stripping fix would have got wrong. `:a/b` paints `b`,
+            never `a/b`, because Reagent routes a named child through
+            `(name x)` rather than trimming the printed form."
+    (is (= "<div>b</div>" (emit/render-to-string [:div :a/b] nil)))
+    (is (not= "<div>a/b</div>" (emit/render-to-string [:div :a/b] nil))))
+
+  (testing "escaping still applies to the NAME — spelling a child by
+            `name` must not become an escape bypass"
+    (is (= "<div>x&lt;y</div>" (emit/render-to-string [:div :x<y] nil))))
+
+  (testing "the classes that already agreed are unchanged"
+    (are [expected tree] (= expected (emit/render-to-string tree nil))
+      "<div>plain</div>" [:div "plain"]
+      "<div>9</div>"     [:div 9]
+      "<div></div>"      [:div nil]
+      "<div></div>"      [:div true]))
+
+  (testing "the streaming walker agrees — its scalar arm delegates to the
+            standard emitter, so this is a delegation pin, not a second
+            implementation"
+    (doseq [tree [[:div :revenue] [:div :a/b] [:div 'a/b] [:dashboard/card :revenue]]]
+      (is (= (emit/render-to-string tree nil)
+             (:shell-html (streaming/render-shell tree)))
+          (str "emitter/walker divergence on " (pr-str tree))))))
 
 (deftest keyword-head-carries-ordinary-element-syntax
   (testing "rf2-j81hs — the element branch is the ORDINARY element branch:
@@ -112,7 +184,7 @@
             only the standard emitter would have left the streaming path
             diverging from every client substrate."
     (let [{:keys [shell-html]} (streaming/render-shell [:dashboard/card :revenue])]
-      (is (= "<card>:revenue</card>" shell-html))))
+      (is (= "<card>revenue</card>" shell-html))))
 
   (testing "and still recurses through the element into nested children,
             so a suspense boundary underneath a keyword head is reachable"
@@ -194,7 +266,7 @@
   (testing "an ORDINARY namespaced keyword is NOT reserved — the guard is
             scoped to `:rf/*` and must not capture app namespaces, which
             are exactly the heads that now render as custom elements"
-    (is (= "<card>:revenue</card>"
+    (is (= "<card>revenue</card>"
            (emit/render-to-string [:dashboard/card :revenue] nil)))
     (is (= "<widget></widget>"
            (emit/render-to-string [:rfid/widget] nil))
