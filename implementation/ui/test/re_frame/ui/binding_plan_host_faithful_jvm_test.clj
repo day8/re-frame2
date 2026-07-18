@@ -13,6 +13,7 @@
   (:require [clojure.test :refer [deftest is testing]]
             [clojure.walk :as walk]
             [re-frame.ui.compiler.analyze :as ana]
+            [re-frame.ui.compiler.binding-plan :as bp]
             [re-frame.ui.compiler.emit-cljs :as emit-cljs]
             [re-frame.ui.compiler.header :as header]))
 
@@ -86,6 +87,20 @@
           "syms-first source order, not keys<strs<syms rank")
       (is (not= '[k1 k2 s1 s2 y1 y2] (plan-order pat))
           "the invented rank order would silently regress this")))
+  (testing "a group directive is re-assoc'd AFTER the surviving explicit entries"
+    ;; rf2-4xpah — the JVM half of the CLJS suite's distinguishable-order
+    ;; fixture (`interleaved-order-view`). Written source order is a, b, c; the
+    ;; host `dissoc`s the `:keys` directive and re-`assoc`s its local, so the
+    ;; binding order is a, c, b. The CLJS suite asserts that same order from
+    ;; three DISTINCT `:or` markers on the real host; this pins the expected
+    ;; literal against REAL `clojure.core/destructure`, so neither side can
+    ;; drift into agreeing on a wrong order.
+    (let [pat '{a :aa :keys [b] c :cc}]
+      (is (= (real-local-order pat) (plan-order pat)))
+      (is (= '[a c b] (plan-order pat))
+          "the group's local lands last, not in its written position")
+      (is (not= '[a b c] (plan-order pat))
+          "written source order would be the regression")))
   (testing "the 8→9 entry map-representation threshold"
     (is (= '[a b c d e f g h] (plan-order '{:keys [a b c d e f g h]}))
         "8 entries stay a PersistentArrayMap in source order")
@@ -288,6 +303,69 @@
           f   (eval (list 'fn [pat] 'x))]
       (is (= :a (f {:x :a :foo :b})) "reads :x")
       (is (nil? (f {:foo :b}))       "absent :x, no default → nil, never :foo"))))
+
+;; ---------------------------------------------------------------------------
+;; rf2-4xpah — the NESTED / partially overlapping collapse, JVM half
+;;
+;; PR #6228 repaired the nested shadow (`{[x] :other :keys [ns/x]}`) and added
+;; `bp/pattern-locals`, but pinned both ONLY on the compiled-CLJS lane. These
+;; fixtures pair that suite: the new primitive gets direct unit coverage, and
+;; the two collapse shapes are checked against REAL JVM native destructuring —
+;; the exact code the JVM emitter emits — so the two hosts cannot agree on a
+;; value neither host actually binds.
+;; ---------------------------------------------------------------------------
+
+(deftest pattern-locals-are-the-locals-the-host-binds
+  (testing "simple + sequential patterns"
+    (is (= '#{x} (bp/pattern-locals 'x)))
+    (is (= #{}   (bp/pattern-locals '&)) "the rest MARKER is not a local")
+    (is (= '#{x} (bp/pattern-locals '[x])))
+    (is (= '#{a b more all} (bp/pattern-locals '[a b & more :as all]))
+        "element patterns, the rest pattern and :as all bind")
+    (is (= '#{a b c} (bp/pattern-locals '[a [b [c]]])) "nesting recurses"))
+  (testing "associative patterns — group locals arrive NAME-STRIPPED"
+    (is (= '#{x} (bp/pattern-locals '{:keys [ns/x]}))
+        ":keys [ns/x] binds x, exactly as the plan's group locals arrive")
+    (is (= '#{x p whole}
+           (bp/pattern-locals '{:keys [ns/x] p :other :as whole :or {x 1}}))
+        "group locals, explicit sub-patterns and :as bind; :or and lookup keys do not")
+    (is (= '#{u v} (bp/pattern-locals '{[u v] :other}))
+        "an explicit entry's nested pattern recurses")))
+
+(deftest nested-and-partial-overlap-collapse-agrees-with-native-destructuring
+  (testing "NESTED: [x] <- :other is fully reclaimed, so :other is a dead slot"
+    (let [argv '[{[x] :other :keys [ns/x]}]
+          h    (header/parse-header argv)]
+      (is (= [:ns/x] (:slots h))
+          "the dead :other does not reach the comparator / manifest / schema slots")
+      (is (= 2 (count (:binding-units h)))
+          "yet the EXECUTABLE plan keeps both units — every initializer still runs")
+      (is (= '[[x] x] (:locals (emitted argv)))
+          (str "so the CLJS emitter emits the nested [x] <- :other unit AND the "
+               "winning x <- :ns/x, in that order — the later symbol shadows "
+               "the nested pattern's x by host let last-wins")))
+    ;; ground truth — what the JVM emitter's native `let` destructuring binds
+    (let [f (eval (list 'fn '[{[x] :other :keys [ns/x]}] 'x))]
+      (is (= 1 (f {:ns/x 1 :other [9]}))
+          "present :ns/x wins; the nested [x] <- :other read is dead")
+      (is (nil? (f {:other [9]}))
+          "absent :ns/x -> nil, never the shadowed 9 — matches the compiled-CLJS render")))
+  (testing "PARTIAL overlap: b still reads :other, so :other stays a live slot"
+    (let [h (header/parse-header '[{[a b] :other :keys [ns/a]}])]
+      (is (= [:other :ns/a] (:slots h))
+          ":other survives because b is still a final visible local"))
+    (let [f (eval (list 'fn '[{[a b] :other :keys [ns/a]}] '[a b]))]
+      (is (= [1 8] (f {:ns/a 1 :other [7 8]}))
+          "a is the group's :ns/a; b is the executed [a b] <- :other second slot")))
+  (testing "SCHEMA + CLOSED :props follow the collapsed slots for these shapes too"
+    (is (= [:ns/x :extra]
+           (header/declared-slots (header/parse-header '[{[x] :other :keys [ns/x]}])
+                                  (header/props-schema-keys [:map [:extra :any]])))
+        "the dead :other is absent from the declared-slot order the schema extends")
+    (is (= [:other :ns/a]
+           (header/declared-slots (header/parse-header '[{[a b] :other :keys [ns/a]}])
+                                  nil))
+        "a partial overlap keeps the slot its surviving local reads")))
 
 ;; ---------------------------------------------------------------------------
 ;; rf2-gvuoo — group-symbol METADATA survives the canonical plan

@@ -17,7 +17,21 @@
   CLOSED-`:props` set. `collapse-entries` compared whole `:pattern` values, so a
   vector `[x]` shadowed by a symbol `x` slipped through. The fix sweeps by the
   LOCALS each pattern binds (`bp/pattern-locals`); the executable plan
-  (`:binding-units`) is untouched, so every initializer still runs."
+  (`:binding-units`) is untouched, so every initializer still runs.
+
+  rf2-4xpah completes the real-host acceptance this suite promised: qualified
+  slot spellings and the didactic bare-slot miss now render VISIBLE values here
+  (the JVM companion pins them at macro level only); the collision defaults
+  carry SEQUENCED markers, so the visible winner is attributable to the second
+  evaluation rather than merely counted; a three-marker fixture makes the host
+  `bes` ORDER distinguishable from written source order; and a throwing default
+  proves it escapes the render even when the slot is present.
+
+  What this lane still cannot see is `:advanced`. It runs `:none` with
+  `:infer-externs false`, so an authored `^js` group-local hint is
+  indistinguishable from a lost one. That half lives in
+  `binding_plan_advanced_elision_prod_test`, which runs the same shapes through
+  a real Closure `:advanced` release build."
   (:require [clojure.string :as str]
             [clojure.test :refer [deftest is testing use-fixtures]]
             ["react-dom/server" :as rds]
@@ -36,7 +50,15 @@
 (defonce ^:private evals (atom []))
 (defn- mark! [tag] (swap! evals conj tag) tag)
 
-(use-fixtures :each {:before (fn [] (reset! evals []))})
+;; rf2-4xpah — a SEQUENCED marker. Two host units that collide on one local
+;; share ONE authored `:or` form, so the host evaluates the same expression
+;; twice and identical tags (`["D" "D"]`) prove a COUNT but not an ORDER. The
+;; sequence number makes the two evaluations distinguishable, so the visible
+;; winner can be attributed to a specific one.
+(defonce ^:private eval-seq (atom 0))
+(defn- mark-seq! [tag] (mark! (str tag (swap! eval-seq inc))))
+
+(use-fixtures :each {:before (fn [] (reset! evals []) (reset! eval-seq 0))})
 
 ;; ---------------------------------------------------------------------------
 ;; Fixtures — REAL defviews compiled through the production header lowering
@@ -60,7 +82,7 @@
 ;; collapse to the winner `:ns/x`, but BOTH host units bind the local `x`, so the
 ;; default's eager get-arg runs ONCE PER UNIT — executable plan is retained.
 (defview collision-default-view
-  [{:keys [ns/x] x :other :or {x (mark! "D")}}]
+  [{:keys [ns/x] x :other :or {x (mark-seq! "D")}}]
   [:div.x (str x)])
 
 ;; Plain defaulted slot: the `:or` default is `get`'s eager third argument, so it
@@ -68,6 +90,40 @@
 (defview eager-default-view
   [{:keys [x] :or {x (mark! "E")}}]
   [:div.x (str x)])
+
+;; rf2-4xpah — DISTINGUISHABLE evaluation order. Written source order is a, b,
+;; c, but the host `bes` transformation `dissoc`s the group directive and
+;; re-`assoc`s its locals AFTER the surviving explicit entries, so the host binds
+;; a, c, b. Three DISTINCT markers make that visible on the real host: an
+;; emitter that kept parse order would log ["a" "b" "c"].
+(defview interleaved-order-view
+  [{a :aa :keys [b] c :cc :or {a (mark! "a") b (mark! "b") c (mark! "c")}}]
+  [:div.o (str a b c)])
+
+;; rf2-4xpah — THROW propagation. The `:or` default is `get`'s eager third
+;; argument, so a throwing default must escape the render even when the slot is
+;; PRESENT. A lazy (absent-only) lowering would swallow it on the present arm.
+(defview throwing-default-view
+  [{:keys [x] :or {x (throw (ex-info "rf-bp-throwing-default" {}))}}]
+  [:div.x (str x)])
+
+;; ---------------------------------------------------------------------------
+;; Qualified slot spellings — the REAL-HOST half of the JVM parity
+;;
+;; `defview_grammar_jvm_test/qualified-key-ref-props-accepted-in-every-keys-
+;; spelling` proves all three spellings derive the same qualified slots, but
+;; entirely at macro level on the JVM. These are the same three spellings as
+;; REAL defviews, rendering VISIBLE values on the real host.
+;; ---------------------------------------------------------------------------
+
+(defview qualified-keys-view      [{:keys [acct/key acct/ref]}] [:div.q (str "[" key "|" ref "]")])
+(defview qualified-group-view     [{:acct/keys [key ref]}]      [:div.q (str "[" key "|" ref "]")])
+(defview qualified-explicit-view  [{k :acct/key r :acct/ref}]   [:div.q (str "[" k "|" r "]")])
+
+;; The didactic bare-slot shape: the local is name-stripped to `id`, but the
+;; slot READ is the qualified "acct/id" verbatim — a bare "id" prop is a
+;; DIFFERENT slot and binds nothing.
+(defview qualified-id-view [{:keys [acct/id]}] [:div.id (str "[" id "]")])
 
 ;; ---------------------------------------------------------------------------
 ;; The derived-slot defect — comparator + manifest, on the real host
@@ -134,18 +190,90 @@
     (is (= [:ns/x] (prop-slot-keys ::collision-default-view))
         "manifest declares only :ns/x — the dead :other is dropped"))
   (testing "yet BOTH host binding units execute the eager default, in order"
-    (reset! evals [])
+    (reset! evals []) (reset! eval-seq 0)
     (is (= "<div class=\"x\">1</div>"
            (render (rt/jsx2 collision-default-view (js-obj "ns/x" 1 "other" 2))))
         "present: :ns/x wins")
-    (is (= ["D" "D"] @evals)
+    (is (= ["D1" "D2"] @evals)
         "the default's eager get-arg runs once per unit (x<-:other, x<-:ns/x)")
-    (reset! evals [])
-    (is (= "<div class=\"x\">D</div>"
+    (reset! evals []) (reset! eval-seq 0)
+    (is (= "<div class=\"x\">D2</div>"
            (render (rt/jsx2 collision-default-view (js-obj))))
-        "absent: the winning unit falls to its default")
-    (is (= ["D" "D"] @evals)
+        (str "absent: the winner is the SECOND evaluation — the later "
+             "x <- :ns/x unit — not the first. Identical markers could not "
+             "tell these apart; had the units been emitted in the reverse "
+             "order the visible value would read D1"))
+    (is (= ["D1" "D2"] @evals)
         "both units still evaluate their default — executable plan is retained")))
+
+;; ---------------------------------------------------------------------------
+;; rf2-4xpah — the remaining real-host `:or` semantics: distinguishable ORDER
+;; and THROW propagation
+;; ---------------------------------------------------------------------------
+
+(deftest defaults-evaluate-in-host-bes-order-not-source-order
+  (testing "all slots present: every eager default still runs, in host bes order"
+    (reset! evals [])
+    (is (= "<div class=\"o\">ABC</div>"
+           (render (rt/jsx2 interleaved-order-view
+                            (js-obj "aa" "A" "b" "B" "cc" "C")))))
+    (is (= ["a" "c" "b"] @evals)
+        "host order: explicit entries keep their places, the group's local is re-assoc'd last")
+    (is (not= ["a" "b" "c"] @evals)
+        "written source order a,b,c would be the regression"))
+  (testing "all slots absent: the same order, and each default becomes its value"
+    (reset! evals [])
+    (is (= "<div class=\"o\">abc</div>"
+           (render (rt/jsx2 interleaved-order-view (js-obj)))))
+    (is (= ["a" "c" "b"] @evals))))
+
+(deftest throwing-default-propagates-even-when-the-slot-is-present
+  ;; React logs a render error before rethrowing; silence it so the throw under
+  ;; test is the only signal on a green run.
+  (let [orig js/console.error]
+    (set! js/console.error (fn [& _] nil))
+    (try
+      (testing "present slot: the eager get-arg default throws anyway"
+        (is (thrown-with-msg?
+             ExceptionInfo #"rf-bp-throwing-default"
+             (render (rt/jsx2 throwing-default-view (js-obj "x" 5))))
+            "a lazy absent-only lowering would render 5 and swallow this"))
+      (testing "absent slot: the default throws as it is selected"
+        (is (thrown-with-msg?
+             ExceptionInfo #"rf-bp-throwing-default"
+             (render (rt/jsx2 throwing-default-view (js-obj))))))
+      (finally (set! js/console.error orig)))))
+
+;; ---------------------------------------------------------------------------
+;; rf2-4xpah — qualified slot spellings + the didactic bare-slot failure, on the
+;; REAL host (the JVM half is macro-level only)
+;; ---------------------------------------------------------------------------
+
+(deftest every-qualified-spelling-reads-the-same-qualified-slots-on-the-real-host
+  (let [props (js-obj "acct/key" "K" "acct/ref" "R")]
+    (doseq [[label view] [["bare :keys with qualified symbols" qualified-keys-view]
+                          [":acct/keys group"                  qualified-group-view]
+                          ["explicit {local :acct/key} entry"  qualified-explicit-view]]]
+      (is (= "<div class=\"q\">[K|R]</div>" (render (rt/jsx2 view props)))
+          (str label
+               " reads slots \"acct/key\"/\"acct/ref\" verbatim — the qualified "
+               "names are legal precisely because they are NOT the reserved "
+               "bare :key/:ref React slots"))))
+  (testing "the qualified spellings declare the qualified slots, never bare ones"
+    (is (= [:acct/key :acct/ref] (prop-slot-keys ::qualified-keys-view)))
+    (is (= [:acct/key :acct/ref] (prop-slot-keys ::qualified-group-view)))
+    (is (= [:acct/key :acct/ref] (prop-slot-keys ::qualified-explicit-view)))))
+
+(deftest a-bare-prop-is-a-different-slot-and-binds-nothing
+  (testing "the qualified slot binds the name-stripped local"
+    (is (= "<div class=\"id\">[7]</div>"
+           (render (rt/jsx2 qualified-id-view (js-obj "acct/id" 7))))))
+  (testing "a BARE \"id\" prop is a different slot — didactically, nothing binds"
+    (is (= "<div class=\"id\">[]</div>"
+           (render (rt/jsx2 qualified-id-view (js-obj "id" 7))))
+        "the name-strip renames the LOCAL, never the lookup slot")
+    (is (= [:acct/id] (prop-slot-keys ::qualified-id-view))
+        "and the manifest declares the qualified slot, so a bare :id is undeclared")))
 
 (deftest eager-default-runs-once-present-and-absent
   (testing "present slot: the eager get-arg default STILL evaluates once"

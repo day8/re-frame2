@@ -321,6 +321,33 @@
                   [{:keys [ns/x] x :other}] [v {:other 1}])))
         "an open map accepts undeclared props, dead-shadowed or not")))
 
+(deftest nested-and-partial-overlap-drive-the-closed-props-set-too
+  ;; rf2-4xpah — PR #6228 extended the collapse to NESTED and partially
+  ;; overlapping patterns, but pinned the consequence only on the comparator and
+  ;; the manifest (compiled-CLJS lane). The declared-slot set also gates CLOSED
+  ;; `:props`, so the same two shapes belong here beside their sibling case.
+  (testing "NESTED: [x] <- :other is fully reclaimed, so :other is undeclared"
+    (let [hdr (header/parse-header '[{[x] :other :keys [ns/x]}])]
+      (is (= [:ns/x] (:slots hdr)))
+      (is (= [:ns/x] (header/declared-slots hdr nil))))
+    (is (nil? (expand-error
+               '(re-frame.ui/defview v {:props [:map [:ns/x :any]]}
+                  [{[x] :other :keys [ns/x]}] [v {:ns/x 1}])))
+        "the host-winning :ns/x prop is accepted")
+    (is (= :rf.ui.compile/undeclared-prop
+           (expand-error
+            '(re-frame.ui/defview v {:props [:map [:ns/x :any]]}
+               [{[x] :other :keys [ns/x]}] [v {:other [1]}])))
+        "the dead :other binds nothing, so a closed map must reject it"))
+  (testing "PARTIAL overlap: b still reads :other, so :other STAYS declared"
+    (let [hdr (header/parse-header '[{[a b] :other :keys [ns/a]}])]
+      (is (= [:other :ns/a] (:slots hdr)))
+      (is (= [:other :ns/a] (header/declared-slots hdr nil))))
+    (is (nil? (expand-error
+               '(re-frame.ui/defview v {:props [:map [:other :any] [:ns/a :any]]}
+                  [{[a b] :other :keys [ns/a]}] [v {:other [1 2]}])))
+        "a surviving visible local keeps its slot legal at a closed call site")))
+
 ;; ---------------------------------------------------------------------------
 ;; custom-element (RULED grammar, closed)
 ;; ---------------------------------------------------------------------------
