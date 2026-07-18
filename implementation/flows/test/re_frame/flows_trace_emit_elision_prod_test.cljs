@@ -77,11 +77,10 @@
 
 (deftest reg-flow-emits-no-registered-trace-under-prod
   (testing "Per Spec 009 §Production-elision (rf2-xxd6z): `reg-flow`
-            installs the flow via the registrar but emits NO
+            installs the flow into the per-frame flow store but emits NO
             `:rf.flow/registered` trace under `:advanced` +
-            `goog.DEBUG=false`. The registrar's own
-            `:rf.registry/handler-registered` would also elide (its
-            gate is symmetric); the assertion below is total."
+            `goog.DEBUG=false`. The listener records EVERY event, so the
+            assertion below is total — no trace of any kind is delivered."
     (let [seen (listener-fixture
                  (fn []
                    (rf/reg-flow :prod-elision/area
@@ -90,7 +89,7 @@
                      (fn [w h] (* (or w 0) (or h 0))))))]
       (is (empty? seen)
           "no trace events delivered under :advanced + goog.DEBUG=false"))
-    ;; Cross-check: the flow IS registered — the registrar mutation
+    ;; Cross-check: the flow IS registered — the per-frame store write
     ;; happened, only the trace surface elided. The per-frame flow
     ;; registry (read via `flows/flows-snapshot`) is keyed
     ;; `{frame-id {flow-id flow}}`; the flow registers under

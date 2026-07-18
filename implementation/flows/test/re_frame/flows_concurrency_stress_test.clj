@@ -22,10 +22,10 @@
       same-frame multi-thread `dispatch-sync` would hit
       `:rf.error/dispatch-sync-in-handler` via the `:in-sync-drain?`
       guard, so we deliberately partition by frame. Per-frame `flows`
-      / `last-inputs` slots are independent; the global registrar
-      `:flow` slot IS shared (flow-id is global) but reg-flow stamps
-      the most-recently-registered frame onto its metadata per Spec
-      013 §Frame-scoping line 105.
+      / `last-inputs` slots are independent, and under the single store
+      (rf2-en00bk) they are the SOLE store — the `:flow` registrar slot
+      is RESERVED-but-empty, so no frame-blind slot is shared between
+      threads (Spec 013 §Frame-scoping).
     - **Per iter**, the thread runs the reg-flow → dispatch-drain →
       clear-flow cycle against a per-thread namespaced flow id
       (`:ztw5p.stress/double-f<i>`) whose `:derive` action increments a
@@ -33,17 +33,17 @@
       both bumping exactly once per dirty evaluation.
         1. `(rf/reg-flow ...)` against the per-thread frame —
            per-thread namespaced `:id` keeps each thread's `:derive`
-           closure binding independent (registrar is GLOBAL; one
-           shared `:id` would only bind the last closure).
+           closure and its per-thread assertions independently
+           attributable.
         2. `(rf/dispatch-sync [:bump-input] {:frame F})` — drives one
            dirty evaluation. The `:derive` fn bumps the global atomic
            AND the per-thread counter atom. Both bump exactly once
            per dirty evaluation (the dirty-check guarantees `:derive`
            runs once per input change).
         3. `(rf/clear-flow ...)` against the per-thread frame — must
-           dissoc both the per-frame registry slot AND (since this is
-           the LAST frame holding the id) the global registrar `:flow`
-           slot. Cleanup is the leak-invariant test surface.
+           dissoc the flow's per-frame registry slot, pruning the
+           frame-id key once its last flow is cleared. Cleanup is the
+           leak-invariant test surface.
 
   Invariants asserted:
 
@@ -74,10 +74,10 @@
        (read via `flows/flows-snapshot`) holds zero entries for every
        test frame, the dirty-check `last-inputs` map (read via
        `flows/last-inputs-snapshot`) holds zero entries for every
-       per-thread flow id, and the global `:flow` registrar slot is
-       unregistered for every per-thread flow id (the LAST frame
-       holding it released the id, so per Spec 013 §Frame-scoping
-       the registrar slot must be vacated).
+       per-thread flow id, and the reserved `:flow` registrar slot
+       reads `nil` for every per-thread flow id (it is never written
+       under the single store, so per Spec 013 §Frame-scoping there is
+       nothing to vacate).
 
   Threads start in lockstep via `CountDownLatch.countDown` — the same
   shape rf2-35rgj / rf2-1gpx8 use to maximise contention. Per-thread
@@ -138,9 +138,9 @@
   ;; cycle-detection-under-contention (every prospective cyclic
   ;; registration must throw, even when topo-sort is reading from a
   ;; concurrently-mutating per-frame slot) and clean-registry-
-  ;; teardown (the per-frame registry, the dirty-check `last-inputs`
-  ;; map, and the global `:flow` registrar slot all clear after the
-  ;; matching `clear-flow`).
+  ;; teardown (the per-frame registry and the dirty-check `last-inputs`
+  ;; map both clear after the matching `clear-flow`, and the reserved
+  ;; `:flow` registrar slot stays empty throughout).
   (testing (str n-threads " threads × " stress-iters
                 " iters reg-flow / dirty-eval / clear-flow — "
                 "no drops, no doubles, cycles still detected, no leaks")
@@ -152,8 +152,9 @@
           ;; §Rules rule 1 — frames are independent state machines,
           ;; their drain-locks don't share). Per-thread flow-ids let
           ;; each thread's `:derive` fn close over THIS thread's
-          ;; per-thread counter atom — `reg-flow` writes the GLOBAL
-          ;; registrar; each id binds independently in the registrar.
+          ;; per-thread counter atom — `reg-flow` writes the per-frame
+          ;; store, keyed `[frame-id flow-id]`, so each thread's frame
+          ;; and id bind independently.
           per-thread
           (vec
             (for [i (range n-threads)]
@@ -239,9 +240,9 @@
                           ;; if a future hangs.
                           idx)))]
         ;; Release all threads simultaneously — maximises lock-step
-        ;; contention on the GLOBAL registrar's `:flow` slot (each
-        ;; thread is writing/reading the same registrar kind during
-        ;; reg/clear).
+        ;; contention on the shared per-frame `flows` / `last-inputs`
+        ;; atoms (every thread is swapping the same two atoms during
+        ;; reg/clear, each under its own frame-id key).
         (.countDown latch)
         ;; Bounded join — if a cycle ever hangs (e.g. a clear-flow
         ;; that doesn't fire under contention), we want a visible
@@ -295,9 +296,9 @@
         ;;     thread cleared its flow, the per-frame registry must
         ;;     have the frame-id key fully PRUNED for every test frame,
         ;;     the `last-inputs` map must hold no entries for any
-        ;;     per-thread flow id, and the global `:flow` registrar slot
-        ;;     must be gone for every per-thread flow id (the LAST frame
-        ;;     holding it released the id per Spec 013 §Frame-scoping).
+        ;;     per-thread flow id, and the reserved `:flow` registrar slot
+        ;;     must read `nil` for every per-thread flow id (never written
+        ;;     under the single store, per Spec 013 §Frame-scoping).
         ;;
         ;; Each per-thread frame had ALL its flows cleared, so clearing the
         ;; last one prunes the frame-id key entirely — the slot is strictly
