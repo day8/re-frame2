@@ -248,11 +248,11 @@ A middleware surface that mirrors the rest of the `reg-*` family. Use it to inje
   (clear-http-interceptor id)
   (clear-http-interceptor id {:frame target})
   ```
-- **Description**: Unregister an interceptor by id.
-  - `(clear-http-interceptor id)` resolves the frame from the carried scope it runs under.
-  - `(clear-http-interceptor id {:frame target})` names the frame explicitly via the trailing opts map, mirroring `reg-http-interceptor`'s `:frame` and the family's public-frame-targeting law (never a positional frame arg on a public surface).
-  - Either form raises `:rf.error/no-frame-context` when the frame is absent (single-arity under no scope, or opts `{:frame nil}`). It never clears against a synthesised `:rf/default`.
-  - The 2-arity is shape-discriminated: an opts map as the second arg is the public form, while a bare frame target in the first position is the internal frame-first `(frame id)` plumbing.
+- **Description**: Unregister an interceptor by id. The public surface is **exact** — the two shapes above, nothing else.
+  - `(clear-http-interceptor id)` resolves the frame through the ambient (carried-scope) chain it runs under. Under no scope it raises the always-on `:rf.error/no-frame-context` rather than clearing against a synthesised `:rf/default`.
+  - `(clear-http-interceptor id {:frame target})` names the frame explicitly via the trailing opts map, mirroring `reg-http-interceptor`'s `:frame` and the family's public-frame-targeting law (never a positional frame arg on a public surface). `target` is a present, non-nil frame-id keyword or a live frame value.
+  - The two-arity opts map is **fail-closed**: it MUST be exactly `{:frame target}`. A `{}`, a `{:frame nil}`, a typo'd or extra key (`{:fram f}`), and a non-map second arg all raise `:rf.error/http-bad-interceptor` BEFORE any ambient frame is resolved or touched — never reinterpreted as a positional frame nor silently cleared against the ambient scope (rf2-s32bf). This is distinct from the single-arity no-scope `:rf.error/no-frame-context`.
+  - The frame-first `(frame id)` spelling is a separate artefact-internal seam (`clear-http-interceptor*`), reached directly by internal cleanup that already holds a resolved frame — e.g. the `:rf.fx/clear-http-interceptor` fx — **not** a public arity of `clear-http-interceptor`.
 - **Example**:
   ```clojure
   (rf/clear-http-interceptor :auth-header)
