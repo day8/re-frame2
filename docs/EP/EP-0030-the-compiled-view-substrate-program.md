@@ -192,14 +192,22 @@ authored by this project never count as independent demand for platform-scale fe
 
 The library alone is not the program. Fifteen workstreams
 (`11-adoption-workstreams.md`) decompose everything beyond it: the migrator tool (W1),
-migration + authoring skills (W2/W6), the docs/guide rewrite (W3), examples migration
-with the `substrates/` deletion (W4), the hot-zone spec-tree waves (W5), tool evidence
+migration + authoring skills (W2/W6), the docs/guide rewrite (W3), examples gaining
+`re-frame.ui` variants while `substrates/` is **retained** minus its Helix arm (W4), the
+hot-zone spec-tree waves (W5), tool evidence
 consumption into Xray/Story/Pair (W7a, S3 — debugging is the *first* consumer, not the
-last), the tools' own UIs migrating as the dogfood proof (W7b), template collapse (W8),
-the CI rewrite ending at three named causal suites (W9), SSR hosts (W10), one-time
-benchmarks against the legacy adapters before Helix removal (W11), repo meta-docs (W12),
+last), the tools' own UIs migrating as the dogfood proof (W7b), the template gaining a
+`re-frame.ui` scaffold and losing its Helix variant (W8), the CI rewrite ending at
+**four** named causal suites (W9), SSR hosts (W10), one-time benchmarks against the
+existing adapters before Helix removal (W11), repo meta-docs (W12),
 the Helix-removal wave (W13), conformance corpus (W14), and program management (W15).
 None are optional; `ui.test`, the migrator, and the skills are critical path.
+
+Because the retained adapters keep their example coverage, their suites, and their boot
+choices, none of these workstreams deletes a surface that belongs to Reagent, UIx, or
+reagent-slim; each one *adds* the `re-frame.ui` option beside them and subtracts only
+Helix. Whether the template's variant menu narrows beyond dropping Helix is a product
+choice reserved to Mike, and W8 does not presume one.
 
 ### Migration posture
 
@@ -253,8 +261,10 @@ adapters keep working. For external apps the compatibility surface is deliberate
 Reagent, UIx, and reagent-slim adapters stay first-class and actively supported, keeping
 their contract suites and smokes in CI (`reg-view` stays with stock Reagent), and the
 removal wave touches **only Helix**, behind the S7 soak gates. Benchmarks against the
-legacy adapters run once before Helix removal; the results, fixtures, and a git tag of
-the removed surface survive.
+existing adapters run **once**, before Helix removal; the results, fixtures, and a git
+tag of the removed surface survive. They run once because keeping an adapter first-class
+promises continued *support*, not ongoing performance parity — the baseline is a recorded
+comparison, not a standing gate.
 
 ## Bead Plan / Reference Implementation
 
