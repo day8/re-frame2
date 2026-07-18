@@ -137,21 +137,49 @@
   [id]
   (when id (string/replace (str id) #"[^a-zA-Z0-9_]" "_")))
 
+(defn- canonical-str
+  "Lossless, order-canonical string rendering of a concrete-query identity.
+  Distinct EDN values render to distinct strings (injective); value-equal
+  identities render identically — maps and sets emit their elements in
+  canonical (sorted) order, so an identity built in ANY map/set insertion
+  order yields ONE stable string. Vectors and lists keep their significant
+  order; scalars defer to `pr-str` (faithful + reader-quoted, so a string can
+  never masquerade as structure). Small + local to the selector below — NOT a
+  general serializer."
+  [x]
+  (cond
+    (map? x)    (str "{" (->> x
+                              (map (fn [[k v]]
+                                     (str (canonical-str k) " " (canonical-str v))))
+                              sort
+                              (string/join ", "))
+                     "}")
+    (set? x)    (str "#{" (->> x (map canonical-str) sort (string/join " ")) "}")
+    (vector? x) (str "[" (->> x (map canonical-str) (string/join " ")) "]")
+    (seq? x)    (str "(" (->> x (map canonical-str) (string/join " ")) ")")
+    :else       (pr-str x)))
+
 (defn- concrete-query-selector
-  "Injective `data-testid` suffix for an unchanged-sub row's concrete-query
-  identity (rf2-bk2c6). `id-slug` alone is LOSSY — it flattens every
-  non-alnum/non-`_` char to `_`, so DISTINCT valid queries collapse to one
-  selector (`[:item/derived :a-b]` and `[:item/derived :a/b]` both slug to
-  `__item_derived__a_b_`), colliding two surviving rows onto one `data-testid`
-  the DOM can no longer address independently. Appending a stable content
-  hash of the FULL identity restores distinction while retaining the readable
-  slug stem: distinct concrete queries get distinct selectors, and the SAME
-  concrete query always hashes the same — so repeated evidence keeps ONE
-  stable selector (the dedup contract). Projection, React keys, the visible
-  label, and `data-query-v` are untouched; only this testid encoding changes."
+  "GENUINELY INJECTIVE `data-testid` suffix for an unchanged-sub row's
+  concrete-query identity (rf2-bk2c6 / rf2-haoip). `id-slug` alone is LOSSY —
+  it flattens every non-alnum/non-`_` char to `_`, so DISTINCT valid queries
+  collapse to one slug (`[:item/derived :a-b]` and `[:item/derived :a/b]` both
+  slug to `__item_derived__a_b_`). Appending a 32-bit `hash` did NOT fix this:
+  a 32-bit hash COLLIDES, so distinct queries (`[:item/derived \" @\"]` and
+  `[:item/derived \"!!\"]` share hash `1127258382`) still minted the identical
+  selector — false identity, two rows onto one `data-testid` the DOM cannot
+  address independently. The discriminator is now a LOSSLESS, order-canonical
+  encoding of the full identity, made DOM-safe via `encodeURIComponent`:
+  distinct concrete queries get distinct selectors (collision-free), and
+  value-equal identities — maps in any insertion order included — get ONE
+  stable selector (the dedup contract). The readable `id-slug` stem survives;
+  projection, React keys, the visible label, and `data-query-v` are untouched;
+  only this testid encoding changes. BOTH the readable stem and the
+  discriminator derive from `canonical-str`, so the WHOLE selector is a function
+  of VALUE — the `id-slug` stem cannot re-leak map insertion order."
   [ident]
-  (str (id-slug ident) "-"
-       (.toString (unsigned-bit-shift-right (hash ident) 0) 36)))
+  (let [canon (canonical-str ident)]
+    (str (id-slug canon) "-" (js/encodeURIComponent canon))))
 
 (defn- elapsed-label
   "Format a render's `:elapsed-ms` for the view-node sub-label. Sub-ms
