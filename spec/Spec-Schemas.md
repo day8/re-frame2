@@ -3879,9 +3879,9 @@ These are registered under spec ids:
 | `:rf.fx/dispatch-args` | `:dispatch` (and `:raise`, which takes the same event-vector shape) |
 | `:rf.fx/dispatch-later-args` | `:dispatch-later` |
 | `:rf.fx/http-args` | `:http` (recommendation; user-owned) |
-| `:rf.fx/nav/push-url-args` | `:rf.nav/push-url` (per [012](012-Routing.md)) |
-| `:rf.fx/nav/replace-url-args` | `:rf.nav/replace-url` |
-| `:rf.fx/nav/scroll-args` | `:rf.nav/scroll` |
+| `:rf.fx.nav/push-url-args` | `:rf.nav/push-url` (per [012](012-Routing.md)) |
+| `:rf.fx.nav/replace-url-args` | `:rf.nav/replace-url` |
+| `:rf.fx.nav/scroll-args` | `:rf.nav/scroll` |
 | `:rf.fx/spawn-args` | `:rf.machine/spawn` (the canonical actor-lifecycle fx-id; emitted from any event handler's `:fx` and from machine actions; per [005](005-StateMachines.md)) |
 | `:rf.fx/destroy-machine-args` | `:rf.machine/destroy` (the canonical actor-destroy fx-id; per [005](005-StateMachines.md) and — accepts either a bare actor-id keyword or a `{:rf/parent-id :rf/invoke-id}` map) |
 | `:rf.fx/dispatch-to-system-args` | `:rf.machine/dispatch-to-system` (the action→named-actor messaging fx-id; args are the 2-element pair `[<system-id> <event-vector>]` — a `[:tuple :keyword [:ref :rf/event]]` (per [§`:rf/event`](#rfevent-the-event-vector)); per [005 §Cross-machine messaging by name](005-StateMachines.md#cross-machine-messaging-by-name)) |
