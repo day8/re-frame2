@@ -439,6 +439,57 @@
             how))
       (is (str/includes? how "G-8 real-browser fixture")))))
 
+;; --- Active-authority census: the ui.test public surface (rf2-ukuun) ---------
+;;
+;; `ui.test/frame` was removed with the one-frame-init ruling (rf2-va5e61): a
+;; test-owned frame is made with `rf/make-frame` + `:initial-events`, and there
+;; is no `ui.test` constructor. The guide already says so; the OPERATIVE
+;; inventories that leaf beads implement against are elsewhere, so they are
+;; censused here rather than in a repository-wide prose scanner. Each entry is
+;; ONE line located by a stable substring — not a Markdown parse.
+(def ^:private ui-test-surface-inventories
+  [["spec/API.md" "blessed §2 public-surface table"
+    "| `re-frame.ui.test/*` (render,"]
+   ["spec/API.md" "authoritative §2b surface matrix"
+    "| `re-frame.ui.test/*` | **S1 core**"]
+   ["ai/findings/new-substrate-synthesis/drafts/spec-004-rewrite-draft.md"
+    "S1 surface row" "| `ui.test` surfaces this Spec references |"]
+   ["ai/findings/new-substrate-synthesis/drafts/spec-004-rewrite-draft.md"
+    "Spec 008 ripple inventory" "- `spec/008-Testing.md` — the `ui.test` contract"]])
+
+;; A BARE `frame` roster entry. The lookarounds keep the sanctioned spellings
+;; out: `re-frame` (preceded by `-`), `frame-targeted` / `frame-chain`
+;; (followed by `-`), and `frames` (followed by a word char). A retired roster
+;; entry — `attrs, frame,` or `attrs/frame` or `query/frame/` — matches.
+(def ^:private ^java.util.regex.Pattern bare-frame-entry-re
+  #"(?<![\w-])frame(?![\w-])")
+
+(deftest ui-test-inventories-name-the-shipped-surface
+  (testing "the shipped namespace has no frame constructor"
+    (let [publics (set (map name (keys (ns-publics 're-frame.ui.test))))]
+      (is (not (contains? publics "frame"))
+          "re-frame.ui.test/frame is removed — make-frame + :initial-events is the one grammar")
+      (doseq [shipped ["find-all" "attrs" "dispatch!"]]
+        (is (contains? publics shipped)
+            (str "re-frame.ui.test/" shipped " must stay public")))))
+  (doseq [[path label locator] ui-test-surface-inventories]
+    (testing (str path " — " label)
+      (let [line (->> (str/split-lines (slurp (root-file path)))
+                      (filter #(str/includes? % locator))
+                      first)]
+        (is (some? line)
+            (str "inventory row not found (locator moved?): " locator))
+        (when line
+          (is (not (re-find bare-frame-entry-re line))
+              (str path " (" label ") reintroduced the removed ui.test/frame constructor"))
+          ;; Positive members, so deleting the roster cannot false-green the
+          ;; rule. Only members that sit on the LOCATED line are asserted — one
+          ;; roster (the Spec 008 ripple bullet) wraps, and the rule stays a
+          ;; line census rather than a Markdown parser.
+          (doseq [shipped ["find-all" "attrs"]]
+            (is (str/includes? line shipped)
+                (str path " (" label ") must still list " shipped))))))))
+
 (deftest xray-s3-stays-on-existing-views-surfaces
   (let [views       (slurp-guide "02-views.md")
         debugging   (slurp-guide "09-debugging.md")

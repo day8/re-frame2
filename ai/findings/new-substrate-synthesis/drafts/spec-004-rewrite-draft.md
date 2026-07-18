@@ -768,7 +768,7 @@ order and is a defect in this table.
 | §Roots and mounting — mount grammar, root identity, Root Descriptor v1, client host fns, duplicate Layers 1+3, static frame-plan extraction | **S1** | the [root-identity-and-mount.md](root-identity-and-mount.md) §10 S1 row |
 | §Roots and mounting — frame preflight ENSURE (runtime) + `frame-root`/`frame-provider` scoping | **S2** | preflight-exactly-once, non-reseed, StrictMode/HMR-immune fixtures |
 | §Roots and mounting — hydration + Root Manifest v1 | **S5** | manifest extension keys; multi-root hydration + failed-root isolation |
-| `ui.test` surfaces this Spec references | **S1** core (render/find/find-all/text/attrs/frame + Tier-1 `dispatch!` — real frame-targeted synchronous dispatch-and-drain (#5700) — over Tier-1 trees; `query` enforces the tier split) → **S2** mounted extensions that compose with the S1 `dispatch!` (Promise-backed `with-root` (#5808), native-CSS `query`, Promise-backed sole test `flush!`; ordinary DOM events, no gesture DSL — `dispatch!` itself gains no separate mounted mode) → **S4** `flush-presence!` | selector-grammar fixtures; JVM-subset enforcement; real React mount/query/total-teardown/open-drain/drain-quiescence fixtures |
+| `ui.test` surfaces this Spec references | **S1** core (render/find/find-all/text/attrs + Tier-1 `dispatch!` — real frame-targeted synchronous dispatch-and-drain (#5700) — over Tier-1 trees; `query` enforces the tier split) → **S2** mounted extensions that compose with the S1 `dispatch!` (Promise-backed `with-root` (#5808), native-CSS `query`, Promise-backed sole test `flush!`; ordinary DOM events, no gesture DSL — `dispatch!` itself gains no separate mounted mode) → **S4** `flush-presence!` | selector-grammar fixtures; JVM-subset enforcement; real React mount/query/total-teardown/open-drain/drain-quiescence fixtures |
 | §View identity and the instrumentation surface | **S3** → budget/absence gates complete **S6** | manifests, instance records, cause vectors, Xray consumption (compile-time site anchors exist from S1; the evidence schema asserts S3); production erasure G-7/G-11 |
 | §The JVM structural subset — structure/props/branches/lists/event intent/`ui/html` + `:rf.error/jvm-host-op` | **S1** | Tier-1 rendering against the tree contract |
 | §The JVM structural subset — subs via the pure snapshot path | **S2** | the Q32/Q22 answer: `sub` *grammar* compiles at S1, but no Stage-1 Tier-1 fixture exercises a sub read — a Tier-1 render through a sub site (frame or `:sub-overrides`) is an S2 assertion |
@@ -886,8 +886,8 @@ not drafted. Line references are against the current checked-in files (revisions
   Helix rows; add the `re-frame.ui` surface per its owning rows.
 - `spec/Spec-Schemas.md` — projection: `:rf/epoch-record` `:renders`, `:rf/view-id-attr`,
   and the new versioned manifest/instance-record shapes follow their owners.
-- `spec/008-Testing.md` — the `ui.test` contract (render/find/query/frame/dispatch!/
-  with-root/flush!/flush-presence!), tier table, `.cljc` constraint;
+- `spec/008-Testing.md` — the `ui.test` contract (render/find/find-all/query/text/attrs/
+  dispatch!/with-root/flush!/flush-presence!), tier table, `.cljc` constraint;
   hiccup-walk `test-helpers` [TRANSITION]. Selector grammar: drafted and reconciled
   with the tree contract ([ui-test-selector-grammar.md](ui-test-selector-grammar.md));
   node reading per [jvm-tree-and-conversion-contract.md](jvm-tree-and-conversion-contract.md).
