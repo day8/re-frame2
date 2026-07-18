@@ -21,6 +21,7 @@
             [re-frame.core :as rf]
             [re-frame.frame :as frame]
             [re-frame.registrar :as registrar]
+            [re-frame.router :as router]
             [re-frame.subs :as subs]
             [re-frame.substrate.plain-atom :as plain-atom]
             [re-frame.test-support :as test-support]))
@@ -408,6 +409,97 @@
           "neither :fh/derived nor its input :fh/value is installed in successor B's sub-cache")
       (is (some #(= :rf.error/frame-destroyed (:operation %)) @errs)
           "the recursive input's build fence emits :rf.error/frame-destroyed"))))
+
+;; ---- rf2-a2x2w: exactly-once when A is lost AFTER the token match ----------
+;;
+;; rf2-dlld6 (above) fenced the A→B mismatch AT the token comparison. A LATER
+;; window remained: A can be lost AFTER dispatch! / dispatch-sync! pass the
+;; expected-token comparison (A still current then, so the mismatch clause does
+;; NOT fire) but BEFORE the async enqueue linearizes under the router monitor /
+;; the sync drain-lock is acquired. The `target-live?` / lock guards correctly
+;; keep successor B untouched — but pre-fix they SILENTLY returned (no emit,
+;; violating the recover-but-EMIT contract). rf2-a2x2w recover-but-emits EXACTLY
+;; ONCE from this window too, realm-exact via the threaded `:op`.
+;;
+;; These fixtures interpose ONE-SHOT on the router's private enqueue / sync-drain
+;; seam — entered ONLY after the cond's token comparison passed — and, at that
+;; boundary, destroy A + reseat a same-id successor B. The real seam's own lock-
+;; guarded incarnation re-check then fences the enqueue / seed-push out, so the
+;; post-token-match window is exercised deterministically (single-threaded — the
+;; swap runs inside the interposed call, no latch). The MUTATION TOOTH is the
+;; emit COUNT: pre-fix these returned silently (zero emits); the fix makes it one.
+
+(defn- run-supersede-at-enqueue
+  "Interpose ONE-SHOT on `router/ensure-drain-scheduled!` (dispatch!'s async
+  enqueue seam, reached only after the cond passed the token comparison): the
+  first entry destroys A and reseats a same-id successor B, THEN delegates to the
+  real seam — whose router-monitor liveness re-check now fences the enqueue out.
+  Reproduces A lost after the token match but before the async enqueue."
+  [frame-id op]
+  (let [real  @#'router/ensure-drain-scheduled!
+        fired (atom false)]
+    (with-redefs [router/ensure-drain-scheduled!
+                  (fn [fid frame-record router envelope continue?]
+                    (when (compare-and-set! fired false true)
+                      (rf/destroy-frame! frame-id)
+                      (rf/make-frame {:id frame-id :doc "incarnation B (successor)"}))
+                    (real fid frame-record router envelope continue?))]
+      (op))))
+
+(defn- run-supersede-at-drain-block
+  "Interpose ONE-SHOT on `router/drain-block!` (dispatch-sync!'s sync-drain seam,
+  reached only after the cond passed the token comparison AND both `target-live?`
+  guards held): the first entry destroys A and reseats same-id B, THEN delegates
+  to the real seam — whose post-CAS incarnation re-check now resets the lock
+  WITHOUT running the seed-push. Reproduces A lost after the token match but
+  before the drain-lock acquire."
+  [frame-id op]
+  (let [real  @#'router/drain-block!
+        fired (atom false)]
+    (with-redefs [router/drain-block!
+                  (fn [fid frame-record under-lock-fn]
+                    (when (compare-and-set! fired false true)
+                      (rf/destroy-frame! frame-id)
+                      (rf/make-frame {:id frame-id :doc "incarnation B (successor)"}))
+                    (real fid frame-record under-lock-fn))]
+      (op))))
+
+(deftest stale-capture-async-dispatch-post-token-match-emits-exactly-once
+  (testing "rf2-a2x2w (async, gap 2) — a captured async dispatch that PASSED the
+            exact-incarnation token comparison, then lost A before the enqueue
+            linearized under the router monitor, recover-but-emits EXACTLY ONE
+            :rf.error/frame-destroyed and enqueues NOTHING into successor B.
+            MUTATION TOOTH: pre-fix this post-token-match window returned SILENTLY
+            (zero emits)."
+    (rf/reg-event :fh/mark (fn [{:keys [db]} _] {:db (assoc db :marked-by :stale-capture)}))
+    (rf/make-frame {:id :fh/race :doc "incarnation A"})
+    (let [{:keys [dispatch]} (rf/capture-frame :fh/race)   ;; pins A
+          errs (atom [])]
+      (rf/register-listener! :trace ::a2x2w-async (fn [ev] (swap! errs conj ev)))
+      (run-supersede-at-enqueue :fh/race #(dispatch [:fh/mark]))
+      (rf/unregister-listener! :trace ::a2x2w-async)
+      (is (nil? (:marked-by (rf/app-db-value :fh/race)))
+          "the post-token-match loss enqueued nothing into successor B")
+      (is (= 1 (count (filter #(= :rf.error/frame-destroyed (:operation %)) @errs)))
+          "EXACTLY ONE :rf.error/frame-destroyed for the post-token-match async loss"))))
+
+(deftest stale-capture-dispatch-sync-post-token-match-emits-exactly-once
+  (testing "rf2-a2x2w (dispatch-sync, gap 2) — a captured dispatch-sync that
+            PASSED the exact-incarnation token comparison, then lost A before the
+            drain-lock acquire, recover-but-emits EXACTLY ONE
+            :rf.error/frame-destroyed and processes NOTHING into successor B.
+            MUTATION TOOTH: pre-fix this window returned SILENTLY."
+    (rf/reg-event :fh/mark (fn [{:keys [db]} _] {:db (assoc db :marked-by :stale-capture)}))
+    (rf/make-frame {:id :fh/race :doc "incarnation A"})
+    (let [{:keys [dispatch-sync]} (rf/capture-frame :fh/race)   ;; pins A
+          errs (atom [])]
+      (rf/register-listener! :trace ::a2x2w-sync (fn [ev] (swap! errs conj ev)))
+      (run-supersede-at-drain-block :fh/race #(dispatch-sync [:fh/mark]))
+      (rf/unregister-listener! :trace ::a2x2w-sync)
+      (is (nil? (:marked-by (rf/app-db-value :fh/race)))
+          "the post-token-match loss processed nothing into successor B")
+      (is (= 1 (count (filter #(= :rf.error/frame-destroyed (:operation %)) @errs)))
+          "EXACTLY ONE :rf.error/frame-destroyed for the post-token-match sync loss"))))
 
 ;; ---- contract: (capture-frame) outside any scope RAISES (EP-0002) ---------
 ;;

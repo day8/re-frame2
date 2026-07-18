@@ -857,6 +857,148 @@
         (is (not (contains? r :source-coord))
             "no event coord ⇒ :source-coord is ABSENT, never the unrelated sub's")))))
 
+;; ============================================================================
+;; rf2-a2x2w — the LATE captured-op frame-destroyed rejections are REALM-EXACT
+;;   + `:op` realm attribution is RATIFIED PUBLIC on captured-op recovery records
+;; ----------------------------------------------------------------------------
+;; rf2-7xlvt (above) repaired the SYNCHRONOUS capture PRE-CHECK seam
+;; (`emit-captured-frame-superseded!`). Two later rejection seams still DROPPED
+;; the realm — so `error-source-coord` fell back to the legacy
+;; `[:sub]`-then-`[:event]` probe (correct only for the realm-ambiguous bare
+;; router/subs emitters): (1) the router's A→B incarnation-mismatch fences in
+;; `dispatch!` / `dispatch-sync!` and the subscribe mismatch in `subs`, reached
+;; when the pre-check saw A LIVE but a same-id successor B reseated before the
+;; bare-id resolve; (2) loss of A after the token match but before enqueue /
+;; drain-lock acquire (the exactly-once window — pinned in
+;; `re-frame.capture-frame-test`). These drive seam (1): a ONE-SHOT interposition
+;; on `frame/frame-incarnation-live?` destroys A and reseats B AT the pre-check,
+;; so the pre-check PASSES (A "live") and the LATE fence catches the reseated B.
+;; They assert the delivered always-on record's `:source-coord` names the EXACT
+;; realm (dispatch / dispatch-sync → `[:event id]`, subscribe → `[:sub id]`) or
+;; is OMITTED when the realm's own coord is absent — and that the ratified-public
+;; `:op` realm slot rides the captured-op record (absent on ordinary records).
+;; ============================================================================
+
+(defn- late-superseded-records
+  "Pin a `capture-frame` api to a LIVE frame A, then run the captured `op-key` op
+  (`:dispatch` / `:dispatch-sync` / `:subscribe`) with a ONE-SHOT interposition
+  on `frame/frame-incarnation-live?`: at the capture's synchronous pre-check (the
+  ONE liveness check `capture-target-superseded?` makes) destroy A and reseat a
+  same-id successor B BEFORE handing back A's (true) liveness. The pre-check thus
+  sees A LIVE (not superseded), delegates to the ordinary bare-id resolve, which
+  lands on B — firing the LATE A→B fence (rf2-dlld6 / rf2-7w1im), the seam this
+  bead makes realm-exact. `seed` populates the always-on error-coord registry.
+  Returns the vector of always-on records the `:errors` listener saw."
+  [op-key id seed]
+  (let [fid :a2x2w/target]
+    (rf/make-frame {:id fid :doc "capture target A"})
+    (let [h       (rf/capture-frame fid)
+          a-token (frame/frame-incarnation-token fid)
+          seen    (atom [])
+          real    frame/frame-incarnation-live?
+          fired   (atom false)]
+      (source-coords/forget-error-coords!)
+      (seed)
+      (rf/register-listener! :errors :a2x2w/recorder
+                             (fn [record] (swap! seen conj record)))
+      (with-redefs [frame/frame-incarnation-live?
+                    (fn [id* token]
+                      (let [live? (real id* token)]
+                        (when (and (not @fired) (= id* fid)
+                                   (identical? token a-token) live?)
+                          (reset! fired true)   ;; set BEFORE the swap so the
+                          ;; destroy/create's own liveness reads take the real path
+                          (rf/destroy-frame! fid)
+                          (rf/make-frame {:id fid :doc "same-id successor B"}))
+                        live?))]
+        (case op-key
+          :dispatch      ((:dispatch h) [id])
+          :dispatch-sync ((:dispatch-sync h) [id])
+          :subscribe     ((:subscribe h) [id])))
+      @seen)))
+
+(deftest late-superseded-dispatch-resolves-the-event-coord-not-the-collision-sub
+  (testing "rf2-a2x2w (gap 1, dispatch) — a captured `:dispatch` rejected at the
+            LATE A→B router fence whose id is BOTH an event AND a same-keyword sub
+            resolves the EVENT coord, realm-exact via the threaded `:op`; pre-fix
+            the late fence dropped the realm and the `[:sub]`-first fallback stole
+            the sub's coord."
+    (let [records (late-superseded-records :dispatch :audit/collide (seed-both :audit/collide))]
+      (is (= 1 (count records)) "exactly one always-on record per late rejection")
+      (let [r (first records)]
+        (is (= :rf.error/frame-destroyed (:error r)))
+        (is (= xlvt-event-coord (:source-coord r))
+            "late captured dispatch resolves the EVENT coord, never the collision sub's")
+        (is (= :dispatch (:op r))
+            "rf2-a2x2w: the ratified-public `:op` realm rides the captured-op record")))))
+
+(deftest late-superseded-dispatch-sync-shares-the-event-realm
+  (testing "rf2-a2x2w (gap 1, dispatch-sync) — a captured `:dispatch-sync` at the
+            LATE fence shares the dispatch event realm: the EVENT coord."
+    (let [records (late-superseded-records :dispatch-sync :audit/collide (seed-both :audit/collide))]
+      (is (= 1 (count records)))
+      (is (= xlvt-event-coord (:source-coord (first records)))
+          "late captured dispatch-sync resolves the EVENT coord")
+      (is (= :dispatch-sync (:op (first records)))))))
+
+(deftest late-superseded-subscribe-resolves-the-sub-coord-not-the-collision-event
+  (testing "rf2-a2x2w (gap 1, subscribe) — a captured `:subscribe` at the LATE
+            subscribe fence whose id is BOTH resolves the SUB coord, never the
+            same-keyword event's."
+    (let [records (late-superseded-records :subscribe :audit/collide (seed-both :audit/collide))]
+      (is (= 1 (count records)))
+      (is (= xlvt-sub-coord (:source-coord (first records)))
+          "late captured subscribe resolves the SUB coord")
+      (is (= :subscribe (:op (first records)))))))
+
+(deftest late-superseded-subscribe-omits-coord-when-only-event-registered
+  (testing "rf2-a2x2w (gap 1 — the EXACT bead repro) — a captured `:subscribe`
+            rejected at the LATE subscribe fence for an id that is ONLY an EVENT
+            (no sub coord) OMITS `:source-coord` rather than STEALING the
+            unrelated event's. Pre-fix the late subscribe fence dropped the realm
+            and the `[:sub]`-then-`[:event]` fallback returned the EVENT coord —
+            exactly the wrong-realm record the bead's repro captured."
+    (let [records (late-superseded-records
+                    :subscribe :audit/collide
+                    (fn [] (source-coords/remember-error-coords!
+                             :event :audit/collide xlvt-event-coord)))]
+      (is (= 1 (count records)))
+      (let [r (first records)]
+        (is (= :rf.error/frame-destroyed (:error r)))
+        (is (not (contains? r :source-coord))
+            "no sub coord ⇒ :source-coord ABSENT, never the unrelated event's")
+        (is (= :subscribe (:op r)) "the `:subscribe` realm still rides the record")))))
+
+(deftest late-superseded-dispatch-omits-coord-when-only-sub-registered
+  (testing "rf2-a2x2w (gap 1, inverse omit) — a captured `:dispatch` at the LATE
+            fence for an id that is ONLY a SUB OMITS `:source-coord` rather than
+            stealing the unrelated sub's."
+    (let [records (late-superseded-records
+                    :dispatch :audit/collide
+                    (fn [] (source-coords/remember-error-coords!
+                             :sub :audit/collide xlvt-sub-coord)))]
+      (is (= 1 (count records)))
+      (let [r (first records)]
+        (is (= :rf.error/frame-destroyed (:error r)))
+        (is (not (contains? r :source-coord))
+            "no event coord ⇒ :source-coord ABSENT, never the unrelated sub's")
+        (is (= :dispatch (:op r)))))))
+
+(deftest ordinary-address-directed-frame-destroyed-omits-op-and-keeps-fallback
+  (testing "rf2-a2x2w (keyset ratification — the negative) — an ORDINARY
+            address-directed dispatch into an unknown frame carries NO `:op`
+            realm slot (the tight record keyset is PRESERVED) — `:op` rides ONLY
+            the captured-op recovery records, never the realm-ambiguous
+            bare-id callers."
+    (let [seen (atom [])]
+      (rf/register-listener! :errors :a2x2w/plain (fn [record] (swap! seen conj record)))
+      (rf/dispatch-sync [:a2x2w/nope] {:frame :a2x2w/gone-frame})
+      (is (= 1 (count @seen)))
+      (let [r (first @seen)]
+        (is (= :rf.error/frame-destroyed (:error r)))
+        (is (not (contains? r :op))
+            "ordinary address-directed frame-destroyed carries NO `:op` — tight keyset preserved")))))
+
 (deftest non-recovery-categories-fan-out-to-listener
   (testing "Per rf2-2hvga (= B / widen): every catalogued production-
             reachable runtime `:rf.error/*` — frame-destroyed,
