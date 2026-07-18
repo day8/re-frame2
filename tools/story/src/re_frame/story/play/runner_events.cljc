@@ -1359,6 +1359,35 @@
          (catch #?(:clj Throwable :cljs :default) _ nil)))
   nil)
 
+(defn- stale-run?
+  "True when the `[frame-id play-key]` run-state `state` no longer belongs to
+  the run carrying `token`. The ONE definition of \"this run has lost its
+  slot\", consulted at EVERY point a run is about to mutate shared state.
+
+  Two ways to lose it, and they are answered identically (`settle-abort!` —
+  settle this run's own continuation, mutate nothing):
+
+    - the slot is GONE (nil `state`) — the frame was torn down mid-run;
+    - the slot carries a DIFFERENT `:run-token` — a newer `run!` took it over
+      (rf2-ftow6), and the newer loop owns the continuation now.
+
+  A slot carrying NO token is deliberately NOT stale: a hand-seeded state
+  (tests, a caller driving `run-loop!` directly) predates the token scheme and
+  is left alone.
+
+  Why a plain value rather than a `^:dynamic` Var or a ThreadLocal (rf2-6pfpt):
+  the hazard here is a run OUTLIVING its claim on shared state, not a claim
+  failing to reach a child. `token` is already conveyed correctly — it rides as
+  an argument through `run-loop!` and is captured by the settlement closure, so
+  it arrives everywhere it is needed. What it must be checked AGAINST is the
+  live slot, and a conveyed mechanism cannot do that: a binding conveyed into
+  the callback would agree with the callback by construction. The fence has to
+  compare the captured claim to the current world, which is exactly this."
+  [token state]
+  (boolean
+    (or (nil? state)
+        (and token (some? (:run-token state)) (not= token (:run-token state))))))
+
 (defn- run-loop!
   "Iterate over the script, running each step. `:wait` steps yield
   to the scheduler and resume from the wait time onwards.
@@ -1382,22 +1411,15 @@
   [frame-id play-key token done-cb]
   (let [state (current-state-for-play frame-id play-key)]
     (cond
-      ;; abort if state has gone missing (frame torn down mid-run).
-      ;; Still settle `done-cb` so the awaiting continuation advances and
-      ;; the play-promise (and the outer `run-variant` promise) resolves
-      ;; rather than hanging forever. We do NOT `finish!` here — the
-      ;; run-state slot is gone, so there is nothing to transition; we only
-      ;; release the continuation.
-      (nil? state)
-      (settle-abort! frame-id play-key done-cb)
-
-      ;; abort if a newer run! has taken over the state slot — the
-      ;; newer loop owns continuation now, so the stale loop bails
-      ;; rather than racing it. The stale loop must STILL settle ITS OWN
-      ;; `done-cb` (the continuation/promise for THIS run) so it does not
-      ;; strand the chain — but via `settle-abort!` (no `update-state!`),
-      ;; so it never clobbers the newer run's run-state slot.
-      (and token (some? (:run-token state)) (not= token (:run-token state)))
+      ;; The slot is no longer ours — the frame was torn down mid-run, or a
+      ;; newer `run!` took the slot over (`stale-run?` carries the full
+      ;; rationale). Either way this loop bails rather than racing the owner.
+      ;;
+      ;; It must STILL settle ITS OWN `done-cb` (the continuation/promise for
+      ;; THIS run) so it does not strand the chain — but via `settle-abort!`,
+      ;; which does no `update-state!`: an aborted loop must neither clobber
+      ;; the newer run's run-state slot nor resurrect a torn-down one.
+      (stale-run? token state)
       (settle-abort! frame-id play-key done-cb)
 
       (runner/done? state)
@@ -1441,7 +1463,43 @@
               #?(:cljs (settle-step-result!
                          idx step result
                          (fn [settled]
-                           (record-result! frame-id play-key nm idx step settled)
+                           ;; RUN-TOKEN FENCE (rf2-6pfpt). Awaiting the
+                           ;; thenable opens a window the synchronous path
+                           ;; never had: between parking here and settling,
+                           ;; a newer `run!` can take the slot or the frame
+                           ;; can be torn down. EVERY ordinary step is
+                           ;; already fenced — `run-loop!` re-checks the slot
+                           ;; before the next one mutates it — but this
+                           ;; callback used to `record-result!` FIRST and
+                           ;; re-enter the loop (where the check lives)
+                           ;; afterwards, putting the mutation on the far
+                           ;; side of the fence. A stale settlement then
+                           ;; appended ITS result to the REPLACEMENT run,
+                           ;; advancing a cursor past a step that run never
+                           ;; took; under teardown it fabricated a run-state
+                           ;; entry out of nil (`(inc nil)` is 1 on CLJS, so
+                           ;; nothing even threw) which, carrying no
+                           ;; `:run-token`, the guard below then declined to
+                           ;; abort on — a resurrected run reaching a
+                           ;; `finish!` verdict for a frame that was gone.
+                           ;;
+                           ;; Checking the live slot HERE closes it. The
+                           ;; check and the mutation are one synchronous
+                           ;; turn, so nothing can take the slot between
+                           ;; them.
+                           (when-not (stale-run?
+                                       token
+                                       (current-state-for-play frame-id play-key))
+                             (record-result! frame-id play-key nm idx step settled))
+                           ;; Re-enter unconditionally either way. When the
+                           ;; slot IS still ours the loop advances as before;
+                           ;; when it is not, the loop's own stale branch
+                           ;; settles this run's `done-cb` through
+                           ;; `settle-abort!`. That keeps ONE abort decision
+                           ;; in the codebase rather than a second copy of it
+                           ;; here — and a stale run still owes its
+                           ;; continuation, which the play-promise and the
+                           ;; outer `run-variant` promise resolve through.
                            (js/setTimeout
                              #(run-loop! frame-id play-key token done-cb) 0)))
                  :clj  nil)

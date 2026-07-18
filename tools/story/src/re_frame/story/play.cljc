@@ -408,13 +408,41 @@
               ;; the executor returns. The executor calls this back with the
               ;; SETTLED result a microtask later, so the stepper records the
               ;; same verdict the auto-run loop would. Every other step calls
-              ;; back synchronously, BEFORE the slot below exists — hence the
-              ;; bounds guard: the synchronous return value already recorded
-              ;; the final result in that case, and there is nothing to amend.
+              ;; back synchronously, BEFORE the slot below exists — which
+              ;; `recorded` (still `::none`) is what declines: the synchronous
+              ;; return value already recorded the final result in that case,
+              ;; and there is nothing to amend.
+              ;;
+              ;; STALE-SETTLEMENT FENCE (rf2-6pfpt). The gap between parking
+              ;; and settling is one a user can reset the session across
+              ;; (`begin-stepper!` / `stepper-rewind!` / `stepper-step-back!` /
+              ;; `end-stepper!` / `clear-all-play-state!`). A BOUNDS guard —
+              ;; all this used to carry — is a size test, not an identity
+              ;; test: it correctly declines while a reset has left `:results`
+              ;; shorter than `idx`, then silently permits the clobber once a
+              ;; new cursor has grown back past `idx`, landing a stale
+              ;; amendment on a different session's step.
+              ;;
+              ;; The claim a settling step actually needs is narrower than a
+              ;; session: amend the record I MYSELF recorded, not whatever now
+              ;; occupies my index. That is the provisional record's own object
+              ;; identity, which is why this is `identical?` and not `=` — two
+              ;; runs of the same step are legitimately EQUAL and must still be
+              ;; told apart. It also needs no session counter and no bump at
+              ;; those five mutation sites: it is automatically correct at
+              ;; every cursor change, including ones not yet written. A
+              ;; generation would additionally be WRONG at
+              ;; `stepper-step-back!`, which pops only the last step — an
+              ;; amendment still owed for an EARLIER index remains valid, and a
+              ;; session-level bump would refuse it, quietly reinstating the
+              ;; rf2-iz0t8 hazard of a clean flush shown over a failed one.
+              recorded (atom ::none)
               settle! (fn [settled]
                         (swap! stepper-state update-in [frame-id :results]
                                (fn [rs]
-                                 (if (and rs (< idx (count rs)))
+                                 (if (and rs
+                                          (< idx (count rs))
+                                          (identical? (nth rs idx) @recorded))
                                    (assoc rs idx settled)
                                    rs))))
               result  (cond
@@ -428,6 +456,12 @@
                             (runner/step-skip idx step))
 
                         :else (runner/step-skip idx step))]
+          ;; Publish the claim BEFORE the record is visible in `:results`, so
+          ;; there is no window in which a settlement could see its own record
+          ;; at `idx` without recognising it. Both are synchronous and
+          ;; adjacent; a settlement that already fired (every step but a
+          ;; pending presence flush) saw `::none` and correctly declined.
+          (reset! recorded result)
           (swap! stepper-state update frame-id
                  (fn [s] (-> s
                              (update :remaining subvec 1)
