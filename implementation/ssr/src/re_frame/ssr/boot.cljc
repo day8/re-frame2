@@ -15,6 +15,7 @@
             [re-frame.late-bind :as late-bind]
             [re-frame.router :as router]
             [re-frame.ssr.hydrate :as hydrate]
+            [re-frame.ssr.install :as install]
             [re-frame.trace :as trace]
             ;; `constants` + `cljs.reader` are only used by the CLJS-only
             ;; `read-server-payload` (DOM read); require them on CLJS so a
@@ -215,10 +216,32 @@
     :element-id     — (CLJS, optional) override the payload `<script>` id
                       to read when `:payload` is omitted. Default the
                       pinned `__rf_payload`.
+    :container      — (CLJS, optional) this root's container element. When
+                      supplied, preflight DISCOVERS the root's manifest
+                      positionally (the container's immediately following
+                      element sibling) and validates it; no manifest there
+                      is `:rf.error/root-manifest-invalid`.
+    :manifest       — (optional) an explicit Root Manifest v1, validated in
+                      place of discovery. The JVM / test path.
+    :root-id        — (optional) this root's id, recorded as the payload's
+                      installer and named in a conflict. Defaults to the
+                      manifest's `:root-id` when a manifest was resolved.
+
+  **Install is idempotent across the page's roots.** A page is N roots
+  referencing M frames, and M is routinely smaller than N — several roots
+  hydrate one frame, and each of them boots off the same page-wide
+  `__rf_payload`. The FIRST `hydrate!` for a payload id installs it; a
+  later one with the SAME payload finds it live and does not re-seed, so a
+  sibling root booting second cannot silently discard what happened after
+  the first one seeded (per [004C §6], ratified). A later call carrying a
+  DIFFERENT payload for that id is the exception and fails loud with
+  `:rf.error/frame-payload-conflict` — before any install, leaving the
+  live payload and the roots using it untouched.
 
   Returns the payload that was applied (or `nil` on a client-only first
   load) so the caller can branch on \"was this server-rendered?\" without
-  re-reading the DOM.
+  re-reading the DOM. A no-op second install still returns the payload —
+  the page WAS server-rendered, whichever root got there first.
 
   Example (Reagent client boot):
 
@@ -247,7 +270,7 @@
   ordering for the host whose render-tree is a pure function of app-db
   (the re-frame2 norm — Reagent / UIx / Helix all qualify)."
   ;; A nil frame is an absent target, never an implicit `:rf/default`.
-  [{:keys [frame payload render-tree-fn element-id]}]
+  [{:keys [frame payload render-tree-fn element-id manifest container root-id]}]
   ;; `element-id` is consumed only by the CLJS DOM read; discard-bind it so
   ;; a JVM lint of this `.cljc` doesn't flag it as an unused
   ;; `:clj`-expansion binding (the read itself stays CLJS-only).
@@ -268,28 +291,56 @@
       ;; server hydrated a different frame than the client is installing
       ;; into), surfaced rather than silently picking a side.
       (validate-payload-frame-id! frame payload)
-      ;; HOT PATH — seed app-db from the server's slice BEFORE first render.
-      ;; `router/dispatch-sync!` is the owning-ns fn-form the `dispatch-sync`
-      ;; macro itself calls through to (no call-site source-coord capture —
-      ;; this is programmatic boot, not a hand-written call site). Requiring
-      ;; the router directly keeps `boot` on the granular-require convention
-      ;; the other ssr sub-namespaces follow (frame/events/trace, never
-      ;; the `re-frame.core` public façade).
-      (router/dispatch-sync! [:rf/hydrate payload] {:frame frame})
-      ;; HOT PATH — post-render hash-mismatch detection. Symmetric with
-      ;; the server's `:emit-hash?`-stamped `data-rf-render-hash` marker.
+      ;; PREFLIGHT (S5) — manifest discovery/validation -> payload install
+      ;; decision, BEFORE anything is seeded (004C §10). The frame-id
+      ;; validation above runs FIRST: a payload rendered for a different
+      ;; frame is rejected outright and must never reach the ledger, or a
+      ;; misdirected payload would claim the target's payload id.
       ;;
-      ;; Call `render-tree-fn` UNDER the target frame's scope (rf2-0vk7b). The
-      ;; documented idiom `(fn [] ((rf/view :app/root)))` computes the client
-      ;; tree by CALLING a registered view, whose reg-view-injected `subscribe`
-      ;; resolves the ambient frame via the carried invariant. `hydrate!` already
-      ;; resolved `frame` and dispatched `:rf/hydrate` into it, so — mirroring
-      ;; the server render, which wraps `((rf/view :app/root))` in
-      ;; `(with-frame f …)` — it pins that same frame here. Without the pin the
-      ;; view's `subscribe` runs under no scope and raises
-      ;; `:rf.error/no-frame-context`, aborting client boot. `bind-fn` re-binds
-      ;; `*current-frame*` for the one call; a `render-tree-fn` that establishes
-      ;; its own scope (or ignores it — a plain-hiccup fn) is unaffected.
-      (when render-tree-fn
-        (hydrate/verify-hydration! frame ((frame/bind-fn frame render-tree-fn)))))
+      ;; A page is N roots referencing M frames, and M is routinely
+      ;; smaller than N — several roots hydrate one frame and every one of
+      ;; them boots off the same page-wide `__rf_payload`. `:install` means
+      ;; this root is the first to reference the payload; `:already-installed`
+      ;; means a sibling root already seeded exactly this content, and
+      ;; re-seeding would discard everything that happened since (004C §6's
+      ;; ratified "later roots find it live and do not re-seed"). A
+      ;; DIFFERENT payload under the same id throws before any install.
+      (let [{:keys [decision]}
+            (install/preflight! 'rf.ssr/hydrate!
+                                {:payload    payload
+                                 :payload-id frame
+                                 :root-id    root-id
+                                 :manifest   manifest
+                                 :container  container})]
+        ;; The whole seed-and-verify step is what a later root skips. It is
+        ;; one step, not two: with nothing newly installed there is no new
+        ;; server slice to verify against, and the payload's `:rf/render-hash`
+        ;; covers the WHOLE server-rendered body — hashing a second root's
+        ;; own subtree against it would manufacture a mismatch that says
+        ;; nothing about either root. Per-root structural agreement is the
+        ;; manifest's `:render-fingerprint` fact, not this hash.
+        (when (= :install decision)
+          ;; `router/dispatch-sync!` is the owning-ns fn-form the `dispatch-sync`
+          ;; macro itself calls through to (no call-site source-coord capture —
+          ;; this is programmatic boot, not a hand-written call site). Requiring
+          ;; the router directly keeps `boot` on the granular-require convention
+          ;; the other ssr sub-namespaces follow (frame/events/trace, never
+          ;; the `re-frame.core` public façade).
+          (router/dispatch-sync! [:rf/hydrate payload] {:frame frame})
+          ;; HOT PATH — post-render hash-mismatch detection. Symmetric with
+          ;; the server's `:emit-hash?`-stamped `data-rf-render-hash` marker.
+          ;;
+          ;; Call `render-tree-fn` UNDER the target frame's scope (rf2-0vk7b). The
+          ;; documented idiom `(fn [] ((rf/view :app/root)))` computes the client
+          ;; tree by CALLING a registered view, whose reg-view-injected `subscribe`
+          ;; resolves the ambient frame via the carried invariant. `hydrate!` already
+          ;; resolved `frame` and dispatched `:rf/hydrate` into it, so — mirroring
+          ;; the server render, which wraps `((rf/view :app/root))` in
+          ;; `(with-frame f …)` — it pins that same frame here. Without the pin the
+          ;; view's `subscribe` runs under no scope and raises
+          ;; `:rf.error/no-frame-context`, aborting client boot. `bind-fn` re-binds
+          ;; `*current-frame*` for the one call; a `render-tree-fn` that establishes
+          ;; its own scope (or ignores it — a plain-hiccup fn) is unaffected.
+          (when render-tree-fn
+            (hydrate/verify-hydration! frame ((frame/bind-fn frame render-tree-fn)))))))
     payload))
