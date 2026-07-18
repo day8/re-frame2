@@ -25,7 +25,15 @@
             [re-frame.ssr.constants :as constants]
             [re-frame.ssr.manifest :as manifest]
             [re-frame.ui.compiler.env :as env]
-            [re-frame.ui.compiler.root :as root]))
+            [re-frame.ui.compiler.root :as root]
+            #?(:clj  [clojure.edn]
+               :cljs [cljs.reader])))
+
+;; A record defined HERE rather than reached for in some production ns:
+;; the rf2-v4foc defect is about any value whose `pr-str` carries a tag
+;; the safe reader cannot construct, and a locally-defined record is the
+;; smallest honest instance of that class on both hosts.
+(defrecord WireProbeRecord [x])
 
 ;; ---------------------------------------------------------------------------
 ;; Driving the REAL S1 descriptor emitter
@@ -278,6 +286,262 @@
                       (ex-data e)))]
       (is (= :rf.error/root-manifest-invalid (:rf.error/id data))
           (str "body " (pr-str body) " — a hydrating root never guesses")))))
+
+;; ---------------------------------------------------------------------------
+;; THE EXACT ROUND TRIP (rf2-v4foc)
+;; ---------------------------------------------------------------------------
+;;
+;; #6383 shipped a wire whose ACCEPTANCE predicate was not equivalent to
+;; its READ. Three ways apart, each measured on both hosts before the fix:
+;;
+;;   1. a record-valued prop satisfied `map?`, so `edn-carryable?` walked
+;;      its entries and said yes — but `pr-str` emits `#my.ns.R{…}` and
+;;      the safe reader has no constructor for that tag;
+;;   2. `serialise-props` tested only the VALUE half of each entry, so an
+;;      opaque KEY (a fn, a host object) emitted `#object[…]`;
+;;   3. `read-manifest` took the first form and silently discarded any
+;;      trailing text or second form.
+;;
+;; All three turn an EMIT-time authoring mistake into a CLIENT hydration
+;; failure, which is the one thing a fail-loud wire exists to prevent.
+;;
+;; The property below is `read(write(m)) = m` driven through the SHIPPED
+;; `script-html` / `read-manifest` — not a hand-transcribed sample, and
+;; not `pr-str` alone: it goes through the real script-body escape, so
+;; the escape is part of what is proven.
+
+(def ^:private script-prefix
+  "<script type=\"application/edn\" data-rf-root>")
+
+(defn- script-body
+  "-> the exact bytes a browser hands back as the script's `.textContent`."
+  [html]
+  (-> html
+      (subs (count script-prefix))
+      (as-> s (subs s 0 (- (count s) (count "</script>"))))))
+
+(defn- round-trips?
+  "The property, through the shipped emitter and the shipped reader."
+  [m]
+  (= m (manifest/read-manifest 'test (script-body (manifest/script-html m)))))
+
+(def ^:private wire-values
+  "Every value class the manifest wire PROMISES to carry, spelled with
+  literals that mean the same thing on both hosts. `nil` appears as a
+  VALUE (distinct from an absent key, which the shapes below cover) and
+  the string/keyword cases carry the `<` and `</script` sequences the
+  body escape has to survive."
+  {:nil            nil
+   :true           true
+   :false          false
+   :string         "plain"
+   :empty-string   ""
+   :unicode        "héllo — ☃"
+   :breakout       "</script><img onerror=x>"
+   :lt-in-string   "a < b"
+   :keyword        :k
+   :ns-keyword     :a/b
+   :lt-in-keyword  :x<y
+   :symbol         'sym
+   :ns-symbol      'a/b
+   :zero           0
+   :negative       -1
+   :decimal        1.5
+   :whole-double   9.0
+   :vector         [1 2 3]
+   :list           '(1 2 3)
+   :set            #{1 2 3}
+   :empty-map      {}
+   :empty-vector   []
+   :string-keys    {"a" 1 "b" 2}
+   :mixed-keys     {:a 1 "b" 2 'c 3}
+   :nil-value      {:a nil}
+   :nested         {:a {:b [1 #{:c} {"d" :e}]}}})
+
+(deftest every-emitted-manifest-round-trips-exactly
+  (testing "rf2-v4foc — the SHIPPED emitter over the SHIPPED S1 descriptor
+            shapes: every manifest that reaches the wire reads back EQUAL,
+            not merely readable"
+    (doseq [[shape d] @real-descriptors]
+      (let [m (manifest/manifest d {:element-locator    {:id "shop-root"}
+                                    :props              {:promo :spring}
+                                    :frame-payload-ids  [:shop :frame/session]
+                                    :render-fingerprint "rf1-abc"
+                                    :identifier-prefix  "rf2-page_Sshop-"})]
+        (is (round-trips? m)
+            (str "descriptor shape " shape " must survive the wire exactly")))))
+
+  (testing "…and with NO extension facts at all, so `nil` vs ABSENT is
+            covered in both directions"
+    (doseq [[shape d] @real-descriptors]
+      (is (round-trips? (manifest/manifest d))
+          (str "bare manifest for shape " shape))))
+
+  (testing "every value class the wire promises to carry, as a prop value
+            and again as a prop KEY where the class can be a key"
+    (doseq [[label v] wire-values]
+      (let [m (manifest/manifest {:rf.root/schema-version 1 :root-id :page/shop}
+                                 {:props {:v v}})]
+        (is (round-trips? m) (str "prop value " label " => " (pr-str v))))))
+
+  (testing "a manifest whose props map is keyed by each carryable scalar —
+            the KEY half of the entry rides the same wire as the value"
+    (doseq [k [:k :a/b 'sym "str" 1 true nil]]
+      (let [m (manifest/manifest {:rf.root/schema-version 1 :root-id :page/shop}
+                                 {:props {k :v}})]
+        (is (round-trips? m) (str "prop key " (pr-str k)))))))
+
+(deftest round-trip-guard-is-load-bearing
+  (testing "THE RED-BEFORE for rf2-v4foc, kept executable: re-create the
+            defective predicate (the one that tested `map?` before
+            `record?`) and prove it ACCEPTS a value whose printed form the
+            reader then REJECTS. That gap is the whole bug; the shipped
+            predicate must never reproduce it, and this test fails if the
+            `record?` arm is ever removed."
+    (let [r (->WireProbeRecord 1)
+          ;; The PRE-FIX predicate, verbatim in the one respect that
+          ;; mattered: `map?` reached before any record test.
+          lenient-carryable?
+          (fn lenient? [v]
+            (cond
+              (nil? v) true (boolean? v) true (number? v) true
+              (string? v) true (keyword? v) true (symbol? v) true
+              (map? v) (every? (fn [[k v']] (and (lenient? k) (lenient? v'))) v)
+              (coll? v) (every? lenient? v)
+              :else false))]
+
+      (testing "the defective predicate waves the record through"
+        (is (true? (lenient-carryable? {:x r}))
+            "if this ever goes false the lever is gone and the guard below
+             proves nothing"))
+
+      (testing "…yet its printed form does NOT read back — the exact
+                asymmetry #6383 shipped"
+        (is (not= (pr-str {:x r}) (pr-str (into {} r)))
+            "a record does not PRINT as a map, which is why map?-shape was
+             the wrong question")
+        (is (thrown? #?(:clj clojure.lang.ExceptionInfo
+                        :cljs cljs.core/ExceptionInfo)
+                     (manifest/read-manifest
+                      'test (pr-str {:rf.root/schema-version 1 :props {:x r}})))
+            "the safe reader has no constructor for the record's tag"))
+
+      (testing "and the SHIPPED predicate closes it"
+        (is (not (manifest/edn-carryable? r)))
+        (is (not (manifest/edn-carryable? {:x r})))
+        (is (not (manifest/edn-carryable? {:x [1 {:y r}]}))
+            "detected through nesting, like every other opaque value")))))
+
+(deftest record-valued-prop-fails-before-emission
+  (testing "rf2-v4foc — a record prop is rejected at ASSEMBLY, naming the
+            prop, rather than emitting a body the client cannot read"
+    (let [data (try (manifest/manifest
+                     'test {:rf.root/schema-version 1 :root-id :page/shop}
+                     {:props {:promo :spring :row (->WireProbeRecord 1)}})
+                    nil
+                    (catch #?(:clj clojure.lang.ExceptionInfo
+                              :cljs cljs.core/ExceptionInfo) e
+                      (ex-data e)))]
+      (is (= :rf.error/root-manifest-invalid (:rf.error/id data)))
+      (is (= :row (:unserialisable-prop data)) "the offending prop is NAMED")
+      (is (= :value (:unserialisable-half data))))))
+
+(deftest opaque-prop-KEY-fails-before-emission
+  (testing "rf2-v4foc — `serialise-props` checked only the value half, so
+            an opaque KEY reached `pr-str` and emitted `#object[…]`. Both
+            halves are carried, so both halves are validated."
+    (let [k    (fn [] 1)
+          data (try (manifest/manifest
+                     'test {:rf.root/schema-version 1 :root-id :page/shop}
+                     {:props {k 1}})
+                    nil
+                    (catch #?(:clj clojure.lang.ExceptionInfo
+                              :cljs cljs.core/ExceptionInfo) e
+                      (ex-data e)))]
+      (is (= :rf.error/root-manifest-invalid (:rf.error/id data)))
+      (is (= :key (:unserialisable-half data))
+          "the diagnostic says WHICH half — a fn key and a fn value are
+           different authoring mistakes")))
+
+  (testing "a record used as a prop KEY is caught by the same arm"
+    (is (not (manifest/edn-carryable? {(->WireProbeRecord 1) :v})))))
+
+(deftest script-emission-gates-the-whole-manifest
+  (testing "rf2-v4foc — `serialise-props` screens `:props` at assembly, but
+            `script-html` is the only door onto the wire and DESCRIPTOR
+            keys ride through it too. A non-carryable `:static-props` was
+            emitted happily before this gate; the property `every manifest
+            accepted for script emission round-trips` is only true if the
+            gate is at emission."
+    (doseq [k [:static-props :props-shape :frame-plans :root-id]]
+      (let [m    (assoc {:rf.root/schema-version 1 :root-id :page/shop}
+                        k {:x (->WireProbeRecord 1)})
+            data (try (manifest/script-html m) nil
+                      (catch #?(:clj clojure.lang.ExceptionInfo
+                                :cljs cljs.core/ExceptionInfo) e
+                        (ex-data e)))]
+        (is (= :rf.error/root-manifest-invalid (:rf.error/id data))
+            (str "descriptor key " k " must be gated too"))
+        (is (= k (:unserialisable-manifest-key data))))))
+
+  (testing "the gate does NOT narrow what a valid manifest may hold — every
+            real descriptor shape still emits"
+    (doseq [[shape d] @real-descriptors]
+      (is (string? (manifest/script-html (manifest/manifest d)))
+          (str shape " still emits — the gate rejects unwireable values, "
+               "not ordinary data")))))
+
+(deftest body-must-hold-exactly-one-edn-form
+  (testing "rf2-v4foc — `read-string` returns the FIRST form and discards
+            the rest, so a truncated render, two concatenated manifests, or
+            an injected suffix all hydrated silently against the first map.
+            A manifest is ONE value."
+    (doseq [[label body] {:trailing-text  "{:rf.root/schema-version 1} trailing"
+                          :second-form    "{:rf.root/schema-version 1} {:second true}"
+                          :second-scalar  "{:rf.root/schema-version 1} 42"
+                          :duplicate      (str "{:rf.root/schema-version 1} "
+                                               "{:rf.root/schema-version 1}")
+                          :empty          ""}]
+      (let [data (try (manifest/read-manifest 'test body) nil
+                      (catch #?(:clj clojure.lang.ExceptionInfo
+                                :cljs cljs.core/ExceptionInfo) e
+                        (ex-data e)))]
+        (is (= :rf.error/root-manifest-invalid (:rf.error/id data))
+            (str label " must be rejected, not silently truncated to its "
+                 "first form"))
+        (is (= :form-count (:invalid data)) (str label)))))
+
+  (testing "…while whitespace around the one form is FINE — the rule is one
+            FORM, not one line"
+    (doseq [body ["  {:rf.root/schema-version 1}  "
+                  "\n\t{:rf.root/schema-version 1}\n"
+                  "{:rf.root/schema-version 1}\n"]]
+      (is (= {:rf.root/schema-version 1} (manifest/read-manifest 'test body))
+          (str "whitespace-padded body " (pr-str body)))))
+
+  (testing "a trailing `;` comment does not swallow the wrapper's closing
+            bracket — the reader wraps in `[ … \\n]` precisely so it cannot"
+    (is (= {:rf.root/schema-version 1}
+           (manifest/read-manifest 'test "{:rf.root/schema-version 1} ; note"))))
+
+  (testing "an EDN discard is not a second form"
+    (is (= {:rf.root/schema-version 1}
+           (manifest/read-manifest 'test "{:rf.root/schema-version 1} #_{:x 1}")))))
+
+(deftest one-form-guard-is-load-bearing
+  (testing "THE RED-BEFORE for the one-form rule, kept executable: the
+            bundled reader really does discard the suffix, so without the
+            count check the bodies above are accepted. If a future reader
+            starts throwing on trailing content this test goes red and the
+            explicit check can be reconsidered — it never rots into a
+            tautology."
+    (doseq [body ["{:rf.root/schema-version 1} trailing"
+                  "{:rf.root/schema-version 1} {:second true}"]]
+      (is (= {:rf.root/schema-version 1}
+             #?(:clj  (clojure.edn/read-string body)
+                :cljs (cljs.reader/read-string body)))
+          (str "the raw reader silently accepts " (pr-str body)
+               " — that is the hole `read-manifest` now closes")))))
 
 (deftest marker-attribute-is-pinned-in-one-place
   (is (= "data-rf-root" constants/root-manifest-marker-attribute))

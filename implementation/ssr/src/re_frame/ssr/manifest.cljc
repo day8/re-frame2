@@ -248,7 +248,11 @@
   "Can `v` ride the manifest's EDN wire? Scalars (nil / boolean / number
   / string / keyword / symbol) and collections of carryable values.
   A fn, a host object, or any other opaque value cannot — and is never
-  silently dropped (see `serialise-props`)."
+  silently dropped (see `serialise-props`).
+
+  The question this answers is exactly `(= v (read (pr-str v)))` under
+  the BUNDLED safe reader — not \"is `v` map-shaped\". The distinction is
+  what the `record?` arm below exists for."
   [v]
   (cond
     (nil? v)     true
@@ -257,6 +261,21 @@
     (string? v)  true
     (keyword? v) true
     (symbol? v)  true
+    ;; A record satisfies `map?`, so without this arm it took the map
+    ;; branch, every entry tested carryable, and the record was declared
+    ;; wire-safe (rf2-v4foc). But `pr-str` does not emit a record as a
+    ;; map — it emits the TAGGED literal `#my.ns.R{:x 1}`, and the safe
+    ;; reader has no constructor for that tag, so the body threw
+    ;; `:invalid :unreadable` at the far end of the wire. The check must
+    ;; precede `map?`: a record is map-LIKE but not map-PRINTING, and
+    ;; this predicate is about the printed form.
+    ;;
+    ;; Rejecting rather than converting is deliberate. Reading the record
+    ;; back as a plain map would silently change the prop's TYPE between
+    ;; server and client, which is the same class of defect one layer
+    ;; down; the author converts explicitly (`(into {} r)`) so both hosts
+    ;; agree about what they are holding.
+    (record? v)  false
     (map? v)     (every? (fn [[k v']] (and (edn-carryable? k) (edn-carryable? v'))) v)
     (coll? v)    (every? edn-carryable? v)
     :else        false))
@@ -276,18 +295,27 @@
             (pr-str props))
        {:recovery :re-render-the-root-manifest
         :extra    {:invalid :props :got props}}))
+    ;; Both HALVES of every entry are checked. Testing only the value
+    ;; (rf2-v4foc) let an opaque KEY — a fn, a host object — through: the
+    ;; entry looked fine, `pr-str` emitted `#object[…]` for the key, and
+    ;; the reader rejected the whole body on the client. A prop map is
+    ;; carried key-and-value, so it is validated key-and-value.
     (doseq [[k v] props]
-      (when-not (edn-carryable? v)
-        (error/throw-error!
-         :rf.error/root-manifest-invalid where
-         (str "root prop " (pr-str k) " holds a value the manifest's EDN "
-              "wire cannot carry — the manifest records RENDER-TIME prop "
-              "values and hydration applies them as the server-rendered "
-              "truth, so dropping one would hydrate a different tree. "
-              "Pass serialisable data (derive the opaque value inside the "
-              "view instead of handing it in as a prop)")
-         {:recovery :pass-serialisable-root-props
-          :extra    {:unserialisable-prop k}})))
+      (let [bad-key? (not (edn-carryable? k))]
+        (when (or bad-key? (not (edn-carryable? v)))
+          (error/throw-error!
+           :rf.error/root-manifest-invalid where
+           (str "root prop " (pr-str k) " has a "
+                (if bad-key? "KEY" "value")
+                " the manifest's EDN wire cannot carry — the manifest "
+                "records RENDER-TIME prop values and hydration applies "
+                "them as the server-rendered truth, so dropping one would "
+                "hydrate a different tree. Pass serialisable data (derive "
+                "the opaque value inside the view instead of handing it "
+                "in as a prop)")
+           {:recovery :pass-serialisable-root-props
+            :extra    {:unserialisable-prop k
+                       :unserialisable-half (if bad-key? :key :value)}}))))
     props))
 
 ;; ---------------------------------------------------------------------------
@@ -330,6 +358,16 @@
 ;; The wire form
 ;; ---------------------------------------------------------------------------
 
+(defn- unwireable-key
+  "-> the first manifest KEY whose entry cannot ride the EDN wire, else
+  `nil`. Names the top-level key rather than a deep path: the key is
+  what the author wrote and can change, and `pr-str` of the offending
+  value is already in the message."
+  [m]
+  (some (fn [[k v]]
+          (when-not (and (edn-carryable? k) (edn-carryable? v)) k))
+        m))
+
 (defn script-html
   "-> the manifest's WIRE FORM: one `<script type=\"application/edn\"
   data-rf-root>` element carrying the `pr-str`'d manifest, escaped by
@@ -340,36 +378,95 @@
   Emit this element IMMEDIATELY AFTER the root's container — adjacency
   is the discovery rule (`discover`). The marker attribute is bare: it
   says \"a root manifest is here\", never WHICH root — that is the
-  content's `:root-id`."
+  content's `:root-id`.
+
+  ## The wire gate
+
+  Emission is where \"this value can ride EDN\" stops being advice and
+  becomes a guarantee, so the WHOLE manifest is checked here — not just
+  the `:props` `serialise-props` screened at assembly. The two are not
+  redundant: `serialise-props` fails EARLY, naming the offending prop;
+  this gate makes the property TOTAL. `script-html` is the only door
+  onto the wire, and every descriptor key rides through it too, so
+  without it a non-carryable `:static-props` still produced a body the
+  reader rejects — the same defect as the props one, one layer out
+  (rf2-v4foc).
+
+  One predicate, `edn-carryable?`, spelled once and enforced at both
+  points. Not a second rule."
   [m]
   (validate! 'rf.ssr/manifest-script m)
+  (when-let [k (unwireable-key m)]
+    (error/throw-error!
+     :rf.error/root-manifest-invalid 'rf.ssr/manifest-script
+     (str "root manifest key " (pr-str k) " holds a value the EDN wire "
+          "cannot carry, so the emitted body would not read back — "
+          "`pr-str` emits a tagged or host-object literal the bundled "
+          "safe reader has no constructor for, which would defer an "
+          "emit-time authoring mistake into a client hydration failure. "
+          "Every value on the manifest must be plain EDN data")
+     {:recovery :pass-serialisable-root-props
+      :extra    {:unserialisable-manifest-key k}}))
   (str "<script type=\"" manifest-script-type "\" "
        constants/root-manifest-marker-attribute ">"
        (html/escape-edn-script-body (pr-str m))
        "</script>"))
 
-(defn- read-edn [s]
-  #?(:clj  (edn/read-string s)
-     ;; `cljs.reader/read-string` is the SAFE EDN reader (no `#=` / eval),
-     ;; the same one `read-server-payload` uses for the hydration payload.
-     :cljs (reader/read-string s)))
+(defn- read-edn-forms
+  "-> a vector of EVERY top-level EDN form in `s`.
+
+  Reading `\"[\" s \"\\n]\"` is what makes \"exactly one form\" checkable
+  with the bundled safe readers on BOTH hosts. Neither
+  `clojure.edn/read-string` nor `cljs.reader/read-string` reports what it
+  left unconsumed — each returns the first form and discards the rest —
+  and their stream APIs differ enough that a per-host `read`-loop would
+  be two implementations of one rule. EDN has no context-sensitive
+  syntax, so bracket-wrapping yields exactly the top-level forms.
+
+  The `\\n` before `]` matters: a trailing `;` line comment would
+  otherwise swallow the closing bracket and turn a well-formed body into
+  a spurious read error.
+
+  Both readers are the SAFE EDN readers (no `#=` / eval) — the same ones
+  `read-server-payload` uses for the hydration payload."
+  [s]
+  (let [wrapped (str "[" s "\n]")]
+    #?(:clj  (edn/read-string wrapped)
+       :cljs (reader/read-string wrapped))))
 
 (defn read-manifest
-  "Parse a manifest script BODY -> the validated manifest. Unreadable EDN
-  and a value outside the schema family both fail loud with
-  `:rf.error/root-manifest-invalid` — a hydrating root never guesses
-  identity (004C §3)."
+  "Parse a manifest script BODY -> the validated manifest. Unreadable EDN,
+  a body that is not EXACTLY ONE form, and a value outside the schema
+  family all fail loud with `:rf.error/root-manifest-invalid` — a
+  hydrating root never guesses identity (004C §3).
+
+  The one-form rule is not pedantry. `read-string` returns the FIRST form
+  and silently drops whatever follows, so a body carrying trailing text
+  or a second map — a truncated render, two manifests concatenated by a
+  faulty page assembly, an injected suffix — hydrated happily against the
+  first map and ignored the evidence that the wire was wrong (rf2-v4foc).
+  A manifest is one value; anything else is a corrupt body, not a body
+  with extras."
   [where s]
-  (let [v (try
-            (read-edn (str s))
-            (catch #?(:clj Exception :cljs :default) e
-              (error/throw-error!
-               :rf.error/root-manifest-invalid where
-               (str "root manifest script body is not readable EDN: "
-                    #?(:clj (.getMessage ^Exception e) :cljs (.-message e)))
-               {:recovery :re-render-the-root-manifest
-                :extra    {:invalid :unreadable}})))]
-    (validate! where v)))
+  (let [forms (try
+                (read-edn-forms (str s))
+                (catch #?(:clj Exception :cljs :default) e
+                  (error/throw-error!
+                   :rf.error/root-manifest-invalid where
+                   (str "root manifest script body is not readable EDN: "
+                        #?(:clj (.getMessage ^Exception e) :cljs (.-message e)))
+                   {:recovery :re-render-the-root-manifest
+                    :extra    {:invalid :unreadable}})))]
+    (when-not (= 1 (count forms))
+      (error/throw-error!
+       :rf.error/root-manifest-invalid where
+       (str "root manifest script body must hold EXACTLY ONE EDN form; "
+            "found " (count forms) ". A body with trailing content or a "
+            "second form is a corrupt wire, and adopting its first form "
+            "would hydrate against evidence the render went wrong")
+       {:recovery :re-render-the-root-manifest
+        :extra    {:invalid :form-count :got (count forms)}}))
+    (validate! where (first forms))))
 
 ;; ---------------------------------------------------------------------------
 ;; Discovery (CLJS — it reaches into the DOM)
