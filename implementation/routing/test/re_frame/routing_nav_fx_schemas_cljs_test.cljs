@@ -36,6 +36,7 @@
   `scrollTo` mirrors browser state onto the `scrollX` / `scrollY` fields
   `:rf.nav/capture-scroll` reads."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
+            [clojure.string :as str]
             [re-frame.core :as rf]
             [re-frame.error-emit :as error-emit]
             [re-frame.registrar :as registrar]
@@ -441,8 +442,16 @@
             "and still performs no scroll")
         (let [r (first errs)]
           (is (= :rf.error/unsupported-scroll-strategy (:error r)))
-          (is (= {:to :element :selector "#article"} (:strategy r))
-              "the rejected value is named on the production-surviving record")
+          ;; rf2-s3n6h: the record is STRUCTURAL. It named the rejected value
+          ;; verbatim until this test was corrected — `record-attrs` bypass the
+          ;; elision seam, so an arbitrary runtime `:scroll` opt rode off-box
+          ;; whole and unbounded (measured: 4.8 MB for a 2000-key value). The
+          ;; raw value now rides the dev trace alone; see
+          ;; `re-frame.routing-scroll-record-bounded-cljs-test`.
+          (is (nil? (:strategy r))
+              "the rejected value does NOT ride the production-surviving record")
+          (is (= :map (:strategy-type r))
+              "a closed-vocabulary SHAPE tag stands in for it")
           (is (= [:top :restore :preserve] (:supported r))
               "the supported vocabulary is named")
           (is (= :no-scroll (:recovery r))
@@ -451,6 +460,8 @@
               ":frame names the navigating frame")
           (is (string? (:reason r))
               "the human diagnostic rides the record, not only the DCE'd trace")
+          (is (not (str/includes? (:reason r) "#article"))
+              "…and it is a CONSTANT — never an interpolation of the value")
           (is (number? (:time r)) ":time is a wall-clock millis number"))))))
 
 (deftest scroll-handler-rejection-emits-once-per-channel

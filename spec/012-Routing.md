@@ -106,7 +106,7 @@ Defined per the [009 Error contract](009-Instrumentation.md#error-contract):
 - `:rf.error/route-bad-metadata` — `reg-route` was passed a bare metadata key outside the reserved set (a likely typo), or non-map metadata. Thrown at registration (caller bug; dev *and* prod). Names the offending `:keys` and the `:reserved` vocabulary. See [§Authoring-boundary key validation](#authoring-boundary-key-validation).
 - `:rf.error/invalid-route-pattern` — `reg-route`'s `:path` value violated the [path-pattern grammar](#path-pattern-grammar-canonical): a missing leading `/`, an empty segment, an invalid param/splat name, a reserved char not percent-encoded, a malformed optional group (unclosed, empty, nested, containing a splat, or spelled slash-**outside** `{:name}?` instead of the canonical slash-inside `{/:name}?`), or more than one splat / a non-final splat. Thrown at registration on the first violation (caller bug; dev *and* prod), before any state mutates. Names the `:route-id`, the `:pattern`, and the offending `:index`. `:where 'rf/reg-route`, `:recovery :no-recovery`. (The full error contract lives in [009 §Error event catalogue](009-Instrumentation.md#error-event-catalogue).)
 - `:rf.error/invalid-route-classification` — `reg-route`'s `:sensitive` / `:large` data-classification declaration is structurally malformed (a non-vector axis, a non-sequential path entry, or a non-EDN-identity path segment). Thrown at registration (caller bug; dev *and* prod), before any state mutates and before the route can activate. Names the offending `:axis` and `:bad-path`; a bad segment surfaces the inner `:rf.error/bad-path` under `:rf.error/cause`. `:where 'rf/reg-route`, `:recovery :fix-route-classification`. See [§Route data classification](#route-data-classification).
-- `:rf.error/unsupported-scroll-strategy` — the `:rf.nav/scroll` fx was handed a `:strategy` outside the closed `:top` / `:restore` / `:preserve` vocabulary (classically a map, the form earlier drafts advertised as host-extensible). No scroll is performed and the navigation is otherwise unaffected. Names the offending `:strategy` and the `:supported` set. See [§Scroll restoration](#scroll-restoration) and [§Custom scroll strategies](#custom-scroll-strategies).
+- `:rf.error/unsupported-scroll-strategy` — the `:rf.nav/scroll` fx was handed a `:strategy` outside the closed `:top` / `:restore` / `:preserve` vocabulary (classically a map, the form earlier drafts advertised as host-extensible). No scroll is performed and the navigation is otherwise unaffected. The dev trace names the offending `:strategy`; the always-on record — which ships off-box and bypasses the elision seam — carries only the `:supported` set and a closed-vocabulary `:strategy-type` shape tag, never the value itself (rf2-s3n6h). See [§Scroll restoration](#scroll-restoration) and [§Custom scroll strategies](#custom-scroll-strategies).
 - `:rf.error/navigate-arity-misuse` — `[:rf.route/navigate target params opts]` was dispatched with an opts-only key (`:replace?` / `:scroll` / `:fragment` / `:bypass-guards?`) in the **params** slot that the target route does not declare as a path-param (the classic params/opts swap). Navigation rejected; `:where :event`. See [§Arities — params is 2nd, opts is 3rd](#arities--params-is-2nd-opts-is-3rd).
 - `:rf.warning/route-shadowed-by-equal-score` — registration-time warning when ranking ties on rule 6 **between co-matchable patterns** (some URL matches both — equal structural rank alone never warns; see rule 6 in [§Route ranking algorithm](#route-ranking-algorithm)).
 - `:rf.warning/no-not-found-route` — runtime fell back to the built-in placeholder because `:rf.route/not-found` is not registered (per [§Route-not-found](#route-not-found--rfroutenot-found-canonical)).
@@ -1009,10 +1009,20 @@ When a `:rf.nav/scroll` effect is emitted, its args carry both the strategy and 
       ;; Fanned on BOTH error channels, not the dev trace alone: this branch
       ;; is the only rejection a schemas-less host gets, so it must survive
       ;; `:advanced` + `goog.DEBUG=false` (009 §Error event catalogue).
+      ;;
+      ;; The two channels carry DIFFERENT payloads. `:strategy` may be any
+      ;; runtime value, and the always-on record is merged past the elision
+      ;; seam and ships off-box — so the raw value rides the DEV TRACE only,
+      ;; and the record carries a closed-vocabulary SHAPE tag instead.
       (emit-error-both! :rf.error/unsupported-scroll-strategy
-                        {:strategy strategy
+                        ;; axis 2 — dev trace, DCE'd in production
+                        {:strategy  strategy
                          :supported [:top :restore :preserve]
-                         :recovery :no-scroll}))))
+                         :recovery  :no-scroll}
+                        ;; axis 1 — always-on record: structural and bounded
+                        {:supported     [:top :restore :preserve]
+                         :strategy-type (:type (diag-value-summary strategy))
+                         :recovery      :no-scroll}))))
 ```
 
 ### Custom scroll strategies
