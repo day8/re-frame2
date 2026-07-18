@@ -1,5 +1,6 @@
 (ns re-frame.frame-construction-atomic-jvm-test
-  "rf2-vxgfnd.198 — partial frame-container allocation must be FAILURE-ATOMIC.
+  "rf2-vxgfnd.198 / rf2-vxgfnd.292 — partial frame-container allocation must be
+  FAILURE-ATOMIC.
 
   THE DEFECT. `new-frame-record` acquires three opaque adapter values in
   sequence before the `frames` registry owns them: the physical frame-state
@@ -15,7 +16,11 @@
   THE CONTRACT (Spec 006, no new adapter fn):
     - A returned physical state container is GC-owned — no per-container
       disposal verb; `make-state-container` either throws before returning or
-      returns a disposal-free value.
+      returns a disposal-free value. \"Throws before returning\" is about
+      RESIDUE, not ordering (rf2-vxgfnd.292): a constructor that acquires a host
+      or registry resource and only then fails must release it before the throw
+      escapes, because the core never receives the container and has no verb
+      that could reach it.
     - Each `make-derived-value` is internally failure-atomic: a throw before
       it returns has removed any watches/host resources it installed.
     - Every successfully returned projection is disposable through the existing
@@ -62,25 +67,52 @@
 ;;                      projection's `dispose!`, in dispose order.
 ;;   :containers      — vector of every state container handed out (so a test can
 ;;                      read the real watch set off the JVM atom).
+;;   :pinned          — set of containers currently PINNED in the adapter's own
+;;                      ownership registry (rf2-vxgfnd.292). The state
+;;                      constructor acquires this pin BEFORE its fault point, so
+;;                      an armed throw has something real to unwind. This is the
+;;                      state-container leak surface: the core never receives an
+;;                      un-returned container, so it holds no reference to drop
+;;                      and no verb to call — only the constructor itself can
+;;                      release the pin.
+;;   :leak-state-pin? — when true the state constructor throws WITHOUT releasing
+;;                      its pin: a deliberately NON-conformant adapter, used to
+;;                      prove the zero-residue assertion is falsifiable rather
+;;                      than vacuously green.
 ;; ---------------------------------------------------------------------------
 
 (defn- fresh-state []
-  {:throw-at       (atom nil)
-   :derived-count  (atom 0)
-   :watched        (atom #{})
-   :disposed-order (atom [])
-   :containers     (atom [])})
+  {:throw-at        (atom nil)
+   :derived-count   (atom 0)
+   :watched         (atom #{})
+   :disposed-order  (atom [])
+   :containers      (atom [])
+   :pinned          (atom #{})
+   :leak-state-pin? (atom false)})
 
 (defn- tracking-adapter [{:keys [throw-at derived-count watched disposed-order
-                                 containers]}]
+                                 containers pinned leak-state-pin?]}]
   {:kind :custom
    :make-state-container
    (fn [initial]
-     (when (= :state @throw-at)
-       (throw (ex-info "make-state-container armed to throw" {:pos :state})))
+     ;; Allocate and PIN first — a conforming adapter is free to acquire host
+     ;; resources before it validates, and the contract is about residue, not
+     ;; ordering (Spec 006 §make-state-container).
      (let [c (atom initial)]
        (swap! containers conj c)
-       c))
+       (swap! pinned conj c)
+       (if (= :state @throw-at)
+         (do
+           ;; An un-returned throw must release what it acquired. Skipping this
+           ;; release is exactly the contract violation `:leak-state-pin?` arms.
+           (when-not @leak-state-pin?
+             (swap! pinned disj c))
+           (throw (ex-info "make-state-container armed to throw" {:pos :state})))
+         ;; A RETURNED container is disposal-free and GC-owned, so construction
+         ;; drops its pin here too — a conformant adapter must not hold the
+         ;; returned container behind a reference the core cannot reach.
+         (do (swap! pinned disj c)
+             c))))
    :read-container     (fn [c] @c)
    :replace-container! (fn [c v] (reset! c v))
    :make-derived-value
@@ -165,6 +197,10 @@
     (is (nil? (frame/frame-state-container :atomic/state-throw)))
     (is (empty? @(:watched state)) "no projection watch was installed")
     (is (empty? (residual-watches state)) "no residual watch on any container")
+    (is (empty? @(:pinned state))
+        "the registry pin the constructor acquired BEFORE its fault was released
+         before the throw escaped — nothing else could have released it, since
+         the core never received the container (rf2-vxgfnd.292)")
     (is (zero? @(:derived-count state)) "make-derived-value was never reached")
     (is (false? (trace/frame-trace-disabled? :atomic/state-throw))
         "no trace-policy residue — the no-emit flag the failed config requested
@@ -174,6 +210,29 @@
       (is (= :atomic/state-throw (frame/upsert-frame! :atomic/state-throw {})))
       (is (some? (frame/frame-state-container :atomic/state-throw))
           "the retry installs a full, live record"))))
+
+;; ===========================================================================
+;; The zero-pin assertion above is only worth anything if it can go RED. Arm a
+;; deliberately NON-conformant state constructor — one that throws without
+;; releasing the pin it took — and prove the fixture sees the residue.
+;; ===========================================================================
+
+(deftest state-container-pin-leak-is-detected-not-vacuously-green
+  (let [state (fresh-state)]
+    (rf/init! (tracking-adapter state))
+    (reset! (:throw-at state) :state)
+    (reset! (:leak-state-pin? state) true)
+    (is (= :state (err #(frame/upsert-frame! :atomic/state-leak {})))
+        "construction still surfaces the throw")
+    (is (nil? (frame/frame :atomic/state-leak)) "still no frame row installed")
+    (is (= 1 (count @(:pinned state)))
+        "a non-conformant constructor strands its pin, and the fixture's residue
+         check SEES it — so the conformant case's `empty?` assertion is a real
+         test, not a vacuous one. Nothing in core can clean this up: the pin
+         outlives the process's interest in the container")
+    (testing "and each retry strands another — the leak accumulates"
+      (is (= :state (err #(frame/upsert-frame! :atomic/state-leak-2 {}))))
+      (is (= 2 (count @(:pinned state)))))))
 
 ;; ===========================================================================
 ;; The FIRST projection throws — it unwinds its own partial work; nothing was
@@ -254,4 +313,7 @@
     (is (= 2 @(:derived-count state)))
     (is (= #{:proj/p1 :proj/p2} @(:watched state))
         "both partition projections are live and own their watches")
+    (is (empty? @(:pinned state))
+        "the returned container carries no construction-time pin — it is
+         disposal-free and GC-owned")
     (is (empty? @(:disposed-order state)) "no rollback ran on the happy path")))
