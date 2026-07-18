@@ -222,8 +222,11 @@ takes no build dependency on re-com.
 ### 5. Stage honesty — wired/green vs named-open
 
 Every stage wires its own gates into CI in that stage, never later. As of 2026-07-18:
-**wired and green** — G-1 and G-14 (S1, complete; G-1 runs as `npm run test:ui-g1`
-under the noise-robust estimator, as CI job `cljs-ui-g1`); the S2 family
+**wired and green** — G-1 (S1, complete; `npm run test:ui-g1` under the noise-robust
+estimator, as CI job `cljs-ui-g1`); G-14's `defview` expansion-p95 arm **only** —
+`g14_compile_budget_jvm_test.clj` expands three fixture sizes against a 50 ms
+pathology bar in CI job `jvm-ui`, alongside the REPL re-registration story (the gate's
+other two arms are named open below, so G-14 is **not** complete at S1); the S2 family
 G-3/G-4/G-5/G-6/G-13 (landed with the S2 slice; S2 core verified
 S3-ready under the rf2-vxgfnd.22 boundary review, which absorbed the real-sub-cache
 graft conformance the S-3 spike left open); the G-8 real-browser matrix **including**
@@ -235,7 +238,11 @@ G-15 atomic-local writer matrix (`npm run test:browser`); G-17 (its advanced arm
 prod-elision build, its dev arms in the `:node-test` and JVM suites); and G-12 (`npm run
 test:ui-isolation`, which fails closed unless both arms run). **Named open** — G-7
 beyond its production-absence arm: the dev↔prod equivalence matrix over generated
-shapes has no test yet; G-16's "manifest slot sites present" arm (its cross-emitter
+shapes has no test yet; G-14's remaining two arms — the watch-loop rebuild delta,
+which needs the S2+ dashboard fixture, and bounded guide-fixtures CI cost, which needs
+the guide-examples corpus (its wall-clock budget is an S3 stage item) — neither of
+which has an assertion anywhere in the repository, as the gate's own suite states;
+G-16's "manifest slot sites present" arm (its cross-emitter
 parity and slot-arity arms do run); G-18, whose fixture and
 `test:ui-facade-isolation` script exist but are self-declared RED and deliberately held
 out of the required matrix until they go green; G-2/G-9 (wire with the stages shipping
