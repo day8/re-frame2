@@ -10,7 +10,8 @@ Fresh evidence gathered 2026-07-18 AUSEST:
 - Current `origin/main` is
   `ba34f87185fa0a59a15254937478d8747f775bf6`.
 - Candidate worktree:
-  `C:\Users\miket\code\re-frame2-worktrees\guide-register-bbdbs2`
+  `<worktree-parent>/guide-register-bbdbs2` (the `re-frame2-worktrees` sibling of
+  the primary checkout — see `scripts/assert-worker-worktree.sh`)
 - Candidate branch: `worker/guide-register-bbdbs2`
 - Candidate commit:
   `f83380421c06fcdf4d2d785675d2ff16d6908eda`
