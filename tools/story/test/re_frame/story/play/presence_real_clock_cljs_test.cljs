@@ -31,10 +31,12 @@
   (:require [cljs.test :refer [async deftest is testing use-fixtures]]
             [re-frame.core                     :as rf]
             [re-frame.router                   :as router]
-            [re-frame.story.play.presence      :as story-presence]
+            ;; The shipped optional bridge — the one canonical installation
+            ;; path (rf2-36biz). Requiring it is exactly what a consuming app
+            ;; does; `install!` re-arms it after the shared fixture's teardown.
+            [re-frame.story.play.presence-host :as presence-host]
             [re-frame.story.play.runner-events :as re]
             [re-frame.ui.presence-runtime      :as presence-rt]
-            [re-frame.ui.test                  :as uit]
             ;; The shared harness (fresh registrar + runtime + variant frame,
             ;; and the same private step executor) — one harness across both
             ;; halves of the rung's coverage.
@@ -48,11 +50,16 @@
 
 (defn- install-real-presence-host! []
   (presence-rt/reset-clock!)
+  ;; Test-only determinism: the logical advance is the SOLE removal driver
+  ;; here. The BRIDGE deliberately leaves the wall clock armed (a variant a
+  ;; human is merely clicking through in the canvas has no [:flush-presence]
+  ;; step to release its retained children) — see `presence-host`.
   (presence-rt/set-wall-clock! false)
-  (story-presence/install-presence-flush!
-    ;; The rung reuses the framework verb's two arities EXACTLY — Story adds
-    ;; no clock, no phase model, no scheduler of its own.
-    (fn [ms] (if ms (uit/flush-presence! ms) (uit/flush-presence!)))))
+  ;; Install through the SHIPPED bridge (rf2-36biz), not a hand-rolled copy of
+  ;; it, so this whole suite is an acceptance test of the one canonical
+  ;; integration path. The bridge reuses the framework verb's two arities
+  ;; EXACTLY — Story adds no clock, no phase model, no scheduler of its own.
+  (presence-host/install!))
 
 (defn- schedule-real-exit!
   "Arm a REAL retained exit due at 300ms of logical time. Its removal

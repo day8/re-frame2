@@ -235,9 +235,13 @@
   settlement, and the boundary ladder (`settled-boundary`) governs flush,
   not the capability set. `:flush-presence` in particular does NOT require
   `:dom`: the presence clock is a process-global fake-clock registry, and a
-  host with no presence runtime advances a no-op (host parity — see
-  `re-frame.story.play.presence`). The DOM assertion that FOLLOWS the
-  advance carries the `:dom` requirement, as it always did."
+  headless script can advance it and prove the consequence through app-db
+  alone. Its fail-closed gate is not a capability token but the RUNTIME
+  presence-host check in `runner-events/exec-flush-presence!` — whether the
+  `:flush-presence!` hook is installed is a property of the process, not of
+  the runner tier, so it is unknowable to this static registry. An
+  uninstalled host refuses `:cannot-run` there (rf2-36biz); it is emphatically
+  NOT left to whatever assertion happens to follow."
   {:dispatch       #{:app-db}
    :dispatch-sync  #{:app-db}
    :wait           #{}

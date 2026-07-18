@@ -1092,20 +1092,43 @@ asserts on what was rendered:
 Story does NOT model presence, own a clock, or reimplement the three-phase
 machine — `re-frame.story.play.presence` is a thin seam that CALLS the
 framework verb. Because Story's shipped jar must not depend on the
-pre-publication `day8/re-frame2-ui`, the verb is INSTALLED by a
-`re-frame.ui`-hosted shell
-(`re-frame.story.play.presence/install-presence-flush!`, registering the
-`:flush-presence!` late-bind hook) rather than `:require`d.
+pre-publication `day8/re-frame2-ui`, the verb arrives through the
+`:flush-presence!` late-bind hook rather than a `:require`.
+
+**Installing the presence host is one `:require`.** An app that mounts the
+Story shell and renders `re-frame.ui` compiled views requires the optional
+bridge once at boot:
+
+```clojure
+(ns my-app.story
+  (:require [re-frame.story]
+            [re-frame.story.play.presence-host]))   ; installs the verb
+```
+
+`re-frame.story.play.presence-host` is the ONE canonical integration path. It
+holds the `re-frame.ui` dependency on the *app's* side of the seam — Story's
+jar ships the file but never requires it, so the dependency direction is
+unchanged. It installs at load time; there is nothing else to call.
+(`re-frame.story.play.presence/install-presence-flush!` stays public for a
+host registering a different advance.)
 
 `[:flush-presence]` requires NO capability token and does not lift
 `:required-runner` to `:dom` — the presence clock is a process-global
-fake-clock registry, and a host with no presence runtime advances a
-no-op. That mirrors the framework's own JVM arm of `flush-presence!`,
-which is a documented no-op for host parity so a `.cljc` body reads the
-same on either host. It is deliberately NOT a `:cannot-run` refusal: a
-refusal exists to stop a step passing FALSELY, and there is no false pass
-here — the DOM assertion that FOLLOWS the advance carries the `:dom`
-requirement, as it always did.
+fake-clock registry, so a headless script can advance it and prove the
+consequence through app-db alone.
+
+**With no presence host installed, `[:flush-presence]` REFUSES
+(`:cannot-run`)** — it never skips silently. The step was requested and did
+not happen, so the run reports the distinct third status rather than a clean
+verdict over a clock that never moved. A missing hook does NOT prove a missing
+presence runtime: an app can load `re-frame.ui`, render a real
+`(ui/presence …)` boundary, and merely omit the bridge require. Nor may the
+refusal be delegated to the assertion that follows — the grammar requires no
+following assertion at all, and an `:assert-db` one needs only the headless
+floor, so it would happily prove a state the un-advanced clock produced. (The
+framework's own JVM arm of `flush-presence!` remains a no-op, and correctly
+so: there the structural host provably has no lifecycle to advance. An absent
+hook establishes no such thing.)
 
 **Source metadata is preserved for narrative projection.** The runner
 keeps the script step on every step-result and trace record, and the

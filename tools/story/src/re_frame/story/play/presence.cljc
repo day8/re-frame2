@@ -30,21 +30,29 @@
   Story's shipped jar must not depend on `re-frame.ui` (`day8/re-frame2-ui`
   is pre-publication — the same isolation `re-frame.story.view-tool` keeps),
   so the verb arrives through the `re-frame.story.late-bind` registry under
-  `:flush-presence!`. A `re-frame.ui`-hosted shell installs it once at boot:
+  `:flush-presence!`. The canonical installation is ONE `:require` of the
+  optional bridge `re-frame.story.play.presence-host`, which holds the
+  `re-frame.ui` dependency on the app's side of the seam and installs the
+  verb at its load time. `install-presence-flush!` below stays public for a
+  host that wants to register a different advance.
 
-      (require '[re-frame.ui.test :as uit])
+  ## No host installed → `:cannot-run`, never a silent skip
 
-      (story-presence/install-presence-flush!
-        (fn [ms] (if ms (uit/flush-presence! ms) (uit/flush-presence!))))
+  With NO host installed the advance DID NOT HAPPEN, and a requested
+  `[:flush-presence]` therefore REFUSES (`:cannot-run`) at the executor
+  (rf2-36biz). The earlier reading — that this should be a no-op mirroring
+  the framework's JVM arm of `flush-presence!` — conflated two different
+  facts. The JVM arm is a no-op because the structural host provably has no
+  lifecycle to advance; an ABSENT HOOK proves nothing of the kind, because an
+  app can load `re-frame.ui`, render a real `(ui/presence …)` boundary, and
+  simply omit the bridge call. Its playback would then advance nothing while
+  Story reported a clean verdict.
 
-  With NO host installed the advance is a no-op — deliberately, and for the
-  same reason the framework's own JVM arm of `flush-presence!` is a no-op:
-  a host with no presence runtime has no retention to advance, and
-  `.cljc` playback must read the same on either host (`ui.test` §host
-  parity). It is NOT a `:cannot-run` refusal: a refusal is for a step that
-  would otherwise pass FALSELY, and there is no false pass here — the
-  assertion that follows carries its own capability gate (a `:assert-dom`
-  step still refuses `:cannot-run` under a headless runner).
+  Nor does the following assertion carry the refusal: the grammar requires no
+  following assertion at all, and an `:assert-db` one needs only the headless
+  floor, so it happily proves a state the un-advanced clock produced. Host
+  parity is preserved where it is real — this namespace is `.cljc` and the
+  bridge installs on both hosts, the JVM verb being the framework's own no-op.
 
   Pure data → data apart from the hook call itself, so both the JVM
   `clojure -M:test` gate and the node `npm run test:cljs` gate exercise it."
@@ -78,11 +86,15 @@
   installed host verb. Returns a small result map:
 
     {:status :advanced :ms <ms|nil>}   — the host verb ran
-    {:status :no-host  :ms <ms|nil>}   — no host installed; a no-op advance
-                                         (host parity — see the ns docstring)
+    {:status :no-host  :ms <ms|nil>}   — no host installed; NOTHING advanced
+                                         (the executor projects this into a
+                                         `:cannot-run` refusal — see the ns
+                                         docstring)
     {:status :error    :ms … :error s} — the host verb threw
 
-  Never throws: the executor projects the map into a step-result."
+  Never throws, and never judges: this is pure data → data reporting of what
+  happened. The executor (`runner-events/exec-flush-presence!`) projects the
+  map into a step-result."
   [ms]
   (if-let [f (presence-flush-fn)]
     (try
