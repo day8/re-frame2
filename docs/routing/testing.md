@@ -16,7 +16,7 @@ The setup is the same as the [core testing pages](../core/testing/index.md): a J
 (ns my-app.routing-test
   (:require [clojure.test :refer [deftest is use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.routing :as routing]
+            [re-frame.routing :as rf.routing]
             [re-frame.test-support :as ts]
             [my-app.routes]))    ;; loading the ns registers the routes
 
@@ -30,21 +30,21 @@ The setup is the same as the [core testing pages](../core/testing/index.md): a J
 ```clojure
 (deftest article-urls-round-trip
   ;; route → URL
-  (is (= "/articles/intro" (routing/route-url :app/article {:id "intro"})))
+  (is (= "/articles/intro" (rf.routing/route-url :app/article {:id "intro"})))
   (is (= "/search?q=clojure&page=2#results"
-         (routing/route-url :app/search {} {:q "clojure" :page 2} "results")))
+         (rf.routing/route-url :app/search {} {:q "clojure" :page 2} "results")))
   ;; URL → route — schemas validate AND coerce, so :page comes back an int
-  (let [m (routing/match-url "/search?q=clojure&page=2")]
+  (let [m (rf.routing/match-url "/search?q=clojure&page=2")]
     (is (= :app/search (:route-id m)))
     (is (= 2 (get-in m [:query :page]))))
   ;; and the misses are values, not exceptions
-  (is (nil? (routing/match-url "/no/such/page")))
-  (is (:validation-failed? (routing/match-url "/search?q=x&page=abc"))))
+  (is (nil? (rf.routing/match-url "/no/such/page")))
+  (is (:validation-failed? (rf.routing/match-url "/search?q=x&page=abc"))))
 ```
 
 !!! warning "Gotcha — the nil-policy asymmetry is worth a test of its own"
 
-    A `nil` **path** param is a hard error — `route-url` throws `:rf.error/missing-route-param`, because there's no URL to build without the segment; a `nil` **query** param is *silently elided* (`{:page nil}` just omits the key). If your app leans on the elision — "only add `?sort=` when chosen" — pin it: `(is (= "/search?q=x" (routing/route-url :app/search {} {:q "x" :sort nil})))`.
+    A `nil` **path** param is a hard error — `route-url` throws `:rf.error/missing-route-param`, because there's no URL to build without the segment; a `nil` **query** param is *silently elided* (`{:page nil}` just omits the key). If your app leans on the elision — "only add `?sort=` when chosen" — pin it: `(is (= "/search?q=x" (rf.routing/route-url :app/search {} {:q "x" :sort nil})))`.
 
 ## 2. Navigation through a test frame
 

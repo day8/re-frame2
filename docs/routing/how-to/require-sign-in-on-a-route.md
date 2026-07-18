@@ -45,7 +45,7 @@ A reader reaches a route three different ways, each a different event:
 Guard `:rf.route/navigate` alone and the third row defeats you: a logged-out reader pasting `/settings` into the address bar, or reloading a protected page, never goes through `navigate`. So the guard normalises **all three** to one "where are we headed?" target, then decides once:
 
 ```clojure
-(:require [re-frame.routing :as routing])   ;; match-url lives here, not on rf/
+(:require [re-frame.routing :as rf.routing])   ;; match-url lives here, not on rf/
 
 (defn- nav-target
   "Normalise any navigation event to {:id <route-id> :params <map>}, or nil.
@@ -60,7 +60,7 @@ Guard `:rf.route/navigate` alone and the third row defeats you: a logged-out rea
       {:id (:route-id current) :params (or (:params current) {})}
 
       (map? a)                                           ;; {:url ...} escape-hatch target
-      (when-let [{:keys [route-id params]} (routing/match-url (:url a))]
+      (when-let [{:keys [route-id params]} (rf.routing/match-url (:url a))]
         {:id route-id :params (or params {})})
 
       :else                                              ;; route-id target — unchanged
@@ -70,11 +70,11 @@ Guard `:rf.route/navigate` alone and the third row defeats you: a logged-out rea
     (let [{:keys [to params url]} a]
       (cond
         to  {:id to :params (or params {})}
-        url (when-let [{:keys [route-id params]} (routing/match-url url)]
+        url (when-let [{:keys [route-id params]} (rf.routing/match-url url)]
               {:id route-id :params (or params {})})))
 
     :rf.route/handle-url-change
-    (when-let [{:keys [route-id params]} (routing/match-url a)]
+    (when-let [{:keys [route-id params]} (rf.routing/match-url a)]
       {:id route-id :params (or params {})})
 
     nil))

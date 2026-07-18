@@ -14,7 +14,7 @@ This namespace is the public boot point and façade for the routing artefact. Re
 For motivation and narrative, see the [Routing guide](../routing/index.md).
 
 ```clojure
-(:require [re-frame.routing :as routing])
+(:require [re-frame.routing :as rf.routing])
 ```
 
 Throughout, `rf` is the `re-frame.core` facade alias (`[re-frame.core :as rf]`). The `reg-route` macro and the `route-link` view live on that facade.
@@ -115,12 +115,12 @@ The URL ↔ route mapping is a prism. `match-url` reads a URL into route data. `
 - **Example**:
   ```clojure
   ;; with (rf/reg-route :user/show {} "/users/:id") registered:
-  (routing/match-url "/users/42")
+  (rf.routing/match-url "/users/42")
   ;; => {:route-id :user/show, :params {:id "42"}, :query {},
   ;;     :fragment nil, :validation-failed? false}
 
   ;; nil when no route matches:
-  (routing/match-url "/no/such/path")  ;; => nil
+  (rf.routing/match-url "/no/such/path")  ;; => nil
   ```
 
 ### `route-url`
@@ -146,10 +146,10 @@ The URL ↔ route mapping is a prism. `match-url` reads a URL into route data. `
 - **Example**:
   ```clojure
   ;; with (rf/reg-route :user/show {} "/users/:id") registered:
-  (routing/route-url :user/show {:id 42})            ;; => "/users/42"
+  (rf.routing/route-url :user/show {:id 42})            ;; => "/users/42"
 
   ;; query params are appended and percent-encoded:
-  (routing/route-url :search {} {:q "hello world"})  ;; => "/search?q=hello%20world"
+  (rf.routing/route-url :search {} {:q "hello world"})  ;; => "/search?q=hello%20world"
   ```
 
 ### `malformed-url?`
@@ -186,7 +186,7 @@ This is the read-side surface over the route registry and the live route slice. 
 - **Description**: Return a vector of every registered route id. This is the static-registry "enumerate" half of routing introspection; the live per-frame slice is read through the `:rf.route/*` subs instead. Mirrors the sibling accessors: `resource-ids` for resources, `machines` for machines.
 - **Example**:
   ```clojure
-  (routing/route-ids)  ;; => [:route/cart :user/show]
+  (rf.routing/route-ids)  ;; => [:route/cart :user/show]
   ```
 
 ### `route-meta`
@@ -367,7 +367,7 @@ At most one frame owns the browser URL at a time. A frame claims ownership by re
   ```clojure
   ;; one frame opts into URL ownership at boot:
   (rf/make-frame {:id :app/main :url-bound? true})
-  (routing/url-owner-frame-id)  ;; => :app/main
+  (rf.routing/url-owner-frame-id)  ;; => :app/main
   ```
 
 ### `reset-url-claims!`
@@ -381,7 +381,7 @@ At most one frame owns the browser URL at a time. A frame claims ownership by re
 
 ## URL strategies
 
-A `:url-strategy` is a frame-level config map declared on the URL-owning frame — `(rf/make-frame {:id :app :url-bound? true :url-strategy routing/hash-url-strategy})`. The strategy is consulted at exactly four egress/ingress points: the two history fxs, the `route-link` href render, and the URL-listener install. `route-url`, `match-url`, and the navigation cascade stay pure and path-form. A strategy map carries `{:encode :decode :push! :replace! :install-listener!}`. The side-effecting keys (`:push!` / `:replace!` / `:install-listener!`) are present on CLJS only. SSR ignores strategies: the server emits path-form hrefs and takes the request URL via `:rf.route/handle-url-change`.
+A `:url-strategy` is a frame-level config map declared on the URL-owning frame — `(rf/make-frame {:id :app :url-bound? true :url-strategy rf.routing/hash-url-strategy})`. The strategy is consulted at exactly four egress/ingress points: the two history fxs, the `route-link` href render, and the URL-listener install. `route-url`, `match-url`, and the navigation cascade stay pure and path-form. A strategy map carries `{:encode :decode :push! :replace! :install-listener!}`. The side-effecting keys (`:push!` / `:replace!` / `:install-listener!`) are present on CLJS only. SSR ignores strategies: the server emits path-form hrefs and takes the request URL via `:rf.route/handle-url-change`.
 
 ### `history-url-strategy`
 
@@ -412,7 +412,7 @@ A `:url-strategy` is a frame-level config map declared on the URL-owning frame �
   ```clojure
   (rf/make-frame {:id :app
                   :url-bound?   true
-                  :url-strategy routing/hash-url-strategy})
+                  :url-strategy rf.routing/hash-url-strategy})
   ```
 
 ### `with-base-path`
@@ -427,8 +427,8 @@ A `:url-strategy` is a frame-level config map declared on the URL-owning frame �
   ```clojure
   (rf/make-frame {:id :app
                   :url-bound?   true
-                  :url-strategy (routing/with-base-path
-                                  routing/history-url-strategy
+                  :url-strategy (rf.routing/with-base-path
+                                  rf.routing/history-url-strategy
                                   "/realworld")})
   ```
 

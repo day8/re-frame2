@@ -28,7 +28,7 @@ To *build* a three-page app step by step, use the [tutorial](tutorial.md).
 ;; Adapted from examples/capabilities/routing/routing/core.cljs
 (ns app.core
   (:require [re-frame.core :as rf]
-            [re-frame.routing :as routing]))
+            [re-frame.routing :as rf.routing]))
 
 ;; 1. A route is data in the registry.
 (rf/reg-route :app/home {} "/")
@@ -434,11 +434,11 @@ tests).
 ```clojure
 (rf/make-frame {:id           :app
                 :url-bound?   true
-                :url-strategy routing/hash-url-strategy})  ;; default: history-url-strategy
+                :url-strategy rf.routing/hash-url-strategy})  ;; default: history-url-strategy
 ```
 
 `route-url` / `match-url` stay path-form; strategy encodes `#` at the edges.
-`routing/with-base-path` for deploy under a subpath. SSR ignores strategies (path
+`rf.routing/with-base-path` for deploy under a subpath. SSR ignores strategies (path
 form on the wire; client re-encodes on hydrate).
 
 <a id="converting-routes--urls-by-hand"></a>
@@ -446,9 +446,9 @@ form on the wire; client re-encodes on hydrate).
 ### Codec by hand
 
 ```clojure
-(routing/route-url :app/article {:id "intro"})
+(rf.routing/route-url :app/article {:id "intro"})
 ;; => "/articles/intro"
-(routing/match-url "/articles/intro")
+(rf.routing/match-url "/articles/intro")
 ;; => {:route-id :app/article :params {:id "intro"} …}
 ```
 
