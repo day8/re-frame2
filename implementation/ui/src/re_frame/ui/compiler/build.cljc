@@ -189,22 +189,28 @@
      malformed or contradictory carrier is rejected fail-closed everywhere, not
      just where `current-build-id` happens to be consulted.
 
-     When `compiler-state` carries re-frame.ui's private accepted carrier, that
-     carrier is authoritative: its `:build-id` is the answer. A private carrier
-     with a MISSING build id, or with an id that DISAGREES with a still-present
-     Shadow bridge id, fails loudly — downgrading to the process session
-     fallback could route this compilation into a different parallel build.
+     Identity lives ONLY in the accepted-snapshot carrier (its `:build-id`); the
+     disposable scratch/overlay slices carry no identity. When `compiler-state`
+     carries that accepted carrier it is authoritative: its `:build-id` is the
+     answer. An accepted carrier with a MISSING build id, or with an id that
+     DISAGREES with a still-present Shadow bridge id, fails loudly — downgrading
+     to the process session fallback could route this compilation into a
+     different parallel build.
 
-     With no private carrier yet (the pre-hook window / legacy path) the state is
-     re-frame.ui-recognized ONLY through Shadow's outer bridge marker, so that
-     recognized bridge MUST supply the id: a bridge present without its leaf id
-     fails loudly rather than downgrade to the session fallback, which the
-     contract reserves for a genuinely plain CLJS/REPL environment carrying
-     NEITHER recognized marker NOR private carrier. Callers pass a state already
-     known re-frame.ui-owned (see `owned-compiler-state`); the fail-closed throw
-     is the gate."
+     With no accepted carrier yet (the pre-hook window / legacy path, or a
+     no-hook REPL/watch overlay) identity comes from Shadow's outer bridge
+     marker: a recognized bridge supplies the id. A recognized bridge present
+     without its leaf id fails loudly rather than downgrade to the session
+     fallback, which the contract reserves for a genuinely plain CLJS/REPL
+     environment carrying NEITHER recognized marker NOR carrier. Callers pass a
+     state already known re-frame.ui-owned (see `owned-compiler-state`); the
+     fail-closed throw is the gate."
      [compiler-state]
-     (let [private?   (some #(contains? compiler-state %) private-carrier-keys)
+     ;; `private?` is the ACCEPTED-SNAPSHOT identity carrier specifically — not
+     ;; the disposable scratch/overlay (which a no-hook REPL/watch write creates
+     ;; with no accepted snapshot and whose identity legitimately resolves from
+     ;; the Shadow bridge below).
+     (let [private?   (contains? compiler-state accepted-snapshot-key)
            private-id (get-in compiler-state [accepted-snapshot-key :build-id])
            shadow-id  (get-in compiler-state
                               [shadow-bridge-key :shadow.build/build-id])]
