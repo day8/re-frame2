@@ -10,7 +10,10 @@
 > Sources: `ai/findings/new-substrate-synthesis/10-migration-from-reagent.md` (the
 > authoritative path), `ai/findings/new-substrate-synthesis/drafts/reagent-compat-boundary.md`
 > (boundary mechanics), `prep/w1-migrator-rule-table.md` (the migrator rule table,
-> MIG-01…34 — **normative on rewrite mechanics**; the tables below anchor to it),
+> MIG-01…35 — **THE canonical W1/W2/S6 rulebook, normative on rewrite mechanics**; the
+> tables below anchor to it, and no other rule id system is authoritative. The R-* catalogue
+> at `drafts/migrator-rewrite-rules.md` is historical/supporting — see that table's
+> §R → MIG crosswalk),
 > `spec/004-Views.md` §Removed forms + [TRANSITION],
 > `ai/findings/new-substrate-synthesis/skill/SKILL.md` (the sibling `re-frame2-ui`
 > authoring skill — target-form semantics live THERE; this page teaches only the

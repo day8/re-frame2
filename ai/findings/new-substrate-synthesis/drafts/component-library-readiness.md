@@ -41,8 +41,11 @@ per-bead (§6), not "before filing."
 - **Why core:** a library cannot implement latest-state atomic update over host state
   soundly. Evidence: re-com has 348 `reset!`/`swap!` lines across 27 files; v-table
   combines wheel/resize/mouse-move/mouse-up/prop writers on shared ephemera;
-  multi-select mutates one selection from click and keyboard paths. The migrator draft
-  (`drafts/migrator-rewrite-rules.md`) already flags atomic multi-writer `swap!` MANUAL.
+  multi-select mutates one selection from click and keyboard paths. The migrator's
+  canonical rulebook (`prep/w1-migrator-rule-table.md`, MIG-16) now rewrites atomic
+  multi-writer `swap!` onto `update!` rather than flagging it — the MANUAL flag this
+  bullet originally cited (in the historical catalogue `drafts/migrator-rewrite-rules.md`)
+  was retired by the three-tuple `local`. The evidence above is why.
 - **Acceptance:** batched two-writer matrix (both writes land); timer/listener writers;
   fn-value `set!`; mixed `update!`+dispatch in one turn; StrictMode replay; HMR;
   JVM typed failure; cause evidence rows.
