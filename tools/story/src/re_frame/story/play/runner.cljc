@@ -62,8 +62,13 @@
   `[:wait ms]`, and the reason a presence-bearing variant does not need the
   determinism opt-out. It routes through
   `re-frame.story.play.presence` to the framework's own
-  `re-frame.ui.test/flush-presence!`; with no presence host installed it is
-  a no-op (host parity, exactly as the framework's JVM arm is).
+  `re-frame.ui.test/flush-presence!`; with no presence host installed the
+  step REFUSES (`:cannot-run`) rather than skipping — an absent hook does not
+  prove an absent presence runtime, so a silent no-op there would let a
+  presence-bearing play report a clean verdict over a clock that never moved
+  (rf2-36biz). On CLJS the verb is Promise-backed, and the run loop awaits it
+  before the next step, so a rejected flush fails the step instead of being
+  lost (rf2-iz0t8).
 
   | Step                               | Semantics                                                     |
   |------------------------------------|---------------------------------------------------------------|

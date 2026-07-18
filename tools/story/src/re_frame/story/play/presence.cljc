@@ -81,6 +81,16 @@
   []
   (late-bind/get-fn presence-flush-hook-key))
 
+(defn- thenable
+  "`x` as a thenable, or nil. CLJS-only: the canonical host verb
+  (`re-frame.ui.test/flush-presence!`) is Promise-backed there, while the JVM
+  arm is a synchronous no-op and a custom host may be synchronous on either.
+  Duck-typed on `.then` rather than `instance? js/Promise` so any thenable a
+  host hands back is observed."
+  [x]
+  #?(:clj  (do x nil)
+     :cljs (when (and (some? x) (fn? (unchecked-get x "then"))) x)))
+
 (defn advance!
   "Advance the presence clock by `ms` (nil → to quiescence) through the
   installed host verb. Returns a small result map:
@@ -92,16 +102,61 @@
                                          docstring)
     {:status :error    :ms … :error s} — the host verb threw
 
+  An `:advanced` result additionally carries `:pending <thenable>` when the
+  host verb returned one and has therefore NOT finished (rf2-iz0t8). The
+  canonical CLJS host does exactly that — `flush-presence!` is Promise-backed
+  — so returning `:advanced` bare would report that the advance succeeded
+  while its outcome was still unknown. `settle!` is how a caller waits for the
+  answer; `:advanced` on its own means only 'the verb was reached'.
+
   Never throws, and never judges: this is pure data → data reporting of what
   happened. The executor (`runner-events/exec-flush-presence!`) projects the
   map into a step-result."
   [ms]
   (if-let [f (presence-flush-fn)]
     (try
-      (f ms)
-      {:status :advanced :ms ms}
+      (let [ret (f ms)]
+        (if-let [p (thenable ret)]
+          {:status :advanced :ms ms :pending p}
+          {:status :advanced :ms ms}))
       (catch #?(:clj Throwable :cljs :default) e
         {:status :error
          :ms     ms
          :error  #?(:clj (.getMessage ^Throwable e) :cljs (str e))}))
     {:status :no-host :ms ms}))
+
+(defn settle!
+  "Call `k` with the FINAL `advance!` result for `res`. Returns nil.
+
+  SYNCHRONOUS — `k` runs before `settle!` returns — for every advance that is
+  already over: the JVM verb, a synchronous custom host, `:no-host`, and a
+  host that threw. Those paths keep their existing behaviour exactly.
+
+  When `res` carries a `:pending` thenable (the Promise-backed CLJS host),
+  `k` runs once it settles:
+
+    fulfilled → the same `:advanced` result with `:pending` dropped
+    rejected  → `{:status :error :ms … :error s}` — the SAME shape a
+                synchronously throwing host produces, so a rejection needs no
+                new vocabulary downstream
+
+  This is the whole of rf2-iz0t8: before it, `advance!` returned `:advanced`
+  the instant the verb was CALLED, the executor recorded a clean step, and a
+  later rejection (a React `act` failure, `:rf.error/flush-convergence-
+  exceeded`) became an unhandled rejection that could no longer change the
+  recorded result — a presence-bearing play reported `:pass` over a flush that
+  had actually failed.
+
+  Rejection is observed via the two-argument `.then`, not a chained `.catch`:
+  a `.catch` would also swallow — and re-enter `k` for — a throw from `k`
+  itself on the fulfilled path."
+  [res k]
+  #?(:clj  (do (k res) nil)
+     :cljs (if-let [p (:pending res)]
+             (do (.then p
+                        (fn [_] (k (dissoc res :pending)))
+                        (fn [e] (k {:status :error
+                                    :ms     (:ms res)
+                                    :error  (str e)})))
+                 nil)
+             (do (k res) nil))))

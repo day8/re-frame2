@@ -1061,6 +1061,29 @@
                                         "queue/state predicate did not hold "
                                         "after the preceding dispatch settled)")}))))
 
+(defn- presence-step-result
+  "Project a `presence/advance!` result into a step-result. Pure data → data,
+  and the ONE place the projection lives — the executor projects the
+  provisional result here, and `settle-step-result!` re-projects the settled
+  one through the very same fn, so a Promise-backed host cannot acquire a
+  different vocabulary just by being asynchronous."
+  [idx step res]
+  (case (:status res)
+    :error   (runner/step-exception idx step (:error res))
+    :no-host (runner/step-fail
+               idx step
+               {:cannot-run? true
+                :reason      :no-presence-host
+                :message     (str "cannot run " (pr-str step)
+                                  " — no presence host is installed, so the "
+                                  "presence clock did not advance. An app "
+                                  "that renders re-frame.ui compiled views "
+                                  "installs the verb by requiring "
+                                  "re-frame.story.play.presence-host (or by "
+                                  "calling re-frame.story.play.presence/"
+                                  "install-presence-flush! directly)")})
+    (runner/step-skip idx step)))
+
 (defn- exec-flush-presence!
   "Execute a `[:flush-presence]` / `[:flush-presence ms]` step — advance the
   compiled-view PRESENCE clock through the installed host verb
@@ -1083,25 +1106,34 @@
   grammar requires no following assertion, and an `:assert-db` one needs only
   the headless floor. The refusal NAMES its install path so it is actionable.
 
-  A host verb that THROWS is a step-exception — never swallowed."
+  A host verb that THROWS is a step-exception — never swallowed. So is one
+  whose Promise REJECTS (rf2-iz0t8): the canonical CLJS host is Promise-backed,
+  so `advance!` hands back a `:pending` thenable that has not settled yet. The
+  step-result returned here is provisional in that case and rides
+  `::pending-advance`; `settle-step-result!` replaces it with the real one
+  before the run records anything."
   [_frame-id idx step]
   (let [ms  (runner/step-presence-ms step)
         res (presence/advance! ms)]
-    (case (:status res)
-      :error   (runner/step-exception idx step (:error res))
-      :no-host (runner/step-fail
-                 idx step
-                 {:cannot-run? true
-                  :reason      :no-presence-host
-                  :message     (str "cannot run " (pr-str step)
-                                    " — no presence host is installed, so the "
-                                    "presence clock did not advance. An app "
-                                    "that renders re-frame.ui compiled views "
-                                    "installs the verb by requiring "
-                                    "re-frame.story.play.presence-host (or by "
-                                    "calling re-frame.story.play.presence/"
-                                    "install-presence-flush! directly)")})
-      (runner/step-skip idx step))))
+    (cond-> (presence-step-result idx step res)
+      (:pending res) (assoc ::pending-advance res))))
+
+(defn- settle-step-result!
+  "Call `k` with the FINAL step-result for `result`. Returns nil.
+
+  Synchronous for every step but an unsettled Promise-backed
+  `[:flush-presence]` — the ONE step whose executor can return before its work
+  is over. For that one, `k` runs when the host's thenable settles, over the
+  result the settled advance projects to (a rejection becomes the ordinary
+  step-exception `:error` branch above).
+
+  Both drivers go through this: the auto-run loop and the interactive stepper
+  must not disagree about whether a presence flush failed."
+  [idx step result k]
+  (if-let [res (::pending-advance result)]
+    (presence/settle! res #(k (presence-step-result idx step %)))
+    (k result))
+  nil)
 
 (defn exec-step!
   "Execute ONE step against `frame-id`. Returns a step-result record
@@ -1219,20 +1251,34 @@
 
   Always records its settle boundary under play-key nil — the stepper
   (`play/variant-play-steps`) only ever walks the DEFAULT play, never a
-  named `:plays` entry."
-  [frame-id idx step]
-  (record-settle-boundary! frame-id nil step)
-  (let [result (try
-                 (exec-step! frame-id idx step)
-                 (catch #?(:clj Throwable :cljs :default) e
-                   (runner/step-exception idx step
-                                          #?(:clj  (.getMessage ^Throwable e)
-                                             :cljs (str e)))))]
-    ;; `exec-step!` (via `exec-assert!`) already wrote the canonical
-    ;; assertion record onto `:rf.story/assertions`; no synthetic slot
-    ;; mirror here.
-    (emit-trace! frame-id nil idx step result)
-    result))
+  named `:plays` entry.
+
+  `settled-cb` (optional) receives the FINAL step-result. It is invoked
+  exactly once, and SYNCHRONOUSLY for every step but one: a
+  `[:flush-presence]` against a Promise-backed host settles a microtask later
+  (rf2-iz0t8), and only then is it known whether the flush actually
+  succeeded. The RETURN value is the synchronously-known result, which for
+  that one case is provisional — a caller that records step outcomes must
+  take them from `settled-cb`, or the stepper would show a clean flush the
+  auto-run loop calls a failure."
+  ([frame-id idx step]
+   (run-step! frame-id idx step nil))
+  ([frame-id idx step settled-cb]
+   (record-settle-boundary! frame-id nil step)
+   (let [result (try
+                  (exec-step! frame-id idx step)
+                  (catch #?(:clj Throwable :cljs :default) e
+                    (runner/step-exception idx step
+                                           #?(:clj  (.getMessage ^Throwable e)
+                                              :cljs (str e)))))]
+     ;; `exec-step!` (via `exec-assert!`) already wrote the canonical
+     ;; assertion record onto `:rf.story/assertions`; no synthetic slot
+     ;; mirror here.
+     (settle-step-result! idx step result
+                          (fn [settled]
+                            (emit-trace! frame-id nil idx step settled)
+                            (when settled-cb (settled-cb settled))))
+     result)))
 
 ;; ---- async scheduler -----------------------------------------------------
 
@@ -1385,18 +1431,33 @@
                                                   #?(:clj  (.getMessage ^Throwable e)
                                                      :cljs (str e)))))
                 yield? (runner/async-yield? step)]
-            (record-result! frame-id play-key nm idx step result)
-            ;; Sync-class step → recur synchronously so the next step
-            ;; observes the just-committed effects atomically (the
-            ;; `doseq`-style sequential semantics).
-            ;;
-            ;; Async-class step → yield one tick on CLJS so the
-            ;; queued router work / synthetic DOM event handlers drain
-            ;; before the next step runs.
-            #?(:cljs (if yield?
-                       (js/setTimeout #(run-loop! frame-id play-key token done-cb) 0)
-                       (recur frame-id play-key token done-cb))
-               :clj  (recur frame-id play-key token done-cb))))))))
+            (if (::pending-advance result)
+              ;; A Promise-backed presence host has NOT settled (rf2-iz0t8).
+              ;; AWAIT it before recording anything: a rejection is the step's
+              ;; own exception, and recording the provisional pass first would
+              ;; leave the run reporting `:pass` over a flush that failed.
+              ;; CLJS-only — `advance!` never produces a `:pending` on the JVM,
+              ;; where the verb is a synchronous no-op.
+              #?(:cljs (settle-step-result!
+                         idx step result
+                         (fn [settled]
+                           (record-result! frame-id play-key nm idx step settled)
+                           (js/setTimeout
+                             #(run-loop! frame-id play-key token done-cb) 0)))
+                 :clj  nil)
+              (do
+                (record-result! frame-id play-key nm idx step result)
+                ;; Sync-class step → recur synchronously so the next step
+                ;; observes the just-committed effects atomically (the
+                ;; `doseq`-style sequential semantics).
+                ;;
+                ;; Async-class step → yield one tick on CLJS so the
+                ;; queued router work / synthetic DOM event handlers drain
+                ;; before the next step runs.
+                #?(:cljs (if yield?
+                           (js/setTimeout #(run-loop! frame-id play-key token done-cb) 0)
+                           (recur frame-id play-key token done-cb))
+                   :clj  (recur frame-id play-key token done-cb))))))))))
 
 ;; ---- public driver -------------------------------------------------------
 

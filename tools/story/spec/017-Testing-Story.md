@@ -1130,6 +1130,20 @@ framework's own JVM arm of `flush-presence!` remains a no-op, and correctly
 so: there the structural host provably has no lifecycle to advance. An absent
 hook establishes no such thing.)
 
+**A Promise-backed host is AWAITED before the next step.** On CLJS the
+canonical verb (`re-frame.ui.test/flush-presence!`) returns a Promise, so
+reaching the host is not the same as the flush having succeeded. The runner
+therefore settles the returned thenable before it records the step: a
+fulfilled flush records the ordinary no-assertion step, and a REJECTED one
+(a React `act` failure, `:rf.error/flush-convergence-exceeded`) becomes the
+same step-exception a synchronously throwing host produces, failing the run.
+A rejection is never left unobserved, and can never arrive too late to change
+the verdict — the run cannot report `:pass` over a flush that failed. The
+interactive step-debugger records the settled result too, so it and the
+auto-run loop always agree. Synchronous hosts — the JVM verb, a custom
+synchronous advance — keep their existing behaviour exactly: nothing is
+deferred that was not already asynchronous.
+
 **Source metadata is preserved for narrative projection.** The runner
 keeps the script step on every step-result and trace record, and the
 evidence projection (`re-frame.story.play.evidence/narrative`) attributes
@@ -1869,8 +1883,9 @@ tokens it requires:
 - `[:dispatch …]` / `[:dispatch-sync …]` → `#{:app-db}` (the headless
   floor drains the queue to a fixed point); `[:wait …]` / `[:wait-until
   …]` / `[:flush-presence …]` → `#{}` (the boundary ladder governs flush,
-  not the capability set; the presence clock is a process-global registry
-  and a host without one advances a no-op — §Presence-bearing variants);
+  not the capability set; the presence clock is a process-global registry,
+  and `[:flush-presence]` with no host installed REFUSES `:cannot-run`
+  rather than advancing a no-op — §Presence-bearing variants);
   `[:click …]` / `[:type …]` / `[:focus …]` / `[:assert-dom …]` →
   `#{:dom}`.
 - An in-script `[:assert <atom>]` checkpoint folds the WRAPPED atom's
