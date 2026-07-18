@@ -17,6 +17,9 @@
             ;; Loaded eagerly so both hydration boot re-exports resolve.
             [re-frame.ssr.boot :as boot]
             [re-frame.ssr.emit :as emit]
+            ;; The cross-host suspense COMPONENT — the streaming authoring
+            ;; surface on every substrate.
+            [re-frame.ssr.boundary :as boundary]
             [re-frame.ssr.error-listener :as error-listener]
             [re-frame.ssr.error-projector :as error-projector]
             ;; Publishes the head hooks at namespace load.
@@ -102,9 +105,24 @@
 
 ;; ---- streaming SSR public surface -----------------------------------------
 ;;
-;; Per Spec 011 §Streaming SSR — the `:rf/suspense-boundary` hiccup marker
-;; ships through these three façade fns. Host adapters (ssr-ring/streaming)
-;; consume them via the late-bind hooks the streaming ns also publishes.
+;; Per Spec 011 §Streaming SSR. The AUTHORING surface is the `boundary`
+;; component — one `.cljc` form that works on every host. The `:rf/suspense-
+;; boundary` keyword it expands to on the server is internal wire syntax
+;; between the component and the shell walker, not something an author
+;; writes (a keyword head is an HTML element on every client substrate).
+;; The server-side machinery below ships through these façade fns; host
+;; adapters (ssr-ring/streaming) consume them via the late-bind hooks the
+;; streaming ns publishes.
+
+;; The cross-host suspense boundary component:
+;;
+;;     [ssr/boundary {:id :card.revenue :fallback [card-skeleton :revenue]}
+;;      [card-view :revenue]]
+;;
+;; Server: expands to the `:rf/suspense-boundary` marker the shell walker
+;; defers on. Client: renders the body, or the declared `:fallback` when
+;; the boundary is in the failed set the final payload carried.
+(def boundary                       boundary/boundary)
 (def streaming-render-shell         re-frame.ssr.streaming/render-shell)
 (def streaming-render-continuation  re-frame.ssr.streaming/render-continuation)
 (def streaming-build-final-payload  re-frame.ssr.streaming/build-final-payload)

@@ -259,6 +259,45 @@
       true)
     false))
 
+(defn- unwrap-mount!
+  "Remove one `<rf-suspense>` mount wrapper, splicing its children into
+  the parent at the wrapper's position.
+
+  This is the step that makes a streamed page HYDRATABLE. The mount is
+  PROTOCOL DOM — the client-owned swap target, invented by `install!`,
+  named by no render tree on any host. Left in place it sits between the
+  author's `<section>` and the resolved `<div class=\"card\">`, so React's
+  `hydrateRoot` walks the client tree and finds an element the tree never
+  described: a structural mismatch on every boundary, on a page whose
+  content is otherwise byte-correct (rf2-o4rbh measured exactly this).
+
+  Unwrapping restores the DOM the author's tree DOES describe — the same
+  shape `render-to-string` produces for the equivalent non-streamed
+  tree — so one ordinary whole-root hydration reconciles it.
+
+  Children are moved (not cloned): `insertBefore` relocates a node that
+  already has a parent, so the loop drains the mount in document order
+  without copying, and node identity is preserved for anything already
+  holding a reference."
+  [mount]
+  (when-let [parent (.-parentNode mount)]
+    (loop []
+      (when-let [child (.-firstChild mount)]
+        (.insertBefore parent child mount)
+        (recur)))
+    (.removeChild parent mount)))
+
+(defn- unwrap-mounts!
+  "Unwrap EVERY live mount under `root`. Runs once, at finalization,
+  after the last sweep — so no resolved chunk can arrive to find its swap
+  target gone. A boundary still showing its fallback (the server never
+  resolved it, or it failed) unwraps too: the fallback markup is what the
+  page is left painting, and the client `boundary` component renders that
+  same declared fallback for a failed id, so the two agree."
+  [root]
+  (doseq [m (query-by-attr root attr-suspense-mount)]
+    (unwrap-mount! m)))
+
 ;; ---- delta merge -----------------------------------------------------------
 
 (defn- merge-delta!
@@ -596,6 +635,55 @@
   [root payload-id]
   (some? (element-by-id root payload-id)))
 
+(defn- readiness-report
+  "The outcome summary handed to `:on-ready` — `{:resolved #{ids} :failed
+  #{ids}}` over the boundary ids this runtime actually processed, with
+  ids parsed back to the values the author wrote. Empty sets on a page
+  that carried no boundaries."
+  [seen]
+  (reduce-kv (fn [acc id-str outcome]
+               (update acc (case outcome :failed :failed :resolved)
+                       conj (read-boundary-id id-str)))
+             {:resolved #{} :failed #{}}
+             @seen))
+
+(defn- finalize!
+  "The one-time FINALIZATION step, run when the final `__rf_payload`
+  lands (or when it had already landed at install time).
+
+  Spec 011 pins the streaming protocol as progressive PRE-HYDRATION PAINT
+  followed by ONE ordinary whole-root hydration. Finalization is the
+  boundary between those two phases, and it must leave the DOM carrying
+  nothing but the application tree:
+
+    1. `sweep!` — process any chunk still pending (a resolved
+       `<template>` that landed in the same observer batch as the
+       payload), which also records its outcome and consumes or
+       quarantines its delta.
+    2. `unwrap-mounts!` — remove every `<rf-suspense>` wrapper. This is
+       the structural fix: protocol DOM is transport, never part of the
+       application tree.
+    3. `stop!` — disconnect, so no late mutation can race the canonical
+       `:rf/hydrate` replace.
+    4. `on-ready` — hand the caller its readiness signal, ONCE.
+
+  Ordering is load-bearing. Sweeping after unwrapping would leave a
+  resolved chunk with no mount to swap into; unwrapping after
+  disconnecting would be fine but pointlessly late; and firing
+  `on-ready` before the unwrap would hand the bootstrap a DOM that still
+  carries wrappers — the exact tree `hydrateRoot` cannot match.
+
+  `ready?` is the once-only latch: a `compare-and-set!` on it, not a
+  boolean read, so an observer batch that races the initial sweep cannot
+  fire `on-ready` twice."
+  [root frame seen ready? stop! on-ready]
+  (sweep! root frame seen)
+  (unwrap-mounts! root)
+  (stop!)
+  (when (compare-and-set! ready? false true)
+    (when on-ready
+      (on-ready (readiness-report seen)))))
+
 ;; ---- public surface --------------------------------------------------------
 
 (defn install!
@@ -626,11 +714,32 @@
                   on the final-payload id by construction. Accepted as an
                   opt so a host that overrode the shell's payload id can
                   match it.
+    :on-ready   — 1-arity fn called EXACTLY ONCE when the stream has
+                  FINALISED: every chunk processed, every delta consumed
+                  or quarantined, every `<rf-suspense>` mount unwrapped,
+                  the observer disconnected. Receives a readiness report
+                  `{:resolved #{ids} :failed #{ids}}`.
+
+                  This is the hydration trigger. A streaming bootstrap
+                  calls `ssr/hydrate!` and the adapter's `hydrate-root`
+                  from HERE — not on a timer, not by polling the DOM for
+                  `__rf_payload`, and above all not by falling through to
+                  `create-root` because the payload has not landed yet.
+                  Before readiness the streamed root is server-painted
+                  markup carrying protocol DOM and no framework handlers;
+                  taking React ownership of it early is the
+                  create-root/hydrate-root race a live stream exposes.
+                  Fires SYNCHRONOUSLY during `install!` when the whole
+                  response had already buffered before the bundle booted
+                  (the common fast-page case), so the callback must not
+                  assume a later tick.
 
   Returns a 0-arity `stop!` fn that disconnects the observer early (so a
   host can tear the runtime down on its own schedule — e.g. an SPA
   navigation that abandons the stream). The runtime also auto-disconnects
   when it observes the final-payload node, so most hosts never call it.
+  Calling `stop!` early ABANDONS the stream: finalization does not run
+  and `:on-ready` never fires.
 
   Idempotent per chunk: the same resolved node is applied at most once
   even if the observer batches or the initial sweep races a mutation.
@@ -652,7 +761,7 @@
            ;; the streaming bootstrap calls `ssr/hydrate!` on completion.)
            ))"
   ([] (install! {}))
-  ([{:keys [frame root payload-id]
+  ([{:keys [frame root payload-id on-ready]
      ;; No implicit default: a nil frame is an absent target that
      ;; `require-frame-stamp!` fails
      ;; closed on, never a synthesised `:rf/default`. `payload-id` defaults
@@ -672,10 +781,13 @@
        (fn no-op-stop! [])
        (let [seen      (atom {})   ;; id-str → :resolved | :failed (swap outcome)
              observer  (atom nil)
+             ready?    (atom false) ;; once-only finalization latch
              stop!     (fn stop! []
                          (when-let [o @observer]
                            (.disconnect o)
                            (reset! observer nil)))
+             finish!   (fn finish! []
+                         (finalize! root frame seen ready? stop! on-ready))
              on-mutations
              (fn [_mutations _obs]
                ;; A cheap full re-sweep on any mutation is correct + simple:
@@ -686,17 +798,27 @@
                ;; tree-walking complexity for no measurable win at these
                ;; cardinalities.
                (sweep! root frame seen)
+               ;; The payload is the LAST chunk: its arrival means the
+               ;; stream is done, so run finalization (which re-sweeps for
+               ;; anything in this same batch, unwraps the protocol DOM,
+               ;; disconnects, and signals readiness).
                (when (final-payload-present? root payload-id)
-                 (stop!)))]
+                 (finish!)))]
          ;; Initial sweep — chunks that streamed in before this bundle
          ;; executed (the common case: the shell + several cards land while
          ;; main.js downloads + boots). Materialises fallbacks into visible
          ;; mounts + applies any resolved chunks already present.
          (sweep! root frame seen)
          (if (final-payload-present? root payload-id)
-           ;; Stream already complete by the time we installed — nothing to
-           ;; observe; the bootstrap's `:rf/hydrate` is the reconciliation.
-           (fn already-complete-stop! [])
+           ;; Stream already complete by the time we installed — the whole
+           ;; response buffered before the bundle booted. There is nothing
+           ;; to observe, but finalization still MUST run: the initial
+           ;; sweep materialised fallbacks into `<rf-suspense>` mounts, and
+           ;; leaving them would hand the bootstrap an unhydratable DOM.
+           ;; `:on-ready` fires synchronously here — the fast-page path a
+           ;; readiness-driven bootstrap must not hang on.
+           (do (finish!)
+               (fn already-complete-stop! []))
            (let [obs (js/MutationObserver. on-mutations)]
              (reset! observer obs)
              ;; Observe the whole subtree: resolved `<template>`s + the

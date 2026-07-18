@@ -1509,6 +1509,12 @@
   ["re-frame.ssr" "render-to-string"]              {:tier :advanced :owner "011" :status "v1"}
   ["re-frame.ssr" "render-tree-hash"]              {:tier :advanced :owner "011" :status "v1"}
   ["re-frame.ssr" "project-error"]                 {:tier :advanced :owner "011" :status "v1"}
+  ;; The cross-host suspense boundary COMPONENT — the streaming AUTHORING
+  ;; surface (rf2-ycz3k). Advanced rather than front-porch: streaming SSR is
+  ;; an opt-in capability in a separate artefact, not day-one app building.
+  ;; It is nonetheless the one form an author writes for a streamed region —
+  ;; `:rf/suspense-boundary` is internal wire syntax, never authored.
+  ["re-frame.ssr" "boundary"]                      {:tier :advanced :owner "011" :status "v1"}
   ["re-frame.ssr" "streaming-render-shell"]        {:tier :advanced :owner "011" :status "v1"}
   ["re-frame.ssr" "streaming-render-continuation"] {:tier :advanced :owner "011" :status "v1"}
   ["re-frame.ssr" "streaming-build-final-payload"] {:tier :advanced :owner "011" :status "v1"}
