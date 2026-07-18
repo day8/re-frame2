@@ -675,9 +675,37 @@
                        (catch #?(:clj Throwable :cljs :default) _ false))))]
     (or direct? managed?)))
 
+;; ---- DETACH-then-abort (rf2-sdeae) ---------------------------------------
+;;
+;; Aborting a slot fires a CALLBACK (the transport's `:abort-fn`, or the
+;; `:http/abort-in-flight!` hook) — app / host code that can synchronously churn
+;; frame incarnation A to a same-id successor B, and let B record its own handle
+;; under the SAME `[frame-id work-id]` key. A read-abort-dissoc cleanup therefore
+;; deletes a slot the callback already re-seated: A's returning tail destroys B's
+;; live handle. Re-entrancy is worse still — a callback that re-enters the
+;; teardown re-reads the not-yet-dropped slot and aborts it again.
+;;
+;; So the drop is not a gate to add, it is an ORDER to fix: DETACH the slots
+;; atomically FIRST (one `swap-vals!`, with no callback window before it), then
+;; abort the DETACHED handle VALUES. Every callback then acts on an attempt
+;; identity that is already off the table — it can neither be re-read by a
+;; nested pass nor dissociated by the returning tail, and whatever a successor
+;; seats afterwards is B's, untouched. This is exactly the discipline
+;; `timers/release-frame!` already uses for the sibling timer side table.
+
+(defn- detach-slots!
+  "Atomically remove every side-table slot whose key satisfies `key-pred` and
+  return the DETACHED handle values. One `swap-vals!` — no host side effect runs
+  inside the retriable swap, and no callback can observe or re-seat the slots
+  between the decision and the removal. Per rf2-sdeae."
+  [key-pred]
+  (let [[old _new] (swap-vals! handle-table
+                               (fn [m] (into {} (remove (comp key-pred key)) m)))]
+    (into [] (comp (filter (comp key-pred key)) (map val)) old)))
+
 (defn opportunistic-abort!
-  "BEST-EFFORT cancel the host handle for `[frame-id work-id]`, then drop it
-  from the side table. Per Spec 016 §Cancellation is opportunistic; stale
+  "BEST-EFFORT drop the host handle for `[frame-id work-id]` from the side
+  table, then cancel it. Per Spec 016 §Cancellation is opportunistic; stale
   suppression is mandatory: this MAY abort the in-flight request if the host
   handle exists and can be cancelled; if it cannot, correctness still rests
   on the work-id + generation stale-suppression check (NOT on the cancel
@@ -687,26 +715,26 @@
   this is the out-of-cascade counterpart to the in-cascade `:rf.http/managed-abort`
   fx. Returns true iff an abort capability was found and fired (a hint for
   the caller's trace), false otherwise. Never throws (a throwing abort-fn is
-  swallowed — a failed cancel must not strand the teardown)."
-  [frame-id work-id]
-  (let [aborted? (abort-handle! (get-handle frame-id work-id))]
-    (clear-handle! frame-id work-id)
-    aborted?))
+  swallowed — a failed cancel must not strand the teardown).
 
-(defn- abort-slot!
-  "Best-effort abort + drop a side-table slot addressed by its ALREADY-COMPUTED
-  table key `[frame-id work-id-id]` (rf2-9e0tyq). The frame-teardown / reset
-  paths iterate `(keys @handle-table)` (which are already byte-keyed pairs) and
-  must NOT re-transform the work-id-id through `work-id-id` (the public
-  `opportunistic-abort!` takes a work-id VECTOR and transforms it; this private
-  variant takes the table key directly). Aborts managed HTTP by the recorded
-  frame-qualified `:request-id` through the `:http/abort-in-flight!` hook
-  (rf2-rak684), so frame destroy cancels the underlying in-flight request
-  before dropping the generation high-water — a surviving host reply can never
-  match a future same-id frame. Never throws."
-  [slot-key]
-  (abort-handle! (get @handle-table slot-key))
-  (swap! handle-table dissoc slot-key)
+  DETACHES BEFORE ABORTING (rf2-sdeae): the abort is a callback boundary, so
+  dropping the slot afterwards would delete whatever a successor incarnation
+  re-seated under the same key during that callback."
+  [frame-id work-id]
+  (let [slot-key [frame-id (work-id-id work-id)]]
+    (boolean (some abort-handle! (detach-slots! #{slot-key})))))
+
+(defn- abort-detached!
+  "Best-effort abort every ALREADY-DETACHED handle in `handles`, in order.
+  Aborts managed HTTP by the recorded frame-qualified `:request-id` through the
+  `:http/abort-in-flight!` hook (rf2-rak684), so frame destroy cancels the
+  underlying in-flight request before dropping the generation high-water — a
+  surviving host reply can never match a future same-id frame. The handles are
+  off the side table already (see `detach-slots!`), so an abort callback that
+  churns the incarnation cannot have its successor's slot dropped by this tail.
+  Never throws. Returns nil."
+  [handles]
+  (run! abort-handle! handles)
   nil)
 
 ;; ---- opportunistic abort via the transport fx (transport-neutral) ---------
@@ -836,25 +864,26 @@ attempt is superseded / settled so a stale handle does not leak. Per Spec 016
   this hook touches ONLY the host side table. Idempotent — no-op on a frame
   with no handles. Per Spec 016 §Stale and GC scheduling (frame destroy
   cancels all resource timers / clears host handles for that frame) /
-  [Runtime-Subsystems] clause 5. Returns nil."
+  [Runtime-Subsystems] clause 5. Returns nil.
+
+  DETACHES BEFORE ABORTING (rf2-sdeae): the frame's slots are removed in one
+  `swap-vals!` and only then aborted, so an abort callback that seats a same-id
+  successor incarnation cannot have that successor's handle deleted by this
+  cleanup's returning tail, and a callback that re-enters `release-frame!` finds
+  nothing left to abort a second time."
   [frame-id]
-  (let [slots (->> (keys @handle-table)
-                   (filter (fn [[fid _]] (= fid frame-id))))]
-    (doseq [slot-key slots]
-      (abort-slot! slot-key)))
-  nil)
+  (abort-detached! (detach-slots! (fn [[fid _]] (= fid frame-id)))))
 
 (defn reset-cache!
   "Drop EVERY frame's work-ledger host handles (test isolation). Published
   as a reset hook so the shared CLJS `make-reset-runtime-fixture`
   reset-hooks table clears it per test (host-side transient state, NOT
   cleared by the runtime / frames reset). Best-effort aborts each handle on
-  the way out. Returns nil."
+  the way out — DETACHING the whole table first (rf2-sdeae), so an abort
+  callback that records a fresh handle is not silently swallowed by a
+  wholesale `reset!` afterwards. Returns nil."
   []
-  (doseq [slot-key (keys @handle-table)]
-    (abort-slot! slot-key))
-  (reset! handle-table {})
-  nil)
+  (abort-detached! (vals (first (reset-vals! handle-table {})))))
 
 ;; ---- frame-stamped teardown entry (carried-frame invariant) ---------------
 ;;

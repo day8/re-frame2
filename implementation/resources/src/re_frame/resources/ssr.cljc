@@ -1277,11 +1277,27 @@
   `:rf.resource/restored` / `:rf.resource/owner-released` rows. Reads the intents
   from the `::deferred-trace-intents` metadata key and fires each through
   `emit-trace-intent!`. No-op when the value carries no deferred intents (a
-  resource-free restore, or a reconcile that emitted inline). Returns nil."
-  [reconciled-runtime-db]
-  (doseq [intent (-> reconciled-runtime-db meta (get deferred-trace-intents-key))]
-    (emit-trace-intent! intent))
-  nil)
+  resource-free restore, or a reconcile that emitted inline). Returns nil.
+
+  The commit is itself a callback FAN-OUT (rf2-sdeae): every intent emits to the
+  frame's trace listeners, and a listener is app code that can destroy
+  incarnation A and seat a same-id successor B. A single check around the whole
+  loop is therefore not enough — the 3-arity takes the SAME `:owner-token`
+  `reconcile-on-restore` fences its host-transient clear with, and revalidates
+  exact ownership at EVERY intent boundary. Once the incarnation is lost the
+  remaining A-owned intents are STOPPED, so A's restore is never announced
+  against B. nil token (and the 1-arity pure-unit path) has no incarnation to
+  fence and commits every intent, as before."
+  ([reconciled-runtime-db] (commit-restore-reconcile-traces! reconciled-runtime-db nil nil))
+  ([reconciled-runtime-db frame-id {:keys [owner-token]}]
+   (let [still-owned? (fn []
+                        (or (nil? frame-id)
+                            (nil? owner-token)
+                            (frame/frame-incarnation-live? frame-id owner-token)))]
+     (doseq [intent (-> reconciled-runtime-db meta (get deferred-trace-intents-key))
+             :while (still-owned?)]
+       (emit-trace-intent! intent)))
+   nil))
 
 (defn reconcile-on-restore
   "Reconcile a freshly-INSTALLED resource subtree on `restore-epoch!` (the body
