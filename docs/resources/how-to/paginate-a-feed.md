@@ -429,7 +429,7 @@ Resetting on a filter change needs **no code at all** — and this falls straigh
 
 With feeds you'll be tempted to dispatch scroll positions into app-db. Don't — and here's the test that settles it, lifted from [Where should this value live?](../../core/where-state-lives.md): would any handler or sub *decide* anything on this value, and would it mean anything after a [time-travel](../../core/glossary.md#time-travel) restore or on a server render? A pixel offset fails both tests cold. It's host state, and the framework treats it as such.
 
-The route's `:scroll` key declares the behaviour. The contract is a closed three-value enum (plus a map form for host-specific shapes):
+The route's `:scroll` key declares the behaviour. The contract is a closed three-value enum:
 
 - **`:top`** — scroll to the top on entry (or scroll a `#fragment` element into view, if the URL carries one). This is the numbered example above.
 - **`:restore`** — restore the saved scroll position for this URL (the runtime captures positions on every navigation; this is the natural Back/Forward behaviour).

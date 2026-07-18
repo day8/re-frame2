@@ -150,11 +150,27 @@
         (is (m/validate schema {:strategy strategy})
             (str "bare :strategy " strategy " validates"))))
 
-    (testing "POSITIVE control: a map-form (host-extensible) strategy validates
-              — routing_scroll_test pins that {:behavior :smooth :block :center}
-              flows into the fx args verbatim"
-      (is (m/validate schema {:strategy {:behavior :smooth :block :center}}))
-      (is (m/validate schema {:strategy {}})))
+    (testing "rf2-px26m NEGATIVE control: the strategy vocabulary is CLOSED.
+              The slot used to read `[:or [:enum …] :map]`, so every map
+              validated here — and then fell into `scroll-fx-handler`'s nil
+              default, because no registry / callback / late-bound hook ever
+              interpreted one. An accepted-and-ignored option is strictly
+              worse than a rejected one, so the map form is gone"
+      (doseq [bad [{:to :element :selector "#article"}  ;; the old Spec 012 example
+                   {:behavior :smooth :block :center}   ;; the shape the bead names
+                   {}                                   ;; the degenerate map
+                   {:strategy :top}]]                   ;; a map NAMING a real strategy
+        (is (not (m/validate schema {:strategy bad}))
+            (str "map-form strategy rejected: " (pr-str bad)))))
+
+    (testing "rf2-px26m NEGATIVE control (adversarial near-misses): values a
+              hurried author could mistake for a supported strategy get no
+              special pass either"
+      (doseq [bad [:restored :scroll-top "top" [:top] nil]]
+        (is (not (m/validate schema {:strategy bad}))
+            (str "near-miss strategy rejected: " (pr-str bad))))
+      (is (not (m/validate schema {}))
+          ":strategy is REQUIRED — a strategy-less scroll has no interpretation"))
 
     (testing "POSITIVE control: the FULL five-slot planner output — the exact
               shape plan/scroll-plan assembles — validates, :fragment included"

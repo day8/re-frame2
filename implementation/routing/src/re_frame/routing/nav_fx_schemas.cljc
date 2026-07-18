@@ -67,12 +67,23 @@
   `re-frame.routing.scroll/scroll-fx-entry` assembles.
 
   `:strategy` is REQUIRED — `scroll-fx-entry` always seeds it, and a
-  strategy-less scroll has no defensible interpretation. It is either
-  one of the three standard keywords or a MAP (the host-extensible
-  form, which the handler passes to its default no-op branch). A bare
-  non-standard KEYWORD is deliberately NOT admitted: Spec 012 offers
-  the map form for host extension, and the handler's `nil` default is
-  defence-in-depth rather than a documented extension point.
+  strategy-less scroll has no defensible interpretation. The vocabulary
+  is the CLOSED three-keyword enum `:top` / `:restore` / `:preserve`.
+
+  rf2-px26m: the slot previously read `[:or [:enum …] :map]`, admitting
+  any map as a \"host-extensible\" strategy. Nothing interpreted it —
+  `scroll-fx-handler` has no extension seam, so every map fell into its
+  default branch and scrolled nothing. A value the schema ACCEPTS and
+  the runtime then silently ignores is the worst of both worlds: the
+  author's code reads correctly, runs clean, and does nothing. Spec 012
+  no longer offers the map form, and the enum here is what makes that
+  removal enforceable at the `:fx-args` boundary — an unsupported
+  strategy is rejected (fx skipped, `:rf.error/schema-validation-failure
+  :where :fx-args`) BEFORE the handler runs. The handler's own default
+  branch is the schemas-absent backstop: it emits
+  `:rf.error/unsupported-scroll-strategy` rather than returning nil, so
+  the contract is loud on every host regardless of whether the optional
+  schemas artefact is on the classpath.
 
   `:saved-pos` members are `number?`, not `:int`. The position is read
   straight off `window.scrollX` / `window.scrollY`, which are
@@ -87,9 +98,7 @@
   registration). Both are optional: the initial navigation has no
   `:from`, and `scroll-fx-entry` omits either when nil."
   [:map
-   [:strategy  [:or
-                [:enum :top :restore :preserve]
-                :map]]                                                  ;; map form is host-extensible (post-v1)
+   [:strategy  [:enum :top :restore :preserve]]                         ;; CLOSED vocabulary (rf2-px26m)
    [:from      {:optional true} [:map
                                  [:id     :keyword]
                                  [:params {:optional true} :map]

@@ -4,11 +4,13 @@
   emission, and scroll-strategy resolution precedence). Split from
   routing_test.clj per rf2-u8qe7y finding 3."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
+            [malli.core :as m]
             [re-frame.core :as rf]
             [re-frame.fx :as fx]
             [re-frame.frame :as frame]
             [re-frame.routing :as routing]
             [re-frame.routing.nav-fx :as nav-fx]
+            [re-frame.routing.nav-fx-schemas :as nav-fx-schemas]
             [re-frame.routing.plan :as plan]
             [re-frame.routing.scroll :as scroll]
             [re-frame.routing.test-support]
@@ -21,8 +23,9 @@
 (deftest routing-scroll-metadata-preserved
   (testing "the :scroll metadata key is enumerable via handler-meta"
     ;; Per Spec 012 §Scroll restoration: a route may declare a :scroll
-    ;; strategy (:top / :restore / :preserve / map / false). Metadata is
-    ;; round-tripped through registration so tooling can enumerate it.
+    ;; strategy (:top / :restore / :preserve / false — a CLOSED vocabulary
+    ;; since rf2-px26m). Metadata is round-tripped through registration so
+    ;; tooling can enumerate it.
     (rf/reg-route :route/home
                   {:scroll :top} "/")
     (rf/reg-route :route/article
@@ -373,8 +376,7 @@
 ;; must win over a route whose meta declares `:scroll false`
 ;; (`(some? from-opts)` short-circuits BEFORE the `(false? from-meta)`
 ;; suppression branch), AND an opts `:scroll false` must suppress even when
-;; the route's meta declares a concrete strategy. Map-form (host-extensible)
-;; strategies must pass through verbatim.
+;; the route's meta declares a concrete strategy.
 
 (deftest scroll-strategy-opts-override-precedence
   (testing "opts :scroll value WINS over a route's :scroll false (the
@@ -417,8 +419,15 @@
       (is (empty? @calls)
           "opts :scroll false suppresses despite the route's :scroll :restore")))
 
-  (testing "map-form (host-extensible) scroll strategies pass through to the
-            fx args verbatim — the resolver does not coerce or drop them"
+  (testing "rf2-px26m: the planner does not INTERPRET strategies — it carries
+            the resolved value to the fx, which owns adjudication (Spec 012:
+            'the registered fx interprets the strategy'). An unsupported
+            value therefore still reaches the fx args unchanged; what changed
+            is that it is now REJECTED there instead of silently ignored.
+            This test previously asserted the pass-through as if the map form
+            were a supported host-extension — it was not: nothing downstream
+            read it. The rejection legs live in routing_nav_fx_schemas_test
+            (schema) and routing_nav_fx_schemas_cljs_test (handler + gate)"
     (rf/reg-route :route/custom {:scroll {:behavior :smooth :block :center}} "/custom")
     (let [calls (atom [])]
       (fx/reg-fx :rf.nav/scroll
@@ -429,7 +438,10 @@
                  (fn [_ _] nil))
       (rf/dispatch-sync [:rf.route/navigate :route/custom])
       (is (= {:behavior :smooth :block :center} (-> @calls first :strategy))
-          "a map-form :scroll strategy flows into :rf.nav/scroll's :strategy arg unchanged"))))
+          "the resolver neither coerces nor drops an unsupported strategy")
+      (is (not (m/validate nav-fx-schemas/scroll-args (first @calls)))
+          "…and the args it produced do NOT satisfy the fx's own :schema —
+           the value is carried to the boundary that rejects it, not past it"))))
 
 ;; ---- rf2-ukv4ck: nav-fx identity trace tags use canonical :rf.fx/id -------
 ;;
