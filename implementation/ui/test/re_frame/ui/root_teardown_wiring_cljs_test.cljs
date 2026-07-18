@@ -102,11 +102,17 @@
     (testing "the claim is QUARANTINED despite the throw — fail closed (rf2-vxgfnd.275)"
       (is (contains? (client/live-root-ids) :rtw/root)
           "the id/container claim is NOT released — the container is not proven free")
-      (is (= :rf.error/duplicate-root-id
-             (thrown-id #(client/check-root-claim!
-                          'test {:root-id :rtw/root :provenance :authored}
-                          (:container (client/live-root-entry :rtw/root)))))
-          "a reused root-id fails loud — the honest recovery is a fresh container")
+      ;; rf2-h05lm — a same-id retry against the EXACT poisoned node reports the
+      ;; terminal consumed-container condition (fresh-node recovery + owner evidence),
+      ;; never the duplicate-ID ordering that hid the poisoned node.
+      (let [reuse (ex-data (captured-error
+                            #(client/check-root-claim!
+                              'test {:root-id :rtw/root :provenance :authored}
+                              (:container (client/live-root-entry :rtw/root)))))]
+        (is (= :rf.error/root-container-consumed (:rf.error/id reuse))
+            "same-id reuse of the exact poisoned node fails loud as CONSUMED, not duplicate-id")
+        (is (= :use-a-fresh-container (:recovery reuse)))
+        (is (= :rtw/root (:owner-root-id reuse))))
       (is (nil? (client/unmount!* root)) "a second unmount! is a no-op (tearing-down guard)"))
     (testing "the consumed root generation retains no framework owner"
       (is (= :dead (reactive/lifecycle cell)))

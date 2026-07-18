@@ -432,20 +432,27 @@ wait-for-settlement) is genuinely distinct.
 - **`:rf.error/duplicate-root-id`** — a reentrant `mount` / `create-root` (and `hydrate-root`, once
   S5 wires it through the same pre-render admission check) claiming the same root-id. For a
   **deferred** owner the message names the in-flight deferred unmount and directs the caller to
-  re-mount after settlement or use a distinct `:root-id` with a fresh container; for a
-  **`:cleanup-failure?`** owner (a throwing `.unmount`) it is HONEST that there is no settlement to
-  wait for — the id frees only when the adapter is destroyed and reinstalled, and the exact
-  container is fail-closed regardless. Client data carries `:existing` with the owner's
-  `:provenance`, `:site`, and `:tearing-down? true`, plus the ordinary `:arriving` evidence.
+  re-mount after settlement or use a distinct `:root-id` with a fresh container (recovery
+  `:make-root-ids-unique`); client `:existing` carries the owner's `:provenance`, `:site`, and
+  `:tearing-down? true`. For a **`:cleanup-failure?`** owner (a throwing `.unmount`) it is HONEST
+  that there is NO settlement to wait for — the id frees only when the adapter is destroyed and
+  reinstalled, and the exact container is fail-closed regardless — so the recovery is structurally
+  distinct (`:reinit-adapter-or-use-a-fresh-identity`, never a wait) and `:existing` additionally
+  carries `:cleanup-failure? true`, so a structured consumer recovers the terminal-vs-deferred
+  distinction the message draws. A same-id retry onto the **exact poisoned node** is reported as
+  `:rf.error/root-container-consumed` (checked ahead of this arm), so the duplicate-id arm fires on a
+  same-id retry onto a **different fresh node**. All arms carry the ordinary `:arriving` evidence.
 - **`:rf.error/root-container-in-use`** — a mount whose container is still owned by a **merely
   deferred** tearing-down root. The node frees once teardown settles; recovery is a fresh node or a
   re-mount after settlement. Data carries `:owner-root-id` and `:existing {:tearing-down? true}`.
 - **`:rf.error/root-container-consumed`** — a mount onto a container a **throwing/consumed** host
-  `.unmount` poisoned (rf2-sddbc). Checked ahead of the in-use arm. The node can NEVER be proven
-  free (queued host work is unobservable), so recovery is a fresh node — never a wait-for-settlement.
-  Two arms: an isolated `unmount!` quarantine still holding the `:cleanup-failure?` claim (`:owner-root-id`
-  names it), and the post-reclaim `consumed-containers` denylist (id/prefix already released for a
-  same-id re-mount on a fresh node). Data carries `:root-id` and optional `:owner-root-id`.
+  `.unmount` poisoned (rf2-sddbc). Checked ahead of the **duplicate-root-id and in-use arms**, so a
+  same-id retry onto the exact poisoned node reports the consumed node here rather than hiding it
+  behind duplicate-ID ordering (rf2-h05lm). The node can NEVER be proven free (queued host work is
+  unobservable), so recovery is a fresh node — never a wait-for-settlement. Two arms: an isolated
+  `unmount!` quarantine still holding the `:cleanup-failure?` claim (`:owner-root-id` names it), and
+  the post-reclaim `consumed-containers` denylist (id/prefix already released for a same-id re-mount
+  on a fresh node). Data carries `:root-id` and optional `:owner-root-id`.
 - **`:rf.error/root-not-live`** — a `render!` into a tearing-down Root. A tearing-down root is not
   live: its React tree is being unmounted, so rendering into it would drive a consumed/unmounting
   handle. It fails the same loud way as an unmounted or superseded root; recover by recreating the

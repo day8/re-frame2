@@ -364,43 +364,18 @@
   a FRESH node), checked ahead of the ordinary in-use arm."
   [where {:keys [root-id provenance site identifier-prefix]} container]
   (require-container! where root-id container)
-  (when-let [existing (get @live-roots root-id)]
-    (error/throw-error!
-     :rf.error/duplicate-root-id where
-     (cond
-       (:cleanup-failure? existing)
-       ;; rf2-sddbc — a throwing/consumed host `.unmount` left this id held by a
-       ;; CONSUMED root. There is NO settlement signal ("re-mount after settlement"
-       ;; would be dishonest): the id frees only when the adapter is destroyed and
-       ;; reinstalled (its drain reclaims the quarantine), and the exact old
-       ;; container is fail-closed regardless.
-       (str "root-id " (pr-str root-id) " is held by a CONSUMED root — its host "
-            "`.unmount` threw and its exact container is fail-closed. There is no "
-            "settlement to wait for; the id frees only when the adapter is "
-            "destroyed and reinstalled. Use a distinct :root-id with a fresh "
-            "container, or destroy + re-init the adapter to reclaim it")
-       (:tearing-down? existing)
-       ;; rf2-vxgfnd.182 — a deferred host teardown still owns this id.
-       (str "root-id " (pr-str root-id) " is tearing down — a host teardown is "
-            "in flight (a deferred React unmount that returned but has not yet "
-            "settled). The root-id frees once teardown settles; re-mount after "
-            "settlement, or use a distinct :root-id and a fresh container")
-       :else
-       (str "root-id " (pr-str root-id) " is already live in this document — "
-            "root-ids are page-unique identity. "
-            (if (= :derived (:provenance existing) provenance)
-              "both ids derived from the same view — add :disambiguator or author :root-id"
-              "unmount! the existing root, or author a distinct :root-id")))
-     {:recovery :make-root-ids-unique
-      :extra {:root-id  root-id
-              :existing (select-keys existing [:provenance :site :tearing-down?])
-              :arriving {:provenance provenance :site site}}}))
-  ;; rf2-sddbc — a container a throwing/consumed host `.unmount` POISONED is
-  ;; fail-closed, whether the marker rides an unreleased cleanup-failure claim
-  ;; (isolated `unmount!`, pre-destroy) or the adapter reclaim already released the
-  ;; id/prefix and recorded the exact node in `consumed-containers`. Clearing its
-  ;; DOM + React marker was a SNAPSHOT, never proof a queued host task settled, so
-  ;; recovery is a FRESH node — NEVER a wait-for-settlement.
+  ;; rf2-sddbc / rf2-h05lm — a container a throwing/consumed host `.unmount` POISONED
+  ;; is fail-closed, and this is checked AHEAD OF the duplicate-root-id and in-use
+  ;; arms. A same-id retry against the EXACT poisoned node must report the terminal
+  ;; consumed-container condition (fresh-node recovery + owner evidence), never let
+  ;; duplicate-ID ordering hide the poisoned node behind a `:make-root-ids-unique`
+  ;; that promises a settlement the cleanup-failure quarantine will never reach. The
+  ;; poison rides either an unreleased cleanup-failure claim (isolated `unmount!`,
+  ;; pre-destroy — `cf-owner`) or the post-reclaim `consumed-containers` denylist
+  ;; (id/prefix already released). Clearing its DOM + React marker was a SNAPSHOT,
+  ;; never proof a queued host task settled, so recovery is a FRESH node — NEVER a
+  ;; wait-for-settlement. A same-id retry onto a DIFFERENT fresh node falls through to
+  ;; the duplicate-root-id arm below (the id, not this node, is the obstacle).
   (let [cf-owner (when-let [owner (container-owner container)]
                    (when (:cleanup-failure? (get @live-roots owner)) owner))]
     (when (or cf-owner (container-consumed? container))
@@ -418,6 +393,48 @@
        {:recovery :use-a-fresh-container
         :extra (cond-> {:root-id root-id}
                  cf-owner (assoc :owner-root-id cf-owner))})))
+  (when-let [existing (get @live-roots root-id)]
+    (let [cleanup-failure? (:cleanup-failure? existing)]
+      (error/throw-error!
+       :rf.error/duplicate-root-id where
+       (cond
+         cleanup-failure?
+         ;; rf2-sddbc — a throwing/consumed host `.unmount` left this id held by a
+         ;; CONSUMED root. There is NO settlement signal ("re-mount after settlement"
+         ;; would be dishonest): the id frees only when the adapter is destroyed and
+         ;; reinstalled (its drain reclaims the quarantine), and the exact old
+         ;; container is fail-closed regardless. (The exact poisoned node is already
+         ;; routed to `:rf.error/root-container-consumed` above; this arm fires on a
+         ;; same-id retry onto a DIFFERENT fresh node.)
+         (str "root-id " (pr-str root-id) " is held by a CONSUMED root — its host "
+              "`.unmount` threw and its exact container is fail-closed. There is no "
+              "settlement to wait for; the id frees only when the adapter is "
+              "destroyed and reinstalled. Use a distinct :root-id with a fresh "
+              "container, or destroy + re-init the adapter to reclaim it")
+         (:tearing-down? existing)
+         ;; rf2-vxgfnd.182 — a deferred host teardown still owns this id.
+         (str "root-id " (pr-str root-id) " is tearing down — a host teardown is "
+              "in flight (a deferred React unmount that returned but has not yet "
+              "settled). The root-id frees once teardown settles; re-mount after "
+              "settlement, or use a distinct :root-id and a fresh container")
+         :else
+         (str "root-id " (pr-str root-id) " is already live in this document — "
+              "root-ids are page-unique identity. "
+              (if (= :derived (:provenance existing) provenance)
+                "both ids derived from the same view — add :disambiguator or author :root-id"
+                "unmount! the existing root, or author a distinct :root-id")))
+       ;; rf2-h05lm — the structured recovery/evidence is structurally EXACT: a
+       ;; cleanup-failure quarantine never settles, so its recovery is NOT the
+       ;; deferred/live `:make-root-ids-unique` (which invites a wait) but adapter
+       ;; destroy + re-init (reclaims the id) or a distinct id with a fresh node. The
+       ;; `:cleanup-failure?` flag rides `:existing` so structured consumers/AIs
+       ;; recover the terminal-vs-deferred distinction the human message already draws.
+       {:recovery (if cleanup-failure?
+                    :reinit-adapter-or-use-a-fresh-identity
+                    :make-root-ids-unique)
+        :extra {:root-id  root-id
+                :existing (select-keys existing [:provenance :site :tearing-down? :cleanup-failure?])
+                :arriving {:provenance provenance :site site}}})))
   (when-let [owner (container-owner container)]
     (error/throw-error!
      :rf.error/root-container-in-use where

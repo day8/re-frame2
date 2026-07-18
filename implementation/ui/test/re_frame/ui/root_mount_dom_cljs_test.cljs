@@ -485,8 +485,16 @@
         (is (nil? (client/unmount!* @predecessor))
             "double cleanup is a no-op against the consumed quarantine"))
       (testing "neither same-id nor same-container retry can reopen quarantine"
-        (is (= :rf.error/duplicate-root-id
+        ;; rf2-h05lm — the same-id retry targets the EXACT poisoned node, so it reports
+        ;; the terminal consumed-container condition (owner named) rather than hiding
+        ;; the poisoned node behind duplicate-ID ordering + a `:make-root-ids-unique`
+        ;; that promises a settlement this cleanup-failure quarantine will never reach.
+        (is (= :rf.error/root-container-consumed
                (:rf.error/id (ex-data (:error same)))))
+        (is (= :use-a-fresh-container
+               (:recovery (ex-data (:error same)))))
+        (is (= :dom-throw/quarantine
+               (:owner-root-id (ex-data (:error same)))))
         ;; rf2-sddbc — a THROWING first-mount cleanup is a cleanup-failure
         ;; quarantine, so a same-container retry (any id) is fail-closed CONSUMED
         ;; (never merely in-use): the exact node can't be proven free, recovery is

@@ -707,13 +707,15 @@
   ;; BEFORE any adapter destroy: the exact container reads consumed (via the
   ;; unreleased cleanup-failure owner), and reusing the SAME root-id reports
   ;; HONESTLY — no "re-mount after settlement" (there is no settlement signal).
+  ;; rf2-h05lm — the structured ex-data is exact for every retry shape: recovery
+  ;; and owner/existing evidence, not only the error id + message.
   (let [c    (js-obj)
         root (root-with-throwing-unmount :reg/iso c)]
     (client/register-live-root! {:root-id :reg/iso :provenance :authored} c root)
     (is (thrown-with-msg? js/Error #"host teardown boom" (client/unmount!* root)))
     (is (:cleanup-failure? (client/live-root-entry :reg/iso))
         "the isolated throwing unmount is a cleanup-failure quarantine")
-    ;; reuse of the exact container by a DIFFERENT id → consumed (owner named)
+    ;; (a) DIFFERENT id + the exact poisoned node → consumed (owner named)
     (let [{:keys [id data]}
           (thrown-error #(client/check-root-claim!
                           're-frame.ui/mount
@@ -721,12 +723,32 @@
       (is (= :rf.error/root-container-consumed id))
       (is (= :reg/iso (:owner-root-id data)))
       (is (= :use-a-fresh-container (:recovery data))))
-    ;; reuse of the exact root-id → duplicate-root-id, but the message is HONEST
-    (let [{:keys [id msg]}
+    ;; (b) SAME id + the EXACT poisoned node → the poisoned node is reported (terminal
+    ;; consumed-container condition), NOT hidden behind duplicate-ID ordering.
+    ;; rf2-h05lm RED-BEFORE: this returned :rf.error/duplicate-root-id + :make-root-ids-unique.
+    (let [{:keys [id data msg]}
+          (thrown-error #(client/check-root-claim!
+                          're-frame.ui/mount
+                          {:root-id :reg/iso :provenance :authored} c))]
+      (is (= :rf.error/root-container-consumed id)
+          "same-id retry onto the exact poisoned node reports the consumed node, not a duplicate id")
+      (is (= :use-a-fresh-container (:recovery data)))
+      (is (= :reg/iso (:owner-root-id data)) "owner evidence names the cleanup-failure quarantine")
+      (is (error/message-has-id-token? msg)))
+    ;; (c) SAME id + a FRESH node → still a duplicate-ID refusal, but the ex-data is
+    ;; structurally exact: :cleanup-failure? rides :existing and the recovery names the
+    ;; real choices (adapter re-init, or a distinct id + fresh node) — NOT a settlement.
+    ;; rf2-h05lm RED-BEFORE: recovery was :make-root-ids-unique and :existing omitted :cleanup-failure?.
+    (let [{:keys [id data msg]}
           (thrown-error #(client/check-root-claim!
                           're-frame.ui/mount
                           {:root-id :reg/iso :provenance :authored} (js-obj)))]
       (is (= :rf.error/duplicate-root-id id))
+      (is (= :reinit-adapter-or-use-a-fresh-identity (:recovery data))
+          "the cleanup-failure duplicate recovery names adapter re-init / a fresh identity, not a settlement")
+      (is (true? (get-in data [:existing :cleanup-failure?]))
+          "structured consumers can recover the terminal cleanup-failure distinction")
+      (is (true? (get-in data [:existing :tearing-down?])))
       (is (not (re-find #"after settlement" msg))
           "the cleanup-failure id message does NOT promise a settlement that never comes")
       (is (re-find #"CONSUMED|fresh container|destroyed and reinstalled" msg)
