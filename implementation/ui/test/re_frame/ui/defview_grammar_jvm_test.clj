@@ -371,7 +371,10 @@
             ;; S3 route-link (rf2-vxgfnd.95.5): an ORDINARY compiled defview over
             ;; the routing-owned late-bound link seam — the FIRST framework-
             ;; provided compiled view, not a compiler intrinsic
-            route-link}
+            route-link
+            ;; S4 presence (rf2-uckeg): declarative enter/exit retention — the
+            ;; template form + its single phase read
+            presence presence-phase}
          (set (keys (ns-publics 're-frame.ui))))
       "no reg-view family, no Form-1/2/3 helpers, no h macro, no view
        lookup, no ratom/cursor/reaction — Spec 004 §Removed forms"))

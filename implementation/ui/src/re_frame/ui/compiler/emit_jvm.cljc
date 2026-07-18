@@ -314,6 +314,12 @@
     ;; under the server failure policy (per 011); it never renders the fallback
     ;; (that is client recovery). A throw below it is the server's to project.
     :error-boundary (emit-node (:child node))
+    ;; presence: the JVM has no lifecycle, so it renders the children :present,
+    ;; wrapped in the `:rf.ui/presence {:phase :present :timeout-ms n}` fragment
+    ;; (§004B — presence metadata exposed structurally).
+    :presence `(re-frame.ui.tree/presence
+                ~(:timeout-ms node)
+                ~@(keep emit-node (:children node)))
     ;; client-only: the JVM/SSR renders the deterministic capability-free
     ;; FALLBACK, wrapped in the `:rf.ui/boundary :client-only` fragment (§004B);
     ;; the browser-only client subtree never appears on the JVM tree.

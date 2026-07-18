@@ -68,6 +68,9 @@
     :rf.ui.compile/bad-error-boundary
     :rf.ui.compile/bad-client-only
     :rf.ui.compile/capability-in-fallback
+    ;; presence — declarative enter/exit retention (S4, rf2-uckeg)
+    :rf.ui.compile/bad-presence
+    :rf.ui.compile/presence-unkeyed-child
     ;; compiled render slots (S3, rf2-ri0k6n)
     :rf.ui.compile/bad-render-fn
     :rf.ui.compile/bad-slot
@@ -217,6 +220,7 @@
       slot        {:fqn 're-frame.ui/slot :meta {}}
       error-boundary {:fqn 're-frame.ui/error-boundary :meta {}}
       client-only    {:fqn 're-frame.ui/client-only :meta {}}
+      presence       {:fqn 're-frame.ui/presence :meta {}}
       frame-provider {:fqn 're-frame.ui/frame-provider :meta {}}
       child-view  {:fqn 'app.views/child-view
                    :meta {:rf.ui/view true :rf.ui/children? true}}
@@ -344,6 +348,25 @@
    [:rf.ui.compile/capability-in-fallback
     '(client-only {:fallback [:p (sub [:q])]} [:div "live"])
     ["CAPABILITY-FREE" "client subtree"]]
+   ;; presence — declarative enter/exit retention (S4, rf2-uckeg)
+   [:rf.ui.compile/bad-presence
+    '(presence [:li {:key 1} "x"])
+    ["literal opts map" ":timeout-ms"]]
+   [:rf.ui.compile/bad-presence
+    '(presence {:timeout-ms 300 :easing :ease} (for [x xs] [:li {:key x} x]))
+    ["unknown presence option" ":timeout-ms"]]
+   [:rf.ui.compile/bad-presence
+    '(presence {} (for [x xs] [:li {:key x} x]))
+    [":timeout-ms is MANDATORY" "safety bound"]]
+   [:rf.ui.compile/bad-presence
+    '(presence {:timeout-ms 0} (for [x xs] [:li {:key x} x]))
+    ["positive number of milliseconds"]]
+   [:rf.ui.compile/presence-unkeyed-child
+    '(presence {:timeout-ms 300} [:li "x"])
+    ["KEYED" "build failure"]]
+   [:rf.ui.compile/presence-unkeyed-child
+    '(presence {:timeout-ms 300} [child-view {:toast 1}])
+    ["KEYED"]]
    ;; compiled render slots (S3, rf2-ri0k6n)
    [:rf.ui.compile/bad-render-fn
     '[child-view {:row (render-fn [a] [:p "a"] [:p "b"])}]
