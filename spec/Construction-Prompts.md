@@ -191,7 +191,7 @@ Each entry below is one CP:
 
 **Pre-flight delta (in addition to the shared preamble above):**
 
-- **Id-shape convention:** a single namespaced keyword. Examples: `:http`, `:localstorage`, `:rf.nav/replace`, `:websocket/send`. The relevant registry kind is `:fx`.
+- **Id-shape convention:** a single namespaced keyword. Examples: `:http`, `:localstorage`, `:rf.nav/replace-url`, `:websocket/send`. The relevant registry kind is `:fx`.
 - **Decide the platform.** Server-only? Client-only? Both? Default `#{:server :client}` (universal) if absent — set explicitly to `#{:client}` if the fx genuinely cannot run server-side (DOM mutation, `js/window`, `localStorage`).
 - **Identify the args shape.** What does the effect map's value look like? Does it need a schema?
 

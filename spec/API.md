@@ -939,9 +939,9 @@ Per [Spec-Schemas.md](Spec-Schemas.md), the spec's own runtime shapes are descri
 | `:rf.fx/dispatch-args` | Args of standard `:dispatch` fx (and `:raise`, same shape) | 002 / 005 |
 | `:rf.fx/dispatch-later-args` | Args of standard `:dispatch-later` fx | 002 |
 | `:rf.fx/http-args` | Args of `:http` fx (user-owned recommendation) | Pattern-RemoteData |
-| `:rf.fx/nav/push-url-args` | Args of `:rf.nav/push-url` fx | 012 |
-| `:rf.fx/nav/replace-url-args` | Args of `:rf.nav/replace-url` fx | 012 |
-| `:rf.fx/nav/scroll-args` | Args of `:rf.nav/scroll` fx | 012 |
+| `:rf.fx.nav/push-url-args` | Args of `:rf.nav/push-url` fx | 012 |
+| `:rf.fx.nav/replace-url-args` | Args of `:rf.nav/replace-url` fx | 012 |
+| `:rf.fx.nav/scroll-args` | Args of `:rf.nav/scroll` fx | 012 |
 | `:rf.fx/with-nav-token-args` | Args of `:rf.route/with-nav-token` fx wrapper | 012 |
 | `:rf.fx/spawn-args` | Args of `:rf.machine/spawn` fx (the canonical actor-lifecycle fx-id; emitted from any event handler's `:fx`) | 005 |
 | `:rf.fx/managed-args` | Args of `:rf.http/managed` fx (request envelope, decode, accept, retry, timeout-ms, on-success/on-failure, request-id, abort-signal) | 014 |

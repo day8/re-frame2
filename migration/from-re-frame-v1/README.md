@@ -1018,9 +1018,7 @@ re-frame2 collapses the v1 / early-v2 multi-prefix scheme into a single root: ev
 | `:machine.microstep/transition` | `:rf.machine.microstep/transition` |
 | `:nav/push-url` | `:rf.nav/push-url` |
 | `:nav/replace-url` | `:rf.nav/replace-url` |
-| `:nav/replace` | `:rf.nav/replace` |
 | `:nav/scroll` | `:rf.nav/scroll` |
-| `:nav/external` | `:rf.nav/external` |
 | `:route/navigate` | `:rf.route/navigate` |
 | `:route/url-changed` | `:rf.route/transitioned` (the runtime event; the v2 trace op was separately named `:rf.route/fragment-changed`, leaving no `:rf.route/fragment-changed` rename target) |
 | `:route/handle-url-change` | `:rf.route/handle-url-change` |
