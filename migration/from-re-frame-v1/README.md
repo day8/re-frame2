@@ -1018,7 +1018,7 @@ re-frame2 collapses the v1 / early-v2 multi-prefix scheme into a single root: ev
 | `:machine.microstep/transition` | `:rf.machine.microstep/transition` |
 | `:nav/push-url` | `:rf.nav/push-url` |
 | `:nav/replace-url` | `:rf.nav/replace-url` |
-| `:nav/scroll` | `:rf.nav/scroll` |
+| `:nav/scroll` | `:rf.nav/scroll` (v1 had no `:nav/capture-scroll`; v2's fourth navigation fx `:rf.nav/capture-scroll` is new in v2, so there is no rename row for it) |
 | `:route/navigate` | `:rf.route/navigate` |
 | `:route/url-changed` | `:rf.route/transitioned` (the runtime event; the v2 trace op was separately named `:rf.route/fragment-changed`, leaving no `:rf.route/fragment-changed` rename target) |
 | `:route/handle-url-change` | `:rf.route/handle-url-change` |
@@ -1372,7 +1372,7 @@ Every namespace that calls `rf/reg-machine` / `rf/make-machine-handler` / `rf/ma
 
 **Type A** (mechanical, dep-only).
 
-As the third per-feature artefact split (Strategy B), Spec 012's routing surface — `reg-route`, `match-url`, `route-url`, the `:rf.route/navigate` / `:rf.route/transitioned` / `:rf.route/url-requested` / `:rf.route/handle-url-change` / `:rf.route/continue` / `:rf.route/cancel` events, the `:rf.nav/push-url` / `:rf.nav/replace-url` / `:rf.nav/scroll` reserved fxs, the framework-shipped `:rf/route` and `:rf.route/{id,params,query,transition,error}` reg-subs, and the `re-frame.routing` namespace — ships as a separate Maven artefact `day8/re-frame2-routing`. The core artefact (`day8/re-frame2`) no longer carries the namespace, the route-rank / pattern-compile / nav-token machinery, or any of the `:rf.route/*` / `:rf.nav/*` keyword strings; an app that doesn't register any routes builds an `:advanced` bundle clean of every routing-related symbol.
+As the third per-feature artefact split (Strategy B), Spec 012's routing surface — `reg-route`, `match-url`, `route-url`, the `:rf.route/navigate` / `:rf.route/transitioned` / `:rf.route/url-requested` / `:rf.route/handle-url-change` / `:rf.route/continue` / `:rf.route/cancel` events, the `:rf.nav/push-url` / `:rf.nav/replace-url` / `:rf.nav/scroll` / `:rf.nav/capture-scroll` reserved fxs, the framework-shipped `:rf/route` and `:rf.route/{id,params,query,transition,error}` reg-subs, and the `re-frame.routing` namespace — ships as a separate Maven artefact `day8/re-frame2-routing`. The core artefact (`day8/re-frame2`) no longer carries the namespace, the route-rank / pattern-compile / nav-token machinery, or any of the `:rf.route/*` / `:rf.nav/*` keyword strings; an app that doesn't register any routes builds an `:advanced` bundle clean of every routing-related symbol.
 
 **What to look for** in the codebase:
 
