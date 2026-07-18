@@ -17,10 +17,11 @@
     `javascript:` / `data:` / `vbscript:` denylist gates the chip now."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.frame :as frame]
             [re-frame.source-coords.open-endpoint :as open-endpoint]
+            [re-frame.source-store :as source-store]
             [re-frame.story.config :as config]
-            [re-frame.story.ui.open-in-editor :as open-in-editor])
+            [re-frame.story.ui.open-in-editor :as open-in-editor]
+            [re-frame.substrate.plain-atom :as plain-atom])
   (:require-macros [re-frame.core :refer [with-frame]]))
 
 ;; ---- Option B endpoint seam (rf2-wn3bh) ---------------------------------
@@ -546,44 +547,103 @@
 ;; custom panels) can dispatch `[:rf.story/open-in-editor coord]` and
 ;; let the registered fx fire the URI through the same denylist gate.
 ;; Mirrors Xray's `:rf.xray/open-in-editor` + `:rf.story.fx/open-in-editor`
-;; pairing (port per rf2-r2un8). Tests stub the `:rf.story.fx/open-in-editor` reg-fx
-;; with a capture, mirroring the Xray test pattern — no `window.location`
-;; mutation under the test runner.
+;; pairing (port per rf2-r2un8).
+;;
+;; ## The capture seam is PER-FRAME, never a registry write (rf2-oslyz)
+;;
+;; These tests need the fx ARGS, not the navigation, so the effect is
+;; captured. The capture must NOT be a second `rf/reg-fx` of
+;; `:rf.story.fx/open-in-editor` from this namespace: `registrar/register!`
+;; keeps a provenance-stamped source slot per registering namespace, so a
+;; test-namespace registration leaves `[:fx :rf.story.fx/open-in-editor]`
+;; claimed by BOTH `re-frame.story.ui.open-in-editor` and this ns. The next
+;; `rf/make-frame` anywhere in the process then fails default-image assembly
+;; with `:rf.error/image-duplicate-id` — which is exactly how this file used
+;; to break `re-frame.story.open-in-editor-ownership-cljs-test` whenever the
+;; selector ran the two namespaces in that order.
+;;
+;; The capture is therefore the per-frame `:fx-overrides` FUNCTION-VALUE seam
+;; (Spec 002 §Per-frame and per-call overrides): scoped to the one frame these
+;; dispatches land on, invisible to the source store, and gone the moment the
+;; frame is. `capture-frame` is private to this ns so the override can never
+;; leak onto `:rf/default` (which other suites dispatch through).
+;;
+;; A fn-value override runs WITHOUT a registry lookup of the id it shadows, so
+;; on its own it would happily capture an effect production never registered —
+;; the vacuous green this bead is about. `assert-production-registration!`
+;; below is the positive control that forbids that, and
+;; `production-fx-navigates-without-any-override` drives the REAL registered
+;; effect end-to-end with no override at all.
 
 (defonce ^:private captured-editor-fx (atom []))
 
-(defn- install-with-capture!
-  "Install Story's open-in-editor handlers then replace the
-  `:rf.story.fx/open-in-editor` reg-fx with a capture stub so the test can inspect
-  the fx args without touching `window.location`. Same pattern Xray's
-  test suite uses.
+(def ^:private capture-frame
+  "Frame the dispatch-path tests land on. Private to this ns: it carries the
+  `:fx-overrides` capture, and `:rf/default` must stay override-free for the
+  suites that dispatch through it."
+  :story.open-in-editor/capture)
 
-  Per rf2-wn3bh the event now emits the structured `:source-coord`
-  (so the fx can prefer the dev-server endpoint). The capture stub
-  resolves the coord through the SAME `resolve-uri` helper the chip uses
-  and records the resolved URI under `:uri` so the existing
-  URI-equivalence assertions keep their meaning."
+(def ^:private production-fx-ns
+  "The ONE namespace allowed to own `[:fx :rf.story.fx/open-in-editor]`."
+  "re-frame.story.ui.open-in-editor")
+
+(defn- ensure-adapter!
+  "Install the plain-atom test adapter unless one is already installed —
+  `rf/make-frame` needs a state-container factory, and the consolidated run
+  may or may not have had `init!` called by an earlier namespace."
+  []
+  (try (rf/init! plain-atom/adapter)
+       (catch :default _ nil)))
+
+(defn- assert-production-registration!
+  "POSITIVE CONTROL. `:rf.story.fx/open-in-editor` must be registered, and
+  registered from PRODUCTION only. Fails if `install!` stopped registering the
+  effect (which would make every capture below a fn-value override standing in
+  for nothing), and fails if any test namespace re-registers the id (the
+  provenance collision that used to break image assembly)."
+  []
+  (is (= #{production-fx-ns}
+         (set (keys (source-store/descriptors-for
+                      :fx :rf.story.fx/open-in-editor))))
+      "`:rf.story.fx/open-in-editor` is registered, and ONLY by
+       re-frame.story.ui.open-in-editor — no test-namespace shadow"))
+
+(defn- install-with-capture!
+  "Install Story's open-in-editor handlers, verify the production effect
+  registration, then build `capture-frame` carrying an `:fx-overrides`
+  function-value that records the fx args instead of touching
+  `window.location`.
+
+  Per rf2-wn3bh the event emits the structured `:source-coord` (so the fx can
+  prefer the dev-server endpoint). The capture resolves the coord through the
+  SAME `resolve-uri` helper the chip uses and records the resolved URI under
+  `:uri`, so the URI-equivalence assertions keep their meaning."
   []
   (reset! captured-editor-fx [])
-  ;; EP-0002 (rf2-bd4div): `:rf.story/open-in-editor` dispatches under a
-  ;; carried frame stamp. Register the ordinary `:rf/default` frame so the
-  ;; `with-frame :rf/default`-scoped dispatches below have a frame to land
-  ;; on (these tests exercise the dispatch→fx glue, not a variant frame).
-  (frame/ensure-default-frame!)
+  (ensure-adapter!)
   (open-in-editor/install!)
-  (rf/reg-fx :rf.story.fx/open-in-editor
-    (fn [_ctx args]
-      (swap! captured-editor-fx conj
-             (assoc args
-                    :uri (when-let [coord (:source-coord args)]
-                           (open-in-editor/resolve-uri coord)))))))
+  (assert-production-registration!)
+  ;; EP-0002 (rf2-bd4div): `:rf.story/open-in-editor` dispatches under a
+  ;; carried frame stamp, so the `with-frame`-scoped dispatches below need a
+  ;; live frame to land on. Re-`make-frame`-ing the same id is idempotent
+  ;; replacement, so this is safe once per test.
+  (rf/make-frame
+    {:id capture-frame
+     :doc "open-in-editor dispatch-path test frame (carries the fx capture)"
+     :fx-overrides
+     {:rf.story.fx/open-in-editor
+      (fn [_ctx args]
+        (swap! captured-editor-fx conj
+               (assoc args
+                      :uri (when-let [coord (:source-coord args)]
+                             (open-in-editor/resolve-uri coord)))))}}))
 
 (deftest open-in-editor-event-emits-fx-with-resolved-uri
   (testing "rf2-r2un8 — dispatching `:rf.story/open-in-editor` with a
             bare coord produces a `:rf.story.fx/open-in-editor` fx whose :uri is the
             resolved URI"
     (install-with-capture!)
-    (with-frame :rf/default
+    (with-frame capture-frame
       (rf/dispatch-sync [:rf.story/open-in-editor
                          {:file "src/app/events.cljs" :line 17 :column 3}]))
     (is (= 1 (count @captured-editor-fx))
@@ -597,7 +657,7 @@
             wrapper shape some panels use) produces the same fx as the
             bare-coord form"
     (install-with-capture!)
-    (with-frame :rf/default
+    (with-frame capture-frame
       (rf/dispatch-sync [:rf.story/open-in-editor
                          {:source-coord {:file "src/x.cljs" :line 5 :column 1}}]))
     (is (= "vscode://file/src/x.cljs:5:1"
@@ -609,7 +669,7 @@
             flatten coords at projection time can dispatch them as
             strings without losing line info"
     (install-with-capture!)
-    (with-frame :rf/default
+    (with-frame capture-frame
       (rf/dispatch-sync [:rf.story/open-in-editor
                          {:source-coord "src/app/events.cljs:42"}]))
     (is (= "vscode://file/src/app/events.cljs:42:1"
@@ -619,7 +679,7 @@
   (testing "rf2-r2un8 — bare display string (no wrapper) defensively
             handled by the parser"
     (install-with-capture!)
-    (with-frame :rf/default
+    (with-frame capture-frame
       (rf/dispatch-sync [:rf.story/open-in-editor "src/x.cljs:7"]))
     (is (= "vscode://file/src/x.cljs:7:1"
            (:uri (first @captured-editor-fx))))))
@@ -629,7 +689,7 @@
             (the same source of truth the chip render uses)"
     (install-with-capture!)
     (config/set-editor! :cursor)
-    (with-frame :rf/default
+    (with-frame capture-frame
       (rf/dispatch-sync [:rf.story/open-in-editor
                          {:file "src/x.cljs" :line 10}]))
     (is (= "cursor://file/src/x.cljs:10:1"
@@ -641,7 +701,7 @@
             `open!` is a no-op for); the handler doesn't short-circuit"
     (install-with-capture!)
     (config/set-editor! {:custom "javascript:alert(1)"})
-    (with-frame :rf/default
+    (with-frame capture-frame
       (rf/dispatch-sync [:rf.story/open-in-editor
                          {:file "src/x.cljs" :line 1}]))
     (is (= 1 (count @captured-editor-fx))
@@ -655,13 +715,39 @@
             `:rf.story.fx/open-in-editor` can prefer the dev-server endpoint and fall
             back to the `editor://` URI"
     (install-with-capture!)
-    (with-frame :rf/default
+    (with-frame capture-frame
       (rf/dispatch-sync [:rf.story/open-in-editor
                          {:file "src/x.cljs" :line 1}]))
     (is (= {:file "src/x.cljs" :line 1}
            (:source-coord (first @captured-editor-fx)))
         "the structured coord rides the fx verbatim — the endpoint
          resolves the relative :file at runtime on the server")))
+
+(deftest production-fx-navigates-without-any-override
+  (testing "rf2-oslyz — the tests above capture through a per-frame
+            `:fx-overrides` fn-value, and a fn-value override runs without
+            any registry lookup of the id it shadows. So this one drives the
+            REAL registered `:rf.story.fx/open-in-editor` on a frame carrying
+            NO overrides at all, observing Story's own navigator seam. If
+            `install!` stopped registering the effect, the capture tests
+            would still pass and only this one would red — which is the
+            whole point of it being here."
+    (ensure-adapter!)
+    (open-in-editor/install!)
+    (assert-production-registration!)
+    (config/set-editor! :vscode)
+    (rf/make-frame {:id  :story.open-in-editor/production
+                    :doc "no-override frame — drives the REAL effect"})
+    (let [[nav calls] (capturing-navigator)]
+      (with-stub-navigator nav
+        (fn []
+          (with-frame :story.open-in-editor/production
+            (rf/dispatch-sync [:rf.story/open-in-editor
+                               {:file "src/app.cljs" :line 17 :column 3}]))))
+      (is (= ["vscode://file/src/app.cljs:17:3"] @calls)
+          "the production event → production fx → production navigator
+           chain is live end-to-end, with nothing stubbed but the OS
+           handoff itself"))))
 
 ;; ---- rf2-wn3bh — Option B: dev-server endpoint preferred over URI -------
 ;;
