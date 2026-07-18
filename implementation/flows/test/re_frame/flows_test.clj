@@ -1294,7 +1294,7 @@
         "re-registration after reset works without raising")))
 
 ;; ---------------------------------------------------------------------------
-;; 7. clear-flow :frame opt routing — multi-frame registrar-slot retention
+;; 7. clear-flow :frame opt routing — multi-frame sibling isolation
 ;;
 ;; This deftest pins `clear-flow`'s `:frame` opt routing within the flows
 ;; artefact's own test alias — three branches in registry.cljc:
@@ -1302,11 +1302,13 @@
 ;; 1. Frame opt routing: `(clear-flow :foo {:frame :left})` removes the
 ;;    flow from `:left`'s per-frame map only; sibling frame `:right`'s
 ;;    identically-named flow stays intact.
-;; 2. "Last frame holding id" registrar-slot retention (registry.cljc
-;;    line ~254 `not-any?`): when the same flow id is registered against
-;;    two frames, clearing it from one frame must NOT unregister the
-;;    `:flow` registrar slot — the other frame still needs it for
-;;    hot-reload tracking. Clearing from the second frame then unregisters.
+;; 2. Sibling isolation across the whole clear sequence: when the same flow
+;;    id is registered against two frames, clearing it from one frame leaves
+;;    the other frame's per-frame entry authoritative in place, and clearing
+;;    the second frame drops the final entry. Under the single store
+;;    (rf2-en00bk) the `:flow` registrar slot is RESERVED-but-empty — never
+;;    written, so there is nothing to retain or unregister; the assertions
+;;    below pin it `nil` throughout.
 ;; 3. app-db `dissoc-in` is frame-local: clearing on `:left` only
 ;;    dissoc-in's `:left`'s app-db; `:right`'s app-db is untouched.
 ;;
@@ -1440,45 +1442,33 @@
             "the per-frame store slot is gone after the value-keyed clear")))))
 
 ;; ---------------------------------------------------------------------------
-;; 8. `_hot-reload-hook` defonce-idempotency on namespace reload
+;; 8. (removed) `_hot-reload-hook` defonce-idempotency on namespace reload
 ;;
-;; The flows registry installs a registrar replacement-hook
-;; (`invalidate-flow-on-replace!`) once at namespace load via
-;; `(defonce ^:private _hot-reload-hook
-;; (registrar/add-replacement-hook! ...))`. A plain `def` would push a
-;; duplicate hook into `re-frame.registrar/replacement-hooks` on every
-;; namespace reload — and every subsequent flow re-registration would
-;; invalidate `last-inputs` twice (functionally harmless because `dissoc` is
-;; idempotent, but a silent bookkeeping leak that would compound across many
-;; hot-reload cycles in long dev sessions).
-;;
-;; Pin the idempotency: `(require 're-frame.flows.registry :reload)`
-;; MUST NOT push a duplicate hook.
+;; This section formerly pinned `defonce` idempotency of a registrar
+;; replacement-hook that the flows registry installed at namespace load. No
+;; such hook exists under the single store (rf2-en00bk): `reg-flow` drops the
+;; re-registered `[frame-id flow-id]` last-inputs row directly. The hook-count
+;; check therefore asserted nothing about flows — reloading a namespace that
+;; installs no hook trivially leaves the unrelated hook vector unchanged — so
+;; it was removed (rf2-y678a). The re-registration behaviour it nominally
+;; guarded is proved causally by section 9a below: a same-frame replacement
+;; invalidates only that frame's last-inputs row, and the sibling's survives.
 ;; ---------------------------------------------------------------------------
-
-(deftest hot-reload-hook-is-defonce-idempotent
-  (testing "reloading re-frame.flows.registry does NOT install a duplicate replacement-hook"
-    (let [hooks-var (resolve 're-frame.registrar/replacement-hooks)
-          before    (count @(deref hooks-var))]
-      (require 're-frame.flows.registry :reload)
-      (let [after (count @(deref hooks-var))]
-        (is (= before after)
-            "the hook count is unchanged across a namespace reload — `defonce` guards the install")))))
 
 ;; ---------------------------------------------------------------------------
 ;; 9. Frame-scoping coverage lives in `clear-flow-routes-via-frame-opt`
-;; above (registration routing, app-db dissoc, registrar-slot retention,
+;; above (registration routing, app-db dissoc, per-frame sibling isolation,
 ;; AND the post-clear re-drain check).
 ;; ---------------------------------------------------------------------------
 
 ;; ---------------------------------------------------------------------------
-;; 9a. invalidate-flow-on-replace! is frame-scoped
+;; 9a. Re-registration invalidation is frame-scoped
 ;;
 ;; Spec 013 §Re-registration scopes the invalidation to `[frame-id flow-id]`.
-;; A replacement hook that wiped every frame's row under the flow id would
-;; have a re-registration on frame `:left` clear `:right`'s last-inputs row
-;; too, causing unnecessary recompute on `:right`'s next drain and weakening
-;; frame isolation.
+;; `reg-flow` invalidates that one row directly. An invalidation that wiped
+;; every frame's row under the flow id would have a re-registration on frame
+;; `:left` clear `:right`'s last-inputs row too, causing unnecessary recompute
+;; on `:right`'s next drain and weakening frame isolation.
 ;; ---------------------------------------------------------------------------
 
 (deftest hot-reload-on-one-frame-does-not-invalidate-sibling-frames-last-inputs
