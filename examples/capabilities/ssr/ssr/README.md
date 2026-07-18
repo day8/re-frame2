@@ -28,18 +28,27 @@ CP-9](../../../../spec/Construction-Prompts.md). For the narrative version
 of everything below, read [Server-side
 rendering](../../../../docs/ssr/concepts.md).
 
-## One artefact, two runtimes — why `.cljc`
+## One app, two runtimes — why `.cljc`
 
 There is no separate "server code" to keep in sync with the client. The
-server and client both live in one `core.cljc`, and reader conditionals
-pick the side. A `:clj` `handle-request` returns the HTML-plus-payload
-on the JVM. A `:cljs` `run` boots the browser from the baked payload.
-The [views](../../../../docs/core/glossary.md#view) and
-[event handlers](../../../../docs/core/glossary.md#event-handler) in
-between carry no reader conditionals at all — they're pure, so "does
-this run on the server?" never comes up for them. Where it *does* come
-up — a `localStorage` write the JVM has never heard of — you declare it
-once with `:platforms`, rather than branch at the call site.
+application — [event
+handlers](../../../../docs/core/glossary.md#event-handler),
+[subscriptions](../../../../docs/core/glossary.md#subscription),
+[views](../../../../docs/core/glossary.md#view), the server's
+`handle-request`, the browser's `run` entry point — lives in one
+`core.cljc`, and reader conditionals pick the side. A `:clj`
+`handle-request` returns the HTML-plus-payload on the JVM. A `:cljs`
+`run` boots the browser from the baked payload. The views and event
+handlers in between carry no reader conditionals at all — they're pure,
+so "does this run on the server?" never comes up for them. Where it
+*does* come up — a `localStorage` write the JVM has never heard of —
+you declare it once with `:platforms`, rather than branch at the call
+site.
+
+One small file sits beside it: `mount.cljs`, holding the client's
+adopt-vs-fresh React-root decision and nothing else. It isn't a second
+copy of the app — the file list below says why that single branch earns
+its own namespace.
 
 ## What this demonstrates
 
@@ -135,15 +144,36 @@ id='__rf_payload'>` — standing in for what `handle-request` would serve
 if a real Clojure server sat in front. The browser-side `run` calls
 `ssr/hydrate!` (read the payload → dispatch `:rf/hydrate` → verify the
 render-hash) and renders against the now-seeded state through the
-carried frame's `frame-provider`.
+carried frame's `frame-provider`, handing that render-tree to
+`mount.cljs`'s `mount!` — state first, DOM second.
 
 ## Files
 
 ```
 ssr/
-  core.cljc                    — server + client, one artefact.
+  core.cljc                    — the shared app: events, subs, views, the server's
+                                 handle-request, the client's run entry point.
+  mount.cljs                   — the client's adopt-vs-fresh React-root decision.
   index.html                   — pre-rendered shell + payload (mocks a real server emission).
 ```
+
+`mount.cljs` is small on purpose. It holds one decision — payload
+present ⇒ `hydrate-root`, which reconciles against the server's markup
+and adopts it; payload absent ⇒ a fresh `create-root` + `render` — and
+`run` calls it instead of branching inline. The browser DOM-adoption
+regression (`re-frame.ssr.ssr-startup-recipe-dom-cljs-test`, over in
+`implementation/ssr/test/`) calls that *same* helper, so the proof
+drives the branch this example ships rather than a hand-kept copy of it
+that could quietly drift.
+
+Which is why it's a namespace of its own rather than a `defn-` inside
+`core.cljc`: the test has to reach the helper without `:require`-ing
+`ssr.core`, whose registrations (`:auth.session/store`,
+`:articles/loaded`) collide at image assembly with the other examples
+sharing that test bundle. `mount.cljs` registers nothing, so loading it
+pulls no example ids in. Everything else stays in `run` — including the
+`:ssr/client-bootstrap` dispatch on a plain client load, which is app
+logic, not mount mechanics.
 
 ## How to run
 
