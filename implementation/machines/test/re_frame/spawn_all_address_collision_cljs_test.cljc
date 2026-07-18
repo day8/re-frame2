@@ -28,7 +28,11 @@
       `<type>#n` rejects likewise (registration passed; caught at spawn time).
    3. control — distinct resolved addresses (all-generated) install cleanly with
       NO collision reject.
-   4. privacy — the reject trace carries STRUCTURAL context only, never `:data`."
+   4. privacy — the reject trace carries STRUCTURAL context only, never `:data`.
+   5. ORDER (rf2-ri19s) — the alias is STRUCTURAL, decided from the pre-allocated
+      child args alone, so it rejects BEFORE any type resolution, snapshot build,
+      or `[:schemas :data]` callback: an aliased batch whose children are ALSO
+      schema-invalid / unregistered emits the collision reject and NOTHING else."
   (:require
    #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
       :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
@@ -37,6 +41,13 @@
    ;; machine fxs when this ns runs alone.
    [re-frame.machines]
    [re-frame.machines.test-support :as mtest]
+   ;; The schemas artefact ships the registered-validator hot path the
+   ;; `:where :machine-data` boundary routes through; the `.malli` adapter
+   ;; publishes Malli's validate/explain into the late-bind table. Needed by
+   ;; the ORDER tests below, which pin that an aliased batch never reaches a
+   ;; child's `[:schemas :data]` validator at all.
+   [re-frame.schemas]
+   [re-frame.schemas.malli]
    #?@(:clj  [[re-frame.substrate.plain-atom :as plain-atom]]
        :cljs [[re-frame.adapter.reagent :as reagent-adapter]])))
 
@@ -77,6 +88,45 @@
 
 (defn- collision-rejects []
   (mtest/events-of :rf.error/machine-spawn-all-duplicate-id))
+
+;; ---------------------------------------------------------------------------
+;; Ordering probes (rf2-ri19s).
+;; ---------------------------------------------------------------------------
+
+(def ^:private reject-operations
+  "The three fail-closed `:spawn-all` admission rejects, in no order — the set
+  `reject-order` projects the captured stream onto."
+  #{:rf.error/machine-spawn-all-duplicate-id
+    :rf.error/schema-validation-failure
+    :rf.error/machine-spawn-unregistered-type})
+
+(defn- reject-order
+  "The captured admission-reject operations in EMISSION order — the sequence
+  rf2-ri19s pins. Pre-fix, an aliased batch of schema-invalid children yielded
+  `[:rf.error/schema-validation-failure :rf.error/schema-validation-failure
+    :rf.error/machine-spawn-all-duplicate-id]`; the structural alias must be the
+  ONLY entry."
+  []
+  (into [] (comp (map :operation) (filter reject-operations))
+        (or (mtest/captured-events) [])))
+
+(def ^:private validator-calls
+  "Counts every invocation of the counting child validator below, so the ORDER
+  tests can assert the application `[:schemas :data]` callback was never REACHED
+  — strictly stronger than asserting no failure trace fired."
+  (atom 0))
+
+(def ^:private counting-child
+  "A child TYPE whose `[:schemas :data]` validator counts its own invocations
+  and REJECTS the per-child `:data` override the ORDER tests supply (`:n` must
+  be a positive int; the override passes a string). Registered default conforms,
+  so only an override violates."
+  {:initial :running
+   :data    {:n 1}
+   :schemas {:data [:fn (fn [m]
+                          (swap! validator-calls inc)
+                          (pos-int? (:n m)))]}
+   :states  {:running {}}})
 
 ;; ===========================================================================
 ;; (1) THE BUG — two children sharing a :fixed-actor-id collapse to one actor.
@@ -180,3 +230,90 @@
           "no application secret leaked into the reject trace (no :data / spawn args carried)")
       (is (= {:one/actor [:a :b]} (:collisions (:tags ev)))
           "structural collision map is present"))))
+
+;; ===========================================================================
+;; (5) ORDER — the structural alias rejects BEFORE any schema callback runs.
+;; ===========================================================================
+
+(deftest aliased-batch-rejects-before-any-schema-callback
+  (testing "two aliasing children that are ALSO schema-invalid: the resolved
+            address is derivable from the pre-allocated child args alone, so the
+            alias is decided FIRST and the invoke rejects with EXACTLY ONE
+            :rf.error/machine-spawn-all-duplicate-id — no
+            :rf.error/schema-validation-failure precedes it, and the application
+            [:schemas :data] validator is never CALLED for the aliased children.
+            Pre-fix the preflight prepared every child first, so the captured
+            order was [schema-failure schema-failure duplicate-id]: the
+            structural invalidity did not fail first, and a validator/listener
+            that swapped the owner frame could pre-empt the collision reject
+            entirely."
+    (reset! validator-calls 0)
+    (rf/reg-machine :sa/order counting-child)
+    (rf/reg-machine :sup/order
+                    (parent-over [{:id :a :machine-id :sa/order
+                                   :fixed-actor-id :order/actor :data {:n "bad"}}
+                                  {:id :b :machine-id :sa/order
+                                   :fixed-actor-id :order/actor :data {:n "bad"}}]))
+    (rf/dispatch-sync [:sup/order [:start]])
+    (is (= [:rf.error/machine-spawn-all-duplicate-id] (reject-order))
+        "the structural alias is the FIRST and ONLY admission reject — no schema failure precedes it")
+    (is (zero? @validator-calls)
+        "no child [:schemas :data] validator was CALLED — the aliased batch never reached preparation")
+    (is (= {:rf/spawn-all-rejected? true} (join-slot :sup/order))
+        "still one childless reject sentinel — the atomic reject shape is unchanged (rf2-qlzh9)")
+    (is (nil? (snap-of :order/actor))
+        "nothing installed at the aliased address")
+    (is (= {:order/actor [:a :b]} (:collisions (:tags (first (collision-rejects)))))
+        "declaration-order diagnostics survive the hoist")))
+
+;; ===========================================================================
+;; (6) ORDER, adversarial — alias + UNREGISTERED sibling + multiple groups.
+;; ===========================================================================
+
+(deftest aliased-batch-rejects-before-type-resolution-across-groups
+  (testing "adversarial: TWO collision groups whose members are variously
+            unregistered and schema-invalid, declared interleaved. The alias is
+            structural, so it is decided before any TYPE is resolved: the invoke
+            emits ONE collision reject naming BOTH groups in declaration order
+            and NOTHING else — no :rf.error/machine-spawn-unregistered-type for
+            the unregistered member, no schema failure for the invalid one. This
+            pins that the hoist is ahead of registry resolution too, and that the
+            multi-group diagnostic order does not fall back on map hash order
+            (which differs between CLJ and CLJS)."
+    (reset! validator-calls 0)
+    (rf/reg-machine :sa/adv counting-child)
+    ;; Groups: :g1/actor  ← children :a (schema-invalid) + :d (unregistered TYPE)
+    ;;         :g2/actor  ← children :b (unregistered TYPE) + :c (schema-invalid)
+    ;; Declared a, b, c, d so first-appearance order is [:g1/actor :g2/actor]
+    ;; while the per-group child order is [:a :d] / [:b :c].
+    (rf/reg-machine :sup/adv
+                    (parent-over [{:id :a :machine-id :sa/adv
+                                   :fixed-actor-id :g1/actor :data {:n "bad"}}
+                                  {:id :b :machine-id :sa/nope
+                                   :fixed-actor-id :g2/actor}
+                                  {:id :c :machine-id :sa/adv
+                                   :fixed-actor-id :g2/actor :data {:n "bad"}}
+                                  {:id :d :machine-id :sa/nope
+                                   :fixed-actor-id :g1/actor}]))
+    (rf/dispatch-sync [:sup/adv [:start]])
+    (is (= [:rf.error/machine-spawn-all-duplicate-id] (reject-order))
+        "ONE structural reject and nothing else — no unregistered-type or schema reject rode along")
+    (is (zero? @validator-calls)
+        "no [:schemas :data] validator was CALLED for an already-aliased batch")
+    (is (= {:rf/spawn-all-rejected? true} (join-slot :sup/adv))
+        "the whole invoke rejects atomically under the childless sentinel")
+    (is (nil? (snap-of :g1/actor)) "nothing installed at the first aliased address")
+    (is (nil? (snap-of :g2/actor)) "nothing installed at the second aliased address")
+    (let [tags       (:tags (first (collision-rejects)))
+          collisions (:collisions tags)]
+      ;; Group MEMBERSHIP by value equality (order-independent), then each
+      ;; group's child ids as an honest VECTOR — the only carrier whose order is
+      ;; guaranteed identical on CLJ and CLJS. Asserting group order off the
+      ;; map's seq would be reading order out of an unordered presentation
+      ;; (an array-map today, a hash-map past the small-map threshold).
+      (is (= {:g1/actor [:a :d] :g2/actor [:b :c]} collisions)
+          "both groups reported, each naming its children in DECLARATION order (:a before :d, :b before :c)")
+      (is (vector? (:g1/actor collisions))
+          "child ids ride an ordered vector, not a set — declaration order is a contract")
+      (is (= :sup/adv (:parent-id tags)) "parent identity carried")
+      (is (= [:forking] (:invoke-id tags)) "invoke identity carried"))))
