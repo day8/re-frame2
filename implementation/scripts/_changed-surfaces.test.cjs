@@ -777,16 +777,118 @@ test('cljs job provisions Clojure CLI before the G-12 isolation gate (rf2-3kewru
   assert.notEqual(setup, -1, 'cljs job must install Clojure CLI for G-12 Arm 2');
   assert.notEqual(gate, -1, 'cljs job must run the UI isolation gate');
   assert.ok(setup < gate, 'Clojure CLI setup must precede the G-12 isolation gate');
-  // rf2-9sgj8 — the install now runs the official linux-install.sh directly
-  // with retry (resilient against the transient curl-35 / socket-hang-up that
-  // reds setup) instead of DeLaGuardo/setup-clojure. It is still a real Clojure
-  // CLI provision, which is all Arm 2's `clojure -Stree` needs — assert the
-  // install actually downloads+installs the CLI rather than pinning the
-  // (now-removed) action SHA.
+  // rf2-9sgj8 — the install runs the official linux-install.sh with retry
+  // (resilient against the transient curl-35 / socket-hang-up that reds setup)
+  // instead of DeLaGuardo/setup-clojure. rf2-e7ja9 — that body now lives in the
+  // one shared script rather than inline here. It is still a real Clojure CLI
+  // provision, which is all Arm 2's `clojure -Stree` needs — assert the step
+  // calls the shared installer rather than pinning the (now-removed) action SHA
+  // or a copied installer body.
   assert.match(
     block,
+    /\.github\/scripts\/install-clojure-cli\.sh/,
+    'cljs job must install the Clojure CLI for Arm 2 `clojure -Stree` (rf2-e7ja9 shared installer)',
+  );
+});
+
+// rf2-e7ja9 — the resilient Clojure CLI install (rf2-9sgj8) was copied into 59
+// jobs across eight workflows. It now lives in ONE script,
+// `.github/scripts/install-clojure-cli.sh`, which every one of those jobs
+// calls. These assertions are the structural proof that it STAYS that way: a
+// reintroduced inline installer body, a resurrected setup-clojure action, or a
+// relative call path all fail here rather than silently re-forking the policy.
+const CLOJURE_INSTALLER = path.join(REPO_ROOT, '.github', 'scripts', 'install-clojure-cli.sh');
+const WORKFLOW_DIR = path.join(REPO_ROOT, '.github', 'workflows');
+const allWorkflows = () =>
+  fs
+    .readdirSync(WORKFLOW_DIR)
+    .filter((f) => f.endsWith('.yml'))
+    .map((f) => ({ name: f, text: fs.readFileSync(path.join(WORKFLOW_DIR, f), 'utf8') }));
+
+test('the shared Clojure CLI installer exists and keeps its failure boundary (rf2-e7ja9)', () => {
+  assert.ok(fs.existsSync(CLOJURE_INSTALLER), '.github/scripts/install-clojure-cli.sh must exist');
+  // The workflows execute it directly (`run: "$GITHUB_WORKSPACE/..."`), so the
+  // mode recorded in the index must be 100755 — a 100644 would fail all 59
+  // jobs with "Permission denied". A Windows checkout has core.filemode=false
+  // and will happily stage 100644, so assert git's mode rather than the
+  // filesystem's (which is meaningless there).
+  const mode = execFileSync('git', ['ls-files', '-s', '--', '.github/scripts/install-clojure-cli.sh'], {
+    cwd: REPO_ROOT,
+    encoding: 'utf8',
+  }).trim();
+  assert.match(
+    mode,
+    /^100755\s/,
+    'install-clojure-cli.sh must be committed executable (100755) — the workflows run it directly',
+  );
+  const src = fs.readFileSync(CLOJURE_INSTALLER, 'utf8');
+  // The semantics rf2-9sgj8 established, now owned in exactly one place:
+  // three whole download+install attempts, curl retry, bounded backoff, sudo
+  // install, and a final `clojure --version` failure boundary.
+  assert.match(src, /^set -euo pipefail$/m, 'installer must run under set -euo pipefail');
+  assert.match(src, /for attempt in 1 2 3; do/, 'installer must make three whole attempts');
+  assert.match(
+    src,
+    /curl -fsSL --retry 5 --retry-all-errors --retry-delay 3/,
+    'installer must keep the curl retry policy',
+  );
+  assert.match(
+    src,
     /brew-install\/releases\/latest\/download\/linux-install\.sh/,
-    'cljs job must install the Clojure CLI for Arm 2 `clojure -Stree` (rf2-9sgj8 resilient install)',
+    'installer must fetch the official linux-install.sh',
+  );
+  assert.match(src, /sudo bash \/tmp\/linux-install\.sh/, 'installer must install with sudo');
+  assert.match(src, /sleep "\$\(\(attempt \* 10\)\)"/, 'installer must keep the bounded backoff');
+  assert.match(
+    src,
+    /clojure --version\s*$/,
+    'installer must end on `clojure --version` — the failure boundary that stops a caller ' +
+      'proceeding with a half-installed toolchain',
+  );
+});
+
+test('no workflow carries an inline Clojure installer body or setup-clojure (rf2-e7ja9)', () => {
+  for (const { name, text } of allWorkflows()) {
+    assert.doesNotMatch(
+      text,
+      /brew-install\/releases\/latest\/download\/linux-install\.sh/,
+      `${name} must call .github/scripts/install-clojure-cli.sh, not copy the installer body ` +
+        '(rf2-e7ja9 — 59 copies of this policy is what the extraction deleted)',
+    );
+    assert.doesNotMatch(
+      text,
+      /uses:\s*\S*setup-clojure@/,
+      `${name} must not use the setup-clojure action — its un-retried curl is the ` +
+        'transient curl-35 / socket-hang-up flake rf2-9sgj8 removed',
+    );
+  }
+});
+
+test('every Clojure CLI step calls the shared installer by absolute path (rf2-e7ja9)', () => {
+  let callSites = 0;
+  for (const { name, text } of allWorkflows()) {
+    const lines = text.split(/\r?\n/);
+    lines.forEach((line, i) => {
+      if (!/^\s*-\s+name:.*Set up Clojure CLI/.test(line)) return;
+      callSites++;
+      // The step's `run:` is the next non-blank line — the extraction leaves a
+      // two-line step, so anything else means a body crept back in.
+      const next = lines[i + 1] ?? '';
+      assert.match(
+        next,
+        /^\s*run: "\$GITHUB_WORKSPACE\/\.github\/scripts\/install-clojure-cli\.sh"$/,
+        `${name}:${i + 2} — a "Set up Clojure CLI" step must be exactly a call to the shared ` +
+          'installer. Use the $GITHUB_WORKSPACE-absolute form: several jobs set a ' +
+          '`defaults.run.working-directory` (e.g. `implementation`) under which a relative ' +
+          './.github/scripts/... would not resolve.',
+      );
+    });
+  }
+  // Non-vacuity: if the steps were renamed away wholesale this test would
+  // otherwise pass by iterating nothing.
+  assert.ok(
+    callSites >= 50,
+    `expected the ~59 Clojure CLI call sites to still be present, found ${callSites}`,
   );
 });
 
