@@ -132,6 +132,57 @@
   (let [p *continuation-predicate*]
     (fn [] (or (nil? p) (p)))))
 
+#?(:clj
+   (defn- call-with-ordinary-delivery-scope
+     "Run `f` under the ordinary delivery defaults the public trace-listener
+     fan-out is entitled to — the same four axes `deliver!` restores around an
+     inline fan-out (rf2-vf2qke + rf2-eaxnai): epoch capture, frame-no-emit policy
+     and ring retention back to their defaults, and the exact-owner continuation
+     neutralised.
+
+     `deliver!` gets this for free because an inline fan-out runs inside its
+     `binding`. A DEFERRED fan-out (rf2-wxy1c) runs later, at the post-drain
+     boundary, long after `deliver!` returned — so without re-establishing the
+     scope here a listener body would inherit whatever authority the DRAIN was
+     running under. That is precisely the rf2-eaxnai defect: a listener whose
+     nested authored work (dispatch / destroy / create) consults a fence that
+     belongs to the drain's own event tail gets silently dropped.
+
+     JVM-only, like the deferral seam it serves."
+     [f]
+     (binding [*epoch-capture-enabled?*  true
+               *frame-policy-enabled?*   true
+               *ring-retention-enabled?* true
+               *continuation-predicate*  nil]
+       (f))))
+
+(defn ^:no-doc call-with-deferred-listener-delivery
+  "Run `f` as one post-drain trace-listener delivery region — the rf2-wxy1c seam.
+  Trace events emitted inside it while the framework owns a frame's `:drain-lock`
+  are appended rather than fanned out, and delivered on the way out, serialized
+  process-wide, before the enclosing dispatch / drain call returns.
+
+  The drain engine wraps its `:drain-lock` acquire → run → release regions in this
+  (`re-frame.router/drain-try!` / `drain-block!` and
+  `re-frame.frame/call-serialized-with-drain!`) so that arbitrary listener code is
+  never invoked — nor awaited — while a drain lock is held, and so that two
+  independent frames draining concurrently cannot enter one listener at once. See
+  `re-frame.trace.tooling/call-with-deferred-fanout` for the mechanism and the
+  invariants that placement carries.
+
+  JVM-only by construction, and the reader conditional is load-bearing for
+  BUNDLE ISOLATION, not just for clarity. The drain is production code, so this
+  fn is live in a production CLJS build; routing it through the tooling sibling
+  unconditionally would give that always-reachable call site a static reference
+  into `re-frame.trace.tooling`, pulling the dev-only listener registry + ring
+  machinery (and its `check-bundle-isolation.cjs` sentinel) into the production
+  counter bundle. CLJS is single-threaded — no concurrent drains, no monitor,
+  nothing to defer — so the `:cljs` arm is the identity call and emits no
+  reference at all."
+  [f]
+  #?(:clj  (trace-tooling/call-with-deferred-fanout f call-with-ordinary-delivery-scope)
+     :cljs (f)))
+
 (defn ^:no-doc call-with-structural-delivery
   "Deliver a structural trace without bare-id epoch/policy attribution and
   without any per-frame ring retention.

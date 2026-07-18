@@ -1680,40 +1680,18 @@
     (when-let [frame-record (frame frame-id)]
       (current-thread-is-drainer? frame-record))))
 
-(defn thread-owns-drain-serialization?
-  "True when the CALLING thread currently holds `frame-id`'s single-drainer
-  serialization — via EITHER path that takes the frame's `:drain-lock`: it is the
-  frame's active event DRAINER (`:in-drain?`, stamped around `run-one-pass!`), OR
-  the holder of a cold `call-serialized-with-drain!` critical section
-  (`:serialized-holder`). The both-axis sibling of `in-drain?` (which reports the
-  drainer axis alone).
-
-  This is the REAL lock-ownership evidence the trace tooling consults (via the
-  `:frame/thread-owns-drain-serialization?` late-bind hook) to decide whether an
-  outermost trace emit must drive its listener fan-out INLINE — a thread that
-  owns a frame's drain-lock must never block acquiring the trace `fanout-monitor`,
-  or a listener already holding the monitor that `dispatch-sync`es into that frame
-  closes the rf2-jl75r AB-BA cycle — versus serialize on the monitor like every
-  other clean emit (rf2-uw7hg). Unlike a `:frame`-tag / ambient-frame shape guess
-  (rf2-rakqk), this reports what the thread ACTUALLY holds right now, so a
-  frame-shaped emit issued OUTSIDE any held drain-lock (a public / manual / stale
-  `:frame` tag, an ambient-frame tool emit) correctly reports false and stays
-  serialized.
-
-  Returns false for an absent frame (nothing can be draining it, so no drain-lock
-  is held and no cycle can form)."
-  [frame-id]
-  (boolean
-    (when-let [frame-record (frame frame-id)]
-      (current-thread-owns-drain-serialization? frame-record))))
-
-;; Publish the drain-lock ownership probe so `re-frame.trace.tooling` can route
-;; an outermost emit inline-vs-monitor on REAL lock ownership (rf2-rakqk) rather
-;; than event-shape inference. Late-bound (not a static require) so a production
-;; CLJS bundle that never loads the tooling sibling still DCEs this edge, exactly
-;; like the sibling `:frame/current-frame-id` publication above.
-(late-bind/set-fn! :frame/thread-owns-drain-serialization?
-                   thread-owns-drain-serialization?)
+;; rf2-wxy1c retired the by-frame-id `thread-owns-drain-serialization?` probe and
+;; its `:frame/thread-owns-drain-serialization?` late-bind publication. It existed
+;; for exactly one consumer — `re-frame.trace.tooling`, which asked it whether an
+;; outermost trace emit should drive its listener fan-out inline (off
+;; `fanout-monitor`) to avoid the rf2-jl75r AB-BA cycle. That question no longer
+;; arises: the trace tooling now DEFERS a drain-owned fan-out to the post-drain
+;; boundary the three `:drain-lock` regions establish
+;; (`trace/call-with-deferred-listener-delivery` — `re-frame.router/drain-try!` /
+;; `drain-block!` and `call-serialized-with-drain!` below), so the deferral scope
+;; itself is the ownership evidence and no cross-namespace probe is needed. The
+;; private `current-thread-owns-drain-serialization?` above remains, serving the
+;; reentrancy fast-path it was written for.
 
 (defn call-serialized-with-drain!
   "Run thunk `f` serialized against `frame-id`'s event drain, returning its
@@ -1734,56 +1712,66 @@
     `re-frame.router/drain-block!` uses — bounded wait: an active drainer holds
     it for at most `drain-depth` events), stamp this thread as the
     `:serialized-holder`, run `f`, then clear the holder and release the lock
-    in a `finally`."
+    in a `finally`.
+
+  The cold acquire → run → release region is wrapped in
+  `trace/call-with-deferred-listener-delivery` (rf2-wxy1c): trace events emitted
+  inside a held cold section are delivered at that post-drain boundary, once the
+  lock is down, rather than running arbitrary listener code under it. The
+  already-owns branch inherits its owner's scope (the wrapper is nesting-aware),
+  so a nested serialized op appends to the SAME batch and the outermost holder
+  flushes it once."
   [frame-id f]
   (if-let [frame-record (frame frame-id)]
     (if (current-thread-owns-drain-serialization? frame-record)
       (f)
-      (let [drain-lock (:drain-lock frame-record)
-            holder     (:serialized-holder frame-record)]
-        (loop []
-          (when-not (compare-and-set! drain-lock false true)
-            #?(:clj (Thread/yield))
-            (recur)))
-        (reset! holder #?(:clj (Thread/currentThread) :cljs true))
-        (try
-          (f)
-          (finally
-            ;; Clear the holder BEFORE releasing the lock: once the lock is
-            ;; free another thread may acquire it and stamp its own holder, so
-            ;; clearing after the release could clobber that new owner.
-            (reset! holder nil)
-            ;; Per rf2-x76af2.22 (a): the cold release must mirror the
-            ;; drainer's `try-release-on-empty!`. A `dispatch!` that arrived
-            ;; DURING the hold set `:scheduled?` true and scheduled a
-            ;; `drain-try!` that CAS-lost to us and gave up — and, because we
-            ;; are NOT a drainer, nothing is left to re-check the queue. So a
-            ;; plain `(reset! drain-lock false)` PERMANENTLY STRANDS the queue
-            ;; (`:scheduled?` stuck true no-ops every later
-            ;; `ensure-drain-scheduled!`). Under the same lock submitters take
-            ;; in `ensure-drain-scheduled!`, snapshot the queue (stable — we
-            ;; still hold `:drain-lock`, so no drainer is popping) and release;
-            ;; if non-empty, re-kick a fresh async `drain-try!` (via the
-            ;; `:router/reschedule-drain!` late-bind seam — frame cannot
-            ;; `:require` router) so the stranded events drain. The one
-            ;; exception is a thunk that just CLAIMED destruction of this exact
-            ;; incarnation: claim is the queued-work cutoff, so re-kicking here
-            ;; would manufacture work inside the claim -> lifecycle-dead
-            ;; window. An already-submitted drain that has not CAS-lost yet is
-            ;; fenced independently by `frame-disposed-for-drain?`; suppressing
-            ;; this fresh kick handles the already-lost/no-retry case without
-            ;; stranding any LIVE frame. Releasing first lets an allowed
-            ;; re-kicked `drain-try!` CAS-acquire the now-free lock.
-            (let [router  (:router frame-record)
-                  strand? (locking router
-                            (let [pending? (seq (:queue @router))
-                                  closing? (frame-incarnation-closing?
-                                             frame-id drain-lock)]
-                              (reset! drain-lock false)
-                              (boolean (and pending? (not closing?)))))]
-              (when strand?
-                (when-let [reschedule! (late-bind/get-fn :router/reschedule-drain!)]
-                  (reschedule! frame-id frame-record))))))))
+      (trace/call-with-deferred-listener-delivery
+       (fn []
+         (let [drain-lock (:drain-lock frame-record)
+               holder     (:serialized-holder frame-record)]
+           (loop []
+             (when-not (compare-and-set! drain-lock false true)
+               #?(:clj (Thread/yield))
+               (recur)))
+           (reset! holder #?(:clj (Thread/currentThread) :cljs true))
+           (try
+             (f)
+             (finally
+               ;; Clear the holder BEFORE releasing the lock: once the lock is
+               ;; free another thread may acquire it and stamp its own holder, so
+               ;; clearing after the release could clobber that new owner.
+               (reset! holder nil)
+               ;; Per rf2-x76af2.22 (a): the cold release must mirror the
+               ;; drainer's `try-release-on-empty!`. A `dispatch!` that arrived
+               ;; DURING the hold set `:scheduled?` true and scheduled a
+               ;; `drain-try!` that CAS-lost to us and gave up — and, because we
+               ;; are NOT a drainer, nothing is left to re-check the queue. So a
+               ;; plain `(reset! drain-lock false)` PERMANENTLY STRANDS the queue
+               ;; (`:scheduled?` stuck true no-ops every later
+               ;; `ensure-drain-scheduled!`). Under the same lock submitters take
+               ;; in `ensure-drain-scheduled!`, snapshot the queue (stable — we
+               ;; still hold `:drain-lock`, so no drainer is popping) and release;
+               ;; if non-empty, re-kick a fresh async `drain-try!` (via the
+               ;; `:router/reschedule-drain!` late-bind seam — frame cannot
+               ;; `:require` router) so the stranded events drain. The one
+               ;; exception is a thunk that just CLAIMED destruction of this exact
+               ;; incarnation: claim is the queued-work cutoff, so re-kicking here
+               ;; would manufacture work inside the claim -> lifecycle-dead
+               ;; window. An already-submitted drain that has not CAS-lost yet is
+               ;; fenced independently by `frame-disposed-for-drain?`; suppressing
+               ;; this fresh kick handles the already-lost/no-retry case without
+               ;; stranding any LIVE frame. Releasing first lets an allowed
+               ;; re-kicked `drain-try!` CAS-acquire the now-free lock.
+               (let [router  (:router frame-record)
+                     strand? (locking router
+                               (let [pending? (seq (:queue @router))
+                                     closing? (frame-incarnation-closing?
+                                                frame-id drain-lock)]
+                                 (reset! drain-lock false)
+                                 (boolean (and pending? (not closing?)))))]
+                 (when strand?
+                   (when-let [reschedule! (late-bind/get-fn :router/reschedule-drain!)]
+                     (reschedule! frame-id frame-record))))))))))
     (f)))
 
 ;; ---- frame presets (Spec 002 §Frame presets) ------------------------------
