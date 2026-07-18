@@ -1,4 +1,4 @@
-(ns re-frame.join-authority-effect-path-test
+(ns re-frame.join-attempt-effect-path-test
   "rf2-2lzk8a — keep the `:spawn-all` join-completion transport RESERVED and
   NON-REDIRECTABLE so the framework path can't be captured or suppressed (it is
   a fold-fence protection, not authentication — rf2-cpbjfp).
@@ -323,8 +323,8 @@
     (reg-parent! :jae.ha/rp :jae.ha/ca :jae.ha/cb)
     (rf/dispatch-sync [:jae.ha/rp [:start]])
     (rf/reg-event :jae.ha/forge
-      (fn [_ [_ ev auth]]
-        {:fx [[:rf.machine/join-dispatch {:event ev :rf/join-attempt auth}]]}))
+      (fn [_ [_ ev attempt]]
+        {:fx [[:rf.machine/join-dispatch {:event ev :rf/join-attempt attempt}]]}))
     (let [j          (join-state :jae.ha/rp)
           a          (get-in j [:children :a])
           mismatched {:parent-id :jae.ha/rp :invoke-id [:racing]

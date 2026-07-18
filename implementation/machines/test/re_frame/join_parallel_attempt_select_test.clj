@@ -1,4 +1,4 @@
-(ns re-frame.join-parallel-authority-select-test
+(ns re-frame.join-parallel-attempt-select-test
   "rf2-wsrtlw — select parallel `:spawn-all` joins by EXACT-ATTEMPT COORDINATE before
   folding.
 
@@ -96,7 +96,7 @@
           (when (= on-complete (get-in js [:spec :on-all-complete])) js))
         (spawned-joins)))
 
-(deftest later-region-folds-only-itself-by-exact-authority
+(deftest later-region-folds-only-itself-by-exact-attempt
   (testing "two active parallel regions reuse child id :worker + event :child/done;
             completing :r2's worker folds ONLY into :r2 — :r1 and its worker are
             untouched, and no attempt-superseded / bad-child evidence fires for
@@ -135,7 +135,7 @@
         (is (empty? (mtest/events-of :rf.error/machine-spawn-all-bad-child-id))
             "no bad-child-id evidence fired for the legitimate carrier")))))
 
-(deftest later-region-failure-folds-only-itself-by-exact-authority
+(deftest later-region-failure-folds-only-itself-by-exact-attempt
   (testing "the failure side: completing :r2's worker via :fail routes the error
             carrier to :r2's join only (:r2 folds :worker into :failed); :r1 is
             untouched and no mis-route evidence fires."

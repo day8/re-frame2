@@ -29,6 +29,16 @@
   pre-fix code: there, the forged shape tears the live actor down with the
   caller-chosen `:rf.machine/join-reaped` reason and no cancellation.
 
+  TERMINOLOGY (rf2-wlqfq census) — the `auth`/AUTHENTICATED vocabulary here is
+  DELIBERATE and stays. This fixture is not about the exact-attempt coordinate:
+  the reap is verified against LIVE join state the caller cannot supply, so
+  membership in `:done ∪ :failed` is genuinely authenticated. Contrast the join
+  coordinate (`join_attempt_effect_path_test`,
+  `join_parallel_attempt_select_test`, the recordable transport/control
+  fixtures), which is caller-suppliable exact-current correlation evidence — a
+  fold FENCE, not authentication — and therefore carries attempt/coordinate
+  names.
+
   JVM-only `.clj`, alongside its sibling reap fixtures in
   `spawn_all_reply_envelope_test`."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]

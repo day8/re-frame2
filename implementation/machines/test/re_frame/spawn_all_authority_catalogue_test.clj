@@ -2,6 +2,12 @@
   "The AUTHORITATIVE catalogue/schema proof for `:spawn-all` exact-attempt folding
   (rf2-p53o47, completed rf2-2ai15g).
 
+  TERMINOLOGY (rf2-wlqfq census) — `authority` in this namespace name means
+  CANONICAL DOCUMENT authority (`spec/Spec-Schemas.md` + `spec/009-Instrumentation.md`
+  are the authorities these assertions read from), NOT the join coordinate.
+  It therefore keeps the word. Fixtures naming the caller-suppliable join
+  coordinate use attempt/fence language instead.
+
   This pins the normative facts the spec/catalogue reconciliation landed so a
   regression FAILS here rather than drifting the spec silently. Every schema
   assertion validates runtime-produced records against the EXECUTABLE canonical
@@ -290,7 +296,7 @@
           spawned-a (get-in j [:children :a])
           ;; the exact-attempt coordinate a late carrier would present — captured
           ;; from the LIVE attempt so it is genuinely exact-current, not forged.
-          auth      {:parent-id  :sac/tomb
+          attempt   {:parent-id  :sac/tomb
                      :invoke-id  [:racing]
                      :child-id   :a
                      :spawned-id spawned-a
@@ -317,7 +323,7 @@
         ;; (rf2-nsbwft — the metadata slot is not read).
         (mtest/reset-captured!)
         (rf/dispatch-sync [:sac/tomb [:child/done :a]]
-                          {:rf.cofx {:rf.machine/join-attempt auth}})
+                          {:rf.cofx {:rf.machine/join-attempt attempt}})
         (let [after (join-state :sac/tomb [:racing])
               stale (first (mtest/events-of :rf.machine.spawn-all/stale-completion))]
           (is (= #{} (:done after))

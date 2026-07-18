@@ -2,7 +2,7 @@
   "rf2-t154jx — carry the `:spawn-all` join-attempt coordinate through REPLAY and DELAYED
   dispatch.
 
-  #5839 placed the only exact-attempt credential in METADATA on the inner
+  #5839 placed the only exact-attempt coordinate in METADATA on the inner
   completion event vector. That coordinate did not survive two supported delivery
   paths:
 
@@ -99,7 +99,7 @@
                          :on-all-complete [:all/done]}
                         :on {:abort :idle}}}}))
 
-(defn- auth-for
+(defn- attempt-for
   "Build the exact-attempt tuple a live child :a completion carries, from the
   live join-state."
   [parent-kw]
@@ -135,7 +135,7 @@
 ;; replay-faithful recordable transport
 ;; ---------------------------------------------------------------------------
 
-(deftest recorded-authority-survives-edn-roundtrip-and-folds
+(deftest recorded-attempt-survives-edn-roundtrip-and-folds
   (testing "rf2-t154jx — the exact-attempt coordinate rides the RECORDABLE :rf.cofx fact
             :rf.machine/join-attempt, so an EDN-roundtripped recorded event + causal
             coeffects strict-replays into the SAME fold. Removing the recordable
@@ -145,9 +145,9 @@
     (rf/reg-machine :jt/cb (mk-child :jt/rp))
     (reg-parent! :jt/rp :jt/ca :jt/cb)
     (rf/dispatch-sync [:jt/rp [:start]])
-    (let [auth        (auth-for :jt/rp)
+    (let [attempt     (attempt-for :jt/rp)
           rec-event   (edn-roundtrip [:jt/rp [:child/done :a]])
-          rec-cofx    (edn-roundtrip {:rf.machine/join-attempt auth})]
+          rec-cofx    (edn-roundtrip {:rf.machine/join-attempt attempt})]
       (mtest/reset-captured!)
       ;; Strict replay: redispatch the recorded event PLUS its recorded causal
       ;; coeffects (the `:rf.cofx` map, EDN-roundtripped).
@@ -173,9 +173,9 @@
     (rf/reg-machine :jt/mb (mk-child :jt/mp))
     (reg-parent! :jt/mp :jt/ma :jt/mb)
     (rf/dispatch-sync [:jt/mp [:start]])
-    (let [auth        (auth-for :jt/mp)
+    (let [attempt     (attempt-for :jt/mp)
           ;; The #5839 wire shape: coordinate on inner-event METADATA.
-          meta-event  [:jt/mp (with-meta [:child/done :a] {:rf/join-attempt auth})]
+          meta-event  [:jt/mp (with-meta [:child/done :a] {:rf/join-attempt attempt})]
           replayed    (edn-roundtrip meta-event)]  ;; EDN drops metadata
       (mtest/reset-captured!)
       (rf/dispatch-sync replayed)
@@ -241,16 +241,16 @@
     (rf/reg-machine :jt/ob (mk-child :jt/op))
     (reg-parent! :jt/op :jt/oa :jt/ob)
     (rf/dispatch-sync [:jt/op [:start]])
-    (let [attempt1-auth (auth-for :jt/op)]
+    (let [attempt1-coord (attempt-for :jt/op)]
       ;; Re-enter: attempt 2.
       (rf/dispatch-sync [:jt/op [:abort]])
       (rf/dispatch-sync [:jt/op [:start]])
       (let [j2 (join-state :jt/op)]
-        (is (not= (:attempt attempt1-auth) (:rf/attempt j2)) "attempt 2 minted a new token")
+        (is (not= (:attempt attempt1-coord) (:rf/attempt j2)) "attempt 2 minted a new token")
         (mtest/reset-captured!)
         ;; The stale straggler delivered with attempt-1 coordinate on the cofx.
         (rf/dispatch-sync [:jt/op [:child/done :a]]
-                          {:rf.cofx {:rf.machine/join-attempt attempt1-auth}})
+                          {:rf.cofx {:rf.machine/join-attempt attempt1-coord}})
         (is (= #{} (:done (join-state :jt/op)))
             "the old-attempt delayed completion folded nothing")
         (is (= [:rf.machine.spawn-all/attempt-superseded] (stale-reasons))
