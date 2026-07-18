@@ -818,7 +818,14 @@
 ;; validates the FINAL expanded config BEFORE any candidate-derived write, so
 ;; a failed first registration leaves NO frame record, NO
 ;; URL claim or listener, NO trace-policy residue, NO trace event, and NO
-;; :initial-events effect — via BOTH constructor spellings.
+;; :initial-events effect — via BOTH `rf/make-frame` arities.
+;;
+;; rf2-qo5xk: these two started life as the `rf/reg-frame` and `rf/make-frame`
+;; spellings of the same invariant. When `reg-frame` was retired, the
+;; mechanical rename sweep (rf2-h1vqa4 slice 3, ac10a404fb) renamed BOTH
+;; deftests to the same `…-make-frame-cljs-rf2-ktmto9` symbol, so the first
+;; was compiled and then silently replaced by the second — it has not run
+;; since. The surviving axis is the ARITY, so that is what the names now say.
 
 (defn- assert-zero-residue-first-registration!
   "Shared assertion body for the two constructor spellings: run
@@ -856,11 +863,13 @@
       (finally
         (trace-tooling/unregister-listener! cb-key)))))
 
-(deftest first-registration-preflight-zero-residue-make-frame-cljs-rf2-ktmto9
-  (testing "rf2-ktmto9: a URL owner's FIRST rf/make-frame with a malformed
-            custom :url-strategy fails at the registration-time preflight with
-            ZERO residue — no container, no :initial-events run, no registrar
-            row, no URL claim/listener, no trace-policy write, no trace event"
+(deftest first-registration-preflight-zero-residue-make-frame-1-arity-cljs-rf2-ktmto9
+  (testing "rf2-ktmto9: a URL owner's FIRST rf/make-frame — the 1-arity
+            config-only spelling, which resolves the DEFAULT descriptor pool —
+            with a malformed custom :url-strategy fails at the
+            registration-time preflight with ZERO residue: no container, no
+            :initial-events run, no registrar row, no URL claim/listener, no
+            trace-policy write, no trace event"
     (rf/reg-route :hist/home {} "/")
     (let [probe (atom 0)]
       (rf/reg-event :ktmto9/probe!
@@ -873,10 +882,10 @@
                          :initial-events          [[:ktmto9/probe!]]})
         probe))))
 
-(deftest first-registration-preflight-zero-residue-make-frame-cljs-rf2-ktmto9
+(deftest first-registration-preflight-zero-residue-make-frame-2-arity-cljs-rf2-ktmto9
   (testing "rf2-ktmto9: the same zero-residue invariant through the OTHER
-            constructor spelling — rf/make-frame (the one public constructor
-            rf/make-frame is sugar for) with a malformed custom :url-strategy"
+            rf/make-frame arity — the 2-arity spelling that takes an explicit
+            descriptor pool — with a malformed custom :url-strategy"
     (rf/reg-route :hist/home {} "/")
     (let [probe (atom 0)]
       (rf/reg-event :ktmto9/probe2!
