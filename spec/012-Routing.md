@@ -106,6 +106,7 @@ Defined per the [009 Error contract](009-Instrumentation.md#error-contract):
 - `:rf.error/route-bad-metadata` — `reg-route` was passed a bare metadata key outside the reserved set (a likely typo), or non-map metadata. Thrown at registration (caller bug; dev *and* prod). Names the offending `:keys` and the `:reserved` vocabulary. See [§Authoring-boundary key validation](#authoring-boundary-key-validation).
 - `:rf.error/invalid-route-pattern` — `reg-route`'s `:path` value violated the [path-pattern grammar](#path-pattern-grammar-canonical): a missing leading `/`, an empty segment, an invalid param/splat name, a reserved char not percent-encoded, a malformed optional group (unclosed, empty, nested, containing a splat, or spelled slash-**outside** `{:name}?` instead of the canonical slash-inside `{/:name}?`), or more than one splat / a non-final splat. Thrown at registration on the first violation (caller bug; dev *and* prod), before any state mutates. Names the `:route-id`, the `:pattern`, and the offending `:index`. `:where 'rf/reg-route`, `:recovery :no-recovery`. (The full error contract lives in [009 §Error event catalogue](009-Instrumentation.md#error-event-catalogue).)
 - `:rf.error/invalid-route-classification` — `reg-route`'s `:sensitive` / `:large` data-classification declaration is structurally malformed (a non-vector axis, a non-sequential path entry, or a non-EDN-identity path segment). Thrown at registration (caller bug; dev *and* prod), before any state mutates and before the route can activate. Names the offending `:axis` and `:bad-path`; a bad segment surfaces the inner `:rf.error/bad-path` under `:rf.error/cause`. `:where 'rf/reg-route`, `:recovery :fix-route-classification`. See [§Route data classification](#route-data-classification).
+- `:rf.error/unsupported-scroll-strategy` — the `:rf.nav/scroll` fx was handed a `:strategy` outside the closed `:top` / `:restore` / `:preserve` vocabulary (classically a map, the form earlier drafts advertised as host-extensible). No scroll is performed and the navigation is otherwise unaffected. Names the offending `:strategy` and the `:supported` set. See [§Scroll restoration](#scroll-restoration) and [§Custom scroll strategies](#custom-scroll-strategies).
 - `:rf.error/navigate-arity-misuse` — `[:rf.route/navigate target params opts]` was dispatched with an opts-only key (`:replace?` / `:scroll` / `:fragment` / `:bypass-guards?`) in the **params** slot that the target route does not declare as a path-param (the classic params/opts swap). Navigation rejected; `:where :event`. See [§Arities — params is 2nd, opts is 3rd](#arities--params-is-2nd-opts-is-3rd).
 - `:rf.warning/route-shadowed-by-equal-score` — registration-time warning when ranking ties on rule 6 **between co-matchable patterns** (some URL matches both — equal structural rank alone never warns; see rule 6 in [§Route ranking algorithm](#route-ranking-algorithm)).
 - `:rf.warning/no-not-found-route` — runtime fell back to the built-in placeholder because `:rf.route/not-found` is not registered (per [§Route-not-found](#route-not-found--rfroutenot-found-canonical)).
@@ -285,7 +286,7 @@ Because `reg-route` carries the largest shape in the surface, a typo'd key (`:on
 | `:on-error` | lifecycle | event vector | Event the runtime dispatches if any `:on-match` event errors. See "Per-route error handling". |
 | `:can-leave` | lifecycle | sub-id | A subscription whose value (boolean) gates navigation **away from** this route. The sub receives the pending target as an argument (`(fn [inputs [_ target] …])`). **Strict contract**: `true` allows, `false` blocks, any other value blocks AND emits `:rf.error/can-leave-non-boolean`. See [§Navigation blocking — pending-nav protocol](#navigation-blocking--pending-nav-protocol). |
 | `:can-enter` | lifecycle | sub-id | A subscription whose value (boolean) gates navigation **into** this route — the first-class mirror of `:can-leave`. The sub receives the pending target as an argument. **Strict contract**: `true` allows, `false` blocks, any other value blocks AND emits `:rf.error/can-enter-non-boolean`. On a block the runtime dispatches `:rf.route/entry-blocked` (the mirror of `:rf.route/navigation-blocked`). See [§Navigation blocking — pending-nav protocol](#navigation-blocking--pending-nav-protocol). |
-| `:scroll` | layout | enum or map | Declarative scroll behaviour on entering this route. See "Scroll restoration". |
+| `:scroll` | layout | enum | Declarative scroll behaviour on entering this route — `:top` / `:restore` / `:preserve`, or `false` to suppress the effect. Closed vocabulary. See "Scroll restoration". |
 | `:sensitive` | classification | vector of projection-relative paths | Data classification. Paths (each rooted at the route's `{:query … :params …}` projection) whose values are **redacted** at egress while the route is active. See [§Route data classification](#route-data-classification). |
 | `:large` | classification | vector of projection-relative paths | Data classification. Paths whose values are kept **off the wire** (size marker) at egress while the route is active. Sensitive wins over large at the same path. See [§Route data classification](#route-data-classification). |
 
@@ -419,7 +420,7 @@ The trailing `opts` map (the **third** positional slot; see [§Arities](#arities
 | `:replace?` | Use `replaceState` rather than `pushState` — for redirects, search-as-you-type filters, and login-flow returns where the back button should not land on the intermediate URL. |
 | `:query` | The **query-string params** for the new URL — coerced against the target route's `:query` schema and emitted as `?key=value`. This is the query slot for the `[:rf.route/navigate target params opts]` form (path params ride the 2nd slot). |
 | `:query-merge` | Fold the given deltas into the **current** route's `:query` slice, rather than replacing it — the "stay here, change these query params" primitive (search, pagination, tabs). A `nil` value **removes** a key (matching `route-url`'s query nil-elision; see [§Bidirectional URL ↔ params](#bidirectional-url--params)). Its natural pairing is the [`:rf.route/self`](#rfrouteself--navigate-in-place) target. See [§The `:query-merge` opt](#the-query-merge-opt--navigate-in-place). |
-| `:scroll` | Per-call override of the route's `:scroll` metadata; same enum/map shape (see [§Scroll restoration](#scroll-restoration)). |
+| `:scroll` | Per-call override of the route's `:scroll` metadata; same closed enum (see [§Scroll restoration](#scroll-restoration)). |
 | `:fragment` | Target `#fragment` for the new URL (see [§Fragments](#fragments)). May also be supplied as `:fragment` on the target map. |
 | `:bypass-guards?` | A **set** of `#{:leave :enter}` naming which navigation guards to skip for this navigation — `#{:leave}` skips the active route's `:can-leave` gate, `#{:enter}` skips the target route's `:can-enter` gate, `#{:leave :enter}` skips both (see [§Navigation blocking](#navigation-blocking--pending-nav-protocol)). |
 
@@ -981,7 +982,8 @@ The `:scroll` value is one of:
 | `:restore` | Restore the saved scroll position for this URL (the runtime captures positions on every navigation; SSR-side: no-op). |
 | `:preserve` | Do nothing (current scroll position stays as is). |
 | `nil` / absent | Same as `:preserve`. |
-| map | Hosts may supply additional shapes (e.g. `{:to :element :selector "#article"}`); see "Custom scroll strategies" below. |
+
+The vocabulary is **closed** to those three keywords. Any other value — including a map — is rejected: the `:rf.nav/scroll` args schema (`:rf.fx.nav/scroll-args`) enumerates exactly `:top`, `:restore`, `:preserve`, so an unsupported strategy fails at the `:fx-args` boundary and the effect is skipped ([010 §Validation order step 5](010-Schemas.md#validation-order-on-event-processing)); and the registered fx handler — the always-on leg, since the schemas artefact is optional — emits `:rf.error/unsupported-scroll-strategy` rather than doing nothing. See [§Custom scroll strategies](#custom-scroll-strategies).
 
 Resolution order at navigation time:
 1. `:scroll` key in `:rf.route/navigate`'s `opts` map (per-call override). Wins.
@@ -1002,10 +1004,19 @@ When a `:rf.nav/scroll` effect is emitted, its args carry both the strategy and 
                   (.scrollTo js/window 0 0))
       :restore  (when saved-pos
                   (.scrollTo js/window (first saved-pos) (second saved-pos)))
-      :preserve nil)))
+      :preserve nil
+      ;; Closed vocabulary — an unrecognised strategy is a caller bug.
+      (emit-error! :rf.error/unsupported-scroll-strategy
+                   {:strategy strategy :supported [:top :restore :preserve]}))))
 ```
 
-> **Custom scroll strategies:** the `:scroll` value may be a map, allowing applications to register named scroll-strategies (a small registry on the implementation side). The contract requires the three enum values `:top`, `:restore`, `:preserve`.
+### Custom scroll strategies
+
+There are none. The `:scroll` vocabulary is the closed enum `:top` / `:restore` / `:preserve` (plus `false` to suppress the effect); the runtime has no registry, callback, or late-bound hook that would interpret any other value.
+
+Earlier drafts of this section admitted a **map** form — "hosts may supply additional shapes, e.g. `{:to :element :selector "#article"}`" — against a named-strategy registry that was deferred until a real need appeared. The registry never arrived, so the map form was a **false promise**: `:rf.nav/scroll`'s args schema accepted any map, the planner carried it through verbatim, and the fx handler's default branch returned `nil`. An author who wrote a plausible-looking map strategy got no scroll and no diagnostic — the code read correctly, ran clean, and did nothing. A documented value must have executable semantics; an accepted-and-ignored option is strictly worse than a rejected one, so the map form is **removed** rather than left as an unbacked extension point (rf2-px26m).
+
+If a concrete host-specific strategy is ever required, the resolution is one explicit seam with a test that proves it executes — not a speculative registry, and not a re-opened `:any` slot.
 
 ## Query strings and fragments
 
@@ -1154,7 +1165,7 @@ The fx's behaviour, when `:fragment` is present:
 | `:restore` | Restore saved scroll position; the fragment is ignored (the saved position trumps). |
 | `:preserve` | Do nothing (fragment ignored). |
 
-Hosts that ship a custom map-form scroll strategy may interpret `:fragment` per their own contract; the three enum strategies' fragment-handling is locked above.
+The three enum strategies are the whole vocabulary, and their fragment-handling is locked above — there is no fourth, host-supplied strategy that could interpret `:fragment` differently (see [§Custom scroll strategies](#custom-scroll-strategies)).
 
 ### Programmatic navigation with fragments
 
@@ -1172,7 +1183,7 @@ Either form ends up in the `:rf/route` slice's `:fragment`.
 
 **Fragment-only programmatic navs take the short-circuit too.** A `:rf.route/navigate` whose resolved target differs from the current slice **only** in its fragment is a fragment-only change and honours [§Fragment-only changes do NOT re-fire `:on-match`](#fragment-only-changes-do-not-re-fire-on-match) in full: `:fragment` updates, one `:rf.route/fragment-changed` fires, and the `:nav-token` / `:on-match` / route-`:resources` are left untouched — identical to the same anchor jump arriving via a `route-link` click or Back/Forward. This is the regularity contract: the same logical operation cannot behave differently just because it entered through the programmatic door. (Before this was wired, a programmatic fragment nav took the full commit path — re-firing every loader and bumping the token, stale-suppressing in-flight work for the route you were already on.)
 
-**Scroll.** A fragment-only programmatic nav still emits the resolved `:rf.nav/scroll` effect (default strategy `:top` — scroll to the new fragment element, or to the top when the fragment is cleared/absent), ordered after the leaving-scroll capture and the history push/replace. `pushState`/`replaceState` do **not** scroll to a fragment natively (they are neither navigation nor traversal per the WHATWG URL-and-history-update steps), so the `:rf.nav/scroll` effect is what performs the visual scroll; `{:scroll false}` suppresses it, and `:restore`/`:preserve`/map-form strategies retain their usual meanings. The runtime makes **no** focus-movement or `:target` pseudo-class parity claim for the fragment-only path — `:rf.nav/scroll` supplies visual scrolling only; focus/`:target` parity is a separate accessibility decision.
+**Scroll.** A fragment-only programmatic nav still emits the resolved `:rf.nav/scroll` effect (default strategy `:top` — scroll to the new fragment element, or to the top when the fragment is cleared/absent), ordered after the leaving-scroll capture and the history push/replace. `pushState`/`replaceState` do **not** scroll to a fragment natively (they are neither navigation nor traversal per the WHATWG URL-and-history-update steps), so the `:rf.nav/scroll` effect is what performs the visual scroll; `{:scroll false}` suppresses it, and `:restore`/`:preserve` retain their usual meanings. The runtime makes **no** focus-movement or `:target` pseudo-class parity claim for the fragment-only path — `:rf.nav/scroll` supplies visual scrolling only; focus/`:target` parity is a separate accessibility decision.
 
 ### SSR
 

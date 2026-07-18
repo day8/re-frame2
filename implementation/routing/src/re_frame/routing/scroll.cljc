@@ -304,14 +304,36 @@ egress to trace / epochs / SSR (rf2-1hncp2)."})
                [:fragment]]
    :schema    nav-fx-schemas/scroll-args
    :doc       "Per Spec 012 §Scroll restoration. Args: {:strategy :from
-:to :saved-pos :fragment}. Standard strategies are :top, :restore,
-:preserve. Map-form strategies are host-extensible; the runtime treats
-unknown strategies as :preserve (no-op)."})
+:to :saved-pos :fragment}. `:strategy` is the closed three-value enum
+:top / :restore / :preserve; any other value is rejected loudly
+(:rf.error/unsupported-scroll-strategy) rather than silently ignored."})
+
+(def supported-scroll-strategies
+  "The CLOSED `:rf.nav/scroll` `:strategy` vocabulary, per Spec 012
+  §Scroll restoration. Ordered for the diagnostic message; the schema
+  (`nav-fx-schemas/scroll-args`) carries the same three as an `:enum`."
+  [:top :restore :preserve])
 
 (defn scroll-fx-handler
   "`:rf.nav/scroll` fx handler. Registered by the façade so a `:reload`
-  re-wires it on a fresh registrar."
-  [_ {:keys [strategy saved-pos fragment]}]
+  re-wires it on a fresh registrar.
+
+  rf2-px26m: the strategy vocabulary is CLOSED. The default branch used
+  to return nil, which made every map-form strategy — the shape Spec 012
+  once advertised as \"host-extensible\" — a silent no-op: accepted by
+  the schema, carried through the planner, and then ignored, with no
+  diagnostic and no scroll. There is no extension seam here (no registry,
+  callback, or late-bound hook interprets a strategy), so an unrecognised
+  value is a caller bug, not an extension point. It now emits a loud
+  `:rf.error/unsupported-scroll-strategy` naming the offending value and
+  the supported set.
+
+  This is the ALWAYS-ON leg. The `:schema` on the registration rejects
+  the same values one step earlier (Spec 010 §step 5, `:fx-args`), but
+  only when the OPTIONAL schemas artefact is on the classpath — without
+  it, fx-args validation soft-passes and this branch is the only thing
+  standing between the author and silence."
+  [{:keys [frame]} {:keys [strategy saved-pos fragment]}]
   #?(:cljs
      (case strategy
        :top      (if-let [el (and fragment
@@ -323,9 +345,18 @@ unknown strategies as :preserve (no-op)."})
                               (first saved-pos)
                               (second saved-pos)))
        :preserve nil
-       ;; map-form / unknown → host-extensible; default no-op so the
-       ;; runtime doesn't blow up on a strategy it doesn't recognise.
-       nil)
+       (trace/emit-error! :rf.error/unsupported-scroll-strategy
+                          (cond-> {:strategy  strategy
+                                   :supported supported-scroll-strategies
+                                   :reason    (str "Unsupported :rf.nav/scroll strategy "
+                                                   (pr-str strategy)
+                                                   ". Supported strategies are :top, :restore "
+                                                   "and :preserve. Set the route's :scroll "
+                                                   "metadata (or the :rf.route/navigate :scroll "
+                                                   "opt) to one of those, or to false to suppress "
+                                                   "the scroll effect entirely.")
+                                   :recovery  :no-scroll}
+                            frame (assoc :frame frame))))
      :clj
      (trace/emit! :rf.fx :rf.fx/skipped-on-platform
                   {:rf.fx/id :rf.nav/scroll :strategy strategy})))

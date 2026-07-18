@@ -82,6 +82,13 @@
   [traces]
   (filterv #(= :rf.error/schema-validation-failure (:operation %)) traces))
 
+(defn- unsupported
+  "The `:rf.error/unsupported-scroll-strategy` events in a trace recording —
+  the always-on leg of the rf2-px26m rejection, emitted by the fx handler
+  itself rather than by the (optional) schemas gate."
+  [traces]
+  (filterv #(= :rf.error/unsupported-scroll-strategy (:operation %)) traces))
+
 (defn- scroll-xy []
   [(.-scrollX js/window) (.-scrollY js/window)])
 
@@ -233,10 +240,9 @@
 ;; =========================================================================
 
 (deftest scroll-with-a-non-standard-keyword-strategy-never-scrolls
-  (testing "rf2-sqams: Spec 012 offers the MAP form for host extension; a
-            bare non-standard keyword is a typo, and the handler's nil
-            default branch silently swallowed it. It is now rejected at
-            the args boundary and surfaced as a violation"
+  (testing "rf2-sqams: a bare non-standard keyword is a typo, and the
+            handler's nil default branch silently swallowed it. It is now
+            rejected at the args boundary and surfaced as a violation"
     (set-scroll! 0 500)
     (let [witness (sibling-calls)]
       (rf/reg-event :test/bad-scroll
@@ -322,18 +328,114 @@
           "the :top branch ran — args carrying :fragment were not rejected")
       (is (empty? (violations @traces))))))
 
-(deftest scroll-with-a-map-form-strategy-still-passes
-  (testing "POSITIVE control: the host-extensible MAP strategy form (pinned
-            by routing_scroll_test as flowing through verbatim) validates —
-            the handler's default no-op branch is reached, not the gate"
+;; ---- rf2-px26m: the map form is REJECTED, not accepted-and-ignored ------
+;;
+;; This is the bug's red-before/green-after pin, and it replaces the old
+;; `scroll-with-a-map-form-strategy-still-passes` positive control, which
+;; asserted precisely the defect: `{:behavior :smooth :block :center}`
+;; validated, emitted no violation, and left the window untouched — a
+;; documented-looking option that was accepted and then silently ignored.
+;;
+;; Nothing in the runtime ever interpreted a map strategy (no registry, no
+;; callback, no late-bound hook), so the map form is gone from the schema
+;; and from Spec 012. Both of Spec 012's own advertised examples are
+;; exercised here, plus the empty map, because `[:or [:enum …] :map]` used
+;; to wave all three through.
+
+(deftest scroll-with-a-map-form-strategy-is-rejected-at-the-args-boundary
+  (testing "rf2-px26m: a MAP strategy — including the exact
+            {:to :element :selector \"#article\"} shape Spec 012 used to
+            advertise as host-extensible — is now a violation, not a silent
+            no-op. The window is still untouched, but the author is TOLD"
+    (doseq [bad [{:to :element :selector "#article"}   ;; the old Spec 012 example
+                 {:behavior :smooth :block :center}    ;; the shape the bead names
+                 {}]]                                  ;; the degenerate map
+      (set-scroll! 0 700)
+      (let [witness (sibling-calls)]
+        (rf/reg-event :test/map-strategy
+                      (fn [_ _]
+                        {:fx [[:rf.nav/scroll {:strategy bad}]
+                              [:test/witness  nil]]}))
+        (with-trace-recorder! [traces]
+          (rf/dispatch-sync [:test/map-strategy])
+          (is (= [0 700] (scroll-xy))
+              (str "no scroll for " (pr-str bad)))
+          (is (= 1 @witness)
+              "the sibling fx still ran — only the offending fx is skipped")
+          (is (= 1 (count (violations @traces)))
+              (str "a map strategy is a schema violation: " (pr-str bad)))
+          (is (= :rf.nav/scroll
+                 (-> (violations @traces) first :tags :rf.fx/id))))))))
+
+(deftest scroll-handler-emits-the-unsupported-strategy-error-directly
+  (testing "rf2-px26m: the ALWAYS-ON leg. The `:schema` gate above only
+            exists when the OPTIONAL schemas artefact is on the classpath;
+            without it fx-args validation soft-passes and the handler is the
+            last line of defence. Calling the handler DIRECTLY bypasses the
+            gate the way a schemas-less host does — it must emit
+            :rf.error/unsupported-scroll-strategy rather than return nil"
     (set-scroll! 0 700)
-    (rf/reg-event :test/map-strategy
-                  (fn [_ _]
-                    {:fx [[:rf.nav/scroll
-                           {:strategy {:behavior :smooth :block :center}}]]}))
     (with-trace-recorder! [traces]
-      (rf/dispatch-sync [:test/map-strategy])
-      (is (= [0 700] (scroll-xy))
-          "unknown map strategy → handler no-op, window untouched")
-      (is (empty? (violations @traces))
-          "a map-form strategy is NOT a schema violation"))))
+      (scroll/scroll-fx-handler {:frame :rf/default}
+                                {:strategy {:to :element :selector "#article"}})
+      (let [errs (unsupported @traces)]
+        (is (= 1 (count errs))
+            "the handler's default branch is loud, not nil")
+        (is (= [0 700] (scroll-xy))
+            "and still performs no scroll")
+        (let [tags (:tags (first errs))]
+          (is (= {:to :element :selector "#article"} (:strategy tags))
+              "the rejected value is named")
+          (is (= [:top :restore :preserve] (:supported tags))
+              "the supported vocabulary is named")
+          ;; `:recovery` is HOISTED out of :tags onto the envelope by
+          ;; `trace/build-event` (Spec 009 §Core fields).
+          (is (= :no-scroll (:recovery (first errs))))
+          (is (= :rf/default (:frame tags))
+              "frame-stamped so the diagnostic reaches epoch capture / Xray")
+          (is (string? (:reason tags))))))))
+
+(deftest scroll-handler-adversarial-near-miss-strategies
+  (testing "rf2-px26m adversarial: values that LOOK like a supported strategy
+            must still be rejected — a misspelt keyword, the string spelling,
+            and a map that merely NAMES a supported strategy (the shape a
+            'named strategy registry' would have used) get no special pass"
+    (doseq [bad [:restored                 ;; one letter off
+                 :scroll-top               ;; plausible synonym
+                 "top"                     ;; string, not keyword
+                 {:strategy :top}          ;; a map that names a real strategy
+                 [:top]]]                  ;; a vector wrapping one
+      (set-scroll! 0 700)
+      (with-trace-recorder! [traces]
+        (scroll/scroll-fx-handler {:frame :rf/default} {:strategy bad})
+        (is (= 1 (count (unsupported @traces)))
+            (str "rejected: " (pr-str bad)))
+        (is (= [0 700] (scroll-xy))
+            (str "no scroll for " (pr-str bad)))))))
+
+(deftest scroll-handler-positive-control-the-three-supported-strategies
+  (testing "rf2-px26m POSITIVE control — the essential one. Making the
+            handler loud must not make it loud on the strategies that WORK:
+            each of :top / :restore / :preserve still drives its own branch
+            and emits NO unsupported-strategy error"
+    ;; :top — no fragment element in the stub, so it falls back to (0,0).
+    (set-scroll! 0 700)
+    (with-trace-recorder! [traces]
+      (scroll/scroll-fx-handler {:frame :rf/default} {:strategy :top})
+      (is (= [0 0] (scroll-xy)) ":top scrolled to the top")
+      (is (empty? (unsupported @traces)) ":top emitted no rejection"))
+    ;; :restore — drives .scrollTo with the saved position.
+    (set-scroll! 0 700)
+    (with-trace-recorder! [traces]
+      (scroll/scroll-fx-handler {:frame :rf/default}
+                                {:strategy :restore :saved-pos [12 3400.5]})
+      (is (= [12 3400.5] (scroll-xy)) ":restore scrolled to the saved position")
+      (is (empty? (unsupported @traces)) ":restore emitted no rejection"))
+    ;; :preserve — deliberately does nothing, and that is NOT an error.
+    (set-scroll! 0 700)
+    (with-trace-recorder! [traces]
+      (scroll/scroll-fx-handler {:frame :rf/default} {:strategy :preserve})
+      (is (= [0 700] (scroll-xy)) ":preserve left the window alone")
+      (is (empty? (unsupported @traces))
+          ":preserve is a DOCUMENTED no-op — it must stay silent, which is
+           exactly what distinguishes it from the removed map form"))))
