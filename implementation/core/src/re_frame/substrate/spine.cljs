@@ -128,16 +128,23 @@
 
   `:escaped` is the scheduler-lifetime EARLIEST-ESCAPE cell (rf2-2u4rw):
   the first thunk failure a drain contains, held by PRESENCE across the
-  sequential sibling-watch drains of a single direct source mutation and
-  across the `with-epoch` body/finally boundary, so the earliest primary
-  failure surfaces once (E1 over any later E2) after all owned work is
-  attempted. One volatile per scheduler — no per-drain capture allocation."
+  `with-epoch` body/finally boundary, so the earliest primary failure
+  surfaces once (E1 over any later E2) after all owned work is attempted.
+  One volatile per scheduler — no per-drain capture allocation.
+
+  `:source-coordinators` is the per-source fan-out registry (rf2-7ryt0): a
+  `js/Map` from a raw atom SOURCE to its single coordinating watch. A direct
+  `reset!` fires that ONE watch, which brackets the whole dependent fan-out
+  in a `with-epoch` — so a raw source mutation drains every dependent once
+  and surfaces the earliest failure at a REAL terminal, exactly like
+  `replace-container!` (see `ensure-source-coordinator!`)."
   []
   {:depth     (volatile! 0)   ;; open-epoch nesting depth
    :flushing? (volatile! false)
    :queue     (volatile! [])  ;; ordered queue of pending flush thunks
    :queued    (volatile! #{}) ;; identity set guarding double-enqueue
-   :escaped   (volatile! capture-none)}) ;; earliest-escape cell (rf2-2u4rw)
+   :escaped   (volatile! capture-none) ;; earliest-escape cell (rf2-2u4rw)
+   :source-coordinators (js/Map.)}) ;; source -> fan-out coordinator (rf2-7ryt0)
 
 (defn- drain-scheduler!
   "Drain the scheduler's pending flush thunks in enqueue order until the
@@ -174,21 +181,25 @@
        flushing state in the `finally`, and surfaces the escape through the
        caller/error channel — identity preserved, AFTER every sibling.
 
-    3. Preserve the EARLIEST across the depth-zero source-atom entry
-       (rf2-2u4rw). A direct `reset!` fires its source's watches ONE AT A
-       TIME through the atom's own (uncontained) notify loop; each derived
-       dependent's watch marks-dirty and, at depth zero, drains here. Were
-       this drain to re-raise the FIRST dependent's failure, that throw would
-       escape the atom's notify loop and the LATER dependents' watches would
-       never mark/enqueue — a supported direct mutation suppressing sibling
-       derived work. So the capture lives on the SCHEDULER (`:escaped`),
-       surviving across those sequential per-watch drains, and a drain
-       re-raises ONLY a STALE escape — one already present at its entry,
-       deferred by an EARLIER sibling drain. A FRESH escape (captured in THIS
-       drain) is left in `:escaped` so the atom's notify loop continues to the
-       later sibling; that sibling's drain (or the terminal `with-epoch`
-       close) then surfaces the earliest primary. Net: the later sibling
-       marks/drains, THEN the original first failure surfaces once.
+    3. Preserve the EARLIEST across a SEEDED entry (rf2-2u4rw + rf2-7ryt0).
+       The drain re-raises ONLY a STALE escape — one already present in
+       `:escaped` at its entry — and leaves a FRESH escape (captured in THIS
+       drain) in `:escaped` for the terminal `surface-escaped!` to surface.
+       The sole seeder is `with-epoch`'s body-throw path: an epoch body that
+       queues work and THEN throws E1 seeds E1 as stale before the queued
+       drain runs, so the drain re-raises E1 (the earliest) rather than its
+       own E2 (drain semantics: E1 over E2). A clean-entry drain never
+       re-raises — it captures and defers to `surface-escaped!`.
+
+       The direct-source fan-out has its OWN real terminal (rf2-7ryt0). A raw
+       `reset!` no longer fires N independent per-dependent watches into N
+       sequential depth-zero drains (which had no terminal for a sole/last
+       dependent and stranded the tail for 3+). Each raw atom source now owns
+       ONE coordinating watch (`ensure-source-coordinator!`) that brackets the
+       WHOLE dependent fan-out in a single `with-epoch`: every dependent marks
+       inside the epoch, the outermost close drains them once, and
+       `surface-escaped!` surfaces the earliest failure after all owned work
+       is attempted — a REAL terminal, exactly like `replace-container!`.
 
   `:escaped` is a scheduler-lifetime volatile (allocated once by
   `make-scheduler`), so an ordinary empty/one-subscriber drain allocates
@@ -199,9 +210,9 @@
   [{:keys [flushing? queue queued escaped] :as _scheduler}]
   (when-not @flushing?
     (vreset! flushing? true)
-    ;; A STALE escape present at entry was deferred by a preceding sibling
-    ;; drain (a direct depth-zero mutation whose earlier dependent threw);
-    ;; this drain drains the later sibling's owned work, then re-raises it.
+    ;; A STALE escape present at entry was SEEDED by `with-epoch`'s body-throw
+    ;; (E1 queued work then threw); this drain attempts the queued tail, then
+    ;; re-raises E1 as the earliest primary (over any drain E2).
     (let [stale-at-entry? (not (identical? capture-none @escaped))]
       (try
         ;; Walk the live `@queue` by index rather than re-slicing the head: a
@@ -229,12 +240,12 @@
           (vreset! queue [])
           (vreset! flushing? false)))
       ;; Queue/flushing state is restored. Surface ONLY a stale escape — one
-      ;; present at entry (a deferred earlier-sibling failure). A fresh escape
-      ;; captured in THIS drain is left in `:escaped` so the atom's own notify
-      ;; loop can still fire the later sibling watches; the following sibling
-      ;; drain (stale-at-entry) or the terminal `with-epoch` close surfaces it.
-      ;; Re-raised OUTSIDE the try/finally so the `finally`'s resets can never
-      ;; mask the primary failure (rf2-qcmzc + rf2-2u4rw).
+      ;; SEEDED at entry (a `with-epoch` body-throw E1). A fresh escape captured
+      ;; in THIS drain is left in `:escaped` for the terminal `surface-escaped!`
+      ;; (the `with-epoch` / source-coordinator outermost close) to surface once
+      ;; after all owned work is attempted. Re-raised OUTSIDE the try/finally so
+      ;; the `finally`'s resets can never mask the primary failure (rf2-qcmzc +
+      ;; rf2-2u4rw).
       (when stale-at-entry?
         (let [e @escaped]
           (vreset! escaped capture-none)
@@ -243,9 +254,10 @@
 (defn- surface-escaped!
   "If the scheduler holds a retained earliest escape, clear it and re-raise it
   (by presence — `nil`/`false` survive). The terminal surfacing helper for
-  `with-epoch`'s outermost close (rf2-2u4rw): after the drain has attempted
-  every owned thunk and restored state, any escape a FRESH-capture drain
-  deferred surfaces here, once."
+  every `with-epoch` outermost close (rf2-2u4rw) — including the per-source
+  fan-out coordinator's (rf2-7ryt0): after the drain has attempted every owned
+  thunk and restored state, any escape a FRESH-capture drain deferred surfaces
+  here, once."
   [{:keys [escaped] :as _scheduler}]
   (when-not (identical? capture-none @escaped)
     (let [e @escaped]
@@ -254,8 +266,12 @@
 
 (defn- schedule-flush!
   "Enqueue `thunk` on the scheduler (dedup by identity within the current
-  epoch). When no epoch is open, drain immediately so a direct source
-  mutation outside `replace-container!` still flushes synchronously."
+  epoch). When no epoch is open, drain immediately so any depth-zero mark
+  still flushes synchronously. In practice a raw source mark reaches here
+  inside its coordinator's `with-epoch` (depth > 0, no inline drain), and a
+  cascade mark reaches here re-entrantly during a running drain (`@flushing?`
+  short-circuits the inline drain, and the running loop picks the thunk up);
+  the depth-zero inline drain is the fallback flush for any other seam."
   [{:keys [depth queue queued] :as scheduler} thunk]
   (when-not (contains? @queued thunk)
     (vswap! queued conj thunk)
@@ -308,6 +324,76 @@
       ;; propagate a body escape upward so it reaches that boundary.
       (when-not (identical? capture-none body-escaped)
         (throw body-escaped)))))
+
+;; ---- direct-source fan-out coordinator (rf2-7ryt0) ------------------------
+;;
+;; A derived value's inputs are either the app-db root, a raw atom source
+;; (`clojure.core/atom`), or an upstream derived value (`reify`). The two
+;; fan-out shapes need different terminals:
+;;
+;;   * An upstream DERIVED value fans out through its own `notify` (the
+;;     movement-gated, capture-then-surface loop in `make-derived-value-fn`),
+;;     which always runs inside a drain/epoch — so its failures already
+;;     surface at that enclosing terminal.
+;;
+;;   * A raw ATOM source fans out through the atom's OWN `-notify-watches`
+;;     loop, which is UNCONTAINED: it fires each watch one at a time with no
+;;     post-loop hook, and a throwing watch aborts the remaining watches.
+;;     Wiring one mark-dirty watch per dependent gave that fan-out no
+;;     terminal — a `reset!` on a source with a sole/last-firing throwing
+;;     dependent parked the failure on `:escaped` until an unrelated later
+;;     drain, and with 3+ dependents an early throw surfaced mid-loop and
+;;     stranded the tail (rf2-7ryt0; the audit of #6210's exactly-two
+;;     deferral). No purely local drain rule can fix this: a sole dependent's
+;;     drain and an earlier-of-two dependent's drain have identical local
+;;     state, so any rule that surfaces the first would strand the second.
+;;
+;; The fix: give each raw atom source ONE coordinating watch that brackets
+;; its whole dependent fan-out in a single `with-epoch`. Every dependent
+;; marks inside the epoch (no per-dependent inline drain); the outermost
+;; close drains all marked flushes once and `surface-escaped!` surfaces the
+;; earliest failure AFTER all owned work is attempted — the same real
+;; terminal `replace-container!` gives, now for bare `reset!` too. The
+;; coordinator lives on the scheduler's `:source-coordinators` map (keyed by
+;; source identity), reuses `with-epoch` + `:escaped` (no new failure store,
+;; no drain-model change), and is torn down when its last dependent disposes.
+
+(defn- source-atom?
+  "True when `s` is a plain reactive-atom source (`clojure.core/Atom`) — the
+  case whose native `-notify-watches` loop is uncontained and needs a
+  coordinating fan-out terminal (rf2-7ryt0). False for a `reify` derived
+  value (its `notify` already surfaces at the enclosing drain) and for any
+  custom non-atom base container (kept on the direct per-dependent watch)."
+  [s]
+  (instance? Atom s))
+
+(defn- invoke-dep-mark
+  "Reducer that invokes the mark-fn of a `[dep-key mark-fn]` dependent entry,
+  discarding accumulator + key. Hoisted (allocated once) so the coordinator's
+  fan-out over its dependent vector pays no per-mutation closure (rf2-7ryt0
+  hot-path preservation — `reduce` walks the vector directly)."
+  [_ pair]
+  ((nth pair 1))
+  nil)
+
+(defn- ensure-source-coordinator!
+  "Get-or-create the per-source fan-out coordinator for raw atom source `s`
+  on `scheduler` (rf2-7ryt0). The coordinator holds a vector of
+  `[dep-key mark-fn]` dependent entries in an atom and installs exactly ONE
+  real watch on `s`; that watch brackets the whole fan-out in `with-epoch`,
+  so a direct `reset!` marks every dependent inside one epoch and surfaces
+  the earliest failure at the outermost close. The fan-out body-thunk and
+  watch fn are allocated ONCE here, so a mutation of `s` allocates nothing on
+  the fan-out (the `reduce` over the dependent vector walks it directly)."
+  [{:keys [source-coordinators] :as scheduler} gensym-prefix s]
+  (or (.get source-coordinators s)
+      (let [deps      (atom [])   ;; ordered vector of [dep-key mark-fn]
+            watch-key (gensym gensym-prefix)
+            fanout    (fn source-fanout [] (reduce invoke-dep-mark nil @deps))
+            coord     {:deps deps :watch-key watch-key}]
+        (add-watch s watch-key (fn [_ _ _ _] (with-epoch scheduler fanout)))
+        (.set source-coordinators s coord)
+        coord)))
 
 ;; ---- container ------------------------------------------------------------
 ;;
@@ -484,16 +570,17 @@
     (let [recompute      (build-recompute-fn source-containers compute-fn)
           watchers       (atom {})           ;; user-key → wrapper-fn
           on-dispose-fns (atom [])
-          ;; Per-source wrapper keys we own so dispose can unwire them.
-          ;; A VECTOR of `[source key]` pairs, NOT a `source→key` map
-          ;; (rf2-he7se finding 2): `source-containers` is a vector with
-          ;; no uniqueness precondition (spec/006 §154-170), so the SAME
-          ;; source object may appear more than once. Each occurrence
-          ;; installs its own gensym-keyed watch; a `source→key` map would
-          ;; overwrite earlier keys, so dispose would release only the
-          ;; LAST watch per source and leak the rest. Tracking every
-          ;; `[source key]` pair lets dispose release ALL held inputs
-          ;; (spec/006 §600-613).
+          ;; Per-source wire keys we own so dispose can unwire them. A VECTOR
+          ;; of `[source key]` pairs, NOT a `source→key` map (rf2-he7se finding
+          ;; 2): `source-containers` is a vector with no uniqueness precondition
+          ;; (spec/006 §154-170), so the SAME source object may appear more than
+          ;; once. Each occurrence takes its own gensym key; a `source→key` map
+          ;; would overwrite earlier keys, so dispose would release only the
+          ;; LAST wire per source and leak the rest. Tracking every
+          ;; `[source key]` pair lets dispose release ALL held inputs (spec/006
+          ;; §600-613). For a raw atom source `key` is the dependent-key
+          ;; registered with the source's fan-out coordinator (rf2-7ryt0); for
+          ;; a reify derived source it is the direct `add-watch` key.
           own-keys       (atom [])           ;; vector of [source key]
           ;; Disposed guard (rf2-1bzlai). `-dispose` MUST be idempotent and
           ;; re-entrant safe: a second `-dispose`, or a re-entrant
@@ -638,15 +725,23 @@
                            (when-not @dirty?
                              (vreset! dirty? true)
                              (schedule-flush! scheduler flush!)))]
-      ;; Wire one watch per source so the listener registry surface
-      ;; (subscribe-container) on the derived container fires whenever any
-      ;; source changes. The watch only MARKS dirty — the actual recompute
-      ;; + notify is deferred to the scheduler drain so it runs once
-      ;; against settled inputs (glitch-free, single notification).
+      ;; Wire this derived value to each source so a source change MARKS it
+      ;; dirty — the actual recompute + notify is deferred to the scheduler
+      ;; drain so it runs once against settled inputs (glitch-free, single
+      ;; notification). A raw ATOM source routes through its per-source
+      ;; fan-out coordinator (rf2-7ryt0), which brackets the whole dependent
+      ;; fan-out of a bare `reset!` in one `with-epoch` and surfaces the
+      ;; earliest failure at a real terminal. A reify DERIVED source (or any
+      ;; custom non-atom base) keeps a direct per-dependent `add-watch`: its
+      ;; `notify` fan-out already runs inside — and surfaces at — the
+      ;; enclosing drain/epoch.
       (doseq [s source-containers]
         (let [k (gensym gensym-prefix)]
           (swap! own-keys conj [s k])
-          (add-watch s k (fn [_ _ _ _] (mark-dirty!)))))
+          (if (source-atom? s)
+            (let [coord (ensure-source-coordinator! scheduler gensym-prefix s)]
+              (swap! (:deps coord) conj [k mark-dirty!]))
+            (add-watch s k (fn [_ _ _ _] (mark-dirty!))))))
       (reify
         IDeref
         (-deref [_] (deref-derived))
@@ -677,7 +772,21 @@
           ;; plain second call) short-circuits before any teardown re-runs.
           (when-not @disposed?
             (vreset! disposed? true)
-            (doseq [[s k] @own-keys] (remove-watch s k))
+            ;; Release every held input. A raw atom source's key is a dependent
+            ;; entry in its fan-out coordinator (rf2-7ryt0): drop the entry, and
+            ;; when the coordinator has no dependents left tear down its single
+            ;; real watch + registry slot. A reify derived source's key is a
+            ;; direct watch: remove it.
+            (let [coords (:source-coordinators scheduler)]
+              (doseq [[s k] @own-keys]
+                (if (source-atom? s)
+                  (when-let [coord (.get coords s)]
+                    (swap! (:deps coord)
+                           (fn [ds] (filterv (fn [pair] (not= (nth pair 0) k)) ds)))
+                    (when (empty? @(:deps coord))
+                      (remove-watch s (:watch-key coord))
+                      (.delete coords s)))
+                  (remove-watch s k))))
             (reset! own-keys [])
             (reset! watchers {})
             ;; Snapshot-and-clear callbacks before firing: a callback that

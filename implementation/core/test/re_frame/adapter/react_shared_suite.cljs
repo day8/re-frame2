@@ -1977,23 +1977,32 @@
   (count (.-watches ^cljs.core/Atom src)))
 
 (defn assert-derived-dispose-releases-duplicate-source-watches
-  "rf2-he7se finding 2: `make-derived-value` adds ONE watch per source
-  OCCURRENCE, but the disposal bookkeeping used to be a `source→key` map —
-  so when the SAME source object appeared more than once in
+  "rf2-he7se finding 2: `make-derived-value` tracks ONE dependent entry per
+  source OCCURRENCE, but the disposal bookkeeping used to be a `source→key`
+  map — so when the SAME source object appeared more than once in
   `source-containers` (spec/006-ReactiveSubstrate.md:154-170 types it as a
   vector with NO uniqueness precondition), each occurrence's gensym key
   overwrote the prior, and dispose (spec/006:600-613 — release ALL held
-  inputs) removed only the LAST watch, leaking the earlier one(s) forever.
+  inputs) released only the LAST, leaking the earlier one(s) forever. The
+  `own-keys` VECTOR fix tracks every `[source key]` pair.
 
-  This pins disposal-releases-everything two ways:
+  Coordinator model (rf2-7ryt0). A raw atom source now fans out through ONE
+  per-source coordinator watch that brackets its whole dependent fan-out in a
+  scheduler epoch; each `[src …]` occurrence registers a distinct DEPENDENT
+  ENTRY in that coordinator (not a distinct atom watch). So `[src src]`
+  installs exactly ONE physical watch on `src` while tracking TWO dependent
+  entries; dispose must release BOTH entries, and only then does the last one
+  standing remove the coordinator's watch. This pins that release-everything:
 
-    1. PHYSICAL — after `[src src]` derive then dispose, ZERO watches
-       remain on `src` (the leaked-watch ground truth).
-    2. BEHAVIOURAL — a recompute counter in `compute-fn` proves the
-       disposed derived value does NOT recompute when `src` later mutates;
-       a leaked watch would still `mark-dirty!` → flush → recompute."
+    1. PHYSICAL — while live, `src` carries exactly ONE coordinator watch;
+       after `[src src]` derive then dispose, ZERO watches remain (the leak
+       ground truth: a leaked dependent entry would keep the coordinator's
+       deps non-empty, so its watch would survive here — count 1, not 0).
+    2. BEHAVIOURAL — a recompute counter in `compute-fn` proves the disposed
+       derived value does NOT recompute when `src` later mutates; a leaked
+       dependent entry would still `mark-dirty!` → flush → recompute."
   [{:keys [adapter name]}]
-  (testing (str name " — make-derived-value dispose releases ALL duplicate-source watches (rf2-he7se)")
+  (testing (str name " — make-derived-value dispose releases ALL duplicate-source deps (rf2-he7se + rf2-7ryt0)")
     (let [src        (mk-source adapter 1)
           recomputes (atom 0)
           ;; SAME source object twice — the duplicate the bead names.
@@ -2001,17 +2010,19 @@
                                 (fn [a b] (swap! recomputes inc) (+ a b)))]
       (is (zero? @recomputes)
           "derived is lazy: compute-fn not yet run at construction (rf2-ee38b.1)")
-      ;; Establish the baseline (first deref recomputes once) and confirm
-      ;; BOTH occurrences installed a watch — the duplicate is real, not
-      ;; coalesced away.
+      ;; Establish the baseline (first deref recomputes once) and confirm the
+      ;; source is watched while the derived is live — ONE coordinator watch
+      ;; fronts the duplicate [src src] dependent entries (rf2-7ryt0).
       (is (= 2 @derived) "baseline derived = src + src")
       (is (= 1 @recomputes) "first deref recomputed exactly once")
-      (is (= 2 (source-watch-count src))
-          "both [src src] occurrences each installed a distinct watch")
-      ;; Dispose. Pre-fix, only the LAST watch was tracked → one watch leaks.
+      (is (= 1 (source-watch-count src))
+          "the [src src] duplicate is fronted by ONE coordinator watch (rf2-7ryt0)")
+      ;; Dispose. Pre-fix, only the LAST dependent entry was tracked → one
+      ;; entry leaks → the coordinator's watch survives here.
       (rf-disposable/-dispose derived)
       (is (zero? (source-watch-count src))
-          "dispose released EVERY watch the duplicate source held — zero remain")
+          "dispose released EVERY dependent entry the duplicate source held, so
+           the coordinator's watch is torn down — zero remain")
       ;; Behavioural proof: mutate src; the disposed derived must not recompute.
       (reset! recomputes 0)
       (mk-write! adapter src 99)
