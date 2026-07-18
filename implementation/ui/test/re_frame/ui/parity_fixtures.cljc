@@ -276,6 +276,24 @@
   [{:keys [markup]}]
   [:div.content (ui/html markup)])
 
+(defview spread-trusted
+  "ui/spread + ui/html COMPOSE (rf2-29s75): a runtime-built prop map and a
+  trusted-markup sole child on ONE element — BOTH take effect on BOTH emitters.
+  The overrides deliberately COLLIDE with a base prop (:title) and add to the
+  sugar class, so the spread merge is exercised alongside the raw markup. The
+  CLJS emitter used to drop the markup here while the JVM emitter kept it."
+  [{:keys [extra markup]}]
+  [:div.raw (ui/spread {:title "base title" :data-a "b" :class "base"} extra)
+   (ui/html markup)])
+
+(defview safe-spread-trusted
+  "ui/spread-safe + ui/html — the sibling spread form, which already composed
+  (its branch builds owned props through element-prop-pairs). Pinned here so
+  the two spread forms are proven to agree with each other AND across hosts."
+  [{:keys [attrs markup]}]
+  [:div.safe-raw (ui/spread-safe {:class "owned" :data-owned "o"} attrs)
+   (ui/html markup)])
+
 (defview handlers
   "Handler grammar: literal vectors (+ placeholders), options maps,
   dynamic handler expressions classified by value (vector / nil), a
@@ -501,6 +519,8 @@
    :custom-elements custom-elements
    :spread-view     spread-view
    :trusted         trusted
+   :spread-trusted      spread-trusted
+   :safe-spread-trusted safe-spread-trusted
    :handlers        handlers
    :with-defaults   with-defaults
    :as-props        as-props
@@ -548,6 +568,11 @@
    {:id :spread-override      :view :spread-view     :props {:extra {:class "x" :tab-index 9}}}
    {:id :spread-add           :view :spread-view     :props {:extra {:data-b "c" :title "t & t"}}}
    {:id :trusted              :view :trusted         :props {:markup "<b>bold & raw</b><i>i</i>"}}
+   ;; rf2-29s75 — spread + trusted markup on one element, both emitters
+   {:id :spread-trusted       :view :spread-trusted  :props {:extra {:title "override & <wins>" :class "x" :tab-index 9}
+                                                             :markup "<b>bold & raw</b><i>i</i>"}}
+   {:id :safe-spread-trusted  :view :safe-spread-trusted :props {:attrs {:aria-label "raw region" :data-c "c" :class "caller"}
+                                                                 :markup "<em>em & raw</em>"}}
    {:id :handlers-on          :view :handlers        :props {:id 42 :on? true :ks ["k1" "k2"]}}
    {:id :handlers-off         :view :handlers        :props {:id 7 :on? false :ks []}}
    {:id :defaults-absent      :view :with-defaults   :props {}}
