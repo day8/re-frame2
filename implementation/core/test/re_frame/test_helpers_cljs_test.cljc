@@ -7,6 +7,7 @@
   helpers walk plain hiccup data — no React, no DOM."
   (:require #?(:clj  [clojure.test :refer [deftest is testing]]
                :cljs [cljs.test :refer-macros [deftest is testing]])
+            [clojure.string :as str]
             [re-frame.test-helpers :as h]))
 
 ;; ---------------------------------------------------------------------------
@@ -397,7 +398,7 @@
       (is (fn? (h/extract-handler hit :on-click))))))
 
 ;; ---------------------------------------------------------------------------
-;; Deferred-callback frame-law guard (rf2-1yi8d, rf2-ywwpx)
+;; Deferred-callback frame-law guard (rf2-1yi8d, rf2-ywwpx, rf2-2sjtw)
 ;; ---------------------------------------------------------------------------
 ;; The copyable `testid` example must show the `reg-view`-injected `dispatch`,
 ;; not a bare qualified `rf/dispatch`. A deferred `:on-*` callback runs after
@@ -407,20 +408,72 @@
 ;;
 ;; Showing the injected `dispatch` is only half the contract: the example must
 ;; also show the form that BINDS it, otherwise a reader who copies the snippet
-;; gets an unresolved `dispatch` symbol (rf2-ywwpx). So this fixture pins the
-;; binding context — the enclosing `rf/reg-view` must appear ahead of the
-;; injected use — not merely the presence of `#(dispatch`.
-;; `[\s\S]*?` rather than `(?s).*?` — the inline `(?s)` flag is a Java-only
-;; regex construct and CLJS compiles patterns to JS RegExp.
-(def ^:private reg-view-binds-injected-dispatch
-  #"\(rf/reg-view [\s\S]*?#\(dispatch ")
+;; gets an unresolved `dispatch` symbol (rf2-ywwpx).
+;;
+;; Two regex generations failed to prove that. The previous fixture,
+;; `#"\(rf/reg-view [\s\S]*?#\(dispatch "`, only required a `reg-view` to occur
+;; somewhere *earlier* in the docstring: `[\s\S]*?` is lazy but unbounded, so it
+;; spans a closing paren happily and matched
+;; `(rf/reg-view already-closed [] [:div])\n[:button #(dispatch [:x])]` — a view
+;; that has already closed followed by a detached fragment whose `dispatch` is
+;; unresolved (rf2-2sjtw). Textual ordering is not enclosure.
+;;
+;; So the guard no longer infers structure from a pattern; it pins the canonical
+;; example as one exact form. `canonical-testid-example` is a single balanced
+;; `rf/reg-view` carrying its own closing `])`, with the deferred `#(dispatch
+;; ...)` strictly interior — enclosure holds by construction of the literal
+;; rather than by a match that could straddle two forms. Comparison is on
+;; whitespace-collapsed text, so re-indenting the docstring stays green while
+;; token order and paren structure stay pinned.
+;;
+;; Deliberately NOT reader- or balance-based: `cljs.reader/read-string` is
+;; EDN-only and throws on `#(...)` fn literals, so a reader walk could not run on
+;; both hosts without a new dependency, and a paren-depth scanner would be wrong
+;; in general (parens nest inside string and character literals). Both are more
+;; machinery than a docstring guard warrants.
+(def ^:private canonical-testid-example
+  "(rf/reg-view counter-inc-button [] [:button (testid \"counter-inc\" {:on-click #(dispatch [:counter/inc])}) \"+\"])")
+
+(defn- collapse-ws
+  "Trim and squeeze runs of whitespace to a single space, so the pin is
+  indentation-insensitive but structure-exact."
+  [s]
+  (str/replace (str/trim s) #"\s+" " "))
+
+(defn- shows-enclosed-injected-dispatch?
+  "True when `doc` contains the canonical `rf/reg-view` example whole —
+  opening form, deferred `#(dispatch ...)`, and closing paren."
+  [doc]
+  (str/includes? (collapse-ws doc) canonical-testid-example))
 
 (deftest testid-docstring-shows-the-binding-context-for-injected-dispatch
   (let [doc (:doc (meta #'h/testid))]
     (is (some? doc) "testid must carry a docstring")
-    (is (re-find reg-view-binds-injected-dispatch doc)
-        (str "the testid example must show the `rf/reg-view` form that BINDS `dispatch` "
-             "ahead of the deferred `#(dispatch ...)` that uses it — otherwise a reader "
-             "copying the snippet gets an unresolved `dispatch` symbol"))
+    (is (shows-enclosed-injected-dispatch? doc)
+        (str "the testid example must show the whole `rf/reg-view` form that BINDS `dispatch` "
+             "— up to and including its closing paren — around the deferred `#(dispatch ...)` "
+             "that uses it, otherwise a reader copying the snippet gets an unresolved "
+             "`dispatch` symbol"))
     (is (nil? (re-find #"#\(rf/dispatch " doc))
         "the testid example must NOT use a bare deferred `rf/dispatch` (raises :rf.error/no-frame-context)")))
+
+;; Negative controls are load-bearing in both directions: they pin the shapes the
+;; guard must reject, and they trip if a future edit loosens the pin back toward
+;; a bare `#(dispatch ` substring.
+(deftest enclosure-guard-discriminates-binding-context
+  (testing "re-indented canonical example still passes — the pin must not over-tighten"
+    (is (shows-enclosed-injected-dispatch?
+         (str "  (rf/reg-view counter-inc-button []\n"
+              "      [:button (testid \"counter-inc\"\n"
+              "                       {:on-click #(dispatch [:counter/inc])})\n"
+              "       \"+\"])"))))
+  (testing "a `reg-view` that has already closed does not bind a later detached fragment (rf2-2sjtw)"
+    (is (not (shows-enclosed-injected-dispatch?
+              "(rf/reg-view already-closed [] [:div])\n[:button #(dispatch [:x])]"))))
+  (testing "a detached fragment with no binding form at all"
+    (is (not (shows-enclosed-injected-dispatch?
+              "[:button (testid \"counter-inc\" {:on-click #(dispatch [:counter/inc])}) \"+\"]"))))
+  (testing "an otherwise-canonical example that reverts to a bare qualified `rf/dispatch`"
+    (is (not (shows-enclosed-injected-dispatch?
+              (str "(rf/reg-view counter-inc-button [] [:button "
+                   "(testid \"counter-inc\" {:on-click #(rf/dispatch [:counter/inc])}) \"+\"])"))))))
