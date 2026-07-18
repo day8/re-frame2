@@ -192,7 +192,11 @@ no prop-driven re-render, identical output); value-stabilization invariants (equ
 results ⇒ identical references). Fingerprints pin build identity; the corpus doubles
 as the hydration-parity suite, including multi-root failure isolation.
 
-### 4. The gate roster (07 §5 is the source; one line per gate)
+### 4. The gate roster (one line per gate)
+
+This table is the roster of record — G-1..G-18 as ruled here, including the
+2026-07-16 additions. The synthesis dossier's earlier roster (`07-testing.md` §5)
+is its predecessor, not its source: where the two differ, this table governs.
 
 | Gate | Asserts |
 |---|---|
@@ -288,7 +292,7 @@ governing the compatibility tier until the `ui.test` contract graduates into 008
 
 ## Bead Plan / Reference Implementation
 
-Carried by the program epic's stage children (12 §3): **S1/S2 (done)** — `ui.test`
+Carried by the program epic's stage children ([EP-0030 §Bead Plan](EP-0030-the-compiled-view-substrate-program.md#bead-plan--reference-implementation)): **S1/S2 (done)** — `ui.test`
 Tier-1 core, selector grammar (004D live), tree contract (004B live), G-1/G-14 then
 G-3/4/5/6/13 wired. **S3** — elision gates G-7/G-11; G-8 including the widened arm;
 G-15..G-18 + the proof pack. **S5** — root manifests, multi-root hydration, failure
@@ -303,7 +307,7 @@ API defect.
 ## Resolved Decisions
 
 
-- **Head ownership (06 §5).** re-frame2's existing head model is the one owner of
+- **Head ownership ([004 §The document head is host-owned](../../spec/004-Views.md#the-document-head-is-host-owned)).** re-frame2's existing head model is the one owner of
   document-head output; substrate views never hoist metadata through React's
   head/resource mechanisms, and a foreign head is an explicit interop boundary. S4
   hardens head policy; the ruling itself is settled here.
@@ -312,8 +316,8 @@ API defect.
   (S-1-measured). The S-1 PASS predated the ruling; the rerun under the revised
   estimator was executed and wired at S1f (`rf2-vxgfnd.6`, closed 2026-07-12 —
   `npm run test:ui-g1`, all components within the 1.10 budget, emitted-JS golden
-  84 direct calls / 0 IFn traps). The source dossier's 07 §5 row predates that
-  close and reads stale; this EP records the current state.
+  84 direct calls / 0 IFn traps). The source dossier's G-1 row (`07-testing.md` §5)
+  predates that close and reads stale; this EP records the current state.
   Companion ruling: an **emitted-JS golden test** pins direct `jsx` calls — a
   CLJS-var-bound jsx fn silently reintroduces IFn dispatch under `:advanced` (~5–8%,
   S-1's trap).
