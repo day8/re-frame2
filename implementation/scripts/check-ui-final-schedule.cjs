@@ -50,10 +50,20 @@
 //     (drop the missing-pass-provenance throw) → the FAIL-LOUD pass SUCCEEDS
 //     instead of failing → this gate goes RED.
 //   * Restore the marker-absent + `:cached false` -> compiled classification in
-//     build-hook/compile-verdict (drop the Shadow ::build-info :compiled corroboration,
-//     rf2-8nn5k) → the FORGE pass, whose whole-map replacement Shadow did not
-//     compile, is misclassified as a recompile and either evicts app-a's valid view
-//     or succeeds instead of failing loud → this gate goes RED.
+//     build-hook/compile-verdict (drop the per-pass compile-witness corroboration,
+//     rf2-8nn5k / rf2-suz5b) → the FORGE pass, whose whole-map replacement Shadow's
+//     compiler never analyzed, is misclassified as a recompile and either evicts
+//     app-a's valid view or succeeds instead of failing loud → this gate goes RED.
+//   * Swap that corroboration back to Shadow's ::build-info :compiled record
+//     (rf2-suz5b) → correct only while the clock cooperates: pinned Shadow derives
+//     that set from `(> compiled-at compile-start)`, so a FORCED-EVICT recompile
+//     landing inside the compile phase's own millisecond tick vanishes from it and
+//     the pass fails loud instead of evicting. The deterministic form of that
+//     misclassification — both same- and backwards-millisecond stamps, and the
+//     future-stamp forgery the timestamp record would have ACCEPTED — is proven
+//     unconditionally by the digest-carrier JVM arms
+//     same-and-backwards-millisecond-recompile-is-witnessed-not-timestamped and
+//     forged-future-stamp-cannot-buy-a-compile.
 // All were exercised red-before-green during development.
 
 const fs = require('fs');
@@ -248,8 +258,8 @@ async function driveBuild({ id, mode }) {
     // 2.5 FORGE pass — a build-local :compile-prepare hook REPLACES app-a's whole
     // retained output map (rebuilt from Shadow's public fields, dropping
     // re-frame.ui's private marker, copying sticky :cached false) WITHOUT removing
-    // it, so Shadow does NOT recompile app-a and it is absent from Shadow's own
-    // ::build-info :compiled. Pre-fix, finish trusted :cached false and evicted
+    // it, so Shadow does NOT recompile app-a and re-frame.ui's per-pass compile
+    // witness never fires for it. Pre-fix, finish trusted :cached false and evicted
     // app-a's valid accepted view on a pass that compiled nothing. Now it must FAIL
     // LOUD (`marker-dropped-without-compile`) before any candidate is finalized, so
     // the both-views accepted state survives for the FORCED-EVICT arm below.
