@@ -180,7 +180,7 @@ Children ride the native `$` trailing-args channel — `($ frame-provider {:fram
 
 !!! note "A missing provider fails loud, on purpose"
 
-    A tree rendered with no provider raises `:rf.error/no-frame-context` at the first `use-subscribe`. And the scope shape is itself strict: its `:frame` is **required** and must be a keyword. A `nil` `:frame` raises `:rf.error/no-frame-context`; a non-`nil` but non-keyword `:frame` (a string, a number) raises the more specific `:rf.error/bad-frame-provider-arg`; and naming a `:frame` that was never created (or has been destroyed) raises `:rf.error/frame-provider-frame-absent`. That's all deliberate — re-frame2 never *infers* a frame from absence, because a guessed-wrong frame is a debugging nightmare and a thrown error is a one-line fix.
+    A tree rendered with no provider raises `:rf.error/no-frame-context` at the first `use-subscribe`. And the scope shape is itself strict: its `:frame` is **required** and must be a frame id keyword or a live frame value. A `nil` `:frame` raises `:rf.error/no-frame-context`; a non-`nil` `:frame` that is neither (a string, a number) raises the more specific `:rf.error/bad-frame-provider-arg`; and naming a `:frame` that was never created (or has been destroyed) raises `:rf.error/frame-provider-frame-absent`. That's all deliberate — re-frame2 never *infers* a frame from absence, because a guessed-wrong frame is a debugging nightmare and a thrown error is a one-line fix.
 
 That's a complete UIx app: pick the substrate at boot (Step 1), write `defui` views that read with `use-subscribe` (Step 2) and dispatch off the handle (Step 3), and mount inside `frame-provider {:frame …}` (Step 4). Everything from here builds on those four moves.
 

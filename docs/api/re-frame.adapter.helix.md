@@ -109,7 +109,7 @@ The substrate-agnostic carry and scoping primitives (`capture-frame`, `with-fram
   ($ helix-adapter/frame-provider {:frame :session} child…)   ;; SCOPE an existing frame
   ```
 - **Description**: The Helix-shaped SCOPE-only frame provider (rf2-nyea0r split — **roots ensure; providers scope**; for create-if-absent, use [`frame-root`](#frame-root)). Scopes an already-created frame; creates nothing. Children ride the `$` trailing-args channel (there is no `:children` prop-map key).
-  - Fails loud if the frame is absent (`:rf.error/frame-provider-frame-absent`). A nil `:frame` raises `:rf.error/no-frame-context`; a non-keyword raises `:rf.error/bad-frame-provider-arg`; an `:id` (the ENSURE key) raises `:rf.error/frame-provider-given-id`.
+  - Fails loud if the frame is absent (`:rf.error/frame-provider-frame-absent`). `:frame` accepts a frame id keyword or a live frame value; a nil `:frame` raises `:rf.error/no-frame-context`, and a target that is neither raises `:rf.error/bad-frame-provider-arg`; an `:id` (the ENSURE key) raises `:rf.error/frame-provider-given-id`.
 - **Example**:
   ```clojure
   ($ helix-adapter/frame-provider {:frame :session}

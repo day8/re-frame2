@@ -5,8 +5,16 @@
   frame holds its own app-db (a substrate-managed reactive container),
   its own per-frame router queue, and its own sub-cache.
 
-  Frames are not values — they are mutable runtime objects. User code
-  holds keywords; this namespace holds the frame records.
+  A public operation targets a frame by its frame-id KEYWORD or by the live
+  frame VALUE `make-frame` returns — either one passed DIRECTLY, with no
+  accessor to unwrap. This namespace privately normalizes a value ONE WAY to
+  its id (`frame-value->id`) and holds the frame records keyed by that id;
+  the value's representation is not an app-facing data contract.
+
+  Teardown is the sole exception to that equivalence: one-argument
+  `destroy-frame!` reads a construction-returned value as EXACT-INCARNATION
+  authority (a stale value no-ops against a same-id successor), while a
+  frame-id keyword — or a token-less derived value — is ADDRESS-directed.
 
   Reserved frame ids:
     :rf/default              — an ORDINARY frame id (per Spec 002 §`:rf/default`
@@ -83,9 +91,16 @@
 ;;
 ;; The PUBLIC target a dispatch / subscribe / destroy / app-db read / provider
 ;; addresses is a frame — a frame id KEYWORD OR a frame VALUE the lifecycle
-;; APIs return, ACCEPTED INTERCHANGEABLY EVERYWHERE (API-shrink #1, rf2-csbbwu
-;; — the API commits to ONE frame-target grammar; EP-0024 Operation target
-;; grammar). Every runnable subsystem resolves per-frame state through a
+;; APIs return, ACCEPTED DIRECTLY EVERYWHERE (API-shrink #1, rf2-csbbwu — the
+;; API commits to ONE frame-target grammar; EP-0024 Operation target grammar).
+;; For the ROUTING operations the two spellings are INTERCHANGEABLE: the value
+;; is normalized to its id and the operation downstream is identical.
+;; `destroy-frame!` is the SOLE exception — it accepts either, but reads a
+;; construction-returned value's EXACT-INCARNATION authority (see
+;; `incarnation-token-key`), while a keyword or a token-less derived value
+;; stays ADDRESS-directed.
+;;
+;; Every runnable subsystem resolves per-frame state through a
 ;; frame-id ADDRESS keyed into `frames` (the ONE registry — the universal
 ;; chokepoint: the router queue/drain, `commit-frame-transition!`, the
 ;; sub-cache, cofx, elision, …). So a frame VALUE target is normalized to its

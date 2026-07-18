@@ -151,7 +151,7 @@ For narrative coverage and the substrate decision set, see [Use UIx, Helix, or r
 - **Description**: The UIx-shaped SCOPE-only frame provider (rf2-nyea0r split — **roots ensure; providers scope**; for create-if-absent, use [`frame-root`](#frame-root)). Scopes an already-created frame; creates nothing. Raises:
   - `:rf.error/frame-provider-frame-absent` when the frame does not exist
   - `:rf.error/no-frame-context` on a nil `:frame`
-  - `:rf.error/bad-frame-provider-arg` on a non-keyword `:frame`
+  - `:rf.error/bad-frame-provider-arg` on a `:frame` that is neither a keyword nor a live frame value
   - `:rf.error/frame-provider-given-id` when given an `:id` (the ENSURE key — use `frame-root`)
 
   Children ride the idiomatic `$` trailing-args channel. Pass them after the prop map, as for any other UIx component (there is no `:children` prop-map key).
