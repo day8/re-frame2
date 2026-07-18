@@ -10,14 +10,30 @@ const fs = require('fs');
 const path = require('path');
 const { spawnSync } = require('child_process');
 const { isDeepStrictEqual } = require('util');
-const { chromium } = require('playwright');
 const {
   createHarnessCleanup,
   resolveServePort,
   startLocalHttpServer,
 } = require('./lib/local-browser-harness.cjs');
 const { classifyReleaseBundle } = require('./lib/read-release-bundle.cjs');
-const { productionDepsMap, mapHasSymbolKey } = require('./lib/edn.cjs');
+const {
+  productionDepsMap,
+  mapHasSymbolKey,
+  mapGetKeyword,
+  isMap,
+  isSymbol,
+} = require('./lib/edn.cjs');
+// The SAME binding G-12 Arm 2 uses (rf2-5e3ic, PR #6332). Both gates read the
+// same `implementation/ui/deps.edn` and ask the same question — "did the core
+// coordinate resolve to the root this artefact configures?" — so they share one
+// expected root and one path comparator rather than answering it twice. That
+// module is require-cheap (fs/path/child_process only; `main` runs solely under
+// `require.main === module`).
+const {
+  isConfiguredLocalRoot,
+  requiredCoordinate: CORE_COORDINATE,
+  requiredCoordinateLocalRoot: CORE_LOCAL_ROOT,
+} = require('./check-ui-adapter-isolation.cjs');
 const {
   validateWarmSamples,
   summarizeWarm,
@@ -27,6 +43,7 @@ const {
 } = require('./lib/g13-timing-evidence.cjs');
 
 const IMPL = path.resolve(__dirname, '..');
+const UI_DIR = path.join(IMPL, 'ui');
 const OUT = path.join(IMPL, 'out');
 const DEV = path.join(OUT, 'ui-g13');
 const PROD = path.join(OUT, 'ui-g13-prod');
@@ -141,7 +158,8 @@ function assertBundleElision() {
     optionalResourcesSentinelAbsent: OPTIONAL_RESOURCES_SENTINEL,
     optionalResourcesManifestAbsent: 're_frame/resources.cljc and re_frame/resources/**',
     uiDependencyBoundary:
-      'production :deps: day8/re-frame2 present; day8/re-frame2-resources absent',
+      `production :deps: ${CORE_COORDINATE} resolved to its configured local root ` +
+      `${CORE_LOCAL_ROOT}; day8/re-frame2-resources absent`,
   };
 }
 
@@ -222,12 +240,89 @@ function assertLeaseFreeAdvanced(blob, uiDepsOverride = null, mintControlBlob = 
   // reader-discarded form; the parser sees EDN structure, so those variants
   // cannot slip a forbidden dependency past the boundary.
   const uiProdDeps = productionDepsMap(uiDeps, fail);
-  if (!mapHasSymbolKey(uiProdDeps, 'day8/re-frame2')) {
-    fail('UI dependency positive control omitted day8/re-frame2');
-  }
+  assertCoreCoordinateBound(uiProdDeps);
   if (mapHasSymbolKey(uiProdDeps, 'day8/re-frame2-resources')) {
     fail('UI artefact dependency boundary retained day8/re-frame2-resources');
   }
+}
+
+// POSITIVE CONTROL, BOUND TO THE CONFIGURED ROOT (rf2-han0r) — the G-13 twin of
+// the G-12 Arm-2 binding shipped in rf2-5e3ic. Both gates read this same
+// `ui/deps.edn` asking the same question, so they are bound the same way.
+//
+// The structural EDN parse above is genuine — the reader sees real map
+// structure, never a byte slice — and that is exactly what made this gap easy
+// to miss, because the weakness sat one level UP, at the VALUE. The control
+// asked only `mapHasSymbolKey(deps, 'day8/re-frame2')`: KEY PRESENCE. The
+// coordinate it names was never inspected, so `{:local/root "../nowhere"}`,
+// `{:mvn/version "0.0.0-BOGUS"}` and a `{:git/url ...}` coordinate all satisfied
+// it. A control that passes whatever the coordinate says cannot fail, and a
+// positive control that cannot fail is not evidence that the artefact under
+// measurement is the one wired into the graph.
+//
+// Bind it to the root `ui/deps.edn` configures: `day8/re-frame2` must be a
+// `{:local/root ...}` coordinate whose root, resolved relative to the artefact
+// dir, IS `implementation/core`. Rejecting the Maven and git forms is
+// deliberate, matching rf2-5e3ic: re-declaring core as either is a change of
+// coordinate KIND, and must be made intentionally here rather than absorbed by
+// a permissive check.
+//
+// `CORE_LOCAL_ROOT` and `isConfiguredLocalRoot` are G-12's, imported above. That
+// comparator carries the hard-won cross-platform detail — the gate runs on
+// Windows locally and POSIX in CI, so both sides are realpath-resolved where
+// they exist (junctions/symlinks), separators unified, and drive-lettered paths
+// case-folded while POSIX stays case-SENSITIVE.
+function declaredCoreLocalRoot(depsMap) {
+  const entry = depsMap.entries.find(([k]) => isSymbol(k, CORE_COORDINATE));
+  if (!entry) return null; // coordinate absent entirely
+  const coordinate = entry[1];
+  if (!isMap(coordinate)) return null; // not a coordinate map at all
+  const localRoot = mapGetKeyword(coordinate, 'local/root');
+  // Absent for `:mvn/version` / `:git/url` coordinates; non-string values
+  // (a symbol, a vector, nil) are not a root either.
+  if (localRoot === null || typeof localRoot !== 'object') return null;
+  if (localRoot.edn !== 'string') return null;
+  return localRoot.value;
+}
+
+// Join a declared `:local/root` onto the artefact dir. The ONE place this gate
+// diverges from rf2-5e3ic, and only because the two gates read different data:
+// G-12 receives an already-canonicalized ABSOLUTE root from tools.deps, whereas
+// `ui/deps.edn` declares a RELATIVE one (`"../core"`), so G-13 must perform the
+// join itself. `path.resolve` is bound to the HOST — on Windows it would rewrite
+// a POSIX `/repo/...` root to `C:\repo\...` — so pick the resolver from the
+// SHAPE of the path rather than from `process.platform`. On the two hosts the
+// gate actually runs on this is identical to native `path.resolve` (Windows dir
+// -> win32, POSIX dir -> posix); it additionally lets the self-test drive both
+// path shapes on either host, which is what makes the cross-platform teeth real
+// rather than a re-run of whichever host happens to be executing.
+function resolveDeclaredRoot(uiDir, declared) {
+  const impl = /^[A-Za-z]:[\\/]|^\\\\/.test(uiDir) ? path.win32 : path.posix;
+  return impl.resolve(uiDir, declared);
+}
+
+// Does production `:deps` resolve the core coordinate to `expectedRoot`?
+// `expectedRoot`/`uiDir` are injectable so the self-test can drive Windows- and
+// POSIX-shaped fixtures on either host.
+function coreCoordinateResolvesTo(depsMap, expectedRoot = CORE_LOCAL_ROOT, uiDir = UI_DIR) {
+  const declared = declaredCoreLocalRoot(depsMap);
+  if (declared === null || declared.trim() === '') return false;
+  // `:local/root` is relative to the artefact dir (an absolute root resolves to
+  // itself, and still has to name the configured directory to pass).
+  return isConfiguredLocalRoot(resolveDeclaredRoot(uiDir, declared), expectedRoot);
+}
+
+function assertCoreCoordinateBound(depsMap, expectedRoot = CORE_LOCAL_ROOT, uiDir = UI_DIR) {
+  if (coreCoordinateResolvesTo(depsMap, expectedRoot, uiDir)) return;
+  const declared = declaredCoreLocalRoot(depsMap);
+  fail(
+    `UI dependency positive control: production :deps does not resolve ${CORE_COORDINATE} to its ` +
+      `configured local root ${expectedRoot} (declared :local/root ` +
+      `${declared === null ? '<absent — not a {:local/root ...} coordinate>' : JSON.stringify(declared)}` +
+      `, resolved against ${uiDir}). The coordinate must be present AND point at the core artefact ` +
+      'this gate measures — a key-presence check accepted a bogus root, an :mvn/version, or a ' +
+      ':git/url, none of which describe the graph the measured builds compile.',
+  );
 }
 
 function expectedProjection() {
@@ -456,6 +551,34 @@ function assertMutationTeeth(result) {
       mintControl.blob,
     );
   }));
+  // rf2-han0r TEETH — the positive control must be able to FAIL. Each of these
+  // rewrites the core coordinate's VALUE while leaving the `day8/re-frame2` KEY
+  // exactly where it is, so every one of them was green under the presence-only
+  // check: the gate confirmed the coordinate was mentioned, never that it named
+  // the artefact being measured.
+  for (const [label, coordinate] of [
+    ['core coordinate re-pointed at a non-existent root', '{:local/root "../nowhere"}'],
+    ['core coordinate re-pointed at a sibling artefact', '{:local/root "../resources"}'],
+    ['core coordinate downgraded to a maven version', '{:mvn/version "0.0.0-BOGUS"}'],
+    ['core coordinate swapped to a git url', '{:git/url "https://example.invalid/x.git" :git/sha "abc1234"}'],
+  ]) {
+    red.push(expectMutationFailure(label, () => {
+      assertLeaseFreeAdvanced(
+        release.blob,
+        uiDeps.replace('day8/re-frame2 {:local/root "../core"}', `day8/re-frame2 ${coordinate}`),
+        mintControl.blob,
+      );
+    }));
+  }
+  // The coordinate absent altogether — the shape the presence check DID catch,
+  // pinned here so binding the value did not cost the original tooth.
+  red.push(expectMutationFailure('core coordinate absent from production :deps', () => {
+    assertLeaseFreeAdvanced(
+      release.blob,
+      uiDeps.replace('day8/re-frame2 {:local/root "../core"}', ''),
+      mintControl.blob,
+    );
+  }));
   red.push(expectMutationFailure('optional Resources source-graph leak', () => {
     assertOptionalResourcesManifest(
       `${prodManifest}\n"re_frame/resources/internal/runtime.cljs"`,
@@ -486,6 +609,11 @@ function appendSummary(report) {
 }
 
 async function main() {
+  // Required here, not at module load, so the boundary predicate above can be
+  // require()'d by `_ui-deps-edn-boundary.test.cjs` — a node-only suite that
+  // must pin the REAL gate rule rather than a hand-copied restatement of it —
+  // without dragging Playwright into that suite. `chromium` is used only below.
+  const { chromium } = require('playwright');
   const cleanup = createHarnessCleanup();
   cleanup.installSignalHandlers();
   let browser;
@@ -581,6 +709,14 @@ module.exports = {
   attachWarmSummary,
   appendSummary,
   expectedProjection,
+  // The bound dependency-boundary rule, exported so `_ui-deps-edn-boundary.test.cjs`
+  // pins THIS predicate rather than a hand-copied restatement that can drift.
+  declaredCoreLocalRoot,
+  coreCoordinateResolvesTo,
+  assertCoreCoordinateBound,
+  CORE_COORDINATE,
+  CORE_LOCAL_ROOT,
+  UI_DIR,
 };
 
 // CLI entry-point (skipped when require()'d by the test suite).
