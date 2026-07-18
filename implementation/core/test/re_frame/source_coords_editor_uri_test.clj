@@ -194,8 +194,10 @@
             (str editor " produced a URI that trips the forbidden-scheme gate: "
                  uri))))))
 
-(deftest forbidden-scheme-substring-is-not-rejected
-  (testing "the gate matches the LEADING scheme only — substrings elsewhere are fine"
+(deftest editor-uri-does-not-reject-forbidden-scheme-substring
+  (testing "the gate matches the LEADING scheme only, so `editor-uri` still
+            returns a URI when a substring elsewhere in the path looks like a
+            forbidden scheme"
     ;; A path that contains "javascript:" deep inside is not the scheme.
     (is (some? (eu/editor-uri
                  :custom-fallback ; unknown -> vscode default
@@ -213,6 +215,14 @@
 ;; not an allowlist (Security.md / Tool-Pair.md §Editor URI scheme
 ;; allowlist). `forbidden-scheme?` is now PUBLIC so the tool `open!` seams
 ;; can re-apply the cheap denylist at the pre-resolved `{:uri ...}` handoff.
+;;
+;; Each test here has a twin in the rf2-vwcsq block above: that block drives
+;; the `editor-uri` BUILDER, this one drives the `forbidden-scheme?` PREDICATE
+;; directly. rf2-9e4lf: the substring pair was the one that collided — both
+;; deftests were named `forbidden-scheme-substring-is-not-rejected`, so when
+;; this block landed (f2b24e146f) its test silently replaced the builder-level
+;; one, which had not run since. The axis is which surface is under test, so
+;; that is what the two names now say.
 
 (deftest forbidden-scheme-rejects-the-three-known-bad
   (testing "forbidden-scheme? is true for javascript: / data: / vbscript:"
@@ -264,7 +274,7 @@
     (is (not (eu/forbidden-scheme? "no-scheme-here")))
     (is (not (eu/forbidden-scheme? 42)))))
 
-(deftest forbidden-scheme-substring-is-not-rejected
+(deftest forbidden-scheme-predicate-does-not-flag-substring
   (testing "the gate matches the LEADING scheme only — a 'javascript:'
             substring deep in the URI is not the scheme"
     (is (not (eu/forbidden-scheme? "vscode://file/src/has-javascript:x.cljs:1:1")))
