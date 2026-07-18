@@ -922,6 +922,55 @@
     (emit-error-both! category event event-id frame-id exception 0
                       (interop/now-ms) trace-payload)))
 
+(def ^:private non-overridable-source-rationale
+  "Per-id WHY for the `:rf.error/reserved-fx-override` `:reason` (rf2-0qsp5).
+
+  `non-overridable-source-fx-ids` has THREE distinct rationales, not one. The
+  diagnostic previously asserted a single blanket clause — \"installs/clears
+  durable frame runtime state (or threads a correctness-critical nav-token)\" —
+  which is FALSE for `:rf.machine/join-dispatch`: that id writes no runtime-db
+  and threads no nav-token; its source-policy membership is protection of a
+  PRIVATE transport from capture/suppression (rf2-2lzk8a). A programmer reading
+  the always-on error was told the wrong reason for their own id.
+
+  Keys MUST cover every member of `non-overridable-source-fx-ids`
+  (pinned by `fx_test.clj` §7e); `reserved-fx-override-reason` degrades to a
+  policy-level clause if a member is ever added without its own line."
+  {:rf.machine/spawn   "installs the spawned actor's durable snapshot into frame runtime-db"
+   :rf.machine/destroy "clears the actor's durable snapshot and event handler from frame runtime-db"
+   :rf.machine/join-dispatch
+   (str "IS the private `:spawn-all` join-completion transport — overriding it would "
+        "CAPTURE or SUPPRESS the framework path and subvert the exact-attempt "
+        "correlation fence (it installs NO runtime state and threads NO nav-token)")
+   :rf.fx/reg-flow     "installs a durable flow-registry entry into frame runtime-db"
+   :rf.fx/clear-flow   "clears a durable flow-registry entry from frame runtime-db"
+   :rf.route/with-nav-token
+   (str "threads a correctness-critical nav-token (dropping it silently defeats "
+        "stale-result suppression)")})
+
+(defn- reserved-fx-override-reason
+  "The human-readable `:reason` for one rejected source-policy override.
+
+  Two clauses, both id-specific (rf2-0qsp5): WHY this id is a non-overridable
+  SOURCE, then whether it is ALSO a non-redirectable TARGET. The second clause
+  exists because the two policies are INDEPENDENT (rf2-1w4af) and the old
+  single-set framing led programmers to read a source rejection as also
+  forbidding a redirect TO the id — which for `:rf.machine/spawn` /
+  `:rf.machine/destroy` is a legitimate, permitted ergonomic."
+  [fx-id]
+  (str "`:fx-overrides` targeted the reserved fx-id `" fx-id "`, which "
+       (get non-overridable-source-rationale fx-id
+            (str "is a non-overridable SOURCE (`non-overridable-source-fx-ids`)"))
+       ", so it may NOT be overridden (rf2-snsup5). The override was IGNORED; "
+       "the real reserved/registered body runs. Only the routing/host-API "
+       "reserved fxs (`:dispatch`, `:dispatch-later`, "
+       "`:rf.machine/dispatch-to-system`, `:rf.nav/*`) are overridable. "
+       (if (contains? non-redirectable-target-fx-ids fx-id)
+         (str "`" fx-id "` is ALSO the non-redirectable TARGET — a redirect "
+              "`{:some-fx " fx-id "}` is refused too (rf2-1w4af).")
+         (str "This is the SOURCE policy ONLY: redirecting a custom effect TO `"
+              fx-id "` (`{:my/fx " fx-id "}`) remains permitted (rf2-1w4af)."))))
+
 (defn- emit-reserved-fx-override!
   "Emit `:rf.error/reserved-fx-override` (rf2-snsup5) when an `:fx-overrides`
   entry OVERRIDES a non-overridable-source reserved fx-id
@@ -931,7 +980,8 @@
   catalogue). The recovery is `:reserved-body-ran`: the override is ignored
   and the real reserved/registered body runs. `where` discriminates the
   dev per-call site (`:handle-one-fx`) from the production prod-strip
-  (`:production-strip`)."
+  (`:production-strip`). The `:reason` is id-specific
+  (`reserved-fx-override-reason`) — the tag SHAPE is unchanged."
   [fx-id override-target frame-id origin-event origin-event-id where]
   (emit-fx-error! :rf.error/reserved-fx-override
                   origin-event origin-event-id frame-id nil
@@ -940,14 +990,7 @@
                    :frame      frame-id
                    :override   override-target
                    :where      where
-                   :reason     (str "`:fx-overrides` targeted the reserved fx-id `"
-                                    fx-id "`, which installs/clears durable frame "
-                                    "runtime state (or threads a correctness-critical "
-                                    "nav-token) and may NOT be overridden (rf2-snsup5). "
-                                    "The override was IGNORED; the reserved body runs. "
-                                    "Only the routing/host-API reserved fxs (`:dispatch`, "
-                                    "`:dispatch-later`, `:rf.machine/dispatch-to-system`, "
-                                    "`:rf.nav/*`) are overridable.")
+                   :reason     (reserved-fx-override-reason fx-id)
                    :recovery   :reserved-body-ran}))
 
 (defn strip-rejected-overrides
