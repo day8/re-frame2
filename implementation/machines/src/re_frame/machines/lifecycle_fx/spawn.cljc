@@ -156,6 +156,51 @@
                         :reason     reason})
     nil))
 
+(defn- reject-address-collision!
+  "Emit the `:rf.error/machine-spawn-all-duplicate-id` dev trace for a
+  `:spawn-all` invoke whose PREPARED children RESOLVED to ALIASING actor
+  addresses (rf2-qlzh9), naming every aliased address and its offending logical
+  child ids. The registration-time `validate-spawn-all!` variant guards LOGICAL
+  `:id` uniqueness (and throws); THIS is the RUNTIME resolved-address guard:
+  two DISTINCT logical children whose `:fixed-actor-id` literals — or a fixed id
+  colliding with a generated `<type>#n` — collapse to ONE actor id would
+  otherwise silently overwrite one `{<spawned-id> prepared}` entry / one live
+  actor (the first child consuming the other's spec/snapshot and dropping the
+  only entry, the later falling back to a second resolution/validator verdict).
+
+  DIAGNOSTIC channel (Spec 009), like its sibling runtime `:spawn-all`
+  diagnostic `:rf.error/machine-spawn-all-bad-child-id`: the fail-closed reject
+  itself runs in production (the caller seeds the childless reject sentinel
+  regardless), but the observability trace rides the dev-only surface DCE'd
+  under `goog.DEBUG=false`. STRUCTURAL context ONLY — parent/invoke identity, the
+  offending logical child ids, the resolved actor addresses; never the spawn
+  `args` / `:data` (which may hold application PII).
+
+  `collisions` is the deterministic `[[<resolved-address> [<logical-child-id> …]]
+  …]` vector `spawn-all-address-collisions` returns (first-appearance order,
+  stable on CLJ and CLJS); one trace fans per invoke, its `:collisions` a
+  `{<resolved-address> [<logical-child-id> …]}` map."
+  [frame-id parent-id invoke-id collisions]
+  (let [collisions-map (into {} collisions)
+        reason (error/human-message
+                 :rf.error/machine-spawn-all-duplicate-id
+                 (str "Cannot start :spawn-all invoke " invoke-id " on " parent-id
+                      ": distinct logical children resolve to the SAME actor "
+                      "address " (pr-str collisions-map)
+                      " — two children would collapse to one live actor (a silent "
+                      "overwrite), so the whole invoke is rejected fail-closed. "
+                      "Give each colliding child a distinct :fixed-actor-id, or "
+                      "drop the fixed id so the runtime allocates a unique "
+                      "generated address."))]
+    (trace/emit-error! :rf.error/machine-spawn-all-duplicate-id
+                       {:parent-id  parent-id
+                        :invoke-id  invoke-id
+                        :collisions collisions-map
+                        :frame      frame-id
+                        :recovery   :no-recovery
+                        :reason     reason})
+    nil))
+
 (def ^:private spawn-all-reject-sentinel
   "The join-slot value `spawn-all-init-fx` writes when it REJECTS a
   `:spawn-all` invoke (some child names an UNREGISTERED TYPE). It carries NO
@@ -994,6 +1039,33 @@
      :schema-reject? schema-reject?
      :rejected?      (or unregistered? schema-reject?)}))
 
+(defn- spawn-all-address-collisions
+  "Detect PREPARED `:spawn-all` children whose RESOLVED actor addresses
+  (`:spawned-id`) ALIAS (rf2-qlzh9). `:spawn-all` permits two DISTINCT logical
+  children to resolve to the SAME actor id — a `:fixed-actor-id` literal shared
+  by two children, or a fixed id colliding with a generated `<type>#n` — because
+  registration guards only LOGICAL `:id` uniqueness (`validate-spawn-all!`), not
+  the resolved address. Such a set would store as `{<spawned-id> prepared}` that
+  SILENTLY overwrites one entry / one live actor: the first child consumes the
+  other's spec/snapshot and drops the only entry, while the later child falls
+  back to a second resolution/validator verdict.
+
+  Returns a deterministic vector of `[<resolved-address> [<logical-child-id> …]]`
+  pairs, one per ALIASED address (2+ children), or an empty vector when every
+  resolved address is unique. Order follows first appearance in `prepared` (the
+  transition reducer's child-args order), stable across CLJ and CLJS — never map
+  hash order — so the reject the caller fans is deterministic."
+  [prepared]
+  (let [with-id (filterv :spawned-id prepared)
+        by-addr (group-by :spawned-id with-id)]
+    (into []
+          (comp (distinct)
+                (filter #(> (count (get by-addr %)) 1))
+                (map (fn [addr]
+                       [addr (mapv #(get-in % [:args :rf/spawn-all-child-id])
+                                   (get by-addr addr))])))
+          (map :spawned-id with-id))))
+
 (defn- write-spawned-slot!
   "Write `value` into the frame's join slot at
   `[:rf.runtime/machines :spawned <parent-id> <invoke-id>]`, bound to A's RAW
@@ -1171,8 +1243,18 @@
         ;; (`reg-machine`).
         prepared       (mapv #(prepare-spawn-all-child % join-state continue?) child-args)
         unregistered   (mapv :args (filterv :unregistered? prepared))
-        schema-invalid (filterv :schema-reject? prepared)]
-    (if (or (seq unregistered) (seq schema-invalid))
+        schema-invalid (filterv :schema-reject? prepared)
+        ;; rf2-qlzh9 — resolved actor-address ALIASING is a THIRD fail-closed
+        ;; admission condition, alongside unregistered TYPE and spawn-time
+        ;; `[:schemas :data]` rejection. Registration guards only LOGICAL `:id`
+        ;; uniqueness, so two distinct logical children can resolve to the SAME
+        ;; actor address (a shared `:fixed-actor-id`, or a fixed id colliding
+        ;; with a generated `<type>#n`) and silently collapse to one
+        ;; `:rf/prepared` entry / one live actor. Detected HERE, over the prepared
+        ;; children, BEFORE the live join / prepared scratch / any child effect
+        ;; is published.
+        collisions     (spawn-all-address-collisions prepared)]
+    (if (or (seq unregistered) (seq schema-invalid) (seq collisions))
       ;; Fail-closed: reject the join so the never-running spec-less child
       ;; cannot hang the `:all` join forever. Emit EXACTLY one reject per
       ;; offending child (structural-only tags, per the privacy contract) —
@@ -1212,6 +1294,16 @@
             (when (and (seq remaining) (continue?))
               (reject-unregistered-spawn! frame-id (:machine-id (first remaining)))
               (recur (rest remaining))))
+          ;; rf2-qlzh9 — one deterministic collision rejection per invoke,
+          ;; naming the offending logical child ids + resolved addresses, fenced
+          ;; on `(continue?)` like the unregistered rejects above (a callback in
+          ;; a prior reject / preflight validator may already have swapped A→B).
+          ;; The sentinel below makes it ATOMIC: every per-child spawn suppresses
+          ;; under it (`spawn-all-invoke-rejected?`), so no aliased child ever
+          ;; installs and nothing overwrites — the same shape as the
+          ;; unregistered-type reject.
+          (when (and (seq collisions) (continue?))
+            (reject-address-collision! frame-id parent-id invoke-id collisions))
           (when (continue?)
             (write-spawned-slot! frame-id owner-token parent-id invoke-id
                                  spawn-all-reject-sentinel))
