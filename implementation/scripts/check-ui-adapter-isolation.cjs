@@ -44,13 +44,17 @@
  *   `ui/deps.edn` graph with `clojure -Stree` and rejects any wrapper
  *   coordinate. A full pass additionally requires a POSITIVE control — the
  *   resolved graph must carry re-frame.ui's own core coordinate `day8/re-frame2`
- *   as a GENUINE resolved row: the coordinate at the HEAD of the row, followed by
- *   evidence matching one of the three forms tools.deps `ext/coord-summary`
- *   actually emits (Maven version, git tag/short-SHA, absolute :local root),
- *   matched end-to-end — so a vacuous exit-0 (empty / whitespace / malformed /
- *   core-absent stdout) OR token-shaped garbage (the bare coordinate, or the
- *   coordinate trailed by arbitrary prose) fails closed instead of
- *   masquerading as a "0 resolved coordinates" PASS. Resolving the JVM/Clojure graph also proves
+ *   as a GENUINE resolved row that RESOLVED TO THE CONFIGURED LOCAL ROOT: the
+ *   coordinate at the HEAD of the row, followed by evidence naming the very
+ *   directory `ui/deps.edn` declares for it (`{:local/root "../core"}`, i.e.
+ *   `implementation/core`), compared as canonical paths. Anything else — a
+ *   vacuous exit-0 (empty / whitespace / malformed / core-absent stdout),
+ *   token-shaped garbage, or a plausibly-shaped coordinate summary that points
+ *   somewhere ELSE (`C:\not\the\repo`, a numeric `404`, a Maven version) — fails
+ *   closed instead of masquerading as a "0 resolved coordinates" PASS. Binding
+ *   the row to the configured root is what makes this a control that CAN fail:
+ *   shape alone only proves "some coordinate summary exists", never "the
+ *   dependency under test resolved". Resolving the JVM/Clojure graph also proves
  *   the JVM/headless emitter entry stays browser-wrapper-free without forcing
  *   browser-only libraries onto the JVM classpath.
  *
@@ -124,22 +128,41 @@ const forbiddenCoordinatePatterns = [
   /^day8\/re-frame2-(reagent(-slim)?|uix|helix)$/,
 ];
 
-// Arm-2 POSITIVE CONTROL (rf2-xgfpq, hardened rf2-tutg8, anchored rf2-rbget). An
-// exit-0 `clojure -Stree` only counts as trustworthy evidence that the graph
-// actually resolved when re-frame.ui's own required core dependency,
-// `day8/re-frame2` (declared `:local/root "../core"` in ui/deps.edn), appears as
-// a GENUINE resolved-graph row. Requiring only the token's PRESENCE (rf2-xgfpq)
-// accepted token-shaped garbage: a bare `day8/re-frame2`, or the coordinate
-// trailed by diagnostic prose. Requiring trailing text to CONTAIN a digit or a
-// path separator (rf2-tutg8) narrowed that but still accepted a matching first
-// token followed by ANYTHING carrying an incidental character —
-// `day8/re-frame2 diagnostic-123`, `... this/is/not/a/tree`, `... error C404`,
-// `... nope\x`, `... [FAILED 123]`. Matching the row against the bounded evidence
-// forms tools.deps actually emits (see hasResolvedCoordinateRow) closes that,
-// while empty, whitespace-only, malformed, and core-absent stdout still lack the
-// row entirely. It is the resolved-graph analogue of Arm 1's `requiredImport`
-// positive control.
+// Arm-2 POSITIVE CONTROL (rf2-xgfpq, hardened rf2-tutg8, anchored rf2-rbget,
+// BOUND rf2-5e3ic). An exit-0 `clojure -Stree` only counts as trustworthy
+// evidence that the graph actually resolved when re-frame.ui's own required core
+// dependency, `day8/re-frame2`, appears as a resolved-graph row THAT RESOLVED TO
+// THE ROOT ui/deps.edn CONFIGURES FOR IT. Each earlier round loosened one notch
+// short of that: token PRESENCE (rf2-xgfpq) accepted a bare `day8/re-frame2` or
+// the coordinate trailed by prose; "trailing text contains a digit or separator"
+// (rf2-tutg8) accepted `... diagnostic-123`, `... this/is/not/a/tree`,
+// `... error C404`; and matching the generic `ext/coord-summary` SHAPE
+// (rf2-rbget) still accepted `day8/re-frame2 C:\not\the\repo` (any absolute
+// path) and `day8/re-frame2 404` (any Maven-version-shaped text). Every one of
+// those proves only that SOME coordinate summary exists — a misconfigured, or
+// entirely absent, local root still reported success, so the control could not
+// fail. Binding the row to the configured root is the whole point of the arm.
 const requiredCoordinate = 'day8/re-frame2';
+
+// The AUTHORITY for that binding. `implementation/ui/deps.edn` declares
+//
+//   :deps {day8/re-frame2 {:local/root "../core"}}
+//
+// resolved relative to the artefact dir, and tools.deps `ext/canonicalize
+// :local` rewrites `:local/root` to `(.getCanonicalPath ...)` before the tree is
+// printed — so the evidence half of the required row IS this directory. Real row
+// from this repo (captured 2026-07-18, tools.deps 0.29.1598):
+//
+//   day8/re-frame2 C:\Users\me\code\re-frame2\implementation\core
+//
+// This mirrors the declared relative root rather than reading deps.edn (no EDN
+// reader — rf2-5e3ic fence); the self-test pins the two together, so changing
+// the declaration WITHOUT updating this constant reds the gate. That is
+// deliberate: switching the core dependency to a Maven or git coordinate is a
+// change of coordinate KIND and must be made intentionally here, not absorbed
+// silently by a permissive matcher.
+const requiredCoordinateDeclaredRoot = '../core';
+const requiredCoordinateLocalRoot = path.resolve(uiArtefactDir, requiredCoordinateDeclaredRoot);
 
 // Each `clojure -Stree` line is `<glyphs?> group/artifact <version|path...>`.
 // Strip the tree glyphs, take the first token as the coordinate.
@@ -151,39 +174,54 @@ function coordinatesFrom(treeText) {
     .map((line) => line.split(/\s+/)[0]);
 }
 
-// ANCHORED required-row evidence (rf2-rbget). `clojure -Stree` prints each row
-// through `clojure.tools.deps.tree/print-node`, whose payload is exactly
-// `(ext/coord-summary lib coord)` — i.e. `"<lib> <evidence>"` — and the evidence
-// half is produced by exactly three procurer methods:
+// `clojure -Stree` prints each row through `clojure.tools.deps.tree/print-node`,
+// whose payload is exactly `(ext/coord-summary lib coord)` — i.e.
+// `"<lib> <evidence>"`. The evidence half comes from the procurer that resolved
+// the coordinate, and for a `:local/root` dependency that is
+// `extensions/local.clj` -> `(str lib " " (:local/root coord))`, printed AFTER
+// canonicalization. So for THIS coordinate the evidence is not merely
+// path-SHAPED, it is one exact directory: `requiredCoordinateLocalRoot`.
 //
-//   :mvn    (extensions/maven.clj)  -> `(str lib " " (:mvn/version coord))`
-//   :git    (extensions/git.clj)    -> `(str lib " " (or tag (subs sha 0 7)))`
-//   :local  (extensions/local.clj)  -> `(str lib " " (:local/root coord))`
+// Note the two coordinate kinds NOT accepted here. `day8/re-frame2` is a
+// `:local/root` dependency, so a Maven-version row (`day8/re-frame2 1.2.3`) or a
+// git tag/SHA row (`day8/re-frame2 a1b2c3d`) for it does not describe the
+// configured graph and reds — which is also what rejects the numeric `404`
+// diagnostic spoof, since it entered through the generic Maven branch. Should
+// the core dependency ever be re-declared as a Maven or git coordinate, this
+// predicate is the intended place to say so.
 //
-// so the evidence is BOUNDED, and each form can be matched end-to-end rather
-// than probed for an incidental character. Real sample from this repo's
-// `implementation/ui` graph (the checkout-specific local root re-rooted onto a
-// neutral placeholder — every runner resolves a different absolute path there):
-//
-//   org.clojure/clojure 1.12.4
-//     . org.clojure/spec.alpha 0.5.238
-//   day8/re-frame2 C:\proj\re-frame2\implementation\core
-//     . org.clojure/clojurescript 1.12.145
-//       . com.google.javascript/closure-compiler v20250820
-//       . org.clojure/google-closure-library 0.0-20250515-f04e4c0e
-//
-// Maven versions and version-shaped git tags start with a digit (optionally
-// `v`-prefixed, as `v20250820` does) and then run over the Maven version
-// charset. A git coord with no tag summarises to a 7-char short SHA. A :local
-// root is ALWAYS ABSOLUTE: `ext/canonicalize :local` rewrites `:local/root` to
-// `(.getCanonicalPath ...)` before the tree is printed, which is why the
-// declared `:local/root "../core"` above prints as `C:\...\implementation\core`.
-// Requiring absoluteness is what rejects relative path-shaped prose; the tail of
-// an absolute root is left unconstrained because a canonical path may legitimately
-// contain spaces (`C:\Program Files\...`).
-const MVN_VERSION_EVIDENCE = /^v?[0-9][0-9A-Za-z._+-]*$/;
-const GIT_SHA_EVIDENCE = /^[0-9a-f]{7,40}$/;
-const LOCAL_ROOT_EVIDENCE = /^(?:\/|\\\\|[A-Za-z]:[\\/])\S/;
+// Path comparison is canonical, not textual, because the gate runs on POSIX CI
+// and on Windows locally: Java's `getCanonicalPath` resolves symlinks/junctions
+// and Node's `path.resolve` does not, so BOTH sides go through `realpathSync`
+// where the directory exists (a synthetic fixture path simply stays as written).
+// Separators are then unified and drive-lettered paths lower-cased, because
+// Windows paths are case-insensitive and may legitimately arrive with either
+// separator. POSIX comparison stays case-SENSITIVE. The tail is never
+// constrained: a canonical root may contain spaces (`C:\Program Files\...`).
+function canonicalizeExisting(p) {
+  try {
+    return fs.realpathSync(p);
+  } catch {
+    return p; // not present on this host (synthetic fixture) — compare as written
+  }
+}
+
+function normalizeRootForCompare(p) {
+  let s = String(p).trim().replace(/\\/g, '/');
+  const unc = s.startsWith('//');
+  s = s.replace(/\/+/g, '/');
+  if (unc) s = `/${s}`;
+  if (s.length > 1) s = s.replace(/\/+$/, '');
+  if (/^[A-Za-z]:(\/|$)/.test(s)) s = s.toLowerCase();
+  return s;
+}
+
+// Is `evidence` the SAME directory as the configured local root?
+function isConfiguredLocalRoot(evidence, expectedLocalRoot) {
+  const actual = normalizeRootForCompare(canonicalizeExisting(evidence));
+  const expected = normalizeRootForCompare(canonicalizeExisting(expectedLocalRoot));
+  return actual !== '' && actual === expected;
+}
 
 // The row furniture `print-node` may wrap around that payload, and nothing else:
 // leading indent plus the `. ` glyph for a `:new-dep`/`:same-version`/
@@ -195,30 +233,22 @@ const LOCAL_ROOT_EVIDENCE = /^(?:\/|\\\\|[A-Za-z]:[\\/])\S/;
 const RESOLVED_ROW_PREFIX = /^\s*(?:\.\s+)?/;
 const RESOLVED_ROW_REASON = /\s+:newer-version$/;
 
-function isResolvedEvidence(evidence) {
-  return (
-    MVN_VERSION_EVIDENCE.test(evidence) ||
-    GIT_SHA_EVIDENCE.test(evidence) ||
-    LOCAL_ROOT_EVIDENCE.test(evidence)
-  );
-}
-
-// Does `treeText` carry a GENUINE resolved-graph row for `coordinate`? The row
-// must BE one — the coordinate at the head of the row, followed by evidence that
-// matches a real `coord-summary` form end-to-end. Requiring merely that the
-// trailing text CONTAIN a digit or a separator (the pre-rf2-rbget shape) accepted
-// any first-token match trailed by anything: `day8/re-frame2 diagnostic-123`,
-// `day8/re-frame2 this/is/not/a/tree`, `day8/re-frame2 error C404`,
-// `day8/re-frame2 nope\x` and `day8/re-frame2 [FAILED 123]` all passed on an
-// incidental character and let junk stdout report a full G-12 PASS. This stays a
-// single required-row predicate — it does NOT parse the dependency tree, read
-// EDN, or model coordinates generally (rf2-xgfpq / rf2-tutg8 fence).
-function hasResolvedCoordinateRow(treeText, coordinate) {
+// Does `treeText` carry a resolved-graph row proving `coordinate` resolved to
+// `expectedLocalRoot`? The row must BE one — the coordinate at the head, followed
+// by evidence naming that exact directory. Matching the generic coord-summary
+// SHAPE instead (the pre-rf2-5e3ic predicate) accepted any absolute path and any
+// version-shaped text, so `day8/re-frame2 C:\not\the\repo` and `day8/re-frame2
+// 404` both reported a full G-12 PASS: the control confirmed that a row
+// MENTIONING the coordinate existed, never that the coordinate RESOLVED to the
+// configured root. This stays a single required-row predicate — it does NOT parse
+// the dependency tree, read EDN, or model coordinates generally (rf2-xgfpq /
+// rf2-tutg8 / rf2-5e3ic fence).
+function hasResolvedCoordinateRow(treeText, coordinate, expectedLocalRoot = requiredCoordinateLocalRoot) {
   const head = `${coordinate} `;
   return treeText.split(/\r?\n/).some((line) => {
     const row = line.replace(RESOLVED_ROW_PREFIX, '').trimEnd().replace(RESOLVED_ROW_REASON, '');
     if (!row.startsWith(head)) return false;
-    return isResolvedEvidence(row.slice(head.length).trim());
+    return isConfiguredLocalRoot(row.slice(head.length).trim(), expectedLocalRoot);
   });
 }
 
@@ -348,29 +378,33 @@ function resolveDependencyTree(cwd, deps = {}) {
 //   { outcome: 'unavailable', reason }        — clojure genuinely absent.
 //   { outcome: 'error', tree }                — a hard failure (exit 2).
 //   { outcome: 'no-graph', graphSize }        — exit 0 but the resolved graph is
-//     empty / whitespace / malformed / carries no GENUINE `day8/re-frame2`
-//     resolved row (missing entirely, or only token-shaped garbage), i.e. no
-//     trustworthy Arm-2 evidence (exit 2).
+//     empty / whitespace / malformed / carries no `day8/re-frame2` row resolved
+//     to the configured local root (missing entirely, token-shaped garbage, or a
+//     coordinate summary pointing elsewhere), i.e. no trustworthy Arm-2 evidence
+//     (exit 2).
 //   { outcome: 'ran', leaks, graphSize }      — Arm 2 ran; inspect leaks.
-function classifyArm2(tree) {
+//
+// `expectedLocalRoot` is defaulted to the configured root and injectable so the
+// self-test can drive Windows- and POSIX-shaped fixtures on either host.
+function classifyArm2(tree, expectedLocalRoot = requiredCoordinateLocalRoot) {
   if (tree.skipped) {
     return { outcome: 'unavailable', reason: tree.reason };
   }
   if (tree.error || tree.status !== 0 || typeof tree.stdout !== 'string') {
     return { outcome: 'error', tree };
   }
-  // POSITIVE CONTROL (rf2-xgfpq, hardened rf2-tutg8). An exit-0 spawn alone is
-  // NOT evidence the graph resolved: empty, whitespace-only, malformed, and
-  // core-absent stdout all exit 0 yet carry no dependency tree — and a
-  // presence-only check additionally let token-shaped garbage through (a bare
-  // `day8/re-frame2`, or the coordinate trailed by prose). Require re-frame.ui's
-  // own core dependency to appear as a GENUINE resolved row — the coordinate
-  // plus version/local-root evidence — before accepting the arm. This single
-  // invariant folds every vacuous-exit-0 and garbage-row shape into one
-  // fail-closed outcome and never lets a "0 resolved coordinates" run (or a line
-  // that merely contains the coordinate string) masquerade as a full G-12 PASS.
+  // POSITIVE CONTROL (rf2-xgfpq, hardened rf2-tutg8, bound rf2-5e3ic). An exit-0
+  // spawn alone is NOT evidence the graph resolved: empty, whitespace-only,
+  // malformed, and core-absent stdout all exit 0 yet carry no dependency tree —
+  // and looser checks additionally let token-shaped garbage, then any
+  // plausibly-shaped coordinate summary, through. Require re-frame.ui's own core
+  // dependency to appear as a row RESOLVED TO ITS CONFIGURED LOCAL ROOT before
+  // accepting the arm. This single invariant folds every vacuous-exit-0,
+  // garbage-row, and wrong-root shape into one fail-closed outcome, and never
+  // lets a "0 resolved coordinates" run — or a row that merely mentions the
+  // coordinate — masquerade as a full G-12 PASS.
   const coordinates = coordinatesFrom(tree.stdout);
-  if (!hasResolvedCoordinateRow(tree.stdout, requiredCoordinate)) {
+  if (!hasResolvedCoordinateRow(tree.stdout, requiredCoordinate, expectedLocalRoot)) {
     return { outcome: 'no-graph', graphSize: coordinates.length };
   }
   return {
@@ -418,9 +452,19 @@ function selfTest() {
     imports.filter((name) => legacyPrefixes.some((prefix) => name.startsWith(prefix)));
 
   const clean = [requiredImport, 're_frame.core.js', 're_frame.adapter.context.js'];
+
+  // The gate must serve BOTH hosts it runs on — POSIX CI and Windows locally —
+  // so the fixtures pin both path shapes and drive each against its own
+  // configured root (`classifyArm2`/`main` take it injected). Neither synthetic
+  // root exists on the running host, which is exactly the case
+  // `canonicalizeExisting` leaves as-written. The real checkout's own root is
+  // exercised separately below, on whichever platform is running.
+  const POSIX_ROOT = '/repo/implementation/core';
+  const WINDOWS_ROOT = 'C:\\proj\\re-frame2\\implementation\\core';
+
   const cleanTree = [
     'org.clojure/clojure 1.12.4',
-    'day8/re-frame2 /repo/implementation/core',
+    `day8/re-frame2 ${POSIX_ROOT}`,
     '  . org.clojure/clojurescript 1.12.145',
   ].join('\n');
 
@@ -437,7 +481,7 @@ function selfTest() {
     'org.clojure/clojure 1.12.4',
     '  . org.clojure/spec.alpha 0.5.238',
     '  . org.clojure/core.specs.alpha 0.4.74',
-    'day8/re-frame2 C:\\proj\\re-frame2\\implementation\\core',
+    `day8/re-frame2 ${WINDOWS_ROOT}`,
     '  . org.clojure/clojurescript 1.12.145',
     '    . com.google.javascript/closure-compiler v20250820',
     '    . org.clojure/google-closure-library 0.0-20250515-f04e4c0e',
@@ -461,6 +505,70 @@ function selfTest() {
     ['backslash-bearing prose', 'day8/re-frame2 nope\\x'],
     ['bracketed failure prose', 'day8/re-frame2 [FAILED 123]'],
   ];
+
+  // rf2-5e3ic SPOOFS — evidence with a perfectly PLAUSIBLE coord-summary shape
+  // that nevertheless does not identify the configured local root. Every one of
+  // these classified as `ran` (full G-12 PASS) under the shape-only predicate:
+  // a misconfigured — or entirely absent — local root reported success.
+  const wrongRootSpoofs = [
+    ['wrong Windows absolute root', 'day8/re-frame2 C:\\not\\the\\repo', WINDOWS_ROOT],
+    ['numeric diagnostic text', 'day8/re-frame2 404', WINDOWS_ROOT],
+    ['wrong POSIX absolute root', 'day8/re-frame2 /not/the/repo', POSIX_ROOT],
+    ['sibling directory, not the root', 'day8/re-frame2 /repo/implementation/core-extras', POSIX_ROOT],
+    ['parent of the configured root', 'day8/re-frame2 /repo/implementation', POSIX_ROOT],
+    // POSIX paths are case-SENSITIVE; only drive-lettered paths fold case.
+    ['POSIX case mismatch', 'day8/re-frame2 /repo/implementation/CORE', POSIX_ROOT],
+    // `day8/re-frame2` is declared `:local/root`, so a Maven/git summary for it
+    // describes a graph this artefact is not configured for. Re-declaring the
+    // dependency as either kind is a deliberate change to make in the predicate.
+    ['maven version row (coordinate kind changed)', 'day8/re-frame2 1.2.3', POSIX_ROOT],
+    ['maven v-prefixed version row', 'day8/re-frame2 v20250820', POSIX_ROOT],
+    ['git short-sha row (coordinate kind changed)', 'day8/re-frame2 a1b2c3d', POSIX_ROOT],
+    ['git tag row', 'day8/re-frame2 v1.2.3', POSIX_ROOT],
+  ];
+
+  // MUTATION CONTROL (rf2-5e3ic). The pre-fix predicate, reconstructed: evidence
+  // was accepted whenever it matched a generic coord-summary SHAPE — any Maven
+  // version, any git SHA, any absolute path. Reverting the binding to this is the
+  // regression these teeth exist to catch, so first prove the control is REAL by
+  // showing the legacy shape check ACCEPTS the wrong-root spoofs the bound
+  // predicate rejects. If a future edit makes these assertions pass under the
+  // legacy shape too, the spoofs have stopped discriminating and the teeth are
+  // no longer mutation-proof.
+  const legacyShapeEvidence = (evidence) =>
+    /^v?[0-9][0-9A-Za-z._+-]*$/.test(evidence) ||
+    /^[0-9a-f]{7,40}$/.test(evidence) ||
+    /^(?:\/|\\\\|[A-Za-z]:[\\/])\S/.test(evidence);
+  const legacyAcceptsRow = (stdout) =>
+    stdout.split(/\r?\n/).some((line) => {
+      const row = line.replace(RESOLVED_ROW_PREFIX, '').trimEnd().replace(RESOLVED_ROW_REASON, '');
+      const head = `${requiredCoordinate} `;
+      return row.startsWith(head) && legacyShapeEvidence(row.slice(head.length).trim());
+    });
+  for (const [label, stdout] of wrongRootSpoofs) {
+    if (!legacyAcceptsRow(stdout)) {
+      return fail(`mutation control invalid: legacy shape check should accept "${label}" (it was the false-green)`);
+    }
+  }
+
+  // The configured local root is DECLARED in ui/deps.edn; the predicate mirrors
+  // that declaration as a constant rather than reading EDN. Pin the two together
+  // so a change of the declared root (or of the coordinate KIND) cannot drift
+  // past the gate silently — it reds here and must be updated deliberately.
+  const uiDepsEdn = fs.readFileSync(path.join(uiArtefactDir, 'deps.edn'), 'utf8');
+  const declaredRoot = /day8\/re-frame2\s+\{\s*:local\/root\s+"([^"]+)"\s*\}/.exec(uiDepsEdn);
+  if (!declaredRoot) {
+    return fail(
+      `ui/deps.edn no longer declares ${requiredCoordinate} as a {:local/root ...} dependency — the ` +
+        'Arm-2 positive control is bound to that coordinate kind and must be updated deliberately'
+    );
+  }
+  if (declaredRoot[1] !== requiredCoordinateDeclaredRoot) {
+    return fail(
+      `ui/deps.edn declares ${requiredCoordinate} :local/root "${declaredRoot[1]}" but the positive ` +
+        `control is bound to "${requiredCoordinateDeclaredRoot}"`
+    );
+  }
 
   // --- Arm 1 (module closure) ---------------------------------------------
 
@@ -568,20 +676,19 @@ function selfTest() {
   if (classifyArm2({ status: 1, stdout: '' }).outcome !== 'error') {
     return fail('classifyArm2 must map non-zero status -> error');
   }
-  if (classifyArm2({ status: 0, stdout: cleanTree }).outcome !== 'ran') {
+  if (classifyArm2({ status: 0, stdout: cleanTree }, POSIX_ROOT).outcome !== 'ran') {
     return fail('classifyArm2 must map clean tree -> ran');
   }
 
-  // POSITIVE CONTROL (rf2-xgfpq, hardened rf2-tutg8) — every exit-0 stdout shape
-  // that lacks a GENUINE `day8/re-frame2` resolved row maps to `no-graph`, NOT
-  // `ran`. That covers the vacuous shapes (empty / whitespace-only / malformed /
-  // nonempty-but-core-absent) AND — the rf2-tutg8 teeth — token-shaped garbage
-  // where the coordinate is PRESENT but not a real row: the bare coordinate with
-  // no evidence, and the coordinate trailed by diagnostic prose. A
-  // presence-only check accepted the last two as `ran`; the resolved-row
-  // invariant reds them. Reverting to presence-only restores the false-green and
-  // fails these assertions.
-  for (const [label, stdout] of [
+  // POSITIVE CONTROL (rf2-xgfpq, hardened rf2-tutg8, bound rf2-5e3ic) — every
+  // exit-0 stdout that lacks a `day8/re-frame2` row resolved to the CONFIGURED
+  // local root maps to `no-graph`, NOT `ran`. That covers the vacuous shapes
+  // (empty / whitespace-only / malformed / nonempty-but-core-absent), the
+  // rf2-tutg8 token-shaped garbage, and — the rf2-5e3ic teeth — evidence of
+  // entirely plausible coord-summary SHAPE that points somewhere other than the
+  // configured root. Loosening the predicate back to any of those stages
+  // re-accepts these as `ran` and fails here.
+  for (const [label, stdout, root = POSIX_ROOT] of [
     ['empty', ''],
     ['whitespace-only', '   \n\t\n  '],
     ['malformed garbage', 'this is not a -Stree dependency tree'],
@@ -596,34 +703,39 @@ function selfTest() {
     // Also anchored: a coordinate whose evidence is a superseded/excluded `X `
     // row (not in the resolved classpath), and prose that merely starts with the
     // coordinate as a longer lib name.
-    ['excluded X-glyph row only', 'X day8/re-frame2 1.2.3 :excluded'],
-    ['longer lib name, not the coordinate', 'day8/re-frame2-extras 1.2.3'],
+    ['excluded X-glyph row only', `X day8/re-frame2 ${POSIX_ROOT} :excluded`],
+    ['longer lib name, not the coordinate', `day8/re-frame2-extras ${POSIX_ROOT}`],
+    // rf2-5e3ic TEETH — plausible coord-summary shape, wrong (or no) root.
+    ...wrongRootSpoofs,
   ]) {
-    const outcome = classifyArm2({ status: 0, stdout }).outcome;
+    const outcome = classifyArm2({ status: 0, stdout }, root).outcome;
     if (outcome !== 'no-graph') {
       return fail(`classifyArm2 must map ${label} exit-0 stdout -> no-graph (got ${outcome})`);
     }
   }
-  // A GENUINE resolved row for the positive control is `ran`. These pin the
-  // authoritative row forms `ext/coord-summary` can emit for the required
-  // coordinate — Maven version, git tag, git short SHA, POSIX local root, and
-  // Windows local root — and, crucially, the captured real `implementation/ui`
-  // graph. An over-tightened predicate that reds any of these breaks the gate.
-  for (const [label, stdout] of [
-    ['REAL implementation/ui -Stree output', realUiTree],
-    ['maven version row', 'day8/re-frame2 1.2.3'],
-    ['maven v-prefixed version row', 'day8/re-frame2 v20250820'],
-    ['maven qualified version row', 'day8/re-frame2 0.0-20250515-f04e4c0e'],
-    ['git short-sha row', 'day8/re-frame2 a1b2c3d'],
-    ['git tag row', 'day8/re-frame2 v1.2.3'],
-    ['posix local-root row', 'day8/re-frame2 /repo/implementation/core'],
-    ['windows local-root row', 'day8/re-frame2 C:\\Users\\me\\code\\core'],
-    ['windows local-root row with a space', 'day8/re-frame2 C:\\Program Files\\core'],
-    ['glyph-nested version row', 'org.clojure/clojure 1.12.4\n  . day8/re-frame2 1.2.3'],
-    ['newer-version reason row', 'org.clojure/clojure 1.12.4\n  . day8/re-frame2 1.2.3 :newer-version'],
+  // A row resolved to the CONFIGURED local root is `ran`. These pin the true
+  // positive on BOTH hosts the gate runs on — the captured real
+  // `implementation/ui` graph (Windows-shaped), a POSIX-shaped graph, and THIS
+  // checkout's own root on whatever platform is running — plus the benign
+  // variations a canonical path may legitimately arrive in. An over-tightened
+  // predicate that reds any of these breaks G-12 against correct configurations,
+  // which is worse than the false-green it replaced.
+  for (const [label, stdout, root = POSIX_ROOT] of [
+    ['REAL implementation/ui -Stree output (Windows-shaped)', realUiTree, WINDOWS_ROOT],
+    ['posix local-root row', `day8/re-frame2 ${POSIX_ROOT}`],
+    ['windows local-root row', `day8/re-frame2 ${WINDOWS_ROOT}`, WINDOWS_ROOT],
+    // THE row this checkout's own `clojure -Stree` prints, on this host.
+    ['this checkout\'s real configured root', `day8/re-frame2 ${requiredCoordinateLocalRoot}`, requiredCoordinateLocalRoot],
+    // Windows paths are case-insensitive and accept either separator.
+    ['windows root, folded case', 'day8/re-frame2 c:\\PROJ\\re-frame2\\implementation\\CORE', WINDOWS_ROOT],
+    ['windows root, forward separators', 'day8/re-frame2 C:/proj/re-frame2/implementation/core', WINDOWS_ROOT],
+    ['root with a trailing separator', `day8/re-frame2 ${POSIX_ROOT}/`],
+    ['root containing a space', 'day8/re-frame2 C:\\Program Files\\re-frame2\\core', 'C:\\Program Files\\re-frame2\\core'],
+    ['glyph-nested root row', `org.clojure/clojure 1.12.4\n  . day8/re-frame2 ${POSIX_ROOT}`],
+    ['newer-version reason row', `org.clojure/clojure 1.12.4\n  . day8/re-frame2 ${POSIX_ROOT} :newer-version`],
     ['core positive control among extra rows', `${cleanTree}\n  some.other/lib 1.0.0`],
   ]) {
-    if (classifyArm2({ status: 0, stdout }).outcome !== 'ran') {
+    if (classifyArm2({ status: 0, stdout }, root).outcome !== 'ran') {
       return fail(`classifyArm2 must accept a genuine ${label} as ran`);
     }
   }
@@ -633,7 +745,10 @@ function selfTest() {
   // passing conditions stay green. Console is silenced for the intentional
   // red-path probes so the self-test output stays clean.
 
-  const runMain = (argv, io) => withSilencedConsole(() => main(argv, io));
+  // Fixture graphs name synthetic roots, so main() is driven with the matching
+  // configured root injected (POSIX-shaped by default; overridden per case).
+  const runMain = (argv, io) =>
+    withSilencedConsole(() => main(argv, { coreLocalRoot: POSIX_ROOT, ...io }));
 
   // MUTATION 1 — a direct `reagent2.core` import in the focused first-party UI
   // closure reds the gate (exit 1) EVEN WHEN no forbidden coordinate is
@@ -678,7 +793,7 @@ function selfTest() {
   // before rf2-tutg8 the token-shaped-garbage shapes still exited 0 — the exact
   // false-green this bead closes. A mutation that re-accepts either as a pass
   // fails.
-  for (const [label, stdout] of [
+  for (const [label, stdout, root = POSIX_ROOT] of [
     ['empty', ''],
     ['whitespace-only', '   \n\t\n  '],
     ['malformed garbage', 'this is not a -Stree dependency tree'],
@@ -689,10 +804,14 @@ function selfTest() {
     // rf2-rbget TEETH, end-to-end: on origin/main each of these injected exit-0
     // stdouts classified as `ran` and made main() print a full PASS.
     ...proseSpoofs,
+    // rf2-5e3ic TEETH, end-to-end: likewise for plausible-shape/wrong-root
+    // evidence — a misconfigured or absent local root printed a full PASS.
+    ...wrongRootSpoofs,
   ]) {
     const exit = runMain([], {
       readLoaderImports: () => ({ imports: [requiredImport, 're_frame.core.js'] }),
       resolveTree: () => ({ status: 0, stdout }),
+      coreLocalRoot: root,
     });
     if (exit !== 2) {
       return fail(`exit-0 graph with no genuine core row (${label}) must fail closed (exit 2), got exit ${exit}`);
@@ -733,24 +852,35 @@ function selfTest() {
     return fail(`clean full run must pass (exit 0), got exit ${fullPass}`);
   }
 
-  // POSITIVE CONTROL, end-to-end (rf2-rbget) — the captured real
-  // `implementation/ui` graph still passes. This is the assertion that fails if
-  // the anchored predicate is ever tightened past the row shape tools.deps
-  // actually emits.
-  const realGraphPass = runMain([], {
-    readLoaderImports: () => ({ imports: clean }),
-    resolveTree: () => ({ status: 0, stdout: realUiTree }),
-  });
-  if (realGraphPass !== 0) {
-    return fail(`the real implementation/ui -Stree graph must pass (exit 0), got exit ${realGraphPass}`);
+  // POSITIVE CONTROL, end-to-end (rf2-rbget, rf2-5e3ic) — a graph whose core row
+  // DID resolve to the configured root still passes, on both host path shapes and
+  // on this checkout's own real root. These are the assertions that fail if the
+  // bound predicate is ever over-tightened past what tools.deps actually emits: a
+  // gate that reds on correct configurations is worse than the false-green.
+  for (const [label, stdout, root] of [
+    ['the captured real implementation/ui -Stree graph (Windows-shaped)', realUiTree, WINDOWS_ROOT],
+    ['a POSIX-shaped resolved graph', cleanTree, POSIX_ROOT],
+    [
+      "this checkout's own configured root",
+      `org.clojure/clojure 1.12.4\nday8/re-frame2 ${requiredCoordinateLocalRoot}`,
+      requiredCoordinateLocalRoot,
+    ],
+  ]) {
+    const exit = runMain([], {
+      readLoaderImports: () => ({ imports: clean }),
+      resolveTree: () => ({ status: 0, stdout }),
+      coreLocalRoot: root,
+    });
+    if (exit !== 0) return fail(`${label} must pass (exit 0), got exit ${exit}`);
   }
 
   console.log(
     '[ui-adapter-isolation] self-test PASS (module-closure incl. reagent2 + resolved-graph ' +
       'controls red on synthetic leaks; vacuous exit-0 / token-shaped garbage / digit- and ' +
-      'separator-bearing prose fails closed; missing / untrusted clojure fails closed; positive ' +
-      'control requires an ANCHORED day8/re-frame2 coord-summary row and the real ' +
-      'implementation/ui graph still passes; --modules-only is explicit)'
+      'separator-bearing prose / plausible-shape WRONG-ROOT evidence all fail closed; missing / ' +
+      'untrusted clojure fails closed; the positive control requires day8/re-frame2 to have ' +
+      'resolved to the local root ui/deps.edn configures, and the real implementation/ui graph ' +
+      'still passes on Windows- and POSIX-shaped roots; --modules-only is explicit)'
   );
   return 0;
 }
@@ -763,6 +893,7 @@ function main(argv, io = {}) {
   const modulesOnly = argv.includes('--modules-only');
   const readLoaderImports = io.readLoaderImports || readFocusedLoaderImports;
   const resolveTree = io.resolveTree || ((cwd) => resolveDependencyTree(cwd));
+  const coreLocalRoot = io.coreLocalRoot || requiredCoordinateLocalRoot;
 
   // Arm 1 — compiler-selected module closure.
   const loader = readLoaderImports();
@@ -789,7 +920,7 @@ function main(argv, io = {}) {
   let arm2Ran = false;
   let graphSize = 0;
   if (!modulesOnly) {
-    const arm2 = classifyArm2(resolveTree(uiArtefactDir));
+    const arm2 = classifyArm2(resolveTree(uiArtefactDir), coreLocalRoot);
     if (arm2.outcome === 'unavailable') {
       console.error(
         '[ui-adapter-isolation] G-12 FAIL-CLOSED: the Clojure CLI is unavailable, so the ' +
@@ -812,12 +943,13 @@ function main(argv, io = {}) {
     if (arm2.outcome === 'no-graph') {
       console.error(
         '[ui-adapter-isolation] G-12 FAIL-CLOSED: `clojure -Stree` exited 0 but its resolved ' +
-          `graph carries no genuine resolved row for the ${requiredCoordinate} core positive ` +
-          `control (empty, malformed, or the coordinate present only as token-shaped garbage; ` +
-          `${arm2.graphSize} coordinate(s) parsed). An exit-0 with no resolved ${requiredCoordinate} ` +
-          'row (coordinate plus version/local-root evidence) is NOT trustworthy Arm-2 evidence and ' +
-          `must never report a full pass — investigate the ${uiArtefactDir} ui/deps.edn resolution ` +
-          `(a clean run resolves ${requiredCoordinate} to its ../core local root).`
+          `graph carries no row showing the ${requiredCoordinate} core positive control resolved ` +
+          `to its CONFIGURED local root (empty or malformed output, the coordinate absent, present ` +
+          `only as token-shaped garbage, or resolved somewhere else; ${arm2.graphSize} ` +
+          'coordinate(s) parsed). A row that merely mentions the coordinate is NOT trustworthy ' +
+          `Arm-2 evidence and must never report a full pass — investigate the ${uiArtefactDir} ` +
+          `ui/deps.edn resolution (a clean run resolves ${requiredCoordinate}, declared ` +
+          `{:local/root "${requiredCoordinateDeclaredRoot}"}, to ${coreLocalRoot}).`
       );
       return 2;
     }
@@ -867,6 +999,10 @@ module.exports = {
   forbiddenModules,
   coordinatesFrom,
   hasResolvedCoordinateRow,
+  isConfiguredLocalRoot,
+  normalizeRootForCompare,
+  requiredCoordinate,
+  requiredCoordinateLocalRoot,
   forbiddenCoordinates,
   clojureOnPath,
   resolveDependencyTree,
