@@ -30,10 +30,11 @@
   the control build carries the residue. Under `:advanced` + `goog.DEBUG=false`
   each body folds to nil and the entire graph must disappear.
 
-  `live-probe` is the KNOWN-PRESENT control for the function-name oracle: it is
-  rooted and carries no debug gate, so it must survive into the pseudo-named
-  release. Without it, \"the carrier function names are absent\" could not be
-  distinguished from \"the grep does not work on this artifact\"."
+  `live-probe` is the KNOWN-PRESENT control: it is rooted and carries no debug
+  gate, so it must survive into the `:advanced` release. Without it, \"the
+  residue is absent\" could not be distinguished from \"the grep does not work on
+  this artifact\". Its STRING LITERAL is the gate's production non-vacuity floor
+  (rf2-vxgfnd.299) — see `RETAINED_STRINGS` in check-ui-advanced-elision.cjs."
   (:require [re-frame.ui :as ui]
             [re-frame.ui.client :as client]
             [re-frame.ui.digest-carrier :as digest-carrier]))
@@ -42,13 +43,25 @@
   [:main {:data-probe "advanced-elision"} "advanced elision probe"])
 
 (defn live-probe
-  "The function-name oracle's KNOWN-PRESENT control.
+  "The gate's KNOWN-PRESENT control — its production non-vacuity FLOOR.
 
-  Rooted from `init` and NOT `goog.DEBUG`-gated, so its pseudo-name must appear
-  in the `:advanced` release. The gate greps for this name in the very artifact
-  in which it greps for the carrier names' ABSENCE — so a broken grep (wrong
-  artifact, unreadable names, empty blob) fails loudly instead of passing
-  vacuously."
+  Rooted from `init` and NOT `goog.DEBUG`-gated, so its string literal must
+  appear in the `:advanced` production release. The gate greps for that literal
+  in the very artifact in which it greps for the residue's ABSENCE — so a broken
+  scan (wrong artifact, stale directory, empty blob) fails loudly instead of
+  passing vacuously.
+
+  It reads through `client/live-root-ids`, an UNGATED client registry read.
+  That is deliberate: its presence witnesses that `re-frame.ui.client` really is
+  compiled into the scanned bundle, which is what makes the neighbouring
+  `build-digest` ABSENCE attributable to the `goog.DEBUG` gate on
+  `client/descriptor` + `/descriptor-index` (rf2-vxgfnd.299) rather than to the
+  whole namespace having been dropped.
+
+  A literal, not a function name, on purpose: Closure inlines small functions
+  but never rewrites string literals (see the gate's rejected function-name
+  oracle). Renaming this literal without updating the gate's RETAINED_STRINGS
+  turns the floor RED — which is what proves the floor can fail at all."
   []
   (str "rf2-advanced-elision-live-probe:" (count (client/live-root-ids))))
 
@@ -67,10 +80,22 @@
   (set! (.-__rf2AdvElisionClientDigest js/globalThis)
         (fn [] (client/current-build-digest)))
 
-  ;; The COMPLETE Root Descriptor read — the static core stamped with
-  ;; `:build-digest` at read time.
+  ;; The COMPLETE Root Descriptor read — the static core stamped with the
+  ;; read-time whole-build digest.
+  ;;
+  ;; The WHOLE map is exported rather than the digest plucked out of it, and
+  ;; that is load-bearing for the gate rather than a matter of taste. The
+  ;; `build-digest` sentinel is supposed to witness the keyword that
+  ;; `client/descriptor` + `/descriptor-index` stamp on. If THIS namespace also
+  ;; spells that keyword, the fixture becomes a second source of the very token
+  ;; under test: measured on the rf2-vxgfnd.299 fix, `(:build-digest (client/…))`
+  ;; kept the keyword alive at 2 occurrences as `Wk.g(null)` — the gated call
+  ;; had correctly folded to nil, yet the keyword lookup around it survived and
+  ;; the absence assertion could never reach 0 no matter what client.cljs did.
+  ;; A sentinel the fixture itself emits measures the fixture, not the library.
+  ;; `clj->js` converts at runtime and needs no keyword literal here.
   (set! (.-__rf2AdvElisionDescriptor js/globalThis)
-        (fn [] (:build-digest (client/descriptor ::probe))))
+        (fn [] (clj->js (client/descriptor ::probe))))
 
   ;; REGISTRY TRAVERSAL: the whole live-root fold, the Xray/tool read surface.
   (set! (.-__rf2AdvElisionDescriptorIndex js/globalThis)
