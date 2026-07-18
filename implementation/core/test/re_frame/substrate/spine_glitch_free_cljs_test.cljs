@@ -375,18 +375,17 @@
 
 (deftest direct-source-earlier-throw-still-drains-later-sibling
   (testing "a DIRECT raw source reset (depth zero, bypassing replace-container!)
-            fires the source's watches ONE AT A TIME through the atom's own
-            notify loop. TWO derived dependents watch the source; the EARLIER
-            (first-firing) dependent's recompute throws. Before rf2-2u4rw the
-            depth-zero drain re-raised that failure inline, so it escaped the
-            atom's uncontained notify loop and the LATER dependent's watch never
-            marked/enqueued — a supported direct mutation suppressing sibling
-            derived work. Now the drain captures the escape on the SCHEDULER's
-            :escaped cell and DEFERS it, so the atom loop continues to the later
-            sibling (which marks + drains its own flush); the later sibling's
-            drain then surfaces the earlier failure. Net: the later sibling's
-            derived work runs, THEN the original first failure surfaces once,
-            with identity preserved, and the scheduler recovers cleanly."
+            with TWO derived dependents; the EARLIER (first-registered)
+            dependent's recompute throws. The source's per-source fan-out
+            coordinator (rf2-7ryt0) brackets the whole fan-out in ONE with-epoch:
+            both dependents mark inside the epoch, the outermost close drains
+            both flushes once, and the earliest failure surfaces via
+            surface-escaped! AFTER the later sibling's derived work has run. Net:
+            the later sibling's derived work runs, THEN the original first
+            failure surfaces once, with identity preserved, and the scheduler
+            recovers cleanly. (Before rf2-2u4rw the depth-zero drain re-raised
+            inline and stranded the later sibling; #6210's deferral fixed the
+            exactly-two case only — rf2-7ryt0 gives every arity a real terminal.)"
     (let [scheduler    (spine/make-scheduler)
           make-derived (spine/make-derived-value-fn "rf-b1-" scheduler)
           src          (atom 1)
@@ -432,9 +431,9 @@
 
 (deftest direct-source-both-dependents-throw-surfaces-earliest
   (testing "when BOTH direct dependents throw (earlier first), the EARLIEST
-            escape is the one surfaced (presence capture across the sequential
-            per-watch drains) — the later dependent's own throw is dropped in
-            favour of the first. (rf2-2u4rw)"
+            escape is the one surfaced (presence capture across the single
+            coordinator-bracketed drain) — the later dependent's own throw is
+            dropped in favour of the first. (rf2-2u4rw + rf2-7ryt0)"
     (let [scheduler    (spine/make-scheduler)
           make-derived (spine/make-derived-value-fn "rf-b1b-" scheduler)
           src          (atom 1)
@@ -451,6 +450,176 @@
         (is (identical? first-err @caught)
             "the earliest (first-firing dependent's) failure surfaced by
              identity; the later dependent's throw was superseded")))))
+
+;; ---- direct-source fan-out terminal for ARBITRARY arity (rf2-7ryt0) --------
+;; #6210's "surface at the next sibling drain" deferral only terminated the
+;; exactly-two earlier-throw case: a SOLE / LAST-firing throwing dependent has
+;; NO later drain (the failure parked on :escaped until an unrelated mutation),
+;; and 3+ dependents with an EARLY throw surfaced at the second dependent's
+;; drain, aborting the atom notify loop and stranding the tail. The per-source
+;; fan-out coordinator brackets the whole fan-out in ONE with-epoch, so every
+;; arity attempts all owned dependents then surfaces the earliest at a real
+;; terminal. These tests are RED against #6210 (sole/last park; early-of-3+
+;; strands) and GREEN with the coordinator.
+
+(deftest direct-source-sole-throwing-dependent-surfaces-at-terminal
+  (testing "a DIRECT raw source reset whose SOLE derived dependent throws
+            surfaces that failure SYNCHRONOUSLY at the fan-out's own terminal,
+            exactly once, by identity — not parked on :escaped until an
+            unrelated later drain. #6210 deferred a fresh escape to 'the next
+            sibling drain', which never comes for a sole dependent, so reset!
+            returned successfully and the failure was lost until an unrelated
+            mutation. The per-source coordinator gives the bare reset a real
+            with-epoch terminal. (rf2-7ryt0 — RED against #6210: parked.)"
+    (let [scheduler    (spine/make-scheduler)
+          make-derived (spine/make-derived-value-fn "rf-sole-" scheduler)
+          src          (atom 1)
+          boom?        (atom false)
+          sentinel     (js/Error. "sole boom")
+          d            (make-derived [src] (fn [x] (when @boom? (throw sentinel)) x))]
+      (is (= 1 @d) "baseline deref")
+      (reset! boom? true)
+      (let [caught (atom ::none)]
+        (try (reset! src 2)
+             (catch :default e (reset! caught e)))
+        (is (identical? sentinel @caught)
+            "the sole dependent's failure surfaced synchronously at the reset
+             terminal with exact identity — no later drain was needed"))
+      ;; Recovery: a later clean reset flushes normally — no retained escape.
+      (reset! boom? false)
+      (let [notes (atom [])]
+        (add-watch d :w (fn [_ _ prev nu] (swap! notes conj [prev nu])))
+        (reset! src 3)
+        (is (= [[1 3]] @notes)
+            "a later clean reset re-marks + flushes (prev-state stayed 1 — the
+             armed recompute threw before updating it); scheduler state clean")))))
+
+(deftest direct-source-sole-dependent-falsey-throw-surfaces-by-presence
+  (testing "sole-dependent surfacing preserves a FALSEY throw (`false`/`nil`,
+            both legal CLJS throws) by PRESENCE — the caller observes the exact
+            falsey value, never masked by a truthiness test (rf2-7ryt0 +
+            rf2-2u4rw)."
+    (doseq [thrown-val [false nil]]
+      (let [scheduler    (spine/make-scheduler)
+            make-derived (spine/make-derived-value-fn "rf-solef-" scheduler)
+            src          (atom 1)
+            boom?        (atom false)
+            d            (make-derived [src] (fn [x] (when @boom? (throw thrown-val)) x))]
+        (is (= 1 @d) "baseline")
+        (reset! boom? true)
+        (let [caught (atom ::none)
+              threw? (atom false)]
+          (try (reset! src 2)
+               (catch :default e (reset! threw? true) (reset! caught e)))
+          (is @threw?
+              (str "reset! SURFACED the sole `" (pr-str thrown-val) "` throw"))
+          (is (identical? thrown-val @caught)
+              (str "the surfaced value IS the original `" (pr-str thrown-val)
+                   "` throw — identity preserved by presence, not truthiness")))))))
+
+(deftest direct-source-three-plus-dependents-attempt-all-then-surface-earliest
+  (testing "with THREE dependents on one raw source, a throw at the FIRST,
+            MIDDLE, or LAST position attempts EVERY dependent's flush exactly
+            once, then surfaces the earliest failure by exact identity. #6210
+            surfaced an early throw at the SECOND dependent's drain, aborting
+            the atom notify loop and stranding the remaining dependents (RED for
+            :first — d2 never ran; RED for :last — parked, never surfaced); the
+            per-source coordinator brackets the whole fan-out in one with-epoch
+            so all attempt, then the earliest surfaces. (rf2-7ryt0)"
+    (doseq [throw-at [:first :middle :last]]
+      (let [scheduler    (spine/make-scheduler)
+            make-derived (spine/make-derived-value-fn "rf-3-" scheduler)
+            src          (atom 1)
+            boom?        (atom false)
+            ran          (atom {:first 0 :middle 0 :last 0})
+            errs         {:first (js/Error. "d-first")
+                          :middle (js/Error. "d-middle")
+                          :last (js/Error. "d-last")}
+            mk           (fn [pos]
+                           (make-derived [src]
+                             (fn [x]
+                               (swap! ran update pos inc)
+                               (when (and @boom? (= throw-at pos))
+                                 (throw (get errs pos)))
+                               (* x 10))))
+            ;; registration order == earliest order: first, middle, last.
+            _d0 (mk :first)
+            _d1 (mk :middle)
+            _d2 (mk :last)]
+        (is (= 10 @_d0)) (is (= 10 @_d1)) (is (= 10 @_d2))
+        (reset! ran {:first 0 :middle 0 :last 0})
+        (reset! boom? true)
+        (let [caught (atom ::none)]
+          (try (reset! src 2)
+               (catch :default e (reset! caught e)))
+          (is (identical? (get errs throw-at) @caught)
+              (str "throw-at " throw-at ": the (earliest) failure surfaced by identity"))
+          (is (= {:first 1 :middle 1 :last 1} @ran)
+              (str "throw-at " throw-at
+                   ": EVERY dependent's flush was attempted exactly once")))))))
+
+(deftest direct-source-multiple-throwing-dependents-surface-earliest-of-three
+  (testing "when MULTIPLE of three dependents throw (first + last), the EARLIEST
+            (first-registered) failure is surfaced — presence capture across the
+            single bracketed drain — and every dependent is still attempted once;
+            the later thrower does not abort the fan-out. (rf2-7ryt0)"
+    (let [scheduler    (spine/make-scheduler)
+          make-derived (spine/make-derived-value-fn "rf-3m-" scheduler)
+          src          (atom 1)
+          boom?        (atom false)
+          ran          (atom 0)
+          e0           (js/Error. "first boom")
+          e2           (js/Error. "third boom")
+          _d0 (make-derived [src] (fn [x] (swap! ran inc) (when @boom? (throw e0)) x))
+          _d1 (make-derived [src] (fn [x] (swap! ran inc) x))
+          _d2 (make-derived [src] (fn [x] (swap! ran inc) (when @boom? (throw e2)) x))]
+      (is (= 1 @_d0)) (is (= 1 @_d1)) (is (= 1 @_d2))
+      (reset! ran 0)
+      (reset! boom? true)
+      (let [caught (atom ::none)]
+        (try (reset! src 2)
+             (catch :default e (reset! caught e)))
+        (is (identical? e0 @caught)
+            "the earliest of the two throwing dependents surfaced by identity")
+        (is (= 3 @ran)
+            "all three dependents attempted once — the later thrower did not
+             abort the fan-out")))))
+
+(deftest direct-source-failure-leaves-scheduler-state-clean
+  (testing "after a direct-source fan-out failure surfaces, the scheduler's
+            depth/flushing?/queue/queued cells are all clean, :escaped retains
+            NO failure, and the next unrelated clean mutation flushes normally
+            with no retained earlier failure. (rf2-7ryt0 acceptance — clean
+            state after every path.)"
+    (let [scheduler    (spine/make-scheduler)
+          make-derived (spine/make-derived-value-fn "rf-clean-" scheduler)
+          src          (atom 1)
+          other        (atom 100)
+          boom?        (atom false)
+          _d      (make-derived [src] (fn [x] (when @boom? (throw (js/Error. "boom"))) x))
+          d-other (make-derived [other] (fn [y] y))
+          notes   (atom [])]
+      (is (= 1 @_d)) (is (= 100 @d-other))
+      (reset! boom? true)
+      (try (reset! src 2) (catch :default _ nil))
+      ;; Scheduler cells clean after the failed fan-out.
+      (is (= 0 @(:depth scheduler)) "depth clean")
+      (is (false? @(:flushing? scheduler)) "flushing? clean")
+      (is (= [] @(:queue scheduler)) "queue empty")
+      (is (= #{} @(:queued scheduler)) "queued empty")
+      (is (not (instance? js/Error @(:escaped scheduler)))
+          ":escaped retains no failure")
+      ;; A DIFFERENT source's clean mutation must NOT receive the retained failure.
+      (add-watch d-other :w (fn [_ _ prev nu] (swap! notes conj [prev nu])))
+      (reset! boom? false)
+      (let [caught (atom ::none)]
+        (try (reset! other 200)
+             (catch :default e (reset! caught e)))
+        (is (= ::none @caught)
+            "the unrelated clean mutation surfaced NO retained earlier failure
+             (proves :escaped was clean — else surface-escaped! would re-raise it)")
+        (is (= [[100 200]] @notes)
+            "the unrelated source flushed normally")))))
 
 ;; ---- with-epoch body/finally failure ordering (rf2-2u4rw epoch entry) ------
 
