@@ -1665,6 +1665,41 @@
     (when-let [frame-record (frame frame-id)]
       (current-thread-is-drainer? frame-record))))
 
+(defn thread-owns-drain-serialization?
+  "True when the CALLING thread currently holds `frame-id`'s single-drainer
+  serialization — via EITHER path that takes the frame's `:drain-lock`: it is the
+  frame's active event DRAINER (`:in-drain?`, stamped around `run-one-pass!`), OR
+  the holder of a cold `call-serialized-with-drain!` critical section
+  (`:serialized-holder`). The both-axis sibling of `in-drain?` (which reports the
+  drainer axis alone).
+
+  This is the REAL lock-ownership evidence the trace tooling consults (via the
+  `:frame/thread-owns-drain-serialization?` late-bind hook) to decide whether an
+  outermost trace emit must drive its listener fan-out INLINE — a thread that
+  owns a frame's drain-lock must never block acquiring the trace `fanout-monitor`,
+  or a listener already holding the monitor that `dispatch-sync`es into that frame
+  closes the rf2-jl75r AB-BA cycle — versus serialize on the monitor like every
+  other clean emit (rf2-uw7hg). Unlike a `:frame`-tag / ambient-frame shape guess
+  (rf2-rakqk), this reports what the thread ACTUALLY holds right now, so a
+  frame-shaped emit issued OUTSIDE any held drain-lock (a public / manual / stale
+  `:frame` tag, an ambient-frame tool emit) correctly reports false and stays
+  serialized.
+
+  Returns false for an absent frame (nothing can be draining it, so no drain-lock
+  is held and no cycle can form)."
+  [frame-id]
+  (boolean
+    (when-let [frame-record (frame frame-id)]
+      (current-thread-owns-drain-serialization? frame-record))))
+
+;; Publish the drain-lock ownership probe so `re-frame.trace.tooling` can route
+;; an outermost emit inline-vs-monitor on REAL lock ownership (rf2-rakqk) rather
+;; than event-shape inference. Late-bound (not a static require) so a production
+;; CLJS bundle that never loads the tooling sibling still DCEs this edge, exactly
+;; like the sibling `:frame/current-frame-id` publication above.
+(late-bind/set-fn! :frame/thread-owns-drain-serialization?
+                   thread-owns-drain-serialization?)
+
 (defn call-serialized-with-drain!
   "Run thunk `f` serialized against `frame-id`'s event drain, returning its
   value. Used by per-frame lifecycle mutations that must not interleave with a
