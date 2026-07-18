@@ -227,6 +227,8 @@ transitional dual-acceptance. See [`001-Authoring.md`](001-Authoring.md)
 | `[:dispatch event-vec]`              | `rf/dispatch` (async) into the variant's frame             |
 | `[:dispatch-sync event-vec]`         | `rf/dispatch-sync` (synchronous) into the variant's frame  |
 | `[:wait ms]`                         | Sleep N ms                                                 |
+| `[:flush-presence]`                  | Advance the compiled-view presence clock to quiescence — every retained (`:unmounting`) child reaches its terminal removal (spec/017 §Presence-bearing variants) |
+| `[:flush-presence ms]`               | Advance the presence clock by N ms — only the exits that come due fire, so a script can observe a child still retained |
 | `[:assert assertion-atom]`           | Evaluate a canonical `[:rf.assert/…]` atom at this point — the primary assertion form (see [Canonical assertion events](#canonical-assertion-events--the-one-assertion-vocabulary)) |
 | `[:assert-db path value]`            | **Sugar** → folds to `[:assert [:rf.assert/path-equals path value]]` |
 | `[:assert-db path :pred fn-or-sym]`  | **Sugar** → folds to `[:assert [:rf.assert/path-matches path [:fn …]]]` |

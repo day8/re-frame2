@@ -11,6 +11,9 @@
     (richer runners supply reactive / DOM flushes through flush-hooks).
     `:dispatch-sync` → the low-level `re-frame.router/dispatch-sync!` escape.
   - `:wait` ms → JS `setTimeout` (CLJS) or `Thread/sleep` (JVM).
+  - `:flush-presence` → the presence-clock advance
+    (`re-frame.story.play.presence/advance!` → the host's
+    `re-frame.ui.test/flush-presence!`); a no-op with no presence host.
   - `:assert-db` path value → read from `rf/app-db-value` and compare.
   - `:assert-db` path :pred fn-or-sym → invoke the predicate. A FN
     handed in directly is called as-is (advanced-CLJS-safe); a SYMBOL
@@ -48,6 +51,7 @@
             [re-frame.story.play.browser :as browser]
             [re-frame.story.play.dom    :as dom]
             [re-frame.story.play.evidence :as evidence]
+            [re-frame.story.play.presence :as presence]
             [re-frame.story.play.runner :as runner]
             [re-frame.story.play.settled-boundary :as boundary]
             [re-frame.story.predicates  :as pred]
@@ -1055,6 +1059,30 @@
                                         "queue/state predicate did not hold "
                                         "after the preceding dispatch settled)")}))))
 
+(defn- exec-flush-presence!
+  "Execute a `[:flush-presence]` / `[:flush-presence ms]` step — advance the
+  compiled-view PRESENCE clock through the installed host verb
+  (`re-frame.story.play.presence/advance!` → the framework's
+  `re-frame.ui.test/flush-presence!`), so a variant rendering a
+  `(ui/presence {:timeout-ms n} …)` boundary settles its retained
+  (`:unmounting`) children WITHOUT a wall-clock sleep.
+
+  Bare `[:flush-presence]` advances to quiescence (every pending exit
+  fires); `[:flush-presence ms]` advances the logical clock by `ms`, firing
+  only the exits that come due — the arity that lets a script observe the
+  retained `:unmounting` phase before its terminal removal.
+
+  A no-host advance is a step-skip, NOT a `:cannot-run` refusal: with no
+  presence runtime there is no retention to advance and nothing to pass
+  falsely (the framework's own JVM arm is a no-op for the same host-parity
+  reason). A host verb that THROWS is a step-exception — never swallowed."
+  [_frame-id idx step]
+  (let [ms  (runner/step-presence-ms step)
+        res (presence/advance! ms)]
+    (if (= :error (:status res))
+      (runner/step-exception idx step (:error res))
+      (runner/step-skip idx step))))
+
 (defn exec-step!
   "Execute ONE step against `frame-id`. Returns a step-result record
   (per `runner/step-pass` / `step-fail` / `step-skip` / `step-exception`).
@@ -1083,6 +1111,7 @@
       (:assert-db
        :assert-dom)   (exec-assert! frame-id idx (assertions/fold-assert-step step))
       :wait-until     (exec-wait-until!    frame-id idx step)
+      :flush-presence (exec-flush-presence! frame-id idx step)
       :click          (exec-click!         frame-id idx step)
       :type           (exec-type!          frame-id idx step)
       :focus          (exec-focus!         frame-id idx step)

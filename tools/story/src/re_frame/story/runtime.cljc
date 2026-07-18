@@ -160,11 +160,11 @@
   This returns the wrapped event vector for those, plus a bare event
   vector that bypassed coercion (an out-of-band path).
 
-  A NON-dispatch step (`[:wait …]`, `[:wait-until …]`, `[:click …]`,
-  `[:type …]`, `[:focus …]`) is legal in `:setup` per the grammar table
-  and contributes its capability token to `:required-runner` — but it
-  needs `>= :dom` / `:cljs-reactive`, which the headless phase-2 path
-  cannot honour. Such a step returns `nil` here; `plan-setup-events`
+  A NON-dispatch step (`[:wait …]`, `[:wait-until …]`,
+  `[:flush-presence …]`, `[:click …]`, `[:type …]`, `[:focus …]`) is legal
+  in `:setup` per the grammar table, but the headless phase-2 path can only
+  `dispatch-sync` — it cannot sleep, settle on a predicate, advance the
+  presence clock or drive the DOM. Such a step returns `nil` here; `plan-setup-events`
   turns that into a loud `:cannot-run`-shaped refusal rather than a
   silent drop (spec/017 §Script and settled-boundary — a step a runner
   cannot honour FAILS CLOSED, never under-runs and passes falsely)."
@@ -208,10 +208,10 @@
 
   REFUSES (throws `:rf.error/story-setup-step-unrunnable`) when a setup
   step is a non-dispatch step (`[:wait …]` / `[:click …]` / `[:type …]`
-  / `[:focus …]` / `[:wait-until …]`). Such a step is legal in `:setup`
-  and lifts `:required-runner` to `:dom` / `:cljs-reactive`, but the
-  headless phase-2 path can only `dispatch-sync` — it cannot honour a
-  DOM/reactive boundary. Per spec/017 §Script and settled-boundary a
+  / `[:focus …]` / `[:wait-until …]` / `[:flush-presence …]`). Such a step
+  is legal in `:setup`, but the headless phase-2 path can only
+  `dispatch-sync` — it cannot honour a DOM/reactive boundary or advance
+  the presence clock. Per spec/017 §Script and settled-boundary a
   step a runner cannot honour FAILS CLOSED (`:cannot-run`); silently
   dropping it is the forbidden under-run that vanishes a precondition the
   author wrote. The throw is caught by the orchestrator and projected as
@@ -229,10 +229,10 @@
              " — :setup carries a non-dispatch step "
              (pr-str (vec offenders))
              " that the headless runner cannot execute. A "
-             ":wait / :wait-until / :click / :type / :focus step is "
-             "legal in :setup but requires a :dom / :cljs-reactive "
-             "runner; run this variant under a richer runner, or move "
-             "the step to :script.")
+             ":wait / :wait-until / :flush-presence / :click / :type / "
+             ":focus step is legal in :setup but the headless phase-2 "
+             "path can only dispatch-sync; run this variant under a "
+             "richer runner, or move the step to :script.")
         {:recovery :use-a-richer-runner-or-move-to-script
          :extra    {:variant/id      variant-id
                     :offending-steps (vec offenders)}}))
