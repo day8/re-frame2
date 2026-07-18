@@ -57,13 +57,16 @@
   `canonical-string` is a TYPE-PRESERVING, INJECTIVE canonical string (not
   EDN). Every node is one self-delimiting token — a type-tag char, the
   char length of its body, a `:`, then the body — so a set / vector / list /
-  map carry DISTINCT tags and a set never collides with a vector (or map) of
-  the same flattened elements. Sets and map keys are order-normalized;
+  map / record carry DISTINCT tags and a set never collides with a vector (or
+  map) of the same flattened elements. A RECORD additionally carries its
+  fully-qualified type name inside its token, so it collides neither with the
+  plain map of the same entries nor with a record of a different type
+  (rf2-59car). Sets, map keys, and record entries are order-normalized;
   vectors and lists stay order-sensitive; scalars carry their host-identical
   `pr-str`. Two `=`-equal plans (up to map-key / set authoring order) always
   digest identically (no spurious plan-conflict); a genuine config change —
-  including a set↔vector↔list type flip — always digests differently.
-  Cross-host equality of the hex output is pinned by
+  including a set↔vector↔list type flip, or a record type swap — always
+  digests differently. Cross-host equality of the hex output is pinned by
   `re-frame.ui.fingerprint-cljs-test`."
   (:require [clojure.string :as str]))
 
@@ -83,22 +86,39 @@
 ;; parses back unambiguously).
 ;;
 ;; The TYPE TAG is what makes the encoding type-preserving. A set (`s`),
-;; vector (`v`), list/seq (`l`), and map (`m`) carry DISTINCT tags, so a set
-;; never collides with a vector — or a map — of the same flattened elements.
-;; That was the pre-#5745 hazard: a set was flattened to a bare vector of its
-;; elements' `pr-str` STRINGS, so the distinct configs `#{:a}` and `[":a"]`
-;; shared one canonical form (`[":a"]`). That is a GUARANTEED pre-hash
-;; collision — a real config change reads as an idempotent no-op — closed here
-;; because `#{:a}` -> "s.." and `[":a"]` -> "v.." can never coincide, and the
-;; inner keyword `:a` -> "t..:a" and string `":a"` -> "t..\":a\"" differ too.
+;; vector (`v`), list/seq (`l`), map (`m`), and record (`r`) carry DISTINCT
+;; tags, so a set never collides with a vector — or a map — of the same
+;; flattened elements. That was the pre-#5745 hazard: a set was flattened to a
+;; bare vector of its elements' `pr-str` STRINGS, so the distinct configs
+;; `#{:a}` and `[":a"]` shared one canonical form (`[":a"]`). That is a
+;; GUARANTEED pre-hash collision — a real config change reads as an idempotent
+;; no-op — closed here because `#{:a}` -> "s.." and `[":a"]` -> "v.." can never
+;; coincide, and the inner keyword `:a` -> "t..:a" and string `":a"` ->
+;; "t..\":a\"" differ too.
 ;;
-;; ORDER handling: sets sort their child tokens (order-INSENSITIVE), map
-;; entries sort by their canonical KEY token (authoring-order-insensitive,
-;; #5745), and vectors/lists preserve producer order (order-SENSITIVE).
-;; Emitting map entries as a length-delimited token stream — rather than
-;; reducing them into an intermediate `sorted-map-by` — means two DISTINCT
-;; keys that share a comparator rank can never overwrite one another; both
-;; entries survive into the digest.
+;; RECORDS ARE MATCHED FIRST (rf2-59car), because a record also satisfies
+;; `map?`. A leading `map?` branch discarded the record's TYPE, so `(->RecA 1)`,
+;; `(->RecB 1)`, and `{:x 1}` — three pairwise-UNEQUAL values — all encoded as
+;; the plain map `{:x 1}` and digested identically. That is the same class of
+;; GUARANTEED pre-hash collision as the pre-#5745 set flattening, and it lands
+;; on the same failure mode: `config-fingerprint` / `build-digest` plan-conflict
+;; detection reads a false digest MATCH as "nothing changed", so a genuine plan
+;; conflict is silently treated as an idempotent no-op. The `r` token therefore
+;; carries the record's fully-qualified type name as its own leading `t` token,
+;; ahead of the entries, and the distinct `r` tag keeps a record clear of the
+;; plain map of the same entries.
+;;
+;; ORDER handling: sets sort their child tokens (order-INSENSITIVE), map and
+;; record entries sort by their canonical KEY token (authoring-order-
+;; insensitive, #5745), and vectors/lists preserve producer order
+;; (order-SENSITIVE). Records share the map's entry canonicalization exactly,
+;; which matters because a record's EXTENSION entries (its `__extmap`) preserve
+;; INSERTION order in the small-map representation: `(assoc (->RecA 1) :b 2 :c 3)`
+;; and `(assoc (->RecA 1) :c 3 :b 2)` are `=`, and must digest identically.
+;; Emitting entries as a length-delimited token stream — rather than reducing
+;; them into an intermediate `sorted-map-by` — means two DISTINCT keys that
+;; share a comparator rank can never overwrite one another; both entries survive
+;; into the digest.
 ;;
 ;; SCALARS (`t`) carry their `pr-str`, which is host-identical for the
 ;; supported terminal types and already type-distinct: a keyword `:a`, the
@@ -122,22 +142,65 @@
   [tag body]
   (str tag (count body) ":" body))
 
+(defn- canonical-entries
+  "The entry-token stream of an associative value: each entry's key and value
+  tokens, with the entries SORTED by their canonical KEY token, concatenated.
+  Shared by the map and the record branch of `-write`, so a record's entries —
+  its declared fields AND its insertion-ordered `__extmap` extensions —
+  canonicalize exactly like a plain map's. A token stream (not a sorted-map)
+  means two distinct keys that share a comparator rank can never overwrite one
+  another."
+  [x]
+  (->> x
+       (map (fn [[k v]] [(-write k) (-write v)]))
+       (sort-by first)
+       (mapcat (fn [[k v]] [k v]))
+       (apply str)))
+
+(defn- record-type-name
+  "The fully-qualified `my.ns/MyRec` name of a record's type, rendered
+  IDENTICALLY on both hosts so tagging a record cannot break the cross-host
+  equality of the hex output.
+
+  On CLJS this is `(pr-str (type x))`: `defrecord` sets the type's
+  `cljs$lang$ctorPrWriter` to write that name as a COMPILE-TIME literal, so it
+  is stable, unique per record type, and survives `:advanced` renaming.
+  `cljs.core/type->str` would NOT do — it reads `cljs$lang$ctorStr`, which
+  `deftype` sets but `defrecord` does not, so it silently degrades to the
+  constructor's JS source text — and neither would `(.-name (type x))`, which
+  `:advanced` munges.
+
+  On the JVM the record's class name carries the same information in host form
+  (the MUNGED namespace, a `.`, then the verbatim record name), so demunging
+  the namespace segment and rejoining it with `/` lands on the very same
+  string."
+  [x]
+  #?(:clj  (let [^String n (.getName (class x))
+                 i         (.lastIndexOf n ".")]
+             (str (clojure.lang.Compiler/demunge (subs n 0 i))
+                  "/"
+                  (subs n (inc i))))
+     :cljs (pr-str (type x))))
+
 (defn- -write
   "Emit the injective, type-preserving canonical token for `x`. Collections
-  carry a distinct type tag (`m`/`s`/`v`/`l`) so a map, set, vector, and
-  list never collide; sets and map keys are order-normalized while vectors
-  and lists keep producer order; scalars (`t`) carry their host-identical,
-  type-distinct `pr-str`."
+  carry a distinct type tag (`m`/`s`/`v`/`l`/`r`) so a map, set, vector, list,
+  and record never collide; sets, map keys, and record entries are
+  order-normalized while vectors and lists keep producer order; scalars (`t`)
+  carry their host-identical, type-distinct `pr-str`."
   [x]
   (cond
+    ;; Record — matched BEFORE `map?`, which a record ALSO satisfies
+    ;; (rf2-59car). The body is the record's fully-qualified type name as a
+    ;; leading `t` token, then its entries canonicalized exactly as a map's, so
+    ;; two record types with the same entries — and a record vs the plain map of
+    ;; those entries — always digest differently.
+    (record? x) (token "r" (str (token "t" (record-type-name x))
+                                (canonical-entries x)))
     ;; Map — sort ENTRIES by their canonical KEY token, then emit key and
     ;; value tokens in that order. A token stream (not a sorted-map) means
     ;; two distinct keys can never overwrite one another.
-    (map? x)    (token "m" (->> x
-                                (map (fn [[k v]] [(-write k) (-write v)]))
-                                (sort-by first)
-                                (mapcat (fn [[k v]] [k v]))
-                                (apply str)))
+    (map? x)    (token "m" (canonical-entries x))
     ;; Set — order-INSENSITIVE: sort the child tokens. The `s` tag keeps a
     ;; set distinct from a vector/list of the same elements.
     (set? x)    (token "s" (apply str (sort (map -write x))))
@@ -153,9 +216,10 @@
 (defn canonical-string
   "One deterministic, type-preserving canonical string per value, identical
   on both hosts (see the section comment above for the token grammar).
-  Equal values — up to map-key / set authoring order — produce the same
-  string; distinct values, including a set vs a vector vs a list of the same
-  elements, produce different strings."
+  Equal values — up to map-key / set / record-extension authoring order —
+  produce the same string; distinct values, including a set vs a vector vs a
+  list of the same elements, and a record vs another record type vs the plain
+  map of the same entries, produce different strings."
   [x]
   (str canonical-version (-write x)))
 
