@@ -20,6 +20,7 @@
             [re-frame.ui :as ui :refer [defview]]
             [re-frame.ui.compiler.analyze :as ana]
             [re-frame.ui.compiler.emit-cljs :as emit-cljs]
+            [re-frame.ui.compiler.emit-jvm :as emit-jvm]
             [re-frame.ui.compiler.env :as env]
             [re-frame.ui.semantic :as semantic]
             [re-frame.ui.test :as uit]))
@@ -163,6 +164,57 @@
       (is (nil? (get-in fr [:props :key :present?]))
           "a :fragment has no analyzed props map"))))
 
+;; ---------------------------------------------------------------------------
+;; Key PRESENCE means the key, not the props map (rf2-xoz1s)
+;;
+;; A fragment's props map may hold exactly one entry — `:key` — so `has a props
+;; map` reads like `has a key` right up until the map is EMPTY. `[:<> {} …]`
+;; used to report `:present? true` with `:expr nil`: a key claimed and not
+;; supplied. Every consumer believed it, and the presence boundary — whose whole
+;; job is retaining a child BY its identity — admitted a child with none.
+;; ---------------------------------------------------------------------------
+
+(deftest fragment-key-presence-tracks-the-key-not-the-props-map
+  (testing "an EMPTY props map is not a key"
+    (let [fr (ana/analyze (mk-env) '[:<> {} [:p "a"]])]
+      (is (false? (get-in fr [:key :present?]))
+          "[:<> {} …] carries a props map and no identity — saying otherwise
+           promises downstream a key that was never written")
+      (is (nil? (get-in fr [:key :expr]))
+          "and there is no key expression to promise")))
+  (testing "a supplied key is still present, and still carries its expression"
+    (let [fr (ana/analyze (mk-env) '[:<> {:key "x"} [:p "a"]])]
+      (is (true? (get-in fr [:key :present?])))
+      (is (= "x" (get-in fr [:key :expr])))))
+  (testing "an explicitly nil key IS written, so it stays present"
+    ;; `:element` answers `contains?` the same way — the two node kinds agree
+    ;; rather than the fragment inventing a nil-specific rule of its own.
+    (is (true? (get-in (ana/analyze (mk-env) '[:<> {:key nil} [:p "a"]])
+                       [:key :present?])))
+    (is (true? (get-in (ana/analyze (mk-env) '[:div {:key nil} "hi"])
+                       [:props :key :present?]))))
+  (testing "no props map at all remains keyless"
+    (is (false? (get-in (ana/analyze (mk-env) '[:<> [:p "a"]]) [:key :present?])))))
+
+(deftest fragment-key-presence-reaches-its-consumers
+  (testing "the JVM structural tree no longer gains a :key nil entry"
+    ;; emit-jvm splices `:present?` straight into `(tree/fragment key? expr …)`,
+    ;; and `tree/fragment` assocs `:key` on a truthy flag — so the old claim put
+    ;; a `:key nil` on the structural node for a fragment with no key.
+    (let [node (emit-jvm/emit-node (ana/analyze (mk-env) '[:<> {} [:p "a"]]))]
+      (is (= 'false (nth node 1)) "the fragment is emitted as UNkeyed")
+      (is (nil? (nth node 2)) "with no key expression")))
+  (testing "a for row spelling an empty props map fails as UNKEYED"
+    ;; analyze-for reads the same `:present?`. It used to pass the missing-key
+    ;; check and trip on `:literal?` instead, reporting a CONSTANT key for a row
+    ;; that had no key at all — the right rejection for the wrong reason.
+    (is (= :rf.ui.compile/unkeyed-list-item
+           (presence-error '(for [t ts] [:<> {} [:p "a"]]))))
+    (is (= :rf.ui.compile/unkeyed-list-item
+           (presence-error '(for [t ts] [:<> [:p "a"]]))))
+    (is (nil? (presence-error '(for [t ts] [:<> {:key (:id t)} [:p "a"]])))
+        "a genuinely keyed row is untouched")))
+
 (deftest keyed-literal-children-are-accepted
   (testing "a keyed literal host child"
     (let [ast (ana/analyze (mk-env) '(presence {:timeout-ms 300} [:li {:key "x"} "hi"]))]
@@ -190,6 +242,11 @@
   (testing "an unkeyed fragment child"
     (is (= :rf.ui.compile/presence-unkeyed-child
            (presence-error '(presence {:timeout-ms 300} [:<> [:li "hi"]])))))
+  (testing "a fragment whose props map holds NO key (rf2-xoz1s)"
+    ;; the wrong-answer path this bead closes: accepted as keyed, leaving the
+    ;; boundary with nothing to retain the child by.
+    (is (= :rf.ui.compile/presence-unkeyed-child
+           (presence-error '(presence {:timeout-ms 300} [:<> {} [:li "hi"]])))))
   (testing "ADVERSARIAL: one unkeyed sibling among keyed ones still fails"
     (is (= :rf.ui.compile/presence-unkeyed-child
            (presence-error '(presence {:timeout-ms 300}
