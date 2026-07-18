@@ -1,0 +1,5 @@
+# Self-test fixture marker (rf2-ru0wg).  Empty config is fine — the validator
+# only checks for this file's existence as the repo-root guard.  This fixture is
+# the renderer-parity tooth: with attr_list DISABLED (as in the real mkdocs.yml)
+# a `{#id}` suffix is literal heading text, so the fragment id is the slugified
+# FULL visible title.

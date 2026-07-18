@@ -1588,7 +1588,7 @@ UI already reads.
 [:rf.assert/schema-error {:where :event :event :checkout/submit}]
 ```
 
-### The schema-violation invariant {#schema-violation-invariant}
+### The schema-violation invariant
 
 The invariant is implemented as a **refinement of the agreement floor**, not
 an opt-in (rf2-5x1wt.21). It rests on three pieces, all pure data → data:
@@ -2032,7 +2032,7 @@ rather than maintaining independent result schemas. This unification
 fixes the documented "false GREEN," where run-state and the assertions
 slot disagreed.
 
-### Run-result evidence projection {#run-result-evidence-projection}
+### Run-result evidence projection
 
 The evidential run-result slots are **projections from one retained epoch
 tape**, not a second capture path. The boundary lives in
@@ -2116,7 +2116,7 @@ already hashes `:epoch-tape` alongside the projected `:schema-violations` /
 `:warnings` / `:effects`, so a divergent projection perturbs the
 run-equivalence hash.
 
-### Unified run result {#unified-run-result}
+### Unified run result
 
 There is **one run-result shape**, assembled by **one boundary** —
 `re-frame.story.result/run-result` (re-exported as `story/run-result`).
@@ -3374,7 +3374,7 @@ run-results (`strip-noise` — the volatile / per-run-stamp / `:rf.story/*`
 strip without the map-flattening ordering pass `canonicalize` applies), so
 they read named slots while seeing none of the per-run noise.
 
-## Golden slices {#golden-slices}
+## Golden slices
 
 A **golden slice** is a curated canonicalized run regression artifact — the
 deferred P1.5 surface (§Shared primitive lock), unblocked now that

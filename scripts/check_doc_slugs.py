@@ -203,9 +203,19 @@ EXCLUDE_DIR_REL = frozenset({Path("docs/spec"), Path("docs/migration")})
 # treats as code, not headings.
 _HEADING_RE = re.compile(r"^(?:[ \t]*>[ \t]?)*(#{1,6})[ \t]+(.+?)[ \t]*#*[ \t]*$")
 
-# Custom heading id syntax: "## Title {#explicit-id}" — pymdownx.toc honours
-# this when the attr_list extension is enabled.  We're conservative and accept
-# any {#id} suffix on H1-H3 headings.
+# Custom heading id syntax: "## Title {#explicit-id}".  python-markdown honours
+# this ONLY when the attr_list extension is enabled, and mkdocs.yml does NOT
+# enable it (see `markdown_extensions`: meta, admonition, footnotes, toc,
+# pymdownx.*).  Under the real configuration the brace suffix is therefore
+# ordinary heading TEXT: "## One {#dup}" renders the visible title "One {#dup}"
+# with id "one-dup", not "dup".  `_scan_rendered_ids` consequently slugifies the
+# full visible title and has no explicit-id special case — the predecessor's
+# special case recorded "dup" and so certified fragments the site never mints
+# (rf2-ru0wg).
+#
+# The pattern is retained only because scripts/check_readme_links.py imports it
+# (it validates the GitHub-rendered READMEs, a different renderer with its own
+# heading-id rules).  Nothing in THIS module uses it.
 _EXPLICIT_ID_RE = re.compile(r"\{#([A-Za-z0-9_\-:.]+)\}\s*$")
 
 # Inline HTML anchor — authors use `<a name="foo"></a>` / `<a id="foo"></a>`
@@ -615,11 +625,11 @@ def _scan_rendered_ids(path: Path) -> dict[str, int]:
         if not m:
             continue
         title = m.group(2).strip()
-        explicit = _EXPLICIT_ID_RE.search(title)
-        if explicit:
-            slug = explicit.group(1)
-        else:
-            slug = SLUGIFY(title, SLUG_SEP)
+        # attr_list is NOT enabled in mkdocs.yml, so a trailing `{#id}` is not an
+        # attribute list — it is literal heading text and the rendered fragment id
+        # is the slugified FULL visible title (rf2-ru0wg).  Slugify the title
+        # exactly as authored; no explicit-id special case.
+        slug = SLUGIFY(title, SLUG_SEP)
         if not slug:
             continue
         # pymdownx.toc disambiguates duplicate HEADING slugs by appending _N
@@ -1403,6 +1413,13 @@ def _run_self_tests(verbose: bool = False) -> int:
         ("ai_findings_dir_link_flagged",     1),  # rf2-l7yj8
         ("blockquoted_heading_ok",           0),  # rf2-869k9m
         ("indented_heading_not_indexed",     1),  # rf2-869k9m (negative control)
+        # rf2-ru0wg — renderer parity for `## Title {#id}` headings. attr_list is
+        # NOT enabled in mkdocs.yml, so the brace suffix is literal heading text
+        # and the fragment id is the slugified FULL visible title. The parity
+        # tooth, its negative control, and the duplicate case:
+        ("explicit_id_full_title_ok",        0),  # `{#dup}` -> id `one-dup`
+        ("explicit_id_brace_not_a_target",   1),  # `#dup` is NOT a target
+        ("explicit_id_duplicate",            0),  # -> `one-dup`, `one-dup_1`
     ]
 
     failures = 0
