@@ -616,24 +616,45 @@
    The sidecar's declared `:kind` is NOT trusted: it is RECONCILED against the
    live kind and a disagreement is REJECTED (`:kind-mismatch`) — so a sidecar
    kind flipped `:fn`→`:macro` reddens THIS lane instead of being silently
-   ignored, closing the JVM half of the rf2-d7sso seam. Three directions:
+   ignored, closing the JVM half of the rf2-d7sso seam. Four directions:
      - every CONTRACT var must resolve live with a matching kind AND matching
        `:clj` arities (`:kind-mismatch` / `:arity-mismatch`; a contract var that
        no longer resolves → `:var-absent`);
+     - a MACRO's `:cljs` grammar must EQUAL its `:clj` grammar
+       (`:macro-host-variance`) — see below;
      - every LIVE blessed var must be in the contract (a fresh export with no
-       signature → `:uncontracted-var`)."
+       signature → `:uncontracted-var`).
+
+   MACRO HOST-INVARIANCE (rf2-qw31o). A ui.test macro is a single `.cljc`
+   `defmacro` expanded on both hosts, so its call grammar CANNOT differ by
+   host — `:clj` and `:cljs` are two spellings of one fact. The sidecar stored
+   both anyway while nothing read the `:cljs` half of a macro row: this lane
+   reads only `:clj`, and the CLJS lane deliberately does not arity-check
+   macros (the analyzer does not reliably surface macro arglists, and treating
+   it as authority is exactly what the design refuses). An arbitrary mutation
+   to `render`'s or `with-root`'s `:cljs` grammar therefore stayed green on
+   BOTH lanes — a duplicated field carrying misleading contract authority.
+   Requiring the two halves to be EQUAL is what makes the stored `:cljs` mean
+   something: `:clj` stays pinned to the live JVM macro arglists above, so
+   equality transitively pins `:cljs` to that same live authority without
+   consulting the CLJS analyzer at all. FUNCTIONS are untouched — their
+   host-specific arities (`flush!`'s 0-arity JVM vs 0/1-arity CLJS) are real
+   and stay independently exact on each lane."
   [signatures surface]
   (sort-by
    :var
    (concat
     (mapcat
-     (fn [[var {:keys [kind clj]}]]
+     (fn [[var {:keys [kind clj cljs]}]]
        (if-let [{live-kind :kind live-arities :arities} (get surface var)]
          (concat
           (when (not= kind live-kind)
             [{:kind :kind-mismatch :var var :declared kind :live-kind live-kind}])
           (when (not= clj live-arities)
-            [{:kind :arity-mismatch :var var :expected clj :got live-arities}]))
+            [{:kind :arity-mismatch :var var :expected clj :got live-arities}])
+          ;; Selected by the AUTHORITATIVE live kind, never the declared one.
+          (when (and (= live-kind :macro) (not= clj cljs))
+            [{:kind :macro-host-variance :var var :expected clj :got cljs}]))
          [{:kind :var-absent :var var :expected clj}]))
      signatures)
     (keep (fn [[var {live-arities :arities}]]
@@ -770,6 +791,16 @@
                 :arity-mismatch
                 (println (format "  %-12s ARITY:  live JVM %s; contract :clj %s"
                                  var (pr-str got) (pr-str expected)))
+                :macro-host-variance
+                (do (println (format "  %-12s HOST-VARIANCE: macro contract :clj %s but :cljs %s"
+                                     var (pr-str expected) (pr-str got)))
+                    (println (format "  %-12s               a ui.test macro is ONE .cljc defmacro expanded on both"
+                                     ""))
+                    (println (format "  %-12s               hosts — its call grammar cannot differ by host. Set :cljs"
+                                     ""))
+                    (println (format "  %-12s               equal to :clj (%s), or, if the grammar really changed,"
+                                     "" (pr-str expected)))
+                    (println (format "  %-12s               change BOTH to the new shape." "")))
                 :var-absent
                 (println (format "  %-12s ABSENT: contract expects :clj %s but the var did not resolve"
                                  var (pr-str expected)))

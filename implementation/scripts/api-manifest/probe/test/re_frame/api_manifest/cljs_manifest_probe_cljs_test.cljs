@@ -67,6 +67,7 @@
                             emit-classification-rows emit-ns-surface
                             emit-ui-test-signature-contract]])
   (:require [cljs.test :refer-macros [deftest is testing]]
+            [clojure.string :as str]
             [re-frame.api-manifest.cljs-probe :as probe]
             ;; The covered CLJS-only namespaces. The `:require` forces the
             ;; analyzer to analyse each before `emit-ns-publics` expands,
@@ -260,11 +261,14 @@
 ;; Synthetic reconciler contracts — the mutation proof, exercised directly on
 ;; the pure `signature-problems` so a reshape / kind flip goes RED and the
 ;; in-sync state stays green regardless of the live analyzer.
+;; Carries BOTH halves, exactly like a real sidecar row: `flush!` keeps the
+;; blessed host-specific function difference (0-arity JVM, 0/1-arity CLJS),
+;; and the two macros are host-invariant (`:clj` = `:cljs`).
 (def ^:private synthetic-contract
-  {"attrs"     {:kind :fn    :cljs #{[1]}}
-   "flush!"    {:kind :fn    :cljs #{[0] [1]}}
-   "render"    {:kind :macro :cljs #{[1] [2]}}
-   "with-root" {:kind :macro :cljs #{[1 :&]}}})
+  {"attrs"     {:kind :fn    :clj #{[1]}     :cljs #{[1]}}
+   "flush!"    {:kind :fn    :clj #{[0]}     :cljs #{[0] [1]}}
+   "render"    {:kind :macro :clj #{[1] [2]} :cljs #{[1] [2]}}
+   "with-root" {:kind :macro :clj #{[1 :&]}  :cljs #{[1 :&]}}})
 
 ;; The live SURFACE fixture: {var {:kind :arities}}. A macro's analyzer arities
 ;; may be nil (host-invariant, never arity-checked here).
@@ -340,11 +344,75 @@
 
 (deftest cljs-macros-are-not-arity-checked
   (testing "macros (render / with-root) are host-invariant — the CLJS lane does
-            NOT arity-flag them even when the analyzer surfaces no arity for them
-            (their grammar is pinned on the JVM lane), as long as they are
-            present with the :macro classification"
+            NOT arity-flag them against the ANALYZER even when it surfaces no
+            arity for them (their grammar is pinned on the JVM lane, against
+            the live JVM :arglists), as long as they are present with the
+            :macro classification"
     (is (empty? (probe/signature-problems
                  synthetic-contract
                  (-> synthetic-live-in-sync
                      (assoc-in ["render" :arities] nil)
                      (assoc-in ["with-root" :arities] nil)))))))
+
+;; ---------------------------------------------------------------------------
+;; MACRO HOST-INVARIANCE — the unchecked shadow contract (rf2-qw31o)
+;;
+;; A macro row's `:cljs` half used to be read by NOTHING: this lane skipped
+;; macros outright and the JVM lane reads only `:clj`, so an arbitrary mutation
+;; to `render`'s or `with-root`'s `:cljs` grammar stayed green on BOTH lanes.
+;; Now both reconcilers require a macro's two halves to be equal. Neither
+;; consults the analyzer for a macro arity — the check is sidecar-internal, and
+;; `:clj` is what stays pinned to the live JVM `:arglists`.
+;; ---------------------------------------------------------------------------
+
+(deftest cljs-macro-cljs-only-mutation-goes-red
+  (testing "THE BUG (rf2-qw31o): mutating render's grammar ONLY on the :cljs
+            side is host-variance a single .cljc defmacro cannot have. It used
+            to be invisible to every lane; it is now RED with an actionable
+            diagnostic naming both halves"
+    (let [problems (probe/signature-problems
+                    (assoc-in synthetic-contract ["render" :cljs] #{[7] [9]})
+                    synthetic-live-in-sync)]
+      (is (= [:macro-host-variance] (map :kind problems)))
+      (is (= "render" (:var (first problems))))
+      (is (= #{[1] [2]} (:expected (first problems))) "the :clj half")
+      (is (= #{[7] [9]} (:got (first problems)))      "the mutated :cljs half")
+      (let [report (probe/signature-report problems)]
+        (is (str/includes? report "render") "the report NAMES the offending var")
+        (is (str/includes? report ":cljs equal to :clj")
+            "and names the remedy — an actionable diagnostic, not a bare diff")))))
+
+(deftest cljs-macro-clj-only-mutation-goes-red
+  (testing "the OTHER direction: mutating with-root's :clj half alone is the
+            same host-variance and is equally rejected here (the JVM lane
+            additionally catches it against the live Var :arglists), so neither
+            half can be edited on its own"
+    (let [problems (probe/signature-problems
+                    (assoc-in synthetic-contract ["with-root" :clj] #{[2 :&]})
+                    synthetic-live-in-sync)]
+      (is (= [:macro-host-variance] (map :kind problems)))
+      (is (= "with-root" (:var (first problems)))))))
+
+(deftest cljs-macro-grammar-changed-in-both-halves-stays-green
+  (testing "POSITIVE CONTROL — over-tightening would be worse than the bug. A
+            macro grammar that REALLY changed, changed in BOTH halves together,
+            is in sync and must not be flagged. Without this, 'always flag a
+            macro' would pass the two mutation tests above while making every
+            legitimate grammar change unrepresentable"
+    (is (empty? (probe/signature-problems
+                 (-> synthetic-contract
+                     (assoc-in ["render" :clj]  #{[1] [2] [3]})
+                     (assoc-in ["render" :cljs] #{[1] [2] [3]}))
+                 synthetic-live-in-sync)))))
+
+(deftest cljs-function-host-difference-is-never-forced-equal
+  (testing "POSITIVE CONTROL for the other half of the rule — host-invariance
+            binds MACROS only. flush!'s contract is deliberately :clj #{[0]}
+            and :cljs #{[0] [1]}, a real reader-conditional difference, and
+            reconciles clean. A check that forced :clj = :cljs for every kind
+            would redden this legitimate row"
+    (is (not= (get-in synthetic-contract ["flush!" :clj])
+              (get-in synthetic-contract ["flush!" :cljs]))
+        "the fixture really does carry the host difference")
+    (is (empty? (probe/signature-problems synthetic-contract
+                                          synthetic-live-in-sync)))))
