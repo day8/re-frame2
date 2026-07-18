@@ -302,17 +302,19 @@ live on per EP-0030).
 ## Implementation-Errata Ledger
 
 Per EP-0009, `final` asserts the decisions are settled — this ledger tracks the
-known build gaps on this EP's surface. Rows cite live beads and are struck as
-they close; the full S2 correction tail lives on the program epic
-(`rf2-vxgfnd`).
+known build gaps on this EP's surface, and per EP-0009 its rows cite live bead ids
+and are struck as they close. A struck row is closed, and closed is terminal, so it
+cannot go stale; an unstruck row names the bead that owns the gap, and that bead —
+not this table — is the gap's current state. The full S2 correction tail lives on
+the program epic (`rf2-vxgfnd`).
 
-| Live bead | Gap |
+| Bead | Gap |
 |---|---|
 | `rf2-vxgfnd.166` | render batches must be defined by host checkpoint, not router drain (the G-5 boundary prose) |
 | `rf2-vxgfnd.167` | per-epoch render-law sweep incomplete (force-tracked ai) |
-| `rf2-vxgfnd.169` | empty root-incarnation entries not pruned after weak member collection |
-| `rf2-vxgfnd.204` | CLJS SSR emitter not replayed when `re-frame.ui/adapter` is reinstalled |
-| `rf2-vxgfnd.94.15`, `.94.17`–`.94.21` | compatible-HMR migration evidence/drift-guard family (`.94.16` already closed) |
+| ~~`rf2-vxgfnd.169`~~ | ~~empty root-incarnation entries not pruned after weak member collection~~ — closed |
+| ~~`rf2-vxgfnd.204`~~ | ~~CLJS SSR emitter not replayed when `re-frame.ui/adapter` is reinstalled~~ — closed |
+| ~~`rf2-vxgfnd.94.15`, `.94.17`–`.94.21`~~ | ~~compatible-HMR migration evidence/drift-guard family~~ — closed (`.94.16` closed earlier) |
 
 ## Recommendation
 
