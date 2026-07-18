@@ -15,11 +15,11 @@
      TOTAL (every CLJS graph member is reconciled; a missing/nil/non-map final
      output fails loud, never silently skipped) and UNFORGEABLE by an output-map
      replacement. It is decided by re-frame.ui's OWN per-pass provenance marker
-     corroborated, for a marker-absent replaced map, by Shadow's OWN causal
-     compile record — never output-map identity, never Shadow's `:js` object
-     identity, and never a wall-clock stamp relationship of re-frame.ui's own. At
-     `:compile-prepare` re-frame.ui stamps an opaque per-pass token onto every
-     retained output MAP Shadow handed it. Shadow's compile path
+     corroborated, for a marker-absent replaced map, by re-frame.ui's OWN per-pass
+     COMPILE WITNESS — never output-map identity, never Shadow's `:js` object
+     identity, and never a wall-clock stamp relationship (re-frame.ui's own or
+     Shadow's). At `:compile-prepare` re-frame.ui stamps an opaque per-pass token
+     onto every retained output MAP Shadow handed it. Shadow's compile path
      (`do-compile-cljs-resource`) builds a FRESH output map for a (re)compiled
      source, dropping the marker; a later non-scheduling hook that merely
      annotates or transforms a retained output (assoc/update-in — INCLUDING
@@ -27,21 +27,29 @@
      the marker. So a source that still carries the current pass token is
      unforgeably RETAINED (a replacement cannot forge the private token). A
      marker-ABSENT output means the whole map was replaced: re-frame.ui then reads
-     Shadow's own `[:shadow.build/build-info :compiled]` record — populated after
-     the compile phase, outside the `[:output rid]` map a replacement controls —
-     to tell a genuine COMPILER replacement (a real compile) from a non-scheduling
-     HOOK replacement. When Shadow did NOT compile it, `:cached true` is a
-     legitimate disk-cache load and `:cached false` is a whole-map replacement
-     that dropped the marker without any compile — the latter CANNOT masquerade as
-     compilation and fails loud rather than evict a valid accepted view. Keying on
-     re-frame.ui's own marker plus Shadow's compile record — not on the identity of
-     Shadow's `:js` artifact and not on the forgeable `:cached` field alone — is
-     immune to the ordinary output-transforming shape (a retained output whose
-     `:js` is swapped for a fresh, even byte-identical, String by a non-scheduling
-     hook) that a raw `:js`-identity test misreads as a recompile and so evicts an
-     untouched accepted view; and — never comparing `:compiled-at` milliseconds
-     itself — immune to the same-/backwards-millisecond stamp a `>` test misreads
-     as untouched (leaving a ghost accepted view). A later `:compile-prepare` hook
+     its own compile witness — a `cljs.analyzer` pass installed at
+     `:compile-prepare` which fires only while Shadow's COMPILER is analyzing a
+     source, and whose record lives outside the `[:output rid]` map a replacement
+     controls — to tell a genuine COMPILER replacement (a real compile) from a
+     non-scheduling HOOK replacement. When the compiler did NOT analyze it,
+     `:cached true` is a legitimate disk-cache load and `:cached false` is a
+     whole-map replacement that dropped the marker without any compile — the
+     latter CANNOT masquerade as compilation and fails loud rather than evict a
+     valid accepted view. Keying on re-frame.ui's own marker plus its own compile
+     witness — not on the identity of Shadow's `:js` artifact and not on the
+     forgeable `:cached` field alone — is immune to the ordinary
+     output-transforming shape (a retained output whose `:js` is swapped for a
+     fresh, even byte-identical, String by a non-scheduling hook) that a raw
+     `:js`-identity test misreads as a recompile and so evicts an untouched
+     accepted view; and — no `:compiled-at` millisecond is compared anywhere on
+     this path, by re-frame.ui or on its behalf — immune to the
+     same-/backwards-millisecond stamp a `>` test misreads as untouched (leaving a
+     ghost accepted view). Deliberately NOT Shadow's own
+     `[:shadow.build/build-info :compiled]` record: pinned Shadow computes it in
+     `shadow.build/resources-compiled-recently` as
+     `(and (not cached) (> compiled-at compile-start))`, so it is that very
+     wall-clock ordering authority under another name and DROPS a genuine
+     same-/backwards-millisecond recompile (rf2-suz5b). A later `:compile-prepare` hook
      (Shadow deep-merges build-local hooks after `:build-defaults` and lets them
      mutate build state) can force a source to recompile AFTER re-frame.ui observed
      the schedule; reading the finish-time marker and Shadow's compile record, not
@@ -104,21 +112,84 @@
   output MAP only and is never emitted into any bundle."
   ::pass-marker)
 
-(def ^:private shadow-compiled-path
-  "Shadow's OWN causal per-pass compile record. `shadow.build/compile` populates
-  `[:shadow.build/build-info :compiled]` (a set of resource-ids) via
-  `update-build-info-after-compile` AFTER the compile phase and BEFORE the
-  `:compile-finish` hooks run, so it is authoritative and present when this hook
-  reads it. It is the causal fact re-frame.ui consults to decide, for a
-  marker-ABSENT output, whether Shadow's COMPILER replaced the whole output map
-  (a genuine compile) or a non-scheduling HOOK did (a replacement that must not
-  masquerade as compilation). Reading Shadow's record — not the forgeable
-  `:cached` field carried by the output map re-frame.ui is classifying, and not
-  any `:compiled-at` wall-clock relationship of re-frame.ui's own — is what makes
-  the marker-absent verdict unforgeable by an output-map replacement: the record
-  lives outside the `[:output rid]` map, so reconstructing that map cannot reach
-  or set it."
-  [:shadow.build/build-info :compiled])
+(def ^:private compile-witness-pass-key
+  "Metadata marker identifying re-frame.ui's own analyzer pass, so a warm daemon
+  re-installs exactly ONE witness per pass instead of accumulating one per
+  compile."
+  ::compile-witness-pass)
+
+(defn- analyzed-ns
+  "The declaring namespace an analyzer node belongs to.
+
+  Shadow analyzes a source's leading `(ns …)` form while its compile state still
+  reads `cljs.user` (`do-analyze-cljs-string` only advances the ns in
+  `post-analyze`, AFTER `cljs.analyzer/analyze*` has run the passes), so an `:ns`
+  node's OWN `:name` is authoritative for that first form. Every later node
+  carries the resolved namespace in its analyzer env. Reading the ns node is what
+  makes a viewless source — one whose only remaining form IS its `ns` form,
+  precisely the zero-declaration recompile that must evict — witnessed."
+  [env ast]
+  (if (= :ns (:op ast))
+    (:name ast)
+    (let [ns (:ns env)]
+      (if (symbol? ns) ns (:name ns)))))
+
+(defn- compile-witness-pass
+  "re-frame.ui's OWN per-pass CAUSAL compile witness: a `cljs.analyzer` pass
+  (`cljs.analyzer/*passes*`, which Shadow binds from `[:analyzer-passes]` on
+  every `shadow.build.compiler/analyze` call) recording the declaring namespace
+  of every source Shadow's COMPILER actually analyzed this pass.
+
+  It is causal, not corroborative: the pass runs if and only if
+  `do-compile-cljs-resource` is analyzing that source's forms. A disk-cache load
+  (`load-cached-cljs-resource`) restores analysis data without analyzing and is
+  therefore NOT witnessed; a warm hit runs nothing; a hook that replaces
+  `[:output rid]` executes no analyzer pass at all. And the record lives in a
+  closed-over atom re-frame.ui created this pass — outside the `[:output rid]`
+  map — so an output-map replacement can neither reach nor forge it.
+
+  Deliberately NOT Shadow's `[:shadow.build/build-info :compiled]` set: pinned
+  Shadow derives that from `(> compiled-at compile-start)`
+  (`shadow.build/resources-compiled-recently`), which silently omits a genuine
+  recompile whose `System/currentTimeMillis` stamp lands on or before the compile
+  start — the same wall-clock ordering authority this path exists to avoid
+  (rf2-suz5b, rf2-ialoij). Nothing here reads a millisecond."
+  [witnessed]
+  (with-meta
+    (fn compile-witness [env ast _opts]
+      (when-let [ns (analyzed-ns env ast)]
+        ;; Read-mostly: only the first node of each namespace writes, so the
+        ;; parallel-compile threads contend once per source, not per AST node.
+        (when-not (contains? @witnessed ns)
+          (swap! witnessed conj ns)))
+      ast)
+    {compile-witness-pass-key true}))
+
+(defn- install-compile-witness
+  "Install this pass's compile witness as the last `[:analyzer-passes]` entry,
+  first removing any witness a previous pass of a warm watch daemon left behind
+  (they are identified by `compile-witness-pass-key` metadata, never by position)
+  so passes cannot accumulate.
+
+  When the build-state carries no `:analyzer-passes` key at all — a plain-JVM
+  finish, never a Shadow build, where `shadow.build.api/init` always seeds it —
+  this is a no-op rather than a guess at Shadow's defaults. That fails SAFE: an
+  unwitnessed marker-absent output is refused loudly at `:compile-finish`, never
+  quietly trusted as compiled."
+  [build-state witnessed]
+  (if-not (contains? build-state :analyzer-passes)
+    build-state
+    (update build-state :analyzer-passes
+            (fn [passes]
+              (-> (into [] (remove #(get (meta %) compile-witness-pass-key)) passes)
+                  (conj (compile-witness-pass witnessed)))))))
+
+(defn- witnessed-compile?
+  "Did re-frame.ui's compile witness see Shadow's compiler analyze this
+  resource's declaring namespace (or any namespace it provides) this pass?"
+  [witnessed ns provides]
+  (boolean (or (and ns (contains? witnessed ns))
+               (some #(contains? witnessed %) provides))))
 
 (defn- member-nss
   "Authoritative declaring namespaces from Shadow's resolved build graph."
@@ -184,28 +255,29 @@
      the private token). A marker present but NOT equal to the token is a stale
      cross-pass artefact and fails loud.
 
-  2. For a marker-ABSENT output — where the whole map was replaced — Shadow's OWN
-     causal compile record `shadow-compiled?` (this resource's membership in
-     `[:shadow.build/build-info :compiled]`, computed by Shadow after the compile
-     phase). It distinguishes a genuine COMPILER replacement (`:compiled`) from a
-     non-scheduling HOOK replacement, WITHOUT trusting the output map's forgeable
-     `:cached` field to conclude compilation. When Shadow did NOT compile it:
-     `:cached true` is a legitimate disk-cache load (RETAINED); `:cached false`
-     is a whole-map replacement that dropped the marker without any Shadow
-     compile — it cannot be silently treated as a compile and fails loud
-     (`:marker-dropped-without-compile`); any other `:cached` value is
+  2. For a marker-ABSENT output — where the whole map was replaced —
+     re-frame.ui's OWN per-pass compile witness `compile-witnessed?` (this
+     resource's namespace was analyzed by Shadow's compiler this pass, recorded
+     by `compile-witness-pass`). It distinguishes a genuine COMPILER replacement
+     (`:compiled`) from a non-scheduling HOOK replacement, WITHOUT trusting the
+     output map's forgeable `:cached` field to conclude compilation. When the
+     compiler did NOT analyze it: `:cached true` is a legitimate disk-cache load
+     (RETAINED); `:cached false` is a whole-map replacement that dropped the
+     marker without any compile — it cannot be silently treated as a compile and
+     fails loud (`:marker-dropped-without-compile`); any other `:cached` value is
      unusable evidence and fails loud.
 
-  Because the marker gate is checked before the compile record, a genuine
-  EQUAL-stamp or BACKWARDS-stamp recompile is still classified `:compiled` (it
-  dropped the marker AND is in Shadow's record); re-frame.ui itself never
-  compares `:compiled-at`."
-  [final-output pass-token shadow-compiled?]
+  Because the marker gate is checked before the witness, a genuine EQUAL-stamp or
+  BACKWARDS-stamp recompile is still classified `:compiled` (it dropped the marker
+  AND its namespace was analyzed). No `:compiled-at` millisecond is compared here
+  or in the witness — unlike Shadow's own `[:shadow.build/build-info :compiled]`
+  set, which is exactly such a comparison and would drop that recompile."
+  [final-output pass-token compile-witnessed?]
   (let [marker (get final-output compile-marker-key ::unmarked)]
     (cond
       (= marker pass-token)    :retained
       (not= marker ::unmarked) :stale-provenance-marker
-      shadow-compiled?         :compiled
+      compile-witnessed?       :compiled
       :else
       (case (:cached final-output)
         true  :retained                        ; disk-cache load: replaced map, not compiled
@@ -246,15 +318,14 @@
   Provenance is UNFORGEABLE by an output-map replacement: a member counts as
   recompiled per `compile-verdict`, which gates FIRST on re-frame.ui's own
   per-pass marker (unforgeable RETAINED) and, only for a marker-absent replaced
-  map, on Shadow's OWN causal compile record (`shadow-compiled-path`) rather than
-  the output map's forgeable `:cached` field. A whole-map replacement that drops
-  the marker without a corresponding Shadow compile cannot masquerade as
-  compilation — it fails loud. This remains immune to a `:js`-object-identity
-  misread and to same-/backwards-millisecond compile stamps (re-frame.ui compares
-  no `:compiled-at`)."
-  [{:keys [build-sources sources output] :as build-state} pass-token]
-  (let [build-id (:shadow.build/build-id build-state)
-        compiled (set (get-in build-state shadow-compiled-path))]
+  map, on re-frame.ui's own per-pass compile witness (`compile-witness-pass`)
+  rather than the output map's forgeable `:cached` field. A whole-map replacement
+  that drops the marker without the compiler having analyzed the source cannot
+  masquerade as compilation — it fails loud. This remains immune to a
+  `:js`-object-identity misread and to same-/backwards-millisecond compile stamps
+  — neither re-frame.ui nor anything it consults compares a `:compiled-at`."
+  [{:keys [build-sources sources output] :as build-state} pass-token witnessed]
+  (let [build-id (:shadow.build/build-id build-state)]
     (reduce
      (fn [acc resource-id]
        (let [{:keys [type ns provides]} (get sources resource-id)]
@@ -277,7 +348,7 @@
                   :final-output final-output
                   :recovery :ensure-shadow-output-for-cljs-member}))
                (case (compile-verdict final-output pass-token
-                                      (contains? compiled resource-id))
+                                      (witnessed-compile? witnessed ns provides))
                  :compiled (into acc (or provides (when ns #{ns})))
                  :retained acc
                  :stale-provenance-marker
@@ -300,8 +371,9 @@
                    (str "re-frame.ui compile-finish found CLJS build member "
                         resource-id " whose retained output map was REPLACED "
                         "(re-frame.ui's per-pass marker was dropped) although "
-                        "Shadow did not compile it this pass; a non-scheduling "
-                        "whole-map replacement cannot count as compilation")
+                        "Shadow's compiler never analyzed it this pass; a "
+                        "non-scheduling whole-map replacement cannot count as "
+                        "compilation")
                    {::error ::ambiguous-compile-evidence
                     :build-id build-id
                     :resource-id resource-id
@@ -340,25 +412,29 @@
 
   When no re-frame.ui pass is open (a non-Shadow / plain-JVM finish with no
   scratch) this is a no-op — the prepare-time pre-touch is the sole reconciler.
-  When a pass IS open the prepare-time `:pass-token` provenance MUST be present;
-  its absence is unobservable provenance and fails loudly rather than silently
-  reconciling against an assumed-empty compile schedule. Pure build-state
-  transform (apart from that guard)."
+  When a pass IS open BOTH prepare-time provenance facts MUST be present — the
+  `:pass-token` stamped onto retained outputs and the `:compile-witness` the
+  analyzer pass writes into; either one missing is unobservable provenance and
+  fails loudly rather than silently reconciling against an assumed-empty compile
+  schedule. Pure build-state transform (apart from that guard)."
   [build-state]
   (let [scratch (get-in build-state [:compiler-env build/scratch-key])]
     (if-not scratch
       build-state
       (do
-        (when-not (contains? scratch :pass-token)
-          (throw
-           (ex-info
-            (str "re-frame.ui compile-finish observed no per-pass compile "
-                 "provenance (missing prepare-time :pass-token); refusing to "
-                 "reconcile against an assumed-empty compile schedule")
-            {::error ::missing-pass-provenance
-             :recovery :configure-ui-build-hook-once})))
+        (doseq [k [:pass-token :compile-witness]]
+          (when-not (contains? scratch k)
+            (throw
+             (ex-info
+              (str "re-frame.ui compile-finish observed no per-pass compile "
+                   "provenance (missing prepare-time " k "); refusing to "
+                   "reconcile against an assumed-empty compile schedule")
+              {::error ::missing-pass-provenance
+               :reason k
+               :recovery :configure-ui-build-hook-once}))))
         (let [extra (actually-recompiled-member-nss build-state
-                                                    (:pass-token scratch))]
+                                                    (:pass-token scratch)
+                                                    @(:compile-witness scratch))]
           (if (seq extra)
             (update-in build-state
                        [:compiler-env build/scratch-key :touched]
@@ -569,24 +645,32 @@
       (validate-ui-cache-blocker! build-state)
       (let [build-state (reset-cold-ui-consumer-output build-state)
             pass-token  (str (java.util.UUID/randomUUID))
-            stamped     (stamp-retained-outputs build-state pass-token)]
+            witnessed   (atom #{})
+            stamped     (-> build-state
+                            (stamp-retained-outputs pass-token)
+                            (install-compile-witness witnessed))]
         ;; Stamp an opaque per-pass provenance token onto every retained `:output`
-        ;; map Shadow handed us BEFORE any compilation, and remember it in scratch,
-        ;; so `:compile-finish` can identify the sources Shadow actually
-        ;; (re)compiled this pass: a compiled source's fresh output map LOSES the
-        ;; token, while a later non-scheduling hook's assoc/update-in on a retained
-        ;; output — INCLUDING replacing only `[:output rid :js]` with a fresh
-        ;; equal-byte string — PRESERVES it. Robust to that output-transforming
-        ;; shape (which a raw `:js`-identity test misread as a recompile) and free
-        ;; of any `:compiled-at` wall-clock comparison so same-/backwards-
-        ;; millisecond recompiles are still caught (rf2-v7wqk, rf2-vxgfnd.194,
-        ;; rf2-vxgfnd.255, rf2-vxgfnd.282, rf2-ialoij).
+        ;; map Shadow handed us BEFORE any compilation, install this pass's causal
+        ;; compile witness, and remember both in scratch, so `:compile-finish` can
+        ;; identify the sources Shadow actually (re)compiled this pass: a compiled
+        ;; source's fresh output map LOSES the token, while a later non-scheduling
+        ;; hook's assoc/update-in on a retained output — INCLUDING replacing only
+        ;; `[:output rid :js]` with a fresh equal-byte string — PRESERVES it. For
+        ;; the marker-absent remainder the witness says whether Shadow's compiler
+        ;; actually analyzed the source. Robust to that output-transforming shape
+        ;; (which a raw `:js`-identity test misread as a recompile) and free of any
+        ;; `:compiled-at` wall-clock comparison — including Shadow's own
+        ;; `(> compiled-at compile-start)` `::build-info :compiled` set — so
+        ;; same-/backwards-millisecond recompiles are still caught (rf2-v7wqk,
+        ;; rf2-vxgfnd.194, rf2-vxgfnd.255, rf2-vxgfnd.282, rf2-ialoij, rf2-suz5b).
         (-> (build/prepare-shadow-build stamped
                                         build-id
                                         (member-nss stamped)
                                         (recompiled-member-nss stamped))
             (assoc-in [:compiler-env build/scratch-key :pass-token]
-                      pass-token))))
+                      pass-token)
+            (assoc-in [:compiler-env build/scratch-key :compile-witness]
+                      witnessed))))
 
     :compile-finish
     ;; Reconcile against Shadow's final compile schedule, then project. All are

@@ -93,10 +93,13 @@
         ;; A later NON-scheduling hook that REPLACES app-a's whole retained output
         ;; map, rebuilt from Shadow's PUBLIC fields (dropping re-frame.ui's private
         ;; marker) and copying the sticky :cached false, WITHOUT removing it — so
-        ;; Shadow does not reschedule it and app-a is absent from Shadow's OWN
-        ;; ::build-info :compiled record. This is the "unforgeable by output-map
-        ;; replacement" adversary: :compile-finish must FAIL LOUD rather than trust
-        ;; the forged :cached false and evict app-a's valid accepted view.
+        ;; Shadow does not reschedule it, no analyzer pass runs for app-a and
+        ;; re-frame.ui's per-pass compile witness never records it. This is the
+        ;; "unforgeable by output-map replacement" adversary: :compile-finish must
+        ;; FAIL LOUD rather than trust the forged :cached false and evict app-a's
+        ;; valid accepted view. Note the forgery copies `:compiled-at` too, so it
+        ;; is exactly the shape a wall-clock record could not have rejected
+        ;; (rf2-suz5b).
         (and rid forge?)
         (assoc-in [:output rid]
                   (-> (get-in build-state [:output rid])

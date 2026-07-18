@@ -10,7 +10,8 @@
             [re-frame.ui.compiler :as compiler]
             [re-frame.ui.compiler.build :as build]
             [re-frame.ui.compiler.build-hook :as build-hook]
-            [re-frame.ui.compiler.root :as root]))
+            [re-frame.ui.compiler.root :as root]
+            [re-frame.ui.shadow-compile-model :as shadow]))
 
 (use-fixtures :each
   (fn [f] (build/reset-build!) (try (f) (finally (build/reset-build!)))))
@@ -22,6 +23,9 @@
    ;; Truthy executor + default parallel-build mirrors Shadow watch. In that
    ;; branch output presence is the exact cache-hit / compile-schedule signal.
    :executor (Object.)
+   ;; As `shadow.build.api/init` seeds it: the seam re-frame.ui installs its
+   ;; per-pass compile witness into.
+   :analyzer-passes []
    :build-sources (vec member-nss)
    :sources (into {} (map (fn [n] [n {:ns n :provides #{n} :type :cljs}]))
                   member-nss)})
@@ -85,20 +89,21 @@
   ([state member-nss] (finish state member-nss (set member-nss)))
   ([state member-nss recompiled-nss]
    ;; Model Shadow's real compile phase: every source Shadow (re)compiled this
-   ;; pass gets a FRESH output map (marker-absent, `:cached false`) and is
-   ;; recorded in Shadow's OWN `[:shadow.build/build-info :compiled]` set. Warm
+   ;; pass gets a FRESH output map (marker-absent, `:cached false`) AND has its
+   ;; forms analyzed — the causal event re-frame.ui's per-pass compile witness
+   ;; records (rf2-suz5b; never a `(> compiled-at compile-start)` set). Warm
    ;; cache-hit members keep the marker-stamped output prepare left them. This is
-   ;; what a real build hands `:compile-finish`; the prior helper unrealistically
-   ;; left recompiled members with NO output at finish.
+   ;; what a real build hands `:compile-finish`.
    (let [recompiled-nss (set recompiled-nss)
          with-outputs (reduce (fn [s n]
                                 (assoc-in s [:output n]
                                           {:resource-id n :js "compiled"
                                            :cached false}))
-                              state recompiled-nss)]
-     (build-hook/hook
-      (-> (at-stage with-outputs :compile-finish member-nss)
-          (assoc-in [:shadow.build/build-info :compiled] recompiled-nss))))))
+                              state recompiled-nss)
+         finishing (at-stage with-outputs :compile-finish member-nss)]
+     (doseq [n recompiled-nss]
+       (shadow/compile-ns! finishing (get-in finishing [:sources n :ns])))
+     (build-hook/hook finishing))))
 
 (defn- pass
   ([state member-nss declarations]

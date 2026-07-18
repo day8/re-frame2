@@ -1,10 +1,12 @@
 (ns re-frame.ui.compiler-digest-carrier-jvm-test
   "Pure carrier projection plus functional accepted-snapshot transaction tests."
-  (:require [cljs.env :as cljs-env]
+  (:require [cljs.analyzer :as ana]
+            [cljs.env :as cljs-env]
             [clojure.string :as str]
             [clojure.test :refer [deftest is testing]]
             [re-frame.ui.compiler.build :as build]
-            [re-frame.ui.compiler.build-hook :as build-hook]))
+            [re-frame.ui.compiler.build-hook :as build-hook]
+            [re-frame.ui.shadow-compile-model :as shadow]))
 
 (def ^:private carrier-rid [:cljs "re_frame/ui/digest_carrier.cljs"])
 (def ^:private client-rid [:cljs "re_frame/ui/client.cljs"])
@@ -35,6 +37,10 @@
    :compiler-env {}
    :executor (Object.)
    :build-options {:cache-blockers '#{re-frame.ui}}
+   ;; `shadow.build.api/init` always seeds `:analyzer-passes`; carrying it here
+   ;; is what lets re-frame.ui install its per-pass compile witness, exactly as
+   ;; in a real build.
+   :analyzer-passes []
    :build-sources [carrier-rid app-rid]
    :sources {carrier-rid {:ns 're-frame.ui.digest-carrier
                           :provides #{'re-frame.ui.digest-carrier}
@@ -58,6 +64,7 @@
            :shadow.build/stage :compile-prepare
            :compiler-env {}
            :build-options {:cache-blockers '#{re-frame.ui}}
+           :analyzer-passes []
            :build-sources [carrier-rid app-a-rid app-b-rid]
            :sources {carrier-rid {:ns 're-frame.ui.digest-carrier
                                   :provides #{'re-frame.ui.digest-carrier}
@@ -95,12 +102,18 @@
   "Drive `:compile-finish`. Models Shadow's real compile phase: every CLJS build
   member whose output is ABSENT (Shadow scheduled it — e.g. a version-0 UI
   consumer whose retained output prepare invalidated) is given a FRESH compiled
-  output map and recorded in Shadow's OWN `[:shadow.build/build-info :compiled]`
-  set. Members that already carry an output keep it (a warm hit's marker-stamped
-  map, or a map the test set to model a recompile / a hook replacement); such a
-  test names its own recompiled members via `extra-compiled`. The prior helper
-  left version-0-invalidated consumers with NO finish output, which real Shadow
-  never does."
+  output map AND has its forms analyzed, which is what re-frame.ui's per-pass
+  compile witness observes. Members that already carry an output keep it (a warm
+  hit's marker-stamped map, or a map the test set to model a recompile / a hook
+  replacement); such a test names its own recompiled members via
+  `extra-compiled`.
+
+  rf2-suz5b: the compiled set is derived by DRIVING the build-state's installed
+  `:analyzer-passes` through pinned ClojureScript's own calling convention (see
+  `re-frame.ui.shadow-compile-model`), never by asserting membership in Shadow's
+  `[:shadow.build/build-info :compiled]` — that set is
+  `(> compiled-at compile-start)` and omits a same-millisecond recompile, so
+  writing it here would assume the disputed fact."
   ([state] (finish state #{}))
   ([state extra-compiled]
    (let [cljs-members (filter #(= :cljs (get-in state [:sources % :type]))
@@ -113,10 +126,9 @@
                            (not (map? (get-in s [:output rid])))
                            (assoc-in [:output rid]
                                      (compiled-output rid "compiled"))))
-                       state scheduled)
-         ;; Shadow RESETS `:compiled` every pass (extract-build-info recomputes
-         ;; it), so set — never accumulate — this pass's compiled set.
-         state (assoc-in state [:shadow.build/build-info :compiled] scheduled)]
+                       state scheduled)]
+     (doseq [rid scheduled]
+       (shadow/compile-ns! state (get-in state [:sources rid :ns])))
      (build-hook/hook (assoc state :shadow.build/stage :compile-finish)))))
 
 (deftest ui-build-requires-the-load-bearing-cache-blocker
@@ -388,6 +400,163 @@
               "app.b's accepted row is digest-stable across the warm pass")
           (is (not (contains? views-after :app/a-view))
               "the genuinely recompiled zero-declaration source is evicted despite its backwards stamp"))))))
+
+(deftest same-and-backwards-millisecond-recompile-is-witnessed-not-timestamped
+  ;; rf2-suz5b — the P1 the compile WITNESS fixes (red-before / green-after).
+  ;;
+  ;; rf2-8nn5k corroborated a marker-absent output against Shadow's
+  ;; `[:shadow.build/build-info :compiled]` record, believing it independent of
+  ;; wall-clock. Pinned Shadow computes it in `resources-compiled-recently` as
+  ;; `(and (not cached) (> compiled-at compile-start))` — the very ordering
+  ;; authority rf2-ialoij removed, under another name. `System/currentTimeMillis`
+  ;; ticks at ~15.6ms on Windows, so a small incremental watch recompile
+  ;; routinely finishes inside the tick the compile phase started in, and a
+  ;; non-monotonic clock can send the stamp backwards outright.
+  ;;
+  ;; Both rows of the bead's pinned probe are exercised here (compiled-at 1000 and
+  ;; 999 against compile-start 1000). `assert-no-timestamp-corroboration!` proves
+  ;; from Shadow's OWN verbatim derivation that the record is EMPTY for app.a, so
+  ;; no correct verdict can come from it. RED-BEFORE: `compile-verdict` saw marker
+  ;; absent + not-compiled + `:cached false` and threw
+  ;; `:marker-dropped-without-compile`, failing the whole build on an ordinary
+  ;; same-tick recompile. GREEN-AFTER: re-frame.ui's own witness saw the compiler
+  ;; analyze app.a, so it is `:compiled`, its zero-declaration recompile evicts
+  ;; its accepted row, and the cache-hit sibling survives.
+  (doseq [parallel? [true false]
+          [stamp-label stamp] [[:equal-millisecond 1000] [:backwards-millisecond 999]]]
+    (testing (str (if parallel? "parallel" "sequential") " / " (name stamp-label))
+      (let [build-id (keyword "same-ms" (str (name stamp-label)
+                                             (if parallel? "-p" "-s")))
+            good (-> (two-source-state build-id parallel?)
+                     prepare
+                     (declare 'app.a :app/a-view ["tfa-1" "hsa-1"])
+                     (declare 'app.b :app/b-view ["tfb-1" "hsb-1"])
+                     finish)
+            digest-before (build/accepted-build-digest good)
+            ;; A warm accepted generation: both sources retain a compiled output,
+            ;; so re-frame.ui pre-touches neither at prepare.
+            warm-input (-> good
+                           (assoc-in [:output carrier-rid :js]
+                                     build-hook/digest-sentinel)
+                           (assoc-in [:output app-a-rid]
+                                     {:resource-id app-a-rid
+                                      :js (fresh-js "app.a = {};")
+                                      :compiled-at 1000 :cached false})
+                           (assoc-in [:output app-b-rid]
+                                     {:resource-id app-b-rid
+                                      :js (fresh-js "app.b = {};")
+                                      :compiled-at 1000 :cached false}))
+            prepared (prepare warm-input)
+            ;; A later prepare hook removed app.a's output; Shadow recompiled it
+            ;; after re-frame.ui observed the schedule, and its final ui/defview
+            ;; is gone. Shadow stamped the fresh output inside — or behind — the
+            ;; millisecond `compile-all` recorded as `:compile-start`.
+            recompiled (-> prepared
+                           (assoc :compile-start 1000)
+                           (assoc-in [:output app-a-rid]
+                                     {:resource-id app-a-rid
+                                      :js (fresh-js "app.a = {};")
+                                      :compiled-at stamp :cached false}))]
+        (shadow/assert-no-timestamp-corroboration!
+         recompiled app-a-rid (name stamp-label))
+        (is (not (contains?
+                  (get-in prepared [:compiler-env build/scratch-key :touched])
+                  'app.a))
+            "re-frame.ui does not pre-touch an output-present source at prepare")
+        (let [finished (finish recompiled #{app-a-rid})
+              views-after (build/accepted-aggregate build/views finished)]
+          (is (= {:app/b-view ["tfb-1" "hsb-1"]} views-after)
+              "the witnessed recompile evicts its ghost; the cache hit survives")
+          (is (not (contains? views-after :app/a-view))
+              "no ghost view survives a same-/backwards-millisecond recompile")
+          (is (not= digest-before (build/accepted-build-digest finished))
+              "evicting the ghost changes the accepted whole-build digest"))))))
+
+(deftest forged-future-stamp-cannot-buy-a-compile
+  ;; rf2-suz5b adversary — the mirror of the same-millisecond miss. A
+  ;; non-scheduling whole-map replacement that copies Shadow's public fields and
+  ;; sets `:compiled-at` in the FUTURE satisfies `(> compiled-at compile-start)`,
+  ;; so pinned Shadow's `[:shadow.build/build-info :compiled]` record WOULD have
+  ;; contained it — asserted below from Shadow's own verbatim derivation. Under
+  ;; rf2-8nn5k that corroboration classified the forgery `:compiled`, pre-touched
+  ;; app.b, saw no registry macro and SILENTLY EVICTED a valid accepted view; a
+  ;; forger only had to pick a large enough number. re-frame.ui's own witness
+  ;; cannot be reached by rebuilding an output map — no analyzer pass ran for
+  ;; app.b — so the replacement fails loud BEFORE publication and app.b's
+  ;; accepted view and the whole-build digest survive.
+  (doseq [parallel? [true false]]
+    (testing (str (if parallel? "parallel" "sequential") " compilation")
+      (let [build-id (keyword "future-forge" (if parallel? "p" "s"))
+            good (-> (two-source-state build-id parallel?)
+                     prepare
+                     (declare 'app.a :app/a-view ["tfa-1" "hsa-1"])
+                     (declare 'app.b :app/b-view ["tfb-1" "hsb-1"])
+                     finish)
+            digest-before (build/accepted-build-digest good)
+            views-before (build/accepted-aggregate build/views good)
+            warm-input (-> good
+                           (assoc-in [:output carrier-rid :js]
+                                     build-hook/digest-sentinel)
+                           (assoc-in [:output app-a-rid]
+                                     {:resource-id app-a-rid
+                                      :js (fresh-js "app.a = {};")
+                                      :compiled-at 1000 :cached false})
+                           (assoc-in [:output app-b-rid]
+                                     {:resource-id app-b-rid
+                                      :js (fresh-js "app.b = {};")
+                                      :compiled-at 1000 :cached false}))
+            prepared (prepare warm-input)
+            ;; The forgery: every visible field Shadow publishes, a sticky
+            ;; `:cached false`, and a stamp far past `:compile-start`. No
+            ;; compilation is scheduled and no analyzer pass runs.
+            forged-b {:resource-id app-b-rid :js (fresh-js "app.b = {};")
+                      :compiled-at Long/MAX_VALUE :cached false}
+            forged (-> prepared
+                       (assoc :compile-start 1000)
+                       (assoc-in [:output app-b-rid] forged-b))]
+        (is (contains? (shadow/resources-compiled-recently forged) app-b-rid)
+            "the forgery satisfies pinned Shadow's (> compiled-at compile-start) record")
+        (is (nil? (get forged-b :re-frame.ui.compiler.build-hook/pass-marker))
+            "and drops re-frame.ui's private per-pass marker, as a real compile does")
+        (let [ex (try (finish forged) nil
+                      (catch clojure.lang.ExceptionInfo e e))]
+          (is (= :re-frame.ui.compiler.build-hook/ambiguous-compile-evidence
+                 (:re-frame.ui.compiler.build-hook/error (ex-data ex)))
+              "an unwitnessed whole-map replacement cannot masquerade as compilation")
+          (is (= :marker-dropped-without-compile (:reason (ex-data ex))))
+          (is (= app-b-rid (:resource-id (ex-data ex))))
+          (is (= views-before (build/accepted-aggregate build/views good))
+              "the forged replacement never evicted app.b's valid accepted view")
+          (is (= digest-before (build/accepted-build-digest good))))))))
+
+(deftest witness-pass-is-driven-by-pinned-clojurescript
+  ;; rf2-suz5b / AC3: the corroborating fact must be derived through the real
+  ;; machinery, not inserted. The other fixtures drive re-frame.ui's installed
+  ;; analyzer pass through `cljs.analyzer/analyze*`'s reduction
+  ;; (`re-frame.ui.shadow-compile-model`); this one pins that model against
+  ;; PINNED ClojureScript itself — a real `(ns …)` form through the real
+  ;; `analyze*`, which is exactly how Shadow's `do-compile-cljs-resource` reaches
+  ;; the passes it binds from `[:analyzer-passes]`. It also proves the case the
+  ;; witness exists for: a VIEWLESS source, whose only remaining form is its `ns`
+  ;; form, is still attributed to its own namespace even though Shadow's compile
+  ;; state still reads `cljs.user` while that form is analyzed.
+  (let [prepared (prepare (two-source-state :real-analyzer true))
+        witness (get-in prepared [:compiler-env build/scratch-key :compile-witness])]
+    (is (some? witness) "prepare installs this pass's compile witness in scratch")
+    (is (= 1 (count (filter #(get (meta %) :re-frame.ui.compiler.build-hook/compile-witness-pass)
+                            (:analyzer-passes prepared))))
+        "exactly one witness pass is installed, never one per warm pass")
+    (is (not (contains? @witness 'app.a))
+        "nothing is witnessed before the compiler analyzes anything")
+    (cljs-env/with-compiler-env (cljs-env/default-compiler-env)
+      (binding [ana/*passes* (:analyzer-passes prepared)
+                ana/*cljs-ns* 'cljs.user
+                ana/*analyze-deps* false
+                ana/*load-macros* false]
+        (ana/analyze* (assoc (ana/empty-env) :ns {:name 'cljs.user})
+                      '(ns app.a) nil {})))
+    (is (contains? @witness 'app.a)
+        "pinned ClojureScript's own analyze* drives re-frame.ui's witness")))
 
 (deftest metadata-only-output-mutation-is-not-a-recompile
   ;; rf2-vxgfnd.282 / rf2-ialoij / rf2-v7wqk: a fresh output MAP is NOT compile
