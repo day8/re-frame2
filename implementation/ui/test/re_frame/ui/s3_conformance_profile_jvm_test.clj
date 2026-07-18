@@ -277,7 +277,10 @@
 ;; validated row by row rather than by whole-document token presence.
 ;; ===========================================================================
 
-(defn- repo-root []
+;; `repo-root`, `table-row-for` and `section-between` are PUBLIC so the sibling
+;; stage profiles compose with this guard instead of duplicating its row-binding
+;; machinery (rf2-yho9j: the S4 guard reuses all three). Behaviour unchanged.
+(defn repo-root []
   (loop [d (io/file (System/getProperty "user.dir"))]
     (cond
       (nil? d) nil
@@ -287,7 +290,7 @@
 (defn- profile-doc []
   (io/file (repo-root) "spec" "conformance" "S3-view-conformance-profile.md"))
 
-(defn- table-row-for
+(defn table-row-for
   "The single Markdown table row whose FIRST cell is exactly `token`, or nil when
   there is not exactly one. Keying on the first cell (not mere occurrence) binds
   a verb to its OWN §1 catalogue row: prose mentions, roster rows that name a
@@ -301,7 +304,7 @@
         rows       (filter #(= token (first-cell %)) lines)]
     (when (= 1 (count rows)) (first rows))))
 
-(defn- section-between
+(defn section-between
   "The region of `text` from header `from` up to header `to`, so a claim is read
   from the section that owns it rather than from incidental prose elsewhere."
   [text from to]

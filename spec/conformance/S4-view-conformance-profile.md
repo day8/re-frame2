@@ -10,12 +10,29 @@ boundary, and the explicit non-surfaces) and names, for each row, the suite or
 gate that proves it. The runtime behaviour is proven by those homes (browser /
 JVM / corpus suites), not re-asserted in prose here.
 
+## 0. Inheritance — this profile is cumulative and rows only the S4 delta
+
+**"S4-conforming" means S3-conforming plus everything below.** S1–S3 are
+inherited **by exact reference** to the frozen S3 profile,
+[`spec/conformance/S3-view-conformance-profile.md`](S3-view-conformance-profile.md),
+which remains the sole authority for the ten compiler-owned verbs, the
+`route-link` view, and the seven-wrapper React interop tier. This document
+**does not restate any of it** — restating a frozen roster is how the two
+profiles drift apart. It rows only the S4 **delta**:
+
+- presence (`ui/presence`, `ui/presence-phase`, `ui.test/flush-presence!`);
+- the ruled custom-element property-vs-attribute classification;
+- the completed `ui/raw` foreign boundary (and `ui/html`'s no-sanitisation
+  contract);
+- the ruled compile-tier a11y roster;
+- the no-compiled-head structural policy, **by reference** to its ruling.
+
 S4 adds no new verb to the `re-frame.ui` facade. Its forms were **exported at
 S1** for symbol resolution and **assert at S4** — the stage froze *behaviour*
-over an already-blessed surface. The S3 verbs, the `route-link` view, and the
-React interop tier are catalogued in
-[S3-view-conformance-profile.md](S3-view-conformance-profile.md) and are
-unchanged here.
+over an already-blessed surface. The drift guard composes with the S3 guard
+rather than duplicating it: it reuses that guard's row-binding machinery and its
+published rosters, and fails loudly on a **new public surface**, a **broken
+inheritance link**, or a **moved or deleted proof row**.
 
 The frozen surface and the proof references are kept honest by an executable
 drift guard,
@@ -50,6 +67,16 @@ Presence is **DOM-agnostic and timeout-only** (ruled, `rf2-0ufty`): the boundary
 inserts no wrapper node, stamps no attributes, and observes no DOM events. A
 presence-aware child owns its own exit styling and accessibility by reading
 `(ui/presence-phase)`.
+
+> **Sequencing — these rows track the POST-FIX presence grammar.** Two S4-epic
+> bugs are **open** and both change the *accepted* presence grammar:
+> `rf2-vxgfnd.96.1` (**P1** — keyed literal children are wrongly rejected) and
+> `rf2-vxgfnd.96.2` (**P2** — duplicate ownership identities are wrongly
+> accepted). The rows below state the grammar as ruled, which is the grammar
+> that will ship once both close; today's compiler rejects a keyed *literal*
+> child that these rows admit. **Closing both is part of the S4-conforming
+> declaration** — S4 cannot honestly be declared conforming over a known P1
+> presence grammar bug (see §8).
 
 | Form | Kind | Contract | Loud failure | Proven by |
 |---|---|---|---|---|
@@ -146,19 +173,38 @@ catalogued in §4.
 
 ## 3. The document head is host-owned
 
-**No compiled-view form renders into `<head>`.** There is no head-targeting form,
-no `ui/head`, and no head channel in the view AST or the JVM tree; `re-frame.ui`
-mounts into a root element inside `<body>`. `ui/html` does not widen this — it is
-the sole child of a **DOM element**, and `<head>` is neither a mount target nor
-reachable from a template. The document head belongs to the **host**: the HTML
-shell the app serves and, for server-rendered apps, Spec 011's structured
-`reg-head` / `active-head` channel.
+**No compiled *structural* form renders into `<head>`.** There is no
+head-targeting form, no `ui/head`, and no head channel in the view AST or the
+JVM tree; `re-frame.ui` mounts into a root element inside `<body>`. `ui/html`
+does not widen this — it is the sole child of a **DOM element**, and `<head>` is
+neither a mount target nor reachable from a template. The document head belongs
+to the **host**: the HTML shell the app serves and, for server-rendered apps,
+Spec 011's structured `reg-head` / `active-head` channel.
 
-This row states an **absence of surface**, not a behaviour, so it has no
+**`ui/raw` does widen it, and that is deliberate.** A foreign value handed to
+React verbatim may be a **portal**, and a portal renders into whatever container
+the caller names, `document.head` included. Nodes placed that way are host
+behaviour the **caller owns** — outside head ordering, de-duplication,
+precedence, and every hydration guarantee, `:rf/head-hash` mismatch detection
+included. What survives is **enumerability**: every site declares the `:raw`
+capability and is recorded in the manifest, so the set of such escapes is finite
+and listable. The **JVM tree has no such route** — `:raw` raises
+`:rf.error/jvm-host-op` — so a server-rendered head still comes only from
+`reg-head` / `active-head`.
+
+**Normative ownership (ruled, `rf2-3i7tr`) — do not reopen.** Spec 004
+normatively owns the compiled-view *structural absence* (no `ui/head`, no head
+target, no portable head channel, qualified at the `ui/raw` foreign boundary).
+Spec 011 normatively owns the *structured document-head mechanism* (`reg-head` /
+`render-head` / `active-head`, head-model shape, escaping, shell emission,
+ordering, `:rf/head-hash`, mismatch behaviour). Spec 009 owns only the
+trace/error projection. S4 adds **no head machinery** and takes no position
+beyond citing that ruling.
+
+This section states an **absence of surface**, not a behaviour, so it has no
 behavioural fixture. What the drift guard binds is exactly the absence: the
 `re-frame.ui` facade exposes no head-targeting public, and the compiler's closed
-form set contains no head op. Spec 004 records the standing policy and the open
-question of which Spec normatively *owns* it — that ruling is not S4's.
+form set contains no head op.
 
 ## 4. W14 dual-emitter parity — the S4 corpus rows
 
@@ -176,13 +222,33 @@ rows (the view-shape sweep, W14):
 | `:ce-declared-attr-name` | the adversarial classification row: a **declared** name that is also a standard HTML attribute spelling (`:tab-index`) stays a **PROPERTY** on both emitters and is written into markup by neither, while undeclared siblings stay ordinary attributes |
 | `:trusted-hostile` | `ui/html` crosses **verbatim** on both hosts — a `javascript:` scheme is not gated, and nothing about the string is inspected |
 
-**Deliberately out of the corpus** (documented, not silently skipped): `ui/raw`
-and the foreign component head have **no JVM side to compare** — rendering them
-on the JVM is `:rf.error/jvm-host-op` by contract, so their boundary corpus is
-the `raw_foreign_boundary_*` pair; presence's **three-phase machine** and any
-`(ui/presence-phase)` read are host-bearing — retention timers and the phase a
-*first* render reports are mounted (and, for the server, S5) questions, proven in
-`presence_dom_cljs_test` and `presence_jvm_test`.
+### 4.1 The intentional NON-parity facts
+
+Some S4 facts are **not** structural-equivalence facts and must never be forced
+through the comparator — a fixture that pretends otherwise is a false green.
+Each is rowed here against the paired or compile-time proof home that really
+owns it:
+
+| S4 fact | Why it is not a parity fact | Real proof home |
+|---|---|---|
+| `ui/raw` / foreign component head | a **host escape** — rendering it on the JVM raises `:rf.error/jvm-host-op` by contract, so there is **no JVM side to compare** | paired: `re-frame.ui.raw-foreign-boundary-jvm-test` + `re-frame.ui.raw-foreign-boundary-dom-cljs-test` |
+| the document head | an **absence of surface** (§3), not an emitted shape — there is nothing for either emitter to produce | the facade/op-set absence guards in this profile's drift guard |
+| the a11y roster | **compile-time analyzer facts** — findings are produced during analysis and never reach either emitter's output | `re-frame.ui.a11y-diagnostics-cljs-test` (host-shared, pure analyzer) |
+| presence's three-phase machine | **host-bearing** — retention timers, and the phase a *first* render reports, are mounted questions (and, for the server, S5's) | `re-frame.ui.presence-dom-cljs-test` (mounted) + `re-frame.ui.presence-jvm-test` (structural) |
+
+The corpus rows above carry only the **portable** half of each S4 surface — the
+structural output both emitters must agree on.
+
+For presence the portable half is precisely this: the JVM emits its `:present`
+marker fragment and `N` strips it; the client wraps each child in a phase
+Provider, which is invisible in markup. Both therefore emit **exactly the
+children** — the boundary's own contribution to the output is zero nodes on both
+hosts. The **phase value itself is not portable at first render**: the JVM
+structural subset reports `:present`, while an ordinary first *client* render
+necessarily enters `:mounting` (the component starts with no committed entries),
+which is correct pre-hydration. Reconciling those — so a server-adopted child
+starts `:present` without fabricating an enter transition — is S5's obligation,
+recorded as the `rf2-d9yq3` rider in §7. No corpus row may assert a phase value.
 
 ## 5. Non-surfaces (the S4 wall)
 
@@ -208,6 +274,15 @@ an API redesign or a named interop boundary, never a substrate exception:
 - no silent a11y suppression — an unknown id or a blank reason is a loud compile
   error.
 
+**Deliberately deferred to S5 (`rf2-vxgfnd.97`) — S4 claims no conformance for
+any of it:** the **Root Manifest** (v1 extension keys, wire/discovery) and
+**hydration** (preflight, idempotent payload install, locator/registry conflicts,
+fingerprint/digest validation); **`render-static`**; the **`client-only` phase
+flip**; **multi-root hydration** and **failed-root isolation**; and the
+root-hydration half of W14. `hydrate-root` remains deliberately fail-loud until
+that stage. A fixture here that appeared to prove any of them would be stage
+collapse, not coverage.
+
 ## 6. The gate roster (S4 arms)
 
 The full G-1..G-18 roster lives in `docs/EP/EP-0034` §4 and the 07 §5 gate
@@ -216,13 +291,38 @@ ones:
 
 | Gate | S4 arm |
 |---|---|
-| **G-7** | dev/prod equivalence extended to the S4 surfaces — committed DOM, presence retention/removal, and custom-element property application agree with debug off; the a11y roster is compile-tier and emits nothing at runtime in either build |
-| **G-11** | exact production absence extended to the S4 test surface — `re-frame.ui.test` (now including `flush-presence!`) and every compile-tier diagnostic string stay out of advanced production bundles |
+| **G-7** | dev↔prod equivalence for **S4 shapes only** — committed DOM, presence retention/removal, and custom-element property application agree with debug off; the a11y roster is compile-tier and emits nothing at runtime in either build |
+| **G-11** | S4 diagnostic / site / reload / test machinery absent from advanced production output — `re-frame.ui.test` (now including `flush-presence!`) and every compile-tier diagnostic string stay out of advanced production bundles |
+
+**The G-7 growth is bounded, deliberately.** G-7 today has no equivalence test
+beyond its production-absence arm, so S4 writes G-7's **first** equivalence arms
+— and writes them for **S4 shapes only**. The broader retroactive S1–S3
+equivalence-matrix debt is **not** in scope here and keeps its existing
+named-open owner; S4 does not discharge it, and no row in this profile should be
+read as claiming it. Both arms wire into the **existing** required
+JVM / CLJS / DOM / parity / production-elision jobs — no new job, no new named
+gate, and no S5 SSR build in the S4 matrix.
 
 Everything else S4 froze is proven by the named suites in §1 and the parity
 corpus in §4, not by a gate arm.
 
-## 7. Conformance grading
+## 7. Hand-off to S5
+
+S5 (`rf2-vxgfnd.97`) already carries the obligations that S4's surfaces create.
+This row **cites** them; it creates **no parallel obligation**:
+
+| Obligation (recorded on `rf2-vxgfnd.97`) | Origin |
+|---|---|
+| S5-obligation (1) — **root-manifest hydration + failed-root isolation fixtures** | the residual named gate from the stage plan |
+| **AUDIT RIDER** — a multi-root fixture proving **hydrated presence starts `:present`** (while a client-only mount still observes `:mounting → :present`), with sibling-root isolation | `rf2-d9yq3` / PR #6261 |
+| **AUDIT RIDER** — one real **SSR-adoption custom-element** fixture: server markup carries declared attributes only and omits the declared property under both spellings; hydrate without replacement; the declared property applies under camelCase | `rf2-aozoi` / PR #6276 |
+
+S4 leaves the canonical **semantic normalizer** (Spec 004B's `N`) and the
+**render-fingerprint vocabulary** as the contract S5 consumes — unchanged by this
+stage, and the reason a hydration fixture can be written at S5 without
+re-deriving the comparison space.
+
+## 8. Conformance grading
 
 An S4-conforming host emits, for the frozen surface above: the presence
 retention contract with its mandatory `:timeout-ms`, exactly-once terminal
@@ -231,6 +331,14 @@ classification with its JVM attributes-only / client properties-at-hydration
 split (§1.2); the four compile-tier a11y diagnostics with their suppression round
 trip (§1.3); the foreign-boundary laws and `ui/html`'s no-sanitisation contract
 (§1.4); the host behaviour of §2; a host-owned document head (§3); the parity
-rows of §4; and none of the non-surfaces (§5). The gate arms in §6 and the suites
-named throughout are the executable acceptance; `scripts/test-fast-pr.sh` plus
-the S4 CI matrix run them.
+rows of §4; and none of the non-surfaces (§5). It must also be **S3-conforming**
+— §0 inherits S1–S3 by reference, and a host that fails the S3 profile fails
+this one. The gate arms in §6 and the suites named throughout are the executable
+acceptance; `scripts/test-fast-pr.sh` plus the S4 CI matrix run them.
+
+**S4 is not yet declarable conforming.** Two presence grammar bugs are open —
+`rf2-vxgfnd.96.1` (**P1**, keyed literal children wrongly rejected) and
+`rf2-vxgfnd.96.2` (**P2**, duplicate ownership identities wrongly accepted) —
+and both change the accepted presence grammar this profile's §1.1 rows state.
+**Closing both is part of the S4-conforming declaration**; the stage cannot
+honestly be declared conforming over a known P1 presence grammar bug.
