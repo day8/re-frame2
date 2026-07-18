@@ -23,11 +23,18 @@
   `route-url` (and `current-url` / `clear-route`) were demoted off the
   `re-frame.core` façade — they are reached through `re-frame.routing`
   now, so the façade artefact-missing contract no longer applies to them.
-  The façade surfaces that remain are the `reg-route` registration MACRO
+  rf2-bcjpq5 then deleted the dormant `re-frame.core-routing` wrappers for
+  `match-url` / `route-url`, and rf2-sy7zr the `clear-route` / `current-url`
+  pair, along with all four late-bind hooks — nothing consumed them. The
+  façade surfaces that remain are the `reg-route` registration MACRO
   (source-coord capture) and `route-link` (no owned-ns peer); their
   missing-artefact contracts are tested below."
   (:require [clojure.test :refer [deftest is testing]]
             [re-frame.core :as rf]
+            ;; Required explicitly (rather than relying on the transitive load
+            ;; through `re-frame.core`) so the wrapper-deletion assertions read
+            ;; a genuinely loaded namespace.
+            [re-frame.core-routing]
             [re-frame.late-bind :as late-bind]
             ;; Loading routing registers its late-bind hooks. The
             ;; `with-hook-as-nil` helper below re-establishes the absent
@@ -130,3 +137,67 @@
           "re-frame.routing/match-url is the canonical home")
       (is (some? (get owning 'route-url))
           "re-frame.routing/route-url is the canonical home"))))
+
+;; ===========================================================================
+;; rf2-sy7zr — the same sweep, finished: `clear-route` / `current-url` carried
+;; the identical dormancy. They were demoted off the façade by rf2-wad2fl but
+;; kept `re-frame.core-routing` wrappers and `:routing/clear-route` /
+;; `:routing/current-url` late-bind hooks that NOTHING consumed — dead
+;; indirection every reader had to trace before concluding it does nothing.
+;;
+;; Deleted, no shim. `re-frame.core-routing` now holds exactly the two
+;; surfaces that need a core-side wrapper: `reg-route` (the façade macro's
+;; fn-form delegate) and `route-link` (no owned-ns peer).
+;;
+;; Every assertion below is paired with a POSITIVE CONTROL so a typo, an
+;; unloaded namespace, or a renamed hook registry cannot make the negative
+;; legs vacuously green.
+;; ===========================================================================
+
+(deftest clear-route-and-current-url-are-not-facade-exports-rf2-sy7zr
+  (testing "neither clear-route nor current-url is public in re-frame.core"
+    (let [facade (ns-publics 're-frame.core)]
+      (is (nil? (get facade 'clear-route))
+          "clear-route is NOT a re-frame.core export — call rf.routing/clear-route")
+      (is (nil? (get facade 'current-url))
+          "current-url is NOT a re-frame.core export — call rf.routing/current-url")
+      ;; Positive control: the façade IS loaded and DOES export the routing
+      ;; surfaces that legitimately live there.
+      (is (some? (get facade 'reg-route))
+          "control — reg-route IS a re-frame.core export (the registration macro stays)")
+      (is (some? (get facade 'route-link))
+          "control — route-link IS a re-frame.core export (no owned-ns peer)")))
+  (testing "both remain public on their owning namespace, re-frame.routing"
+    (let [owning (ns-publics 're-frame.routing)]
+      (is (some? (get owning 'clear-route))
+          "re-frame.routing/clear-route is the canonical home")
+      (is (some? (get owning 'current-url))
+          "re-frame.routing/current-url is the canonical home"))))
+
+(deftest dormant-core-routing-wrappers-are-gone-rf2-sy7zr
+  (testing "the re-frame.core-routing wrapper vars are deleted, not shimmed"
+    (let [wrappers (ns-publics 're-frame.core-routing)]
+      (doseq [gone '[clear-route current-url match-url route-url]]
+        (is (nil? (get wrappers gone))
+            (str "re-frame.core-routing/" gone " is GONE — no wrapper, no alias, "
+                 "no forwarding shim")))
+      ;; Positive control: the namespace IS loaded and the two live wrappers
+      ;; still resolve, so the nil assertions above mean "deleted", not
+      ;; "namespace never loaded".
+      (is (some? (get wrappers 'reg-route))
+          "control — re-frame.core-routing/reg-route survives (façade macro delegate)")
+      (is (some? (get wrappers 'route-link))
+          "control — re-frame.core-routing/route-link survives (no owned-ns peer)"))))
+
+(deftest dormant-routing-late-bind-hooks-are-unpublished-rf2-sy7zr
+  (testing "routing publishes no hook for the four demoted surfaces"
+    (doseq [hook [:routing/clear-route :routing/current-url
+                  :routing/match-url :routing/route-url]]
+      (is (nil? (late-bind/get-fn hook))
+          (str hook " is unpublished — core has no wrapper to late-bind to")))
+    ;; Positive control: routing IS loaded and DOES publish its live hooks, so
+    ;; the nils above are real deletions rather than an unloaded artefact.
+    (is (some? (late-bind/get-fn :routing/reg-route))
+        "control — :routing/reg-route IS published (the routing artefact is loaded)")
+    (is (some? (late-bind/get-fn :routing/route-link))
+        "control — :routing/route-link IS published")))

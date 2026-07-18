@@ -12,25 +12,25 @@
   BROWSER-LISTENER leg inside its body is CLJS-only, so on the JVM the hook
   runs the claim maintenance and skips the listener work (a graceful no-op —
   never `:rf.error/routing-artefact-missing`). `:routing/reset-url-listener!`
-  stays CLJS-only. The one remaining query-shaped export,
-  `current-url`, is published on BOTH hosts and returns `\"/\"` server-side.
+  stays CLJS-only.
+
+  The query-shaped `current-url` is a `re-frame.routing` export, NOT a
+  `re-frame.core` façade one (rf2-wad2fl demoted it; rf2-sy7zr deleted the
+  dormant `re-frame.core-routing` wrapper and its `:routing/current-url`
+  late-bind hook, which nothing consumed). The SSR contract it carries is
+  unchanged and still pinned below: `re-frame.routing/current-url` must be
+  callable on the JVM and read the SSR root — a CLJS-only definition would
+  break `.cljc` server-side rendering.
 
   These tests pin, with routing PRESENT (required + reloaded by the suite
   fixture, so the late-bind hooks are live on the JVM):
 
     1. `re-frame.routing/current-url` returns `\"/\"` on the JVM (no throw).
-    2. the `re-frame.core-routing/current-url` FACADE wrapper (`:on-absent
-       :throw`) returns `\"/\"` — it does NOT raise
-       `:rf.error/routing-artefact-missing`, because routing publishes the
-       `:routing/current-url` hook on the JVM too (a CLJS-only publication would
-       make this facade throw server-side even with routing loaded — the
-       regression this test guards).
-    3. registering AND destroying a `:url-bound? true` frame on the JVM does
+    2. registering AND destroying a `:url-bound? true` frame on the JVM does
        not throw — the browser listener install/teardown is CLJS-only, so the
        frame-lifecycle hooks are a graceful no-op server-side."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.core-routing :as core-routing]
             [re-frame.frame :as frame]
             [re-frame.routing :as routing]
             [re-frame.routing-test-support :as rts]))
@@ -46,20 +46,14 @@
 
 (deftest current-url-returns-ssr-root-on-jvm-rf2-j1p1fv
   (testing "re-frame.routing/current-url returns the SSR root \"/\" on the JVM
-            (no window.location) without throwing — with routing present"
+            (no window.location) without throwing — with routing present. The
+            no-throw leg is asserted STRUCTURALLY (rf2-sy7zr): a CLJS-only
+            definition of current-url would make every .cljc caller blow up
+            server-side, which is the regression this guards"
+    (is (= :ok (outcome #(routing/current-url)))
+        "current-url must not throw on the JVM")
     (is (= "/" (routing/current-url))
         "current-url reads the SSR root on the JVM")))
-
-(deftest core-routing-facade-current-url-does-not-throw-on-jvm-rf2-j1p1fv
-  (testing "the re-frame.core-routing/current-url FACADE wrapper (:on-absent
-            :throw) delegates to the JVM-published :routing/current-url hook and
-            returns \"/\" — it must NOT raise :rf.error/routing-artefact-missing
-            when routing IS present, so the .cljc/SSR no-op contract holds
-            (a CLJS-only hook publication would make this throw server-side)"
-    (is (= :ok (outcome #(core-routing/current-url)))
-        "the facade current-url must not throw on the JVM with routing present")
-    (is (= "/" (core-routing/current-url))
-        "the facade delegates to the JVM-published hook and returns the SSR root")))
 
 (deftest url-bound-frame-lifecycle-is-a-noop-on-jvm-rf2-j1p1fv
   (testing "registering AND destroying a :url-bound? true frame on the JVM does

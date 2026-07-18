@@ -479,9 +479,6 @@
    {:key         :routing/reg-route
     :producer-ns 're-frame.routing
     :description "Register a route pattern and handler."}
-   {:key         :routing/clear-route
-    :producer-ns 're-frame.routing
-    :description "Remove a registered route; emits :rf.route/cleared."}
    {:key         :routing/reset-counters!
     :producer-ns 're-frame.routing
     :description "Reset the route-registration counter (test isolation)."}
@@ -515,9 +512,6 @@
     :producer-ns 're-frame.routing
     :design-bead "rf2-vxgfnd.95.5"
     :description "CLJS-only route-link activation op `(fn [event on-click render-frame payload native?])` consumed by the compiled `re-frame.ui/route-link` defview: THE router-attributed click decision — run the caller `:on-click` first, defer to the browser on `defaultPrevented` / native? / a non-plain-left (modifier or auxiliary-button) click, else `.preventDefault` + `router/dispatch!` the payload to the captured render frame with `:source :router`. Keeps the modifier/native/veto click law inside routing so the ui artefact reimplements NONE of it (footgun-ownership). Unbound on the JVM (SSR emits a handler-free anchor) and when routing is absent."}
-   {:key         :routing/current-url
-    :producer-ns 're-frame.routing
-    :description "Read the current browser URL as pathname+search+hash (CLJS) / \"/\" (JVM)."}
    {:key         :routing/preflight-frame-config!
     :producer-ns 're-frame.routing
     :design-bead "rf2-ktmto9"
