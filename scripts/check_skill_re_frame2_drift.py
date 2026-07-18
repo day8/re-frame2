@@ -457,17 +457,34 @@ def _hooks_sentences(text: str):
 
 
 # 6b(i) — `:contextType` attributed to a hooks adapter.
+#
+# ATTRIBUTION SCOPE, not proximity (rf2-xlxrl). The retired
+# CONTEXTTYPE_REAGENT_OWNED_RE suppressed the whole sentence whenever "Reagent"
+# appeared within ~40 chars of the token (both directions, plus a comparison-cue
+# arm). That is mere adjacency: it pardoned an unlawful attribution sitting next
+# to a lawful Reagent mention ("`reg-view*` gives the component a
+# `:contextType`; the `reg-view` macro stays Reagent-flavoured") while, at
+# natural prose distances, failing to protect the corpus's own per-adapter
+# house style. It is deleted. 6b(i) now carves the sentence into CLAUSES and
+# asks who each clause attributes the token TO.
 CONTEXTTYPE_RE = re.compile(r":contextType\b")
-# The `:contextType` on this sentence belongs to Reagent (possession /
-# comparison), NOT attributed to the hooks adapter.
-CONTEXTTYPE_REAGENT_OWNED_RE = re.compile(
-    r"Reagent(?:'s|-only)?[^.\n]{0,40}:contextType"
-    r"|:contextType[^.\n]{0,40}Reagent"
-    r"|\b(?:differ|differs|unlike|distinct|versus|compared? (?:to|with))\b"
-    r"[^.\n]{0,60}:contextType",
+# Strong clause separators: `;`, em dash, and the contrast connectives. NOT `:`
+# — a colon introduces an elaboration of the same subject, so splitting there
+# would let "UIx is not special: reg-view* gives it :contextType." escape.
+CLAUSE_SPLIT_RE = re.compile(
+    r"\s*;\s*|\s*—\s*|,\s+(?:while|whereas|but)\b",
     re.IGNORECASE,
 )
-# The sentence explicitly says the hooks adapter has NO `:contextType` — the
+REAGENT_RE = re.compile(r"\bReagent\b")
+# The one Reagent-ownership allowance that survives: the possessive / compound
+# bound TIGHTLY to the token, so the owner is named at the token itself. This
+# keeps "UIx components never get Reagent's `:contextType`." green, where the
+# 8-char negation window below cannot reach.
+REAGENT_OWNED_CONTEXTTYPE_RE = re.compile(
+    r"\bReagent(?:'s|-only)\s*`?\s*:contextType",
+    re.IGNORECASE,
+)
+# The clause explicitly says the hooks adapter has NO `:contextType` — the
 # negation must TIGHTLY scope the token (a far-away "not special" does NOT
 # suppress a real attribution).
 CONTEXTTYPE_NEGATED_RE = re.compile(
@@ -530,13 +547,23 @@ BARE_CAPTURE_NEGATED_RE = re.compile(
 )
 
 HOOKS_CONTEXTTYPE_MSG = (
-    "HOOKS-CONTEXTTYPE: this hooks-recipe sentence attributes a Reagent "
-    "`:contextType` to a hooks adapter (UIx / Helix). `:contextType` is "
-    "Reagent's class-component mechanism; the hooks adapters read the frame "
-    "through the `use-subscribe` / `use-frame` hooks (React context in hook "
-    "position) and have NO `:contextType`. `reg-view*` on these adapters is "
-    "optional registry addressing, never a source of a `:contextType`. State "
-    "the hooks spelling (or say the hooks adapters have *no* `:contextType`)."
+    'HOOKS-CONTEXTTYPE: this clause attributes a Reagent `:contextType` to a '
+    'hooks adapter (UIx / Helix) — "{clause}". `:contextType` is Reagent\'s '
+    "class-component mechanism; the hooks adapters read the frame through the "
+    "`use-subscribe` / `use-frame` hooks (React context in hook position) and "
+    "have NO `:contextType`. `reg-view*` on these adapters is optional registry "
+    "addressing, never a source of a `:contextType`. Either say the hooks "
+    "adapter has *no* `:contextType`, or split the Reagent comparison into a "
+    "separate clause (`;`, an em dash, or `, while` / `, whereas` / `, but`) so "
+    "the `:contextType` sits in the clause that names Reagent."
+)
+HOOKS_CONTEXTTYPE_AMBIGUOUS_MSG = (
+    "HOOKS-CONTEXTTYPE-OWNERLESS: this clause of a hooks-recipe sentence "
+    'attributes a `:contextType` but names neither adapter — "{clause}". '
+    "Inside a sentence that names UIx / Helix, an ownerless attribution reads "
+    "as the hooks adapter's, and `:contextType` is Reagent-only. Name the owner "
+    "in the clause (e.g. \"Reagent's `:contextType`\"), or split the sentence so "
+    "the clause carries its own subject."
 )
 HOOKS_REVERSAL_MSG = (
     "HOOKS-REVERSAL: this hooks-recipe sentence steers UIx / Helix authors AWAY "
@@ -562,19 +589,43 @@ HOOKS_CAPTURE_MSG = (
 )
 
 
+def contexttype_attribution_problem(sentence: str) -> str | None:
+    """Rule 6b(i) — WHO does this sentence attribute the `:contextType` to?
+
+    Clause-scoped, not sentence-scoped and not proximity-suppressed: a sentence
+    may lawfully hand `:contextType` to Reagent in one clause and the hooks
+    spelling to UIx / Helix in the next, so each clause is judged on the subject
+    it names. Only a sentence that mentions a hooks adapter is in scope at all.
+    """
+    if not HOOKS_ADAPTER_RE.search(sentence):
+        return None
+    for clause in CLAUSE_SPLIT_RE.split(sentence):
+        # Only a positive attribution of the token is a candidate; an explicit
+        # "no `:contextType`" and a Reagent-owned token are both lawful.
+        if not (CONTEXTTYPE_RE.search(clause) and CONTEXTTYPE_ATTRIB_RE.search(clause)):
+            continue
+        if CONTEXTTYPE_NEGATED_RE.search(clause) or REAGENT_OWNED_CONTEXTTYPE_RE.search(clause):
+            continue
+        if HOOKS_ADAPTER_RE.search(clause):
+            # The clause names the hooks adapter AND hands it the token.
+            return HOOKS_CONTEXTTYPE_MSG.format(clause=clause.strip())
+        if REAGENT_RE.search(clause):
+            # A Reagent clause is not a hooks clause — 6b(i) never judges it.
+            continue
+        # Ownerless: no subject in the clause, but the sentence is about a hooks
+        # adapter, so the attribution lands there by default. Ask for a rewrite.
+        return HOOKS_CONTEXTTYPE_AMBIGUOUS_MSG.format(clause=clause.strip())
+    return None
+
+
 def hooks_sentence_problems(sentence: str) -> list[str]:
     """Rule 6b — the residue shapes a hooks-recipe sentence must not carry."""
     problems: list[str] = []
 
     # (i) :contextType attributed to a hooks adapter.
-    if (
-        CONTEXTTYPE_RE.search(sentence)
-        and HOOKS_ADAPTER_RE.search(sentence)
-        and not CONTEXTTYPE_REAGENT_OWNED_RE.search(sentence)
-        and not CONTEXTTYPE_NEGATED_RE.search(sentence)
-        and CONTEXTTYPE_ATTRIB_RE.search(sentence)
-    ):
-        problems.append(HOOKS_CONTEXTTYPE_MSG)
+    contexttype_problem = contexttype_attribution_problem(sentence)
+    if contexttype_problem:
+        problems.append(contexttype_problem)
 
     # (ii) token-only semantic reversal.
     if REVERSAL_DISCOURAGE_RE.search(sentence) or REVERSAL_STEER_RE.search(sentence):
@@ -1303,12 +1354,87 @@ def _self_test() -> int:
         dirty=False, label="S6 lawful mixed recipe (reg-view* + Reagent capture) stays green",
     )
 
+    # --- Rule 6b(i) ATTRIBUTION SCOPE (rf2-xlxrl). The retired proximity
+    #     suppression pardoned an unlawful attribution merely for sitting near
+    #     the word "Reagent" (S7/S8 — the rf2-szw6c false negative, BOTH
+    #     directions, green on main) while flagging the corpus's own per-adapter
+    #     house style (S12 — red on main). Clause carving judges each clause by
+    #     the subject IT names, so both defects invert.
+    expect(
+        hooks_sentence_problems,
+        "On UIx / Helix, `reg-view*` gives the component a `:contextType`; the `reg-view` macro stays Reagent-flavoured.",
+        dirty=True,
+        label="S7 attribution hiding beside a lawful Reagent clause (szw6c false negative)",
+    )
+    expect(
+        hooks_sentence_problems,
+        "The macro stays Reagent-flavoured; UIx gets a `:contextType` too.",
+        dirty=True,
+        label="S8 same hole, Reagent clause first (szw6c false negative)",
+    )
+    # The ambiguity branch: a clause that attributes the token but names NEITHER
+    # adapter, inside a sentence that names a hooks adapter. Load-bearing — the
+    # Rule 6c block mutations below land in exactly this shape once carved.
+    expect(
+        hooks_sentence_problems,
+        "UIx is not special; reg-view* gives it `:contextType`.",
+        dirty=True,
+        label="S9 ownerless attribution in a hooks sentence (ambiguity branch)",
+    )
+    # LAWFUL shapes the repaired scope must accept — each is a real prose idiom,
+    # not a contrivance. S10 needs the token-adjacent possessive allowance (the
+    # 8-char negation window cannot reach across "get Reagent's").
+    expect(
+        hooks_sentence_problems,
+        "UIx components never get Reagent's `:contextType`.",
+        dirty=False, label="S10 token-adjacent Reagent possessive stays green",
+    )
+    expect(
+        hooks_sentence_problems,
+        "Reagent's wrapper gives the component `:contextType`, while UIx uses `use-frame`.",
+        dirty=False, label="S11 `, while` contrast clause stays green",
+    )
+    expect(
+        hooks_sentence_problems,
+        "On Reagent register it via `reg-view*`, which gives the class a `:contextType`; on UIx / Helix carry the frame with `use-frame`.",
+        dirty=False,
+        label="S12 per-adapter semicolon HOUSE STYLE (false positive on main) is green",
+    )
+    # A colon introduces an elaboration of the SAME subject, so it is not a
+    # clause boundary — S2 above must stay red. Its period variant is the
+    # ACCEPTED BOUNDARY: the sentence carve splits it and the attributing
+    # sentence names no hooks adapter, so nothing evaluates it. Consistent and
+    # statable; catching it would need a pronoun-resolving prose parser.
+    expect(
+        hooks_sentence_problems,
+        "UIx is not special. reg-view* gives it `:contextType`.",
+        dirty=True,
+        label="S13 period + lowercase does not split the sentence — still caught",
+    )
+
     # Mutations against the REAL guarded blocks (not free-floating strings):
     # each authoritative leaf's coherent recipe must be GREEN as shipped, its
     # coherence floor must be load-bearing, and each residue injected into the
     # real leaf text must turn it RED.
     def _leaf_scan(text: str) -> list[str]:
         return [p for _l, s in _hooks_sentences(text) for p in hooks_sentence_problems(s)]
+
+    # The szw6c false negative must also be caught by the real leaf scan (the
+    # sentence carve must not hand the attribution away before 6b(i) sees it).
+    expect(
+        _leaf_scan,
+        "On UIx / Helix, `reg-view*` gives the component a `:contextType`; the `reg-view` macro stays Reagent-flavoured.",
+        dirty=True, label="S14 szw6c false negative caught at leaf-scan scope",
+    )
+    # ACCEPTED BOUNDARY, pinned so a future reader knows it is a decision and
+    # not an oversight: once the sentence carve splits at `. ` + capital, the
+    # attributing sentence names no hooks adapter and 6b(i) never evaluates it.
+    expect(
+        _leaf_scan,
+        "UIx is not special. Reg-view* gives it `:contextType`.",
+        dirty=False,
+        label="S15 ACCEPTED BOUNDARY: pronoun attribution in a split-off sentence",
+    )
 
     residue_mutations = (
         ("reg-view-macro",
