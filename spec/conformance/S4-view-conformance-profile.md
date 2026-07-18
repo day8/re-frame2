@@ -68,15 +68,20 @@ inserts no wrapper node, stamps no attributes, and observes no DOM events. A
 presence-aware child owns its own exit styling and accessibility by reading
 `(ui/presence-phase)`.
 
-> **Sequencing — these rows track the POST-FIX presence grammar.** Two S4-epic
-> bugs are **open** and both change the *accepted* presence grammar:
-> `rf2-vxgfnd.96.1` (**P1** — keyed literal children are wrongly rejected) and
-> `rf2-vxgfnd.96.2` (**P2** — duplicate ownership identities are wrongly
-> accepted). The rows below state the grammar as ruled, which is the grammar
-> that will ship once both close; today's compiler rejects a keyed *literal*
-> child that these rows admit. **Closing both is part of the S4-conforming
-> declaration** — S4 cannot honestly be declared conforming over a known P1
-> presence grammar bug (see §8).
+> **These rows state the LANDED presence grammar.** The two S4-epic bugs that
+> changed the *accepted* grammar shipped in **#6331**: `rf2-vxgfnd.96.1` (keyed
+> literal children were wrongly **rejected** — the key-presence probe read an
+> `:element`'s key at the node rather than inside its analyzed props) and
+> `rf2-vxgfnd.96.2` (duplicate ownership identities were wrongly **accepted** —
+> two children of one boundary claiming one key now drop the later claimant
+> under the existing `:rf.error/ui-duplicate-key`, rather than aliasing the
+> first's phase and exit timer). The fragment correction `rf2-xoz1s`
+> (**#6337**) closed the last permissive path: `[:<> {} …]` reported its
+> *props map's* presence as a key, so a props-bearing but unkeyed fragment
+> passed the keyed-child requirement while offering the boundary no identity to
+> retain. The rows below are therefore the grammar the shipped compiler
+> enforces, and **no presence grammar bug is open** — which is what makes the
+> §8 declaration honest.
 
 | Form | Kind | Contract | Loud failure | Proven by |
 |---|---|---|---|---|
@@ -336,9 +341,12 @@ rows of §4; and none of the non-surfaces (§5). It must also be **S3-conforming
 this one. The gate arms in §6 and the suites named throughout are the executable
 acceptance; `scripts/test-fast-pr.sh` plus the S4 CI matrix run them.
 
-**S4 is not yet declarable conforming.** Two presence grammar bugs are open —
-`rf2-vxgfnd.96.1` (**P1**, keyed literal children wrongly rejected) and
-`rf2-vxgfnd.96.2` (**P2**, duplicate ownership identities wrongly accepted) —
-and both change the accepted presence grammar this profile's §1.1 rows state.
-**Closing both is part of the S4-conforming declaration**; the stage cannot
-honestly be declared conforming over a known P1 presence grammar bug.
+**S4 IS DECLARED CONFORMING** (`rf2-vxgfnd.96.3`). Every presence grammar bug
+that gated this declaration has shipped: `rf2-vxgfnd.96.1` and
+`rf2-vxgfnd.96.2` in **#6331**, and the `[:<> {} …]` fragment correction
+`rf2-xoz1s` in **#6337**. §1.1's rows therefore state the grammar the shipped
+compiler enforces, not a post-fix target, and the declaration rests on evidence
+this profile already carries — the **cumulative** inheritance of §0, the named
+proof homes of §1, the corpus rows of §4, and the two gate arms of §6, which
+are **all green**. The declaration is bounded by §5: S4 claims conformance for
+**none** of the S5 surfaces deferred there.
