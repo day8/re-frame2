@@ -18,6 +18,7 @@ const {
   assertCanonicalInventoryCovered,
 } = require('./check-bundle-isolation.cjs');
 const { assertSentinelSet } = require('./lib/sentinel-scan.cjs');
+const { listPublishableRuntimes } = require('./lib/publishable-runtimes.cjs');
 
 // Repo root, for cross-checking the lockstep script + real implementation/ tree.
 const REPO_ROOT = path.resolve(__dirname, '..', '..');
@@ -291,6 +292,89 @@ coverageMutations += 1;
     assert(valid.covered.some((c) => c.relPath === 'adapters/newpub' && c.via === 'dedicated'),
       'the validly-gated adapter is covered via its dedicated gate');
   });
+}
+
+// ----- inventory completeness + fail-closed read faults (rf2-o58c2) ----------
+// Bundle isolation now CONSUMES the shared authority's listPublishableRuntimes
+// (no second, narrower traversal), so a publishable runtime nested OUTSIDE
+// adapters/ — which the release lockstep enrols — is discovered and fails
+// closed if ungated. And an unexpected root / subtree / deps.edn read fault
+// THROWS (naming the path) instead of silently shrinking the inventory, while a
+// MISSING deps.edn stays a normal non-candidate.
+
+// Mutation 6 — NESTED NON-ADAPTER runtime (implementation/<x>/<y>/deps.edn with
+// a real :clein/build, x != adapters). The pre-rf2-o58c2 bundle-isolation walk
+// descended only into adapters/, so this reached release inventory (via the
+// authority) while escaping bundle coverage. Now both consumers enrol it by
+// exact relPath, and — ungated — it fails coverage closed.
+coverageMutations += 1;
+withFixture((root) => writeArtefact(root, 'plugins/widgets', PUBLISHABLE_DEPS), (root) => {
+  assert(listPublishableRuntimes(root).some((r) => r.relPath === 'plugins/widgets'),
+    'the release-lockstep authority enrols the nested non-adapter runtime');
+  const required = discoverBrowserOptionalRuntimes(root);
+  assert(required.some((rt) => rt.relPath === 'plugins/widgets'),
+    'bundle isolation must ALSO discover the nested non-adapter runtime (no narrower second traversal)');
+  const cov = assertCanonicalInventoryCovered(required);
+  assert(!cov.ok && cov.missing.some((rt) => rt.relPath === 'plugins/widgets'),
+    'an ungated nested non-adapter runtime fails coverage closed and is named');
+});
+
+// Mutation 7 — FAIL-CLOSED read faults. A missing deps.edn is a normal
+// non-candidate; a nonexistent root, an unreadable subtree, or an unreadable
+// deps.edn throws and names the path (so the lockstep CLI exits non-zero and the
+// bundle gate fails, rather than proving a shrunken inventory).
+coverageMutations += 1;
+
+// (a) Missing deps.edn: a directory with no deps.edn is NOT an error.
+withFixture((root) => fs.mkdirSync(path.join(root, 'nodeps')), (root) => {
+  assert.strictEqual(pathDeclaresBuildAlias(root, 'nodeps'), false,
+    'a directory with no deps.edn is a normal non-candidate (not an error)');
+});
+
+// (b) Nonexistent implementation root: throws (was a silent empty result → the
+// CLI exited 0 for a torn checkout).
+{
+  const ghostRoot = path.join(os.tmpdir(), `bundle-iso-nonexistent-${process.pid}-${Date.now()}`);
+  assert.throws(() => listPublishableRuntimes(ghostRoot), /cannot read implementation root/,
+    'a nonexistent implementation root must throw, not return an empty inventory');
+}
+
+// (c) Unreadable deps.edn: a deps.edn that is itself a DIRECTORY reproduces an
+// unexpected read fault (EISDIR) deterministically on every platform (POSIX
+// chmod is a no-op on Windows). Not an absence → throws naming the path, and
+// the whole enumeration fails closed.
+withFixture(
+  (root) => fs.mkdirSync(path.join(root, 'baddeps', 'deps.edn'), { recursive: true }),
+  (root) => {
+    assert.throws(() => pathDeclaresBuildAlias(root, 'baddeps'), /cannot read .*deps\.edn/,
+      'an unreadable deps.edn (not ENOENT) must throw, not be silently skipped');
+    assert.throws(() => listPublishableRuntimes(root), /cannot read .*deps\.edn/,
+      'the unreadable deps.edn makes the whole enumeration fail closed');
+  });
+
+// (d) Partial subtree EACCES: a subtree we listed as a directory but then can't
+// read must throw. Simulated with a scoped fs.readdirSync stub (deterministic +
+// cross-platform, since POSIX chmod does not block reads on Windows).
+{
+  const realReaddir = fs.readdirSync;
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'bundle-iso-eacces-'));
+  try {
+    writeArtefact(root, 'core', PUBLISHABLE_DEPS);
+    fs.mkdirSync(path.join(root, 'locked'), { recursive: true });
+    fs.readdirSync = (p, opts) => {
+      if (typeof p === 'string' && path.basename(p) === 'locked') {
+        const err = new Error('EACCES: permission denied');
+        err.code = 'EACCES';
+        throw err;
+      }
+      return realReaddir(p, opts);
+    };
+    assert.throws(() => listPublishableRuntimes(root), /cannot read subtree .*locked/,
+      'an EACCES on a partial subtree must fail closed and name the path');
+  } finally {
+    fs.readdirSync = realReaddir;
+    fs.rmSync(root, { recursive: true, force: true });
+  }
 }
 
 // Real-tree floor: the current implementation/ tree must be fully covered, every

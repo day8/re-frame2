@@ -58,13 +58,20 @@ function depsDeclaresBuildAlias(depsText) {
 }
 
 // True iff <root>/<relPath>/deps.edn declares a real `:clein/build` alias. A
-// missing/unreadable deps.edn file is not a publishable artefact directory.
+// MISSING deps.edn (the directory simply is not a publishable artefact) is a
+// normal non-candidate. Any OTHER read fault — an unreadable file (EACCES), a
+// deps.edn that is itself a directory (EISDIR), an I/O error — is NOT "absent":
+// it is a torn / permission-broken checkout, so we fail CLOSED and throw
+// naming the path rather than silently omitting a runtime that may be
+// publishable (which would shrink both the release and bundle proofs).
 function pathDeclaresBuildAlias(root, relPath) {
+  const depsPath = path.join(root, relPath, 'deps.edn');
   let depsText;
   try {
-    depsText = fs.readFileSync(path.join(root, relPath, 'deps.edn'), 'utf8');
-  } catch (_e) {
-    return false;
+    depsText = fs.readFileSync(depsPath, 'utf8');
+  } catch (err) {
+    if (err && (err.code === 'ENOENT' || err.code === 'ENOTDIR')) return false;
+    throw new Error(`cannot read ${depsPath}: ${err.message}`);
   }
   return depsDeclaresBuildAlias(depsText);
 }
@@ -72,26 +79,34 @@ function pathDeclaresBuildAlias(root, relPath) {
 // Every publishable artefact under `implRoot`, mirroring the release lockstep's
 // bounded `find -mindepth 2 -maxdepth 3 -name deps.edn` reach: every
 // implementation/<name>/deps.edn (depth 2) and implementation/<name>/<sub>/deps.edn
-// (depth 3 — the adapters live here). Returns `{ relPath }` records sorted by
-// relPath. No exclusions: callers filter for their own surface (the lockstep
-// keeps them all; the bundle-isolation gate drops the always-present / JVM-only
-// runtimes and re-groups adapters).
+// (depth 3 — the adapters live here, plus any other nested runtime). Returns
+// `{ relPath }` records sorted by relPath. No exclusions: callers filter for
+// their own surface (the lockstep keeps them all; the bundle-isolation gate
+// drops the always-present / JVM-only runtimes).
+//
+// Read faults FAIL CLOSED (rf2-o58c2): a nonexistent / unreadable root, or an
+// unreadable subtree we just listed as a directory, is a torn checkout or
+// permissions fault — NOT "no runtimes". Throwing (naming the path) makes both
+// consumers (release lockstep + bundle isolation) hard-fail instead of silently
+// proving a shrunken inventory. (A missing deps.edn stays a normal
+// non-candidate — see pathDeclaresBuildAlias.)
 function listPublishableRuntimes(implRoot) {
   const out = [];
   let top;
   try {
     top = fs.readdirSync(implRoot, { withFileTypes: true });
-  } catch (_e) {
-    return out;
+  } catch (err) {
+    throw new Error(`cannot read implementation root ${implRoot}: ${err.message}`);
   }
   for (const ent of top) {
     if (!ent.isDirectory()) continue;
     if (pathDeclaresBuildAlias(implRoot, ent.name)) out.push({ relPath: ent.name });
+    const subDir = path.join(implRoot, ent.name);
     let subs;
     try {
-      subs = fs.readdirSync(path.join(implRoot, ent.name), { withFileTypes: true });
-    } catch (_e) {
-      subs = [];
+      subs = fs.readdirSync(subDir, { withFileTypes: true });
+    } catch (err) {
+      throw new Error(`cannot read subtree ${subDir}: ${err.message}`);
     }
     for (const sub of subs) {
       if (!sub.isDirectory()) continue;
