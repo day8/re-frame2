@@ -402,9 +402,18 @@
   nil)
 
 (def ^:private slice-memo*
-  "CLJS module holder for the current synchronous render pass's probe-memo
-  handle (the JVM per-render scope is the thread-local `*slice*` above).
-  Released at the microtask checkpoint by `current-slice-memo`."
+  "CLJS module holder for the current SLICE's probe-memo handle (the JVM
+  per-render scope is the thread-local `*slice*` above). `current-slice-memo`
+  installs the handle lazily and arms a CAS clear at the host MICROTASK
+  checkpoint. That checkpoint is the holder's MAXIMUM lifetime, and what it
+  guarantees is exactly this: NO holder or table survives PAST it into the next
+  window (rf2-2g7pxq).
+
+  What is NOT guaranteed — do not build on it: that the holder spans exactly one
+  synchronous render pass. Its scope is the host-microtask WINDOW, so a later
+  synchronous render (or a caught-render retry) interposing BEFORE the clear
+  drains reuses the still-installed handle — a bounded economy, re-validated on
+  every table hit by the handle's own exact tag. See `current-slice-memo`."
   (atom nil))
 
 (defn ^:no-doc with-slice-memo
