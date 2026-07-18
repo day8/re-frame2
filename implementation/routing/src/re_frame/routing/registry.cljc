@@ -30,7 +30,7 @@
 ;; Per Spec 009 §The thrown-error shape — the :rf.error/id ex-data
 ;; contract. Every routing throw carries :rf.error/id (the canonical
 ;; discriminator), :where (the public surface fn symbol the caller
-;; wrote — 'rf/route-url, 'rf/match-url, 'rf/reg-route — so a grep
+;; wrote — 'rf.routing/route-url, 'rf.routing/match-url, 'rf/reg-route — so a grep
 ;; lands on the call site), :recovery, and a human-readable :reason.
 ;; Per-site slots (:route-id / :slot / :value / :error / :param / :url
 ;; / :limit / :count / :pattern) merge on top.
@@ -1434,7 +1434,7 @@
   (when (host-instant? v)
     (throw (route-error
              :rf.error/route-url-non-edn-value
-             'rf/route-url
+             'rf.routing/route-url
              (str "route " route-id " " (name slot) " value for " k
                   " is an instant / host Date — re-frame2 will not "
                   "host-stringify it into a URL (its host string is "
@@ -1452,7 +1452,7 @@
       (if (= :rf.error/non-edn-identity (:rf.error/id (ex-data ex)))
         (throw (route-error
                  :rf.error/route-url-non-edn-value
-                 'rf/route-url
+                 'rf.routing/route-url
                  (str "route " route-id " " (name slot) " value for " k
                       " is not a portable EDN identity (" (:bad-type (ex-data ex))
                       ") — re-frame2 will not host-stringify it into a URL "
@@ -1492,7 +1492,7 @@
     fragment
     (throw (route-error
              :rf.error/route-url-non-edn-value
-             'rf/route-url
+             'rf.routing/route-url
              (str "route " route-id " fragment must be a string or nil "
                   "(Spec 012 §Fragments: `match-url` returns a "
                   "<string-or-nil> fragment, so a non-string fragment has "
@@ -1592,7 +1592,7 @@
      (when (nil? pattern)
        (throw (route-error
                 :rf.error/no-such-route
-                'rf/route-url
+                'rf.routing/route-url
                 (str "no route is registered under id " route-id)
                 {:route-id route-id})))
      ;; Per Spec 012 §Bidirectional URL ↔ params: validate the caller's
@@ -1605,7 +1605,7 @@
        (when p-failed?
          (throw (route-error
                   :rf.error/route-url-validation
-                  'rf/route-url
+                  'rf.routing/route-url
                   (str "the supplied :params did not validate against route " route-id "'s :params schema")
                   {:route-id route-id
                    :slot     :params
@@ -1620,7 +1620,7 @@
        (when q-failed?
          (throw (route-error
                   :rf.error/route-url-validation
-                  'rf/route-url
+                  'rf.routing/route-url
                   (str "the supplied :query did not validate against route " route-id "'s :query schema")
                   {:route-id route-id
                    :slot     :query
@@ -1666,7 +1666,7 @@
              (if (= "" (str v))
                (throw (route-error
                         :rf.error/missing-route-param
-                        'rf/route-url
+                        'rf.routing/route-url
                         (str "route " route-id " requires a non-empty " kind " param " k
                              " but it was an empty string (a zero-length path segment "
                              "cannot round-trip through match-url)")
@@ -1678,7 +1678,7 @@
                (reject-empty-segment k kind v)
                (throw (route-error
                         :rf.error/missing-route-param
-                        'rf/route-url
+                        'rf.routing/route-url
                         (str "route " route-id " requires " kind " param " k " but it was absent (or nil)")
                         {:param k :route-id route-id}))))
            ;; Inner loop emits the body of an optional group whose params
@@ -1761,7 +1761,7 @@
                          (when elided?
                            (throw (route-error
                                     :rf.error/route-url-validation
-                                    'rf/route-url
+                                    'rf.routing/route-url
                                     (str "route " route-id
                                          " supplies a later optional group ("
                                          (str/join ", " (map keyword inner-names))

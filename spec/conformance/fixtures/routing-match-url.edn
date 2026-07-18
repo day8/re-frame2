@@ -1,5 +1,6 @@
 ;; Conformance fixture: routing/match-url
-;; The bidirectional URL ↔ params helpers (rf/match-url and rf/route-url)
+;; The bidirectional URL ↔ params helpers (rf.routing/match-url and
+;; rf.routing/route-url — owning-namespace functions, not `rf/` facade exports)
 ;; are pure functions. Pure-function tests; no frame, no dispatch.
 ;;
 ;; Per Spec 012 §Path-pattern grammar (canonical) and §Bidirectional URL ↔ params:

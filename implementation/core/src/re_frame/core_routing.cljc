@@ -12,28 +12,17 @@
    :maven         "day8/re-frame2-routing"
    :require-ns    "re-frame.routing"})
 
-(defwrapper match-url
-  "Per Spec 012 §Bidirectional URL ↔ params. Match a URL against
-  registered routes; return `{:route-id :params :query :fragment
-  :validation-failed?}` for the first match, or `nil` if no route
-  matches. The URL's `#fragment` portion (per Spec 012 §Fragments) is
-  parsed off the front and surfaced as `:fragment` (string or `nil`).
-  Late-bound via :routing/match-url."
-  {:hook :routing/match-url :artefact routing-artefact :on-absent :throw}
-  ([url] :delegate))
-
-(defwrapper route-url
-  "Per Spec 012 §Bidirectional URL ↔ params. Inverse of `match-url` —
-  build a URL string from a route-id + path-params (+ optional
-  query-params + optional fragment). The 4-arity form appends
-  `#fragment` to the URL when `fragment` is non-nil and non-empty
-  (per Spec 012 §Fragments §Programmatic navigation with fragments).
-  Late-bound via :routing/route-url."
-  {:hook :routing/route-url :artefact routing-artefact :on-absent :throw
-   :ex-data {:route-id route-id}}
-  ([route-id path-params]                       [route-id path-params {} nil])
-  ([route-id path-params query-params]          [route-id path-params query-params nil])
-  ([route-id path-params query-params fragment] :delegate))
+;; rf2-bcjpq5 / rf2-wad2fl: `match-url` / `route-url` are NOT facade
+;; exports. Per the czn2m0 D1 ruling the tiering rule is reg-* macros +
+;; primary ergonomic verbs on `rf/`, advanced query/codec functions in
+;; their owning namespace — so these two live only as
+;; `re-frame.routing/match-url` / `re-frame.routing/route-url`
+;; (consistent with resources / machines / schemas). The dormant
+;; `defwrapper`s that used to sit here — and their `:routing/match-url`
+;; / `:routing/route-url` late-bind hooks — are GONE; `re-frame.core`
+;; never exported them, so nothing consumed them. A routing app already
+;; requires `re-frame.routing` at boot, so there is no second public
+;; home to justify. Pre-alpha, no back-compat shim.
 
 (defwrapper reg-route
   "Fn-form delegate that performs the late-bind lookup for `reg-route`.

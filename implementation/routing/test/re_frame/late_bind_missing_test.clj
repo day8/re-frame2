@@ -101,3 +101,32 @@
                 "ex-data carries :where = 'rf/route-link")
             (is (= :no-recovery (:recovery data))
                 "ex-data carries :recovery = :no-recovery")))))))
+
+;; ===========================================================================
+;; rf2-bcjpq5 — the demotion is permanent: `match-url` / `route-url` are NOT
+;; `re-frame.core` exports.
+;;
+;; Per the czn2m0 D1 ruling the tiering rule is reg-* macros + primary
+;; ergonomic verbs on the `rf/` façade, advanced query/codec functions in
+;; their owning namespace. rf2-wad2fl demoted these two; rf2-bcjpq5 deleted
+;; the dormant `re-frame.core-routing` wrappers and their `:routing/match-url`
+;; / `:routing/route-url` late-bind hooks that no one consumed. This test
+;; makes a silent re-promotion fail loudly rather than quietly reopening a
+;; second public home.
+;; ===========================================================================
+
+(deftest url-codec-fns-are-not-facade-exports-rf2-bcjpq5
+  (testing "neither match-url nor route-url is public in re-frame.core"
+    (let [facade (ns-publics 're-frame.core)]
+      (is (nil? (get facade 'match-url))
+          "match-url is NOT a re-frame.core export — call rf.routing/match-url")
+      (is (nil? (get facade 'route-url))
+          "route-url is NOT a re-frame.core export — call rf.routing/route-url")))
+  (testing "both remain public on their owning namespace, re-frame.routing"
+    ;; Positive control: proves the assertions above are not vacuously green
+    ;; because of a typo or an unloaded namespace.
+    (let [owning (ns-publics 're-frame.routing)]
+      (is (some? (get owning 'match-url))
+          "re-frame.routing/match-url is the canonical home")
+      (is (some? (get owning 'route-url))
+          "re-frame.routing/route-url is the canonical home"))))

@@ -371,8 +371,10 @@
 
 (late-bind/set-fn! :routing/reg-route          reg-route)
 (late-bind/set-fn! :routing/clear-route        clear-route)
-(late-bind/set-fn! :routing/match-url          match-url)
-(late-bind/set-fn! :routing/route-url          route-url)
+;; rf2-bcjpq5: no :routing/match-url / :routing/route-url hooks — those two
+;; are not facade exports (czn2m0 D1), so core has nothing to late-bind to.
+;; Callers use `re-frame.routing/match-url` / `re-frame.routing/route-url`
+;; directly; a routing app requires this namespace at boot regardless.
 (late-bind/set-fn! :routing/reset-counters!    reset-counters!)
 ;; Reset hooks clear host-side routing state that a raw frame-container reset
 ;; cannot reach.

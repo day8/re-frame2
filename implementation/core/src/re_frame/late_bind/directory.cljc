@@ -482,12 +482,6 @@
    {:key         :routing/clear-route
     :producer-ns 're-frame.routing
     :description "Remove a registered route; emits :rf.route/cleared."}
-   {:key         :routing/match-url
-    :producer-ns 're-frame.routing
-    :description "Match a URL against the registered routes."}
-   {:key         :routing/route-url
-    :producer-ns 're-frame.routing
-    :description "Build a URL for a route by id + params."}
    {:key         :routing/reset-counters!
     :producer-ns 're-frame.routing
     :description "Reset the route-registration counter (test isolation)."}
