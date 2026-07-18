@@ -148,9 +148,11 @@
     - `:rf.error/frame-destroyed` is realm-AMBIGUOUS on the id alone (an
       event-id and a sub-id may legitimately SHARE a keyword — they live in
       SEPARATE registries), so it pivots on the exact operation realm the
-      record already carries in `op` (rf2-xgkgx — the PRIVATE steering input;
-      it is NOT read from any public schema slot, just the attribution `op`
-      the frame-bundle stale-op seam already stamps):
+      record already carries in `op` (rf2-xgkgx / rf2-a2x2w — the `:op` realm
+      attribution the record carries, RATIFIED PUBLIC wherever the realm is
+      known: the frame-bundle stale-op seam, the `capture-frame` pre-check
+      seam, and the router's late captured-op fences all stamp it — see
+      `router/emit-frame-destroyed!` and Spec 009 §Error contract):
         - `:dispatch` / `:dispatch-sync` → the failing op is a DISPATCH, so
           the coord lives under `[:event id]`.
         - `:subscribe`                   → a SUBSCRIBE, coord under `[:sub id]`.
@@ -258,9 +260,10 @@
            ;; categories) must resolve under `[:sub …]`, not the hardcoded
            ;; `[:event …]`. For the realm-ambiguous `:rf.error/frame-destroyed`
            ;; category the resolution ALSO pivots on the operation realm the
-           ;; record carries in its `:op` attribution — the private steering
-           ;; input (rf2-xgkgx), so a same-keyword event vs subscription is
-           ;; attributed to the correct realm. See [[error-source-coord]] /
+           ;; record carries in its `:op` attribution (rf2-xgkgx / rf2-a2x2w —
+           ;; the ratified-public `:op` realm slot, which also STEERS this
+           ;; source-coord resolution), so a same-keyword event vs subscription
+           ;; is attributed to the correct realm. See [[error-source-coord]] /
            ;; [[sub-error-categories]].
            source-coord (try
                           (error-source-coord error-kw event-id (:op attrs))

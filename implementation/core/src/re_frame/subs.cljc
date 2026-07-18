@@ -941,24 +941,41 @@
   error-emit — load cycle). Shared by BOTH seams of the one exact-incarnation
   captured subscribe operation — the outer `subscribe-in-frame` fence and the
   durable `build-and-cache!*` fence — so a stale capture emits identically
-  wherever the supersession is detected."
-  [frame-id query-v]
-  (when-let [emit-error-both!
-             (late-bind/get-fn-cached :error-emit/emit-error-both)]
-    (emit-error-both!
-      :rf.error/frame-destroyed
-      query-v                       ;; attempted query-vector (as :event)
-      (first query-v)               ;; sub-id (as :event-id)
-      frame-id
-      nil                           ;; no exception — invalid op
-      0                             ;; elapsed-ms
-      (interop/now-ms)              ;; time
-      {:frame    frame-id
-       :query-v  query-v
-       :recovery :replaced-with-default}))
-  ;; RECOVER to nil (the `:replaced-with-default` value the subscribe surfaces),
-  ;; independent of the emit hook's own return.
-  nil)
+  wherever the supersession is detected.
+
+  `op` (rf2-a2x2w) is the operation realm the emit carries. `:subscribe` for a
+  CAPTURED subscribe whose pinned incarnation was superseded — so
+  `error-emit/error-source-coord` resolves the `:source-coord` under the EXACT
+  `[:sub id]` realm and NEVER the realm-ambiguous `[:sub]`-then-`[:event]`
+  fallback (which, for a captured subscribe whose id is registered only as a
+  same-keyword EVENT, would steal that event's coord instead of OMITTING the
+  slot — the mechanism 7xlvt fixed for the pre-check seam, extended here to the
+  late subscribe fences). nil for an ORDINARY address-directed subscribe to a
+  missing/destroyed frame (no captured incarnation): that keeps the legacy
+  fallback — correct for a bare sub-id, whose `[:sub]`-first probe already hits
+  the right realm — and the tight record (no `:op` key), unchanged. When present
+  `:op` rides BOTH the dev-trace tags (axis 2) and the ratified-public always-on
+  record-attrs (axis 1), exactly like `router/emit-frame-destroyed!`."
+  ([frame-id query-v] (emit-frame-destroyed-recovery! frame-id query-v nil))
+  ([frame-id query-v op]
+   (when-let [emit-error-both!
+              (late-bind/get-fn-cached :error-emit/emit-error-both)]
+     (emit-error-both!
+       :rf.error/frame-destroyed
+       query-v                       ;; attempted query-vector (as :event)
+       (first query-v)               ;; sub-id (as :event-id)
+       frame-id
+       nil                           ;; no exception — invalid op
+       0                             ;; elapsed-ms
+       (interop/now-ms)              ;; time
+       (cond-> {:frame    frame-id
+                :query-v  query-v
+                :recovery :replaced-with-default}
+         op (assoc :op op))          ;; dev-trace tags (axis 2)
+       (when op {:op op})))          ;; always-on record realm attribution (axis 1)
+   ;; RECOVER to nil (the `:replaced-with-default` value the subscribe surfaces),
+   ;; independent of the emit hook's own return.
+   nil))
 
 (defn- build-and-cache!*
   "Build the reaction for query-v and cache it. Per Spec 006 §Lookup
@@ -1016,8 +1033,11 @@
      ;; rf2-7w1im: the captured incarnation was superseded between the outer
      ;; subscribe-in-frame comparison and this durable build — recover-but-emit
      ;; and DO NOT read/build/cache into the same-id successor (identical posture
-     ;; to the outer fence; one exact-incarnation operation).
-     (do (emit-frame-destroyed-recovery! frame-id query-v) nil)
+     ;; to the outer fence; one exact-incarnation operation). rf2-a2x2w: this
+     ;; branch is CAPTURED-only (guarded by `some? expected-incarnation` above),
+     ;; so it carries the `:subscribe` realm — the resolved `:source-coord` names
+     ;; the EXACT `[:sub id]` realm, never the realm-ambiguous fallback.
+     (do (emit-frame-destroyed-recovery! frame-id query-v :subscribe) nil)
      ;; else — the existing build, against the validated `frame-record` for a
      ;; captured read (never a bare-id re-resolve), or re-resolved by id for the
      ;; unchanged ambient/address-directed path.
@@ -1577,7 +1597,15 @@
          ;; nil `expected-incarnation` leaves the clause a pure
          ;; `(nil? frame-record)` test.
          (or (nil? frame-record) superseded?)
-         (emit-frame-destroyed-recovery! frame-id query-v)   ;; emits, returns nil
+         ;; rf2-a2x2w: carry the `:subscribe` realm ONLY when this rejection is a
+         ;; CAPTURED subscribe (`some? expected-incarnation` — either superseded,
+         ;; or a captured pin whose frame is now fully missing) so the resolved
+         ;; `:source-coord` names the EXACT `[:sub id]` realm and omits when the
+         ;; sub-id is genuinely unregistered. An ORDINARY address-directed
+         ;; subscribe to a missing frame (nil `expected-incarnation`) carries nil
+         ;; → legacy fallback, unchanged.
+         (emit-frame-destroyed-recovery!
+           frame-id query-v (when (some? expected-incarnation) :subscribe))   ;; emits, returns nil
 
          :else
          (let [cache (:sub-cache frame-record)
