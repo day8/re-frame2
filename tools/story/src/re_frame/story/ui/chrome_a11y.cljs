@@ -90,19 +90,50 @@
   (r/atom []))
 
 (defonce
-  ^{:doc "Run state: :idle|:loading|:running|:done|:error|:no-root|:no-consent.
-         Mirrors the per-frame run-state slot in `ui/a11y.cljs` for UX
-         parity with the variant panel."}
+  ^{:doc "Run state, `{:status … :token …}`. `:status` is
+         `:idle|:loading|:running|:done|:error|:no-root|:no-consent`;
+         read it through `status`.
+
+         `:token` identifies the run currently OWNING the chrome scan —
+         see `a11y/new-run-token` and `stale-run?` below. Mirrors the
+         per-frame run-state slot in `ui/a11y.cljs` for UX parity with
+         the variant panel, and fences the same way."}
   run-state
-  (r/atom :idle))
+  (r/atom {:status :idle}))
+
+(defn status
+  "The run status the panel renders."
+  []
+  (:status @run-state :idle))
+
+(defn- stale-run?
+  "True when the run carrying `token` no longer owns the chrome scan.
+
+  The singleton counterpart of `a11y/stale-run?`, and narrower for it:
+  the chrome slot is one atom that always exists, so there is no
+  teardown-resurrection to refuse — only supersession. A run loses the
+  slot when a newer `run-axe!` claims it, or when `reset-state!` returns
+  the panel to `:idle`, both of which replace the token.
+
+  Same reasoning as the variant panel: the hazard is a run outliving its
+  claim, so the fence compares a captured value to the LIVE slot rather
+  than conveying a binding that would agree with itself. Carrying the
+  token IN the slot is what makes `reset-state!` revoke it for free."
+  [token]
+  (let [live (:token @run-state)]
+    (not (and (some? token) (identical? token live)))))
 
 (defn reset-state!
   "Test-fixture helper. Clears the violations vector + resets the run-
   state to :idle. The CDN opt-in is NOT cleared (that's the variant
-  panel's concern + a persisted user decision)."
+  panel's concern + a persisted user decision).
+
+  Resetting also revokes any in-flight run's claim, so a scan still
+  pending when the panel is reset settles into nothing rather than
+  reinstating its verdict over the cleared state."
   []
   (reset! violations [])
-  (reset! run-state :idle)
+  (reset! run-state {:status :idle})
   nil)
 
 ;; ---- Use-system-colors? toggle ------------------------------------------
@@ -289,7 +320,7 @@
      ;; flag any pre-shell content the page hosts).
      (nil? context)
      (do
-       (reset! run-state :no-root)
+       (reset! run-state {:status :no-root})
        (js/console.warn
          "[story.chrome-a11y] no chrome root found"
          "— the Story shell does not appear to be mounted.")
@@ -299,32 +330,46 @@
      ;; consent approves both panels.
      (not (a11y/cdn-opt-in?))
      (do
-       (reset! run-state :no-consent)
+       (reset! run-state {:status :no-consent})
        (js/Promise.resolve nil))
 
      :else
-     (do
-       (reset! run-state :loading)
+     ;; SUPERSESSION FENCE (rf2-2amkm) — the variant panel's fence over
+     ;; this panel's singleton slot. Every mutation on the far side of an
+     ;; await is gated on the token claimed here, in the same synchronous
+     ;; turn as the mutation it guards.
+     (let [token (a11y/new-run-token)]
+       (reset! run-state {:status :loading :token token})
        (-> (a11y/ensure-axe-loaded!)
            (.then
              (fn [^js axe]
-               (reset! run-state :running)
-               (.run axe context)))
+               ;; A superseded run declines to SCAN, not merely to
+               ;; record — its findings would belong to nobody.
+               (when-not (stale-run? token)
+                 (reset! run-state {:status :running :token token})
+                 (.run axe context))))
            (.then
              (fn [^js results]
-               (let [vs        (.-violations results)
-                     scope-el  (when (and (some? context)
-                                          (some? (.-nodeType context)))
-                                 context)]
-                 (reset! violations (vec (array-seq vs)))
-                 (doseq [v (array-seq vs)]
-                   (a11y/record-violation-overlay! scope-el v)
-                   (a11y/emit-warning-for-violation chrome-frame-id v))
-                 (reset! run-state :done)
-                 vs)))
+               ;; `results` is nil only when the fence above declined,
+               ;; and staleness is one-way, so this fence has refused by
+               ;; then too — the nil never reaches `.-violations`.
+               (when-not (stale-run? token)
+                 (let [vs        (.-violations results)
+                       scope-el  (when (and (some? context)
+                                            (some? (.-nodeType context)))
+                                   context)]
+                   (reset! violations (vec (array-seq vs)))
+                   (doseq [v (array-seq vs)]
+                     (a11y/record-violation-overlay! scope-el v)
+                     (a11y/emit-warning-for-violation chrome-frame-id v))
+                   (reset! run-state {:status :done :token token})
+                   vs))))
            (.catch
              (fn [e]
-               (reset! run-state :error)
+               ;; State write fenced, console line not — see the variant
+               ;; panel's `.catch` for why the diagnostic survives.
+               (when-not (stale-run? token)
+                 (reset! run-state {:status :error :token token}))
                (js/console.error "[story.chrome-a11y]" e)
                nil)))))))
 
@@ -446,7 +491,7 @@
   [_variant-id]
   (a11y/ensure-stylesheet!)
   (let [vs    @violations
-        state @run-state
+        state (status)
         busy? (or (= state :loading) (= state :running))]
     [:div {:style (:wrap styles) :data-test "story-chrome-a11y-panel"}
      [:div {:style (:header styles)}

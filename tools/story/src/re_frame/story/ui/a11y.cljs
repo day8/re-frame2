@@ -64,15 +64,33 @@
   (r/atom {}))
 
 (defonce
-  ^{:doc "Per-frame run state.
-         `{frame-id → :idle|:loading|:running|:done|:error|:no-root|:no-consent}`.
-         `:no-consent` means the dev hasn't approved the CDN load yet."}
+  ^{:doc "Per-frame run state. `{frame-id → {:status … :token …}}`.
+
+         `:status` is `:idle|:loading|:running|:done|:error|:no-root|
+         :no-consent`; `:no-consent` means the dev hasn't approved the
+         CDN load yet. Read it through `status-for`, which supplies
+         `:idle` for a frame with no slot.
+
+         `:token` is the identity of the run currently OWNING this
+         frame's scan (see `new-run-token`). Present only while a run is
+         in flight or has finished; the synchronous refusals
+         (`:no-root` / `:no-consent`) claim no run and carry none."}
   run-state
   (r/atom {}))
 
+(defn status-for
+  "The run status the panel renders for `frame-id`. A frame with no slot
+  — never scanned, or torn down — reads `:idle`."
+  [frame-id]
+  (:status (get @run-state frame-id) :idle))
+
 (defn drop-frame-state!
   "Clear all a11y state for `frame-id`. Called from the canvas /
-  shell teardown when a variant frame is destroyed."
+  shell teardown when a variant frame is destroyed.
+
+  Dropping the slot also revokes any in-flight run's claim on it: the
+  run's token no longer matches, so its settlement is refused rather
+  than resurrecting the frame (see `stale-run?`)."
   [frame-id]
   (swap! violations-by-frame dissoc frame-id)
   (swap! run-state           dissoc frame-id)
@@ -112,6 +130,80 @@
   (reset! violations-by-frame {})
   (reset! run-state {})
   nil)
+
+;; ---- the supersession fence ---------------------------------------------
+;;
+;; An axe run is asynchronous twice over: it awaits the CDN load, then
+;; awaits the scan. Across either gap the frame can be torn down
+;; (`drop-frame-state!`, `reset-state!`) or a newer `run-axe!` can claim
+;; the same frame. A settlement that mutates the run-state slot without
+;; re-checking it therefore lands on a surface that is no longer its own.
+;;
+;; WHAT THAT COSTS, and why it is not a crash (rf2-2amkm, the shape
+;; rf2-6pfpt measured on the play-runner's sibling path): under teardown
+;; the mutation does not throw. `(swap! run-state assoc frame-id :done)`
+;; over a map the frame was dissoc'd from RESURRECTS the entry — a
+;; phantom slot reading `:done`, alongside a resurrected
+;; `violations-by-frame` entry that the below-the-UI executor seam
+;; (`browser/register-a11y-reader!`) then serves to `:rf.assert/a11y`.
+;; A scan of a frame that is gone reporting a clean verdict; a fabricated
+;; green, not a hang.
+;;
+;; WHY A TOKEN IN THE SLOT rather than a conveyed binding. The hazard is
+;; a run OUTLIVING its claim, not a claim failing to reach a callback —
+;; the inverse of the conveyance problem. The claim already arrives
+;; everywhere it is needed (the closures capture it); what it must be
+;; checked AGAINST is the LIVE slot, and a `^:dynamic` Var or any other
+;; conveyed mechanism cannot do that — conveyed into the callback, it
+;; would agree with the callback by construction. So: a plain value,
+;; compared to the world as it now is.
+;;
+;; WHY THE TOKEN LIVES IN THE SLOT rather than beside it. Carrying it in
+;; the run-state value makes "does the slot still exist" and "is it still
+;; mine" ONE question with ONE answer, and gives the fence no separate
+;; lifecycle to keep in step: every present and future path that clears a
+;; frame's state invalidates its token by construction, with nothing to
+;; remember to bump. A side atom would have to be cleared at each of
+;; those sites, and a site that forgot would silently ADMIT a stale
+;; settlement.
+
+(defn new-run-token
+  "Mint a fresh identity for ONE axe run. Shared with the chrome panel
+  (`ui/chrome-a11y`), which fences the same way over its own slot.
+
+  A bare JS object: unforgeable, allocation-cheap, and distinguishable
+  by `identical?` alone — no counter to maintain and no equality to
+  collide. Identity is the whole point, and the reason the fences below
+  use `identical?` rather than `=`: two runs of the same frame are
+  legitimately EQUAL in every other respect and must still be told
+  apart."
+  []
+  #js {})
+
+(defn- stale-run?
+  "True when the run carrying `token` no longer owns `frame-id`'s slot,
+  and must therefore mutate nothing.
+
+  The two ways to lose the slot collapse into one comparison:
+
+    - the slot is GONE — the frame was torn down mid-run, so there is no
+      live token to match;
+    - the slot carries a DIFFERENT token — a newer `run-axe!` claimed it,
+      and that run's verdict is the one the panel owes the dev.
+
+  A token-less caller never owns the slot: ownership requires holding a
+  real token AND its being the one in the slot. (This is deliberately
+  stricter than the play-runner's `stale-run?`, which treats a
+  token-LESS slot as still-owned so hand-seeded run states predating the
+  token scheme keep working. There is no such caller here — every a11y
+  run is minted by `run-axe!` — so the stricter rule costs nothing and
+  refuses more.)
+
+  Staleness is one-way: tokens are minted fresh per run and never
+  re-stamped, so a run that has lost the slot can never regain it."
+  [frame-id token]
+  (let [live (:token (get @run-state frame-id))]
+    (not (and (some? token) (identical? token live)))))
 
 ;; ---- axe-core CDN load (opt-in) -----------------------------------------
 ;;
@@ -363,7 +455,7 @@
      ;; degraded state instead of silently scanning the wrong tree.
      (nil? context)
      (do
-       (swap! run-state assoc frame-id :no-root)
+       (swap! run-state assoc frame-id {:status :no-root})
        (js/console.warn
          "[story.a11y] no variant root found for"
          (pr-str frame-id)
@@ -376,32 +468,53 @@
      ;; that explains the egress) before re-invoking `run-axe!`.
      (not (cdn-opt-in?))
      (do
-       (swap! run-state assoc frame-id :no-consent)
+       (swap! run-state assoc frame-id {:status :no-consent})
        (js/Promise.resolve nil))
 
      :else
-     (do
-       (swap! run-state assoc frame-id :loading)
+     ;; SUPERSESSION FENCE (rf2-2amkm). Claiming the slot and every later
+     ;; mutation of it are gated on ONE token — see `stale-run?` for the
+     ;; full rationale. Each check sits in the SAME synchronous turn as
+     ;; the mutation it guards, so nothing can take the slot between
+     ;; them.
+     (let [token (new-run-token)]
+       (swap! run-state assoc frame-id {:status :loading :token token})
        (-> (ensure-axe-loaded!)
            (.then
              (fn [^js axe]
-               (swap! run-state assoc frame-id :running)
-               (.run axe context)))
+               ;; First gap: the CDN load. A run that lost the slot here
+               ;; also declines to SCAN — not merely to record. There is
+               ;; nothing to learn from axe-core about a torn-down tree,
+               ;; and a superseded run's findings belong to nobody.
+               (when-not (stale-run? frame-id token)
+                 (swap! run-state assoc frame-id {:status :running :token token})
+                 (.run axe context))))
            (.then
              (fn [^js results]
-               (let [vs        (.-violations results)
-                     scope-el  (when (and (some? context)
-                                          (some? (.-nodeType context)))
-                                 context)]
-                 (swap! violations-by-frame assoc frame-id (vec (array-seq vs)))
-                 (doseq [v (array-seq vs)]
-                   (record-violation-overlay! scope-el v)
-                   (emit-warning-for-violation frame-id v))
-                 (swap! run-state assoc frame-id :done)
-                 vs)))
+               ;; Second gap: the scan itself. `results` is nil only when
+               ;; the fence above already declined, and staleness is
+               ;; one-way, so this fence has necessarily refused by then
+               ;; too — the nil never reaches `.-violations`.
+               (when-not (stale-run? frame-id token)
+                 (let [vs        (.-violations results)
+                       scope-el  (when (and (some? context)
+                                            (some? (.-nodeType context)))
+                                   context)]
+                   (swap! violations-by-frame assoc frame-id (vec (array-seq vs)))
+                   (doseq [v (array-seq vs)]
+                     (record-violation-overlay! scope-el v)
+                     (emit-warning-for-violation frame-id v))
+                   (swap! run-state assoc frame-id {:status :done :token token})
+                   vs))))
            (.catch
              (fn [e]
-               (swap! run-state assoc frame-id :error)
+               ;; The STATE write is fenced; the console line is not. A
+               ;; failed CDN load (offline, CSP, SRI mismatch) is real
+               ;; diagnostic information about the dev's environment even
+               ;; when the run that hit it has been superseded, and
+               ;; swallowing it would hide a genuine misconfiguration.
+               (when-not (stale-run? frame-id token)
+                 (swap! run-state assoc frame-id {:status :error :token token}))
                (js/console.error "[story.a11y]" e)
                nil)))))))
 
@@ -558,7 +671,7 @@
   [variant-id]
   (ensure-stylesheet!)
   (let [vs    (get @violations-by-frame variant-id [])
-        state (get @run-state           variant-id :idle)
+        state (status-for variant-id)
         busy? (or (= state :loading) (= state :running))]
     [:div {:style (:wrap styles)}
      [:div {:style (:header styles)}
