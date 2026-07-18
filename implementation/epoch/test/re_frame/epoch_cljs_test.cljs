@@ -659,24 +659,17 @@
       (is (zero? (vxgfnd285-total-marks))
           "reset-listeners! clears the terminal-silence lineage, not just the registry"))))
 
-;; ---- rf2-6ys5n — public generation query self-filters a superseded silence -
+;; ---- rf2-6ys5n / rf2-uhouu — the public receiver decision self-filters -----
 
-(deftest epoch-listener-generation-public-self-filter-cljs
-  (testing "rf2-6ys5n (CLJS peer of the JVM public-boundary suite) — the
-            generation-qualified silence self-filter is implementable through the
-            SUPPORTED public API on the CLJS host too. Reaches for NO private
-            state (no `listeners-snapshot`): only `re-frame.core` /
-            `re-frame.epoch` public vars."
-    ;; Pure query: registered → some; absent → nil; replacement → distinct.
-    (is (nil? (rf/epoch-listener-generation ::never-cljs)))
-    (rf/register-listener! :epoch ::probe-cljs (fn [_] nil))
-    (let [g1 (rf/epoch-listener-generation ::probe-cljs)]
-      (is (some? g1))
-      (rf/register-listener! :epoch ::probe-cljs (fn [_] nil))
-      (is (not= g1 (rf/epoch-listener-generation ::probe-cljs))
-          "a same-id replacement mints a distinct generation")
-      (rf/unregister-listener! :epoch ::probe-cljs)
-      (is (nil? (rf/epoch-listener-generation ::probe-cljs))))
+(deftest epoch-silence-current-public-self-filter-cljs
+  (testing "rf2-6ys5n + rf2-uhouu (CLJS peer of the JVM public-boundary suite) —
+            the silence self-filter is implementable through the SUPPORTED public
+            API on the CLJS host too, as ONE call. Reaches for NO private state
+            (no `listeners-snapshot`): only `re-frame.core` public vars."
+    ;; Boundary: a signal that names no live registration is never current.
+    (is (false? (rf/epoch-silence-current?
+                  {:cb-id ::never-cljs :frame :test/nowhere-cljs :observed-gen 1}))
+        "an unregistered cb-id is never current")
 
     ;; Real emitted silence self-filters at the public boundary.
     (rf/make-frame {:id :test/short-lived-cljs})
@@ -685,77 +678,67 @@
       (rf/register-listener! :trace ::recorder6 (fn [ev] (swap! recorded conj ev)))
       (rf/register-listener! :epoch ::watcher6 (fn [_] nil))
       (rf/dispatch-sync [:seed6] {:frame :test/short-lived-cljs})
-      (let [g-observed (rf/epoch-listener-generation ::watcher6)]
-        (rf/destroy-frame! :test/short-lived-cljs)
-        (let [tags (->> @recorded
-                        (filter #(= :rf.epoch.cb/silenced-on-frame-destroy
-                                    (:operation %)))
-                        first
-                        :tags)]
-          (is (= g-observed (:observed-gen tags))
-              "the silence names the generation that observed the frame")
-          ;; Current registration: the live signal is accepted.
-          (is (= (:observed-gen tags) (rf/epoch-listener-generation ::watcher6))
-              "the live signal matches the cb's current generation — APPLY")
-          ;; Supersede (G→H) through the public verb; the same signal self-filters.
-          (rf/register-listener! :epoch ::watcher6 (fn [_] nil))
-          (is (not= (:observed-gen tags) (rf/epoch-listener-generation ::watcher6))
-              "the superseded signal no longer matches the current generation — DISCARD")))
-      (rf/unregister-listener! :trace ::recorder6)
-      (rf/unregister-listener! :epoch ::watcher6))))
+      (rf/destroy-frame! :test/short-lived-cljs)
+      (let [tags (->> @recorded
+                      (filter #(= :rf.epoch.cb/silenced-on-frame-destroy
+                                  (:operation %)))
+                      first
+                      :tags)]
+        (is (some? tags) "a silence fired for the destroyed frame")
+        (is (contains? tags :observed-gen) "the signal is generation-qualified")
+        ;; Current registration: the live signal is accepted.
+        (is (true? (rf/epoch-silence-current? tags))
+            "the live signal names a current fact — APPLY")
+        ;; Supersede (G→H) through the public verb; the same signal self-filters.
+        (rf/register-listener! :epoch ::watcher6 (fn [_] nil))
+        (is (false? (rf/epoch-silence-current? tags))
+            "the superseded signal is no longer current — DISCARD")
+        ;; An unregister-drop is the same kind of mutation.
+        (rf/unregister-listener! :epoch ::watcher6)
+        (is (false? (rf/epoch-silence-current? tags))
+            "a dropped registration is never current"))
+      (rf/unregister-listener! :trace ::recorder6))))
 
-(deftest epoch-listener-observing-supersedes-a-same-generation-silence-cljs
+(deftest epoch-silence-current-supersedes-a-same-generation-rearm-cljs
   (testing "rf2-qg98y (CLJS peer) — a silence whose `:observed-gen` still matches
             can nonetheless be SUPERSEDED by a fresh delivery on the same
-            registration, because a delivery mints no generation. Clause 1 alone
-            accepts it; the two-clause supported receiver rule rejects it. Public
-            API only — no private state."
-    (let [rule (fn [tags]
-                 (and (= (:observed-gen tags)
-                         (rf/epoch-listener-generation (:cb-id tags)))
-                      (not (rf/epoch-listener-observing? (:cb-id tags) (:frame tags)))))]
-      ;; --- the query's own boundary behaviour ---
-      (is (false? (rf/epoch-listener-observing? ::never-obs-cljs :test/nowhere-cljs))
-          "an unregistered listener observes nothing")
-      (rf/register-listener! :epoch ::watcher7 (fn [_] nil))
-      (is (false? (rf/epoch-listener-observing? ::watcher7 :test/churn-cljs))
-          "a registered listener that consumed no record observes nothing")
+            registration, because a delivery mints no generation. Registration
+            identity alone accepts it; the supported decision — which weighs
+            observation continuum in the SAME operation (rf2-uhouu) — rejects it.
+            Public API only, one call, no private state."
+    (rf/register-listener! :epoch ::watcher7 (fn [_] nil))
+    (rf/reg-event :seed7 (fn [{:keys [db]} _] {:db {:n 0}}))
+    (rf/make-frame {:id :test/churn-cljs})
+    (let [recorded (atom [])]
+      (rf/register-listener! :trace ::recorder7 (fn [ev] (swap! recorded conj ev)))
+      (rf/dispatch-sync [:seed7] {:frame :test/churn-cljs})
+      (rf/destroy-frame! :test/churn-cljs)
+      (let [tags (->> @recorded
+                      (filter #(= :rf.epoch.cb/silenced-on-frame-destroy
+                                  (:operation %)))
+                      first
+                      :tags)]
+        (is (some? tags) "the destroy emitted a silence")
+        (is (true? (rf/epoch-silence-current? tags))
+            "the destroy dropped the observation — the callback IS silent, ACCEPT")
 
-      (rf/reg-event :seed7 (fn [{:keys [db]} _] {:db {:n 0}}))
-      (rf/make-frame {:id :test/churn-cljs})
-      (let [recorded (atom [])]
-        (rf/register-listener! :trace ::recorder7 (fn [ev] (swap! recorded conj ev)))
+        ;; A same-id SUCCESSOR frame re-arms the SAME registration — no
+        ;; replacement, so no new generation. A consumer processing the trace
+        ;; stream after this point must not still read the silence as current.
+        (rf/make-frame {:id :test/churn-cljs})
         (rf/dispatch-sync [:seed7] {:frame :test/churn-cljs})
-        (is (true? (rf/epoch-listener-observing? ::watcher7 :test/churn-cljs))
-            "after consuming a record it observes that frame")
-        (is (false? (rf/epoch-listener-observing? ::watcher7 :test/other-cljs))
-            "and only that frame")
-
-        (rf/destroy-frame! :test/churn-cljs)
-        (let [tags (->> @recorded
-                        (filter #(= :rf.epoch.cb/silenced-on-frame-destroy
-                                    (:operation %)))
-                        first
-                        :tags)]
-          (is (some? tags) "the destroy emitted a silence")
-          (is (false? (rf/epoch-listener-observing? ::watcher7 :test/churn-cljs))
-              "the destroy dropped the observation — the callback IS silent")
-          (is (true? (rule tags)) "so a receiver applying the rule ACCEPTS it")
-
-          ;; A same-id SUCCESSOR frame re-arms the SAME registration — no
-          ;; replacement, so no new generation. A consumer processing the trace
-          ;; stream after this point must not still read the silence as current.
-          (rf/make-frame {:id :test/churn-cljs})
-          (rf/dispatch-sync [:seed7] {:frame :test/churn-cljs})
-          (is (= (:observed-gen tags) (rf/epoch-listener-generation ::watcher7))
-              "clause 1 STILL MATCHES — a delivery mints no generation (the gap)")
-          (is (true? (rf/epoch-listener-observing? ::watcher7 :test/churn-cljs))
-              "but the callback is receiving records from that frame again")
-          (is (false? (rule tags))
-              "so the two-clause rule REJECTS the superseded silence")
-          (rf/destroy-frame! :test/churn-cljs))
-        (rf/unregister-listener! :trace ::recorder7)
-        (rf/unregister-listener! :epoch ::watcher7)))))
+        (is (false? (rf/epoch-silence-current? tags))
+            "the callback is receiving records from that frame again — REJECT,
+             even though the carried generation still matches")
+        ;; Frame-scoped: the re-arm on :test/churn-cljs must not suppress a
+        ;; silence owed for a DIFFERENT frame. A cb-scoped decision would swallow
+        ;; every silence a busy multi-frame tool listener is owed.
+        (is (true? (rf/epoch-silence-current? (assoc tags :frame :test/other-cljs)))
+            "the decision is (cb, frame)-scoped — a re-arm on one frame does not
+             mask another frame's silence")
+        (rf/destroy-frame! :test/churn-cljs))
+      (rf/unregister-listener! :trace ::recorder7)
+      (rf/unregister-listener! :epoch ::watcher7))))
 
 ;; ---- rf2-oh1y8 — nil-evidence cleanup across every owned store, CLJS host ---
 ;;
@@ -920,26 +903,27 @@
 (deftest non-keyword-comparable-cb-id-round-trips-through-silencing-cljs
   (testing "rf2-4go8s (CLJS) — `register-epoch-listener!` accepts ANY comparable
             value as the listener id, not only keyword|string. A NON-KEYWORD id
-            (a vector) registers, answers the generation query, and is emitted
-            VERBATIM as the silencing signal's `:cb-id` — raw-ID preservation —
-            and the generation self-filter works identically on it. This is the
+            (a vector) registers, mints a generation, and is emitted VERBATIM as
+            the silencing signal's `:cb-id` — raw-ID preservation — and the
+            supported receiver decision works identically on it. This is the
             end-to-end proof the emitted `:cb-id` domain is the same comparable-ID
             domain the public register/query API accepts (Spec-Schemas
             EpochCbSilencedOnFrameDestroyTags :cb-id :any, widened from the stale
             keyword|string narrowing)."
     (let [cb-id [:my-app/epoch-log 7]]         ; a vector — NOT a keyword|string
-      (is (nil? (rf/epoch-listener-generation cb-id))
-          "an unregistered non-keyword id has no generation")
+      (is (false? (rf/epoch-silence-current?
+                    {:cb-id cb-id :frame :test/non-kw-cljs :observed-gen 1}))
+          "an unregistered non-keyword id names no live registration")
       (rf/make-frame {:id :test/non-kw-cljs})
       (rf/reg-event :seed-nonkw (fn [{:keys [db]} _] {:db {:n 0}}))
       (let [recorded (atom [])]
         (rf/register-listener! :trace ::recorder-nonkw (fn [ev] (swap! recorded conj ev)))
         (rf/register-listener! :epoch cb-id (fn [_] nil))
-        (is (some? (rf/epoch-listener-generation cb-id))
-            "the non-keyword id answers the generation query once registered")
         ;; Observe the frame under the live generation, then destroy it.
         (rf/dispatch-sync [:seed-nonkw] {:frame :test/non-kw-cljs})
-        (let [g-observed (rf/epoch-listener-generation cb-id)]
+        (let [g-observed (get-in (state/listeners-snapshot) [cb-id :generation])]
+          (is (some? g-observed)
+              "the non-keyword id minted a generation on registration")
           (rf/destroy-frame! :test/non-kw-cljs)
           (let [tags (->> @recorded
                           (filter #(= :rf.epoch.cb/silenced-on-frame-destroy
@@ -954,11 +938,12 @@
                 "and it is genuinely a non-keyword comparable value")
             (is (= g-observed (:observed-gen tags))
                 "the silence names the generation that observed the frame")
-            ;; GENERATION-QUALIFIED SELF-FILTER on the non-keyword id.
-            (is (= (:observed-gen tags) (rf/epoch-listener-generation cb-id))
-                "live signal matches the current generation — APPLY")
+            ;; GENERATION-QUALIFIED SELF-FILTER on the non-keyword id, through
+            ;; the ONE supported receiver decision (rf2-uhouu).
+            (is (true? (rf/epoch-silence-current? tags))
+                "live signal names the current registration — APPLY")
             (rf/register-listener! :epoch cb-id (fn [_] nil))  ; supersede G→H
-            (is (not= (:observed-gen tags) (rf/epoch-listener-generation cb-id))
-                "a superseded signal no longer matches — DISCARD")))
+            (is (false? (rf/epoch-silence-current? tags))
+                "a superseded signal is no longer current — DISCARD")))
         (rf/unregister-listener! :trace ::recorder-nonkw)
         (rf/unregister-listener! :epoch cb-id)))))

@@ -160,61 +160,46 @@
   [id]
   (state/drop-listener! id))
 
-(defn epoch-listener-generation
-  "Return the opaque, process-unique GENERATION token identifying the CURRENT
-  registration of the epoch listener under `id`, or nil when no listener is
-  registered under `id`.
+(defn epoch-silence-current?
+  "THE supported receiver decision for a `:rf.epoch.cb/silenced-on-frame-destroy`
+  signal. Pass the signal's `:tags` map straight back:
 
-  Each `register-epoch-listener!` — including a same-id replacement — mints a
-  fresh, never-reused generation. This is the SUPPORTED authority a consumer of
-  a generation-qualified `:rf.epoch.cb/silenced-on-frame-destroy` signal uses to
-  SELF-FILTER a superseded signal: the signal carries `:observed-gen` G, and the
-  consumer discards it when `(not= G (epoch-listener-generation cb-id))` — its
-  registration has since been replaced (or dropped), so G's silence no longer
-  describes the current callback. Before this query the current generation was
-  reachable only through the private listener registry, so the consumer rule the
-  signal documents was not implementable through any supported API.
+      (rf/register-listener! :trace ::watch
+        (fn [ev]
+          (when (and (= :rf.epoch.cb/silenced-on-frame-destroy (:operation ev))
+                     (rf/epoch-silence-current? (:tags ev)))
+            ;; the silence names a CURRENT fact — act on it
+            ...)))
 
-  The token is OPAQUE: compare it for equality only; never derive ordering or any
-  identity beyond 'same registration or not'.
+  True when the silence still describes the live callback: the carried
+  `:observed-gen` is still the generation registered under `:cb-id`, AND that
+  registration is not observing `:frame` right now. False otherwise — including
+  a `nil`/absent `:observed-gen`, which can never name a live registration.
 
-  A generation match is NECESSARY but not SUFFICIENT to conclude the callback is
-  currently silent for the frame — a same-id SUCCESSOR frame can re-arm the SAME
-  registration (no new generation is minted by a delivery), so the full supported
-  receiver rule pairs this query with `epoch-listener-observing?`. See that fn."
-  [id]
-  (state/current-listener-generation id))
+  ONE ATOMIC DECISION, not two composable reads (rf2-uhouu). The decision needs
+  two facts about the listener ledger, and it takes both from a SINGLE consistent
+  snapshot:
 
-(defn epoch-listener-observing?
-  "True when the CURRENT registration of the epoch listener under `id` is
-  observing `frame-id` RIGHT NOW — i.e. `id` has consumed a record from
-  `frame-id` under its live generation and that observation has not since been
-  dropped by the frame's destroy. False when `id` is unregistered, has never
-  observed `frame-id`, or observed it only under a superseded generation.
+    * REGISTRATION identity — a same-id replacement or an
+      `(rf/unregister-listener! :epoch id)` drop in the reserve→emit window makes
+      a DIFFERENT generation current, so the reserved generation's silence no
+      longer names the current callback.
+    * OBSERVATION continuum — a same-id SUCCESSOR frame re-arms a callback by
+      DELIVERY, and a delivery mints NO generation (rf2-qg98y), so the carried
+      `:observed-gen` still matches while the callback is receiving records
+      again. Registration identity alone would accept a silence for a LIVE
+      callback.
 
-  The OBSERVATION-CONTINUUM half of the supported
-  `:rf.epoch.cb/silenced-on-frame-destroy` receiver rule (rf2-qg98y).
-  `epoch-listener-generation` discriminates REGISTRATION identity — it tells a
-  consumer whether the signal's `:observed-gen` still names the live
-  registration. It CANNOT discriminate observation continuum: a same-id successor
-  FRAME that re-arms the callback delivers a record under the UNCHANGED
-  generation, so a delayed predecessor's silence — reserved while the callback
-  was genuinely silent, published after the re-arm — carries an `:observed-gen`
-  that still matches. Generation alone would accept it and conclude a LIVE
-  callback is silent.
-
-  The full rule, both clauses read at RECEIPT time:
-
-      (and (= (:observed-gen tags) (epoch-listener-generation cb-id))
-           (not (epoch-listener-observing? cb-id (:frame tags))))
-
-  Clause 1 rejects a signal owed to a superseded REGISTRATION (a replacement or
-  drop in the reserve→emit window); clause 2 rejects a signal superseded by a
-  fresh DELIVERY on the same registration. Together they are exact at read time:
-  the silence is current iff both hold. Per Spec 009 §The delayed-silence
-  emission linearization law."
-  [id frame-id]
-  (state/live-observer? frame-id id))
+  Reading those two facts through two separate queries — the shape this replaces
+  — is NOT linearizable: a replacement or drop landing between them reads as
+  generation-still-matches AND not-observing, accepting a signal for a
+  registration that is already superseded, a verdict no single point in time ever
+  held. The former `epoch-listener-generation` / `epoch-listener-observing?` pair
+  was therefore retired rather than kept beside this fn: exposing the halves is
+  exposing the race. Per Spec 009 §The delayed-silence emission linearization
+  law."
+  [tags]
+  (state/silence-current? (:frame tags) (:cb-id tags) (:observed-gen tags)))
 
 (defn clear-epoch-listeners!
   []
@@ -659,17 +644,13 @@
    ;; ---- listener + config surface ----------------------------------
    :epoch/register-epoch-listener!   register-epoch-listener!
    :epoch/unregister-epoch-listener! unregister-epoch-listener!
-   ;; The supported registration-generation authority: a consumer of a
-   ;; generation-qualified `:rf.epoch.cb/silenced-on-frame-destroy` signal reads
-   ;; the CURRENT generation for a cb-id here to self-filter a superseded signal
-   ;; without touching the private listener registry (rf2-6ys5n).
-   :epoch/epoch-listener-generation  epoch-listener-generation
-   ;; The supported OBSERVATION-CONTINUUM authority, the second clause of the
-   ;; same receiver rule (rf2-qg98y): a same-id successor frame re-arms a
-   ;; callback under the UNCHANGED generation, so the generation query alone
-   ;; cannot tell a superseded silence from a current one. This answers "is my
-   ;; registration observing that frame right now?" without a private read.
-   :epoch/epoch-listener-observing?  epoch-listener-observing?
+   ;; The ONE supported receiver decision for a
+   ;; `:rf.epoch.cb/silenced-on-frame-destroy` signal (rf2-uhouu, superseding the
+   ;; rf2-6ys5n generation query + rf2-qg98y observing query it composes): does
+   ;; this silence still name a current fact? Registration identity AND
+   ;; observation continuum are weighed under one ledger snapshot, because the
+   ;; two-query composite a consumer would otherwise write is not linearizable.
+   :epoch/epoch-silence-current?     epoch-silence-current?
    :epoch/configure!                 configure!
    ;; Test-support config-isolation hook. `re-frame.test-
    ;; support`'s reset-hook table fires this to restore epoch config to

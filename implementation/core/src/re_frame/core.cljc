@@ -2482,44 +2482,34 @@
 ;; artefact is absent. A dedicated per-channel pair here was the exact shape
 ;; the stream-parameterized verb (decision rf2-dbo0c9 Option C) abolished.
 
-(def ^{:doc "Return the opaque, process-unique GENERATION token of the CURRENT
-  epoch-listener registration under `id`, or nil when none is registered (or
-  when the `day8/re-frame2-epoch` artefact is absent). Each
-  `(register-listener! :epoch id f)` — including a same-id replacement — mints a
-  fresh, never-reused generation. The SUPPORTED authority a consumer uses to
-  SELF-FILTER a generation-qualified `:rf.epoch.cb/silenced-on-frame-destroy`
-  signal: the signal carries `:observed-gen` G, and the consumer discards it
-  when `(not= G (epoch-listener-generation cb-id))` — the registration has since
-  been replaced or dropped, so G's silence no longer names the current callback.
-  The token is OPAQUE (compare for equality only). NECESSARY but not SUFFICIENT
-  — a same-id successor FRAME re-arms a callback under the UNCHANGED generation,
-  so the full rule pairs this with `epoch-listener-observing?` (rf2-qg98y). Per
-  Tool-Pair §Surface behaviour against destroyed frames + Spec 009 §The
-  delayed-silence emission linearization law. Late-bound via
-  `:epoch/epoch-listener-generation`."}
-  epoch-listener-generation  rf-epoch/epoch-listener-generation)
+(def ^{:doc "THE supported receiver decision for a
+  `:rf.epoch.cb/silenced-on-frame-destroy` signal — pass the signal's `:tags`
+  map back in:
 
-(def ^{:doc "True when the CURRENT epoch-listener registration under `id` is
-  observing `frame-id` RIGHT NOW — it consumed a record from `frame-id` under
-  its live generation and that observation has not since been dropped by the
-  frame's destroy. False when `id` is unregistered, never observed `frame-id`,
-  observed it only under a superseded generation, or when the
-  `day8/re-frame2-epoch` artefact is absent.
+      (when (and (= :rf.epoch.cb/silenced-on-frame-destroy (:operation ev))
+                 (rf/epoch-silence-current? (:tags ev)))
+        ...)
 
-  The OBSERVATION-CONTINUUM half of the supported
-  `:rf.epoch.cb/silenced-on-frame-destroy` receiver rule.
-  `epoch-listener-generation` discriminates REGISTRATION identity only — a
-  same-id successor FRAME re-arming the callback mints NO new generation, so a
-  delayed predecessor's silence published after that re-arm still carries a
-  MATCHING `:observed-gen`. Both clauses, read at receipt time:
+  True when the silence still names a CURRENT fact: the carried `:observed-gen`
+  is still the generation registered under `:cb-id`, AND that registration is not
+  observing `:frame` right now. False otherwise — including a `nil`/absent
+  `:observed-gen`, and when the `day8/re-frame2-epoch` artefact is absent.
 
-      (and (= (:observed-gen tags) (rf/epoch-listener-generation cb-id))
-           (not (rf/epoch-listener-observing? cb-id (:frame tags))))
+  ONE ATOMIC DECISION (rf2-uhouu). REGISTRATION identity (a same-id replacement
+  or an unregister-drop makes a different generation current) and OBSERVATION
+  continuum (a same-id successor frame re-arms by DELIVERY, which mints no
+  generation, so `:observed-gen` still matches while the callback is live again —
+  rf2-qg98y) are weighed under a SINGLE consistent snapshot of the listener
+  ledger. Composing the two facts from separate reads — the retired
+  `epoch-listener-generation` + `epoch-listener-observing?` pair — is not
+  linearizable: a replacement or drop landing between them reads as
+  generation-still-matches AND not-observing, accepting a silence for an
+  already-superseded registration, an answer no single point in time ever had.
 
   Per Tool-Pair §Surface behaviour against destroyed frames + Spec 009 §The
-  delayed-silence emission linearization law (rf2-qg98y). Late-bound via
-  `:epoch/epoch-listener-observing?`."}
-  epoch-listener-observing?  rf-epoch/epoch-listener-observing?)
+  delayed-silence emission linearization law. Late-bound via
+  `:epoch/epoch-silence-current?`."}
+  epoch-silence-current?  rf-epoch/epoch-silence-current?)
 
 ;; ---- frame-state write surface (rf2-q4i9ko / rf2-tfepxu / rf2-t3lftq) -----
 ;;

@@ -17,28 +17,33 @@
   generation while the callback is receiving records again. The reservation's
   not-a-live-observer check (`eligible-and-reserve!` check 2) is a
   RESERVATION-time decision and cannot be re-taken across the lock-free emit.
-  Result before this bead: the documented one-clause receiver rule ACCEPTED a
+  Result before this bead: the documented one-fact receiver rule ACCEPTED a
   silence for a LIVE callback.
 
   ## The law these tests pin
 
-  The supported receiver rule has TWO clauses, both read at RECEIPT time:
+  The supported receiver decision weighs TWO facts at RECEIPT time:
 
-      (and (= (:observed-gen tags) (rf/epoch-listener-generation cb-id))
-           (not (rf/epoch-listener-observing? cb-id (:frame tags))))
+      (rf/epoch-silence-current? tags)
 
-  Clause 1 (registration identity) rejects a signal owed to a generation that has
-  since been replaced or dropped — the rf2-8b9twg property, unchanged. Clause 2
-  (observation continuum) rejects a signal superseded by a fresh DELIVERY on the
-  SAME registration — the property this bead adds. Together they are exact at read
-  time: the silence is current iff both hold.
+  Registration identity rejects a signal owed to a generation that has since been
+  replaced or dropped — the rf2-8b9twg property, unchanged. Observation continuum
+  rejects a signal superseded by a fresh DELIVERY on the SAME registration — the
+  property this bead adds. Together they are exact at read time: the silence is
+  current iff both hold.
+
+  Both facts are weighed inside ONE operation over a single ledger snapshot
+  (rf2-uhouu). They were briefly two composable public queries; that composite was
+  not linearizable, because a replacement or drop landing between the two reads
+  accepted a signal for an already-superseded registration. See
+  `re-frame.epoch-silence-decision-atomicity-test`.
 
   Nothing about the emission mechanism changes: the reservation still happens
   under both ledger locks, the emit still runs OUTSIDE them (no ledger lock is
   taken across foreign code), and no polling/retry machinery is introduced. The
-  fix is a second SUPPORTED QUERY over ledger state that already existed
-  (`state/live-observer?`), so the receiver can decide what the publisher
-  provably cannot."
+  fix is a SUPPORTED DECISION over ledger state that already existed
+  (`state/live-observer?` alongside the registration generation), so the receiver
+  can decide what the publisher provably cannot."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             ;; Side-effect: publishes the `:epoch/*` late-bind hooks.
@@ -53,13 +58,27 @@
   (test-support/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
 
 (defn- silence-current?
-  "The SUPPORTED two-clause receiver rule, expressed exactly as the spec states
-  it and reaching for NO private state — both clauses go through the public
-  `re-frame.core` facade."
+  "The SUPPORTED receiver decision, expressed exactly as the spec states it and
+  reaching for NO private state — one call through the public `re-frame.core`
+  facade."
   [tags]
-  (let [cb-id (:cb-id tags)]
-    (and (= (:observed-gen tags) (rf/epoch-listener-generation cb-id))
-         (not (rf/epoch-listener-observing? cb-id (:frame tags))))))
+  (rf/epoch-silence-current? tags))
+
+(defn- cb-generation
+  "The live generation token under `cb`. Not a public query (rf2-uhouu retired
+  it — the generation alone can only recompose the torn two-read decision);
+  artefact-internal tests read the registry snapshot directly."
+  [cb]
+  (get-in (epoch-state/listeners-snapshot) [cb :generation]))
+
+(defn- observing?
+  "Whether `cb`'s CURRENT registration observes `frame` — the observation-
+  continuum fact the decision weighs, read here from the state ns for assertions
+  that need to name it separately."
+  [cb frame]
+  (let [token (get-in (epoch-state/observations-snapshot) [cb frame] ::absent)]
+    (and (not= token ::absent)
+         (= token (cb-generation cb)))))
 
 (defn- park-silence-emit!
   "Register a trace listener under `k` that captures every silence for `cb` into
@@ -84,17 +103,17 @@
 
 ;; ---- THE BEAD CASE: same-generation re-arm inside the emit window -----------
 
-(deftest same-generation-rearm-in-the-emit-window-is-rejected-by-the-supported-receiver-rule
+(deftest same-generation-rearm-in-the-emit-window-is-rejected-by-the-supported-receiver-decision
   ;; A deferred predecessor A reserves the one silence for (F, cb, G) while cb is
   ;; genuinely silent, releases the ledger locks, and parks in `publish!`. A
   ;; same-id SUCCESSOR incarnation of F then delivers a record to cb — the SAME
   ;; registration, so NO new generation is minted. When A's emit finally lands,
   ;; the wire signal still carries `:observed-gen == G` and G is still current.
   ;;
-  ;; TOOTH: the generation clause alone ACCEPTS here (asserted below, so the gap
+  ;; TOOTH: the generation fact alone ACCEPTS here (asserted below, so the gap
   ;; is documented in the test, not just in prose). Only the observation-continuum
-  ;; clause rejects it. Deleting `epoch-listener-observing?` from
-  ;; `silence-current?` flips the final assertion RED.
+  ;; fact rejects it. Dropping the `live-observer?` conjunct from
+  ;; `state/silence-current?` flips the final assertion RED.
   (let [frame        :qg98y/rearm
         cb           ::qg98y-rearm-cb
         token        (Object.)
@@ -105,7 +124,7 @@
     (observe! frame token cb)
     (park-silence-emit! silence-key cb captured reached-emit rearmed)
     (try
-      (let [g    (rf/epoch-listener-generation cb)
+      (let [g    (cb-generation cb)
             a-ev (epoch.listeners/snapshot-terminal-destroy-evidence! frame nil nil nil)
             ;; The successor's delivery, landing strictly INSIDE the lock-free
             ;; emit window, under the UNCHANGED generation G.
@@ -125,28 +144,28 @@
             (is (= frame (:frame tags)) "and the frame it was reserved for"))
 
           (testing "the callback is LIVE again on that frame, under the SAME generation"
-            (is (= g (rf/epoch-listener-generation cb))
+            (is (= g (cb-generation cb))
                 "no replacement happened — the generation is untouched by a delivery")
-            (is (true? (rf/epoch-listener-observing? cb frame))
+            (is (true? (observing? cb frame))
                 "the successor's delivery re-armed cb's observation of the frame"))
 
-          (testing "clause 1 alone is INSUFFICIENT — this is the rf2-qg98y gap"
-            (is (= (:observed-gen tags) (rf/epoch-listener-generation cb))
-                "the generation clause MATCHES, so on its own it would ACCEPT a
+          (testing "registration identity alone is INSUFFICIENT — the rf2-qg98y gap"
+            (is (= (:observed-gen tags) (cb-generation cb))
+                "the generation fact MATCHES, so on its own it would ACCEPT a
                  silence for a live callback"))
 
-          (testing "the supported TWO-clause rule rejects it"
+          (testing "the supported decision rejects it"
             (is (false? (silence-current? tags))
                 "the receiver must NOT accept a currently-silent claim for a LIVE callback"))))
       (finally
         (rf/unregister-listener! :epoch cb)
         (rf/unregister-listener! :trace silence-key)))))
 
-;; ---- ADVERSARIAL 1: the new clause must not over-reject ---------------------
+;; ---- ADVERSARIAL 1: the observation-continuum fact must not over-reject ---------------------
 
-(deftest a-genuine-silence-with-no-rearm-is-accepted-by-both-clauses
+(deftest a-genuine-silence-with-no-rearm-is-accepted
   ;; The inverse tooth. Same barrier shape, but NOTHING re-arms in the emit
-  ;; window. A genuinely-silenced callback must still read as silenced — a clause
+  ;; window. A genuinely-silenced callback must still read as silenced — a decision
   ;; that rejected everything would pass the test above and destroy the signal's
   ;; whole purpose.
   (let [frame        :qg98y/genuine
@@ -159,7 +178,7 @@
     (observe! frame token cb)
     (park-silence-emit! silence-key cb captured reached-emit resume)
     (try
-      (let [g    (rf/epoch-listener-generation cb)
+      (let [g    (cb-generation cb)
             a-ev (epoch.listeners/snapshot-terminal-destroy-evidence! frame nil nil nil)
             idle (future (.await reached-emit 5 TimeUnit/SECONDS)
                          (.countDown resume))
@@ -169,20 +188,20 @@
         (is (= 1 (count @captured)) "exactly one silence fired for cb")
         (let [tags (first @captured)]
           (is (= g (:observed-gen tags)) "carries the reserved generation")
-          (is (false? (rf/epoch-listener-observing? cb frame))
+          (is (false? (observing? cb frame))
               "no delivery re-armed the observation — the frame's destroy dropped it")
           (is (true? (silence-current? tags))
-              "a genuine silence is ACCEPTED — the second clause does not over-reject")))
+              "a genuine silence is ACCEPTED — the observation fact does not over-reject")))
       (finally
         (rf/unregister-listener! :epoch cb)
         (rf/unregister-listener! :trace silence-key)))))
 
-;; ---- ADVERSARIAL 2: the observation clause is FRAME-scoped ------------------
+;; ---- ADVERSARIAL 2: the observation fact is FRAME-scoped ------------------
 
 (deftest a-rearm-on-a-different-frame-does-not-suppress-this-frames-silence
   ;; A long-lived tool listener observes many frames. A delivery from an
   ;; UNRELATED frame landing in the emit window must not mask the silence owed for
-  ;; the destroyed one — a cb-scoped (rather than (cb, frame)-scoped) clause would
+  ;; the destroyed one — a cb-scoped (rather than (cb, frame)-scoped) decision would
   ;; swallow every silence a busy listener is owed.
   (let [frame        :qg98y/scoped
         other-frame  :qg98y/scoped-other
@@ -197,7 +216,7 @@
     (epoch-state/claim-frame-owner! other-frame other-token)
     (park-silence-emit! silence-key cb captured reached-emit rearmed)
     (try
-      (let [g    (rf/epoch-listener-generation cb)
+      (let [g    (cb-generation cb)
             a-ev (epoch.listeners/snapshot-terminal-destroy-evidence! frame nil nil nil)
             rearmer   (future (.await reached-emit 5 TimeUnit/SECONDS)
                               ;; A delivery from the OTHER frame, same generation.
@@ -208,10 +227,10 @@
         (is (not= ::timeout (deref destroyer 5000 ::timeout)) "the destroy/emit completed")
         (is (= 1 (count @captured)) "exactly one silence fired for cb")
         (let [tags (first @captured)]
-          (is (true? (rf/epoch-listener-observing? cb other-frame))
+          (is (true? (observing? cb other-frame))
               "cb IS observing the unrelated frame")
-          (is (false? (rf/epoch-listener-observing? cb frame))
-              "but NOT the destroyed one — the clause is (cb, frame)-scoped")
+          (is (false? (observing? cb frame))
+              "but NOT the destroyed one — the decision is (cb, frame)-scoped")
           (is (true? (silence-current? tags))
               "so the destroyed frame's silence is still ACCEPTED")))
       (finally
@@ -220,10 +239,10 @@
 
 ;; ---- ADVERSARIAL 3: re-arm AND replacement together ------------------------
 
-(deftest a-rearm-followed-by-a-replacement-is-rejected-by-both-clauses
-  ;; The compound adversarial case: the successor re-arms G (clause 2 trips) and
-  ;; THEN the tool re-attaches its listener, minting H (clause 1 trips too). The
-  ;; rf2-8b9twg replacement property must survive the new clause unchanged, and
+(deftest a-rearm-followed-by-a-replacement-is-rejected
+  ;; The compound adversarial case: the successor re-arms G (the observation
+  ;; fact trips) and THEN the tool re-attaches its listener, minting H (registration
+  ;; identity trips too). The rf2-8b9twg replacement property must survive, and
   ;; the fresh generation H must read as observing NOTHING — it has consumed no
   ;; record.
   (let [frame        :qg98y/compound
@@ -236,7 +255,7 @@
     (observe! frame token cb)
     (park-silence-emit! silence-key cb captured reached-emit mutated)
     (try
-      (let [g    (rf/epoch-listener-generation cb)
+      (let [g    (cb-generation cb)
             a-ev (epoch.listeners/snapshot-terminal-destroy-evidence! frame nil nil nil)
             mutator   (future (.await reached-emit 5 TimeUnit/SECONDS)
                               (epoch-state/record-observation! cb g frame)
@@ -248,37 +267,37 @@
         (is (= 1 (count @captured)) "exactly one silence fired for cb")
         (let [tags (first @captured)]
           (is (= g (:observed-gen tags)) "the signal is still attributed to G, never to H")
-          (is (not= g (rf/epoch-listener-generation cb)) "H is current")
-          (is (not= (:observed-gen tags) (rf/epoch-listener-generation cb))
-              "clause 1 (the rf2-8b9twg property) still rejects — unchanged")
-          (is (false? (rf/epoch-listener-observing? cb frame))
+          (is (not= g (cb-generation cb)) "H is current")
+          (is (not= (:observed-gen tags) (cb-generation cb))
+              "registration identity (the rf2-8b9twg property) still rejects — unchanged")
+          (is (false? (observing? cb frame))
               "the fresh generation H has consumed NO record, so it observes nothing")
           (is (false? (silence-current? tags))
-              "the two-clause rule rejects the compound case")))
+              "the supported decision rejects the compound case")))
       (finally
         (rf/unregister-listener! :epoch cb)
         (rf/unregister-listener! :trace silence-key)))))
 
-;; ---- the query's own boundary behaviour ------------------------------------
+;; ---- the observation-continuum fact's own boundary behaviour ---------------
 
-(deftest epoch-listener-observing-answers-the-unregistered-and-never-observed-cases
+(deftest observation-continuum-answers-the-unregistered-and-never-observed-cases
   (let [frame :qg98y/boundary
         cb    ::qg98y-boundary-cb
         token (Object.)]
-    (is (false? (rf/epoch-listener-observing? cb frame))
+    (is (false? (observing? cb frame))
         "an UNREGISTERED listener observes nothing")
     (rf/register-listener! :epoch cb (fn [_] nil))
     (try
-      (is (false? (rf/epoch-listener-observing? cb frame))
+      (is (false? (observing? cb frame))
           "a registered listener that has consumed no record observes nothing")
       (epoch-state/claim-frame-owner! frame token)
       (epoch.listeners/notify-listeners! {:frame frame :epoch-id 1})
-      (is (true? (rf/epoch-listener-observing? cb frame))
+      (is (true? (observing? cb frame))
           "after consuming a record it observes the frame")
-      (is (false? (rf/epoch-listener-observing? cb :qg98y/boundary-unseen))
+      (is (false? (observing? cb :qg98y/boundary-unseen))
           "and only that frame")
       (rf/register-listener! :epoch cb (fn [_] nil))  ; G → H
-      (is (false? (rf/epoch-listener-observing? cb frame))
+      (is (false? (observing? cb frame))
           "a replacement's fresh generation inherits NO observation")
       (finally
         (rf/unregister-listener! :epoch cb)))))

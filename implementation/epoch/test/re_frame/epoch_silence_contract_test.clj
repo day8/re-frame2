@@ -5,8 +5,8 @@
   Three teeth, no runtime change:
 
     * AC1 / AC3 (JVM) — a NON-KEYWORD comparable listener id round-trips through
-      registration → generation query → the emitted `:cb-id` VERBATIM (raw-ID
-      preservation) → the generation self-filter, AND the emitted tags validate
+      registration → the emitted `:cb-id` VERBATIM (raw-ID preservation) → the
+      supported receiver decision's self-filter, AND the emitted tags validate
       against the CANONICAL `EpochCbSilencedOnFrameDestroyTags` schema EXTRACTED
       from `spec/Spec-Schemas.md`. Before this bead the schema narrowed `:cb-id`
       to keyword|string, so a valid non-keyword id the runtime accepts (and emits
@@ -37,6 +37,14 @@
 
 (use-fixtures :each
   (test-support/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
+
+(defn- cb-generation
+  "The live generation token under `cb-id`. Artefact-internal: rf2-uhouu retired
+  the public generation query (the generation alone can only recompose the torn
+  two-read receiver decision). A consumer asks `rf/epoch-silence-current?`
+  instead; this test names the generation only to pin the EMITTED qualifier."
+  [cb-id]
+  (get-in (state/listeners-snapshot) [cb-id :generation]))
 
 ;; ---- canonical schema extraction (no drift: read the markdown) --------------
 
@@ -83,7 +91,7 @@
       (is (= :any (:observed-gen entries))
           "the canonical :observed-gen is an opaque :any token, not :int")
 
-      (is (nil? (rf/epoch-listener-generation cb-id))
+      (is (nil? (cb-generation cb-id))
           "an unregistered non-keyword id has no generation")
 
       (rf/make-frame {:id :test/non-kw})
@@ -92,12 +100,12 @@
       (let [recorded (atom [])]
         (rf/register-listener! :trace ::recorder-nonkw (fn [ev] (swap! recorded conj ev)))
         (rf/register-listener! :epoch cb-id (fn [_] nil))
-        (is (some? (rf/epoch-listener-generation cb-id))
-            "the non-keyword id answers the generation query once registered")
+        (is (some? (cb-generation cb-id))
+            "the non-keyword id mints a generation once registered")
 
         ;; Observe the frame under the live generation, then destroy it.
         (rf/dispatch-sync [:seed-nonkw] {:frame :test/non-kw})
-        (let [g-observed (rf/epoch-listener-generation cb-id)]
+        (let [g-observed (cb-generation cb-id)]
           (rf/destroy-frame! :test/non-kw)
           (let [tags (->> @recorded
                           (filter #(= :rf.epoch.cb/silenced-on-frame-destroy
@@ -121,12 +129,13 @@
                      "EpochCbSilencedOnFrameDestroyTags schema: "
                      (pr-str (m/explain schema tags))))
 
-            ;; GENERATION-QUALIFIED SELF-FILTER on the non-keyword id.
-            (is (= (:observed-gen tags) (rf/epoch-listener-generation cb-id))
-                "live signal matches the current generation — APPLY")
+            ;; GENERATION-QUALIFIED SELF-FILTER on the non-keyword id, through
+            ;; the ONE supported receiver decision (rf2-uhouu).
+            (is (true? (rf/epoch-silence-current? tags))
+                "live signal names the current registration — APPLY")
             (rf/register-listener! :epoch cb-id (fn [_] nil)) ; supersede G→H
-            (is (not= (:observed-gen tags) (rf/epoch-listener-generation cb-id))
-                "a superseded signal no longer matches — DISCARD")))
+            (is (false? (rf/epoch-silence-current? tags))
+                "a superseded signal is no longer current — DISCARD")))
 
         (rf/unregister-listener! :trace ::recorder-nonkw)
         (rf/unregister-listener! :epoch cb-id)))))
