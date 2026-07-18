@@ -932,6 +932,37 @@
           {}
           (sort-by str (keys sources))))
 
+(defn- report-publication-escape!
+  "Surface the contained observer failure from ONE reload publication (rf2-za45g).
+
+  Bounded to a single diagnostic per publication and itself contained: the
+  machinery that reports a failed observer must never become a second way for a
+  committed reload to fail. Dev-only by construction — the only caller sits
+  inside `reload-ledger?`, so `:advanced` production carries neither.
+
+  CLJS-only, mirroring the analogous descriptor-HMR reporter in
+  `re-frame.ui.reactive` (rf2-vxgfnd.215): shadow's `^:dev/after-load` hook — the
+  thing an escaping observer would falsify — exists only on CLJS. The JVM arm of
+  this ledger drives the protocol headless from compiler / tree-builder fixtures,
+  where there is no reload outcome to misreport and no console to report it to."
+  [build-id tag-count error]
+  #?(:cljs
+     (try
+       (when (exists? js/console)
+         (.warn js/console
+                (str "[re-frame.ui] a custom-element publication observer threw "
+                     "while publishing build " (pr-str build-id)
+                     "'s reload commit (" tag-count
+                     " declared tags live) — the throw was CONTAINED and the "
+                     "reload REMAINS SUCCESSFUL: the ledger was already "
+                     "reconciled and the cycle closed before publication began. "
+                     "Cause: "
+                     (if (nil? error)
+                       "nil"
+                       (error/ex-message-safe error)))))
+       (catch :default _ nil))
+     :clj (do build-id tag-count error nil)))
+
 (defn- publish!
   "Republish the public aggregate as a pure projection of the CURRENT ledger
   `::sources`. Called AFTER an authoritative `ledger-state` transition, never
@@ -943,9 +974,45 @@
   it can never overwrite a concurrent write-through's row with a stale aggregate.
   On CLJS it is a single uncontended recompute.
 
-  Reached only from `commit-reload!`, so it is ledger-only by construction."
-  []
-  (swap! custom-elements (fn [_] (aggregate (::sources @ledger-state))))
+  ## Publication is DELIVERY, not authority (rf2-za45g)
+
+  By the time this runs the reload is already committed: `commit-reload!`
+  reconciled `::sources` and closed the cycle in ONE atomic swap, and only then
+  called here. Publication is the DELIVERY of that outcome, so it needs delivery's
+  failure semantics — the same split rf2-vxgfnd.215 drew for descriptor HMR.
+
+  An observer of `custom-elements` is arbitrary code. `swap!` notifies watches
+  SYNCHRONOUSLY and with no containment, so a throwing observer used to escape
+  here, out of `commit-reload!`, and into shadow's `^:dev/after-load` hook — which
+  reports the whole reload FAILED even though the framework had committed it. That
+  is a lie about authority told by a listener, so the throw is contained and
+  reported instead.
+
+  Containment is safe because BOTH hosts publish the atom's new value BEFORE
+  notifying watches (CLJS `-reset!` sets state then `-notify-watches`; the JVM
+  `Atom.swap` CAS's then `notifyWatches`). A contained observer throw therefore
+  leaves the live aggregate, the projected ledger and the cycle state exactly as a
+  clean publication would — quiescent and coherent — never half-applied.
+
+  What containment does NOT buy: SIBLING delivery. Watch fan-out belongs to the
+  host's `IAtom`, which abandons the remaining watches when one throws, and
+  replacing that would mean shipping a listener framework this ledger has no
+  consumer for — there are no framework-owned observers of `custom-elements` at
+  all (classification reads `custom-element-properties`, never a watch). So
+  arbitrary watches are explicitly UNSUPPORTED observers: they are contained and
+  diagnosed, but their mutual delivery order and completeness are the host's
+  semantics, not a framework guarantee."
+  [build-id]
+  (let [failure (try
+                  (swap! custom-elements (fn [_] (aggregate (::sources @ledger-state))))
+                  {:failed? false :error nil}
+                  ;; The explicit `:failed?` bit — never the truthiness of
+                  ;; `:error` — preserves failure identity when CLJS throws a
+                  ;; falsey value (`(throw nil)`, `(throw false)` are both legal).
+                  (catch #?(:clj Throwable :cljs :default) e
+                    {:failed? true :error e}))]
+    (when (:failed? failure)
+      (report-publication-escape! build-id (count @custom-elements) (:error failure))))
   nil)
 
 (defn- reconcile-sources
@@ -1053,7 +1120,13 @@
 
   shadow-cljs runs after-load only on a SUCCESSFUL reload, so an aborted reload
   never reaches here and the last known-good manifest survives. A no-op when no
-  cycle is open."
+  cycle is open.
+
+  Because this IS the `^:dev/after-load` hook, whatever escapes it is what shadow
+  reports as the reload's outcome. The authority transition above is already
+  complete when `publish!` runs, so a throwing publication observer must not be
+  able to escape and recast a committed reload as a failed one — `publish!`
+  contains it and reports it instead (rf2-za45g)."
   ([] (commit-reload! (current-build-id)))
   ([build-id]
    (when reload-ledger?
@@ -1072,7 +1145,7 @@
        ;; be recaptured or dropped by this commit. `publish!` recomputes from the
        ;; LIVE ledger, so a concurrent write-through's row is never clobbered.
        (when (contains? (::cycles old) build-id)
-         (publish!))))
+         (publish! build-id))))
    nil))
 
 ;; ---------------------------------------------------------------------------

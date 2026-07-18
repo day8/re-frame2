@@ -429,6 +429,101 @@
       "and it commits with build :b's own cycle"))
 
 ;; ---------------------------------------------------------------------------
+;; rf2-za45g — publication is DELIVERY, and delivery cannot falsify AUTHORITY.
+;;
+;; `commit-reload!` reconciles `::sources` and closes the cycle in ONE atomic
+;; swap, and only THEN publishes. Publishing `swap!`s the public aggregate, which
+;; notifies watches synchronously and without containment — so a throwing
+;; observer used to escape `publish!`, escape `commit-reload!`, and land in
+;; shadow's `^:dev/after-load` hook, which reports the ENTIRE reload as failed.
+;; The framework had already committed it. That is a listener telling a lie about
+;; authority, the same split rf2-vxgfnd.215 drew for descriptor HMR.
+;;
+;; These fixtures are the FAIL-BEFORE lever: on bare uncontained publication the
+;; throw propagates out of `commit-reload!` and every one of them errors.
+;;
+;; What is deliberately NOT asserted: that sibling observers still run. Watch
+;; fan-out belongs to the host's `IAtom`, which abandons the remaining watches
+;; when one throws. There are no framework-owned observers of `custom-elements`
+;; (classification reads `custom-element-properties`), so arbitrary watches are
+;; explicitly unsupported observers — contained and diagnosed, but their delivery
+;; completeness is the host's semantics, not a framework guarantee.
+;; ---------------------------------------------------------------------------
+
+(defn- with-observers
+  "Run `body` with each `[k f]` of `watches` installed on `custom-elements`, in
+  order, removing every one afterwards even when `body` throws."
+  [watches body]
+  (doseq [[k f] watches] (add-watch rules/custom-elements k f))
+  (try (body)
+       (finally (doseq [[k _] watches] (remove-watch rules/custom-elements k)))))
+
+(deftest throwing-publication-observer-cannot-fail-a-committed-reload
+  (rules/reset-custom-elements!)
+  (rules/register-custom-element! :seed-el {:properties #{:s}} 'app.seed)
+  (let [ran (atom [])]
+    (with-observers
+      [[::boom (fn [_ _ _ _]
+                 (swap! ran conj :boom)
+                 (throw (ex-info "publication observer exploded" {})))]
+       [::good (fn [_ _ _ _] (swap! ran conj :good))]]
+      (fn []
+        (rules/notify-reload!)
+        (rules/register-custom-element! :seed-el {:properties #{:s2}} 'app.seed)
+        (is (nil? (rules/commit-reload!))
+            "the throwing observer does not escape the commit — shadow's
+             ^:dev/after-load hook sees the reload SUCCEED, because it did")))
+    (is (some #{:boom} @ran)
+        "the throwing observer really ran — the fixture has teeth")
+    (is (= #{:s2} (rules/custom-element-properties :seed-el))
+        "the committed reload is live despite the observer failure")
+    (is (empty? (rules/in-flight-cycles))
+        "the cycle is closed — no orphan cycle survives the contained failure")
+    (is (= (rules/projected-aggregate) @rules/custom-elements)
+        "the published aggregate is exactly the ledger projection — never torn")))
+
+(deftest contained-observer-failure-leaves-the-ledger-reloadable
+  ;; Quiescence: a contained failure must not poison the NEXT cycle. The ledger
+  ;; is a real row store afterwards, not a wedged one.
+  (rules/reset-custom-elements!)
+  (rules/register-custom-element! :a-el {:properties #{:a}} 'app.a)
+  (with-observers
+    [[::boom (fn [_ _ _ _] (throw (ex-info "boom" {})))]]
+    (fn []
+      (rules/notify-reload!)
+      (rules/register-custom-element! :a-el {:properties #{:a2}} 'app.a)
+      (rules/commit-reload!)))
+  ;; observer gone; a clean subsequent reload still reconciles normally
+  (rules/notify-reload!)
+  (rules/note-reloaded-sources! ['app.a])
+  (rules/commit-reload!)
+  (is (= #{} (rules/custom-element-properties :a-el))
+      "a later zero-declaration reload still evicts — the ledger is not wedged")
+  (is (empty? (rules/in-flight-cycles))
+      "and it closes its cycle cleanly"))
+
+#?(:cljs
+   (deftest falsey-observer-throws-are-contained-without-truthiness-bugs
+     ;; AC: `(throw nil)` / `(throw false)` are legal on CLJS. A containment that
+     ;; branched on the truthiness of the CAUGHT value would treat both as "no
+     ;; failure" — silently dropping the diagnostic for exactly the values whose
+     ;; failure is hardest to spot. The `:failed?` bit is what carries identity.
+     (doseq [thrown [nil false]]
+       (rules/reset-custom-elements!)
+       (rules/register-custom-element! :f-el {:properties #{:f}} 'app.f)
+       (with-observers
+         [[::falsey (fn [_ _ _ _] (throw thrown))]]
+         (fn []
+           (rules/notify-reload!)
+           (rules/register-custom-element! :f-el {:properties #{:f2}} 'app.f)
+           (is (nil? (rules/commit-reload!))
+               (str "a thrown " (pr-str thrown) " is contained like any other"))))
+       (is (= #{:f2} (rules/custom-element-properties :f-el))
+           (str "the reload committed despite the thrown " (pr-str thrown)))
+       (is (empty? (rules/in-flight-cycles))
+           (str "no orphan cycle after a thrown " (pr-str thrown))))))
+
+;; ---------------------------------------------------------------------------
 ;; The production producer (rf2-vxgfnd.77) — the reload ledger's zero-declaration
 ;; eviction fired THROUGH the shipped browser reload path, not a direct
 ;; `note-reloaded-sources!` call. `reload-source-reset!` is what shadow-cljs's
