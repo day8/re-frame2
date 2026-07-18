@@ -194,8 +194,10 @@ function makeFixture({ pom = GENUINE_POM, jarEntries = GENUINE_JAR_ENTRIES, jars
   fs.mkdirSync(binDir, { recursive: true });
   // `clojure -M:clein jar|pom` — no-op; target/ is pre-placed above.
   writeStub(path.join(binDir, 'clojure'), '#!/usr/bin/env sh\nexit 0\n');
-  // `jar tf <path>` — print the fixture entry list. FIXTURE_DIR is exported
-  // by the runner below.
+  // `jar tf <path>` — print the fixture entry list. FIXTURE_DIR is set in
+  // the stub's environment by the runner below. Reading it HERE, inside the
+  // stub file, rather than in the runner's `bash -lc` string is what keeps
+  // the runner free of self-referential expansion (rf2-sefx0).
   writeStub(path.join(binDir, 'jar'), '#!/usr/bin/env sh\ncat "$FIXTURE_DIR/jar-entries.txt"\n');
 
   return { dir, rel: relPosix(dir) };
@@ -218,17 +220,55 @@ function shQuote(s) {
   return `'${String(s).replace(/'/g, `'\\''`)}'`;
 }
 
-// Prepend the fixture's stub bin to PATH *inside* bash (where $PATH is
-// already in POSIX form, whatever the host), then invoke the real script.
+// Variables any POSIX shell already has set before our command runs. See
+// the portability contract in `buildCommand` — these are the ONLY ones the
+// command string may reference.
+const PRE_EXISTING_SHELL_VARS = new Set(['PWD', 'PATH']);
+
+// Build the `bash -lc` command that puts the fixture's stub bin on PATH
+// (in POSIX form, whatever the host) and runs the real script against the
+// fixture.
+//
+// PORTABILITY CONTRACT (rf2-sefx0): every `$NAME` below must name a
+// variable that ALREADY EXISTS in the shell's environment — $PWD and $PATH.
+// The command must never read back a variable it assigns itself.
+//
+// Why: when `bash` resolves to WSL's C:\Windows\System32\bash.exe — the
+// default on a stock Windows box, where Git Bash is not first on PATH —
+// the launcher relays the `-c` string to the Linux side as a command line
+// that is expanded TWICE. Proof:
+//
+//   bash -lc 'FOO=hello; printf %s "\$FOO"'   # prints: hello
+//
+// A single-pass POSIX shell must print the literal `$FOO` there; printing
+// `hello` means an outer pass already substituted it. So in the ORIGINAL
+// form of this runner —
+//
+//   FIXTURE_DIR="$PWD/<rel>"; PATH="$FIXTURE_DIR/bin:$PATH"; export …
+//
+// — that outer pass expanded `$FIXTURE_DIR`, undefined at that point, to
+// the empty string BEFORE the assignment to its left ever ran. PATH became
+// "/bin:<real PATH>", the stub `clojure`/`jar` were never found, and all 15
+// cases failed on stock Windows while passing under Git Bash. `$PWD` and
+// `$PATH` survive both passes precisely because they are already set.
+//
+// The fix is a single `env`-prefixed command with no self-reference. The
+// stub `jar` reads $FIXTURE_DIR from its own environment — that read lives
+// inside the stub FILE, which the command string never expands.
+function buildCommand(rel) {
+  return [
+    'env',
+    `FIXTURE_DIR="$PWD/${rel}"`,
+    `PATH="$PWD/${rel}/bin:$PATH"`,
+    `${shQuote(`./${SCRIPT_REL}`)} ${shQuote(rel)}`,
+  ].join(' ');
+}
+
 function run(fixture) {
-  const rel = shQuote(fixture.rel);
-  const command = [
-    `FIXTURE_DIR="$PWD/${fixture.rel}"`,
-    `PATH="$FIXTURE_DIR/bin:$PATH"`,
-    `export FIXTURE_DIR PATH`,
-    `${shQuote(`./${SCRIPT_REL}`)} ${rel}`,
-  ].join('; ');
-  return spawnSync('bash', ['-lc', command], { cwd: REPO_ROOT, encoding: 'utf8' });
+  return spawnSync('bash', ['-lc', buildCommand(fixture.rel)], {
+    cwd: REPO_ROOT,
+    encoding: 'utf8',
+  });
 }
 
 function cleanup() {
@@ -410,6 +450,41 @@ test('pom absent entirely → FAILED', () => {
   } finally {
     cleanup();
   }
+});
+
+// ── Shell portability (rf2-sefx0) ───────────────────────────────────────
+//
+// Regression for the WSL double-expansion defect described in
+// `buildCommand`. Structural, not behavioural, and deliberately so: on Git
+// Bash and on the Ubuntu runner the `-c` string is expanded ONCE, so a
+// reintroduced self-reference would work there and this suite would stay
+// green while silently reverting to red for every contributor whose `bash`
+// resolves to C:\Windows\System32\bash.exe. A string assertion fires on
+// every host, including the ones that cannot observe the bug.
+test('bash command references only pre-existing shell variables (rf2-sefx0)', () => {
+  const command = buildCommand('.scratch/rf2-slim-preflight-probe');
+  const referenced = [
+    ...new Set(
+      [...command.matchAll(/\$\{?([A-Za-z_][A-Za-z0-9_]*)\}?/g)].map((m) => m[1]),
+    ),
+  ].sort();
+  // Sanity: if the regex stops matching, the assertion below goes vacuously
+  // green and the guard silently stops guarding.
+  assert.ok(
+    referenced.length > 0,
+    'sanity: the command must reference at least one shell variable',
+  );
+  const notPreExisting = referenced.filter((name) => !PRE_EXISTING_SHELL_VARS.has(name));
+  assert.deepEqual(
+    notPreExisting,
+    [],
+    `the bash -lc command may reference only variables that already exist in the shell `
+      + `environment (${[...PRE_EXISTING_SHELL_VARS].sort().join(', ')}), but it references `
+      + `${notPreExisting.join(', ')}. WSL's bash.exe expands the -c string TWICE, so a `
+      + `variable this command assigns itself resolves to EMPTY before the assignment runs — `
+      + `dropping the fixture stubs off PATH and failing every case on stock Windows while `
+      + `passing under Git Bash (rf2-sefx0).`,
+  );
 });
 
 let failed = 0;
