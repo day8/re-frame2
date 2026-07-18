@@ -43,9 +43,10 @@ Thumbs.db
 # docs, contract drafts — is durable + worker-visible and another AI can pick up
 # the process from a clean clone. The S3–S7 stage epics cite it as the
 # authoritative plan. Content promotes into spec/ across the stages (R-1/R-2);
-# when every cited contract has its spec/ home the tree is git-rm'd. Only this
-# subtree is tracked; all other ai/findings/* stay local. Edits to tracked files
-# commit normally; a NEW synthesis file needs `git add -f`.
+# when every cited contract has its spec/ home the tree is git-rm'd. Other paths
+# under ai/ stay local unless force-added the same way; the end state is that
+# nothing under /ai/ is tracked. Edits to tracked files commit normally; a NEW
+# synthesis file needs `git add -f`.
 
 # Beads / Dolt files (added by bd init)
 .dolt/

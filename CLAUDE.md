@@ -56,7 +56,7 @@ bd close <id>         # Complete work
 
 ## Local working files (the `ai/` tree)
 
-Per `docs/the-mayor-method/`, the `ai/` directory at repo root holds all AI working artefacts. **The whole tree is local-only** (`/ai/` is in `.gitignore`); never `git add` anything under it.
+Per `docs/the-mayor-method/`, the `ai/` directory at repo root holds all AI working artefacts. **The tree is local-only by default** (`/ai/` is in `.gitignore`) — don't `git add` under it unless the file is already tracked. A few trees are deliberately tracked right now as a temporary exception; `git ls-files ai/` is the roster, never a list in this file. **The end state is that nothing under `/ai/` is tracked.** Treat today's exceptions as transitional — never as licence to force-add more.
 
 - **Do not maintain `ai/decisions.md`.** The decisions index file is retired (Mike, 2026-07-17): don't create or refresh it. Surface holds awaiting Mike (review gates, operator-run actions, held beads) in chat and on the beads themselves. Per-decision dossiers, when Mike asks for them, go in `ai/decisions/` as one file per decision.
 - **`ai/findings/`** — exploratory work, audits, design drafts, research notes. Agents writing findings docs put them here.
