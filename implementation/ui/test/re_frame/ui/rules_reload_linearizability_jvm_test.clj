@@ -96,7 +96,61 @@
       (is (= (rules/projected-aggregate) @rules/custom-elements)
           (str "round " round ": aggregate equals the ledger projection when settled"))
       (is (empty? (rules/in-flight-cycles))
-          (str "round " round ": no orphan cycle survives")))))
+          (str "round " round ": no orphan cycle survives"))
+      ;; rf2-84173: the raced registration's MID-race visibility is genuinely
+      ;; order-dependent, but its SETTLED visibility is not — both legal
+      ;; serializations retain it. Write-through-then-notify puts :race-el in
+      ;; ::sources under an untouched source, which the commit keeps;
+      ;; notify-then-write stages it into the cycle, which the commit applies.
+      ;; So asserting the settled manifest costs nothing and closes a real gap:
+      ;; without it this test tolerated losing :race-el entirely.
+      (is (= {:base-el {:properties #{:b}}
+              :race-el {:properties #{:r}}}
+             @rules/custom-elements)
+          (str "round " round
+               ": the raced registration is present EXACTLY once when settled — "
+               "never lost by either serialization, never doubled")))))
+
+(deftest notify-races-commit-closes-only-the-live-cycle
+  ;; rf2-84173 AC: notify-vs-commit, the interleaving the original suite never
+  ;; raced. Build :z has a cycle open with :seed-el staged at :s2. Concurrently
+  ;; the cycle's own after-load commits while the NEXT reload's before-load
+  ;; opens. Both operations transition the SAME atom, so they linearize into
+  ;; exactly two legal serial executions:
+  ;;   (a) commit-then-notify — the commit applies :s2 and closes; notify then
+  ;;       opens a fresh EMPTY cycle. One live cycle; :seed-el at :s2.
+  ;;   (b) notify-then-commit — notify supersedes the cycle (discarding its
+  ;;       staging, the documented and diagnosed loss); the commit then closes
+  ;;       that fresh empty cycle. No live cycle; :seed-el back at :s.
+  ;; Neither may orphan a cycle, tear the projection, or leave a half-applied
+  ;; row — and in NEITHER may a commit close a cycle it did not find live.
+  (dotimes [round 400]
+    (rules/reset-custom-elements!)
+    (rules/register-custom-element! :seed-el {:properties #{:s}} 'app.seed :z)
+    (rules/notify-reload! :z)
+    (rules/register-custom-element! :seed-el {:properties #{:s2}} 'app.seed :z)
+    (let [barrier   (CyclicBarrier. 2)
+          committer (future (await-barrier barrier) (rules/commit-reload! :z))
+          notifier  (future (await-barrier barrier) (rules/notify-reload! :z))]
+      @committer
+      @notifier
+      (is (contains? #{#{} #{:z}} (rules/in-flight-cycles))
+          (str "round " round ": at most ONE live cycle for the build — a race "
+               "never accumulates cycles"))
+      (is (contains? #{#{:s} #{:s2}} (rules/custom-element-properties :seed-el))
+          (str "round " round
+               ": :seed-el is at one of the two legal serial values, never a "
+               "half-applied third"))
+      (is (= (rules/projected-aggregate) @rules/custom-elements)
+          (str "round " round ": the aggregate is exactly the ledger projection "
+               "mid-race — never torn"))
+      ;; settle: close whatever cycle the race left live, then assert quiescence
+      (when (seq (rules/in-flight-cycles))
+        (rules/commit-reload! :z))
+      (is (empty? (rules/in-flight-cycles))
+          (str "round " round ": settles with no orphan cycle"))
+      (is (= (rules/projected-aggregate) @rules/custom-elements)
+          (str "round " round ": settled aggregate equals the ledger projection")))))
 
 (deftest concurrent-write-throughs-on-distinct-builds-compose
   ;; Two builds, no cycles: concurrent initial-load registrations must both land

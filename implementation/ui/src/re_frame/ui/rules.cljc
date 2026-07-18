@@ -806,6 +806,49 @@
 ;; namespace (one `$CLJS`, one set of atoms, one `defonce`d producer) cannot be
 ;; told apart by any mechanism shadow exposes, because the hooks themselves are
 ;; then a single shared singleton.
+;;
+;; ## Overlapping cycles are unsupported, and no token can change that (rf2-84173)
+;;
+;; A build's cycle is identified by `build-id` alone. That is not an omission
+;; awaiting a generation token — it is the most any token could achieve, because
+;; of two facts about shadow's loader (read off the pinned shadow-cljs client:
+;; `shadow.cljs.devtools.client.{browser,shared,env}`):
+;;
+;;   1. NO CONVEYANCE. Lifecycle hooks are resolved by name off `$CLJS` and
+;;      invoked with NO arguments. A `^:dev/after-load` invocation is therefore
+;;      ANONYMOUS: it cannot present a claim minted by the `^:dev/before-load`
+;;      that opened its cycle. A token would have to be minted AND checked
+;;      entirely inside this ledger, where `commit-reload!` could only compare it
+;;      against the live slot it already reads — agreeing with itself by
+;;      construction. That is a tautology wearing an identity check's clothes,
+;;      which is precisely why this ledger has none.
+;;
+;;   2. NO PAIRING. `do-js-reload*` walks a task chain and ABANDONS the remainder
+;;      when a task throws, so a failed load never runs `^:dev/after-load` at all.
+;;      before-load and after-load are therefore not a balanced pair, which also
+;;      rules out every depth/refcount scheme: one aborted reload would leave the
+;;      count permanently above zero and hot reload would silently stop
+;;      committing, forever.
+;;
+;; Shadow adds no single-flight guard of its own — no pending flag, no queue, no
+;; dedup — so back-to-back `build-complete` messages each run a full independent
+;; reload chain. What actually serializes them is JavaScript: with only
+;; SYNCHRONOUS lifecycle hooks the whole before -> load -> after chain runs inside
+;; one event-loop turn, so cycle N's after-load always precedes cycle N+1's
+;; before-load and cycles cannot overlap. An `^:dev/before-load-async` /
+;; `^:dev/after-load-async` hook ANYWHERE in the build parks that chain and lets a
+;; second before-load land mid-cycle.
+;;
+;; So the honest boundary is: exactly ONE live cycle per build, overlapping
+;; same-build cycles unsupported, and the supersession made LOUD instead of silent
+;; (`notify-reload!`). The degradation under a genuine overlap is bounded and
+;; self-healing — stale classification rows until the next full page load, the
+;; same bound `note-reloaded-sources!` already documents for a deleted file.
+;;
+;; NOTE the word "generation" elsewhere in this namespace means something
+;; narrower and real: the open-vs-closed cycle state a registration observes
+;; ATOMICALLY (rf2-vxgfnd.144), which decides staging vs write-through. That is a
+;; property of the ledger transition, NOT an identity for a cycle.
 ;; ---------------------------------------------------------------------------
 
 (defonce ^{:doc "tag keyword -> {:properties #{kebab-kw}}. The LIVE aggregate
@@ -1070,17 +1113,87 @@
      (swap! custom-elements assoc tag decl))
    tag))
 
+(defn- report-unpaired-cycle!
+  "Surface an UNPAIRED `^:dev/before-load` — one that found a cycle still open,
+  carrying evidence, and superseded it (rf2-84173).
+
+  Bounded to one diagnostic per supersession and itself contained: a diagnostic
+  must never become a way for opening a cycle to fail. Dev-only by construction
+  (the only caller sits inside `reload-ledger?`).
+
+  Reports the DISCARD because the discard is real and lossy — it is simply the
+  lesser loss (see `notify-reload!`). Silence was the actual defect: the same
+  blind clobber served the routine aborted-reload recovery and the pathological
+  overlapping-cycle case, and nothing told them apart or told anyone."
+  [build-id staged touched]
+  #?(:cljs
+     (try
+       (when (exists? js/console)
+         (.warn js/console
+                (str "[re-frame.ui] build " (pr-str build-id)
+                     " opened a custom-element reload cycle while one was STILL "
+                     "OPEN; the previous cycle's evidence was discarded ("
+                     (reduce + 0 (map count (vals staged))) " staged declaration(s) across "
+                     (count staged) " source(s), " (count touched)
+                     " touched source(s)). EXPECTED after a reload that threw — "
+                     "shadow-cljs skips ^:dev/after-load entirely when a load "
+                     "task fails, so before/after are not a balanced pair, and "
+                     "discarding is how last-known-good is recovered. UNEXPECTED "
+                     "otherwise: overlapping same-build reload cycles are NOT "
+                     "supported, because shadow passes no cycle identity to "
+                     "^:dev/after-load. If you use ^:dev/before-load-async or "
+                     "^:dev/after-load-async, expect custom-element "
+                     "classification to need a full page reload to converge.")))
+       (catch :default _ nil))
+     :clj (do build-id staged touched nil)))
+
 (defn ^:dev/before-load notify-reload!
   "shadow-cljs hot-reload hook (dev only): OPEN a reload cycle for `build-id`
   (the runtime analogue of the compile-side `begin-build!`). Re-registrations
-  from here stage instead of mutating the live aggregate; opening a fresh cycle
-  discards any staging left by a previously ABORTED reload. Production never hot-
+  from here stage instead of mutating the live aggregate. Production never hot-
   reloads (shadow installs no `^:dev/before-load` hook in a release build), so
-  this never fires there and its body folds away with the ledger (rf2-k9yuy)."
+  this never fires there and its body folds away with the ledger (rf2-k9yuy).
+
+  ## Exactly ONE live cycle per build, and why the supersession is loud
+
+  Opening a fresh cycle REPLACES whatever cycle was open for the build, so a
+  build has exactly one live cycle — the generation every registration and every
+  `:touched` note of that reload belongs to. Replacing is deliberate and is the
+  ABORTED-RELOAD RECOVERY: shadow's `do-js-reload*` abandons the remaining task
+  chain when a task throws, so a failed load never reaches `^:dev/after-load` and
+  leaves its cycle open forever. The next before-load must clear it, or the first
+  successful commit would apply a failed reload's partial staging.
+
+  Replacing is also LOSSY, and until rf2-84173 it was silent. The `:touched`
+  evidence in particular cannot be recovered: it is reported once, during the
+  load phase, and `note-reloaded-sources!` no-ops once no cycle is open. So the
+  supersession now reports what it discarded.
+
+  Discarding is the RULED reading of the ambiguity, not an oversight. A second
+  before-load has two possible causes and the ledger cannot tell them apart:
+  the common one is an aborted predecessor (discarding is correct); the rare one
+  is a genuinely overlapping activation (discarding loses a live cycle). Keeping
+  the evidence instead would trade the rare loss for a common one — a source that
+  re-ran in the aborted cycle sits in `:touched` with its staging thrown away, so
+  the next commit would EVICT declarations that still exist in the new code and
+  will not re-register. Losing live rows on every failed reload is strictly worse
+  than degrading an overlap that requires an async lifecycle hook to occur at all.
+
+  See `## Overlapping cycles are unsupported` above for why no token can do
+  better here."
   ([] (notify-reload! (current-build-id)))
   ([build-id]
    (when reload-ledger?
-     (swap! ledger-state assoc-in [::cycles build-id] {:staged {} :touched #{}}))
+     (let [[old _new] (swap-vals! ledger-state
+                                  assoc-in [::cycles build-id]
+                                  {:staged {} :touched #{}})]
+       ;; Only the transition that actually superseded an EVIDENCE-BEARING cycle
+       ;; reports. A cycle opened twice with nothing staged and nothing touched
+       ;; discarded nothing, so there is nothing to warn about — this tests what
+       ;; was LOST, not merely whether a key was present.
+       (when-let [{:keys [staged touched]} (get (::cycles old) build-id)]
+         (when (or (seq staged) (seq touched))
+           (report-unpaired-cycle! build-id staged touched)))))
    nil))
 
 (defn note-reloaded-sources!
