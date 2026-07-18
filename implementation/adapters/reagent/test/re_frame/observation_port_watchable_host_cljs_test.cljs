@@ -49,7 +49,25 @@
   AND an integrated ViewCell (`re-frame.ui.reactive` — colocated on the
   consolidated `:node-test` classpath, which carries both `ui/src` and
   `adapters/reagent`), and (c) retain a real-movement positive control so
-  upstream suppression cannot make the assertions vacuous."
+  upstream suppression cannot make the assertions vacuous.
+
+  rf2-mjpmp (mounted arm) — the SAME fact at a REAL React mount, through the
+  PUBLIC compiled path, lives in the sibling namespace
+  `re-frame.observation-port-watchable-host-mounted-dom-cljs-test` (the
+  `-dom-cljs-test` suffix is what enrols it in the `:browser-test` build; this
+  file's `-cljs-test` suffix is `:node-test` only). The two headless arms here
+  drive the ViewCell by hand (`with-capture` / `commit!`, and a
+  `reactive/subscribe` listener standing in for a render), which pins the
+  cell-level contract headlessly but leaves the PUBLIC mount path unexercised.
+  The mounted arm closes that gap: it installs the stock Reagent adapter and
+  mounts a compiled sub-reading `defview` through the public compiled mount
+  path, so a NaN→NaN recompute is judged by the REAL mounted render — the
+  compiled view's own body invocation and the React commit — not by a listener
+  count. Reagent supplies the WATCHABLE host (its Reaction notifies on
+  NaN→NaN); the compiled ViewCell reads that host THROUGH the observation port,
+  which is what makes `make-watch-handler`'s suppression load-bearing at a live
+  mount. The corrected section header below records why that composition is
+  supported."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [reagent.ratom :as ratom]
             [re-frame.core :as rf]
@@ -299,43 +317,61 @@
 ;; rf2-r09qj — NaN moves NaN-STABLY through an integrated ViewCell
 ;; ===========================================================================
 ;;
-;; WHY THE "render" IS A HEADLESS `reactive/subscribe` LISTENER, NOT A REACT
-;; MOUNT (rf2-en6qm). An audit (rf2-en6qm) asked to re-establish this fact at a
-;; REAL mounted render (a live React component's render count) rather than a
-;; `useSyncExternalStore` listener. That is architecturally UNREACHABLE for THIS
-;; fact without a runtime change, because the two properties the proof needs are
-;; mutually exclusive across every supported adapter:
+;; WHY THIS ARM'S "render" IS A HEADLESS `reactive/subscribe` LISTENER — and why
+;; that is a COMPLEMENT to, not a substitute for, the mounted arm below.
 ;;
-;;   1. HOST WATCH FIRES ON NaN→NaN. Only the ratom Reaction (Reagent /
-;;      reagent-slim) notifies on NaN→NaN — its notify gate is raw `=`
-;;      (`(= ##NaN ##NaN)` is false). That firing on a NO-move is the whole
-;;      point: it is what makes the observation port's `node-value=` suppression
-;;      (make-watch-handler) LOAD-BEARING. The first-party re-frame.ui / UIx /
-;;      Helix watchable substrate gates notify on `rf=`
-;;      (`Object.is(##NaN,##NaN)` is true — `re_frame/substrate/spine.cljs`
-;;      `rf=`), so its host watch does NOT fire on NaN→NaN and the
-;;      make-watch-handler is never even reached.
-;;   2. DRIVES A ViewCell AT A REAL MOUNT. Only re-frame.ui / UIx / Helix render
-;;      through the observation port → ViewCell → `useSyncExternalStore`. Reagent
-;;      and reagent-slim render NATIVELY through `re-frame.views` /
-;;      `create-class`; a mounted Reagent view never touches the observation port
-;;      or a ViewCell. And `re-frame.ui.client/mount!` refuses a non-`re-frame.ui`
-;;      adapter generation, so "Reagent host + ViewCell real mount" is not a
-;;      supported configuration.
+;; This test drives a real `re-frame.ui.reactive` cell by hand (`with-capture` /
+;; `commit!`) and reads the SAME `useSyncExternalStore` `subscribe` seam React
+;; calls, so it pins the cell-level contract — version, revision, and listener
+;; notification — without a DOM. That is genuinely useful: it runs headlessly in
+;; the `:node-test` build, on every PR, with no browser.
 ;;
-;; So the ONLY host that fires on NaN→NaN (property 1) is exactly the family that
-;; never drives a ViewCell (property 2). At a real mounted render on the ui
-;; adapter a NaN→NaN produces zero renders too — but for the WRONG reason (the
-;; host's own `rf=` gate suppresses at source; the sentinel would NOT fire), so
-;; it would prove the spine's notify gate, not make-watch-handler suppression.
-;; This integrated ViewCell (real `re-frame.ui.reactive` cell, driven by
-;; `with-capture`/`commit!` and observed via the SAME `useSyncExternalStore`
-;; `subscribe` seam React calls) is therefore the HIGHEST-fidelity SUPPORTED
-;; proof of the make-watch-handler NaN suppression over a Reagent watchable host;
-;; the render is the listener-notification count that a mounted React component
-;; would consume. Moving it to a live React mount would require either a runtime
-;; change to the ui substrate notify gate or an unsupported Reagent+ViewCell
-;; bridge — both out of scope for a proof.
+;; It is NOT the whole proof, because a hand-driven commit is a PROXY for a
+;; render: mutating the public compiled mount path would leave this arm green.
+;; The sibling namespace
+;; `re-frame.observation-port-watchable-host-mounted-dom-cljs-test` closes that
+;; gap through the PUBLIC compiled mount path, at a real React mount.
+;;
+;; A PRIOR REVISION OF THIS COMMENT CLAIMED THE MOUNTED ARM WAS ARCHITECTURALLY
+;; UNREACHABLE. That claim was WRONG on two counts, and is corrected here
+;; (rf2-mjpmp) so it does not mislead a future reader:
+;;
+;;   - It said `re-frame.ui.client/mount!` "refuses a non-`re-frame.ui` adapter
+;;     generation". It does not. `mount*` captures the OPAQUE installed-adapter
+;;     generation token (`current-adapter-generation`) before its side-effecting
+;;     frame preflight and re-asserts that the SAME token is still installed
+;;     afterwards (`require-adapter-generation-open!`, rf2-vxgfnd.199). That is a
+;;     generic identity check against destroy / destroy-and-replace during
+;;     preflight — it reads no `:kind`, and there is no adapter-kind gate
+;;     anywhere on the mount path. Compiled roots mount under whatever adapter is
+;;     installed; sibling suites already mount them under `:kind :custom`
+;;     adapters.
+;;   - It said Reagent "never touches the observation port or a ViewCell". That
+;;     conflates WHICH ADAPTER SUPPLIES THE WATCHABLE HOST with WHICH RENDERER
+;;     DRIVES THE VIEW. They are independent. A compiled `defview` always reads
+;;     its subs through the observation port into a ViewCell — that is the
+;;     compiled path, not an adapter feature. The installed adapter supplies the
+;;     sub-cache's derived nodes; under Reagent those nodes ARE
+;;     `reagent.ratom/Reaction`s. So a compiled view mounted while Reagent is
+;;     installed reads a REAGENT watchable through a REAL ViewCell.
+;;
+;; The two properties the proof needs are therefore NOT mutually exclusive:
+;;
+;;   1. HOST WATCH FIRES ON NaN→NaN — supplied by the REAGENT adapter's Reaction,
+;;      whose notify gate is raw `=` (`(= ##NaN ##NaN)` is false). Firing on a
+;;      NO-move is the whole point: it is what makes the port's `node-value=`
+;;      suppression (make-watch-handler) LOAD-BEARING. (The first-party
+;;      re-frame.ui / UIx / Helix substrate gates notify on `rf=` —
+;;      `Object.is(##NaN,##NaN)` is true, `re_frame/substrate/spine.cljs` — so on
+;;      THOSE hosts the watch never fires for NaN→NaN and make-watch-handler is
+;;      never reached. A mounted NaN proof on the ui adapter would produce zero
+;;      renders for the WRONG reason, proving the spine's notify gate instead.)
+;;   2. DRIVES A ViewCell AT A REAL MOUNT — supplied by the COMPILED VIEW, which
+;;      routes every `ui/sub` through the observation port → ViewCell →
+;;      `useSyncExternalStore` regardless of the installed adapter.
+;;
+;; Composing the two needs no bridge, no adapter-kind guard, and no runtime
+;; change — only the already-public composition the mounted arm exercises.
 
 (deftest viewcell-over-watchable-host-nan-to-nan-is-version-revision-render-stable
   (testing "an integrated observation→ViewCell path over a WATCHABLE (Reagent)
