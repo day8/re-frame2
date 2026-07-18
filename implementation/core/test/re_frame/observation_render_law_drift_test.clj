@@ -117,14 +117,7 @@
    (str "a dated review that QUOTES G-3's retired 'one notification per epoch' "
         "adversarially, to argue it would be vacuous under a hypothetical pull "
         "design. Rewriting a historical review's quotation of the claim it "
-        "criticises would falsify the record")
-
-   "spec/009-Instrumentation.md"
-   (str "HELD: the :rf.error/reentrant-graph-op row carries the same "
-        "'epoch-close notify' defect fixed here in spec/006, but the file is "
-        "owned by live PR #6386 (rf2-0qsp5) under the one-owner-at-a-time "
-        "hot-zone rule. Tracked by a follow-up bead; remove this entry with "
-        "that fix")})
+        "criticises would falsify the record")})
 
 (defn- offending-lines
   "`[line-no line]` pairs of `content` carrying a retired render-law claim."
