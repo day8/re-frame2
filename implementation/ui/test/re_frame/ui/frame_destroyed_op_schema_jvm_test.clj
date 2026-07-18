@@ -26,16 +26,18 @@
   the ONLY surface that reaches all four enum values (`:capture` is ui-only)."
   (:require [clojure.edn :as edn]
             [clojure.java.io :as io]
+            [clojure.set]
             [clojure.string :as str]
             [clojure.test :refer [deftest is testing use-fixtures]]
-            [re-frame.core                 :as rf]
-            [re-frame.error-emit           :as error-emit]
-            [re-frame.frame                :as frame]
-            [re-frame.live-frame           :as live-frame]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.test-support         :as test-support]
-            [re-frame.trace                :as trace]
-            [re-frame.ui.frames            :as frames]))
+            [re-frame.core                   :as rf]
+            [re-frame.error-emit             :as error-emit]
+            [re-frame.frame                  :as frame]
+            [re-frame.live-frame             :as live-frame]
+            [re-frame.substrate.observation  :as obs]
+            [re-frame.substrate.plain-atom   :as plain-atom]
+            [re-frame.test-support           :as test-support]
+            [re-frame.trace                  :as trace]
+            [re-frame.ui.frames              :as frames]))
 
 (use-fixtures :each
   (test-support/make-reset-runtime-fixture
@@ -73,17 +75,24 @@
         (throw (ex-info "rf2-vub3y: FrameDestroyedTags is not a [:map …] form" {:read schema})))
       schema)))
 
-(defn- op-entry
-  "The canonical FrameDestroyedTags `:op` slot as `{:props … :schema …}`, or nil
+(defn- slot-entry
+  "The canonical FrameDestroyedTags slot `k` as `{:props … :schema …}`, or nil
   when the slot is absent. Malli map entries are `[k schema]` OR `[k props
   schema]`; normalising both here means a slot that DROPS its props map (i.e. is
   promoted to required) fails the props assertion cleanly instead of throwing."
-  []
-  (when-let [entry (first (filter #(and (vector? %) (= :op (first %)))
+  [k]
+  (when-let [entry (first (filter #(and (vector? %) (= k (first %)))
                                   (rest (frame-destroyed-tags-form))))]
     (if (= 3 (count entry))
       {:props (nth entry 1) :schema (nth entry 2)}
       {:props nil :schema (nth entry 1)})))
+
+(defn- op-entry [] (slot-entry :op))
+
+(defn- declared-slots
+  "The set of slot KEYS the canonical schema declares."
+  []
+  (set (map first (filter vector? (rest (frame-destroyed-tags-form))))))
 
 ;; ---------------------------------------------------------------------------
 ;; Driving the real emits
@@ -167,6 +176,138 @@
       (is (= declared @observed)
           "the declared enum is exactly the set of values the runtime emits —
            neither a phantom declared value nor an undeclared emitted one"))))
+
+;; ---------------------------------------------------------------------------
+;; rf2-g8ict — the declared slot roster vs the FOUR live emitters
+;; ---------------------------------------------------------------------------
+;;
+;; The `:op` legs above pin ONE slot. This section pins the whole roster in both
+;; directions, because the same failure mode had struck the payload pair:
+;; `FrameDestroyedTags` declared `:rf.event/v` + `:rf.sub/query-v` as THE
+;; payload slots, but no emitter stamps `:rf.event/v` for this category, while
+;; the bare `:event` / `:query-v` / `:reason` / `:where` / `:rf.sub/id` that
+;; three of the four emitters DO stamp were undeclared.
+;;
+;; The bare `:event` spelling is deliberate, not drift:
+;; `re-frame.classification/project-trace-event` walks `:event` and
+;; `:rf.event/v` through the SAME `project-event-tags` redaction chokepoint.
+;; So the document was wrong and the runtime was right — no emitter was renamed.
+
+(defn- frame-destroyed-tag-keys
+  "The tag-key set of every `:rf.error/frame-destroyed` dev trace `thunk` emits."
+  [thunk]
+  (into #{} (mapcat keys) (frame-destroyed-trace-tags thunk)))
+
+(deftest declared-slots-are-exactly-the-slots-the-live-emitters-stamp
+  (testing "rf2-g8ict: the canonical schema declares NO phantom slot and OMITS
+            no slot a live emitter stamps. Both directions, across all four
+            frame-destroyed surfaces: router (ordinary dispatch), subs
+            (ordinary subscribe), the internal observation port, and the ui
+            `(frame)` bundle (stale op + capture)"
+    (reg!)
+    (let [observed (atom #{})
+          note!    (fn [ks] (swap! observed into ks))]
+      ;; 1 — router: ordinary address-directed dispatch into a destroyed frame.
+      (make-frame! :ops/router-arm {:n 1})
+      (frame/destroy-frame! :ops/router-arm)
+      (note! (frame-destroyed-tag-keys
+              #(rf/dispatch-sync [:ops/set-n 5] {:frame :ops/router-arm})))
+
+      ;; 2 — subs: ordinary address-directed subscribe into a destroyed frame.
+      (make-frame! :ops/subs-arm {:n 1})
+      (frame/destroy-frame! :ops/subs-arm)
+      (note! (frame-destroyed-tag-keys
+              #(rf/subscribe [:ops/n] {:frame :ops/subs-arm})))
+
+      ;; 3 — the internal observation port (throwing surface, namespaced trio).
+      (make-frame! :ops/obs-arm {:n 1})
+      (let [target (obs/resolve-target {:frame :ops/obs-arm :query-v [:ops/n]})]
+        (frame/destroy-frame! :ops/obs-arm)
+        (note! (frame-destroyed-tag-keys #(obs/probe target))))
+
+      ;; 4 — the ui `(frame)` bundle: a stale op AND the capture arm.
+      (make-frame! :ops/ui-arm {:n 1})
+      (let [b (rf/with-frame :ops/ui-arm (frames/frame-ops))]
+        (frame/destroy-frame! :ops/ui-arm)
+        (note! (frame-destroyed-tag-keys #((:dispatch b) [:ops/set-n 2]))))
+      (note! (frame-destroyed-tag-keys
+              #(binding [frame/*current-frame* :ops/ghost] (frames/frame-ops))))
+
+      (let [declared (declared-slots)
+            emitted  @observed]
+        (is (seq emitted)
+            "the four surfaces actually emitted — a vacuous set would make the
+             set-equality below pass for the wrong reason")
+        (is (empty? (clojure.set/difference declared emitted))
+            (str "no PHANTOM slot: every declared slot is stamped by some live "
+                 "emitter. Declared-but-never-emitted: "
+                 (clojure.set/difference declared emitted)))
+        (is (empty? (clojure.set/difference emitted declared))
+            (str "no UNDECLARED slot: every stamped slot is declared. "
+                 "Emitted-but-undeclared: "
+                 (clojure.set/difference emitted declared)))))))
+
+(deftest the-payload-slot-per-surface-is-the-one-the-schema-names
+  (testing "rf2-g8ict: the per-surface presence/absence rules — the bare
+            `:event` on the router + ui arms, `:query-v` on the subs arm, and
+            the namespaced `:rf.sub/query-v` (never `:rf.event/v`) on the
+            observation port"
+    (reg!)
+    (make-frame! :ops/p-router {:n 1})
+    (frame/destroy-frame! :ops/p-router)
+    (let [tags (first (frame-destroyed-trace-tags
+                       #(rf/dispatch-sync [:ops/set-n 5] {:frame :ops/p-router})))]
+      (is (= [:ops/set-n 5] (:event tags))
+          "router stamps the bare `:event` — the classification-aware error-tag
+           spelling, NOT the dispatch-pipeline `:rf.event/v`")
+      (is (not (contains? tags :rf.event/v))
+          "`:rf.event/v` is phantom for this category")
+      (is (= :frame-destroyed (:reason tags)))
+      (is (not (contains? tags :recovery))
+          "`:recovery` is hoisted out of :tags by build-event on every branch"))
+
+    (make-frame! :ops/p-subs {:n 1})
+    (frame/destroy-frame! :ops/p-subs)
+    (let [tags (first (frame-destroyed-trace-tags
+                       #(rf/subscribe [:ops/n] {:frame :ops/p-subs})))]
+      (is (= [:ops/n] (:query-v tags))
+          "subs stamps the bare `:query-v`")
+      (is (not (contains? tags :rf.sub/query-v))
+          "…not the namespaced spelling — that one belongs to the port"))
+
+    (make-frame! :ops/p-obs {:n 1})
+    (let [target (obs/resolve-target {:frame :ops/p-obs :query-v [:ops/n]})]
+      (frame/destroy-frame! :ops/p-obs)
+      (let [tags (first (frame-destroyed-trace-tags #(obs/probe target)))]
+        (is (= [:ops/n] (:rf.sub/query-v tags))
+            "the observation port uses the NAMESPACED sub spellings, matching
+             its `:rf.error/observation-retry-exhausted` sibling row")
+        (is (= :ops/n (:rf.sub/id tags)))
+        (is (some? (:where tags)) "`:where` names the port call site")
+        (is (not (contains? tags :query-v)))))))
+
+(deftest ui-arm-redacts-the-payload-body-so-event-is-not-always-a-vector
+  (testing "rf2-g8ict: the ui `(frame)` surface redacts the attempted payload
+            AT SOURCE, and its capture arm has no payload at all. So the
+            schema types `:event` as `:any` — declaring `[:vector :any]` would
+            be a claim the runtime does not honour"
+    (reg!)
+    (make-frame! :ops/redact-arm {:n 1})
+    (let [b (rf/with-frame :ops/redact-arm (frames/frame-ops))]
+      (frame/destroy-frame! :ops/redact-arm)
+      (let [tags (first (frame-destroyed-trace-tags
+                         #((:dispatch b) [:ops/set-n 2])))]
+        (is (contains? tags :event) "the slot is present…")
+        (is (not (vector? (:event tags)))
+            "…but NOT a vector — the ui arm redacts the body at source")))
+    (let [tags (first (frame-destroyed-trace-tags
+                       #(binding [frame/*current-frame* :ops/ghost]
+                          (frames/frame-ops))))]
+      (is (contains? tags :event) "the capture arm still carries the slot")
+      (is (nil? (:event tags))
+          "…with nil — no op ran, so there is no attempted payload"))
+    (is (= :any (:schema (slot-entry :event)))
+        "and the canonical schema says so")))
 
 (deftest ordinary-address-directed-emit-omits-op
   (testing "an ordinary address-directed dispatch into a destroyed frame carries
