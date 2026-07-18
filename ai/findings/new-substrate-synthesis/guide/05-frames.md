@@ -1,8 +1,14 @@
 # 05 — Frames
 
 A frame is a running re-frame2 universe: app-db, subscriptions, event queue, epoch
-history. Views live *inside* one. Two components manage that relationship — their
-names say which verb they perform.
+history. Views live *inside* one.
+
+On day one you need one frame and one component to stand it up: `frame-root`, which you
+already wrote in [01](01-getting-started.md). Read the next section, then come back to
+the rest of this page when a page needs more than one world on it.
+
+Two components manage the view-to-frame relationship, and their names say which verb
+each performs.
 
 ## `frame-root` — ensure
 

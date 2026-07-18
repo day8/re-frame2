@@ -7,6 +7,19 @@ JSX", what ViewCell is), see [12 — How it works](12-how-it-works.md).
 
 ## Defining a view
 
+The minimal `defview` is a name, a props binding, and the hiccup it returns:
+
+```clojure
+(ui/defview greeting [{:keys [name]}]
+  [:p "Hello, " name])
+```
+
+Other views call it by symbol — `[greeting {:name "Ada"}]` — exactly like any other
+element. On day one there is nothing else to learn about defining views.
+
+When a view earns documentation and a checked prop shape, the same form takes a
+docstring and an options map ahead of the argument vector:
+
 ```clojure
 (ui/defview product-card
   "One product tile."
@@ -30,11 +43,10 @@ JSX", what ViewCell is), see [12 — How it works](12-how-it-works.md).
 
 **Calling**
 
-- Views call views by symbol: `[product-card {:product p}]`.
 - Children arrive as `:children` — declaring that binding is what opts a view into
-  accepting them. Passing children to a view that declares none is a compile error.
-- **`:key` is reserved** (React's list-identity slot). An app prop named `:key` is a
-  compile error.
+  accepting them.
+- **`:key` is reserved** for React's list-identity slot, so it is never one of your
+  own props.
 
 **Memoisation**
 
@@ -56,20 +68,26 @@ If you know Reagent hiccup, you are home — minus the traps.
 - `:div.cls#id` sugar; `:style` maps; `:class` as string, vector, or map-of-flags.
 - `[:<> …]` is a fragment. Branch freely with `if` / `when` / `cond` / `case` /
   `let` — the compiler understands them.
-- **Keys on list items are required.** A missing key is a *build failure* with the
-  element's file:line, not a console warning.
-- **Tag heads must be literal.** `[(if big? :h1 :h2) title]` is a compile error —
-  bind attributes dynamically or write two branches.
 - **No `#js`, no camelCase on compiled paths.** Conversion is the compiler's job.
   The browser lowers to direct React construction; the JVM lowers to versioned
   `re-frame.ui.tree` structural data under the same specified conversion contract.
   At S5, `re-frame.ssr/emit-ui-tree` separately serializes that tree to HTML;
   browser/JVM and serializer parity gates detect drift.
-- A `map` that returns markup is rejected (extract a child view, use `for`). Keywords
-  in child position are rejected (silent-text mistakes).
 
-These are not taste rules — they are what compile-time lowering requires. The full
-catalogue of walls, fixes, and escapes is
+About everything else the compiler is strict, and strict at build time. These are not
+taste rules — they are what compile-time lowering requires — and none of them reaches you
+as a console warning you can scroll past:
+
+| If you write | What you see | The fix |
+|---|---|---|
+| A list item without `:key` | Build failure naming the element's file:line | Give each item a stable `{:key …}`, usually its id |
+| A computed tag head — `[(if big? :h1 :h2) title]` | Compile error at that element | Write the two branches out, or vary attributes rather than the tag |
+| A `map` that returns markup | Compile error | Use `for`, or extract a child view |
+| A bare keyword in child position | Compile error | Say what you meant — `(name kw)` or `(str kw)` |
+| An app prop named `:key` | Compile error | Rename it; `:key` belongs to React |
+| Children passed to a view that declares no `:children` | Compile error | Declare the `:children` binding in that view |
+
+The full catalogue of walls, fixes, and escapes is
 [14 — What the compiler forbids](14-compile-time-limits.md).
 
 Genuinely data-driven UI (CMS trees, form definitions) uses an explicit interpreter

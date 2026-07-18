@@ -211,10 +211,9 @@ render. One function cannot do both, so the forms are distinct.
 
 ## Lists
 
-A handler that does not touch the loop variable is fine inline
-(`{:on-click [:list/refresh]}` — one shared callback). One that captures the row
-(`[::open (:id t)]`) is a compile error with the fix: extract a keyed child view —
-each row then owns its site.
+A handler that ignores the loop variable is fine inline — `{:on-click [:list/refresh]}`
+is one shared callback and every row can carry it. The moment a handler needs the row
+itself (`[::open (:id t)]`), extract a keyed child view, so each row owns its own site.
 
 ## Lifecycle is not an event
 
@@ -226,5 +225,13 @@ modal); synchronise with the host world in `(effect …)` ([03](03-state.md)).
 
 ## Safety nets
 
-Dev checks every data handler's event id against the registrar at render — a typo'd
-`[:cart/ad id]` warns immediately with the element's file:line.
+Every rule on this page fails where you can see it — at build time, or at the first
+render. None of them becomes a handler that silently does nothing:
+
+| If you write | What you see | The fix |
+|---|---|---|
+| A typo'd event id — `[:cart/ad id]` | Dev warning at render with the element's file:line; dev checks every data handler's id against the registrar | Fix the spelling, or register the event |
+| A placeholder inside a vector you received through props | Dev warning; the vector dispatches its contents as-is | Build literals at your own DOM sites and hand libraries a prefix |
+| A bare `#(…)` on a **foreign** component's callback prop | Compile error | Choose a form from the decision table above |
+| A row handler inside a `for` that captures the loop variable | Compile error | Extract a keyed child view so each row owns its site |
+| A dynamic props map or `ui/spread` at a controlled input | No error — the site falls back to ordinary batching, and dev tells you so | Keep `:value`/`:checked` and the handler literal at controlled sites |

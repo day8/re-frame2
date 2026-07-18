@@ -197,7 +197,7 @@ No `useCallback` on the checkbox, no `React.memo` on the tile, no store wiring f
 the feed, no loading-state component library, no test IDs threaded through the DOM
 for a click simulator. The dashboard is the counter, more times.
 
-## Codas
+## Two things to try next
 
 **Serve it.** The dashboard is one mount away from [11](11-ssr.md): the same root form
 renders on the JVM; the same event vectors sit in the server tree.

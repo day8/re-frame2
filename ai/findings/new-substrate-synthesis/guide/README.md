@@ -4,9 +4,9 @@ re-frame2 UI is an experimental, additional view layer for re-frame2. You write 
 vectors**. The compiler turns them into efficient React at build time — no hiccup
 interpreter in the bundle, no hooks ceremony, no manual memoisation.
 
-This guide teaches the library as a **user**. The dataflow half (events, effects,
-app-db) lives in the [core guide](../../../../docs/core/introduction.md). Design
-rationale for the substrate lives one directory up in the synthesis suite.
+This guide teaches the library as you will use it. The dataflow half — events, effects,
+app-db — lives in the [core guide](../../../../docs/core/introduction.md), and the
+design rationale for the substrate lives one directory up in the synthesis suite.
 
 ---
 
@@ -30,9 +30,13 @@ maps, and the closed grammar's hard limits.
 
 ## How to read this guide
 
-**Read in order through chapter 07.** Each chapter assumes the ones before it.
-Chapters 08–14 are depth: open them when you need them. Chapter 14 is the
-"compile error dictionary" — reach for it when a build failure surprises you.
+**Read in order through chapter 07.** Each chapter assumes the ones before it, and each
+one opens with the least you need to get moving before it goes deeper. If you have ten
+minutes rather than an afternoon, [01](01-getting-started.md) on its own gets a counter
+running.
+
+Chapters 08–14 are depth: open them when you need them. Chapter 14 is the "compile error
+dictionary" — reach for it when a build failure surprises you.
 
 | # | Chapter | Job |
 |---|---------|-----|
