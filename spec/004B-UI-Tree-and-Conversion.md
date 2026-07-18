@@ -126,7 +126,9 @@ output* is **not** a marker — a `ui/slot` invocation produces the ordinary chi
 subtree the render-fn built, spliced into the enclosing children like any other
 child, so `ui.test` renders slotted trees headlessly with no special representation.
 
-### Reserved `:rf.ui/*` keys — semantic vs diagnostic
+<a id="reserved-rfui-keys"></a>
+
+### Reserved `:rf.ui/*` keys — the three roles (required gate, semantic, diagnostic)
 
 A closed v1 set of reserved-namespace keys. **Consumers MUST ignore *unknown*
 `:rf.ui/*` keys**, and **normalization removes every `:rf.ui/*` key from its output** —
