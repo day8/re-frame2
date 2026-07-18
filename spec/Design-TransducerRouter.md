@@ -116,8 +116,8 @@ to fixed point before `sync-rf` returns. Equivalent to v1's `dispatch-sync`.
 ```
 
 **`queued-rf`** — the v1 drain shape. Commits `:db-after` on every step; the driver pump runs
-the next envelope on the host's macrotask queue (`goog.async.nextTick` — a next-turn task, per
-[Spec 002 §Drain scheduling](002-Frames.md#drain-scheduling--macrotask-not-timer)). Dispatched
+the next envelope on the host's task queue (`goog.async.nextTick` — a next-turn task, per
+[Spec 002 §Drain scheduling](002-Frames.md#drain-scheduling--task-not-microtask)). Dispatched
 events are appended to the frame's FIFO. Equivalent to v1's `dispatch`.
 
 **`batch-rf`** — accumulator. Steps update an in-memory `db` value without writing through to
@@ -139,10 +139,12 @@ A driver is a function `(driver pump-fn) → driver-handle`. The driver decides 
 runs and returns a handle the runtime can use to schedule, pause, and tear down.
 
 - **`macrotask-driver`** — v1's behaviour. `pump-fn` runs under `goog.async.nextTick` (CLJS) — a
-  next-turn **macrotask** (Closure realises it via `MessageChannel`/`postMessage`/`setImmediate`),
-  deliberately **not** a microtask (the microtask boundary is reserved for Spec 006's UI-render
-  correction flush) — or an executor task / inline (JVM). Default. Per [Spec 002 §Drain
-  scheduling](002-Frames.md#drain-scheduling--macrotask-not-timer).
+  next-turn **task**, deliberately **not** a microtask (the microtask boundary is reserved for
+  Spec 006's UI-render correction flush) — or an executor task / inline (JVM). Default. The
+  not-a-microtask boundary is the guarantee; *which* task mechanism Closure selects
+  (`setImmediate`, a `MessageChannel`/`postMessage` emulation, or its `setTimeout(cb, 0)`
+  fallback) is host-dependent and carries no latency promise. Per [Spec 002 §Drain
+  scheduling](002-Frames.md#drain-scheduling--task-not-microtask).
 - **`raf-driver`** — `pump-fn` runs under `requestAnimationFrame`. For frame-locked drains.
 - **`manual-driver`** — test harness drives `pump-fn` explicitly via `(tick handle)`. Used by
   the conformance corpus and SSR loaders.

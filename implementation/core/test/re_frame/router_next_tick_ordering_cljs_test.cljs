@@ -1,12 +1,12 @@
 (ns re-frame.router-next-tick-ordering-cljs-test
   "Host-ordering contract for the router's drain scheduling primitive
-  (`interop/next-tick`), per Spec 002 §Drain scheduling — macrotask, not timer
+  (`interop/next-tick`), per Spec 002 §Drain scheduling — task, not microtask
   and rf2-t8xyuk.
 
   The router schedules its drain via `interop/next-tick` = `goog.async.nextTick`,
-  which is a **macrotask** (a next-turn TASK — `setImmediate`/`MessageChannel`/
-  `postMessage`), NOT a microtask. These tests PIN that observable boundary so a
-  future change cannot silently swap the primitive to a true microtask
+  which is a **macrotask** (a next-turn TASK), NOT a microtask. These tests PIN
+  exactly that boundary — the whole guarantee the runtime makes — so a future
+  change cannot silently swap the primitive to a true microtask
   (`js/queueMicrotask` / a resolved-`Promise` job) to match the historically
   wrong \"microtask\" prose the bead corrected.
 
@@ -14,7 +14,15 @@
   microtask scheduled from the same synchronous stack ALWAYS runs at the host's
   microtask checkpoint — strictly BEFORE the next macrotask. So if `next-tick`
   fires AFTER a `js/queueMicrotask` peer, it is a macrotask; if it fired before,
-  it would be a microtask. Both tests turn on exactly that gap."
+  it would be a microtask. Both tests turn on exactly that gap.
+
+  What these tests deliberately do NOT assert (rf2-iweic): WHICH task mechanism
+  Closure selects. `goog.async.nextTick` prefers a native `setImmediate`, else a
+  `MessageChannel`/`postMessage` emulation, and falls back to `setTimeout(cb, 0)`
+  where neither exists. All three are tasks, so every assertion below holds on
+  every path — including the timer fallback. Asserting the absence of a timer
+  (or of the nested-`setTimeout` clamp) would pin a promise the runtime does not
+  make."
   (:require [cljs.test :refer-macros [deftest is testing async use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.interop :as interop]
@@ -41,6 +49,13 @@
         (interop/next-tick (fn [] (swap! log conj :next-tick)))
         (js/queueMicrotask  (fn [] (swap! log conj :microtask)))
         (swap! log conj :sync-after)
+        ;; The portable core of the contract, asserted on the scheduling stack
+        ;; itself: `next-tick` SCHEDULES, it never runs f inline. This is the
+        ;; one property both hosts share (on the JVM the executor may start the
+        ;; callback concurrently, but never on the submitting thread), and it
+        ;; holds on every Closure mechanism including the setTimeout fallback.
+        (is (= [:sync-before :sync-after] @log)
+            "next-tick did not invoke its callback synchronously")
         ;; A trailing macrotask observes the settled order. It is scheduled
         ;; after the drain primitive above, so it fires strictly later.
         (interop/next-tick
