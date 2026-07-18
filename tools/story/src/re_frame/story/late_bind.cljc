@@ -96,12 +96,17 @@
                                      Story's shipped jar must not depend on
                                      the pre-publication `day8/re-frame2-ui`,
                                      so the verb arrives through this hook
-                                     rather than a `:require`. Absent on a
-                                     host with no presence runtime, where the
-                                     advance is a no-op (host parity with the
-                                     framework's own JVM arm), NOT a refusal.
-                                     Install via
-                                     `re-frame.story.play.presence/install-presence-flush!`.
+                                     rather than a `:require`. Installed by
+                                     ONE `:require` of the optional bridge
+                                     `re-frame.story.play.presence-host`,
+                                     which holds the `re-frame.ui` dependency
+                                     on the app's side of the seam. Unlike
+                                     every other hook here, an ABSENT
+                                     `:flush-presence!` is NOT a no-op: a
+                                     requested `[:flush-presence]` refuses
+                                     `:cannot-run`, because a missing hook
+                                     does not prove a missing presence
+                                     runtime (rf2-36biz).
 
   - `:render-hiccup`               — a host that can render the active view
                                      to a HICCUP TREE (data) → the play

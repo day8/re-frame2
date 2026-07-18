@@ -50,6 +50,12 @@
             [re-frame.story.late-bind             :as late-bind]
             [re-frame.story.plan                  :as plan]
             [re-frame.story.play.presence         :as story-presence]
+            ;; The OPTIONAL bridge under test (rf2-36biz) — the one canonical
+            ;; installation path. Requiring it is what an app does; it holds
+            ;; the `re-frame.ui` dependency on the app's side of the seam, so
+            ;; Story's own namespaces never require it (and its jar stays
+            ;; free of the pre-publication artefact).
+            [re-frame.story.play.presence-host    :as presence-host]
             [re-frame.story.play.runner           :as runner]
             [re-frame.story.play.runner-events    :as re]
             [re-frame.story.requirements          :as requirements]
@@ -160,11 +166,11 @@
         (is (= [100 nil] @calls)))
       (finally (swap! late-bind/hooks dissoc :flush-presence!)))))
 
-(deftest advance-with-no-host-is-a-no-op-not-a-refusal
-  (testing "host parity: the framework's own JVM arm of flush-presence! is a
-            no-op, so a Story host with no presence runtime advances a no-op
-            too — there is no retention to advance and nothing to pass
-            falsely (the DOM assertion that follows carries the refusal)"
+(deftest advance-with-no-host-reports-no-host
+  (testing "with no host installed the advance DID NOT HAPPEN, and `advance!`
+            says so faithfully — the executor projects `:no-host` into a
+            `:cannot-run` refusal (rf2-36biz). `advance!` itself stays pure
+            data → data: it reports, the executor judges"
     (is (nil? (story-presence/presence-flush-fn)))
     (is (= {:status :no-host :ms nil} (story-presence/advance! nil)))
     (is (= {:status :no-host :ms 250} (story-presence/advance! 250)))))
@@ -197,6 +203,12 @@
   (story/clear-all!)
   (registrar/clear-all!)
   (reset! frame/frames {})
+  ;; Start every test HOOK-FREE, symmetrically with `teardown!`. The hook
+  ;; registry is process-global, and merely REQUIRING the optional bridge
+  ;; (`presence-host`, whose load-time install is the whole point of it)
+  ;; arms it for the rest of the process — so the no-host tests must not
+  ;; depend on ns-load order to see an empty slot.
+  (swap! late-bind/hooks dissoc :flush-presence!)
   (try (rf/init! plain-atom/adapter)
        (catch #?(:clj clojure.lang.ExceptionInfo :cljs :default) _ nil))
   (reset! re/run-state {})
@@ -276,12 +288,56 @@
     (testing "both arities reached the host verb, ms threaded through"
       (is (= [100 nil] (:advances @state))))))
 
-(deftest presence-step-with-no-host-skips-cleanly
-  (testing "with no presence host the step is a SKIP, not a refusal and not
-            an exception — the same no-op the framework's JVM arm is"
+(deftest presence-step-with-no-host-refuses-cannot-run
+  (testing "rf2-36biz — with NO presence host installed the advance did not
+            happen, so the step REFUSES (`:cannot-run`) rather than skipping
+            silently. `no hook installed` does not prove `no presence runtime
+            exists`: an app can load re-frame.ui and simply omit the bridge
+            call, and its presence-bearing playback would then report a clean
+            verdict over a clock that never moved"
     (let [res (exec-step! presence-frame 0 [:flush-presence])]
-      (is (nil? (:passed? res)))
-      (is (nil? (:exception res))))))
+      (is (true? (:cannot-run? res)) "the distinct THIRD status, not a skip")
+      (is (false? (:passed? res)))
+      (is (nil? (:exception res)) "an absent host is a refusal, not a throw")
+      (is (string? (:message res)))
+      (is (re-find #"install-presence-flush!|presence-host" (:message res))
+          "the refusal NAMES the install path — an actionable refusal"))))
+
+;; The bridge's INSTALLATION is host-agnostic, but DRIVING the installed verb
+;; repeatedly is not: on CLJS `flush-presence!` is Promise-backed and holds a
+;; single in-flight act token, so back-to-back synchronous advances are the
+;; framework's own `:rf.error/ui-test-overlapping-act` misuse. This arm is
+;; therefore JVM-only, where the verb is a documented synchronous no-op. The
+;; CLJS end-to-end proof — the shipped bridge driving the REAL clock, with the
+;; act yields the run loop gives — is the real-clock `.cljs` companion, which
+;; installs through this same `presence-host/install!`.
+#?(:clj
+   (deftest presence-host-bridge-installs-the-framework-verb
+     (testing "rf2-36biz — the hook shipped with NO production installer: only
+               tests and docstrings called `install-presence-flush!`, so a
+               presence-bearing script could never reach the real clock. The
+               optional bridge is that missing installer, and it is REAL —
+               this drives the SHIPPED `install!`, not a copy of it"
+       (is (nil? (story-presence/presence-flush-fn))
+           "the fixture cleared the process-global hook")
+       (presence-host/install!)
+       (is (some? (story-presence/presence-flush-fn))
+           "one call — and a bare :require does it at load time")
+       (is (identical? (story-presence/presence-flush-fn)
+                       (late-bind/get-fn :flush-presence!))
+           "installed into the SAME late-bind slot the executor reads")
+       (testing "the installed verb runs — the framework's JVM arm of
+                 flush-presence! is its own documented no-op"
+         (is (= {:status :advanced :ms nil} (story-presence/advance! nil)))
+         (is (= {:status :advanced :ms 0}   (story-presence/advance! 0))
+             "0 is a legal advance — the arity is chosen on some?, not truth"))
+       (testing "idempotent: re-installing replaces the slot, never doubles it"
+         (presence-host/install!)
+         (is (= {:status :advanced :ms nil} (story-presence/advance! nil))))
+       (testing "and the step the bead is about now RUNS instead of refusing"
+         (let [res (exec-step! presence-frame 0 [:flush-presence])]
+           (is (nil? (:cannot-run? res)))
+           (is (nil? (:exception res))))))))
 
 (deftest presence-step-surfaces-a-throwing-host-as-an-exception
   (story-presence/install-presence-flush! (fn [_] (throw (ex-info "boom" {}))))
@@ -331,6 +387,58 @@
          (is (= :pass (:status state))
              "both the retained-phase assertion and the removal assertion held")
          (is (= :removed (:toast (db))))))))
+
+;; ---------------------------------------------------------------------------
+;; FAIL CLOSED: an uninstalled host is a refusal, never a silent green
+;; (rf2-36biz)
+;; ---------------------------------------------------------------------------
+;;
+;; The retired justification for the silent skip was "the DOM assertion that
+;; FOLLOWS carries the `:dom` requirement, so an incapable runner refuses
+;; there". The grammar never required a following assertion, never required it
+;; to be `:assert-dom`, and — more fundamentally — "no hook installed" does
+;; not prove "no presence runtime exists". These two tests drive the SAME
+;; script under the SAME headless runner with the ONLY following assertion an
+;; `:assert-db`, so that premise cannot come back: the pair differs in exactly
+;; one thing, whether the host was installed, and the verdicts must differ.
+
+#?(:clj
+   (deftest playback-with-no-presence-host-refuses-rather-than-passing-falsely
+     (testing "RED-the-bug: no host installed. `[:flush-presence 100]` never
+               advanced anything, yet `[:assert-db [:toast] :retained]` holds
+               anyway — the toast is retained because NOTHING moved the clock,
+               not because the advance stayed below :timeout-ms. The
+               assertion cannot tell those two worlds apart, so the STEP must:
+               the run is `:cannot-run`, never `:pass`"
+       (let [done  (atom nil)
+             _     (re/run! presence-frame "no-host"
+                            {:name   "no-host"
+                             :script [[:dispatch [:presence/tick]]
+                                      [:flush-presence 100]
+                                      [:assert-db [:toast] :retained]]}
+                            #(reset! done %))
+             state @done]
+         (is (= :cannot-run (:status state))
+             "an uninstalled presence host fails CLOSED")
+         (is (not= :pass (:status state))
+             "the silent false green rf2-36biz names is gone")))))
+
+#?(:clj
+   (deftest playback-with-an-installed-host-still-passes-the-same-script
+     (install-stub-presence-host! 300)
+     (testing "the other direction — over-tightening would be worse than the
+               bug. The IDENTICAL script, `:assert-db` its only assertion,
+               still passes once a host is properly installed"
+       (let [done  (atom nil)
+             _     (re/run! presence-frame "with-host"
+                            {:name   "with-host"
+                             :script [[:dispatch [:presence/tick]]
+                                      [:flush-presence 100]
+                                      [:assert-db [:toast] :retained]]}
+                            #(reset! done %))
+             state @done]
+         (is (= :pass (:status state))
+             "a valid setup is never refused")))))
 
 ;; The REAL framework verb driven against the REAL presence clock is the
 ;; pure-`.cljs` companion `presence_real_clock_cljs_test.cljs` — that arm is

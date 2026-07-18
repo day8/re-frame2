@@ -13,7 +13,9 @@
   - `:wait` ms → JS `setTimeout` (CLJS) or `Thread/sleep` (JVM).
   - `:flush-presence` → the presence-clock advance
     (`re-frame.story.play.presence/advance!` → the host's
-    `re-frame.ui.test/flush-presence!`); a no-op with no presence host.
+    `re-frame.ui.test/flush-presence!`); `:cannot-run` with no presence
+    host installed (rf2-36biz — an advance that did not happen never
+    reports a clean verdict).
   - `:assert-db` path value → read from `rf/app-db-value` and compare.
   - `:assert-db` path :pred fn-or-sym → invoke the predicate. A FN
     handed in directly is called as-is (advanced-CLJS-safe); a SYMBOL
@@ -1072,15 +1074,33 @@
   only the exits that come due — the arity that lets a script observe the
   retained `:unmounting` phase before its terminal removal.
 
-  A no-host advance is a step-skip, NOT a `:cannot-run` refusal: with no
-  presence runtime there is no retention to advance and nothing to pass
-  falsely (the framework's own JVM arm is a no-op for the same host-parity
-  reason). A host verb that THROWS is a step-exception — never swallowed."
+  A no-host advance FAILS CLOSED to `:cannot-run` (rf2-36biz). The step was
+  REQUESTED, and with no host installed it did not happen — so the run reports
+  the distinct THIRD status rather than a clean verdict over a clock that
+  never moved. \"No hook installed\" does not prove \"no presence runtime
+  exists\": an app can load `re-frame.ui` and simply omit the bridge call.
+  Nor can a following assertion be relied on to carry the refusal — the
+  grammar requires no following assertion, and an `:assert-db` one needs only
+  the headless floor. The refusal NAMES its install path so it is actionable.
+
+  A host verb that THROWS is a step-exception — never swallowed."
   [_frame-id idx step]
   (let [ms  (runner/step-presence-ms step)
         res (presence/advance! ms)]
-    (if (= :error (:status res))
-      (runner/step-exception idx step (:error res))
+    (case (:status res)
+      :error   (runner/step-exception idx step (:error res))
+      :no-host (runner/step-fail
+                 idx step
+                 {:cannot-run? true
+                  :reason      :no-presence-host
+                  :message     (str "cannot run " (pr-str step)
+                                    " — no presence host is installed, so the "
+                                    "presence clock did not advance. An app "
+                                    "that renders re-frame.ui compiled views "
+                                    "installs the verb by requiring "
+                                    "re-frame.story.play.presence-host (or by "
+                                    "calling re-frame.story.play.presence/"
+                                    "install-presence-flush! directly)")})
       (runner/step-skip idx step))))
 
 (defn exec-step!
