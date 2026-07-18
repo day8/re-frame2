@@ -19,7 +19,7 @@
             [re-frame.ssr.emit :as emit]
             ;; The cross-host suspense COMPONENT — the streaming authoring
             ;; surface on every substrate.
-            [re-frame.ssr.boundary :as boundary]
+            [re-frame.ssr.suspense :as suspense]
             [re-frame.ssr.error-listener :as error-listener]
             [re-frame.ssr.error-projector :as error-projector]
             ;; Publishes the head hooks at namespace load.
@@ -122,7 +122,7 @@
 ;; Server: expands to the `:rf/suspense-boundary` marker the shell walker
 ;; defers on. Client: renders the body, or the declared `:fallback` when
 ;; the boundary is in the failed set the final payload carried.
-(def boundary                       boundary/boundary)
+(def boundary                       suspense/boundary)
 (def streaming-render-shell         re-frame.ssr.streaming/render-shell)
 (def streaming-render-continuation  re-frame.ssr.streaming/render-continuation)
 (def streaming-build-final-payload  re-frame.ssr.streaming/build-final-payload)

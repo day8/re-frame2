@@ -50,18 +50,23 @@
   early under Node where `js/document` is absent."
   (:require [clojure.string :as str]
             [cljs.test :refer-macros [deftest is testing use-fixtures async]]
+            ["react" :as React]
             ["react-dom/client" :as react-dom-client]
             [reagent2.core :as r2]
             [re-frame.core :as rf]
             [re-frame.frame :as frame]
             [re-frame.adapter.reagent-slim :as reagent-slim-adapter]
             [re-frame.ssr :as ssr]
-            [re-frame.ssr.boundary :as boundary :refer [boundary]]
+            [re-frame.ssr.suspense :as suspense :refer [boundary]]
             [re-frame.ssr.constants :as constants]
             [re-frame.ssr.install :as install]
             [re-frame.ssr.streaming.constants :as wire]
             [re-frame.ssr.streaming.client :as streaming-client]
-            [re-frame.test-support :as test-support]))
+            [re-frame.test-support :as test-support]
+            ;; Publishes the React-context tier `frame-provider` resolves
+            ;; through. Without it the provider renders nothing and every
+            ;; assertion below would read an empty container.
+            [re-frame.views]))
 
 ;; `installed-payloads` is a process-global `defonce` ledger keyed by
 ;; payload id — a table `clear-all!` and a `frame/frames` reset do NOT
@@ -69,8 +74,13 @@
 ;; into siblings. These tests hydrate through `ssr/hydrate!` rather than
 ;; the root-manifest install path, but the reset is cheap and keeps the
 ;; suite honest if that ever changes.
+;; `re-frame.ssr.suspense`'s failed-boundary record is a second such
+;; table — process-global, additive, and read by every `boundary` render
+;; on the page. A test that streams a failure MUST clear it.
 (use-fixtures :each
-  {:before (fn [] (install/reset-installed-payloads!))}
+  {:before (fn []
+             (install/reset-installed-payloads!)
+             (suspense/reset-failed-boundaries!))}
   (test-support/make-reset-runtime-fixture
     {:adapter reagent-slim-adapter/adapter :async? true :ambient-frame nil}))
 
@@ -86,57 +96,123 @@
 
 (defn- register-app! [_frame-id]
   (rf/reg-sub :card/by-id (fn [db [_ id]] (get-in db [:cards id])))
+  (rf/reg-event :test/seed (fn [_ _] {:db {:cards {:revenue {:title "Revenue" :value 42375}}}}))
   nil)
 
-(defn- card-skeleton [card-id]
+;; `reg-view`, not plain fns: a registered view is what carries the frame
+;; stamp down from the enclosing `frame-provider` (Spec 006 §Lookup
+;; algorithm — the React-context tier resolves through the reg-view
+;; wrapper). A plain fn that subscribes raises `:rf.error/no-frame-context`
+;; under a provider, which is exactly what the first draft of this suite
+;; did. The `boundary` component itself stays a plain fn and needs no
+;; wrapper: it runs inside the enclosing registered view's scope.
+(rf/reg-view ^{:rf/id :test.dash/card-skeleton} card-skeleton [card-id]
   [:div.card.skeleton [:h3 (str "Loading " (name card-id))]])
 
-(defn- card-view [card-id]
+(rf/reg-view ^{:rf/id :test.dash/card} card-view [card-id]
   (let [c @(rf/subscribe [:card/by-id card-id])]
     [:div.card
      [:h3 (:title c)]
      [:p.value (str (:value c))]]))
 
+;; The card that fails on purpose. It is only ever INVOKED on the server,
+;; inside its continuation drain — the client's boundary short-circuits to
+;; the declared fallback for a failed id and never calls it. That is the
+;; whole point: one tree, and the failure is a server-side fact the client
+;; is told about rather than something it has to re-discover.
+(rf/reg-view ^{:rf/id :test.dash/throwing-card} throwing-card []
+  (throw (ex-info "flaky third-party metric service" {})))
+
+;; The CLIENT tree — what the browser renders. A plain fn, deliberately:
+;; `reg-view` stamps dev-time `data-rf-view` / `data-rf2-source-coord`
+;; attributes on its root element, and the two trees below must agree on
+;; `<main>` exactly. The leaves ARE reg-views (they subscribe, and they
+;; carry the frame), and the emitter stamps them identically on both
+;; hosts — that parity is what `source_coord_parity_test` pins.
 (defn- dashboard []
   [:main.dashboard
    [:section.cards
     [boundary {:id :card.revenue :fallback [card-skeleton :revenue]}
      [card-view :revenue]]
     [boundary {:id :card.flaky :fallback [card-skeleton :flaky]}
-     [card-view :flaky]]]])
+     [throwing-card]]]])
 
-;; ---- the wire (authored through the SHIPPED server façade fns) -------------
+;; The SERVER tree — the same page, spelled with the internal
+;; `:rf/suspense-boundary` wire marker that `boundary`'s `:clj` branch
+;; expands to. It has to be written out here because this test runs on
+;; CLJS, where the component takes its CLIENT branch and so can never
+;; produce the marker: the shell walker would walk straight into the
+;; throwing body. That the two spellings correspond is not assumed —
+;; `streaming_component_cljs_test/component-expands-to-the-internal-wire-marker`
+;; pins the expansion on the JVM, where it actually happens.
+(defn- server-dashboard []
+  [:main.dashboard
+   [:section.cards
+    [:rf/suspense-boundary {:id :card.revenue :fallback [card-skeleton :revenue]}
+     [card-view :revenue]]
+    [:rf/suspense-boundary {:id :card.flaky :fallback [card-skeleton :flaky]}
+     [throwing-card]]]])
+
+;; ---- the wire (EMITTED, not transcribed) ----------------------------------
 ;;
-;; The JVM shell walker is `.cljc` but registry-and-frame bound, so the
-;; chunk bytes here are assembled from the same façade fns the Ring writer
-;; thread flushes — `ssr/streaming-{fallback,resolved,failed}-template` and
-;; `ssr/streaming-hydrate-delta-script`. The HTML they produce is pinned
-;; against the real JVM emitter by the cross-host suite
-;; (`streaming_component_cljs_test`) and the JVM streaming tests.
+;; The server HTML below is produced by the SHIPPED emitter
+;; (`ssr/render-to-string`, which is `.cljc` and runs here) over the SAME
+;; hiccup the client tree renders, then wrapped in the chunk shapes the
+;; Ring writer thread flushes (`ssr/streaming-{fallback,resolved,failed}-
+;; template`, `ssr/streaming-hydrate-delta-script`).
+;;
+;; Hand-transcribing this markup was a mistake worth recording: a
+;; `reg-view` root carries dev-time `data-rf-view` / `data-rf2-source-coord`
+;; attributes that the emitter writes and a hand-written fixture cannot
+;; know (the coord embeds a LINE NUMBER). Hydration then failed on
+;; attributes rather than on anything the feature does. Emitting the
+;; fixture makes the test a genuine cross-host parity check: same hiccup,
+;; server render vs client render, reconciled by React.
 
-(def ^:private revenue-resolved-html
-  "<div class=\"card\"><h3>Revenue</h3><p class=\"value\">42375</p></div>")
+(def ^:private app-db-seed
+  {:cards {:revenue {:title "Revenue" :value 42375}}})
 
-(def ^:private flaky-fallback-html
-  "<div class=\"card skeleton\"><h3>Loading flaky</h3></div>")
+(defn- server-render!
+  "Run the REAL server pipeline over `[dashboard]` under a server frame:
+  the shell walker registers a continuation per boundary, then each is
+  drained. Returns the chunk bytes plus the failed set the drain
+  reported — everything a streaming host would flush, produced by the
+  shipped code rather than transcribed.
 
-(def ^:private revenue-fallback-html
-  "<div class=\"card skeleton\"><h3>Loading revenue</h3></div>")
+  Both halves are `.cljc`, so this runs here exactly as it does on the
+  JVM. The server frame is destroyed before returning; only bytes escape."
+  []
+  (let [fid :test/server-render]
+    (rf/make-frame {:id fid :platform :server})
+    (rf/dispatch-sync [:test/seed] {:frame fid})
+    (let [{:keys [shell-html continuations]}
+          (rf/with-frame fid (ssr/streaming-render-shell [server-dashboard]))
+          outcomes (mapv #(rf/with-frame fid (ssr/streaming-render-continuation fid %))
+                         continuations)
+          chunks   (mapv (fn [{:keys [id html delta failed?]}]
+                           (str (if failed?
+                                  (ssr/streaming-failed-template id html)
+                                  (ssr/streaming-resolved-template id html))
+                                (when (and (not failed?) (some? delta))
+                                  (ssr/streaming-hydrate-delta-script id (pr-str delta)))))
+                         outcomes)
+          failed   (into #{} (comp (filter :failed?) (map :id)) outcomes)]
+      (rf/destroy-frame! fid)
+      {:shell shell-html :chunks chunks :failed failed
+       :ids (mapv :id outcomes)})))
 
-(defn- shell-html []
-  (str "<main class=\"dashboard\"><section class=\"cards\">"
-       (ssr/streaming-fallback-template :card.revenue revenue-fallback-html)
-       (ssr/streaming-fallback-template :card.flaky flaky-fallback-html)
-       "</section></main>"))
-
-(defn- revenue-chunk []
-  (str (ssr/streaming-resolved-template :card.revenue revenue-resolved-html)
-       (ssr/streaming-hydrate-delta-script
-         :card.revenue (pr-str {:cards {:revenue {:title "Revenue" :value 42375}}}))))
-
-(defn- flaky-chunk []
-  ;; A FAILED continuation: fallback html, `data-rf2-suspense-failed`, no delta.
-  (ssr/streaming-failed-template :card.flaky flaky-fallback-html))
+(defn- finalised-html
+  "What the equivalent NON-streamed render produces for the same page:
+  the resolved card, and the failed boundary's declared fallback. This is
+  the shape the finalised streamed DOM must equal."
+  []
+  (let [fid :test/expected]
+    (rf/make-frame {:id fid :platform :server})
+    (rf/dispatch-sync [:test/seed] {:frame fid})
+    (suspense/record-failed-boundaries! #{:card.flaky})
+    (let [html (rf/with-frame fid (ssr/render-to-string [dashboard] nil))]
+      (rf/destroy-frame! fid)
+      html)))
 
 (defn- payload-chunk
   "The final `__rf_payload`. Its runtime-db slice carries the
@@ -150,14 +226,17 @@
                         :rf/render-hash "00000000"}
                  (seq failed)
                  (assoc :rf/runtime-db
-                        (assoc-in {} boundary/failed-boundaries-path (set failed)))))
+                        (assoc-in {} suspense/failed-boundaries-path (set failed)))))
        "</script>"))
 
 ;; ---- DOM scaffolding -------------------------------------------------------
 
-(defn- make-host! []
+(defn- make-host!
+  "A `#app` host seeded with the server's SHELL — the first bytes a
+  streamed page delivers."
+  [shell]
   (let [host (.createElement js/document "div")]
-    (set! (.-innerHTML host) (str "<div id=\"app\">" (shell-html) "</div>"))
+    (set! (.-innerHTML host) (str "<div id=\"app\">" shell "</div>"))
     (.appendChild (.-body js/document) host)
     host))
 
@@ -183,37 +262,72 @@
 
 ;; ---- the hydration harness -------------------------------------------------
 
+(defn- get-act
+  "React's `act` — the only way to make a concurrent root commit
+  SYNCHRONOUSLY. Without it `hydrateRoot` returns before React has
+  touched the DOM and every assertion races the scheduler."
+  []
+  (or (when (exists? (.-act React)) (.-act React))
+      (try (.-act (js/require "react-dom/test-utils"))
+           (catch :default _ nil))))
+
 (defn- hydrate-capturing!
-  "Hydrate `container` against `tree` by calling React's `hydrateRoot`
-  DIRECTLY, with our own options object carrying `onRecoverableError`.
+  "Hydrate `container` against `tree` with REAL React and report
+  everything React said about it.
 
-  Returns `{:root <React root> :errors (atom [...])}`. Every recoverable
-  error React reports — hydration mismatches among them — lands in
-  `:errors`. Nothing between us and React can drop the option, because
-  we build the options object here.
+  Returns `{:complaints [str …] :html \"…\"}`.
 
-  `r2/as-element` is used only to turn hiccup into a React element; it
-  is not a hydration wrapper and never sees the options object."
+  Two deliberate choices:
+
+    - React's `hydrateRoot` is called DIRECTLY, with an options object we
+      construct here, so nothing between us and React can drop
+      `onRecoverableError`. (`r2/as-element` only builds the element
+      tree; it never sees the options.)
+    - React ALSO reports mismatches through `console.error`, so both
+      `error` and `warn` are captured for the duration and restored
+      after — a mismatch that arrives on the console rather than the
+      callback is still heard.
+
+  The hydrate runs inside `act` so the commit completes before we read
+  the DOM."
   [container tree]
-  (let [errors (atom [])
-        root   (react-dom-client/hydrateRoot
-                 container
-                 (r2/as-element tree)
-                 #js {:onRecoverableError (fn [err _info]
-                                            (swap! errors conj (str (.-message err) "")))})]
-    {:root root :errors errors}))
+  (let [complaints (atom [])
+        orig-error (.-error js/console)
+        orig-warn  (.-warn js/console)
+        record!    (fn [& args]
+                     (swap! complaints conj (str/join " " (map #(str %) args))))
+        act-fn     (get-act)
+        root       (atom nil)]
+    (set! (.-IS_REACT_ACT_ENVIRONMENT js/globalThis) true)
+    (set! (.-error js/console) record!)
+    (set! (.-warn js/console) record!)
+    (try
+      (act-fn
+        (fn []
+          (reset! root
+                  (react-dom-client/hydrateRoot
+                    container
+                    (r2/as-element tree)
+                    #js {:onRecoverableError
+                         (fn [err _info] (record! "onRecoverableError" err))}))))
+      (let [html (.-innerHTML container)]
+        (act-fn (fn [] (some-> @root .unmount)))
+        {:complaints @complaints :html html})
+      (finally
+        (set! (.-error js/console) orig-error)
+        (set! (.-warn js/console) orig-warn)))))
 
-(defn- mismatch-errors
-  "Only the hydration-mismatch reports. React phrases them variously
-  across builds ('Hydration failed', 'did not match', 'server rendered
-  HTML didn't match'), so match on the stable substrings rather than one
-  exact sentence."
-  [errors]
-  (filterv #(or (str/includes? % "Hydration")
-                (str/includes? % "hydration")
-                (str/includes? % "did not match")
-                (str/includes? % "didn't match"))
-           @errors))
+(defn- hydration-complaints
+  "Only the complaints that are about HYDRATION. React emits unrelated
+  development warnings, and counting those would make the green case
+  flaky and the red case dishonest."
+  [complaints]
+  (filterv #(let [s (str/lower-case %)]
+              (or (str/includes? s "hydrat")
+                  (str/includes? s "did not match")
+                  (str/includes? s "didn't match")
+                  (str/includes? s "server rendered")))
+           complaints))
 
 ;; ---- tests -----------------------------------------------------------------
 
@@ -222,23 +336,17 @@
             this, every no-mismatch assertion below would be vacuous"
     (if-not (browser?)
       (is true "skipped under node — no js/document")
-      (let [host      (.createElement js/document "div")
-            _         (.appendChild (.-body js/document) host)
-            ;; Server painted a <span>; the client tree says <div>. React
-            ;; must report a recoverable hydration error.
-            _         (set! (.-innerHTML host) "<span>server</span>")
-            {:keys [errors root]} (hydrate-capturing! host [:div "client"])]
-        (async done
-          (js/setTimeout
-            (fn []
-              (is (seq (mismatch-errors errors))
-                  (str "EXPECTED the harness to capture a hydration mismatch on "
-                       "known-bad HTML; captured: " (pr-str @errors) ". "
-                       "A harness that captures nothing here proves nothing anywhere."))
-              (.unmount root)
-              (remove-host! host)
-              (done))
-            60))))))
+      (let [host (.createElement js/document "div")]
+        (.appendChild (.-body js/document) host)
+        ;; Server painted a <span>; the client tree says <div>. React must
+        ;; report a recoverable hydration error.
+        (set! (.-innerHTML host) "<span>server</span>")
+        (let [{:keys [complaints]} (hydrate-capturing! host [:div "client"])]
+          (is (seq (hydration-complaints complaints))
+              (str "EXPECTED the harness to capture a hydration mismatch on "
+                   "known-bad HTML; captured: " (pr-str complaints) ". "
+                   "A harness that captures nothing here proves nothing anywhere."))
+          (remove-host! host))))))
 
 (deftest streamed-page-hydrates-without-structural-mismatch
   (testing "rf2-o4rbh: a genuinely staggered stream, finalised, hydrates
@@ -246,28 +354,39 @@
     (if-not (browser?)
       (is true "skipped under node — no js/document")
       (let [frame-id :test/streamed
-            host     (make-host!)
+            _        (do (rf/make-frame {:id frame-id :platform :client})
+                         (register-app! frame-id))
+            ;; The REAL server pipeline: shell walk + continuation drain.
+            {:keys [shell chunks failed ids]} (server-render!)
+            host     (make-host! shell)
             ready    (atom nil)]
-        (rf/make-frame {:id frame-id :platform :client})
-        (register-app! frame-id)
+        (is (= [:card.revenue :card.flaky] ids)
+            "the shell walk registered both boundaries in document order")
+        (is (= #{:card.flaky} failed)
+            "the drain reported the throwing boundary as failed")
         (streaming-client/install!
           {:frame frame-id :root host :on-ready #(reset! ready %)})
         ;; Fallbacks are now LIVE mounts — the page paints its skeletons.
         (is (= 2 (count (mounts host)))
             "install materialises each inert fallback template into a visible mount")
         (is (nil? @ready) "not ready until the final payload lands")
-        ;; Stagger the stream: one resolved chunk, one failed chunk, then
-        ;; the payload — each in its own observer batch.
-        (append-chunk! host (revenue-chunk))
+        ;; Stagger the stream: the resolved chunk, then the failed chunk,
+        ;; then the payload — each in its own observer batch.
+        (append-chunk! host (first chunks))
         (async done
           (js/setTimeout
             (fn []
-              (append-chunk! host (flaky-chunk))
+              (append-chunk! host (second chunks))
               (js/setTimeout
                 (fn []
-                  (append-chunk! host (payload-chunk #{:card.flaky}))
+                  (append-chunk! host (payload-chunk failed))
                   (js/setTimeout
+                    ;; Guarded: a throw inside a `setTimeout` callback is an
+                    ;; UNCAUGHT page error that aborts the whole browser
+                    ;; suite rather than failing this test. Surface it as a
+                    ;; normal failure and let the run continue.
                     (fn []
+                     (try
                       ;; --- FINALIZATION ---
                       (is (some? @ready) ":on-ready fired when the payload landed")
                       (is (= #{:card.revenue} (:resolved @ready)))
@@ -281,18 +400,34 @@
                       (is (some? (.querySelector host "section.cards > div.card"))
                           "resolved content sits where the client tree puts it")
                       ;; --- HYDRATION ---
-                      (rf/dispatch-sync [:rf/hydrate (ssr/read-server-payload)] {:frame frame-id})
+                      ;; The public boot path: read `__rf_payload`, validate
+                      ;; it, dispatch `:rf/hydrate` into the explicit frame.
+                      ;; State only — it never touches the DOM.
+                      (is (some? (ssr/hydrate! {:frame frame-id}))
+                          "the final payload is readable and hydrates the frame")
                       (let [tree [rf/frame-provider {:frame frame-id} [dashboard]]
-                            {:keys [errors root]} (hydrate-capturing! (app-el host) tree)]
-                        (js/setTimeout
-                          (fn []
-                            (is (empty? (mismatch-errors errors))
-                                (str "hydrateRoot must reconcile the finalised streamed DOM "
-                                     "with no structural mismatch; got: " (pr-str @errors)))
-                            (.unmount root)
-                            (remove-host! host)
-                            (done))
-                          80)))
+                            {:keys [complaints html]} (hydrate-capturing! (app-el host) tree)]
+                        (is (empty? (hydration-complaints complaints))
+                            (str "hydrateRoot must reconcile the finalised streamed DOM "
+                                 "with no structural mismatch; got: " (pr-str complaints)))
+                        ;; NON-VACUITY: a client tree that rendered NOTHING
+                        ;; would ALSO report no mismatch — React would simply
+                        ;; drop the server DOM and be done. Assert the content
+                        ;; SURVIVED hydration; that is what proves the two
+                        ;; trees actually agreed. (This assertion caught the
+                        ;; first version of this suite rendering an empty
+                        ;; tree and passing.)
+                        (is (str/includes? html "42375")
+                            "the resolved card survives hydration — React adopted the server DOM rather than discarding it")
+                        (is (str/includes? html "Loading flaky")
+                            "the failed boundary's declared fallback survives hydration")
+                        (is (not (str/includes? html "rf-suspense"))
+                            "no protocol DOM in the hydrated tree"))
+                      (catch :default t
+                        (is false (str "threw during finalization/hydration: " t)))
+                      (finally
+                        (remove-host! host)
+                        (done))))
                     40))
                 40))
             40))))))
@@ -306,36 +441,38 @@
       (let [frame-id :test/failed-fallback]
         (rf/make-frame {:id frame-id :platform :client})
         (register-app! frame-id)
-        ;; Seed the frame's runtime-db the way :rf/hydrate would.
         (rf/dispatch-sync
           [:rf/hydrate {:rf/version 1
                         :rf/app-db  {:cards {:revenue {:title "Revenue" :value 42375}}}
-                        :rf/runtime-db (assoc-in {} boundary/failed-boundaries-path
+                        :rf/runtime-db (assoc-in {} suspense/failed-boundaries-path
                                                  #{:card.flaky})}]
           {:frame frame-id})
-        (is (= #{:card.flaky} (boundary/failed-boundaries frame-id))
-            "the failed set survives the hydration round-trip into runtime-db")
+        (is (= #{:card.flaky} (suspense/frame-failed-boundaries frame-id))
+            "the DURABLE set survives the hydration round-trip into runtime-db")
+        ;; The RENDER-TIME record — what the component consults. On a real
+        ;; page the streaming client writes this at finalization; here we
+        ;; stand in for it directly.
+        (suspense/record-failed-boundaries! #{:card.flaky})
+        ;; Hydrate the SAME tree against the markup the finalised stream
+        ;; leaves behind — which is, by construction, what the equivalent
+        ;; non-streamed render of the same tree produces.
         (let [host (.createElement js/document "div")]
           (.appendChild (.-body js/document) host)
-          (let [root (react-dom-client/createRoot host)]
-            (.render root (r2/as-element
-                            [rf/frame-provider {:frame frame-id} [dashboard]]))
-            (async done
-              (js/setTimeout
-                (fn []
-                  (let [html (.-innerHTML host)]
-                    (is (str/includes? html "Loading flaky")
-                        "the FAILED boundary renders its declared fallback")
-                    (is (str/includes? html "42375")
-                        "the resolved boundary renders its body")
-                    (is (not (str/includes? html "suspense-boundary"))
-                        "no phantom <suspense-boundary> element — the component is not a keyword head")
-                    (is (not (str/includes? html "rf-suspense"))
-                        "the component renders no protocol DOM of its own"))
-                  (.unmount root)
-                  (remove-host! host)
-                  (done))
-                60))))))))
+          (set! (.-innerHTML host) (finalised-html))
+          (let [tree [rf/frame-provider {:frame frame-id} [dashboard]]
+                {:keys [complaints html]} (hydrate-capturing! host tree)]
+            (is (str/includes? html "Loading flaky")
+                "the FAILED boundary renders its declared fallback")
+            (is (str/includes? html "42375")
+                "the resolved boundary renders its body")
+            (is (not (str/includes? html "suspense-boundary"))
+                "no phantom <suspense-boundary> element — the component is not a keyword head")
+            (is (not (str/includes? html "rf-suspense"))
+                "the component renders no protocol DOM of its own")
+            (is (empty? (hydration-complaints complaints))
+                (str "the component's client render matches the markup the "
+                     "server painted for a failed boundary; got: " (pr-str complaints)))
+            (remove-host! host)))))))
 
 (deftest finalization-unwraps-mounts-preserving-children
   (testing "unwrapping splices the mount's children into its position,
@@ -343,23 +480,23 @@
     (if-not (browser?)
       (is true "skipped under node — no js/document")
       (let [frame-id :test/unwrap
-            host     (make-host!)]
-        (rf/make-frame {:id frame-id :platform :client})
-        (register-app! frame-id)
+            _        (do (rf/make-frame {:id frame-id :platform :client})
+                         (register-app! frame-id))
+            {:keys [shell chunks failed]} (server-render!)
+            host     (make-host! shell)]
         (streaming-client/install! {:frame frame-id :root host})
-        (append-chunk! host (revenue-chunk))
-        (append-chunk! host (flaky-chunk))
+        (doseq [c chunks] (append-chunk! host c))
         (async done
           (js/setTimeout
             (fn []
-              (append-chunk! host (payload-chunk #{:card.flaky}))
+              (append-chunk! host (payload-chunk failed))
               (js/setTimeout
                 (fn []
-                  (is (= (normalise-html
-                           (str "<main class=\"dashboard\"><section class=\"cards\">"
-                                revenue-resolved-html
-                                flaky-fallback-html
-                                "</section></main>"))
+                  ;; The whole claim of the lifecycle, as one equality: a
+                  ;; streamed page, finalised, is byte-identical to the
+                  ;; equivalent non-streamed render of the same tree. That
+                  ;; is what makes ONE ordinary hydration correct.
+                  (is (= (normalise-html (finalised-html))
                          (normalise-html (.-innerHTML (app-el host))))
                       "the finalised DOM is exactly the non-streamed render of the same tree")
                   (remove-host! host)
@@ -374,14 +511,14 @@
     (if-not (browser?)
       (is true "skipped under node — no js/document")
       (let [frame-id :test/already-complete
-            host     (make-host!)
+            _        (do (rf/make-frame {:id frame-id :platform :client})
+                         (register-app! frame-id))
+            {:keys [shell chunks failed]} (server-render!)
+            host     (make-host! shell)
             calls    (atom 0)]
-        (rf/make-frame {:id frame-id :platform :client})
-        (register-app! frame-id)
         ;; Everything arrived before the bundle booted.
-        (append-chunk! host (revenue-chunk))
-        (append-chunk! host (flaky-chunk))
-        (append-chunk! host (payload-chunk #{:card.flaky}))
+        (doseq [c chunks] (append-chunk! host c))
+        (append-chunk! host (payload-chunk failed))
         (streaming-client/install!
           {:frame frame-id :root host :on-ready (fn [_] (swap! calls inc))})
         (is (= 1 @calls) ":on-ready fires synchronously during install!")
@@ -402,13 +539,14 @@
     (if-not (browser?)
       (is true "skipped under node — no js/document")
       (let [frame-id :test/pre-readiness
-            host     (make-host!)
+            _        (do (rf/make-frame {:id frame-id :platform :client})
+                         (register-app! frame-id))
+            {:keys [shell chunks]} (server-render!)
+            host     (make-host! shell)
             ready    (atom false)]
-        (rf/make-frame {:id frame-id :platform :client})
-        (register-app! frame-id)
         (streaming-client/install!
           {:frame frame-id :root host :on-ready (fn [_] (reset! ready true))})
-        (append-chunk! host (revenue-chunk))
+        (append-chunk! host (first chunks))
         (async done
           (js/setTimeout
             (fn []

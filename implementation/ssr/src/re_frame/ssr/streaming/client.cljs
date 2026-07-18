@@ -95,6 +95,9 @@
   (:require [cljs.reader :as reader]
             [re-frame.frame :as frame]
             [re-frame.ssr.constants :as constants]
+            ;; The suspense component's render-time failed-boundary record.
+            ;; `suspense` depends on core only, never on this ns.
+            [re-frame.ssr.suspense :as suspense]
             [re-frame.ssr.streaming.constants :as wire]
             [re-frame.trace :as trace]))
 
@@ -678,11 +681,16 @@
   fire `on-ready` twice."
   [root frame seen ready? stop! on-ready]
   (sweep! root frame seen)
-  (unwrap-mounts! root)
-  (stop!)
-  (when (compare-and-set! ready? false true)
-    (when on-ready
-      (on-ready (readiness-report seen)))))
+  (let [report (readiness-report seen)]
+    ;; Publish the failed set BEFORE unwrapping / readiness: the
+    ;; `boundary` component reads it during the hydration render that
+    ;; `on-ready` triggers, so it has to be in place by then.
+    (suspense/record-failed-boundaries! (:failed report))
+    (unwrap-mounts! root)
+    (stop!)
+    (when (compare-and-set! ready? false true)
+      (when on-ready
+        (on-ready report)))))
 
 ;; ---- public surface --------------------------------------------------------
 
