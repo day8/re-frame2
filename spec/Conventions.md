@@ -180,6 +180,27 @@ Library-owned prefixes live **outside** `:rf.*` (e.g., Story's `:story.*`, Works
 
 The reserved set is **fixed-and-additive**: names already in the table cannot be repurposed; new sub-namespaces are added by extending the table in a Spec change. New Spec areas ship under `:rf.<spec-area>/*` rather than inventing a top-level prefix.
 
+### Require-alias dialect — a framework subsystem namespace is aliased `rf.<leaf>`
+
+The reserved set above fixes the framework's naming identity: an **`rf` root with a dotted subsystem segment** — `:rf/dispatch-later`, `:rf.route/params`, `:rf.machine/has-tag?`, `:rf.runtime/routing`. **The require-alias surface takes the same dialect.** The canonical alias for a framework subsystem namespace `re-frame.<leaf>` is the dotted **`rf.<leaf>`**:
+
+```clojure
+(:require [re-frame.core     :as rf]            ;; the root itself keeps the bare root alias
+          [re-frame.routing  :as rf.routing]
+          [re-frame.machines :as rf.machines]
+          [re-frame.schemas  :as rf.schemas]
+          [re-frame.ssr      :as rf.ssr]
+          [re-frame.flows    :as rf.flows]
+          [re-frame.epoch    :as rf.epoch]
+          [re-frame.http     :as rf.http])
+```
+
+The point is that a call site reads as **one language** beside the keywords it manipulates: `(rf.routing/match-url url)` sits next to `:rf.route/params` and `rf/dispatch` without changing dialect mid-line. An author who has learned the keyword scheme already knows the alias, and the alias already tells a reader "this symbol came from the framework, not from the app".
+
+`re-frame.core` is the one namespace exempt by construction — it **is** the root, so it takes the bare root alias `rf`, matching the bare `:rf/*` keyword root.
+
+A **bare** leaf alias (`:as routing`, `:as machines`, `:as schemas`) is **reserved for application namespaces**. An app's own `myapp.routing` takes `routing` and never has to be disambiguated against the framework's — which is the second thing the rule buys, and the reason the framework yields the bare form rather than claiming it.
+
 ### The public `rf/image` source keys
 
 `rf/image` is a plain function ([API.md](API.md)) that accepts a **source map** and returns an inert image **value**. The public source map accepts **exactly three** top-level keys ([EP-0026](../docs/EP/EP-0026-image-api-simplification.md) §Image Keys); the normalized value carries the owner-qualified `:rf.image/*` slots above. The source keys are the authoring surface; the `:rf.image/*` namespace names the normalized internal form.
