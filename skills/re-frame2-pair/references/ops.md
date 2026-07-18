@@ -18,6 +18,7 @@ Most ops wrap a call into `re-frame2-pair.runtime`; for those the MCP form is `e
 - [Reading what's on screen — two planes (`read-dom` vs `read-ui`)](#reading-whats-on-screen--two-planes-read-dom-vs-read-ui)
   - [View → rendered content + producing entity (`ui/read`)](#view--rendered-content--producing-entity-uiread)
   - [`read-dom` — raw DOM content by explicit CSS selector](#read-dom--raw-dom-content-by-explicit-css-selector)
+- [Compiled-view inspection — manifest, mounted set, render cause](#compiled-view-inspection--manifest-mounted-set-render-cause)
 - [Live watch (push-mode)](#live-watch-push-mode)
 - [Signal recording + blocking waits](#signal-recording--blocking-waits)
 - [Hot-reload coordination](#hot-reload-coordination)
@@ -135,6 +136,8 @@ Two rendered-state reads at **different layers** — NOT duplicates:
 - **`read-dom` = the raw DOM plane.** A CSS selector → matched nodes `{:tag :text :attrs}`. Multi-node, exact, **no re-frame2 awareness**. *"What does this exact node SAY?"*
 - **`read-ui` = the re-frame2 view plane.** Rides the `data-rf-view` map → content **PLUS the producing entity** (view-id, source-coord, subs-read, render-key). *"What is this view, and what produced it?"*
 
+Both read what the app **rendered**. When the question is instead what a compiled view *declares*, which incarnations are mounted, or why one re-rendered, that is the [compiled-view tier](#compiled-view-inspection--manifest-mounted-set-render-cause) below.
+
 **When to use which:** `read-dom` when you already have a CSS selector, want raw content across N matched nodes, and don't need provenance; `read-ui` when you want a view's content **and** its re-frame2 entity (which subs feed it, where it's defined) in one round-trip — or when you only have a view-id / screen point rather than a selector. Both apply per-node text caps at the source and emit the same `:rf.size/large-elided` marker for over-cap text. Both call the same preloaded runtime ns (`re-frame2-pair.runtime/dom-read` / `…/ui-read`) and share one per-node projection, so content shapes stay aligned.
 
 ### View → rendered content + producing entity (`ui/read`)
@@ -162,6 +165,41 @@ The accepted args (`:additionalProperties false`): `view-id`, `point`, `selector
 | `read-dom` specific attrs | `mcp__re-frame2-pair__read-dom {selector: "input[name=email]", attrs: ["value", "data-valid"]}` | Omit `:attrs` and a curated default set rides PLUS a `data-*` / `aria-*` sweep (the re-frame2 view-plane idiom for surfacing rendered state) |
 
 Caps are applied **at the source** (browser-side) so only bounded EDN crosses the wire: `:max-text` (per-node text cap, default 2000 — over-cap → `{:rf.size/large-elided {:type :dom-text :chars N :preview "…"}}`) and `:limit` (matched-node cap, default 50; `:truncated? true` when more matched than returned). Failure modes: `:rf.error/read-dom-bad-selector` (malformed CSS); a no-match returns `{:ok? true :count 0 :nodes []}`.
+
+## Compiled-view inspection — manifest, mounted set, render cause
+
+The two reads above answer *"what is on screen right now?"*. Five further tools answer a different family of question: what a compiled `re-frame.ui` view **declares**, which of its incarnations are **mounted**, and **why** they last rendered. If React DevTools is your mental model, this is its Components panel plus the Profiler's *"why did this render?"*, reached over the nREPL rather than a browser extension. The deliberate divergence is honesty about what the runtime can prove: DevTools will happily show you a component's internals and infer the rest, whereas these projections egress only bounded, serializable, versioned data and label the things they cannot establish (see *Reading the honesty markers* below).
+
+Each response carries `:rf.ui.tool/version`. Read it, and reconcile if it differs from what you expected — the tier degrades by version rather than by silently changing shape.
+
+**Availability — expect a real "this app can't answer that".** All five read `re-frame.ui.tool`, which ships in `day8/re-frame2-ui`, the **optional** compiled-view substrate. An app built on plain Reagent does not have it on its classpath, and every one of the five then answers `{:ok? false :reason :view-tier-unavailable}` with a hint rather than an empty result. The tier is present whenever Xray is active, or when the app loads it itself. A production build nil-gates the whole tier: `:view-tier-inactive`. Read either reason as *"this app cannot answer that"* — never as *"the answer is nothing"* — and say so to the user instead of reporting an empty view set.
+
+**The first three work before mount.** `read-view-manifest`, `read-view-dependencies`, and `read-view-event-sites` project the **compiler's manifest** — what *can* happen — so you can ask what a view takes, reads, and fires without first getting it on screen. `read-mounted-views` and `explain-render` read **live evidence** — what *did* happen — and need the view actually mounted.
+
+| Op | Invocation | Returns |
+|---|---|---|
+| `read-view-manifest` | `mcp__re-frame2-pair__read-view-manifest {view-id: ":my.app/counter"}` | The view's public manifest: `:doc`, `:source` coord, `:props` (per-prop doc / default / schema — the single source of truth for a view's args), declared render-slot + interop sites, capability bits, template/hook fingerprints, and `:site-counts` per kind |
+| `read-view-dependencies` | `mcp__re-frame2-pair__read-view-dependencies {view-id: ":my.app/row"}` | The reactive sites it declares: `:subscriptions [{:query [:total] :dynamic? false} {:query-id :item :dynamic? true}]` and `:leases` |
+| `read-view-event-sites` | `mcp__re-frame2-pair__read-view-event-sites {view-id: ":my.app/form"}` | Its `:on-*` handler sites, each classified: `{:prop :on-click :site-kind :literal :handler [:submit] :serializable? true}` |
+| `read-mounted-views` | `mcp__re-frame2-pair__read-mounted-views {}` | Every retained incarnation: `{:occurrence 3 :view-id :my.app/row :connection :connected :lifecycle {…} :evidence {…}}` — no `view-id` arg, it spans the lot |
+| `explain-render` | `mcp__re-frame2-pair__explain-render {view-id: ":my.app/row"}` (omit `view-id` for every incarnation) | Per occurrence, the bounded render causes (`:value` / `:hmr` / `:disposed`), occurrence + batch counters, first/latest movement epochs, and the loss accounting described below |
+
+All five also accept `build` and `max-tokens`. The three view-id reads **require** `view-id`; omitting it returns `{:ok? false :reason :missing-view-id}` with a usage hint. Read the id off `read-mounted-views`, off `read-ui`'s `:entity`, or straight from the source `defview`.
+
+**Choosing between them.** Reach for `read-view-manifest` when the question is *"what does this view take, and where is it defined?"* — it replaces guessing a view's props from call sites. Reach for `read-view-dependencies` when the question is *"what data feeds this view?"*, which is the read that turns *"why didn't it update?"* into a named subscription you can then check with `read-sub`. Reach for `read-view-event-sites` when the question is *"what can the user trigger from here?"* — it gives you the actual event vectors to `dispatch-dry-run`. Reach for `read-mounted-views` when the question is *"is this thing even on screen, and how many of it are there?"*. Reach for `explain-render` last, when the view *is* mounted and reading the right subscription but rendered when you did not expect it to — or did not render when you did.
+
+**Reading the honesty markers.** These tools are deliberate about the boundary between evidence and inference, and the markers are the point rather than noise:
+
+- `:dynamic? true` on a dependency means the query carries a captured local. Its literal `:query-id` is still shown; the runtime argument is **not** fabricated.
+- `:site-kind :dynamic` with `:handler :opaque` on an event site means a `ui/event`, `ui/handler`, bare fn, or dynamic expression — the tier never claims a raw callback's internals are inspectable. A `:literal` or `:normalized` site carries its inspectable `:handler` event vector, and `:serializable?` / `:sync?` ride each site.
+- `:disconnected {:reason :unknown}` stays `:unknown` until the runtime *proves* `:activity-hidden` or `:unmounted`. Do not report a hidden view as unmounted because the label was blank.
+- `:loss {:dropped N :exact? bool}` counts distinct targets omitted past the shown cap, and `:observations {:identity-exact? bool}` says whether the shown targets kept exact identity. **A count is a completeness claim only when `:exact?` is true** — quote `:dropped` to the user with that qualifier, or not at all.
+
+**Empty versus absent.** With the tier loaded but no evidence recorded, `read-mounted-views` returns an empty-but-versioned `{:ok? true :views []}` and `explain-render` an `{:ok? true :occurrences []}` — genuinely nothing retained, never a fabricated instance. That is a different answer from `:view-tier-unavailable` above, and from `{:ok? false :reason :view-not-available}`, which means no compiled view is registered under that id (check the id before concluding the view is gone). A throwing projection degrades to `:view-tier-error` with a `:message` rather than failing the eval. Every `:ok? false` rides `isError: true`, so a degraded read is never cached and never masquerades as a successful empty answer.
+
+**After a hot swap.** There is no separate reload protocol here. Edit the view, let shadow-cljs recompile over its normal watch (the [hot-reload coordination](#hot-reload-coordination) path below), then re-read `read-mounted-views` or `explain-render`: a **compatible** body swap retains the occurrence (its identity and lifecycle log survive), while an **incompatible** change remounts it under a fresh occurrence. That retention-vs-remount difference is the cheapest way to tell which kind of change you just made.
+
+**Privacy.** These reads project a view's compiler manifest and render evidence — structure, declared sites, occurrence and cause counts, authored event vectors — not `app-db` values, so they carry no app-db-classified slot and need no elision walker, exactly like the sibling registrar reads `handler-meta` / `list-handlers`. An authored event vector shows its id and literal args, the same way `handler-meta` surfaces a handler's source coordinate.
 
 ## Live watch (push-mode)
 
