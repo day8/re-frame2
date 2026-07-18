@@ -460,4 +460,16 @@ function main() {
   }
 }
 
-main();
+// Checker-owned target contract (rf2-kfn9q): the exact implementation-relative
+// runtime this gate isolates — the slim adapter. It proves the slim bundle is
+// free of stock Reagent + react-dom/server (and the classic bundle free of the
+// reagent2.* rewrite), so it is the isolation authority for adapters/reagent-slim.
+// See the binding in check-bundle-isolation.cjs (validateDedicatedGate).
+const COVERS_RUNTIMES = ['adapters/reagent-slim'];
+
+module.exports = { COVERS_RUNTIMES };
+
+// Run only when invoked directly, not when required for its target contract.
+if (require.main === module) {
+  main();
+}

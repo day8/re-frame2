@@ -949,11 +949,21 @@ const NON_BROWSER_OPTIONAL = new Set(['core', 'ssr-ring']);
 // flat implementation/<x> generic gate through a colliding directory leaf. Each
 // value is a MACHINE-READABLE descriptor: `checkers` are the real gate-script
 // filenames under scripts/, and `command` is the package.json script that
-// invokes them. validateDedicatedGate() confirms every checker file EXISTS and
-// that `command` is a real package script whose body INVOKES each checker — so a
-// truthy prose string, a removed checker, or an uninvoked command fails closed.
-// Keep this to the set of EXISTING dedicated gates only — do not add a runtime
-// here without a real, invoked gate script proving its isolation.
+// invokes them. validateDedicatedGate() binds it to the EXACT runtime AND the
+// EXACT executable (rf2-kfn9q):
+//   - every checker file EXISTS under scripts/;
+//   - `command` is a real package script whose body RUNS each checker as a
+//     directly-invoked, reachable `node <checker>` step (echo, comment,
+//     argument-only, name-substring, and unreachable `false &&` mentions do NOT
+//     count as running it); and
+//   - the runtime being covered (the map KEY / relPath) is OWNED by one of the
+//     checkers — it appears in that checker's exported COVERS_RUNTIMES — so an
+//     unrelated existing checker can NOT be reused for a new runtime it never
+//     inspects.
+// A truthy prose string, a removed checker, an uninvoked command, or a checker
+// that does not declare the runtime all fail closed. Keep this to the set of
+// EXISTING dedicated gates only — do not add a runtime here without a real,
+// invoked gate script that declares (in COVERS_RUNTIMES) it isolates that path.
 const DEDICATED_ISOLATION_GATES = {
   'adapters/reagent': {
     checkers: ['check-uix-helix-reagent-free.cjs', 'check-login-bundle-isolation.cjs'],
@@ -990,13 +1000,60 @@ function readPackageScripts(root = ROOT) {
   }
 }
 
+// True iff `body` (a package.json script body, in this repo's bounded
+// `&&`-chained grammar) RUNS `checker` as a DIRECTLY-INVOKED, REACHABLE step: a
+// `node <path>` command whose script argument's basename is EXACTLY the checker.
+// Substring / echo / comment / argument-only mentions, and any step guarded
+// behind a statically-failing `false &&` short-circuit, do NOT count — so a
+// checker's mere textual presence in the body can not launder coverage (rf2-kfn9q).
+//
+// This is a BOUNDED recogniser (split on `&&`, drop trailing `#` comments,
+// tokenise on whitespace), not a general shell parser: it recognises exactly the
+// `program arg…` steps the repo's isolation scripts are written in.
+function commandRunsChecker(body, checker) {
+  for (const rawStep of String(body).split('&&')) {
+    const step = rawStep.split('#')[0].trim();  // drop trailing shell comment
+    if (step === '') continue;
+    const tokens = step.split(/\s+/);
+    // A literal `false` step always fails, so nothing AFTER it in the `&&` chain
+    // runs — a checker sitting behind it is unreachable.
+    if (tokens[0] === 'false') break;
+    if (tokens[0] !== 'node') continue;
+    // node's script argument is its first non-flag operand; only THAT running the
+    // checker counts (checker as a later argument to another script does not).
+    const scriptArg = tokens.slice(1).find((t) => !t.startsWith('-'));
+    if (scriptArg && path.basename(scriptArg) === checker) return true;
+  }
+  return false;
+}
+
+// The implementation-relative runtimes a checker OWNS (its exported
+// COVERS_RUNTIMES), or null if it declares none / can't be loaded. The checker
+// is the source of truth for what it isolates, so a descriptor can not bind a
+// checker to a runtime the checker never inspects (rf2-kfn9q). `require` is safe
+// because the checkers guard their `main()` behind `require.main === module`, so
+// loading one for its contract runs no bundle work.
+function checkerCoversRuntimes(scriptsDir, checker) {
+  let mod;
+  try {
+    mod = require(path.join(scriptsDir, checker));
+  } catch (_e) {
+    return null;
+  }
+  return mod && Array.isArray(mod.COVERS_RUNTIMES) ? mod.COVERS_RUNTIMES : null;
+}
+
 // A dedicated-gate descriptor is CAUSAL only when it is wired to real, invoked
-// machinery. Returns `{ ok, reasons }`: ok iff `gate` is a
-// `{ checkers: [...], command }` map whose every checker file EXISTS in
-// scriptsDir AND whose command is a package.json script whose body INVOKES every
-// checker. A truthy prose string, a nonexistent checker, or an uninvoked/absent
-// command all fail — so enrolment can not be discharged by editing this table.
-function validateDedicatedGate(gate, { scriptsDir = SCRIPTS_DIR, scripts = readPackageScripts() } = {}) {
+// machinery AND bound to the exact runtime it claims to isolate. Returns
+// `{ ok, reasons }`: ok iff `gate` is a `{ checkers: [...], command }` map whose
+// every checker file EXISTS in scriptsDir, whose command is a package.json
+// script whose body RUNS every checker as a directly-invoked reachable step,
+// AND — when a `relPath` is supplied (the runtime it is mapped under) — one of
+// its checkers OWNS that runtime in its COVERS_RUNTIMES. A truthy prose string,
+// a nonexistent checker, an uninvoked/echoed/unreachable command, or an
+// unrelated checker reused for a runtime it does not inspect all fail — so
+// enrolment can not be discharged by editing this table.
+function validateDedicatedGate(gate, { scriptsDir = SCRIPTS_DIR, scripts = readPackageScripts(), relPath = null } = {}) {
   if (!gate || typeof gate !== 'object' || Array.isArray(gate)) {
     return { ok: false, reasons: ['descriptor is not a { checkers, command } map (a prose string does not enrol a runtime)'] };
   }
@@ -1017,10 +1074,25 @@ function validateDedicatedGate(gate, { scriptsDir = SCRIPTS_DIR, scripts = readP
       reasons.push(`declared command is not an invoked package.json script: ${command}`);
     } else {
       for (const checker of checkers) {
-        if (!body.includes(checker)) {
-          reasons.push(`package command '${command}' does not invoke checker: ${checker}`);
+        if (!commandRunsChecker(body, checker)) {
+          reasons.push(`package command '${command}' does not RUN checker '${checker}' ` +
+            'as a directly-invoked reachable step (echo / comment / argument-only / ' +
+            'name-substring / unreachable false-and mentions do not count)');
         }
       }
+    }
+  }
+  // Runtime binding: the descriptor is bound to the EXACT runtime it is mapped
+  // under only when a checker declares (owns) that runtime. This is what stops
+  // the login checker being assigned to a hypothetical adapters/newpub.
+  if (relPath) {
+    const owned = checkers.some((checker) => {
+      const covers = checkerCoversRuntimes(scriptsDir, checker);
+      return Array.isArray(covers) && covers.includes(relPath);
+    });
+    if (!owned) {
+      reasons.push(`no declared checker OWNS the exact runtime '${relPath}' ` +
+        '(a checker must list it in COVERS_RUNTIMES; reusing an unrelated checker does not bind coverage)');
     }
   }
   return { ok: reasons.length === 0, reasons };
@@ -1076,7 +1148,7 @@ function assertCanonicalInventoryCovered(required = discoverBrowserOptionalRunti
       continue;
     }
     const gate = dedicatedGates[rt.relPath];
-    const validation = validateDedicatedGate(gate, { scriptsDir, scripts });
+    const validation = validateDedicatedGate(gate, { scriptsDir, scripts, relPath: rt.relPath });
     if (gate && validation.ok) {
       covered.push({ ...rt, via: 'dedicated', gate });
     } else {
