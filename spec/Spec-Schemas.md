@@ -1211,9 +1211,24 @@ Common keys (`:category`, `:failing-id`, `:reason`, `:frame`) are inherited from
    [:reason     :string]])
 
 (def FrameDestroyedTags
+  ;; `:op` (rf2-a2x2w / rf2-vub3y) — the failing operation's REALM, a small closed
+  ;; enum ratified PUBLIC on this category (per the 009 catalogue row). It is
+  ;; OPTIONAL because presence tracks the EMIT SITE'S KNOWLEDGE, not the envelope
+  ;; branch: only a site that already knows the realm stamps it — the compiled-view
+  ;; `(frame)` bundle fences (all four values; `:capture` is ui-only, a `(frame)`
+  ;; read that resolved a dead incarnation before any op ran), the `capture-frame`
+  ;; stale-op pre-check seam, and the router / subs LATE captured-op fences
+  ;; (`:dispatch` / `:dispatch-sync` / `:subscribe`). An ORDINARY address-directed
+  ;; dispatch / subscribe into a destroyed frame carries NO captured incarnation,
+  ;; so it omits `:op` and remains valid without it — that emit keeps its tight
+  ;; keyset and the realm-ambiguous `[:sub]`-then-`[:event]` source-coord fallback.
+  ;; Orthogonal to the envelope's `:category` rule above (`:category` is required
+  ;; here because `:rf.error/frame-destroyed` is an `:error` envelope; `:op`'s
+  ;; optionality is a per-emit-site axis, not a per-branch one).
   [:map
    [:category       :keyword]
    [:frame          :keyword]
+   [:op             {:optional true} [:enum :dispatch :dispatch-sync :subscribe :capture]]
    [:rf.event/v     {:optional true} [:vector :any]]
    [:rf.sub/query-v {:optional true} [:vector :any]]])
 
