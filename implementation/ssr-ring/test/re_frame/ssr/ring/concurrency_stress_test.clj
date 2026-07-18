@@ -177,7 +177,7 @@
      ;; resumes per the suspense protocol.
      [:rf/suspense-boundary
       {:id :rf.test.ozhy9/sb :fallback [:span "loading"]}
-      [:rf.test.ozhy9/leaf]]
+      [(rf/view :rf.test.ozhy9/leaf)]]
      [:footer "end"]]))
 
 (defn- token-for [thread-idx iter-idx]
@@ -206,7 +206,7 @@
     (register-echo-handlers!)
     (let [handler (ssr-ring/stream-handler
                     {:initial-events [[:rf.test.ozhy9/init]]
-                     :root-view [:rf.test.ozhy9/root]
+                     :root-view [(rf/view :rf.test.ozhy9/root)]
                      :payload :rf.ssr.payload/whole-app-db})]
       (ts/with-jetty [port handler]
         (let [client     (ts/new-http-client)
@@ -342,7 +342,7 @@
     (register-echo-handlers!)
     (let [handler (ssr-ring/stream-handler
                     {:initial-events [[:rf.test.ozhy9/init]]
-                     :root-view [:rf.test.ozhy9/root]
+                     :root-view [(rf/view :rf.test.ozhy9/root)]
                      :payload :rf.ssr.payload/whole-app-db})]
       (ts/with-jetty [port handler]
         (let [client     (ts/new-http-client)
@@ -423,7 +423,7 @@
     (register-echo-handlers!)
     (let [handler (ssr-ring/stream-handler
                     {:initial-events [[:rf.test.ozhy9/init]]
-                     :root-view [:rf.test.ozhy9/root]
+                     :root-view [(rf/view :rf.test.ozhy9/root)]
                      :payload :rf.ssr.payload/whole-app-db})]
       (ts/with-jetty [port handler]
         (let [client     (ts/new-http-client)

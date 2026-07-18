@@ -154,7 +154,7 @@
                     (rf/dispatch-sync [:rf.test/change-nested] {:frame fid})
                     [:p "mutated"])
           tree    [:rf/suspense-boundary {:id :n :fallback [:p "..."]}
-                   [:rf.test/nested-mutator]]
+                   [(rf/view :rf.test/nested-mutator)]]
           {:keys [continuations]} (streaming/render-shell tree)
           entry   (first continuations)
           {:keys [delta]} (streaming/render-continuation fid entry)]

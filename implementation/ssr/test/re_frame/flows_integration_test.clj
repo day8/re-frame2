@@ -362,7 +362,7 @@
 
     ;; Render against the installed db — the sub over the flow's path feeds
     ;; the rendered HTML.
-    (let [html (rf/render-to-string [:pages/greeting] {:emit-hash? true})]
+    (let [html (rf/render-to-string [(rf/view :pages/greeting)] {:emit-hash? true})]
       (is (str/includes? html "Hello, Ada Lovelace")
           "the rendered HTML carries the FLOW-AUGMENTED value — the sub read
            the installed flow output under SSR's synchronous drain")

@@ -101,30 +101,46 @@
 
 ;; ---- end-to-end byte parity: SSR-rendered HTML carries the canonical ----
 
-(deftest ssr-rendered-html-attribute-byte-identical-to-canonical
-  (testing "The SSR-emitted HTML for a fixture-shape registered view
-            carries the canonical attribute value — verifying parity
-            extends through the full render path, not just the helper.
+(deftest ssr-rendered-html-carries-no-attribute-pending-rf2-8vi4q
+  (testing "rf2-j81hs — this deftest used to drive the canonical
+            attribute through the FULL render path, not just the helper.
+            It no longer can, and the reason is worth stating precisely
+            because the helper tests above still pass.
 
-            Note: this test cannot use `reg-view` (the macro), because
-            macro-captured :line / :column are call-site-dependent.
-            We use `reg-view*` and stamp the slot meta directly — the
-            registry slot has the same shape it would have under the
-            macro path."
+            `format-view-source-coord` is intact and still produces the
+            canonical literal — the parity contract those tests pin is
+            untouched. What is gone is its only CALL SITE: the emitter's
+            keyword-view branch. rf2-j81hs made every keyword head a DOM
+            element, so no server render annotates anything, and the
+            callable-head branch never annotated to begin with.
+
+            So parity now holds between a live CLJS formatter and a JVM
+            formatter that nothing calls. That is a real gap, and it is
+            rf2-8vi4q's to close: its ruling moves annotation to the
+            reg-view REGISTRATION boundary on both hosts, at which point
+            this test should be restored driving `[(rf/view id)]` /
+            Var heads — the shape hydratable pages actually use, and the
+            shape this end-to-end assertion never covered.
+
+            Pinned as an explicit absence rather than deleted, so the gap
+            is greppable and so a reintroduced emitter-side injection
+            (rf2-8vi4q's REJECTED Option A) fails loudly here."
     (require '[re-frame.registrar :as registrar]
              '[re-frame.ssr      :as ssr])
-    (let [registrar         (resolve 're-frame.registrar/register!)
-          ssr-render        (resolve 're-frame.ssr/render-to-string)
-          ;; Programmatically register with the fixture meta — same
-          ;; slot shape the reg-view macro would produce, but with
-          ;; control over the :line / :column values so the canonical
-          ;; literal is reachable.
+    (let [registrar  (resolve 're-frame.registrar/register!)
+          ssr-render (resolve 're-frame.ssr/render-to-string)
+          view-fn    (fn [] [:p "body"])
           _ (registrar :view fixture-id
-                       (assoc fixture-meta
-                              :handler-fn (fn [] [:p "body"])))
-          html (ssr-render [fixture-id] {})]
-      (is (.contains html (str "data-rf2-source-coord=\""
-                               expected-attr
-                               "\""))
-          (str "SSR-emitted HTML must carry the canonical attribute "
-               "value `" expected-attr "`; got: " (pr-str html))))))
+                       (assoc fixture-meta :handler-fn view-fn))
+          ;; A CALLABLE head. `fixture-id` is `:rf.parity-test/sample-view`,
+          ;; which sits in the framework-reserved `:rf.<area>/*` scheme, so
+          ;; as a HEAD it would now (correctly) trip the reserved-head guard
+          ;; and throw rather than render — testing the guard, not this.
+          html (ssr-render [view-fn] {})]
+      (is (= "<p>body</p>" html)
+          (str "the view still renders through its callable head; got: "
+               (pr-str html)))
+      (is (not (.contains html "data-rf2-source-coord"))
+          (str "no server-side source-coord annotation until rf2-8vi4q "
+               "relocates it to the registration boundary; got: "
+               (pr-str html))))))

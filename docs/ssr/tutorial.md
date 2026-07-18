@@ -275,7 +275,7 @@ You've now built every step of the lifecycle by hand: stash the request, create 
 (def handler
   (ssr-ring/ssr-handler
     {:initial-events [[:rf/server-init]]     ;; Step 2's boot event
-     :root-view      [:app/root]             ;; Step 2's render target
+     :root-view      [(rf/view :app/root)]             ;; Step 2's render target
      :payload        [:articles]}))          ;; Step 3's payload — now an allowlist
 
 (jetty/run-jetty handler {:port 3000 :join? false})

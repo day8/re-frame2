@@ -166,7 +166,7 @@
 
     (let [handler (ssr-ring/ssr-handler
                     {:initial-events [[:init/ok-bad-tag]]
-                     :root-view [:pages/bad-tag]
+                     :root-view [(rf/view :pages/bad-tag)]
                      :payload :rf.ssr.payload/whole-app-db})]
       (ts/with-jetty [port handler]
         (let [{:keys [status body headers]} (http-get port "/")]
@@ -221,7 +221,7 @@
                   (fn [] [(keyword "render throw")]))
     (let [handler-a (ssr-ring/ssr-handler
                       {:initial-events [[:init/ok-render-throw]]
-                       :root-view [:pages/render-throw]
+                       :root-view [(rf/view :pages/render-throw)]
                        :payload :rf.ssr.payload/whole-app-db})]
       (ts/with-jetty [port handler-a]
         (let [{status-a :status body-a :body} (http-get port "/")]
@@ -239,7 +239,7 @@
                         (fn [] [:div "drain-throw page renders"]))
           (let [handler-b (ssr-ring/ssr-handler
                             {:initial-events [[:init/drain-throw]]
-                             :root-view [:pages/drain-throw]
+                             :root-view [(rf/view :pages/drain-throw)]
                              :payload :rf.ssr.payload/whole-app-db})]
             (ts/with-jetty [port-b handler-b]
               (let [{status-b :status body-b :body} (http-get port-b "/")]
@@ -306,7 +306,7 @@
 
     (let [handler (ssr-ring/ssr-handler
                     {:initial-events [[:init/bad-cookie]]
-                     :root-view [:pages/bad-cookie-page]
+                     :root-view [(rf/view :pages/bad-cookie-page)]
                      :payload :rf.ssr.payload/whole-app-db})]
       (ts/with-jetty [port handler]
         (let [{:keys [status headers]} (http-get port "/")]
@@ -352,7 +352,7 @@
 
     (let [handler (ssr-ring/ssr-handler
                     {:initial-events [[:init/bad-header]]
-                     :root-view [:pages/bad-header-page]
+                     :root-view [(rf/view :pages/bad-header-page)]
                      :payload :rf.ssr.payload/whole-app-db})]
       (ts/with-jetty [port handler]
         (let [{:keys [status headers]} (http-get port "/")]
@@ -404,7 +404,7 @@
 
     (let [handler (ssr-ring/ssr-handler
                     {:initial-events [[:init/ok]]
-                     :root-view [:pages/greeting]
+                     :root-view [(rf/view :pages/greeting)]
                      :payload :rf.ssr.payload/whole-app-db})]
       (ts/with-jetty [port handler]
         (let [{:keys [status body headers]} (http-get port "/")]

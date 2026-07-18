@@ -58,15 +58,15 @@
          [[:hiccup
            [:main
             [:h1 "News"]
-            [:streaming.test/article-list]
+            [:view-ref :streaming.test/article-list]
             [:rf/suspense-boundary
              {:id :streaming.test/comments
               :fallback [:p.fallback "Loading comments…"]}
-             [:streaming.test/comments-section]]
+             [:view-ref :streaming.test/comments-section]]
             [:rf/suspense-boundary
              {:id :streaming.test/related
               :fallback [:p.fallback "Loading related…"]}
-             [:streaming.test/related]]
+             [:view-ref :streaming.test/related]]
             [:footer "End"]]]]}}
 
  :fixture/frame-config {:platform :server}
@@ -77,7 +77,7 @@
   ;; with two <template … suspense-fallback> placeholders in document
   ;; order at the suspense-boundary sites.
   {:call   :ssr.streaming/render-shell
-   :input  [:streaming.test/root]
+   :input  [:view-ref :streaming.test/root]
    :expect
    {:shell-html-includes
     [;; outer shell content. View-root elements carry the Spec 006
@@ -110,7 +110,7 @@
   ;; the source-coord annotation's per-port surface variance.
   {:call   :ssr.streaming/render-continuation
    :input  {:id :streaming.test/comments
-            :subtree [:streaming.test/comments-section]}
+            :subtree [:view-ref :streaming.test/comments-section]}
    :expect
    {:html-includes ["<ul class=\"comments\""
                     "<li>First comment</li>"
@@ -121,7 +121,7 @@
   ;; Step 3 — drain continuation #2 (FIFO continues).
   {:call   :ssr.streaming/render-continuation
    :input  {:id :streaming.test/related
-            :subtree [:streaming.test/related]}
+            :subtree [:view-ref :streaming.test/related]}
    :expect
    {:html-includes ["<ul class=\"related\""
                     "<li>Related X</li>"

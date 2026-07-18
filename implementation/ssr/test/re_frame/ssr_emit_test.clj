@@ -135,21 +135,20 @@
       (is (not (str/includes? html "alert")) "the handler body is gone"))))
 
 (deftest render-to-string-strips-props-through-registered-view-root
-  (testing "rf2-usio0 — the strip composes with the registered-view
-            resolution branch (emit.cljc:296-311). A view whose ROOT
-            DOM element carries a hostile handler must still emit
-            stripped — the source-coord injection + view-ref indirection
-            must not bypass `attr-string`."
+  (testing "rf2-usio0 — the strip composes with the CALLABLE-head
+            resolution branch. A view whose ROOT DOM element carries a
+            hostile handler must still emit stripped — the callable-head
+            indirection must not bypass `attr-string`."
     (rf/reg-view ^{:rf/id :test/hostile-root} hostile-root-view []
       [:div {:on-click "alert(document.cookie)" :id "v"}
        [:p "safe body"]])
-    (let [html (emit/render-to-string [:test/hostile-root] {})]
+    (let [html (emit/render-to-string [(rf/view :test/hostile-root)] {})]
       (is (str/includes? html "<p>safe body</p>")
           "the view body still renders")
       (is (str/includes? html "id=\"v\"")
           "the legit root attr survives")
       (is (not (str/includes? html "on-click"))
-          "the root handler is stripped through the view-ref branch")
+          "the root handler is stripped through the callable-head branch")
       (is (not (str/includes? html "alert(document.cookie)"))
           "the handler body never reaches the wire"))))
 
@@ -690,22 +689,19 @@
 
 (deftest render-to-string-var-headed-registered-view
   (testing "rf2-wtd8z finding 2 — a registered view whose body is a
-            Var-headed component resolves (no EDN leak); the source-coord
-            follows the documented fn/component-head exemption
-            (inject-coord-on-root-hiccup only annotates keyword-headed
-            roots — a Var-headed body is one level of indirection above
-            the resolved DOM root, same as a fn-headed body or a :<>
-            fragment), while the render-hash root-attr DOES thread through
-            the Var head onto the resolved DOM root"
+            Var-headed component resolves (no EDN leak), while the
+            render-hash root-attr DOES thread through the Var head onto
+            the resolved DOM root. Two levels of callable indirection:
+            `(rf/view :id)` reaches the view, whose body is itself
+            Var-headed."
     (rf/reg-view ^{:rf/id :rf.ssr-emit-test/var-view} var-view []
       [#'var-component "v"])
-    (let [html (emit/render-to-string [:rf.ssr-emit-test/var-view] {})]
+    (let [html (emit/render-to-string [(rf/view :rf.ssr-emit-test/var-view)] {})]
       (is (= "<span>v</span>" html)
-          (str "the Var head resolved to <span>v</span> (NOT EDN text); the "
-               "source-coord is exempt on a Var-headed view root, matching "
-               "the fn-head / fragment exemption; got: " html)))
+          (str "the Var head resolved to <span>v</span> (NOT EDN text); "
+               "got: " html)))
     (testing "render-hash threads through the Var-headed view root onto the resolved DOM root"
-      (let [html (emit/render-to-string [:rf.ssr-emit-test/var-view] {:emit-hash? true})]
+      (let [html (emit/render-to-string [(rf/view :rf.ssr-emit-test/var-view)] {:emit-hash? true})]
         (is (re-find #"<span [^>]*data-rf-render-hash=\"[^\"]+\">v</span>" html)
             (str "the root data-rf-render-hash threads through the view-ref AND "
                  "the Var head onto the resolved <span> root; got: " html))))))

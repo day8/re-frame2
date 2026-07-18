@@ -1588,6 +1588,8 @@ Render trees use Vars; runtime lookups use ids. `reg-view` bridges them — auto
 
 A bare `[:keyword args]` head in a render tree is an **HTML element** (Reagent's existing semantics) — the runtime does not intercept the keyword case to dispatch via the views registry. See [Spec 004 §Calling a registered view](004-Views.md#template-grammar) and [Cross-Spec-Interactions §21 Family asymmetry](Cross-Spec-Interactions.md#21-family-asymmetry--only-reg-view-keeps-a--suffixed-fn-partner).
 
+**This holds on every host, servers included.** The rule is stated here and in Spec 004 because those two documents own the head grammar; other specs describe how their surfaces *use* it, and none may extend it. Until rf2-j81hs the two JVM SSR emitters resolved a keyword head through `(registrar/lookup :view head)` on the strength of prose in [Spec 011](011-SSR.md) — a non-owning spec extending the grammar. The measured result was that one hiccup form meant "registered view" on the server and "an HTML element" on every client substrate, with the server rendering *correctly* and the client silently painting a phantom, so the mistake survived every server-side test. Those emitters now obey this rule; Spec 011's prose was corrected. When a rule lives in two places, the copy inside the subsystem is the one that drifts — so the head grammar has exactly one home.
+
 ## React keys: stable per-row identity, never positional, when rows can mutate
 
 When a re-frame2 view renders a collection of sibling rows whose membership or ordering can mutate at runtime (rows added, removed, reordered, filtered, or replaced), each sibling MUST be keyed on a value that follows row identity, not row position.

@@ -340,7 +340,11 @@
        (for [it (rf/subscribe-once [:items])]
          ^{:key it} [:li it])])
     (rf/dispatch-sync [:seed])
-    (let [html (rf/render-to-string [:pages/list] {:emit-hash? true})]
+    ;; rf2-j81hs — callable head, not `[:pages/list]`. `render-to-string`
+    ;; ships from the shared `.cljc` emitter, so the keyword-head removal
+    ;; lands on the CLJS side of it too: a keyword head is an element on
+    ;; every host, and `[:pages/list]` would render an empty `<list>`.
+    (let [html (rf/render-to-string [(rf/view :pages/list)] {:emit-hash? true})]
       (is (re-find #"<ul[^>]*data-rf-render-hash=\"[0-9a-f]{8}\"" html)
           "rendered HTML carries a stable hash on the root <ul>")
       (is (clojure.string/includes? html "<li>a</li>"))

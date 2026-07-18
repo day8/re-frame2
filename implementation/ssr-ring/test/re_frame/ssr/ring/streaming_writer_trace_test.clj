@@ -229,7 +229,7 @@
     (rf/reg-view ^{:rf/id :rf.test.phase/root} phase-root []
       [:main [:span @(subscribe [:rf.test.phase/n])]])
     (let [opts     {:initial-events [[:rf.test.phase/init]]
-                    :root-view [:rf.test.phase/root]
+                    :root-view [(rf/view :rf.test.phase/root)]
                     :emit-hash? true
                     :payload :rf.ssr.payload/whole-app-db}
           ;; A no-suspense root → the write order is exactly:
@@ -281,9 +281,9 @@
        [:h1 "hdr"]
        [:rf/suspense-boundary
         {:id :rf.test.phase/the-boundary :fallback [:p "loading"]}
-        [:rf.test.phase/section]]])
+        [(rf/view :rf.test.phase/section)]]])
     (let [opts     {:initial-events [[:rf.test.phase/init-sb]]
-                    :root-view [:rf.test.phase/sb-root]
+                    :root-view [(rf/view :rf.test.phase/sb-root)]
                     :emit-hash? true
                     :payload :rf.ssr.payload/whole-app-db}
           fid      (setup-streaming-frame! opts)

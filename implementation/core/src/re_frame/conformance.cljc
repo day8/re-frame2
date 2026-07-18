@@ -58,7 +58,10 @@
     identity    :identity
     fixture     :item-amount"
   (:require [re-frame.error :as error]
-            [re-frame.late-bind :as late-bind]))
+            [re-frame.late-bind :as late-bind]
+            ;; rf2-j81hs — `[:view-ref id]` in a fixture view body resolves
+            ;; to the registered handler-fn, so the DSL reads the registry.
+            [re-frame.registrar :as registrar]))
 
 #?(:clj (set! *warn-on-reflection* true))
 
@@ -559,15 +562,84 @@
           runtime-changed?  (assoc :rf.db/runtime (:runtime-db final))
           (seq (:fx final)) (assoc :fx (:fx final)))))))
 
+(defn- resolve-view-ref
+  "Resolve one `[:view-ref <id> & args]` marker to `[<handler-fn> & args]`,
+  mapping `walk-arg` over the args."
+  [form walk-arg]
+  (let [id      (second form)
+        args    (mapv walk-arg (drop 2 form))
+        view-fn (:handler-fn (registrar/lookup :view id))]
+    (when-not view-fn
+      (throw (ex-info (str "conformance fixture: [:view-ref " id "] names "
+                           "no registered view — check :fixture/handlers "
+                           ":view and the registration order")
+                      {:view-ref id})))
+    (into [view-fn] args)))
+
+(defn realise-view-refs
+  "Recursively replace every `[:view-ref <id> & args]` marker in `form`
+  with `[(rf/view id) & args]` — a CALLABLE head this host can render.
+
+  rf2-j81hs. A conformance fixture is language-neutral EDN, so it cannot
+  spell a callable head; and a keyword head is now a DOM / custom element
+  on every host, so a fixture can no longer name a view by writing its id
+  as the head (`[:greeting \"world\"]` renders `<greeting>world</greeting>`).
+  `[:view-ref :greeting \"world\"]` is the portable spelling — each port
+  resolves it to whatever ITS substrate spells as \"callable head + args\".
+
+  The marker is deliberately EXPLICIT rather than an implicit \"a keyword
+  head here means a view\" rule: an implicit rule would recreate, at the
+  fixture layer, the exact server/client ambiguity this bead removed —
+  and fixtures are the artefact other implementations learn the grammar
+  from, so they must not model a rule the grammar rejects.
+
+  Used by the fixture RUNNERS for call inputs (`:input` / `:subtree`).
+  View BODIES go through `walk-hiccup`, which resolves the same marker
+  alongside the other reflection forms, so fixtures use one convention
+  everywhere."
+  [form]
+  (cond
+    (and (vector? form) (= :view-ref (first form)))
+    (resolve-view-ref form realise-view-refs)
+
+    (vector? form) (mapv realise-view-refs form)
+    (map? form)    (reduce-kv (fn [m k v] (assoc m k (realise-view-refs v))) {} form)
+    :else          form))
+
 (defn- walk-hiccup
   "Recursively walk a hiccup tree, replacing reflection forms with their
   resolved values. Used by realise-view-handler so view bodies can
-  embed [:event-arg n] / [:db-get path] / [:fn ...] inside hiccup."
+  embed [:event-arg n] / [:db-get path] / [:fn ...] / [:view-ref id]
+  inside hiccup."
   [form ctx]
   (cond
     (and (vector? form)
          (#{:event-arg :db-get :fn :get} (first form)))
     (resolve-value form ctx)
+
+    ;; `[:view-ref <id> & args]` — invoke a registered view HERE.
+    ;;
+    ;; rf2-j81hs. Fixtures used to compose views by writing the view's id
+    ;; as a hiccup head (`[:streaming.test/comments-section]`) and letting
+    ;; the JVM SSR emitter resolve it through the registry. That
+    ;; resolution is gone: a keyword head is a DOM / custom element on
+    ;; every host, so the old spelling now renders
+    ;; `<comments-section></comments-section>`.
+    ;;
+    ;; A fixture is language-neutral EDN read by every port, so it cannot
+    ;; carry a Clojure `(rf/view :id)` form. This marker is the portable
+    ;; equivalent: a port resolves `[:view-ref id & args]` to whatever
+    ;; ITS substrate spells as "callable head + args". Resolving to the
+    ;; handler-fn here yields exactly `[(rf/view id) & args]`.
+    ;;
+    ;; Deliberately EXPLICIT rather than re-teaching the runner that a
+    ;; keyword head means a view: an implicit rule at the fixture layer
+    ;; would recreate, one level down, the very server/client ambiguity
+    ;; this bead removed — and the fixtures are the artefact that OTHER
+    ;; implementations learn the grammar from, so they must not model a
+    ;; rule the grammar rejects.
+    (and (vector? form) (= :view-ref (first form)))
+    (resolve-view-ref form #(walk-hiccup % ctx))
 
     (vector? form)
     (mapv #(walk-hiccup % ctx) form)

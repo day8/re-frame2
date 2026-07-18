@@ -127,7 +127,7 @@
     (rf/reg-event :init/ok {:platforms #{:server}} (fn [_ _] {}))
     (let [handler (ssr-ring/ssr-handler
                     {:initial-events [[:init/ok]]
-                     :root-view [:pages/uses-throwing-sub]
+                     :root-view [(rf/view :pages/uses-throwing-sub)]
                      :ssr       {:public-error-id   :rf.ssr/default-error-projector
                                  :dev-error-detail? false}
                      :payload :rf.ssr.payload/whole-app-db})]
@@ -183,7 +183,7 @@
     (rf/reg-event :init/ok {:platforms #{:server}} (fn [_ _] {}))
     (let [handler (ssr-ring/ssr-handler
                     {:initial-events [[:init/ok]]
-                     :root-view [:pages/uses-clean-sub]
+                     :root-view [(rf/view :pages/uses-clean-sub)]
                      :ssr       {:public-error-id   :rf.ssr/default-error-projector
                                  :dev-error-detail? false}
                      :payload :rf.ssr.payload/whole-app-db})]

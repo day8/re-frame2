@@ -35,9 +35,15 @@ Runnable tree:
 Two things about the heads inside a boundary. Reference views by **Var**
 (`comments`, which `rf/reg-view` defs for you) or by `(rf/view :id)` lookup — a
 bare `[:article/comments]` head is an *HTML element*, never a view, so it paints
-`<comments>` in the browser. The JVM SSR emitter *does* resolve keyword heads
-through the view registry, which makes this a particularly quiet mistake: the
-server renders it correctly and only the client goes wrong.
+`<comments>` on every host, server included.
+
+That rule used to have an exception, and the exception was the dangerous part:
+the JVM SSR emitters resolved keyword heads through the view registry, so the
+same hiccup meant "registered view" on the server and "an HTML element" in the
+browser. The server rendered it *correctly*, which meant no server-side test
+could catch it and only the client went wrong — silently, as wrong pixels rather
+than an error. That exception is gone (rf2-j81hs): both emitters now treat a
+keyword head as an element, matching every client substrate.
 
 And `:rf/suspense-boundary` itself is **server-only** — it means something to the
 streaming shell walker and to nothing else. Your client render tree carries the
@@ -73,7 +79,7 @@ Use the streaming Ring constructor (re-exported on `re-frame.ssr.ring`):
 (def handler
   (ssr-ring/stream-handler
     {:initial-events [[:rf/server-init]]
-     :root-view      [:article/page]
+     :root-view      [(rf/view :article/page)]
      :payload        [:articles :comments]}))   ;; same fail-closed allowlist as ssr-handler
 ```
 

@@ -20,6 +20,37 @@
             [re-frame.ssr :as ssr]
             [re-frame.ssr.test-fixture :as tf]))
 
+(defn- realise-fixture-head
+  "Realise a fixture-supplied render tree onto THIS host's head grammar.
+
+  The conformance fixture names a view by ID — `[:streaming.test/root]` —
+  which is a language-NEUTRAL pin: EDN cannot spell a callable, and every
+  port resolves an id its own way. Per rf2-j81hs a keyword head is a DOM /
+  custom element on every host, so the id must be turned into a CALLABLE
+  head (`(rf/view :id)`) before it reaches the emitter — otherwise this
+  suite would silently assert against a phantom `<root>` element.
+
+  The fixture spells the reference as the explicit marker
+  `[:view-ref <id> & args]` — NOT as a bare keyword head. That is
+  deliberate: an implicit \"a keyword head here means a view\" rule would
+  recreate, at the fixture layer, exactly the server/client ambiguity
+  rf2-j81hs removed, and fixtures are what other implementations learn
+  the grammar from. The same marker is resolved inside view bodies by
+  `re-frame.conformance/walk-hiccup` and for the generic corpus by
+  `re-frame.ssr-conformance-test/realise-heads`.
+
+  Throws on an unregistered id rather than yielding a nil head: a vacuous
+  pass here would prove nothing about the wire shape the fixture pins."
+  [tree]
+  (if-not (and (vector? tree) (= :view-ref (first tree)))
+    tree                                  ; already a callable head
+    (let [[_ id & args] tree
+          handler       (rf/view id)]
+      (when-not handler
+        (throw (ex-info (str "fixture names an unregistered view: " id)
+                        {:id id :tree tree})))
+      (into [handler] (vec args)))))
+
 (defn- reset+reg-fixture-handlers
   [test-fn]
   (tf/reset-runtime
@@ -31,18 +62,22 @@
         [:ul.comments [:li "First comment"] [:li "Nice piece"]])
       (rf/reg-view ^{:rf/id :streaming.test/related} _rl []
         [:ul.related [:li "Related X"] [:li "Related Y"]])
+      ;; rf2-j81hs — view references are CALLABLE heads. `(rf/view :id)`
+      ;; resolves inside this fn body, i.e. at RENDER time, by which point
+      ;; all four views above are registered; a top-level vector would
+      ;; capture nil (the `:each` reset clears the registrar first).
       (rf/reg-view ^{:rf/id :streaming.test/root} _root []
         [:main
          [:h1 "News"]
-         [:streaming.test/article-list]
+         [(rf/view :streaming.test/article-list)]
          [:rf/suspense-boundary
           {:id :streaming.test/comments
            :fallback [:p.fallback "Loading comments…"]}
-          [:streaming.test/comments-section]]
+          [(rf/view :streaming.test/comments-section)]]
          [:rf/suspense-boundary
           {:id :streaming.test/related
            :fallback [:p.fallback "Loading related…"]}
-          [:streaming.test/related]]
+          [(rf/view :streaming.test/related)]]
          [:footer "End"]])
       (test-fn))))
 
@@ -60,7 +95,7 @@
                           (filter #(= :ssr.streaming/render-shell (:call %)))
                           first)
           {:keys [shell-html continuations]}
-          (ssr/streaming-render-shell (:input shell-call))
+          (ssr/streaming-render-shell (realise-fixture-head (:input shell-call)))
           expect (:expect shell-call)]
       (testing "shell-html includes every fixture-pinned substring"
         (doseq [s (:shell-html-includes expect)]
@@ -81,7 +116,8 @@
           ;; views. We drain against that frame.
           fid     :rf/default]
       (doseq [{:keys [input expect]} cont-calls]
-        (let [out (ssr/streaming-render-continuation fid input)]
+        (let [out (ssr/streaming-render-continuation
+                    fid (update input :subtree realise-fixture-head))]
           (doseq [s (:html-includes expect)]
             (is (str/includes? (:html out) s)
                 (str "continuation " (:id input) " missing: " (pr-str s))))
@@ -140,14 +176,14 @@
      [:rf/suspense-boundary
       {:id :streaming-nested.test/inner
        :fallback [:p.fallback "Loading inner…"]}
-      [:streaming-nested.test/inner-section]]])
+      [(rf/view :streaming-nested.test/inner-section)]]])
   (rf/reg-view ^{:rf/id :streaming-nested.test/root} _nr []
     [:main
      [:h1 "Nested"]
      [:rf/suspense-boundary
       {:id :streaming-nested.test/outer
        :fallback [:p.fallback "Loading outer…"]}
-      [:streaming-nested.test/outer-section]]
+      [(rf/view :streaming-nested.test/outer-section)]]
      [:footer "End"]]))
 
 (deftest nested-fixture-shell-registers-only-outer
@@ -160,7 +196,7 @@
                           (filter #(= :ssr.streaming/render-shell (:call %)))
                           first)
           {:keys [shell-html continuations]}
-          (ssr/streaming-render-shell (:input shell-call))
+          (ssr/streaming-render-shell (realise-fixture-head (:input shell-call)))
           expect     (:expect shell-call)]
       (doseq [s (:shell-html-includes expect)]
         (is (str/includes? shell-html s)
@@ -185,7 +221,8 @@
           inner-call (second cont-calls)
           fid        :rf/default]
       ;; Drain the outer.
-      (let [out    (ssr/streaming-render-continuation fid (:input outer-call))
+      (let [out    (ssr/streaming-render-continuation
+                     fid (update (:input outer-call) :subtree realise-fixture-head))
             expect (:expect outer-call)]
         (is (= (:failed? expect) (:failed? out))
             "outer resolves cleanly — NOT failed (the buried inner marker
@@ -200,7 +237,8 @@
                (mapv :id (:continuations out)))
             "outer drain returns the inner continuation at the FIFO tail"))
       ;; Drain the inner.
-      (let [in     (ssr/streaming-render-continuation fid (:input inner-call))
+      (let [in     (ssr/streaming-render-continuation
+                     fid (update (:input inner-call) :subtree realise-fixture-head))
             expect (:expect inner-call)]
         (is (= (:failed? expect) (:failed? in)))
         (doseq [s (:html-includes expect)]

@@ -869,16 +869,30 @@
 ;; rest of the SSR request-lifecycle coverage).
 
 (deftest reg-view-jvm
-  (testing "reg-view registers a view that render-to-string resolves"
+  (testing "reg-view registers a view that render-to-string resolves
+            through its CALLABLE head"
     ;; Plain-fn surface (reg-view*): explicit id, no auto-def.
     (rf/reg-view* :greet
       (fn [name] [:p "hello " [:strong name]]))
+
+    ;; rf2-j81hs — `[(rf/view :greet) "world"]`, not `[:greet "world"]`.
+    ;; A keyword head is a DOM / custom element on every host; the emitter
+    ;; no longer probes the registry for it.
     (is (= "<p>hello <strong>world</strong></p>"
-           (rf/render-to-string [:greet "world"]))
-        "render-to-string resolves [:greet args] via the :view registry")
+           (rf/render-to-string [(rf/view :greet) "world"]))
+        "render-to-string resolves a callable head")
     (is (fn? (rf/view :greet))
         "view returns the registered render fn")
-    (is (nil? (rf/view :no-such-view)))))
+    (is (nil? (rf/view :no-such-view))))
+
+  (testing "rf2-j81hs — the keyword spelling is an ELEMENT even though
+            `:greet` is registered. Pinned here, in the core smoke test,
+            because this is the one-line statement of the grammar a
+            reader is most likely to meet first."
+    (rf/reg-view* :greet
+      (fn [name] [:p "hello " [:strong name]]))
+    (is (= "<greet>world</greet>"
+           (rf/render-to-string [:greet "world"])))))
 
 (deftest ssr-render-to-string-basics
   (testing "basic hiccup → HTML"

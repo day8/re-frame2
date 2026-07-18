@@ -153,7 +153,7 @@
                        :request-method :get
                        :headers        {"user-agent" "load-test"}})
     (let [html (rf/with-frame server-frame
-                 (rf/render-to-string [:load-test/page] {:emit-hash? true}))]
+                 (rf/render-to-string [(rf/view :load-test/page)] {:emit-hash? true}))]
       ;; Step 4 — flush the response accumulator (also triggers any
       ;; pending-error-trace drain).
       (ssr/get-response server-frame)

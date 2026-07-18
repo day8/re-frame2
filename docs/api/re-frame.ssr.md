@@ -25,7 +25,7 @@ The `re-frame.core` facade re-exports a curated set of render and head primitive
   (render-to-string view-or-hiccup opts) → HTML string
   ```
 - **Description**: The canonical server-side render. Walks the hiccup tree once and emits a string. Pure and JVM-runnable.
-  - It resolves registered views, `:tag#id.cls` shorthand, and HTML5 void elements. It escapes text and attribute values.
+  - It resolves callable-headed views (Var / `(rf/view :id)`), `:tag#id.cls` shorthand, and HTML5 void elements. It escapes text and attribute values.
   - `opts` keys (all optional):
     - `:doctype?` — prefixes `<!DOCTYPE html>`.
     - `:emit-hash?` — injects `data-rf-render-hash` on the tree's first DOM-tag element, for client-side mismatch detection.

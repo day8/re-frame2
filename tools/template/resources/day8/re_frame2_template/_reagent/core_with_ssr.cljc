@@ -95,9 +95,20 @@
   [[:ssr/register-schema]
    [:rf/server-init]])
 
-(def root-view
-  "The root view id the SSR handler renders after the drain settles."
-  [:app/root])
+(defn root-view
+  "The root render tree the SSR handler renders after the drain settles.
+
+  A 0-arity fn rather than a literal vector, because `(rf/view :app/root)`
+  must resolve AFTER the view is registered — a top-level `def` would
+  capture the lookup at namespace-load time.
+
+  Note the head is the looked-up FN, not the keyword `:app/root`. A
+  keyword head in a render tree is an HTML element on every host, never a
+  view (Conventions §Render-tree shape vs runtime lookup): `[:app/root]`
+  would paint an empty `<root>` element. Views are referenced by the Var
+  `reg-view` defs, or by `(rf/view :id)` as here."
+  []
+  [(rf/view :app/root)])
 
 ;; ============================================================================
 ;; CLIENT ENTRY POINT

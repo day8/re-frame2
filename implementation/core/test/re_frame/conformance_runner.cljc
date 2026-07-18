@@ -848,11 +848,16 @@
                        " > " (:loser call)
                        " — winner-rank " w-rank " loser-rank " l-rank))})
 
-    ;; SSR pure render: input is hiccup or [:view-id args …]; opts may carry
-    ;; :doctype?.
+    ;; SSR pure render: input is hiccup, in which a view is named by the
+    ;; portable `[:view-ref <id> & args]` marker (rf2-j81hs — a keyword
+    ;; head is a DOM element on every host, so the fixture cannot spell a
+    ;; view as its head). `realise-view-refs` turns the marker into this
+    ;; host's callable-head form before the emitter sees it. Opts may
+    ;; carry :doctype?.
     :render-to-string
     (let [opts (or (:opts call) {})
-          out  (try (ssr/render-to-string (:input call) opts)
+          out  (try (ssr/render-to-string
+                      (conformance/realise-view-refs (:input call)) opts)
                     (catch #?(:clj Throwable :cljs :default) e
                       (str "<error: " (ex-message e) ">")))
           want (:expect call)]
