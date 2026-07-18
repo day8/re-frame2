@@ -13,6 +13,7 @@
   (:require [re-frame.frame :as frame]
             [re-frame.late-bind :as late-bind]
             [re-frame.ssr.error-listener :as error-listener]
+            [re-frame.ssr.install :as install]
             [re-frame.ssr.response :as response]
             [re-frame.trace :as trace]))
 
@@ -102,6 +103,12 @@
   (error-listener/clear-pending-error-traces! frame-id)
   (clear-request! frame-id)
   (response/clear-response! frame-id)
+  ;; S5 — release this frame's hydration-payload install claim. Payload ids
+  ;; ARE frame ids (004C §6), so a destroyed frame's claim must go with it:
+  ;; a frame later re-created under the same id would otherwise meet a
+  ;; phantom `:rf.error/frame-payload-conflict` raised by a lifetime that
+  ;; no longer exists.
+  (install/release-payload! frame-id)
   (when-let [head-cleanup! (late-bind/get-fn :ssr/head-on-frame-destroyed)]
     (try (head-cleanup! frame-id)
          (catch #?(:clj Throwable :cljs :default) t

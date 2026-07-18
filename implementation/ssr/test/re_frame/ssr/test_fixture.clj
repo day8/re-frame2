@@ -60,6 +60,7 @@
             [re-frame.ssr :as ssr]
             [re-frame.ssr.error-listener :as error-listener]
             [re-frame.ssr.head :as head]
+            [re-frame.ssr.install :as install]
             [re-frame.ssr.request :as request]
             [re-frame.ssr.response :as response]))
 
@@ -82,6 +83,10 @@
   (reset! response/response-slots {})
   (reset! error-listener/pending-error-traces {})
   (reset! head/head-snapshots {})
+  ;; S5 — the hydration-payload install ledger. Keyed by payload id (a
+  ;; frame id), so a claim left by a prior test would make the next test's
+  ;; first hydrate look like a sibling root's second one.
+  (install/reset-installed-payloads!)
   ;; Per rf2-4gvb4 — the flows artefact's per-frame `last-inputs` memo
   ;; table is reset through the public `flows/reset-last-inputs!` seam
   ;; (the atom itself is now private to the flows artefact). Spec 013
