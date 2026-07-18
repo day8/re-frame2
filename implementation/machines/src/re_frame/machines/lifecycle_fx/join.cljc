@@ -235,10 +235,11 @@
 
   RESERVED / NON-OVERRIDABLE / NON-REDIRECTABLE (rf2-2lzk8a). It re-dispatches
   ONLY the pre-built completion carrier it was handed (never traverses arbitrary
-  / custom effect payloads). `:rf.machine/join-dispatch` is a member of core's
-  `rejected-reserved-fx-ids`, so a DIRECT override of it is rejected
-  (`:rf.error/reserved-fx-override`, the real body runs) and a REDIRECT whose
-  target is it is refused (no privilege escalation, no self-recursive
+  / custom effect payloads). `:rf.machine/join-dispatch` is the one id in BOTH
+  of core's separated policies (rf2-1w4af): `non-overridable-source-fx-ids`, so
+  a DIRECT override of it is rejected (`:rf.error/reserved-fx-override`, the real
+  body runs); AND `non-redirectable-target-fx-ids`, so a REDIRECT whose target
+  is it is refused (no privilege escalation, no self-recursive
   StackOverflowError). This protects the FRAMEWORK PATH from capture or
   suppression — an override can neither swallow nor rewrite the transport — it
   does NOT make the coordinate unforgeable. Direct app emission of a
