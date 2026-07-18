@@ -1,6 +1,6 @@
 # The re-frame2 UI guide
 
-re-frame2 UI is the view layer for re-frame2. You write **hiccup** and **event
+re-frame2 UI is an experimental, additional view layer for re-frame2. You write **hiccup** and **event
 vectors**. The compiler turns them into efficient React at build time — no hiccup
 interpreter in the bundle, no hooks ceremony, no manual memoisation.
 

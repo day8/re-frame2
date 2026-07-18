@@ -5,7 +5,7 @@ browser and versioned `re-frame.ui.tree` structural data on the JVM. The shared
 conversion contract and parity gates hold those outputs together.
 
 HTML is a separate S5 step: `re-frame.ssr/emit-ui-tree` serialises that structural tree.
-Until S5 lands, `render-to-string` remains the frozen Reagent/hiccup compatibility
+Until S5 lands, `render-to-string` remains the Reagent/hiccup compatibility
 route; it is not the re-frame.ui tree pipeline.
 
 | Mechanism | Delivery stage |
@@ -31,7 +31,7 @@ and keep the shared markup outside.
 
 ## Rendering a page *(re-frame.ui HTML and `ssr-ring` land S5)*
 
-The current compatibility `render-to-string` path is the frozen Reagent/hiccup route.
+The current compatibility `render-to-string` path is the Reagent/hiccup route.
 The S5 re-frame.ui path uses per-request frames: drain `:initial-events`, emit the
 versioned structural tree, serialise it with `re-frame.ssr/emit-ui-tree`, respond, and
 tear down. Request-to-response glue lands with the `ssr-ring` ecosystem adapter; this

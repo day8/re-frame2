@@ -4,9 +4,8 @@ A translation map for people arriving from React, UIx, or Reagent. Nothing
 here is required if you started at [01](01-getting-started.md) with a blank mind —
 use it when a habit from elsewhere misleads.
 
-`re-frame.ui` is the default and the only view surface taught here. Stock Reagent and
-UIx remain frozen compatibility adapters, without a feature-parity programme. Helix
-and slim are deleted.
+`re-frame.ui` is an experimental additional substrate, the view surface taught here. Stock Reagent,
+UIx, and reagent-slim remain first-class, actively-supported adapters. Only Helix is deleted.
 
 ## From React / UIx
 
@@ -38,7 +37,7 @@ and slim are deleted.
 
 1. **Dataflow first** — move events, subs, and a `frame-root` mount to re-frame2 while
    keeping registered Reagent views as they are (stock Reagent remains a supported,
-   frozen compatibility tier). You immediately gain Xray, epochs, Story, schemas,
+   first-class adapter). You immediately gain Xray, epochs, Story, schemas,
    machines, and resources.
 2. **Views per subtree** — migrate to `defview` on your schedule, with the migrator.
    Old and new trees co-mount at explicit boundaries.
@@ -51,7 +50,7 @@ A common confusion if you already know re-frame2: **`reg-view` is not a template
 compiler.** It is a registration macro. It defs the symbol, derives a registry id,
 and injects frame-bound `dispatch` / `subscribe` as lexical locals (with source
 coordinates). The view body is spliced **verbatim** — no code-walking, no hiccup
-lowering. Under the frozen stock-Reagent tier, templates still go through Reagent at
+lowering. Under the first-class stock-Reagent adapter, templates still go through Reagent at
 runtime; handlers are still ordinary closures.
 
 `defview` is different in kind: the template (and data handlers) are **compiled** —
