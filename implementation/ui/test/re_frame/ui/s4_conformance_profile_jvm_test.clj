@@ -435,13 +435,26 @@
     (testing "an UNKEYED child under a presence boundary is a build failure"
       (is (= unkeyed
              (compile-err-id '(presence {:timeout-ms 300} [:li "no key"])))))
-    (testing "the well-formed shape compiles (the checks are not blanket rejections)"
-      ;; The keyed `(for …)` — keyed by construction. NOTE: a keyed LITERAL
-      ;; element is currently still rejected here; that is the open bug
-      ;; rf2-vxgfnd.96.1, deliberately not asserted either way by this profile.
+    (testing "the well-formed shapes compile (the checks are not blanket rejections)"
+      ;; The LANDED grammar §1.1 now states. Both legal child shapes: the keyed
+      ;; `(for …)`, keyed by construction, and the keyed LITERAL element, which
+      ;; rf2-vxgfnd.96.1 (#6331) stopped wrongly rejecting.
       (is (= :presence (:op (ana/analyze (presence-env)
                                          '(presence {:timeout-ms 300}
-                                            (for [t ts] [:li {:key (:id t)} "a"])))))))))
+                                            (for [t ts] [:li {:key (:id t)} "a"]))))))
+      (is (= :presence (:op (ana/analyze (presence-env)
+                                         '(presence {:timeout-ms 300}
+                                            [:li {:key "a"} "a"]))))
+          "a keyed literal child is legal (rf2-vxgfnd.96.1)"))
+    (testing "a props-bearing but UNKEYED fragment does NOT pass as keyed (rf2-xoz1s, #6337)"
+      ;; The permissive half: `[:<> {} …]` used to report its PROPS MAP's
+      ;; presence as a key, so the boundary admitted a child it had no identity
+      ;; to retain. Key presence is now `:key`'s own presence.
+      (is (= unkeyed (compile-err-id '(presence {:timeout-ms 300} [:<> {} [:li "x"]]))))
+      (is (= :presence (:op (ana/analyze (presence-env)
+                                         '(presence {:timeout-ms 300}
+                                            [:<> {:key "k"} [:li "x"]]))))
+          "a genuinely keyed fragment is still legal"))))
 
 ;; --- custom-element pins ----------------------------------------------------
 
@@ -628,30 +641,55 @@
 
 ;; --- the ruled sequencing, non-parity, S5-wall and hand-off obligations ------
 
-(def open-presence-grammar-bugs
-  "The two OPEN S4-epic bugs that change the ACCEPTED presence grammar. The
-  profile's presence rows state the post-fix grammar and must say so, and §8
-  must make closing both part of the S4-conforming declaration."
-  ["rf2-vxgfnd.96.1" "rf2-vxgfnd.96.2"])
+(def landed-presence-grammar-fixes
+  "The presence grammar bugs that GATED the S4-conforming declaration, and the
+  PRs that closed them (rf2-vxgfnd.96.3). §1.1 must record them as LANDED and §8
+  must declare the stage conforming on that basis."
+  ["rf2-vxgfnd.96.1" "rf2-vxgfnd.96.2" "rf2-xoz1s" "#6331" "#6337"])
 
-(deftest profile-sequences-presence-behind-the-open-grammar-bugs
-  (testing "§1.1 states that the presence rows track the POST-FIX grammar, naming both open bugs"
+(def stale-blocker-phrases
+  "The PRE-declaration wording. Each of these asserted an open presence grammar
+  bug or a not-yet-conforming stage; all are now false, so their reappearance
+  ANYWHERE in the profile is drift. Absence is the one claim a document-wide
+  census states correctly — 'nowhere' is stronger than 'not in this section' —
+  whereas the positive claims below are bound to the REGION that must carry
+  them (rf2-vxcl7)."
+  ["S4 is not yet declarable conforming"
+   "not yet declarable"
+   "bugs are **open**"
+   "Closing both is part of the S4-conforming declaration"
+   "track the POST-FIX presence grammar"
+   "will ship once both close"])
+
+(deftest profile-declares-s4-conforming-on-the-landed-grammar
+  ;; REGION-bound, not document-wide: §1.1 and §8 legitimately name the SAME
+  ;; beads and PRs, so a whole-document `includes?` would let either site alone
+  ;; satisfy both checks — the exact false-green class rf2-vxcl7 fixed. Each
+  ;; claim is asserted against the section that must carry it.
+  (testing "§1.1 records the presence grammar as LANDED, naming every closed bug and its PR"
     (let [section (section-between (slurp (profile-doc)) "### 1.1" "### 1.2")]
       (is (some? section) "the profile must have a §1.1 presence section and a §1.2 header")
       (when section
-        (doseq [claim (concat open-presence-grammar-bugs
-                              ["POST-FIX presence grammar"
-                               "part of the S4-conforming"])]
+        (doseq [claim (concat landed-presence-grammar-fixes
+                              ["LANDED presence grammar"
+                               "no presence grammar bug is open"])]
           (is (str/includes? section claim)
               (str "§1.1 must state: " claim))))))
-  (testing "§8 makes closing both bugs part of the S4-conforming declaration"
+  (testing "§8 DECLARES the stage conforming, on the cumulative profile and the green named suites"
     (let [text (slurp (profile-doc))
           tail (subs text (str/index-of text "## 8."))]
-      (doseq [claim (concat open-presence-grammar-bugs
-                            ["S4 is not yet declarable conforming"
-                             "Closing both is part of the S4-conforming declaration"])]
+      (doseq [claim (concat landed-presence-grammar-fixes
+                            ["S4 IS DECLARED CONFORMING"
+                             "rf2-vxgfnd.96.3"
+                             "**cumulative** inheritance of §0"
+                             "**all green**"])]
         (is (str/includes? tail claim)
-            (str "§8 must state: " claim))))))
+            (str "§8 must state: " claim)))))
+  (testing "the pre-declaration blocker wording is gone from the WHOLE document — its return is drift"
+    (let [text (slurp (profile-doc))]
+      (doseq [stale stale-blocker-phrases]
+        (is (not (str/includes? text stale))
+            (str "stale pre-declaration wording returned to the profile: " stale))))))
 
 (deftest profile-rows-the-intentional-non-parity-facts
   (testing "§4.1 rows each non-parity S4 fact against its real proof home — never the structural comparator"
