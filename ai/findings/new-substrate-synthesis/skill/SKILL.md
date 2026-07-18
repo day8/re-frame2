@@ -396,16 +396,18 @@ Props compare by value (`rf=`, per slot) to decide re-renders:
 
 ```clojure
 (deftest add-button-carries-intent
-  (let [frame (rf/make-frame {:initial-events [[:rf/set-db {:cart #{}}]]})
-        tree  (uit/render [product-card {:product {:id 42 :name "Hat" :price 9.5}}]
-                          {:frame frame})]
-    (is (= "Hat"          (uit/text (uit/find tree :h3))))
-    (is (= [:cart/add 42] (:on-click (uit/attrs (uit/find tree :button)))))))
+  (rf/with-new-frame [frame (rf/make-frame {:initial-events [[:rf/set-db {:cart #{}}]]})]
+    (let [tree (uit/render [product-card {:product {:id 42 :name "Hat" :price 9.5}}]
+                           {:frame frame})]
+      (is (= "Hat"          (uit/text (uit/find tree :h3))))
+      (is (= [:cart/add 42] (:on-click (uit/attrs (uit/find tree :button))))))))
 ```
 
 - **Tier-1 (default): real view + real frame on the JVM, no DOM.** `render`
-  opts are CLOSED: `{:frame f}` (a frame minted with `rf/make-frame` +
-  `:initial-events`), `:props` (bare-view form only),
+  opts are CLOSED: `{:frame f}` (a **caller-owned** frame minted with
+  `rf/make-frame` + `:initial-events` — `render` binds it but never destroys it,
+  so wrap it in `rf/with-new-frame` as above, or release it with
+  `rf/destroy-frame!`), `:props` (bare-view form only),
   `:sub-overrides {query value}` (the explicit JVM override door). Unknown
   keys throw didactically.
 - `render` also takes a **literal root form** — the same top-region root

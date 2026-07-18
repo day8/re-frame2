@@ -492,9 +492,13 @@ server in sight (guide 01):
 `(ui.test/render root-or-view opts)` accepts exactly two forms:
 
 1. **A view reference** (compile-resolved Var/symbol of a `defview`). Props ride
-   `{:props p}`. A frame rides `{:frame f}` — mint it with `rf/make-frame` +
-   `:initial-events`; with no frame, structural rendering proceeds and any `sub`
-   raises `:rf.error/no-frame-context` — honest, not defaulted.
+   `{:props p}`. A frame rides `{:frame f}`, minted with `rf/make-frame` +
+   `:initial-events` and **caller-owned** — `render` binds it for the render but
+   never creates or destroys it, so release it with `rf/with-new-frame`
+   (eval-bind-run-destroy) or an explicit `rf/destroy-frame!` teardown per
+   [Spec 008 §`with-frame` and `with-new-frame`](008-Testing.md#with-frame-and-with-new-frame),
+   or the `make-frame` value leaks. With no frame, structural rendering proceeds
+   and any `sub` raises `:rf.error/no-frame-context` — honest, not defaulted.
 2. **A literal root form** — the same literal top-region grammar `mount` takes,
    wrappers included, tightened to exactly **one mounted view** per test root
    (§1.1's authored-`:root-id` multi-view allowance does not apply here; two views →
