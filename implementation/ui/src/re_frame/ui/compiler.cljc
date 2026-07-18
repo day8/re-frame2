@@ -1,9 +1,10 @@
 (ns re-frame.ui.compiler
   "defview / custom-element expansion pipeline: arity + options parsing,
   header (Q2) analysis, template analysis, manifest + fingerprint
-  assembly, and per-host emission. One template parse -> one normalized
-  AST -> per-host emitter (the portability law: no emitter consumes raw
-  source or another emitter's output).
+  assembly, and per-host emission. Each host build runs the shared
+  analyzer over its own source and hands that build's own AST to exactly
+  one emitter (the portability law: no emitter consumes raw source or
+  another emitter's output).
 
   Runs on the JVM only (macro expansion for both hosts); .cljc so the
   namespace stays loadable everywhere."

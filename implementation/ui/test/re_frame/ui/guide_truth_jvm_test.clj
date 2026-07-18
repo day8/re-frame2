@@ -400,6 +400,11 @@
    ;; law and must NOT match, so the emitter side requires two/both/per-host.
    ["one parse/AST → per-host emitters"
     #"(?i)(?:one|a\s+single)\s+(?:normalized\s+|normalised\s+|template\s+)*(?:parse|AST)\b[^\n]{0,80}(?:two|both|per-host|each\s+host)\s+emitter"]
+   ;; The same claim spread over a line/prefix break, which the single-line
+   ;; pattern above cannot see: an intervening comma or a Markdown blockquote
+   ;; marker between "one" and "AST" must not buy the retired wording a pass.
+   ["one AST consumed by the emitters"
+    #"(?is)\bAST\**\s+consumed\s+by\s+(?:two|both|each\s+host|the\s+(?:two|host))\s+emitter"]
    ["one emitter implements both hosts"
     #"(?i)(?:(?:one|same)\s+emitter[^\n]{0,120}(?:both\s+hosts|client[^\n]*server|browser[^\n]*jvm)|(?:both\s+hosts|client[^\n]*server|browser[^\n]*jvm)[^\n]{0,120}(?:one|same)\s+emitter)"]
    ["host output is identical"
@@ -438,7 +443,16 @@
     #"(?is)hosts\s+never\s+meet\s+as\s+ASTs"]
 
    "docs/EP/EP-0030-the-compiled-view-substrate-program.md"
-   [#"(?is)each\s+host\s+build\s+emits\s+from\s+its\s+own"]})
+   [#"(?is)each\s+host\s+build\s+emits\s+from\s+its\s+own"]
+
+   "spec/004-Views.md"
+   [#"(?i)\*\*One\s+AST\s+per\s+build\.\*\*"
+    #"(?is)hosts'?\s+ASTs\s+are\s+not\s+guaranteed\s+equal\s+values"
+    #"(?is)hosts\s+never\s+meet\s+as\s+ASTs"]
+
+   "implementation/ui/src/re_frame/ui/compiler.cljc"
+   [#"(?is)each\s+host\s+build\s+runs\s+the\s+shared\s+analyzer"
+    #"(?is)hands\s+that\s+build's\s+own\s+AST\s+to\s+exactly\s+one\s+emitter"]})
 
 (deftest compiler-authorities-teach-per-host-analysis
   (doseq [[path required] compiler-model-authorities]
