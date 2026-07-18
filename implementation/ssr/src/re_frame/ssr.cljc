@@ -53,6 +53,10 @@
 ;; `hydrate!` preserves read → hydrate → verify ordering. The DOM reader is
 ;; CLJS-only.
 (def hydrate!                        boot/hydrate!)
+;; A page is N roots; `hydrate-page!` boots them with per-root failure
+;; isolation, so one failing root cannot stop the others (Spec 011
+;; §Failed-root isolation).
+(def hydrate-page!                   boot/hydrate-page!)
 #?(:cljs (def read-server-payload    boot/read-server-payload))
 (def default-response                response/default-response)
 ;; The response accumulator is a per-frame side channel, not application

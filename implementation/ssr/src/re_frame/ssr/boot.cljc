@@ -305,7 +305,7 @@
       ;; re-seeding would discard everything that happened since (004C §6's
       ;; ratified "later roots find it live and do not re-seed"). A
       ;; DIFFERENT payload under the same id throws before any install.
-      (let [{:keys [decision]}
+      (let [{:keys [decision claim]}
             (install/preflight! 'rf.ssr/hydrate!
                                 {:payload    payload
                                  :payload-id frame
@@ -326,21 +326,210 @@
           ;; the router directly keeps `boot` on the granular-require convention
           ;; the other ssr sub-namespaces follow (frame/events/trace, never
           ;; the `re-frame.core` public façade).
-          (router/dispatch-sync! [:rf/hydrate payload] {:frame frame})
-          ;; HOT PATH — post-render hash-mismatch detection. Symmetric with
-          ;; the server's `:emit-hash?`-stamped `data-rf-render-hash` marker.
+          ;; THE CLAIM IS TRANSACTIONAL OVER THE SEED (Spec 011 §Failed-root
+          ;; isolation). `preflight!` has already RECORDED this root's claim,
+          ;; and a claim whose seed does not land is worse than no claim at
+          ;; all: the next root referencing that payload reads
+          ;; `:already-installed` — a legitimate verdict — and skips its own
+          ;; install. The page then runs a frame nobody ever hydrated, with
+          ;; no error anywhere, because nothing failed loudly. So the claim
+          ;; is released unless the seed provably landed.
           ;;
-          ;; Call `render-tree-fn` UNDER the target frame's scope (rf2-0vk7b). The
-          ;; documented idiom `(fn [] ((rf/view :app/root)))` computes the client
-          ;; tree by CALLING a registered view, whose reg-view-injected `subscribe`
-          ;; resolves the ambient frame via the carried invariant. `hydrate!` already
-          ;; resolved `frame` and dispatched `:rf/hydrate` into it, so — mirroring
-          ;; the server render, which wraps `((rf/view :app/root))` in
-          ;; `(with-frame f …)` — it pins that same frame here. Without the pin the
-          ;; view's `subscribe` runs under no scope and raises
-          ;; `:rf.error/no-frame-context`, aborting client boot. `bind-fn` re-binds
-          ;; `*current-frame*` for the one call; a `render-tree-fn` that establishes
-          ;; its own scope (or ignores it — a plain-hiccup fn) is unaffected.
-          (when render-tree-fn
-            (hydrate/verify-hydration! frame ((frame/bind-fn frame render-tree-fn)))))))
+          ;; `dispatch-sync!` does NOT report that for us. Dispatching into
+          ;; an absent or destroyed frame is a NO-OP, not a throw — the
+          ;; router reports it on its own always-on axis and returns
+          ;; normally. So the condition is checked directly, and the check
+          ;; is the frame's INCARNATION token: the seed landed only if the
+          ;; exact incarnation that was live when we claimed is still live
+          ;; now. A nil token (the frame was never there) is not live, so an
+          ;; absent frame releases too; a destroy-and-recreate during the
+          ;; dispatch yields a different token and also releases. This is
+          ;; the same pinned-token admission rule a cold `reg-flow` uses to
+          ;; keep a write off a dead or superseded incarnation.
+          ;;
+          ;; The transaction ends HERE, at the seed — the claim covers the
+          ;; INSTALL, not the whole root boot. Once `:rf/hydrate` commits the
+          ;; payload IS installed and siblings must keep finding it live;
+          ;; releasing on a LATER failure (the verify below, or the host's
+          ;; own mount) would invite a sibling to re-seed and silently reset
+          ;; whatever ran in between — the precise harm the ledger exists to
+          ;; prevent. A root may fail after a successful install; its payload
+          ;; does not thereby become uninstalled.
+          ;;
+          ;; Unconditional, never `debug-enabled?`-gated: a root can fail in
+          ;; production, so the claim must be released in production.
+          (let [incarnation (frame/frame-incarnation-token frame)]
+            (router/dispatch-sync! [:rf/hydrate payload] {:frame frame})
+            (if-not (frame/frame-incarnation-live? frame incarnation)
+              (install/release-claim! frame claim)
+              ;; HOT PATH — post-render hash-mismatch detection. Symmetric with
+              ;; the server's `:emit-hash?`-stamped `data-rf-render-hash` marker.
+              ;; Runs only on a landed seed: verifying a client tree against a
+              ;; server hash the frame never received compares nothing.
+              ;;
+              ;; Call `render-tree-fn` UNDER the target frame's scope (rf2-0vk7b). The
+              ;; documented idiom `(fn [] ((rf/view :app/root)))` computes the client
+              ;; tree by CALLING a registered view, whose reg-view-injected `subscribe`
+              ;; resolves the ambient frame via the carried invariant. `hydrate!` already
+              ;; resolved `frame` and dispatched `:rf/hydrate` into it, so — mirroring
+              ;; the server render, which wraps `((rf/view :app/root))` in
+              ;; `(with-frame f …)` — it pins that same frame here. Without the pin the
+              ;; view's `subscribe` runs under no scope and raises
+              ;; `:rf.error/no-frame-context`, aborting client boot. `bind-fn` re-binds
+              ;; `*current-frame*` for the one call; a `render-tree-fn` that establishes
+              ;; its own scope (or ignores it — a plain-hiccup fn) is unaffected.
+              (when render-tree-fn
+                (hydrate/verify-hydration! frame ((frame/bind-fn frame render-tree-fn)))))))))
     payload))
+
+;; ---------------------------------------------------------------------------
+;; Failed-root isolation (S5) — Spec 011 §Failed-root isolation
+;; ---------------------------------------------------------------------------
+
+(defn- exception-message [t]
+  (or #?(:clj (.getMessage ^Throwable t) :cljs (.-message t))
+      (str t)))
+
+(defn report-root-boot-failed!
+  "Report one CONTAINED root-boot failure and -> nil.
+
+  The isolation boundary absorbs the throw so the page's other roots keep
+  booting; this is the record that keeps the absorption from being
+  SILENT. It is a genuinely new fact, not a re-report of the underlying
+  error: the cause says *what* broke, this says **this root is not
+  running and the page is live without it** — the thing an operator acts
+  on.
+
+  Two channels, per the `:rf.error/malformed-hydration-payload`
+  precedent this mirrors (a hydration-boot failure the runtime absorbs
+  rather than rethrows):
+
+  - the **always-on** error-emit record, via the published
+    `:error-emit/dispatch-error-record` hook. This is the load-bearing
+    one. A root can fail in PRODUCTION, so its containment must be
+    observable in production — the record survives `:advanced` +
+    `goog.DEBUG=false` and reaches an off-box shipper.
+  - a dev trace, `interop/debug-enabled?`-gated, for the local devtools
+    stream.
+
+  The always-on emit is deliberately OUTSIDE the debug gate. A page that
+  quietly runs with N-1 roots and no signal is the failure mode this
+  whole contract exists to prevent, so the signal cannot be dev-only."
+  [{:keys [where frame root-id phase exception]}]
+  (let [reason (str "root " (pr-str root-id) " failed to boot during "
+                    (name phase) " and was ISOLATED: the page's other "
+                    "roots hydrated and are running. This root is not "
+                    "mounted and will not respond to dispatch. "
+                    (exception-message exception))
+        record {:error     :rf.error/root-boot-failed
+                :frame     frame
+                :time      (interop/now-ms)
+                :where     where
+                :root-id   root-id
+                :phase     phase
+                :reason    reason
+                :exception exception
+                :recovery  :warned-and-continued}]
+    (when interop/debug-enabled?
+      (trace/emit-error! :rf.error/root-boot-failed (dissoc record :error :time)))
+    (when-let [dispatch-error-record!
+               (late-bind/get-fn :error-emit/dispatch-error-record)]
+      (dispatch-error-record! record)))
+  nil)
+
+(defn- boot-one-root!
+  "Boot ONE root inside the isolation boundary -> its outcome map.
+
+  The boundary spans the root's WHOLE boot — preflight, hydrate, and the
+  host's own `:mount-fn` — because a root that hydrates but cannot mount
+  is just as dead to the page as one that never hydrated, and isolating
+  only half of that would leave the other half able to take the page
+  down."
+  [{:keys [root-id mount-fn] :as opts}]
+  ;; `phase` is set from the ONE fact that distinguishes the halves: the
+  ;; mount can only run after hydrate returned, so a throw seen while it
+  ;; still reads `:hydrate` came from the hydrate half. It rides the
+  ;; failure record so an operator reading "root :page/cart failed" knows
+  ;; whether the frame was seeded before it died.
+  (let [phase (volatile! :hydrate)]
+    (try
+      (let [payload (hydrate! (dissoc opts :mount-fn))]
+        (vreset! phase :mount)
+        (when mount-fn (mount-fn))
+        {:root-id root-id :status :hydrated :payload payload})
+      (catch #?(:clj Throwable :cljs :default) t
+        (report-root-boot-failed!
+         {:where     'rf.ssr/hydrate-page!
+          :frame     (:frame opts)
+          :root-id   root-id
+          :phase     @phase
+          :exception t})
+        {:root-id root-id :status :failed :error t}))))
+
+(defn hydrate-page!
+  "Boot a page of N roots with **per-root failure isolation** -> a vector
+  of per-root outcomes, in the order the roots were supplied.
+
+  Per [Spec 011 §Failed-root isolation]: **a page is N roots, and one of
+  them failing must not stop the others from hydrating and running.**
+  Every root is booted inside its own boundary, so a throw from one is
+  contained, reported, and the page moves on to the next.
+
+  `roots` is a collection of per-root opt maps. Each is the map
+  `hydrate!` takes (`:frame`, `:payload`, `:container`, `:manifest`,
+  `:root-id`, `:render-tree-fn`, `:element-id`), plus:
+
+    :mount-fn — (optional) a 0-arity fn that mounts this root, run
+                immediately after its hydrate, INSIDE the boundary. Pass
+                the host mount here rather than looping outside: a root
+                whose mount throws is exactly as dead as one whose
+                hydrate threw, and only a mount inside the boundary is
+                actually isolated.
+
+  Each outcome is
+
+      {:root-id … :status :hydrated :payload …}   ; or
+      {:root-id … :status :failed   :error <the throwable>}
+
+  Outcomes come back in input order, so a caller correlates them
+  positionally even for a root that failed before its id could be read
+  from a manifest (`:root-id` is then whatever was passed in, possibly
+  nil).
+
+  **What a failed root leaves behind.** Nothing that can harm a sibling:
+
+  - Failed in PREFLIGHT (no manifest, a manifest outside the schema
+    family, a payload conflict) — nothing at all. The throw happens
+    before any claim, so the ledger is untouched.
+  - Failed during the SEED — no claim. `hydrate!` releases the exact
+    claim it made, so the payload id is returned to unclaimed and the
+    next root referencing it gets a true `:install` rather than a
+    poisoned `:already-installed`.
+  - Failed AFTER the seed committed (verify, or the host's mount) — the
+    installed payload, deliberately. That root is dead, but its frame is
+    correctly hydrated and any sibling root sharing it keeps running
+    against live, correct state.
+
+  In every case the root's failure is REPORTED, not swallowed: an
+  always-on `:rf.error/root-boot-failed` record per failed root (see
+  `report-root-boot-failed!`), plus the throwable itself in the outcome.
+
+  This is isolation, not recovery. There is no retry, no supervision, no
+  fallback render, and no attempt to make a failed root work — a failed
+  root stays failed. The single guarantee is that it stays failed
+  ALONE.
+
+  Example (Reagent, three roots on one server-rendered page):
+
+      (let [outcomes (ssr/hydrate-page!
+                       (for [[rid container] page-roots]
+                         {:frame     :app/main
+                          :root-id   rid
+                          :container container
+                          :mount-fn  #(rdc/render (rdc/create-root container)
+                                        [rf/frame-provider {:frame :app/main}
+                                         [(rf/view :app/root)]])}))]
+        (when-let [failed (seq (filter #(= :failed (:status %)) outcomes))]
+          (js/console.warn \"roots did not boot:\" (pr-str (map :root-id failed)))))"
+  [roots]
+  (mapv boot-one-root! roots))

@@ -111,6 +111,14 @@
   [payload-id]
   (get @installed-payloads payload-id))
 
+(defn claim-record
+  "The ledger's record shape, in ONE place. `payload-install-decision!`
+  writes it and `release-claim!` matches against it — a claim and its
+  release must agree on the shape by construction, not by two literals
+  kept in step by hand."
+  [digest root-id]
+  {:digest digest :installed-by root-id})
+
 (defn release-payload!
   "Release `payload-id`'s install claim. Called from the SSR per-frame
   teardown (`re-frame.ssr.request/on-frame-destroyed!`) so a destroyed
@@ -120,6 +128,39 @@
   [payload-id]
   (swap! installed-payloads dissoc payload-id)
   nil)
+
+(defn release-claim!
+  "Release `payload-id` ONLY IF the ledger still holds exactly `record`
+  — the claim-side counterpart of the atomic claim in
+  `payload-install-decision!`, and the mechanism that keeps a FAILED
+  root from poisoning a payload id ([Spec 011 §Failed-root isolation]).
+
+  A root that claims an id and then fails BEFORE its seed lands must put
+  the id back. Leaving the claim would be the worst of both worlds: the
+  frame was never seeded, but the next root to reference that payload
+  reads `:already-installed` — a legitimate verdict — and skips its own
+  install. The page would then run a frame that nobody ever hydrated,
+  with no error anywhere. Releasing restores the pre-claim ledger, so the
+  next root gets a true `:install`.
+
+  **Why the record guard.** Release is never an unconditional `dissoc`:
+  it evicts only the claim this root actually wrote. A `dissoc` would let
+  a late release from a failed root evict a SUCCESSOR that legitimately
+  re-claimed the id in the meantime — the same identity-guarded-release
+  rule [004C §7] states for root claims. `compare-and-set!` on the whole
+  ledger makes the check and the eviction one step, so the guard cannot
+  be defeated by a claim landing between them.
+
+  Returns `true` when this call released the claim, `false` when it did
+  not hold it (already released, or replaced by another claim).
+  Idempotent."
+  [payload-id record]
+  (loop []
+    (let [ledger @installed-payloads]
+      (if (= record (get ledger payload-id))
+        (or (compare-and-set! installed-payloads ledger (dissoc ledger payload-id))
+            (recur))
+        false))))
 
 (defn reset-installed-payloads!
   "Drop every install claim. The test-fixture / full-runtime-reset seam;
@@ -167,7 +208,7 @@
   The conflict throw happens with the ledger UNCHANGED — a conflicting
   root never overwrites, never merges, and never partially claims."
   [where payload-id digest root-id]
-  (let [record     {:digest digest :installed-by root-id}
+  (let [record     (claim-record digest root-id)
         [old _new] (swap-vals! installed-payloads
                                (fn [ledger]
                                  (if (contains? ledger payload-id)
@@ -244,11 +285,18 @@
 (defn preflight!
   "Run hydration preflight for one root and -> the verdict map
 
-      {:manifest … :root-id … :payload-id … :digest … :decision …}
+      {:manifest … :root-id … :payload-id … :digest … :decision … :claim …}
 
   where `:decision` is `:install` or `:already-installed` ([004C §10]'s
   \"manifest discovery/validation -> payload install\"; the caller runs
   the remaining \"-> hydrate\" step, and MUST run it only on `:install`).
+
+  `:claim` is the ledger record this preflight WROTE, present only on the
+  `:install` verdict. The caller hands it back to `release-claim!` if its
+  seed does not land, so a failed root returns the payload id rather than
+  poisoning it ([Spec 011 §Failed-root isolation]). It is returned rather
+  than reconstructed because the claim a root releases must be the exact
+  claim it made.
 
   Opts:
 
@@ -267,11 +315,13 @@
   different payload already holds `:payload-id`. Both throw BEFORE the
   caller hydrates, which is the whole point of a preflight."
   [where {:keys [payload payload-id root-id] :as opts}]
-  (let [m       (resolve-manifest! where opts)
-        rid     (or root-id (:root-id m))
-        digest  (payload-content-digest payload)]
-    {:manifest   m
-     :root-id    rid
-     :payload-id payload-id
-     :digest     digest
-     :decision   (payload-install-decision! where payload-id digest rid)}))
+  (let [m        (resolve-manifest! where opts)
+        rid      (or root-id (:root-id m))
+        digest   (payload-content-digest payload)
+        decision (payload-install-decision! where payload-id digest rid)]
+    (cond-> {:manifest   m
+             :root-id    rid
+             :payload-id payload-id
+             :digest     digest
+             :decision   decision}
+      (= :install decision) (assoc :claim (claim-record digest rid)))))
