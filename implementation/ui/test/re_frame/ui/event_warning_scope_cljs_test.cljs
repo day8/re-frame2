@@ -122,7 +122,20 @@
              (select-keys (:tags unreg)
                           [:event-id :view-id :site-id :source-coord
                            :occurrence-path]))
-          "the committed-result envelope carries the debug-site tags"))
+          "the committed-result envelope carries the debug-site tags")
+      ;; rf2-jxpf3 — placement, not just presence. The emit site supplies
+      ;; `:recovery` INSIDE the tags map, but `build-event` strips it and
+      ;; hoists it to the envelope top level (asserted above); and a
+      ;; `:warning` envelope synthesizes NO `{:category operation}` (that
+      ;; merge is the `:error` branch only). Both must be absent HERE, or
+      ;; the Spec 009 catalogue row's `:tags` column would be naming keys
+      ;; no consumer can read. Per [009 §Error event catalogue] and
+      ;; [Spec-Schemas §`:rf/error-event`].
+      (is (not (contains? (:tags unreg) :recovery))
+          ":recovery is hoisted to the top level, NOT left under :tags")
+      (is (not (contains? (:tags unreg) :category))
+          "a :warning envelope synthesizes no [:tags :category] — the
+           category rides the top-level :operation"))
     (testing "the placeholder-in-dynamic-vector envelope"
       (is (= {:operation :rf.warning/placeholder-in-dynamic-vector
               :op-type :warning
@@ -136,7 +149,12 @@
               :occurrence-path [:events 0]}
              (select-keys (:tags placeholder)
                           [:event :placeholder :view-id :site-id :source-coord
-                           :occurrence-path]))))
+                           :occurrence-path])))
+      ;; rf2-jxpf3 — same placement contract on the sibling warning.
+      (is (not (contains? (:tags placeholder) :recovery))
+          ":recovery is hoisted to the top level, NOT left under :tags")
+      (is (not (contains? (:tags placeholder) :category))
+          "a :warning envelope synthesizes no [:tags :category]"))
     (testing "the unchanged vector still dispatches as ordinary data"
       (is (= [[::unregistered-x :rf.ui/value]] @dispatched)
           "the placeholder keyword rides through as data — NOT DOM-projected"))))
