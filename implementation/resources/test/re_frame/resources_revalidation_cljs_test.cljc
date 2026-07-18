@@ -470,7 +470,7 @@
                  (finally
                    (if prior
                      (late-bind/set-fn! :router/dispatch! prior)
-                     (late-bind/clear-fn! :router/dispatch!)))))
+                     (late-bind/set-fn! :router/dispatch! nil)))))
              (finally
                (uninstall-dom-stub!))))))))
 
