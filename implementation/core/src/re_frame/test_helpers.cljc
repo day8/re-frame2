@@ -95,11 +95,19 @@
   outer attrs map. The [[testid]] helper standardises the attrs
   fragment so the convention reads at every call site:
 
-      [:button (testid \"counter-inc\" {:on-click #(dispatch [:counter/inc])})
-       \"+\"]
+      (rf/reg-view counter-inc-button []
+        [:button (testid \"counter-inc\" {:on-click #(dispatch [:counter/inc])})
+         \"+\"])
 
-  Equivalent to writing `{:data-testid \"counter-inc\" :on-click ...}`
-  by hand; pick whichever reads better in your view.
+  The `rf/reg-view` wrapper is what binds `dispatch` — it injects a
+  frame-bound `dispatch` / `subscribe` lexically, and that binding is
+  what survives into the deferred `:on-click`. A bare `rf/dispatch`
+  there would run after the render scope unwound and raise
+  `:rf.error/no-frame-context` (EP-0002 — no `:rf/default` floor).
+
+  The attrs fragment itself is equivalent to writing
+  `{:data-testid \"counter-inc\" :on-click ...}` by hand; pick
+  whichever reads better in your view.
 
   ## Selector convention — `data-testid` vs `data-test` vs custom
 
@@ -465,8 +473,15 @@
 
   Use at the view call site:
 
-      [:button (testid \"counter-inc\" {:on-click #(dispatch [:counter/inc])})
-       \"+\"]
+      (rf/reg-view counter-inc-button []
+        [:button (testid \"counter-inc\" {:on-click #(dispatch [:counter/inc])})
+         \"+\"])
+
+  `dispatch` is the local `rf/reg-view` injects — that lexical
+  binding is what the deferred `:on-click` closes over. A bare
+  `rf/dispatch` there fires after the render scope has unwound and
+  raises `:rf.error/no-frame-context` (EP-0002 — no `:rf/default`
+  floor).
 
   Reads as one assertion-friendly fragment instead of inline
   `{:data-testid \"...\" :on-click ...}`. Pick whichever style is

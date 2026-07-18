@@ -204,10 +204,13 @@ This namespace pairs with `render-to-string` in [re-frame.ssr.md](re-frame.ssr.m
 - **Description**: Build an attrs map carrying `:data-testid id`. The 2-arity merges `extra` into that map, and `:data-testid` always wins on collision. Use it at the view call site. Pair it with `find-by-testid` at the assertion site.
 - **Example**:
   ```clojure
-  [:button (th/testid "counter-inc" {:on-click #(dispatch [:counter/inc])})
-   "+"]
-  ;; => [:button {:data-testid "counter-inc" :on-click ...} "+"]
+  (rf/reg-view counter-inc-button []
+    [:button (th/testid "counter-inc" {:on-click #(dispatch [:counter/inc])})
+     "+"])
+  ;; the button node => [:button {:data-testid "counter-inc" :on-click ...} "+"]
   ```
+
+  `dispatch` here is the local `rf/reg-view` injects, and that lexical binding is what the deferred `:on-click` closes over. A bare `rf/dispatch` in the callback fires after the render scope has unwound and raises `:rf.error/no-frame-context` (EP-0002 — there is no `:rf/default` floor).
 
 ## Single-frame view test — composition recipe
 

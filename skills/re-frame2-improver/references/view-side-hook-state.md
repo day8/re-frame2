@@ -63,17 +63,19 @@ Spec source: [`spec/Principles.md`](../../../spec/Principles.md) (single source 
 (rf/reg-sub :dashboard/current-tab
   (fn [db _] (get-in db [:dashboard :current-tab] :overview)))
 
-(defn tab-buttons []
+(rf/reg-view tab-buttons []
   [:div
    (for [t [:overview :stats :settings]]
-     [:button {:on-click #(rf/dispatch [:dashboard/select-tab t])} (name t)])])
+     [:button {:on-click #(dispatch [:dashboard/select-tab t])} (name t)])])
 
-(defn tab-content []
-  [:div (case @(rf/subscribe [:dashboard/current-tab])
+(rf/reg-view tab-content []
+  [:div (case @(subscribe [:dashboard/current-tab])
           :overview [overview-pane]
           :stats    [stats-pane]
           :settings [settings-pane])])
 ```
+
+Both views register with `rf/reg-view`, which injects frame-bound `dispatch` / `subscribe` locals. That matters for the deferred `:on-click`: it fires after the render scope has unwound, so it must close over the injected `dispatch`. A plain `(defn …)` view with a bare `#(rf/dispatch …)` raises `:rf.error/no-frame-context` on click (EP-0002 — no `:rf/default` floor).
 
 ## Edge cases — when view-side state is fine
 
