@@ -421,7 +421,7 @@ The view layer is **substrate-agnostic**. The shared dataflow — frames, subscr
   [rf/frame-provider {:frame :todo} & children]   ;; SCOPE: scope an existing frame
   ```
 - **Description**: Scopes a React subtree to a frame that **already exists**; creates / refreshes / destroys nothing. **Roots ensure; providers scope** — for create-if-absent, use [`frame-root`](#frame-root). See the [frame-provider glossary entry](../core/glossary.md#frame-provider).
-  - **Fails loud** (`:rf.error/frame-provider-frame-absent`) when the named frame is absent. `:frame` must be a keyword (a `nil` `:frame` → `:rf.error/no-frame-context`; a non-keyword → `:rf.error/bad-frame-provider-arg`). The scope-into-React counterpart to `with-frame`.
+  - **Fails loud** (`:rf.error/frame-provider-frame-absent`) when the named frame is absent. `:frame` accepts a frame id keyword **or** a live frame value (a `nil` `:frame` → `:rf.error/no-frame-context`; a target that is neither a keyword nor a live frame value → `:rf.error/bad-frame-provider-arg`). The scope-into-React counterpart to `with-frame`.
   - Given an `:id` (the ENSURE key), **fails loud** naming `frame-root` (`:rf.error/frame-provider-given-id`).
 - **Example**:
   ```clojure
@@ -690,7 +690,7 @@ There is no dedicated "reset" function; `reset-frame!` was retired (rf2-lxwpob).
 - **Kind**: function
 - **Signature**:
   ```clojure
-  (destroy-frame! frame-id)
+  (destroy-frame! frame-target) ; frame id keyword, or the live frame value
   ```
 - **Description**: The normative teardown boundary. It claims the exact installed incarnation and atomically cuts ordinary queued work. An authored callback already on the stack may return and entered authored interceptor `:after` callbacks may unwind, but its returned context/output is inert: no later framework-owned tail or render runs. A configured `:on-destroy` seed and its same-frame descendants run under the sole private exact-token cleanup exception before lifecycle-dead is published. An external ordinary dispatch in the claim-to-dead window may enter the real queue, but the next exact-incarnation drain check drops it before invocation; dead/absent dispatch and subscribe recover while emitting `:rf.error/frame-destroyed`. Teardown then releases every frame-scoped feature artefact (flows, machines, schemas, SSR, epoch), clears the sub-cache, and removes the frame. A frame **value** target carries **exact-incarnation** authority — a stale value no-ops against a same-id successor — while a frame-**id** keyword is **address-directed** and tears down whatever incarnation is currently live (rf2-moftbs).
 - **Example**:
