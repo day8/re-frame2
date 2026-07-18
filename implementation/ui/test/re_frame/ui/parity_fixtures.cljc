@@ -29,10 +29,22 @@
   prefixes, keyword values); :class (string/vector/flag-map orders,
   sugar-first merge).
 
-  OUT OF SCOPE at S1 (documented, not silently skipped): foreign
-  components and `ui/raw` (JVM host-op — no JVM execution by contract),
-  `ui/client-only` + `ui/presence` (land S2/S3), `sub`/`lease` reads
-  (S2). Their compile grammar is pinned by the S1b suites."
+  S4 additions (W14; rf2-yho9j — the view-shape sweep): `ui/presence`
+  (the retention boundary's STRUCTURAL contribution — it renders no node
+  of its own and every incoming keyed child renders exactly once), the
+  RULED custom-element adversarial row (a DECLARED name that is also a
+  standard HTML attribute spelling stays a PROPERTY on both emitters),
+  and the `ui/html` no-sanitisation row (a hostile `javascript:` scheme
+  crosses verbatim — `re-frame.ui` gates nothing).
+
+  OUT OF SCOPE for the corpus (documented, not silently skipped):
+  foreign components and `ui/raw` (JVM host-op — no JVM execution by
+  contract, so there is no JVM side to compare; their boundary corpus is
+  raw_foreign_boundary_{jvm,dom_cljs}_test); `ui/client-only` (the SSR
+  phase flip lands S5); presence's THREE-PHASE machine and any
+  `(ui/presence-phase)` read (host-bearing — retention timers and the
+  first-render phase a server render reports are mounted/S5 questions,
+  proven in presence_dom_cljs_test and presence_jvm_test)."
   (:require [re-frame.ui :as ui :refer [defview]]))
 
 ;; ---------------------------------------------------------------------------
@@ -40,6 +52,12 @@
 ;; ---------------------------------------------------------------------------
 
 (ui/custom-element :parity-widget {:properties #{:accent-color}})
+
+;; S4-B adversarial declaration (rf2-yho9j): `:tab-index` is a standard HTML
+;; attribute spelling, but DECLARING it makes it a PROPERTY — the declaration is
+;; the sole classifier, never an attribute-name heuristic. Both emitters must
+;; therefore keep it OUT of markup.
+(ui/custom-element :parity-attrish {:properties #{:tab-index}})
 
 ;; ---------------------------------------------------------------------------
 ;; Views
@@ -410,6 +428,56 @@
    (when hint [:small.pp-hint hint])])
 
 ;; ---------------------------------------------------------------------------
+;; S4 corpus additions (W14; rf2-yho9j) — the S4 surfaces that HAVE two
+;; emitter sides to compare. Presence's retention machine, `ui/raw` and the
+;; foreign head do not (see the ns docstring); what IS dual-emitter is the
+;; STRUCTURAL contribution each S4 form makes to the rendered output.
+;; ---------------------------------------------------------------------------
+
+(defview toast-row
+  "A presence child as a compiled VIEW — the shape S4-C's a11y roster blesses
+  (a keyed child view can read its own phase and stamp its own exit a11y). It
+  deliberately does NOT read (ui/presence-phase): the phase a FIRST render
+  reports is host-specific (the JVM structural subset says :present; a client
+  render enters through :mounting), so it is not a corpus claim."
+  [{:keys [toast]}]
+  [:li.toast [:span.msg (:msg toast)]])
+
+(defview presence-toasts
+  "ui/presence over keyed compiled child views. The corpus claim is that the
+  boundary contributes NO NODE OF ITS OWN and passes every incoming keyed child
+  through exactly once: on the JVM it is a fragment carrying the `:rf.ui/presence`
+  diagnostic marker, which normalization N strips; on the client it is a
+  component whose per-child phase Provider is invisible in markup. Both sides
+  must therefore land on the same children in the same order."
+  [{:keys [toasts]}]
+  (ui/presence {:timeout-ms 300}
+    (for [t toasts]
+      [toast-row {:key (:id t) :toast t}])))
+
+(defview presence-inline
+  "Presence nested MID-TREE over inline keyed literal markup (the second legal
+  child shape). Non-focusable content, so the S4-C `a11y-presence-exit-interactive`
+  check stays silent — the corpus is not the place to exercise a diagnostic."
+  [{:keys [items]}]
+  [:section.presence-host
+   [:h4 "notes"]
+   [:ul.notes
+    (ui/presence {:timeout-ms 120}
+      (for [i items]
+        [:li.note {:key (:id i) :data-note (:id i)} (:label i)]))]
+   [:p.after "after"]])
+
+(defview custom-element-attrish
+  "S4-B adversarial classification: `:tab-index` is DECLARED on
+  `:parity-attrish`, so it is a PROPERTY (lowered to the camelCase JS property
+  name) and neither emitter writes it into markup; the undeclared `:role` and
+  `:data-k` stay ordinary attributes on both hosts."
+  [{:keys [idx]}]
+  [:div.attrish
+   [:parity-attrish {:tab-index idx :role "note" :data-k "keep"}]])
+
+;; ---------------------------------------------------------------------------
 ;; Cases — pure data; the SINGLE corpus both hosts consume
 ;; ---------------------------------------------------------------------------
 
@@ -443,6 +511,10 @@
    :pp-list-cell          pp-list-cell
    :pp-safe-form-control  pp-safe-form-control
    :pp-schema-described   pp-schema-described
+   ;; S4 (W14, rf2-yho9j)
+   :presence-toasts       presence-toasts
+   :presence-inline       presence-inline
+   :ce-attrish            custom-element-attrish
    :page            page})
 
 (def cases
@@ -495,4 +567,12 @@
                                                                           :data-testid "pp"
                                                                           :class "extra"}}}
    {:id :pp-schema-described  :view :pp-schema-described :props {:label "Name" :hint "your full name"}}
+   ;; --- S4 (W14; rf2-yho9j) — the dual-emitter S4 rows -------------------
+   {:id :presence-two         :view :presence-toasts :props {:toasts [{:id 1 :msg "a & <b>"}
+                                                                      {:id 2 :msg "second"}]}}
+   {:id :presence-empty       :view :presence-toasts :props {:toasts []}}
+   {:id :presence-inline      :view :presence-inline :props {:items [{:id "n1" :label "one"}
+                                                                     {:id "n2" :label "two & <three>"}]}}
+   {:id :ce-declared-attr-name :view :ce-attrish     :props {:idx "3"}}
+   {:id :trusted-hostile      :view :trusted         :props {:markup "<a href=\"javascript:alert(1)\" target=\"_blank\">click</a><b>bold & raw</b>"}}
    {:id :page                 :view :page            :props {:items items-3 :on? true}}])
