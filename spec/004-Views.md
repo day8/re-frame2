@@ -268,8 +268,9 @@ set (`re-frame.ui`'s S1 public surface, per [API.md](API.md) §Compiled views), 
 `ui/custom-element` is exported and callable from S1 — declaring a name never errors as
 an unknown symbol — but its property-vs-attribute **classification behaviour and
 stage-conformance assertion ship with the S4 epic** (the API.md table stages the row
-S4). `ui/custom-element` is added to the 12 §2 freeze table as the delta protocol's
-first row-level delta.
+S4). `ui/custom-element` is added to the blessed public-surface freeze table as the
+delta protocol's first row-level delta — see
+[API §Freeze provenance and row-level delta protocol](API.md#freeze-provenance-and-row-level-delta-protocol).
 
 ### Compile-tier warnings
 
@@ -1302,7 +1303,9 @@ There is exactly **one** component form. The following do not exist in this cont
 > prose.
 
 **[TRANSITION] Until the adapter deletion wave** (proof/default/soak gates per the
-08 §5 Adapters decision: RealWorld-resources green · Story + Xray green ·
+Adapters decision recorded in
+[EP-0030 §Resolved Decisions](../docs/EP/EP-0030-the-compiled-view-substrate-program.md#resolved-decisions):
+RealWorld-resources green · Story + Xray green ·
 SSR/hydration + HMR matrices green · production-specialization + bundle-absence gates
 green · templates/docs/examples defaulted · zero repo-owned non-historical
 UIx/Helix/slim imports · two consecutive green nightlies + one week with no fallback),
@@ -1346,15 +1349,18 @@ that definition. It merges **as part of the spec text** and is the device that k
 intermediate checked-in spec honest: rows tagged above the current implementation stage
 are **declared, not yet asserted** — their contract text is final, their enforcement
 rides their stage's conformance slice, which lands atomically with that stage's spec
-edits (the 12 §2b spec-landing rule).
+edits (the spec-landing rule stated in
+[API §Authoritative surface matrix](API.md#authoritative-surface-matrix-2b--name--stage--owner--proof--spec-home)).
 
 **Definition.** Every normative section of this Spec is tagged with the stage (S1–S7)
 whose implementation slice first *asserts* it with conformance fixtures.
 **"Stage-N-conforming" = every row tagged ≤ N passes its named assertions.** A row with
 a "completes" note is asserted at its tagged stage to the tagged scope only; the
-completing stage extends the assertion. Stage assignments align with the authoritative
-surface matrix (12 §2b) and the stage contents (08 §2); a conflict is resolved in that
-order and is a defect in this table.
+completing stage extends the assertion. Stage assignments align with the
+[authoritative surface matrix](API.md#authoritative-surface-matrix-2b--name--stage--owner--proof--spec-home)
+and with the stage contents in
+[EP-0030 §Stages S1–S7](../docs/EP/EP-0030-the-compiled-view-substrate-program.md#stages-s1s7);
+a conflict is resolved in that order and is a defect in this table.
 
 | Normative section (this Spec) | Stage | What that stage's fixtures assert |
 |---|---|---|
@@ -1391,7 +1397,7 @@ order and is a defect in this table.
 | §View identity and the instrumentation surface | **S3** → budget/absence gates complete **S6** | manifests, instance records, cause vectors, Xray consumption (compile-time site anchors exist from S1; the evidence schema asserts S3); production erasure G-7/G-11 |
 | §The JVM structural subset — structure/props/branches/lists/event intent/`ui/html` + `:rf.error/jvm-host-op` | **S1** | Tier-1 rendering against the tree contract |
 | §The JVM structural subset — subs via the pure snapshot path | **S2** | the Q32/Q22 answer: `sub` *grammar* compiles at S1, but no Stage-1 Tier-1 fixture exercises a sub read — a Tier-1 render through a sub site (frame or `:sub-overrides`) is an S2 assertion |
-| §Hot reload — the view-side contract | **S2** | the full HMR matrix (08 §2 places it with reactivity, deliberately early) |
+| §Hot reload — the view-side contract | **S2** | the full HMR matrix ([EP-0030 §Stages S1–S7](../docs/EP/EP-0030-the-compiled-view-substrate-program.md#stages-s1s7) places it with reactivity, deliberately early) |
 | §Removed forms — the absences | **S1** | absences are compile errors + export-surface checks from the first slice |
 | §Removed forms — [TRANSITION] freeze + the 004A appendix | **S7** | deletion-wave soak gates; `spec/004A-Reagent-Compat.md` lands |
 

@@ -54,12 +54,12 @@ read surface. Text is therefore not a *queryable node*: selectors never match it
   sample stored string tags; keywords are pinned here so the selector grammar's tag-kw
   match (`:button` matches `:tag :button`) and hiccup authoring stay one vocabulary; the
   serialiser stringifies. Foreign components never appear (no JVM execution — they sit
-  under `client-only`, 06 §3).
+  under `client-only` — see [004 §Interop and boundaries](004-Views.md#interop-and-boundaries)).
 - **`:ns`** — `:svg` or `:mathml`, per the namespace context rules in the conversion
   table. **MUST be absent for HTML** — the canonical form has exactly one
   representation per node (fingerprint stability), so `:ns :html` is never written.
 - **`:attrs`** — the **author-space** attribute map. Keys are the prop keywords per the
-  pinned DOM spelling (02 §2: hyphenated lowercase — `:tab-index`, `:aria-hidden`,
+  pinned DOM spelling ([004 §Template grammar](004-Views.md#template-grammar): hyphenated lowercase — `:tab-index`, `:aria-hidden`,
   `:data-priority`, `:view-box`), with `.class#id` sugar already merged into
   `:class`/`:id`. Values are normalized to **semantic form** (§Attr value normalization
   below). Final DOM *name* conversion (`tabindex`, `for`, `viewBox`, `className`) is the
@@ -150,15 +150,16 @@ and only one is a droppable diagnostic.
   is stripped from the semantic output, but a tree without it is *malformed*, not "a
   broken diagnostic".
 - **Diagnostic — genuinely optional.** Evidence-only keys a consumer may find absent,
-  broken, or stripped **without any semantic effect** (the 06 §2 posture: a broken or
-  absent diagnostic never changes app semantics or a fingerprint). `:rf.ui/presence` and
+  broken, or stripped **without any semantic effect** — a broken or absent diagnostic
+  never changes app semantics or a fingerprint; that neutrality is this section's own
+  rule, and it is what makes the diagnostic tier safe to strip. `:rf.ui/presence` and
   `:rf.ui/boundary` are the v1 members.
 
 | Key | Role | Where | Meaning |
 |---|---|---|---|
 | `:rf.ui/tree-version` | required gate | root node only | the schema-version integer (**1** for this document); validated first, then removed from `N`'s output |
 | `:rf.ui/property-props` | **semantic** | custom-element element nodes | the set of `:attrs` keys classified as **properties** per the RULED `ui/custom-element` declaration; **consumed** at conversion (the serialiser and `N` omit those props from markup — step 5) and only then removed from the output. Required whenever a property-only classification exists; **removing it changes semantics** — the props would leak back into the attribute space |
-| `:rf.ui/presence` | diagnostic | the fragment node a presence boundary renders as | `{:phase :present :timeout-ms n}` — the "presence metadata exposed structurally" of 06 §1; phase is always `:present` on the JVM |
+| `:rf.ui/presence` | diagnostic | the fragment node a presence boundary renders as | `{:phase :present :timeout-ms n}` — the presence metadata exposed structurally per [004 §The JVM structural subset](004-Views.md#the-jvm-structural-subset); phase is always `:present` on the JVM |
 | `:rf.ui/boundary` | diagnostic | the fragment node wrapping a deterministic fallback | `:client-only` (the structural "fallbacks" evidence; `:portal` reserved for the wave-2 row) |
 
 ### Child normalization (canonical form)
@@ -219,7 +220,8 @@ Intent assertion, respelled to this contract:
 ## Semantic normalization `N` — the parity/fingerprint input
 
 `N(tree)` produces the **semantic-node tree** — the exact input to normalized
-structural equivalence (06 §1) and to the render fingerprint. Pinned, in order:
+structural equivalence ([004 §The portability law and the template AST](004-Views.md#the-portability-law-and-the-template-ast))
+and to the render fingerprint. Pinned, in order:
 
 1. **Remove** every `:rf.ui/*` reserved key from the output (version, presence,
    boundary, and the property-props *marker*) — no reserved key reaches a fingerprint.
@@ -242,7 +244,7 @@ structural equivalence (06 §1) and to the render fingerprint. Pinned, in order:
    and escaping-free semantic space — escaping is a serialisation concern the
    comparator normalizes away ).
 7. **Carry trusted-HTML nodes as opaque raw-markup leaves**, compared verbatim (both
-   emitters treat `ui/html` identically; 02 §6).
+   emitters treat `ui/html` identically — [004 §Interop and boundaries](004-Views.md#interop-and-boundaries)).
 
 The semantic node is `{:ns … :tag … :attrs {final-name → serialised-value} :children
 […]}` with attribute maps order-insensitive and child vectors order-significant.
@@ -301,7 +303,7 @@ unexercised — Stage 1 confirms.
 | `:value` on `:textarea` | serialises as the element's **text child**, not an attribute **[S1-CONFIRM]** |
 | `:value` on `:select` | serialises as `selected` on the matching `:option`(s) **[S1-CONFIRM]** |
 | `dangerouslySetInnerHTML` | does not exist in this grammar — `ui/html` is the one trusted-markup spelling, and it is a node variant, not a prop |
-| `:ref` | absent from the JVM tree entirely (06 §1 subset: refs absent) |
+| `:ref` | absent from the JVM tree entirely ([004 §The JVM structural subset](004-Views.md#the-jvm-structural-subset): refs absent) |
 
 ### `:style`
 
@@ -359,9 +361,9 @@ authored `:on-*` keys; the DOM event type is the kebab tail verbatim (`:on-my-ev
 compatibility tier [TRANSITION]** — there is no adapter shim between the two tree
 shapes.
 
-- **Owner:** the `day8/re-frame2-ssr` artifact, `re-frame.ssr` namespace (packaging per
-  05 §1: the existing SSR artifact consumes the JVM emitter — no second server
-  product).
+- **Owner:** the `day8/re-frame2-ssr` artifact, `re-frame.ssr` namespace — the existing
+  SSR artefact consumes the JVM emitter; there is no second server product. See
+  [011 §Resolved decisions](011-SSR.md#resolved-decisions) and the API artefact table.
 - **Signature (recommended names; final naming rides the diff-time facade rule):**
   - `(re-frame.ssr/emit-ui-tree tree opts) → HTML string` — consumes a version-1
     structural tree; applies the serialisation half of the conversion table (final
@@ -438,9 +440,10 @@ shapes.
 - [004D-UI-Test-Selectors.md](004D-UI-Test-Selectors.md) — reconciled in this
   fold-in (direct-keyword-lookup promise removed; OPEN-1 resolved via the
   view-boundary node).
-- guide/09-testing.md — one-line respell of the intent assertion to
+- `guide/08-testing.md` — one-line respell of the intent assertion to
   `(-> tree (ui.test/find :button) ui.test/attrs :on-click)` (owned by the guide
   pass, not this fold-in).
-- The rewrite's §The JVM structural subset and 06 §1/07 §2 gain a pointer to this
-  contract at promotion; the 009 catalogue gains rows for
+- [004 §The JVM structural subset](004-Views.md#the-jvm-structural-subset) and
+  [008 §The `ui.test` contract](008-Testing.md#the-uitest-contract--headless-testing-for-compiled-views)
+  point at this contract; the 009 catalogue gains rows for
   `:rf.error/ui-tree-malformed` and `:rf.error/ssr-ui-tree-version-unsupported`.

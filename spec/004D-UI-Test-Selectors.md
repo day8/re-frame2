@@ -13,11 +13,11 @@
 
 `(ui.test/find tree selector)` and `(ui.test/find-all tree selector)` are **structural
 queries over Tier-1 trees** — the value `ui.test/render` returns on the JVM (or node),
-per 07 §2. `tree` is any structural **map node** per the tree contract (element,
+per [008 §The `ui.test` contract](008-Testing.md#the-uitest-contract--headless-testing-for-compiled-views). `tree` is any structural **map node** per the tree contract (element,
 fragment, view-boundary, or trusted-HTML; text content is a string, not a node —
 results compose; see §What `find` returns).
 Passing a Tier-3 mounted root to `find`/`find-all` is a typed error pointing at
-`ui.test/query` (same typed-error style as the JVM-subset errors, 06 §1). The Tier-3
+`ui.test/query` (same typed-error style as the JVM-subset errors — [004 §The JVM structural subset](004-Views.md#the-jvm-structural-subset)). The Tier-3
 contract is stated by contrast in the final section.
 
 ## The grammar (closed)
@@ -31,7 +31,7 @@ selector := tag-kw        ; unqualified keyword — element tag
 
 No other form is a selector. Deliberately absent: sibling/nth/positional combinators,
 wildcard, text-content selectors, attribute-presence-without-value — no guide example or
-07 §3 fixture needs them; `pred-fn` covers the residue. The path/vector form
+Tier-3 contract fixture needs them; `pred-fn` covers the residue. The path/vector form
 `[selector+]` is a **demand-bar-deferred item — not shipped at S1** (Stage 1 answered
 the demand bar; see [OPEN-2]); a vector selector raises `:rf.error/ui-test-bad-selector`
 naming the composed-`find` idiom `(find (find tree :form) :button)`.
@@ -44,8 +44,9 @@ naming the composed-`find` idiom `(find (find tree :form) :button)`.
   internal-view expansion); the defview Var is accepted and resolves to its registered
   id. Because the boundary node exists even when no single root element does,
   **fragment-rooted and nil-rooted views are matchable** — the match is the boundary
-  marker, not a root element. *Consumer:* 07 §2's contract row ("tag, view id, attr
-  predicates"); Story scenes mount by view id (guide 09 §Story). The
+  marker, not a root element. *Consumer:* the contract row in [008 §The `ui.test` contract](008-Testing.md#the-uitest-contract--headless-testing-for-compiled-views)
+  ("tag, view id, attr predicates"); Story scenes mount by view id
+  ([007 Stories](007-Stories.md)). The
   unqualified/qualified split is what disambiguates tags from view ids; a hypothetical
   unqualified view id is not selectable by keyword — use the Var.
 - **`attr-map`** — matches a node iff for **every** entry `k → v` in the map, `k` is
@@ -57,7 +58,7 @@ naming the composed-`find` idiom `(find (find tree :form) :button)`.
   key absent from the projection never matches; emitter-produced canonical trees carry
   no present-nil attrs (nil-valued entries are dropped at tree build), so the
   present-nil arm of `rf=` rule 5 governs only hand-built maps. `{}` matches every node
-  (vacuous truth; harmless, not useful). *Consumers:* 07 §2's "attr predicates";
+  (vacuous truth; harmless, not useful). *Consumers:* the "attr predicates" row of [008 §The `ui.test` contract](008-Testing.md#the-uitest-contract--headless-testing-for-compiled-views);
   `{:data-testid "x"}` for stable test ids; event-vector matching serves guide 09's
   intent-assertion style ("what does this button do" as an equality check); prop
   matching on view-boundary nodes rides the same rule at zero extra grammar.
@@ -127,7 +128,8 @@ the tree contract, which this grammar consumes.
   digest (the miss diagnostics `nil` cannot give). It would **not** police uniqueness —
   first match wins even when several exist; a getBy-style uniqueness-asserting variant is
   unearned (no consumer). Recommended error id: `:rf.error/ui-test-find-miss` — its Spec
-  009 catalogue row and 07 §2 contract row land **with the feature** when it ships
+  009 catalogue row and the [008 §The `ui.test` contract](008-Testing.md#the-uitest-contract--headless-testing-for-compiled-views)
+  contract row land **with the feature** when it ships
   (rows-land-with-features), not at S1 promotion. S1 promoted without `find!`, so
   `:rf.error/ui-test-find-miss` is correctly **un-catalogued** today. *(See [OPEN-3].)*
 
@@ -168,10 +170,10 @@ only when a fixture does. `attrs`/`text` on a DOM element, or a CSS string hande
   was pure sugar over node-composed `find`, so dropping it cost nothing; re-open only when
   a fixture demands it.
 - **[OPEN-3] `find!` inclusion — deferred at the S1 demand-bar audit.** Recommended (miss
-  diagnostics; every Tier-1 test is the 08 §3 consumer for `ui.test/*`), but it is the one
-  name here beyond 07 §2's table and no Stage-1 fixture forced it — S1 shipped **without**
+  diagnostics; every Tier-1 test is the demand-bar consumer for `ui.test/*`, per [API §Public surface + demand-bar audit](API.md#public-surface--demand-bar-audit-the-blessed-2-table)), but it is the one
+  name here beyond the [008 §The `ui.test` contract](008-Testing.md#the-uitest-contract--headless-testing-for-compiled-views) table and no Stage-1 fixture forced it — S1 shipped **without**
   `find!` (`find` nil-punning + composed asserts covered the need). It remains a
-  recommended future addition: when it ships, add the 07 §2 row and the
+  recommended future addition: when it ships, add the [008 §The `ui.test` contract](008-Testing.md#the-uitest-contract--headless-testing-for-compiled-views) row and the
   `:rf.error/ui-test-find-miss` 009 catalogue row **together with the feature**. *(The
   "bounded tree digest" it carries can now be defined as a truncated canonical-EDN print
   per the tree contract's canonical form.)*
