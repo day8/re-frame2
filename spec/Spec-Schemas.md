@@ -870,13 +870,17 @@ A refinement of `:rf/trace-event` for the unified error/warning envelope. Every 
                                [:line   {:optional true} :int]
                                [:column {:optional true} :int]]]
    [:tags      [:map
-                [:category    :keyword]         ;; same value as :operation, for consumer convenience
+                [:category    {:optional true} :keyword]  ;; PRESENT IFF :op-type is :error — see below
                 [:failing-id  {:optional true} :any]
                 [:frame       {:optional true} :keyword]
                 [:reason      {:optional true} :string]]]])    ;; remaining keys are category-specific
 ```
 
 The `:op-type` discriminates severity: `:error` halts or recovers a specific operation; `:warning` is an advisory the runtime emitted alongside continuing default behaviour. Consumers branch on `:op-type` for severity routing and on `:operation` for category-specific handling.
+
+**`:tags :category` is present iff `:op-type` is `:error`.** `re-frame.trace/build-event` merges `{:category <operation>}` into `:tags` on the `:error` branch only; a `:warning` envelope gets no such key, and its category rides the top-level `:operation`. The optionality above is that discrimination expressed in one Malli slot rather than a two-arm `:multi` — `:operation` is required on every envelope and always carries the category, so `[:tags :category]` is a convenience duplicate on the error branch, never the discriminator. Consumers that branch on category MUST read `:operation`; reading `[:tags :category]` silently misses every warning. The same asymmetry governs the per-category `:tags` schemas below: a schema for an `:error`-envelope category declares `:category`, one for a `:warning` / `:info` / run-body envelope does not. Per [009 §Error event catalogue](009-Instrumentation.md#error-event-catalogue).
+
+`:recovery` is likewise never a `:tags` key on either branch — `build-event` strips it from the supplied tags map and hoists it to the envelope top level (typed by the shared `Recovery` vocabulary above), so no per-category `:tags` schema declares it. The thrown-error shape is the one place `:recovery` IS a peer data key: `re-frame.error/thrown-ex-info` writes it directly into `ex-data` alongside `:rf.error/id` / `:where` / `:reason` (per [009 §The thrown-error shape](009-Instrumentation.md#the-thrown-error-shape--the-rferrorid-ex-data-contract)) — that is ex-data, not a trace envelope's `:tags`.
 
 The optional `:rf.trace/trigger-handler` slot (top-level, NOT under `:tags`) names the handler whose execution produced the error and carries its registration-site source-coord. Inherited from the universal `TraceEvent` shape — the slot rides on every trace event emitted while a handler is in scope, not just errors (success-path traces like `:rf.fx/handled` and `:rf.machine/transition` carry it too). Present when a handler is in scope at emit time (event handler running, sub recomputing, fx handler dispatching, cofx injecting, view rendering); absent when no handler is in scope (e.g. outermost-dispatch `:rf.error/no-such-handler`, depth-exceeded drain rollback). Source-coord values come from the registrar slot stamped by the kind-specific `reg-*` macro at registration time; programmatic registration paths (the underlying registration fns called without the macro wrapping) carry no coord, in which case the slot is omitted rather than populated with placeholder data. Tools render click-to-jump-to-handler links by reading `[:rf.trace/trigger-handler :source-coord]`. The slot is **not separately elided** — when a trace event is emitted at all, the slot rides along on it when bound — but it rides only on **dev** trace events: the whole trace surface is gated by `re-frame.interop/debug-enabled?`, so default production builds (`:advanced` + `goog.DEBUG=false`) get neither this slot nor the surrounding trace event (per [009 §`:rf.trace/trigger-handler`](009-Instrumentation.md#rftracetrigger-handler--naming-the-in-scope-handler)). Production-surviving source coordinates for error observability come from a **separate** always-on channel — the always-on error-coord registry / error-emit record (per [001 §Source-coordinate capture](001-Registration.md#source-coordinate-capture-cljs-reference)) — not from a retained `:rf.trace/trigger-handler` slot.
 
@@ -904,7 +908,7 @@ The canonical category vocabulary is fixed-and-additive (Spec-ulation): existing
 
 Each error / warning category enumerated in [009 §Error event catalogue](009-Instrumentation.md#error-event-catalogue) has a registered Malli schema describing its `:tags` payload, so consumers can validate without ad-hoc parsing. The schemas below are the canonical CLJS-reference shapes; ports translate them mechanically into the host's schema language (per [§Scope](#scope)).
 
-Common keys (`:category`, `:failing-id`, `:reason`, `:frame`) are inherited from the `:rf/error-event` envelope above; the per-category schemas below describe the *additional* category-specific keys. Open-map convention applies — implementations may add fields additively without breaking consumers (per [§Schema convention](#schema-convention)).
+Common keys (`:category`, `:failing-id`, `:reason`, `:frame`) are inherited from the `:rf/error-event` envelope above; the per-category schemas below describe the *additional* category-specific keys. `:category` is inherited only on the `:error` branch (`build-event` synthesizes it there and nowhere else), so a schema below for a `:warning` / `:info` / run-body category does not declare it — that category rides the envelope's top-level `:operation`. No schema below declares `:recovery`: it is hoisted out of `:tags` to the envelope top level on every branch. Open-map convention applies — implementations may add fields additively without breaking consumers (per [§Schema convention](#schema-convention)).
 
 ```clojure
 ;; --- runtime: handler / sub / fx / interceptor exceptions ---
@@ -1489,7 +1493,6 @@ Common keys (`:category`, `:failing-id`, `:reason`, `:frame`) are inherited from
   ;; rf2-6gzobp payload direction: the EARLIER registration wins the rule-6
   ;; tiebreak at match time, so the NEW route is the shadowed one.
   [:map
-   [:category    :keyword]
    [:route-id    :keyword]   ;; the NEW route — the shadowed one
    [:shadowed-by :keyword]   ;; the existing route that wins the rule-6 tie
    [:rank        :any]])     ;; the tied rules-1-5 structural tuple (:rf/route-rank)
@@ -1946,14 +1949,12 @@ Common keys (`:category`, `:failing-id`, `:reason`, `:frame`) are inherited from
 
 (def MultipleStatusSetTags
   [:map
-   [:category     :keyword]
    [:writes       [:vector :any]]
    [:final-status :any]
    [:frame        {:optional true} :keyword]])
 
 (def MultipleRedirectsTags
   [:map
-   [:category       :keyword]
    [:writes         [:vector :any]]
    [:final-redirect :any]
    [:frame          {:optional true} :keyword]])
@@ -1991,7 +1992,6 @@ Common keys (`:category`, `:failing-id`, `:reason`, `:frame`) are inherited from
 
 (def NoClockConfiguredTags
   [:map
-   [:category :keyword]
    [:feature  :keyword]
    [:fallback {:optional true} :any]])
 
@@ -2005,7 +2005,6 @@ Common keys (`:category`, `:failing-id`, `:reason`, `:frame`) are inherited from
 
 (def CrossFrameDispatchSyncDuringDrainTags
   [:map
-   [:category     [:= :rf.warning/cross-frame-dispatch-sync-during-drain]]
    [:caller-frame :keyword]                          ;; `*current-frame*` at the call site, or `:rf/none` when unbound
    [:target-frame :keyword]                          ;; the `dispatch-sync!`'s `:frame` opt (or the frame resolved from the established scope)
    [:other-frame  :keyword]                          ;; an arbitrary mid-drain sibling — typically the caller's frame
@@ -2052,13 +2051,19 @@ Common keys (`:category`, `:failing-id`, `:reason`, `:frame`) are inherited from
 ;; this warning's real placement — category on `:operation` (no `:tags :category`),
 ;; severity `:warning`, `:recovery` hoisted top-level, `:tags` the four surviving
 ;; fields. Validates the actual emitted event end to end (pinned by the runtime
-;; conformance test `re-frame.ui.frame-ops-cljs-test`).
+;; conformance test `re-frame.ui.frame-ops-cljs-test`). It is a genuine REFINEMENT
+;; of `ErrorEvent`, not an independent subset: it restates every one of the
+;; envelope's required core fields (`:id` / `:operation` / `:op-type` / `:time` /
+;; `:tags`) and narrows the ones this category pins, so an event validating here
+;; validates against `ErrorEvent` too.
 (def CrossFrameCarriedOpEvent
   [:map
+   [:id        :any]                                    ;; shared ErrorEvent core field (build-event's per-process counter)
    [:operation [:= :rf.warning/cross-frame-carried-op]] ;; the category rides the ENVELOPE :operation, not :tags
    [:op-type   [:= :warning]]
+   [:time      :any]                                    ;; shared ErrorEvent core field (host clock at emit)
    [:recovery  [:= :warned-and-continued]]              ;; TOP-LEVEL (build-event hoisted it out of :tags)
-   [:tags      CrossFrameCarriedOpTags]])
+   [:tags      CrossFrameCarriedOpTags]])               ;; NO :category — the :warning branch synthesizes none
 
 (def DecodeDefaultedTags
   [:map
@@ -2081,7 +2086,6 @@ Common keys (`:category`, `:failing-id`, `:reason`, `:frame`) are inherited from
 
 (def LargeValueUnschemadTags
   [:map
-   [:category  [:= :rf.warning/large-value-unschema'd]]
    [:frame     :keyword]
    [:path      [:vector :any]]              ;; the app-db path the walker observed
    [:bytes     :int]                         ;; `pr-str` byte count that exceeded the dev threshold
@@ -2091,13 +2095,11 @@ Common keys (`:category`, `:failing-id`, `:reason`, `:frame`) are inherited from
 
 (def CljsOnlyKeyIgnoredOnJvmTags
   [:map
-   [:category :keyword]
    [:key      :keyword]
    [:url      :string]])
 
 (def RetryAttemptTags
   [:map
-   [:category        :keyword]
    [:request-id      :any]
    [:url             :string]
    [:attempt         :int]
@@ -2109,13 +2111,11 @@ Common keys (`:category`, `:failing-id`, `:reason`, `:frame`) are inherited from
 
 (def HttpInterceptorRegisteredTags
   [:map
-   [:category :keyword]
    [:frame    :keyword]
    [:id       :keyword]])
 
 (def HttpInterceptorClearedTags
   [:map
-   [:category :keyword]
    [:frame    :keyword]
    [:id       :keyword]])
 
@@ -2148,7 +2148,6 @@ Common keys (`:category`, `:failing-id`, `:reason`, `:frame`) are inherited from
 
 (def FxSkippedOnPlatformTags
   [:map
-   [:category                   :keyword]
    [:rf.fx/id                   :keyword]
    [:rf.fx/args                 {:optional true} :any]
    [:frame                      {:optional true} :keyword]
