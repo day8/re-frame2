@@ -40,6 +40,8 @@
             [re-frame.core :as rf]
             [re-frame.adapter.reagent :as reagent-adapter]
             [re-frame.test-support :as test-support]
+            ;; The failed-boundary record the example's boundaries consult.
+            [re-frame.ssr.suspense :as suspense]
             ;; the example's production source — registers :dashboard/root,
             ;; :dashboard/card, :dashboard/card-skeleton and the two subs at
             ;; ns-load.
@@ -88,7 +90,12 @@
 (defn- seed-cards!
   "Stand in for the streamed deltas + the final `__rf_payload` hydrate: the
   three cards whose boundaries RESOLVED land in app-db; `:flaky` (whose
-  continuation threw server-side, shipping no delta) stays absent."
+  continuation threw server-side, shipping no delta) stays absent.
+
+  Also stands in for the streaming client's finalization step, which
+  records the failed boundary ids from the wire. That record is what lets
+  `:card.flaky`'s boundary re-render its DECLARED fallback — the example's
+  `card-view` no longer carries a nil branch duplicating the skeleton."
   []
   (rf/reg-event ::seed
     (fn [{:keys [db]} _]
@@ -96,7 +103,9 @@
                   {:revenue {:title "Revenue (last 7 days)"     :value 42375}
                    :signups {:title "New signups (last 7 days)" :value 318}
                    :latency {:title "P50 latency (ms)"          :value 24}})}))
-  (rf/dispatch-sync [::seed] {:frame test-frame}))
+  (rf/dispatch-sync [::seed] {:frame test-frame})
+  (suspense/reset-failed-boundaries!)
+  (suspense/record-failed-boundaries! #{:card.flaky}))
 
 ;; ---- (1) no server-only marker leaks into the client DOM -------------------
 
@@ -138,12 +147,25 @@
 
 ;; ---- (3) a boundary that never resolved stays on its skeleton --------------
 
-(deftest unresolved-card-renders-its-skeleton
-  (testing "rf2-o4rbh: the `:flaky` card's continuation threw server-side, so
-            no delta ever seeded it. Its client render must degrade to the
-            skeleton rather than paint an empty card — that is the DOM the
-            failed chunk's fallback left in place"
+(deftest failed-boundary-renders-its-declared-fallback
+  (testing "rf2-ycz3k: the `:flaky` card's continuation threw server-side, so
+            the final payload named it in the failed set. Its BOUNDARY
+            re-renders the `:fallback` it declared — the same skeleton the
+            failed chunk's fallback left in the DOM — without `card-view`
+            carrying a nil branch that duplicates it"
     (seed-cards!)
     (let [html (render-client-tree)]
       (is (str/includes? html "class=\"card skeleton\"") html)
-      (is (str/includes? html "Loading flaky") html))))
+      (is (str/includes? html "Loading flaky") html)))
+
+  (testing "the fallback is a consequence of the RECORDED OUTCOME, not of
+            the card's data being absent. Clear the record and the same
+            boundary renders its body — which, for this example's flaky
+            card, is the view that throws on purpose. That throw is the
+            proof: nothing about app-db decides this, the recorded failure
+            does"
+    (seed-cards!)
+    (suspense/reset-failed-boundaries!)
+    (is (thrown? :default (render-client-tree))
+        (str "with no recorded failure the boundary must render its body "
+             "(`throwing-card`), not silently keep showing the fallback"))))

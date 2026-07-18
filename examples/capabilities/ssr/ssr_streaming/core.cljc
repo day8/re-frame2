@@ -9,16 +9,17 @@
   shape as collected data; it does not simulate network timings.
 
   Six ideas earn their keep here:
-   - `:rf/suspense-boundary` — one hiccup marker that says \"this region
-     may arrive late.\" That marker IS the whole streaming API.
-   - The marker is **server-only**. It has meaning to the streaming shell
-     walker and to nothing else, so the browser's render tree carries the
-     resolved card instead — see `card-slot`, the one place this example
-     is genuinely two programs.
+   - `ssr/boundary` — one component that says \"this region may arrive
+     late.\" That component IS the whole streaming API.
+   - It is **cross-host**: the same form defers a region on the server and
+     renders it in the browser, so the views are shared verbatim and there
+     is no reader-conditional slot where the two runtimes part company.
    - A `:fallback` to show in the meantime — here a skeleton card.
    - Failure isolation — one card throws on purpose, to prove a blown
      boundary stays on its fallback instead of taking the page down with
-     it.
+     it. The final payload names the failed boundaries, so the client
+     re-renders that boundary's DECLARED fallback rather than every view
+     having to guess from absent state.
    - Per-card state — each chunk's `<script data-rf2-suspense-hydrate>`
      carries that card's app-db delta, so the streamed-in subtree's subs
      have something to read.
@@ -92,16 +93,14 @@
   ;; in the browser against whatever the streamed delta or the final payload
   ;; put there.
   ;;
-  ;; The nil branch isn't defensive padding — it's the client's honest state
-  ;; for a card whose chunk hasn't landed yet, or (see `:card.flaky` below)
-  ;; never will, because a failed boundary ships no delta. Falling back to
-  ;; the skeleton is what keeps the client's render agreeing with the DOM
-  ;; the stream actually painted.
-  (if-let [card @(subscribe [:card/by-id card-id])]
+  ;; No nil branch. This view renders a card; showing a loading state is
+  ;; the BOUNDARY's job, and `card-slot` declares that fallback once. A
+  ;; card whose boundary failed never reaches this view on the client —
+  ;; the boundary short-circuits to the skeleton it declared.
+  (let [card @(subscribe [:card/by-id card-id])]
     [:div.card
      [:h3 (:title card)]
-     [:p.value (str (:value card))]]
-    [card-skeleton card-id]))
+     [:p.value (str (:value card))]]))
 
 (rf/reg-view ^{:rf/id :dashboard/throwing-card} throwing-card []
   ;; The card that fails on purpose, standing in for that one flaky
@@ -116,43 +115,46 @@
   (throw (ex-info "flaky third-party metric service" {})))
 
 (defn- card-slot
-  "One card's slot in the dashboard — and the one place this example is
-  genuinely two programs.
+  "One card's slot in the dashboard — and, since the boundary became a
+  component, ONE program rather than two.
 
-  SERVER — a `:rf/suspense-boundary`, the whole streaming trick in one
-  marker. It wraps a region that's allowed to arrive late: the `:fallback`
-  ships inline in the shell right now, and `body` renders separately and
-  streams in as its own chunk once it resolves. The `:id` is how the client
-  pairs an arriving chunk with its placeholder — you pick it, and it has to
-  be unique.
+  `ssr/boundary` wraps a region that's allowed to arrive late. On the
+  server the `:fallback` ships inline in the shell right now, and `body`
+  renders separately and streams in as its own chunk once it resolves. In
+  the browser the same form renders `body` — or, when this boundary is one
+  the server reported as FAILED, the `:fallback` declared right here. The
+  `:id` is how the client pairs an arriving chunk with its placeholder:
+  you pick it, and it has to be unique on the page.
 
-  CLIENT — just the card. `:rf/suspense-boundary` is a **server-only**
-  marker: per [Spec 011 §Streaming SSR](../../../../spec/011-SSR.md#streaming-ssr)
-  it is recognised only by the streaming shell walker, and a browser render
-  tree is not somewhere it means anything. Leave one in a client render tree
-  and its name sails straight through the DOM tag grammar — React paints a
-  phantom `<suspense-boundary>` element with `:id` and `:fallback` mangled
-  into attributes.
+  This was a reader conditional until recently — `:rf/suspense-boundary`
+  on the server, a bare card on the client — and it was the one place this
+  example was genuinely two programs. It had to be, while the boundary was
+  a hiccup keyword: a keyword head is an HTML element on every client
+  substrate, so leaving the marker in a browser render tree sails straight
+  through the DOM tag grammar and paints a phantom `<suspense-boundary>`
+  with `:id` and `:fallback` mangled into attributes. And the marker could
+  not simply be taught client semantics either — stock Reagent's element
+  dispatch is an external dependency, and UIx / Helix views are `defui` /
+  `$` forms where a hiccup keyword head cannot occur at all.
 
-  The same trap sits one level down, and it's the more tempting one: a bare
+  A callable component has none of those problems, and removing the
+  conditional removed something else with it: `card-view` no longer needs
+  a nil branch duplicating the skeleton to keep the client's render
+  agreeing with the DOM the stream painted. The boundary that declared the
+  fallback is the one that re-renders it.
+
+  The related trap is one level down and more tempting: a bare
   `[:dashboard/card :revenue]` head is an **HTML element**, never a view.
   The runtime does not intercept the keyword case to dispatch through the
   view registry (Conventions §Render-tree shape vs runtime lookup), so that
   head paints `<card>revenue</card>` — tag from the keyword's name, argument
-  as a text node. Render trees reference views by **Var** (`card-view`, which
-  `reg-view` defs for you) or by `(rf/view :id)` lookup. The JVM SSR emitter
-  does resolve a keyword head through the registry, which is exactly why the
-  mistake survives a server-side test and only shows up in the browser.
-
-  By the time the browser renders, every boundary has already resolved — the
-  streaming runtime swapped each chunk into the DOM and merged its delta, and
-  the final payload seeded the rest — so the client renders the resolved card
-  and `hydrate-root` adopts the DOM the stream painted."
+  as a text node. That rule holds on EVERY host, server included: the JVM
+  SSR emitter is a pure hiccup → HTML function that resolves no ids. Render
+  trees reference views by **Var** (`card-view`, which `reg-view` defs for
+  you) or by `(rf/view :id)` lookup."
   [boundary-id card-id body]
-  #?(:clj  [:rf/suspense-boundary
-            {:id boundary-id :fallback [card-skeleton card-id]}
-            body]
-     :cljs [card-view card-id]))
+  [ssr/boundary {:id boundary-id :fallback [card-skeleton card-id]}
+   body])
 
 (rf/reg-view ^{:rf/id :dashboard/root} root-view []
   [:main.dashboard
@@ -224,6 +226,12 @@
                                         id (pr-str delta)))
                       :failed? failed?}))
                  continuations)
+           ;; Which boundaries blew up. The server has always known this
+           ;; per continuation; carrying it into the final payload is what
+           ;; lets the client's boundary re-render its declared fallback
+           ;; instead of every view inferring failure from missing state.
+           failed-boundaries (into #{} (comp (filter :failed?) (map :id))
+                                   resolved-chunks)
            render-hash (rf/with-frame fid (ssr/render-tree-hash hiccup))
            ;; The final payload: the canonical, whole app-db. This is the
            ;; load-bearing idea of the example. Those per-card deltas are a
@@ -242,7 +250,8 @@
                            (ssr/streaming-build-final-payload
                              fid render-hash
                              {:version 1
-                              :payload :rf.ssr.payload/whole-app-db}))
+                              :payload :rf.ssr.payload/whole-app-db
+                              :failed-boundaries failed-boundaries}))
            ;; Strip the payload's `:rf/frame-id` before it goes over the
            ;; wire. The two sides don't share a frame id: the server renders
            ;; under this per-request gensym frame (`fid`), the client hydrates
@@ -258,6 +267,7 @@
        {:shell shell-html
         :resolved-chunks resolved-chunks
         :final-payload final-payload
+        :failed-boundaries failed-boundaries
         :render-hash render-hash})))
 
 ;; ============================================================================
@@ -283,15 +293,24 @@
 ;;     subtree in place and merges that subtree's delta into app-db. `run`
 ;;     installs it before the first render, so it catches chunks that already
 ;;     streamed in and any still on the way.
-;;  3. The final `<script id="__rf_payload">` is the canonical full state.
-;;     `run` hands it to `ssr/hydrate!`, which dispatches `:rf/hydrate` and
-;;     replaces the whole client frame-state in one step — app-db plus its
-;;     serialisable runtime-db slice. The runtime auto-disconnects the moment
-;;     it sees `__rf_payload`, so no late delta can race that replace. The
-;;     deltas got each card on screen early; this last step makes the whole
-;;     thing correct.
+;;  3. The final `<script id="__rf_payload">` is the canonical full state, and
+;;     its arrival means the stream is done. The runtime FINALISES: it
+;;     processes any chunk still pending, consumes or quarantines the last
+;;     deltas, unwraps every `<rf-suspense>` mount it created — leaving the
+;;     DOM as the plain markup the author's tree describes — disconnects, and
+;;     calls `:on-ready`. Only then does `run` hydrate: `ssr/hydrate!`
+;;     dispatches `:rf/hydrate`, replacing the whole client frame-state in one
+;;     step (app-db plus its serialisable runtime-db slice, which carries
+;;     which boundaries failed), and `hydrate-root` adopts the painted DOM.
+;;     The deltas got each card on screen early; this last step makes the
+;;     whole thing correct.
 ;;
-;; See the [SSR guide — Streaming](../../../../docs/ssr/concepts.md#streaming-rfsuspense-boundary)
+;;     The protocol is therefore: progressive PRE-HYDRATION PAINT, then ONE
+;;     ordinary whole-root hydration. Templates, `<rf-suspense>` mounts and
+;;     delta scripts are transport — never part of the application tree — and
+;;     none of them is in the DOM by the time React looks at it.
+;;
+;; See the [SSR guide — Streaming](../../../../docs/ssr/concepts.md#streaming-ssrboundary)
 ;; and [hydrate, then verify](../../../../docs/ssr/concepts.md#the-client-side-hydrate-then-verify).
 ;;
 ;; One honest caveat: this example boots from a hand-written `index.html`
@@ -356,41 +375,61 @@
      ;; client — both the streamed deltas and the final hydrate — validate
      ;; against the same contract the server used.
      (rf/reg-app-schema [:cards] {:frame app-frame} CardsSchema)
-     ;; Turn on the streaming runtime BEFORE the first render, so it catches
+     ;; Turn on the streaming runtime BEFORE anything renders, so it catches
      ;; resolved-subtree chunks as they arrive (and sweeps up any that already
      ;; landed). For each one it swaps the fallback for the real subtree and
-     ;; merges that subtree's delta into the frame — then disconnects itself
-     ;; the moment `__rf_payload` shows up.
-     (ssr/streaming-install! {:frame app-frame})
-     ;; Now reconcile against the canonical payload: read `__rf_payload` and
-     ;; dispatch `:rf/hydrate` into the explicit `:frame`. This is the truth
-     ;; the streamed deltas defer to. Hydrate BEFORE the first render so that
-     ;; render runs against fully seeded app-db, not a half-filled one.
-     ;; `hydrate!` seeds STATE only — it never touches the DOM — and hands back
-     ;; the payload it applied, or nil on a plain client load with no server
-     ;; render to adopt.
-     ;; (We leave out `:render-tree-fn` because this static demo's shell
-     ;; carries a placeholder render-hash, so mismatch verification would warn
-     ;; every time. A real streaming server stamps the genuine hash and passes
-     ;; `:render-tree-fn` to switch mismatch detection on.)
-     (let [el      (and (exists? js/document) (js/document.getElementById "app"))
-           payload (ssr/hydrate! {:frame app-frame})
-           tree    [rf/frame-provider {:frame app-frame} [(rf/view :dashboard/root)]]]
-       (when el
-         (if payload
-           ;; Server-streamed: ADOPT the painted DOM. Once the shell and every
-           ;; resolved chunk have landed, `hydrate-root` reconciles React
-           ;; against that server markup — same nodes, listeners attached, no
-           ;; re-paint — and returns the retained root. `create-root` + `render`
-           ;; would discard the server DOM and mount fresh, the bug this branch
-           ;; avoids.
-           (reset! react-root (rdc/hydrate-root el tree))
-           ;; No payload means the server never rendered this page — a plain
-           ;; first load. Mount a fresh root; the shell comes up from the
-           ;; client-side render alone.
-           (do
-             (reset! react-root (rdc/create-root el))
-             (rdc/render @react-root tree)))))))
+     ;; merges that subtree's delta into the frame.
+     ;;
+     ;; `:on-ready` is the hydration trigger, and this is the whole shape of a
+     ;; streaming bootstrap. It fires ONCE, when the final payload has landed,
+     ;; every delta is consumed, and every `<rf-suspense>` mount the runtime
+     ;; created has been unwrapped. Those mounts are transport — the live swap
+     ;; targets the runtime materialises from the shell's inert `<template>`
+     ;; fallbacks — and no render tree on any host can express them. Hydrating
+     ;; while they are still in the DOM is a structural mismatch at every
+     ;; boundary, so React discards the streamed page and re-renders it: you
+     ;; pay for streaming and get none of it.
+     ;;
+     ;; Note what is NOT here: no polling for `__rf_payload`, no timer, and no
+     ;; `create-root` fallback taken merely because the payload hasn't arrived
+     ;; yet. On a live stream it hasn't arrived yet for most of the page's
+     ;; life, and mounting a fresh root in the meantime throws away the very
+     ;; markup the server streamed. The readiness callback removes the race by
+     ;; removing the guess.
+     (ssr/streaming-install!
+       {:frame    app-frame
+        :on-ready (fn [_outcomes]
+                    ;; Reconcile against the canonical payload first: read
+                    ;; `__rf_payload` and dispatch `:rf/hydrate` into the
+                    ;; explicit `:frame`. This is the truth the streamed
+                    ;; deltas defer to. `hydrate!` seeds STATE only — it never
+                    ;; touches the DOM — and hands back the payload it applied.
+                    ;; Hydrate BEFORE the render so that render runs against
+                    ;; fully seeded app-db, not a half-filled one.
+                    ;;
+                    ;; (We leave out `:render-tree-fn` because this static demo's
+                    ;; shell carries a placeholder render-hash, so mismatch
+                    ;; verification would warn every time. A real streaming
+                    ;; server stamps the genuine hash and passes
+                    ;; `:render-tree-fn` to switch mismatch detection on.)
+                    (let [payload (ssr/hydrate! {:frame app-frame})
+                          el      (and (exists? js/document)
+                                       (js/document.getElementById "app"))
+                          tree    [rf/frame-provider {:frame app-frame}
+                                   [(rf/view :dashboard/root)]]]
+                      (when el
+                        (if payload
+                          ;; Server-rendered: ADOPT the painted DOM.
+                          ;; `hydrate-root` reconciles React against that
+                          ;; markup — same nodes, listeners attached, no
+                          ;; re-paint — and returns the retained root.
+                          (reset! react-root (rdc/hydrate-root el tree))
+                          ;; No payload means the server never rendered this
+                          ;; page — a plain first load with nothing to adopt.
+                          ;; Mount a fresh root.
+                          (do
+                            (reset! react-root (rdc/create-root el))
+                            (rdc/render @react-root tree))))))})))
 
 ;; The JVM headless test that walks the server stream end to end (shell →
 ;; per-card resolved chunks → final payload) lives over in

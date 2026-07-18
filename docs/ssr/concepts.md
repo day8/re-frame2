@@ -418,6 +418,7 @@ Same `:frame` on `hydrate!` and `frame-provider`. Full walk-through:
 <a id="controlling-the-response--rfserver"></a>
 <a id="head-metadata----opengraph-json-ld"></a>
 <a id="streaming-rfsuspense-boundary"></a>
+<a id="streaming-ssrboundary"></a>
 
 Same model, more keys — open a page only when a need appears:
 
