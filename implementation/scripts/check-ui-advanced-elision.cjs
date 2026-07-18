@@ -83,19 +83,24 @@
 // `assertSentinelSet`, never as a union — a union-only guard stays silent
 // while all but one member regresses.
 //
-// THE RETENTION THIS GATE FOUND (RETAINED_STRINGS, follow-up bead
-// rf2-vxgfnd.299). `re-frame.ui.client/descriptor` and `/descriptor-index`
-// carry NO `goog.DEBUG` gate. Their docstrings say "Empty in production" /
-// "nil in production", which is true BEHAVIOURALLY — `current-build-digest`
-// returns nil and the live-root registry is empty — but the registry-traversal
-// code and the `:build-digest` keyword literal still cost production bytes.
-// That is precisely the browser-specific retention the bead predicted would
-// "remain unobserved", and this gate is what surfaced it. Fixing it means
-// editing implementation/ui/src/re_frame/ui/client.cljs, which is outside this
-// arm's surface, so the residue is PINNED PRESENT rather than left to a
-// comment: when the follow-up gates those two fns, this gate goes RED and the
-// entry must move into ABSENT_STRINGS. A pin that announces itself beats a
-// TODO nobody reads, and it doubles as the production-side non-vacuity floor.
+// THE RETENTION THIS GATE FOUND, AND ITS FIX (rf2-vxgfnd.299 — CLOSED).
+// `re-frame.ui.client/descriptor` and `/descriptor-index` carried NO
+// `goog.DEBUG` gate. Their docstrings said "Empty in production" / "nil in
+// production", which was true BEHAVIOURALLY — `current-build-digest` returns
+// nil and the live-root registry is empty — but the registry-traversal code and
+// the `:build-digest` keyword literal still cost production bytes. That is
+// precisely the browser-specific retention rf2-vxgfnd.195 predicted would
+// "remain unobserved", and this gate is what surfaced it.
+//
+// The arm-4 PR could not fix it (implementation/ui/src/** was outside its
+// surface), so it PINNED the residue PRESENT in RETAINED_STRINGS — a failure
+// that announces itself beats a TODO nobody reads. rf2-vxgfnd.299 then gated
+// both fns on `goog.DEBUG`, the pin went RED exactly as designed, and the
+// `build-digest` entry MOVED into ABSENT_STRINGS below, where it now carries a
+// control assertion like every other absence claim. Measured across the fix:
+// `build-digest` 2 -> 0 occurrences in the production bundle, 2 -> 2 in the
+// control. The production-side non-vacuity floor it had been doubling as was
+// handed to `rf2-advanced-elision-live-probe:` (see RETAINED_STRINGS).
 //
 // TEETH (documented mutation/revert; run at development time, NOT committed).
 // Every ABSENT_STRINGS entry has a demonstrated lever, with measured counts:
@@ -107,11 +112,19 @@
 //     "someone removed a gate" actually looks like.
 //   * L3 — ungate `current` alone (`(when true …)`). RED on `bd1-` (0 -> 1)
 //     via the `finalized-digest?` prefix test that `current` calls.
+//   * L4 — DROP the `goog.DEBUG` gate on `client/descriptor` and
+//     `/descriptor-index` (i.e. revert rf2-vxgfnd.299). RED on `build-digest`
+//     (0 -> 2). This is the lever the whole entry exists for, and it is not
+//     hypothetical: 2 is the count this gate actually measured on main before
+//     the fix landed, which is what filed the bead.
 //   * L-vacuity — rename a sentinel in digest_carrier.cljs with a PREFIX
 //     change and do NOT update this gate: the CONTROL assertion for that entry
 //     goes RED, proving the token is live rather than folklore.
 //   * L-mistarget — point the production scan at the control directory: the
-//     three ABSENT entries go RED (they are present there by construction).
+//     four ABSENT entries go RED (they are present there by construction).
+//   * L-floor — rename `live-probe`'s literal in consumer.cljs without updating
+//     RETAINED_STRINGS: the production floor goes RED (1 -> 0), proving the
+//     floor is a live observation rather than a token that can never fail.
 //
 // A REJECTED TOOTH, recorded because it is instructive. The obvious first
 // lever — make `compiled-digest` unconditional
@@ -163,16 +176,50 @@ const ABSENT_STRINGS = [
     source: 're-frame.ui.digest-carrier (fail-loud unfinalized-build DEBUG MANIFEST diagnostic)',
     sentinel: 're-frame.ui build digest was not finalized',
   },
+  {
+    source: 're-frame.ui.client/descriptor + /descriptor-index (registry traversal + read-time :build-digest stamp — rf2-vxgfnd.299)',
+    sentinel: 'build-digest',
+  },
 ];
 
-// Asserted PRESENT in the PRODUCTION bundle. Two jobs: it is the production-
-// side non-vacuity floor (proving the descriptor path really is compiled into
-// the artifact being scanned), and it is the self-announcing pin on the one
-// residue class that is genuinely retained today.
+// Asserted PRESENT in the PRODUCTION bundle — the production-side non-vacuity
+// floor. Its job is to prove that the fixture's consumer graph really is
+// compiled into the artifact being scanned, so that a wrong path, a stale
+// directory or a mis-targeted scan fails loudly instead of passing vacuously.
+// The control bundle alone cannot catch a production-side mis-target.
+//
+// WHY THIS SENTINEL. Until rf2-vxgfnd.299 the floor was `build-digest`, the
+// pinned descriptor retention. That entry has now legitimately moved into
+// ABSENT_STRINGS, so the floor had to be re-based onto a token that MUST
+// survive production — otherwise the gate would keep only absence assertions
+// and could pass over an empty bundle.
+//
+// `live-probe` is the honest replacement, and it was authored for exactly this
+// job (see the fixture's docstring: "the KNOWN-PRESENT control ... Without it,
+// 'the carrier function names are absent' could not be distinguished from 'the
+// grep does not work on this artifact'"). It qualifies on every count the
+// oracle requires:
+//   - it is a STRING LITERAL, so Closure never rewrites it and inlining cannot
+//     make it vanish — the failure mode that killed the function-name oracle;
+//   - it carries NO `goog.DEBUG` gate and is rooted from `init`, so production
+//     retaining it is correct behaviour, not a leak this gate should chase;
+//   - it is reached through `client/live-root-ids`, an UNGATED client registry
+//     read, so its presence witnesses that `re-frame.ui.client` itself is
+//     compiled into the scanned artifact — which is what makes the neighbouring
+//     `build-digest` absence attributable to the gate rather than to the whole
+//     namespace having been dropped;
+//   - it is a distinctive full literal, not a tail of any other token (the
+//     SUBSTRING CONTAINMENT rule above).
+//
+// VERIFYING THE VERIFIER, measured in the SAME production bundle: the identical
+// grep finds 'rf2-advanced-elision-live-probe:' at 1 occurrence and
+// '__RF2_UI_DIGEST_XX__' at 0. One blob, one grep, a known-present and a
+// known-absent token discriminated — so a PRESENT result here is a real
+// observation and not an artifact of the check always succeeding.
 const RETAINED_STRINGS = [
   {
-    source: 're-frame.ui.client/descriptor + /descriptor-index (UNGATED registry traversal — rf2-vxgfnd.299)',
-    sentinel: 'build-digest',
+    source: 'advanced-elision fixture live-probe via client/live-root-ids (UNGATED — production non-vacuity floor)',
+    sentinel: 'rf2-advanced-elision-live-probe:',
   },
 ];
 
@@ -281,7 +328,7 @@ function run() {
   report.detail('[advanced-elision] production (goog.DEBUG=false) — residue must be ABSENT:');
   const absent = assertSet(prod, 'production', ABSENT_STRINGS, false);
 
-  report.detail('[advanced-elision] production — pinned retention + non-vacuity floor (must be PRESENT):');
+  report.detail('[advanced-elision] production — non-vacuity floor (must be PRESENT):');
   const retained = assertSet(prod, 'production', RETAINED_STRINGS, true);
 
   report.detail('[advanced-elision] control (goog.DEBUG=true) — the same residue must be PRESENT:');
@@ -290,17 +337,23 @@ function run() {
   if (!(absent.ok && retained.ok && control1.ok)) {
     if (!absent.ok) {
       console.error('Dev-only whole-build digest machinery survived an :advanced');
-      console.error(':browser release. The carrier, its sentinel, the bd1- literal');
-      console.error('and the fail-loud diagnostic must cost production zero bytes');
-      console.error('(Spec 004C §2). Check the goog.DEBUG gates in digest_carrier.cljs.');
+      console.error(':browser release. The carrier, its sentinel, the bd1- literal,');
+      console.error('the fail-loud diagnostic and the client descriptor projection');
+      console.error('must cost production zero bytes (Spec 004C §2). Check the');
+      console.error('goog.DEBUG gates in digest_carrier.cljs, and — for build-digest');
+      console.error('— on client/descriptor + client/descriptor-index in');
+      console.error('implementation/ui/src/re_frame/ui/client.cljs (rf2-vxgfnd.299).');
     }
     if (!retained.ok) {
-      console.error('The pinned retention is ABSENT from the production bundle.');
-      console.error('Either the descriptor path is no longer compiled into this');
-      console.error('artifact — in which case every absence result above is vacuous');
-      console.error('and the fixture must be repaired — or rf2-vxgfnd.299 landed');
-      console.error('and gated the registry traversal, in which case move the entry');
-      console.error('from RETAINED_STRINGS into ABSENT_STRINGS.');
+      console.error('The production non-vacuity FLOOR is absent from the production');
+      console.error('bundle. This does not mean elision improved — it means the');
+      console.error('artifact being scanned may not contain the fixture consumer at');
+      console.error('all, in which case every absence result above is vacuous. Check');
+      console.error('for a wrong/stale output directory, then that consumer.cljs');
+      console.error('still roots live-probe and its literal still matches');
+      console.error('RETAINED_STRINGS. Do not "fix" this by deleting the entry: the');
+      console.error('gate would then hold absence assertions only and could pass on');
+      console.error('an empty bundle.');
     }
     if (!control1.ok) {
       console.error('The goog.DEBUG=true control is MISSING residue tokens, so the');

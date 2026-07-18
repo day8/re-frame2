@@ -292,10 +292,18 @@
   descriptor must treat nil as not-yet-known; the static core alone does not
   identify a build mid-fence. nil if `root-id` is not live, its entry carries
   no descriptor yet (a `create-root` before its first `render!`), or in
-  production."
+  production.
+
+  `goog.DEBUG`-gated, so the registry read and the `:build-digest` keyword cost
+  advanced production output zero bytes (Spec 004C §2: the descriptor/digest
+  projections are absent from production, not merely empty there). Before
+  rf2-vxgfnd.299 the nil was purely BEHAVIOURAL — `current-build-digest` folded
+  to nil and the registry was empty — while the lookup and the keyword literal
+  still shipped."
   [root-id]
-  (when-let [d (:descriptor (get @live-roots root-id))]
-    (assoc d :build-digest (current-build-digest))))
+  (when ^boolean js/goog.DEBUG
+    (when-let [d (:descriptor (get @live-roots root-id))]
+      (assoc d :build-digest (current-build-digest)))))
 
 (defn descriptor-index
   "Every live root's COMPLETE Root Descriptor v1 (dev): root-id -> static core
@@ -306,14 +314,21 @@
   remains its static core with `:build-digest` nil. Consumers requiring
   finalized-complete descriptors must treat nil as not-yet-known; the static
   core alone does not identify a build mid-fence. Roots still awaiting their
-  first `render!` (no descriptor yet) are omitted. Empty in production."
+  first `render!` (no descriptor yet) are omitted. Empty in production.
+
+  `goog.DEBUG`-gated, so the registry TRAVERSAL and the `:build-digest` keyword
+  are removed from advanced production output rather than merely running over an
+  empty registry (Spec 004C §2). The empty-map return is kept as the production
+  branch so the documented shape holds on both sides of the gate."
   []
-  (let [bd (current-build-digest)]
-    (into {}
-          (keep (fn [[rid entry]]
-                  (when-let [d (:descriptor entry)]
-                    [rid (assoc d :build-digest bd)])))
-          @live-roots)))
+  (if ^boolean js/goog.DEBUG
+    (let [bd (current-build-digest)]
+      (into {}
+            (keep (fn [[rid entry]]
+                    (when-let [d (:descriptor entry)]
+                      [rid (assoc d :build-digest bd)])))
+            @live-roots))
+    {}))
 
 (defn- container-owner
   "root-id of the live root owning `container` (identical?), nil if
