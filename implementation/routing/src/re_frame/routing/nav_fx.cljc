@@ -17,6 +17,7 @@
   facade owns the two `fx/reg-fx` calls so a `:reload` re-wires them on
   a fresh registrar."
   (:require [re-frame.frame :as frame]
+            [re-frame.routing.nav-fx-schemas :as nav-fx-schemas]
             [re-frame.routing.strategy :as strategy]
             [re-frame.trace :as trace]))
 
@@ -282,8 +283,16 @@
   a carrier) AND break that behavioural surface. The carrier-bearing URL
   classes EP-0015 actually targets — the route-MISS / malformed / blocked
   URLs — are scrubbed at their diagnostic emit sites via
-  `re-frame.routing.egress/redact-url-carriers` (rf2-n1f4rh / rf2-jfaucw)."
+  `re-frame.routing.egress/redact-url-carriers` (rf2-n1f4rh / rf2-jfaucw).
+
+  rf2-sqams: carries the `:rf.fx.nav/push-url-args` `:schema` per
+  [Spec-Schemas §Standard fx args schemas] ('the standard fx ship with
+  `:schema` set to the corresponding schema above'). A non-string arg is
+  now rejected at the Spec 010 §step-5 `:fx-args` boundary — the fx is
+  skipped BEFORE `window.history` is touched — instead of reaching
+  `pushState`."
   {:platforms #{:client}
+   :schema    nav-fx-schemas/push-url-args
    :doc       "Push the URL to the browser history (HTML5 pushState).
 Honours the calling frame's `:url-bound?` metadata: non-URL-bound frames
 no-op the fx so they don't race with the URL-owning frame (per Spec 012
@@ -316,8 +325,14 @@ no-op the fx so they don't race with the URL-owning frame (per Spec 012
   reason (the `:effects-routed` contract asserts the real routed URL, the
   open-redirect gate already cleared it, and a blanket redaction over-reaches
   bare paths). Carrier-bearing route-miss / blocked URLs are scrubbed at
-  their diagnostic emit sites (`egress/redact-url-carriers`)."
+  their diagnostic emit sites (`egress/redact-url-carriers`).
+
+  rf2-sqams: carries the `:rf.fx.nav/replace-url-args` `:schema`, the
+  same `:string` gate its `:rf.nav/push-url` sibling now carries — the
+  two history fxs must not have asymmetric args-validation any more than
+  they have asymmetric drain-survival (rf2-u8qe7y finding 2)."
   {:platforms #{:client}
+   :schema    nav-fx-schemas/replace-url-args
    :doc       "Replace the URL in the browser history (HTML5 replaceState).
 Honours the calling frame's `:url-bound?` metadata: non-URL-bound frames
 no-op the fx so they don't race with the URL-owning frame (per Spec 012
