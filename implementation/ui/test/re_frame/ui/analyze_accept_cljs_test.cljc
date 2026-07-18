@@ -133,7 +133,17 @@
 (deftest fragments-lower
   (is (= :fragment (:op (ana* [:<> [:p "a"] [:p "b"]]))))
   (is (true? (get-in (ana* [:<> {:key 'k} [:p "a"]]) [:key :present?]))
-      "fragments accept exactly {:key ...}"))
+      "fragments accept exactly {:key ...}")
+  ;; rf2-xoz1s — `:present?` is the KEY's presence, not the props map's. An
+  ;; empty props map is legal (only `:key` is admissible, and it is optional)
+  ;; and supplies no identity, so it must not report one.
+  (is (= :fragment (:op (ana* [:<> {} [:p "a"]])))
+      "an empty fragment props map is still a legal fragment")
+  (is (false? (get-in (ana* [:<> {} [:p "a"]]) [:key :present?]))
+      "[:<> {} …] has a props map and NO key — reporting a key there hands
+       every downstream consumer an identity that was never written")
+  (is (false? (get-in (ana* [:<> [:p "a"]]) [:key :present?]))
+      "and a fragment with no props map at all is likewise keyless"))
 
 ;; ---------------------------------------------------------------------------
 ;; Control forms normalize INTO the AST

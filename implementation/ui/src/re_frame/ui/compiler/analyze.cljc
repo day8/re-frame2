@@ -2448,7 +2448,13 @@
   (`analyze-fragment`), while `:element` (`analyze-element-props`) and
   `:view`/`:foreign` (`analyze-component-props`) carry it inside their analyzed
   props map. Reading `[:key :present?]` off an `:element` finds nil and rejects
-  every keyed literal host child (rf2-vxgfnd.96.1)."
+  every keyed literal host child (rf2-vxgfnd.96.1).
+
+  Both locations now answer the SAME question — does this node carry a `:key`?
+  A `:fragment` used to report its PROPS MAP's presence there, so `[:<> {} …]`
+  passed as keyed while offering the boundary no identity to retain; the probe
+  is truthful at its source now (rf2-xoz1s), which is why this predicate needs
+  no fragment-specific translation."
   [ast]
   (case (:op ast)
     :for true
@@ -2708,14 +2714,30 @@
                                    (str "fragments take only {:key ...}; got "
                                         (str/join ", " (map pr-str (keys extra))))
                                    {:form form}))))
-        key-form  (when has-props (get second* :key))
-        key-form* (if (and has-props (not (literal-scalar? key-form)))
+        ;; Key PRESENCE is `:key`'s own presence, never the props map's
+        ;; (rf2-xoz1s). `[:<> {} …]` carries a props map and no key; reporting
+        ;; `:present? true` for it claims an identity the fragment does not
+        ;; have, and every downstream key consumer believes the claim — the
+        ;; presence boundary admits it as keyed and then has nothing to track,
+        ;; `analyze-for` mis-reports the empty map as a CONSTANT key, and the
+        ;; JVM structural tree gains a `:key nil` entry. `contains?` is exactly
+        ;; how `:element`/`:view` probe their own props (`analyze-element-props`
+        ;; / `analyze-component-props`), so the three node kinds now answer the
+        ;; same question the same way and `presence-keyed-child?` reads a true
+        ;; `[:key :present?]` off a `:fragment` without further translation.
+        key?      (and has-props (contains? second* :key))
+        key-form  (when key? (get second* :key))
+        key-form* (if (and key? (not (literal-scalar? key-form)))
                     (walk-expr e [:fragment :key] key-form)
                     key-form)
         children  (analyze-children e (vec (if has-props (drop 2 form) (drop 1 form))))]
     {:op :fragment
-     :key {:present? has-props :expr key-form* :literal? (literal-scalar? key-form)}
+     :key {:present? key? :expr key-form* :literal? (literal-scalar? key-form)}
      :children children
+     ;; Deliberately still `has-props`, not `key?`: hoisting is a separate
+     ;; question from identity, and `[:<> {} …]` staying un-hoisted is a missed
+     ;; optimisation rather than a wrong answer. Narrowing it would change
+     ;; emitted code for a shape this bead is not about.
      :static? (and (not has-props) (every? node-static? children))
      :path (:path e)}))
 
