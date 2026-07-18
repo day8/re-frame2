@@ -688,7 +688,9 @@ The finer-grained stage sequence, grouped by phase:
 | **render** | **derive** | Recompute the subscriptions whose inputs the commit invalidated. |
 | **render** | **render** | Repaint the views the derivation changed. |
 
-**The update and commit phases run per event; the render phase runs once per drain at settle.** A [**drain**](002-Frames.md#run-to-completion-dispatch-drain-semantics) processes the originating event plus every event its handlers dispatch, each running its own full **assemble → transform → commit → perform** sequence, back-to-back to fixed point. The render phase (**derive → render**) runs **once**, at drain settle, over the final committed state — not once per event. This is why **drain** is kept as a distinct term: it is the scheduling unit that bounds when the render phase runs.
+**The update and commit phases run per event; the render phase runs once per render batch.** A [**drain**](002-Frames.md#run-to-completion-dispatch-drain-semantics) processes the originating event plus every event its handlers dispatch, each running its own full **assemble → transform → commit → perform** sequence, back-to-back to fixed point. The render phase (**derive → render**) then runs over the final committed state — not once per event.
+
+A **render batch** is the pending read/render window that ends at the next CLJS host microtask checkpoint, or at an explicit headless/test flush. It is armed by the **first dirty mark** and closes at the **host's** checkpoint, not at the end of a drain — the scheduler takes no hook from router drain finalization and observes no drain boundary at all. Two consequences are guaranteed: a synchronous drain **cannot** be split across batches (the window cannot close while the stack is still unwinding), and the epochs one drain settles coalesce into **one** batch. The converse does not hold — several drains finishing before the same host checkpoint **may** share a batch, and only a real host yield separates renders. **No render count may be inferred from the number of event/frame epochs, nor from the number of drains:** "one render batch per router drain" is **retired** as normative and survives only as the common case, true exactly when callers yield between drains. **Drain** stays a distinct term because it is the run-to-completion unit whose intermediate states never render, not because it bounds a render batch; the normative render-batch contract lives in [006-ReactiveSubstrate](006-ReactiveSubstrate.md).
 
 ### The triple — pipeline / run / epoch
 
@@ -697,7 +699,7 @@ Three distinct nouns for three distinct things; do not use one for another:
 | Noun | Is |
 |---|---|
 | **pipeline** | The **structure** — the fixed stage sequence itself (assemble → transform → commit → perform → derive → render). It does not "happen"; it is the shape every traversal follows. |
-| **run** (a **pipeline run**) | **One traversal** of the pipeline — one dequeued event going through its update and commit phases (and the drain's shared render phase at settle). This is the unit that replaces the retired "event cascade" for a *single* traversal. |
+| **run** (a **pipeline run**) | **One traversal** of the pipeline — one dequeued event going through its update and commit phases (and the render batch its drain's epochs coalesce into). This is the unit that replaces the retired "event cascade" for a *single* traversal. |
 | **epoch** | The **record a run leaves** — one [`:rf/epoch-record`](Spec-Schemas.md#rfepoch-record) per dequeued event, the durable, snapshottable boundary a run produces (per [002 §Drain versus event — the epoch unit](002-Frames.md#drain-versus-event--the-epoch-unit)). |
 
 ### Deprecations
