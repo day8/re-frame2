@@ -23,12 +23,16 @@
   `re-frame.interop/next-tick`'s single-thread executor), where `:in-sync-drain?`
   is false and T1's listener `dispatch-sync` really does spin on the lock.
 
-  The fix keeps the whole synchronous, ordered, serialized clean-emit fan-out
-  (rf2-uw7hg) but takes the monitor OUT of the cycle: an emit whose thread
-  ACTUALLY holds the target frame's `:drain-lock` (`emit-under-owned-drain-lock?`,
-  keyed on real lock ownership per rf2-rakqk, not event-shape inference) never
-  acquires the monitor — it drives its fan-out inline, exactly as the
-  single-threaded CLJS host always does. This suite is the deterministic
+  The fix keeps the whole synchronous, ordered, serialized fan-out (rf2-uw7hg)
+  but takes the monitor OUT of the cycle: an emit issued while the framework owns
+  a frame's `:drain-lock` never acquires the monitor at all. Per rf2-wxy1c it is
+  APPENDED and delivered at the post-drain boundary
+  (`re-frame.trace/call-with-deferred-listener-delivery`, which brackets every
+  `:drain-lock` acquire → run → release region), where the lock is already down —
+  so the drainer's side of the cycle blocks on nothing while holding the lock.
+  (rf2-jl75r's original cut drove such an emit INLINE instead; that broke the
+  deadlock but let two independent frames' drains enter one listener at once,
+  which is what the deferral replaced.) This suite is the deterministic
   barrier/latch proof that the exact AB-BA interleaving now completes within a
   bounded timeout and the listener-dispatched event settles EXACTLY once.
 

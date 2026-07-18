@@ -3502,22 +3502,30 @@
   for the queue (its release block re-checks under lock — see
   drain-loop!). On win, runs the drain body and releases.
 
+  Wrapped in `trace/call-with-deferred-listener-delivery` (rf2-wxy1c): the whole
+  acquire → drain → release region is one post-drain trace-delivery boundary, so
+  this drain's traces reach listeners only once the `:drain-lock` is back down —
+  never concurrently with a sibling frame's drain, and never with arbitrary
+  listener code running under our lock.
+
   Per rf2-ynk7 §single-drainer invariant."
   [frame-id frame-record]
-  (let [drain-lock  (:drain-lock frame-record)
-        router      (:router frame-record)
-        drain-depth (get-in frame-record [:config :drain-depth] drain-depth-default)]
-    (when (compare-and-set! drain-lock false true)
-      ;; Exact-target revalidation belongs INSIDE the acquired serialization
-      ;; boundary.  A scheduled callback for obsolete incarnation A must never
-      ;; re-resolve the bare id and become an eager drain of same-id B.
-      (if (frame/frame-incarnation-live? frame-id drain-lock)
-        (try
-          (drain-loop! frame-id frame-record router drain-lock drain-depth false)
-          (catch #?(:clj Throwable :cljs :default) t
-            (drain-emergency-release! router drain-lock)
-            (throw t)))
-        (reset! drain-lock false)))))
+  (trace/call-with-deferred-listener-delivery
+    (fn []
+      (let [drain-lock  (:drain-lock frame-record)
+            router      (:router frame-record)
+            drain-depth (get-in frame-record [:config :drain-depth] drain-depth-default)]
+        (when (compare-and-set! drain-lock false true)
+          ;; Exact-target revalidation belongs INSIDE the acquired serialization
+          ;; boundary.  A scheduled callback for obsolete incarnation A must never
+          ;; re-resolve the bare id and become an eager drain of same-id B.
+          (if (frame/frame-incarnation-live? frame-id drain-lock)
+            (try
+              (drain-loop! frame-id frame-record router drain-lock drain-depth false)
+              (catch #?(:clj Throwable :cljs :default) t
+                (drain-emergency-release! router drain-lock)
+                (throw t)))
+            (reset! drain-lock false)))))))
 
 (defn- drain-block!
   "Synchronous drain entry point (called from `dispatch-sync!`). Unlike
@@ -3542,11 +3550,19 @@
   post-CAS incarnation revalidation passed. `false` when A was lost during the
   spin-CAS wait, so the seed-push was skipped and the lock reset (rf2-a2x2w:
   `dispatch-sync!` reads that signal to recover-but-emit exactly once for a
-  captured op that lost its pinned incarnation before the drain-lock acquire)."
+  captured op that lost its pinned incarnation before the drain-lock acquire).
+
+  Wrapped in `trace/call-with-deferred-listener-delivery` (rf2-wxy1c) so the whole
+  acquire → seed → drain → release region — `under-lock-fn` included, since it too
+  emits while the lock is held — is one post-drain trace-delivery boundary. The
+  deferred batch is flushed before this returns, so `dispatch-sync`'s
+  settle-before-return contract still covers listener delivery."
   [frame-id frame-record under-lock-fn]
-  (let [drain-lock  (:drain-lock frame-record)
-        router      (:router frame-record)
-        drain-depth (get-in frame-record [:config :drain-depth] drain-depth-default)]
+  (trace/call-with-deferred-listener-delivery
+    (fn []
+      (let [drain-lock  (:drain-lock frame-record)
+            router      (:router frame-record)
+            drain-depth (get-in frame-record [:config :drain-depth] drain-depth-default)]
         ;; Spin-CAS until we acquire. On JVM the active drainer holds
         ;; the lock for the duration of one drain pass — bounded by
         ;; drain-depth events at most — so the wait is bounded. CLJS
@@ -3555,18 +3571,18 @@
           (when-not (compare-and-set! drain-lock false true)
             #?(:clj (Thread/yield))
             (recur)))
-    ;; The caller accepted THIS record.  Revalidate it only after acquiring its
-    ;; lock; never re-resolve by id after a wait in which A may become B.
-    (if (frame/frame-incarnation-live? frame-id drain-lock)
-      (try
-        (under-lock-fn)
-        (drain-loop! frame-id frame-record router drain-lock drain-depth false)
-        true
-        (catch #?(:clj Throwable :cljs :default) t
-          (drain-emergency-release! router drain-lock)
-          (throw t)))
-      (do (reset! drain-lock false)
-          false))))
+        ;; The caller accepted THIS record.  Revalidate it only after acquiring its
+        ;; lock; never re-resolve by id after a wait in which A may become B.
+        (if (frame/frame-incarnation-live? frame-id drain-lock)
+          (try
+            (under-lock-fn)
+            (drain-loop! frame-id frame-record router drain-lock drain-depth false)
+            true
+            (catch #?(:clj Throwable :cljs :default) t
+              (drain-emergency-release! router drain-lock)
+              (throw t)))
+          (do (reset! drain-lock false)
+              false))))))
 
 (defn- drain-reentrant!
   "Reentrant synchronous-drain entry for a thread that ALREADY owns

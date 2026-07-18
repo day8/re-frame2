@@ -738,7 +738,7 @@
 ;;
 ;; ---- cross-thread fan-out serialization (rf2-uw7hg) -----------------------
 ;;
-;; `*fanout-ctx*` is thread-local (a dynamic binding), so it only schedules
+;; `*fanout-ctx*` is per-thread (a dynamic binding), so it only schedules
 ;; SAME-thread reentrant emits. It says nothing about two emits racing on two JVM
 ;; threads: each opens its OWN outermost fan-out and each would invoke the SAME
 ;; registered listener callback CONCURRENTLY. That violates the public listener
@@ -758,7 +758,7 @@
 ;; emit still returns only after its record's callback has run (the monitor is
 ;; held for the whole synchronous drive and released before `emit!` returns).
 ;;
-;; ---- the drain-lock ownership seam (rf2-jl75r + rf2-rakqk) -----------------
+;; ---- the post-drain deferral seam (rf2-jl75r + rf2-rakqk + rf2-wxy1c) -------
 ;;
 ;; Holding `fanout-monitor` across arbitrary listener bodies is NOT safe for an
 ;; emit issued while the emitting thread holds a frame's `:drain-lock`. Public
@@ -772,50 +772,65 @@
 ;; Neither can progress. `drain-block!`'s bounded-wait assumption is false because
 ;; the active drainer (T2) is itself waiting on the caller (T1).
 ;;
-;; The fix keeps the whole synchronous, ordered, serialized fan-out but takes the
-;; monitor OUT of the cycle for exactly the emits that can close it: an emit whose
-;; thread ACTUALLY holds the target frame's `:drain-lock`
-;; (`emit-under-owned-drain-lock?`) NEVER acquires the monitor — it drives its
-;; fan-out inline (exactly as CLJS always does), so the "drain-lock holder waits
-;; on the monitor" edge is removed and no cycle can form.
+;; jl75r broke that cycle by routing a drain-owned emit's fan-out INLINE, off the
+;; monitor; rakqk made the discriminator real drain-lock OWNERSHIP rather than
+;; event-shape inference. Both fixes shared one assumption — that an inline
+;; drain-owned fan-out is already mutually exclusive, because a frame has a single
+;; drainer. It is not. The drain-lock serializes ONE FRAME's drain; the listener
+;; registry is PROCESS-global. Two INDEPENDENT frames draining on two JVM threads
+;; each own their own lock, so both qualified for the inline path and both entered
+;; the same arbitrary listener callback at once (rf2-wxy1c) — the rf2-uw7hg serial
+;; law lost again, this time drain-vs-drain, with arbitrary programmer / tool
+;; listener code additionally running while the framework held a drain lock.
 ;;
-;; The discriminator is REAL LOCK-OWNERSHIP EVIDENCE, not event-shape inference
-;; (rf2-rakqk). jl75r's first cut keyed on frame ROUTABILITY — any `:frame` tag,
-;; caller-supplied dispatch-id, ambient frame, or `retain? false` bypassed the
-;; monitor — but a frame-SHAPED emit is not proof of lock ownership: a public /
-;; manual / stale `:frame` tag, an ambient-frame tool emit, or a retained
-;; frame-shaped `trace/emit!` issued OUTSIDE any drain owns no lock, yet was
-;; routed inline and so LOST the rf2-uw7hg whole-fanout serial law. The fix asks
-;; the frame engine (`:frame/thread-owns-drain-serialization?`) whether THIS
-;; thread holds that frame's single-drainer serialization right now — the active
-;; drainer (`:in-drain?`, stamped around `run-one-pass!`) OR the holder of a cold
-;; `call-serialized-with-drain!` section (`:serialized-holder`). Only then does it
-;; drive inline; otherwise it serializes on the monitor like every other emit.
+;; The repair is to the TIMING, not the classifier. A drain-owned emit no longer
+;; fans out at all while the lock is held: it is APPENDED to a per-thread pending
+;; vector and delivered at ONE explicit post-drain boundary
+;; (`call-with-deferred-fanout`, established by `re-frame.router/drain-try!` /
+;; `drain-block!` and `re-frame.frame/call-serialized-with-drain!` around their
+;; whole acquire → run → release region), where the batch is flushed under
+;; `fanout-monitor` before the enclosing dispatch / drain call returns.
 ;;
-;; This is EXACT for every genuine drain / settle / teardown emit and no longer
-;; over-broad. The epoch cascade trailers (`:rf.epoch/snapshotted` /
-;; `:rf.epoch/outcome`) fire AFTER the buffer is harvested with a nil dispatch-id,
-;; yet carry a top-level `:frame` and run inside `settle-event-epoch!` while
-;; `:in-drain?` is still stamped — so ownership reports true and they stay inline
-;; (a dispatch-id-only test misclassified them). The retentionless structural
-;; terminals (`:rf.frame/destroyed` / `:rf.frame/drain-interrupted`) carry `:frame`
-;; and are emitted while the drain / destroy path owns the serialization — also
-;; inline, without a blanket `retain? false` bypass. Same-thread reentrant
-;; delivery of the drain's own nested emits is unaffected — those take the
-;; `*fanout-ctx*` append+drive branch, never the monitor. Because the evidence is
-;; exact, deadlock-freedom is unconditional: a false result PROVES no drain-lock is
-;; held (no AB-BA edge through the monitor); a true result acquires no monitor. The
-;; residual JVM-only relaxation is now the exact, minimal one — two genuinely
-;; concurrent frame drains of the SAME frame (never a thing on the single-threaded
-;; CLJS target) each own their drain-lock and drive inline.
+;; That single change discharges both laws at once, and the dynamic scope IS the
+;; ownership evidence — no frame resolution, no ownership probe, no shape guess:
+;;
+;;   - SERIAL (rf2-uw7hg / rf2-wxy1c). Every listener fan-out — clean or
+;;     drain-owned — now runs under `fanout-monitor`. No callback overlaps itself
+;;     and records reach each listener in one process-wide order.
+;;   - DEADLOCK-FREE (rf2-jl75r). The monitor is acquired at exactly two places:
+;;     an outermost emit OUTSIDE any deferral scope, and the post-drain flush. The
+;;     scope is bound for the entire dynamic extent in which the thread can hold a
+;;     drain-lock (entered before the acquire, exited after the release), so an
+;;     unscoped emit PROVES its thread holds no drain-lock, and the flush runs
+;;     with the lock already dropped and the scope rebound nil. No thread ever
+;;     waits on the monitor while owning a drain-lock, so the AB-BA edge cannot
+;;     exist — an invariant of the seam's construction, not a property of any
+;;     particular interleaving.
+;;
+;; Delivery CONTENT is unchanged — only its timing. Two things are captured at
+;; append time so a deferred fan-out delivers exactly what an inline one would
+;; have: the listener SNAPSHOT (so a listener registered / unregistered later in
+;; the same drain does not gain or lose an earlier event), and a one-shot latch
+;; over `continue?` (`deferred-continue`) so an incarnation destroyed later in the
+;; drain cannot retroactively suppress an event that was already authorised at
+;; emission, while a listener that destroys it DURING the deferred fan-out still
+;; suppresses the remainder exactly as rf2-eaxnai requires. Emission ORDER is
+;; preserved: the ring push and epoch capture still run inline, the pending vector
+;; is FIFO, and the whole batch is flushed under one monitor hold, so a drain's
+;; own traces reach listeners contiguously and in order. Each deferred event is
+;; driven through its OWN `run-outermost-fanout!`, so a listener's reentrant emit
+;; is scheduled against that event exactly as it would have been inline.
 ;;
 ;; Same-thread reentrancy does NOT re-acquire the monitor: a nested emit sees
 ;; `*fanout-ctx*` already bound and takes the append+drive branch below, so it
 ;; never reaches the lock — no self-deadlock, and the reentrant schedule advances
-;; the SAME critical section. `locking` is a reentrant monitor regardless, so even
-;; a hypothetical re-entry could not deadlock on itself. CLJS is single-threaded
-;; (no concurrent emits): the `:cljs` arm runs the drive inline with no monitor,
-;; preserving production elision.
+;; the SAME critical section. `locking` is a reentrant monitor regardless, so a
+;; listener whose `dispatch-sync` drains a frame and flushes that drain's deferred
+;; batch while its own fan-out still holds the monitor simply re-enters it.
+;;
+;; CLJS is single-threaded: no concurrent emits, no monitor, no deferral (the
+;; scope is never bound and `call-with-deferred-fanout` is the identity call).
+;; Delivery stays inline exactly as before, preserving production elision.
 
 (def ^:private ^:dynamic *fanout-ctx*
   "When bound, the shared fan-out schedule for the outermost listener fan-out in
@@ -829,72 +844,45 @@
 
 #?(:clj
    (def ^:private ^Object fanout-monitor
-     "Process-global JVM monitor serializing every EXTERNAL/clean OUTERMOST
-     trace-listener fan-out across concurrent emits (rf2-uw7hg), so no registered
+     "Process-global JVM monitor serializing EVERY outermost trace-listener
+     fan-out across concurrent emits (rf2-uw7hg / rf2-wxy1c), so no registered
      listener callback is ever invoked on two threads at once and records reach
-     each listener in one defined order. Held for the whole synchronous drive of
-     such an emit. An emit whose thread actually owns the target frame's
-     `:drain-lock` (`emit-under-owned-drain-lock?`) NEVER acquires it — see the
-     deadlock note below — and reentrant same-thread emits never acquire it (they
-     advance the bound `*fanout-ctx*` schedule). CLJS is single-threaded and has no
-     counterpart."
+     each listener in one defined order. Held for the whole synchronous drive of a
+     clean emit, and for the whole post-drain flush of a deferred batch. Reentrant
+     same-thread emits never acquire it (they advance the bound `*fanout-ctx*`
+     schedule), and a thread that owns a frame's `:drain-lock` never acquires it
+     (it appends to `*deferred-drain-fanout*` instead — see the seam note above).
+     CLJS is single-threaded and has no counterpart."
      (Object.)))
 
 #?(:clj
-   (defn- emit-under-owned-drain-lock?
-     "True when this outermost emit is issued by a thread that ACTUALLY holds the
-     target frame's `:drain-lock` right now — the ONLY condition under which
-     acquiring `fanout-monitor` could close the rf2-jl75r AB-BA cycle. Such an emit
-     MUST drive its fan-out INLINE (off the monitor): a listener already holding
-     the monitor is allowed to `dispatch-sync` into that same frame and would spin
-     on its `:drain-lock`, and if the emitting drainer thread then blocked
-     acquiring the monitor neither could progress. Driving inline removes the
-     drain-lock↔monitor edge entirely.
+   (def ^:private ^ThreadLocal deferred-drain-fanout
+     "When set, the post-drain deferral scope for THIS thread: a volatile FIFO
+     vector of `[event continue? entries]` triples awaiting listener delivery.
 
-     The discriminator is REAL LOCK-OWNERSHIP EVIDENCE, not event-shape inference
-     (rf2-rakqk). The emit's target frame is resolved exactly as `push-to-ring!`
-     routes to a per-frame ring — an explicit `[:tags :frame]`, a top-level
-     `:frame`, or the in-flight run's `frame/*current-frame*` (the
-     `:frame/current-frame-id` hook) — and we then ask the frame engine whether
-     THIS thread owns that frame's single-drainer serialization (the
-     `:frame/thread-owns-drain-serialization?` hook: true iff the thread is the
-     frame's active event drainer `:in-drain?`, OR the holder of a cold
-     `call-serialized-with-drain!` critical section `:serialized-holder` — the two
-     paths that take the frame's `:drain-lock`). Every genuine drain / settle /
-     teardown emit — including the epoch cascade trailers (`:rf.epoch/snapshotted`
-     / `:rf.epoch/outcome`, which fire AFTER the buffer is harvested with a nil
-     dispatch-id yet carry a top-level `:frame` and run on the drainer thread while
-     `:in-drain?` is stamped) and the retentionless structural terminals
-     (`:rf.frame/destroyed` / `:rf.frame/drain-interrupted`, carrying `:frame` and
-     emitted while the drain / destroy path owns the serialization) — resolves its
-     frame and reports true, so it stays off the monitor and the deadlock cannot
-     form.
+     `call-with-deferred-fanout` sets it around each region in which the thread
+     can hold a frame's `:drain-lock` — `re-frame.router/drain-try!` /
+     `drain-block!` and `re-frame.frame/call-serialized-with-drain!`, each
+     bracketing its whole acquire → run → release — and flushes the batch under
+     `fanout-monitor` on the way out. So `set` is exactly \"this thread may
+     currently own a drain-lock\", which is why the outermost emit branch below
+     needs no frame resolution and no ownership probe: an emit that finds this nil
+     PROVES its thread holds no drain-lock and may safely block on the monitor.
 
-     A frame-SHAPED emit that is NOT under a held drain-lock — a public / manual /
-     stale / malformed `:frame` tag, an ambient-frame tool emit, a retained-frame
-     `trace/emit!` outside any drain — owns NO lock, so it reports false and
-     serializes on the monitor like every other clean emit. This RESTORES the
-     rf2-uw7hg whole-fanout serial law the prior event-shape heuristic lost for
-     those emits: event payload shape can no longer opt an emit out of
-     serialization. A frameless clean emit resolves no frame and likewise
-     serializes.
-
-     Because the evidence is exact, deadlock-freedom holds unconditionally: a
-     false result PROVES the thread holds no drain-lock (so no AB-BA edge through
-     the monitor), and a true result drives inline (so no monitor is acquired at
-     all).
-
-     JVM-only: the `:cljs` outermost arm has no monitor, so it needs no predicate."
-     [event]
-     (when-let [frame-id (or (get-in event [:tags :frame])
-                             (:frame event)
-                             (when-let [current-frame
-                                        (late-bind/get-fn-cached :frame/current-frame-id)]
-                               (current-frame)))]
-       (boolean
-         (when-let [owns? (late-bind/get-fn-cached
-                            :frame/thread-owns-drain-serialization?)]
-           (owns? frame-id))))))
+     A `ThreadLocal`, deliberately NOT a `^:dynamic` Var. Drain-lock ownership is
+     a property of a THREAD, and a Var binding is a property of a logical call
+     context that Clojure will happily CONVEY to other threads: JVM
+     `re-frame.interop/next-tick` and `set-timeout!` both wrap their callback in
+     `bound-fn`. An `ensure-drain-scheduled!` issued mid-drain would therefore
+     hand the executor thread the draining thread's scope, and an armed
+     `:dispatch-later` would hand it to the timer thread — each then appending its
+     own, entirely unrelated, trace events to a batch whose owner has long since
+     flushed and walked away. Those events would never be delivered to any
+     listener. A `ThreadLocal` is not conveyed, so a scheduled task starts clean
+     and opens its own scope. Cleared with `.remove` on the way out, so the flush
+     — and any drain a listener body starts from it — sees no scope. JVM-only:
+     CLJS has no concurrent drains and keeps the historical inline delivery."
+     (ThreadLocal.)))
 
 (defn- drive-fanout!
   "Drive the shared fan-out schedule `ctx` to completion: deliver every queued
@@ -938,19 +926,127 @@
 (defn- run-outermost-fanout!
   "Seed a fresh fan-out schedule for `event`, bind it as `*fanout-ctx*` so
   reentrant emits from listener bodies advance the SAME schedule, and drive it to
-  completion. On the JVM an emit whose thread does NOT own the target frame's
-  drain-lock runs this under `fanout-monitor` so concurrent emits serialize
-  (rf2-uw7hg); an emit that DOES own it (`emit-under-owned-drain-lock?`) runs it
-  inline, off the monitor, to break the drain-lock↔monitor cycle (rf2-jl75r /
-  rf2-rakqk — see the `deliver-to-tooling!` outermost branch). Either way the
-  binding + drive are the whole critical section."
-  [event continue?]
-  (let [ctx {:q       (volatile! [[event continue?]])
-             :head    (volatile! 0)
-             :entries (volatile! nil)
-             :lcursor (volatile! 0)}]
-    (binding [*fanout-ctx* ctx]
-      (drive-fanout! ctx))))
+  completion. Always runs under `fanout-monitor` on the JVM so concurrent emits
+  serialize (rf2-uw7hg) — either directly (a clean emit) or inside the post-drain
+  flush of a deferred batch (rf2-wxy1c); see the `deliver-to-tooling!` outermost
+  branch. The binding + drive are the whole critical section.
+
+  `entries` pre-seeds the listener snapshot for THIS event instead of letting the
+  driver take one at delivery time. The post-drain flush passes the snapshot
+  captured when the event was APPENDED, so a deferred delivery reaches exactly the
+  listeners an inline delivery would have; nil (the default) keeps the ordinary
+  snapshot-at-delivery behaviour. Reentrant events queued behind this one always
+  re-snapshot — the driver resets `:entries` to nil as it advances."
+  ([event continue?] (run-outermost-fanout! event continue? nil))
+  ([event continue? entries]
+   (let [ctx {:q       (volatile! [[event continue?]])
+              :head    (volatile! 0)
+              :entries (volatile! entries)
+              :lcursor (volatile! 0)}]
+     (binding [*fanout-ctx* ctx]
+       (drive-fanout! ctx)))))
+
+#?(:clj
+   (defn- deferred-continue
+     "Wrap an appended event's `continue?` snapshot so deferral cannot change
+     WHETHER the event is delivered — only when.
+
+     Under inline delivery the driver's first `continue?` check happens in the
+     same breath as `deliver!`'s own `(continuing?)` gate, so it always passes;
+     only a LISTENER acting during the fan-out can flip it and suppress the
+     remaining listeners (rf2-eaxnai). Deferral opens a gap: the rest of the drain
+     runs before the first check, so an incarnation this drain destroys later
+     would retroactively cancel a fan-out that was already authorised at emission
+     — silently dropping the event.
+
+     The latch restores the inline reading exactly: the first check (before the
+     first listener) passes unconditionally, and every check thereafter — i.e.
+     after a listener body has actually run — consults the live predicate. So
+     rf2-eaxnai's mid-fan-out suppression is preserved while the pre-fan-out gap
+     the deferral introduced is closed."
+     [continue?]
+     (let [delivered (volatile! false)]
+       (fn []
+         (if @delivered
+           (continue?)
+           (do (vreset! delivered true) true))))))
+
+#?(:clj
+   (defn- flush-deferred-fanout!
+     "Deliver a drain's appended trace events to their listeners at the post-drain
+     boundary. The caller has already released the frame's `:drain-lock`, so this
+     is the first point at which arbitrary listener code may run and the first at
+     which blocking on `fanout-monitor` is safe.
+
+     The whole batch is flushed under ONE monitor hold, so a drain's traces reach
+     every listener contiguously and in emission order rather than interleaved
+     with a concurrent drain's. Each event is driven through its own outermost
+     schedule under the listener snapshot taken when it was appended, so a
+     listener's reentrant emit is scheduled against that event exactly as it would
+     have been inline. The drain loop re-reads `pending` so an append that somehow
+     raced the flush still settles here — exactly once — rather than being
+     stranded."
+     [pending]
+     (when (seq @pending)
+       (locking fanout-monitor
+         (loop []
+           (let [batch @pending]
+             (when (seq batch)
+               (vreset! pending [])
+               (doseq [[event continue? entries] batch]
+                 (run-outermost-fanout! event continue? entries))
+               (recur))))))))
+
+(defn ^:no-doc call-with-deferred-fanout
+  "Run `f` as one post-drain listener-delivery region: trace events emitted inside
+  it by a thread that owns a frame's `:drain-lock` are appended rather than fanned
+  out, and the batch is delivered here, on the way out, under `fanout-monitor`.
+
+  Wrap the WHOLE acquire → run → release region of every path that takes a
+  `:drain-lock` (`re-frame.router/drain-try!` / `drain-block!` and
+  `re-frame.frame/call-serialized-with-drain!`). Two properties of that placement
+  are load-bearing (see the seam note above): the scope must OPEN before the
+  acquire, so no drain-owned emit can escape deferral and block on the monitor
+  while holding a lock; and it must CLOSE after the release, so the flush — which
+  runs arbitrary listener code and does block on the monitor — owns no lock. The
+  flush runs in a `finally`, so a drain that throws still settles its traces
+  exactly once.
+
+  `flush-scope` receives the flush thunk and must run it under the ORDINARY
+  delivery scope `re-frame.trace/deliver!` establishes around an inline fan-out —
+  epoch capture, frame policy and ring retention restored to their defaults, and
+  the exact-owner continuation neutralised (rf2-vf2qke / rf2-eaxnai), so a
+  listener's nested authored work is not strangled by the scope the DRAIN was
+  running under. Inline delivery gets that binding for free because the fan-out
+  happens inside `deliver!`; a deferred fan-out happens after `deliver!` has
+  returned, so the scope has to be re-established here. It is supplied as an
+  argument because those dynamic vars are private to `re-frame.trace`, which this
+  sibling deliberately cannot see — the same reason `deliver!` passes `retain?`
+  and `continue?` explicitly rather than letting this ns read them.
+
+  Nesting is inherited, not re-established: a reentrant drain (`drain-reentrant!`
+  under a cold serialized section, an `:rf.fx/reg-flow` mid-drain) already runs
+  inside its owner's scope and appends to the same batch, which the OWNER flushes
+  once it has dropped the lock.
+
+  JVM-only behaviour. CLJS has no concurrent drains, no monitor, and keeps its
+  historical inline delivery, so this is the identity call there — and in
+  production, where the trace fan-out is elided entirely."
+  [f flush-scope]
+  #?(:clj  (if (or (not interop/debug-enabled?)
+                   (.get deferred-drain-fanout))
+             (f)
+             (let [pending (volatile! [])]
+               (try
+                 (.set deferred-drain-fanout pending)
+                 (f)
+                 (finally
+                   ;; Clear BEFORE flushing: the flush runs listener bodies, and a
+                   ;; listener that dispatches must open its own scope rather than
+                   ;; append to the batch currently draining.
+                   (.remove deferred-drain-fanout)
+                   (flush-scope #(flush-deferred-fanout! pending))))))
+     :cljs (f)))
 
 (defn- deliver-to-tooling!
   "Push `event` onto its in-flight frame's run-keyed ring (when the run has a
@@ -998,28 +1094,28 @@
          nil)
      ;; Outermost fan-out.
      ;;
-     ;; An emit issued by a thread that ACTUALLY holds the target frame's
-     ;; `:drain-lock` (`emit-under-owned-drain-lock?` — resolved from REAL
-     ;; lock-ownership evidence, not event-shape inference; rf2-rakqk) MUST NOT
-     ;; block acquiring `fanout-monitor`: a listener already holding the monitor is
-     ;; free to `dispatch-sync` into that same frame and spin on its `:drain-lock`,
-     ;; closing a hard AB-BA cycle (rf2-jl75r). Such an emit drives its fan-out
-     ;; inline — exactly as the single-threaded CLJS host always does — so no
-     ;; process-global lock is ever held by, or awaited by, a drain-lock-owning
-     ;; emit. This is the "no fan-out lock across arbitrary listener code that may
-     ;; dispatch-sync into the draining frame" seam.
+     ;; A thread inside a deferral scope may currently own a frame's `:drain-lock`
+     ;; (`call-with-deferred-fanout` brackets every acquire → run → release
+     ;; region), so it MUST NOT block acquiring `fanout-monitor`: a listener
+     ;; already holding the monitor is free to `dispatch-sync` into that frame and
+     ;; spin on its `:drain-lock`, closing a hard AB-BA cycle (rf2-jl75r). Such an
+     ;; emit APPENDS instead — capturing the listener snapshot and latching
+     ;; `continue?` so the deferred delivery reaches exactly what an inline one
+     ;; would have — and the post-drain flush delivers it under the monitor once
+     ;; the lock is released, before the enclosing dispatch / drain returns
+     ;; (rf2-wxy1c). No lock is held by, or awaited by, a drain-owned emit.
      ;;
-     ;; Every OTHER outermost emit — a frameless external/clean emit, AND a
-     ;; frame-shaped emit whose thread does NOT hold that frame's drain-lock (a
-     ;; public/manual/stale `:frame` tag, an ambient-frame tool emit) — serializes
-     ;; on `fanout-monitor` across concurrent emits (rf2-uw7hg) so no listener
-     ;; callback overlaps itself and records reach each listener in
-     ;; monitor-acquisition order; the monitor is held for that whole drive. Such a
-     ;; thread holds no `:drain-lock`, so nothing waits on it through one and the
-     ;; drain-lock↔monitor cycle cannot form. CLJS is single-threaded and runs
-     ;; every outermost emit inline with no monitor.
-     #?(:clj  (if (emit-under-owned-drain-lock? event)
-                (run-outermost-fanout! event continue?)
+     ;; Every OTHER outermost emit is, by that same bracketing, provably issued by
+     ;; a thread holding NO drain-lock — so it serializes on `fanout-monitor`
+     ;; across concurrent emits (rf2-uw7hg) with the monitor held for the whole
+     ;; drive, and nothing can wait on it through a drain-lock. CLJS is
+     ;; single-threaded, never opens a deferral scope, and runs every outermost
+     ;; emit inline with no monitor.
+     #?(:clj  (if-let [pending (.get deferred-drain-fanout)]
+                (do (vswap! ^clojure.lang.Volatile pending conj
+                            [event (deferred-continue continue?)
+                             (vec (seq @listeners))])
+                    nil)
                 (locking fanout-monitor (run-outermost-fanout! event continue?)))
         :cljs (run-outermost-fanout! event continue?)))))
 

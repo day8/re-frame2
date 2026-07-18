@@ -21,17 +21,19 @@
   A deterministic latch probe below starts two `{:frame :rf/default}`-tagged
   emits on two threads while the first listener callback is latched. Pre-fix the
   second entered the callback while the first was still in flight (max concurrent
-  invocations 2). With the drain-lock OWNERSHIP discriminator
-  (`re-frame.trace.tooling/emit-under-owned-drain-lock?`), neither emitting thread
-  owns `:rf/default`'s drain-lock (no drain is in flight), so both serialize on
-  the monitor: the second is BLOCKED contending for it until the first callback
-  returns. max concurrent invocations 1, strict A-before-B.
+  invocations 2). Post-fix neither emitting thread is inside a drain — no
+  `:drain-lock` region, so no post-drain deferral scope
+  (`re-frame.trace/call-with-deferred-listener-delivery`, rf2-wxy1c) — so both
+  emits take the ordinary clean-emit path and serialize on the monitor: the second
+  is BLOCKED contending for it until the first callback returns. Max concurrent
+  invocations 1, strict A-before-B. Event payload SHAPE never enters the routing
+  decision, which is the law this suite pins.
 
-  The complementary law — an emit that GENUINELY owns the target drain-lock (an
-  in-run / settle / teardown emit on the drainer thread) still drives inline and
-  never deadlocks against a listener's `dispatch-sync` — is pinned by
-  `re-frame.trace-listener-drain-deadlock-test` (rf2-jl75r) and is deliberately
-  not duplicated here.
+  The complementary laws — a drain-owned emit never deadlocks against a
+  listener's `dispatch-sync` (`re-frame.trace-listener-drain-deadlock-test`,
+  rf2-jl75r), and two concurrent drains of DIFFERENT frames never overlap one
+  listener (`re-frame.trace-listener-concurrent-drain-serialization-test`,
+  rf2-wxy1c) — are pinned by those suites and deliberately not duplicated here.
 
   JVM-only (`.clj`): CLJS is single-threaded, has no monitor, and cannot race two
   emits — the overlap cannot manifest there."

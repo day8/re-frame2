@@ -1639,7 +1639,25 @@
     (rf/dispatch-sync [:destroy/trace-fanout-event] {:frame trace-id})
     (is (zero? @trace-sibling)
         "later snapshotted trace listeners stop after listener #1 loses A")
-    (is (zero? @handler-runs) "no handler starts after run-start delivery lost A")
+    ;; rf2-wxy1c: the trace fan-out for a drain-owned emit no longer runs INSIDE
+    ;; the drain — it is deferred to the post-drain boundary, because the
+    ;; framework must never invoke (nor await) arbitrary listener code while it
+    ;; owns a frame's `:drain-lock`. A trace listener therefore observes
+    ;; `:rf.event/run-start` AFTER the cascade has settled and can no longer veto
+    ;; the handler it names. That back-pressure was never a contract — Spec 009
+    ;; listeners are observers of the stream, not participants in the cascade —
+    ;; and removing it is precisely what closes the drain-vs-drain overlap
+    ;; (`re-frame.trace-listener-concurrent-drain-serialization-test`).
+    ;;
+    ;; The suppression that IS contract still holds, and is asserted above and
+    ;; below: within a single fan-out, listener #1 losing A stops the REMAINING
+    ;; listeners (`@trace-sibling`), and the always-on `:events` / `:errors`
+    ;; families — which are not deferred — keep their full synchronous
+    ;; suppression semantics.
+    (is (= 1 @handler-runs)
+        (str "the handler runs: a deferred trace listener destroying the frame "
+             "at the post-drain boundary cannot retract a cascade that has "
+             "already settled (rf2-wxy1c)"))
 
     (rf/make-frame {:id event-id})
     (rf/reg-event :destroy/event-fanout-event (fn [_ _] {}))
