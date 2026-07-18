@@ -2,7 +2,7 @@
 
 Maven artefact: `day8/re-frame2-reagent`. Target: Reagent 2.x on React 19. Public ns: `re-frame.adapter.reagent`.
 
-This is the stock-Reagent compatibility adapter. New UI work defaults to `re-frame.ui`; this adapter keeps existing classic Reagent views working while they migrate. It implements the contract from [Spec 006 — Reactive substrate](../../../spec/006-ReactiveSubstrate.md) on top of Reagent's RAtom/Reaction graph and React commit lifecycle.
+This is the stock-Reagent adapter — a first-class, actively-supported view substrate for re-frame2, and the canonical adapter the reference test suite runs against. (`re-frame.ui` is a *new, experimental* compiled-view substrate offered alongside it, not a replacement — [EP-0030](../../../docs/EP/EP-0030-the-compiled-view-substrate-program.md) Resolved Decisions, 2026-07-17.) It implements the contract from [Spec 006 — Reactive substrate](../../../spec/006-ReactiveSubstrate.md) on top of Reagent's RAtom/Reaction graph and React commit lifecycle.
 
 See [`../README.md`](../README.md) for the wider adapter tier and the substrate contract; [Spec 004 — Views](../../../spec/004-Views.md) for `reg-view` / `reg-view*` semantics.
 

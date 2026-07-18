@@ -101,10 +101,11 @@ user-facing implementor docs and asserts:
      silence `render!*`'s uncredited render), and reader-discarded (`#_`) /
      dead-conditional (`(when false ...)`) preflights are neutralized before the
      scan and never count. It stays a bounded lexical bracket-matcher; no general
-     Markdown or full Clojure parser is added. (The Reagent-frozen /
-     UIx+Helix-retiring *status* arm over
-     `spec/Conventions.md` is a deliberate follow-up, not scanned here — see the
-     rf2-vxgfnd.278 PR body.)
+     Markdown or full Clojure parser is added. (Adapter *status* — which
+     adapters live on and which are removed — is not scanned here: it is owned
+     by `scripts/check_adapter_disposition.py`, per rf2-vxgfnd.290. The
+     `[REACT-ADAPTERS]` token below is a lifecycle-PARTITION marker, not a
+     status label.)
 
 Exit code:
     0  no drift detected
@@ -751,16 +752,16 @@ def lifecycle_realization_problems(
                     "host preflight, scope-only emit, evidence-only commit, "
                     "`:mount-incomplete` on abort, `:refresh` on same-owner reconfig)."
                 )
-        # L2 — legacy `[TRANSITION]` React-adapter realization present + distinct.
+        # L2 — `[REACT-ADAPTERS]` React-adapter realization present + distinct.
         for token, label in (
-            ("[TRANSITION]", "the `[TRANSITION]` legacy-adapter label"),
-            ("useLayoutEffect", "the legacy commit-owned `useLayoutEffect` two-pass timing"),
-            (":rf.error/frame-root-reconfigured", "the legacy reconfiguration error"),
+            ("[REACT-ADAPTERS]", "the `[REACT-ADAPTERS]` React-adapter label"),
+            ("useLayoutEffect", "the commit-owned `useLayoutEffect` two-pass timing"),
+            (":rf.error/frame-root-reconfigured", "the React-adapter reconfiguration error"),
         ):
             if token not in phase2:
                 problems.append(
-                    "LIFECYCLE-LEGACY-COLLAPSED: phase-2-impl-order.md is missing "
-                    f"{label} — the `[TRANSITION]` frozen-Reagent / retiring-UIx+Helix "
+                    "LIFECYCLE-REACT-ADAPTERS-COLLAPSED: phase-2-impl-order.md is missing "
+                    f"{label} — the `[REACT-ADAPTERS]` Reagent / reagent-slim / UIx "
                     "realization must not disappear or collapse into the compiled one "
                     "(commit-owned two-pass layout-effect ENSURE, discarded-render zero "
                     "writes, `:rf.error/frame-root-reconfigured` on mounted reconfig)."
@@ -1083,8 +1084,8 @@ def _self_test() -> int:
     good_phase2 = (
         "runs them through `re-frame.ui.frames/execute-frame-plans!` before "
         "`createRoot`. ENSURE is host preflight, never render (#5711). An aborted "
-        "host attempt may leave `:mount-incomplete`. **`[TRANSITION]` frozen "
-        "Reagent** — ENSURE runs only from a client `useLayoutEffect`, and a "
+        "host attempt may leave `:mount-incomplete`. **`[REACT-ADAPTERS]` Reagent "
+        "/ reagent-slim / UIx** — ENSURE runs only from a client `useLayoutEffect`, and a "
         "mounted reconfiguration fails loud with `:rf.error/frame-root-reconfigured`. "
         "See [§frame-root](https://day8.github.io/re-frame2/spec/002-Frames/"
         "#frame-root--the-ensure-component-cljs-reference) and "
@@ -1185,11 +1186,11 @@ def _self_test() -> int:
     )
     expect_lifecycle(
         {"phase2": good_phase2.replace(":rf.error/frame-root-reconfigured", "some refresh")},
-        dirty=True, label="G3 legacy reconfiguration error removed",
+        dirty=True, label="G3 React-adapter reconfiguration error removed",
     )
     expect_lifecycle(
-        {"phase2": good_phase2.replace("[TRANSITION]", "current")},
-        dirty=True, label="G4 [TRANSITION] label removed",
+        {"phase2": good_phase2.replace("[REACT-ADAPTERS]", "current")},
+        dirty=True, label="G4 [REACT-ADAPTERS] label removed",
     )
     expect_lifecycle(
         {"phase2": good_phase2.replace("#frame-root--the-ensure-component-cljs-reference", "#gone")},

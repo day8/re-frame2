@@ -127,27 +127,33 @@ written down (it is what keeps resumability research-tier).
 | R-6 | Packaging | **Separate artifact, lockstep release train initially** (core and UI protocols are co-evolving; no independently-moving versions yet). Do **not** casually revisit at alpha — coordinate changes stop being free exactly then; a future umbrella coordinate can give "one dependency" without collapsing the architecture. |
 | R-7 | Frame chain | **The staged chain (recorded on the beads):** h1-foundation (`upsert-frame!` + registrar/source-store fencing) → nyea0r (frame-root/provider split; commit-owned two-pass ENSURE for current adapters, host/compiler preflight for the new substrate; no byte-identical clause) → h1 public removal (callers → public `make-frame`; teaching surfaces straight to `frame-root`) → y6dz8t. |
 | — | Presence | **`ui/presence` wrapper, no reserved nodes.** `:timeout-ms` (unit-suffixed); completion on transition/animation end with the timeout as mandatory safety bound; keyed children required, fail-loud; `presence-phase` is the single phase read and returns `:present` outside a boundary (reusable children); Xray identity = presence-site + occurrence key. |
-| — | Adapters | **`re-frame.ui` is the optimized/default/only taught view layer. Stock Reagent and UIx are frozen compatibility adapters; Helix + reagent-slim are removed** after the proof/default/soak gates: RealWorld-resources green · Story + Xray green · SSR/hydration + HMR matrices green · production-specialization + bundle-absence gates green · template/docs/examples default to `re-frame.ui` · zero repo-owned non-historical Helix/reagent-slim imports · **soak: two consecutive green nightlies + one week of repo work with no fallback**. **The compatibility adapters:** correct but frozen — a pinned contract suite + one browser smoke **for each** stay in CI; bugs are fixed to preserve the pinned contract; no new capabilities and no parity promise with `ui` features, performance, debugging, examples, or templates (presence, causes, static interaction surfaces are `ui`-only); `reg-view` freezes with stock Reagent; UIx remains governed primarily by Spec 006 plus its API/Conventions/Ownership rows; one minimum compatibility reference makes the two choices discoverable without teaching them. **Why (named consumers):** Reagent + re-com enable the two-step migration for existing v1 apps, including Mike's own re-com apps; existing UIx apps retain a correct re-frame2 boot choice without pulling UIx into the forward product surface. `ui` never depends on either compatibility adapter (G-12 holds at the artifact level). **The v1 runtime law is unchanged:** exactly one adapter is installed per process, chosen at boot from `ui/adapter`, `reagent-adapter/adapter`, or `uix-adapter/adapter`; there is no per-frame or within-frame adapter coexistence. `ui/raw` / `ui/->react` and ordinary foreign React-component interop do not select or install another adapter. Keep: the Reagent and UIx artifacts/public exports, Spec 006 contracts, plain-atom, their pinned compatibility suites and smokes, UIx classpath/classifier/release leaves, benchmark results + fixtures, a git tag of the removed Helix/slim surfaces, and slim's rationale docs. |
+| — | Adapters | **SUPERSEDED ON THE ADAPTER-DISPOSITION POINT (Mike, 2026-07-17; see [EP-0030](../../../docs/EP/EP-0030-the-compiled-view-substrate-program.md) §Resolved Decisions — the source of record).** The current ruling: **`re-frame.ui` is a new, EXPERIMENTAL view substrate offered alongside the existing adapters** — not a mandated replacement, not the default, and not the only taught view layer. **Stock Reagent, reagent-slim, and UIx live on as first-class, actively-supported adapters** — not frozen, not scheduled for removal — keeping their contract suites plus one browser smoke each. **Only Helix is removed**, behind the unchanged soak gates: RealWorld-resources green · Story + Xray green · SSR/hydration + HMR matrices green · production-specialization + bundle-absence gates green · zero repo-owned non-historical Helix imports · **soak: two consecutive green nightlies + one week of repo work with no fallback**. **The technical interop boundary is unchanged:** `ui` never depends on another adapter (G-12 holds at the artifact level). **The v1 runtime law is unchanged:** exactly one adapter is installed per process, chosen at boot from `ui/adapter`, `reagent-adapter/adapter`, `reagent-adapter/adapter` (slim variant, by coordinate), or `uix-adapter/adapter`; there is no per-frame or within-frame adapter coexistence. `ui/raw` / `ui/->react` and ordinary foreign React-component interop do not select or install another adapter. Keep: the Reagent, reagent-slim, and UIx artifacts/public exports, Spec 006 contracts, plain-atom, their suites and smokes, classpath/classifier/release leaves, benchmark results + fixtures, and a git tag of the removed Helix surfaces. |
 | — | Proof app | **RealWorld-resources** (leases, auth/classified data, machines, routing, mutations, async settlement). Don't distort it toward features it doesn't need — those stay conformance/testbed cases. **One vertical page migrates at Stage 3** to surface ergonomic problems early; the full app is the Stage-6 proof. RealWorld-http follows as ordinary migration, not a second gate. |
 | — | Budget | **B-lite:** one worker on S-1 (codegen, **carrying S-4 dual-host as its second phase** — the codegen worker naturally builds both emitters), one on S-3 (observation/concurrency, carrying **S-2 push-falsification and S-5 input-synchrony as riders** on its harness). Other slots stay on correctness/ordinary work. No production Stage 1 until **all five spikes** pass (via those two workers) **and** the R-1/R-2 drafts are reconciled. Never saturate all six slots on the substrate pre-proof. Paper (spec drafts) proceeds immediately; hot-zone spec merges only with their conformance slice and a free surface. |
 
-## 6. What this replaces
+## 6. What this adds
 
-On alpha: **Helix and reagent-slim exit**; **Reagent and UIx stay as frozen
-compatibility adapters** (one pinned contract suite + one smoke each, one minimum
-compatibility reference, zero primary examples/templates/teaching). UIx therefore exits
-the primary examples and guide path, but its artifact, public exports, classpath probe,
-compatibility coverage, smoke, classifier arm, and release test/deploy leaf remain.
-`re-frame.ui` is the only taught way and the only recipient of new capabilities,
-performance work, debugging integration, examples, and templates. The headline external
-story becomes the **two-step migration**: (1) a v1 Reagent/re-com app moves its dataflow
-to re-frame2 keeping its views on the compat tier — gaining Xray/epochs/Story/schemas/
+**SUPERSEDED ON THE ADAPTER-DISPOSITION POINT (Mike, 2026-07-17; see
+[EP-0030](../../../docs/EP/EP-0030-the-compiled-view-substrate-program.md)
+§Resolved Decisions — the source of record). This section formerly read "What this
+replaces" and described a freeze/deletion wave; `re-frame.ui` replaces nothing.**
+
+On alpha: **only Helix exits.** **Reagent, reagent-slim, and UIx stay as first-class,
+actively-supported adapters** — not frozen, not scheduled for removal — keeping their
+contract suites, smokes, artifacts, public exports, classpath probes, classifier arms,
+and release test/deploy leaves. `re-frame.ui` ships as a **new, experimental** additional
+option; it is not the default and not the only taught view layer. The headline external
+story is the **two-step migration** available to v1 apps that want it: (1) a v1
+Reagent/re-com app moves its dataflow to re-frame2 keeping its views on Reagent —
+gaining Xray/epochs/Story/schemas/
 machines immediately; (2) views migrate to `ui` per subtree, later, with the migrator
 ([10-migration-from-reagent.md](10-migration-from-reagent.md)); re-com widgets are the
 last movers (Reagent islands / foreign heads until the `ui`-native answer lands — that
 answer is now a **directed program**: the re-com native-port epic `rf2-6ajm6z`, Wave 0
 gated on the `ai/decisions/re-com-readiness.product-rulings.md` register; substrate
-readiness rides S3 per `drafts/component-library-readiness.md`, 2026-07-16). **The repo's own migration** (examples, testbeds, Story/Xray
-scenes, guides — all primary surfaces to `ui`) remains the budgeted Stage-6 workstream.
+readiness rides S3 per `drafts/component-library-readiness.md`, 2026-07-16). **The repo's own adoption** (examples, testbeds, Story/Xray
+scenes, guides exercising `ui` where it earns its place) remains the budgeted Stage-6
+workstream — adoption of an experimental option, not a forced migration off the
+retained adapters.
 Every process still installs exactly one adapter; those rendering boundaries are React
 interop, not per-subtree adapter selection.
