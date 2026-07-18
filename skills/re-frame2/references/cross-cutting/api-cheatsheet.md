@@ -80,7 +80,7 @@ Production fx surface: `re-frame.http.managed`. Test surfaces (canned-stub fxs +
 | `rf/with-managed-request-stubs` | macro: `(stubs & body)` — needs `re-frame.http.test-support` in require closure |
 | `rf/with-managed-request-stubs*` | fn: `(stubs thunk)` — needs `re-frame.http.test-support` |
 | `http-test-support/install-managed-request-stubs!` / `uninstall-managed-request-stubs!` | per-call fx-overrides — **not** on the `rf/` façade; call through `re-frame.http.test-support` |
-| `rf/clear-http-interceptor` | `(id)` / `(frame id)` — production surface, `re-frame.http.managed` |
+| `rf/clear-http-interceptor` | `(id)` / `(id {:frame target})` — production surface, `re-frame.http.managed`. Single-arity clears in the carried scope (under no scope raises `:rf.error/no-frame-context`, never synthesises `:rf/default`); the two-arity opts map is fail-closed — EXACTLY `{:frame target}`, so `{}`, `{:frame nil}`, a typo'd/extra key and a non-map all raise `:rf.error/http-bad-interceptor` **before** any ambient frame resolves. Frame-first `(frame id)` is the artefact-internal `clear-http-interceptor*` seam (used by the `:rf.fx/clear-http-interceptor` fx), **not** a public arity |
 
 ## Test support — `re-frame.test-support` (see `cross-cutting/testing.md`)
 
