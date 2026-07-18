@@ -48,7 +48,8 @@ Epic `EPIC: re-frame.ui program` with per-stage children. Sequencing constraints
   package.json); (2) AST + analyzer + CLJS emitter + JVM emitter (no reactivity;
   includes the `spread` conversion path and `ui/html` + escaping — moved here from S4,
   08 §2 wins); (3) compile-error roster + didactic messages; (4) `ui.test`
-  render/find/text over JVM trees; (5) parity corpus v0; (6) **interim Spec-004
+  render/find/text over JVM trees plus frame-targeted synchronous `dispatch!`;
+  (5) parity corpus v0; (6) **interim Spec-004
   amendment merges here**, full 004 rewrite merges **atomically with the slice's
   conformance fixtures**; (7) G-1 wired, and G-14 only in its `defview` expansion-p95
   arm — the other two arms (watch-loop rebuild delta, guide-fixtures CI cost) stay named

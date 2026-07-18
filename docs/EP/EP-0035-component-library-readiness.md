@@ -132,9 +132,9 @@ props · pure render slots · registered stateful views (gated).
 
 ### P1 — two library-facing contracts
 
-**P1-4 · Literal safe-spread policy.** A policy form joins `ui/spread` (exact
-spelling — second arity vs sibling name — decided at spec landing) with
-compiler-visible allow/deny: denied structural/controlled/identity keys
+**P1-4 · Literal safe-spread policy.** A policy form joins `ui/spread` as a
+**distinct sibling name** — landed at spec landing as `ui/spread-safe`, not as a
+second `spread` arity — with compiler-visible allow/deny: denied structural/controlled/identity keys
 (`:key` `:ref` `:value` `:checked` owned `:on-*`) are rejected in **every
 build**, never dev-only; allowed `:on-*` values classify through the handler
 decision table; `aria-*`/`data-*`/`title`/class/style pass through per the
@@ -256,9 +256,11 @@ convention (below) is publishable ahead of Wave 3.
 
 ## Open Issues
 
-None open at acceptance. Two spellings defer to spec landing as mechanical
-choices (`ui/slot`'s final name; safe-spread second arity vs sibling name);
-the gated candidates each carry a recorded ruling and trigger.
+None open at acceptance. The two spellings that deferred to spec landing as
+mechanical choices are **now settled**: the render-slot invocation landed as
+`ui/slot`, and the safe-spread form landed as the sibling name `ui/spread-safe`
+(the second-arity option was not taken). The gated candidates each carry a
+recorded ruling and trigger.
 
 ## Resolved Decisions
 

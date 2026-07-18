@@ -624,7 +624,9 @@ are [TRANSITION] — they belong to the stock-Reagent compatibility tier, which 
 | **Tier 3 — mounted** | a mounted root (`with-root`) | browser/jsdom CI | a native CSS selector string, verbatim | host interop (real listeners, `(.-value el)`) |
 
 **S1 core surface (Tier-1, `.cljc`):** `render` / `find` / `find-all` / `query` / `text`
-/ `attrs`. `render` accepts a view reference or a literal root form. The literal form
+/ `attrs` / `dispatch!` — the last being frame-targeted synchronous dispatch-and-drain,
+which lands here and is unchanged by the S2 mounted slice. `render` accepts a view
+reference or a literal root form. The literal form
 uses the same top-region grammar `mount` takes, wrappers included, but Tier 1 tightens
 it to exactly one mounted internal view. Zero or two-plus views fail expansion with
 `:rf.ui.compile/bad-test-root`; wrap a multi-view composition in one `defview`. See
@@ -641,9 +643,9 @@ in a connected test container; awaits the initial mount; invokes and awaits the 
 value or Promise; then awaits teardown of the root and container on every exit. Success
 resolves to the awaited body value. A body error remains primary if cleanup also fails,
 with the cleanup failure retained as diagnostic evidence. `query` delegates a native
-CSS string to that container's `querySelector`. At S2, `ui.test/dispatch!` drives
-framework state programmatically; ordinary DOM properties and native events exercise
-mechanics already owned by the host or a foreign component. Compiled event-vector
+CSS string to that container's `querySelector`. Inside a mounted root, the S1
+`ui.test/dispatch!` drives framework state programmatically; ordinary DOM properties
+and native events exercise mechanics already owned by the host or a foreign component. Compiled event-vector
 delivery through native events rides the S3 committed-handler contract. There is no
 gesture DSL.
 
