@@ -100,7 +100,9 @@ existing automated guards did not catch (the no-bead-id guard was scoped to
      SENTENCE-scoped (a bounded recipe-sentence carve, NOT a general prose
      parser — a mixed Reagent+hooks line is checked per sentence): (6a) each
      authoritative leaf (`patterns/stateful-components.md`, `references/
-     fundamentals/frames.md`) MUST carry a COHERENT recipe sentence naming an
+     fundamentals/frames.md`, and — rf2-05kex — `references/fundamentals/
+     views.md`, whose per-adapter recipe table had drifted while its own
+     paragraph stayed lawful) MUST carry a COHERENT recipe sentence naming an
      ordinary `defui`/`defnc`, `use-subscribe`, AND `use-frame` together; (6b)
      no hooks-recipe sentence may carry a residue shape — a `:contextType`
      ATTRIBUTED to a hooks adapter (fires even under a stray far "not"; a
@@ -385,7 +387,9 @@ def managed_http_recipe_problems(text: str) -> list[tuple[int, str]]:
 #     real attribution.
 #
 #     6a — COHERENCE FLOOR. Each authoritative hooks-guidance leaf (patterns/
-#          stateful-components.md, references/fundamentals/frames.md) MUST carry
+#          stateful-components.md, references/fundamentals/frames.md, and
+#          references/fundamentals/views.md — the per-adapter recipe table leaf,
+#          anchored under rf2-05kex after its table row drifted) MUST carry
 #          at least one COHERENT recipe sentence naming an ordinary `defui` /
 #          `defnc`, `use-subscribe`, AND `use-frame` together — proving the
 #          relationship, not just the scattered presence of two tokens.
@@ -407,6 +411,12 @@ def managed_http_recipe_problems(text: str) -> list[tuple[int, str]]:
 HOOKS_LEAF_REQUIRED = (
     ("patterns", "stateful-components.md"),
     ("references", "fundamentals", "frames.md"),
+    # rf2-05kex — the views leaf carries the per-adapter recipe table. Its table
+    # row had drifted (an ordinary hooks view classified as `reg-view*` on a
+    # `defui` / `defnc`) while its own paragraph taught the lawful ordinary
+    # `defui`/`defnc` + `use-subscribe` + `use-frame` recipe — a contradiction the
+    # coherence floor missed because it did not anchor this leaf. Anchor it.
+    ("references", "fundamentals", "views.md"),
 )
 HOOKS_ADAPTER_RE = re.compile(r"\b(?:UIx|Helix)\b")
 # A "hooks-recipe sentence" names a hooks adapter OR one of the two hooks — so a
@@ -723,7 +733,7 @@ def find_drift(files: list[Path]) -> tuple[list[str], int]:
             for label in hooks_sentence_problems(sent):
                 problems.append(f"{rel}:{lineno}: {label}\n    {sent.strip()}")
 
-    # Rule 6a — COHERENCE FLOOR. The two authoritative hooks-guidance leaves must
+    # Rule 6a — COHERENCE FLOOR. The authoritative hooks-guidance leaves must
     # each carry a single COHERENT recipe sentence (ordinary `defui`/`defnc` +
     # `use-subscribe` + `use-frame` together), proving the relationship — not just
     # the scattered presence of two tokens (which a semantic reversal that names
