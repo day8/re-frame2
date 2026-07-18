@@ -410,12 +410,19 @@
   rule table (shared by `spread->props` and `spread-safe->props`): :class
   composes (`sugar-classes` first when supplied), :style px/name rules, on-*
   runtime handler classification, custom-element property classification by
-  `tag`, all other names through the attr conversion table. Returns `o`."
+  `tag`, all other names through the attr conversion table. Returns `o`.
+
+  Every key is FIRST put through `rules/assert-spread-prop-key!` — the runtime
+  half of the analyzer's literal rejected-spelling deny, which cannot see a map
+  built at runtime (rf2-5pr75). It runs BEFORE the cond (so no later branch —
+  including the custom-element property branch — can route around it) and in
+  EVERY build (so production is never less safe than dev)."
   [o tag sugar-classes m event-site-key debug-site]
   (let [property? (rules/custom-element-properties (keyword tag))]
     (when (and (some? sugar-classes) (not (contains? m :class)))
       (unchecked-set o "className" sugar-classes))
     (doseq [[k v] m]
+      (rules/assert-spread-prop-key! k)
       (let [n (name k)]
         (cond
           (= k :key)
