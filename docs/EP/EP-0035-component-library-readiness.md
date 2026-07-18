@@ -248,9 +248,9 @@ than tracking it.
 
 Spike/checkpoint beads live on the **program epic** (`rf2-vxgfnd`):
 `rf2-nzst23`, `rf2-1hm7a3`, `rf2-a62fje`, `rf2-efxb1h`, `rf2-ho1iba`. The
-re-com **port** is the separate epic `rf2-6ajm6z` (Wave 0 gated on the
-product register, now ruled — R-1..R-10 below); the substrate stage epic
-never blocks on component migration.
+re-com **port** is the separate epic `rf2-6ajm6z`, whose Wave-0 product
+register is resolved — the ten rulings R-1..R-10 below; the substrate stage
+epic never blocks on component migration.
 
 Guide-impact assessment (EP-0009 rule 5): the events guide gains the C-13b
 event-prefix convention; the interop guide gains the C-6 measure-before-paint

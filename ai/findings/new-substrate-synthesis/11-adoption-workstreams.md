@@ -2,11 +2,16 @@
 
 **Status:** final · 2026-07-11. 08 §2 budgets "migrate the repo" as a Stage-6
 workstream; this doc decomposes the full adoption surface so it can become stage epics.
-*[2026-07-16: the **re-com native port** is deliberately NOT a W-row here — it is a
-separate directed epic (`rf2-6ajm6z`, Wave 0 gated on
-`ai/decisions/re-com-readiness.product-rulings.md`) so component migration never
+*[2026-07-16, updated 2026-07-17: the **re-com native port** is deliberately NOT a W-row
+here — it is a separate directed epic (`rf2-6ajm6z`) so component migration never
 blocks a substrate stage; its substrate prerequisites ride S3 per
-`drafts/component-library-readiness.md`.]*
+`drafts/component-library-readiness.md`. Its Wave-0 product register is **resolved**:
+the ten rulings R‑1…R‑10 in
+[EP-0035](../../../docs/EP/EP-0035-component-library-readiness.md) §Resolved Decisions
+(durable source of record), restated in the epic's NOTES. What remains scheduled are
+per-wave **entry** decisions, not a Wave-0 gate: the Wave-2 input roster (R‑7), the
+Wave-4 foreign-engine selection (R‑5), the adoption-wave compat-tier policy, and the
+post-parity Bootstrap-layer removal (R‑10).]*
 Each row: what, when it starts, what gates it. Rule of thumb throughout: nothing here
 starts before the thing it documents/teaches/tests exists — but *none of it is optional*,
 and several items (ui.test, the migrator, skills) are on the critical path, not trailing
