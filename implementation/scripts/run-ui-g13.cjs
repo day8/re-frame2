@@ -39,6 +39,8 @@ const {
   summarizeWarm,
   assertColdIsFirstDrain,
   assertColdOrderControl,
+  assertTimedIntervalDidWork,
+  assertTimedRegionShape,
   buildSummary,
 } = require('./lib/g13-timing-evidence.cjs');
 
@@ -49,6 +51,12 @@ const DEV = path.join(OUT, 'ui-g13');
 const PROD = path.join(OUT, 'ui-g13-prod');
 const MINT_CONTROL = path.join(OUT, 'ui-g13-mint-control');
 const PROD_MANIFEST = path.join(PROD, 'manifest.edn');
+// rf2-a0i2y — the measured region's own source. The structural containment proof
+// reads it directly, so the claim "the dispatch and commit are inside the timed
+// span" rests on the fixture's shape rather than on samples that happen to pass.
+const DEV_FIXTURE_SOURCE = path.join(
+  IMPL, 'ui', 'g13', 're_frame', 'ui', 'g13', 'dev.cljs',
+);
 const REPORT = path.join(OUT, 'ui-g13.json');
 const TIMEOUT = 90000;
 const SENTINELS = [
@@ -406,6 +414,18 @@ function assertDevResult(result) {
     // proves the timer ran before any correctness dispatch or O(V) audit; a
     // nonzero value means the reported "cold" span is a warmed second dispatch.
     assertColdIsFirstDrain(size.cold, `V=${size.v} cold timing evidence`);
+    // rf2-a0i2y — and the cold interval must have CONTAINED that dispatch. The
+    // check above proves only which state PRECEDED the timed dispatch; it stays
+    // green for an interval that dispatched nothing, because the separate untimed
+    // correctness cycle supplies every projection either way. The timed cycle's
+    // own post-commit witness, read after its end timestamp, closes that: app-db
+    // :hot must have advanced by exactly queued-writes across the measured span.
+    assertTimedIntervalDidWork(
+      size.cold['timing-pre-hot'],
+      size.cold['timing-post-hot'],
+      result['queued-writes'],
+      `V=${size.v} cold timing evidence`,
+    );
     if (!Array.isArray(size.samples) || size.samples.length !== 9) {
       fail(`V=${size.v} did not retain exactly nine warm samples`);
     }
@@ -424,12 +444,78 @@ function assertDevResult(result) {
       if (sample['fixed-shell-idle-cells'] !== 2) {
         fail(`warm sample at V=${size.v}/${sample.label} lost the empty HMR shells`);
       }
+      // rf2-a0i2y — EVERY recorded sample's timed interval, not just the cold
+      // one, must prove it contained its own dispatch and commit.
+      assertTimedIntervalDidWork(
+        sample['timing-pre-hot'],
+        sample['timing-post-hot'],
+        result['queued-writes'],
+        `V=${size.v}/${sample.label} warm timing evidence`,
+      );
     }
     projections.push(size.cold.projection);
   }
   if (projections.length !== 2 || !sameJson(projections[0], projections[1])) {
     fail('count projection is not V-independent');
   }
+}
+
+// rf2-a0i2y — the source anchors the containment teeth rewrite. Held as named
+// constants so a tooth and the fixture cannot drift apart silently.
+const TIMED_DISPATCH_FORM = '(uit/dispatch! frame [::fixture/step fixture/queued-writes])';
+const TIMED_START_FORM = 'started (js/performance.now)]';
+const TIMED_ELAPSED_FORM = '(let [elapsed-ms (- (js/performance.now) started)]';
+const TIMED_POST_WITNESS_FORM = ':post-hot (:hot (rf/app-db-value frame))';
+
+// Apply an ordered list of literal source edits, FAILING LOUDLY if any of them
+// matches nothing. A tooth whose anchor drifted would otherwise hand the checker
+// an unchanged source, and "unchanged source passes" is indistinguishable from
+// "the mutation was caught" — the shape of false-green this whole arm exists to
+// refuse (rf2-jxpf3).
+function mutateSource(source, edits) {
+  let out = source;
+  for (const [find, replaceWith] of edits) {
+    const next = out.replace(find, replaceWith);
+    if (next === out) {
+      fail(
+        `timed-region containment tooth is stale: dev.cljs no longer contains \`${find}\`. ` +
+          'Re-establish the containment proof against the current source rather than deleting the tooth.',
+      );
+    }
+    out = next;
+  }
+  return out;
+}
+
+// The four ways the dispatch can stop being inside the measured span, plus the
+// one way the closing witness can leak INTO it. Each is a real source shape a
+// reviewer could plausibly write, not a JSON edit — the runtime witness alone
+// cannot see the third of these, because hoisting the dispatch above the start
+// timestamp leaves the post-minus-pre delta at exactly queued-writes while the
+// measured span no longer covers the eight write epochs.
+function timedRegionMutations(devSource) {
+  return [
+    ['timed dispatch removed from the flushed thunk', mutateSource(devSource, [
+      [TIMED_DISPATCH_FORM, 'nil'],
+    ])],
+    ['timed dispatch replaced with a no-op event', mutateSource(devSource, [
+      [TIMED_DISPATCH_FORM, '(uit/dispatch! frame [::fixture/noop])'],
+    ])],
+    ['timed dispatch hoisted above the start timestamp', mutateSource(devSource, [
+      [TIMED_DISPATCH_FORM, 'nil'],
+      [TIMED_START_FORM, `_ ${TIMED_DISPATCH_FORM}\n        ${TIMED_START_FORM}`],
+    ])],
+    ['timed dispatch moved past the end timestamp', mutateSource(devSource, [
+      [TIMED_DISPATCH_FORM, 'nil'],
+      [TIMED_ELAPSED_FORM, `${TIMED_ELAPSED_FORM}\n                   ${TIMED_DISPATCH_FORM}`],
+    ])],
+    ['closing witness read moved inside the measured span', mutateSource(devSource, [
+      [TIMED_ELAPSED_FORM,
+        '(let [post-hot (:hot (rf/app-db-value frame))\n'
+        + '                       elapsed-ms (- (js/performance.now) started)]'],
+      [TIMED_POST_WITNESS_FORM, ':post-hot post-hot'],
+    ])],
+  ];
 }
 
 function expectMutationFailure(label, thunk) {
@@ -487,12 +573,45 @@ function assertMutationTeeth(result) {
     // the correctness-first witness would collapse to the mount seed and the gate
     // must go red; timing-first must stay the mount seed; the control cannot vanish.
     ['order control correctness-first collapsed to the mount seed (non-causal witness)', (r) => {
-      r['cold-first-order-control']['correctness-first'] = 0;
+      r['cold-first-order-control']['correctness-first'] = { 'pre-hot': 0, 'post-hot': 8 };
     }],
     ['order control timing-first advanced off the mount seed', (r) => {
-      r['cold-first-order-control']['timing-first'] = 8;
+      r['cold-first-order-control']['timing-first'] = { 'pre-hot': 8, 'post-hot': 16 };
     }],
     ['order control absent', (r) => { delete r['cold-first-order-control']; }],
+    // rf2-a0i2y — the CONTAINMENT teeth. Every check above reads state from
+    // BEFORE the timed dispatch, so all of them stay green when `timing-cycle!`
+    // dispatches nothing: the untimed correctness cycle advances app-db and
+    // supplies every projection regardless, and the runner would go on labelling
+    // an empty flush interval "dispatch-to-commit". The timed cycle's own
+    // post-commit witness must therefore show its span advanced app-db by exactly
+    // queued-writes — on the cold sample, on every warm sample, and on BOTH
+    // fresh-frame order-control paths.
+    ['cold timed interval was empty (post-hot never advanced)', (r) => {
+      r.results[0].cold['timing-post-hot'] = r.results[0].cold['timing-pre-hot'];
+    }],
+    ['cold timed interval committed a partial drain', (r) => {
+      r.results[0].cold['timing-post-hot'] = r.results[0].cold['timing-pre-hot'] + 1;
+    }],
+    ['cold closing witness absent', (r) => { delete r.results[0].cold['timing-post-hot']; }],
+    ['warm timed interval was empty (post-hot never advanced)', (r) => {
+      const sample = r.results[1].samples[4];
+      sample['timing-post-hot'] = sample['timing-pre-hot'];
+    }],
+    ['warm closing witness absent', (r) => {
+      delete r.results[1].samples[0]['timing-post-hot'];
+    }],
+    ['order control timing-first interval was empty', (r) => {
+      const w = r['cold-first-order-control']['timing-first'];
+      w['post-hot'] = w['pre-hot'];
+    }],
+    ['order control correctness-first interval was empty', (r) => {
+      const w = r['cold-first-order-control']['correctness-first'];
+      w['post-hot'] = w['pre-hot'];
+    }],
+    ['order control path degraded to a witness-free scalar', (r) => {
+      r['cold-first-order-control']['timing-first'] = 0;
+    }],
     // rf2-vxgfnd.212 — workload-roster teeth. Each must fail validation, proving
     // the exact one-to-one V=100/V=500 roster before projections are compared.
     // 'duplicate V=100' is the bead's exact false-green: the V=500 row silently
@@ -584,6 +703,14 @@ function assertMutationTeeth(result) {
       `${prodManifest}\n"re_frame/resources/internal/runtime.cljs"`,
     );
   }));
+  // rf2-a0i2y — the STRUCTURAL containment teeth, driven against the real
+  // fixture source rather than a JSON result. Containment is a property of the
+  // measured region's shape, so it is proven by construction here and only
+  // corroborated by the runtime witness above.
+  const devSource = fs.readFileSync(DEV_FIXTURE_SOURCE, 'utf8');
+  for (const [label, mutated] of timedRegionMutations(devSource)) {
+    red.push(expectMutationFailure(label, () => assertTimedRegionShape(mutated)));
+  }
   return red;
 }
 
@@ -619,6 +746,14 @@ async function main() {
   let browser;
   let tearingDown = false;
   try {
+    // rf2-a0i2y — prove containment BY CONSTRUCTION before spending a compile on
+    // measuring anything: the dispatch must be lexically inside the flushed thunk
+    // and that thunk lexically between the two timestamps, with the closing
+    // witness read strictly after the end timestamp. No sample can establish
+    // this, and a green sample set does not need to.
+    const timedRegionOrder = assertTimedRegionShape(
+      fs.readFileSync(DEV_FIXTURE_SOURCE, 'utf8'),
+    );
     shadow('compile', 'ui-g13');
     shadow('release', 'ui-g13-prod', 'ui-g13-mint-control');
     writePage(DEV);
@@ -687,6 +822,14 @@ async function main() {
       status: 'pass',
       correctness: 'exact counts; one post-drain root commit',
       timing: 'evidence-only; no threshold',
+      // rf2-a0i2y — how the measured interval is known to contain the work it is
+      // named for: lexically by construction (this ordered region shape) and, on
+      // every sample and both order-control paths, by the timed cycle's own
+      // post-commit witness. Still no wall-clock threshold.
+      timedIntervalContainment: {
+        structural: timedRegionOrder,
+        runtime: 'timed-cycle post-hot minus pre-hot equals queued-writes',
+      },
       mutationTeeth,
       development: devState.result,
       advanced: { bundles, dom: prodState },
