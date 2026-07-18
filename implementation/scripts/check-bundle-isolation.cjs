@@ -62,7 +62,7 @@ const {
   countSubstring,
 } = require('./lib/read-release-bundle.cjs');
 const { assertSentinelSet } = require('./lib/sentinel-scan.cjs');
-const { pathDeclaresBuildAlias } = require('./lib/publishable-runtimes.cjs');
+const { pathDeclaresBuildAlias, listPublishableRuntimes } = require('./lib/publishable-runtimes.cjs');
 
 const ROOT = path.resolve(__dirname, '..');
 const SCRIPTS_DIR = __dirname;
@@ -916,9 +916,12 @@ function assertPositiveControlComplete(artefacts = ARTEFACTS, controls = POSITIV
 //     wiring (validateDedicatedGate), so a fictional prose entry, a removed
 //     checker, or an uninvoked command can NOT enrol a runtime.
 //
-// Traversal mirrors the release lockstep's bounded FLAT-plus-ADAPTERS shape:
-// per-feature + core-tier artefacts live at implementation/<name>/; substrate
-// adapters live one directory deeper at implementation/adapters/<name>/.
+// Discovery CONSUMES the shared authority's listPublishableRuntimes directly
+// (rf2-o58c2) rather than maintaining a second, narrower traversal: the
+// authority's bounded flat-plus-nested walk is the SAME inventory the release
+// lockstep enrols, so a publishable runtime nested OUTSIDE adapters/ can no
+// longer reach release inventory while escaping bundle coverage. Bundle
+// isolation then applies only its explicit browser/JVM exclusions below.
 //
 // Excluded from the REQUIRED set (published, but NOT a browser-optional client
 // runtime — each with reason):
@@ -935,11 +938,10 @@ function assertPositiveControlComplete(artefacts = ARTEFACTS, controls = POSITIV
 // pre-publication stays green NATURALLY; when rf2-vxgfnd.99.2 makes UI
 // publishable, it must land a UI isolation entry/gate in that same slice or this
 // coverage check fails and names `ui`.
+//
+// Keyed by exact implementation-relative PATH (both entries are flat, so path
+// == leaf today) so the exclusion is applied against the authority's relPath.
 const NON_BROWSER_OPTIONAL = new Set(['core', 'ssr-ring']);
-
-// Nested substrate-adapter tier, relative to implementation/ (matches the
-// lockstep authority's implementation/adapters/<name>/ layout).
-const ADAPTERS_DIR = 'adapters';
 
 // Browser-optional runtimes covered by a REAL dedicated isolation gate rather
 // than a generic ARTEFACTS entry. KEYED BY EXACT implementation-relative PATH
@@ -1024,49 +1026,23 @@ function validateDedicatedGate(gate, { scriptsDir = SCRIPTS_DIR, scripts = readP
   return { ok: reasons.length === 0, reasons };
 }
 
-// Discover every publishable browser-optional runtime under implementation/,
-// using the shared EDN-aware authority (`pathDeclaresBuildAlias`, the SAME
-// parsed `:aliases/:clein/build` fact the release lockstep consumes) over the
-// lockstep's bounded flat-plus-adapters traversal. Returns `{ name, relPath }`
-// records; `name` is the directory leaf and `relPath` is the implementation/-
-// relative path — coverage keys on `relPath` so leaf collisions can't launder a
-// runtime through the wrong gate.
+// Discover every publishable browser-optional runtime under implementation/ by
+// CONSUMING the shared authority's listPublishableRuntimes (rf2-o58c2) — the
+// SAME parsed `:aliases/:clein/build` inventory, over the SAME bounded
+// flat-plus-nested reach, that the release lockstep enrols — then dropping the
+// runtimes that are not browser-optional client bundles (the always-present
+// core; the JVM-only servers in NON_BROWSER_OPTIONAL). There is no second
+// traversal to drift from the lockstep: a publishable runtime nested outside
+// adapters/ is enrolled here exactly as it is in release inventory. Read faults
+// propagate (the authority throws, fail-closed) rather than yielding a
+// silently-shrunken set. Returns `{ name, relPath }` records; `name` is the
+// directory leaf and `relPath` the implementation/-relative path — coverage
+// keys on `relPath` so leaf collisions can't launder a runtime through the
+// wrong gate.
 function discoverBrowserOptionalRuntimes(root = ROOT) {
-  const out = [];
-
-  // Flat per-feature + core-tier artefacts: implementation/<name>/deps.edn.
-  let flat;
-  try {
-    flat = fs.readdirSync(root, { withFileTypes: true });
-  } catch (_e) {
-    return out; // implementation/ unreadable — nothing to require (fails safe elsewhere)
-  }
-  for (const ent of flat) {
-    if (!ent.isDirectory()) continue;
-    if (ent.name === ADAPTERS_DIR) continue;         // descended into below
-    if (NON_BROWSER_OPTIONAL.has(ent.name)) continue;
-    if (pathDeclaresBuildAlias(root, ent.name)) {
-      out.push({ name: ent.name, relPath: ent.name });
-    }
-  }
-
-  // Nested substrate adapters: implementation/adapters/<name>/deps.edn. The
-  // pre-rf2-klyw5 top-level-only scan skipped these; the lockstep authority
-  // scans them, so a newly publishable adapter must be enrolled here too.
-  let adapters;
-  try {
-    adapters = fs.readdirSync(path.join(root, ADAPTERS_DIR), { withFileTypes: true });
-  } catch (_e) {
-    adapters = []; // no adapters/ dir — nothing nested to require
-  }
-  for (const ent of adapters) {
-    if (!ent.isDirectory()) continue;
-    const relPath = `${ADAPTERS_DIR}/${ent.name}`;
-    if (pathDeclaresBuildAlias(root, relPath)) {
-      out.push({ name: ent.name, relPath });
-    }
-  }
-  return out;
+  return listPublishableRuntimes(root)
+    .filter((rt) => !NON_BROWSER_OPTIONAL.has(rt.relPath))
+    .map((rt) => ({ name: path.basename(rt.relPath), relPath: rt.relPath }));
 }
 
 // The exact implementation-relative PATHS a generic ARTEFACTS entry proves
@@ -1304,7 +1280,6 @@ module.exports = {
   POSITIVE_CONTROL,
   NON_BROWSER_OPTIONAL,
   DEDICATED_ISOLATION_GATES,
-  ADAPTERS_DIR,
   assertPositiveControlComplete,
   checkArtefact,
   pathDeclaresBuildAlias,
