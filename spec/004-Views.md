@@ -725,18 +725,39 @@ trusted — a build-time Markdown render, a sanitiser's output, a static SVG str
 
 ### The document head is host-owned
 
-**No compiled-view form renders into `<head>`.** `re-frame.ui` mounts into a root
-element inside `<body>` (§Roots and mounting), and every template form in this Spec
-produces nodes beneath that root: there is no head-targeting form, no `ui/head`, and
-no head channel in the view AST or the JVM tree. The document head belongs to the
-**host** — the HTML shell the app serves and, for server-rendered apps, Spec 011's
-structured [`reg-head` / `active-head`](011-SSR.md#headmeta-contract) channel, which
-derives the head model from `app-db` through registered fns and applies
-position-appropriate escaping at every leaf.
+**No compiled structural form renders into `<head>`.** `re-frame.ui` mounts into a
+root element inside `<body>` (§Roots and mounting), and every structural template
+form in this Spec — elements, fragments, compiled views, `ui/html` — produces nodes
+beneath that root: there is no head-targeting form, no `ui/head`, and no head
+channel in the view AST or the JVM tree. The document head belongs to the **host** —
+the HTML shell the app serves and, for server-rendered apps, Spec 011's structured
+[`reg-head` / `active-head`](011-SSR.md#headmeta-contract) channel, which derives the
+head model from `app-db` through registered fns and applies position-appropriate
+escaping at every leaf.
 
 `ui/html` does not widen this. It is the sole child of a **DOM element** in the
 rendered tree, and `<head>` is neither a mount target nor reachable from a template,
 so trusted markup cannot be used to reach into it.
+
+**`ui/raw` does widen it, and that is deliberate.** `(ui/raw x)` is an opaque
+foreign-value hatch: the browser emitter lowers the analysed node to `x` unchanged
+and hands it to React verbatim, and the compiler checks the call's *shape* — one
+argument, child position — never the value. A React element can be a **portal**, and
+a portal renders into whatever container the caller names, `document.head` included.
+An app that has explicitly entered host React can therefore reach the head through
+`ui/raw`, exactly as it can through any other host React it runs. Nodes placed that
+way are host behaviour the caller owns: they sit outside head ordering,
+de-duplication, precedence, and every hydration guarantee this Spec and
+[011](011-SSR.md) make, `:rf/head-hash` mismatch detection included. The posture is
+trusted markup's — the framework names the boundary and does not inspect what crosses
+it — and the containment that survives is enumerability: every site declares the
+`:raw` capability and is recorded in the manifest, so the set of such escapes is
+finite and listable. The **JVM tree has no such route**: `:raw` raises
+`:rf.error/jvm-host-op` (§The JVM structural subset), so a server-rendered head still
+comes only from `reg-head` / `active-head` — which remains the path to reach for when
+the head is app state, rather than a portal no part of the substrate can see. The
+Wave-2 `ui/portal` row in §Interop would inherit the same caveat, its target being a
+caller-supplied node.
 
 The reasoning is that head elements are document-global singletons with
 de-duplication, ordering, and precedence semantics that no part of the compiled
