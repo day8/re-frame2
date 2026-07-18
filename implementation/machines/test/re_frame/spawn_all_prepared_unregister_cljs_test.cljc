@@ -23,6 +23,7 @@
   note called out as NOT covered — the recheck's fail-closed branch — on JVM +
   CLJS."
   (:require
+   [clojure.string :as str]
    #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
       :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
    [re-frame.core :as rf]
@@ -147,6 +148,36 @@
           (reset! fired true)
           (f))))
     #(trace/unregister-listener! listener-id)))
+
+(defn- on-operation-once
+  "Register a synchronous trace listener that runs `f` exactly once, on the first
+  `operation` emit. Returns an unregister thunk.
+
+  The generalisation of `on-started-once` to the LATER callback-bearing seams
+  rf2-zo5n9 covers — the per-child `:rf.machine.spawn/spawned` trace and
+  `install-spawn!`'s `:rf.error/system-id-collision` trace — both of which run
+  AFTER the prepared entry has been selected and BEFORE the snapshot's
+  `:rf/machine-type` is written."
+  [listener-id operation f]
+  (let [fired (atom false)]
+    (trace/register-listener!
+      listener-id
+      (fn [ev]
+        (when (and (= operation (:operation ev)) (not @fired))
+          (reset! fired true)
+          (f))))
+    #(trace/unregister-listener! listener-id)))
+
+(defn- on-every-spawned
+  "Register a synchronous listener that runs `(f <spawned-id>)` on EVERY per-child
+  `:rf.machine.spawn/spawned` emit. Returns an unregister thunk."
+  [listener-id f]
+  (trace/register-listener!
+    listener-id
+    (fn [ev]
+      (when (= :rf.machine.spawn/spawned (:operation ev))
+        (f (get-in ev [:tags :spawned-id])))))
+  #(trace/unregister-listener! listener-id))
 
 ;; ===========================================================================
 ;; (1) THE BUG — a started-listener UNREGISTERS an admitted child TYPE between
@@ -417,3 +448,169 @@
           "the live child picked up the hot-reloaded definition — hot-reload semantics preserved"))
     (is (empty? (no-such-handler-errors))
         "no :rf.error/no-such-handler fired")))
+
+;; ===========================================================================
+;; rf2-zo5n9 — the POST-SELECTION seam. rf2-rxjy3 (tests 4-7 above) made the
+;; prepared child's definition-lifetime choice correct, but `spawn-fx*` took
+;; that choice in its `let` bindings — BEFORE the two callback-bearing
+;; emissions that still run ahead of the install:
+;;
+;;   (a) the per-child `:rf.machine.spawn/spawned` trace, and
+;;   (b) `install-spawn!`'s `:rf.error/system-id-collision` trace.
+;;
+;; Both fan synchronously to application listeners, and both complete BEFORE
+;; the runtime-db swap that writes `:rf/machine-type`. A listener on either
+;; that unregistered or replaced the admitted child's TYPE therefore diverged
+;; the registrar AFTER `prepared-type-ref` had already observed it intact and
+;; returned the revertible `:machine-id` KEYWORD. The install then stamped that
+;; now-stale keyword, and the lazy resolver re-materialised NOTHING (inert
+;; actor) or an unrelated successor definition (split authority) — exactly the
+;; two failure modes rxjy3 eliminated, reached through a later door.
+;;
+;; The suites above mutate the registrar from `:rf.machine.spawn-all/started`,
+;; which fires BEFORE the per-child spawn fx runs at all, so they cannot see
+;; either seam. These tests pin the later ones: the reference is now selected
+;; at the LAST safe point, after every callback-bearing pre-install emission
+;; and immediately before the physical write.
+;; ===========================================================================
+
+;; ===========================================================================
+;; (8) THE BUG — a per-child `:rf.machine.spawn/spawned` listener UNREGISTERS
+;;     the admitted child TYPE. The child must still be a LIVE actor.
+;; ===========================================================================
+
+(deftest unregister-from-the-spawned-trace-listener-keeps-the-child-live
+  (testing "a :rf.machine.spawn/spawned listener that UNREGISTERS the admitted
+            child TYPE — after the prepared entry was selected, before the
+            snapshot's :rf/machine-type is written — cannot leave the child
+            inert: the reference is chosen at the last safe point, so the
+            diverged registrar is seen and the prepared definition is pinned.
+            The child bootstraps :idle → :ready and a later ordinary event runs."
+    (rf/reg-machine :sa/late-unreg booting-child)
+    (rf/reg-machine :sup/late-unreg (parent-over [{:id :c :machine-id :sa/late-unreg}]))
+    (let [off (on-operation-once ::late-unreg :rf.machine.spawn/spawned
+                #(registrar/unregister! :event :sa/late-unreg))]
+      (try
+        (rf/dispatch-sync [:sup/late-unreg [:start]])
+        (finally (off))))
+    (let [child (get (:children (join-slot :sup/late-unreg)) :c)]
+      (is (some? (snap-of child))
+          "the admitted child installed its prepared snapshot")
+      (is (map? (type-ref-of child))
+          "the prepared definition is PINNED — the registrar diverged on the spawned-trace callback, after the keyword would have been chosen")
+      (is (= :ready (mtest/machine-state child))
+          "the child COMPLETED its synthetic bootstrap — a stale keyword would have resolved nothing and left it at :idle")
+      (is (not (:rf/bootstrap-pending? (snap-of child)))
+          "the :rf/bootstrap-pending? marker cleared — the initial-entry cascade actually ran")
+      (rf/dispatch-sync [child [:go]])
+      (is (= :working (mtest/machine-state child))
+          "a later ordinary event ran against the prepared definition too")
+      (is (empty? (no-such-handler-errors))
+          "NO :rf.error/no-such-handler fired"))
+    (is (empty? (unregistered-rejects))
+        "rf2-v4oqd preserved — no registry recheck re-ran for the prepared child")))
+
+;; ===========================================================================
+;; (9) THE BUG, other leg — a per-child `:rf.machine.spawn/spawned` listener
+;;     RE-REGISTERS the admitted child TYPE to an UNRELATED v2.
+;; ===========================================================================
+
+(deftest reregister-from-the-spawned-trace-listener-keeps-one-coherent-authority
+  (testing "a :rf.machine.spawn/spawned listener that RE-REGISTERS the admitted
+            child TYPE to an UNRELATED definition cannot split the child's
+            authority: the snapshot AND the handler both come from the prepared
+            v1, so the child bootstraps into v1's :ready — never v2's :v2-boot."
+    (rf/reg-machine :sa/late-swap booting-child)
+    (rf/reg-machine :sup/late-swap (parent-over [{:id :c :machine-id :sa/late-swap}]))
+    (let [off (on-operation-once ::late-swap :rf.machine.spawn/spawned
+                #(rf/reg-machine :sa/late-swap unrelated-v2))]
+      (try
+        (rf/dispatch-sync [:sup/late-swap [:start]])
+        (finally (off))))
+    (let [child (get (:children (join-slot :sup/late-swap)) :c)]
+      (is (= booting-child (type-ref-of child))
+          "the prepared v1 definition is pinned — the registrar diverged after the keyword would have been chosen")
+      (is (= :ready (mtest/machine-state child))
+          "the child bootstrapped through the PREPARED v1 definition (:idle → :ready)")
+      (is (not= :v2-boot (mtest/machine-state child))
+          "the child did NOT resolve its handler from the unrelated current v2")
+      (rf/dispatch-sync [child [:go]])
+      (is (= :working (mtest/machine-state child))
+          "a later ordinary event ran against v1 too — one coherent authority"))
+    (is (empty? (no-such-handler-errors))
+        "no :rf.error/no-such-handler fired")))
+
+;; ===========================================================================
+;; (10) Adversarial — EVERY child's TYPE unregistered from its OWN
+;;      `:rf.machine.spawn/spawned` emit. Each child's reference must be chosen
+;;      against the registrar as it stands at ITS OWN install, so every child
+;;      stays live and the join still folds to completion.
+;; ===========================================================================
+
+(deftest every-child-unregistered-from-its-own-spawned-trace-stays-live
+  (testing "when each admitted child's TYPE is unregistered from that child's OWN
+            :rf.machine.spawn/spawned emit, every child pins its prepared
+            definition, bootstraps to :ready, and the :all join still folds —
+            no inert child, no :rf.error/no-such-handler, no reject."
+    (rf/reg-machine :sa/late-a booting-child)
+    (rf/reg-machine :sa/late-b booting-child)
+    (rf/reg-machine :sup/late-all (parent-over [{:id :a :machine-id :sa/late-a}
+                                                {:id :b :machine-id :sa/late-b}]))
+    (let [off (on-every-spawned ::late-all
+                (fn [spawned-id]
+                  ;; `<type>#n` — unregister the TYPE this very child was
+                  ;; prepared from, on its own pre-install callback.
+                  (when-let [t (some #(when (= (name %)
+                                               (first (str/split (name spawned-id) #"#")))
+                                        %)
+                                     [:sa/late-a :sa/late-b])]
+                    (registrar/unregister! :event t))))]
+      (try
+        (rf/dispatch-sync [:sup/late-all [:start]])
+        (finally (off))))
+    (let [slot (join-slot :sup/late-all)]
+      (is (= 2 (count (:children slot))) "the join names both admitted children")
+      (doseq [id (vals (:children slot))]
+        (is (map? (type-ref-of id))
+            (str "child " id " pinned its prepared definition"))
+        (is (= :ready (mtest/machine-state id))
+            (str "child " id " bootstrapped — it is a live actor, not an inert snapshot"))))
+    (is (empty? (no-such-handler-errors))
+        "no :rf.error/no-such-handler fired for either child")
+    (is (empty? (unregistered-rejects))
+        "no unregistered-type reject fired for either child")))
+
+;; ===========================================================================
+;; (11) Adversarial — the OTHER pre-install callback: `install-spawn!`'s
+;;      `:rf.error/system-id-collision` trace. Two admitted children sharing a
+;;      `:system-id` make the second child's install fan that trace; a listener
+;;      on it unregisters that child's TYPE. This seam is INSIDE
+;;      `install-spawn!`, later even than the spawned trace, so it is the
+;;      tightest window the fix must still cover.
+;; ===========================================================================
+
+(deftest unregister-from-the-system-id-collision-listener-keeps-the-child-live
+  (testing "a :rf.error/system-id-collision listener that UNREGISTERS the
+            colliding child's TYPE — the LAST callback before the runtime-db
+            swap — still cannot install a stale keyword: the rebound child pins
+            its prepared definition and bootstraps to :ready."
+    (rf/reg-machine :sa/sys-a booting-child)
+    (rf/reg-machine :sa/sys-b booting-child)
+    (rf/reg-machine :sup/sys (parent-over
+                               [{:id :a :machine-id :sa/sys-a :system-id :sys/shared}
+                                {:id :b :machine-id :sa/sys-b :system-id :sys/shared}]))
+    (let [off (on-operation-once ::sys :rf.error/system-id-collision
+                #(registrar/unregister! :event :sa/sys-b))]
+      (try
+        (rf/dispatch-sync [:sup/sys [:start]])
+        (finally (off))))
+    (let [slot  (join-slot :sup/sys)
+          child (get (:children slot) :b)]
+      (is (= 1 (count (mtest/events-of :rf.error/system-id-collision)))
+          "the shared :system-id fanned exactly one collision trace (the second child's install)")
+      (is (map? (type-ref-of child))
+          "the rebound child pinned its prepared definition — the registrar diverged on the collision callback, INSIDE install-spawn!")
+      (is (= :ready (mtest/machine-state child))
+          "the rebound child bootstrapped — it is live, not inert")
+      (is (empty? (no-such-handler-errors))
+          "no :rf.error/no-such-handler fired"))))
