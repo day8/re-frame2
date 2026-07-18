@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""Narrow code/spec/doc drift gate for re-frame.ui Root settlement (rf2-vxgfnd.291).
+"""Narrow code/spec/doc drift gate for re-frame.ui Root settlement (rf2-vxgfnd.291)
+and root-attempt evidence (rf2-vxgfnd.249).
 
 This is deliberately not a Markdown or Clojure parser. It protects a small set
 of literal contract teeth whose accidental removal previously left runtime,
@@ -163,6 +164,73 @@ TEETH = (
         "consumed-causal-late-fixture",
         "implementation/ui/test/re_frame/ui/adapter_public_root_disposal_dom_cljs_test.cljs",
         "the queued predecessor mutation ran AFTER the successor committed",
+    ),
+    # rf2-vxgfnd.249 — root-ATTEMPT evidence teeth. The settlement teeth above pin
+    # the Root claim lifecycle; they leave the frame-plan ATTEMPT vocabulary
+    # (`:committed` / `:mount-incomplete` / `:preflight-attempt-failed`, the stripped
+    # internal `:rev`, and the lifecycle-loss `:kind` roster) unpinned — which is
+    # exactly how Spec 004C came to call the conflict payload the install record
+    # "verbatim" while the runtime stripped `:rev`, how Spec 009 published a
+    # TWO-kind roster against a shipped THREE-kind runtime, and how the runtime's
+    # `:scope-config-less-or-own-the-lifetime` recovery reached the catalogue in
+    # neither arm. The error-catalogue conformance parser reads catalogue columns
+    # 1-3 only, so no existing gate covers the Recovery or Data cells at all.
+    # Each anchor below is a file-unique literal on one layer of the closed
+    # vocabulary, so drift in ONE layer turns exactly that layer's tooth red.
+    Tooth(
+        "runtime-abort-provenance-mapping",
+        "implementation/ui/src/re_frame/ui/frames.cljc",
+        ":fresh (assoc-in m [frame-id :mount-incomplete] true)",
+    ),
+    Tooth(
+        "runtime-projection-strips-rev",
+        "implementation/ui/src/re_frame/ui/frames.cljc",
+        "(some-> (installed-record frame-id) (dissoc :rev))",
+    ),
+    Tooth(
+        "runtime-boot-authority-recovery",
+        "implementation/ui/src/re_frame/ui/frames.cljc",
+        ":recovery :scope-config-less-or-own-the-lifetime",
+    ),
+    Tooth(
+        "runtime-found-live-authority-lost",
+        "implementation/ui/src/re_frame/ui/frames.cljc",
+        "root-id frame-id :found-live-authority-lost",
+    ),
+    Tooth(
+        "spec-004c-attempt-evidence-section",
+        "spec/004C-Roots-and-Mount.md",
+        "### 7.1 Root-attempt evidence — authority, committed scope, and settlement",
+    ),
+    Tooth(
+        "spec-004c-installed-is-projection",
+        "spec/004C-Roots-and-Mount.md",
+        "the **external projection** of the recorded install/adopt record",
+    ),
+    Tooth(
+        "spec-004c-published-vs-internal",
+        "spec/004C-Roots-and-Mount.md",
+        "`:committed`, `:mount-incomplete`, `:preflight-attempt-failed`. Internal, never",
+    ),
+    Tooth(
+        "spec-009-installed-is-projection",
+        "spec/009-Instrumentation.md",
+        "the EXTERNAL PROJECTION of the install/adopt record, never the record itself",
+    ),
+    Tooth(
+        "spec-009-boot-authority-recovery",
+        "spec/009-Instrumentation.md",
+        ":scope-config-less-or-own-the-lifetime`",
+    ),
+    Tooth(
+        "spec-009-lifecycle-loss-three-kinds",
+        "spec/009-Instrumentation.md",
+        ":ensured-frame-lost` / `:refresh-target-replaced` / `:found-live-authority-lost`",
+    ),
+    Tooth(
+        "spec-009-every-rejection-fail-closed",
+        "spec/009-Instrumentation.md",
+        "EVERY publication rejection is fail-closed under this id",
     ),
 )
 
