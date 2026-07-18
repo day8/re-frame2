@@ -21,7 +21,8 @@
             [re-frame.core :as rf]
             [re-frame.frame :as frame]
             [re-frame.late-bind :as late-bind]
-            [re-frame.http.managed :as http-managed]))
+            [re-frame.http.managed :as http-managed]
+            [re-frame.http.middleware :as http-mw]))
 
 ;; EP-0002 (rf2-nn0jqa): the no-`:frame` `reg-http-interceptor` /
 ;; `clear-http-interceptor` calls below resolve the frame through the
@@ -147,18 +148,19 @@
     (is (zero? (count (http-managed/interceptors-snapshot :rf/default))))
     (is (= [:on-other] (mapv :id (http-managed/interceptors-snapshot :other))))))
 
-;; ---- 4a. rf2-f28bno — frame-arg spelling: the public {:frame} opts form ----
+;; ---- 4a. rf2-f28bno / rf2-s32bf — the public {:frame} opts form ------------
 ;;
-;; `clear-http-interceptor`'s public 2-arity is now the trailing `{:frame …}`
-;; opts map (mirroring `reg-http-interceptor`'s `:frame`), shape-discriminated
-;; against the retained internal frame-first plumbing. This closes the
-;; silent-no-op misbind the old public frame-first arity carried.
+;; `clear-http-interceptor`'s public 2-arity is EXACTLY the trailing
+;; `{:frame …}` opts map (mirroring `reg-http-interceptor`'s `:frame`).
+;; Two-scalar frame-first is not a public shape; artefact-internal cleanup
+;; routes through the `clear-http-interceptor*` seam. This closes the silent
+;; mis-clear the old `(or (:frame opts) ambient-frame)` resolution carried.
 
 (deftest clear-http-interceptor-frame-arg-spelling-rf2-f28bno
   (testing "rf2-f28bno — `(clear-http-interceptor id {:frame f})` targets frame
-            `f` from an ambient `:rf/default` scope; the internal frame-first
-            `(clear-http-interceptor f id)` plumbing is retained; and the old
-            misbind guess now binds the frame correctly instead of no-op'ing."
+            `f` from an ambient `:rf/default` scope; the internal
+            `clear-http-interceptor*` seam (frame-first) still clears; and the
+            old misbind guess now binds the frame correctly instead of no-op'ing."
     ;; The ambient scope is :rf/default (fixture). Register on the OTHER frame.
     (rf/reg-http-interceptor :fa/on-other {:frame :fa/other :before (fn [c] c)})
     (rf/reg-http-interceptor :fa/on-default {:before (fn [c] c)})
@@ -173,12 +175,50 @@
         "opts {:frame :fa/other} cleared the named frame's slot (misbind closed)")
     (is (= [:fa/on-default] (mapv :id (http-managed/interceptors-snapshot :rf/default)))
         "the :rf/default chain is untouched by the explicit-frame clear")
-    ;; (2) INTERNAL frame-first plumbing still clears a named frame's slot.
+    ;; (2) INTERNAL frame-first seam still clears a named frame's slot.
     (rf/reg-http-interceptor :fa/again {:frame :fa/other :before (fn [c] c)})
     (is (= [:fa/again] (mapv :id (http-managed/interceptors-snapshot :fa/other))))
-    (rf/clear-http-interceptor :fa/other :fa/again)   ;; frame-first: (frame id)
+    (http-mw/clear-http-interceptor* :fa/other :fa/again)   ;; private seam: (frame id)
     (is (zero? (count (http-managed/interceptors-snapshot :fa/other)))
-        "internal frame-first (frame id) plumbing cleared the slot")))
+        "internal frame-first seam (clear-http-interceptor*) cleared the slot")))
+
+;; ---- 4b. rf2-s32bf — the public opts form is EXACT + FAIL-CLOSED -----------
+
+(deftest clear-http-interceptor-opts-form-fail-closed-rf2-s32bf
+  (testing "rf2-s32bf — the public 2-arity opts map must be EXACTLY
+            {:frame target}; malformed opts, a non-map second arg, and the old
+            two-scalar frame-first shape fail closed with
+            :rf.error/http-bad-interceptor and leave the ambient interceptor
+            untouched; the exact {:frame target} form still clears."
+    (letfn [(threw-bad? [thunk]
+              (let [ex (try (thunk) nil (catch :default e e))]
+                (and (some? ex)
+                     (= :rf.error/http-bad-interceptor
+                        (:rf.error/id (ex-data ex))))))]
+      ;; ambient scope is :rf/default (fixture) — seed a slot there.
+      (rf/reg-http-interceptor :s32bf/ambient {:before (fn [c] c)})
+      (is (= [:s32bf/ambient]
+             (mapv :id (http-managed/interceptors-snapshot :rf/default))))
+      (is (threw-bad? #(rf/clear-http-interceptor :s32bf/ambient {}))
+          "empty opts map (no :frame) fails closed")
+      (is (threw-bad? #(rf/clear-http-interceptor :s32bf/ambient {:frame nil}))
+          "nil :frame fails closed")
+      (is (threw-bad? #(rf/clear-http-interceptor :s32bf/ambient {:fram :rf/default}))
+          "misspelled opts key fails closed")
+      (is (threw-bad? #(rf/clear-http-interceptor :s32bf/ambient {:frame :rf/default :extra 1}))
+          "extra opts key fails closed (map must be exactly {:frame target})")
+      (is (threw-bad? #(rf/clear-http-interceptor :s32bf/ambient "not-a-map"))
+          "non-map second arg fails closed")
+      (is (threw-bad? #(rf/clear-http-interceptor :s32bf/ambient 42))
+          "non-map scalar second arg fails closed")
+      (is (threw-bad? #(rf/clear-http-interceptor :s32bf/ambient :some-frame))
+          "old two-scalar frame-first is not a public shape — fails closed")
+      (is (= [:s32bf/ambient]
+             (mapv :id (http-managed/interceptors-snapshot :rf/default)))
+          "no malformed clear touched the ambient :rf/default interceptor")
+      (rf/clear-http-interceptor :s32bf/ambient {:frame :rf/default})
+      (is (zero? (count (http-managed/interceptors-snapshot :rf/default)))
+          "the exact {:frame target} form clears the named frame"))))
 
 ;; ---- 5. invalid shape raises ----------------------------------------------
 

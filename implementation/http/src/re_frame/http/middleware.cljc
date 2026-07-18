@@ -200,14 +200,20 @@
                     :id    id}))
     id))
 
-(defn- clear-http-interceptor*
-  "Core clear: drop the slot named `id` from `frame`'s chain and emit the
-  `:rf.http.interceptor/cleared` trace when a slot actually existed. `frame`
-  is a resolved frame TARGET (a frame-id keyword or a live frame value) —
-  normalized to its frame-id before keying the per-frame registry, so both
-  spellings land on the same chain. The single clear mechanic both public
-  arities (ambient / opts / internal frame-first) funnel through. Returns
-  `id`."
+(defn clear-http-interceptor*
+  "Internal frame-first clear seam: drop the slot named `id` from `frame`'s
+  chain and emit the `:rf.http.interceptor/cleared` trace when a slot actually
+  existed. `frame` is a RESOLVED frame TARGET (a frame-id keyword or a live
+  frame value) — normalized to its frame-id before keying the per-frame
+  registry, so both spellings land on the same chain.
+
+  This is the artefact-internal `(frame id)` seam — NOT part of the public
+  `re-frame.core` surface (only `clear-http-interceptor` is late-bound to
+  core). Internal cleanup that already holds a resolved frame — the
+  `:rf.fx/clear-http-interceptor` fx (which carries the fx-context frame) —
+  routes through here directly rather than the public opts form (rf2-s32bf).
+  Both public arities also funnel through it once they have resolved a frame.
+  Returns `id`."
   [frame id]
   (let [frame-id (frame/frame-target->id frame)
         existed? (some? (some (fn [v] (when (= (:id v) id) v))
@@ -221,60 +227,67 @@
                     :id    id}))
     id))
 
+(defn- valid-clear-opts?
+  "The public two-arity opts map must be EXACTLY `{:frame target}` — the sole
+  key is `:frame` and its value is a PRESENT, non-nil frame TARGET (a frame-id
+  keyword or a live frame value). Rejects a missing `:frame`, a nil target, a
+  misspelled/unknown key, an extra key, and any non-map second argument. A
+  frame VALUE is itself a map (carries `:rf.frame/object`); `frame-value?`
+  distinguishes it from a bare-keyword target."
+  [opts]
+  (and (map? opts)
+       (= #{:frame} (set (keys opts)))
+       (let [target (:frame opts)]
+         (or (keyword? target)
+             (frame/frame-value? target)))))
+
 (defn clear-http-interceptor
   "Unregister an HTTP interceptor by id from a frame's chain.
 
-  EP-0002 — context-required frame-local. The single-arity
-  `(clear-http-interceptor id)` resolves the frame through the
-  carried-invariant scope chain (a `with-frame` / frame-provider scope).
-  Pass the public opts form `(clear-http-interceptor id {:frame target})`
-  to name the frame explicitly (the *override*) — `target` is a frame-id
-  keyword or a live frame value. When the resolved frame is absent
-  (single-arity under no scope, or opts `{:frame nil}`), raises the
-  always-on `:rf.error/no-frame-context` rather than clearing against a
-  synthesised `:rf/default`. No-arg form not supported — explicit ids only.
+  EP-0002 — context-required frame-local. The public surface is EXACT:
 
-  Per rf2-f28bno the 2-arity is SHAPE-DISCRIMINATED on the second arg,
-  mirroring `reg-http-interceptor`'s `:frame` opt (and the family's
-  rf2-bfadc6 / EP-0024 disposition — public frame targeting is a trailing
-  `{:frame …}` opts map, never positional): an OPTS MAP (a non-frame-value
-  map) ⇒ the public `(clear-http-interceptor id {:frame target})` form;
-  anything else ⇒ the INTERNAL frame-first `(clear-http-interceptor frame
-  id)` plumbing (a frame-id keyword or frame value first, id second),
-  retained for implementation / test / tooling reach. This closes the
-  silent-no-op misbind the old public frame-first arity carried: an author
-  who learned `(reg-http-interceptor id {… :frame f})` and wrote the
-  natural `(clear-http-interceptor id {:frame f})` used to bind `id` as the
-  frame and `{:frame f}` as the interceptor-id — a clear of an interceptor
-  that never existed, no-op with nothing to name the mistake — and now
-  binds the frame correctly."
-  ([id] (clear-http-interceptor*
-          (frame/require-current-frame!
-            :clear-http-interceptor
-            {:where 'rf/clear-http-interceptor :event-id id})
-          id))
-  ([a b]
-   ;; rf2-f28bno: an OPTS MAP (non-frame-value map) is the PUBLIC
-   ;; `(clear-http-interceptor id {:frame target})` form — `a` is the id,
-   ;; `(:frame b)` the explicit frame target (`nil`/absent ⇒ resolve the
-   ;; ambient frame, which raises `:rf.error/no-frame-context` under no
-   ;; scope, never a `:rf/default` floor). Anything else is the INTERNAL
-   ;; frame-first plumbing: `a` is the frame target, `b` the id. A frame
-   ;; VALUE is itself a map (carries `:rf.frame/object`), so the opts
-   ;; discriminator is `map? AND NOT frame-value?`.
-   (if (and (map? b) (not (frame/frame-value? b)))
-     (clear-http-interceptor*
-       (or (:frame b)
-           (frame/require-current-frame!
-             :clear-http-interceptor
-             {:where 'rf/clear-http-interceptor :event-id a}))
-       a)
-     (clear-http-interceptor*
-       (or a
-           (frame/require-current-frame!
-             :clear-http-interceptor
-             {:where 'rf/clear-http-interceptor :event-id b}))
-       b))))
+    (clear-http-interceptor id)                  ;; ambient scope
+    (clear-http-interceptor id {:frame target})  ;; explicit frame
+
+  The single-arity `(clear-http-interceptor id)` resolves the frame through
+  the carried-invariant scope chain (a `with-frame` / frame-provider scope);
+  under no scope it raises the always-on `:rf.error/no-frame-context` rather
+  than clearing against a synthesised `:rf/default`.
+
+  The two-arity opts form names the frame explicitly (the *override*) —
+  `target` is a frame-id keyword or a live frame value. The opts map is
+  FAIL-CLOSED: it must be EXACTLY `{:frame target}` with a present, non-nil
+  target. A missing `:frame`, a nil target, a misspelled/unknown or extra
+  key, and a non-map second argument all raise the typed
+  `:rf.error/http-bad-interceptor` (mirroring `reg-http-interceptor`'s arg
+  validation) BEFORE any ambient frame is resolved or touched. This closes
+  the silent mis-clear the old `(or (:frame opts) ambient-frame)` resolution
+  carried (rf2-s32bf): `(clear-http-interceptor id {})` or a typo'd
+  `{:fram f}` used to silently clear the AMBIENT frame instead of failing.
+
+  Two-scalar frame-first `(clear-http-interceptor frame id)` is NOT a public
+  shape. Artefact-internal cleanup that already holds a resolved frame — the
+  `:rf.fx/clear-http-interceptor` fx — routes through the `clear-http-interceptor*`
+  seam instead. No-arg form is not supported — explicit ids only."
+  ([id]
+   (clear-http-interceptor*
+     (frame/require-current-frame!
+       :clear-http-interceptor
+       {:where 'rf/clear-http-interceptor :event-id id})
+     id))
+  ([id opts]
+   ;; rf2-s32bf — the PUBLIC two-arity is ONLY `(id {:frame target})`.
+   ;; Fail-closed: reject anything that is not exactly `{:frame target}`
+   ;; (present, non-nil) BEFORE resolving or touching the ambient frame. This
+   ;; also rejects the old two-scalar frame-first shape — a keyword or other
+   ;; scalar second arg is not a valid opts map. The explicit target names the
+   ;; frame; the opts form never falls back to the ambient scope.
+   (when-not (valid-clear-opts? opts)
+     (error/throw-error!
+       :rf.error/http-bad-interceptor 'rf/clear-http-interceptor
+       "expected (clear-http-interceptor id {:frame target}): the two-arity opts map must be exactly {:frame target} with a present, non-nil frame target (a frame-id keyword or a live frame value). Two-scalar frame-first (frame id) is not a public shape."
+       {:extra {:received {:id id :opts opts}}}))
+   (clear-http-interceptor* (:frame opts) id)))
 
 (defn clear-all-http-interceptors!
   "Test-time helper: drop the per-frame interceptor registry."

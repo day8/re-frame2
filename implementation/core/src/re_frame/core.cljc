@@ -2605,17 +2605,19 @@
 
 (def ^{:doc "Clear an HTTP interceptor by `id` from a frame's
   `:rf.http/managed` middleware chain. EP-0002 context-required
-  frame-local: the single-arity `(clear-http-interceptor id)` resolves
-  the frame through the carried-invariant scope chain; pass the public
-  opts form `(clear-http-interceptor id {:frame target})` to name the
-  frame explicitly (the *override*) — `target` is a frame-id keyword or a
-  live frame value. Per rf2-f28bno the 2-arity is SHAPE-DISCRIMINATED on
-  the second arg (mirroring `reg-http-interceptor`'s `:frame` opt): an
-  opts map ⇒ the public form; a bare frame target ⇒ the internal
-  frame-first plumbing. Under no scope and no explicit frame the call
-  raises `:rf.error/no-frame-context` — it does NOT synthesise a
-  `:rf/default` target. Implementation ships in `day8/re-frame2-http`.
-  Per Spec 014 §Middleware. Late-bound via `:http/clear-http-interceptor`."}
+  frame-local. The public surface is EXACT: `(clear-http-interceptor id)`
+  clears in ambient scope (resolved through the carried-invariant scope
+  chain; under no scope raises `:rf.error/no-frame-context`, never a
+  synthesised `:rf/default`), and `(clear-http-interceptor id {:frame target})`
+  names the frame explicitly (the *override*) — `target` is a frame-id
+  keyword or a live frame value. The opts map is FAIL-CLOSED: it must be
+  EXACTLY `{:frame target}` with a present, non-nil target; a missing
+  `:frame`, a nil target, a misspelled/unknown or extra key, and a non-map
+  second argument all raise the typed `:rf.error/http-bad-interceptor`
+  before any ambient frame is touched (rf2-s32bf). Two-scalar frame-first
+  `(frame id)` is not a public shape. Implementation ships in
+  `day8/re-frame2-http`. Per Spec 014 §Middleware. Late-bound via
+  `:http/clear-http-interceptor`."}
   clear-http-interceptor           rf-http/clear-http-interceptor)
 
 ;; reg-http-interceptor is a macro (per the defreg-macro form above) so

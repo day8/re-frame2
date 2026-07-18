@@ -85,21 +85,28 @@
 
 (defwrapper clear-http-interceptor
   "Spec 014 §Middleware — clear an HTTP interceptor by id from a frame's
-  chain. EP-0002 context-required frame-local: the single-arity
-  `(clear-http-interceptor id)` resolves the frame through the
-  carried-invariant scope chain (a `with-frame` / frame-provider scope).
-  Pass the public opts form `(clear-http-interceptor id {:frame target})`
-  to name the frame explicitly (the *override*); `target` is a frame-id
-  keyword or a live frame value. Per rf2-f28bno the 2-arity is
-  SHAPE-DISCRIMINATED on the second arg (mirroring `reg-http-interceptor`'s
-  `:frame` opt): an opts map ⇒ the public form; a bare frame target ⇒ the
-  internal frame-first plumbing. Under no scope and no explicit frame the
-  call raises `:rf.error/no-frame-context` — it does NOT synthesise a
-  `:rf/default` target. Both arities delegate to the late-bound impl,
-  which performs the frame resolution.
+  chain. EP-0002 context-required frame-local. The public surface is EXACT:
+
+    (clear-http-interceptor id)                  ;; ambient scope
+    (clear-http-interceptor id {:frame target})  ;; explicit frame
+
+  The single-arity `(clear-http-interceptor id)` resolves the frame through
+  the carried-invariant scope chain (a `with-frame` / frame-provider scope);
+  under no scope it raises `:rf.error/no-frame-context` — it does NOT
+  synthesise a `:rf/default` target.
+
+  The two-arity opts form names the frame explicitly (the *override*) —
+  `target` is a frame-id keyword or a live frame value. The opts map is
+  FAIL-CLOSED: it must be EXACTLY `{:frame target}` with a present, non-nil
+  target. A missing `:frame`, a nil target, a misspelled/unknown or extra
+  key, and a non-map second argument all raise the typed
+  `:rf.error/http-bad-interceptor` before any ambient frame is touched
+  (rf2-s32bf). Two-scalar frame-first `(frame id)` is NOT a public shape.
+  Both arities delegate to the late-bound impl, which performs the frame
+  resolution.
 
   Late-bound via `:http/clear-http-interceptor`. When the http artefact
   is absent the call raises `:rf.error/http-artefact-missing`."
   {:hook :http/clear-http-interceptor :artefact http-artefact :on-absent :throw}
-  ([id]          :delegate)
-  ([id-or-frame b] :delegate))
+  ([id]      :delegate)
+  ([id opts] :delegate))
