@@ -24,12 +24,13 @@
   is false and T1's listener `dispatch-sync` really does spin on the lock.
 
   The fix keeps the whole synchronous, ordered, serialized clean-emit fan-out
-  (rf2-uw7hg) but takes the monitor OUT of the cycle: a frame-drain emit
-  (`frame-drain-emit?`) never acquires the monitor — it drives its fan-out inline,
-  exactly as the single-threaded CLJS host always does. This suite is the
-  deterministic barrier/latch proof that the exact AB-BA interleaving now
-  completes within a bounded timeout and the listener-dispatched event settles
-  EXACTLY once.
+  (rf2-uw7hg) but takes the monitor OUT of the cycle: an emit whose thread
+  ACTUALLY holds the target frame's `:drain-lock` (`emit-under-owned-drain-lock?`,
+  keyed on real lock ownership per rf2-rakqk, not event-shape inference) never
+  acquires the monitor — it drives its fan-out inline, exactly as the
+  single-threaded CLJS host always does. This suite is the deterministic
+  barrier/latch proof that the exact AB-BA interleaving now completes within a
+  bounded timeout and the listener-dispatched event settles EXACTLY once.
 
   JVM-only (`.clj`): CLJS is single-threaded, has no monitor, and cannot race two
   drains — the deadlock cannot manifest there."

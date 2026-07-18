@@ -1116,6 +1116,10 @@
     :producer-ns 're-frame.frame
     :design-bead "rf2-g1b2m"
     :description "Read the currently-bound frame id from `re-frame.frame/*current-frame*`. Consulted by `re-frame.trace.tooling/push-to-ring!` as the routing fallback when the trace event itself does not carry a `:frame` tag (e.g. sub recompute / view render emits inside an in-flight cascade)."}
+   {:key         :frame/thread-owns-drain-serialization?
+    :producer-ns 're-frame.frame
+    :design-bead "rf2-rakqk"
+    :description "Return true when the CALLING thread currently holds `frame-id`'s single-drainer serialization — the frame's active event drainer (`:in-drain?`, stamped around `run-one-pass!`) OR the holder of a cold `call-serialized-with-drain!` critical section (`:serialized-holder`); the both-axis sibling of the drainer-only `in-drain?`. Consulted by `re-frame.trace.tooling/emit-under-owned-drain-lock?` as the REAL lock-ownership discriminator (not event-shape inference) that routes an outermost trace emit inline-vs-monitor: a thread that owns the target frame's `:drain-lock` must drive its listener fan-out INLINE (a listener already holding `fanout-monitor` may `dispatch-sync` into that frame and spin on its `:drain-lock` — the rf2-jl75r AB-BA seam), while a frame-shaped emit issued outside any held drain-lock serializes on the monitor like every clean emit (rf2-uw7hg). Returns false for an absent frame (nothing can be draining it). Dev-only: late-bound so a production CLJS bundle that never loads the tooling sibling DCEs the edge."}
 
    ;; ---- re-frame.trace.cascade (focused-event-only cascade-DAG aggregator) ----
    ;;
