@@ -17,6 +17,16 @@
 
 (defn- browser? [] (exists? js/document))
 
+;; The mounted machine's app surface. Registered at ns-load BEFORE the
+;; `use-fixtures` form below so `make-reset-runtime-fixture` captures them in its
+;; ns-load baseline (test_support.cljc §Stable ns-load baseline — the snapshot is
+;; taken eagerly at fixture-build time). The per-test reset then folds that
+;; baseline back over a fresh registrar, so `::toasts` is registered again at
+;; every mount — otherwise the strict mounted-React observation port throws
+;; `:rf.error/no-such-sub` on the unknown ENTRY sub.
+(rf/reg-event ::set-toasts (fn [{:keys [db]} [_ ts]] {:db (assoc db :toasts ts)}))
+(rf/reg-sub ::toasts (fn [db _] (:toasts db)))
+
 ;; ---------------------------------------------------------------------------
 ;; Fixtures — the async runtime reset PLUS a deterministic presence clock
 ;; (reset + wall-clock disabled, so advance-clock! is the SOLE removal driver).
@@ -72,9 +82,6 @@
 ;; ---------------------------------------------------------------------------
 ;; Mounted three-phase machine (jsdom / browser)
 ;; ---------------------------------------------------------------------------
-
-(rf/reg-event ::set-toasts (fn [{:keys [db]} [_ ts]] {:db (assoc db :toasts ts)}))
-(rf/reg-sub ::toasts (fn [db _] (:toasts db)))
 
 (defview toast-card [{:keys [msg]}]
   [:li {:data-testid "toast" :data-msg msg
