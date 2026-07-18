@@ -443,18 +443,22 @@
   merge is applied on top of `rt-after-alloc` so the caller's counter bump
   survives. Under Spec 002's single-drainer invariant the discarded
   re-read is value-equal to the snapshot the caller already had. Machine
-  snapshots are durable runtime-db state (EP-0001)."
+  snapshots are durable runtime-db state (EP-0001).
+
+  `type-ref-fn` is a THUNK, not a value (rf2-zo5n9). The revertible TYPE
+  reference a PREPARED `:spawn-all` child stamps is registrar-DERIVED —
+  `prepared-type-ref` compares the prepared definition against what the
+  registrar currently holds — so the moment it is chosen is a correctness
+  property, not a scheduling detail. Forcing it here, inside the `(continue?)`
+  fence and immediately before the physical write, is the LAST point ahead of
+  the swap; every callback-bearing pre-install emission (the caller's
+  `:rf.machine.spawn/spawned` trace and this fn's own
+  `:rf.error/system-id-collision` trace, both of which fan synchronously to
+  application listeners that can unregister or replace the child's TYPE) has
+  already run and is therefore already reflected in the reference this stamps."
   [frame-id rt-after-alloc spec spawned-id initial-snap
-   {:keys [system-id parent-id invoke-id track? type-ref continue? owner-token]}]
-  (let [existing (when system-id (get-in rt-after-alloc (paths/system-id-path system-id)))
-        ;; Stamp the revertible TYPE reference onto the snapshot root so the
-        ;; lazy resolver can re-materialise the handler from runtime-db alone. The
-        ;; spawn is known-accepted by the time `install-spawn!` runs (an
-        ;; unregistered `:machine-id` was rejected fail-closed upstream), so
-        ;; `spec` is always present; the `spec`/`type-ref` guards are
-        ;; belt-and-braces.
-        initial-snap (cond-> initial-snap
-                       (and spec type-ref) (assoc :rf/machine-type type-ref))]
+   {:keys [system-id parent-id invoke-id track? type-ref-fn continue? owner-token]}]
+  (let [existing (when system-id (get-in rt-after-alloc (paths/system-id-path system-id)))]
     (when (and system-id existing (not= existing spawned-id))
       (trace/emit-error! :rf.error/system-id-collision
                          {:frame             frame-id
@@ -489,7 +493,41 @@
     ;; trace. Without an owner (conformance / pure-fn), fall back to the bare
     ;; write (its non-nil return marks `:committed`).
     (if (or (nil? continue?) (continue?))
-      (let [install-fn (fn [_rt]
+      (let [;; rf2-zo5n9 — CHOOSE the revertible TYPE reference HERE, at the last
+            ;; point before the write, and stamp it onto the snapshot root so the
+            ;; lazy resolver can re-materialise the handler from runtime-db alone.
+            ;;
+            ;; THE WINDOW THIS CLOSES. rf2-rxjy3 made a prepared `:spawn-all`
+            ;; child's reference follow the definition-lifetime rule — keep the
+            ;; `:machine-id` keyword while the registrar still holds the prepared
+            ;; definition, pin that definition once the registrar has diverged —
+            ;; but the CHOICE was taken in `spawn-fx*`'s `let` bindings, ahead of
+            ;; two callback-bearing emissions that still run before this write:
+            ;; the caller's `:rf.machine.spawn/spawned` trace and the
+            ;; `:rf.error/system-id-collision` trace above. Both fan synchronously
+            ;; to application listeners. A listener that UNREGISTERED or REPLACED
+            ;; the admitted child's TYPE therefore diverged the registrar AFTER
+            ;; `prepared-type-ref` had observed it intact and returned the
+            ;; keyword — so the install stamped a now-STALE keyword and the child
+            ;; came up INERT (nothing resolves; it never leaves `:initial`, and
+            ;; every event raises `:rf.error/no-such-handler`) or SPLIT (a
+            ;; prepared-v1 snapshot driven by an unrelated current-v2 handler).
+            ;; The very failure modes rxjy3 removed, reached through a later door.
+            ;;
+            ;; Deferring the CHOICE — rather than re-checking anything — is the
+            ;; whole fix: `type-ref-fn` reads the registrar as it stands at
+            ;; commit, so whatever the last pre-install callback did to it is
+            ;; what the definition-lifetime rule decides against. It is NOT a
+            ;; re-verdict: an admitted child ALWAYS installs (rf2-v4oqd), and
+            ;; this can only select the FORM of its reference.
+            type-ref     (type-ref-fn)
+            ;; The spawn is known-accepted by the time `install-spawn!` runs (an
+            ;; unregistered `:machine-id` was rejected fail-closed upstream), so
+            ;; `spec` is always present; the `spec`/`type-ref` guards are
+            ;; belt-and-braces.
+            initial-snap (cond-> initial-snap
+                           (and spec type-ref) (assoc :rf/machine-type type-ref))
+            install-fn (fn [_rt]
                          (cond-> rt-after-alloc
                            spec      (assoc-in (paths/snapshot-path spawned-id) initial-snap)
                            system-id (assoc-in (paths/system-id-path system-id) spawned-id)
@@ -646,7 +684,17 @@
   admission. An admitted child ALWAYS installs — that is exactly what v4oqd
   established, and re-instating a fail-closed recheck here would restore the
   impossible half-live join it removed. The divergent case simply stops
-  depending on a registrar entry the preflight's verdict no longer speaks for."
+  depending on a registrar entry the preflight's verdict no longer speaks for.
+
+  WHEN this runs is part of the contract (rf2-zo5n9). Because the rule is
+  decided by comparing the prepared definition against the registrar's CURRENT
+  contents, a divergence that happens after the comparison is a divergence the
+  installed snapshot does not reflect — and the callbacks between the child's
+  admission and its install (the `:rf.machine.spawn/spawned` trace, and
+  `install-spawn!`'s `:rf.error/system-id-collision` trace) are exactly where a
+  listener can cause one. `spawn-fx*` therefore passes this as a THUNK and
+  `install-spawn!` forces it at the last point before the runtime-db swap, so
+  the comparison is made against the registrar as it stands at COMMIT."
   [args prepared]
   (let [type-spec  (:type-spec prepared)
         machine-id (:machine-id args)]
@@ -872,9 +920,21 @@
         ;; from (rf2-rxjy3 — see `prepared-type-ref` for the definition-lifetime
         ;; rule; the undisturbed case still stamps the plain `:machine-id`
         ;; keyword, so hot-reload semantics are unchanged).
-        type-ref   (if prepared
-                     (prepared-type-ref args prepared)
-                     (machine-type-ref args))
+        ;;
+        ;; rf2-zo5n9 — a THUNK, deliberately unforced here. `prepared-type-ref`
+        ;; is the one registrar-DERIVED input the install still needs, and
+        ;; everything between this binding and the write is callback-bearing:
+        ;; the `:rf.machine.spawn/spawned` trace below and `install-spawn!`'s
+        ;; `:rf.error/system-id-collision` trace both fan synchronously to
+        ;; application listeners that can unregister or replace the child's TYPE.
+        ;; Choosing here would read a registrar those callbacks then invalidate,
+        ;; stamping a stale keyword onto the snapshot (inert child / split
+        ;; authority). `install-spawn!` forces it at the last point before the
+        ;; swap instead. `machine-type-ref` is pure over `args` and reads no
+        ;; registrar, so the non-prepared path is timing-independent either way.
+        type-ref-fn (if prepared
+                      #(prepared-type-ref args prepared)
+                      (constantly (machine-type-ref args)))
         ;; The initial snapshot the install lands. Consumed verbatim from the
         ;; preflight for a `:spawn-all` child (built ONCE there); built ONCE
         ;; here otherwise, so the schema-rejection decision can gate every side
@@ -964,7 +1024,7 @@
                                          :parent-id   parent-id
                                          :invoke-id   invoke-id
                                          :track?      track?
-                                         :type-ref    type-ref
+                                         :type-ref-fn type-ref-fn
                                          :continue?   continue?
                                          :owner-token owner-token})]
         ;; rf2-hloj0g — `install-spawn!`'s `:rf.error/system-id-collision`
