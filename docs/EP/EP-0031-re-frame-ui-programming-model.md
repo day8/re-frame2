@@ -265,13 +265,17 @@ the W1 migrator + the `spec/004A` Reagent-compat appendix).
 with the first conforming Stage-1 slice per its R-1; S2 core verified S3-ready under
 the rf2-vxgfnd.22 boundary review).
 
-**Landing (the S3 epic, `rf2-vxgfnd.95`):** `.95.1` committed event spine —
-**merged**; `.95.2` local three-tuple / effect / `dispatch-fn` / lease confirmation
-— open; `rf2-8k14ia` sync-door widening — in progress (must land before `.95.1`'s
-literal-only door is declared conforming); `rf2-ri0k6n` `ui/slot` — open (S3→S4
-compiler surface); `rf2-isdqjv` safe-spread policy — open (blocks final S3
-conformance); `.95.10` closes the stage. Later: custom-element assertion (S4),
-`client-only` phase flip (S5), `->react` (S6), 004A landing + Helix removal (S7).
+**Landed (the S3 epic, `rf2-vxgfnd.95`) — stage closed 2026-07-18.** Every bead
+this EP cited closed: `.95.1` committed event spine; `.95.2` local three-tuple /
+effect / `dispatch-fn` / lease confirmation; `rf2-8k14ia` sync-door widening, which
+landed before `.95.1`'s literal-only door was declared conforming; `rf2-ri0k6n`
+`ui/slot`, the S3→S4 compiler surface; `rf2-isdqjv` safe-spread policy, the last
+blocker on S3 conformance; and `.95.10`, which closed the stage. S4
+(`rf2-vxgfnd.96`, custom-element assertion) followed and was declared conforming.
+The stages still ahead ride their own epics — `client-only` phase flip (S5,
+`rf2-vxgfnd.97`), `->react` (S6, `rf2-vxgfnd.98`), 004A landing + Helix removal
+(S7, `rf2-vxgfnd.99`). This paragraph records stages that have closed; for a stage
+still in flight the epic is the state, not this page.
 
 **Guide-impact assessment (EP-0009 rule 5).** The teaching seams are guide 03
 (state) and guide 04 (events), and both are already written to this contract:

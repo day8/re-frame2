@@ -8,7 +8,8 @@ Type: standards-track
 > graduation: the Spec 004 rewrite (handler synchrony law, local placement
 > law, render slots, spread), `spec/004B` (conversion table), `spec/008`
 > (gate roster), `spec/009` (diagnostic rows). Directed by Mike 2026-07-16
-> (in-session); accepted on direction — implementation beads are live.
+> (in-session); accepted on direction — the implementation beads it filed have
+> all since closed (see §Bead Plan).
 
 ## Abstract
 
@@ -228,19 +229,22 @@ reopened: deltas #4/#5 entered under the freeze's own delta protocol.
 
 ## Bead Plan / Reference Implementation
 
-The per-bead fold-in against live S3 stage epic `rf2-vxgfnd.95` (all filed):
+The per-bead fold-in against S3 stage epic `rf2-vxgfnd.95`, which closed
+2026-07-18. Per EP-0009 a ledger's rows cite live bead ids and are struck as they
+close; every row below is now closed, so this table records finished work rather
+than tracking it.
 
 | Delta | Owning bead | State |
 |---|---|---|
-| P0-1 three-tuple `local` + G-15 | `rf2-vxgfnd.95.2` (amended notes authoritative over its original scope) | open |
-| P0-2 sync-door widening + widened G-8 | `rf2-8k14ia` — the pre-conformance **correction** filed after `.95.1` merged (the completeness audit fixed the epic's truncated reference to it); blocks `.95.10` | in progress |
-| P0-3 `ui/slot` + G-16 (+ absorbed bare-alias dev warning) | `rf2-ri0k6n`; blocks `.95.10`; S3→S4 compiler surface | open |
-| P1-4 safe-spread policy + G-17 | `rf2-isdqjv`; blocks `.95.10` | open |
-| C-6 interop blessing + fixtures | `rf2-vxgfnd.95.4` | open |
-| C-13a fn-prop fixtures | `rf2-vxgfnd.95.3` (kept distinct from `rf2-ri0k6n`'s internal-slot fixtures) | open |
-| P1-5 manifest projection | `rf2-vxgfnd.95.6` | open |
-| Gates wiring + proof pack + G-18 fixture | `rf2-vxgfnd.95.10` (deps added on the three new children) | open |
-| RealWorld vertical rider | `rf2-vxgfnd.95.9` — unchanged; the proof pack complements it | open |
+| P0-1 three-tuple `local` + G-15 | `rf2-vxgfnd.95.2` (amended notes authoritative over its original scope) | closed |
+| P0-2 sync-door widening + widened G-8 | `rf2-8k14ia` — the pre-conformance **correction** filed after `.95.1` merged (the completeness audit fixed the epic's truncated reference to it); blocked `.95.10` | closed |
+| P0-3 `ui/slot` + G-16 (+ absorbed bare-alias dev warning) | `rf2-ri0k6n`; blocked `.95.10`; S3→S4 compiler surface | closed |
+| P1-4 safe-spread policy + G-17 | `rf2-isdqjv`; blocked `.95.10` | closed |
+| C-6 interop blessing + fixtures | `rf2-vxgfnd.95.4` | closed |
+| C-13a fn-prop fixtures | `rf2-vxgfnd.95.3` (kept distinct from `rf2-ri0k6n`'s internal-slot fixtures) | closed |
+| P1-5 manifest projection | `rf2-vxgfnd.95.6` | closed |
+| Gates wiring + proof pack + G-18 fixture | `rf2-vxgfnd.95.10` (deps added on the three new children) | closed |
+| RealWorld vertical rider | `rf2-vxgfnd.95.9` — unchanged; the proof pack complements it | closed |
 
 Spike/checkpoint beads live on the **program epic** (`rf2-vxgfnd`):
 `rf2-nzst23`, `rf2-1hm7a3`, `rf2-a62fje`, `rf2-efxb1h`, `rf2-ho1iba`. The
