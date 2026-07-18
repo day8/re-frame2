@@ -18,10 +18,11 @@ git-history record.
 prompts; paste the worktree-boundary block verbatim into every editing
 dispatch), then `README.md` (the longer "why"; refer back to sections as needed).
 
-**Decisions.** Keep `ai/decisions.md` current: every hold awaiting the
-operator — review gates, operator-run actions, held beads — goes in it the
-moment it arises, and comes out when resolved. Everything else operator-facing
-goes in chat; there is no dashboard to maintain.
+**Decisions.** Every hold awaiting the operator — review gates, operator-run
+actions, held beads — surfaces in chat and on its bead the moment it arises,
+and clears the same way when resolved. There is no decisions index or dashboard
+to maintain. When the operator asks for a written record of a particular
+decision, capture it as one file per decision under `ai/decisions/`.
 
 **Findings vs extended-context.** `ai/findings/` is gitignored exploratory work
 (audits, drafts, alternatives); always write the finding doc BEFORE filing the
@@ -81,8 +82,8 @@ of a drain; the binding rule is hot-zone parallelism, not strict same-surface.
   project's stance deliberately excludes (e.g. egress the threat model doesn't
   cover). Hold it as an operator decision; surface, don't auto-fix. Don't gold-plate.
 - *Quiescent is a valid state.* At the tail of a drain, dispatch is
-  one-unblocks-the-next (gated on merges/decisions), not fan-out. Hold, keep
-  `ai/decisions.md` honest, surface what needs the operator — don't manufacture work.
+  one-unblocks-the-next (gated on merges/decisions), not fan-out. Hold,
+  surface what needs the operator in chat and on the beads — don't manufacture work.
 - *Checkpoint tracker state on the heartbeat.* Many trackers auto-stage but never
   commit; commit + push the tracker file each cycle so a long session's state
   isn't stranded locally.

@@ -24,7 +24,7 @@ Prompt engineering and context management are still the keys.
 - [Beads](https://github.com/gastownhall/beads) are used to work.
 - Prompts are treated very seriously.
 - Git worktrees isolate workers.
-- `/ai/decisions.md` tracks the calls waiting on me.
+- Chat and Beads hold the calls waiting on me.
 - I make the important calls.
 
 The rest is good discipline.
@@ -110,7 +110,10 @@ Keep AI working material out of the product tree:
   spec, or docs.
 - `/ai/extended-context/` — durable project context not obvious from code.
   The mayor consults it on bootstrap and contributes on retrospectives.
-- `/ai/decisions.md` — the index of holds awaiting the operator (review gates, operator-run actions, held beads).
+- `/ai/decisions/` — one file per decision, written only when the operator
+  asks for a durable record of a specific call. Ordinary holds awaiting the
+  operator (review gates, operator-run actions, held beads) live in chat and
+  on their beads, not in an index file.
 
 ## Beads are the work queue
 
