@@ -25,8 +25,9 @@
 
   Every lexical `(sub …)` in a view is a compile-indexed site; all of a
   view's sites share ONE ViewCell — one `useSyncExternalStore`, one scalar
-  revision snapshot, one coalesced notification per render batch (the
-  drain-quiescence boundary, NOT per epoch — see §Drain coalescing below).
+  revision snapshot, one coalesced notification per render batch (the HOST
+  CHECKPOINT boundary, NOT per epoch and NOT per drain — see §Render batches
+  below).
   Render probes WITHOUT
   ownership (resolve-target + probe, no ref-count / watch / cache node);
   the layout commit acquires the CAPTURED targets. Abandoned renders
@@ -57,28 +58,48 @@
   a parametric read may retain its exact prior query object without collapsing
   an equal query executed at another compiler-issued site.
 
-  ## Drain coalescing + `flush!` scope (S2d — 03 §3 invariant 6; Spec 006
-  §Epoch finalization)
+  ## Render batches + `flush!` scope (S2d — 03 §3 invariant 6; Spec 006
+  §Render-batch finalization)
 
-  The sixth frozen invariant, stated correctly: THE RENDER BATCH BOUNDARY
-  IS DRAIN QUIESCENCE, NOT EPOCH CLOSE. An event/frame EPOCH is a
-  commit-phase + diagnostic-evidence unit (one per dequeued event —
-  Spec 002 §Drain versus event); it is NOT a React render boundary. A
-  single run-to-completion drain may settle SEVERAL queued events, each
-  committing its OWN epoch record, before the host regains control — and
+  The sixth frozen invariant, stated correctly: A RENDER BATCH IS THE PENDING
+  READ/RENDER WINDOW THAT ENDS AT THE NEXT HOST CHECKPOINT — the next CLJS host
+  microtask, or an explicit headless/test flush. The boundary is the HOST's, not
+  the router's: this scheduler has no hook from router drain finalization and
+  observes no drain boundary at all (rf2-vxgfnd.166).
+
+  An event/frame EPOCH is a commit-phase + diagnostic-evidence unit (one per
+  dequeued event — Spec 002 §Drain versus event); it is NOT a React render
+  boundary. A single run-to-completion drain may settle SEVERAL queued events,
+  each committing its OWN epoch record, before the host regains control — and
   every one of those epochs coalesces into ONE render batch.
+
+  What the boundary GUARANTEES:
+
+    1. A synchronous run-to-completion drain CANNOT be split across batches —
+       the window cannot close while the stack is still unwinding.
+    2. N epochs/events settled within ONE drain coalesce into ONE batch.
+    3. SEVERAL drains — or listener re-entry after a completed batch — that
+       finish before the SAME host checkpoint MAY SHARE one batch. Two
+       back-to-back `dispatch-sync!` calls in one JavaScript stack render
+       once, not twice; so do nested cross-frame synchronous drains.
+    4. Drains separated by a real HOST YIELD render separately.
+
+  `One render batch per router drain` is RETIRED as normative. It remains
+  merely the COMMON CASE — true exactly when callers yield between drains
+  (guarantee 4) — and it is not a rule this scheduler enforces or could
+  enforce without a drain-finalization seam that deliberately does not exist.
 
   The mechanism: sub deltas mark their cell dirty through constant-work
   `on-change` (never compute — I-5), carrying the moving frame's epoch as
   CAUSE EVIDENCE only. The cell enters a module-level DIRTY REGISTRY
   exactly once (a set, deduped by cell identity); a re-mark while already
   pending FOLDS IN regardless of its epoch tag — the pending flag is the
-  coalescing key, the epoch tag is NEVER a second key. On CLJS one
-  coalesced flush is armed per drain on the host MICROTASK queue
-  (`queue-microtask!` — `js/queueMicrotask`, NOT `goog.async.nextTick`,
-  which is a macrotask): the microtask checkpoint runs after the
-  synchronous run-to-completion drain unwinds and BEFORE the next paint, so
-  the flush fires strictly after drain quiescence — never between two queued
+  coalescing key, the epoch tag is NEVER a second key. On CLJS ONE coalesced
+  flush is armed by the FIRST dirty mark of a pending window on the host
+  MICROTASK queue (`queue-microtask!` — `js/queueMicrotask`, NOT
+  `goog.async.nextTick`, which is a macrotask): the microtask checkpoint runs
+  after the current synchronous task unwinds and BEFORE the next paint, so the
+  flush fires strictly after the stack drains — never between two queued
   events of the same drain, and always before a torn frame can show
   (rf2-vxgfnd.40); the JVM headless host has no async render loop, so it
   auto-schedules NOTHING and
@@ -87,13 +108,20 @@
   in one drain advance each dirty cell's revision ONCE and let React
   perform ONE read/render batch.
 
-  Render SEPARATION is therefore per DRAIN, not per epoch: two epochs
-  settled in one drain share one render batch; two epochs settled in
-  SEPARATE drains (distinct external events, the host regaining control
-  between them) render separately — NO render count may be inferred from
-  the number of event/frame epochs. The push-economics bench's queued-
-  cascade gate (a parent event that queues further events, proving one
-  ViewCell notification and one React render for the whole batch —
+  Note precisely WHAT arms the window: the first mark, not the start of a
+  drain — and what closes it: the host checkpoint, not the end of a drain.
+  Nothing consults the router. So everything that marks a cell before that
+  checkpoint folds into the same batch, whether it came from one drain, from
+  several back-to-back synchronous drains, or from a listener re-entering
+  after a batch already completed.
+
+  Render SEPARATION therefore follows HOST CHECKPOINTS, not epochs and not
+  drains: epochs settled before the same checkpoint share one render batch —
+  however many drains produced them — and work separated by a real host yield
+  renders separately. NO render count may be inferred from the number of
+  event/frame epochs, nor from the number of drains. The push-economics
+  bench's queued-cascade gate (a parent event that queues further events,
+  proving one ViewCell notification and one React render for the whole batch —
   G-5/G-13) is wired with the bench in S2f, not here.
 
   SYNCHRONOUS forcing is scoped over that registry:
@@ -111,7 +139,7 @@
   re-entrant flush finds the registry already drained and cannot
   double-advance a cell. The DEV-tier `:rf.error/flush-in-open-epoch`
   signal — the DX guard naming a re-entrant flushSync-into-an-open-epoch
-  misuse (03 §11; Spec 006 §Epoch finalization) — is REFERENCED, not
+  misuse (03 §11; Spec 006 §Render-batch finalization) — is REFERENCED, not
   emitted by `ui.test/flush!`, before this registry is touched, with the
   Spec 009 catalogue row carrying the active frame + frame epoch.
 
@@ -1048,7 +1076,7 @@
   (swap! (state cell) update :revision inc)
   (notify-listeners! cell))
 
-;; ---- drain coalescing + the notification scheduler (S2d) --------------------
+;; ---- render-batch coalescing + the notification scheduler (S2d) -------------
 ;;
 ;; `on-change` is constant-work (mark-dirty; never compute — I-5). The moving
 ;; epoch/cause rides as EVIDENCE only (bounded + DEBUG-gated — see the
@@ -1057,11 +1085,15 @@
 ;; dedups by identity; a re-mark while pending folds in regardless of epoch
 ;; tag). N epochs
 ;; committed in one run-to-completion drain therefore advance the cell ONCE
-;; at flush — the render batch boundary is DRAIN QUIESCENCE, not epoch close.
-;; On CLJS one coalesced flush is armed per drain on the host MICROTASK queue
-;; (`queue-microtask!`), which drains after the synchronous run-to-completion
-;; drain unwinds and BEFORE the next paint — so a watch-fired movement is
-;; corrected before the host can show a torn frame (rf2-vxgfnd.40; 03 §3).
+;; at flush — the render batch boundary is the HOST CHECKPOINT (the next CLJS
+;; microtask, or an explicit headless/test flush), NOT epoch close and NOT
+;; drain completion: nothing here observes the router (rf2-vxgfnd.166).
+;; On CLJS one coalesced flush is armed by the FIRST dirty mark of the pending
+;; window on the host MICROTASK queue (`queue-microtask!`), which runs after
+;; the current synchronous task unwinds and BEFORE the next paint — so a
+;; watch-fired movement is corrected before the host can show a torn frame
+;; (rf2-vxgfnd.40; 03 §3). Any number of drains that complete before that
+;; checkpoint share the window; a real host yield separates batches.
 ;; `flush!` is the synchronous forcing, SCOPED so no pending work leaks
 ;; across roots. The Q51 scope ruling and the reentrancy contract live in
 ;; the ns docstring.
@@ -1196,7 +1228,7 @@
      microtask checkpoint after the current synchronous task and BEFORE the
      'update the rendering' (paint) step, so a microtask-scheduled flush
      corrects a moved sub before the host can present a torn frame — the
-     property the drain-quiescence render batch leans on (rf2-vxgfnd.40).
+     property the host-checkpoint render batch leans on (rf2-vxgfnd.40).
 
      `js/queueMicrotask` where present (all modern browsers + Node ≥ 11);
      a resolved-Promise job is the fallback. DELIBERATELY NOT
@@ -1210,18 +1242,21 @@
 
 (defn- schedule-flush!
   "Arm ONE coalesced microtask that drains the whole registry — the CLJS
-  host's realization of the drain-quiescence render batch (03 §3). One
-  microtask per drain, NOT per epoch: it is armed by the first mark of a
-  drain and fires only after the synchronous run-to-completion drain
-  unwinds, so every epoch committed by the drain's queued events folds into
-  the same flush. Re-marks before it runs fold in; a synchronous `flush!`
+  host's realization of the HOST-CHECKPOINT render batch (03 §3). ONE microtask
+  per PENDING WINDOW, NOT per epoch and NOT per drain: it is armed by the FIRST
+  mark of the window (the `flush-scheduled?` CAS) and fires at the next host
+  microtask checkpoint. It therefore folds in every epoch committed by the
+  drain's queued events — AND every further drain, nested cross-frame drain, or
+  listener re-entry that marks a cell before that checkpoint arrives. This
+  scheduler has no router hook and cannot observe a drain boundary
+  (rf2-vxgfnd.166). Re-marks before it runs fold in; a synchronous `flush!`
   beforehand just leaves it an empty drain.
 
   CLJS-only: the flush rides `queue-microtask!` — a TRUE host microtask that
-  fires after the synchronous drain unwinds and BEFORE the next paint, so a
-  watch-fired invalidation is corrected before a torn frame can show
+  fires after the current synchronous task unwinds and BEFORE the next paint, so
+  a watch-fired invalidation is corrected before a torn frame can show
   (rf2-vxgfnd.40). The JVM headless host has NO async render loop to align
-  to — its drain-quiescence flush is the EXPLICIT `flush!` (07 §2 'the only flush
+  to — its checkpoint is the EXPLICIT `flush!` (07 §2 'the only flush
   idiom'; SSR renders one-shot) — and `interop/next-tick` there is a
   CONCURRENT executor, not a microtask, so a background auto-drain would
   race synchronous callers. One honest option per host, not a pretended same
@@ -1390,7 +1425,7 @@
   optional bounded `payload` evidence into the pending window; then, EXACTLY on
   the false→true transition (read from the swap's OWN prior value, never a
   separate pre-read), enrol `cell` in the dirty registry once (identity-deduped)
-  and arm one per-drain flush. NO compute, no acquire/release (I-5) — the
+  and arm one flush for the pending window. NO compute, no acquire/release (I-5) — the
   production cost is one flag flip, flat in the number of queued events (the
   evidence fold DCEs under goog.DEBUG=false).
 
@@ -1621,7 +1656,7 @@
 
 (defn guard-open-drain!
   "The SHARED open-event-drain guard — the DEV-tier `:rf.error/flush-in-open-epoch`
-  signal (03 §11; Spec 006 §Epoch finalization). Reject a synchronous
+  signal (03 §11; Spec 006 §Render-batch finalization). Reject a synchronous
   registry-flush forced from `where` while a frame's run-to-completion event
   drain is STILL OPEN: flushing there could publish partially-settled queued
   update/commit work (a torn read/render). The single owner of the ruling — reused by
@@ -1642,7 +1677,7 @@
        :rf.error/flush-in-open-epoch where
        (str where " was called while frame " (pr-str frame-id)
             " is still inside its event drain — let the queued update and "
-            "commit phases settle to drain quiescence before forcing the one read/render batch")
+            "commit phases run to completion before forcing a read/render batch")
        {:recovery :no-recovery
         :extra {:frame frame-id
                 :frame-epoch (frame/frame-commit-epoch frame-id)}}))))
@@ -2459,9 +2494,17 @@
 ;; observed, so the interval honestly stays `:unknown`. So `disconnect!` marks
 ;; each cleanup PROVISIONAL and `settle-disconnect!` (a microtask on CLJS) clears
 ;; it once the disconnect outlives its checkpoint; only a disconnect that survived
-;; a host yield is then proven a hide. The field, lookup, settle, and reconnect
-;; branch are DEV-only; production has no StrictMode double-invoke and takes the
-;; ordinary reconnect-proof path directly.
+;; a host yield is then proven a hide.
+;;
+;; The field, its settle, and the reconnect branch are DEV-only. Production
+;; therefore holds NO settle evidence and makes NO Activity-hide claim: every
+;; reconnect stays at the honest `:unknown` floor. Production has no StrictMode
+;; double-invoke, but it still has two real commits in one synchronous stack, so
+;; annotating there would export the very proof the dev path refuses to fabricate
+;; — a build flag may change what is RECORDED, never what is CLAIMED
+;; (rf2-vxgfnd.164). The `:unmounted {:proof :host-teardown}` upgrade is
+;; unaffected in both builds: it rests on an authoritative host signal (an
+;; explicit root `.unmount`), not on a timing inference.
 
 (defn lifecycle
   "The cell's current runtime state keyword."
@@ -2956,22 +2999,32 @@
   microtask runs. The host supplies no exact discriminator, so the runtime
   DECLINES to annotate: it fabricates no Activity-hide proof and claims no unique
   StrictMode identity; the interval honestly stays `:disconnected {:reason
-  :unknown}` (rf2-vxgfnd.44, rf2-vxgfnd.164). In production the provisional field,
-  lookup, and branch are elided (no StrictMode double-invoke), so a reveal takes
-  the reconnect-proof path directly."
+  :unknown}` (rf2-vxgfnd.44, rf2-vxgfnd.164).
+
+  The annotation is licensed by SETTLE EVIDENCE and by nothing else, so it is
+  gated on holding that evidence — structurally, in ONE place. Production elides
+  the provisional field, its settle, and this whole branch, and therefore holds
+  NO settle evidence: it makes NO Activity-hide claim and leaves every reconnect
+  at the honest `:unknown` floor. That is deliberate. Production has no StrictMode
+  double-invoke, but it DOES still have two real commits in one synchronous stack
+  (`flushSync(hide); flushSync(reveal)`), so a direct production annotation would
+  export exactly the fabricated proof the dev path refuses — a build flag may
+  change what is RECORDED, never what is CLAIMED (rf2-vxgfnd.164). `:unmounted
+  {:proof :host-teardown}` is unaffected in both builds: it rests on an
+  authoritative host signal (an explicit root `.unmount`), not on timing."
   [^ViewCell cell]
   (let [st @(state cell)]
     (when (= :disconnected (:lifecycle st))
-      (if interop/debug-enabled?
+      ;; Annotate IFF settled evidence is held. An unsettled reconnect beat the
+      ;; settle (a StrictMode replay OR two real commits in one synchronous
+      ;; stack; the host does not discriminate): clear the provisional flag and
+      ;; DECLINE to annotate — fabricate no Activity-hide proof, claim no unique
+      ;; StrictMode identity. Production has no evidence at all and so, by the
+      ;; same rule, never annotates; the branch DCEs whole (rf2-vxgfnd.164).
+      (when interop/debug-enabled?
         (if (:disconnect-provisional? st)
-          ;; unsettled reconnect — beat the settle (a StrictMode replay OR two
-          ;; real commits in one synchronous stack; the host does not
-          ;; discriminate). Clear the provisional flag and DECLINE to annotate:
-          ;; fabricate no Activity-hide proof, claim no unique StrictMode identity
-          ;; (rf2-vxgfnd.164). The interval honestly stays :unknown.
           (swap! (state cell) assoc :disconnect-provisional? false)
-          (annotate-open-disconnect! cell :activity-hidden :reconnect))
-        (annotate-open-disconnect! cell :activity-hidden :reconnect)))
+          (annotate-open-disconnect! cell :activity-hidden :reconnect))))
     (swap! (state cell) assoc :lifecycle :connected)
     ;; Enrol in the live-cell registry (idempotent — a set) so a frame-destroy
     ;; sweep can find this cell while it observes a live committed dep set.

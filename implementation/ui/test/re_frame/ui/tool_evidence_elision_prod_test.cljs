@@ -82,6 +82,16 @@
     (reactive/commit! cell capture)))
 
 (deftest advanced-production-viewcell-has-no-provisional-disconnect-machinery
+  ;; rf2-vxgfnd.164 — production holds NO settle evidence, so it makes NO
+  ;; Activity-hide claim. The `:activity-hidden {:proof :reconnect}` annotation is
+  ;; licensed by exactly one thing: a disconnect PROVEN to have outlived its
+  ;; synchronous checkpoint. That proof lives in the DEV-only provisional/settle
+  ;; machinery, which this bundle deliberately elides (asserted structurally
+  ;; below and by the companion bundle scan). Annotating anyway would export a
+  ;; proof production never observed — and production, though it has no
+  ;; StrictMode double-invoke, still has same-stack consecutive commits
+  ;; (`flushSync(hide); flushSync(reveal)`), the very case the dev path refuses
+  ;; to label. So the honest production floor for EVERY reconnect is `:unknown`.
   (let [cell (reactive/make-cell ::prod-lifecycle)]
     (commit-empty! cell)
     (is (= :connected (reactive/lifecycle cell)))
@@ -93,8 +103,38 @@
     (reactive/settle-disconnect! cell)
     (commit-empty! cell)
     (is (= :connected (reactive/lifecycle cell)))
-    (is (= {:state :disconnected
-            :reason :activity-hidden
-            :proof :reconnect}
+    (is (= {:state :disconnected :reason :unknown}
            (peek (reactive/intervals cell)))
-        "production reconnect follows the ordinary lifecycle path directly")))
+        "production annotates NO Activity hide — it holds no settle evidence, so
+         it fabricates no proof (rf2-vxgfnd.164)")
+    (is (not-any? #(= :activity-hidden (:reason %)) (reactive/intervals cell))
+        "no production interval carries a fabricated Activity-hide proof")))
+
+(deftest advanced-production-same-checkpoint-reconnect-matches-the-dev-claim
+  ;; rf2-vxgfnd.164 — the dev/prod AGREEMENT gate. This is the exact sequence the
+  ;; DEBUG-build counterparts drive in
+  ;; `re-frame.ui.reactive-reconcile-cljs-test/consecutive-commits-without-a-yield-are-honestly-unknown`:
+  ;; a disconnect and a reconnect in ONE synchronous stack, with no settle
+  ;; between — two real host commits (`flushSync` hide then reveal), which
+  ;; production CAN produce. Dev honestly answers `:unknown`. Production must
+  ;; give the SAME answer; a build flag may change what is RECORDED, never what
+  ;; is CLAIMED.
+  ;;
+  ;; MUTATION GUARD: restoring the direct production annotation (an
+  ;; `annotate-open-disconnect!` fallback reached when `debug-enabled?` is false)
+  ;; turns this red — it would relabel this same-checkpoint reconnect
+  ;; `:activity-hidden`, contradicting the dev build on identical inputs.
+  (let [cell (reactive/make-cell ::prod-same-checkpoint)]
+    (commit-empty! cell)
+    (is (= :connected (reactive/lifecycle cell)))
+    ;; commit 1 — hide: layout-effect cleanup disconnects. NO settle follows.
+    (reactive/disconnect! cell)
+    (is (= {:state :disconnected :reason :unknown}
+           (peek (reactive/intervals cell)))
+        "cleanup emits the honest :unknown floor")
+    ;; commit 2 — reveal: the reconnect lands in the SAME synchronous stack.
+    (commit-empty! cell)
+    (is (= :connected (reactive/lifecycle cell)) "the reveal reconnects")
+    (is (= {:state :disconnected :reason :unknown}
+           (peek (reactive/intervals cell)))
+        "production agrees with dev: a same-checkpoint reconnect stays :unknown")))
