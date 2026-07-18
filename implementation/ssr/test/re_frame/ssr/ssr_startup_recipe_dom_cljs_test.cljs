@@ -30,21 +30,29 @@
   A `create-root` regression in the copyable recipe could therefore
   replace the server DOM while all of the above stayed green.
 
-  ## Why this drives the seam rather than importing `ssr.core`
+  ## How this executes the canonical recipe (rf2-drq8s)
 
-  The example ns `ssr.core` cannot be `:require`d into a CLJS test: it and
-  `examples/core/login/model.cljs` (ns `login.model`, already in the
+  The load-bearing branch of the recipe — payload present ⇒
+  `reagent.dom.client/hydrate-root` (adopt the server DOM); payload absent ⇒
+  `create-root` + `render` (fresh) — lives in ONE place: the registration-free
+  helper `ssr.mount/mount!`. `ssr.core/run` calls it, and so does `run-recipe!`
+  below, so this proof executes the SAME mount code the copyable recipe ships —
+  not a copy of it. Regress that branch (swap `hydrate-root` for `create-root`)
+  and this proof turns red.
+
+  `ssr.mount` is its own namespace rather than a private `defn-` in `ssr.core`
+  on purpose: this test must reach the helper WITHOUT `:require`-ing `ssr.core`,
+  whose app registrations (`:auth.session/store`, `:articles/loaded`, …) collide
+  at image assembly with `examples/core/login` (`login.model`, already in the
   consolidated `:node-test` bundle via `example_login_success_token_cljs_test`)
-  BOTH register the fx `:auth.session/store`, so co-loading them fails
-  image assembly with `:rf.error/image-duplicate-id` and breaks unrelated
-  tests bundle-wide. Per the bead's own allowance, this proof instead
-  drives the SMALLEST SHARED SEAM the recipe directly executes:
-  `run-recipe!` below is a line-for-line mirror of `ssr.core/run`'s mount
-  branch, exercising the SAME real machinery — `re-frame.ssr/hydrate!`
-  (payload read + state seed), the stock Reagent adapter, and
-  `reagent.dom.client/hydrate-root` / `create-root` / `render` — against
-  real planted server DOM. Keep this mirror in lock-step with
-  `ssr.core/run`.
+  and the realworld example (`realworld-http.*`, via `realworld-cljs-test`) —
+  `:rf.error/image-duplicate-id`, breaking unrelated tests bundle-wide.
+  `ssr.mount` registers nothing, so loading it pulls no example ids into the
+  bundle.
+
+  Everything ABOVE the mount call is exercised the same way `ssr.core/run` does
+  it — `re-frame.ssr/hydrate!` (payload read + state seed) and the stock Reagent
+  adapter — against real planted server DOM.
 
   The view here is a PLAIN component (not `reg-view`) on the `:rf/default`
   frame — deliberately. In a DEV build a registered-view root carries the
@@ -92,7 +100,11 @@
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures async]]
             [re-frame.core :as rf]
             [re-frame.adapter.reagent :as reagent-adapter]
-            [reagent.dom.client :as rdc]
+            ;; The canonical mount helper `ssr.core/run` itself calls. Requiring
+            ;; it — NOT `ssr.core` — is what lets this proof execute the real
+            ;; adopt-vs-fresh React-root branch without pulling `ssr.core`'s app
+            ;; registrations (and their bundle-wide id collisions) into the test.
+            [ssr.mount :as mount]
             [re-frame.ssr :as ssr]
             [re-frame.ssr.constants :as constants]
             [re-frame.test-support :as test-support]))
@@ -137,15 +149,24 @@
        "<button class=\"toggle-bodies\" data-testid=\"toggle-bodies\">Hide bodies</button>"
        "</div>"))
 
-;; ---- the recipe under test (mirror of ssr.core/run) ------------------------
+;; ---- the recipe under test: drives the canonical mount helper --------------
 
 (defn- run-recipe!
-  "Line-for-line mirror of `examples/capabilities/ssr/ssr/core.cljc` `run`'s
-  mount branch: install the stock Reagent adapter, stand up the client frame,
-  READ+HYDRATE+VERIFY state via `ssr/hydrate!`, then — payload present ⇒ ADOPT
-  the server DOM with `hydrate-root`; payload absent ⇒ fresh `create-root` +
-  `render`. `root-atom` stands in for the example's retained `react-root`.
-  Returns the payload `hydrate!` applied (nil on a client-only load)."
+  "Drives the client boot the way `ssr.core/run` does and hands the mount to the
+  SHARED `ssr.mount/mount!` — the single home of the adopt-vs-fresh React-root
+  branch `ssr.core/run` itself calls. Install the stock Reagent adapter, stand
+  up the client frame, READ+HYDRATE+VERIFY state via `ssr/hydrate!`, then mount
+  via `mount!`: payload present ⇒ ADOPT the server DOM with `hydrate-root`;
+  payload absent ⇒ fresh `create-root` + `render`. `root-atom` stands in for the
+  example's retained `react-root`. Returns the payload `hydrate!` applied (nil on
+  a client-only load).
+
+  The tree is a PLAIN component (see the ns docstring), not the recipe's own
+  registered `:app/root` view: a registered view's dev-only `data-rf-*`
+  annotations — which no server renderer reproduces — would make React treat
+  hydration as a mismatch and regenerate the tree, masking the adopt-vs-replace
+  signal. Driving `mount!` with a plain, annotation-free tree keeps that signal
+  clean while still executing the canonical mount branch."
   [root-atom]
   (rf/init! reagent-adapter/adapter)
   (rf/make-frame {:id app-frame :platform :client})
@@ -153,14 +174,7 @@
         payload (ssr/hydrate! {:frame app-frame :render-tree-fn (fn [] [recipe-view])})
         tree    [rf/frame-provider {:frame app-frame} [recipe-view]]]
     (when el
-      (if payload
-        ;; Server-rendered: ADOPT the painted DOM (same nodes, listeners
-        ;; attached, no re-paint).
-        (reset! root-atom (rdc/hydrate-root el tree))
-        ;; No payload: fresh root, mounted from scratch.
-        (do
-          (reset! root-atom (rdc/create-root el))
-          (rdc/render @root-atom tree))))
+      (reset! root-atom (mount/mount! el tree payload)))
     payload))
 
 ;; Async tests need the map-form fixture (a fn-form fixture's teardown races
