@@ -158,6 +158,58 @@ for (const forbidden of ['identity-exact', 'site-counts']) {
 }
 
 /*
+ * rf2-k9yuy — the custom-element hot-reload LEDGER must not reach production.
+ *
+ * `re-frame.ui.rules` keeps a source/cycle ledger so a hot reload can stage,
+ * reconcile and evict custom-element declarations. Production can never open a
+ * reload cycle (`notify-reload!` is a ^:dev/before-load hook shadow does not
+ * install in a release build), so that state is pure dead weight there — yet it
+ * used to ship: the atom was an unconditional `defonce` and every production
+ * registration `swap-vals!`'d against it. The `reload-ledger?` compile-time gate
+ * now folds it out.
+ *
+ * The ledger's root keys are NAMESPACE-QUALIFIED (`::sources` / `::cycles`)
+ * precisely so this grep has teeth: `re-frame.ui.rules/sources` and
+ * `re-frame.ui.rules/cycles` are minted by that ledger and nothing else, whereas
+ * bare `sources` / `cycles` would collide across the corpus. Closure renames
+ * symbols under :advanced but never rewrites string literals, and a CLJS keyword
+ * carries its fully-qualified name as one — so if either appears here, the
+ * ledger compiled in.
+ *
+ * Source positive control first: the keys must still BE namespace-qualified in
+ * rules.cljc, so a rename cannot turn this into a vacuous pass. The dev-positive
+ * control is `re-frame.ui.rules-cljs-test` (node, goog.DEBUG=true), which stages,
+ * reconciles and commits real reload cycles through those same keys — deleting
+ * the dev branch to satisfy this grep reddens there instead.
+ */
+const RULES_SOURCE = path.join(ROOT, 'ui', 'src', 're_frame', 'ui', 'rules.cljc');
+const rulesSource = fs.readFileSync(RULES_SOURCE, 'utf8');
+for (const expected of ['::sources', '::cycles', 'reload-ledger?']) {
+  if (!rulesSource.includes(expected)) {
+    fail(`reload-ledger source positive-control sentinel is absent: ${expected}`);
+  }
+}
+
+const LEDGER_PROD_TEST = path.join(ROOT, 'ui', 'test', 're_frame', 'ui',
+                                   'custom_element_reload_elision_prod_test.cljs');
+const ledgerProdTest = fs.readFileSync(LEDGER_PROD_TEST, 'utf8');
+const LEDGER_CONTROL = 'rf-ui-custom-element-reload-ledger-absent-v1';
+for (const expected of ["@#'rules/ledger-state", LEDGER_CONTROL]) {
+  if (!ledgerProdTest.includes(expected)) {
+    fail(`reload-ledger causal-oracle control is absent from its test: ${expected}`);
+  }
+}
+if (!bundle.includes(LEDGER_CONTROL)) {
+  fail('reload-ledger private-state assertion was omitted from advanced bundle');
+}
+
+for (const forbidden of ['re-frame.ui.rules/sources', 're-frame.ui.rules/cycles']) {
+  if (bundle.includes(forbidden)) {
+    fail(`custom-element reload ledger survived advanced output: ${forbidden}`);
+  }
+}
+
+/*
  * rf2-vxgfnd.94.8 — REAL compiled mutation control. A second advanced build
  * flips a private goog-define which roots an unrelatedly named atom/reset path
  * inside re-frame.ui.tool.evidence. The same production test must turn red on
