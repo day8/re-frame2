@@ -810,12 +810,14 @@
 ;; Delivery CONTENT is unchanged — only its timing. Two things are captured at
 ;; append time so a deferred fan-out delivers exactly what an inline one would
 ;; have: the listener SNAPSHOT (so a listener registered / unregistered later in
-;; the same drain does not gain or lose an earlier event), and a one-shot latch
-;; over `continue?` (`deferred-continue`) so an incarnation destroyed later in the
-;; drain cannot retroactively suppress an event that was already authorised at
-;; emission, while a listener that destroys it DURING the deferred fan-out still
-;; suppresses the remainder exactly as rf2-eaxnai requires. Emission ORDER is
-;; preserved: the ring push and epoch capture still run inline, the pending vector
+;; the same drain does not gain or lose an earlier event), and a baseline-relative
+;; reading of `continue?` (`deferred-continue`) so that only a suppression a
+;; listener causes DURING the fan-out stops it — the ordinary post-drain falsity of
+;; a context-dependent fence never does. See `deferred-continue` for why a bare
+;; live re-read of that fence is unsound once the drain has unwound.
+;;
+;; Emission ORDER is preserved:
+;; the ring push and epoch capture still run inline, the pending vector
 ;; is FIFO, and the whole batch is flushed under one monitor hold, so a drain's
 ;; own traces reach listeners contiguously and in order. Each deferred event is
 ;; driven through its OWN `run-outermost-fanout!`, so a listener's reentrant emit
@@ -951,25 +953,59 @@
      "Wrap an appended event's `continue?` snapshot so deferral cannot change
      WHETHER the event is delivered — only when.
 
-     Under inline delivery the driver's first `continue?` check happens in the
-     same breath as `deliver!`'s own `(continuing?)` gate, so it always passes;
-     only a LISTENER acting during the fan-out can flip it and suppress the
-     remaining listeners (rf2-eaxnai). Deferral opens a gap: the rest of the drain
-     runs before the first check, so an incarnation this drain destroys later
-     would retroactively cancel a fan-out that was already authorised at emission
-     — silently dropping the event.
+     THE PROBLEM DEFERRAL CREATES. `drive-fanout!` consults `continue?` before
+     every listener, and rf2-eaxnai gives a false reading ONE meaning: a listener
+     body just suppressed this event, so stop fanning it out. That reading is only
+     sound while every check is taken in the SAME dynamic context, which is what
+     inline delivery guaranteed — the whole fan-out ran inside `deliver!`, inside
+     the drain.
 
-     The latch restores the inline reading exactly: the first check (before the
-     first listener) passes unconditionally, and every check thereafter — i.e.
-     after a listener body has actually run — consults the live predicate. So
-     rf2-eaxnai's mid-fan-out suppression is preserved while the pre-fan-out gap
-     the deferral introduced is closed."
+     A deferred fan-out runs after the drain has unwound, and these predicates are
+     not pure functions of registry state: the dispatch-path fence
+     (`re-frame.router/dispatch!`'s `target-live?`) reaches
+     `frame/event-owner-live?`, which reads the DYNAMIC `frame/*event-owner*`. Once
+     the drain returns that var is unbound, so the fence reads false for every
+     cascaded dispatch — no destroy, no suppression, just an unwound stack. Under a
+     bare live re-read the driver would take that as suppression and abandon
+     listeners 2..N, silently dropping the `:rf.event/dispatched` envelope of every
+     cascaded event for every app with more than one listener. Level-testing a
+     context-dependent predicate outside its context is the defect; the reading has
+     to be made relative to the context the fan-out actually runs in.
+
+     THE DISTINCTION. Detect a TRANSITION, not a level. The first call — taken in
+     the flush, immediately before listener 1 — records the BASELINE and always
+     returns true (mirroring inline, whose first check passed in the same breath as
+     `deliver!`'s own `(continuing?)` gate). Every check thereafter runs in that
+     same flush context, so the only thing that can have changed the reading
+     between two consecutive checks is the listener body that ran between them:
+
+       - baseline TRUE  -> consult the live predicate. A later false is a genuine
+         mid-fan-out suppression and stops the remainder, exactly as rf2-eaxnai
+         requires. This is the case for every context-free fence — notably
+         `process-event!`'s `#(frame/event-continuation-live? frame-id owner-token)`,
+         which reads only the frame registry — so a listener that destroys the
+         outer incarnation still fences that incarnation's remaining fan-out.
+       - baseline FALSE -> the predicate was ALREADY false when the fan-out began,
+         before any listener could act. That is ordinary post-drain state (the
+         unwound owner binding above), never evidence of suppression, so it cannot
+         abandon the remaining listeners. The event was authorised at emission and
+         is delivered in full — just later.
+
+     Deferral therefore changes delivery TIMING only, never the recipient set."
      [continue?]
-     (let [delivered (volatile! false)]
+     (let [baseline (volatile! ::unread)]
        (fn []
-         (if @delivered
-           (continue?)
-           (do (vreset! delivered true) true))))))
+         (let [b @baseline]
+           (cond
+             ;; First check, taken in the flush: record the baseline, always pass.
+             (identical? b ::unread) (do (vreset! baseline (boolean (continue?)))
+                                         true)
+             ;; Already false before any listener ran — ordinary post-drain
+             ;; falsity, not suppression. Never abandon the remaining listeners.
+             (false? b)              true
+             ;; Was live when the fan-out began: a false reading now is a
+             ;; listener-caused suppression (rf2-eaxnai). Honour it.
+             :else                   (boolean (continue?))))))))
 
 #?(:clj
    (defn- flush-deferred-fanout!
