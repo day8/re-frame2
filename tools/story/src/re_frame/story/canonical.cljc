@@ -32,6 +32,7 @@
             [re-frame.story.runtime      :as runtime]
             [re-frame.story.save-variant :as save-variant]
             [re-frame.story.ui.cofx      :as ui-cofx]
+            #?(:cljs [re-frame.story.ui.a11y            :as ui-a11y])
             #?(:cljs [re-frame.story.ui.panels          :as ui-panels])
             #?(:cljs [re-frame.story.ui.open-in-editor  :as ui-open-in-editor])
             #?(:cljs [re-frame.story.ui.multi-substrate :as ui-multi-substrate])
@@ -76,7 +77,26 @@
   ;; pending-exceptions eviction does.
   (late-bind/set-fn! :drop-run-state
     (fn [frame-id]
-      (runner-events/clear-state! frame-id))))
+      (runner-events/clear-state! frame-id)))
+  ;; The a11y panel's per-frame axe state (`violations-by-frame` /
+  ;; `run-state`) is evicted on frame teardown via `drop-frame-state!`
+  ;; (rf2-cpbut). This is a MEMORY eviction before it is a correctness one:
+  ;; the violations bag holds raw axe-core violation objects, and each one
+  ;; references the offending elements through `:nodes` / `:target`, so an
+  ;; un-evicted entry pins the destroyed variant's detached DOM subtree for
+  ;; the life of the page.
+  ;;
+  ;; CLJS-only, and registered here rather than at `ui/a11y` load time so the
+  ;; hook is re-armed by every `install!` — a fixture that wiped the registry
+  ;; (`late-bind/clear!`) gets it back, which a load-time `defonce` could not
+  ;; give. `frames` cannot `:require` a `.cljs` ns from a `.cljc` one, so the
+  ;; teardown call routes through the hook exactly as the two evictions above
+  ;; do. The chrome panel (`ui/chrome-a11y`) needs no counterpart: its state
+  ;; is a singleton, with no per-frame accumulation to evict.
+  #?(:cljs
+     (late-bind/set-fn! :drop-a11y-state
+       (fn [frame-id]
+         (ui-a11y/drop-frame-state! frame-id)))))
 
 #?(:cljs
    (defn- render-host-scope

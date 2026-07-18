@@ -962,6 +962,11 @@
     ;; leaves no stale run-state behind once it is torn down.
     (when-let [drop (late-bind/get-fn :drop-run-state)]
       (try (drop frame-id) (catch #?(:clj Throwable :cljs :default) _ nil)))
+    ;; Evict the a11y panel's per-frame axe state (rf2-cpbut), symmetric with
+    ;; `run-teardown-walks!`. An inline frame the dev scanned leaves no
+    ;; retained detached DOM behind once it is torn down.
+    (when-let [drop (late-bind/get-fn :drop-a11y-state)]
+      (try (drop frame-id) (catch #?(:clj Throwable :cljs :default) _ nil)))
     (when (seq loaders-teardown)
       (try (apply-loaders-teardown! frame-id loaders-teardown)
         (catch #?(:clj Throwable :cljs :default) _ nil)))
@@ -1003,6 +1008,16 @@
   ;; through the `:drop-run-state` late-bind hook (frames cannot :require
   ;; runner-events — cycle).
   (when-let [drop (late-bind/get-fn :drop-run-state)]
+    (try (drop variant-id) (catch #?(:clj Throwable :cljs :default) _ nil)))
+  ;; Evict the a11y panel's per-frame axe state (rf2-cpbut). Unlike the two
+  ;; evictions above, the cost here is not a stale verdict but RETAINED DOM:
+  ;; the violations bag holds raw axe-core violation objects, each of which
+  ;; references the offending elements through `:nodes` / `:target`. Left in
+  ;; place, every scanned-then-destroyed variant pins its detached subtree
+  ;; for the life of the page. `ui/a11y` is CLJS-only, so — like the reader
+  ;; seam in `play/browser` — the call routes through a late-bind hook
+  ;; rather than a require this `.cljc` cannot make.
+  (when-let [drop (late-bind/get-fn :drop-a11y-state)]
     (try (drop variant-id) (catch #?(:clj Throwable :cljs :default) _ nil)))
   ;; Step 3 — variant body :loaders-teardown. Runs BEFORE
   ;; decorator teardown so loader-installed narrower state is cleaned

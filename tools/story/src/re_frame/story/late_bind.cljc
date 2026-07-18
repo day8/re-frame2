@@ -52,6 +52,31 @@
                                      teardown call routes through this hook.
                                      Signature: `(f frame-id) → nil`.
 
+  - `:drop-a11y-state`            — ui/a11y → frames. Called on frame
+                                     teardown so the axe-core panel's
+                                     per-frame slots (`violations-by-frame` /
+                                     `run-state`) evict their entries.
+                                     Primarily a MEMORY eviction: a
+                                     violation is a raw axe-core object that
+                                     references the offending elements via
+                                     `:nodes` / `:target`, so an un-evicted
+                                     entry pins the destroyed variant's
+                                     DETACHED DOM subtree for the life of the
+                                     page — one leaked subtree per
+                                     scanned-then-destroyed variant. Dropping
+                                     the slot also revokes any in-flight
+                                     run's claim on it, because the run's
+                                     token lives IN the slot (rf2-2amkm), so
+                                     a scan settling after teardown is
+                                     refused rather than resurrecting the
+                                     frame. `frames` (`.cljc`) cannot
+                                     `:require` the CLJS-only `ui/a11y`, so
+                                     the call routes through this hook.
+                                     Absent on the bare JVM / any build
+                                     without the UI shell, where there is no
+                                     panel state to evict.
+                                     Signature: `(f frame-id) → nil`.
+
   - `:recorder/reset-dom-buffer`   — dom-capture → recorder. Called by
                                      `recorder/start-recording!` and
                                      `recorder/clear!` to cancel every
