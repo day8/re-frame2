@@ -82,3 +82,50 @@
    (deftest presence-phase-is-present-on-jvm
      (is (= :present (presence/presence-phase))
          "the JVM structural subset always reads :present")))
+
+;; ---------------------------------------------------------------------------
+;; Ownership identity — one key, one retained child (rf2-vxgfnd.96.2)
+;;
+;; A key IS a retained identity. `claim-identities` is the pure claim that runs
+;; over the boundary's already-flattened children before `reconcile` sees them:
+;; without it two children alias, reconcile derives two entries under one key,
+;; and the single exit timer for that key removes both.
+;; ---------------------------------------------------------------------------
+
+(defn- claimed [pairs] (first (presence/claim-identities pairs)))
+(defn- collided [pairs] (second (presence/claim-identities pairs)))
+
+(deftest distinct-keys-pass-through-untouched
+  (let [pairs [["a" :el-a] ["b" :el-b] ["c" :el-c]]]
+    (is (= pairs (claimed pairs)) "no collision, no change — order preserved")
+    (is (= [] (collided pairs)) "nothing to diagnose"))
+  (is (= [[] []] (presence/claim-identities [])) "the empty boundary is fine"))
+
+(deftest duplicate-keys-collapse-to-the-first-claimant
+  (testing "explicit sibling collision — the FIRST child owns the identity"
+    (let [pairs [["x" :first] ["x" :second]]]
+      (is (= [["x" :first]] (claimed pairs)))
+      (is (= ["x"] (collided pairs)) "the later claim is reported")))
+  (testing "ADVERSARIAL: collision across separate flattened arrays, at depth"
+    ;; two `for` sites whose dynamic keys happen to alias — the shape the
+    ;; per-list-site duplicate check provably cannot see.
+    (let [pairs [["a" :l1] ["b" :l1] ["b" :l2] ["c" :l2] ["a" :l2]]]
+      (is (= [["a" :l1] ["b" :l1] ["c" :l2]] (claimed pairs))
+          "each identity keeps its first claimant, in document order")
+      (is (= ["b" "a"] (collided pairs))
+          "every collision is reported, in the order it was found")))
+  (testing "ADVERSARIAL: three children under one key report two collisions"
+    (is (= ["k" "k"] (collided [["k" 1] ["k" 2] ["k" 3]])))))
+
+(deftest reconcile-never-retains-two-children-under-one-key
+  ;; the composed law — the reason the claim exists at all.
+  (let [pairs   [["x" :first] ["x" :second] ["y" :other]]
+        keys*   (mapv first (claimed pairs))
+        entries (presence/reconcile [] keys*)]
+    (is (= ["x" "y"] keys*) "the boundary offers each identity exactly once")
+    (is (= [["x" :mounting] ["y" :mounting]] (phases entries)))
+    (is (apply distinct? (map :key entries))
+        "no two entries share a key — phase and exit-timer ownership stay 1:1"))
+  (testing "and the claim is idempotent — a StrictMode double-render is stable"
+    (let [pairs [["x" :first] ["x" :second]]]
+      (is (= (claimed pairs) (claimed (claimed pairs)))))))

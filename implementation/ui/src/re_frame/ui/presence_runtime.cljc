@@ -22,6 +22,8 @@
   The runtime split:
 
     reconcile          PURE next-entry derivation (both hosts, unit-testable)
+    claim-identities   PURE one-pair-per-key claim over the flattened children
+                       (a key IS a retained identity; two children cannot own one)
     the presence clock a fake-advanceable exit scheduler; `flush-presence!`
                        (re-frame.ui.test) drives it deterministically without
                        wall-clock sleeps, production arms `js/setTimeout`
@@ -66,6 +68,34 @@
                              (map (fn [k] {:key k :phase :mounting})))
                     incoming)]
     (into kept added)))
+
+(defn claim-identities
+  "Reduce the ordered flattened `[key element]` pairs to ONE pair per OWNERSHIP
+  IDENTITY — the invariant `reconcile`, the element map and the exit timers all
+  assume but none of them can enforce.
+
+  A boundary tracks its children by key, so a key IS a retained identity. Two
+  children under one key alias: `reconcile` derives two entries sharing a slot,
+  the element and timer maps (plain maps keyed by key) collapse to one, render
+  emits duplicate Provider keys, and the single exit timer removes every entry
+  sharing that identity. The FIRST claimant in document order owns the key;
+  later collisions are dropped and returned for diagnosis (rf2-vxgfnd.96.2).
+
+  React has already string-coerced `.-key`, so plain equality here IS the
+  collision domain the ownership maps use — key `1` and key `\"1\"` alias, and
+  this catches them together. Deliberately boundary-LOCAL: it sees the children
+  of one boundary, already flattened, and keeps no registry.
+
+  -> `[distinct-pairs duplicate-keys]`, both in document order."
+  [pairs]
+  (let [[pairs* dups _]
+        (reduce (fn [[acc dups seen] [k :as pair]]
+                  (if (contains? seen k)
+                    [acc (conj dups k) seen]
+                    [(conj acc pair) dups (conj seen k)]))
+                [[] [] #{}]
+                pairs)]
+    [pairs* dups]))
 
 ;; ---------------------------------------------------------------------------
 ;; The presence clock — a fake-advanceable exit scheduler
@@ -195,13 +225,42 @@
   "Flatten the incoming children (a compiled `for` emits nested JS arrays) into
   an ordered [key element] vector. Keys come from React's own `.-key` (already
   string-coerced), the identity `reconcile` tracks. The analyzer guarantees
-  every presence child is keyed, so an element without a key is defensive-only."
+  every presence child is keyed, so an element without a key is defensive-only.
+  Flattening can still surface the SAME key twice (explicit siblings, two `for`
+  arrays, colliding dynamic keys) — `claim-identities` reduces the result to one
+  pair per identity before the retention machine ever sees it."
   [acc x]
   (cond
     (nil? x)              acc
     (js/Array.isArray x)  (reduce collect-elements acc x)
     (react-element? x)    (if-some [k (.-key x)] (conj acc [k x]) acc)
     :else                 acc))
+
+(defn- warn-duplicate-identities!
+  "Dev diagnostic for a key claimed twice at ONE presence boundary. Reuses the
+  catalogued `:rf.error/ui-duplicate-key` — same failure, same string-coercion
+  collision domain as a keyed list site, one boundary further out. Stripped in
+  production by `goog.DEBUG`; the drop itself is unconditional, so a production
+  build still never diverges ownership."
+  [dup-keys]
+  (when ^boolean js/goog.DEBUG
+    (doseq [k dup-keys]
+      (js/console.warn
+       "[:rf.error/ui-duplicate-key] duplicate key at a (ui/presence …) boundary:"
+       (pr-str k)
+       (str "— presence tracks children BY KEY, so two children under one key "
+            "would share one retained identity and one exit timer. The later "
+            "child is DROPPED. Give each presence child a distinct key (keys "
+            "compare after React's string coercion: 1 collides with \"1\")."))))
+  nil)
+
+(defn- incoming-identities
+  "The flattened children of this boundary as ordered, ownership-unique
+  `[key element]` pairs — the only shape the retention machine may see."
+  [incoming]
+  (let [[pairs dups] (claim-identities (collect-elements [] incoming))]
+    (warn-duplicate-identities! dups)
+    pairs))
 
 (defn- render-entries
   "Render each entry as its element wrapped in a phase-carrying context Provider
@@ -234,7 +293,7 @@
     (when (nil? (.-current st))
       (set! (.-current st) #js {:entries [] :elements {} :timers {}}))
     (let [state    (.-current st)
-          incoming-pairs (collect-elements [] incoming)
+          incoming-pairs (incoming-identities incoming)
           incoming-keys  (mapv first incoming-pairs)
           ;; keep the latest element for every incoming key; retained keys keep
           ;; their last-seen element.
@@ -246,7 +305,12 @@
       (react/useEffect
        (fn []
          (let [state   (.-current st)
-               desired (reconcile (.-entries state) (mapv first (collect-elements [] incoming)))
+               ;; re-derived from the same props the render saw; the uniqueness
+               ;; claim is pure, so both paths agree on the ordered key set
+               ;; (the dev warning already fired during render).
+               desired (reconcile (.-entries state)
+                                  (mapv first (first (claim-identities
+                                                      (collect-elements [] incoming)))))
                timers  (.-timers state)
                ;; 1. schedule a removal timer for each newly-:unmounting key
                ;; 2. cancel the timer for each re-entered key
