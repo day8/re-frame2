@@ -15,6 +15,9 @@
     ForeignComp {:fqn 'app.interop/ForeignComp :meta {}}
     raw-fn {:fqn 're-frame.ui/raw-fn :meta {}}
     event  {:fqn 're-frame.ui/event :meta {}}
+    ui/spread      {:fqn 're-frame.ui/spread :meta {}}
+    ui/spread-safe {:fqn 're-frame.ui/spread-safe :meta {}}
+    ui/html        {:fqn 're-frame.ui/html :meta {}}
     nil))
 
 (defn- emitted [form]
@@ -271,3 +274,112 @@
     (is (not-any? #{'re-frame.ui.runtime/warn-bare-view-alias!}
                   (forms-of (emitted '[:div [child-view {:label l}]
                                        [v/card {:x 1}]]))))))
+
+;; ---------------------------------------------------------------------------
+;; ui/spread + ui/html compose (rf2-29s75)
+;;
+;; The general-spread branch builds its props object at RUNTIME and never goes
+;; through `element-prop-pairs`, so the compiler-owned dangerouslySetInnerHTML
+;; has to be attached at that seam explicitly. Before the fix the CLJS emitter
+;; dropped the markup here (empty children array, no __html) while the JVM
+;; emitter kept the `tree/html` leaf — a silent dual-emitter divergence. The
+;; cross-host proof lives in the parity corpus (:spread-trusted /
+;; :safe-spread-trusted); these are the focused lowering assertions.
+;; ---------------------------------------------------------------------------
+
+(defn- occurrences [sym form]
+  (count (filter #{sym} (forms-of form))))
+
+(defn- html-objs [form]
+  (filter #(and (seq? %)
+                (= 'cljs.core/js-obj (first %))
+                (= "__html" (second %)))
+          (forms-of form)))
+
+(defn- inner-html-sets [form]
+  (filter #(and (seq? %)
+                (= 'cljs.core/unchecked-set (first %))
+                (= "dangerouslySetInnerHTML" (nth % 2 nil)))
+          (forms-of form)))
+
+(deftest general-spread-carries-trusted-markup-to-react
+  (let [form     (emitted '[:div (ui/spread base ovr) (ui/html markup)])
+        sets     (vec (inner-html-sets form))
+        objs     (vec (html-objs form))
+        children (last form)]
+    (is (= 're-frame.ui.runtime/jsx-spread2 (first form))
+        "an unkeyed spread element still routes through the spread jsx helper")
+    (is (= 1 (count sets))
+        "exactly one dangerouslySetInnerHTML is attached to the spread props object")
+    (is (= 1 (count objs))
+        "exactly one __html carrier is built")
+    (is (= '(cljs.core/js-obj "__html" markup) (first objs))
+        "the authored ui/html expression is the __html value, unwrapped and unsanitised")
+    (is (= '(cljs.core/array) children)
+        "the markup takes NO positional child slot — React's children-vs-innerHTML
+         conflict cannot arise")))
+
+(deftest spread-and-markup-expressions-evaluate-once-each-in-source-order
+  (let [form    (emitted '[:div (ui/spread base ovr) (ui/html markup)])
+        props   (nth form 2)
+        [_ bindings & body] props
+        init    (second bindings)]
+    ;; The emitter's syntax-quoted `let` resolves against the CORE OF THE HOST
+    ;; reading this .cljc — clojure.core/let on the JVM (the only host the
+    ;; emitter actually runs on), cljs.core/let when this test is compiled for
+    ;; the node-test build. Assert the binding form, not the core alias.
+    (is (= "let" (name (first props)))
+        "the runtime-built props object is bound to a single-evaluation temporary")
+    (is (= 're-frame.ui.runtime/spread->props (first init))
+        "the temporary is the object spread->props returned")
+    (is (every? #(= 1 (occurrences % form)) '[base ovr markup])
+        "base, overrides and the markup expression each evaluate exactly once")
+    (is (and (= 1 (occurrences 'base init)) (= 1 (occurrences 'ovr init)))
+        "base and overrides are spread->props arguments — evaluated in authored order")
+    (is (zero? (occurrences 'markup init))
+        "the markup expression is NOT part of the spread call")
+    (is (= 1 (occurrences 'markup (vec body)))
+        "the markup evaluates in the let BODY — i.e. AFTER base and overrides,
+         matching source order and the JVM emitter's children thunk")
+    (is (= (last body) (first bindings))
+        "the let returns the same props object it mutated")))
+
+(deftest trusted-markup-wins-over-a-runtime-smuggled-inner-html-key
+  (let [form  (emitted '[:div (ui/spread base ovr) (ui/html markup)])
+        props (nth form 2)
+        [_ _ & body] props]
+    (is (= 'cljs.core/unchecked-set (ffirst body))
+        "the compiler-owned prop is set AFTER spread->props returns, so the
+         visible (ui/html …) site — the trust assertion — wins any same-key
+         value carried in through the runtime prop map (see rf2-5pr75)")))
+
+(deftest spread-without-trusted-markup-is-unchanged
+  (let [plain (emitted '[:div (ui/spread base ovr) [:span "a"] [:span "b"]])]
+    (is (empty? (inner-html-sets plain))
+        "an ordinary spread element gains no innerHTML prop")
+    (is (empty? (html-objs plain)))
+    (is (some #(and (seq? %)
+                    (= 're-frame.ui.runtime/spread->props (first %)))
+              (forms-of plain))
+        "the runtime-built props object is still the bare spread->props call")
+    (is (= 2 (count (rest (last (filter #(and (seq? %)
+                                              (= 'cljs.core/array (first %)))
+                                        (forms-of plain))))))
+        "ordinary children still ride the spread call's children array")))
+
+(deftest safe-spread-composes-with-trusted-markup-in-both-key-shapes
+  (testing "keyless — the sibling spread form already composed; pin it"
+    (let [form (emitted '[:div (ui/spread-safe {:class "owned"} caller)
+                          (ui/html markup)])]
+      (is (= 're-frame.ui.runtime/jsx-spread2 (first form)))
+      (is (= 1 (count (html-objs form))))
+      (is (= '(cljs.core/array) (last form))
+          "no positional child accompanies the markup")))
+  (testing "keyed — the jsx-spread3 arm carries the markup too"
+    (let [form (emitted '[:div (ui/spread-safe {:key k :class "owned"} caller)
+                          (ui/html markup)])]
+      (is (= 're-frame.ui.runtime/jsx-spread3 (first form)))
+      (is (= 1 (count (html-objs form))))
+      (is (= 'k (nth form 3))
+          "the authored key still reaches React's third argument")
+      (is (= '(cljs.core/array) (last form))))))

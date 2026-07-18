@@ -345,17 +345,50 @@
         key-info      (get-in node [:props :key])]
     (cond
       (get-in node [:props :spread])
-      (let [spread (get-in node [:props :spread])
-            sugar (get-in node [:props :class :base-str])
-            props-form `(re-frame.ui.runtime/spread->props
+      ;; ui/spread: the props object is runtime-built by `spread->props`;
+      ;; children ride the same call.
+      ;;
+      ;; TRUSTED MARKUP (rf2-29s75): `ui/spread` and `ui/html` COMPOSE — an
+      ;; element may carry a runtime-built prop map AND a trusted-markup sole
+      ;; child, and BOTH take effect. This branch does not go through
+      ;; `element-prop-pairs` (the `:safe-spread` sibling below does, which is
+      ;; why it already composed), so the compiler-owned
+      ;; `dangerouslySetInnerHTML` is attached here explicitly; without it the
+      ;; markup was silently dropped on CLJS while the JVM emitter kept it —
+      ;; a dual-emitter divergence against Spec 004 §Interop.
+      ;;
+      ;; The prop is set AFTER `spread->props` returns, so the visible
+      ;; `(ui/html ...)` site — the trust assertion — WINS any same-key value
+      ;; smuggled through the runtime prop map (see rf2-5pr75).
+      ;;
+      ;; EVALUATION ORDER: `base`/`overrides` are `spread->props` arguments, so
+      ;; they evaluate once each in authored order BEFORE the markup expression,
+      ;; matching source order and the JVM path (whose `:children` thunk runs
+      ;; after the opts map's `:dyn (merge base overrides)`). The
+      ;; single-evaluation `let` temporary mirrors the `:safe-spread` branch and
+      ;; folds away under :advanced.
+      ;;
+      ;; The analyzer sets `:children []` on an html-kid element, so no
+      ;; positional child accompanies the markup and React's
+      ;; children-vs-innerHTML conflict cannot arise.
+      (let [spread     (get-in node [:props :spread])
+            sugar      (get-in node [:props :class :base-str])
+            built      `(re-frame.ui.runtime/spread->props
                          ~tag-str
                          ~(when (seq sugar) sugar)
                          ~(:base spread)
                          ~(:overrides spread)
                          ~(site-key-form spread)
                          ~(debug-site-form (assoc spread :classification :spread)))
-            chs (children-forms st (:children node) inner-inline?)]
-        ;; spread props objects are runtime-built; children ride the same call
+            props-form (if-some [html (:html node)]
+                         (let [props-sym (gensym "rf-ui-spread")]
+                           `(let [~props-sym ~built]
+                              (cljs.core/unchecked-set
+                               ~props-sym "dangerouslySetInnerHTML"
+                               (cljs.core/js-obj "__html" ~(:form html)))
+                              ~props-sym))
+                         built)
+            chs        (children-forms st (:children node) inner-inline?)]
         (if (:present? key-info)
           `(re-frame.ui.runtime/jsx-spread3 ~tag-str ~props-form
                                             ~(:expr key-info)
