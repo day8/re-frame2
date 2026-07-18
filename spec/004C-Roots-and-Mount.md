@@ -458,11 +458,12 @@ prefix-uniqueness backstop share the roster:
   recorded plan fingerprint **and was recorded by a *different* root**,
 
 fails **that root** with `:rf.error/frame-payload-conflict`. The runtime plan-conflict
-arm carries data `{:frame-id … :installed {:config-fingerprint … :installed-by root-id}
-:arriving {:config-fingerprint … :root-id …}}` — `:installed` is the recorded install
-record *verbatim*, so it may instead carry `:adopted-by`/`:adopted true` (a boot-
-authoritative frame this root only scopes) or an extra `:mount-incomplete true` (a
-sibling mount that threw mid-run). The installed frame and the roots already using it
+arm carries data `{:frame-id … :installed {…} :arriving {:config-fingerprint … :root-id …}}`.
+`:installed` is the **external projection** of the recorded install/adopt record — *not* the
+record itself: it carries `:config-fingerprint` plus either `:installed-by root-id` (a
+root-OWNED record) or `:adopted-by root-id` + `:adopted true` (a boot-authoritative frame
+this root only scopes), optionally followed by the attempt-evidence flags of §7.1. The
+record's internal `:rev` is **stripped** from the projection. The installed frame and the roots already using it
 are untouched — failure scoping is precise: **a bad frame payload affects exactly the
 roots referencing it.** There is no first-wins silent merge and no last-wins
 overwrite. A **same-root** re-declaration whose fingerprint differs is a surgical
@@ -474,6 +475,86 @@ the didactic message points at boot/event infrastructure, per [004 §Roots and m
 arm — a referenced payload id already installed with a different **content** digest —
 carries its own content-`:digest` slot when server rendering lands: the same error id,
 a distinct conflict trigger.)
+
+### 7.1 Root-attempt evidence — authority, committed scope, and settlement
+
+An install record proves **plan authority**. It does *not* prove a **committed React
+root**. These are independent axes, and preflight keeps them independent: no prose here
+may claim a root or its DOM committed merely because `root.render` returned, a host
+update was scheduled, or a frame remained live.
+
+**Authority — who may write the record.** An `:installed-by` record is root-OWNED: that
+root, and only that root, may refresh it (a same-root fingerprint change is the surgical
+HMR refresh above, not a conflict). An `:adopted-by` + `:adopted true` record merely
+SCOPES a boot/external frame — adoption is create-if-absent scoping and never transfers
+ownership. A config-BEARING plan that meets a boot-authoritative frame (plan-less and
+live, or already adopted) therefore fails the arriving root with
+`:rf.error/frame-payload-conflict` under recovery
+`:scope-config-less-or-own-the-lifetime` rather than discarding its config over the boot
+config: either boot the frame config-less and scope it with a config-less `frame-root`,
+or drop the boot `rf/make-frame` and let the `frame-root` own the lifetime. This is a
+distinct conflict trigger from the differing-fingerprint arm, which recovers with
+`:align-frame-plan-config`.
+
+**Committed root scope — `:committed true`.** Set ONLY at the client's host-commit
+boundary, after a host render has actually committed; never by plan execution. It is
+carried FORWARD across a same-owner refresh, so a refresh of an already-committed record
+stays committed. It distinguishes a genuinely committed live root from a fresh install or
+a retry of an incomplete mount.
+
+**Exact-write binding — the internal `:rev`.** Every install, refresh, and adopt write
+mints a globally monotone install-record revision. Evidence is marked or cleared only
+while the current record still carries the exact `:rev` of the write being settled *and*
+that write's own root still owns the record. An overtaking overwrite, a
+destroyed-then-recreated frame, or an unrelated equal-plan foreign root can therefore
+never mark, clear, or settle another attempt's evidence. A rejected settlement never
+mutates the record; it reports `:rf.error/frame-preflight-evidence-mismatch` and lets
+independently authorized siblings settle. `:rev` is **internal**: it appears in no error
+payload and in no tool/test read.
+
+**Attempt evidence — failure is labelled by committed scope, not by action.** When an
+attempt fails, each record it already wrote is labelled by *provenance*:
+
+| Provenance | The write was | On failure |
+|---|---|---|
+| `:fresh` | an install, or a refresh of a never-committed record | `:mount-incomplete true` — the mount never completed and no root scopes it |
+| `:live` | a refresh of an already-committed record, or an adopt of a live boot frame | `:preflight-attempt-failed true` — neutral attempt evidence; the committed scope or boot frame PERSISTS (Q49), only the attempt failed |
+| `:found-live` | the ratified same-fingerprint no-op | never marked; only committed or cleared at a successful host boundary |
+
+Failure reaches the records by two complementary paths. A plan that throws **mid-run**
+(the plan phase) labels the siblings it already wrote on the way out. When every plan
+succeeds but the client's **post-preflight** ownership fence, element thunk, or first
+host render then throws (the host phase), the client aborts the attempt under the same
+provenance rule. A successful host boundary instead **finalizes**: it sets `:committed`
+and clears any stale `:mount-incomplete` / `:preflight-attempt-failed` from that
+attempt's records.
+
+**The settlement matrix.**
+
+| Scenario | Record after | Evidence |
+|---|---|---|
+| Fresh install, host commits | `:installed-by` | `:committed true` |
+| Fresh install, plan or host phase fails | `:installed-by` | `:mount-incomplete true` |
+| Same-root refresh of a committed record, host commits | `:installed-by`, fingerprint advanced | `:committed true` (carried forward) |
+| Same-root refresh of a committed record, attempt fails | `:installed-by`, prior render intact | `:preflight-attempt-failed true` |
+| Same-root retry of an incomplete mount | `:installed-by` | `:fresh` again — still `:mount-incomplete` until a host commit |
+| Equal-plan foreign root | unchanged — foreign root scopes but writes nothing | none; it gains no settlement rights |
+| Boot adoption, host commits | `:adopted-by` + `:adopted true` | `:committed true` (the adopting root's scope) |
+| Boot adoption, attempt fails | `:adopted-by` + `:adopted true` | `:preflight-attempt-failed true`; boot frame stays live and authoritative |
+| Stale / overtaken attempt settles | unchanged | rejected: `:rf.error/frame-preflight-evidence-mismatch`, no mutation |
+| Destroy, then re-create the same id | record PRUNED on destroy | none — a genuinely new lifetime, never a resurrected dead-lifetime record |
+
+**Internal versus published.** Published in the `:installed` projection and in the
+tool/test read: `:config-fingerprint`, `:installed-by` / `:adopted-by` + `:adopted`,
+`:committed`, `:mount-incomplete`, `:preflight-attempt-failed`. Internal, never
+published: `:rev`. The diagnostic projection and the internal record are distinct values;
+promoting an internal field into the projection is a separate contract decision, not a
+side effect of making a sentence true.
+
+**Losing the exact authority mid-preflight** fails CLOSED with
+`:rf.error/frame-preflight-lifecycle-loss` rather than mounting over an absent frame,
+binding a stale refresh to a replacement, or settling from a stale no-op — see that id's
+row in [009 §Error event catalogue](009-Instrumentation.md) for the three `:kind` arms.
 
 ## 8. Client-only non-hydrating mounts — identity and defaults
 
