@@ -65,10 +65,22 @@
  ;;     `npm run test:cljs`) reads the live analyzer arities of the
  ;;     reader-conditional CLJS surface and reconciles the FUNCTION arities
  ;;     against :cljs here. A CLJS-only reshape (e.g. dropping `flush!`'s
- ;;     1-arity) turns the probe RED. Macros are host-invariant (one .cljc
- ;;     definition expanded on both hosts), so their grammar is pinned once
- ;;     on the JVM lane; the reader-conditional :clj/:cljs difference for a
- ;;     function is represented intentionally rather than forced equal.
+ ;;     1-arity) turns the probe RED. The reader-conditional :clj/:cljs
+ ;;     difference for a FUNCTION is represented intentionally rather than
+ ;;     forced equal.
+ ;;
+ ;; MACRO ROWS ARE HOST-INVARIANT, AND BOTH LANES ENFORCE IT (rf2-qw31o).
+ ;; A ui.test macro is ONE .cljc `defmacro` expanded on both hosts, so its
+ ;; call grammar cannot differ by host: :clj and :cljs are two spellings of
+ ;; one fact. Neither lane arity-checks a macro against the CLJS analyzer
+ ;; (macro arglists are not reliable authority there), so for a while the
+ ;; :cljs half of a macro row was read by NOTHING — an arbitrary mutation to
+ ;; `render`'s or `with-root`'s :cljs grammar stayed green on both lanes,
+ ;; leaving a duplicated field with misleading contract authority. Both
+ ;; reconcilers now REQUIRE a macro's :cljs to EQUAL its :clj
+ ;; (`:macro-host-variance`). Since :clj stays pinned to the live JVM macro
+ ;; :arglists, equality transitively pins :cljs to that same live authority.
+ ;; Changing a macro's grammar means changing BOTH halves together.
  ;; --------------------------------------------------------------------------
  :ui-test-signatures
  {:namespace "re-frame.ui.test"

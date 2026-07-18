@@ -149,9 +149,22 @@
        intentionally, never forced equal). A function the analyzer surfaces no
        arity for is itself drift (`:arity-unobserved`).
      - MACROS are host-invariant (one `.cljc` definition expanded on both
-       hosts) — their call grammar is pinned once on the JVM lane and the
-       analyzer does not reliably surface their arglists, so they are not
-       arity-checked here.
+       hosts) — their call grammar is pinned once on the JVM lane, against the
+       live JVM `:arglists`, and the analyzer does not reliably surface macro
+       arglists so it is never treated as authority here. What IS checked is
+       that the sidecar's two halves AGREE: a macro's `:cljs` grammar must
+       EQUAL its `:clj` grammar (`:macro-host-variance`).
+
+   MACRO HOST-INVARIANCE (rf2-qw31o). The `:cljs` half of a macro row used to
+   be read by nothing at all: this lane skipped macros outright and the JVM
+   lane reads only `:clj`, so an arbitrary mutation to `render`'s or
+   `with-root`'s `:cljs` grammar stayed green on BOTH lanes — a duplicated
+   field carrying misleading contract authority. Requiring equality is what
+   gives the stored `:cljs` meaning: `:clj` is pinned to the live JVM macro
+   arglists on the other lane, so equality transitively pins `:cljs` to that
+   same live authority WITHOUT consulting the CLJS analyzer. Functions are
+   untouched — `flush!`'s 0-arity JVM vs 0/1-arity CLJS difference is real and
+   stays independently exact on each lane.
 
    Names are reconciled exactly: a contract var the live surface does not
    expose → `:var-absent`; a live blessed var with no contract entry →
@@ -161,15 +174,18 @@
   (->>
    (concat
     (mapcat
-     (fn [[var {:keys [kind cljs]}]]
+     (fn [[var {:keys [kind clj cljs]}]]
        (if-let [{live-kind :kind live-arities :arities} (get surface var)]
          (concat
           (when (not= kind live-kind)
             [{:kind :kind-mismatch :var var :declared kind :live-kind live-kind}])
+          ;; Both branches are selected by the AUTHORITATIVE live kind.
           (when (= live-kind :fn)
             (cond
               (nil? live-arities)      [{:kind :arity-unobserved :var var :expected cljs}]
-              (not= cljs live-arities) [{:kind :arity-mismatch :var var :expected cljs :got live-arities}])))
+              (not= cljs live-arities) [{:kind :arity-mismatch :var var :expected cljs :got live-arities}]))
+          (when (and (= live-kind :macro) (not= clj cljs))
+            [{:kind :macro-host-variance :var var :expected clj :got cljs}]))
          [{:kind :var-absent :var var :expected cljs}]))
      contract)
     (keep (fn [[var _]]
@@ -200,6 +216,13 @@
              :arity-mismatch
              (str "    " var ": live CLJS " (pr-str got)
                   " ; contract :cljs " (pr-str expected))
+             :macro-host-variance
+             (str "    " var ": MACRO contract :clj " (pr-str expected)
+                  " but :cljs " (pr-str got)
+                  " — a ui.test macro is ONE .cljc defmacro expanded on both"
+                  " hosts, so its call grammar cannot differ by host. Set :cljs"
+                  " equal to :clj (" (pr-str expected) "); if the grammar really"
+                  " changed, change BOTH.")
              :arity-unobserved
              (str "    " var ": the analyzer surfaced NO arity (expected :cljs "
                   (pr-str expected) ") — a function must be observable")

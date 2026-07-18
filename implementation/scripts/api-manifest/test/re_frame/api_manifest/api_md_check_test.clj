@@ -645,18 +645,20 @@
 ;; COUNTS an ordinary function's &form/&env params (bead AC).
 ;; ---------------------------------------------------------------------------
 
-;; The :clj projection of the nine blessed vars' signature contract (mirrors
-;; the committed :ui-test-signatures :vars, :clj half).
+;; The nine blessed vars' signature contract, carrying BOTH halves exactly as
+;; the committed :ui-test-signatures rows do. `flush!` keeps the blessed
+;; reader-conditional FUNCTION difference (0-arity JVM, 0/1-arity CLJS); the
+;; two MACROS are host-invariant, so their halves are equal (rf2-qw31o).
 (def ^:private ui-test-clj-contract
-  {"attrs"     {:kind :fn    :clj #{[1]}}
-   "text"      {:kind :fn    :clj #{[1]}}
-   "find"      {:kind :fn    :clj #{[2]}}
-   "find-all"  {:kind :fn    :clj #{[2]}}
-   "query"     {:kind :fn    :clj #{[2]}}
-   "dispatch!" {:kind :fn    :clj #{[2]}}
-   "flush!"    {:kind :fn    :clj #{[0]}}
-   "render"    {:kind :macro :clj #{[1] [2]}}
-   "with-root" {:kind :macro :clj #{[1 :&]}}})
+  {"attrs"     {:kind :fn    :clj #{[1]}     :cljs #{[1]}}
+   "text"      {:kind :fn    :clj #{[1]}     :cljs #{[1]}}
+   "find"      {:kind :fn    :clj #{[2]}     :cljs #{[2]}}
+   "find-all"  {:kind :fn    :clj #{[2]}     :cljs #{[2]}}
+   "query"     {:kind :fn    :clj #{[2]}     :cljs #{[2]}}
+   "dispatch!" {:kind :fn    :clj #{[2]}     :cljs #{[2]}}
+   "flush!"    {:kind :fn    :clj #{[0]}     :cljs #{[0] [1]}}
+   "render"    {:kind :macro :clj #{[1] [2]} :cljs #{[1] [2]}}
+   "with-root" {:kind :macro :clj #{[1 :&]}  :cljs #{[1 :&]}}})
 
 ;; The matching live-JVM SURFACE for an in-sync tree: {var {:kind :arities}}.
 (def ^:private ui-test-live-in-sync
@@ -758,6 +760,87 @@
       (is (= "flush!" (:var (first problems))))
       (is (= :macro (:declared (first problems))))
       (is (= :fn (:live-kind (first problems)))))))
+
+;; ---------------------------------------------------------------------------
+;; MACRO HOST-INVARIANCE — the unchecked shadow contract (rf2-qw31o)
+;;
+;; A ui.test macro is ONE .cljc `defmacro` expanded on both hosts, so `:clj`
+;; and `:cljs` are two spellings of one fact. This lane reads only `:clj` and
+;; the CLJS lane never arity-checks a macro (analyzer macro arglists are not
+;; reliable authority), so the `:cljs` half of a macro row was read by NOTHING
+;; and an arbitrary mutation to it stayed green on BOTH lanes. Both reconcilers
+;; now require the halves to be equal; `:clj` remains pinned to the live JVM
+;; `:arglists` above, so equality transitively pins `:cljs` to the same live
+;; authority without introducing any new signature parser.
+;; ---------------------------------------------------------------------------
+
+(deftest macro-cljs-only-mutation-goes-red
+  (testing "THE BUG (rf2-qw31o): mutating render's grammar ONLY on the :cljs side
+            is host-variance a single .cljc defmacro cannot have. It was
+            invisible to every lane; it is now RED here, and the live :clj
+            arities still match so ONLY the host-variance fires"
+    (let [problems (c/ui-test-arity-problems
+                    (assoc-in ui-test-clj-contract ["render" :cljs] #{[7] [9]})
+                    ui-test-live-in-sync)]
+      (is (= [:macro-host-variance] (map :kind problems)))
+      (is (= "render" (:var (first problems))))
+      (is (= #{[1] [2]} (:expected (first problems))) "the :clj half")
+      (is (= #{[7] [9]} (:got (first problems)))      "the mutated :cljs half"))))
+
+(deftest with-root-cljs-only-mutation-goes-red
+  (testing "with-root's :cljs half mutated alone is rejected the same way — both
+            macro rows are covered, not just the first"
+    (let [problems (c/ui-test-arity-problems
+                    (assoc-in ui-test-clj-contract ["with-root" :cljs] #{[42]})
+                    ui-test-live-in-sync)]
+      (is (= [:macro-host-variance] (map :kind problems)))
+      (is (= "with-root" (:var (first problems)))))))
+
+(deftest macro-clj-only-mutation-goes-red-on-both-counts
+  (testing "mutating a macro's :clj half alone drifts from BOTH authorities: the
+            live JVM :arglists (:arity-mismatch) and its own :cljs twin
+            (:macro-host-variance). Neither half can be edited on its own"
+    (let [problems (c/ui-test-arity-problems
+                    (assoc-in ui-test-clj-contract ["render" :clj] #{[1]})
+                    ui-test-live-in-sync)]
+      (is (= [:arity-mismatch :macro-host-variance] (sort (map :kind problems))))
+      (is (every? #(= "render" (:var %)) problems)))))
+
+(deftest macro-grammar-changed-in-both-halves-stays-green
+  (testing "POSITIVE CONTROL — over-tightening would be worse than the bug. A
+            macro grammar that REALLY changed, changed in BOTH halves AND in the
+            live source together, is in sync and must not be flagged. Without
+            this, 'always flag a macro' would pass every mutation test above
+            while making a legitimate grammar change unrepresentable"
+    (is (empty? (c/ui-test-arity-problems
+                 (-> ui-test-clj-contract
+                     (assoc-in ["render" :clj]  #{[1] [2] [3]})
+                     (assoc-in ["render" :cljs] #{[1] [2] [3]}))
+                 (assoc-in ui-test-live-in-sync ["render" :arities] #{[1] [2] [3]}))))))
+
+(deftest function-host-difference-is-never-forced-equal
+  (testing "POSITIVE CONTROL for the other half of the rule — host-invariance
+            binds MACROS only. flush! is deliberately :clj #{[0]} / :cljs
+            #{[0] [1]}, a real reader-conditional difference, and reconciles
+            clean. A check that forced :clj = :cljs for every kind would redden
+            this legitimate row"
+    (is (not= (get-in ui-test-clj-contract ["flush!" :clj])
+              (get-in ui-test-clj-contract ["flush!" :cljs]))
+        "the fixture really does carry the host difference")
+    (is (empty? (c/ui-test-arity-problems ui-test-clj-contract ui-test-live-in-sync)))))
+
+(deftest committed-sidecar-macro-rows-are-host-invariant
+  (testing "the COMMITTED sidecar (not a fixture) really does carry equal :clj
+            and :cljs halves for every macro row — the reconcilers above check
+            the rule, this checks the live artefact obeys it, and that macro
+            rows exist at all (a vacuous pass if the enumeration collapsed)"
+    (let [contract (:vars (c/read-ui-test-signatures))
+          macros   (filter (fn [[_ v]] (= :macro (:kind v))) contract)]
+      (is (= #{"render" "with-root"} (set (map key macros)))
+          "the two blessed ui.test macros are rowed")
+      (doseq [[var {:keys [clj cljs]}] macros]
+        (is (= clj cljs)
+            (str var ": macro :clj and :cljs must be equal (one .cljc defmacro)"))))))
 
 (deftest removed-var-flagged-absent
   (testing "a contract var whose live var no longer resolves is :var-absent
