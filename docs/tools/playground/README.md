@@ -136,14 +136,40 @@ npm run build          # builds BOTH bundles (bootstrap + re-frame2 SCI)
 # npm run build:dev         # unminified bootstrap, for debugging
 ```
 
-`npm run build` produces three committed, deployed assets:
+`npm run build` produces three deployed assets, under **two different
+version-control policies**:
 
 - `docs/cljs/playground.js` — the esbuild IIFE bundle (CM6 + clojure-mode + the
   instant-nav bootstrap). **Committed** (vendored prebuilt; bump = re-bundle).
 - `docs/cljs/playground.css` — hand-authored cell styles, copied verbatim.
+  **Committed.**
 - `docs/cljs/playground-rf2.js` — the shadow-cljs `:advanced` re-frame2 SCI
   bundle (Phase 3). Built from `sci/` (`shadow-cljs release rf2` → copied from
-  `sci/out/`). **Committed** (vendored prebuilt; bump = re-bundle).
+  `sci/out/`). **NOT committed** — generated output, `.gitignored` (rf2-tzy13).
+
+### Local contract (rf2-tzy13)
+
+A fresh clone has the two bootstrap assets but **no** `playground-rf2.js` — you
+build it:
+
+- `mkdocs build` alone builds the static docs fine. Every page renders; only the
+  live ` ```cljs-rf2 ` cells have no engine to load.
+- To exercise those cells locally (or to run `npm run smoke`), run `npm run
+  build` — or `npm run build:rf2` for just the SCI bundle — in
+  `docs/tools/playground` first. The smoke fails with an actionable
+  "bundle not found — build it" error if you skip this.
+- Pulling the rf2-tzy13 cutover commit **deletes** your formerly-tracked copy of
+  the file. The next build recreates it as ignored output; nothing else is
+  needed.
+
+Why it is not committed: the bundle bakes in re-frame2 core + reagent-slim +
+machines + flows, so **every** PR touching any of those had to regenerate the
+same ~1.7 MB binary — and two such PRs always conflicted on it. On one day the
+file was rewritten nine times on `main` in seven hours, one P2 correctness fix
+needed five rebase cycles to land, and workers began scoping real work out of
+PRs to dodge the rebuild. Source, config, and locks are the single authority
+now; the artefact is generated at each consumption boundary (PR CI, docs
+deploy, local build).
 
 Neither Scittle nor the re-frame2 bundle is loaded eagerly — the bootstrap
 injects each `<script>` at eval time, only on pages that have the relevant cell
@@ -182,72 +208,52 @@ re-frame2 one).
 
 ### CI
 
-The smoke is gated in CI (`.github/workflows/test.yml`, `tools-playground`
-job, fired by the `playground` changed-surface in
-`.github/scripts/report-changed-surfaces.sh`). The job builds both bundles,
-runs the smoke against them, **and** verifies the committed
-`docs/cljs/playground.js` + `.css` are byte-identical to a fresh build
-(`git diff --exit-code`), plus that the committed `playground-rf2.js` is a
-valid, fresh re-frame2 prebuilt (structural + freshness checks — see the
-SCI-bundle freshness guard note below) — so a stale vendored bundle fails the
-PR. See the row in `TESTING.md`.
+The bundles are gated at **two consumption boundaries**, and since rf2-tzy13
+that is the whole story — there is no committed SCI snapshot to keep honest, so
+there is no third, snapshot-shaped gate.
 
-**Rebuild-on-publish (rf2-ssxvg1).** The committed `playground-rf2.js` is still
-a vendored prebuilt for PR gating and local convenience, but it is no longer
-the source of the *deployed* live-cell engine. `.github/workflows/docs.yml`
-now rebuilds **both** bundles fresh from the checked-out `main` (`npm ci` +
-`npm run build`, with a JVM + Clojure + Node toolchain) **before**
-`mkdocs build` stages `site/`, so the **deployed** bundle is always current
-with `main` regardless of how stale the committed snapshot is. This eliminates
-the committed-stale-binary drift class structurally: a wave of
-`implementation/` changes (e.g. the EP-0003 resources wave) can no longer
-leave the live cells running an old re-frame2 just because the committed
-bundle predates them. The build-in-pipeline approach was chosen over a
-commit-back bot push: it keeps the deployed site authoritative without a
-write-back to `main` (the committed snapshot may briefly lag a docs publish,
-which is acceptable since the deploy always rebuilds).
+**PR time — `tools-playground` in `.github/workflows/test.yml`**, fired by the
+`playground` changed-surface in `.github/scripts/report-changed-surfaces.sh`.
+It builds both bundles, runs the headless-Chromium smoke against them, verifies
+the **committed** `playground.js` + `.css` are byte-identical to that fresh
+build (`git diff --exit-code`), and structurally validates the **generated**
+`playground-rf2.js` (non-empty, `shadow$provide`, `rf2sci`, size floor) so a
+build that "succeeded" while emitting a wrong or truncated artefact still fails
+the PR. The surface that fires it now includes every baked-in tree — `core`,
+`adapters/reagent-slim`, `machines`, `flows` — plus the playground itself. That
+widening is affordable *because* of the untracking: firing the heavy job on
+every core change used to also mean forcing a bundle rebuild + recommit on
+every core PR, which was the write lock rf2-tzy13 removed.
 
-**SCI-bundle freshness guard (rf2-2h1yhk; made mechanically honest in
-rf2-i3e3q).** `playground-rf2.js` is a Closure `:advanced` build whose minified
-output is **not** cross-machine reproducible, so it is NOT byte-diffed (see the
-gate steps' rationale). What IS cross-machine stable is the **set of source
-inputs** the bundle is compiled from, and that is exactly what the gate pins:
+**Deploy time — the `build` job in `.github/workflows/docs.yml`.** It rebuilds
+both bundles fresh from the checked-out `main` (`npm ci` + `npm run build`, JVM
++ Clojure + Node) **before** `mkdocs build` stages `site/`, then — on non-PR
+events only — runs the Chromium smoke against what it just built, and
+`git diff --exit-code`s the committed bootstrap. **The artifact that ships is
+the artifact that was smoked.** That matters specifically because PRs merge by
+*rebase*: PR CI validated the pre-rebase tree, not the tree that landed. The
+retired post-merge canary used to cover that gap; running the smoke on the
+deploy path covers it at the exact point of consumption instead, and keeps
+main-push CI to one heavy bundle build rather than two.
+
+**Provenance stamp (rf2-i3e3q; rescoped by rf2-tzy13).** Every generated bundle
+carries an unminified `//# rf2-sci-input-digest=<hex>` marker:
 
 - `scripts/playground-sci-input-digest.mjs` hashes the declared input roster —
   the `core` / `reagent-slim` / `machines` / `flows` source trees + their
   `deps.edn`, the SCI bundle source, the shadow build config, and the npm lock —
   into one deterministic 64-hex digest (each file via `git hash-object`, so the
   digest is identical on a Windows checkout and a Linux runner).
-- `docs/tools/playground/sci/scripts/copy-bundle.mjs` stamps that digest into the
-  bundle it emits as an unminified `//# rf2-sci-input-digest=<hex>` marker, so the
-  committed bundle records the inputs it was built from. Rebuilding through
-  `npm run build` refreshes the marker automatically — no hand-editing.
-- `scripts/check-playground-sci-freshness.sh` recomputes the digest from the
-  **current** inputs and compares it to the marker embedded in the **committed**
-  bundle (read from `HEAD`, so it is honest even in the PR-time job that rebuilds
-  the working-tree bundle before the gate runs). **Any** declared baked-in input
-  that changes without a rebuild leaves marker ≠ current inputs, and the gate
-  fails. It rebuilds nothing.
+- `docs/tools/playground/sci/scripts/copy-bundle.mjs` stamps it into the bundle
+  it emits, so any artefact records the input set it was compiled from.
 
-  What this proves, exactly: the committed bundle was built from today's declared
-  inputs. It does **not** prove the Closure bytes are a reproducible build (they
-  are not), nor runtime behaviour — the headless-Chromium smoke, run against a
-  fresh rebuild, is the runtime half. The machine-lifecycle marker (the current
-  `:rf.machine/start` from `transition.cljc`, and the absence of the retired
-  `:rf.machine/bootstrap`) is retained as a fast, specific **diagnostic** for the
-  keyword-rename drift class. Run the gate locally from the repo root:
-  `sh scripts/check-playground-sci-freshness.sh`; prove it catches per-class
-  staleness with `sh scripts/check-playground-sci-freshness.selftest.sh`.
-
-  Coverage: the digest catches drift in any baked-in input **wherever the gate
-  runs**. The PR-time `tools-playground` job fires on `implementation/machines/*`
-  and `docs/tools/playground/**` changes (`report-changed-surfaces.sh`), so a
-  machines / SCI-config / lock drift is caught at PR time; the post-merge
-  freshness canary (`.github/workflows/post-merge-playground-freshness.yml`)
-  additionally fires on `implementation/core/**` +
-  `implementation/adapters/reagent-slim/**`, so a core / reagent-slim drift is
-  caught within minutes of merge. (Firing the heavy PR-time job on every core
-  change remains a deliberate cost trade-off — see that workflow's header.)
+This is **diagnostics, not a gate**. It answers "which tree produced this
+file?" for a deployed or downloaded copy. It used to be a freshness authority —
+`check-playground-sci-freshness.sh` compared the marker in the *committed*
+bundle against a fresh digest of the inputs — but a generated-in-run artefact
+cannot lag its source, so that verifier was deleted along with the snapshot it
+verified. Freshness is now structural: the bundle CI ships is one CI just built
+from that same checkout.
 
 ## mkdocs wiring
 

@@ -43,10 +43,13 @@
  *     from the retired :rf.machine/bootstrap per rf2-gl588) against a machine
  *     whose :booting initial state holds an `:always` guard. A live
  *     :rf.machine/start runs the initial-entry cascade and settles the machine
- *     to :ready with no user event. This is the runtime half of the SCI-bundle
- *     freshness guard: a stale bundle (keyed on :rf.machine/bootstrap) would
- *     no-op the start kick and stick at :booting. The static half is
- *     scripts/check-playground-sci-freshness.sh.
+ *     to :ready with no user event. Since rf2-tzy13 untracked the bundle (it is
+ *     generated at each consumption boundary, never committed), this smoke is
+ *     the WHOLE SCI-bundle correctness gate, not the runtime half of one: a
+ *     build keyed on the retired :rf.machine/bootstrap would no-op the start
+ *     kick and stick at :booting, and this assertion is what catches it. The
+ *     former static half, scripts/check-playground-sci-freshness.sh, compared a
+ *     committed snapshot against its inputs and was deleted with that snapshot.
  *
  * Asserts the rf2-io9mdr (instant-navigation isolation) contract:
  *   - Simulating a Material navigation.instant swap (tear out the mounted
@@ -103,8 +106,9 @@ if (!existsSync(bundlePath)) {
 }
 if (!existsSync(rf2BundlePath)) {
   console.error(
-    "FAIL: docs/cljs/playground-rf2.js not found — run `npm run build` in" +
-      " docs/tools/playground/sci first."
+    "FAIL: docs/cljs/playground-rf2.js not found. It is a GENERATED artefact" +
+      " (rf2-tzy13 — untracked and .gitignored, so a fresh clone never has it)." +
+      " Build it: `npm run build` (or `npm run build:rf2`) in docs/tools/playground."
   );
   process.exit(1);
 }

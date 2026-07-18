@@ -249,6 +249,16 @@ else
         # cljs-ui-g13 runs for any core runtime change. Docs/spec/tool-only PRs
         # never reach this case and keep their existing skip.
         ui_gates=true
+        # rf2-tzy13 — the docs/cljs live-cell SCI bundle BAKES IN re-frame2
+        # core. The bundle is no longer committed (it is generated in CI and on
+        # docs deploy), so there is no committed snapshot to go stale — but the
+        # tools-playground job is now the ONLY PR-time proof that current core
+        # source still compiles into a working SCI bundle and renders live under
+        # headless Chromium. Fire it for any core change. (Before this ruling
+        # the cost trade-off ran the other way: the job was scoped out of core
+        # PRs precisely because a core change forced a bundle REBUILD + RECOMMIT,
+        # which is exactly the write lock this bead retired.)
+        playground=true
         ;;
       implementation/adapters/reagent-slim/*|examples/substrates/reagent_slim/counter/*|implementation/scripts/check-reagent-slim-bundle-isolation.cjs)
         # rf2-8cevm — the examples/ tree is test-free. counter_slim_and_fast
@@ -261,6 +271,15 @@ else
         cljs_browser=true
         cljs_prod=true
         reagent_slim_bundle=true
+        # rf2-tzy13 — reagent-slim is the substrate baked into the docs/cljs SCI
+        # bundle (re-frame.adapter.reagent-slim + reagent2.*), so an adapter
+        # source change must prove the bundle still builds + renders. Scoped to
+        # the adapter source only: the examples/ counter and the bundle-isolation
+        # script above share this arm but are NOT baked in, and must not drag a
+        # heavy JVM+Playwright job onto their PRs.
+        case "$file" in
+          implementation/adapters/reagent-slim/*) playground=true ;;
+        esac
         ;;
       implementation/adapters/scripts/*)
         # The adapter-smoke harness (orchestrator + runner + shared
@@ -447,25 +466,20 @@ else
         case "$file" in
           implementation/schemas/*) template_expensive=true ;;
         esac
-        # rf2-2h1yhk — SCI-bundle freshness. The docs/cljs live-cell
-        # playground vendors a prebuilt shadow-cljs bundle
-        # (docs/cljs/playground-rf2.js) that BAKES IN the machines artefact
-        # (re-frame.machines is :require'd by the SCI build, and the bundle
-        # carries the reserved :rf.machine/* lifecycle keywords). That bundle
-        # is committed + deployed verbatim, never rebuilt by docs.yml — so a
-        # rename of a reserved machine keyword in implementation/machines/**
-        # (e.g. :rf.machine/bootstrap -> :rf.machine/start) leaves the
-        # deployed bundle silently stale, with NO surface here firing the
-        # playground gate. Fire `playground` for any implementation/machines/*
-        # change so the tools-playground job runs the freshness guard
-        # (scripts/check-playground-sci-freshness.sh) against the committed
-        # bundle and fails the PR if it is out of sync. (Core / reagent-slim
-        # are also baked in but are not scoped here: the guard's contract is
-        # the machines lifecycle marker, and firing playground on every core
-        # change would add a heavy JVM+Playwright job to most PRs. The nightly
-        # full matrix covers the broader drift.)
+        # rf2-2h1yhk / rf2-tzy13 — the docs/cljs live-cell SCI bundle BAKES IN
+        # the machines and flows artefacts (`re-frame.machines` +
+        # `re-frame.flows` are :require'd at bundle init, and the bundle carries
+        # the reserved :rf.machine/* lifecycle keywords). rf2-tzy13 retired the
+        # COMMITTED bundle — it is generated in CI and on docs deploy now — so
+        # this arm no longer guards a snapshot against staleness. What it guards
+        # instead is composition: a reserved-keyword rename or a late-bind hook
+        # change here can make the bundle fail to build, or build and then throw
+        # at render, and tools-playground is the PR-time proof that it still
+        # builds + renders live under headless Chromium. flows was omitted
+        # before (rf2-nyjml finding) even though it is in the require graph and
+        # in the digest roster; it fires now.
         case "$file" in
-          implementation/machines/*) playground=true ;;
+          implementation/machines/*|implementation/flows/*) playground=true ;;
         esac
         ;;
       implementation/ui/*)
@@ -1013,15 +1027,23 @@ else
         # guard (tests/setup_drift_test.clj) gated under skills-structural.
         skills_structural=true
         ;;
-      docs/tools/playground/*|docs/cljs/playground.js|docs/cljs/playground.css|docs/cljs/playground-rf2.js)
+      docs/tools/playground/*|docs/cljs/playground.js|docs/cljs/playground.css|scripts/playground-sci-input-digest.mjs)
         # rf2-ee38b.22 — the docs/cljs live-cell playground (CM6 + Scittle
         # bootstrap + the re-frame2 SCI bundle). The tools-playground job
         # rebuilds both bundles, runs the headless-Chromium smoke against
         # them, and `git diff --exit-code`s the committed
-        # docs/cljs/playground*.{js,css} so a stale vendored bundle (the
-        # deploy artefact is committed verbatim, never rebuilt by docs.yml)
-        # fails the PR. Fired by any docs/tools/playground/** change OR by
-        # a hand-edit of one of the three committed bundles.
+        # docs/cljs/playground.{js,css} so a stale vendored bootstrap bundle
+        # fails the PR.
+        #
+        # rf2-tzy13 — docs/cljs/playground-rf2.js is GONE from this arm: the
+        # SCI bundle is no longer tracked (it is generated in CI and on docs
+        # deploy, and is .gitignored), so the path can never appear in a diff.
+        # scripts/playground-sci-input-digest.mjs joins the arm instead — it
+        # computes the provenance digest copy-bundle.mjs stamps into the
+        # generated bundle, so an edit to it must exercise the build (rf2-nyjml
+        # finding: the digest + copy-bundle scripts were not themselves
+        # classifier inputs; copy-bundle.mjs is already covered under
+        # docs/tools/playground/*).
         playground=true
         ;;
     esac

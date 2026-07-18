@@ -3520,24 +3520,25 @@ jobs:
   # docs/tools/playground is the roll-your-own CM6 + Scittle + re-frame2-SCI
   # live-cell engine that backs the docs/cljs reading guide and the
   # interactive guide chapters. Its smoke (a real headless-Chromium run of
-  # both PRODUCTION bundles) was previously wired to no CI gate, and the
-  # committed, vendored bundles (docs/cljs/playground*.{js,css}) were deployed
-  # verbatim by docs.yml — so a source change that was not re-bundled, or a
-  # re-bundle that regressed, shipped to the live docs undetected. (As of
-  # rf2-ssxvg1, docs.yml now REBUILDS the bundles fresh from main on every
-  # publish, so the deployed artefact is always current; this PR-time job still
-  # gates that the COMMITTED snapshot is a valid, fresh vendored prebuilt.)
-  # This job closes both holes: it rebuilds BOTH bundles and runs
-  # the smoke against them, then gates committed-bundle freshness two ways:
-  #   - esbuild artefacts (playground.js/.css) are byte-deterministic across
-  #     platforms, so a strict `git diff --exit-code` catches un-rebundled
-  #     source edits / hand-edits.
-  #   - the shadow-cljs SCI bundle (playground-rf2.js) is a Closure :advanced
-  #     build whose minified-symbol allocation is NOT byte-stable across build
-  #     environments, so byte-diffing it against a fresh CI rebuild is flaky
-  #     and meaningless. It is instead gated by the headless-Chromium smoke
-  #     (which renders the freshly-built bundle live) plus a structural
-  #     validity check on the committed artefact. See the gate steps below.
+  # both PRODUCTION bundles) was previously wired to no CI gate, so a source
+  # change that was not re-bundled, or a re-bundle that regressed, shipped to
+  # the live docs undetected.
+  #
+  # The two bundles have DIFFERENT version-control policies, and the gate shape
+  # follows from that:
+  #   - the esbuild bootstrap (playground.js/.css) stays COMMITTED. It is
+  #     byte-deterministic across platforms, so a strict `git diff --exit-code`
+  #     against a fresh build catches un-rebundled source edits / hand-edits.
+  #   - the shadow-cljs SCI bundle (playground-rf2.js) is NOT committed
+  #     (rf2-tzy13). It is a Closure :advanced build that bakes in re-frame2
+  #     core + reagent-slim + machines + flows + react@19, so EVERY PR touching
+  #     any of those had to regenerate the same ~15 MB binary — and two such PRs
+  #     always conflicted on it (nine rewrites of the file on main in seven
+  #     hours; five rebase cycles to land one P2). It is generated at each
+  #     consumption boundary instead: here at PR time, and in docs.yml on
+  #     deploy. Being generated in-run, it cannot be stale — it is gated by the
+  #     headless-Chromium smoke (which renders it live) plus a structural
+  #     validity check on the emitted artefact. See the gate steps below.
   # ---------------------------------------------------------------------------
 
   tools-playground:
@@ -3588,11 +3589,11 @@ jobs:
       - name: Install Playwright (Chromium + system deps)
         run: npx playwright install --with-deps chromium
 
-      # Rebuild BOTH committed bundles from source — the esbuild bootstrap
-      # (playground.js + playground.css) and the shadow-cljs re-frame2 SCI
-      # bundle (playground-rf2.js). `npm run build:rf2` runs `npm install`
-      # inside sci/ (resolving from sci/package-lock.json) for
-      # react/react-dom + shadow-cljs.
+      # Build BOTH bundles from source — the committed esbuild bootstrap
+      # (playground.js + playground.css) and the untracked, generated
+      # shadow-cljs re-frame2 SCI bundle (playground-rf2.js, rf2-tzy13).
+      # `npm run build:rf2` runs `npm install` inside sci/ (resolving from
+      # sci/package-lock.json) for react/react-dom + shadow-cljs.
       - name: Build both bundles
         run: npm run build
 
@@ -3601,9 +3602,9 @@ jobs:
       - name: Run playground smoke
         run: npm run smoke
 
-      # Bundle-drift gate (esbuild artefacts only). The deployed docs/cljs/
-      # playground.js + playground.css are committed, vendored prebuilts
-      # (docs.yml deploys them verbatim, never rebuilds). esbuild's minifier
+      # Bundle-drift gate (esbuild artefacts only). docs/cljs/playground.js +
+      # playground.css are committed, vendored prebuilts and KEEP that policy
+      # (rf2-tzy13 covers only the SCI bundle). esbuild's minifier
       # is byte-deterministic ACROSS platforms (verified: a Windows-committer
       # build and a Linux-CI rebuild are byte-identical, EOL-pinned via
       # .gitattributes), so a strict byte-diff here is robust: it fails only
@@ -3616,62 +3617,57 @@ jobs:
             exit 1
           fi
 
-      # Functional + freshness gate (shadow-cljs SCI bundle). We deliberately
-      # do NOT byte-diff docs/cljs/playground-rf2.js. It is a Google Closure
-      # :advanced build, whose minified-symbol ALLOCATION is not byte-stable
-      # across build environments (Windows-committer JVM vs Linux-CI JVM emit
+      # Structural gate on the FRESHLY-GENERATED SCI bundle (rf2-tzy13). We
+      # deliberately do NOT byte-diff docs/cljs/playground-rf2.js — it is a
+      # Google Closure :advanced build whose minified-symbol ALLOCATION is not
+      # byte-stable across build environments (Windows JVM vs Linux-CI JVM emit
       # different identifiers — fa<->ea, property-mangle suffixes, helper
-      # extraction order — for byte-identical source + locked deps; the build
-      # is per-machine deterministic but not cross-machine reproducible). A
-      # byte-diff against a fresh CI rebuild is therefore inherently flaky and
-      # provides no real safety, so we replace it with checks that DO:
-      #   1. The smoke step above ran a real headless-Chromium render of the
-      #      FRESHLY-BUILT playground-rf2.js (live re-frame2 reg-sub/dispatch/
-      #      re-render). Build-succeeds + smoke-passes already proves current
-      #      source re-bundles to a working bundle — far stronger than a diff.
-      #   2. The COMMITTED bundle is itself a valid, non-empty re-frame2 SCI
-      #      bundle (right shape + export markers), so a truncated, missing,
-      #      hand-broken, or wrong-artefact commit still fails the PR.
-      - name: Verify committed SCI bundle is a valid re-frame2 prebuilt
+      # extraction order — for byte-identical source + locked deps; the build is
+      # per-machine deterministic but not cross-machine reproducible). There is
+      # also no longer a committed snapshot to diff AGAINST: rf2-tzy13 untracked
+      # the bundle (it is .gitignored and generated at each consumption
+      # boundary), which is what retired the merge-conflict class where every
+      # baked-input PR had to regenerate the same binary.
+      #
+      # What proves freshness now — generated-vs-inputs INSIDE this one run:
+      #   1. The build step above compiled the bundle from THIS checkout. There
+      #      is no snapshot that can lag the source, so "stale" is not a
+      #      reachable state at PR time; it is fresh by construction.
+      #   2. The smoke step above ran a real headless-Chromium render of that
+      #      freshly-built bundle (live re-frame2 reg-sub / dispatch / re-render
+      #      plus both machine cells). That is the runtime half: if current
+      #      source no longer COMPOSES into a working bundle, this job is red.
+      #   3. This step asserts the emitted artefact is itself a valid, non-empty
+      #      re-frame2 SCI bundle (right shape + export markers + size floor), so
+      #      a build that "succeeded" while emitting a wrong or truncated file
+      #      still fails the PR rather than shipping a dead live-cell engine.
+      - name: Verify the generated SCI bundle is a valid re-frame2 build
         working-directory: .
         run: |
           f=docs/cljs/playground-rf2.js
           if [ ! -s "$f" ]; then
-            echo "::error::$f is missing or empty — run 'npm run build:rf2' in docs/tools/playground and commit the bundle."
+            echo "::error::$f missing or empty after 'npm run build' — the SCI bundle build emitted nothing."
             exit 1
           fi
           # An :advanced shadow-cljs browser bundle for this build always
           # carries the shadow module loader + the rf2sci/renderLast export the
-          # bootstrap + smoke depend on. Missing either => stale/wrong artefact.
+          # bootstrap + smoke depend on. Missing either => wrong artefact.
           if ! grep -q "shadow\$provide" "$f"; then
-            echo "::error::$f does not look like a shadow-cljs :advanced bundle (no shadow\$provide) — rebuild + recommit."
+            echo "::error::$f does not look like a shadow-cljs :advanced bundle (no shadow\$provide) — the build emitted a wrong artefact."
             exit 1
           fi
           if ! grep -q "rf2sci" "$f"; then
-            echo "::error::$f does not export rf2sci — stale or wrong artefact; run 'npm run build:rf2' and recommit."
+            echo "::error::$f does not export rf2sci — the build emitted a wrong artefact."
             exit 1
           fi
           # Guard against a regression in size (a truncated/partial bundle):
           # the real bundle is hundreds of KB. 200000 bytes is a generous floor.
           bytes=$(wc -c < "$f")
           if [ "$bytes" -lt 200000 ]; then
-            echo "::error::$f is suspiciously small (${bytes} bytes) — likely truncated; rebuild + recommit."
+            echo "::error::$f is suspiciously small (${bytes} bytes) — the build emitted a truncated artefact."
             exit 1
           fi
-          echo "Committed SCI bundle OK (${bytes} bytes; smoke validated a fresh rebuild of the same source)."
-
-      # SCI-bundle freshness guard (rf2-2h1yhk). The structural check above
-      # cannot catch a bundle that is structurally valid but STALE on a
-      # reserved-keyword rename (the :rf.machine/bootstrap -> :rf.machine/start
-      # drift). This content check asserts the COMMITTED bundle agrees with
-      # current implementation source on the machine lifecycle creation marker
-      # (derived from transition.cljc), without a flaky cross-machine rebuild
-      # diff. Fired here, and also armed by an implementation/machines/* change
-      # via report-changed-surfaces.sh (which sets playground=true) so a
-      # keyword rename that re-bundles is not required for the gate to run.
-      - name: Verify committed SCI bundle is fresh (machine lifecycle marker)
-        working-directory: .
-        run: sh scripts/check-playground-sci-freshness.sh
+          echo "Generated SCI bundle OK (${bytes} bytes; built from this checkout and smoke-validated above)."
 
   # ---------------------------------------------------------------------------
   # Required-checks aggregator (rf2-dtvmb).

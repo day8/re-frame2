@@ -52,18 +52,24 @@ function normalizeRepoPaths(text) {
 const original = readFileSync(src, "utf8");
 const normalized = normalizeRepoPaths(original);
 
-// --- input-digest freshness marker (rf2-i3e3q) ------------------------------
+// --- input-digest provenance marker (rf2-i3e3q; rescoped by rf2-tzy13) -------
 //
 // Append a deterministic, unminified digest of the exact source/config/lock
-// inputs this bundle was compiled from. `scripts/check-playground-sci-freshness.sh`
-// recomputes the same digest from the current inputs and compares it to this
-// marker, so a committed bundle that has drifted out of sync with its source
-// (an input changed without a rebuild) FAILS the gate. The digest is over the
-// INPUTS, not the Closure output, so it is cross-machine stable (a Windows and a
-// Linux rebuild of the same source embed the same marker even though their
-// minified identifiers differ). Computed via the ONE shared module the gate also
-// runs, so both sides agree byte-for-byte. Appended AFTER path normalisation so
-// the marker (hex only) is never rewritten.
+// inputs this bundle was compiled from, so any emitted artefact records its own
+// provenance — "which tree produced this file?" is answerable from a deployed or
+// downloaded copy alone.
+//
+// This marker is NOT a gate. It once was: the bundle used to be committed, and
+// check-playground-sci-freshness.sh compared this marker against a fresh digest
+// of the inputs to catch a snapshot that had drifted from its source. rf2-tzy13
+// untracked the bundle — it is generated at each consumption boundary now, so it
+// cannot lag its source — and that verifier was deleted with the artefact it
+// verified. The stamp survives as diagnostics only.
+//
+// The digest is over the INPUTS, not the Closure output, so it is cross-machine
+// stable (a Windows and a Linux build of the same source embed the same marker
+// even though their minified identifiers differ). Appended AFTER path
+// normalisation so the marker (hex only) is never rewritten.
 const digestScript = join(repoRoot, "scripts", "playground-sci-input-digest.mjs");
 const inputDigest = execFileSync("node", [digestScript], {
   cwd: repoRoot,
