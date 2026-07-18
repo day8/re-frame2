@@ -491,7 +491,7 @@ jobs:
       - name: Self-test the README link validator
         run: python scripts/check_readme_links.py --self-test --verbose
 
-      - name: Validate README links (targets + MkDocs-rule anchor slugs)
+      - name: Validate README links (targets + GitHub-rule anchor slugs)
         run: python scripts/check_readme_links.py --ci
 
       # README inventory drift-ratchet gate (rf2-fvv9c, follows rf2-198k3).
