@@ -4,28 +4,43 @@
 `ai/findings/new-substrate-synthesis/12-implementation-plan.md` is the
 authoritative, handoff-ready program plan for the re-frame.ui substrate. Its
 §4 handoff checklist carries a ONE-TIME, durable disposition — the "S0 COVERAGE
-PASS (2026-07-12) — SHIP verdict" — whose authority lives in the epic
-`rf2-vxgfnd` NOTES. That disposition does not drift: it records a review that
-ran on a fixed date with a fixed verdict, plus the named implementer-question ->
-bead mappings the coverage pass produced.
+PASS (2026-07-12) — SHIP verdict". That disposition does not drift: it records a
+review that ran on a fixed date with a fixed verdict, plus the named
+implementer-question -> bead mappings the coverage pass produced.
 
-Two failure modes this guard pins (rf2-vs60jg / rf2-vxgfnd.235):
+The durable record is the anchor checklist item ITSELF (honest provenance: the
+pass ran 2026-07-12 during PR #6090's post-fold review; the program epic
+`rf2-vxgfnd` records the same-dated pass in its description). A fresh worker
+resolves every unresolved item from that single item — it does not chase a
+Beads NOTES entry, and this guard makes no live Beads-API call.
 
-  1. MISSING / UNCHECKED S0 ANCHOR — the durable disposition is deleted, its
-     checkbox flipped from `[x]` to `[ ]`, its epic `rf2-vxgfnd` authority
-     attribution dropped, or one of the named question -> bead mappings removed
-     so a fresh worker can no longer resolve it from the plan alone.
+This guard is CAUSAL — it proves the authority relationship, not merely that the
+tokens co-occur — and DURABLE — a change that should trip it does. It pins,
+inside the one named anchor item:
 
-  2. REINTRODUCED UNQUALIFIED LIVE-STAGE CLAIM — a volatile progress snapshot
-     (e.g. "S3-S7 not started") re-enters the plan. Live stage/progress state is
-     owned by the epic and its beads, never by this plan; the only acceptable
-     form of such a sentence here is one explicitly marked as a dated snapshot
-     ("as of <date>", "historical", "snapshot").
+  1. the checked box, the "S0 COVERAGE PASS (2026-07-12) — SHIP" name+verdict;
+  2. a BARE epic authority attribution (`rf2-vxgfnd` NOT written as a child id
+     `rf2-vxgfnd.<n>`) — deleting the attribution while keeping the child-id
+     mappings fails independently;
+  3. the exact label -> owning-bead ASSOCIATIONS, each bound within its own
+     "<item> -> <bead>" clause — swapping two owners, or dropping one of a
+     clause's beads (e.g. the `.12` half of `rf2-vxgfnd.8 / .12`), fails.
 
-This is a NARROW, single-anchor guard — not a general documentation framework
-and not a Markdown parser. It pins a handful of literal durable tokens in one
-named list item and forbids one drift-prone sentence shape. It has no live
-Beads-API dependency (it reads the tracked plan file only).
+It also forbids ONE drift-prone sentence shape anywhere in the plan's ACTIVE
+text: an unqualified live-stage progress claim. Live stage/progress state is
+owned by the epic and its beads, never by this plan. The rule has an honest,
+deliberately small contract — it is NOT a general Markdown/prose parser:
+
+  * KNOWN active-status syntax only — the closed set {"not (yet) started",
+    "underway" / "under way", "in progress" / "in-progress"} co-occurring with a
+    live-stage token S1..S7 on a line. S0 (the paper stage) is excluded: its
+    coverage disposition is the durable anchor above.
+  * HISTORICAL EXEMPTION requires a GENUINE dated snapshot — a snapshot/
+    historical/"as of" qualifier AND an ISO-8601 date (YYYY-MM-DD) on the line.
+    A bare "snapshot:" with no date does not exempt.
+  * INACTIVE text does not create a false failure — HTML comment regions
+    (`<!-- ... -->`) are blanked before the scan, so guidance prose inside a
+    comment cannot trip the rule.
 
 Exit code:
     0  the plan's S0 authority is intact and no unqualified live-stage claim
@@ -51,35 +66,62 @@ PLAN_REL = "ai/findings/new-substrate-synthesis/12-implementation-plan.md"
 ANCHOR_TOKEN = "S0 COVERAGE PASS (2026-07-12)"
 # The verdict word, also on the anchor line.
 ANCHOR_VERDICT = "SHIP"
-# The durable authority: the epic whose NOTES hold the coverage-pass record.
+# The durable authority: the epic that owns the S1-S7 program. Its BARE mention
+# in the anchor item is the authority attribution (see _BARE_EPIC_RE); the child
+# ids `rf2-vxgfnd.<n>` below are the per-item owners, a distinct thing.
 ANCHOR_AUTHORITY = "rf2-vxgfnd"
+
+# The arrow that binds each named item to its owning bead in the anchor prose.
+_ARROW = "→"  # "→"
 
 # A Markdown checklist item line. `box` captures the checkbox state (` ` or `x`).
 _CHECKLIST_ITEM_RE = re.compile(r"^\s*-\s*\[(?P<box>[ xX])\]")
 
+# The authority attribution must be a BARE epic reference — `rf2-vxgfnd` NOT
+# immediately followed by a `.<digit>` child suffix. This is what makes the
+# attribution check CAUSAL: the child-id mappings (`rf2-vxgfnd.9`, ...) all
+# contain the substring "rf2-vxgfnd", so a bare `in` test would pass even after
+# the actual attribution clause is deleted. The negative lookahead rejects those.
+_BARE_EPIC_RE = re.compile(re.escape(ANCHOR_AUTHORITY) + r"(?!\.\d)")
+
 # The named implementer-question -> owning-bead mappings the coverage pass
-# produced. Each (label, bead) pair MUST co-occur inside the S0 anchor item so a
-# fresh worker can resolve every unresolved item from the plan alone. The
+# produced. Each entry is (label, (bead, ...)): the label must occur on the
+# LEFT of an arrow clause whose bead side carries ALL the listed bead ids, so a
+# fresh worker can resolve every unresolved item from the plan alone. Validated
+# as an ASSOCIATION (label bound to its own owner), not by independent
+# co-occurrence — swapping owners between two labels trips it. The
+# `static-override-lease Tier-3` fixture legitimately owns TWO beads
+# (`rf2-vxgfnd.8 / .12`); both are required, so dropping `.12` trips it. The
 # `:activity-hidden` mapping is the one this guard's source bead (rf2-vs60jg)
 # de-fuzzed from the non-identifying phrase "the S2 evidence/Xray slice" to its
 # exact owner rf2-vxgfnd.8 (S2b ViewCell, per 03 §4).
-REQUIRED_MAPPINGS: list[tuple[str, str]] = [
-    ("Q49", "rf2-vxgfnd.9"),
-    ("Q51", "rf2-vxgfnd.10"),
-    ("[S2-CONFIRM]", "rf2-vxgfnd.7"),
-    ("static-override-lease Tier-3", "rf2-vxgfnd.8"),
-    (":activity-hidden", "rf2-vxgfnd.8"),
+REQUIRED_MAPPINGS: list[tuple[str, tuple[str, ...]]] = [
+    ("Q49", ("rf2-vxgfnd.9",)),
+    ("Q51", ("rf2-vxgfnd.10",)),
+    ("[S2-CONFIRM]", ("rf2-vxgfnd.7",)),
+    ("static-override-lease Tier-3", ("rf2-vxgfnd.8", ".12")),
+    (":activity-hidden", ("rf2-vxgfnd.8",)),
 ]
 
 # --- Forbidden live-stage drift ----------------------------------------------
 # A live implementation stage token (S1..S7). S0 is the paper stage and its
 # "complete"/coverage disposition is durable, so S0 is deliberately excluded.
 _LIVE_STAGE_TOKEN_RE = re.compile(r"\bS[1-7]\b")
-# The canonical drift shape: asserting live stages are "(not yet) started".
-_NOT_STARTED_RE = re.compile(r"not\s+(?:yet\s+)?started", re.IGNORECASE)
-# A sentence carrying one of these qualifiers is an explicitly-dated historical
-# snapshot, which the plan may keep; it does not read as current authority.
+# The closed set of KNOWN active-status syntax the rule recognizes causally.
+# Kept deliberately small and literal — not a general progress-language parser.
+_ACTIVE_STATUS_RE = re.compile(
+    r"not\s+(?:yet\s+)?started"  # "not started" / "not yet started"
+    r"|under\s?way"              # "underway" / "under way"
+    r"|in[\s-]progress",         # "in progress" / "in-progress"
+    re.IGNORECASE,
+)
+# A dated-snapshot exemption needs BOTH a snapshot/historical/"as of" qualifier
+# AND a genuine ISO-8601 date on the line — the word alone does not exempt.
 _SNAPSHOT_QUALIFIER_RE = re.compile(r"as[\s-]of|snapshot|historical", re.IGNORECASE)
+_ISO_DATE_RE = re.compile(r"\b\d{4}-\d{2}-\d{2}\b")
+# HTML/Markdown comment span (possibly multi-line); blanked before the scan so
+# inactive guidance prose cannot trip the live-stage rule.
+_HTML_COMMENT_RE = re.compile(r"<!--.*?-->", re.DOTALL)
 
 
 def _plan_path(repo_root: Path) -> Path:
@@ -124,6 +166,34 @@ def _find_anchor_block(lines: list[str]) -> tuple[str | None, str, int]:
     return box_char, "\n".join(block), anchor_idx + 1
 
 
+def _mapping_clauses(block: str) -> list[tuple[str, str]]:
+    """Split the anchor block into (label-side, bead-side) arrow clauses.
+
+    The anchor records ownership as a ';'-separated list of
+    "<text naming the item> -> <owning bead id(s)>" clauses. Whitespace is
+    normalized (so a line-wrapped clause reads as one), the block is split on
+    ';', and each clause carrying an arrow is split ONCE at the first arrow.
+    Binding each owner to the text before its own arrow is what makes the
+    mapping check causal: a swapped owner lands in a different clause.
+    """
+    flat = re.sub(r"\s+", " ", block)
+    clauses: list[tuple[str, str]] = []
+    for clause in flat.split(";"):
+        if _ARROW in clause:
+            left, right = clause.split(_ARROW, 1)
+            clauses.append((left, right))
+    return clauses
+
+
+def _bead_present(text: str, bead: str) -> bool:
+    """True if `bead` occurs in `text` and is not the prefix of a longer id.
+
+    The trailing negative lookahead stops `rf2-vxgfnd.9` matching inside
+    `rf2-vxgfnd.90`, and `.12` matching inside `.120`.
+    """
+    return re.search(re.escape(bead) + r"(?!\d)", text) is not None
+
+
 def check(repo_root: Path, verbose: bool = False) -> int:
     """Validate the plan's S0 authority. Returns the defect count (0 == OK)."""
     plan = _plan_path(repo_root)
@@ -158,39 +228,59 @@ def check(repo_root: Path, verbose: bool = False) -> int:
             'not "[x]". The SHIP disposition is durable and must stay checked.'
         )
 
-    # (2) The durable authority attribution must be intact.
-    if block and ANCHOR_AUTHORITY not in block:
+    # (2) The durable authority attribution must be intact — a BARE `rf2-vxgfnd`
+    #     reference, distinct from the `rf2-vxgfnd.<n>` child-id owners below.
+    if block and not _BARE_EPIC_RE.search(block):
         defects.append(
-            f"  MISSING AUTHORITY: the S0 anchor no longer references its "
-            f'durable authority "{ANCHOR_AUTHORITY}" (the epic NOTES entry '
-            f'"{ANCHOR_TOKEN}").'
+            f"  MISSING AUTHORITY: the S0 anchor no longer carries a bare "
+            f'"{ANCHOR_AUTHORITY}" authority attribution (only child-id owners '
+            f'"{ANCHOR_AUTHORITY}.<n>" remain). The item must name the epic that '
+            "owns the S1-S7 program as its durable authority."
         )
 
-    # (3) Every named implementer-question -> bead mapping must co-occur inside
-    #     the anchor item so it stays resolvable from the plan alone.
+    # (3) Every named implementer-question -> bead ASSOCIATION must hold: the
+    #     label must own an arrow clause carrying ALL its beads.
     if block:
-        for label, bead in REQUIRED_MAPPINGS:
-            if label not in block or bead not in block:
+        clauses = _mapping_clauses(block)
+        for label, beads in REQUIRED_MAPPINGS:
+            owner_sides = [right for (left, right) in clauses if label in left]
+            if not owner_sides:
                 defects.append(
-                    f"  MISSING MAPPING: the named unresolved-item mapping "
-                    f'"{label}" -> "{bead}" is not resolvable inside the S0 '
-                    "anchor item."
+                    f"  MISSING MAPPING: no \"{label} {_ARROW} <bead>\" clause "
+                    "is present in the S0 anchor item; the unresolved item is "
+                    "not resolvable from the plan alone."
+                )
+                continue
+            missing = [
+                b for b in beads
+                if not any(_bead_present(side, b) for side in owner_sides)
+            ]
+            if missing:
+                defects.append(
+                    f'  WRONG MAPPING: "{label}" is not bound to '
+                    f"{' + '.join(beads)} — its clause is missing "
+                    f"{' + '.join(missing)}. Each named item must own its exact "
+                    "bead(s) inside its own arrow clause."
                 )
 
-    # (4) No unqualified live-stage progress claim anywhere in the plan.
-    for idx, raw in enumerate(lines, start=1):
-        if (
-            _NOT_STARTED_RE.search(raw)
-            and _LIVE_STAGE_TOKEN_RE.search(raw)
-            and not _SNAPSHOT_QUALIFIER_RE.search(raw)
-        ):
-            defects.append(
-                f"  LIVE-STAGE DRIFT: line {idx} states an unqualified live-stage "
-                f"progress claim: {raw.strip()!r}. Live stage/progress state is "
-                "owned by the epic and its beads; remove it, source it from that "
-                'durable authority, or mark it as a dated snapshot ("as of '
-                '<date>").'
-            )
+    # (4) No unqualified live-stage progress claim anywhere in the plan's ACTIVE
+    #     text (HTML comments blanked so inactive prose is not a false failure).
+    scan_text = _HTML_COMMENT_RE.sub(
+        lambda m: re.sub(r"[^\n]", " ", m.group(0)), text
+    )
+    for idx, raw in enumerate(scan_text.splitlines(), start=1):
+        if not (_ACTIVE_STATUS_RE.search(raw) and _LIVE_STAGE_TOKEN_RE.search(raw)):
+            continue
+        # Exempt only a GENUINE dated snapshot: qualifier word AND an ISO date.
+        if _SNAPSHOT_QUALIFIER_RE.search(raw) and _ISO_DATE_RE.search(raw):
+            continue
+        defects.append(
+            f"  LIVE-STAGE DRIFT: line {idx} states an unqualified live-stage "
+            f"progress claim: {raw.strip()!r}. Live stage/progress state is "
+            "owned by the epic and its beads; remove it, source it from that "
+            'durable authority, or mark it as a dated snapshot ("as of '
+            '<YYYY-MM-DD>").'
+        )
 
     if defects:
         sys.stderr.write(
@@ -201,10 +291,11 @@ def check(repo_root: Path, verbose: bool = False) -> int:
             sys.stderr.write(line + "\n")
         sys.stderr.write(
             "\nFix: restore the checked "
-            f'"{ANCHOR_TOKEN} — {ANCHOR_VERDICT}" anchor with its {ANCHOR_AUTHORITY} '
-            "authority and the named question -> bead mappings intact, and keep "
-            "volatile live-stage status out of the plan (the epic + its children "
-            "own it). See the DURABLE ANCHOR comment in the plan.\n"
+            f'"{ANCHOR_TOKEN} — {ANCHOR_VERDICT}" anchor with a bare {ANCHOR_AUTHORITY} '
+            "authority attribution and the named item -> bead mappings bound "
+            "in their own arrow clauses, and keep volatile live-stage status "
+            "out of the plan's active text (the epic + its children own it). "
+            "See the DURABLE ANCHOR comment in the plan.\n"
         )
     elif verbose:
         sys.stderr.write("S0 coverage-pass authority is intact.\n")
@@ -216,14 +307,18 @@ def check(repo_root: Path, verbose: bool = False) -> int:
 # Self-tests — hermetic, generated into a temp dir (mirrors the style of
 # scripts/check_ep_status_sync.py). Each fixture is a mini-repo: an mkdocs.yml
 # at the root (so a repo-root guard would accept it) plus the plan file under
-# ai/findings/new-substrate-synthesis/.
+# ai/findings/new-substrate-synthesis/. Each mutation isolates exactly one
+# failure and asserts an EXACT defect count, so "fails independently" is proven.
 # --------------------------------------------------------------------------
 
-# A minimal but faithful S0 anchor block — the shape the real plan carries.
+# A minimal but faithful S0 anchor block — the shape the real plan carries. The
+# authority attribution is a BARE `rf2-vxgfnd` (the epic), separate from the
+# `rf2-vxgfnd.<n>` child-id owners in the mapping clauses.
 _GOOD_ANCHOR = (
     "- [x] **S0 COVERAGE PASS (2026-07-12) — SHIP verdict** — durable "
-    "disposition; authority: the epic `rf2-vxgfnd` NOTES entry "
-    '"S0 COVERAGE PASS (2026-07-12)". Named mappings: Q49 → rf2-vxgfnd.9; '
+    "disposition recorded here (the coverage pass ran 2026-07-12 in PR #6090's "
+    "post-fold review); authority: the epic `rf2-vxgfnd` owns the S1–S7 "
+    "program and records the same pass. Named mappings: Q49 → rf2-vxgfnd.9; "
     "Q51 → rf2-vxgfnd.10; the four [S2-CONFIRM] items → rf2-vxgfnd.7; the "
     "static-override-lease Tier-3 fixture → rf2-vxgfnd.8 / .12; the "
     "`:activity-hidden` retroactive-annotation evidence schema → rf2-vxgfnd.8 "
@@ -241,22 +336,52 @@ def _write_fixture(root: Path, plan_body: str) -> None:
 
 
 def _build_self_test_fixtures(base: Path) -> None:
-    # good: checked anchor, all mappings, no live-stage drift -> passes.
+    # good: checked anchor, bare authority, exact mappings, no drift -> passes.
     _write_fixture(base / "good", _PLAN_HEAD + _GOOD_ANCHOR)
 
-    # unchecked: the durable disposition's box flipped to [ ] -> fails.
+    # unchecked: the durable disposition's box flipped to [ ] -> 1 defect.
     _write_fixture(
         base / "unchecked",
         _PLAN_HEAD + _GOOD_ANCHOR.replace("- [x]", "- [ ]", 1),
     )
 
-    # missing_anchor: the whole S0 disposition deleted -> fails.
+    # missing_anchor: the whole S0 disposition deleted -> 1 defect.
     _write_fixture(
         base / "missing_anchor",
         _PLAN_HEAD + "- [x] Some other unrelated checklist item.\n",
     )
 
-    # missing_mapping: the :activity-hidden owner mapping stripped -> fails.
+    # dropped_authority: the bare epic attribution removed, ALL child-id
+    # mappings left intact -> exactly 1 authority defect (fails independently).
+    _write_fixture(
+        base / "dropped_authority",
+        _PLAN_HEAD
+        + _GOOD_ANCHOR.replace(
+            "authority: the epic `rf2-vxgfnd` owns the S1–S7 "
+            "program and records the same pass. ",
+            "",
+        ),
+    )
+
+    # swapped_owners: Q49 and Q51 owners exchanged -> both associations break
+    # -> exactly 2 defects (the co-occurrence tokens are all still present).
+    _write_fixture(
+        base / "swapped_owners",
+        _PLAN_HEAD
+        + _GOOD_ANCHOR.replace(
+            "Q49 → rf2-vxgfnd.9; Q51 → rf2-vxgfnd.10",
+            "Q49 → rf2-vxgfnd.10; Q51 → rf2-vxgfnd.9",
+        ),
+    )
+
+    # dropped_second_bead: the `.12` half of the static-override-lease owner
+    # deleted -> exactly 1 mapping defect.
+    _write_fixture(
+        base / "dropped_second_bead",
+        _PLAN_HEAD + _GOOD_ANCHOR.replace("rf2-vxgfnd.8 / .12", "rf2-vxgfnd.8"),
+    )
+
+    # missing_mapping: the :activity-hidden owner mapping stripped -> 1 defect.
     _write_fixture(
         base / "missing_mapping",
         _PLAN_HEAD
@@ -267,21 +392,42 @@ def _build_self_test_fixtures(base: Path) -> None:
         ),
     )
 
-    # dropped_authority: the rf2-vxgfnd authority attribution removed -> fails.
+    # not_started_drift: an unqualified "S3-S7 not started" claim -> 1 defect.
     _write_fixture(
-        base / "dropped_authority",
-        _PLAN_HEAD + _GOOD_ANCHOR.replace("rf2-vxgfnd", "the-epic"),
-    )
-
-    # live_stage_drift: an unqualified "S3-S7 not started" claim reintroduced.
-    _write_fixture(
-        base / "live_stage_drift",
+        base / "not_started_drift",
         _PLAN_HEAD
         + _GOOD_ANCHOR
         + "\nS1 is complete and S2 core is verified S3-ready. S3–S7 not started.\n",
     )
 
-    # dated_snapshot: the same shape but explicitly dated as historical -> OK.
+    # underway_drift: the "underway" active-status syntax (previously missed by
+    # a not-started-only rule) -> 1 defect.
+    _write_fixture(
+        base / "underway_drift",
+        _PLAN_HEAD + _GOOD_ANCHOR + "\nS3 is underway now.\n",
+    )
+
+    # in_progress_drift: the "in progress" active-status syntax -> 1 defect.
+    _write_fixture(
+        base / "in_progress_drift",
+        _PLAN_HEAD + _GOOD_ANCHOR + "\nS4 remains in progress.\n",
+    )
+
+    # undated_snapshot: a snapshot word but NO date does not exempt -> 1 defect.
+    _write_fixture(
+        base / "undated_snapshot",
+        _PLAN_HEAD + _GOOD_ANCHOR + "\nSnapshot (historical): S3–S7 not started.\n",
+    )
+
+    # comment_drift: a drift claim inside an HTML comment is inactive -> passes.
+    _write_fixture(
+        base / "comment_drift",
+        _PLAN_HEAD
+        + _GOOD_ANCHOR
+        + "\n<!-- guidance: do NOT restate that S3–S7 are not started here. -->\n",
+    )
+
+    # dated_snapshot: the drift shape but a GENUINE dated snapshot -> passes.
     _write_fixture(
         base / "dated_snapshot",
         _PLAN_HEAD
@@ -292,20 +438,28 @@ def _build_self_test_fixtures(base: Path) -> None:
 
 
 def _run_self_tests(verbose: bool = False) -> int:
+    # (fixture, expected_defect_count). Exact counts prove each mutation
+    # isolates exactly its own failure.
     cases: list[tuple[str, int]] = [
         ("good", 0),
         ("unchecked", 1),
         ("missing_anchor", 1),
-        ("missing_mapping", 1),
         ("dropped_authority", 1),
-        ("live_stage_drift", 1),
+        ("swapped_owners", 2),
+        ("dropped_second_bead", 1),
+        ("missing_mapping", 1),
+        ("not_started_drift", 1),
+        ("underway_drift", 1),
+        ("in_progress_drift", 1),
+        ("undated_snapshot", 1),
+        ("comment_drift", 0),
         ("dated_snapshot", 0),
     ]
     failures = 0
     with tempfile.TemporaryDirectory(prefix="synthesis_plan_authority_selftest_") as tmp:
         base = Path(tmp)
         _build_self_test_fixtures(base)
-        for fixture, expected_ok in cases:
+        for fixture, expected in cases:
             root = base / fixture
             saved_stderr = sys.stderr
             sys.stderr = _DevNull()
@@ -313,16 +467,14 @@ def _run_self_tests(verbose: bool = False) -> int:
                 defects = check(root, verbose=False)
             finally:
                 sys.stderr = saved_stderr
-            got_ok = 0 if defects == 0 else 1
-            if got_ok == expected_ok:
+            if defects == expected:
                 if verbose:
                     sys.stderr.write(
                         f"self-test PASS: {fixture} (defects={defects})\n"
                     )
             else:
                 sys.stderr.write(
-                    f"self-test FAIL: {fixture} expected "
-                    f"{'clean' if expected_ok == 0 else 'defects'}, "
+                    f"self-test FAIL: {fixture} expected defects={expected}, "
                     f"got defects={defects}\n"
                 )
                 failures += 1
