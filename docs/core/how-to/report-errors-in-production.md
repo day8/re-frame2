@@ -156,7 +156,7 @@ One record shape breaks bridges written for "an error is an event with an except
  :time          1718900000000}
 ```
 
-Notice where the throwables live: **inside** the `:hook-failures` vector, one per failed hook, not at the top level. An unconditional `captureException` would either mis-ship this record or crash on the `nil` top-level `:exception`. So give it its own arm in front of the catch-all. (`case` dispatches on the value of `(:error record)`; the first arm matches the teardown category, and the final arm — with no key in front of it — is the default, reusing the §3 logic verbatim.)
+Notice where the throwables live: **inside** the `:hook-failures` vector, one per failed teardown step, not at the top level. An unconditional `captureException` would either mis-ship this record or crash on the `nil` top-level `:exception`. So give it its own arm in front of the catch-all. (`case` dispatches on the value of `(:error record)`; the first arm matches the teardown category, and the final arm — with no key in front of it — is the default, reusing the §3 logic verbatim.)
 
 ```clojure
 (rf/register-listener! :errors ::sentry-bridge
@@ -187,11 +187,11 @@ Notice where the throwables live: **inside** the `:hook-failures` vector, one pe
           (Sentry/captureMessage (str (:error record)) ctx))))))
 ```
 
-(`mapv` walks `:hook-failures` and builds a new vector — one summary map per failed hook. `some->` guards against a missing `:exception`: it calls `ex-message` only when the exception is non-`nil`, returning `nil` instead of crashing otherwise.) Each `:hook-failures` entry names the teardown step that threw (`:hook` — a late-bound cleanup-hook key, or a guarded direct step such as `:frame/notify-machine-destruction!`), carries *that step's* throwable (`:exception`), and stamps `:where` with the catch boundary that recorded it (`:safe-call-hook!` for a late-bound hook, `:safe-teardown-step!` for a guarded direct step) for provenance. Teardown stays best-effort by design — there's no slot here you act on; the disposition is a fixed property of the category.
+(`mapv` walks `:hook-failures` and builds a new vector — one summary map per failed step. `some->` guards against a missing `:exception`: it calls `ex-message` only when the exception is non-`nil`, returning `nil` instead of crashing otherwise.) Each `:hook-failures` entry names the teardown step that threw (`:hook` — a late-bound cleanup-hook key, or a guarded direct step such as `:frame/notify-machine-destruction!`), carries *that step's* throwable (`:exception`), and stamps `:where` with the catch boundary that recorded it (`:safe-call-hook!` for a late-bound hook, `:safe-teardown-step!` for a guarded direct step) for provenance. Teardown stays best-effort by design — there's no slot here you act on; the disposition is a fixed property of the category.
 
 !!! note "Why a single bounded report?"
 
-    A frame destroy may run *many* optional cleanup hooks, several of which could throw. The runtime *could* fan out one error per failed hook — but on a long-lived SSR host that destroys a frame per request, that's a flood pointed straight at your error shipper. Instead it accumulates failures into one bounded record with a `:hook-failures` vector. You keep the which-hooks-failed-together correlation (external shippers won't reliably re-group it), and you keep your error budget. The destroy *is* the fact; the hooks are detail rows. It's also **emit-safe on a partial teardown**: entries are flushed through a finally-shaped boundary, so even if teardown aborts after hook 3 of 7, the entries collected so far still ship.
+    A frame destroy may run *many* teardown steps — optional cleanup hooks plus a few guarded direct steps — several of which could throw. The runtime *could* fan out one error per failed step, but on a long-lived SSR host that destroys a frame per request, that's a flood pointed straight at your error shipper. Instead it accumulates failures into one bounded record with a `:hook-failures` vector. You keep the which-steps-failed-together correlation (external shippers won't reliably re-group it), and you keep your error budget. The destroy *is* the fact; the failed steps are detail rows. It's also **emit-safe on a partial teardown**: entries are flushed through a finally-shaped boundary, so even if teardown aborts after step 3 of 7, the entries collected so far still ship.
 
 !!! note "SSR categories ride the same union"
 
