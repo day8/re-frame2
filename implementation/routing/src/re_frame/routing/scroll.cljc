@@ -31,7 +31,8 @@
   Internal namespace; the public facade is `re-frame.routing`. The
   facade owns the two `fx/reg-fx` calls so a `:reload` re-wires them on
   a fresh registrar."
-  (:require [re-frame.error-emit :as error-emit]
+  (:require [re-frame.error :as error]
+            [re-frame.error-emit :as error-emit]
             [re-frame.frame :as frame]
             [re-frame.interop :as interop]
             [re-frame.routing.nav-fx-schemas :as nav-fx-schemas]
@@ -316,6 +317,20 @@ egress to trace / epochs / SSR (rf2-1hncp2)."})
   (`nav-fx-schemas/scroll-args`) carries the same three as an `:enum`."
   [:top :restore :preserve])
 
+(def unsupported-strategy-reason
+  "The human diagnosis for a rejected `:rf.nav/scroll` `:strategy`.
+
+  A CONSTANT, deliberately: it names the closed vocabulary and the fix but
+  NEVER the offending value (rf2-s3n6h). That is what lets it ride the
+  always-on, production-surviving, non-privacy-gated record alongside the
+  structural slots — an interpolated `(pr-str strategy)` could not. The raw
+  value is not lost to a developer: it rides the dev-trace `:strategy` tag,
+  one slot away, on the channel that stays on the box."
+  (str "Unsupported :rf.nav/scroll strategy. Supported strategies are "
+       ":top, :restore and :preserve. Set the route's :scroll metadata "
+       "(or the :rf.route/navigate :scroll opt) to one of those, or to "
+       "false to suppress the scroll effect entirely."))
+
 (defn- emit-unsupported-strategy!
   "Fan the closed-vocabulary rejection out on BOTH error channels through the
   shared `error-emit/emit-error-both!` seam (rf2-2hkfy).
@@ -348,37 +363,74 @@ egress to trace / epochs / SSR (rf2-1hncp2)."})
   `event` is the originating event vector the fx context carries (Spec 002
   §The binary fx-handler signature) — absent for a direct handler call, in
   which case both it and `:event-id` ride as nil, exactly as the other
-  non-dispatch-attributed always-on rows do."
+  non-dispatch-attributed always-on rows do.
+
+  ## The two channels carry DIFFERENT payloads (rf2-s3n6h)
+
+  rf2-2hkfy made the record always-on; rf2-s3n6h made it SAFE to be always-on.
+  Its first cut copied the rejected `:strategy` verbatim into `record-attrs`
+  and interpolated `(pr-str strategy)` into `:reason`, which put an arbitrary
+  runtime value on axis 1.
+
+  Axis 1 is not the dev trace. `dispatch-on-error!` passes the positional
+  `event` through `elision/elide-wire-value` — the per-path `:sensitive?` /
+  `:large?` seam, which FAILS CLOSED on an unknown / destroyed frame — but it
+  merges `record-attrs` UNCHANGED, and contracts callers to keep them to tight
+  identifiers precisely because the listener registry is production-surviving
+  and NOT privacy-gated. A `:rf.route/navigate` call's per-call `:scroll` opt
+  is runtime data, not necessarily static author configuration, and on the
+  schemas-less path it may be any map / string / collection / host value. So
+  the raw copy bypassed the elision seam on the one channel that ships off-box.
+  Measured on the pre-fix code, a 2000-key strategy produced a 4.8 MB record —
+  and the same record's `:event` slot had already been redacted to
+  `:rf/redacted` by the seam the attrs walked around.
+
+  The split, therefore:
+
+    axis 2 (dev trace, DCE'd in prod) — the raw `:strategy`, for local
+      debugging: this channel does not leave the box.
+    axis 1 (always-on record, off-box) — STRUCTURAL only: the fixed supported
+      vocabulary, the recovery, and `:strategy-type`, a closed-vocabulary
+      SHAPE tag that cannot reproduce the value.
+
+  `:strategy-type` reuses `re-frame.error/diag-value-summary`'s `:type` axis —
+  the established EP-0015-safe diagnostic vocabulary, already read this way at
+  other framework surfaces (e.g. `re-frame.ui.rules`) — rather than inventing a
+  scroll-local one. Only `:type` is taken: the summary's `:keys` leg returns
+  EVERY top-level map key unbounded and reproduces key content, so it is not
+  itself a bound.
+
+  `:reason` is now a CONSTANT (`unsupported-strategy-reason`) that names the
+  vocabulary and the fix without naming the offending value. That is what makes
+  it safe on axis 1, and it also removes the `pr-str` of an arbitrary value from
+  the rejection path entirely — no gate needed, on any build. The rejection
+  itself is unchanged and remains unconditional: nothing here is wrapped in
+  `interop/debug-enabled?`, so #6376's always-on guarantee stands."
   [frame event strategy]
-  (let [reason (str "Unsupported :rf.nav/scroll strategy "
-                    (pr-str strategy)
-                    ". Supported strategies are :top, :restore "
-                    "and :preserve. Set the route's :scroll "
-                    "metadata (or the :rf.route/navigate :scroll "
-                    "opt) to one of those, or to false to suppress "
-                    "the scroll effect entirely.")]
-    (error-emit/emit-error-both!
-      :rf.error/unsupported-scroll-strategy
-      event
-      (when (vector? event) (first event))
-      frame
-      nil                                   ;; no exception — a rejected value, not a throw
-      0                                     ;; not a timed path
-      (interop/now-ms)
-      ;; Axis 2 — the dev-trace tags, UNCHANGED from rf2-px26m. `:recovery`
-      ;; is hoisted to the envelope top level by `trace/build-event`.
-      (cond-> {:strategy  strategy
-               :supported supported-scroll-strategies
-               :reason    reason
-               :recovery  :no-scroll}
-        frame (assoc :frame frame))
-      ;; Axis 1 — the always-on record's category-specific attribution.
-      ;; `:frame` already rides positionally; these are the slots Spec 009
-      ;; promises survive production.
-      {:strategy  strategy
-       :supported supported-scroll-strategies
-       :reason    reason
-       :recovery  :no-scroll})))
+  (error-emit/emit-error-both!
+    :rf.error/unsupported-scroll-strategy
+    event
+    (when (vector? event) (first event))
+    frame
+    nil                                   ;; no exception — a rejected value, not a throw
+    0                                     ;; not a timed path
+    (interop/now-ms)
+    ;; Axis 2 — the dev-trace tags. Keeps the RAW rejected value (this channel
+    ;; is DCE'd in production and does not egress). `:recovery` is hoisted to
+    ;; the envelope top level by `trace/build-event`.
+    (cond-> {:strategy  strategy
+             :supported supported-scroll-strategies
+             :reason    unsupported-strategy-reason
+             :recovery  :no-scroll}
+      frame (assoc :frame frame))
+    ;; Axis 1 — the always-on record's category-specific attribution. `:frame`
+    ;; already rides positionally; these are the slots Spec 009 promises survive
+    ;; production. Every one is fixed-size and value-free, so the record's size
+    ;; does not track the rejected value at all.
+    {:supported     supported-scroll-strategies
+     :strategy-type (:type (error/diag-value-summary strategy))
+     :reason        unsupported-strategy-reason
+     :recovery      :no-scroll}))
 
 (defn scroll-fx-handler
   "`:rf.nav/scroll` fx handler. Registered by the façade so a `:reload`

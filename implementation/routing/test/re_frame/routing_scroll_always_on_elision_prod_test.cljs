@@ -62,6 +62,7 @@
   runners use regexes that do NOT match this suffix, so these tests run only
   under prod-mode compilation."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
+            [clojure.string :as str]
             [re-frame.core :as rf]
             [re-frame.error-emit :as error-emit]
             [re-frame.adapter.reagent :as reagent-adapter]
@@ -141,8 +142,17 @@
                 "and still performs no scroll — :recovery :no-scroll")
             (let [r (first errs)]
               (is (= :rf.error/unsupported-scroll-strategy (:error r)))
-              (is (= {:to :element :selector "#article"} (:strategy r))
-                  "the rejected value is named in production, not just dev")
+              ;; rf2-s3n6h — the record that survives production is
+              ;; STRUCTURAL. It carried the rejected value verbatim until
+              ;; this test was corrected: `record-attrs` are merged past the
+              ;; elision seam, so an arbitrary runtime `:scroll` opt shipped
+              ;; off-box whole and unbounded. Production is exactly where that
+              ;; mattered most, which is why the assertion belongs here too.
+              (is (nil? (:strategy r))
+                  "the rejected value does NOT ride the off-box record")
+              (is (= :map (:strategy-type r))
+                  "a closed-vocabulary SHAPE tag stands in for it, in
+                   production as in dev")
               (is (= [:top :restore :preserve] (:supported r))
                   "the supported vocabulary is named")
               (is (= :no-scroll (:recovery r)))
@@ -151,6 +161,8 @@
               (is (string? (:reason r))
                   "the human diagnostic survives goog.DEBUG=false — the
                    rejection is unconditional, and so is its explanation")
+              (is (not (str/includes? (:reason r) "#article"))
+                  "…and it is a CONSTANT, carrying no fragment of the value")
               (is (number? (:time r))))))))))
 
 ;; ===========================================================================
