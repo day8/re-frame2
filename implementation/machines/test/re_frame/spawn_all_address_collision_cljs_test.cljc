@@ -152,8 +152,8 @@
       (is (= 1 (count evs))
           "exactly ONE deterministic collision rejection per invoke")
       (let [tags (:tags (first evs))]
-        (is (= {:dup/actor [:a :b]} (:collisions tags))
-            "the reject names the resolved address mapped to BOTH offending logical child ids, in child order")
+        (is (= [[:dup/actor [:a :b]]] (:collisions tags))
+            "the reject names the resolved address paired with BOTH offending logical child ids, in child order")
         (is (= :sup/dup (:parent-id tags)) "the reject carries the parent identity")
         (is (= [:forking] (:invoke-id tags)) "the reject carries the invoke identity")))))
 
@@ -179,7 +179,7 @@
           "no snapshot installed at the aliased address")
       (let [evs (collision-rejects)]
         (is (= 1 (count evs)) "exactly one collision rejection")
-        (is (= {gen-id [:a :b]} (:collisions (:tags (first evs))))
+        (is (= [[gen-id [:a :b]]] (:collisions (:tags (first evs))))
             "the reject names the resolved address + both offending logical child ids")))))
 
 ;; ===========================================================================
@@ -228,8 +228,8 @@
       (is (some? ev) "a collision reject fired")
       (is (not (re-find #"zzsentinelzz" txt))
           "no application secret leaked into the reject trace (no :data / spawn args carried)")
-      (is (= {:one/actor [:a :b]} (:collisions (:tags ev)))
-          "structural collision map is present"))))
+      (is (= [[:one/actor [:a :b]]] (:collisions (:tags ev)))
+          "structural collision carrier is present"))))
 
 ;; ===========================================================================
 ;; (5) ORDER — the structural alias rejects BEFORE any schema callback runs.
@@ -263,7 +263,7 @@
         "still one childless reject sentinel — the atomic reject shape is unchanged (rf2-qlzh9)")
     (is (nil? (snap-of :order/actor))
         "nothing installed at the aliased address")
-    (is (= {:order/actor [:a :b]} (:collisions (:tags (first (collision-rejects)))))
+    (is (= [[:order/actor [:a :b]]] (:collisions (:tags (first (collision-rejects)))))
         "declaration-order diagnostics survive the hoist")))
 
 ;; ===========================================================================
@@ -306,14 +306,66 @@
     (is (nil? (snap-of :g2/actor)) "nothing installed at the second aliased address")
     (let [tags       (:tags (first (collision-rejects)))
           collisions (:collisions tags)]
-      ;; Group MEMBERSHIP by value equality (order-independent), then each
-      ;; group's child ids as an honest VECTOR — the only carrier whose order is
-      ;; guaranteed identical on CLJ and CLJS. Asserting group order off the
-      ;; map's seq would be reading order out of an unordered presentation
-      ;; (an array-map today, a hash-map past the small-map threshold).
-      (is (= {:g1/actor [:a :d] :g2/actor [:b :c]} collisions)
-          "both groups reported, each naming its children in DECLARATION order (:a before :d, :b before :c)")
-      (is (vector? (:g1/actor collisions))
+      ;; rf2-hys95 — GROUP order is now a contract too, read positionally off
+      ;; the ordered carrier. Previously this could only assert membership: the
+      ;; diagnostic published `(into {} collisions)`, so group order came out of
+      ;; an unordered presentation (an array-map at this size, a hash map past
+      ;; the small-map threshold) and asserting it would have pinned an
+      ;; accident.
+      (is (= [[:g1/actor [:a :d]] [:g2/actor [:b :c]]] collisions)
+          "both groups in FIRST-APPEARANCE order (:g1/actor before :g2/actor), each naming its children in DECLARATION order (:a before :d, :b before :c)")
+      (is (vector? collisions)
+          "the carrier itself is an ordered vector of pairs, not a map presentation")
+      (is (vector? (second (first collisions)))
           "child ids ride an ordered vector, not a set — declaration order is a contract")
       (is (= :sup/adv (:parent-id tags)) "parent identity carried")
       (is (= [:forking] (:invoke-id tags)) "invoke identity carried"))))
+
+;; ===========================================================================
+;; (7) ORDER — GROUP order survives past the small-map threshold (rf2-hys95).
+;; ===========================================================================
+
+(deftest collision-groups-carry-declaration-order-past-the-array-map-threshold
+  (testing "TEN collision groups, each group's two members declared
+            NON-CONTIGUOUSLY (all first members, then all second members). Ten
+            entries is past the 8-entry array-map threshold on BOTH hosts, so a
+            `{<address> [<child-id> …]}` presentation degrades to a hash map
+            whose seq order is neither declaration order nor the same on CLJ and
+            CLJS. The diagnostic therefore carries the ORDERED VECTOR of
+            `[<resolved-address> [<logical-child-id> …]]` pairs that
+            `spawn-all-address-collisions` already computes in first-appearance
+            order — read positionally, identically on both hosts.
+
+            Pre-fix `reject-address-collision!` did `(into {} collisions)` and
+            published only the map, discarding the carrier: on CLJ ten grouped
+            addresses seq'd as g6 g0 g8 g9 g3 g7 g5 g1 g4 g2. A developer reading
+            the reject to find WHICH declarations collided got a shuffled list
+            that also differed between hosts."
+    (rf/reg-machine :sa/wide plain-child)
+    (let [n        10
+          addr     (fn [i] (keyword "g" (str "actor" i)))
+          first-id (fn [i] (keyword (str "a" i)))
+          last-id  (fn [i] (keyword (str "b" i)))
+          ;; a0…a9 then b0…b9 — group i is {a_i, b_i}, its members 10 apart, so
+          ;; first-appearance order is addr(0)…addr(9) and no group is
+          ;; contiguous in the declaration vector.
+          children (into (mapv (fn [i] {:id (first-id i) :machine-id :sa/wide
+                                        :fixed-actor-id (addr i)})
+                               (range n))
+                         (mapv (fn [i] {:id (last-id i) :machine-id :sa/wide
+                                        :fixed-actor-id (addr i)})
+                               (range n)))]
+      (rf/reg-machine :sup/wide (parent-over children))
+      (rf/dispatch-sync [:sup/wide [:start]])
+      (is (= {:rf/spawn-all-rejected? true} (join-slot :sup/wide))
+          "the whole invoke rejects atomically under the childless sentinel")
+      (let [evs (collision-rejects)]
+        (is (= 1 (count evs)) "exactly ONE collision rejection for the whole invoke")
+        (let [collisions (:collisions (:tags (first evs)))]
+          (is (vector? collisions)
+              "the diagnostic carries an ORDERED VECTOR of pairs, not a map presentation")
+          (is (= (mapv (fn [i] [(addr i) [(first-id i) (last-id i)]]) (range n))
+                 collisions)
+              "every group in FIRST-APPEARANCE order, each naming its children in declaration order — positionally identical on CLJ and CLJS")
+          (is (= (mapv addr (range n)) (mapv first collisions))
+              "group order read positionally off the carrier, never off map iteration"))))))
