@@ -19,9 +19,19 @@ and name a `:fallback` to show in the meantime:
 
 ```clojure
 [:rf/suspense-boundary
- {:id :card.revenue :fallback [:dashboard/card-skeleton :revenue]}
- [:dashboard/card :revenue]]
+ {:id :card.revenue :fallback [card-skeleton :revenue]}
+ [card-view :revenue]]
 ```
+
+Note the children are **Var references**, not keywords. A bare
+`[:dashboard/card :revenue]` head is an HTML element, never a view — the
+runtime doesn't intercept the keyword case to dispatch through the view
+registry (see
+[Conventions §Render-tree shape vs runtime lookup](../../../../spec/Conventions.md)),
+so it would paint `<card>revenue</card>` in the browser. The JVM SSR
+emitter *does* resolve keyword heads through the registry, which is what
+makes that mistake so easy to ship: the server renders it correctly and
+only the client goes wrong.
 
 One caveat up front: this demo runs **offline**, with no Clojure server.
 Instead of fetching from three real services, `:rf/server-init` seeds all
@@ -95,6 +105,23 @@ against *each* with a `{:frame …}` override, because that's where the
 `:cards` commit actually validates on either side. The server then drops
 its per-request frame-id from the payload, so the client's explicit
 `:frame` stands rather than tripping a frame-id mismatch.
+
+The other subtlety is that `:rf/suspense-boundary` is a **server-only**
+marker. It means something to the streaming shell walker and to nothing
+else — there is no client-side rendering for it. So the browser's render
+tree carries the resolved card directly, and `card-slot` in
+[`core.cljc`](core.cljc) is the single reader-conditional where the two
+runtimes part company. Leaving the marker in a client render tree is a
+quiet failure rather than a loud one: its name passes the DOM tag grammar,
+so React paints a phantom `<suspense-boundary>` element instead of raising
+anything.
+
+Which cards the client can actually render falls out of app-db, not out of
+the boundary structure. `card-view` renders the skeleton when its card
+isn't in app-db yet — which is the true state for a chunk still in flight,
+and the permanent state for `:card.flaky`, whose boundary failed and
+therefore shipped no delta. That's why the client's render agrees with the
+DOM the stream painted without having to know which boundaries succeeded.
 
 The `.cljc` shape mirrors [`examples/capabilities/ssr/ssr/core.cljc`](../ssr/core.cljc):
 the server branch lives in `:clj`, the browser branch in `:cljs`. The

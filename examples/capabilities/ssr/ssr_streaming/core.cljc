@@ -8,9 +8,13 @@
   until the slowest one answers. This offline example preserves that wire
   shape as collected data; it does not simulate network timings.
 
-  Five ideas earn their keep here:
+  Six ideas earn their keep here:
    - `:rf/suspense-boundary` — one hiccup marker that says \"this region
      may arrive late.\" That marker IS the whole streaming API.
+   - The marker is **server-only**. It has meaning to the streaming shell
+     walker and to nothing else, so the browser's render tree carries the
+     resolved card instead — see `card-slot`, the one place this example
+     is genuinely two programs.
    - A `:fallback` to show in the meantime — here a skeleton card.
    - Failure isolation — one card throws on purpose, to prove a blown
      boundary stays on its fallback instead of taking the page down with
@@ -76,16 +80,28 @@
 (rf/reg-sub :cards/slice (fn [db _] (:cards db)))
 (rf/reg-sub :card/by-id   (fn [db [_ id]] (get-in db [:cards id])))
 
-(rf/reg-view ^{:rf/id :dashboard/card} card-view [card-id]
-  (let [card @(subscribe [:card/by-id card-id])]
-    [:div.card
-     [:h3 (:title card)]
-     [:p.value (str (:value card))]]))
-
 (rf/reg-view ^{:rf/id :dashboard/card-skeleton} card-skeleton [card-id]
   [:div.card.skeleton
    [:h3 (str "Loading " (name card-id) " …")]
    [:p.value "—"]])
+
+(rf/reg-view ^{:rf/id :dashboard/card} card-view [card-id]
+  ;; Reads its own slice of app-db and nothing else, which is what lets the
+  ;; same view render correctly in both runtimes: on the server inside a
+  ;; continuation, where `:rf/server-init` has already seeded the data, and
+  ;; in the browser against whatever the streamed delta or the final payload
+  ;; put there.
+  ;;
+  ;; The nil branch isn't defensive padding — it's the client's honest state
+  ;; for a card whose chunk hasn't landed yet, or (see `:card.flaky` below)
+  ;; never will, because a failed boundary ships no delta. Falling back to
+  ;; the skeleton is what keeps the client's render agreeing with the DOM
+  ;; the stream actually painted.
+  (if-let [card @(subscribe [:card/by-id card-id])]
+    [:div.card
+     [:h3 (:title card)]
+     [:p.value (str (:value card))]]
+    [card-skeleton card-id]))
 
 (rf/reg-view ^{:rf/id :dashboard/throwing-card} throwing-card []
   ;; The card that fails on purpose, standing in for that one flaky
@@ -99,36 +115,62 @@
   ;; [SSR guide — Streaming](../../../../docs/ssr/concepts.md#streaming-rfsuspense-boundary).
   (throw (ex-info "flaky third-party metric service" {})))
 
+(defn- card-slot
+  "One card's slot in the dashboard — and the one place this example is
+  genuinely two programs.
+
+  SERVER — a `:rf/suspense-boundary`, the whole streaming trick in one
+  marker. It wraps a region that's allowed to arrive late: the `:fallback`
+  ships inline in the shell right now, and `body` renders separately and
+  streams in as its own chunk once it resolves. The `:id` is how the client
+  pairs an arriving chunk with its placeholder — you pick it, and it has to
+  be unique.
+
+  CLIENT — just the card. `:rf/suspense-boundary` is a **server-only**
+  marker: per [Spec 011 §Streaming SSR](../../../../spec/011-SSR.md#streaming-ssr)
+  it is recognised only by the streaming shell walker, and a browser render
+  tree is not somewhere it means anything. Leave one in a client render tree
+  and its name sails straight through the DOM tag grammar — React paints a
+  phantom `<suspense-boundary>` element with `:id` and `:fallback` mangled
+  into attributes.
+
+  The same trap sits one level down, and it's the more tempting one: a bare
+  `[:dashboard/card :revenue]` head is an **HTML element**, never a view.
+  The runtime does not intercept the keyword case to dispatch through the
+  view registry (Conventions §Render-tree shape vs runtime lookup), so that
+  head paints `<card>revenue</card>` — tag from the keyword's name, argument
+  as a text node. Render trees reference views by **Var** (`card-view`, which
+  `reg-view` defs for you) or by `(rf/view :id)` lookup. The JVM SSR emitter
+  does resolve a keyword head through the registry, which is exactly why the
+  mistake survives a server-side test and only shows up in the browser.
+
+  By the time the browser renders, every boundary has already resolved — the
+  streaming runtime swapped each chunk into the DOM and merged its delta, and
+  the final payload seeded the rest — so the client renders the resolved card
+  and `hydrate-root` adopts the DOM the stream painted."
+  [boundary-id card-id body]
+  #?(:clj  [:rf/suspense-boundary
+            {:id boundary-id :fallback [card-skeleton card-id]}
+            body]
+     :cljs [card-view card-id]))
+
 (rf/reg-view ^{:rf/id :dashboard/root} root-view []
   [:main.dashboard
    [:header
     [:h1 "Dashboard"]
     [:p "Streamed SSR demo — shell renders first, cards stream in."]]
    [:section.cards
-    ;; Here's the whole trick, four times over. `:rf/suspense-boundary`
-    ;; wraps a region that's allowed to arrive late. The `:fallback` ships
-    ;; inline in the shell right now; the real child renders separately and
-    ;; streams in as its own chunk once it resolves. The `:id` is how the
-    ;; client pairs an arriving chunk with its placeholder — you pick it,
-    ;; and it has to be unique.
-    [:rf/suspense-boundary
-     {:id :card.revenue :fallback [:dashboard/card-skeleton :revenue]}
-     [:dashboard/card :revenue]]
-    [:rf/suspense-boundary
-     {:id :card.signups :fallback [:dashboard/card-skeleton :signups]}
-     [:dashboard/card :signups]]
-    [:rf/suspense-boundary
-     {:id :card.latency :fallback [:dashboard/card-skeleton :latency]}
-     [:dashboard/card :latency]]
-    ;; The failure-path card — same marker, same shape as the three above.
-    ;; The only difference shows up on the wire: its chunk carries the
-    ;; fallback HTML stamped `data-rf2-suspense-failed="1"` and no
-    ;; hydrate-delta script. A failure is just another way for a boundary to
-    ;; resolve.
-    [:rf/suspense-boundary
-     {:id :card.flaky
-      :fallback [:dashboard/card-skeleton :flaky]}
-     [:dashboard/throwing-card]]]
+    (card-slot :card.revenue :revenue [card-view :revenue])
+    (card-slot :card.signups :signups [card-view :signups])
+    (card-slot :card.latency :latency [card-view :latency])
+    ;; The failure-path card — same slot, same shape as the three above. It
+    ;; differs only in its deferred body, and only on the wire: its chunk
+    ;; carries the fallback HTML stamped `data-rf2-suspense-failed="1"` and
+    ;; no hydrate-delta script. A failure is just another way for a boundary
+    ;; to resolve. Client-side that missing delta is the whole story — no
+    ;; `:flaky` entry ever reaches app-db, so `card-view` renders its
+    ;; skeleton, matching the fallback the failed chunk left in the DOM.
+    (card-slot :card.flaky :flaky [throwing-card])]
    [:footer
     [:p "Each card above is a `:rf/suspense-boundary`."]]])
 
