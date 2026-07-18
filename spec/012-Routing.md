@@ -981,7 +981,7 @@ The `:scroll` value is one of:
 | `:top` | Scroll to top of page (`window.scrollTo(0,0)`) — **unless a `#fragment` is present**, in which case `:top` scrolls the fragment's element into view (falling back to top if the element is absent); see [§`:rf.nav/scroll` integration](#rfnavscroll-integration). |
 | `:restore` | Restore the saved scroll position for this URL (the runtime captures positions on every navigation; SSR-side: no-op). |
 | `:preserve` | Do nothing (current scroll position stays as is). |
-| `nil` / absent | Same as `:preserve`. |
+| `nil` / absent | **Not** `:preserve` — the implicit default applies (resolution order below): `:top` on forward navigation, `:restore` on popstate / initial. To genuinely suppress scrolling, declare `:preserve` (keeps the `:rf.nav/scroll` fx, which does nothing) or `false` (skips the fx entirely). |
 
 The vocabulary is **closed** to those three keywords. Any other value — including a map — is rejected: the `:rf.nav/scroll` args schema (`:rf.fx.nav/scroll-args`) enumerates exactly `:top`, `:restore`, `:preserve`, so an unsupported strategy fails at the `:fx-args` boundary and the effect is skipped ([010 §Validation order step 5](010-Schemas.md#validation-order-on-event-processing)); and the registered fx handler — the always-on leg, since the schemas artefact is optional — emits `:rf.error/unsupported-scroll-strategy` rather than doing nothing. See [§Custom scroll strategies](#custom-scroll-strategies).
 
@@ -1657,9 +1657,9 @@ Per [§The route table is data](#the-route-table-is-data) the v1 canonical wire 
 
 ### Custom scroll-strategy registry (post-v1)
 
-Per [§Scroll restoration](#scroll-restoration) the v1 contract is the closed three-enum set (`:top`, `:restore`, `:preserve`) plus the map-form opt-in for host-specific shapes. A first-class registry (apps `register-scroll-strategy!` named entries; routes / nav opts name them by keyword) is an additive composition surface that keeps strategy registration enumerable for tools. Deferred — the three enums cover the documented cases and locking them keeps tools' enumeration of scroll behaviour decidable. Untracked note — no bead filed yet.
+Per [§Scroll restoration](#scroll-restoration) the v1 contract is the closed three-enum set (`:top`, `:restore`, `:preserve`), and there is no host extension point at all — the map form that earlier drafts advertised was removed as a false promise (rf2-px26m; see [§Custom scroll strategies](#custom-scroll-strategies)). A first-class registry (apps `register-scroll-strategy!` named entries; routes / nav opts name them by keyword) is an additive composition surface that keeps strategy registration enumerable for tools. Deferred — the three enums cover the documented cases and locking them keeps tools' enumeration of scroll behaviour decidable. Untracked note — no bead filed yet.
 
-- **Reconsideration trigger (falsifiable).** The **first** host-specific scroll strategy a real app needs that the per-route map-form opt-in cannot express — i.e. a strategy that has to be *named and shared across routes / nav opts* rather than spelled out inline per route. Until an inline map-form value proves insufficient, the named registry adds a surface tools must enumerate for no demonstrated gain; the first strategy the map-form can't absorb is what files the bead.
+- **Reconsideration trigger (falsifiable).** The **first** host-specific scroll strategy a real app demonstrably needs that none of the three enums can express. Until such a strategy appears, the named registry adds a surface tools must enumerate for no demonstrated gain. Note the bar this must clear: whatever ships must *execute* — the removed map form is precisely what an unbacked extension point costs, so a registry graduates only with a handler seam and a test proving a registered strategy runs.
 
 ### URL-state-as-source-of-truth (post-v1)
 
@@ -1699,7 +1699,7 @@ Per [§Pattern-level contract](#pattern-level-contract), navigation runs state c
 
 ### Three-enum scroll strategy (`:top`, `:restore`, `:preserve`)
 
-Per [§Scroll restoration](#scroll-restoration) the canonical scroll-strategy contract is the closed three-enum set. A custom scroll-strategy registry was considered but deferred to [§Open questions](#open-questions) — the three enums cover the documented cases (default-to-top on new navigation, restore on back/forward, preserve on intra-page transitions) and host-specific strategies layer additively via the map-form opt-in. Locking the enum keeps tools' enumeration of scroll behaviour decidable.
+Per [§Scroll restoration](#scroll-restoration) the canonical scroll-strategy contract is the closed three-enum set. A custom scroll-strategy registry was considered but deferred to [§Open questions](#open-questions) — the three enums cover the documented cases (default-to-top on new navigation, restore on back/forward, preserve on intra-page transitions). Earlier drafts also admitted a map form for host-specific shapes; nothing ever interpreted it, so it was removed rather than left standing as an accepted-and-ignored option (rf2-px26m). Locking the enum keeps tools' enumeration of scroll behaviour decidable.
 
 ### `:rf.route/not-found` is the single canonical reserved id
 
