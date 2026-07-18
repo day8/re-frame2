@@ -132,6 +132,13 @@ _RESERVED_TABLE_HEADER_RE = re.compile(
     r"^\|\s*Sub-namespace\s*\|\s*Used for\s*\|\s*Spec\s*\|\s*$"
 )
 
+# A RETIRED / non-reservation row's "Used for" cell OPENS with a bold retired
+# marker (`**Retired** — …`, `**RETIRED (rf2-lxwpob).** Was …`). Anchored at the
+# start of the cell on purpose: an ACTIVE row may mention a retired draft
+# spelling mid-prose (the live `:rf.cofx/*` row does), and such a row must keep
+# its reservation (rf2-5kzwf).
+_BOLD_RETIRED_RE = re.compile(r"\*\*RETIRED\b", re.IGNORECASE)
+
 
 # --------------------------------------------------------------------------
 # Comment + string masking (length-preserving)
@@ -254,19 +261,38 @@ def _reserved_ns_table_region(conventions_text: str) -> str:
     return "\n".join(region)
 
 
+def _row_is_retired(row: str) -> bool:
+    """True when a reserved-namespace table row is a RETIRED / non-reservation
+    tombstone, so none of its globs reserve anything (rf2-5kzwf). Two authoring
+    markers, either sufficient: the Sub-namespace cell is STRUCK THROUGH
+    (`~~`:rf.reload/*`~~`), or the "Used for" cell OPENS with a bold retired
+    marker (`**Retired** — the EP-0013 realm … vocabulary`). Deliberately NOT a
+    substring test for "retired" anywhere in the row — an active row may cite a
+    retired draft spelling in its prose and must keep its reservation."""
+    cells = row.split("|")
+    subnamespace = cells[1] if len(cells) > 1 else ""
+    used_for = cells[2] if len(cells) > 2 else ""
+    return "~~" in subnamespace or bool(_BOLD_RETIRED_RE.match(used_for.strip()))
+
+
 def reserved_namespaces(conventions_text: str) -> set[str]:
     """The set of `:rf.*` namespaces Conventions RESERVES — the namespace of
-    every `:rf.<ns>/*` glob DECLARATION in the reserved-namespace table. A glob
-    row is the reservation form; a specific-member spelling (`:rf.world/inputs`)
-    in prose, a link, or a row body is NOT a reservation (rf2-qriq8 — that false
-    green is exactly the gap this check now closes). The glob may sit in a row's
-    first column or, for a framework-internal sub-namespace declared under its
-    parent (e.g. `:rf.route.internal/*` in the `:rf.route/*` row), that row's
-    body — a `/*` glob is an explicit reservation wherever it sits IN the table,
-    whereas a member reference never reserves."""
+    every `:rf.<ns>/*` glob DECLARATION in an ACTIVE reserved-namespace table
+    row. A glob row is the reservation form; a specific-member spelling
+    (`:rf.world/inputs`) in prose, a link, or a row body is NOT a reservation
+    (rf2-qriq8 — that false green is exactly the gap this check now closes).
+    The glob may sit in a row's first column or, for a framework-internal
+    sub-namespace declared under its parent (e.g. `:rf.route.internal/*` in the
+    `:rf.route/*` row), that row's body — a `/*` glob is an explicit reservation
+    wherever it sits IN an active row, whereas a member reference never
+    reserves. RETIRED rows contribute nothing at all (rf2-5kzwf): a namespace
+    the contract has withdrawn must not keep reserving itself, in either
+    column, or reintroducing its vocabulary would stay a false green."""
     return {
         m.group(1)
-        for m in _RF_NS_GLOB_RE.finditer(_reserved_ns_table_region(conventions_text))
+        for row in _reserved_ns_table_region(conventions_text).splitlines()
+        if not _row_is_retired(row)
+        for m in _RF_NS_GLOB_RE.finditer(row)
     }
 
 
@@ -458,6 +484,20 @@ def _run_self_tests(verbose: bool = False) -> int:
         "| `:rf.ui/*` | UI-domino namespace | 009 |\n"
         "| `:rf.ui.tool/*` | UI-tool inspector namespace | 009 |\n"
         "| `:rf.route/*` | Routing; internal sub-ns `:rf.route.internal/*` | 012 |\n"
+        "| `:rf.mutation/*` | Mutations; internal `:rf.mutation.internal/*` | 016 |\n"
+        "| `:rf.resource/*` | Resources; internal `:rf.resource.internal/*` | 016 |\n"
+        "| `:rf.interceptor/*` | Interceptors; `:rf.interceptor.path/*` | 002 |\n"
+        # An ACTIVE row citing a retired DRAFT spelling mid-prose — it keeps its
+        # reservation (the live `:rf.cofx/*` row has exactly this shape).
+        "| `:rf.cofx/*` | Coeffects. The retired draft opt is gone. | 002 |\n"
+        # RETIRED row, shape 1 (live `:rf.realm/*` row): plain first cell, the
+        # "Used for" cell opens with the bold marker. Multi-glob first cell.
+        "| `:rf.realm/*`, `:rf.module/*`, `:rf.app/*` | **Retired** — the "
+        "EP-0013 realm / app-value / module vocabulary. | EP-0024 |\n"
+        # RETIRED row, shape 2 (live `:rf.reload/*` row): struck-through first
+        # cell AND a bold marker; its body names a member `:rf.reload/diff`.
+        "| ~~`:rf.reload/*`~~ | **RETIRED (rf2-lxwpob).** Was the hot-reload "
+        "report namespace (`:rf.reload/diff`). | EP-0023 |\n"
         "\n"
         "Prose AFTER the table: the retired draft opt `:rf.world/inputs` and a\n"
         "made-up `:rf.auditfake/member` mention — neither reserves a namespace.\n"
@@ -526,6 +566,35 @@ def _run_self_tests(verbose: bool = False) -> int:
            b_fire('{:rf.world/inputs "did you mean :rf.cofx?"}', reserved) == set())
     expect("B: a non-tombstone :rf.world/* member DOES fire",
            b_fire('(x :rf.world/other)', reserved) == {"rf.world"})
+
+    # (5) RETIRED rows grant NO reservation (rf2-5kzwf) — reintroducing the
+    #     withdrawn vocabulary must turn CHECK B red, in BOTH row shapes: the
+    #     bold-marker row (`:rf.realm/*`, `:rf.module/*`, `:rf.app/*`) and the
+    #     struck-through row (`:rf.reload/*`). Before the fix every one of these
+    #     passed, because the row's globs were extracted like any other.
+    expect("B: bold-marked retired row does NOT reserve",
+           {"rf.realm", "rf.module", "rf.app"}.isdisjoint(reserved))
+    expect("B: struck-through retired row does NOT reserve",
+           "rf.reload" not in reserved)
+    expect("B: emitting retired-row vocabulary FIRES",
+           b_fire('(x :rf.realm/install :rf.module/def :rf.app/boot '
+                  ':rf.reload/diff)', reserved)
+           == {"rf.realm", "rf.module", "rf.app", "rf.reload"})
+
+    # (6) The retired-row predicate must not over-reach. An ACTIVE row that
+    #     cites a retired draft spelling mid-prose keeps its reservation (a
+    #     substring test for "retired" would silently un-reserve `:rf.cofx/*`).
+    expect("B: active row citing 'retired' mid-prose STILL reserves",
+           b_fire('(x :rf.cofx/declared)', reserved) == set())
+
+    # (7) Regression guard for the four framework-internal sub-namespaces that
+    #     are declared as globs in their PARENT's row body rather than in their
+    #     own first column. These are legitimate ACTIVE reservations; the
+    #     retired-row skip must leave every one of them intact.
+    expect("B: all four body-declared internal sub-namespaces still reserve",
+           b_fire('(x :rf.route.internal/settle :rf.mutation.internal/apply '
+                  ':rf.resource.internal/evict :rf.interceptor.path/get)',
+                  reserved) == set())
 
     if failures:
         sys.stderr.write(f"\n{failures} self-test failure(s).\n")
