@@ -277,15 +277,18 @@
   ;; forcing Shadow to recompile it after re-frame.ui observed the schedule. If
   ;; that source removed its final ui/defview it contributes nothing, and —
   ;; pre-fix — its accepted row survived as a ghost view because it was never
-  ;; pre-touched. The :compile-finish reconcile against Shadow's CAUSAL per-source
-  ;; compile evidence (a `:cached false` finish output whose `:js` artifact is a
-  ;; fresh object) evicts it.
+  ;; pre-touched. The :compile-finish reconcile evicts it: the whole-map
+  ;; replacement dropped re-frame.ui's per-pass MARKER, and re-frame.ui's own
+  ;; analyzer-pass COMPILE WITNESS saw Shadow's compiler analyze the source.
   ;;
   ;; The forced recompile here carries a `:compiled-at` stamp EQUAL to the prepare
   ;; snapshot (a same-millisecond `System/currentTimeMillis`) and byte-identical
-  ;; `:js`, so nothing but Shadow's fresh-object provenance distinguishes it from a
-  ;; warm hit. A `(> now then)` stamp test would read it as untouched and leave the
-  ;; ghost; the causal test evicts it.
+  ;; `:js`, so no wall-clock or `:js`-identity test can tell it from a warm hit:
+  ;; a `(> now then)` stamp test reads it as untouched and leaves the ghost. Only
+  ;; the marker-plus-witness pair — neither of which is a timestamp, and neither
+  ;; of which a replacement controls — evicts it. `finish`'s `extra-compiled`
+  ;; drives the installed analyzer pass (see the helper), which is exactly how the
+  ;; witness observes the compile.
   (doseq [parallel? [true false]]
     (testing (str (if parallel? "parallel" "sequential") " compilation")
       (let [good (-> (two-source-state :ghost parallel?)
@@ -318,8 +321,10 @@
                                      {:resource-id app-a-rid
                                       :js (fresh-js "app.a = {};")
                                       :compiled-at 1000 :cached false})
-                           ;; Shadow genuinely recompiled app-a this pass, so it is
-                           ;; in Shadow's causal `::build-info :compiled` record.
+                           ;; Shadow genuinely recompiled app-a this pass, so
+                           ;; `finish` runs its forms through the installed
+                           ;; analyzer pass — that is what re-frame.ui's own
+                           ;; compile witness records.
                            (finish #{app-a-rid}))]
           (is (not (contains?
                     (get-in prepared [:compiler-env build/scratch-key :touched])
@@ -382,9 +387,10 @@
                                      {:resource-id app-a-rid
                                       :js (fresh-js "app.a = {};")
                                       :compiled-at 1 :cached false})
-                           ;; app-a genuinely recompiled (backwards stamp) — in
-                           ;; Shadow's causal `::build-info :compiled` record; app-b
-                           ;; is a warm hit (marker preserved), never in it.
+                           ;; app-a genuinely recompiled (backwards stamp), so
+                           ;; `finish` analyzes it and the compile witness records
+                           ;; it; app-b is a warm hit (marker preserved), never
+                           ;; analyzed and never witnessed.
                            (finish #{app-a-rid}))
               views-after (build/accepted-aggregate build/views finished)]
           (is (not (contains?
@@ -633,8 +639,8 @@
         ;; app.b's output and app.b genuinely recompiles — a FRESH output map at
         ;; the SAME `:compiled-at` — after its final defview was removed,
         ;; contributing nothing. app.b is evicted; app.a stays a cache hit. The
-        ;; marker (dropped by the whole-map replacement) plus Shadow's causal
-        ;; `::build-info :compiled` record distinguish this genuine recompile from
+        ;; marker (dropped by the whole-map replacement) plus re-frame.ui's own
+        ;; analyzer-pass compile witness distinguish this genuine recompile from
         ;; arm 1's marker-preserving annotation — with no `:compiled-at` compare.
         (let [prepared (prepare warm-input)
               finished (-> prepared
@@ -774,14 +780,16 @@
   ;; rf2-8nn5k (violation 2 — UNFORGEABLE): a later NON-scheduling hook replaces an
   ;; ENTIRE retained output map, copying Shadow's sticky `:cached false` and output
   ;; data into a fresh map while dropping re-frame.ui's unknown private marker — and
-  ;; schedules NO compilation, so the source is NOT in Shadow's own
-  ;; `[:shadow.build/build-info :compiled]` record. Pre-fix, finish trusted the
+  ;; schedules NO compilation, so Shadow's compiler never analyzes the source and
+  ;; re-frame.ui's compile witness never records it. Pre-fix, finish trusted the
   ;; output map's forgeable `:cached false` and classified the replacement a compile,
   ;; pre-touched the warm source, and EVICTED its valid accepted view (changing the
   ;; whole-build digest) on a pass that compiled nothing. Now the marker-absent
-  ;; verdict consults Shadow's causal compile record rather than `:cached`, so the
+  ;; verdict consults that witness rather than `:cached`, so the
   ;; forged whole-map replacement fails loud BEFORE publication and the accepted
-  ;; view/digest survive. Both equal-byte and changed-byte forgeries; both schedules.
+  ;; view/digest survive. The witness lives OUTSIDE `[:output rid]`, which is the
+  ;; whole reason a replacement cannot forge it.
+  ;; Both equal-byte and changed-byte forgeries; both schedules.
   (doseq [parallel? [true false]
           [byte-label forged-js] [[:equal-bytes "app.b = {};"]
                                   [:changed-bytes "app.b = {/* forged */};"]]]
@@ -806,7 +814,8 @@
             prepared (prepare warm-input)
             ;; The forgery: a fresh output MAP built from Shadow's public fields
             ;; (no re-frame.ui marker), copying the sticky :cached false. `finish`
-            ;; is NOT told app.b compiled (it is not in ::build-info :compiled).
+            ;; is NOT told app.b compiled, so it never runs app.b's forms through
+            ;; the installed analyzer pass and the compile witness stays silent.
             forged-b {:resource-id app-b-rid :js (fresh-js forged-js)
                       :compiled-at 1000 :cached false}
             ex (try (-> prepared (assoc-in [:output app-b-rid] forged-b) finish)
