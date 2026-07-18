@@ -18,6 +18,19 @@
  * and that the real ui/deps.edn stays green with its :test-only extra-deps
  * (which legitimately include day8/re-frame2-resources) permitted.
  *
+ * rf2-han0r extends it to the gate's POSITIVE control, which had the mirror-image
+ * weakness one level up. The structural EDN parse above is genuine, so the
+ * boundary's FORBIDDEN half reads real map keys — but the positive half asked
+ * only `mapHasSymbolKey(deps, 'day8/re-frame2')`. Key presence: the coordinate
+ * the key names was never inspected, so `{:local/root "../nowhere"}`,
+ * `{:mvn/version "0.0.0-BOGUS"}` and a `:git/url` all satisfied it, and this
+ * suite pinned that same weak assertion. A positive control that passes whatever
+ * the coordinate says cannot fail. It is now bound to the local root ui/deps.edn
+ * configures — the same binding G-12's Arm 2 uses (rf2-5e3ic), sharing that
+ * gate's expected root and path comparator rather than answering the same
+ * question a second way — and the teeth below drive every rejected shape on both
+ * the Windows and POSIX path shapes the gate runs on.
+ *
  * Standalone node-runnable suite (no external framework), matching the sibling
  * _*.test.cjs convention.
  */
@@ -31,6 +44,18 @@ const {
   productionDepsMap,
   mapHasSymbolKey,
 } = require('./lib/edn.cjs');
+// The REAL gate rule, imported from the runner rather than restated here
+// (rf2-han0r). `run-ui-g13.cjs` requires Playwright lazily, inside `main()`,
+// precisely so this node-only suite can pin the shipped predicate: a hand-copied
+// restatement can drift from the gate silently, which is the whole failure class
+// this file exists to catch.
+const {
+  coreCoordinateResolvesTo,
+  declaredCoreLocalRoot,
+  CORE_COORDINATE,
+  CORE_LOCAL_ROOT,
+  UI_DIR,
+} = require('./run-ui-g13.cjs');
 
 // A faithful copy of the retired brace-counting extractor + its two regexes,
 // kept ONLY here to demonstrate, per shape, exactly what the old proof did.
@@ -61,11 +86,18 @@ function fail(message) {
 // The EDN-aware boundary, exactly as run-ui-g13.cjs now applies it: parse the
 // real top-level :deps map, require the positive control, report the forbidden
 // dependency's presence as a real map-key membership.
+//
+// The positive control is the runner's own BOUND predicate (rf2-han0r). It used
+// to be `mapHasSymbolKey(deps, 'day8/re-frame2')` — KEY PRESENCE, pinned here at
+// the same weakness as the gate: the coordinate the key names was never read, so
+// `{:local/root "../nowhere"}`, `{:mvn/version "0.0.0-BOGUS"}` and a `:git/url`
+// all satisfied it. The structural EDN parse was never the problem; the gap sat
+// one level up, at the VALUE.
 function ednForbiddenPresent(depsEdn) {
   const deps = productionDepsMap(depsEdn, fail);
   assert.ok(
-    mapHasSymbolKey(deps, 'day8/re-frame2'),
-    'positive control day8/re-frame2 must be present',
+    coreCoordinateResolvesTo(deps),
+    `positive control ${CORE_COORDINATE} must resolve to ${CORE_LOCAL_ROOT}`,
   );
   return mapHasSymbolKey(deps, 'day8/re-frame2-resources');
 }
@@ -186,6 +218,119 @@ test('gate mutation tooth — injected production dependency leak stays red', ()
     true,
     'EDN-aware check must catch the injected production dependency leak',
   );
+});
+
+// --- rf2-han0r: the positive control bound to the configured local root ------
+//
+// The gate runs on Windows locally and POSIX in CI, so every case is driven on
+// BOTH path shapes on whichever host is executing. `run-ui-g13.cjs` selects its
+// path resolver from the SHAPE of the artefact dir (not `process.platform`), and
+// the comparator it borrows from G-12 realpath-resolves both sides where they
+// exist, unifies separators, and folds case for drive-lettered paths only — so
+// these fixtures mean the same thing on either runner.
+const HOSTS = {
+  POSIX: { uiDir: '/repo/implementation/ui', coreRoot: '/repo/implementation/core' },
+  Windows: {
+    uiDir: 'C:\\proj\\re-frame2\\implementation\\ui',
+    coreRoot: 'C:\\proj\\re-frame2\\implementation\\core',
+  },
+};
+
+const depsEdnDeclaring = (coordinate) => `{:paths ["src"] :deps {${coordinate}}}`;
+
+// [label, coordinate, expected]. `null` shape = run on BOTH hosts.
+const BOUND_CONTROL_CASES = [
+  // The legitimate configuration — must stay green on both hosts.
+  ['genuinely-resolved local root', 'day8/re-frame2 {:local/root "../core"}', true, null],
+  // The four shapes the bead names. Every one of these was accepted by the
+  // presence-only control (the mutation control below proves it).
+  ['bogus :local/root', 'day8/re-frame2 {:local/root "../nowhere"}', false, null],
+  ['bogus :mvn/version', 'day8/re-frame2 {:mvn/version "0.0.0-BOGUS"}', false, null],
+  [
+    'a :git/url coordinate',
+    'day8/re-frame2 {:git/url "https://example.invalid/x.git" :git/sha "abc1234"}',
+    false,
+    null,
+  ],
+  ['coordinate absent', 'day8/re-frame2-other {:local/root "../core"}', false, null],
+  // Wrong-directory roots of every shape: a real sibling artefact, the parent,
+  // and an absolute root pointing elsewhere.
+  ['sibling artefact root', 'day8/re-frame2 {:local/root "../resources"}', false, null],
+  ['parent of the configured root', 'day8/re-frame2 {:local/root ".."}', false, null],
+  ['absolute root, wrong directory', 'day8/re-frame2 {:local/root "/not/the/repo"}', false, 'POSIX'],
+  ['absolute root, wrong drive path', 'day8/re-frame2 {:local/root "C:\\\\not\\\\the\\\\repo"}', false, 'Windows'],
+  // Benign variations a legitimate root may arrive in — an over-tightened
+  // predicate that reds these breaks G-13 against correct configurations, which
+  // is worse than the false-green it replaced.
+  ['absolute root, correct directory', 'day8/re-frame2 {:local/root "/repo/implementation/core"}', true, 'POSIX'],
+  ['trailing separator', 'day8/re-frame2 {:local/root "../core/"}', true, null],
+  ['redundant same-dir segment', 'day8/re-frame2 {:local/root "./../core"}', true, null],
+  // Windows paths are case-insensitive and take either separator; POSIX is
+  // case-SENSITIVE, so the same fold must NOT be granted there.
+  ['drive root, forward separators', 'day8/re-frame2 {:local/root "C:/proj/re-frame2/implementation/core"}', true, 'Windows'],
+  ['drive root, folded case', 'day8/re-frame2 {:local/root "c:\\\\PROJ\\\\re-frame2\\\\implementation\\\\CORE"}', true, 'Windows'],
+  ['POSIX case mismatch stays rejected', 'day8/re-frame2 {:local/root "../CORE"}', false, 'POSIX'],
+  // Degenerate values: nothing here names a directory.
+  ['empty :local/root', 'day8/re-frame2 {:local/root ""}', false, null],
+  ['whitespace-only :local/root', 'day8/re-frame2 {:local/root "   "}', false, null],
+  ['non-string :local/root', 'day8/re-frame2 {:local/root ../core}', false, null],
+  ['nil :local/root', 'day8/re-frame2 {:local/root nil}', false, null],
+  ['coordinate value is not a map', 'day8/re-frame2 "1.2.3"', false, null],
+];
+
+for (const [label, coordinate, expected, onlyShape] of BOUND_CONTROL_CASES) {
+  for (const [shape, host] of Object.entries(HOSTS)) {
+    if (onlyShape && onlyShape !== shape) continue;
+    test(`bound positive control (${shape}) — ${label} -> ${expected}`, () => {
+      const deps = productionDepsMap(depsEdnDeclaring(coordinate), fail);
+      assert.equal(
+        coreCoordinateResolvesTo(deps, host.coreRoot, host.uiDir),
+        expected,
+        `${label} must ${expected ? 'satisfy' : 'fail'} the bound positive control on ${shape}`,
+      );
+    });
+  }
+}
+
+// MUTATION CONTROL (mirrors rf2-5e3ic). Prove the teeth are REAL by showing the
+// retired predicate — `mapHasSymbolKey`, still live for the forbidden check —
+// ACCEPTS every rejection case above. If a future edit makes these pass under
+// presence-only too, the fixtures have stopped discriminating and the control is
+// no longer mutation-proof.
+test('mutation control — the retired presence-only check accepted every rejected coordinate', () => {
+  const rejected = BOUND_CONTROL_CASES.filter(
+    // `coordinate absent` is the ONE shape presence-only did catch; it is pinned
+    // above so binding the value did not cost the original tooth.
+    ([label, , expected]) => expected === false && label !== 'coordinate absent',
+  );
+  assert.ok(rejected.length >= 10, 'the mutation control must cover a real spread of spoofs');
+  for (const [label, coordinate] of rejected) {
+    const deps = productionDepsMap(depsEdnDeclaring(coordinate), fail);
+    assert.equal(
+      mapHasSymbolKey(deps, CORE_COORDINATE),
+      true,
+      `presence-only should accept "${label}" — it was the false-green this bead closes`,
+    );
+  }
+});
+
+// The real, shipped ui/deps.edn must satisfy the bound control on THIS host,
+// resolving through whatever junctions/symlinks the checkout actually uses.
+test('real ui/deps.edn — core coordinate resolves to the configured local root on this host', () => {
+  const realEdn = fs.readFileSync(path.join(__dirname, '..', 'ui', 'deps.edn'), 'utf8');
+  const deps = productionDepsMap(realEdn, fail);
+  assert.equal(
+    declaredCoreLocalRoot(deps),
+    '../core',
+    'ui/deps.edn must declare the core coordinate as {:local/root "../core"}',
+  );
+  assert.ok(
+    coreCoordinateResolvesTo(deps),
+    `real ui/deps.edn must resolve ${CORE_COORDINATE} to ${CORE_LOCAL_ROOT}`,
+  );
+  // Non-vacuity: the expected root is the real core artefact next to ui/.
+  assert.equal(CORE_LOCAL_ROOT, path.resolve(UI_DIR, '..', 'core'));
+  assert.ok(fs.existsSync(path.join(CORE_LOCAL_ROOT, 'deps.edn')), 'core artefact exists');
 });
 
 let failed = 0;
