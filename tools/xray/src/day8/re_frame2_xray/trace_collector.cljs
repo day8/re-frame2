@@ -5,8 +5,8 @@
 
   `collect-trace!` drops Xray self-noise, applies the local egress
   profile, retains otherwise-unaddressable frameless events, and requests
-  a coalesced mirror refresh. One refresh per microtask snapshots every
-  registered frame ring plus the bounded frameless ring into
+  a coalesced mirror refresh. One refresh per scheduled task snapshots
+  every registered frame ring plus the bounded frameless ring into
   `[:trace-buffer]` in Xray's app-db.
 
   Frameless events have no frame or dispatch id, so the framework's
@@ -126,23 +126,34 @@
   (and (nil? (trace/trace-event-frame event))
        (nil? (get-in event [:tags :rf.trace/dispatch-id]))))
 
-;; ---- microtask-coalesced mirror sync (D3=b ruling) ---------------------
+;; ---- task-coalesced mirror sync (D3=b ruling) --------------------------
 ;;
 ;; Production hosts drive the reactive surface by snapshotting the
 ;; framework's per-frame rings + the frameless secondary ring into
 ;; Xray's app-db's `:trace-buffer` slot once per JS tick. Same-tick
-;; listener callbacks request a sync; one microtask drains the queue
-;; with a single snapshot dispatch — capping the event-bundle depth at 1
-;; regardless of host trace-event volume. The pre-rf2-43koh shape used
-;; the same coalescer; what changed is the SOURCE (per-frame rings
+;; listener callbacks request a sync; one scheduled task drains the
+;; queue with a single snapshot dispatch — capping the event-bundle depth
+;; at 1 regardless of host trace-event volume. The pre-rf2-43koh shape
+;; used the same coalescer; what changed is the SOURCE (per-frame rings
 ;; instead of the retired Xray ring atom).
 ;;
-;; Tests bypass the microtask by calling `refresh-trace-rings!`
+;; The scheduling primitive is `re-frame.interop/next-tick`, which runs
+;; the refresh ASYNCHRONOUSLY, AS A TASK — never a host microtask, never
+;; inline. That boundary is the whole guarantee it makes, and it is the
+;; one this coalescer relies on: the requesting listener callbacks all
+;; land, then the single refresh runs. NOT guaranteed, and not depended
+;; on here: WHICH task mechanism runs the callback (Closure picks per
+;; host — `setImmediate`, a `MessageChannel`/`postMessage` emulation, or
+;; a `setTimeout(cb, 0)` fallback), hence no latency bound on when the
+;; mirror lands. Coalescing is correct on every one of those paths — a
+;; later boundary merges MORE requests, never fewer.
+;;
+;; Tests bypass the scheduler by calling `refresh-trace-rings!`
 ;; directly (the D3=b sync entrypoint), getting a deterministic snap
 ;; without waiting for `goog.async.nextTick`.
 
 (defonce ^:private mirror-sync-scheduled?
-  ;; `compare-and-set!` sentinel — `true` while a microtask is queued
+  ;; `compare-and-set!` sentinel — `true` while a refresh task is queued
   ;; and not yet drained; reset to `false` immediately before the queued
   ;; tick reads the snapshot, so a request that arrives after the read
   ;; enqueues a fresh tick rather than merging silently with one already
@@ -190,7 +201,7 @@
 
   Public so `mount.cljs` can drive the first-mount seed
   synchronously alongside the `:rf.xray/sync-trace-buffer` dispatch,
-  bypassing the microtask coalescer (the seed must commit before the
+  bypassing the task coalescer (the seed must commit before the
   first paint reads `:rf.xray/event-bundles`)."
   []
   (let [tool-frames #{:rf/xray :rf/re-frame2-pair}
@@ -224,7 +235,7 @@
     - Tests (per the rf2-3g9nw D3=b ruling): a sync entrypoint that
       deterministically aligns Xray's reactive surface against the
       framework's rings after each host dispatch, bypassing the
-      microtask coalescer.
+      task coalescer.
     - The `mount.cljs` first-mount seed (lifts pre-mount event-bundles into
       the app-db slot at first Ctrl+Shift+C).
     - The retroactive privacy scrub (post-clear, the rings + secondary
@@ -277,7 +288,7 @@
        rf2-3g9nw D2=a ruling).
     4. Frame-bound events: no Xray-side push needed — the framework's
        per-frame ring (`re-frame.trace.tooling`) already captured them.
-       We schedule a coalesced mirror sync so the next microtask
+       We schedule a coalesced mirror sync so the next scheduled task
        refreshes Xray's app-db's `:trace-buffer` slot.
 
   No-op in production (the framework's listener fan-out elides under
@@ -310,7 +321,7 @@
         ;; In every non-frameless case the framework already retained
         ;; the event in its per-frame ring; nothing to do but request a
         ;; coalesced sync so Xray's app-db slot mirrors the rings on
-        ;; the next microtask.
+        ;; the next scheduled task.
         (request-mirror-sync!))))
   nil)
 
@@ -387,7 +398,7 @@
 
   When `:rf/xray` is registered, also refreshes the app-db slot
   synchronously (per the rf2-3g9nw D3=b ruling: tests get a sync
-  entrypoint that bypasses the microtask coalescer). Pre-mount
+  entrypoint that bypasses the task coalescer). Pre-mount
   callers see the seed land in the ring; the first mount-time
   refresh lifts it into the slot.
 

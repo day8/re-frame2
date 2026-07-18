@@ -611,7 +611,10 @@
   Returns nil when sim is not active for the currently-selected
   machine (the caller is expected to dispatch `:sim-start` BEFORE
   rendering when the body mounts; this guard keeps the rail safe
-  during the auto-start microtask gap).
+  during the auto-start dispatch gap — the auto-start is an async
+  `dispatch`, so its drain rides `next-tick` as a TASK, not a
+  microtask, and the rail may render at least once before `sim` is
+  seeded).
 
   `dispatch` is the frame-aware dispatcher threaded from `body` —
   fanned out to every control helper.

@@ -125,7 +125,7 @@
   ;; D3=b sync entrypoint — snapshot every registered host frame's
   ;; per-frame ring + the frameless secondary ring into Xray's
   ;; `:trace-buffer` slot so the cascade subs read the pre-mount
-  ;; events on the next subscribe. Bypasses the production microtask
+  ;; events on the next subscribe. Bypasses the production task
   ;; coalescer for deterministic test ordering.
   (trace-collector/refresh-trace-rings!)
   (rf/with-frame :rf/xray
@@ -139,7 +139,7 @@
   (rf/dispatch-sync event {:frame frame-id})
   ;; D3=b sync entrypoint — refresh Xray's app-db slot from the
   ;; framework's per-frame rings + Xray's secondary ring deterministically
-  ;; after each host dispatch, bypassing the microtask coalescer.
+  ;; after each host dispatch, bypassing the task coalescer.
   (trace-collector/refresh-trace-rings!)
   (rf/with-frame :rf/xray
     ;; rf2-jio48 — Issues panel reads the focused epoch's

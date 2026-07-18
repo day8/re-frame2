@@ -1303,7 +1303,7 @@
             yields `[]` from the `:rf.xray/trace-buffer` sub. Per
             rf2-43koh — the sub reads directly from the app-db slot
             (no atom fall-through; the slot is populated by the
-            microtask-coalesced `:rf.xray/sync-trace-buffer` dispatch
+            task-coalesced `:rf.xray/sync-trace-buffer` dispatch
             from `trace-collector/refresh-trace-rings!`)."
     (setup-xray-frame!)
     (trace-collector/reset-for-test!)
@@ -1345,7 +1345,7 @@
   (testing "Per rf2-43koh — `:rf.xray/sync-trace-buffer` overwrites the
             slot wholesale; used by `mount.cljs/open!` to seed at first
             paint and by `trace-collector/refresh-trace-rings!` on every
-            microtask drain."
+            coalesced task drain."
     (setup-xray-frame!)
     (rf/with-frame :rf/xray
       (let [seed [{:id 100 :op-type :rf.event :operation :rf.test/seeded :tags {}}

@@ -13,9 +13,9 @@
   `tick-loop!` is the rAF/next-tick callback that drives the countdown
   rings' sweep. It runs OFF-render — by the time it actually fires, any
   `with-frame` / Provider scope active when `kick-tick!` armed it has
-  already unwound (a rAF/next-tick callback always resumes on a LATER
-  macro/microtask, after the synchronous call that scheduled it
-  returns). Before the fix its two internal reads (the active-timers sub
+  already unwound (both rAF and `next-tick` resume on a LATER TASK —
+  neither is a microtask and neither runs inline — so the callback
+  always fires after the synchronous call that scheduled it returns). Before the fix its two internal reads (the active-timers sub
   + the scrubber sub) used the ambient 1-arity `rf/subscribe`, which has
   NO `:rf/default` floor and raises `:rf.error/no-frame-context` with no
   scope established — the FIRST expression in the loop's body, so it

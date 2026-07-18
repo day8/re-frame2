@@ -962,7 +962,7 @@
   Xray app-db's `:trace-buffer` slot (falling back to a fresh
   framework-ring snapshot via `trace-collector/snapshot-from-rings`
   for pre-mount callers — the slot is absent until the first refresh
-  microtask drains). Used by the step events that need to walk the
+  task drains). Used by the step events that need to walk the
   event-bundle list inside an event-db handler — the equivalent reactive
   path inside the `:rf.xray/focus` sub uses the `:rf.xray/event-bundles`
   chain.

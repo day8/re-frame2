@@ -552,7 +552,7 @@
   ;;
   ;; The snapshot comes from `trace-collector/snapshot-from-rings` — a
   ;; synchronous read of the same per-frame rings + frameless secondary
-  ;; ring the production microtask coalescer drains. After the snapshot
+  ;; ring the production task coalescer drains. After the snapshot
   ;; lands in `:trace-buffer`, project the buffer through the same
   ;; pipeline the `:rf.xray/event-bundles` sub uses (projection +
   ;; Xray-internal hard-filter) to derive the seed-frame. Without the
