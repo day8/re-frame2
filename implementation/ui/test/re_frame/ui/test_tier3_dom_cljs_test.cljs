@@ -613,7 +613,8 @@
                      (rf/destroy-frame! f)
                      (reject-unexpectedly! done "recursive fixed-point rejected" e))))))))
 
-;; rf2-qxgve — the PUBLIC async `flush!` nonconvergence BOUND.
+;; rf2-qxgve / rf2-g00u8 — the PUBLIC async `flush!` nonconvergence BOUND, proven
+;; CAUSALLY and BOUNDARY-EXACT.
 ;;
 ;; The finite cascade above proves `flush-async!`'s Promise recursion RUNS, but
 ;; only for two passes — it never reaches the bound. And the #6038 proofs
@@ -623,71 +624,106 @@
 ;; drives the public async `ui.test/flush!` path, which INDEPENDENTLY implements
 ;; its Promise recursion AND its own pass comparison against
 ;; `reactive/flush-convergence-budget` in `re-frame.ui.test/flush-async!`.
-;; Removing or misplacing THAT async check restores unbounded Promise chaining
-;; while every synchronous proof stays green (the false-green).
+;; Removing, bypassing, or off-by-one-ing THAT async check restores unbounded (or
+;; one-cycle-wrong) Promise chaining while every synchronous proof stays green
+;; (the false-green).
 ;;
-;; DRIVING THE BOUND DETERMINISTICALLY. A real re-dirtying path — a listener or a
-;; mounted commit that re-marks a ViewCell on every flush — cannot cleanly drive
-;; this loop to its bound: re-frame's invalidation arms an AUTONOMOUS
-;; `schedule-flush!` microtask, so a perpetual re-dirty spins an INDEPENDENT drain
-;; loop that outraces (and can starve) the act-gated async passes — the registry
-;; quiesces or the runner stalls before pass `budget`, nondeterministically
-;; (empirically it resolved at whatever re-mark cap was chosen, never at the
-;; bound). Instead we make the registry genuinely non-quiescent with NO re-dirty
-;; loop: a really-dirty `cell` (the REAL `pending-cell-count` sees it, so the
-;; bound logic runs against real registry state) whose DRAIN is WITHHELD —
-;; `flush-pending!` is neutralized for the first `drain-at` async passes
-;; (drain-at > budget), then restored so the registry can finally settle. The
-;; single microtask `mark-dirty!` arms hits the withholding stub (no drain, no
-;; re-mark) and stops, so there is no runaway loop. With the bound present, the
-;; async flush! rejects at `budget` passes (before drain-at). TEETH: remove or
-;; misplace the async bound and flush! recurses until the drain lands at
-;; `drain-at`, then RESOLVES — the `:rejected` assertion fails, a crisp red rather
-;; than a runner-stalling hang. Cleanup is proven on every ownership axis: the
+;; CAUSAL, NOT MANUFACTURED. The registry is driven non-quiescent by the REAL
+;; drain re-dirtying: a genuine `reactive/subscribe` listener re-marks its cell
+;; every time the drain delivers to it — the exact non-quiescence vector the
+;; shared synchronous law test drives through `converge-flush!`. The drain
+;; (`flush-pending!`) and the pending evidence (`pending-cell-count` / the dirty
+;; registry) stay REAL and untouched. (The earlier fixture `set!`-substituted
+;; `flush-pending!` with a no-op — a withheld drain — which disabled the very
+;; drain whose re-dirty behaviour this law covers and proved only Promise
+;; recursion over a mocked drain, not the causal convergence boundary.)
+;;
+;; FENCE ONLY AUTONOMOUS SCHEDULING. A perpetual real re-dirty otherwise arms
+;; re-frame's AUTONOMOUS `schedule-flush!` microtask, which spins an INDEPENDENT
+;; drain loop that races (and can starve) the act-gated async passes — the loop
+;; quiesces or the runner stalls before pass `budget`, nondeterministically. So
+;; we hold the coalesced-microtask latch (`reactive/flush-scheduled?`) ARMED: its
+;; `compare-and-set!` in `schedule-flush!` then never arms a new autonomous drain.
+;; That fences ONLY the autonomous scheduling — the drain and the pending evidence
+;; are the real ones. The listener stops re-marking past `drain-at` (> budget), so
+;; a bound-REMOVED flush eventually quiesces and RESOLVES — a crisp red, never a
+;; runner-stalling hang.
+;;
+;; BOUNDARY-EXACT. The listener fires exactly once per real async pass, so its
+;; delivery count at the throw pins WHERE the bound fired: the caller's pass 0
+;; through pass `budget`, whose post-drain `(>= pass budget)` check trips —
+;; `budget + 1` real drains. Removing the check (→ resolves at `drain-at`), moving
+;; it one cycle early (→ `budget` drains), or delaying it (→ more) each shifts
+;; this count and fails the test. Cleanup is proven on every axis: the
 ;; mounted-baseline (no root/container/root-cell leak), a zero pending-cell count
-;; (the withheld cell drained), and a follow-up public flush! that resolves — a
-;; strand of the mid-flight act would reject it `:rf.error/ui-test-overlapping-act`.
+;; (the re-marking cell drained clean once the listener is detached), and a
+;; follow-up public flush! that resolves — a strand of the mid-flight act would
+;; reject it `:rf.error/ui-test-overlapping-act`.
 (deftest flush-async-nonconvergence-trips-the-public-bound
   (when (browser?)
     (let [before     (mounted-baseline)
-          real-flush reactive/flush-pending!
-          restore!   (fn [] (set! reactive/flush-pending! real-flush))
-          passes     (atom 0)
-          drain-at   (+ reactive/flush-convergence-budget 10)
+          budget     reactive/flush-convergence-budget
+          ;; > budget: past this many real deliveries the listener stops
+          ;; re-dirtying, so a bound-REMOVED flush quiesces and RESOLVES (the
+          ;; teeth — a crisp red, not a hang). The bound fires first, at budget+1.
+          drain-at   (+ budget 10)
+          ;; REAL listener deliveries = actual flush-async! passes (the drain
+          ;; delivers to the listener once per pass). The boundary witness.
+          notified   (atom 0)
+          ;; The private autonomous-scheduling latch (read precedent:
+          ;; mounted-s2-gates `:flush-armed?`). Held ARMED = the fence; the drain
+          ;; and pending evidence below are never substituted.
+          scheduled? @#'reactive/flush-scheduled?
+          unsub      (volatile! nil)
           outcome    (volatile! nil)]
       (async done
         (-> (uit/with-root [_root [query-fixture]]
+              ;; Engage the fence AFTER the initial mount settled (React `act`
+              ;; drained its own microtasks): hold the latch armed so no mark can
+              ;; arm a racing autonomous drain. FENCES ONLY autonomous scheduling.
+              (reset! scheduled? true)
               (let [cell (reactive/make-cell ::runaway)]
-                ;; A genuinely dirty cell whose drain is withheld: every async
-                ;; flush pass finds the registry non-quiescent, with NO re-dirty
-                ;; loop. The one microtask `mark-dirty!` arms hits the stub (no
-                ;; drain, no re-mark) and stops. `flush-pending!` is restored to
-                ;; real once `drain-at` (> budget) passes elapse, so a
-                ;; bound-REMOVED flush can finally quiesce and RESOLVE.
+                ;; The REAL re-dirty: every drain delivers here and re-marks the
+                ;; cell, so the REAL `pending-cell-count` sees a non-quiescent
+                ;; registry on every async pass (the `converge-flush!` vector).
+                ;; Re-mark only while under `drain-at`, so a bound-removed flush
+                ;; can finally settle rather than hang.
+                (vreset! unsub
+                         (reactive/subscribe
+                          cell (fn []
+                                 (when (< (swap! notified inc) drain-at)
+                                   (reactive/mark-dirty! cell)))))
                 (reactive/mark-dirty! cell)
-                (set! reactive/flush-pending!
-                      (fn []
-                        (when (>= (swap! passes inc) drain-at)
-                          (real-flush))))
-                ;; Drive the PUBLIC async flush! (flush-async!'s Promise
-                ;; recursion). Settle EITHER way inside the body so with-root
-                ;; still runs total teardown; assert on the outcome after.
+                ;; Drive the PUBLIC async flush! (flush-async!'s Promise recursion
+                ;; + its own budget compare). Settle EITHER way inside the body so
+                ;; with-root still runs total teardown; assert on the outcome after.
                 (-> (uit/flush!)
-                    (.then (fn [_] (restore!) (vreset! outcome [:resolved @passes]))
-                           (fn [e] (restore!) (vreset! outcome [:rejected e]))))))
+                    (.then (fn [_] (vreset! outcome [:resolved @notified]))
+                           (fn [e] (vreset! outcome [:rejected e]))))))
             (.then
              (fn []
-               (reactive/flush-pending!) ; drain the withheld cell (restored; no re-dirty)
+               ;; Detach the listener and drain the cell clean (no re-dirty), then
+               ;; disarm the fence — restoration on whichever outcome landed.
+               (when-let [u @unsub] (u))
+               (reactive/flush-pending!)
+               (reset! scheduled? false)
                (let [[kind e] @outcome
                      data     (ex-data e)]
                  (is (= :rejected kind)
-                     (str "a non-quiescent async flush! must fail loud at the "
-                          "bound, not chain Promises forever (removing/misplacing "
-                          "the flush-async! bound lets it quiesce at drain-at and "
-                          "RESOLVE, failing HERE); got " (pr-str @outcome)))
+                     (str "a genuinely non-quiescent async flush! must fail loud AT "
+                          "the bound, not chain Promises forever (removing/bypassing "
+                          "the flush-async! budget check lets it quiesce at drain-at "
+                          "and RESOLVE, failing HERE); got " (pr-str @outcome)))
+                 (is (= (inc budget) @notified)
+                     (str "boundary-exact: the bound tripped at exactly pass = "
+                          "budget — budget+1 REAL drains (caller pass 0 .. pass "
+                          "budget, whose post-drain (>= pass budget) check trips). "
+                          "One-cycle-early/late or a moved check shifts this count"))
+                 (is (< @notified drain-at)
+                     "the BOUND ended the loop — before the listener's own re-mark stop")
                  (is (= :rf.error/flush-convergence-exceeded (:rf.error/id data))
                      "the SHARED typed nonconvergence diagnostic")
-                 (is (= reactive/flush-convergence-budget (:passes data))
+                 (is (= budget (:passes data))
                      "carries the exhausted shared budget")
                  (is (pos? (:pending data))
                      "carries a positive residual pending-cell count")
@@ -697,12 +733,13 @@
                  (is (= before (mounted-baseline))
                      "teardown leaves no mounted roots, containers, or root cells")
                  (is (zero? (reactive/pending-cell-count))
-                     "the withheld cell drained clean — no dirty cell survives"))
+                     "the re-marking cell drained clean — no dirty cell survives"))
                ;; No active-act ownership stranded by the mid-flight rejection: a
                ;; fresh public flush! resolves (a strand rejects overlapping-act).
                (uit/flush!))
              (fn [e]
-               (restore!)
+               (when-let [u @unsub] (u))
+               (reset! scheduled? false)
                (reject-unexpectedly! done "nonconvergence flush test rejected" e)))
             (.then (fn [_] (done))
                    (fn [e]
