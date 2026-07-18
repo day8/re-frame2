@@ -1113,7 +1113,7 @@
                      "trace-window / list-subscriptions) tell you what's in app-db and the trace; read-dom "
                      "tells you what the app actually PUT ON SCREEN — the answer to 'did the UI update?' / "
                      "'what does the rendered node say?'. Generalises the source-coord reads (handler-meta's "
-                     ":rf.source/uri — where a handler is DEFINED) to rendered-CONTENT reads (what's on screen NOW). "
+                     ":rf.mcp/source-uri — where a handler is DEFINED) to rendered-CONTENT reads (what's on screen NOW). "
                      "Pairs with dispatch :await-render (rf2-gfu33): dispatch -> settle -> read-dom is a "
                      "deterministic three-step observe. "
                      "READ-ONLY by construction — the browser-side form calls querySelectorAll and reads "
@@ -1818,7 +1818,7 @@
                      "handler — source-coord (file/line/column/ns), :doc, :tags, "
                      "and any custom slots emitted by the reg-* macro. The wire "
                      "pipeline (rf2-cibp8) decorates the :source-coord map with "
-                     "an :rf.source/uri string the AI host renders as a "
+                     "an :rf.mcp/source-uri string the AI host renders as a "
                      "clickable jump-to-editor link. "
                      "Use this when you know an id and want to find its "
                      "definition without a wide-authority eval-cljs round-trip "
@@ -1858,7 +1858,7 @@
                      ":id i ...meta...}` on a hit or `{:ok? false :reason "
                      ":not-registered :kind k :id i}` when no slot matches. "
                      "Examples: "
-                     "1. Find an event: {:kind \"event\" :id \":user/login\"} -> {:ok? true :kind :event :id :user/login :ns my.app.user :line 42 :file \"src/my/app/user.cljs\" :rf.source/uri \"file://...\" :doc \"...\"}. "
+                     "1. Find an event: {:kind \"event\" :id \":user/login\"} -> {:ok? true :kind :event :id :user/login :ns my.app.user :line 42 :file \"src/my/app/user.cljs\" :rf.mcp/source-uri \"file://...\" :doc \"...\"}. "
                      "2. Subscription on a composite key: {:kind \"sub\" :id \"[:rf/composite [:items :by-id 42]]\"} -> {:ok? true :kind :sub :id [:rf/composite [:items :by-id 42]] :ns my.app.subs :line 18}. "
                      "3. Miss: {:kind \"fx\" :id \":missing/fx\"} -> {:ok? false :reason :not-registered :kind :fx :id :missing/fx}.")
    :typicalTokens 400

@@ -63,6 +63,6 @@
 
 (defn get-editor
   "Return the current editor preference. Read by the wire-pipeline's
-  source-URI decorator to build `:rf.source/uri` strings."
+  source-URI decorator to build `:rf.mcp/source-uri` strings."
   []
   @editor)

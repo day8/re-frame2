@@ -30,6 +30,11 @@ including:
 
 - `:rf.mcp/cursor-stale` result reasons;
 - `:rf.mcp/result` tagged results;
+- `:rf.mcp/source-uri` editor-jump decorations — the pre-built
+  jump-to-definition URI re-frame2-pair-mcp splices beside a
+  `:source-coord`; a decoration, not a single-key wrapper (no
+  `canonical-markers` schema/fixture), asserted as the legitimate
+  additive slot the operating-frame open-map schema must accept;
 - `:rf/redacted`;
 - progress notifications and event bundles;
 - reply-envelope trace rows;

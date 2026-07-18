@@ -288,7 +288,7 @@
                    "the [:fn no-realm-slots?] arm rejects any realm-shaped key."))))
       (testing "a non-realm additive decoration still validates (the schema stays open)"
         (is (m/validate OperatingFrameSuccess
-                        (assoc base :rf.source/uri "app://x" :fresh? true))
+                        (assoc base :rf.mcp/source-uri "app://x" :fresh? true))
             (str "OperatingFrameSuccess MUST remain OPEN to legitimate additive "
                  "wire decorations (source-uri / freshness) — the realm negative "
                  "must not become a general closed-map rejection."))))))
