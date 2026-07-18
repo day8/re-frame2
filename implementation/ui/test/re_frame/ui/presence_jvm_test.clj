@@ -48,6 +48,17 @@
     (for [t toasts]
       [toast-card {:key (:id t) :msg (:msg t)}])))
 
+(defview literal-toasts [{:keys [banner?]}]
+  ;; rf2-vxgfnd.96.1 — the DOCUMENTED literal route: keyed literal host and
+  ;; fragment children written inline, alongside the keyed (for …) that has
+  ;; always shipped. This view exists to compile: before the fix the analyzer
+  ;; read an :element's key at the WRONG AST path and this defview was a build
+  ;; failure.
+  (ui/presence {:timeout-ms 300}
+    [:li {:key "static"} "static"]
+    [:<> {:key "frag"} [:li "frag"]]
+    (when banner? [:li {:key "banner"} "banner"])))
+
 (defview reusable-outside-boundary []
   ;; presence-phase OUTSIDE any boundary must still resolve to :present, so the
   ;; child stays reusable anywhere.
@@ -122,6 +133,79 @@
     (is (= 300 (:timeout-ms ast)) "the compile-time :timeout-ms literal is carried")
     (is (= [:for] (mapv :op (:children ast)))
         "the keyed (for …) child is analyzed under the boundary")))
+
+;; ---------------------------------------------------------------------------
+;; The keyed-child grammar (rf2-vxgfnd.96.1)
+;;
+;; Presence admits FOUR keyed shapes: a keyed `(for …)`, a keyed literal host
+;; element, a keyed fragment, and a keyed view/foreign row — plus branches whose
+;; every rendered arm is one of those. The key's AST location differs by node,
+;; and the grammar is only as correct as the path this predicate reads.
+;; ---------------------------------------------------------------------------
+
+(defn- presence-error [form]
+  (try (ana/analyze (mk-env) form) nil
+       (catch clojure.lang.ExceptionInfo ex
+         (:rf.ui.compile/error (ex-data ex)))))
+
+(deftest analyzed-key-locations-differ-by-node
+  ;; The mutation pin: restore `[:key :present?]` for :element (or
+  ;; `[:props :key :present?]` for :fragment) and the acceptances below go red.
+  (testing "a literal host element carries its key inside its analyzed PROPS"
+    (let [el (ana/analyze (mk-env) '[:div {:key "x"} "hi"])]
+      (is (true? (get-in el [:props :key :present?])))
+      (is (nil? (get-in el [:key :present?]))
+          "an :element has NO node-level :key — reading one finds nothing and
+           wrongly rejects every keyed literal child")))
+  (testing "a fragment carries its key at the NODE"
+    (let [fr (ana/analyze (mk-env) '[:<> {:key "x"} [:p "a"]])]
+      (is (true? (get-in fr [:key :present?])))
+      (is (nil? (get-in fr [:props :key :present?]))
+          "a :fragment has no analyzed props map"))))
+
+(deftest keyed-literal-children-are-accepted
+  (testing "a keyed literal host child"
+    (let [ast (ana/analyze (mk-env) '(presence {:timeout-ms 300} [:li {:key "x"} "hi"]))]
+      (is (= :presence (:op ast)))
+      (is (= [:element] (mapv :op (:children ast))))))
+  (testing "a keyed fragment child"
+    (is (= [:fragment]
+           (mapv :op (:children (ana/analyze (mk-env)
+                                             '(presence {:timeout-ms 300}
+                                                [:<> {:key "x"} [:p "a"]])))))))
+  (testing "ADVERSARIAL: keyed literals mixed with a (for …) sibling and a branch"
+    (let [ast (ana/analyze (mk-env)
+                           '(presence {:timeout-ms 300}
+                              [:li {:key "static"} "static"]
+                              (for [t ts] [:li {:key (:id t)} (:msg t)])
+                              [:<> {:key "frag"} [:li "frag"]]
+                              (when b [:li {:key "banner"} "banner"])))]
+      (is (= [:element :for :fragment :if] (mapv :op (:children ast)))
+          "every blessed keyed shape composes under one boundary"))))
+
+(deftest unkeyed-children-remain-a-build-failure
+  (testing "an unkeyed literal host child"
+    (is (= :rf.ui.compile/presence-unkeyed-child
+           (presence-error '(presence {:timeout-ms 300} [:li "hi"])))))
+  (testing "an unkeyed fragment child"
+    (is (= :rf.ui.compile/presence-unkeyed-child
+           (presence-error '(presence {:timeout-ms 300} [:<> [:li "hi"]])))))
+  (testing "ADVERSARIAL: one unkeyed sibling among keyed ones still fails"
+    (is (= :rf.ui.compile/presence-unkeyed-child
+           (presence-error '(presence {:timeout-ms 300}
+                              [:li {:key "a"} "a"]
+                              [:li "b"])))))
+  (testing "ADVERSARIAL: an unkeyed branch ARM still fails"
+    (is (= :rf.ui.compile/presence-unkeyed-child
+           (presence-error '(presence {:timeout-ms 300}
+                              (if b [:li {:key "a"} "a"] [:li "b"])))))))
+
+(deftest keyed-literal-children-render-on-the-jvm
+  ;; End to end: the documented literal route compiles AND renders.
+  (let [t (uit/render literal-toasts {:props {:banner? true}})]
+    (is (some? (presence-node t)) "the boundary is there")
+    (is (= #{"static" "frag" "banner"} (set (all-strings t)))
+        "every keyed literal child renders under the boundary")))
 
 (deftest cljs-emission-wires-the-presence-boundary
   (let [ast  (ana/analyze (mk-env)

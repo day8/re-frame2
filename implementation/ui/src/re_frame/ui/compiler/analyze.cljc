@@ -2441,12 +2441,19 @@
   "A presence child must be STATICALLY keyed — the identity the runtime tracks
   across renders. A `(for …)` is keyed by construction (analyze-for enforces
   every row's `:key`); a literal element/view/foreign/fragment must carry a
-  `:key`. A branch (if/let/case) is keyed when each rendered arm is."
+  `:key`. A branch (if/let/case) is keyed when each rendered arm is.
+
+  The key's location differs by node, and this predicate reads each node's
+  ACTUAL analyzed shape: a `:fragment` carries its key at the node
+  (`analyze-fragment`), while `:element` (`analyze-element-props`) and
+  `:view`/`:foreign` (`analyze-component-props`) carry it inside their analyzed
+  props map. Reading `[:key :present?]` off an `:element` finds nil and rejects
+  every keyed literal host child (rf2-vxgfnd.96.1)."
   [ast]
   (case (:op ast)
     :for true
-    (:element :fragment) (boolean (get-in ast [:key :present?]))
-    (:view :foreign) (boolean (get-in ast [:props :key :present?]))
+    :fragment (boolean (get-in ast [:key :present?]))
+    (:element :view :foreign) (boolean (get-in ast [:props :key :present?]))
     :if (and (presence-keyed-child? (:then ast)) (presence-keyed-child? (:else ast)))
     :let (presence-keyed-child? (:body ast))
     :letfn (presence-keyed-child? (:body ast))
