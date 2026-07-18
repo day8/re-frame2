@@ -1301,8 +1301,9 @@
 ;; a dev `:reload` of THIS ns does not push a duplicate hook into the registrar's
 ;; `registration-hooks` vector (it dedupes none, and `clear-all!` does not clear
 ;; it) — the same "install a registrar hook once, survive hot-reload" pattern
-;; `re-frame.flows.registry`'s `_hot-reload-hook` and `re-frame.routing`'s
-;; `_url-bound-exclusivity-hook` use. Gated on `interop/debug-enabled?` so the
+;; `re-frame.substrate.observation`'s `_registrar-hooks` and
+;; `re-frame.subs.cache`'s `_hot-reload-hook` use.
+;; Gated on `interop/debug-enabled?` so the
 ;; whole install (and thus any reprojection cost on the registration path) is
 ;; constant-folded away under `:advanced` + `goog.DEBUG=false`: production stops
 ;; `reg-*`-ing after boot, so there is nothing to reproject (EP-0023:530).
