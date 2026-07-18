@@ -287,7 +287,7 @@
    {:key         :flows/teardown-on-frame-destroy!
     :producer-ns 're-frame.flows
     :design-bead "rf2-wbtjn"
-    :description "Drop the destroyed frame's per-frame flow registry slot, its `last-inputs` rows, and any `:flow` registrar entries whose last owning frame was destroyed. Invoked by `frame/destroy-frame!` symmetric with the machines teardown hook (rf2-vsigt) — without this hook a long-running SSR JVM with per-request frame churn grows the flow registry unboundedly."}
+    :description "Drop the destroyed frame's per-frame flow registry slot, its `last-inputs` rows, and its pending abandoned-output-path (vacation) state. No `:flow` registrar entry is pruned — per rf2-en00bk that registrar kind is RESERVED-but-empty and `reg-flow` writes only to the flows artefact's per-frame store. Invoked by `frame/destroy-frame!` symmetric with the machines teardown hook (rf2-vsigt) — without this hook a long-running SSR JVM with per-request frame churn grows the flow registry unboundedly."}
 
    ;; ---- re-frame.schemas -----------------------------------------------------
    {:key         :schemas/validate-event!

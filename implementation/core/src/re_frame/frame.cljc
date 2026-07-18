@@ -3754,9 +3754,12 @@
                                               `:after` timer table.
          :schemas/on-frame-destroyed!       — drop schemas registered
                                               against this frame.
-         :flows/teardown-on-frame-destroy!  — drop flows + last-inputs
-                                              rows + dead `:flow`
-                                              registrar slots.
+         :flows/teardown-on-frame-destroy!  — release the destroyed
+                                              frame's per-frame flow-store
+                                              slot, its `last-inputs`
+                                              rows, and its pending
+                                              abandoned-output-path
+                                              (vacation) state.
          :routing/on-frame-destroyed!       — release the frame's
                                               host-side transient routing
                                               caches — scroll positions +
@@ -4013,9 +4016,15 @@
         ;; re-frame.schemas is absent (the artefact is optional).
         (safe-call-hook! :schemas/on-frame-destroyed! id)
         ;; Drop every flow registered against the destroyed
-        ;; frame plus its cached `last-inputs` rows, and prune the
-        ;; `:flow` registrar slot when the destroyed frame was the last
-        ;; owner. Symmetric with the machines teardown hook above.
+        ;; frame plus its cached `last-inputs` rows and its pending
+        ;; abandoned-output-path (vacation) state. There is NO `:flow`
+        ;; registrar slot to prune: per rf2-en00bk the `:flow` registrar
+        ;; kind is RESERVED with an intentionally empty slot, and
+        ;; `reg-flow` writes only to the flows artefact's own per-frame
+        ;; `{frame-id {flow-id flow-map}}` store — the single source of
+        ;; truth. Releasing this frame's key from that store (plus the two
+        ;; sibling frame-keyed caches) IS the whole teardown.
+        ;; Symmetric with the machines teardown hook above.
         ;; Without this hook a long-running SSR JVM with
         ;; per-request frame churn grows the flow registry unboundedly.
         ;; This hook does NOT scrub the frame's flow-output elision marks:
