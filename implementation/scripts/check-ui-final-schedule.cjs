@@ -35,7 +35,7 @@
 // (:ui-final-schedule-seq, :parallel-build false) compile schedules are proven.
 //
 // TEETH (documented mutation/revert; run at development time, NOT committed):
-//   * Replace build-hook/compiled-this-pass?'s marker check with the old
+//   * Replace build-hook/compile-verdict's marker check with the old
 //     `:cached false` + `:js`-identity body (rf2-v7wqk) — a non-scheduling hook
 //     that swaps only a retained output's `:js` for a fresh String is then
 //     misread as a recompile, so a cache-hit sibling's ghost is evicted and the
@@ -49,7 +49,12 @@
 //   * Make reconcile-final-schedule proceed silently when :pass-token is absent
 //     (drop the missing-pass-provenance throw) → the FAIL-LOUD pass SUCCEEDS
 //     instead of failing → this gate goes RED.
-// Both were exercised red-before-green during development.
+//   * Restore the marker-absent + `:cached false` -> compiled classification in
+//     build-hook/compile-verdict (drop the Shadow ::build-info :compiled corroboration,
+//     rf2-8nn5k) → the FORGE pass, whose whole-map replacement Shadow did not
+//     compile, is misclassified as a recompile and either evicts app-a's valid view
+//     or succeeds instead of failing loud → this gate goes RED.
+// All were exercised red-before-green during development.
 
 const fs = require('fs');
 const path = require('path');
@@ -68,6 +73,7 @@ const TRIGGER = path.join(FIX, 'trigger.cljs');
 const TARGET = path.join(IMPL, 'target', 'ui-final-schedule');
 const FORCE_MARKER = path.join(TARGET, 'force-recompile-app-a');
 const BLIND_MARKER = path.join(TARGET, 'blind-provenance');
+const FORGE_MARKER = path.join(TARGET, 'forge-app-a-output');
 const TIMEOUT = 120000;
 
 const BUILDS = [
@@ -201,6 +207,7 @@ async function driveBuild({ id, mode }) {
   fs.rmSync(observeFile(id), { force: true });
   fs.rmSync(FORCE_MARKER, { force: true });
   fs.rmSync(BLIND_MARKER, { force: true });
+  fs.rmSync(FORGE_MARKER, { force: true });
 
   const w = watch(id);
   try {
@@ -237,6 +244,31 @@ async function driveBuild({ id, mode }) {
       fail(`${id}: viewless trigger edit moved the digest (${str(ctlFin, 'digest')} != ${digest0})`);
     }
     console.log('  control warm pass: both views survive, digest stable, app-a not pre-touched');
+
+    // 2.5 FORGE pass — a build-local :compile-prepare hook REPLACES app-a's whole
+    // retained output map (rebuilt from Shadow's public fields, dropping
+    // re-frame.ui's private marker, copying sticky :cached false) WITHOUT removing
+    // it, so Shadow does NOT recompile app-a and it is absent from Shadow's own
+    // ::build-info :compiled. Pre-fix, finish trusted :cached false and evicted
+    // app-a's valid accepted view on a pass that compiled nothing. Now it must FAIL
+    // LOUD (`marker-dropped-without-compile`) before any candidate is finalized, so
+    // the both-views accepted state survives for the FORCED-EVICT arm below.
+    fs.writeFileSync(FORGE_MARKER, 'x');
+    let forgeFail = w.failureCount();
+    let forgeFin = countStage(id, 'finish');
+    editTrigger('forge');
+    await w.waitFailure(forgeFail);
+    await sleep(300);
+    const forgeTx = w.transcript();
+    if (!/marker-dropped-without-compile/.test(forgeTx) &&
+        !/non-scheduling whole-map replacement cannot count as compilation/.test(forgeTx)) {
+      fail(`${id}: forge — build failed but not with the whole-map-replacement diagnostic\n${forgeTx.slice(-1500)}`);
+    }
+    if (countStage(id, 'finish') !== forgeFin) {
+      fail(`${id}: forge — a candidate was finalized despite an unforgeable output-map replacement`);
+    }
+    console.log('  forge pass: a non-scheduling whole-map replacement failed the build before publication');
+    fs.rmSync(FORGE_MARKER, { force: true });
 
     // 3. FORCED-EVICT warm pass — build-local hook forces a viewless recompile.
     fs.writeFileSync(FORCE_MARKER, 'x');
@@ -295,6 +327,7 @@ async function driveBuild({ id, mode }) {
     fs.writeFileSync(TRIGGER, triggerOriginal);
     fs.rmSync(FORCE_MARKER, { force: true });
     fs.rmSync(BLIND_MARKER, { force: true });
+    fs.rmSync(FORGE_MARKER, { force: true });
     await terminateProcessTree(w.child, { timeoutMs: 5000 });
   }
 }

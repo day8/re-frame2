@@ -12,32 +12,44 @@
 
   0. reconcile against Shadow's FINAL authoritative compile schedule — every
      CLJS source actually compiled THIS pass is pre-touched too. Membership is
-     read from re-frame.ui's OWN per-pass provenance marker, never output-map
-     identity, never Shadow's `:js` object identity, and never a wall-clock stamp
-     relationship. At `:compile-prepare` re-frame.ui stamps an opaque per-pass
-     token onto every retained output MAP Shadow handed it. Shadow's compile
-     path (`do-compile-cljs-resource`) builds a FRESH output map for a
-     (re)compiled source, dropping the marker; a later non-scheduling hook that
-     merely annotates or transforms a retained output (assoc/update-in —
-     INCLUDING replacing only `[:output rid :js]` with a fresh equal-byte
-     string) PRESERVES the marker. So a source was (re)compiled THIS pass iff its
-     finish output LACKS the current pass token; `:cached true` then distinguishes
-     a disk-cache load (no macro rerun) from a fresh compile. Keying on
-     re-frame.ui's own marker — not on the identity of Shadow's `:js` artifact —
-     is immune to the ordinary output-transforming shape (a retained output whose
+     TOTAL (every CLJS graph member is reconciled; a missing/nil/non-map final
+     output fails loud, never silently skipped) and UNFORGEABLE by an output-map
+     replacement. It is decided by re-frame.ui's OWN per-pass provenance marker
+     corroborated, for a marker-absent replaced map, by Shadow's OWN causal
+     compile record — never output-map identity, never Shadow's `:js` object
+     identity, and never a wall-clock stamp relationship of re-frame.ui's own. At
+     `:compile-prepare` re-frame.ui stamps an opaque per-pass token onto every
+     retained output MAP Shadow handed it. Shadow's compile path
+     (`do-compile-cljs-resource`) builds a FRESH output map for a (re)compiled
+     source, dropping the marker; a later non-scheduling hook that merely
+     annotates or transforms a retained output (assoc/update-in — INCLUDING
+     replacing only `[:output rid :js]` with a fresh equal-byte string) PRESERVES
+     the marker. So a source that still carries the current pass token is
+     unforgeably RETAINED (a replacement cannot forge the private token). A
+     marker-ABSENT output means the whole map was replaced: re-frame.ui then reads
+     Shadow's own `[:shadow.build/build-info :compiled]` record — populated after
+     the compile phase, outside the `[:output rid]` map a replacement controls —
+     to tell a genuine COMPILER replacement (a real compile) from a non-scheduling
+     HOOK replacement. When Shadow did NOT compile it, `:cached true` is a
+     legitimate disk-cache load and `:cached false` is a whole-map replacement
+     that dropped the marker without any compile — the latter CANNOT masquerade as
+     compilation and fails loud rather than evict a valid accepted view. Keying on
+     re-frame.ui's own marker plus Shadow's compile record — not on the identity of
+     Shadow's `:js` artifact and not on the forgeable `:cached` field alone — is
+     immune to the ordinary output-transforming shape (a retained output whose
      `:js` is swapped for a fresh, even byte-identical, String by a non-scheduling
      hook) that a raw `:js`-identity test misreads as a recompile and so evicts an
-     untouched accepted view; and — reading provenance rather than comparing
-     `:compiled-at` milliseconds — immune to the same-/backwards-millisecond stamp
-     a `>` test misreads as untouched (leaving a ghost accepted view). A later
-     `:compile-prepare` hook (Shadow deep-merges build-local hooks after
-     `:build-defaults` and lets them mutate build state) can force a source to
-     recompile AFTER re-frame.ui observed the schedule; reading the finish-time
-     marker, not the intermediate prepare schedule, closes that hook-order gap so
-     a forced recompile that removed a source's final `ui/defview` evicts its
-     accepted row instead of leaving a ghost view. Missing, malformed, or
-     contradictory per-source provenance fails loudly before any candidate is
-     published, never silently treated as untouched;
+     untouched accepted view; and — never comparing `:compiled-at` milliseconds
+     itself — immune to the same-/backwards-millisecond stamp a `>` test misreads
+     as untouched (leaving a ghost accepted view). A later `:compile-prepare` hook
+     (Shadow deep-merges build-local hooks after `:build-defaults` and lets them
+     mutate build state) can force a source to recompile AFTER re-frame.ui observed
+     the schedule; reading the finish-time marker and Shadow's compile record, not
+     the intermediate prepare schedule, closes that hook-order gap so a forced
+     recompile that removed a source's final `ui/defview` evicts its accepted row
+     instead of leaving a ghost view. Missing, malformed, or contradictory
+     per-source provenance fails loudly before any candidate is published, never
+     silently treated as untouched;
   1. derive the candidate finalized slice (commit staged sources, evict sources
      absent from authoritative membership) and its whole-build digest;
   2. purely validate and project that digest into exactly one compiled
@@ -92,6 +104,22 @@
   output MAP only and is never emitted into any bundle."
   ::pass-marker)
 
+(def ^:private shadow-compiled-path
+  "Shadow's OWN causal per-pass compile record. `shadow.build/compile` populates
+  `[:shadow.build/build-info :compiled]` (a set of resource-ids) via
+  `update-build-info-after-compile` AFTER the compile phase and BEFORE the
+  `:compile-finish` hooks run, so it is authoritative and present when this hook
+  reads it. It is the causal fact re-frame.ui consults to decide, for a
+  marker-ABSENT output, whether Shadow's COMPILER replaced the whole output map
+  (a genuine compile) or a non-scheduling HOOK did (a replacement that must not
+  masquerade as compilation). Reading Shadow's record — not the forgeable
+  `:cached` field carried by the output map re-frame.ui is classifying, and not
+  any `:compiled-at` wall-clock relationship of re-frame.ui's own — is what makes
+  the marker-absent verdict unforgeable by an output-map replacement: the record
+  lives outside the `[:output rid]` map, so reconstructing that map cannot reach
+  or set it."
+  [:shadow.build/build-info :compiled])
+
 (defn- member-nss
   "Authoritative declaring namespaces from Shadow's resolved build graph."
   [{:keys [build-sources sources]}]
@@ -131,66 +159,58 @@
      #{}
      build-sources)))
 
-(defn- compiled-this-pass?
-  "Whether Shadow (re)compiled `final-output`'s source THIS pass, decided by
-  re-frame.ui's OWN per-pass provenance marker — never Shadow's `:js` object
-  identity and never a wall-clock stamp.
+(defn- compile-verdict
+  "Classify one CLJS `final-output`'s per-pass provenance. A PURE classifier
+  returning a keyword; the caller (`actually-recompiled-member-nss`) turns a
+  fail-loud verdict into a typed error carrying full per-resource context.
 
-  At `:compile-prepare` re-frame.ui stamped `pass-token` onto every retained
-  output MAP (see `stamp-retained-outputs`). Shadow's compile path
-  (`do-compile-cljs-resource`, the sole producer of a freshly compiled output)
-  builds a FRESH output map, so a real recompile's finish output LACKS the
-  marker. A warm cache HIT keeps its stamped map. A later non-scheduling
-  `:compile-prepare` hook that annotates or transforms a retained output
-  (assoc/update-in — INCLUDING replacing only `[:output rid :js]` with a fresh,
-  even byte-identical, String) PRESERVES the marker, because assoc keeps every
-  other key. A disk-cache load also lacks the marker but is `:cached true`.
+    :compiled  — Shadow (re)compiled this source THIS pass;
+    :retained  — a warm hit / marker-preserving metadata-or-`:js` transform /
+                 disk-cache load; NOT compiled this pass;
 
-  So, checking the marker FIRST (it is authoritative over `:cached`, which is
-  sticky on retained outputs):
+  or a fail-loud reason keyword (`:stale-provenance-marker`,
+  `:marker-dropped-without-compile`, `:unmarked-output-missing-cached-flag`).
 
-  - marker == the current pass token  -> RETAINED (warm hit / metadata
-    annotation / a non-scheduling `:js` transform); NOT compiled this pass;
-  - marker absent + `:cached false`   -> a fresh compile this pass;
-  - marker absent + `:cached true`    -> a disk-cache load; NOT compiled;
-  - marker absent + `:cached` neither `true` nor `false`, OR a marker that is
-    PRESENT but is NOT the current pass token -> missing/contradictory
-    per-source provenance: fails loudly rather than being silently classified
-    as untouched (rf2-ialoij's missing/ambiguous-evidence criterion).
+  Two facts decide it, in order, and NEITHER is a `:js` object identity or a
+  `:compiled-at` wall-clock relationship:
 
-  No branch is `>`, `>=`, `!=`, or any relationship on the `:compiled-at` wall
-  clock, so a genuine EQUAL-stamp or BACKWARDS-stamp recompile (same-millisecond
-  `System/currentTimeMillis`, clock skew, a non-monotonic clock) is still
-  classified as a recompile, while an ordinary output transform and a warm cache
-  hit are never misread as one."
-  [final-output pass-token]
+  1. re-frame.ui's OWN per-pass MARKER. At `:compile-prepare` re-frame.ui stamped
+     `pass-token` onto every retained output MAP (see `stamp-retained-outputs`).
+     A warm hit keeps it; a non-scheduling assoc/update-in on a retained output
+     (INCLUDING replacing only `[:output rid :js]` with a fresh, even
+     byte-identical, String) PRESERVES it; Shadow's compile path AND an
+     uncooperative whole-map replacement both DROP it. So marker present and
+     equal to `pass-token` is unforgeably RETAINED (a replacement cannot forge
+     the private token). A marker present but NOT equal to the token is a stale
+     cross-pass artefact and fails loud.
+
+  2. For a marker-ABSENT output — where the whole map was replaced — Shadow's OWN
+     causal compile record `shadow-compiled?` (this resource's membership in
+     `[:shadow.build/build-info :compiled]`, computed by Shadow after the compile
+     phase). It distinguishes a genuine COMPILER replacement (`:compiled`) from a
+     non-scheduling HOOK replacement, WITHOUT trusting the output map's forgeable
+     `:cached` field to conclude compilation. When Shadow did NOT compile it:
+     `:cached true` is a legitimate disk-cache load (RETAINED); `:cached false`
+     is a whole-map replacement that dropped the marker without any Shadow
+     compile — it cannot be silently treated as a compile and fails loud
+     (`:marker-dropped-without-compile`); any other `:cached` value is
+     unusable evidence and fails loud.
+
+  Because the marker gate is checked before the compile record, a genuine
+  EQUAL-stamp or BACKWARDS-stamp recompile is still classified `:compiled` (it
+  dropped the marker AND is in Shadow's record); re-frame.ui itself never
+  compares `:compiled-at`."
+  [final-output pass-token shadow-compiled?]
   (let [marker (get final-output compile-marker-key ::unmarked)]
     (cond
-      (= marker pass-token) false
-
-      (= marker ::unmarked)
-      (case (:cached final-output)
-        false true
-        true  false
-        (throw
-         (ex-info
-          (str "re-frame.ui compile-finish found a CLJS output with no per-pass "
-               "provenance marker and no usable Shadow :cached flag; refusing to "
-               "guess whether it was compiled this pass")
-          {::error ::ambiguous-compile-evidence
-           :reason :unmarked-output-missing-cached-flag
-           :cached (:cached final-output)
-           :recovery :configure-ui-build-hook-once})))
-
+      (= marker pass-token)    :retained
+      (not= marker ::unmarked) :stale-provenance-marker
+      shadow-compiled?         :compiled
       :else
-      (throw
-       (ex-info
-        (str "re-frame.ui compile-finish found a CLJS output carrying a STALE "
-             "per-pass provenance marker (not this pass's token); refusing to "
-             "guess whether it was compiled this pass")
-        {::error ::ambiguous-compile-evidence
-         :reason :stale-provenance-marker
-         :recovery :configure-ui-build-hook-once})))))
+      (case (:cached final-output)
+        true  :retained                        ; disk-cache load: replaced map, not compiled
+        false :marker-dropped-without-compile   ; non-scheduling whole-map replacement
+        :unmarked-output-missing-cached-flag))))
 
 (defn- stamp-retained-outputs
   "Stamp re-frame.ui's opaque per-pass provenance `pass-token` onto every
@@ -214,32 +234,98 @@
 (defn- actually-recompiled-member-nss
   "Declaring namespaces of every CLJS source Shadow ACTUALLY (re)compiled in
   THIS pass, read from the FINAL build-state at `:compile-finish` — after every
-  schedule-mutating `:compile-prepare` hook and after compilation ran —
-  distinguished by re-frame.ui's OWN per-pass provenance marker, never output-map
-  identity, never Shadow's `:js` object identity, and never a wall-clock stamp.
+  schedule-mutating `:compile-prepare` hook and after compilation ran.
 
-  `pass-token` is the opaque token re-frame.ui stamped onto every retained output
-  map at `:compile-prepare` (see `stamp-retained-outputs`). See
-  `compiled-this-pass?`: a source counts as recompiled iff its finish output
-  LACKS that token (Shadow replaced the whole map) and is not a `:cached true`
-  disk load. This is immune to a later hook annotating or transforming a retained
-  output's map — INCLUDING replacing only its `:js` with a fresh equal-byte
-  string — which a raw `:js`-identity test misread as a recompile and so evicted
-  an untouched accepted view; to a same- or backwards-millisecond compile stamp
-  (which a `>`/`>=` stamp test misreads as untouched, leaving a ghost accepted
-  view); and to the build-local hook merge order re-frame.ui cannot control."
-  [{:keys [build-sources sources output]} pass-token]
-  (reduce
-   (fn [acc resource-id]
-     (let [{:keys [type ns provides]} (get sources resource-id)
-           final-output (get output resource-id)]
-       (if (and (= :cljs type)
-                (some? final-output)
-                (compiled-this-pass? final-output pass-token))
-         (into acc (or provides (when ns #{ns})))
-         acc)))
-   #{}
-   build-sources))
+  Provenance is TOTAL: EVERY CLJS member of the authoritative build graph is
+  reconciled. A missing, nil, non-map, or otherwise unusable final output is
+  never silently skipped (which would let an accepted row survive with no
+  per-resource evidence); it throws a typed compiler error naming the build id,
+  resource id, declaring namespace/provides, reason, and recovery before any
+  candidate is derived.
+
+  Provenance is UNFORGEABLE by an output-map replacement: a member counts as
+  recompiled per `compile-verdict`, which gates FIRST on re-frame.ui's own
+  per-pass marker (unforgeable RETAINED) and, only for a marker-absent replaced
+  map, on Shadow's OWN causal compile record (`shadow-compiled-path`) rather than
+  the output map's forgeable `:cached` field. A whole-map replacement that drops
+  the marker without a corresponding Shadow compile cannot masquerade as
+  compilation — it fails loud. This remains immune to a `:js`-object-identity
+  misread and to same-/backwards-millisecond compile stamps (re-frame.ui compares
+  no `:compiled-at`)."
+  [{:keys [build-sources sources output] :as build-state} pass-token]
+  (let [build-id (:shadow.build/build-id build-state)
+        compiled (set (get-in build-state shadow-compiled-path))]
+    (reduce
+     (fn [acc resource-id]
+       (let [{:keys [type ns provides]} (get sources resource-id)]
+         (if (not= :cljs type)
+           acc
+           (let [final-output (get output resource-id)]
+             (if-not (map? final-output)
+               (throw
+                (ex-info
+                 (str "re-frame.ui compile-finish found CLJS build member "
+                      resource-id " (" (or ns provides) ") with no usable final "
+                      "output map; refusing to publish an accepted candidate while "
+                      "a graph member's per-resource compile evidence is absent")
+                 {::error ::missing-compile-output
+                  :build-id build-id
+                  :resource-id resource-id
+                  :ns ns
+                  :provides provides
+                  :reason :absent-or-non-map-final-output
+                  :final-output final-output
+                  :recovery :ensure-shadow-output-for-cljs-member}))
+               (case (compile-verdict final-output pass-token
+                                      (contains? compiled resource-id))
+                 :compiled (into acc (or provides (when ns #{ns})))
+                 :retained acc
+                 :stale-provenance-marker
+                 (throw
+                  (ex-info
+                   (str "re-frame.ui compile-finish found CLJS build member "
+                        resource-id " carrying a STALE per-pass provenance marker "
+                        "(not this pass's token); refusing to guess whether it was "
+                        "compiled this pass")
+                   {::error ::ambiguous-compile-evidence
+                    :build-id build-id
+                    :resource-id resource-id
+                    :ns ns
+                    :provides provides
+                    :reason :stale-provenance-marker
+                    :recovery :preserve-ui-pass-marker-or-remove-output-to-schedule}))
+                 :marker-dropped-without-compile
+                 (throw
+                  (ex-info
+                   (str "re-frame.ui compile-finish found CLJS build member "
+                        resource-id " whose retained output map was REPLACED "
+                        "(re-frame.ui's per-pass marker was dropped) although "
+                        "Shadow did not compile it this pass; a non-scheduling "
+                        "whole-map replacement cannot count as compilation")
+                   {::error ::ambiguous-compile-evidence
+                    :build-id build-id
+                    :resource-id resource-id
+                    :ns ns
+                    :provides provides
+                    :reason :marker-dropped-without-compile
+                    :recovery :preserve-ui-pass-marker-or-remove-output-to-schedule}))
+                 :unmarked-output-missing-cached-flag
+                 (throw
+                  (ex-info
+                   (str "re-frame.ui compile-finish found CLJS build member "
+                        resource-id " with no per-pass provenance marker and no "
+                        "usable Shadow :cached flag; refusing to guess whether it "
+                        "was compiled this pass")
+                   {::error ::ambiguous-compile-evidence
+                    :build-id build-id
+                    :resource-id resource-id
+                    :ns ns
+                    :provides provides
+                    :reason :unmarked-output-missing-cached-flag
+                    :cached (:cached final-output)
+                    :recovery :preserve-ui-pass-marker-or-remove-output-to-schedule}))))))))
+     #{}
+     build-sources)))
 
 (defn- reconcile-final-schedule
   "Before deriving the finish candidate, pre-touch every source Shadow actually
