@@ -371,7 +371,7 @@
                    :type :edn}]}
    {:id          :rf.assert/no-warnings
     :label       "no-warnings"
-    :hint        "Assert no :rf.warning/* events seen during play."
+    :hint        "Assert no warning-severity trace event (:op-type :warning) captured during play — any operation namespace, not only :rf.warning/*."
     :fields      []}
    {:id          :rf.assert/effect-emitted
     :label       "effect-emitted"
