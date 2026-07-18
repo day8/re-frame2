@@ -213,7 +213,25 @@
     :rf.error/observation-port-version-mismatch
     :rf.error/observation-retry-exhausted
     :rf.error/observation-on-change-failed
-    :rf.error/frame-preflight-evidence-mismatch})
+    :rf.error/frame-preflight-evidence-mismatch
+    ;; rf2-2hkfy: the closed-vocabulary `:rf.nav/scroll` strategy rejection
+    ;; graduated `always-on` in the Spec 009 catalogue. rf2-px26m made the
+    ;; handler's default branch loud, but through `trace/emit-error!` ALONE —
+    ;; which DCEs under `:advanced` + `goog.DEBUG=false`. Since the earlier
+    ;; `:fx-args` schema gate exists only when the OPTIONAL schemas artefact is
+    ;; on the classpath, a schemas-less PRODUCTION host got no scroll and no
+    ;; record: the silent no-op rf2-px26m set out to remove, for exactly the
+    ;; consumers least likely to notice. It now fans through
+    ;; `error-emit/emit-error-both!`, so the rejection is unconditional on
+    ;; every build. The emit SITE lives in the `routing` artefact
+    ;; (`routing/scroll.cljc`, CLJS branch — the fx is `:platforms #{:client}`);
+    ;; this leg drives the category through `dispatch-on-error!` (the `:else`
+    ;; axis below) to prove the listener fan-out, so the literal pins the
+    ;; catalogue's always-on set regardless of the artefact wiring. The
+    ;; routing-side production probe
+    ;; (`re-frame.routing-scroll-always-on-elision-prod-test`) pins the real
+    ;; emit site under `goog.DEBUG=false`.
+    :rf.error/unsupported-scroll-strategy})
 
 ;; The frame-teardown report is the ONE always-on category that rides the
 ;; bounded `dispatch-frame-teardown-report!` sibling (Spec 009: one record

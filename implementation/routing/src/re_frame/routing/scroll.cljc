@@ -31,7 +31,9 @@
   Internal namespace; the public facade is `re-frame.routing`. The
   facade owns the two `fx/reg-fx` calls so a `:reload` re-wires them on
   a fresh registrar."
-  (:require [re-frame.frame :as frame]
+  (:require [re-frame.error-emit :as error-emit]
+            [re-frame.frame :as frame]
+            [re-frame.interop :as interop]
             [re-frame.routing.nav-fx-schemas :as nav-fx-schemas]
             [re-frame.routing.registry :as registry]
             [re-frame.trace :as trace]))
@@ -314,6 +316,70 @@ egress to trace / epochs / SSR (rf2-1hncp2)."})
   (`nav-fx-schemas/scroll-args`) carries the same three as an `:enum`."
   [:top :restore :preserve])
 
+(defn- emit-unsupported-strategy!
+  "Fan the closed-vocabulary rejection out on BOTH error channels through the
+  shared `error-emit/emit-error-both!` seam (rf2-2hkfy).
+
+  rf2-px26m made the handler's default branch loud instead of nil, but it
+  emitted through `trace/emit-error!` ALONE — and that surface is wrapped in
+  `interop/debug-enabled?`, so it DCEs under CLJS `:advanced` +
+  `goog.DEBUG=false`. The rejection therefore only ever fired where the
+  OPTIONAL schemas artefact had already caught the same value one step
+  earlier at the Spec 010 §step-5 `:fx-args` boundary. On a schemas-less
+  PRODUCTION host — the exact configuration the branch exists to cover, and
+  the consumers least likely to notice — the handler ran, performed no
+  scroll, emitted nothing, and returned nil: the original rf2-px26m defect,
+  intact.
+
+  `emit-error-both!` is the existing two-channel helper every catalogued
+  production-reachable runtime error site already uses. Axis 1 is the
+  always-on `dispatch-on-error!` listener registry — NOT gated on
+  `interop/debug-enabled?`, so the record survives `goog.DEBUG=false` and
+  reaches off-box shippers. Axis 2 is the dev-only `trace/emit-error!`
+  surface, which keeps the EXACT tag map rf2-px26m shipped, so dev-trace
+  consumers (the existing suite, Xray, epoch capture) see no change. One
+  call, one record per channel — no double emission.
+
+  Production is therefore no less safe than dev: under `goog.DEBUG=false`
+  the human `:reason` prose still rides the record (this is a caller-authored
+  config value, not user data), and only the dev TRACE half is stripped. The
+  rejection itself is unconditional on every build.
+
+  `event` is the originating event vector the fx context carries (Spec 002
+  §The binary fx-handler signature) — absent for a direct handler call, in
+  which case both it and `:event-id` ride as nil, exactly as the other
+  non-dispatch-attributed always-on rows do."
+  [frame event strategy]
+  (let [reason (str "Unsupported :rf.nav/scroll strategy "
+                    (pr-str strategy)
+                    ". Supported strategies are :top, :restore "
+                    "and :preserve. Set the route's :scroll "
+                    "metadata (or the :rf.route/navigate :scroll "
+                    "opt) to one of those, or to false to suppress "
+                    "the scroll effect entirely.")]
+    (error-emit/emit-error-both!
+      :rf.error/unsupported-scroll-strategy
+      event
+      (when (vector? event) (first event))
+      frame
+      nil                                   ;; no exception — a rejected value, not a throw
+      0                                     ;; not a timed path
+      (interop/now-ms)
+      ;; Axis 2 — the dev-trace tags, UNCHANGED from rf2-px26m. `:recovery`
+      ;; is hoisted to the envelope top level by `trace/build-event`.
+      (cond-> {:strategy  strategy
+               :supported supported-scroll-strategies
+               :reason    reason
+               :recovery  :no-scroll}
+        frame (assoc :frame frame))
+      ;; Axis 1 — the always-on record's category-specific attribution.
+      ;; `:frame` already rides positionally; these are the slots Spec 009
+      ;; promises survive production.
+      {:strategy  strategy
+       :supported supported-scroll-strategies
+       :reason    reason
+       :recovery  :no-scroll})))
+
 (defn scroll-fx-handler
   "`:rf.nav/scroll` fx handler. Registered by the façade so a `:reload`
   re-wires it on a fresh registrar.
@@ -324,16 +390,19 @@ egress to trace / epochs / SSR (rf2-1hncp2)."})
   the schema, carried through the planner, and then ignored, with no
   diagnostic and no scroll. There is no extension seam here (no registry,
   callback, or late-bound hook interprets a strategy), so an unrecognised
-  value is a caller bug, not an extension point. It now emits a loud
+  value is a caller bug, not an extension point. It emits a loud
   `:rf.error/unsupported-scroll-strategy` naming the offending value and
   the supported set.
 
-  This is the ALWAYS-ON leg. The `:schema` on the registration rejects
-  the same values one step earlier (Spec 010 §step 5, `:fx-args`), but
-  only when the OPTIONAL schemas artefact is on the classpath — without
-  it, fx-args validation soft-passes and this branch is the only thing
-  standing between the author and silence."
-  [{:keys [frame]} {:keys [strategy saved-pos fragment]}]
+  This is the ALWAYS-ON leg, and rf2-2hkfy made it genuinely so. The
+  `:schema` on the registration rejects the same values one step earlier
+  (Spec 010 §step 5, `:fx-args`), but only when the OPTIONAL schemas
+  artefact is on the classpath — without it, fx-args validation soft-passes
+  and this branch is the only thing standing between the author and
+  silence. It therefore fans through `emit-unsupported-strategy!`'s
+  two-channel seam rather than the dev-only trace surface, so the record
+  survives `:advanced` + `goog.DEBUG=false` on a schemas-less host."
+  [{:keys [frame event]} {:keys [strategy saved-pos fragment]}]
   #?(:cljs
      (case strategy
        :top      (if-let [el (and fragment
@@ -345,18 +414,7 @@ egress to trace / epochs / SSR (rf2-1hncp2)."})
                               (first saved-pos)
                               (second saved-pos)))
        :preserve nil
-       (trace/emit-error! :rf.error/unsupported-scroll-strategy
-                          (cond-> {:strategy  strategy
-                                   :supported supported-scroll-strategies
-                                   :reason    (str "Unsupported :rf.nav/scroll strategy "
-                                                   (pr-str strategy)
-                                                   ". Supported strategies are :top, :restore "
-                                                   "and :preserve. Set the route's :scroll "
-                                                   "metadata (or the :rf.route/navigate :scroll "
-                                                   "opt) to one of those, or to false to suppress "
-                                                   "the scroll effect entirely.")
-                                   :recovery  :no-scroll}
-                            frame (assoc :frame frame))))
+       (emit-unsupported-strategy! frame event strategy))
      :clj
      (trace/emit! :rf.fx :rf.fx/skipped-on-platform
                   {:rf.fx/id :rf.nav/scroll :strategy strategy})))
