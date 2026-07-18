@@ -1,6 +1,26 @@
-# DRAFT — The Reagent → `re-frame.ui` migrator: rewrite-rules catalogue (W1)
+# HISTORICAL — The Reagent → `re-frame.ui` migrator: rewrite-rules catalogue (W1)
 
-> **Status: DRAFT — not merged · 2026-07-12.** The rules catalogue the S6 W1 migrator
+> **Status: HISTORICAL / SUPPORTING · superseded 2026-07-19 (rf2-vxgfnd.188).**
+> **This document is not implementation authority and never was merged as such.**
+> The single canonical W1/W2/S6 rulebook is
+> [`../prep/w1-migrator-rule-table.md`](../prep/w1-migrator-rule-table.md) (MIG-01…35)
+> — the machine-actionable table a rewrite-clj worker implements (detector · transform ·
+> tier · ordering). This page is the **pedagogical catalogue** behind it: the
+> before/after/trap exposition that explains *why* each rewrite has the shape it does.
+> Read it to understand a rule; implement and test from the MIG table.
+>
+> Every R-id below is accounted for in the canonical table's
+> [§R → MIG crosswalk](../prep/w1-migrator-rule-table.md#r--mig-crosswalk-historical-source-r-rules--canonical-mig-rules)
+> — mapped, split, merged, or retired with a reason. Nothing here is a silent obligation.
+>
+> **Where the two disagree, the MIG table wins**, and this page's staging notes are the
+> stalest part of it: they were written against an S1-merged compiler, and the `local` /
+> `effect` / `ui/event` / `ui/handler` / `ui/render-fn` / `ui/dispatch-fn` surface they
+> describe as "S3, not yet shipped" has since shipped. Treat every stage claim below as
+> a 2026-07-12 snapshot, not as current fact.
+
+> **Original status header (2026-07-12, retained as written).** The rules catalogue the
+> S6 W1 migrator
 > implements. Written the night the template grammar, props ABI, and body-form set
 > froze (S1 merged): every after-form below is checked against the shipped analyzer
 > (`implementation/ui/src/re_frame/ui/compiler/analyze.cljc`) and header grammar
@@ -994,8 +1014,13 @@ cannot prove is printed, classed, and escorted to an escape hatch; nothing is
 
 ## 8. Verification harness sketch — the per-rule acceptance check
 
-What the S6 migrator bead wires per converted view (and per rule fixture in the
-migrator's own test corpus):
+> **Historical sketch, still good thinking.** This section is the one part of the page
+> the canonical table does not restate, and the S6 migrator bead is expected to build
+> from it — but it verifies **MIG** ids, not the R ids it names. Read the rule
+> references below through the crosswalk.
+
+The verification shape sketched for the S6 migrator, per converted view (and per rule
+fixture in the migrator's own test corpus):
 
 1. **Compile gate (every rule).** The migrated namespace compiles: the analyzer *is*
    the grammar check, and the S1e roster ids double as the migrator's negative
@@ -1033,7 +1058,14 @@ lookalikes.
 
 ## Tally and openness
 
-**Rule count: 36** — **AUTO 13** (R-C1, R-C6, R-S1, R-T1, R-T2, R-T4, R-T7, R-T9,
+> **Historical tally.** The count below describes THIS page's own rule partition as it
+> stood on 2026-07-12. It is **not** the W1 implementation obligation — that is the
+> canonical table's MIG-01…35. The two partitions are not a 36-vs-35 disagreement about
+> *which rules exist*; they cut the same body of work at different granularities
+> (this page groups by Reagent construct area, the table by detector). The crosswalk
+> reconciles them rule by rule.
+
+**Rule count (historical, this page's partition): 36** — **AUTO 13** (R-C1, R-C6, R-S1, R-T1, R-T2, R-T4, R-T7, R-T9,
 R-T10, R-H1, R-H2, R-H5, R-Q1) · **GUIDED 15** (R-C2, R-C3, R-C4, R-S2, R-S3, R-T3, R-T5,
 R-T8, R-H3, R-H4, R-H6, R-H7, R-Q2, R-M1, R-M2) · **MANUAL 8** (R-C5, R-S4, R-T6,
 R-X2, R-X3, R-X6, R-X7, R-X8; R-X1/X4/X5 are cross-references, counted once).
