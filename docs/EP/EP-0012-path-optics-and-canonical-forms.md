@@ -867,14 +867,14 @@ Example:
             [:tab {:optional true} :string]
             [:page {:optional true} :int]]})
 
-(rf/route-url
+(rf.routing/route-url
   :route/article
   {:slug "welcome"}
   {:page 2 :tab "comments"}
   "discussion")
 ;; => "/articles/welcome?page=2&tab=comments#discussion"
 
-(rf/match-url "/articles/welcome?page=2&tab=comments#discussion")
+(rf.routing/match-url "/articles/welcome?page=2&tab=comments#discussion")
 ;; => {:route-id :route/article
 ;;     :params {:slug "welcome"}
 ;;     :query {:page 2 :tab "comments"}
@@ -886,10 +886,10 @@ The same route with query params in a different map insertion order prints the
 same URL:
 
 ```clojure
-(= (rf/route-url :route/article {:slug "welcome"}
-                 {:tab "comments" :page 2})
-   (rf/route-url :route/article {:slug "welcome"}
-                 {:page 2 :tab "comments"}))
+(= (rf.routing/route-url :route/article {:slug "welcome"}
+                         {:tab "comments" :page 2})
+   (rf.routing/route-url :route/article {:slug "welcome"}
+                         {:page 2 :tab "comments"}))
 ;; => true
 ```
 
@@ -900,7 +900,7 @@ route-owned resources, SSR preload, and Xray route graphs should all see the
 same canonical params:
 
 ```clojure
-(let [route (rf/match-url "/articles/welcome?page=2&tab=comments")]
+(let [route (rf.routing/match-url "/articles/welcome?page=2&tab=comments")]
   {:resource :article/by-slug
    :params   (select-keys (:params route) [:slug])
    :scope    [:rf.scope/session {:tenant-id "acme" :user-id "u-42"}]})
@@ -1161,16 +1161,16 @@ Non-EDN values are rejected:
            [:archived? {:optional true} :boolean]]})
 
 (def url
-  (rf/route-url :route/search
-                {}
-                {:archived? false
-                 :q "clojure data"
-                 :page 2}))
+  (rf.routing/route-url :route/search
+                        {}
+                        {:archived? false
+                         :q "clojure data"
+                         :page 2}))
 
 url
 ;; => "/search?archived%3F=false&page=2&q=clojure%20data"
 
-(rf/match-url url)
+(rf.routing/match-url url)
 ;; => {:route-id :route/search
 ;;     :params {}
 ;;     :query {:archived? false :page 2 :q "clojure data"}
@@ -1196,7 +1196,7 @@ deterministic and the parse result is canonical route data.
                     :user-id   (:user-id ctx)}])
      :blocking? true}]})
 
-(let [route  (rf/match-url "/articles/welcome")
+(let [route  (rf.routing/match-url "/articles/welcome")
       scope  [:rf.scope/session {:user-id "u-42" :tenant-id "acme"}]
       params (select-keys (:params route) [:slug])]
   [(rf.identity/canonical scope)
