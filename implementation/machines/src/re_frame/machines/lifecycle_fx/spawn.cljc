@@ -507,6 +507,32 @@
                      (dissoc join-state prepared-children-key)))
                  join-state))))
 
+(defn- spawn-all-prepared?
+  "True iff THIS `:spawn-all` per-child carries an AUTHORITATIVE prepared entry
+  its invoke's `spawn-all-init-fx` preflight retained (rf2-ek435), keyed by the
+  child's pre-allocated spawned-id in the live join slot's `:rf/prepared`
+  scratch. `spawn-fx` consults this to CONSUME the preflight verdict rather than
+  re-running its child-local `unregistered-spawn-type?` registry recheck against
+  an already-ADMITTED+prepared child (rf2-v4oqd): a
+  `:rf.machine.spawn-all/started` listener that UNREGISTERED the child TYPE
+  between the preflight and this per-child install would otherwise flip the
+  admitted child to rejected, leaving prepared scratch and no child snapshot —
+  the impossible half-live join (a live join naming a child whose snapshot a
+  second verdict omitted) the authoritative handoff exists to make impossible.
+  Re-registering to another still-present type was already covered (the recheck
+  saw a spec and passed through), but UNREGISTERING was not; consuming the
+  prepared verdict closes both, and each admitted child is resolved / prepared /
+  validated EXACTLY once.
+
+  Returns false for a standalone single `:spawn` (no `:rf/spawn-all-id`) and a
+  hand-emitted `:spawn-all` child fx with no preceding init fx (no prepared
+  entry): both keep the child-local `unregistered-spawn-type?` fail-closed gate."
+  [frame-id args]
+  (some? (spawn-all-prepared-child
+           (frame/frame-runtime-db-value frame-id)
+           args
+           (pre-allocated-actor-id args))))
+
 ;; ---- :rf.machine/spawn -----------------------------------------------------
 
 (defn spawn-fx
@@ -593,7 +619,19 @@
       ;; behind — it must still reject exactly once and fail closed. It also
       ;; still covers a hand-emitted `:spawn-all` child fx that reaches the
       ;; runtime with no preceding init fx (no sentinel, no live join).
-      (unregistered-spawn-type? args)
+      ;;
+      ;; rf2-v4oqd — but an ADMITTED+prepared `:spawn-all` child CONSUMES its
+      ;; invoke's authoritative preflight verdict: skip this registry recheck
+      ;; when a keyed `:rf/prepared` entry exists (`spawn-all-prepared?`), so a
+      ;; `:rf.machine.spawn-all/started` listener that unregistered the child
+      ;; TYPE between the preflight and this install can no longer flip the
+      ;; already-admitted child to rejected (stranding a half-live join whose
+      ;; snapshot the recheck omitted). `spawn-fx*` then installs the exact
+      ;; prepared spec + snapshot. The gate still fires for a standalone
+      ;; `:spawn` and a no-preparation hand-emitted child (neither has a
+      ;; prepared entry).
+      (and (not (spawn-all-prepared? frame-id args))
+           (unregistered-spawn-type? args))
       (reject-unregistered-spawn! frame-id (:machine-id args))
 
       :else
