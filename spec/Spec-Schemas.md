@@ -3759,6 +3759,10 @@ The `:rf/effect-map`'s `:fx` is `[[fx-id args] ...]`. Each *standard* `fx-id` (t
 (def NavReplaceUrlFxArgs :string)
 
 ;; :rf.nav/scroll — scroll-on-navigate. Client only. Per [012 §Scroll restoration].
+;; Every slot the navigation planner actually emits is described here: the planner builds
+;; `{:strategy :from :to :saved-pos :fragment}` (per [012 §`:rf.nav/scroll` integration]),
+;; and the handler reads `:strategy` / `:saved-pos` / `:fragment` (`:from` / `:to` are
+;; purely diagnostic carriers it ignores — hence their EP-0015 `:sensitive` path-marks).
 (def NavScrollFxArgs
   [:map
    [:strategy  [:or
@@ -3766,7 +3770,31 @@ The `:rf/effect-map`'s `:fx` is `[[fx-id args] ...]`. Each *standard* `fx-id` (t
                 :map]]                                                       ;; map form is host-extensible (post-v1)
    [:from      {:optional true} [:map [:id :keyword] [:params {:optional true} :map] [:query {:optional true} :map]]]
    [:to        {:optional true} [:map [:id :keyword] [:params {:optional true} :map] [:query {:optional true} :map]]]
-   [:saved-pos {:optional true} [:tuple :int :int]]])                        ;; runtime-captured saved position (for :restore)
+   ;; Runtime-captured saved position (for :restore), read straight off the browser's
+   ;; `window.scrollX` / `window.scrollY`. Those are FRACTIONAL at non-100% zoom and on
+   ;; HiDPI displays, so the members are `number?` rather than `:int` — an integer-only
+   ;; tuple would reject valid captured positions. (JVM-side planning tests thread plain
+   ;; integer pairs, which `number?` also admits.)
+   [:saved-pos {:optional true} [:tuple number? number?]]
+   ;; The `#fragment` of the URL being navigated to, when present. `:top` scrolls this
+   ;; element into view instead of scrolling to the top of the page.
+   [:fragment  {:optional true} :string]])
+
+;; :rf.nav/capture-scroll — save the leaving route's scroll position into the host-side
+;; per-frame transient scroll-position cache, keyed by that route's reconstructed URL.
+;; Client only. Per [012 §Scroll restoration]. The navigation planner emits exactly
+;; `{:url <leaving-url>}`, so `:url` is REQUIRED — it is the cache key, and a capture
+;; without one saves nothing (the handler's nil-guard is defence-in-depth, not a
+;; documented graceful-degradation path of the kind :rf.server/redirect has).
+;;
+;; The handler also honours an optional `:position` override in place of reading
+;; `window.scrollX/Y`. That slot is an INTERNAL / TEST INJECTION SEAM, not public API:
+;; no framework path emits it and [012](012-Routing.md) does not offer it, so it is
+;; deliberately absent from this public args shape. Schemas here are open by default,
+;; so a test that injects `:position` still validates — it just is not a promise.
+(def NavCaptureScrollFxArgs
+  [:map
+   [:url :string]])                                                          ;; the leaving route's reconstructed URL (cache key)
 
 ;; :rf.machine/spawn — canonical actor-lifecycle fx-id (registered globally by
 ;; re-frame.machines); usable inside any event handler's :fx (machine actions
@@ -3882,6 +3910,7 @@ These are registered under spec ids:
 | `:rf.fx.nav/push-url-args` | `:rf.nav/push-url` (per [012](012-Routing.md)) |
 | `:rf.fx.nav/replace-url-args` | `:rf.nav/replace-url` |
 | `:rf.fx.nav/scroll-args` | `:rf.nav/scroll` |
+| `:rf.fx.nav/capture-scroll-args` | `:rf.nav/capture-scroll` |
 | `:rf.fx/spawn-args` | `:rf.machine/spawn` (the canonical actor-lifecycle fx-id; emitted from any event handler's `:fx` and from machine actions; per [005](005-StateMachines.md)) |
 | `:rf.fx/destroy-machine-args` | `:rf.machine/destroy` (the canonical actor-destroy fx-id; per [005](005-StateMachines.md) and — accepts either a bare actor-id keyword or a `{:rf/parent-id :rf/invoke-id}` map) |
 | `:rf.fx/dispatch-to-system-args` | `:rf.machine/dispatch-to-system` (the action→named-actor messaging fx-id; args are the 2-element pair `[<system-id> <event-vector>]` — a `[:tuple :keyword [:ref :rf/event]]` (per [§`:rf/event`](#rfevent-the-event-vector)); per [005 §Cross-machine messaging by name](005-StateMachines.md#cross-machine-messaging-by-name)) |
