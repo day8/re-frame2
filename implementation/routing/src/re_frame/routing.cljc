@@ -24,7 +24,7 @@
   - `re-frame.routing.match`          — pattern parsing + match-against
   - `re-frame.routing.registry`       — reg-route + match-url + route-url + route-table cache
   - `re-frame.routing.classification` — projection-relative route data classification
-  - `re-frame.routing.scroll`         — scroll-restoration helpers + :rf.nav/scroll fxs
+  - `re-frame.routing.scroll`         — scroll-restoration helpers + :rf.nav/scroll + :rf.nav/capture-scroll fxs
   - `re-frame.routing.events`         — shared nav-event helpers + :rf.route.internal/settle-transition
   - `re-frame.routing.plan`           — pure pre-commit navigation-planning seam (fragment/not-found/classification/telemetry/scroll) shared by both nav entry points
   - `re-frame.routing.on-match-error` — :on-match error trap + listener
@@ -370,18 +370,18 @@
 ;; integration points without reversing that dependency.
 
 (late-bind/set-fn! :routing/reg-route          reg-route)
-(late-bind/set-fn! :routing/clear-route        clear-route)
-;; rf2-bcjpq5: no :routing/match-url / :routing/route-url hooks — those two
-;; are not facade exports (czn2m0 D1), so core has nothing to late-bind to.
-;; Callers use `re-frame.routing/match-url` / `re-frame.routing/route-url`
-;; directly; a routing app requires this namespace at boot regardless.
+;; rf2-bcjpq5 / rf2-sy7zr: no :routing/match-url, :routing/route-url,
+;; :routing/clear-route or :routing/current-url hooks — none of those four is
+;; a facade export (czn2m0 D1), so core has nothing to late-bind to. Callers
+;; use `re-frame.routing/match-url` / `route-url` / `clear-route` /
+;; `current-url` directly; a routing app requires this namespace at boot
+;; regardless.
 (late-bind/set-fn! :routing/reset-counters!    reset-counters!)
 ;; Reset hooks clear host-side routing state that a raw frame-container reset
 ;; cannot reach.
 (late-bind/set-fn! :routing/reset-nav-counters! reset-nav-counters!)
 (late-bind/set-fn! :routing/reset-url-claims!  reset-url-claims!)
 (late-bind/set-fn! :routing/route-sub-fn       route-sub-fn)
-(late-bind/set-fn! :routing/current-url        current-url)
 
 ;; Registration-time frame-config preflight (rf2-ktmto9): routing owns the
 ;; MEANING of `:url-strategy` (presence semantics + host-required legs), core

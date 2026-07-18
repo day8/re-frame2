@@ -2051,8 +2051,10 @@
 ;; rf2-aleg9 — match-against direct function-boundary tests
 ;; (follow-on from rf2-q1z1u F8)
 ;;
-;; `match-against` is the pattern-matcher fn consumed by the routing
-;; facade's match-url. The facade-level tests above exercise it
+;; `match-against` is the pattern-matcher fn consumed by
+;; `re-frame.routing/match-url` (the owning-namespace export — never a
+;; `re-frame.core` façade one; rf2-bcjpq5 deleted the dormant core-side
+;; wrapper). The match-url-level tests above exercise it
 ;; transitively via `:rf.route/navigate`, but a `match-against`-only
 ;; regression that happens to be neutralised by the facade's URL
 ;; normalisation (canonical-route-pattern, query-string parse,
