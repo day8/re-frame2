@@ -117,16 +117,17 @@ observes the committed frame, never a mid-commit state.
 ### 2.4 `use-effect-event`
 
 ```clojure
-(react/use-effect-event f)  ;; => stable fn
+(react/use-effect-event f)  ;; => fn (identity NOT stable)
 ```
 
-Wraps `useEffectEvent` (stabilised in React 19.2 — the spike's release line). Returns a
-fn with **stable identity across renders** whose body always sees the latest render's
-values. **The no-deps contract:** `use-effect-event` takes *no* deps vector — that is
-the point of the primitive — and the returned fn **MUST NOT appear in any deps vector**
-(its stability makes it a lie there) and **MUST NOT be called during render** (host
-throws; it is effect-phase machinery). The compiler emits a dev diagnostic where a
-returned effect-event binding is statically visible inside a deps vector
+Wraps `useEffectEvent` (native in React 19.2 — the spike's release line; no shim).
+Returns a fn whose body always sees the latest render's values. Its identity is **not**
+stable — React allocates a fresh fn every render, so never rely on stability.
+**The no-deps contract:** `use-effect-event` takes *no* deps vector — that is the point
+of the primitive — and the returned fn **MUST NOT appear in any deps vector** (a fresh
+identity every render would defeat the comparison) and **MUST NOT be called during
+render** (host throws; it is effect-phase machinery). The compiler emits a dev
+diagnostic where a returned effect-event binding is statically visible inside a deps vector
 **[S3-CONFIRM — best-effort static detection scope]**. Boundary note: this wrapper does
 not change the event-boundary law — app intent still goes through event vectors /
 `ui/event`; `use-effect-event` is for the *foreign* pattern of "latest-values callback
@@ -291,8 +292,9 @@ The 03 §10 contract applies unmodified; this section states only what the tier 
   that re-run ("deps `rf=`-equal ⇒ skip"); therefore the **view generation participates
   in the internal comparison** — a generation bump forces cleanup + re-run regardless of
   deps. The `rf=` economy must never out-vote Fast Refresh semantics.
-- `use-effect-event`: identity stays stable across same-signature refreshes; the
-  latest-body slot is swapped, so the stable fn sees the edited body immediately.
+- `use-effect-event`: picks up its latest body across same-signature refreshes, so the
+  returned fn sees the edited body immediately. Its identity is not preserved across a
+  refresh — and never was stable to begin with (§2.4), so nothing is lost there.
 - `use-ref`: `current` survives same-signature refreshes (host state preservation);
   reset on remount.
 - `use-context`: host-managed; re-reads the provider on the refresh render.
