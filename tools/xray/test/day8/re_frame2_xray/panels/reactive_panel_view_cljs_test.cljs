@@ -549,6 +549,65 @@
         (is (re-find #":a-b" joined) "the :a-b parameterization is labelled")
         (is (re-find #":a/b" joined) "the :a/b parameterization is labelled")))))
 
+(deftest unchanged-row-selectors-injective-for-hash-colliding-queries
+  (testing "rf2-haoip — the ADVERSARIAL pair the 32-bit-hash suffix could not
+            separate: `[:item/derived \" @\"]` and `[:item/derived \"!!\"]`
+            collide on BOTH the `id-slug` form AND the ClojureScript vector
+            hash (`1127258382` → base-36 `in524u`), so the prior hash-suffixed
+            selector minted ONE `data-testid` for two distinct concrete queries
+            (false identity). The lossless order-canonical selector must give
+            them DISTINCT, individually-addressable test-ids while the labels
+            stay distinct. (Red before the injective fix: distinct testid count
+            was 1, the shared testid addressed 2 nodes.)"
+    (facade/install!)
+    (rf/make-frame {:id :rf/xray})
+    (seed-reactive-data!
+      {:has-event-bundle? true :frame :rf/app :focus {:current :ep-1}
+       :counts {} :level-1-subs [] :level-2-subs [] :view-rows []
+       :show-unchanged? true
+       :subs-skipped [{:sub-id :item/derived :query-v [:item/derived " @"]
+                       :reason :input-value-equal :input-paths-unchanged []}
+                      {:sub-id :item/derived :query-v [:item/derived "!!"]
+                       :reason :input-value-equal :input-paths-unchanged []}]})
+    (let [tree    (view/reactive-panel)
+          testids (unchanged-row-testids tree)]
+      (is (= 2 (count testids)) "both hash-colliding parameterizations render a row")
+      (is (= 2 (count (distinct testids)))
+          "the injective selector gives the two rows DISTINCT test-ids (not the
+           single shared hash suffix)")
+      (doseq [id (distinct testids)]
+        (is (= 1 (count (th/find-all-by-testid tree id)))
+            "each concrete query's test-id addresses exactly one node"))
+      (let [joined (str/join " " (map #(text-of tree %) (distinct testids)))]
+        (is (re-find #" @" joined) "the \" @\" parameterization is labelled")
+        (is (re-find #"!!" joined) "the \"!!\" parameterization is labelled")))))
+
+(deftest unchanged-row-selector-canonical-across-map-insertion-order
+  (testing "rf2-haoip — VALUE-EQUAL concrete queries retain ONE stable selector
+            matching the dedup semantics: a map arg built in different insertion
+            orders (`{:a 1 :b 2}` vs `{:b 2 :a 1}`) is `=` and must mint the
+            SAME row test-id, while a genuinely different map (`{:a 1 :b 3}`)
+            mints a DISTINCT one (still injective — order-invariance is not
+            value-collapse)."
+    (facade/install!)
+    (rf/make-frame {:id :rf/xray})
+    (seed-reactive-data!
+      {:has-event-bundle? true :frame :rf/app :focus {:current :ep-1}
+       :counts {} :level-1-subs [] :level-2-subs [] :view-rows []
+       :show-unchanged? true
+       :subs-skipped [{:sub-id :cfg/derived :query-v [:cfg/derived {:a 1 :b 2}]
+                       :reason :input-value-equal :input-paths-unchanged []}
+                      {:sub-id :cfg/derived :query-v [:cfg/derived {:b 2 :a 1}]
+                       :reason :input-value-equal :input-paths-unchanged []}
+                      {:sub-id :cfg/derived :query-v [:cfg/derived {:a 1 :b 3}]
+                       :reason :input-value-equal :input-paths-unchanged []}]})
+    (let [tree    (view/reactive-panel)
+          testids (unchanged-row-testids tree)]
+      (is (= 3 (count testids)) "all three seeded rows render")
+      (is (= 2 (count (distinct testids)))
+          "the two value-equal map orders collapse to ONE selector; the
+           genuinely-different map keeps its own — 2 distinct selectors total"))))
+
 (deftest unchanged-row-unparameterized-shows-plain-sub-id
   (testing "rf2-cj2yx / rf2-bk2c6 — a bare unparameterized skip (query-v
             `[:sub/id]`) renders the plain sub-id label (the common case is
