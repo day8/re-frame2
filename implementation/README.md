@@ -34,9 +34,13 @@ Two top-level groupings:
   [Conventions §Independence rule](../spec/Conventions.md#independence-rule).
 
 The `ui/` artefact (the re-frame.ui compiled-view substrate, epic
-rf2-vxgfnd) sits beside `core/` and — for the duration of the program —
-`adapters/`: it is the substrate slated to replace the adapter trio, not
-another adapter under `adapters/` and not a late-bind feature artefact.
+rf2-vxgfnd) sits beside `core/` and `adapters/`: it is a **new,
+experimental view substrate offered alongside the existing adapters** —
+not another adapter under `adapters/` and not a late-bind feature
+artefact. Reagent, reagent-slim, and UIx live on as first-class,
+actively-supported adapters; only Helix is removed
+([EP-0030](../docs/EP/EP-0030-the-compiled-view-substrate-program.md)
+Resolved Decisions, 2026-07-17).
 
 ```
 implementation/
