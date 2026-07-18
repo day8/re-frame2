@@ -4,7 +4,8 @@
 ;; `:rf.route/navigate`, `:rf.route/transitioned`, `:rf.route/url-requested`,
 ;; `:rf.route/handle-url-change`, `:rf.route/continue` /
 ;; `:rf.route/cancel`, the `:rf.nav/push-url` / `:rf.nav/replace-url` /
-;; `:rf.nav/scroll` fxs, `match-url` / `route-url`, the `:rf/route` /
+;; `:rf.nav/scroll` / `:rf.nav/capture-scroll` fxs, `match-url` /
+;; `route-url`, the `:rf/route` /
 ;; `:rf.route/{id,params,query,transition,error,fragment,chain}` and
 ;; `:rf/pending-navigation` framework subs, and routing runtime-db state)
 ;; ships as a separate Maven artefact so apps that don't register routes don't
