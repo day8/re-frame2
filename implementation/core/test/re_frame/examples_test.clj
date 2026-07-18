@@ -43,6 +43,7 @@
             [re-frame.resources.ssr :as res-ssr]
             [re-frame.ssr :as ssr]
             [re-frame.ssr.error-listener :as ssr-error-listener]
+            [re-frame.ssr.install :as ssr-install]
             [re-frame.ssr.request :as ssr-request]
             [re-frame.ssr.response :as ssr-response]
             [re-frame.substrate.plain-atom :as plain-atom]))
@@ -121,6 +122,18 @@
   (reset! ssr-request/request-slots {})
   (reset! ssr-response/response-slots {})
   (reset! ssr-error-listener/pending-error-traces {})
+  ;; S5 (rf2-aorfy) — the hydration-payload install ledger is a fourth table
+  ;; of that same class: `defonce`, keyed by payload id (which IS a frame id,
+  ;; 004C §6), outside app-db. In production a claim is released by
+  ;; `re-frame.ssr/on-frame-destroyed!` off the `:ssr/on-frame-destroyed`
+  ;; late-bind hook, which `frame/destroy-frame!` fires. This fixture never
+  ;; goes through `destroy-frame!` — it wipes `frame/frames` wholesale — so
+  ;; nothing releases the claim, and the NEXT test's first `ssr/hydrate!`
+  ;; into a freshly `make-frame`d `:rf/default` meets the previous test's
+  ;; digest and reads as a sibling root arriving with a different payload
+  ;; (`:rf.error/frame-payload-conflict`). Clear it so each test hydrates as
+  ;; the first root on its own page.
+  (ssr-install/reset-installed-payloads!)
   ;; Drop any cached require of the example namespaces so each test
   ;; re-evaluates their namespace-level handlers against a fresh registrar.
   (remove-ns 'ssr.core)
