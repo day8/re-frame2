@@ -18,8 +18,15 @@
   "Schedule f for execution on the runtime's executor — the JVM counterpart of
   the CLJS macrotask (`goog.async.nextTick`). A next-turn TASK, not a microtask
   (the JVM has no microtask checkpoint): f runs asynchronously on the
-  single-thread executor after the caller returns. See Spec 002 §Drain
-  scheduling. Returns nil."
+  single-thread executor, which serialises submitted tasks in FIFO order.
+
+  NOT guaranteed: that f starts only after this call returns. `Executor.execute`
+  establishes a happens-before edge from submission to the start of execution,
+  but imposes no ordering against the caller's SUBSEQUENT statements — the
+  executor thread may begin running f while the submitting thread is still
+  executing. Callers must not assume return-before-start; the router makes
+  concurrent start safe via its CAS drain-lock, per Spec 002 §Single-drainer
+  invariant. See Spec 002 §Drain scheduling. Returns nil."
   [f]
   (let [bound-f (bound-fn [& args] (apply f args))]
     (.execute ^Executor executor bound-f))

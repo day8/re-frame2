@@ -542,7 +542,7 @@
             The register!s below schedule a REAL deferred `next-tick` flush that
             races this case's synchronous `flush-pending-reprojection!`: were a
             scheduled tick (this case's own, or one a prior case left in flight on
-            the JVM executor thread / a CLJS microtask) to fire first, it would
+            the JVM executor thread / a CLJS next-turn task) to fire first, it would
             DRAIN the pending flag and the assert-time synchronous flush would
             return `{}` — the observed intermittent `(not (contains? {} :auto/main))`.
             So redef `interop/next-tick` to a NO-OP for the whole case: no async
@@ -688,7 +688,7 @@
 ;; EP-0023 collapse made make-frame's backing make-frame a register! too, so even
 ;; frame creation funnels through it). Marking dirty + scheduling a next-tick
 ;; flush on each — when there is NOTHING reprojectable (no PUBLIC-id live frame
-;; exists) — floods the microtask queue with one no-op deferred flush per
+;; exists) — floods the host task queue with one no-op deferred flush per
 ;; registration. The bundle issues thousands of reg-* with no live image frame
 ;; (app boot, every handler-only test); the flood interleaved with cljs.test's
 ;; async scheduling never settled (the observed CI node-test / browser-test /

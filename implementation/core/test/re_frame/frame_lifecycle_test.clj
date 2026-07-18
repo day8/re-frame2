@@ -464,7 +464,7 @@
       ;; the async drain races the main thread and may drain the 4 ticks
       ;; BEFORE `dispatch-sync` reaches the drain-lock — leaving an empty
       ;; queue and yielding `:dropped-count 0`. CLJS `next-tick` is a
-      ;; microtask in the same JS task and cannot run until the test's
+      ;; next-turn TASK (not a microtask) and cannot run until the test's
       ;; synchronous stack unwinds, so the race is JVM-only. Capturing
       ;; the scheduled drains via `with-redefs` makes the ordering
       ;; deterministic on both platforms — by the time `dispatch-sync`

@@ -1034,7 +1034,7 @@
     (interop/dispose! reaction)))
 
 ;; Delivery of the :disposed fallback is queued and rides interop/next-tick
-;; (an async executor on the JVM; an unfired-mid-run microtask on CLJS-node).
+;; (an async executor on the JVM; an unfired-mid-run next-turn task on CLJS-node).
 ;; Swallow next-tick so no async drain fires during the test, assert the
 ;; handshake enqueued WITHOUT any synchronous fan-out, then drive the drain
 ;; boundary deterministically via the port's own drain-pending-disposals!

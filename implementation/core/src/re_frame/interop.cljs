@@ -16,20 +16,28 @@
 ;; ---- next-tick scheduling -------------------------------------------------
 ;;
 ;; The router schedules its drain through `next-tick`. On CLJS this is
-;; `goog.async.nextTick`, a **macrotask** (a next-turn TASK — Closure realises
-;; it via `MessageChannel`/`postMessage`/`setImmediate`), NOT a microtask and
-;; NOT `setTimeout` (so no ≥4ms clamp). It fires after the current synchronous
-;; stack unwinds AND after the host has drained its microtask checkpoint, then
-;; yields to the event loop so rendering can interleave between drains. This is
-;; deliberate: the UI-render tear-correction flush is the one that rides a true
-;; microtask (`js/queueMicrotask`) — see Spec 006 §Render batching and Spec 002
-;; §Drain scheduling. Keep the two boundaries distinct.
+;; `goog.async.nextTick`, a **macrotask** (a next-turn TASK), NOT a microtask.
+;; It fires after the current synchronous stack unwinds AND after the host has
+;; drained its microtask checkpoint, then yields to the event loop so rendering
+;; can interleave between drains. That not-a-microtask boundary is the whole
+;; guarantee, and it is deliberate: the UI-render tear-correction flush is the
+;; one that rides a true microtask (`js/queueMicrotask`) — see Spec 006 §Render
+;; batching and Spec 002 §Drain scheduling. Keep the two boundaries distinct.
+;;
+;; NOT guaranteed: which task mechanism runs the callback. Closure prefers a
+;; native `setImmediate` where one exists (Node), else a `MessageChannel`/
+;; `postMessage` emulation, and falls back to `setTimeout(cb, 0)` where neither
+;; is available (see goog/async/nexttick.js). So the drain usually escapes the
+;; nested-`setTimeout` ≥4ms clamp, but that is a property of the host's
+;; available mechanisms, not a promise — assume no lower bound on drain latency.
 
 (def next-tick
   "Schedule f as a next-turn TASK (macrotask) via `goog.async.nextTick`.
   Fires after the current synchronous stack AND the host microtask checkpoint,
-  yielding to the event loop between drains — deliberately NOT a microtask and
-  NOT `setTimeout`. See Spec 002 §Drain scheduling."
+  yielding to the event loop between drains — deliberately NOT a microtask.
+  The underlying mechanism (`setImmediate` / `MessageChannel` / a `setTimeout`
+  fallback) is host-dependent and promises no latency bound.
+  See Spec 002 §Drain scheduling."
   goog.async.nextTick)
 
 ;; ---- adapter-published reactive hooks -------------------------------------
