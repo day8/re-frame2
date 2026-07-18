@@ -137,8 +137,10 @@ surface at dispatch time — verify their state then, not from this document.
      rf2-vxgfnd authority, and the named implementer-question → bead mappings below.
      Do NOT delete or uncheck this item. Live stage/progress state is owned by epic
      rf2-vxgfnd and its children, NOT by this plan — do not restate it here. -->
-- [x] **S0 COVERAGE PASS (2026-07-12) — SHIP verdict** — durable disposition; authority:
-  the epic `rf2-vxgfnd` NOTES entry "S0 COVERAGE PASS (2026-07-12)". The post-fold coverage
+- [x] **S0 COVERAGE PASS (2026-07-12) — SHIP verdict** — durable disposition recorded here;
+  authority: this checklist item is itself the durable record (the post-fold coverage pass ran
+  2026-07-12 during PR #6090's review), and the epic `rf2-vxgfnd` owns the S1–S7 program and
+  records the same-dated pass in its description. The post-fold coverage
   pass ran over drafts + 11/12 and found every codex2 finding and implementer question
   (Q1–Q61) resolving to a named artifact or an explicitly-filed S1/S2 contract item. (The S0
   correctness-review obligation itself was executed by the codex2 review + its binding
