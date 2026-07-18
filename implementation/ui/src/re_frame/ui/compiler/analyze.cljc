@@ -2467,8 +2467,8 @@
     (when-not (contains? opts :timeout-ms)
       (env/fail! e :rf.ui.compile/bad-presence
                  (str ":timeout-ms is MANDATORY on (ui/presence …) — the terminal "
-                      "safety bound: a retained exiting child is removed when its "
-                      "exit completes OR :timeout-ms fires, whichever first")
+                      "safety bound AND the exit retention duration: a retained "
+                      "exiting child is removed when :timeout-ms fires")
                  {:form form}))
     (let [t (:timeout-ms opts)]
       (when-not (and (number? t) (pos? t))

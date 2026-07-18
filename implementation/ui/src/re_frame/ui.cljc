@@ -609,12 +609,18 @@
 (defn presence
   "(ui/presence {:timeout-ms n} keyed-children) — declarative enter/exit
   retention, deliberately bounded (NOT an animation system). Keyed children
-  pass :mounting → :present → :unmounting; an exiting child stays mounted until
-  its exit completes OR the MANDATORY :timeout-ms safety bound fires, whichever
-  first, then removal is terminal and exactly-once (all ownership released).
+  pass :mounting → :present → :unmounting; an exiting child is retained for
+  exactly the MANDATORY :timeout-ms — the exit retention duration AND terminal
+  bound — then removal is terminal and exactly-once (all ownership released).
   Removal-then-reinsertion of a key interrupts the exit and re-enters. Unkeyed
   children under a presence boundary are a build failure. Read a child's phase
   with (ui/presence-phase).
+
+  DOM-agnostic: the boundary inserts no wrapper node, stamps no attributes, and
+  observes no DOM events. A presence-aware child owns its own exit styling and
+  accessibility — stamp inert / aria-hidden and the exit class against
+  (ui/presence-phase) = :unmounting; the child's stylesheet owns
+  prefers-reduced-motion.
 
   A template form — the compiler wires it into the runtime retention boundary;
   a direct call fails loud by design."
