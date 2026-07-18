@@ -16,7 +16,7 @@ To assist explanations, here's a tiny "counter" application. It has:
 (require '[re-frame.core :as rf])
 
 ;; calls to four registration functions
-(rf/reg-event :initialise (fn [_ _] {:db 3}))
+(rf/reg-event :initialise (fn [_ [_ v]] {:db {:value v}}))
 (rf/reg-event :inc        (fn [{:keys [db]} _] {:db (update db :value inc)}))
 (rf/reg-sub   :value      (fn [db _] (:value db 0)))
 
@@ -49,7 +49,7 @@ To do that, we need to create a `frame`, which provides an isolated execution co
 
 ```cljs-rf2
 [:div {:style {:background "LavenderBlush"}}
-   [rf/frame-root {:id :app1}
+   [rf/frame-root {:id :app1 :initial-events [[:initialise 3]]}
      [counter]]]
 ```
 
@@ -139,8 +139,8 @@ speak them: timers, HTTP replies, route loaders. The next page,
 ## One map of state: app-db
 
 Each running instance holds application state as one immutable Clojure map —
-**app-db**. In the counter it starts `{}`, then becomes `{:value 0}` after
-`:initialise`, then `{:value 1}` after the first `:inc`.
+**app-db**. In the counter it starts `{}`, then becomes `{:value 3}` after
+`:initialise`, then `{:value 4}` after the first `:inc`.
 
 Handlers never "set state" as a side effect. They return the next map inside an
 effect description. [app-db](app-db.md) is the dedicated page for that doctrine.
@@ -150,7 +150,7 @@ effect description. [app-db](app-db.md) is the dedicated page for that doctrine.
 The counter mounts under:
 
 ```clojure
-[rf/frame-root {:id :app :initial-events [[:initialise]]}
+[rf/frame-root {:id :app :initial-events [[:initialise 3]]}
  [counter]]
 ```
 
