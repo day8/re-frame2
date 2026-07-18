@@ -75,7 +75,12 @@
             ;; byte-for-byte on the client.
             #?(:clj [re-frame.ssr.html-helpers :as html])
             #?(:cljs [reagent.dom.client :as rdc])
-            #?(:cljs [re-frame.adapter.reagent :as reagent-adapter])))
+            #?(:cljs [re-frame.adapter.reagent :as reagent-adapter])
+            ;; The client mount step — the payload-vs-client-only React-root
+            ;; branch — factored into a registration-free helper so the browser
+            ;; DOM-adoption regression can execute the EXACT branch this recipe
+            ;; ships, not a copy of it. See the ns docstring there.
+            #?(:cljs [ssr.mount :as mount])))
 
 ;; ============================================================================
 ;; SCHEMA
@@ -446,20 +451,20 @@
                                   :render-tree-fn (fn [] ((rf/view :app/root)))})
            tree    [rf/frame-provider {:frame app-frame} [(rf/view :app/root)]]]
        (when el
-         (if payload
-           ;; Server-rendered: ADOPT the painted DOM. `hydrate-root` reconciles
-           ;; React against the server markup — same nodes, listeners attached,
-           ;; no re-paint — and returns the retained root. `create-root` +
-           ;; `render` would throw the server HTML away and mount fresh, which is
-           ;; the bug this branch avoids.
-           (reset! react-root (rdc/hydrate-root el tree))
-           ;; No payload means no server render — a plain first load. Run the
-           ;; app's own bootstrap against the frame, then mount a fresh root; the
-           ;; page comes up showing the empty-articles fallback.
-           (do
-             (rf/dispatch-sync [:ssr/client-bootstrap] {:frame app-frame})
-             (reset! react-root (rdc/create-root el))
-             (rdc/render @react-root tree)))))))
+         ;; No payload means no server render — a plain first load. Run the
+         ;; app's own bootstrap against the frame before the fresh mount; a
+         ;; hydrating load skips it, because the server already booted this
+         ;; frame's state. (This is app logic, so it stays here in `run` rather
+         ;; than inside the shared mount helper.)
+         (when-not payload
+           (rf/dispatch-sync [:ssr/client-bootstrap] {:frame app-frame}))
+         ;; The adopt-vs-fresh React-root decision lives in ONE place —
+         ;; `ssr.mount/mount!` — so the DOM-adoption regression executes the
+         ;; exact branch this recipe ships instead of a copy: payload present ⇒
+         ;; `hydrate-root` ADOPTS the server DOM; absent ⇒ a fresh `create-root`
+         ;; + `render`. The retained root is stashed for `render!`'s hot-reload
+         ;; re-renders.
+         (reset! react-root (mount/mount! el tree payload))))))
 
 ;; No tests in this file — and that's deliberate. The example tree stays
 ;; test-free so the source reads as pure demonstration; the headless tests that
