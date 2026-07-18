@@ -383,3 +383,39 @@
            (:rf.error/id (try (tree/render nil-owned-probe
                                            {:oc nil :ot nil :caller [[:aria-label "x"]]})
                               nil (catch clojure.lang.ExceptionInfo e (ex-data e))))))))
+
+;; rf2-xdvob — the deny + canonicalization key on the EMITTED SLOT, so an owned
+;; handler family is denied for EVERY caller spelling that lands in that slot, and
+;; accepted caller keys canonicalize to the slot the conversion emits — the JVM
+;; half of the dual-host correction (the CLJS render half is the sibling suite;
+;; the host-agnostic grammar lives in spread-safe-grammar-cljs-test).
+(defview handler-owner [{:keys [attr]}]
+  [:input (ui/spread-safe {:on-change [:set :rf.ui/value]} attr)])
+
+(deftest safe-spread-owned-handler-family-denied-jvm
+  (doseq [attr [{"onChange" [:hijack]} {:onChange [:hijack]}
+                {"onChangeCapture" [:hijack]} {:on-change-capture [:hijack]}
+                {:x/on-change [:hijack]}]]
+    (is (= :rf.error/ui-tree-malformed
+           (:rf.error/id (try (tree/render handler-owner {:attr attr})
+                              nil (catch clojure.lang.ExceptionInfo e (ex-data e)))))
+        (str "JVM owned handler family denies: " (pr-str attr))))
+  (testing "an unrelated event family passes"
+    (is (map? (tree/render handler-owner {:attr {:on-focus [:ok]}})))))
+
+(deftest safe-spread-caller-canonicalization-host-parity-jvm
+  ;; rf2-xdvob — an alternate :class spelling composes owned-first (not a bypassing
+  ;; divergent key), and an ordinary-owned collision by an alternate caller
+  ;; spelling is won by the owned prop (deduped by ONE canonical identity),
+  ;; matching the CLJS host.
+  (testing "namespaced/string :class spelling composes owned-first"
+    (doseq [caller [{:ns/class "cc"} {"class" "cc"}]]
+      (is (= "oc cc" (get (probe-input-attrs "oc" nil caller) "class"))
+          (str "class spelling composes owned-first: " (pr-str caller)))))
+  (testing "ordinary owned prop wins an alternate caller spelling of the same slot"
+    ;; owned :title (non-nil) vs caller "title" (string) — canonicalized to :title,
+    ;; deduped, owned wins; NO divergent second title identity.
+    (let [attrs (probe-input-attrs nil "ot" {"title" "ct"})]
+      (is (= "ot" (get attrs "title")) "owned :title wins the string-spelled caller")
+      (is (= 1 (count (filter #{"title"} (keys attrs))))
+          "one title identity, not a divergent double"))))

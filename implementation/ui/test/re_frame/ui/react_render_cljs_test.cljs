@@ -377,6 +377,35 @@
     (is (string? (render (rt/jsx2 safe-spread-view
                                   (js-obj "attr" {:aria-label "n" "data-x" "d"})))))))
 
+(deftest safe-spread-owned-handler-family-denied-through-render
+  ;; rf2-xdvob — the ADVERSARIAL slot-divergence case. safe-spread-view owns
+  ;; :on-change (React slot onChange). A caller spelling the SAME emitted family —
+  ;; already-camel onChange, capture onChangeCapture, kebab-capture, namespaced —
+  ;; must be denied through the real render/convert path. Pre-fix these bypassed
+  ;; the name-only deny and installed a handler in the owned event slot.
+  (doseq [attr [{"onChange" [:hijack]} {:onChange [:hijack]}
+                {"onChangeCapture" [:hijack]} {:on-change-capture [:hijack]}
+                {:x/on-change [:hijack]}]]
+    (let [data (try (render (rt/jsx2 safe-spread-view (js-obj "attr" attr)))
+                    nil (catch :default e (ex-data e)))]
+      (is (= :rf.error/ui-tree-malformed (:rf.error/id data))
+          (str "owned handler family denied through render: " (pr-str attr)))
+      (is (= 're-frame.ui/spread-safe (:where data)))))
+  (testing "an unrelated event family passes (safe-spread-view owns only on-change)"
+    (is (str/includes? (render (rt/jsx2 safe-spread-view (js-obj "attr" {:on-focus [:ok]})))
+                       "value=\"owned\"")
+        "a different event family is allowed")))
+
+(deftest safe-spread-caller-class-spelling-canonicalizes-to-slot
+  ;; rf2-xdvob — an alternate :class spelling (namespaced / string) routes through
+  ;; :class COMPOSITION (owned classes first), NOT a bypassing raw-name attr set.
+  ;; Pre-fix a namespaced/string spelling missed the identity-based :class branch
+  ;; and emitted className WITHOUT composing (and diverged from the JVM key).
+  (doseq [attr [{:ns/class "extra"} {"class" "extra"}]]
+    (is (str/includes? (render (rt/jsx2 safe-spread-view (js-obj "attr" attr)))
+                       "class=\"form-control extra\"")
+        (str "caller class spelling composes owned-first: " (pr-str attr)))))
+
 (deftest safe-spread-authored-owned-then-caller-eval-order
   ;; rf2-m5h0f — the authored (spread-safe owned caller) order is owned-then-
   ;; caller on CLJS (matching the JVM). Each expression runs EXACTLY once.

@@ -243,18 +243,22 @@
         ;; owned/structural key); :class composes owned-classes-first.
         [attrs evts prop-props]
         (if-let [{:keys [caller owned-handler-keys]} spread-safe]
-          (do
-            (rules/assert-safe-caller! caller owned-handler-keys)
-            (let [[c-attrs c-evts c-pp]
-                  (reduce-kv (partial fold-dyn-entry properties)
-                             [{} {} #{}]
-                             (or caller {}))
-                  merged (merge c-attrs attrs)
-                  merged (if (and (:class c-attrs) (:class attrs))
-                           (assoc merged :class
-                                  (rules/classes-str [(:class attrs) (:class c-attrs)]))
-                           merged)]
-              [merged (merge c-evts evts) (into prop-props c-pp)]))
+          ;; assert-safe-caller! DENIES by canonical emitted slot AND returns the
+          ;; canonicalized caller (each accepted key rewritten to its author
+          ;; keyword), so an alternate spelling folds through the SAME slot as
+          ;; the literal author keyword — `:ns/class` composes, an ordinary key
+          ;; dedupes against an owned collision, host-parity with CLJS (rf2-xdvob).
+          (let [caller (rules/assert-safe-caller! caller owned-handler-keys)
+                [c-attrs c-evts c-pp]
+                (reduce-kv (partial fold-dyn-entry properties)
+                           [{} {} #{}]
+                           (or caller {}))
+                merged (merge c-attrs attrs)
+                merged (if (and (:class c-attrs) (:class attrs))
+                         (assoc merged :class
+                                (rules/classes-str [(:class attrs) (:class c-attrs)]))
+                         merged)]
+            [merged (merge c-evts evts) (into prop-props c-pp)])
           [attrs evts prop-props])
         evts    (events* events (merge evts dyn-events))
         ctx     *ns-context*

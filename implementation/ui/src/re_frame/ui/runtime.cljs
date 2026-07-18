@@ -488,8 +488,12 @@
   own compiled object and are layered on top by `spread-safe-props`, so this
   object carries NO sugar; :class here is the caller's alone."
   [tag caller owned-handler-keys event-site-key debug-site]
-  (rules/assert-safe-caller! caller owned-handler-keys)
-  (convert-prop-map! (js-obj) tag nil caller event-site-key debug-site))
+  ;; assert-safe-caller! DENIES by canonical emitted slot AND returns the
+  ;; canonicalized caller (each accepted key rewritten to its author keyword), so
+  ;; convert lands every alternate spelling in the SAME slot as the literal
+  ;; author keyword — the emitted prop set matches the classification (rf2-xdvob).
+  (let [caller (rules/assert-safe-caller! caller owned-handler-keys)]
+    (convert-prop-map! (js-obj) tag nil caller event-site-key debug-site)))
 
 (defn spread-safe-props
   "Merge a `ui/spread-safe` element's CALLER object (`caller-obj`) and its
