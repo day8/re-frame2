@@ -15,7 +15,7 @@
   in document order'`) + `ssr_streaming_conformance_test` (fixture-
   pinned FIFO).
 
-  Authors mark deferred subtrees with the `re-frame.ssr.boundary/boundary`
+  Authors mark deferred subtrees with the `re-frame.ssr.suspense/boundary`
   COMPONENT — the one form expressible on every host:
 
     [boundary
@@ -80,7 +80,7 @@
             ;; require is acyclic: the component expands TO the marker this
             ;; walker consumes, and both sides read the slot path from one
             ;; source rather than repeating the literal.
-            [re-frame.ssr.boundary :as boundary]
+            [re-frame.ssr.suspense :as suspense]
             [re-frame.ssr.emit :as emit]
             [re-frame.ssr.html-helpers :as html]
             [re-frame.ssr.payload-policy :as payload-policy]
@@ -641,7 +641,7 @@
 
 (defn- with-failed-boundaries
   "Record the failed-boundary id set in the projected runtime-db slice, at
-  `re-frame.ssr.boundary/failed-boundaries-path`.
+  `re-frame.ssr.suspense/failed-boundaries-path`.
 
   The server has known `:failed?` per continuation since streaming
   shipped and DROPPED it: the client could see a
@@ -658,7 +658,7 @@
   [projected policy-opts]
   (let [failed (:failed-boundaries policy-opts)]
     (if (seq failed)
-      (assoc-in (or projected {}) boundary/failed-boundaries-path (set failed))
+      (assoc-in (or projected {}) suspense/failed-boundaries-path (set failed))
       projected)))
 
 (defn build-final-payload
@@ -710,7 +710,7 @@
   whose continuation render THREW (each `render-continuation` call
   reports `:failed? true`). The host adapter accumulates them as it
   drains and hands the set here; it rides the serialisable runtime-db
-  slice at `re-frame.ssr.boundary/failed-boundaries-path`, so the
+  slice at `re-frame.ssr.suspense/failed-boundaries-path`, so the
   `:rf/hydrate` `:replace-frame-state` install puts it in the client
   frame's runtime-db with no new payload key and no hydrate-handler
   change. The client `boundary` component reads it to render a failed

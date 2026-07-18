@@ -1,6 +1,6 @@
 (ns re-frame.ssr.streaming-component-cljs-test
   "Cross-host contract for the suspense COMPONENT
-  (`re-frame.ssr.boundary/boundary`) and the failed-boundary set it reads
+  (`re-frame.ssr.suspense/boundary`) and the failed-boundary set it reads
   (rf2-ycz3k; rf2-j81hs ruling SS2 + SS3). Per Spec 011 §Streaming SSR.
 
   Runs on BOTH hosts, which is the point: the component's whole reason to
@@ -17,7 +17,7 @@
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.ssr :as ssr]
-            [re-frame.ssr.boundary :as boundary :refer [boundary]]
+            [re-frame.ssr.suspense :as suspense :refer [boundary]]
             [re-frame.ssr.install :as install]
             [re-frame.test-support :as test-support]
             #?(:cljs [re-frame.adapter.reagent-slim :as reagent-slim-adapter])))
@@ -33,7 +33,10 @@
 ;; This suite hit exactly that while being written. `:async?` is left
 ;; unset so `make-reset-runtime-fixture` also returns its fn form.
 (use-fixtures :each
-  (fn [f] (install/reset-installed-payloads!) (f))
+  (fn [f]
+    (install/reset-installed-payloads!)
+    (suspense/reset-failed-boundaries!)
+    (f))
   (test-support/make-reset-runtime-fixture
     {:adapter #?(:clj ssr/adapter :cljs reagent-slim-adapter/adapter)
      :ambient-frame nil}))
@@ -62,14 +65,14 @@
 (deftest the-failed-set-path-is-under-the-reserved-ssr-key
   (testing "the slot lives under the already-reserved :rf.runtime/ssr
             runtime-db key, a sibling of the :hydration metadata"
-    (is (= :rf.runtime/ssr (first boundary/failed-boundaries-path)))
+    (is (= :rf.runtime/ssr (first suspense/failed-boundaries-path)))
     (is (= [:rf.runtime/ssr :streaming :failed-boundaries]
-           boundary/failed-boundaries-path))))
+           suspense/failed-boundaries-path))))
 
-(deftest failed-boundaries-reads-empty-for-an-unknown-frame
+(deftest frame-failed-boundaries-reads-empty-for-an-unknown-frame
   (testing "never throws for an absent / destroyed frame — absence is the
             ordinary no-recorded-outcome case, not an error"
-    (is (= #{} (boundary/failed-boundaries :no/such-frame)))))
+    (is (= #{} (suspense/frame-failed-boundaries :no/such-frame)))))
 
 ;; ---- server host -----------------------------------------------------------
 
@@ -141,7 +144,7 @@
                                 :payload :rf.ssr.payload/whole-app-db
                                 :failed-boundaries failed}))]
                (is (= #{:card.flaky}
-                      (get-in (:rf/runtime-db payload) boundary/failed-boundaries-path)))))
+                      (get-in (:rf/runtime-db payload) suspense/failed-boundaries-path)))))
            (testing "nothing failed contributes NO key — an ordinary page
                      carries nothing extra on the wire"
              (let [payload (rf/with-frame fid
@@ -150,7 +153,7 @@
                                {:version 1
                                 :payload :rf.ssr.payload/whole-app-db
                                 :failed-boundaries #{}}))]
-               (is (nil? (get-in (:rf/runtime-db payload) boundary/failed-boundaries-path))))))))))
+               (is (nil? (get-in (:rf/runtime-db payload) suspense/failed-boundaries-path))))))))))
 
 #?(:clj
    (deftest one-tree-hashes-identically-for-both-hosts
@@ -190,30 +193,40 @@
    (deftest client-renders-the-declared-fallback-for-a-failed-boundary
      (testing "SS2: a boundary in the failed set renders its DECLARED
                fallback — the markup the failed chunk left in the DOM"
-       (let [fid :test/client-failed]
+       (suspense/record-failed-boundaries! #{:card.flaky})
+       (is (= [:p "loading"]
+              (boundary {:id :card.flaky :fallback [:p "loading"]} [:div "body"]))
+           "the failed boundary renders its fallback")
+       (is (= [:div "body"]
+              (boundary {:id :card.revenue :fallback [:p "loading"]} [:div "body"]))
+           "a sibling that resolved still renders its body"))))
+
+#?(:cljs
+   (deftest the-render-time-record-needs-no-frame
+     (testing "`boundary` is a plain fn component, and on Reagent a plain
+               fn cannot read the enclosing provider's frame from React
+               context — so the render-time record is deliberately
+               frame-free and works with no scope established at all"
+       (suspense/record-failed-boundaries! #{:card.flaky})
+       (is (= [:p "loading"]
+              (boundary {:id :card.flaky :fallback [:p "loading"]} [:div "body"])))
+       (is (= [:div "body"]
+              (boundary {:id :card.revenue :fallback [:p "loading"]} [:div "body"]))))))
+
+#?(:cljs
+   (deftest the-durable-set-round-trips-through-hydration
+     (testing "SS3: the payload's runtime slice installs into the frame's
+               runtime-db — the durable, inspectable record (distinct from
+               the render-time one above)"
+       (let [fid :test/client-durable]
          (rf/make-frame {:id fid :platform :client})
          (rf/dispatch-sync
            [:rf/hydrate {:rf/version 1
                          :rf/app-db  {}
-                         :rf/runtime-db (assoc-in {} boundary/failed-boundaries-path
+                         :rf/runtime-db (assoc-in {} suspense/failed-boundaries-path
                                                   #{:card.flaky})}]
            {:frame fid})
-         (is (= #{:card.flaky} (boundary/failed-boundaries fid)))
-         (rf/with-frame fid
-           (is (= [:p "loading"]
-                  (boundary {:id :card.flaky :fallback [:p "loading"]} [:div "body"]))
-               "the failed boundary renders its fallback")
-           (is (= [:div "body"]
-                  (boundary {:id :card.revenue :fallback [:p "loading"]} [:div "body"]))
-               "a sibling that resolved still renders its body"))))))
-
-#?(:cljs
-   (deftest client-renders-the-body-with-no-frame-scope
-     (testing "no ambient frame at all reads as no recorded outcome — a
-               plain client mount renders the body rather than throwing"
-       (is (= [:div "body"]
-              (boundary {:id :card.revenue :fallback [:p "loading"]}
-                        [:div "body"]))))))
+         (is (= #{:card.flaky} (suspense/frame-failed-boundaries fid)))))))
 
 #?(:cljs
    (deftest client-wraps-multiple-children-in-a-fragment

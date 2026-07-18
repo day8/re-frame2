@@ -1,12 +1,29 @@
-(ns re-frame.ssr.boundary
+(ns re-frame.ssr.suspense
   "The cross-host suspense boundary — a `.cljc` COMPONENT, not a hiccup
   keyword head.
 
+  ## Why this namespace is not called `re-frame.ssr.boundary`
+
+  Because the façade exports the component as `re-frame.ssr/boundary`,
+  and in ClojureScript a var and a namespace share ONE JavaScript object
+  graph. A `boundary` var in `re-frame.ssr` compiles to
+  `re_frame.ssr.boundary = …`, which is byte-for-byte the object
+  `goog.provide` created for a namespace named `re-frame.ssr.boundary` —
+  so the def SILENTLY OVERWRITES the namespace, and every other var in it
+  (`failed-boundaries`, `failed-boundaries-path`) becomes `undefined` for
+  anyone who required both. That is not a hypothetical: this namespace
+  WAS called `…ssr.boundary` and the compiled output read
+
+      re_frame.ssr.boundary = re_frame.ssr.boundary.boundary;
+
+  Renaming the namespace keeps the good authoring name (`ssr/boundary`)
+  and removes the collision structurally. Do not rename it back.
+
   A streaming region is one authoring form that works on every host:
 
-      (require '[re-frame.ssr.boundary :refer [boundary]])
+      (require '[re-frame.ssr :as ssr])
 
-      [boundary {:id :card.revenue :fallback [card-skeleton :revenue]}
+      [ssr/boundary {:id :card.revenue :fallback [card-skeleton :revenue]}
        [card-view :revenue]]
 
   On the **server** the component expands to the internal
@@ -81,16 +98,75 @@
   Under the already-reserved `:rf.runtime/ssr` key (Conventions §Reserved
   runtime-db keys), a sibling of the `:hydration` metadata the
   `:rf/hydrate` handler writes. Runtime-managed: user code MUST NOT
-  write it."
+  write it.
+
+  This is the DURABLE record — serialisable, inspectable through ordinary
+  frame state, and the server's own answer. It is not what the component
+  reads at render time; see `failed-boundaries` below for why."
   [:rf.runtime/ssr :streaming :failed-boundaries])
 
-(defn failed-boundaries
-  "The set of failed boundary ids recorded for `frame-id`, or `#{}` when
-  none are recorded (the ordinary case — nothing failed, or this page was
-  never streamed). Never throws for an unknown / destroyed frame."
+(defn frame-failed-boundaries
+  "The durable failed-boundary set recorded in `frame-id`'s runtime-db by
+  hydration, or `#{}`. Never throws for an unknown / destroyed frame.
+
+  For consumers that HAVE a frame — host code, tools, tests, server-side
+  assertions. The component cannot use this; see below."
   [frame-id]
   (or (get-in (frame/frame-runtime-db-value frame-id) failed-boundaries-path)
       #{}))
+
+;; ---- the render-time record ------------------------------------------------
+;;
+;; Why the component does NOT read the frame's runtime-db:
+;;
+;; `boundary` is a plain function component, and on Reagent a plain fn
+;; lacking `:contextType` CANNOT read the enclosing `frame-provider`'s
+;; frame from React context (Spec 006 §Frame-provider via React context —
+;; only `reg-view`-wrapped components carry the stamp; a plain fn's
+;; ambient `subscribe` raises `:rf.error/no-frame-context` for exactly
+;; this reason). So there is no ambient frame to resolve from inside the
+;; component on the dominant substrate, and a frame-scoped read is
+;; structurally unavailable to it.
+;;
+;; Making `boundary` a `reg-view` would buy the frame back, but it would
+;; make the framework's streaming primitive a registrar citizen — with a
+;; registrar-cleared failure mode, and with `reg-view`'s dev-time
+;; `data-rf-view` / `data-rf2-source-coord` root-element stamping landing
+;; on the author's body markup. That is a large amount of machinery to
+;; buy one boolean.
+;;
+;; So the render-time record is a process-level set, written once at
+;; stream finalization by `re-frame.ssr.streaming.client/install!` from
+;; the outcomes it observed on the wire. A page's boundary ids are unique
+;; by contract (duplicates are already `:rf.error/suspense-boundary-
+;; duplicate-id`), so an id identifies a boundary without a frame.
+
+(defonce ^:private failed-registry
+  ;; Process-global. Neither `clear-all!` nor a frames reset touches it —
+  ;; a test that records a failure MUST call `reset-failed-boundaries!`
+  ;; or it leaks into siblings.
+  (atom #{}))
+
+(defn failed-boundaries
+  "The set of boundary ids recorded as FAILED for this page. `#{}` when
+  nothing failed, or when the page was never streamed — the ordinary
+  case, and what makes a plain client mount render bodies."
+  []
+  @failed-registry)
+
+(defn record-failed-boundaries!
+  "Record `ids` as failed. Called once per page by the streaming client's
+  finalization step; additive, so a second streamed root on the same page
+  contributes its own outcomes rather than replacing them."
+  [ids]
+  (swap! failed-registry into ids)
+  nil)
+
+(defn reset-failed-boundaries!
+  "Clear the record. Test surface — see the `defonce` note above."
+  []
+  (reset! failed-registry #{})
+  nil)
 
 ;; ---- attrs validation ------------------------------------------------------
 
@@ -143,9 +219,9 @@
   `:rf.error/ssr-suspense-boundary-outside-stream` — unchanged.
 
   Client (`:cljs`): renders `body`, or `:fallback` when `:id` is in the
-  frame's failed-boundary set. The frame is the ambient one (a
-  `frame-provider` / `frame-root` scope, or a `with-frame` binding); no
-  scope at all reads as no recorded outcome and renders `body`."
+  page's failed-boundary record (`failed-boundaries`, written at stream
+  finalization). No recorded outcome — a plain client mount, a
+  non-streamed page — renders `body`."
   [attrs & body]
   (when-not (valid-attrs? attrs)
     (reject-attrs! attrs))
@@ -156,11 +232,8 @@
        (into [:rf/suspense-boundary {:id id :fallback fallback}] body)
 
        :cljs
-       ;; `resolve-current-frame` is a READER — nil when no scope is
-       ;; established, never a synthesised `:rf/default` and never a
-       ;; throw. Absence is the plain-client-mount case: render the body.
-       (if-let [f (frame/resolve-current-frame)]
-         (if (contains? (failed-boundaries (frame/frame-value->id f)) id)
-           fallback
-           (subtree body))
+       ;; Frame-free by necessity (see the render-time record above). An
+       ;; unrecorded id is the ordinary case and renders the body.
+       (if (contains? (failed-boundaries) id)
+         fallback
          (subtree body)))))
