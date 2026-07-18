@@ -840,6 +840,171 @@
         (is (empty? (work-handle-keys fid)) "nil token clears the work handle unconditionally")
         (timers/cancel-for-key! fid rkey)))))
 
+;; ---- rf2-sdeae — the clear itself is a CALLBACK-BEARING fan-out ------------
+;;
+;; The seam-2 fence above answers "may this clear run at all?" ONCE, before the
+;; fan-out. But the fan-out is not callback-free: `work-ledger/release-frame!`
+;; best-effort ABORTS each slot on the way out, and an abort callback is app /
+;; transport code that can churn incarnation A to a same-id successor B and let
+;; B record a handle in the SAME `[frame-id work-id]` slot. Read-abort-dissoc
+;; therefore dissociates a slot the callback has already re-seated: A's returning
+;; cleanup deletes B's live handle.
+;;
+;; The fix is ordering, not another gate — DETACH the frame's slots atomically
+;; FIRST (one `swap-vals!`, no callback window before it), then abort the
+;; DETACHED handle values. Callbacks then act on detached attempt identities and
+;; can neither be re-read nor dissociated by A's tail. This is the discipline
+;; `timers/release-frame!` already uses for the sibling timer table.
+
+(deftest work-ledger-release-frame-detaches-before-abort-callbacks
+  (testing "rf2-sdeae — an abort callback that seats a same-id successor B in the
+            SAME [frame-id work-id] slot must not have B's handle deleted by A's
+            returning cleanup. The abort runs on the DETACHED A handle; the slot
+            B re-seats survives byte-for-byte."
+    (let [fid       :restore/detach
+          wid       [:rf.work/resource gkey 11]
+          b-handle  {:transport :rf.http/managed :request-id [:rf.req fid wid] :owner :B}
+          aborted   (atom [])]
+      ;; A's slot carries an abort callback that — synchronously, at the exact
+      ;; seam between the table read and the dissoc — seats successor B's handle
+      ;; in the very slot key A is about to drop.
+      (work-ledger/put-handle! fid wid
+        {:transport :rf.http/direct
+         :owner     :A
+         :abort-fn  (fn [reason]
+                      (swap! aborted conj reason)
+                      (work-ledger/put-handle! fid wid b-handle))})
+      (work-ledger/release-frame! fid)
+      (is (= [:resource-superseded] @aborted)
+          "A's abort callback fired exactly once")
+      (is (identical? b-handle (work-ledger/get-handle fid wid))
+          "successor B's re-seated handle survives byte-for-byte (not dissoc'd by A's tail)")
+      (work-ledger/clear-handle! fid wid))))
+
+(deftest work-ledger-release-frame-abort-callback-reentrancy
+  (testing "rf2-sdeae adversarial (nested fan-out) — an abort callback that
+            RE-ENTERS release-frame! for the same frame terminates, aborts each
+            A slot exactly once (the outer pass already detached them), and still
+            spares a successor handle seated by the nested pass."
+    (let [fid      :restore/reentrant
+          wid-1    [:rf.work/resource gkey 21]
+          wid-2    [:rf.work/resource gkey 22]
+          b-handle {:transport :rf.http/managed :owner :B}
+          aborted  (atom [])]
+      (work-ledger/put-handle! fid wid-1
+        {:owner :A :abort-fn (fn [_]
+                               (swap! aborted conj :a1)
+                               ;; nested fan-out over the same frame
+                               (work-ledger/release-frame! fid)
+                               ;; …then B seats a handle in a slot the OUTER
+                               ;; pass still holds detached.
+                               (work-ledger/put-handle! fid wid-2 b-handle))})
+      (work-ledger/put-handle! fid wid-2
+        {:owner :A :abort-fn (fn [_] (swap! aborted conj :a2))})
+      (work-ledger/release-frame! fid)
+      (is (= 1 (count (filter #{:a1} @aborted))) "A's slot 1 aborted exactly once")
+      (is (= 1 (count (filter #{:a2} @aborted))) "A's slot 2 aborted exactly once")
+      (is (identical? b-handle (work-ledger/get-handle fid wid-2))
+          "the successor handle seated during the nested fan-out survives")
+      (work-ledger/clear-handle! fid wid-2))))
+
+(deftest work-ledger-abort-callback-may-drop-its-own-slot
+  (testing "rf2-sdeae adversarial (callback drops its own listener mid-cleanup) —
+            an abort callback that clears its OWN slot and then seats a successor
+            handle under the same key leaves the successor intact; the detached
+            identity the callback ran against is never written back."
+    (let [fid      :restore/self-drop
+          wid      [:rf.work/resource gkey 31]
+          b-handle {:transport :rf.http/managed :owner :B}]
+      (work-ledger/put-handle! fid wid
+        {:owner :A :abort-fn (fn [_]
+                               (work-ledger/clear-handle! fid wid)
+                               (work-ledger/put-handle! fid wid b-handle))})
+      (work-ledger/release-frame! fid)
+      (is (identical? b-handle (work-ledger/get-handle fid wid))
+          "the successor handle the callback seated after self-clearing survives")
+      (work-ledger/clear-handle! fid wid))))
+
+(deftest opportunistic-abort-detaches-before-abort-callback
+  (testing "rf2-sdeae — the single-slot public abort has the same seam: the abort
+            callback runs BEFORE the drop, so a successor handle re-seated under
+            the same key must not be deleted by the returning clear."
+    (let [fid      :restore/one-slot
+          wid      [:rf.work/resource gkey 41]
+          b-handle {:transport :rf.http/managed :owner :B}]
+      (work-ledger/put-handle! fid wid
+        {:owner :A :abort-fn (fn [_] (work-ledger/put-handle! fid wid b-handle))})
+      (is (true? (work-ledger/opportunistic-abort! fid wid))
+          "an abort capability was found and fired")
+      (is (identical? b-handle (work-ledger/get-handle fid wid))
+          "successor B's re-seated handle survives the returning clear")
+      (work-ledger/clear-handle! fid wid))))
+
+;; ---- rf2-sdeae — the deferred trace commit is a callback fan-out too -------
+
+(deftest commit-restore-reconcile-traces-fenced-per-intent
+  (testing "rf2-sdeae — committing the deferred restore intents fans out to trace
+            listeners, each a callback boundary that can destroy A and seat a
+            same-id successor B. With the captured :owner-token carried in, the
+            commit STOPS at the first intent whose listener lost the incarnation
+            rather than announcing A's restore against B."
+    (let [fid   :restore/commit-fence
+          stale [:route :route/article "nav-OLD"]
+          e     (entry {:resource-id :article/by-slug :status :loaded :data {:x 1}
+                        :loaded-at 1 :stale-at 9.0e15 :owners #{stale}})
+          rdb   (with-live-nav-token (runtime-db-with {gkey e}) "nav-NEW")]
+      (rf/make-frame {:id fid})
+      (let [token (frame/frame-incarnation-token fid)
+            out   (ssr/reconcile-on-restore rdb fid {:defer-traces? true :owner-token token})
+            intents (-> out meta (get :re-frame.resources.ssr/deferred-trace-intents))
+            [seen unregister!] (restore-trace-recorder)
+            churned? (atom false)]
+        (is (< 1 (count intents))
+            "the reconcile deferred MORE than one intent (a genuine fan-out)")
+        ;; the FIRST emitted intent's listener destroys A and seats successor B
+        (trace-tooling/register-listener! ::sdeae-churn
+          (fn [ev]
+            (when (and (not @churned?)
+                       (contains? #{:rf.resource/restored :rf.resource/owner-released}
+                                  (:operation ev)))
+              (reset! churned? true)
+              (rf/destroy-frame! fid)
+              (rf/make-frame {:id fid}))))
+        (try
+          (ssr/commit-restore-reconcile-traces! out fid {:owner-token token})
+          (finally
+            (trace-tooling/unregister-listener! ::sdeae-churn)
+            (unregister!)))
+        (is (true? @churned?) "the first intent's listener churned A to B")
+        (is (= 1 (count @seen))
+            "the remaining A-owned intents are STOPPED once the incarnation is lost")))))
+
+(deftest commit-restore-reconcile-traces-unfenced-arities-emit-all
+  (testing "rf2-sdeae control — with no token (the pure-unit path) or a LIVE
+            incarnation, every deferred intent still commits, as before."
+    (let [fid   :restore/commit-live
+          stale [:route :route/article "nav-OLD"]
+          e     (entry {:resource-id :article/by-slug :status :loaded :data {:x 1}
+                        :loaded-at 1 :stale-at 9.0e15 :owners #{stale}})
+          mk    (fn [] (ssr/reconcile-on-restore
+                         (with-live-nav-token (runtime-db-with {gkey e}) "nav-NEW")
+                         fid {:defer-traces? true}))]
+      (rf/make-frame {:id fid})
+      (let [token (frame/frame-incarnation-token fid)
+            n     (count (-> (mk) meta (get :re-frame.resources.ssr/deferred-trace-intents)))]
+        (let [[seen unregister!] (restore-trace-recorder)]
+          (try (ssr/commit-restore-reconcile-traces! (mk))
+               (finally (unregister!)))
+          (is (= n (count @seen)) "the 1-arity commits every intent unconditionally"))
+        (let [[seen unregister!] (restore-trace-recorder)]
+          (try (ssr/commit-restore-reconcile-traces! (mk) fid {:owner-token token})
+               (finally (unregister!)))
+          (is (= n (count @seen)) "a LIVE incarnation commits every intent"))
+        (let [[seen unregister!] (restore-trace-recorder)]
+          (try (ssr/commit-restore-reconcile-traces! (mk) fid {:owner-token nil})
+               (finally (unregister!)))
+          (is (= n (count @seen)) "a nil token commits every intent, as before"))))))
+
 ;; ===========================================================================
 ;; 5. The generation allocator is monotonic across restore (part 1)
 ;; ===========================================================================

@@ -719,19 +719,35 @@
   cancels a live frame's host work. Each `restore-quiesce-hooks` entry is a
   late-bound `(fn [frame-id])`; an unregistered hook (the artefact is absent) is
   a no-op, and a throwing hook is swallowed so one bad subsystem cleanup cannot
-  block the rest. Returns nil."
-  [frame-id]
-  (doseq [hook-key restore-quiesce-hooks]
-    (when-let [f (late-bind/get-fn hook-key)]
-      (try (f frame-id)
-           (catch #?(:clj Throwable :cljs :default) ex
-             (trace/emit-error! :rf.warning/restore-quiesce-hook-exception
-                                {:category  :rf.warning/restore-quiesce-hook-exception
-                                 :hook      hook-key
-                                 :frame     frame-id
-                                 :exception ex
-                                 :recovery  :ignored})))))
-  nil)
+  block the rest. Returns nil.
+
+  The chain is itself a callback FAN-OUT (rf2-sdeae), so the caller's single
+  pre-chain liveness check does not fence it: EVERY hook addresses the frame by
+  BARE id, and each one is app-observable — a machines cancellation trace fired
+  by the first hook can destroy incarnation A and seat a same-id successor B,
+  after which the HTTP hook would snapshot and abort B's in-flight requests.
+  The 2-arity therefore carries the restore's EXACT `incarnation-token` INTO the
+  loop and revalidates ownership at every hook boundary, STOPPING the chain the
+  moment the incarnation is lost rather than retargeting the remaining A-only
+  cleanup onto B. nil token (the 1-arity) has no incarnation to fence and fires
+  the whole chain, as before."
+  ([frame-id] (quiesce-orphaned-async-host-work! frame-id nil))
+  ([frame-id incarnation-token]
+   (let [still-owned? (fn []
+                        (or (nil? incarnation-token)
+                            (frame/event-continuation-live? frame-id incarnation-token)))]
+     (doseq [hook-key restore-quiesce-hooks
+             :while   (still-owned?)]
+       (when-let [f (late-bind/get-fn hook-key)]
+         (try (f frame-id)
+              (catch #?(:clj Throwable :cljs :default) ex
+                (trace/emit-error! :rf.warning/restore-quiesce-hook-exception
+                                   {:category  :rf.warning/restore-quiesce-hook-exception
+                                    :hook      hook-key
+                                    :frame     frame-id
+                                    :exception ex
+                                    :recovery  :ignored}))))))
+   nil))
 
 (defn commit-resources-restore-traces!
   "Emit the resources restore-reconcile trace rows DEFERRED by
@@ -743,11 +759,19 @@
   truly installed — never for a destroyed-frame install that wrote nothing.
   No-op when no resources artefact is loaded (hook nil), when the frame-state
   carries no runtime-db partition, or when the runtime-db carries no deferred
-  intents (a resource-free restore). Returns nil."
-  [frame-state]
+  intents (a resource-free restore). Returns nil.
+
+  The commit walks a LIST of intents and each one emits to the frame's trace
+  listeners, so it is a callback FAN-OUT (rf2-sdeae) that a single pre-call
+  liveness check cannot fence. `frame-id` and the restore's EXACT
+  `incarnation-token` are carried in under the SAME `:owner-token` opt the
+  pre-write reconcile already takes, so the commit revalidates exact ownership
+  at every intent boundary and stops announcing A's restore once a listener has
+  seated a same-id successor B."
+  [frame-state frame-id incarnation-token]
   (when-let [commit (late-bind/get-fn :resources/commit-restore-reconcile!)]
     (when-let [rdb (get frame-state frame/runtime-partition-key)]
-      (commit rdb)))
+      (commit rdb frame-id {:owner-token incarnation-token})))
   nil)
 
 (defn perform-restore!
@@ -778,7 +802,15 @@
       trace commit, host-work quiesce) re-checks `event-continuation-live?`
       (seam 3) — the `:rf.epoch/restored` emit and the commit/quiesce fan-outs
       are callback boundaries that can churn A to B, so a lost incarnation STOPS
-      the remaining A-only tail work rather than RETARGETING it onto B.
+      the remaining A-only tail work rather than RETARGETING it onto B;
+    - the two tail ops that are themselves FAN-OUTS carry the token INSIDE
+      (rf2-sdeae). A check taken before a loop does not fence the loop: the
+      quiesce CHAIN walks several late-bound subsystem hooks and the deferred
+      trace commit walks several intents, every element addressing the frame by
+      bare id and every element app-observable. So `incarnation-token` is
+      threaded into `quiesce-orphaned-async-host-work!` and
+      `commit-resources-restore-traces!`, which revalidate exact ownership at
+      EVERY hook / intent boundary and stop mid-fan-out.
 
   Every incarnation loss resolves to ONE coherent typed failure —
   `:rf.error/no-such-handler` (kind `:frame`), the same shape a destroyed-frame
@@ -869,11 +901,12 @@
                   (state/set-last-settled-epoch! frame-id (:epoch-id epoch)))
                 (when (frame/event-continuation-live? frame-id incarnation-token)
                   ;; Deferred subsystem success traces are valid only after install.
-                  (commit-resources-restore-traces! frame-state-target))
+                  (commit-resources-restore-traces! frame-state-target
+                                                    frame-id incarnation-token))
                 (when (frame/event-continuation-live? frame-id incarnation-token)
                   ;; Host timers and HTTP handles are not frame state; cancel the
                   ;; abandoned timeline only after the new state is installed.
-                  (quiesce-orphaned-async-host-work! frame-id))
+                  (quiesce-orphaned-async-host-work! frame-id incarnation-token))
                 true)))))))
 
 ;; ---- replace-frame-state! preconditions ------------------------------------

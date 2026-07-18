@@ -5411,6 +5411,122 @@
               ":rf.epoch/restored success trace fired"))
         (finally (late-bind/set-fn! rk r0))))))
 
+;; ---- rf2-sdeae — the fenced tail ops are themselves FAN-OUTS ---------------
+;;
+;; rf2-qfrh4 seam 3 re-checks `event-continuation-live?` before each post-write
+;; tail op. But two of those ops are not single actions: the host-work quiesce
+;; walks a CHAIN of late-bound subsystem hooks, and the deferred resource-trace
+;; commit walks a LIST of trace intents. Each element of each fan-out is another
+;; callback boundary, and every hook / intent addresses the frame by BARE id, so
+;; one check taken before the loop does not fence the loop's later iterations: a
+;; machines cancellation trace fired by the FIRST quiesce hook can destroy A and
+;; seat a same-id successor B, and the SECOND hook then snapshots and aborts B's
+;; in-flight HTTP requests. The token has to travel INTO the fan-out.
+
+(defn- with-quiesce-hook-stubs
+  "Install stub `:machines/on-frame-restored!` / `:http/abort-in-flight-for-frame!`
+  quiesce hooks, run `f`, restore the originals."
+  [machines-fn http-fn f]
+  (let [mk :machines/on-frame-restored!
+        hk :http/abort-in-flight-for-frame!
+        m0 (late-bind/get-fn mk)
+        h0 (late-bind/get-fn hk)]
+    (try
+      (late-bind/set-fn! mk machines-fn)
+      (late-bind/set-fn! hk http-fn)
+      (f)
+      (finally
+        (late-bind/set-fn! mk m0)
+        (late-bind/set-fn! hk h0)))))
+
+(deftest restore-quiesce-chain-fenced-per-hook
+  (testing "rf2-sdeae — the host-work quiesce CHAIN is a callback fan-out. The
+            FIRST hook (machines timer cancellation) destroys A and seats a
+            same-id successor B; the SECOND hook (HTTP abort-in-flight) addresses
+            the frame by BARE id, so without a per-hook fence it aborts B's live
+            requests. Exact ownership must be revalidated at every hook boundary:
+            the chain STOPS. The already-committed A install still returns true."
+    (rf/make-frame {:id :test/sdeae-quiesce})
+    (rf/reg-event :set-q (fn [_ [_ o n]] {:db {:owner o :n n}}))
+    (rf/dispatch-sync [:set-q :A 1] {:frame :test/sdeae-quiesce})
+    (rf/dispatch-sync [:set-q :A 2] {:frame :test/sdeae-quiesce})
+    (let [target-id (some (fn [r] (when (= {:owner :A :n 1} (:db-after r)) (:epoch-id r)))
+                          (rf/epoch-history :test/sdeae-quiesce))
+          {:keys [outcome epoch incarnation-token]}
+          (tool-pair/check-restore-preconditions! :test/sdeae-quiesce target-id)
+          machines-saw (atom [])
+          http-saw     (atom [])]
+      (is (= :ok outcome) "preconditions passed against live incarnation A")
+      (with-quiesce-hook-stubs
+        (fn [fid]
+          (swap! machines-saw conj fid)
+          ;; the machines cancellation trace churns A to a same-id successor B
+          (rf/destroy-frame! fid)
+          (rf/make-frame {:id fid})
+          (rf/dispatch-sync [:set-q :B 99] {:frame fid}))
+        (fn [fid] (swap! http-saw conj fid))
+        (fn []
+          (let [result (tool-pair/perform-restore! :test/sdeae-quiesce incarnation-token epoch)]
+            (is (true? result)
+                "the exact-incarnation install committed, so the public result stays TRUE")
+            (is (= [:test/sdeae-quiesce] @machines-saw)
+                "the FIRST quiesce hook ran under the live incarnation A")
+            (is (empty? @http-saw)
+                "ACCEPTANCE — the later hook does NOT quiesce successor B (chain stopped)")
+            (is (= {:owner :B :n 99} (rf/app-db-value :test/sdeae-quiesce))
+                "successor B's state is untouched by A's quiesce tail")))))))
+
+(deftest restore-quiesce-chain-runs-whole-chain-without-churn
+  (testing "rf2-sdeae control — with NO incarnation churn every hook in the
+            quiesce chain still fires, in order; the per-hook fence rejects only
+            a LOST incarnation, never an ordinary live one."
+    (rf/make-frame {:id :test/sdeae-quiesce-ok})
+    (rf/reg-event :set-q2 (fn [_ [_ n]] {:db {:n n}}))
+    (rf/dispatch-sync [:set-q2 1] {:frame :test/sdeae-quiesce-ok})
+    (rf/dispatch-sync [:set-q2 2] {:frame :test/sdeae-quiesce-ok})
+    (let [target-id (some (fn [r] (when (= {:n 1} (:db-after r)) (:epoch-id r)))
+                          (rf/epoch-history :test/sdeae-quiesce-ok))
+          fired     (atom [])]
+      (with-quiesce-hook-stubs
+        (fn [_fid] (swap! fired conj :machines))
+        (fn [_fid] (swap! fired conj :http))
+        (fn []
+          (is (true? (rf/restore-epoch! :test/sdeae-quiesce-ok target-id))
+              "an ordinary within-incarnation restore still succeeds")
+          (is (= [:machines :http] @fired)
+              "every quiesce hook fired, in chain order"))))))
+
+(deftest restore-trace-commit-carries-owner-token
+  (testing "rf2-sdeae — the deferred resource-trace commit is a per-intent
+            callback fan-out, so perform-restore! carries the captured exact
+            incarnation token INTO the commit hook (the same `:owner-token`
+            shape the pre-write reconcile already receives) rather than fencing
+            only the outer call."
+    (rf/make-frame {:id :test/sdeae-commit})
+    (rf/reg-event :seed-c
+      (fn [{rt :rf.db/runtime} [_ n]]
+        {:db {:n n} :rf.db/runtime (assoc (or rt {}) :marker :present)}))
+    (rf/dispatch-sync [:seed-c 1] {:frame :test/sdeae-commit})
+    (rf/dispatch-sync [:seed-c 2] {:frame :test/sdeae-commit})
+    (let [target-id (some (fn [r] (when (= {:n 1} (:db-after r)) (:epoch-id r)))
+                          (rf/epoch-history :test/sdeae-commit))
+          {:keys [outcome epoch incarnation-token]}
+          (tool-pair/check-restore-preconditions! :test/sdeae-commit target-id)
+          ck   :resources/commit-restore-reconcile!
+          c0   (late-bind/get-fn ck)
+          seen (atom nil)]
+      (is (= :ok outcome) "preconditions passed against the live frame")
+      (try
+        (late-bind/set-fn! ck (fn [_rdb frame-id opts] (reset! seen [frame-id opts])))
+        (is (true? (tool-pair/perform-restore! :test/sdeae-commit incarnation-token epoch))
+            "the restore committed")
+        (is (= :test/sdeae-commit (first @seen))
+            "the commit hook is told WHICH frame the intents belong to")
+        (is (identical? incarnation-token (:owner-token (second @seen)))
+            "ACCEPTANCE — the EXACT captured incarnation token is carried into the
+             commit fan-out so it can revalidate at every intent boundary")
+        (finally (late-bind/set-fn! ck c0))))))
+
 ;; rf2-obi8rr — the resources restore-reconcile success rows
 ;; (:rf.resource/restored / :rf.resource/owner-released) must NOT leak when the
 ;; frame-state install fails. The reconcile runs BEFORE the atomic install and
@@ -5451,9 +5567,15 @@
                                (do (doseq [{:keys [level op tags]} intents]
                                      (trace/emit! level op tags))
                                    rdb)))))
+      ;; 3-arity, mirroring the real ssr.cljc body since rf2-sdeae: the commit is
+      ;; a per-intent callback fan-out, so it takes the frame-id + the restore's
+      ;; captured `:owner-token` and revalidates exact ownership at every intent.
       (late-bind/set-fn! ck
-                         (fn [rdb]
-                           (doseq [{:keys [level op tags]} (-> rdb meta (get rf2-obi8rr-deferred-key))]
+                         (fn [rdb frame-id {:keys [owner-token]}]
+                           (doseq [{:keys [level op tags]} (-> rdb meta (get rf2-obi8rr-deferred-key))
+                                   :while (or (nil? frame-id)
+                                              (nil? owner-token)
+                                              (frame/frame-incarnation-live? frame-id owner-token))]
                              (trace/emit! level op tags))
                            nil))
       (f)
