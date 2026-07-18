@@ -43,10 +43,12 @@
  *   still bloats every consumer's classpath. Arm 2 resolves the published
  *   `ui/deps.edn` graph with `clojure -Stree` and rejects any wrapper
  *   coordinate. A full pass additionally requires a POSITIVE control — the
- *   resolved graph must be nonempty and contain re-frame.ui's own core
- *   coordinate `day8/re-frame2` — so a vacuous exit-0 (empty / whitespace /
- *   malformed / core-absent stdout) fails closed instead of masquerading as a
- *   "0 resolved coordinates" PASS. Resolving the JVM/Clojure graph also proves
+ *   resolved graph must carry re-frame.ui's own core coordinate `day8/re-frame2`
+ *   as a GENUINE resolved row (the coordinate followed by version/local-root
+ *   evidence), not merely as a token string — so a vacuous exit-0 (empty /
+ *   whitespace / malformed / core-absent stdout) OR token-shaped garbage (the
+ *   bare coordinate, or the coordinate trailed by prose) fails closed instead of
+ *   masquerading as a "0 resolved coordinates" PASS. Resolving the JVM/Clojure graph also proves
  *   the JVM/headless emitter entry stays browser-wrapper-free without forcing
  *   browser-only libraries onto the JVM classpath.
  *
@@ -120,13 +122,17 @@ const forbiddenCoordinatePatterns = [
   /^day8\/re-frame2-(reagent(-slim)?|uix|helix)$/,
 ];
 
-// Arm-2 POSITIVE CONTROL (rf2-xgfpq). An exit-0 `clojure -Stree` only counts as
-// trustworthy evidence that the graph actually resolved when the resolved
-// coordinates include re-frame.ui's own required core dependency, `day8/re-frame2`
-// (declared `:local/root "../core"` in ui/deps.edn, and confirmed present in the
-// real resolved graph). Empty, whitespace-only, malformed, and
-// nonempty-but-core-absent stdout all LACK it, so this single invariant rejects
-// every vacuous-exit-0 shape without parsing the dependency tree. It is the
+// Arm-2 POSITIVE CONTROL (rf2-xgfpq, hardened rf2-tutg8). An exit-0
+// `clojure -Stree` only counts as trustworthy evidence that the graph actually
+// resolved when re-frame.ui's own required core dependency, `day8/re-frame2`
+// (declared `:local/root "../core"` in ui/deps.edn), appears as a GENUINE
+// resolved-graph row — the coordinate followed by real version/local-root
+// evidence — not merely as a token string. Requiring only the token's PRESENCE
+// (rf2-xgfpq) still accepted token-shaped garbage: a bare `day8/re-frame2` with
+// no evidence, or `day8/re-frame2 this-is-not-a-tree` where the coordinate is
+// trailed by diagnostic prose, both exit 0 and satisfied a presence-only check.
+// Requiring a plausible resolved ROW closes that, while empty, whitespace-only,
+// malformed, and core-absent stdout still lack the row entirely. It is the
 // resolved-graph analogue of Arm 1's `requiredImport` positive control.
 const requiredCoordinate = 'day8/re-frame2';
 
@@ -138,6 +144,26 @@ function coordinatesFrom(treeText) {
     .map((line) => line.replace(/^[.\s]+/, '').trim())
     .filter(Boolean)
     .map((line) => line.split(/\s+/)[0]);
+}
+
+// Does `treeText` carry a GENUINE resolved-graph row for `coordinate`? A real
+// `clojure -Stree` row resolves a coordinate with nonempty evidence: a version
+// (`1.12.4`, `v20250820`, a git SHA) or a local-root path (`../core`,
+// `/repo/.../core`, `C:\...\core`). Structurally, every Maven/git version
+// carries a digit and every resolved local-root carries a path separator, so a
+// row is genuine when the tokens AFTER the coordinate contain a digit or a `/`
+// or `\`. Token-shaped garbage — the coordinate alone, or trailed by prose like
+// `this-is-not-a-tree` — carries neither and fails. This is the smallest
+// invariant that separates a resolved row from a line that merely contains the
+// coordinate string; it is deliberately NOT a dependency-tree parser (rf2-xgfpq
+// fence).
+function hasResolvedCoordinateRow(treeText, coordinate) {
+  return treeText.split(/\r?\n/).some((line) => {
+    const [coord, ...rest] = line.replace(/^[.\s]+/, '').trim().split(/\s+/);
+    if (coord !== coordinate) return false;
+    const evidence = rest.join(' ');
+    return /[0-9]/.test(evidence) || /[\\/]/.test(evidence);
+  });
 }
 
 function forbiddenCoordinates(treeText) {
@@ -266,8 +292,9 @@ function resolveDependencyTree(cwd, deps = {}) {
 //   { outcome: 'unavailable', reason }        — clojure genuinely absent.
 //   { outcome: 'error', tree }                — a hard failure (exit 2).
 //   { outcome: 'no-graph', graphSize }        — exit 0 but the resolved graph is
-//     empty / whitespace / malformed / missing the `day8/re-frame2` positive
-//     control, i.e. no trustworthy Arm-2 evidence (exit 2).
+//     empty / whitespace / malformed / carries no GENUINE `day8/re-frame2`
+//     resolved row (missing entirely, or only token-shaped garbage), i.e. no
+//     trustworthy Arm-2 evidence (exit 2).
 //   { outcome: 'ran', leaks, graphSize }      — Arm 2 ran; inspect leaks.
 function classifyArm2(tree) {
   if (tree.skipped) {
@@ -276,15 +303,18 @@ function classifyArm2(tree) {
   if (tree.error || tree.status !== 0 || typeof tree.stdout !== 'string') {
     return { outcome: 'error', tree };
   }
-  // POSITIVE CONTROL (rf2-xgfpq). An exit-0 spawn alone is NOT evidence the
-  // graph resolved: empty, whitespace-only, malformed, and core-absent stdout
-  // all exit 0 yet carry no dependency tree. Require the resolved coordinates
-  // to include re-frame.ui's own core dependency before accepting the arm — a
-  // single invariant that folds all four vacuous-exit-0 shapes into one
-  // fail-closed outcome and never lets a "0 resolved coordinates" run masquerade
-  // as a full G-12 PASS.
+  // POSITIVE CONTROL (rf2-xgfpq, hardened rf2-tutg8). An exit-0 spawn alone is
+  // NOT evidence the graph resolved: empty, whitespace-only, malformed, and
+  // core-absent stdout all exit 0 yet carry no dependency tree — and a
+  // presence-only check additionally let token-shaped garbage through (a bare
+  // `day8/re-frame2`, or the coordinate trailed by prose). Require re-frame.ui's
+  // own core dependency to appear as a GENUINE resolved row — the coordinate
+  // plus version/local-root evidence — before accepting the arm. This single
+  // invariant folds every vacuous-exit-0 and garbage-row shape into one
+  // fail-closed outcome and never lets a "0 resolved coordinates" run (or a line
+  // that merely contains the coordinate string) masquerade as a full G-12 PASS.
   const coordinates = coordinatesFrom(tree.stdout);
-  if (!coordinates.includes(requiredCoordinate)) {
+  if (!hasResolvedCoordinateRow(tree.stdout, requiredCoordinate)) {
     return { outcome: 'no-graph', graphSize: coordinates.length };
   }
   return {
@@ -448,25 +478,44 @@ function selfTest() {
     return fail('classifyArm2 must map clean tree -> ran');
   }
 
-  // POSITIVE CONTROL (rf2-xgfpq) — every vacuous exit-0 stdout shape (empty /
-  // whitespace-only / malformed / nonempty-but-core-absent) maps to `no-graph`,
-  // NOT `ran`: an exit-0 spawn with no resolved `day8/re-frame2` is not Arm-2
-  // evidence. Reverting the invariant so a vacuous exit-0 is accepted as `ran`
-  // restores the false-green and fails these assertions.
+  // POSITIVE CONTROL (rf2-xgfpq, hardened rf2-tutg8) — every exit-0 stdout shape
+  // that lacks a GENUINE `day8/re-frame2` resolved row maps to `no-graph`, NOT
+  // `ran`. That covers the vacuous shapes (empty / whitespace-only / malformed /
+  // nonempty-but-core-absent) AND — the rf2-tutg8 teeth — token-shaped garbage
+  // where the coordinate is PRESENT but not a real row: the bare coordinate with
+  // no evidence, and the coordinate trailed by diagnostic prose. A
+  // presence-only check accepted the last two as `ran`; the resolved-row
+  // invariant reds them. Reverting to presence-only restores the false-green and
+  // fails these assertions.
   for (const [label, stdout] of [
     ['empty', ''],
     ['whitespace-only', '   \n\t\n  '],
     ['malformed garbage', 'this is not a -Stree dependency tree'],
     ['core-absent nonempty', 'org.clojure/clojure 1.12.4\nsome.other/lib 1.0.0'],
+    ['bare core token (no evidence)', 'day8/re-frame2'],
+    ['core token + diagnostic prose', 'day8/re-frame2 this-is-not-a-tree'],
+    ['core token as substring of prose line', 'resolved day8/re-frame2 not a tree'],
   ]) {
     const outcome = classifyArm2({ status: 0, stdout }).outcome;
     if (outcome !== 'no-graph') {
       return fail(`classifyArm2 must map ${label} exit-0 stdout -> no-graph (got ${outcome})`);
     }
   }
-  // A graph carrying the positive control is still `ran` even with extra rows.
-  if (classifyArm2({ status: 0, stdout: `${cleanTree}\n  some.other/lib 1.0.0` }).outcome !== 'ran') {
-    return fail('classifyArm2 must accept a nonempty graph containing the core positive control');
+  // A GENUINE resolved row for the positive control is `ran` — whether the
+  // evidence is a version, a POSIX local-root path, or a Windows local-root
+  // path (the real UI graph resolves `day8/re-frame2` to its `../core` local
+  // root, printed as an absolute path), and still `ran` with extra rows around
+  // it. These pin that the tightened invariant does not red the real graph.
+  for (const [label, stdout] of [
+    ['version-form row', 'day8/re-frame2 1.2.3'],
+    ['posix local-root row', 'day8/re-frame2 /repo/implementation/core'],
+    ['windows local-root row', 'day8/re-frame2 C:\\Users\\me\\code\\core'],
+    ['glyph-nested version row', 'org.clojure/clojure 1.12.4\n  . day8/re-frame2 1.2.3'],
+    ['core positive control among extra rows', `${cleanTree}\n  some.other/lib 1.0.0`],
+  ]) {
+    if (classifyArm2({ status: 0, stdout }).outcome !== 'ran') {
+      return fail(`classifyArm2 must accept a genuine ${label} as ran`);
+    }
   }
 
   // --- End-to-end gate decisions (main() with injected IO) -----------------
@@ -508,23 +557,32 @@ function selfTest() {
     return fail(`present-but-untrusted CLI must fail closed (exit 2), got exit ${untrustedMain}`);
   }
 
-  // MUTATION 3 — a vacuous exit-0 `clojure -Stree` (empty / whitespace-only /
-  // malformed / nonempty-but-core-absent stdout) FAILS CLOSED (exit 2) even
-  // over a clean Arm 1 closure. Before rf2-xgfpq each of these printed a full
-  // `PASS (... 0 resolved coordinates)` and exited 0 — the exact false-green
-  // this bead closes. A mutation that re-accepts vacuous exit-0 as a pass fails.
+  // MUTATION 3 — an exit-0 `clojure -Stree` whose stdout carries NO genuine
+  // `day8/re-frame2` resolved row FAILS CLOSED (exit 2) even over a clean Arm 1
+  // closure. That covers the vacuous shapes (empty / whitespace-only /
+  // malformed / nonempty-but-core-absent) AND — the rf2-tutg8 teeth —
+  // token-shaped garbage where the coordinate is present but not a real row (the
+  // bare coordinate, the coordinate trailed by prose, the coordinate as a mere
+  // substring of a prose line). Before rf2-xgfpq the vacuous shapes printed a
+  // full `PASS (... 0 resolved coordinates)` and exited 0; after rf2-xgfpq but
+  // before rf2-tutg8 the token-shaped-garbage shapes still exited 0 — the exact
+  // false-green this bead closes. A mutation that re-accepts either as a pass
+  // fails.
   for (const [label, stdout] of [
     ['empty', ''],
     ['whitespace-only', '   \n\t\n  '],
     ['malformed garbage', 'this is not a -Stree dependency tree'],
     ['core-absent nonempty', 'org.clojure/clojure 1.12.4\nsome.other/lib 1.0.0'],
+    ['bare core token (no evidence)', 'day8/re-frame2'],
+    ['core token + diagnostic prose', 'day8/re-frame2 this-is-not-a-tree'],
+    ['core token as substring of prose line', 'resolved day8/re-frame2 not a tree'],
   ]) {
     const exit = runMain([], {
       readLoaderImports: () => ({ imports: [requiredImport, 're_frame.core.js'] }),
       resolveTree: () => ({ status: 0, stdout }),
     });
     if (exit !== 2) {
-      return fail(`vacuous exit-0 graph (${label}) must fail closed (exit 2), got exit ${exit}`);
+      return fail(`exit-0 graph with no genuine core row (${label}) must fail closed (exit 2), got exit ${exit}`);
     }
   }
 
@@ -564,8 +622,9 @@ function selfTest() {
 
   console.log(
     '[ui-adapter-isolation] self-test PASS (module-closure incl. reagent2 + resolved-graph ' +
-      'controls red on synthetic leaks; vacuous exit-0 / missing / untrusted clojure fails ' +
-      'closed; positive control day8/re-frame2 required; --modules-only is explicit)'
+      'controls red on synthetic leaks; vacuous exit-0 / token-shaped garbage / missing / ' +
+      'untrusted clojure fails closed; positive control requires a GENUINE day8/re-frame2 ' +
+      'resolved row; --modules-only is explicit)'
   );
   return 0;
 }
@@ -627,10 +686,12 @@ function main(argv, io = {}) {
     if (arm2.outcome === 'no-graph') {
       console.error(
         '[ui-adapter-isolation] G-12 FAIL-CLOSED: `clojure -Stree` exited 0 but its resolved ' +
-          `graph is empty or missing the ${requiredCoordinate} core positive control ` +
-          `(${arm2.graphSize} coordinate(s) parsed). An exit-0 with no resolved dependency tree ` +
-          'is NOT trustworthy Arm-2 evidence and must never report a full pass — investigate the ' +
-          `${uiArtefactDir} ui/deps.edn resolution (a clean run resolves at least ${requiredCoordinate}).`
+          `graph carries no genuine resolved row for the ${requiredCoordinate} core positive ` +
+          `control (empty, malformed, or the coordinate present only as token-shaped garbage; ` +
+          `${arm2.graphSize} coordinate(s) parsed). An exit-0 with no resolved ${requiredCoordinate} ` +
+          'row (coordinate plus version/local-root evidence) is NOT trustworthy Arm-2 evidence and ' +
+          `must never report a full pass — investigate the ${uiArtefactDir} ui/deps.edn resolution ` +
+          `(a clean run resolves ${requiredCoordinate} to its ../core local root).`
       );
       return 2;
     }
@@ -679,6 +740,7 @@ module.exports = {
   isForbiddenModule,
   forbiddenModules,
   coordinatesFrom,
+  hasResolvedCoordinateRow,
   forbiddenCoordinates,
   clojureOnPath,
   resolveDependencyTree,
