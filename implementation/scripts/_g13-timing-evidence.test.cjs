@@ -21,6 +21,9 @@
 
 const assert = require('assert/strict');
 
+const fs = require('fs');
+const path = require('path');
+
 const {
   RECORDED_SAMPLES,
   PERCENTILE_CONVENTION,
@@ -30,6 +33,9 @@ const {
   summarizeWarm,
   assertColdIsFirstDrain,
   assertColdOrderControl,
+  assertTimedIntervalDidWork,
+  assertTimedRegionShape,
+  codeOnly,
   buildSummary,
 } = require('./lib/g13-timing-evidence.cjs');
 
@@ -225,10 +231,17 @@ test('assertColdIsFirstDrain rejects a missing pre-hot witness', () => {
 
 const QUEUED_WRITES = 8;
 
+// rf2-a0i2y — each order path now reports its timed cycle's witness PAIR, so the
+// path proves both which state preceded its dispatch AND that its own measured
+// interval contained that dispatch and its commit.
+function pair(preHot) {
+  return { 'pre-hot': preHot, 'post-hot': preHot + QUEUED_WRITES };
+}
+
 test('assertColdOrderControl accepts the causal 0 / queued-writes divergence', () => {
   // Real inverted execution advances :hot by queued-writes before the timer, so a
   // causal witness reports 0 (timing-first) vs 8 (correctness-first).
-  const order = { 'timing-first': 0, 'correctness-first': QUEUED_WRITES };
+  const order = { 'timing-first': pair(0), 'correctness-first': pair(QUEUED_WRITES) };
   assert.equal(assertColdOrderControl(order, QUEUED_WRITES), order);
 });
 
@@ -236,7 +249,7 @@ test('assertColdOrderControl REJECTS a correctness-first witness that stayed 0 (
   // THE TEETH. A witness captured before the timed dispatch stays 0 in BOTH
   // orders — the exact false-green this bead repairs. It must be rejected even
   // though the per-sample cold-first assertion (0 === 0) would still pass.
-  const collapsed = { 'timing-first': 0, 'correctness-first': 0 };
+  const collapsed = { 'timing-first': pair(0), 'correctness-first': pair(0) };
   assert.throws(
     () => assertColdOrderControl(collapsed, QUEUED_WRITES, 'V=100 cold-first order control'),
     /non-causal, vacuous cold-first control/,
@@ -249,7 +262,7 @@ test('assertColdOrderControl REJECTS a correctness-first witness that stayed 0 (
 
 test('assertColdOrderControl rejects a correctness-first witness that advanced by the wrong amount', () => {
   assert.throws(
-    () => assertColdOrderControl({ 'timing-first': 0, 'correctness-first': 16 }, QUEUED_WRITES),
+    () => assertColdOrderControl({ 'timing-first': pair(0), 'correctness-first': pair(16) }, QUEUED_WRITES),
     /did not advance to queued-writes/,
   );
 });
@@ -258,7 +271,7 @@ test('assertColdOrderControl rejects a timing-first witness that left the mount 
   // If the timed cycle did NOT run first, its witness is nonzero and the reported
   // "cold" span is a warmed drain — the control must reject it.
   assert.throws(
-    () => assertColdOrderControl({ 'timing-first': 8, 'correctness-first': QUEUED_WRITES }, QUEUED_WRITES),
+    () => assertColdOrderControl({ 'timing-first': pair(8), 'correctness-first': pair(QUEUED_WRITES) }, QUEUED_WRITES),
     /timing-first witness is not the mount seed/,
   );
 });
@@ -270,8 +283,228 @@ test('assertColdOrderControl rejects a missing order control', () => {
 
 test('assertColdOrderControl rejects a non-positive queued-writes basis', () => {
   assert.throws(
-    () => assertColdOrderControl({ 'timing-first': 0, 'correctness-first': 8 }, 0),
+    () => assertColdOrderControl({ 'timing-first': pair(0), 'correctness-first': pair(8) }, 0),
     /queued-writes must be a positive finite number/,
+  );
+});
+
+test('assertColdOrderControl rejects an order path whose timed interval did no work', () => {
+  // rf2-a0i2y — the divergence can be perfectly causal on a path that measured an
+  // EMPTY interval; each path must carry its own containment proof.
+  assert.throws(
+    () => assertColdOrderControl(
+      { 'timing-first': { 'pre-hot': 0, 'post-hot': 0 }, 'correctness-first': pair(QUEUED_WRITES) },
+      QUEUED_WRITES,
+    ),
+    /\(timing-first\): the measured interval did not contain its own dispatch and commit/,
+  );
+  assert.throws(
+    () => assertColdOrderControl(
+      { 'timing-first': pair(0), 'correctness-first': { 'pre-hot': 8, 'post-hot': 8 } },
+      QUEUED_WRITES,
+    ),
+    /\(correctness-first\): the measured interval did not contain/,
+  );
+});
+
+test('assertColdOrderControl rejects a path degraded back to a witness-free scalar', () => {
+  // The pre-rf2-a0i2y shape reported one number per path. A result still carrying
+  // it has no closing witness at all and must not be accepted.
+  assert.throws(
+    () => assertColdOrderControl({ 'timing-first': 0, 'correctness-first': 8 }, QUEUED_WRITES),
+    /did not report a timed-cycle witness pair/,
+  );
+});
+
+// ----- assertTimedIntervalDidWork: the containment witness (rf2-a0i2y) -------
+//
+// The gap this closes: every other check reads state from BEFORE the timed
+// dispatch, so removing that dispatch entirely leaves them all green — the
+// separate untimed correctness cycle advances app-db and supplies every
+// projection either way, and the runner labels an empty flush interval
+// "dispatch-to-commit".
+
+test('assertTimedIntervalDidWork accepts an interval that advanced :hot by queued-writes', () => {
+  assert.equal(assertTimedIntervalDidWork(0, 8, QUEUED_WRITES), 8);
+  assert.equal(assertTimedIntervalDidWork(24, 32, QUEUED_WRITES), 8);
+});
+
+test('assertTimedIntervalDidWork REJECTS an empty measured interval (the bead\'s false-green)', () => {
+  // The exact defect: `timing-cycle!` dispatches nothing, so its own post-commit
+  // witness never advances, while pre-hot still reports the mount seed.
+  assert.throws(
+    () => assertTimedIntervalDidWork(0, 0, QUEUED_WRITES, 'V=100 cold timing evidence'),
+    /the measured interval did not contain its own dispatch and commit/,
+  );
+  assert.throws(
+    () => assertTimedIntervalDidWork(0, 0, QUEUED_WRITES, 'V=100 cold timing evidence'),
+    /V=100 cold timing evidence/,
+  );
+});
+
+test('assertTimedIntervalDidWork rejects a partial drain and an over-long interval', () => {
+  assert.throws(() => assertTimedIntervalDidWork(0, 7, QUEUED_WRITES), /delta=7, expected 8/);
+  assert.throws(() => assertTimedIntervalDidWork(0, 16, QUEUED_WRITES), /delta=16, expected 8/);
+});
+
+test('assertTimedIntervalDidWork rejects a missing or non-finite witness', () => {
+  assert.throws(
+    () => assertTimedIntervalDidWork(0, undefined, QUEUED_WRITES),
+    /post-hot witness is missing or not a finite number/,
+  );
+  assert.throws(
+    () => assertTimedIntervalDidWork(undefined, 8, QUEUED_WRITES),
+    /pre-hot witness is missing or not a finite number/,
+  );
+  assert.throws(() => assertTimedIntervalDidWork(0, NaN, QUEUED_WRITES), /not a finite number/);
+});
+
+test('assertTimedIntervalDidWork rejects a non-positive queued-writes basis', () => {
+  assert.throws(
+    () => assertTimedIntervalDidWork(0, 0, 0),
+    /queued-writes must be a positive finite number/,
+  );
+});
+
+// ----- assertTimedRegionShape: STRUCTURAL containment (rf2-a0i2y) ------------
+//
+// Containment is a property of the measured region's SHAPE, so it is proven by
+// construction against the fixture source rather than inferred from samples that
+// happen to pass. These tests drive the real `dev.cljs`, then mutate it.
+
+const DEV_FIXTURE_SOURCE = path.join(
+  __dirname, '..', 'ui', 'g13', 're_frame', 'ui', 'g13', 'dev.cljs',
+);
+const DEV_SOURCE = fs.readFileSync(DEV_FIXTURE_SOURCE, 'utf8');
+
+const TIMED_DISPATCH_FORM = '(uit/dispatch! frame [::fixture/step fixture/queued-writes])';
+const TIMED_START_FORM = 'started (js/performance.now)]';
+const TIMED_ELAPSED_FORM = '(let [elapsed-ms (- (js/performance.now) started)]';
+const TIMED_POST_WITNESS_FORM = ':post-hot (:hot (rf/app-db-value frame))';
+
+function mutated(edits) {
+  let out = DEV_SOURCE;
+  for (const [find, replaceWith] of edits) {
+    const next = out.replace(find, replaceWith);
+    // A stale anchor would hand the checker an UNCHANGED source, and "unchanged
+    // passes" reads exactly like "the mutation was caught".
+    assert.notEqual(next, out, `stale tooth anchor — dev.cljs no longer contains: ${find}`);
+    out = next;
+  }
+  return out;
+}
+
+test('assertTimedRegionShape accepts the real fixture: dispatch and commit are inside the span', () => {
+  assert.deepEqual(assertTimedRegionShape(DEV_SOURCE), [
+    'the pre-dispatch app-db witness read',
+    'the interval START timestamp',
+    'the flush! that owns the measured interval',
+    'the timed dispatch',
+    'the interval END timestamp',
+    'the post-commit app-db witness read',
+  ]);
+});
+
+test('assertTimedRegionShape REJECTS the dispatch removed from the flushed thunk', () => {
+  assert.throws(
+    () => assertTimedRegionShape(mutated([[TIMED_DISPATCH_FORM, 'nil']])),
+    /expected exactly 1 dispatch! calls in the timed region, found 0/,
+  );
+});
+
+test('assertTimedRegionShape REJECTS the dispatch replaced with a no-op event', () => {
+  assert.throws(
+    () => assertTimedRegionShape(
+      mutated([[TIMED_DISPATCH_FORM, '(uit/dispatch! frame [::fixture/noop])']]),
+    ),
+    /the timed dispatch is absent from the timed region/,
+  );
+});
+
+test('assertTimedRegionShape REJECTS the dispatch hoisted above the start timestamp', () => {
+  // THE MUTANT THE RUNTIME WITNESS CANNOT SEE. The pre-hot read still precedes
+  // the hoisted dispatch, so post-minus-pre is still exactly queued-writes — yet
+  // the measured span no longer covers the eight write epochs. Only the source
+  // order shows it.
+  assert.throws(
+    () => assertTimedRegionShape(mutated([
+      [TIMED_DISPATCH_FORM, 'nil'],
+      [TIMED_START_FORM, `_ ${TIMED_DISPATCH_FORM}\n        ${TIMED_START_FORM}`],
+    ])),
+    /the timed dispatch does not follow the flush! that owns the measured interval/,
+  );
+});
+
+test('assertTimedRegionShape REJECTS the dispatch moved past the end timestamp', () => {
+  assert.throws(
+    () => assertTimedRegionShape(mutated([
+      [TIMED_DISPATCH_FORM, 'nil'],
+      [TIMED_ELAPSED_FORM, `${TIMED_ELAPSED_FORM}\n                   ${TIMED_DISPATCH_FORM}`],
+    ])),
+    /the interval END timestamp does not follow the timed dispatch/,
+  );
+});
+
+test('assertTimedRegionShape REJECTS the closing witness read moved inside the span', () => {
+  // The closing witness must cost the measured interval nothing; reading it
+  // before the end timestamp would put validation work on the clock.
+  assert.throws(
+    () => assertTimedRegionShape(mutated([
+      [TIMED_ELAPSED_FORM,
+        '(let [post-hot (:hot (rf/app-db-value frame))\n'
+        + '                       elapsed-ms (- (js/performance.now) started)]'],
+      [TIMED_POST_WITNESS_FORM, ':post-hot post-hot'],
+    ])),
+    /the post-commit app-db witness read does not follow the interval END timestamp/,
+  );
+});
+
+test('assertTimedRegionShape rejects an extra timestamp reading inside the region', () => {
+  assert.throws(
+    () => assertTimedRegionShape(mutated([
+      [TIMED_START_FORM, `mid (js/performance.now)\n        ${TIMED_START_FORM}`],
+    ])),
+    /expected exactly 2 performance.now readings in the timed region, found 3/,
+  );
+});
+
+test('assertTimedRegionShape fails loudly when the measured region cannot be located', () => {
+  assert.throws(() => assertTimedRegionShape(''), /fixture source was not readable/);
+  assert.throws(
+    () => assertTimedRegionShape(DEV_SOURCE.replace('(defn- timing-cycle!', '(defn- timed-cycle!')),
+    /could not locate `\(defn- timing-cycle!`/,
+  );
+  assert.throws(
+    () => assertTimedRegionShape(DEV_SOURCE.replace('(defn- correctness-cycle!', '(defn- audit-cycle!')),
+    /could not locate `\(defn- correctness-cycle!`/,
+  );
+});
+
+test('codeOnly blanks strings and comments, preserving offsets — prose cannot satisfy the proof', () => {
+  // The region's docstring genuinely says "dispatch" and "performance"; without
+  // this the ordering would be computed over prose, the byte-slice mistake the
+  // deps-boundary arm already refuses to make.
+  const src = '(a "str ; not-a-comment" b) ; (uit/dispatch! x)\n(c)';
+  const out = codeOnly(src);
+  assert.equal(out.length, src.length, 'offsets must be preserved');
+  assert.equal(out.includes('not-a-comment'), false);
+  assert.equal(out.includes('uit/dispatch!'), false);
+  // The code parens survive in place; only the literal's bytes are blanked.
+  assert.equal(out.indexOf('(a '), 0);
+  assert.equal(out.indexOf('b)'), src.indexOf('b)'));
+  assert.equal(out.endsWith('\n(c)'), true, 'newlines must survive');
+});
+
+test('codeOnly does not let a docstring mention forge the region shape', () => {
+  // Deleting the real dispatch while leaving one NAMED in the docstring must
+  // still fail: the mention lives in a string and is blanked before counting.
+  const forged = mutated([
+    [TIMED_DISPATCH_FORM, 'nil'],
+    ['Returns `{:elapsed-ms', `${TIMED_DISPATCH_FORM} Returns \`{:elapsed-ms`],
+  ]);
+  assert.throws(
+    () => assertTimedRegionShape(forged),
+    /expected exactly 1 dispatch! calls in the timed region, found 0/,
   );
 });
 

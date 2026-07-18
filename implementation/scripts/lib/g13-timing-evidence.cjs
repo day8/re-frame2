@@ -91,6 +91,72 @@ function summarizeWarm(raw, where = 'warm timing evidence') {
 // wall-clock threshold; this pins the cold IDENTITY, not its duration.
 const COLD_FIRST_DRAIN_PRE_HOT = 0;
 
+// rf2-a0i2y — DID THE MEASURED INTERVAL CONTAIN ITS OWN DISPATCH AND COMMIT?
+//
+// Every witness above describes state BEFORE the timed dispatch, so none of them
+// can separate a real measured drain from an EMPTY one. Delete the dispatch from
+// `timing-cycle!` and the whole gate stays green: `timing-first` pre-hot is still
+// the mount seed 0, `correctness-first` pre-hot still advances to queued-writes
+// (the SEPARATE untimed correctness cycle advanced it), and that same correctness
+// cycle still supplies every projection — so the runner labels a flush interval
+// that did nothing "dispatch-to-commit" and reports it as evidence.
+//
+// The closing witness is the timed cycle's own POST-commit app-db `:hot`, read
+// AFTER its end timestamp (no validation work enters the measured span) and
+// returned with that same cycle. `post - pre` is exactly the number of writes
+// that committed between the two reads. The reads bracket the two timestamps by
+// construction — nothing but the `performance.now` call itself sits between the
+// pre read and `started`, and nothing but the elapsed subtraction sits between
+// the end timestamp and the post read — so a delta of `queuedWrites` is proof
+// that this interval carried the drain it is named for. A removed, no-op, or
+// hoisted-out dispatch yields 0 (or the wrong delta) and is rejected here.
+//
+// This is the RUNTIME half of the containment proof. The LEXICAL half — dispatch
+// inside the flushed thunk, thunk between the two timestamps — is pinned by
+// `assertTimedRegionShape` below, which reads the fixture source itself.
+function assertTimedIntervalDidWork(pre, post, queuedWrites, where = 'timed interval work witness') {
+  if (typeof queuedWrites !== 'number' || !Number.isFinite(queuedWrites) || queuedWrites <= 0) {
+    throw evidenceFail(
+      `${where}: queued-writes must be a positive finite number; got ${JSON.stringify(queuedWrites)}`,
+    );
+  }
+  for (const [label, value] of [['pre-hot', pre], ['post-hot', post]]) {
+    if (typeof value !== 'number' || !Number.isFinite(value)) {
+      throw evidenceFail(
+        `${where}: the timed cycle's ${label} witness is missing or not a finite number ` +
+          `(got ${JSON.stringify(value)}); without both witnesses the measured interval ` +
+          'cannot be shown to contain its own dispatch and commit',
+      );
+    }
+  }
+  const delta = post - pre;
+  if (delta !== queuedWrites) {
+    throw evidenceFail(
+      `${where}: the measured interval did not contain its own dispatch and commit ` +
+        `(pre-hot=${pre}, post-hot=${post}, delta=${delta}, expected ${queuedWrites}); ` +
+        'the timed dispatch-to-commit span was empty, partial, or ran outside the timestamps ' +
+        '— the untimed correctness cycle cannot supply this witness',
+    );
+  }
+  return delta;
+}
+
+// Read one order-control path's witness pair and prove that path's own timed
+// interval did the work. Returns the path's `pre-hot` for the divergence checks.
+function orderWitness(order, path, queuedWrites, where) {
+  const witness = order[path];
+  if (!witness || typeof witness !== 'object') {
+    throw evidenceFail(
+      `${where}: the ${path} order path did not report a timed-cycle witness pair ` +
+        `(got ${JSON.stringify(witness)})`,
+    );
+  }
+  assertTimedIntervalDidWork(
+    witness['pre-hot'], witness['post-hot'], queuedWrites, `${where} (${path})`,
+  );
+  return witness['pre-hot'];
+}
+
 // Assert the cold sample is the first post-mount drain. `where` labels the call
 // site (e.g. "V=100 cold timing evidence"). Returns the sample on success.
 function assertColdIsFirstDrain(cold, where = 'cold timing evidence') {
@@ -130,8 +196,10 @@ function assertColdOrderControl(order, queuedWrites, where = 'cold-first order c
       `${where}: queued-writes must be a positive finite number; got ${JSON.stringify(queuedWrites)}`,
     );
   }
-  const timingFirst = order['timing-first'];
-  const correctnessFirst = order['correctness-first'];
+  // rf2-a0i2y — each order path reports its timed cycle's witness PAIR, and each
+  // path must independently prove its own measured interval did the work.
+  const timingFirst = orderWitness(order, 'timing-first', queuedWrites, where);
+  const correctnessFirst = orderWitness(order, 'correctness-first', queuedWrites, where);
   // The real cold order: the timed cycle ran before any drain, so its witness is
   // the mount seed and the cold-first assertion must ACCEPT it.
   if (timingFirst !== COLD_FIRST_DRAIN_PRE_HOT) {
@@ -166,6 +234,191 @@ function assertColdOrderControl(order, queuedWrites, where = 'cold-first order c
     );
   }
   return order;
+}
+
+// ---------------------------------------------------------------------------
+// rf2-a0i2y — the STRUCTURAL half of the containment proof.
+//
+// The runtime witness above proves the interval did `queuedWrites` of work
+// between the two app-db reads. Those reads sit immediately outside the two
+// timestamps, so the remaining question is purely lexical: is the dispatch
+// actually inside the flushed thunk, and is that thunk actually between the
+// start and end timestamps? That is a property of the fixture's SOURCE, and it
+// is better proven by construction than by any number of green samples — so it
+// is asserted here over `dev.cljs` itself, the same way the lease-free arm
+// asserts its positive controls against `reactive.cljc`.
+//
+// It also closes the one mutant the runtime witness cannot see. Hoisting the
+// dispatch above `started` leaves the post-pre delta at exactly `queuedWrites`
+// (the pre read still precedes the hoisted dispatch), yet the measured span no
+// longer contains the eight write epochs. Only the source order shows that, and
+// the ordering assertion below rejects it.
+// ---------------------------------------------------------------------------
+
+const TIMED_REGION_OPEN = '(defn- timing-cycle!';
+const TIMED_REGION_CLOSE = '(defn- correctness-cycle!';
+
+// Blank out Clojure string literals, `;` comments and `\x` character literals,
+// PRESERVING byte offsets and newlines, so the ordering below is computed over
+// CODE only. This region's docstring legitimately says "dispatch", "pre-hot" and
+// "performance"; a raw indexOf over the text would count prose as structure —
+// precisely the byte-slice mistake the deps-boundary arm already refuses to make
+// (rf2-5e3ic/rf2-han0r). Prose can no longer satisfy — or break — this proof.
+function codeOnly(source) {
+  let out = '';
+  let i = 0;
+  const n = source.length;
+  while (i < n) {
+    const ch = source[i];
+    if (ch === '\\') { // character literal: \( \; \" ...
+      out += ' ';
+      i += 1;
+      if (i < n) { out += source[i] === '\n' ? '\n' : ' '; i += 1; }
+      continue;
+    }
+    if (ch === '"') {
+      out += ' ';
+      i += 1;
+      while (i < n && source[i] !== '"') {
+        if (source[i] === '\\') {
+          out += ' ';
+          i += 1;
+          if (i < n) { out += source[i] === '\n' ? '\n' : ' '; i += 1; }
+          continue;
+        }
+        out += source[i] === '\n' ? '\n' : ' ';
+        i += 1;
+      }
+      if (i < n) { out += ' '; i += 1; }
+      continue;
+    }
+    if (ch === ';') {
+      while (i < n && source[i] !== '\n') { out += ' '; i += 1; }
+      continue;
+    }
+    out += ch;
+    i += 1;
+  }
+  return out;
+}
+
+function occurrences(haystack, re) {
+  const global = new RegExp(re.source, `${re.flags.replace('g', '')}g`);
+  const found = [];
+  let m = global.exec(haystack);
+  while (m !== null) {
+    found.push(m.index);
+    if (m.index === global.lastIndex) global.lastIndex += 1;
+    m = global.exec(haystack);
+  }
+  return found;
+}
+
+// The measured region's required lexical shape, in required source order. Each
+// row names WHY it is where it is, because the failure message is the only thing
+// a future editor will read.
+const TIMED_REGION_ANCHORS = [
+  {
+    name: 'the pre-dispatch app-db witness read',
+    re: /rf\/app-db-value/,
+    nth: 1,
+    why: 'the opening witness must be read BEFORE the interval starts',
+  },
+  {
+    name: 'the interval START timestamp',
+    re: /js\/performance\.now/,
+    nth: 1,
+    why: 'the measured span opens here',
+  },
+  {
+    name: 'the flush! that owns the measured interval',
+    re: /\(uit\/flush!/,
+    nth: 1,
+    why: 'the flush whose Promise resolution IS the commit must open inside the span',
+  },
+  {
+    name: 'the timed dispatch',
+    re: /\(uit\/dispatch!\s+frame\s+\[::fixture\/step\s+fixture\/queued-writes\]\)/,
+    nth: 1,
+    why: 'the dispatch under measurement must sit INSIDE the flushed thunk, after the start timestamp',
+  },
+  {
+    name: 'the interval END timestamp',
+    re: /js\/performance\.now/,
+    nth: 2,
+    why: 'the measured span closes here, once the commit has resolved',
+  },
+  {
+    name: 'the post-commit app-db witness read',
+    re: /rf\/app-db-value/,
+    nth: 2,
+    why: 'the closing witness must be read AFTER the end timestamp, so it adds no work to the span',
+  },
+];
+
+// Exact multiplicities. Without these an extra `performance.now` or a second
+// dispatch could satisfy the ordering while changing what is measured.
+const TIMED_REGION_COUNTS = [
+  { name: 'performance.now readings', re: /js\/performance\.now/, exactly: 2 },
+  { name: 'app-db witness reads', re: /rf\/app-db-value/, exactly: 2 },
+  { name: 'flush! calls', re: /\(uit\/flush!/, exactly: 1 },
+  { name: 'dispatch! calls', re: /\(uit\/dispatch!/, exactly: 1 },
+];
+
+// Prove, from `devSource`, that the timed region contains its dispatch and its
+// commit BY CONSTRUCTION. Returns the pinned order on success.
+function assertTimedRegionShape(devSource, where = 'G-13 timed region containment') {
+  if (typeof devSource !== 'string' || devSource.length === 0) {
+    throw evidenceFail(`${where}: the fixture source was not readable`);
+  }
+  const open = devSource.indexOf(TIMED_REGION_OPEN);
+  if (open < 0) {
+    throw evidenceFail(
+      `${where}: could not locate \`${TIMED_REGION_OPEN}\` — the measured region this proof ` +
+        'is about no longer exists under that name; re-establish containment before renaming it',
+    );
+  }
+  const close = devSource.indexOf(TIMED_REGION_CLOSE, open);
+  if (close < 0) {
+    throw evidenceFail(
+      `${where}: could not locate \`${TIMED_REGION_CLOSE}\` after the timed region — the proof ` +
+        'delimits the timed cycle by the untimed cycle that must follow it',
+    );
+  }
+  const region = codeOnly(devSource.slice(open, close));
+  for (const { name, re, exactly } of TIMED_REGION_COUNTS) {
+    const n = occurrences(region, re).length;
+    if (n !== exactly) {
+      throw evidenceFail(
+        `${where}: expected exactly ${exactly} ${name} in the timed region, found ${n}. ` +
+          'The measured dispatch-to-commit span is defined by exactly these forms; ' +
+          'adding or removing one changes what the reported number means.',
+      );
+    }
+  }
+  const positions = TIMED_REGION_ANCHORS.map((anchor) => {
+    const at = occurrences(region, anchor.re)[anchor.nth - 1];
+    if (at === undefined) {
+      throw evidenceFail(
+        `${where}: ${anchor.name} is absent from the timed region (${anchor.why}). ` +
+          'A measured interval missing this form does not contain the dispatch and commit it is named for.',
+      );
+    }
+    return { ...anchor, at };
+  });
+  for (let i = 1; i < positions.length; i += 1) {
+    const previous = positions[i - 1];
+    const current = positions[i];
+    if (!(previous.at < current.at)) {
+      throw evidenceFail(
+        `${where}: ${current.name} does not follow ${previous.name} in the timed region ` +
+          `(offsets ${previous.at} then ${current.at}). ${current.why}. The dispatch and commit ` +
+          'are no longer inside the measured span by construction — the reported ' +
+          'dispatch-to-commit number would describe a different region than its label claims.',
+      );
+    }
+  }
+  return positions.map((p) => p.name);
 }
 
 function fmt(x) {
@@ -214,10 +467,15 @@ module.exports = {
   RECORDED_SAMPLES,
   PERCENTILE_CONVENTION,
   COLD_FIRST_DRAIN_PRE_HOT,
+  TIMED_REGION_OPEN,
+  TIMED_REGION_CLOSE,
   warmPercentile,
   validateWarmSamples,
   summarizeWarm,
   assertColdIsFirstDrain,
   assertColdOrderControl,
+  assertTimedIntervalDidWork,
+  assertTimedRegionShape,
+  codeOnly,
   buildSummary,
 };

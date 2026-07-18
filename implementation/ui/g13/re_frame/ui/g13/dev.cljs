@@ -85,7 +85,24 @@
   sourced from the timed cycle's own dispatch — not from `sample!` entry — makes
   it causal to the measurement: any drain that preceded this cycle shows up as a
   nonzero witness, so a warmed cycle can never masquerade as the cold first
-  drain. Returns `{:elapsed-ms <ms> :pre-hot <app-db :hot at dispatch>}`."
+  drain.
+
+  rf2-a0i2y — the `:post-hot` CLOSING witness. Every witness above describes
+  state BEFORE the timed dispatch, so none of them can tell a real measured
+  drain from an EMPTY one: delete the dispatch from this function and `:pre-hot`
+  still reports the mount seed, the separate untimed correctness cycle still
+  advances app-db and still supplies every projection, and the runner would go
+  on labelling a flush interval that did nothing `dispatch-to-commit`.
+  `:post-hot` is app-db `:hot` read AFTER the end timestamp — so no validation
+  work enters the measured span — and returned with this same cycle. The gate
+  asserts `post-hot - pre-hot = queued-writes`: the two reads bracket the two
+  timestamps by construction, so that delta is the work this interval actually
+  contained. A removed, no-op, or empty dispatch yields 0 and turns the gate red.
+  The lexical containment itself (dispatch inside the flushed thunk, thunk
+  between the two `performance.now` reads) is pinned structurally by
+  `assertTimedRegionShape` over THIS source region.
+
+  Returns `{:elapsed-ms <ms> :pre-hot <:hot at dispatch> :post-hot <:hot at commit>}`."
   [frame]
   (let [pre-hot (:hot (rf/app-db-value frame))
         started (js/performance.now)]
@@ -94,8 +111,13 @@
            ;; dispatch! completes all eight write epochs synchronously; the
            ;; render phase runs when flush!'s Promise advances to the commit.
            (uit/dispatch! frame [::fixture/step fixture/queued-writes])))
-        (.then (fn [_] {:elapsed-ms (- (js/performance.now) started)
-                        :pre-hot pre-hot})))))
+        (.then (fn [_]
+                 ;; The end timestamp is taken FIRST and bound, so the closing
+                 ;; witness read below cannot land inside the measured span.
+                 (let [elapsed-ms (- (js/performance.now) started)]
+                   {:elapsed-ms elapsed-ms
+                    :pre-hot pre-hot
+                    :post-hot (:hot (rf/app-db-value frame))}))))))
 
 (defn- correctness-cycle!
   "Exact push-work accounting for ONE drain — UNTIMED. Owns the O(V) live-cell
@@ -225,7 +247,12 @@
   FIRST post-mount dispatch. Because it rides the timed cycle rather than being
   read at `sample!` entry, running correctness before timing advances it to
   `queued-writes` and the cold-first control fails; it cannot pass vacuously.
-  The exact counts still come from a cycle never on the clock."
+  The exact counts still come from a cycle never on the clock.
+
+  rf2-a0i2y — `:timing-post-hot` is that same timed cycle's CLOSING witness, read
+  after its end timestamp. Every sample therefore carries the pair the runner
+  needs to prove the measured interval contained its own dispatch and commit:
+  `timing-post-hot` minus `timing-pre-hot` must be `queued-writes` for THIS cycle."
   [root frame v label]
   ;; rf2-6k4cm — the timed cycle runs FIRST and reports its OWN pre-hot witness;
   ;; `:timing-pre-hot` is that witness, so it is causal to the measured dispatch.
@@ -233,11 +260,12 @@
   ;; witness off the mount seed and redden the cold-first control — it can no
   ;; longer stay 0 while the timer measures a warmed second drain.
   (-> (timing-cycle! frame)
-      (.then (fn [{:keys [elapsed-ms pre-hot]}]
+      (.then (fn [{:keys [elapsed-ms pre-hot post-hot]}]
                (-> (correctness-cycle! root frame v label)
                    (.then (fn [c]
                             (assoc c :elapsed-ms elapsed-ms
-                                   :timing-pre-hot pre-hot))))))))
+                                   :timing-pre-hot pre-hot
+                                   :timing-post-hot post-hot))))))))
 
 ;; rf2-6k4cm — the CAUSAL cold-first order control. The gate's `assertColdIsFirstDrain`
 ;; rests on `:timing-pre-hot` being 0 for the cold sample. Forging that field, or
@@ -251,8 +279,10 @@
 ;; runs correctness before timing for real, not a JSON mutation.
 (defn- timed-witness!
   "Mount a FRESH v-sized fixture, run the two cycles in `order` (`:timing-first`
-  or `:correctness-first`), and return the TIMED cycle's own `:pre-hot` witness.
-  Tears the frame down on every exit."
+  or `:correctness-first`), and return the TIMED cycle's own witness PAIR
+  `{:pre-hot _ :post-hot _}` (rf2-a0i2y — the closing witness rides both order
+  paths too, so each fresh-frame path proves its own timed interval did the work,
+  not merely which state preceded it). Tears the frame down on every exit."
   [v order]
   (let [frame (rf/make-frame {:initial-events [[:rf/set-db (fixture/seed v)]]})]
     (-> (uit/with-root [root [ui/frame-provider {:frame frame}
@@ -262,21 +292,23 @@
             ;; the timed cycle runs; the timed cycle must then witness that advance.
             (-> (correctness-cycle! root frame v "order-control")
                 (.then (fn [_] (timing-cycle! frame)))
-                (.then (fn [timed] (:pre-hot timed))))
+                (.then (fn [timed] (select-keys timed [:pre-hot :post-hot]))))
             ;; The true cold order: the timed cycle runs first, so it witnesses 0.
             (-> (timing-cycle! frame)
-                (.then (fn [timed] (:pre-hot timed))))))
-        (.then (fn [pre-hot]
+                (.then (fn [timed] (select-keys timed [:pre-hot :post-hot]))))))
+        (.then (fn [witness]
                  (rf/destroy-frame! frame)
-                 pre-hot)
+                 witness)
                (fn [e]
                  (rf/destroy-frame! frame)
                  (throw e))))))
 
 (defn- order-control!
-  "Report each order's timed-cycle witness for the runner's causal cold-first
-  control: `:timing-first` (expected 0, passes) and `:correctness-first`
-  (expected `queued-writes`, fails)."
+  "Report each order's timed-cycle witness pair for the runner's causal
+  cold-first control: `:timing-first` (`:pre-hot` 0, passes the cold-first
+  assertion) and `:correctness-first` (`:pre-hot` `queued-writes`, fails it).
+  Both pairs also carry the rf2-a0i2y closing witness, so each path proves its
+  own timed interval advanced app-db by exactly `queued-writes`."
   [v]
   (-> (timed-witness! v :timing-first)
       (.then (fn [timing-first]
@@ -363,9 +395,12 @@
                    :affected-viewcells fixture/hot-count
                    :fixed-shell-idle-cells fixture/idle-shell-count
                    ;; rf2-6k4cm — the timed-cycle witness under both cycle orders.
-                   ;; `:timing-first` is the real cold order (0); `:correctness-first`
-                   ;; is a drain before the timer (queued-writes). The runner proves
-                   ;; the cold-first control accepts the former and rejects the latter.
+                   ;; `:timing-first` is the real cold order (:pre-hot 0);
+                   ;; `:correctness-first` is a drain before the timer (:pre-hot
+                   ;; queued-writes). The runner proves the cold-first control accepts
+                   ;; the former and rejects the latter. rf2-a0i2y — each pair also
+                   ;; carries `:post-hot`, so both fresh-frame paths prove their own
+                   ;; timed interval advanced app-db by exactly queued-writes.
                    :cold-first-order-control order
                    :timing-posture "evidence-only; no threshold"
                    ;; rf2-vxgfnd.210 — the explicit candidate-work axis plus the HONEST
