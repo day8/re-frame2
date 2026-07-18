@@ -195,8 +195,9 @@
 (defn sync-xray-trace-mirror!
   "Synchronously copy `trace-collector/buffer-for-test` into Xray's app-db
   `:trace-buffer` slot. The production path uses a `next-tick`-
-  coalesced `request-mirror-sync!` so the slot lands on the next
-  microtask; in node-test we want the mirror to be visible to subs
+  coalesced `request-mirror-sync!` so the slot lands on a later
+  TASK (`next-tick` is never a microtask and never inline); in
+  node-test we want the mirror to be visible to subs
   on the SAME tick the host dispatch returns, so the helpers below
   drive this synchronously after each `dispatch-host` / `dispatch-
   xray` call."

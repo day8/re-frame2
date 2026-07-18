@@ -256,19 +256,19 @@
     ;; secondary ring.
     ;; The slot lives in Xray's app-db at `:trace-buffer` and is
     ;; populated by `trace-collector/refresh-trace-rings!` — a
-    ;; microtask-coalesced snapshot from the framework's per-frame
+    ;; task-coalesced snapshot from the framework's per-frame
     ;; rings (`(re-frame.trace.tooling/trace-buffer fid {:flat true})`)
     ;; merged across `(rf/frame-ids)` and concatenated with the Xray-
     ;; side frameless secondary ring's contents, sorted by `:id`.
     ;;
     ;; The sub re-fires on the standard app-db-write reactive path so
-    ;; panels re-render on the next microtask after each refresh. The
+    ;; panels re-render on the next render boundary after each refresh. The
     ;; coalescer caps the mirror event-bundle at depth 1 regardless of host
     ;; trace-event volume; the router's drain-depth headroom cannot
     ;; gate the mirror under saturation.
     ;;
     ;; Returns the empty vector pre-mount (the slot is absent until
-    ;; the first refresh microtask drains). Panel-side composites that
+    ;; the first refresh task drains). Panel-side composites that
     ;; want richer projection (`group-by-event`, the L2 event list)
     ;; chain off `:rf.xray/event-bundles` rather than reading this slot
     ;; directly.
@@ -866,7 +866,7 @@
     ;;     fresh snapshot drawn from every registered frame's
     ;;     per-frame ring + the frameless secondary ring. Dispatched
     ;;     by `trace-collector/refresh-trace-rings!` (production
-    ;;     microtask-coalesced via `request-mirror-sync!`; tests call
+    ;;     task-coalesced via `request-mirror-sync!`; tests call
     ;;     `refresh-trace-rings!` directly for a deterministic sync
     ;;     entrypoint). Also seeds the slot at first mount.
     ;;
@@ -890,7 +890,7 @@
     ;; app-db with whatever the framework's per-frame rings + Xray's
     ;; frameless secondary ring have accumulated before the shell was
     ;; opened, and from `trace-collector/refresh-trace-rings!` /
-    ;; `request-mirror-sync!` on every microtask.
+    ;; `request-mirror-sync!` on every coalesced refresh task.
     ;; `:rf.trace/no-emit? true` for the same loop-avoidance reason.
     (rf/reg-event :rf.xray/sync-trace-buffer
       {:rf.trace/no-emit? true}

@@ -73,7 +73,7 @@ main read**.
   rings (Spec 009 §Per-frame trace rings): the self-noise filter,
   the privacy gate + suppressed-events counter, the small
   frameless secondary ring backing `:show-ungrouped?`, the
-  microtask-coalesced mirror sync, and the retroactive-scrub-on-
+  task-coalesced mirror sync, and the retroactive-scrub-on-
   toggle-off behaviour. Renamed from `013-Trace-Bus.md` at
   rf2-43koh when the separate Xray ring was retired in favour of
   the framework's per-frame cascade-keyed rings. Future: trace

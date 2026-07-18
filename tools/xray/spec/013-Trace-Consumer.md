@@ -5,7 +5,7 @@ Xray reads from the **framework's per-frame trace rings** + a small
 defines normatively what Xray's consumer-side surface adds on top of
 the framework's substrate — the self-noise filter, the privacy gate,
 the suppressed-events counter, the frameless secondary ring, the
-microtask-coalesced mirror sync, and the retroactive-scrub-on-toggle-
+task-coalesced mirror sync, and the retroactive-scrub-on-toggle-
 off behaviour.
 
 The framework owns the data plane: per-frame event-keyed rings with
@@ -31,13 +31,13 @@ contract; both ate the original motivation for a separate Xray ring
   [`self_noise.cljc`](../src/day8/re_frame2_xray/self_noise.cljc)
   (pure data, JVM-runnable; rf2-3g9nw D4=a).
 - The listener body + privacy gate + frameless secondary ring +
-  microtask coalescer + retroactive scrub live in
+  task coalescer + retroactive scrub live in
   [`trace_collector.cljs`](../src/day8/re_frame2_xray/trace_collector.cljs)
   (CLJS-only side effects; rf2-3g9nw D5=a).
 - The Settings buffer-depth slot renamed
   `:trace-buffer/keep` → `:events-retained` (one slot per event;
   default 1000 → 50; rf2-3g9nw D1=a).
-- Production reactive surface stays microtask-coalesced; tests get a
+- Production reactive surface stays task-coalesced; tests get a
   synchronous `refresh-trace-rings!` entrypoint (rf2-3g9nw D3=b).
 
 ## The consumer pipeline
@@ -64,7 +64,7 @@ to Xray's `collect-trace!` body so Xray can:
    off; bump the suppressed counter).
 3. Capture frameless events the framework's per-frame rings skipped
    (per the B3 ruling — frameless emits stream to listeners only).
-4. Schedule a microtask-coalesced snapshot of all rings into Xray's
+4. Schedule a task-coalesced snapshot of all rings into Xray's
    app-db `:trace-buffer` slot.
 
 ## Self-noise filter
@@ -257,19 +257,22 @@ to the merged vector, so retained-but-sensitive events never reach
 `:trace-buffer` while the egress profile redacts (the
 `:rf.egress/local-redacted` default).
 
-## Reactivity — microtask-coalesced mirror sync
+## Reactivity — task-coalesced mirror sync
 
 The buffer's reactive surface is Xray's `:rf/xray` app-db
 `:trace-buffer` slot. The `:rf.xray/trace-buffer` sub reads off the
 slot; layer-1 sub re-fires on the standard app-db-write reactive
-path so panels re-render on the next microtask after a refresh.
+path so panels re-render on the next render boundary after a refresh.
 
 ### Production path
 
 `trace-collector/request-mirror-sync!` schedules a coalesced refresh
-via `re-frame.interop/next-tick` (the microtask scheduler). Every
-listener callback that lands in the current JS task requests a sync;
-the queued microtask runs once, calls `refresh-trace-rings!`, and
+via `re-frame.interop/next-tick`, which runs the refresh
+**asynchronously, as a task** — never a host microtask, never inline
+(the runtime's drain-scheduling contract; see
+[`002-Frames.md`](../../../spec/002-Frames.md) §Drain scheduling).
+Every listener callback that lands in the current JS task requests a
+sync; the queued task runs once, calls `refresh-trace-rings!`, and
 the wholesale snapshot lands in `:trace-buffer`.
 
 The coalescer caps the mirror cascade depth at **1 regardless of
@@ -278,13 +281,36 @@ gate the mirror under saturation — a synthetic load of 1000 trace
 events landing in one JS task produces ONE mirror dispatch, not
 1000.
 
+**What is *not* guaranteed — host-dependent, do not build on it.**
+Beyond the task boundary itself, nothing about the refresh's timing is
+contractual:
+
+- **Which task mechanism runs the refresh.** `goog.async.nextTick`
+  picks per environment — a native `setImmediate` where one exists,
+  otherwise a `MessageChannel`/`postMessage` emulation, and, where
+  neither is available, a documented fallback to `setTimeout(cb, 0)`
+  (whose own Closure comment notes "In browsers this creates a delay
+  of 5ms or more"). There is therefore **no lower bound** on how long
+  the mirror takes to land, and none may be assumed.
+- **How many host microtasks drain first.** Microtasks scheduled from
+  the requesting stack — a `queueMicrotask` callback, a resolved
+  promise's continuation, the substrate's own ViewCell tear-correction
+  flush — all run **before** the mirror refresh, not after. Consumers
+  MUST NOT order themselves against the mirror by scheduling a
+  microtask.
+
+Neither property affects correctness here. The coalescer relies only
+on the task boundary, and a *later* boundary merges more requests,
+never fewer. Any consumer needing a deterministic snapshot uses the
+synchronous entrypoint below instead of racing the scheduler.
+
 ### Test path (rf2-3g9nw D3=b)
 
-Tests bypass the microtask coalescer by calling
+Tests bypass the coalescer by calling
 `trace-collector/refresh-trace-rings!` directly. The parallel-frames
 E2E (`rf2-wq6gx`) drives this entrypoint after each host
 `dispatch-sync` so the app-db slot snaps deterministically against
-the framework's rings without waiting on the microtask scheduler.
+the framework's rings without waiting on the scheduler.
 
 `refresh-trace-rings!` is a no-op pre-mount (`:rf/xray` not yet
 registered). The framework's per-frame rings keep accumulating; the
@@ -334,7 +360,7 @@ Panels read the buffer through layer-1 subscriptions:
 
 - **`:rf.xray/trace-buffer`** — flat vector of trace events,
   oldest-first by `:id`. Reads `(get db :trace-buffer)` off Xray's
-  app-db; populated by the coalesced microtask sync.
+  app-db; populated by the coalesced task sync.
 - **`:rf.xray/event-bundles`** — chained off `:rf.xray/trace-buffer`,
   composes `re-frame.trace.projection/group-by-event` and applies
   the `self-noise/xray-internal-event-bundle?` data-layer filter (per
@@ -576,7 +602,7 @@ buffer`).
 The self-noise predicates in
 [`self_noise.cljc`](../src/day8/re_frame2_xray/self_noise.cljc)
 are pure-data + JVM-runnable. The CLJS-only side-effecting bits —
-the listener body, the secondary ring atom, the microtask
+the listener body, the secondary ring atom, the task
 coalescer, the mirror dispatch — live in
 [`trace_collector.cljs`](../src/day8/re_frame2_xray/trace_collector.cljs).
 
@@ -585,7 +611,7 @@ records server-side; see
 [`012-Views.md`](./012-Views.md) §JVM behaviour for the parallel
 pattern) read the framework's per-frame rings via `(rf/trace-buffer
 fid opts)` and apply the consumer-side predicates from
-`self_noise.cljc`. The CLJS-only secondary ring + microtask
+`self_noise.cljc`. The CLJS-only secondary ring + task
 coalescer + reactive surface do not exist server-side.
 
 ## Production elision
