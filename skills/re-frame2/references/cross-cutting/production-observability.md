@@ -119,19 +119,19 @@ The error axis is small — an alert on it should *mean something*. Most failure
 
 ### The first promoted category: `:rf.error/frame-teardown-failed`
 
-One always-on category beyond the per-failure errors is worth knowing because its record shape differs. When a frame is destroyed the runtime runs best-effort cleanup hooks; a throwing hook is a resource leak the next operation can't see and compounds per SSR request — all three legs hold. Rather than flood the shipper with one record per failed hook, the runtime emits **one bounded report per destroy** carrying a `:hook-failures` vector. Your `register-listener! :errors` body must handle this shape (note `:hook-failures` + `:reason`, and `:error` — not `:operation` — as the discriminator, same as every error-emit record):
+One always-on category beyond the per-failure errors is worth knowing because its record shape differs. When a frame is destroyed the runtime runs a best-effort recipe of teardown steps — optional late-bound cleanup hooks plus a few guarded direct steps (notably the `:frame/notify-machine-destruction!` machine cascade). A throwing step is a resource leak the next operation can't see and compounds per SSR request — all three legs hold. Rather than flood the shipper with one record per failed step, the runtime emits **one bounded report per destroy** carrying a `:hook-failures` vector. Each entry's `:hook` names the step that threw (either kind — the `:hook-failures` / `:hook` wire names are deliberately stable) and `:where` records the boundary that caught it: `:safe-call-hook!` for a late-bound hook, `:safe-teardown-step!` for a guarded direct step. Your `register-listener! :errors` body must handle this shape (note `:hook-failures` + `:reason`, and `:error` — not `:operation` — as the discriminator, same as every error-emit record):
 
 ```clojure
 {:error         :rf.error/frame-teardown-failed
  :frame         :app/per-request-42
  :recovery      :ignored                 ;; teardown stays best-effort
- :reason        "2 frame-teardown cleanup hook(s) threw during destroy; ..."
+ :reason        "2 frame-teardown step(s) threw during destroy; ..."
  :time          1715600000000
  :hook-failures [{:hook :http/abort-inflight :exception #object[...] :where :safe-call-hook!}
                  {:hook :timers/clear        :exception #object[...] :where :safe-call-hook!}]}
 ```
 
-In **development** the per-hook detail still surfaces as `:rf.warning/teardown-hook-exception` traces on the diagnostic channel (at their causal positions, DCE'd in prod); the single always-on report is what a production shipper sees. A generic shipper body that maps `(:error record)` to the alert name and forwards the rest already handles this category without special-casing — the only gotcha is not assuming an `:event`/`:event-id` slot (a teardown report has neither; branch on `(:error record)` if you need the per-category shape).
+In **development** the per-step detail still surfaces as `:rf.warning/teardown-hook-exception` traces on the diagnostic channel (at their causal positions, DCE'd in prod); the single always-on report is what a production shipper sees. A generic shipper body that maps `(:error record)` to the alert name and forwards the rest already handles this category without special-casing — the only gotcha is not assuming an `:event`/`:event-id` slot (a teardown report has neither; branch on `(:error record)` if you need the per-category shape).
 
 ### The promoted-SSR records: `:rf.error/ssr-*` (non-event)
 

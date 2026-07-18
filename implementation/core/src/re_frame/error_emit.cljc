@@ -588,18 +588,23 @@
 
 ;; ---- frame-teardown report (EP-0008 promotion criterion) ------------------
 ;;
-;; The frame-destroy teardown recipe runs many optional cleanup hooks. A
-;; hook throwing is production-reachable (long-lived SSR / tooling), is a
+;; The frame-destroy teardown recipe runs many optional late-bound cleanup
+;; hooks plus a few guarded direct steps (notably the
+;; `:frame/notify-machine-destruction!` machine cascade). A teardown STEP
+;; throwing is production-reachable (long-lived SSR / tooling), is a
 ;; resource-leakage class (skipped teardown the next operation cannot see
 ;; locally), and compounds with process lifetime — all three legs of the
 ;; Spec 009 §promotion criterion hold. Rather than fan ONE always-on
-;; emission out per failed hook (an SSR per-request-destroy × M req/s flood
-;; of the production error shipper), the runtime accumulates the per-hook
+;; emission out per failed step (an SSR per-request-destroy × M req/s flood
+;; of the production error shipper), the runtime accumulates the per-step
 ;; failures and emits ONE bounded `:rf.error/frame-teardown-failed` record
 ;; carrying a `:hook-failures` vector (Spec 009 §Channel-promotion catalogue
-;; rows — the report-vs-per-item idiom). The dev per-hook diagnostic
+;; rows — the report-vs-per-item idiom). The dev per-step diagnostic
 ;; (`:rf.warning/teardown-hook-exception`, DCE'd in prod) stays at its
-;; causal positions inside `frame/safe-call-hook!`.
+;; causal positions, funneled through the shared
+;; `frame/record-teardown-failure!` boundary both catch sites route through
+;; (`frame/safe-call-hook!` for the late-bound hooks,
+;; `frame/safe-teardown-step!` for the guarded direct steps).
 
 (defn dispatch-frame-teardown-report!
   "Surface ONE always-on `:rf.error/frame-teardown-failed` report through
@@ -610,10 +615,10 @@
   Per Spec 009 §Observability channels §Channel-promotion catalogue rows
   (EP-0008 Open Issue 1, ruled): the frame-destroy case satisfies the
   promotion criterion with a SINGLE bounded report naming the higher-
-  level fact, with the per-hook detail carried as the `hook-failures`
-  payload vector — NOT one record per failed hook. The destroy IS the
-  fact; the hooks are detail rows, and one record preserves the
-  which-hooks-failed-together correlation external shippers will not
+  level fact, with the per-step detail carried as the `hook-failures`
+  payload vector — NOT one record per failed step. The destroy IS the
+  fact; the failed steps are detail rows, and one record preserves the
+  which-steps-failed-together correlation external shippers will not
   reliably re-group.
 
   Builds the catalogue-shaped record (`:tags` keys `:frame`,
@@ -648,8 +653,12 @@
         :frame          frame-id
         :hook-failures  (vec hook-failures)
         :recovery       :ignored
+        ;; rf2-d1yhx — "step(s)", not "cleanup hook(s)": a `:hook-failures`
+        ;; entry names a late-bound cleanup hook OR a guarded direct step
+        ;; (e.g. `:frame/notify-machine-destruction!`), so hook-only wording
+        ;; misreports a destroy whose only failure was a direct step.
         :reason         (str (count hook-failures)
-                             " frame-teardown cleanup hook(s) threw"
+                             " frame-teardown step(s) threw"
                              " during destroy; teardown continued"
                              " best-effort (skipped cleanup may have"
                              " leaked resources)")

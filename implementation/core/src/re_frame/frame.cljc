@@ -3035,23 +3035,27 @@
 ;; matters — see destroy-frame!'s docstring for the authoritative recipe.
 
 ;; Frame id of the in-flight `destroy-frame!`, bound for the duration of
-;; teardown so `safe-call-hook!` can stamp `:frame` on a hook-failure diagnostic
-;; regardless of the hook's arg shape (the cache-reset hooks take no frame arg).
+;; teardown so `record-teardown-failure!` can stamp `:frame` on a teardown-step
+;; failure diagnostic regardless of the step's arg shape (the cache-reset hooks
+;; take no frame arg).
 (def ^:dynamic *destroying-frame-id* nil)
 
-;; Per-destroy accumulator of cleanup-hook failures, bound to a fresh atom
-;; by `destroy-frame!` for the duration of the teardown walk. Each
-;; `safe-call-hook!` failure conj's one entry
-;; (`{:hook <key> :exception <ex> :where :safe-call-hook!}`); the
-;; finally-shaped flush at the bottom of `destroy-frame!` ships them as the
+;; Per-destroy accumulator of teardown-STEP failures, bound to a fresh atom
+;; by `destroy-frame!` for the duration of the teardown walk. Every failed
+;; step conj's one entry through the shared `record-teardown-failure!`
+;; boundary — `{:hook <step-key> :exception <ex> :where <catch-boundary>}`,
+;; where `:where` is `:safe-call-hook!` for a late-bound cleanup hook and
+;; `:safe-teardown-step!` for a guarded direct step (the wire names
+;; `:hook-failures` / `:hook` are deliberately stable and span both kinds).
+;; The finally-shaped flush at the bottom of `destroy-frame!` ships them as the
 ;; single always-on `:rf.error/frame-teardown-failed` report's
 ;; `:hook-failures` vector. ACCUMULATING into a side atom (rather than
-;; emitting per-hook on the always-on axis) is what makes the flush
+;; emitting per-step on the always-on axis) is what makes the flush
 ;; FINALLY-shaped: if a downstream teardown step aborts the walk mid-recipe,
 ;; the entries collected so far are already in the atom and the `finally`
 ;; boundary still flushes them (EP-0008 R1 / Spec 009 §Emit-safety —
-;; finally-shaped flush). nil outside a destroy (defensive — `safe-call-hook!`
-;; only conj's when bound).
+;; finally-shaped flush). nil outside a destroy (defensive —
+;; `record-teardown-failure!` only conj's when bound).
 (def ^:dynamic *teardown-hook-failures* nil)
 
 ;; SENSE (rf2-p4cd9c): event-pipeline-run — bound around ONE dequeued event's

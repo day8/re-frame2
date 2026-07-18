@@ -213,6 +213,39 @@
       (error-emit/dispatch-frame-teardown-report! :prod/frame [] 1)
       (is (empty? @seen) "empty :hook-failures → no record fanned out"))))
 
+(deftest report-reason-is-truthful-for-a-guarded-direct-step
+  (testing "Per rf2-d1yhx: a `:hook-failures` entry names a failed teardown
+            STEP — a late-bound cleanup hook OR a guarded direct step run
+            under `safe-teardown-step!` (notably the
+            `:frame/notify-machine-destruction!` machine cascade). The
+            user-facing `:reason` prose must therefore stay truthful when the
+            ONLY failure is a direct step: it must not claim a cleanup HOOK
+            threw. The `:hook-failures` / `:hook` wire names are deliberately
+            stable and span both kinds — this pins the prose, not the shape."
+    (let [seen (atom [])]
+      (rf/register-listener! :errors :test/recorder
+                                   (fn [record] (swap! seen conj record)))
+      (error-emit/dispatch-frame-teardown-report!
+        :prod/frame
+        [{:hook      :frame/notify-machine-destruction!
+          :exception (ex-info "machine cascade blew up" {})
+          :where     :safe-teardown-step!}]
+        99)
+      ;; Filter by category rather than taking `first` — the always-on
+      ;; `:errors` stream is shared, so an unrelated record landing in `seen`
+      ;; must not decide this assertion (the sibling deftests above use the
+      ;; same guard).
+      (let [r (first (filter #(= :rf.error/frame-teardown-failed (:error %)) @seen))]
+        (is (some? r) "the teardown report reached the always-on listener")
+        (is (= :safe-teardown-step! (:where (first (:hook-failures r))))
+            "the entry is a guarded direct step, not a late-bound hook")
+        (is (string? (:reason r)))
+        (is (not (re-find #"cleanup hook" (:reason r)))
+            (str "the :reason must not claim a cleanup HOOK threw when the only"
+                 " failure was a guarded direct step — got: " (:reason r)))
+        (is (re-find #"step\(s\) threw" (:reason r))
+            "the :reason names failed teardown STEPS, spanning both kinds")))))
+
 (deftest report-late-bind-hook-is-published
   (testing "Per rf2-ini4wr: error-emit publishes the
             `:error-emit/dispatch-frame-teardown-report` late-bind hook
