@@ -85,12 +85,30 @@
   (:status (get @run-state frame-id) :idle))
 
 (defn drop-frame-state!
-  "Clear all a11y state for `frame-id`. Called from the canvas /
-  shell teardown when a variant frame is destroyed.
+  "Clear all a11y state for `frame-id`. Called on variant-frame teardown
+  through the `:drop-a11y-state` late-bind hook, which
+  `re-frame.story.frames` invokes from `run-teardown-walks!` (shared by
+  `destroy!` and the in-place `reset-state!`) and from
+  `destroy-inline!` — the same three seams that evict the play-runner's
+  per-frame run-state and the assertion accumulators.
+
+  NOT called from the canvas or the shell, despite what this docstring
+  claimed until rf2-cpbut: `ui/canvas`'s `component-will-unmount` clears
+  its own render sentinels but never destroys a variant frame, and no
+  `ui/` namespace calls `destroy!` at all. The UI reaches teardown only
+  indirectly, via `runtime/reset-variant` (test-mode re-run, stepper) and
+  via `run-variant`'s fresh-run boundary. Naming a caller that did not
+  exist is what let this go unwired.
+
+  Why it matters that this runs at all. The violations bag holds raw
+  axe-core violation objects, each referencing the offending elements
+  through `:nodes` / `:target`; an entry that outlives its frame pins
+  that variant's DETACHED DOM subtree for the life of the page.
 
   Dropping the slot also revokes any in-flight run's claim on it: the
-  run's token no longer matches, so its settlement is refused rather
-  than resurrecting the frame (see `stale-run?`)."
+  run's token lives IN the slot, so it no longer matches and the
+  settlement is refused rather than resurrecting the frame (see
+  `stale-run?`)."
   [frame-id]
   (swap! violations-by-frame dissoc frame-id)
   (swap! run-state           dissoc frame-id)
