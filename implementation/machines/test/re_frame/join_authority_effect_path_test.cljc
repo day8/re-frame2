@@ -35,18 +35,29 @@
       so the join still folds EXACTLY ONCE on the framework-produced coordinate.
       The canonical `:rf.error/override-fallthrough` is still surfaced through the
       ONE override engine (`re-frame.fx/resolve-fx-with-overrides`).
-    - `:rf.machine/join-dispatch` joins core's `rejected-reserved-fx-ids`, so a
-      DIRECT override of it is rejected (`:rf.error/reserved-fx-override`, the
-      real transport runs) and a REDIRECT whose target is it is refused (no
-      privilege escalation, no self-recursion).
+    - `:rf.machine/join-dispatch` joins core's non-overridable-source AND
+      non-redirectable-target policies (rf2-1w4af split of the old
+      `rejected-reserved-fx-ids`), so a DIRECT override of it is rejected
+      (`:rf.error/reserved-fx-override`, the real transport runs) and a REDIRECT
+      whose target is it is refused (no privilege escalation, no self-recursion).
+
+  rf2-1w4af — the source (non-overridable) and target (non-redirectable)
+  policies are now SEPARATE: `:rf.machine/spawn` / `:rf.machine/destroy` are
+  non-overridable sources but REDIRECTABLE targets (an app emits them directly,
+  so a custom effect may redirect to the real handler), while
+  `:rf.machine/join-dispatch` retains BOTH policies on its own redirect-specific
+  rationale. Pinned in `source-nonoverridable-are-redirectable-targets` below.
 
   MUTATION TEETH: reverting the `override-applies?` gate to `real-override?`
   fails the fallthrough folds; removing `:rf.machine/join-dispatch` from the
-  reject set fails the capture + recursion guards."
+  reject set fails the capture + recursion guards; re-conflating the two policies
+  (adding `:rf.machine/spawn` back to the target set) fails the redirect-target
+  case below."
   (:require
    #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
       :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
    [re-frame.core :as rf]
+   [re-frame.fx :as fx]
    [re-frame.interop :as interop]
    [re-frame.late-bind :as late-bind]
    [re-frame.machines]
@@ -394,3 +405,45 @@
         (is (= #{:a} (:done (join-state :jae.dl/rp)))
             "delivering the deferred recordable completion folds :a exactly once")
         (is (empty? (stale-reasons)) "no stale suppression — the recordable coordinate carried through end to end")))))
+
+;; ---------------------------------------------------------------------------
+;; (8) rf2-1w4af — SOURCE (non-overridable) and TARGET (non-redirectable) are
+;;     TWO SEPARATE policies. `:rf.machine/spawn` / `:rf.machine/destroy` are
+;;     non-overridable SOURCES but REDIRECTABLE TARGETS (an app emits them
+;;     directly, so a custom effect may redirect to the real registered
+;;     handler); `:rf.machine/join-dispatch` alone retains BOTH policies on its
+;;     redirect-specific self-recursion / private-transport rationale.
+;;     Adversarial: two ids in the SAME non-overridable-source set DIVERGE on
+;;     the redirect-target policy — proving the sets are no longer conflated.
+;; ---------------------------------------------------------------------------
+
+(deftest source-nonoverridable-are-redirectable-targets
+  (testing "rf2-1w4af — a NON-OVERRIDABLE SOURCE is a REDIRECTABLE TARGET: a
+            custom effect redirects to the real registered spawn/destroy handler
+            (`:applied-redirect`), while a DIRECT override of the same id stays
+            rejected/stripped (`non-overridable-source-fx-ids`). The machines
+            artefact registers both fxs, so they are ids an app can emit
+            directly — forbidding the redirect overstated the boundary."
+    (doseq [id [:rf.machine/spawn :rf.machine/destroy]]
+      ;; Redirectable TARGET — was WRONGLY `:protected-rejection` under the
+      ;; conflated set; now the redirect reaches the real registered handler.
+      (is (= {:disposition :applied-redirect :target id}
+             (fx/classify-fx-override {:my/custom id} :my/custom))
+          (str id " is a REDIRECTABLE target — a custom effect reaches the real handler"))
+      ;; Non-overridable SOURCE — a direct override is still stripped loudly.
+      (is (= {} (fx/strip-rejected-overrides {id (fn [_ _] :stub)} :rf/default [:some/event]))
+          (str id " is a NON-OVERRIDABLE source — a direct override is stripped"))))
+
+  (testing "rf2-1w4af — vice-versa: `:rf.machine/join-dispatch` retains BOTH
+            policies on its own redirect-specific rationale (self-recursion /
+            private framework transport). It is the sole member of the target
+            set — re-conflating (adding spawn/destroy back) would fail the
+            redirect-target case above."
+    ;; Non-redirectable TARGET — `{:dispatch :rf.machine/join-dispatch}` refused.
+    (is (= {:disposition :protected-rejection :target :rf.machine/join-dispatch}
+           (fx/classify-fx-override {:dispatch :rf.machine/join-dispatch} :dispatch))
+        ":rf.machine/join-dispatch stays a NON-REDIRECTABLE target (no recursion escape)")
+    ;; Non-overridable SOURCE — a direct override is stripped loudly.
+    (is (= {} (fx/strip-rejected-overrides
+                {:rf.machine/join-dispatch (fn [_ _] :stub)} :rf/default [:some/event]))
+        ":rf.machine/join-dispatch stays a NON-OVERRIDABLE source")))

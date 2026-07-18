@@ -1486,6 +1486,48 @@
       (is (zero? (count (filter #(= :rf.error/reserved-fx-override (:operation %)) @traces)))
           "no :rf.error/reserved-fx-override fired — the override was excluded from the child opts (not inherited-then-rejected)"))))
 
+;; ---- 7d. SOURCE vs TARGET policy separation (rf2-1w4af) -------------------
+;;
+;; `rejected-reserved-fx-ids` once served TWO policies conflated into one set:
+;;   (1) non-overridable SOURCE  — an id whose real body may not be OVERRIDDEN.
+;;   (2) non-redirectable TARGET — an id a keyword-redirect may not name.
+;; A non-overridable source is NOT automatically a non-redirectable target: an
+;; app can emit `:rf.machine/spawn` / `:rf.machine/destroy` directly, so a
+;; custom effect may redirect to the same real handler. Only the private
+;; `:rf.machine/join-dispatch` transport keeps BOTH policies (its own
+;; self-recursion / framework-path rationale). The fixture reloads
+;; `re-frame.machines`, so `:rf.machine/spawn` / `:rf.machine/destroy` are real
+;; registrar fxs here.
+
+(deftest source-nonoverridable-is-redirectable-target
+  (testing "a NON-OVERRIDABLE SOURCE (:rf.machine/spawn / :rf.machine/destroy)
+            is a REDIRECTABLE TARGET — a custom effect resolves to the real
+            registered handler (was WRONGLY :protected-rejection when the two
+            policies shared one set)"
+    (doseq [id [:rf.machine/spawn :rf.machine/destroy]]
+      (is (some? (registrar/lookup :fx id))
+          (str "precondition: the machines artefact registered " id))
+      (is (= {:disposition :applied-redirect :target id}
+             (fx/classify-fx-override {:my/custom id} :my/custom))
+          (str "a custom effect redirects to the registered " id " handler"))))
+
+  (testing "the SAME ids remain NON-OVERRIDABLE SOURCES — a DIRECT override is
+            stripped loudly (source policy intact)"
+    (doseq [id [:rf.machine/spawn :rf.machine/destroy]]
+      (is (= {} (fx/strip-rejected-overrides {id (fn [_ _] :stub)} :rf/default [:some/event]))
+          (str "a direct " id " override is rejected/stripped"))))
+
+  (testing "vice-versa: the private :rf.machine/join-dispatch transport stays a
+            NON-REDIRECTABLE TARGET (independent redirect-specific rationale) AND
+            a NON-OVERRIDABLE SOURCE — re-conflating the sets would break the
+            redirect-target case above"
+    (is (= {:disposition :protected-rejection :target :rf.machine/join-dispatch}
+           (fx/classify-fx-override {:dispatch :rf.machine/join-dispatch} :dispatch))
+        "redirecting canonical dispatch to :rf.machine/join-dispatch is still refused")
+    (is (= {} (fx/strip-rejected-overrides
+                {:rf.machine/join-dispatch (fn [_ _] :stub)} :rf/default [:some/event]))
+        "a direct :rf.machine/join-dispatch override is still stripped")))
+
 ;; ---- rf2-twt7m Change 2 — :rf.fx/do-fx carries :fx + :db-present? ---------
 ;;
 ;; The handler's return shape is otherwise invisible at the trace level —

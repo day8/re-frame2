@@ -439,16 +439,25 @@
   (when-let [f (late-bind/get-fn hook-key)]
     (f args {:frame frame-id})))
 
-;; ---- reserved-fx override tier (rf2-snsup5) -------------------------------
+;; ---- two reserved-fx policies (rf2-snsup5; split rf2-1w4af) ---------------
 ;;
-;; Per Conventions §Reserved fx-ids, the reserved set is tiered by the
-;; STATE-INSTALLATION criterion (Mike-ruled 2026-06-10): a reserved fx-id
+;; `:fx-overrides` interacts with reserved fx-ids along TWO INDEPENDENT axes.
+;; They were once one conflated set (`rejected-reserved-fx-ids`), which forced
+;; every non-overridable SOURCE to also be a non-redirectable TARGET — a
+;; broader boundary than the runtime needs (rf2-1w4af). The two policies are
+;; now separately named and separately checked; an id earns membership of each
+;; on its OWN rationale.
+;;
+;; POLICY 1 — NON-OVERRIDABLE SOURCE (`non-overridable-source-fx-ids`).
+;; The STATE-INSTALLATION criterion (Mike-ruled 2026-06-10): a reserved fx-id
 ;; stays OVERRIDABLE via `:fx-overrides` (fn-value OR keyword-redirect) when
 ;; its body only ROUTES dispatches or touches host/browser state WITHOUT
 ;; writing the frame runtime-db; it HARD-REJECTS the override (emit
 ;; `:rf.error/reserved-fx-override`, run the real reserved/registered body)
 ;; when its body INSTALLS or CLEARS durable frame-internal runtime state that
-;; later framework behaviour depends on.
+;; later framework behaviour depends on, threads a correctness-critical
+;; nav-token, or IS a framework transport whose capture/suppression would
+;; subvert a correctness fence.
 ;;
 ;;   OVERRIDABLE: `:dispatch`, `:dispatch-later` (pure router-queue routing),
 ;;                `:rf.machine/dispatch-to-system` (pure lookup-then-dispatch,
@@ -460,8 +469,8 @@
 ;;                NOT in the reject set below — they flow through the existing
 ;;                fn-value / keyword-redirect resolution unchanged.
 ;;
-;;   HARD-REJECT (the set below): the state-installing lifecycle fxs. Their
-;;                bodies install/clear durable runtime-db state (machine
+;;   HARD-REJECT (the source set below): the state-installing lifecycle fxs.
+;;                Their bodies install/clear durable runtime-db state (machine
 ;;                snapshots, flow registry entries) or thread a correctness-
 ;;                critical nav-token; an override that stubs them out would
 ;;                break framework behaviour FAR FROM the override site (a
@@ -472,34 +481,65 @@
 ;;                fn-value overrides of `:dispatch` / `:dispatch-later`
 ;;                pre-empt the reserved body (pinned in fx_test.clj:1042-1107).
 ;;
+;; POLICY 2 — NON-REDIRECTABLE TARGET (`non-redirectable-target-fx-ids`).
+;; A keyword-redirect `{:some-fx <target>}` may not name a member as its
+;; TARGET. This is NOT implied by Policy 1 (rf2-1w4af): `:rf.machine/spawn` /
+;; `:rf.machine/destroy` are ordinary REGISTERED fxs an app can already emit
+;; DIRECTLY, so redirecting a custom effect to the SAME real handler is a
+;; legitimate ergonomic — forbidding it overstated the boundary. Only ids with
+;; a redirect-SPECIFIC hazard qualify. The one member, `:rf.machine/join-
+;; dispatch`, is a PRIVATE join-completion transport (rf2-2lzk8a): allowing
+;; `{:dispatch :rf.machine/join-dispatch}` would let an app capture the
+;; framework path AND recursively re-enter override resolution to a
+;; StackOverflowError. `:rf.fx/reg-flow` / `:rf.fx/clear-flow` need no listing —
+;; they resolve via `reserved-fx-handlers`, never the registrar, so a redirect
+;; to them already falls through honestly as `:unregistered`.
+;;
 ;; `:rf.fx/reg-flow` / `:rf.fx/clear-flow` resolve via `reserved-fx-handlers`
 ;; (the reserved table); `:rf.machine/spawn` / `:rf.machine/destroy` /
 ;; `:rf.route/with-nav-token` resolve via the registrar (registered by their
-;; feature artefacts through the regular `reg-fx` path). The reject is
+;; feature artefacts through the regular `reg-fx` path). The source reject is
 ;; enforced uniformly in `handle-one-fx` BEFORE resolution, so it covers both
 ;; resolution paths.
-(def ^:private rejected-reserved-fx-ids
-  "Reserved fx-ids whose `:fx-overrides` are HARD-REJECTED (rf2-snsup5).
-  Overriding any of these installs/clears durable frame runtime-db state
-  (machines, flows), drops a correctness-critical nav-token, or — for the
-  private `:rf.machine/join-dispatch` join-completion transport (rf2-2lzk8a) —
-  captures or suppresses it, subverting the exact-attempt correlation fence. The override is ignored,
+(def ^:private non-overridable-source-fx-ids
+  "POLICY 1 — reserved fx-ids whose `:fx-overrides` are HARD-REJECTED when
+  supplied AS THE OVERRIDDEN id (rf2-snsup5). Overriding any of these
+  installs/clears durable frame runtime-db state (machines, flows), drops a
+  correctness-critical nav-token, or — for the private `:rf.machine/join-
+  dispatch` join-completion transport (rf2-2lzk8a) — captures or suppresses it,
+  subverting the exact-attempt correlation fence. The override is ignored,
   `:rf.error/reserved-fx-override` is emitted, and the real reserved/registered
   body runs. In production the effective override map is stripped of these keys
   LOUDLY before `do-fx` (see `strip-rejected-overrides`).
 
-  This set is ALSO the set of PROTECTED redirect TARGETS: `resolve-fx-with-
-  overrides` refuses a keyword-redirect whose target is a member (rf2-2lzk8a),
-  so an app can neither override these ids directly NOR reach them by
-  redirecting a canonical effect (`{:dispatch :rf.machine/join-dispatch}`) — the
-  latter would otherwise bypass this reject AND recursively re-enter override
-  resolution to a StackOverflowError."
+  DISTINCT FROM the redirect-TARGET policy (rf2-1w4af): membership here forbids
+  OVERRIDING the id, NOT redirecting a custom effect TO it. Only
+  `non-redirectable-target-fx-ids` (join-dispatch alone) is refused as a
+  redirect target — `:rf.machine/spawn` / `:rf.machine/destroy` are directly
+  emittable registered fxs, so a redirect to their real handler is allowed."
   #{:rf.machine/spawn
     :rf.machine/destroy
     :rf.machine/join-dispatch
     :rf.fx/reg-flow
     :rf.fx/clear-flow
     :rf.route/with-nav-token})
+
+(def ^:private non-redirectable-target-fx-ids
+  "POLICY 2 — reserved fx-ids that may not be the TARGET of a keyword-redirect
+  (`{:some-fx <target>}`). `classify-fx-override` refuses such a redirect with
+  `:protected-rejection` (same fallthrough diagnostic as an unregistered
+  target), so an app can neither override the id directly (Policy 1) NOR reach
+  it by redirecting a canonical effect.
+
+  ONLY ids with a redirect-SPECIFIC rationale belong here (rf2-1w4af) — this is
+  deliberately NARROWER than `non-overridable-source-fx-ids`. The sole member,
+  the private `:rf.machine/join-dispatch` join-completion transport (rf2-2lzk8a),
+  qualifies because `{:dispatch :rf.machine/join-dispatch}` would otherwise
+  capture the framework path AND recursively re-enter override resolution to a
+  StackOverflowError. `:rf.machine/spawn` / `:rf.machine/destroy` are ORDINARY
+  registered fxs an app already emits directly, so redirecting a custom effect
+  to the same real handler is permitted (it is not privilege escalation)."
+  #{:rf.machine/join-dispatch})
 
 (defn classify-fx-override
   "Resolve `overrides`[`fx-id`] into ONE structured disposition, performing the
@@ -524,8 +564,8 @@
       A real but non-applying override — surface `:rf.error/override-fallthrough`
       (`emit-override-fallthrough!`), then run the original fx.
     {:disposition :protected-rejection :target <fx-id>}
-      A keyword redirect whose TARGET is a protected internal id
-      (`rejected-reserved-fx-ids`) — refused, same fallthrough diagnostic.
+      A keyword redirect whose TARGET is a non-redirectable internal id
+      (`non-redirectable-target-fx-ids`) — refused, same fallthrough diagnostic.
 
   Pure and non-emitting (mirrors the value-inspecting predicate family); callers
   own any diagnostic / execution."
@@ -536,7 +576,7 @@
       (fn? v)                  {:disposition :applied-fn :override v}
       (keyword? v)
       (cond
-        (contains? rejected-reserved-fx-ids v) {:disposition :protected-rejection :target v}
+        (contains? non-redirectable-target-fx-ids v) {:disposition :protected-rejection :target v}
         (registrar/lookup :fx v)               {:disposition :applied-redirect :target v}
         :else                                  {:disposition :fallthrough :reason :unregistered :target v})
       :else                    {:disposition :fallthrough :reason :malformed :value v})))
@@ -566,9 +606,9 @@
 
 (defn- real-reject-override?
   "True iff `overrides` carries a GENUINE reject-tier override attempt for
-  reserved `fx-id` — i.e. `fx-id` is in `rejected-reserved-fx-ids` AND its
-  override VALUE is a real override (`real-override?`), NOT the documented
-  nil/false no-op placeholder.
+  reserved `fx-id` — i.e. `fx-id` is a NON-OVERRIDABLE SOURCE
+  (`non-overridable-source-fx-ids`) AND its override VALUE is a real override
+  (`real-override?`), NOT the documented nil/false no-op placeholder.
 
   rf2-x76af2.27: the reject-tier gates previously tested bare key PRESENCE
   (`contains?`), so an override entry `{:rf.fx/reg-flow nil}` — the collapsed
@@ -580,7 +620,7 @@
   gating the reject tier on the VALUE mirrors that treatment — nil/false falls
   through silently, only a real fn/keyword override emits + is neutralised."
   [overrides fx-id]
-  (and (contains? rejected-reserved-fx-ids fx-id)
+  (and (contains? non-overridable-source-fx-ids fx-id)
        (real-override? overrides fx-id)))
 
 ;; Inheritable envelope fields — copied from parent to child when
@@ -649,7 +689,7 @@
   keys, this is a runtime ordering flag — carried unconditionally.
 
   Per rf2-snsup5 §Cascade-exclusion: the inherited `:fx-overrides` is
-  filtered against `rejected-reserved-fx-ids` so a reject-tier reserved-fx
+  filtered against `non-overridable-source-fx-ids` so a reject-tier reserved-fx
   override (state-installing lifecycle fx / nav-token) NEVER propagates into
   a machine-internal or fx-emitted child dispatch. A captured-dispatch test
   override of `:dispatch` rides the cascade as before (it's OVERRIDABLE);
@@ -663,11 +703,11 @@
   (if parent-envelope
     (cond-> (select-keys parent-envelope inheritable-envelope-keys)
       (:rf.machine/internal? parent-envelope)  (assoc :rf.machine/internal? true)
-      ;; Cascade-exclusion (rf2-snsup5): never inherit a reject-tier reserved-fx
-      ;; override into a child dispatch. No-op (identity, no churn) when the
-      ;; inherited `:fx-overrides` carries no reject-tier key — the dominant path.
-      (some #(contains? (:fx-overrides parent-envelope) %) rejected-reserved-fx-ids)
-      (update :fx-overrides #(apply dissoc % rejected-reserved-fx-ids)))
+      ;; Cascade-exclusion (rf2-snsup5): never inherit a non-overridable-source
+      ;; reserved-fx override into a child dispatch. No-op (identity, no churn)
+      ;; when the inherited `:fx-overrides` carries no such key — the dominant path.
+      (some #(contains? (:fx-overrides parent-envelope) %) non-overridable-source-fx-ids)
+      (update :fx-overrides #(apply dissoc % non-overridable-source-fx-ids)))
     {:frame frame-id}))
 
 (defn child-dispatch!
@@ -884,7 +924,8 @@
 
 (defn- emit-reserved-fx-override!
   "Emit `:rf.error/reserved-fx-override` (rf2-snsup5) when an `:fx-overrides`
-  entry targets a reject-tier reserved fx-id (`rejected-reserved-fx-ids`).
+  entry OVERRIDES a non-overridable-source reserved fx-id
+  (`non-overridable-source-fx-ids`).
   Fans out through BOTH error substrates via `emit-fx-error!` — the override
   is a production-reachable misconfiguration (Spec 009 §Error event
   catalogue). The recovery is `:reserved-body-ran`: the override is ignored
@@ -910,9 +951,10 @@
                    :recovery   :reserved-body-ran}))
 
 (defn strip-rejected-overrides
-  "Production prod-strip (rf2-snsup5): remove every reject-tier reserved
-  fx-id (`rejected-reserved-fx-ids`) from an effective `:fx-overrides` map,
-  emitting one LOUD `:rf.error/reserved-fx-override` per stripped key. Called
+  "Production prod-strip (rf2-snsup5): remove every non-overridable-source
+  reserved fx-id (`non-overridable-source-fx-ids`) from an effective
+  `:fx-overrides` map, emitting one LOUD `:rf.error/reserved-fx-override` per
+  stripped key. Called
   by the router on the merged per-frame ⋈ per-call override map BEFORE
   `do-fx` so a production frame can never stub a state-installing lifecycle
   fx — the dev path (`handle-one-fx`) emits the error and runs the reserved
@@ -931,7 +973,7 @@
    (strip-rejected-overrides overrides frame-id origin-event (constantly true)))
   ([overrides frame-id origin-event continue?]
    (if (and (map? overrides)
-            (some #(real-reject-override? overrides %) rejected-reserved-fx-ids))
+            (some #(real-reject-override? overrides %) non-overridable-source-fx-ids))
      (let [origin-event-id (when (vector? origin-event) (first origin-event))]
        (reduce-kv
          (fn [acc fx-id override-target]
@@ -1022,14 +1064,17 @@
     1. **Missing key** — no override; the original fx-id flows through.
     2. **Keyword value** — id-redirect: the registered fx at the target id
        runs in place of the original. If the target is not registered, OR the
-       target is a PROTECTED internal id (`rejected-reserved-fx-ids` — the
-       private lifecycle transports / nav-token threader / join-completion
-       transport, rf2-2lzk8a), emit `:rf.error/override-fallthrough` and fall
-       back to the original fx-id. Refusing the protected target closes the
-       privilege-escalation / self-recursion escape (`{:dispatch
-       :rf.machine/join-dispatch}` would otherwise bypass the reserved-key
-       reject AND re-enter override resolution unboundedly). This is the
-       **pattern-level**, portable form (SSR-safe).
+       target is a NON-REDIRECTABLE internal id
+       (`non-redirectable-target-fx-ids` — the private `:rf.machine/join-
+       dispatch` join-completion transport, rf2-2lzk8a / rf2-1w4af), emit
+       `:rf.error/override-fallthrough` and fall back to the original fx-id.
+       Refusing the protected target closes the privilege-escalation /
+       self-recursion escape (`{:dispatch :rf.machine/join-dispatch}` would
+       otherwise bypass the source reject AND re-enter override resolution
+       unboundedly). NOTE (rf2-1w4af): this target set is NARROWER than the
+       non-overridable SOURCE set — a redirect to a directly-emittable
+       registered fx like `:rf.machine/spawn` / `:rf.machine/destroy` is
+       ALLOWED. This is the **pattern-level**, portable form (SSR-safe).
     3. **Function value** `(fn [m args] ...)` — CLJS reference convenience
        for test fixtures and story decorators. The fn runs in place of the
        registered fx; no registry lookup against the original fx-id is
@@ -1208,10 +1253,10 @@
    (if-not (exact-owner-live? frame-id)
      stale-incarnation
      (let [origin-event-id (when (vector? origin-event) (first origin-event))
-        ;; rf2-snsup5: HARD-REJECT an `:fx-overrides` entry that targets a
-        ;; reject-tier reserved fx-id (`rejected-reserved-fx-ids` — the
-        ;; state-installing lifecycle fxs + the nav-token threader). Whether
-        ;; the override is fn-value or keyword-redirect, it is IGNORED: we
+        ;; rf2-snsup5: HARD-REJECT an `:fx-overrides` entry that OVERRIDES a
+        ;; non-overridable-source reserved fx-id (`non-overridable-source-fx-ids`
+        ;; — the state-installing lifecycle fxs + the nav-token threader).
+        ;; Whether the override is fn-value or keyword-redirect, it is IGNORED: we
         ;; emit `:rf.error/reserved-fx-override` and neutralise the override
         ;; for this id so the real reserved/registered body runs (the
         ;; reserved table for `:rf.fx/reg-flow` / `:rf.fx/clear-flow`, the
