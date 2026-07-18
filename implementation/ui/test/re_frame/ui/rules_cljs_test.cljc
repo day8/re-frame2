@@ -429,6 +429,99 @@
       "and it commits with build :b's own cycle"))
 
 ;; ---------------------------------------------------------------------------
+;; rf2-84173 — exactly ONE live cycle per build, and the supersession is LOUD.
+;;
+;; `notify-reload!` replaces whatever cycle was open. That is deliberate: shadow
+;; abandons the remaining task chain when a load task throws, so an aborted
+;; reload never runs `^:dev/after-load` and leaves its cycle open forever — the
+;; next before-load must clear it. It is also LOSSY, and it used to be silent:
+;; the same blind clobber served the routine abort-recovery and the pathological
+;; overlapping-cycle case, and nothing distinguished or reported them.
+;;
+;; These fixtures pin the SUPPORTED model honestly, including its documented
+;; loss. They do not pretend overlapping same-build cycles work — shadow conveys
+;; no cycle identity to `^:dev/after-load` and does not pair it with before-load,
+;; so no token in this ledger could make them work (see rules.cljc §Overlapping
+;; cycles are unsupported).
+;; ---------------------------------------------------------------------------
+
+(deftest overlapping-same-build-cycles-settle-without-orphan-or-duplicate
+  (rules/reset-custom-elements!)
+  (rules/register-custom-element! :base-el {:properties #{:b}} 'app.base :ov)
+  (rules/notify-reload! :ov)                                          ; cycle N
+  (rules/register-custom-element! :n-el {:properties #{:n}} 'app.n :ov) ; N stages
+  (is (= #{:ov} (rules/in-flight-cycles))
+      "one live cycle for the build")
+  (rules/notify-reload! :ov)                                          ; cycle N+1
+  (is (= #{:ov} (rules/in-flight-cycles))
+      "still exactly ONE live cycle — a build never accumulates cycles")
+  (rules/register-custom-element! :m-el {:properties #{:m}} 'app.m :ov) ; N+1 stages
+  (rules/commit-reload! :ov)                                          ; N's after-load
+  (is (empty? (rules/in-flight-cycles))
+      "the single live cycle is closed — no orphan")
+  (is (= #{:m} (rules/custom-element-properties :m-el))
+      "the live cycle's staging committed")
+  (is (= #{} (rules/custom-element-properties :n-el))
+      "the SUPERSEDED cycle's staging was discarded — the documented, diagnosed
+       loss, not a silent one; overlapping same-build cycles are unsupported")
+  (is (= #{:b} (rules/custom-element-properties :base-el))
+      "an untouched source is unaffected by the supersession")
+  ;; the superseded cycle's own after-load arrives later: a harmless no-op that
+  ;; must not close, reopen, or re-apply anything.
+  (rules/commit-reload! :ov)
+  (is (empty? (rules/in-flight-cycles))
+      "the stale completion closes nothing and creates nothing")
+  (is (= {:base-el {:properties #{:b}} :m-el {:properties #{:m}}}
+         @rules/custom-elements)
+      "the settled manifest is exactly the supported model's legal outcome")
+  (is (= (rules/projected-aggregate) @rules/custom-elements)
+      "settled aggregate equals the ledger projection — nothing doubled"))
+
+#?(:cljs
+   (defn- capturing-console-warn
+     "Run `body` with `js/console.warn` captured; returns the captured messages."
+     [body]
+     (let [warnings (atom [])
+           original (.-warn js/console)]
+       (set! (.-warn js/console) (fn [msg] (swap! warnings conj (str msg))))
+       (try (body)
+            (finally (set! (.-warn js/console) original)))
+       @warnings)))
+
+#?(:cljs
+   (deftest superseding-a-live-cycle-is-diagnosed-never-silent
+     ;; FAIL-BEFORE lever: restore the bare `(swap! ledger-state assoc-in ...)`
+     ;; clobber and no diagnostic is emitted, so this reddens.
+     (rules/reset-custom-elements!)
+     (rules/register-custom-element! :s-el {:properties #{:s}} 'app.s :diag)
+     (let [warnings (capturing-console-warn
+                     (fn []
+                       (rules/notify-reload! :diag)
+                       (rules/register-custom-element! :s-el {:properties #{:s2}} 'app.s :diag)
+                       (rules/note-reloaded-sources! ['app.s] :diag)
+                       (rules/notify-reload! :diag)))]   ; UNPAIRED before-load
+       (is (= 1 (count warnings))
+           "the supersession is reported exactly once — bounded, not per-source")
+       (is (re-find #"STILL\s+OPEN" (first warnings))
+           "and names the anomaly it discarded evidence for"))))
+
+#?(:cljs
+   (deftest an-empty-cycle-reopened-discards-nothing-and-is-silent
+     ;; The guard must test what was LOST, not merely whether the cycle key was
+     ;; present — a presence test would warn on every ordinary consecutive
+     ;; reload that happened to stage nothing, training the reader to ignore it.
+     (rules/reset-custom-elements!)
+     (let [warnings (capturing-console-warn
+                     (fn []
+                       (rules/notify-reload! :quiet)
+                       (rules/notify-reload! :quiet)))]
+       (is (empty? warnings)
+           "re-opening a cycle that staged and touched NOTHING discarded nothing"))
+     (rules/commit-reload! :quiet)
+     (is (empty? (rules/in-flight-cycles))
+         "and the ledger still settles cleanly")))
+
+;; ---------------------------------------------------------------------------
 ;; rf2-za45g — publication is DELIVERY, and delivery cannot falsify AUTHORITY.
 ;;
 ;; `commit-reload!` reconciles `::sources` and closes the cycle in ONE atomic
