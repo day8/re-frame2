@@ -640,7 +640,8 @@ jobs:
     # suite: the compiler slice's .cljc arms genuinely run on the JVM
     # (analyzer/emitters/tree/ui.test), the S1f parity corpus's
     # canonical-form + normalization-N invariants, and the G-14
-    # compile-budget gate (defview expansion p95 + the 02 §8 REPL
+    # compile-budget gate (defview expansion p95, the watch-loop rebuild
+    # delta over the dashboard fixture — rf2-gv8gr — and the 02 §8 REPL
     # re-registration story). Job-level gated like jvm-core: the
     # classifier fires implementation_jvm for implementation/ui/**.
     needs: detect_changed_surfaces
