@@ -233,6 +233,24 @@ test('abort: deps.edn is left unmodified when the rewrite aborts', () => {
   assert.equal(fs.readFileSync(fix.abs, 'utf8'), body, 'fail-closed: no partial write');
 });
 
+test('the script is committed executable (release.yml invokes it directly)', () => {
+  // release.yml runs "$GITHUB_WORKSPACE/.github/scripts/…" as a command,
+  // so a non-executable mode is a "Permission denied" abort on the runner.
+  // Asserted via the git index rather than fs.statSync because Windows
+  // checkouts do not carry the POSIX exec bit — which is exactly why this
+  // slipped through local testing once already.
+  const res = spawnSync('git', ['ls-files', '-s', SCRIPT_REL], {
+    cwd: REPO_ROOT,
+    encoding: 'utf8',
+  });
+  assert.equal(res.status, 0, 'git ls-files failed');
+  assert.match(
+    res.stdout,
+    /^100755 /,
+    `${SCRIPT_REL} must be mode 100755 in the index, got: ${res.stdout.trim()}`,
+  );
+});
+
 // ── The fleet gate: every deploy-leaf matrix value must rewrite cleanly ─
 // Parsed out of release.yml so the test follows the matrix rather than a
 // hand-copied duplicate of it.
