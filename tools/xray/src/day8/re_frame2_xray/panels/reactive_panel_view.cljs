@@ -137,23 +137,61 @@
   [id]
   (when id (string/replace (str id) #"[^a-zA-Z0-9_]" "_")))
 
+(declare canonical-str)
+
+(defn- canonical-entries
+  "Entries of an associative value rendered `<k> <v>` and SORTED, so
+  insertion order cannot leak into the encoding. Shared by the map and the
+  record branch of `canonical-str` — a record's extension entries (its
+  `__extmap`) are canonicalized exactly like a plain map's."
+  [x]
+  (->> x
+       (map (fn [[k v]] (str (canonical-str k) " " (canonical-str v))))
+       sort
+       (string/join ", ")))
+
+(defn- record-tag
+  "The fully-qualified `my.ns/MyRec` name of a defrecord instance's type.
+  `defrecord` sets the type's `cljs$lang$ctorPrWriter` to write that name as
+  a COMPILE-TIME literal, so `pr-str` on the type is stable, unique per
+  record type, and survives `:advanced` renaming. (`cljs.core/type->str`
+  would NOT do: it reads `cljs$lang$ctorStr`, which `deftype` sets but
+  `defrecord` does not, so it degrades to the constructor's JS source text.)"
+  [x]
+  (pr-str (type x)))
+
 (defn- canonical-str
   "Lossless, order-canonical string rendering of a concrete-query identity.
   Distinct EDN values render to distinct strings (injective); value-equal
-  identities render identically — maps and sets emit their elements in
-  canonical (sorted) order, so an identity built in ANY map/set insertion
+  identities render identically — maps, records, and sets emit their elements
+  in canonical (sorted) order, so an identity built in ANY map/set insertion
   order yields ONE stable string. Vectors and lists keep their significant
   order; scalars defer to `pr-str` (faithful + reader-quoted, so a string can
   never masquerade as structure). Small + local to the selector below — NOT a
-  general serializer."
+  general serializer.
+
+  RECORDS ARE TYPE-PRESERVING (rf2-5h9td). CLJS records satisfy `map?`, so a
+  bare `map?` branch would discard the record's type and render `(->A 1)`,
+  `(->B 1)` and `{:x 1}` all as `{:x 1}` — three UNEQUAL concrete queries
+  collapsed onto one selector. Records are matched FIRST and carry an explicit
+  `#my.ns/MyRec` type tag; they can never collide with a set (`#{`, and a
+  record tag is non-empty and never starts with `{`) nor with a plain map.
+  Records are legal concrete-query arguments — the fresh-object cache
+  diagnostic already names them (`map / collection / record built inline`).
+
+  SUPPORTED DOMAIN, honestly stated. Injectivity holds for the EDN value
+  space a concrete query is built from: collections (above), and scalars whose
+  `pr-str` is faithful and type-distinct — keyword, symbol, string, number,
+  boolean, nil, char, uuid, inst, regex. It does NOT hold for values `pr-str`
+  cannot distinguish: raw JS objects/arrays (`#js {…}` renders by content, but
+  two such objects are `=`-distinct by identity) and functions. Nor for
+  deliberately degenerate reader-hostile symbols (`(symbol \"#a/B{:x 1}\")`
+  prints as structure). Those are not concrete-query identities in practice;
+  the selector does not claim to separate them."
   [x]
   (cond
-    (map? x)    (str "{" (->> x
-                              (map (fn [[k v]]
-                                     (str (canonical-str k) " " (canonical-str v))))
-                              sort
-                              (string/join ", "))
-                     "}")
+    (record? x) (str "#" (record-tag x) "{" (canonical-entries x) "}")
+    (map? x)    (str "{" (canonical-entries x) "}")
     (set? x)    (str "#{" (->> x (map canonical-str) sort (string/join " ")) "}")
     (vector? x) (str "[" (->> x (map canonical-str) (string/join " ")) "]")
     (seq? x)    (str "(" (->> x (map canonical-str) (string/join " ")) ")")
@@ -161,8 +199,8 @@
 
 (defn- concrete-query-selector
   "GENUINELY INJECTIVE `data-testid` suffix for an unchanged-sub row's
-  concrete-query identity (rf2-bk2c6 / rf2-haoip). `id-slug` alone is LOSSY —
-  it flattens every non-alnum/non-`_` char to `_`, so DISTINCT valid queries
+  concrete-query identity (rf2-bk2c6 / rf2-haoip / rf2-5h9td). `id-slug` alone
+  is LOSSY — it flattens every non-alnum/non-`_` char to `_`, so DISTINCT queries
   collapse to one slug (`[:item/derived :a-b]` and `[:item/derived :a/b]` both
   slug to `__item_derived__a_b_`). Appending a 32-bit `hash` did NOT fix this:
   a 32-bit hash COLLIDES, so distinct queries (`[:item/derived \" @\"]` and
@@ -172,8 +210,14 @@
   encoding of the full identity, made DOM-safe via `encodeURIComponent`:
   distinct concrete queries get distinct selectors (collision-free), and
   value-equal identities — maps in any insertion order included — get ONE
-  stable selector (the dedup contract). The readable `id-slug` stem survives;
-  projection, React keys, the visible label, and `data-query-v` are untouched;
+  stable selector (the dedup contract). That encoding is TYPE-PRESERVING for
+  records (rf2-5h9td): since CLJS records satisfy `map?`, a bare map branch
+  would have rendered `(->A 1)`, `(->B 1)` and `{:x 1}` identically and
+  re-collapsed three distinct queries onto one selector — see `canonical-str`
+  for the record tag and the honestly-stated supported domain.
+
+  The readable `id-slug` stem survives; projection, React keys, the visible
+  label, and `data-query-v` are untouched;
   only this testid encoding changes. BOTH the readable stem and the
   discriminator derive from `canonical-str`, so the WHOLE selector is a function
   of VALUE — the `id-slug` stem cannot re-leak map insertion order."
