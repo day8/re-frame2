@@ -26,7 +26,7 @@ dispatched; it is tape-evaluated in the result boundary (see
 | `:rf.assert/sub-equals` | `[sub-vec expected]` | `(= @(subscribe sub-vec) expected)` |
 | `:rf.assert/dispatched?` | `[event-vec]` | Was this event dispatched against this frame? |
 | `:rf.assert/state-is` | `[machine-id state]` | Active state of `reg-machine` machine-id is state. Pairs with the per-variant trace-buffer's `:rf.machine/guard-evaluated` + `:rf.machine/action-ran` ops (rf2-ec52e, per [spec/005-StateMachines.md](../../../spec/005-StateMachines.md) + [spec/009-Instrumentation.md §`:op-type` vocabulary](../../../spec/009-Instrumentation.md)) — failures of this assertion can be diagnosed against the captured guard/action trace via Xray's RHS view. |
-| `:rf.assert/no-warnings` | `[]` | No `:rf.warning/*` events seen during play. |
+| `:rf.assert/no-warnings` | `[]` | No warning-severity trace event (`:op-type :warning`) captured during play — any operation namespace, not only `:rf.warning/*`. |
 | `:rf.assert/effect-emitted` | `[fx-id]` or `[fx-id pred]` | Did the variant's drain emit fx-id? See §`:rf.assert/effect-emitted` payload shape. |
 
 ### `:rf.assert/schema-error` — the tape-evaluated eighth

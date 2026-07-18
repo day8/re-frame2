@@ -358,7 +358,7 @@ All record into `:assertions` rather than throwing — see
 | `:rf.assert/sub-equals` | `[sub-vec expected]` | `(= @(subscribe sub-vec) expected)` |
 | `:rf.assert/dispatched?` | `[event-vec]` | Was this event dispatched against this frame? |
 | `:rf.assert/state-is` | `[machine-id state]` | Active state of `reg-machine` machine-id is state. |
-| `:rf.assert/no-warnings` | `[]` | No `:rf.warning/*` events seen during play. |
+| `:rf.assert/no-warnings` | `[]` | No warning-severity trace event (`:op-type :warning`) captured during play — any operation namespace, not only `:rf.warning/*`. |
 | `:rf.assert/effect-emitted` | `[fx-id]` or `[fx-id pred]` | Did the variant's drain emit fx-id? `pred`, when present, is a unary fn `(pred fx-id) → truthy?` — see [`004-Assertions.md`](004-Assertions.md) §`:rf.assert/effect-emitted` payload shape. |
 
 ### `:assert-db` / `:assert-dom` are sugar over `:rf.assert/*`

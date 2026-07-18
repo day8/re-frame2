@@ -238,7 +238,7 @@ The seven `:rf.assert/*` events the auto-install registers at first `reg-*`.
 | `:rf.assert/sub-equals` | `[sub-vec expected]` | `(= @(subscribe sub-vec) expected)` |
 | `:rf.assert/dispatched?` | `[event-vec]` | Was this event dispatched during phase-4? |
 | `:rf.assert/state-is` | `[machine-id state]` | Active state of `reg-machine` machine-id is state. |
-| `:rf.assert/no-warnings` | `[]` | No `:rf.warning/*` events seen during play. |
+| `:rf.assert/no-warnings` | `[]` | No warning-severity trace event (`:op-type :warning`) captured during play — any operation namespace, not only `:rf.warning/*`. |
 | `:rf.assert/effect-emitted` | `[fx-id]` / `[fx-id pred]` | Did the variant's drain emit fx-id? Optional unary `pred` over the fx-id keyword. |
 
 ## What this reference deliberately omits
