@@ -85,8 +85,39 @@
     (assoc state :compiler-env
            (dissoc @compiler :shadow.build.cljs-bridge/state))))
 
-(defn- finish [state]
-  (build-hook/hook (assoc state :shadow.build/stage :compile-finish)))
+(defn- compiled-output
+  "A FRESH Shadow-shaped compiled output map: marker-absent, `:cached false`.
+  Modelling `do-compile-cljs-resource`, which replaces the whole output map."
+  [rid js]
+  {:resource-id rid :js js :cached false})
+
+(defn- finish
+  "Drive `:compile-finish`. Models Shadow's real compile phase: every CLJS build
+  member whose output is ABSENT (Shadow scheduled it — e.g. a version-0 UI
+  consumer whose retained output prepare invalidated) is given a FRESH compiled
+  output map and recorded in Shadow's OWN `[:shadow.build/build-info :compiled]`
+  set. Members that already carry an output keep it (a warm hit's marker-stamped
+  map, or a map the test set to model a recompile / a hook replacement); such a
+  test names its own recompiled members via `extra-compiled`. The prior helper
+  left version-0-invalidated consumers with NO finish output, which real Shadow
+  never does."
+  ([state] (finish state #{}))
+  ([state extra-compiled]
+   (let [cljs-members (filter #(= :cljs (get-in state [:sources % :type]))
+                              (:build-sources state))
+         scheduled (into (set extra-compiled)
+                         (remove #(map? (get-in state [:output %])))
+                         cljs-members)
+         state (reduce (fn [s rid]
+                         (cond-> s
+                           (not (map? (get-in s [:output rid])))
+                           (assoc-in [:output rid]
+                                     (compiled-output rid "compiled"))))
+                       state scheduled)
+         ;; Shadow RESETS `:compiled` every pass (extract-build-info recomputes
+         ;; it), so set — never accumulate — this pass's compiled set.
+         state (assoc-in state [:shadow.build/build-info :compiled] scheduled)]
+     (build-hook/hook (assoc state :shadow.build/stage :compile-finish)))))
 
 (deftest ui-build-requires-the-load-bearing-cache-blocker
   (doseq [configured [nil [] '#{other.library}]]
@@ -140,8 +171,8 @@
     (is (= (count sentinel) (count digest)))
     (is (not (str/includes? js sentinel)))
     (is (= 1 (count (re-seq (re-pattern digest) js))))
-    (is (nil? (get-in out [:output app-rid]))
-        "version-zero prepare invalidates retained UI-consumer output before Shadow recompiles it")
+    (is (false? (:cached (get-in out [:output app-rid])))
+        "version-zero prepare invalidated the retained UI-consumer output; Shadow recompiled it fresh (:cached false), not a warm-cache hit")
     (is (= (:build-modules input) (:build-modules out)))
     (is (= {:app/view ["tf1-a" "hs1-a"]}
            (build/accepted-aggregate build/views out)))
@@ -275,7 +306,9 @@
                                      {:resource-id app-a-rid
                                       :js (fresh-js "app.a = {};")
                                       :compiled-at 1000 :cached false})
-                           finish)]
+                           ;; Shadow genuinely recompiled app-a this pass, so it is
+                           ;; in Shadow's causal `::build-info :compiled` record.
+                           (finish #{app-a-rid}))]
           (is (not (contains?
                     (get-in prepared [:compiler-env build/scratch-key :touched])
                     'app.a))
@@ -337,7 +370,10 @@
                                      {:resource-id app-a-rid
                                       :js (fresh-js "app.a = {};")
                                       :compiled-at 1 :cached false})
-                           finish)
+                           ;; app-a genuinely recompiled (backwards stamp) — in
+                           ;; Shadow's causal `::build-info :compiled` record; app-b
+                           ;; is a warm hit (marker preserved), never in it.
+                           (finish #{app-a-rid}))
               views-after (build/accepted-aggregate build/views finished)]
           (is (not (contains?
                     (get-in prepared [:compiler-env build/scratch-key :touched])
@@ -425,19 +461,19 @@
 
       (testing (str mode " — companion: app.b output removed and recompiled")
         ;; Same stamp (1000), opposite verdict: the later hook instead REMOVES
-        ;; app.b's output and app.b genuinely recompiles — a FRESH `:js` object at
+        ;; app.b's output and app.b genuinely recompiles — a FRESH output map at
         ;; the SAME `:compiled-at` — after its final defview was removed,
-        ;; contributing nothing. app.b is evicted; app.a stays a cache hit. Whole-
-        ;; map identity would have flagged BOTH arms' app.b as recompiled and a
-        ;; stamp test would have missed this same-ms recompile; the fresh-`:js`
-        ;; evidence distinguishes them.
+        ;; contributing nothing. app.b is evicted; app.a stays a cache hit. The
+        ;; marker (dropped by the whole-map replacement) plus Shadow's causal
+        ;; `::build-info :compiled` record distinguish this genuine recompile from
+        ;; arm 1's marker-preserving annotation — with no `:compiled-at` compare.
         (let [prepared (prepare warm-input)
               finished (-> prepared
                            (assoc-in [:output app-b-rid]
                                      {:resource-id app-b-rid
                                       :js (fresh-js "app.b = {};")
                                       :compiled-at 1000 :cached false})
-                           finish)]
+                           (finish #{app-b-rid}))]
           (is (= {:app/a-view ["tfa-1" "hsa-1"]}
                  (build/accepted-aggregate build/views finished))
               "the genuinely recompiled zero-declaration source is evicted")
@@ -564,6 +600,109 @@
         (is (= :re-frame.ui.compiler.build-hook/ambiguous-compile-evidence
                (:re-frame.ui.compiler.build-hook/error (ex-data ex))))
         (is (= :stale-provenance-marker (:reason (ex-data ex))))))))
+
+(deftest whole-map-replacement-cannot-forge-compilation
+  ;; rf2-8nn5k (violation 2 — UNFORGEABLE): a later NON-scheduling hook replaces an
+  ;; ENTIRE retained output map, copying Shadow's sticky `:cached false` and output
+  ;; data into a fresh map while dropping re-frame.ui's unknown private marker — and
+  ;; schedules NO compilation, so the source is NOT in Shadow's own
+  ;; `[:shadow.build/build-info :compiled]` record. Pre-fix, finish trusted the
+  ;; output map's forgeable `:cached false` and classified the replacement a compile,
+  ;; pre-touched the warm source, and EVICTED its valid accepted view (changing the
+  ;; whole-build digest) on a pass that compiled nothing. Now the marker-absent
+  ;; verdict consults Shadow's causal compile record rather than `:cached`, so the
+  ;; forged whole-map replacement fails loud BEFORE publication and the accepted
+  ;; view/digest survive. Both equal-byte and changed-byte forgeries; both schedules.
+  (doseq [parallel? [true false]
+          [byte-label forged-js] [[:equal-bytes "app.b = {};"]
+                                  [:changed-bytes "app.b = {/* forged */};"]]]
+    (testing (str (if parallel? "parallel" "sequential") " / " (name byte-label))
+      (let [build-id (keyword "forge" (str (name byte-label) (if parallel? "-p" "-s")))
+            good (-> (two-source-state build-id parallel?)
+                     prepare
+                     (declare 'app.a :app/a-view ["tfa-1" "hsa-1"])
+                     (declare 'app.b :app/b-view ["tfb-1" "hsb-1"])
+                     finish)
+            digest-before (build/accepted-build-digest good)
+            views-before  (build/accepted-aggregate build/views good)
+            warm-a {:resource-id app-a-rid :js (fresh-js "app.a = {};")
+                    :compiled-at 1000 :cached false}
+            warm-b {:resource-id app-b-rid :js (fresh-js "app.b = {};")
+                    :compiled-at 1000 :cached false}
+            warm-input (-> good
+                           (assoc-in [:output carrier-rid :js]
+                                     build-hook/digest-sentinel)
+                           (assoc-in [:output app-a-rid] warm-a)
+                           (assoc-in [:output app-b-rid] warm-b))
+            prepared (prepare warm-input)
+            ;; The forgery: a fresh output MAP built from Shadow's public fields
+            ;; (no re-frame.ui marker), copying the sticky :cached false. `finish`
+            ;; is NOT told app.b compiled (it is not in ::build-info :compiled).
+            forged-b {:resource-id app-b-rid :js (fresh-js forged-js)
+                      :compiled-at 1000 :cached false}
+            ex (try (-> prepared (assoc-in [:output app-b-rid] forged-b) finish)
+                    nil
+                    (catch clojure.lang.ExceptionInfo e e))]
+        (is (false? (:cached forged-b))
+            "the forgery copies Shadow's sticky :cached false")
+        (is (nil? (get forged-b :re-frame.ui.compiler.build-hook/pass-marker))
+            "and drops re-frame.ui's private per-pass marker")
+        (is (some? ex)
+            "a whole-map replacement Shadow did not compile cannot be silently classified as a compile")
+        (is (= :re-frame.ui.compiler.build-hook/ambiguous-compile-evidence
+               (:re-frame.ui.compiler.build-hook/error (ex-data ex))))
+        (is (= :marker-dropped-without-compile (:reason (ex-data ex))))
+        (is (= app-b-rid (:resource-id (ex-data ex)))
+            "the diagnostic names the offending resource, not just the hook")
+        (is (= 'app.b (:ns (ex-data ex))))
+        (is (= build-id (:build-id (ex-data ex))))
+        (is (not= :configure-ui-build-hook-once (:recovery (ex-data ex)))
+            "a later-hook evidence loss reports an accurate recovery, not hook-config boilerplate")
+        (is (= views-before (build/accepted-aggregate build/views warm-input))
+            "the forged replacement never evicted app.b's valid accepted view")
+        (is (= digest-before (build/accepted-build-digest warm-input))
+            "the whole-build digest is unchanged")))))
+
+(deftest absent-cljs-member-output-fails-loud-not-silent
+  ;; rf2-8nn5k (violation 1 — TOTAL): a CLJS graph member with a missing/nil/non-map
+  ;; final output must fail loud, naming the resource, rather than be silently
+  ;; skipped — pre-fix, a missing `[:output rid]` was skipped, so an accepted
+  ;; row/digest could publish with the member's per-resource compile evidence absent.
+  ;; Bypasses the realistic `finish` helper (which would repopulate an absent output)
+  ;; to drive the guard directly, modelling a hook that drops/corrupts an output.
+  (doseq [parallel? [true false]
+          [label bad] [[:absent ::absent] [:non-map "not-a-map"]]]
+    (testing (str (if parallel? "parallel" "sequential") " / " (name label))
+      (let [good (-> (two-source-state (keyword "total" (name label)) parallel?)
+                     prepare
+                     (declare 'app.a :app/a-view ["tfa-1" "hsa-1"])
+                     (declare 'app.b :app/b-view ["tfb-1" "hsb-1"])
+                     finish)
+            views-before (build/accepted-aggregate build/views good)
+            warm-a {:resource-id app-a-rid :js (fresh-js "app.a = {};")
+                    :compiled-at 1000 :cached false}
+            warm-b {:resource-id app-b-rid :js (fresh-js "app.b = {};")
+                    :compiled-at 1000 :cached false}
+            warm-input (-> good
+                           (assoc-in [:output carrier-rid :js]
+                                     build-hook/digest-sentinel)
+                           (assoc-in [:output app-a-rid] warm-a)
+                           (assoc-in [:output app-b-rid] warm-b))
+            prepared (prepare warm-input)
+            broken (cond-> (assoc prepared :shadow.build/stage :compile-finish)
+                     (= bad ::absent) (update :output dissoc app-b-rid)
+                     (not= bad ::absent) (assoc-in [:output app-b-rid] bad))
+            ex (try (build-hook/hook broken) nil
+                    (catch clojure.lang.ExceptionInfo e e))]
+        (is (some? ex)
+            "a missing/non-map CLJS member output must fail loud, never be skipped")
+        (is (= :re-frame.ui.compiler.build-hook/missing-compile-output
+               (:re-frame.ui.compiler.build-hook/error (ex-data ex))))
+        (is (= app-b-rid (:resource-id (ex-data ex))))
+        (is (= 'app.b (:ns (ex-data ex))))
+        (is (= :absent-or-non-map-final-output (:reason (ex-data ex))))
+        (is (= views-before (build/accepted-aggregate build/views warm-input))
+            "the accepted view aggregate is left last-known-good on the fail-loud path")))))
 
 (deftest interleaved-build-values-carry-isolated-digests
   (let [a (-> (shadow-state :a build-hook/digest-sentinel)

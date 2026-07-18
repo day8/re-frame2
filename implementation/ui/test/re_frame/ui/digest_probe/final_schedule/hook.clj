@@ -42,6 +42,7 @@
   (io/file "../../../../../../target" "ui-final-schedule"))
 (def ^:private force-marker (io/file out-dir "force-recompile-app-a"))
 (def ^:private blind-marker (io/file out-dir "blind-provenance"))
+(def ^:private forge-marker (io/file out-dir "forge-app-a-output"))
 
 (def ^:private app-a-ns 're-frame.ui.digest-probe.final-schedule.app-a)
 (def ^:private a-view-id :re-frame.ui.digest-probe.final-schedule.app-a/a-view)
@@ -70,13 +71,15 @@
           scratch (get-in build-state [:compiler-env build/scratch-key])
           touched (:touched scratch)
           force?  (.exists force-marker)
-          blind?  (.exists blind-marker)]
+          blind?  (.exists blind-marker)
+          forge?  (.exists forge-marker)]
       (record! build-id
                {:stage :prepare
                 :app-a-output-present (some? (get-in build-state [:output rid]))
                 :app-a-pretouched (boolean (contains? (set touched) app-a-ns))
                 :force force?
-                :blind blind?})
+                :blind blind?
+                :forge forge?})
       (cond-> build-state
         ;; A later prepare hook forcing a viewless recompile of an output-present
         ;; cache-hit source: remove its output AND remove its final ui/defview.
@@ -86,6 +89,20 @@
                       (str "(ns " app-a-ns
                            " (:require [re-frame.ui :as ui]))\n"
                            ";; final-schedule fixture: viewless forced recompile\n")))
+
+        ;; A later NON-scheduling hook that REPLACES app-a's whole retained output
+        ;; map, rebuilt from Shadow's PUBLIC fields (dropping re-frame.ui's private
+        ;; marker) and copying the sticky :cached false, WITHOUT removing it — so
+        ;; Shadow does not reschedule it and app-a is absent from Shadow's OWN
+        ;; ::build-info :compiled record. This is the "unforgeable by output-map
+        ;; replacement" adversary: :compile-finish must FAIL LOUD rather than trust
+        ;; the forged :cached false and evict app-a's valid accepted view.
+        (and rid forge?)
+        (assoc-in [:output rid]
+                  (-> (get-in build-state [:output rid])
+                      (select-keys [:resource-id :js :source-map-compact
+                                    :compiled-at :warnings :cached])
+                      (assoc :cached false)))
 
         ;; A later hook that destroys the per-pass provenance re-frame.ui needs to
         ;; reconcile: drop the :pass-token from the open scratch.

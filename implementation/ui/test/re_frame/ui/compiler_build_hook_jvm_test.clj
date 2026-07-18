@@ -81,8 +81,24 @@
        (with-meta (list 'defview vname {:id view-id} [] template) {:line 1})
        {} vname (list {:id view-id} [] template)))))
 
-(defn- finish [state member-nss]
-  (build-hook/hook (at-stage state :compile-finish member-nss)))
+(defn- finish
+  ([state member-nss] (finish state member-nss (set member-nss)))
+  ([state member-nss recompiled-nss]
+   ;; Model Shadow's real compile phase: every source Shadow (re)compiled this
+   ;; pass gets a FRESH output map (marker-absent, `:cached false`) and is
+   ;; recorded in Shadow's OWN `[:shadow.build/build-info :compiled]` set. Warm
+   ;; cache-hit members keep the marker-stamped output prepare left them. This is
+   ;; what a real build hands `:compile-finish`; the prior helper unrealistically
+   ;; left recompiled members with NO output at finish.
+   (let [recompiled-nss (set recompiled-nss)
+         with-outputs (reduce (fn [s n]
+                                (assoc-in s [:output n]
+                                          {:resource-id n :js "compiled"
+                                           :cached false}))
+                              state recompiled-nss)]
+     (build-hook/hook
+      (-> (at-stage with-outputs :compile-finish member-nss)
+          (assoc-in [:shadow.build/build-info :compiled] recompiled-nss))))))
 
 (defn- pass
   ([state member-nss declarations]
@@ -92,7 +108,7 @@
         compiled (reduce (fn [s [source id fp]]
                            (declare-view s source id fp))
                          prepared declarations)]
-    (finish compiled member-nss))))
+    (finish compiled member-nss recompiled-nss))))
 
 (defn- views [state]
   (build/accepted-aggregate build/views state))
