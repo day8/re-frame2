@@ -43,17 +43,17 @@
       - `day8.re-frame2-xray.runtime` — the discovery sentinel + safe-egress
         entry points.
   - `re-frame.ui` (rf2-qz1h5d; rf2-vxgfnd.83 + rf2-vxgfnd.103) — the Spec-004
-    compiled-view substrate. FULLY-ROWED (both directions): the entire blessed
-    export set is rowed — the S1 set, the namespace-specific `frame-root` row
-    (rf2-vxgfnd.71), `frame-provider`, the S2 SCOPE form (rf2-vxgfnd.83,
-    rowed once rf2-vxgfnd.24 blessed it as the native SCOPE grammar),
-    `adapter`, the first-party `:rf.adapter/ui` boot adapter Var
-    (rf2-vxgfnd.103 / PR #5809), `frame`, the S2 ops-bundle body form
-    (rf2-vxgfnd.184), and the S3 additions `event`, `render-fn`, `slot`, and
-    `spread-safe`. A row
-    removed / renamed in source → RED (direction 1); a NEW public Var added to
-    this closed compiler grammar without a row → RED (direction 2), so an
-    accidental public export cannot accumulate silently.
+    compiled-view substrate. FULLY-ROWED (both directions): the ENTIRE blessed
+    export set is rowed. That set is NOT re-listed here — it grows every stage
+    and a second hand-maintained inventory would drift silently. The ONE
+    authoritative enumeration is the JVM assertion
+    `re-frame.ui.defview-grammar-jvm-test/export-surface-is-exactly-the-blessed-set`
+    (`implementation/ui/test/re_frame/ui/defview_grammar_jvm_test.clj`), which
+    pins `(ns-publics 're-frame.ui)` to an exact literal set; the manifest's
+    `:cljs-only` `re-frame.ui` rows are its projection. A row removed / renamed
+    in source → RED (direction 1); a NEW public Var added to this closed
+    compiler grammar without a row → RED (direction 2), so an accidental
+    public export cannot accumulate silently.
 
   The pair-MCP server (`re-frame2-pair-mcp.server`) is the third
   CLJS-only surface the keystone names. It compiles under the pair-MCP
@@ -137,13 +137,11 @@
    "day8.re-frame2-xray.open-in-editor"              (emit-ns-publics day8.re-frame2-xray.open-in-editor)
    "day8.re-frame2-xray.runtime"                     (emit-ns-publics day8.re-frame2-xray.runtime)
    ;; rf2-qz1h5d + rf2-vxgfnd.83 + rf2-vxgfnd.103 — re-frame.ui compiled-view
-   ;; substrate. FULLY-ROWED now: the entire blessed export set is rowed (the
-   ;; S1 set, the namespace-specific `frame-root` row rf2-vxgfnd.71, the S2
-   ;; SCOPE form `frame-provider` rf2-vxgfnd.83 — rowed once rf2-vxgfnd.24
-   ;; blessed it — the first-party `adapter` Var rf2-vxgfnd.103, the `frame`
-   ;; ops-bundle body form rf2-vxgfnd.184, and the S3 additions `event`,
-   ;; `render-fn`, `slot`, and `spread-safe`), so
-   ;; re-frame.ui is in `fully-rowed` below (both directions checked).
+   ;; substrate. FULLY-ROWED: the entire blessed export set is rowed, so
+   ;; re-frame.ui is in `fully-rowed` below (both directions checked). The
+   ;; blessed set itself is enumerated ONCE, in
+   ;; `export-surface-is-exactly-the-blessed-set` (see the ns docstring) —
+   ;; never re-listed here.
    "re-frame.ui"                                     (emit-ns-publics re-frame.ui)
    ;; rf2-vxgfnd.200 — re-frame.ui.test testing surface. JVM-introspected for
    ;; its manifest rows (the generator owns tier/kind); the probe reconciles
@@ -153,12 +151,10 @@
 (def fully-rowed
   "Namespaces whose ENTIRE public surface must be rowed (direction 2).
    The three adapter namespaces — their public surface IS the documented
-   adapter API — and `re-frame.ui`, the Spec-004 compiled-view substrate:
-   with `frame-provider` rowed (rf2-vxgfnd.83, once rf2-vxgfnd.24 blessed it
-   as the native SCOPE form) and the first-party `adapter` Var rowed
-   (rf2-vxgfnd.103), `frame` (rf2-vxgfnd.184), and the S3 additions `event` /
-   `render-fn` / `slot` / `spread-safe`, the entire blessed export set is rowed, so a NEW
-   accidental public Var added to this first-party closed compiler grammar
+   adapter API — and `re-frame.ui`, the Spec-004 compiled-view substrate,
+   whose entire blessed export set is rowed (that set is enumerated ONCE, in
+   `export-surface-is-exactly-the-blessed-set` — see the ns docstring), so a
+   NEW accidental public Var added to this first-party closed compiler grammar
    fails direction-2 completeness. The Xray mount surface stays a curated
    subset (direction 1 only), so it is deliberately absent here."
   #{"re-frame.adapter.reagent"

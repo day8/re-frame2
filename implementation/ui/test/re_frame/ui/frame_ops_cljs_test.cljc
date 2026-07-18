@@ -95,8 +95,10 @@
   (let [b1 (rf/with-frame :ops/stable (frames/frame-ops))
         b2 (rf/with-frame :ops/stable (frames/frame-ops))]
     (is (identical? b1 b2)
-        "repeated reads return the IDENTICAL bundle — one map lookup, no
-         per-render construction")
+        "repeated reads return the IDENTICAL bundle — a cache HIT constructs
+         nothing (no bundle mint, no closure allocation); it is a bounded
+         lifecycle+cache read: incarnation token, closing check, cache entry,
+         token identity compare")
     (is (identical? (:dispatch b1) (:dispatch b2)))
     (is (identical? (:subscribe b1) (:subscribe b2)))))
 

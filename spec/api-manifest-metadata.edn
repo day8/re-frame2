@@ -288,10 +288,13 @@
   ;;     AND direction-2 completeness (a NEW public Var added without a row → RED,
   ;;     so an accidental future public export cannot accumulate silently). It
   ;;     joins the three adapter namespaces in the probe's `:fully-rowed` set.
-  ;;     Hence :runtime-verified? true. The later-stage verbs (local / effect /
-  ;;     dispatch-fn / presence / presence-phase / ->react / error-boundary /
-  ;;     client-only) are NOT yet defined and stay on the
-  ;;     :api-md-known-unmanifested allowlist below until they ship. Tiers are
+  ;;     Hence :runtime-verified? true. The later-stage verbs named here when
+  ;;     this note was written have since SHIPPED and are rowed below —
+  ;;     local / effect / dispatch-fn (S3), error-boundary / client-only (S3),
+  ;;     presence / presence-phase (S4). `->react` (S6) is the ONE remaining
+  ;;     spec/API.md §Compiled views verb with no live Var, so it is the only
+  ;;     re-frame.ui entry left on the :api-md-known-unmanifested allowlist
+  ;;     below. Tiers are
   ;;     verbatim from spec/API.md §Compiled views; :kind is the source form
   ;;     (html is a `defn`, not a macro).
   ;;     `frame` (rf2-vxgfnd.184) is the S2 compiled ops-bundle body form —
@@ -427,8 +430,9 @@
    ;; move it into a :cljs-only row (and delete its entry here) when it lands.
    ;; local / effect / dispatch-fn shipped S3 (rf2-vxgfnd.95.2) — now rowed
    ;; under :cljs-only above.
-   "presence"               ; spec/API.md §Compiled views — S4 enter/exit retention, unshipped
-   "presence-phase"         ; spec/API.md §Compiled views — S4 presence-phase read, unshipped
+   ;; presence / presence-phase shipped S4 (rf2-uckeg) — now rowed under
+   ;; :cljs-only above, so they left this allowlist and their API.md tier is
+   ;; reconciled against the manifest like every other shipped verb.
    "->react"}               ; spec/API.md §Compiled views — S6 React-component export bridge, unshipped
    ;; error-boundary / client-only shipped S3 (rf2-vxgfnd.95.3) — now rowed
    ;; under :cljs-only above (alongside handler).
