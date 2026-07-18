@@ -491,9 +491,11 @@
          ;; stale signal. OBSERVATION-continuum authority does NOT ride that
          ;; qualifier: a same-id SUCCESSOR frame re-arming cb-id in the same window
          ;; mints no generation, so `:observed-gen` still matches while the callback
-         ;; is live again. The receiver discriminates that case by re-reading
-         ;; `re-frame.epoch/epoch-listener-observing?` for (cb-id, frame) —
-         ;; the second clause of the supported receiver rule (rf2-qg98y). Only a
+         ;; is live again. The receiver discriminates that case inside the ONE
+         ;; supported decision, `re-frame.epoch/epoch-silence-current?`, which
+         ;; weighs registration identity AND observation continuum for
+         ;; (cb-id, frame) under a single ledger snapshot (rf2-qg98y, made atomic
+         ;; by rf2-uhouu). Only a
          ;; granted reservation emits; if the external
          ;; delivery throws, the reservation is rolled back (under silence-lock)
          ;; and the fault propagates.

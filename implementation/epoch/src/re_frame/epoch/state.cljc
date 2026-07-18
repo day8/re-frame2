@@ -1026,10 +1026,16 @@
 ;;     same-id SUCCESSOR frame) mint NO generation — a delivery never
 ;;     re-registers — so `:observed-gen` still MATCHES while the callback is live
 ;;     again. `:observed-gen` alone would accept a silence for a live callback
-;;     (rf2-qg98y). This kind is discriminated by the second clause of the
-;;     receiver rule: `live-observer?`, exposed publicly as
-;;     `re-frame.epoch/epoch-listener-observing?`, which the receiver reads
-;;     alongside the generation.
+;;     (rf2-qg98y). This kind is discriminated by the observation-continuum half
+;;     of the receiver decision (`live-observer?`).
+;;
+;; The receiver weighs BOTH kinds in ONE operation — `silence-current?`, exposed
+;; publicly as `re-frame.epoch/epoch-silence-current?` — which reads the
+;; registration generation and the observation continuum inside a single
+;; `with-claim-locks` section. It is one operation and not two composable queries
+;; because the composite of two independent reads is not linearizable: a
+;; replacement or drop landing between them yields an accept for a generation
+;; that is already superseded (rf2-uhouu).
 ;;
 ;; Ordinary fan-out never contends on either lock: the registry/observation atoms
 ;; keep their own lock-free swaps for the common path.
@@ -1115,25 +1121,79 @@
   (reset! outstanding-silence-lineages {})
   nil)
 
-(defn live-observer?
+(defn- live-observer?
   "True when `cb-id`'s CURRENT generation observes `frame-id` right now — the
   observation stamp for the frame equals the cb's live generation token. Read
   fresh (both derefs here), so a successor re-arming a cb mid-fan is honoured the
   instant it lands rather than against a stale pre-loop set (rf2-vxgfnd.285).
 
-  Two callers, one predicate. Internally it is the claim's second eligibility
-  check (`eligible-and-reserve!`). Publicly it backs
-  `re-frame.epoch/epoch-listener-observing?` — the OBSERVATION-CONTINUUM clause a
-  `:rf.epoch.cb/silenced-on-frame-destroy` receiver reads ALONGSIDE
-  `epoch-listener-generation` (rf2-qg98y). Both clauses are needed because a
-  same-id SUCCESSOR frame re-arms a callback WITHOUT minting a generation, so the
-  reservation's not-a-live-observer decision can be superseded in the lock-free
-  reserve→emit window while `:observed-gen` still matches. Re-reading THIS
-  predicate at receipt time is what makes the receiver's decision exact."
+  NOT SELF-COHERENT — every caller MUST hold both ledger locks (rf2-uhouu). The
+  two derefs below are SEPARATE reads of two atoms guarded by DIFFERENT monitors:
+  the observation ledger (silence-lock) and then the listener registry (registry
+  lock). A same-id replacement plus a re-arm of the fresh generation landing
+  BETWEEN them is read as stamp=G against registry=H — `false`, an answer neither
+  the before-state (stamp G, registry G → true) nor the after-state (stamp H,
+  registry H → true) ever had. Under `with-claim-locks` both mutations are
+  excluded, so the pair is one consistent snapshot.
+
+  Both callers hold the locks: `eligible-and-reserve!` (the reservation's second
+  eligibility check) and `silence-current?` (the receiver decision). It is
+  deliberately PRIVATE — this fact is not independently publishable, because any
+  consumer composing it with a separate generation read reconstructs exactly the
+  torn decision the locks exist to prevent."
   [frame-id cb-id]
   (let [token (get-in @observed-frames-by-cb [cb-id frame-id] ::absent)]
     (and (not= token ::absent)
          (= token (:generation (get @listeners cb-id))))))
+
+(defn silence-current?
+  "THE receiver decision for a `:rf.epoch.cb/silenced-on-frame-destroy` signal:
+  true when the silence reserved for `(frame-id, cb-id)` under generation
+  `observed-gen` still names a CURRENT fact — the callback's live registration is
+  still the one the silence was owed to, and nothing has re-armed it on that
+  frame. Backs the public `re-frame.epoch/epoch-silence-current?`.
+
+  ONE LINEARIZATION POINT (rf2-uhouu). The decision needs two facts:
+
+    * REGISTRATION identity — `observed-gen` still names the live registration
+      (a replacement or an `unregister-listener!` drop in the reserve→emit window
+      makes a DIFFERENT generation current, so G's silence no longer describes
+      the current callback).
+    * OBSERVATION continuum — the callback is not observing the frame right now
+      (a same-id SUCCESSOR frame re-arms by DELIVERY, which mints NO generation,
+      so `observed-gen` still matches while the callback is live again —
+      rf2-qg98y).
+
+  Both are read INSIDE one `with-claim-locks` critical section, which excludes
+  `put-listener!` (registry lock), `drop-listener!` / `reset-listeners!` (both)
+  and `record-observation!` (silence-lock) for its duration. That is what makes
+  the composite answer describe a state the ledger ACTUALLY HAD.
+
+  Reading the two facts through two SEPARATE public queries — the shape this
+  supersedes — is NOT linearizable: a replacement or drop landing between them is
+  read as generation-still-matches AND not-observing, accepting a silence for a
+  registration that is already superseded, an answer no single point in time ever
+  had. That is why the two low-level queries were retired rather than kept
+  alongside this one: the composite belongs behind the seam, not at every call
+  site.
+
+  Cheap and non-blocking by construction: two derefs, no allocation, no foreign
+  code, no trace emission inside the locks — so a receiver calling this from
+  inside a trace listener cannot reach a frame's `:drain-lock` while holding a
+  ledger lock (the AB-BA hazard rf2-8b9twg closed). The reverse direction is safe
+  too: nothing that holds a ledger lock waits on a drain-lock, and the silence
+  EMIT this decision responds to already released both locks before publishing.
+
+  A `nil` `observed-gen` is never current: a signal that carries no generation
+  cannot name a live registration (an unregistered cb also reads `nil`, and
+  `nil = nil` would otherwise accept). CLJS is single-threaded — the locks
+  compile away and the expression is atomic by construction."
+  [frame-id cb-id observed-gen]
+  (with-claim-locks
+    #(boolean
+       (and (some? observed-gen)
+            (= observed-gen (:generation (get @listeners cb-id)))
+            (not (live-observer? frame-id cb-id))))))
 
 (defn- eligible-and-reserve!
   "The caller MUST already hold BOTH ledger locks (via `with-claim-locks`:
@@ -1159,7 +1219,10 @@
        This decision is RESERVATION-time only: a re-arm landing after the locks
        release cannot be caught here, and `observed-gen` cannot express it (a
        delivery mints no generation), so the receiver re-reads the SAME predicate
-       via `re-frame.epoch/epoch-listener-observing?` (rf2-qg98y).
+       inside `silence-current?` — public as
+       `re-frame.epoch/epoch-silence-current?` (rf2-qg98y, made atomic by
+       rf2-uhouu). Note this caller and that one share the locks for the SAME
+       reason: `live-observer?` is coherent only under them.
     3. no terminal-silence mark for `(frame, cb)` stands ABOVE `baseline` — a
        successor (or an overlapping same-id publisher) already claimed the one
        signal; re-emitting would be the A→B→nil ABA / concurrent double-signal."
@@ -1212,32 +1275,36 @@
   the emit — a same-id replacement (making a fresh generation H current), an
   `unregister-epoch-listener!` drop, a fresh same-id frame destroy, or a
   `record-observation!` re-arm on a live successor. That window is intended, and
-  it is made coherent by TWO receiver-side clauses — one per KIND of mutation.
+  it is made coherent by ONE receiver-side decision that weighs BOTH KINDS of
+  mutation — `silence-current?`, public as `re-frame.epoch/epoch-silence-current?`.
 
   REGISTRATION identity (a replacement, a drop). `publish!` MUST qualify its emit
   with `observed-gen` (the caller bakes it into the payload): the resulting
   GENERATION-QUALIFIED signal SELF-FILTERS at the receiver — an observer whose
   current generation for `cb-id` no longer equals the carried `observed-gen`
-  discards it. The receiver reads that current generation through the supported
-  `re-frame.epoch/epoch-listener-generation` query (rf2-6ys5n), so the self-filter
-  is implementable at the public boundary without a private registry read. So the
-  forbidden ordering (H current, THEN a signal attributed to H) is impossible: the
-  signal is attributed to G, and a receiver that sees G is no longer current drops
-  it. This SUPERSEDES the emit-under-lock mechanism of rf2-9bhne6 — the generation
-  stays authoritative through a data qualifier, not through holding a lock across
-  foreign code.
+  discards it. So the forbidden ordering (H current, THEN a signal attributed to
+  H) is impossible: the signal is attributed to G, and a receiver that sees G is
+  no longer current drops it. This SUPERSEDES the emit-under-lock mechanism of
+  rf2-9bhne6 — the generation stays authoritative through a data qualifier, not
+  through holding a lock across foreign code.
 
   OBSERVATION continuum (a `record-observation!` re-arm). `observed-gen` does NOT
   cover this kind and must not be claimed to (rf2-qg98y). A delivery mints no
   generation, so a same-id SUCCESSOR frame that re-arms `cb-id` in this window
   leaves the carried `observed-gen` EQUAL to the live generation: the
-  generation clause alone would accept a silence for a callback that is receiving
-  records again. The second clause closes it — the receiver also reads
-  `re-frame.epoch/epoch-listener-observing?` (this ledger's `live-observer?`) for
-  `(cb-id, frame)` and discards the signal when the observation is live:
+  generation half alone would accept a silence for a callback that is receiving
+  records again. The observation-continuum half closes it — this ledger's
+  `live-observer?` for `(cb-id, frame)` — and the signal is discarded when the
+  observation is live.
 
-      (and (= (:observed-gen tags) (epoch-listener-generation cb-id))
-           (not (epoch-listener-observing? cb-id (:frame tags))))
+  The two halves are ONE operation, not two queries a receiver composes
+  (rf2-uhouu). Composed, they are not linearizable: a replacement or a drop
+  landing between the two reads is seen as generation-still-matches AND
+  not-observing, accepting a silence for an already-superseded registration — a
+  verdict no single point in time ever held. `silence-current?` takes both halves
+  under `with-claim-locks`, so its answer always names a real ledger state:
+
+      (re-frame.epoch/epoch-silence-current? tags)
 
   Both clauses are read at RECEIPT time, so the pair is exact then: the silence is
   current iff both hold. A re-arm landing AFTER the receiver read is simply a
@@ -1408,18 +1475,6 @@
   []
   @listeners)
 
-(defn current-listener-generation
-  "Return the opaque generation token of the CURRENT registration under `cb-id`,
-  or nil when no listener is registered there. Narrower than `listeners-snapshot`
-  (the callback fn is never exposed): this is the registration-identity authority
-  a `:rf.epoch.cb/silenced-on-frame-destroy` receiver compares against the
-  signal's `:observed-gen` to self-filter a superseded generation. Backs the
-  public `re-frame.epoch/epoch-listener-generation` so a consumer never has to
-  read the private registry map to do that comparison. (Named apart from the
-  private `listener-generation` counter atom above.)"
-  [cb-id]
-  (:generation (get @listeners cb-id)))
-
 (defn observations-snapshot
   "Return the current `{cb-id → {frame-id → generation-token}}` map."
   []
@@ -1461,9 +1516,10 @@
   runs lock-free (rf2-8b9twg). `:observed-gen` does NOT discriminate that case —
   a re-arm mints no generation, so the emitted qualifier still matches the live
   one (rf2-qg98y). What discriminates it is the OBSERVATION-CONTINUUM clause of
-  the receiver rule: this swap is exactly what makes `live-observer?` (public:
-  `re-frame.epoch/epoch-listener-observing?`) report the callback LIVE again, so a
-  receiver re-reading it at receipt time discards the superseded silence.
+  the receiver decision: this swap is exactly what makes `live-observer?` — the
+  observation-continuum half `silence-current?` weighs (public:
+  `re-frame.epoch/epoch-silence-current?`) — report the callback LIVE again, so a
+  receiver deciding at receipt time discards the superseded silence.
   Crucially it takes ONLY silence-lock, NOT the registry lock
   `put-listener!` holds, so a re-arm is never blocked behind a registration
   paused inside the `listeners` swap (the single-monitor deadlock this split

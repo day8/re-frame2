@@ -53,13 +53,16 @@
   (test-support/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
 
 (defn- cb-generation
-  "The live generation token currently registered under `cb`, read through the
-  SUPPORTED public query (rf2-6ys5n) — the exact surface a real consumer uses to
-  self-filter a superseded silence. The self-filter assertions below therefore
-  reach for no private registry state (`listeners-snapshot`); the dedicated
-  public-boundary suite is `re-frame.epoch-listener-generation-public-api-test`."
+  "The live generation token currently registered under `cb`. This is an
+  ARTEFACT-INTERNAL read: rf2-uhouu retired the public generation query, because
+  a consumer holding the generation alone can only recompose the torn two-read
+  receiver decision. A real consumer instead asks the ONE supported question,
+  `re-frame.epoch/epoch-silence-current?` — exercised at the public boundary by
+  `re-frame.epoch-silence-receiver-public-api-test`. The assertions below name
+  the generation directly because they are pinning the EMISSION's qualifier, not
+  the receiver's decision."
   [cb]
-  (re-frame.epoch/epoch-listener-generation cb))
+  (get-in (epoch-state/listeners-snapshot) [cb :generation]))
 
 (defn- owe-silence!
   "Register `cb`, observe `frame` under its current generation, then drop the

@@ -828,7 +828,7 @@ The `:op-type` vocabulary is **open** — implementations and tools may add new 
 | `:rf.registry` | Registrar-mutation family — `:rf.registry/handler-registered`, `:rf.registry/handler-cleared`, `:rf.registry/handler-replaced` (handler hot-reload paths). Spans every kind in the registry model (`:event`, `:sub`, `:fx`, `:cofx`, `:view`, `:machine`, `:flow`, …) | 001 / 009 |
 | `:flow` | Flow lifecycle and evaluation events (per [013 §Flow tracing](013-Flows.md#flow-tracing)) — `:rf.flow/registered`, `:rf.flow/computed`, `:rf.flow/skip`, `:rf.flow/cleared`, `:rf.flow/failed`. All five carry `:tags :flow-id` and `:tags :frame` so tools can attribute and route per-frame; consumers filter `:op-type :flow` to subscribe to the whole stream | 013 |
 | `:rf.epoch` | Epoch-history family — `:rf.epoch/snapshotted`, `:rf.epoch/outcome` (consumer-facing `{:ok :blocked :error}` summary paired with `-snapshotted`'s detailed cause), `:rf.epoch/restored`, `:rf.epoch/db-replaced` (the latter is the pair-tool write surface; see [Tool-Pair §Pair-tool writes](Tool-Pair.md#pair-tool-writes--state-injection)). `:tags {:frame <id> :rf.epoch/id <id> :rf.trace/event-id <id>? :outcome <enum>?}` | Tool-Pair |
-| `:rf.epoch.cb` | Epoch-callback listener-silencing notifications — `:rf.epoch.cb/silenced-on-frame-destroy`. Emitted once per destroy-continuum for a `(frame, cb-id)` pair when a frame previously observed by a `register-epoch-listener!` callback is destroyed so a tool whose previously-firing cb has gone silent learns *why*. Carries `:observed-gen` — the generation the silence is attributed to; a consumer self-filters a superseded signal with the two-clause receiver rule (`re-frame.epoch/epoch-listener-generation` for registration identity, `re-frame.epoch/epoch-listener-observing?` for observation continuum). Per [Tool-Pair §Surface behaviour against destroyed frames](Tool-Pair.md#surface-behaviour-against-destroyed-frames). | Tool-Pair |
+| `:rf.epoch.cb` | Epoch-callback listener-silencing notifications — `:rf.epoch.cb/silenced-on-frame-destroy`. Emitted once per destroy-continuum for a `(frame, cb-id)` pair when a frame previously observed by a `register-epoch-listener!` callback is destroyed so a tool whose previously-firing cb has gone silent learns *why*. Carries `:observed-gen` — the generation the silence is attributed to; a consumer self-filters a superseded signal with the one supported receiver operation, `re-frame.epoch/epoch-silence-current?`, which weighs registration identity and observation continuum under a single ledger snapshot. Per [Tool-Pair §Surface behaviour against destroyed frames](Tool-Pair.md#surface-behaviour-against-destroyed-frames). | Tool-Pair |
 | `:ssr` | Generic SSR-context family — server-render boundary traces (per [011](011-SSR.md)). Distinct from `:rf.ssr/*` operations under `:op-type :warning` (`:rf.ssr/hydration-mismatch` etc.) which ride the severity channel | 011 |
 
 **Per-operation rows** carry their own `:op-type` membership — e.g. `:rf.machine/transition` is an `:operation` whose `:op-type` is `:machine`; `:rf.route.nav-token/stale-suppressed` is an `:operation` whose `:op-type` is `:error`; `:rf.fx/handled` is an `:operation` whose `:op-type` is `:fx`. The [009 §Error event catalogue](009-Instrumentation.md#error-event-catalogue) is the single normative cross-reference: every emit site is enumerated there with its `:operation`, `:op-type`, trigger, default `:recovery`, and `:tags` payload.
@@ -1909,8 +1909,8 @@ Common keys (`:category`, `:failing-id`, `:reason`, `:frame`) are inherited from
   ;; destroyed frames.
   ;;
   ;; :cb-id is the listener id VERBATIM — the SAME open comparable-ID domain the
-  ;; public register-epoch-listener! / register-listener! :epoch and the
-  ;; epoch-listener-generation query accept: ANY comparable value (a keyword,
+  ;; public register-epoch-listener! / register-listener! :epoch verbs accept:
+  ;; ANY comparable value (a keyword,
   ;; string, number, vector, …). The runtime emits the raw registered id, so this
   ;; schema MUST NOT narrow it below what registration accepts — :any is the
   ;; open-identifier domain (as for :rf.epoch/id / :rf.reply/work-id), NOT a
@@ -1921,9 +1921,11 @@ Common keys (`:category`, `:failing-id`, `:reason`, `:frame`) are inherited from
   ;; internal representation is a process-monotonic counter, but that is an
   ;; implementation detail consumers must never depend on (no arithmetic, no
   ;; ordering); the schema is :any so no int/order contract leaks. A consumer
-  ;; compares it for EQUALITY only, against the current generation read through
-  ;; the supported re-frame.epoch/epoch-listener-generation query (rf2-6ys5n),
-  ;; never the private registry. The emit runs OUTSIDE the ledger locks, so data
+  ;; never compares it by hand: it hands the whole tags map to the supported
+  ;; re-frame.epoch/epoch-silence-current? decision (rf2-6ys5n / rf2-qg98y, made
+  ;; ONE atomic observation by rf2-uhouu), which compares it for EQUALITY against
+  ;; the live generation — never the private registry, and never as two composed
+  ;; reads. The emit runs OUTSIDE the ledger locks, so data
   ;; the receiver re-reads — not a lock — preserves authority: a receiver whose
   ;; current generation for cb-id no longer equals the carried :observed-gen
   ;; self-filters the superseded signal (rf2-8b9twg).
