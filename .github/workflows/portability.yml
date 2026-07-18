@@ -8,6 +8,11 @@
 # live in the POSIX-sh script scripts/check-no-hardcoded-paths.sh; this
 # workflow just runs it (plus a shellcheck of the script itself).
 #
+# The first job also shellchecks the CI-EXECUTED `.github/scripts/*.sh`
+# tree (rf2-r4q98), from a derived roster rather than a list. Same idea as
+# the per-gate shellcheck below, aimed at the rf2-ldkuk class: a script CI
+# runs whose defects surface only on the runner.
+#
 # It also carries the tracked-`ai/` RATCHET (rf2-lsp1i) — see that job
 # below. The two gates live together because the ratchet is the UPSTREAM
 # lock for the exact leak this workflow catches downstream: the 2026-07-18
@@ -66,6 +71,47 @@ jobs:
       # a reintroduced personal path genuinely blocks the PR.
       - name: Run the portability gate
         run: sh scripts/check-no-hardcoded-paths.sh
+
+      # rf2-r4q98 — the same precedent, extended to the scripts CI EXECUTES.
+      # `.github/scripts/*.sh` were shellchecked by NOTHING, despite several
+      # workflows running them. That is the rf2-ldkuk class: a defect in a
+      # CI-executed script surfaces only on the runner. ldkuk itself committed
+      # mode 100644 and died with "Permission denied" on CI while passing
+      # locally, because Git Bash on Windows does not enforce the exec bit —
+      # the maintainer's platform cannot reproduce it. A linter that runs on
+      # the runner can.
+      #
+      # It lives in this job, as a STEP rather than a third job, for two
+      # reasons: a step inherits this job's enforcement exactly, and shell
+      # portability is what this workflow is for.
+      #
+      # The roster is DERIVED, not listed. Adding a script to .github/scripts/
+      # covers it automatically — the drift failure this bead exists to fix
+      # (its sibling half was a hardcoded roster that silently stopped
+      # covering new entries). An EMPTY roster FAILS rather than passing
+      # vacuously: a derivation that matches nothing has stopped being a
+      # check, and a rename of the directory must red rather than go quiet.
+      # The roster is printed so a shrinking one is visible in the log.
+      #
+      # SCOPE BOUND, stated rather than implied: this covers the CI-executed
+      # `.github/scripts/` tree only. Four scripts under `scripts/` are not
+      # yet shellcheck-clean (SC1003/SC2016/SC2018/SC2019/SC2034/SC3045), so
+      # a whole-tree sweep would red today; that is a separate cleanup and is
+      # NOT claimed as covered here.
+      - name: Shellcheck the CI-executed .github/scripts shell scripts
+        run: |
+          set -eu
+          roster=$(git ls-files '.github/scripts/*.sh')
+          if [ -z "$roster" ]; then
+            echo "shellcheck roster is EMPTY: .github/scripts/*.sh matched no tracked file." >&2
+            echo "A derived roster that matches nothing has stopped checking anything," >&2
+            echo "so this fails rather than passing vacuously. If the directory moved," >&2
+            echo "update the pattern; if the scripts genuinely went, remove this step." >&2
+            exit 1
+          fi
+          echo "Shellchecking:"
+          printf '%s\n' "$roster"
+          printf '%s\n' "$roster" | xargs shellcheck
 
   ai-tracking-ratchet:
     name: No newly tracked files under ai/

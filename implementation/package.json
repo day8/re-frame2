@@ -36,7 +36,7 @@
     "test:ui-g1": "node scripts/run-ui-bench.cjs",
     "test:ui-g13": "node scripts/run-ui-g13.cjs",
     "test:ui-g8": "node scripts/run-ui-g8.cjs",
-    "test:ui-facade-isolation": "node scripts/check-ui-facade-isolation.cjs",
+    "test:ui-facade-isolation": "node scripts/check-ui-facade-isolation.cjs --self-test && node scripts/check-ui-facade-isolation.cjs",
     "test:cljs-perf-emit-nightly": "shadow-cljs compile node-test-perf-nightly && node out/node-test-perf-nightly.js",
     "test:browser": "shadow-cljs compile browser-test && node scripts/serve-and-run-browser-tests.cjs",
     "test:browser-schemas-boundary-prod": "shadow-cljs release browser-test-schemas-boundary-prod && node scripts/serve-and-run-browser-tests.cjs --root out/browser-test-schemas-boundary-prod --port 8022",
