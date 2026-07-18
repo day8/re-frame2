@@ -25,14 +25,45 @@
 #      `re-frame.adapter.reagent` ns the slim artefact must ship at).
 #   2. jar does NOT contain any reagent_slim entry  (the slim-suffixed
 #      ns must have been renamed away by the transform).
-#   3. generated pom has NO DIRECT day8/re-frame2-reagent dependency
-#      (a slim consumer must not pull the bridge adapter).
-#   4. generated pom has NO slim-owned DIRECT stock-`reagent` dependency
-#      (the slim rewrite REPLACES stock Reagent; it does not depend on
-#      it).  ── DIRECT-dep level ONLY: transitive reagent reaching a
-#      consumer via day8/re-frame2 (core) stays until core drops it, so
-#      a full-transitive-absence assertion would be a FALSE invariant
-#      today.
+#   3. every DIRECT dependency in the generated pom carries a COMPLETE
+#      coordinate — non-empty groupId, artifactId AND version. A published
+#      GAV with a hole in it is unresolvable on the consumer's machine.
+#   4. the DIRECT dependency set is EXACTLY {org.clojure/clojure,
+#      day8/re-frame2} — every expected member present, and nothing else.
+#      Required-member presence catches the empty/absent <dependencies>
+#      hole (see rf2-do3m2 below); the no-extras half subsumes the two
+#      forbidden-dependency checks this script used to spell out by hand
+#      (day8/re-frame2-reagent — a slim consumer must not pull the bridge
+#      adapter; and stock reagent/reagent — the slim rewrite REPLACES
+#      stock Reagent rather than depending on it), and additionally
+#      catches the next unintended dep nobody thought to hardcode.
+#      ── DIRECT-dep level ONLY: transitive reagent reaching a consumer
+#      via day8/re-frame2 (core) stays until core drops it, so a
+#      full-transitive-absence assertion would be a FALSE invariant today.
+#      Versions are asserted NON-EMPTY, never equal to a literal: the
+#      org.clojure/clojure version floats with whatever Clojure CLI
+#      install-clojure-cli.sh lands on the runner.
+#
+# # Why assertion 3+4 are set-shaped, not presence-shaped (rf2-do3m2)
+#
+# Assertions 3 and 4 originally fired only on the PRESENCE of a forbidden
+# dependency — two `grep -q "<artifactId>…"` absence checks. An empty
+# `<dependencies/>`, an absent `<dependencies>` block, and a dependency
+# with an empty `<version/>` therefore ALL printed PASSED.
+#
+# That is not a hypothetical shape. `clein pom` SKIPS `:local/root`
+# coordinates outright ("Skipping coordinate: {:local/root …}"), so the
+# pom generated from the UNREWRITTEN in-tree deps.edn carries no
+# day8/re-frame2 dependency whatsoever. release.yml's
+# `:local/root → :mvn/version` rewrite step is the only thing standing
+# between that and a published artefact whose dependency set is empty —
+# and a presence-only preflight waves it straight through to Clojars,
+# where it cannot be unpublished.
+#
+# The no-extras half is a deliberate tripwire: a NEW legitimate dependency
+# on the slim artefact reds this gate until someone adds it to EXPECTED
+# below. That is the intended workflow — the published dependency set of
+# an irreversibly-released artefact should change only on purpose.
 #
 # # Fallback scope note (rf2-olo8rc)
 #
@@ -48,9 +79,16 @@
 # # Runner / portability
 #
 # Linux-runner-only by design (the sole caller is release.yml deploy-leaf
-# on ubuntu-latest). Pure POSIX sh; the only external tools are clojure
-# (already set up by the deploy-leaf job) and `jar` (ships with the JDK
-# the job installs). No .ps1 sibling — confirmed Linux-only.
+# on ubuntu-latest). POSIX sh; the external tools are clojure (already set
+# up by the deploy-leaf job), `jar` (ships with the JDK the job installs)
+# and `python3`, used to parse the pom. python3 is not a new runner
+# requirement: the deploy-leaf job's `:local/root → :mvn/version` rewrite
+# step already shells out to it a few steps earlier, and it is present on
+# ubuntu-latest out of the box. It is used deliberately in preference to a
+# line-oriented sh/grep parse — this is the last gate before an
+# irreversible publish, and a text parser that mis-reads a reformatted pom
+# would produce exactly the class of false PASS this script exists to
+# prevent. No .ps1 sibling — confirmed Linux-only.
 #
 # # Usage
 #
@@ -111,22 +149,124 @@ if printf '%s\n' "$JAR_ENTRIES" | grep -q "reagent_slim"; then
   errors=$((errors + 1))
 fi
 
-# ── 3: no DIRECT day8/re-frame2-reagent dep in the pom ──────────────
-# clein emits <dependency><groupId>day8</groupId><artifactId>X</artifactId>
-# blocks. A slim consumer must not transitively pull the bridge adapter
-# as a DIRECT dep of the slim artefact.
-if grep -q "<artifactId>re-frame2-reagent</artifactId>" "$POM"; then
-  echo "::error::preflight: pom declares a DIRECT day8/re-frame2-reagent dependency — the slim artefact must not depend on the bridge adapter"
-  errors=$((errors + 1))
-fi
+# ── 3 + 4: the pom's DIRECT dependency SET ──────────────────────────
+# Bind to the expected membership, not to the absence of two known-bad
+# names — see the "Why assertion 3+4 are set-shaped" note in the header
+# (rf2-do3m2). Parsed with ElementTree rather than grepped so a
+# reformatted or namespaced pom cannot yield a false PASS.
+if ! python3 - "$POM" <<'PYTHON'
+import sys
+import xml.etree.ElementTree as ET
 
-# ── 4: no slim-owned DIRECT stock-reagent dep in the pom ────────────
-# Stock Reagent publishes as reagent/reagent (groupId == artifactId ==
-# "reagent"). The slim rewrite REPLACES stock Reagent, so the slim pom
-# must carry no direct <artifactId>reagent</artifactId>. DIRECT level
-# ONLY — transitive reagent via core (day8/re-frame2) is expected today.
-if grep -q "<artifactId>reagent</artifactId>" "$POM"; then
-  echo "::error::preflight: pom declares a DIRECT stock-reagent dependency — the slim rewrite replaces (does not depend on) stock Reagent at the direct-dep level"
+pom_path = sys.argv[1]
+
+# The DIRECT dependency set a correct reagent-slim pom declares — EXACTLY
+# these members, no more, no fewer.
+#
+#   org.clojure/clojure   the implicit root dep the Clojure CLI contributes
+#   day8/re-frame2        the core coordinate; release.yml rewrites the
+#                         in-tree :local/root "../../core" to :mvn/version
+#                         immediately before this preflight runs
+#
+# ADDING A DEPENDENCY to the slim artefact? Add it here in the same PR.
+# This set is a deliberate tripwire on the published ABI of an artefact
+# that cannot be unpublished.
+EXPECTED = {
+    ("org.clojure", "clojure"),
+    ("day8", "re-frame2"),
+}
+
+# Extra context for the shapes with a specific history. A bare "unexpected
+# dependency" would be true but unhelpful for these two.
+EXTRA_HINT = {
+    ("day8", "re-frame2-reagent"):
+        " The slim artefact must not depend on the bridge adapter — a slim"
+        " consumer would end up pulling BOTH adapters.",
+    ("reagent", "reagent"):
+        " The slim rewrite REPLACES stock Reagent; it does not depend on it."
+        " (DIRECT-dep level only — transitive reagent via day8/re-frame2 is"
+        " expected until core drops it.)",
+}
+
+MISSING_HINT = {
+    ("day8", "re-frame2"):
+        " NB: `clein pom` SKIPS :local/root coordinates outright, so this is"
+        " exactly the pom produced when release.yml's :local/root ->"
+        " :mvn/version rewrite did not take effect. Publishing it would ship"
+        " an artefact that resolves to nothing on the consumer's machine.",
+}
+
+
+def localname(tag):
+    """Tag name without its {namespace} prefix."""
+    return tag.rsplit("}", 1)[-1]
+
+
+def child_text(parent, name):
+    for el in parent:
+        if localname(el.tag) == name:
+            return (el.text or "").strip()
+    return ""
+
+
+errors = []
+
+try:
+    root = ET.parse(pom_path).getroot()
+except ET.ParseError as exc:
+    print("::error::preflight: pom is not well-formed XML: %s" % exc)
+    sys.exit(1)
+
+# Only <project>'s DIRECT <dependencies> child, never a
+# <dependencyManagement> block's (which declares versions but not deps).
+dependencies = []
+for container in root:
+    if localname(container.tag) != "dependencies":
+        continue
+    dependencies.extend(
+        el for el in container if localname(el.tag) == "dependency"
+    )
+
+declared = set()
+for index, dep in enumerate(dependencies, start=1):
+    gav = {name: child_text(dep, name)
+           for name in ("groupId", "artifactId", "version")}
+    label = "%s/%s" % (gav["groupId"] or "<no groupId>",
+                       gav["artifactId"] or "<no artifactId>")
+    for name in ("groupId", "artifactId", "version"):
+        if not gav[name]:
+            errors.append(
+                "dependency #%d (%s) has a missing or empty <%s> — an"
+                " incomplete GAV is unresolvable for consumers"
+                % (index, label, name)
+            )
+    if gav["groupId"] and gav["artifactId"]:
+        declared.add((gav["groupId"], gav["artifactId"]))
+
+for coord in sorted(EXPECTED - declared):
+    errors.append(
+        "pom is MISSING the required DIRECT dependency %s/%s.%s"
+        % (coord[0], coord[1], MISSING_HINT.get(coord, ""))
+    )
+
+for coord in sorted(declared - EXPECTED):
+    errors.append(
+        "pom declares an UNEXPECTED DIRECT dependency %s/%s.%s"
+        " If this dependency is intentional, add it to EXPECTED in"
+        " .github/scripts/preflight-reagent-slim-package.sh in the same PR."
+        % (coord[0], coord[1], EXTRA_HINT.get(coord, ""))
+    )
+
+for message in errors:
+    print("::error::preflight: %s" % message)
+
+if errors:
+    sys.exit(1)
+
+print("preflight: pom declares exactly the expected dependency set (%s)"
+      % ", ".join("%s/%s" % c for c in sorted(EXPECTED)))
+PYTHON
+then
   errors=$((errors + 1))
 fi
 
@@ -137,5 +277,5 @@ fi
 
 echo "preflight: reagent-slim published-package verification PASSED"
 echo "  jar ships re_frame/adapter/reagent.cljs and NO reagent_slim entry"
-echo "  pom has no DIRECT day8/re-frame2-reagent dep and no DIRECT stock-reagent dep"
+echo "  pom declares exactly {org.clojure/clojure, day8/re-frame2}, each with a complete GAV"
 exit 0
