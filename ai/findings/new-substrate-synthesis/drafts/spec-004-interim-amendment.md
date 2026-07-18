@@ -1,14 +1,35 @@
-# Spec 004 — interim broadening amendment (R-1, immediate merge)
+# Spec 004 — interim broadening amendment (R-1) — SUPERSEDED
 
-**Status:** final draft · 2026-07-11.
+> **Status: SUPERSEDED — historical staging material. Do not apply.**
+>
+> **The current contract is `spec/004-Views.md` §The portability law and the template
+> AST:** a portable view has one deterministic, serialisable **template representation**,
+> produced by the shared analyzer and consumed by that build's host emitter; emitted host
+> values may be host-native. Analysis is host-parameterized, so each build lowers its own
+> AST and hands it to exactly one emitter — the hosts never meet as ASTs. Parity between
+> the two emitter implementations is **normalized structural equivalence** (fingerprinted),
+> which *detects* divergence rather than preventing it.
+>
+> Everything below states the **interim** wording — "one … template representation
+> consumed by each host emitter" — which read as a single cross-host representation and
+> has since been **retired**. It is preserved verbatim as design history and is
+> deliberately NOT corrected in place; read it as archaeology, never as direction.
+>
+> The exact-string pairs below are also **unappliable**: the full rewrite replaced
+> `spec/004-Views.md` wholesale, so none of the quoted **Old:** text survives in that
+> file. Superseded by the full rewrite ([spec-004-rewrite-draft.md](spec-004-rewrite-draft.md),
+> merged into `spec/004-Views.md`) and then by the Abstract reconciliation (rf2-vxcl7).
+
+**Original status:** final draft · 2026-07-11.
 **Target file:** `spec/004-Views.md` (at the revision read for this draft; line refs below are against that revision).
-**Basis (08 §5 R-1):** *"A portable view has one
+**Basis (08 §5 R-1, as worded then — since retired):** *"A portable view has one
 deterministic, serializable template representation consumed by each host emitter.
 Emitted host values may be host-native and need not themselves be serializable."*
-**Merge condition:** immediately — this is the small broadening that makes BOTH today's
-Reagent hiccup views AND the future compiled `re-frame.ui` views conform, so the repo is
-never knowingly nonconformant. The full rewrite (drafted separately in
-[spec-004-rewrite-draft.md](spec-004-rewrite-draft.md)) merges atomically with the first
+**Original merge condition (satisfied, then overtaken):** immediately — this was the small
+broadening that made BOTH the then-current Reagent hiccup views AND the future compiled
+`re-frame.ui` views conform, so the repo was never knowingly nonconformant. The full
+rewrite (drafted separately in
+[spec-004-rewrite-draft.md](spec-004-rewrite-draft.md)) merged atomically with the first
 conforming Stage-1 slice.
 
 ## What this amendment does
