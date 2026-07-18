@@ -405,6 +405,18 @@
    ;; marker between "one" and "AST" must not buy the retired wording a pass.
    ["one AST consumed by the emitters"
     #"(?is)\bAST\**\s+consumed\s+by\s+(?:two|both|each\s+host|the\s+(?:two|host))\s+emitter"]
+   ;; A fourth formulation of the same retired model, which reached Spec 004's
+   ;; Abstract untouched by the three above (rf2-vxcl7): the cross-host noun is
+   ;; "template representation" rather than "AST", so no /AST/ pattern sees it.
+   ;; "consumed by THAT BUILD'S host emitter" is the current law and must NOT
+   ;; match — only a cross-host quantifier does.
+   ["one template representation consumed by the host emitters"
+    #"(?is)\b(?:one|a\s+single)\b.{0,80}?\btemplate\s+representation\**\s+consumed\s+by\s+(?:two|both|each|every|the)(?:\s+(?:two|host))?\s+emitters?\b"]
+   ;; …and its second half, whose quantifier ("every") the "one parse/AST →
+   ;; per-host emitters" row does not carry, and whose verb is governance rather
+   ;; than handing-off.
+   ["one AST governs every emitter"
+    #"(?is)\b(?:one|a\s+single)\s+(?:normalized\s+|normalised\s+|template\s+)*AST\b[^.]{0,60}?\b(?:controls|governs|drives|feeds|serves)\s+(?:every|each|both|all|the)\s+(?:host\s+)?emitters?\b"]
    ["one emitter implements both hosts"
     #"(?i)(?:(?:one|same)\s+emitter[^\n]{0,120}(?:both\s+hosts|client[^\n]*server|browser[^\n]*jvm)|(?:both\s+hosts|client[^\n]*server|browser[^\n]*jvm)[^\n]{0,120}(?:one|same)\s+emitter)"]
    ["host output is identical"
@@ -465,6 +477,45 @@
         (doseq [[claim pattern] retired-claim-patterns]
           (is (not (re-find pattern text))
               (str path " reintroduced retired claim: " claim)))))))
+
+(defn- section-text
+  "The text of `heading` up to the next same-level heading, or nil if absent.
+
+  Region scoping is load-bearing: the document-wide census above cannot see
+  WHERE a claim sits, so one correct sentence in Spec 004's body kept the file
+  green while its Abstract still taught the retired cross-host model. Binding a
+  region means a second occurrence of the same phrase elsewhere in the document
+  cannot satisfy the row (the false-green shape rf2-yho9j found).
+
+  Line endings are normalized first so the slice behaves identically on a CRLF
+  checkout (Windows) and an LF one (CI)."
+  [text heading]
+  (let [text (str/replace text "\r\n" "\n")]
+    (when-let [from (str/index-of text heading)]
+      (let [to (str/index-of text "\n## " (+ from (count heading)))]
+        (subs text from (or to (count text)))))))
+
+(deftest spec-004-abstract-teaches-per-host-analysis
+  (let [abstract (section-text (slurp (root-file "spec/004-Views.md"))
+                               "\n## Abstract\n")]
+    (when (is (some? abstract) "spec/004-Views.md lost its '## Abstract' heading")
+      (testing "the Abstract states host-parameterized analysis, one emitter per build"
+        (doseq [pattern [#"(?is)analysis\s+is\s+host-parameterized"
+                         #"(?is)hands\s+it\s+to\s+exactly\s+one\s+emitter"
+                         #"(?is)hosts\s+never\s+meet\s+as\s+ASTs"]]
+          (is (re-find pattern abstract)
+              (str "spec/004-Views.md Abstract lost its per-host statement: "
+                   pattern))))
+      (testing "the Abstract keeps the two-emitter and normalized-parity facts"
+        (doseq [pattern [#"(?is)two\s+emitter\s+implementations"
+                         #"(?is)normalized\s+structural\s+equivalence"]]
+          (is (re-find pattern abstract)
+              (str "spec/004-Views.md Abstract lost a legitimate fact: " pattern))))
+      (testing "retired cross-host claims stay absent from the Abstract"
+        (doseq [[claim pattern] retired-claim-patterns]
+          (is (not (re-find pattern abstract))
+              (str "spec/004-Views.md Abstract reintroduced retired claim: "
+                   claim)))))))
 
 (deftest pipeline-and-stage-claims-stay-truthful
   (let [chapters (into {} (map (juxt identity slurp-guide) chapter-files))
