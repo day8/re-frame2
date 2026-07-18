@@ -111,6 +111,10 @@
      {:db (assoc db :rows rows)})))
 
 (defview passive-panel [{:keys [node-key authored-ref object-ref]}]
+  ^{:rf.ui/suppress
+    {:rf.ui.compile/a11y-click-non-interactive
+     "not a control: this outer div exists only to observe the CAPTURE phase of
+      clicks on the buttons inside it, which are the real controls"}}
   [:div {:data-passive-role "outer"
          :on-click {:event [::record :capture]
                     :passive true
