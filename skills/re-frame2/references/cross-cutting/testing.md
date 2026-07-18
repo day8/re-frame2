@@ -261,8 +261,11 @@ When a fixture didn't stash the tree, or you need the `:on-click`-fires-the-righ
 - `testid` — the **authoring** helper that standardises the attrs fragment at view call sites; use it whenever you write a new view that wants a test handle:
 
 ```clojure
-[:button (h/testid "counter-inc" {:on-click #(dispatch [:counter/inc])}) "+"]
+(rf/reg-view counter-inc-button []
+  [:button (h/testid "counter-inc" {:on-click #(dispatch [:counter/inc])}) "+"])
 ```
+
+`dispatch` is the local `rf/reg-view` injects — that lexical binding is what the deferred `:on-click` closes over. A bare `rf/dispatch` there runs after the render scope has unwound and raises `:rf.error/no-frame-context` (EP-0002 — no `:rf/default` floor).
 
 **Why walk the view, not just assert state?** State-only assertions (`(is (= 2 (:n db)))`) catch handler bugs but miss two classes the hiccup-walk catches — *state-correct, view-broken* (handler updated db, view reads the wrong path / forgets a branch) and *wrong-frame dispatch* (`:on-click` dispatches into the wrong frame; host-frame state never changes). Both surface on JVM and Node-CLJS with no browser.
 

@@ -397,19 +397,30 @@
       (is (fn? (h/extract-handler hit :on-click))))))
 
 ;; ---------------------------------------------------------------------------
-;; Deferred-callback frame-law guard (rf2-1yi8d)
+;; Deferred-callback frame-law guard (rf2-1yi8d, rf2-ywwpx)
 ;; ---------------------------------------------------------------------------
-;; The copyable `testid` example in the docstring must show the
-;; `reg-view`-injected `dispatch`, not a bare qualified `rf/dispatch`. A
-;; deferred `:on-*` callback runs after the render scope unwinds and the
-;; `frame-provider`'s React context has been popped, so a bare `rf/dispatch`
-;; there resolves no frame and raises `:rf.error/no-frame-context` (EP-0002,
-;; no `:rf/default` floor). This fixture pins the docstring so the positive
-;; example cannot revert to the unlawful bare form.
-(deftest testid-docstring-teaches-injected-dispatch-not-bare
+;; The copyable `testid` example must show the `reg-view`-injected `dispatch`,
+;; not a bare qualified `rf/dispatch`. A deferred `:on-*` callback runs after
+;; the render scope unwinds and the `frame-provider`'s React context has been
+;; popped, so a bare `rf/dispatch` there resolves no frame and raises
+;; `:rf.error/no-frame-context` (EP-0002, no `:rf/default` floor).
+;;
+;; Showing the injected `dispatch` is only half the contract: the example must
+;; also show the form that BINDS it, otherwise a reader who copies the snippet
+;; gets an unresolved `dispatch` symbol (rf2-ywwpx). So this fixture pins the
+;; binding context — the enclosing `rf/reg-view` must appear ahead of the
+;; injected use — not merely the presence of `#(dispatch`.
+;; `[\s\S]*?` rather than `(?s).*?` — the inline `(?s)` flag is a Java-only
+;; regex construct and CLJS compiles patterns to JS RegExp.
+(def ^:private reg-view-binds-injected-dispatch
+  #"\(rf/reg-view [\s\S]*?#\(dispatch ")
+
+(deftest testid-docstring-shows-the-binding-context-for-injected-dispatch
   (let [doc (:doc (meta #'h/testid))]
     (is (some? doc) "testid must carry a docstring")
-    (is (re-find #"#\(dispatch " doc)
-        "the testid example must dispatch through the reg-view-injected `dispatch`")
+    (is (re-find reg-view-binds-injected-dispatch doc)
+        (str "the testid example must show the `rf/reg-view` form that BINDS `dispatch` "
+             "ahead of the deferred `#(dispatch ...)` that uses it — otherwise a reader "
+             "copying the snippet gets an unresolved `dispatch` symbol"))
     (is (nil? (re-find #"#\(rf/dispatch " doc))
         "the testid example must NOT use a bare deferred `rf/dispatch` (raises :rf.error/no-frame-context)")))
