@@ -767,12 +767,23 @@ own mismatch-detection path. A view-level head API would have to reconcile with 
 before it could be correct. Head rendering therefore stays host-owned until that
 hardening lands, which is the posture S1–S3 already shipped under.
 
-> **[S4-OPEN — normative home undecided].** This section records the standing
-> policy; the question of *which* Spec normatively owns the head-render policy —
-> this one, [011](011-SSR.md) (which owns the server-side head model), or elsewhere
-> — has not been ruled. The text lives here, next to the §Interop boundary table it
-> constrains, pending that ruling. No S4 conformance fixture asserts it: it states
-> an absence of surface, not a behaviour.
+> **Normative ownership (ruled, `rf2-3i7tr`).** This Spec normatively owns the
+> compiled-view **structural absence** stated above — no `ui/head`, no head target,
+> and no portable head channel in the template grammar, the AST, or the JVM tree,
+> qualified at the `ui/raw` foreign boundary. [011 §Head/meta
+> contract](011-SSR.md#headmeta-contract) normatively owns the structured
+> document-head **mechanism** (`reg-head` / `render-head` / `active-head`,
+> head-model shape, escaping, shell emission, ordering, `:rf/head-hash`, mismatch
+> behaviour); [009](009-Instrumentation.md#error-event-catalogue) owns only the
+> diagnostic projection (`:rf.ssr/head-mismatch` attribution,
+> `:rf.error/ssr-head-resolution-failed`). Ownership follows the abstraction
+> boundary rather than the shared noun: 011 specifies an **optional** artefact,
+> while the absence above constrains every compiled template — including
+> client-only apps that never load it — so the grammar-owning Spec is the one that
+> can define the grammar's completeness. A future head-capable form (the Wave-2
+> `ui/portal` row) would be a change to *this* grammar first. No S4 conformance
+> fixture asserts the absence: it states an absence of surface, not a behaviour,
+> and the export-surface guards already fail on an accidental public `ui/head`.
 
 ## `ui/route-link` — a framework-provided compiled view over the routing seam
 
