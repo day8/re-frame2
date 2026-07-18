@@ -395,6 +395,35 @@
         (.set source-coordinators s coord)
         coord)))
 
+(defn- release-source-wire!
+  "Release ONE `[source watch-key]` input wire held by a derived value — the
+  exact inverse of one iteration of `make-derived-value-fn`'s install loop.
+
+  A raw atom source's key is a dependent entry in that source's fan-out
+  coordinator (rf2-7ryt0): drop the entry, and when the coordinator has no
+  dependents left tear down its single real watch + registry slot. A reify
+  derived source's key is a direct watch: remove it.
+
+  Tolerates a key that was never actually installed — filtering an absent
+  dependent entry and `remove-watch` on an unheld key are both no-ops, and a
+  source whose `ensure-source-coordinator!` threw before `.set` has no
+  coordinator to find. That tolerance is what lets the failure-atomic
+  construction unwind (rf2-vxgfnd.292) replay this over the partially-acquired
+  key vector without first working out how far the loop got.
+
+  ONE implementation, two callers: the construction unwind and the steady-state
+  `-dispose`."
+  [scheduler s k]
+  (let [coords (:source-coordinators scheduler)]
+    (if (source-atom? s)
+      (when-let [coord (.get coords s)]
+        (swap! (:deps coord)
+               (fn [ds] (filterv (fn [pair] (not= (nth pair 0) k)) ds)))
+        (when (empty? @(:deps coord))
+          (remove-watch s (:watch-key coord))
+          (.delete coords s)))
+      (remove-watch s k))))
+
 ;; ---- container ------------------------------------------------------------
 ;;
 ;; Per Spec 006 §revertibility-constraints the container holds the
@@ -735,13 +764,40 @@
       ;; custom non-atom base) keeps a direct per-dependent `add-watch`: its
       ;; `notify` fan-out already runs inside — and surfaces at — the
       ;; enclosing drain/epoch.
-      (doseq [s source-containers]
-        (let [k (gensym gensym-prefix)]
-          (swap! own-keys conj [s k])
-          (if (source-atom? s)
-            (let [coord (ensure-source-coordinator! scheduler gensym-prefix s)]
-              (swap! (:deps coord) conj [k mark-dirty!]))
-            (add-watch s k (fn [_ _ _ _] (mark-dirty!))))))
+      ;;
+      ;; INTERNALLY FAILURE-ATOMIC (rf2-vxgfnd.292). The loop installs one wire
+      ;; per source, so a throw partway — a source whose `add-watch` rejects, a
+      ;; host container that refuses a new dependent — used to leave EVERY
+      ;; earlier wire installed while the constructor returned nothing. The
+      ;; caller then held no derived value, so there was no `-dispose` to call
+      ;; and no verb that could reach those watches: an unreachable object went
+      ;; on marking itself dirty for the lifetime of its sources. Spec 006
+      ;; §make-derived-value requires the opposite — a `make-derived-value` that
+      ;; throws before returning has removed whatever it installed.
+      ;;
+      ;; So: unwind in REVERSE acquisition order, attempt EVERY release even if
+      ;; one throws, and re-raise the PRIMARY construction error. A secondary
+      ;; failure raised while unwinding is swallowed deliberately — it is a
+      ;; consequence of the primary and unactionable on its own, and letting it
+      ;; escape would replace the one error that names the real fault. This is
+      ;; ordinary control flow, not a development assertion: it is present and
+      ;; enforcing on EVERY build (no `goog.DEBUG` gate, nothing Closure can
+      ;; elide under `:advanced`).
+      (try
+        (doseq [s source-containers]
+          (let [k (gensym gensym-prefix)]
+            (swap! own-keys conj [s k])
+            (if (source-atom? s)
+              (let [coord (ensure-source-coordinator! scheduler gensym-prefix s)]
+                (swap! (:deps coord) conj [k mark-dirty!]))
+              (add-watch s k (fn [_ _ _ _] (mark-dirty!))))))
+        (catch :default e
+          (doseq [[s k] (rseq @own-keys)]
+            (try
+              (release-source-wire! scheduler s k)
+              (catch :default _ nil)))
+          (reset! own-keys [])
+          (throw e)))
       (reify
         IDeref
         (-deref [_] (deref-derived))
@@ -772,21 +828,11 @@
           ;; plain second call) short-circuits before any teardown re-runs.
           (when-not @disposed?
             (vreset! disposed? true)
-            ;; Release every held input. A raw atom source's key is a dependent
-            ;; entry in its fan-out coordinator (rf2-7ryt0): drop the entry, and
-            ;; when the coordinator has no dependents left tear down its single
-            ;; real watch + registry slot. A reify derived source's key is a
-            ;; direct watch: remove it.
-            (let [coords (:source-coordinators scheduler)]
-              (doseq [[s k] @own-keys]
-                (if (source-atom? s)
-                  (when-let [coord (.get coords s)]
-                    (swap! (:deps coord)
-                           (fn [ds] (filterv (fn [pair] (not= (nth pair 0) k)) ds)))
-                    (when (empty? @(:deps coord))
-                      (remove-watch s (:watch-key coord))
-                      (.delete coords s)))
-                  (remove-watch s k))))
+            ;; Release every held input through the SAME `release-source-wire!`
+            ;; the failure-atomic construction unwind uses (rf2-vxgfnd.292) —
+            ;; one release implementation, so the two paths can never drift.
+            (doseq [[s k] @own-keys]
+              (release-source-wire! scheduler s k))
             (reset! own-keys [])
             (reset! watchers {})
             ;; Snapshot-and-clear callbacks before firing: a callback that
