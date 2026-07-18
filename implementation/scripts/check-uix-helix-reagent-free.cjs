@@ -171,4 +171,16 @@ function main() {
   }
 }
 
-main();
+// Checker-owned target contract (rf2-kfn9q): the exact implementation-relative
+// runtimes this gate isolates. It proves the UIx-only and Helix-only bundles
+// carry no stock Reagent while the Reagent bundle does (the cross-substrate
+// positive control), so it isolates all three adapter runtimes. See the binding
+// in check-bundle-isolation.cjs (validateDedicatedGate).
+const COVERS_RUNTIMES = ['adapters/reagent', 'adapters/uix', 'adapters/helix'];
+
+module.exports = { COVERS_RUNTIMES };
+
+// Run only when invoked directly, not when required for its target contract.
+if (require.main === module) {
+  main();
+}

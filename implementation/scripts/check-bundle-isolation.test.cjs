@@ -246,14 +246,17 @@ withFixture((root) => {
     'string / discard mentions are not enrolled');
 });
 
-// Mutation 5 — DEDICATED GATES ARE CAUSAL: a dedicated descriptor enrols a
-// runtime only when its checker script EXISTS and its command is an INVOKED
-// package script. A prose string, a nonexistent checker, or an uninvoked/absent
-// command all fail closed. A well-formed descriptor pointing at a real, invoked
-// gate passes.
+// Mutation 5 — DEDICATED GATES ARE CAUSAL, bound to the EXACT runtime AND
+// executable (rf2-klyw5 / rf2-kfn9q): a dedicated descriptor enrols a runtime
+// only when its checker script EXISTS, its command RUNS that checker as a
+// directly-invoked reachable step, AND a checker OWNS the exact runtime in its
+// COVERS_RUNTIMES. A prose string, a nonexistent checker, an uninvoked / echoed /
+// argument-only / substring / unreachable-false-and command, or an unrelated
+// checker reused for a runtime it never inspects all fail closed.
 coverageMutations += 1;
 {
-  // Unit-level: validateDedicatedGate directly.
+  // Unit-level: validateDedicatedGate directly (no relPath → runtime binding
+  // not exercised; exercises descriptor shape + executable binding).
   assert(!validateDedicatedGate('isolated by the vibes').ok,
     'a truthy prose string is not a valid dedicated gate');
   assert(!validateDedicatedGate({ checkers: ['check-does-not-exist.cjs'], command: 'test:bundle-isolation' }).ok,
@@ -261,14 +264,49 @@ coverageMutations += 1;
   assert(!validateDedicatedGate({ checkers: ['check-login-bundle-isolation.cjs'], command: 'test:no-such-script' }).ok,
     'a command that is not a package.json script fails validation');
   assert(!validateDedicatedGate({ checkers: ['check-login-bundle-isolation.cjs'], command: 'test:reagent-slim:bundle-isolation' }).ok,
-    'a real command that does NOT invoke the declared checker fails validation');
+    'a real command that does NOT run the declared checker fails validation');
   assert(validateDedicatedGate({ checkers: ['check-login-bundle-isolation.cjs'], command: 'test:bundle-isolation' }).ok,
-    'a real checker invoked by its real package command validates');
+    'a real checker run by its real package command validates (executable binding)');
+
+  // rf2-kfn9q — EXECUTABLE binding: a checker counts only when a package-script
+  // step DIRECTLY runs it. echo / comment / argument-only / name-substring /
+  // unreachable false-and mentions do NOT. A synthetic scripts map isolates the
+  // grammar from the real package.json.
+  const grammarScripts = {
+    'gate:echo':      'echo check-login-bundle-isolation.cjs',
+    'gate:false-and': 'false && node scripts/check-login-bundle-isolation.cjs',
+    'gate:comment':   'node scripts/check-uix-helix-reagent-free.cjs && # node scripts/check-login-bundle-isolation.cjs',
+    'gate:arg-only':  'node scripts/check-uix-helix-reagent-free.cjs check-login-bundle-isolation.cjs',
+    'gate:substring': 'node scripts/xcheck-login-bundle-isolation.cjs',
+    'gate:real':      'shadow-cljs release x && node scripts/check-login-bundle-isolation.cjs',
+  };
+  const grammarGate = (command) => validateDedicatedGate(
+    { checkers: ['check-login-bundle-isolation.cjs'], command },
+    { scripts: grammarScripts });
+  assert(!grammarGate('gate:echo').ok, 'echo mention does not RUN the checker');
+  assert(!grammarGate('gate:false-and').ok, 'unreachable false-and mention does not RUN the checker');
+  assert(!grammarGate('gate:comment').ok, 'a commented-out mention does not RUN the checker');
+  assert(!grammarGate('gate:arg-only').ok, 'checker as an argument to another script does not RUN it');
+  assert(!grammarGate('gate:substring').ok, 'a longer filename containing the checker name as a substring does not RUN it');
+  assert(grammarGate('gate:real').ok, 'a real `node scripts/<checker>` step RUNS the checker');
+
+  // rf2-kfn9q — RUNTIME binding: with a relPath, a checker must OWN that exact
+  // runtime (COVERS_RUNTIMES). The login checker owns adapters/reagent, not
+  // adapters/newpub.
+  const boundReagent = validateDedicatedGate(
+    { checkers: ['check-login-bundle-isolation.cjs'], command: 'gate:real' },
+    { scripts: grammarScripts, relPath: 'adapters/reagent' });
+  assert(boundReagent.ok, 'the login checker OWNS adapters/reagent → binds');
+  const unboundNewpub = validateDedicatedGate(
+    { checkers: ['check-login-bundle-isolation.cjs'], command: 'gate:real' },
+    { scripts: grammarScripts, relPath: 'adapters/newpub' });
+  assert(!unboundNewpub.ok, 'the login checker does NOT own adapters/newpub → does not bind');
+  assert(unboundNewpub.reasons.some((r) => /adapters\/newpub/.test(r) && /COVERS_RUNTIMES|OWNS/.test(r)),
+    'the runtime-binding failure names the unbound runtime');
 
   // Integration: a discovered adapter routed through each bad descriptor fails
-  // coverage; the valid descriptor covers it. Each override keeps the real
-  // dedicated gates (so the fixture's adapters/reagent stays covered) and varies
-  // only adapters/newpub.
+  // coverage; a genuinely-bound one covers it. Overrides keep the real dedicated
+  // gates (so the fixture's adapters/reagent stays covered) and vary newpub.
   withFixture((root) => writeArtefact(root, 'adapters/newpub', PUBLISHABLE_DEPS), (root) => {
     const required = discoverBrowserOptionalRuntimes(root);
     const withNewpub = (descriptor) => assertCanonicalInventoryCovered(required, {
@@ -287,10 +325,17 @@ coverageMutations += 1;
     assert(!uninvoked.ok && uninvoked.missing.some((rt) => rt.relPath === 'adapters/newpub'),
       'a dedicated entry whose command is not an invoked package script must fail closed');
 
-    const valid = withNewpub({ checkers: ['check-login-bundle-isolation.cjs'], command: 'test:bundle-isolation' });
-    assert(valid.ok, 'a real checker invoked by a real package command enrols the runtime');
-    assert(valid.covered.some((c) => c.relPath === 'adapters/newpub' && c.via === 'dedicated'),
-      'the validly-gated adapter is covered via its dedicated gate');
+    // rf2-kfn9q — reusing an UNRELATED existing checker for a new runtime fails:
+    // the login checker really RUNS under test:bundle-isolation, but it does NOT
+    // own adapters/newpub, so the descriptor is not causally bound to newpub.
+    const unrelated = withNewpub({ checkers: ['check-login-bundle-isolation.cjs'], command: 'test:bundle-isolation' });
+    assert(!unrelated.ok && unrelated.missing.some((rt) => rt.relPath === 'adapters/newpub'),
+      'reusing the login checker for adapters/newpub must fail — checker does not isolate newpub');
+
+    // The genuinely-gated fixture adapter stays covered: adapters/reagent maps to
+    // its real checkers, which DO own adapters/reagent in COVERS_RUNTIMES.
+    assert(unrelated.covered.some((c) => c.relPath === 'adapters/reagent' && c.via === 'dedicated'),
+      'the real adapters/reagent gate (whose checkers own its coverage) still binds');
   });
 }
 
@@ -417,8 +462,11 @@ console.log(
   `${sentinelMutations} deliberate production leaks; ` +
   `${thirdParty.size} emitted third-party owners; ` +
   `${coverageMutations} structural+causal enrollment mutations ` +
-  '(publishable ui + new adapter fail closed; leaf-collision, EDN string/comment/discard, ' +
-  'prose/absent/uninvoked dedicated gate all rejected); ' +
+  '(publishable ui + new adapter + nested non-adapter fail closed; leaf-collision, ' +
+  'EDN string/comment/discard rejected; dedicated gate bound to exact runtime + ' +
+  'executable — prose/absent/uninvoked/echo/false-and/arg-only/substring command + ' +
+  'unrelated-checker-for-new-runtime all rejected; nonexistent-root / subtree-EACCES / ' +
+  'unreadable-deps.edn fail closed, missing-deps.edn is a normal non-candidate); ' +
   'lockstep consumes the shared EDN authority; ' +
   'module-ownership and sentinel-ownership confusion rejected'
 );

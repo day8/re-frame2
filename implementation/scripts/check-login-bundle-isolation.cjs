@@ -247,4 +247,19 @@ function main() {
   process.exit(1);
 }
 
-main();
+// Checker-owned target contract (rf2-kfn9q): the exact implementation-relative
+// runtimes this gate actually isolates. The dedicated-gate binding in
+// check-bundle-isolation.cjs requires a runtime's descriptor to name a checker
+// whose COVERS_RUNTIMES includes it, so an unrelated existing checker can NOT be
+// reused for a new runtime it never inspects. This gate proves the shared
+// login.model stays substrate-free across the Reagent / UIx / Helix login
+// bundles, so it isolates all three adapter runtimes.
+const COVERS_RUNTIMES = ['adapters/reagent', 'adapters/uix', 'adapters/helix'];
+
+module.exports = { COVERS_RUNTIMES };
+
+// Run only when invoked directly (`node scripts/check-login-bundle-isolation.cjs`),
+// not when required as the checker-owned target contract above.
+if (require.main === module) {
+  main();
+}
