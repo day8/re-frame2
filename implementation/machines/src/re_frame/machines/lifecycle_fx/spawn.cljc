@@ -331,6 +331,27 @@
       (get-in runtime-db (paths/spawned-path (:rf/parent-id args) invoke-id))
       args spawned-id)))
 
+(defn- stamp-spawn-spec
+  "Apply the spawn's `:data` override and the framework's `:rf/self-id` /
+  `:rf/parent-id` / `:rf/invoke-id` / `:rf/join-child` stamps to an
+  ALREADY-RESOLVED TYPE spec, yielding the exact spec a spawn of `args` would
+  install. Returns nil for a nil `spec`.
+
+  Split out from `candidate-spawn-spec` (rf2-rxjy3) so `prepare-spawn-all-child`
+  can resolve the child's TYPE spec ONCE and retain BOTH derivatives: the
+  stamped spec the install lands, and the RAW resolved definition the install
+  needs to keep the child handler-resolvable (see `prepared-type-ref`). Without
+  the split the preflight would have to resolve the registry a second time to
+  recover the raw definition."
+  [spec args spawned-id join-child]
+  (let [spec' (if (and spec (contains? args :data))
+                (assoc spec :data (:data args))
+                spec)]
+    (stamp-framework-data spec' spawned-id
+                          (:rf/parent-id args)
+                          (:rf/invoke-id args)
+                          join-child)))
+
 (defn- candidate-spawn-spec
   "The fully framework-stamped machine spec a spawn of `args` WOULD install:
   the resolved TYPE spec (registry `:machine-id` xor inline `:definition`),
@@ -346,14 +367,7 @@
   the args (`spawn-one`), so this evaluates no application code and allocates
   no id — it may be called on both paths without double-running user code."
   [args spawned-id join-child]
-  (let [spec  (resolve-spawn-machine args)
-        spec' (if (and spec (contains? args :data))
-                (assoc spec :data (:data args))
-                spec)]
-    (stamp-framework-data spec' spawned-id
-                          (:rf/parent-id args)
-                          (:rf/invoke-id args)
-                          join-child)))
+  (stamp-spawn-spec (resolve-spawn-machine args) args spawned-id join-child))
 
 ;; The spawned actor's initial snapshot is built by
 ;; `parallel/build-initial-snapshot` — the single source of truth shared
@@ -499,8 +513,9 @@
 (def ^:private prepared-children-key
   "The reserved join-state slot under which `spawn-all-init-fx`'s admission
   preflight retains the AUTHORITATIVE prepared per-child result on the accept
-  path (rf2-ek435): a `{<spawned-id> {:spec <stamped-spec> :snap <initial-snap>}}`
-  map, one entry per admitted child. Each child's own `:rf.machine/spawn` fx —
+  path (rf2-ek435): a `{<spawned-id> {:spec <stamped-spec> :snap <initial-snap>
+  :type-spec <raw-resolved-definition>}}` map, one entry per admitted child.
+  Each child's own `:rf.machine/spawn` fx —
   a SEPARATE entry later in the same entry vector — consumes its entry
   (`spawn-all-prepared-child`) rather than re-resolving the type, rebuilding the
   snapshot, or re-running its `[:schemas :data]` validator. Consuming rather than
@@ -509,6 +524,15 @@
   install can no longer flip an admitted child into a rejected one (which would
   strand an impossible half-live join), and each child is resolved / prepared /
   validated EXACTLY ONCE per attempt.
+
+  `:type-spec` — the RAW resolved definition, before the `:data` override and
+  the framework stamps — is what keeps the admitted child HANDLER-RESOLVABLE
+  (rf2-rxjy3). Consuming the verdict installs the child's snapshot, but the
+  actor's HANDLER is materialised lazily from the snapshot's `:rf/machine-type`
+  reference, so a mid-drain registry mutation could still leave an installed
+  child pointing at a definition that is gone (or at an unrelated successor).
+  Carrying the prepared definition alongside the prepared snapshot is what lets
+  `prepared-type-ref` keep the two in one authority.
 
   The slot is EPHEMERAL install-time scratch, not durable join state: each
   consuming child drops its own entry inside the SAME runtime-db swap that
@@ -577,6 +601,67 @@
            (frame/frame-runtime-db-value frame-id)
            args
            (pre-allocated-actor-id args))))
+
+(defn- prepared-type-ref
+  "The revertible TYPE reference an ADMITTED+prepared `:spawn-all` child's
+  install stamps at `:rf/machine-type` — the slot the lazy resolver
+  (`lifecycle-fx.resolver/spec-from-snapshot`) reads to re-materialise the
+  actor's handler on every dispatch (rf2-rxjy3).
+
+  THE WINDOW THIS CLOSES. Consuming the prepared verdict (rf2-v4oqd) installs an
+  admitted child's snapshot unconditionally — but the snapshot alone is not a
+  LIVE actor. A `:machine-id` spawn stamps the registered TYPE KEYWORD, and the
+  resolver reads that keyword back through the registrar on every dispatch. So a
+  `:rf.machine.spawn-all/started` listener that mutates the registrar between the
+  preflight and this install left the child installed-but-INERT: UNREGISTERED
+  the TYPE and the keyword resolves to nothing — the child never runs its
+  synthetic `[:rf.machine.spawn/spawned]` bootstrap, sits at its `:initial` with
+  `:rf/bootstrap-pending? true`, and every event it is sent raises
+  `:rf.error/no-such-handler`; RE-REGISTERED the TYPE to another spec and the
+  keyword resolves to a definition the child's PREPARED snapshot was never built
+  from — a prepared-v1 state driven by an unrelated current-v2 handler.
+
+  THE DEFINITION-LIFETIME RULE. A prepared child's definition authority is the
+  definition its invoke PREPARED (`:type-spec`, retained by
+  `prepare-spawn-all-child`). This returns:
+
+    - the `:machine-id` KEYWORD while the registrar still holds EXACTLY that
+      definition — the reference is equivalent to the definition, so nothing
+      changes: the child stays a normal registry-tracking actor and ordinary
+      HOT-RELOAD semantics are preserved (re-registering the TYPE later reaches
+      every live child, exactly as it does for a single `:spawn`);
+    - the prepared definition VERBATIM once the registrar has DIVERGED from it,
+      pinned onto the snapshot exactly as an inline `:definition` spawn carries
+      its own spec — fully revertible, resolvable with no registrar entry at
+      all, and coherent with the prepared snapshot installed beside it.
+
+  NOT a re-verdict (rf2-v4oqd is PRESERVED). The registry read here decides only
+  the FORM of the reference; it can never reject, suppress, or alter the child's
+  admission. An admitted child ALWAYS installs — that is exactly what v4oqd
+  established, and re-instating a fail-closed recheck here would restore the
+  impossible half-live join it removed. The divergent case simply stops
+  depending on a registrar entry the preflight's verdict no longer speaks for."
+  [args prepared]
+  (let [type-spec  (:type-spec prepared)
+        machine-id (:machine-id args)]
+    (cond
+      ;; Belt-and-braces: a prepared child always resolved to a definition (an
+      ;; unregistered TYPE is rejected at the preflight), so this is unreachable
+      ;; on the declarative path.
+      (nil? type-spec)
+      (machine-type-ref args)
+
+      ;; The registrar still holds the prepared definition — keep the revertible
+      ;; keyword so the child tracks its TYPE like every other spawned actor.
+      (and (some? machine-id)
+           (= type-spec (resolver/spec-from-registry machine-id)))
+      machine-id
+
+      ;; Diverged (unregistered, or replaced by another spec) — or an inline
+      ;; `:definition` child, which has no TYPE keyword to track. Pin the
+      ;; prepared definition.
+      :else
+      type-spec)))
 
 ;; ---- :rf.machine/spawn -----------------------------------------------------
 
@@ -722,9 +807,6 @@
         ;; as the fallback allocator, bumped inside the same db-swap as
         ;; the snapshot install / registry bind below.
         pre-id     (pre-allocated-actor-id args)
-        ;; The revertible TYPE reference the lazy resolver reads back off
-        ;; the installed snapshot.
-        type-ref   (machine-type-ref args)
         system-id  (:system-id args)
         ;; The runtime tracks each declarative-:spawn spawn at
         ;; [:rf.runtime/machines :spawned <parent-id> <invoke-id>] —
@@ -776,6 +858,17 @@
                      (:spec prepared)
                      (candidate-spawn-spec args spawned-id
                                            (join-child-record old-rt args spawned-id)))
+        ;; The revertible TYPE reference the lazy resolver reads back off the
+        ;; installed snapshot to re-materialise the actor's handler. A prepared
+        ;; `:spawn-all` child selects it from its prepared entry so it can never
+        ;; install against a definition the registrar no longer holds, or against
+        ;; an unrelated successor definition its prepared snapshot was not built
+        ;; from (rf2-rxjy3 — see `prepared-type-ref` for the definition-lifetime
+        ;; rule; the undisturbed case still stamps the plain `:machine-id`
+        ;; keyword, so hot-reload semantics are unchanged).
+        type-ref   (if prepared
+                     (prepared-type-ref args prepared)
+                     (machine-type-ref args))
         ;; The initial snapshot the install lands. Consumed verbatim from the
         ;; preflight for a `:spawn-all` child (built ONCE there); built ONCE
         ;; here otherwise, so the schema-rejection decision can gate every side
@@ -989,9 +1082,19 @@
   returns the prepared result the per-child install then consumes verbatim:
 
     {:args <spawn-args> :spawned-id <id> :spec <stamped-spec> :snap <initial-snap>
+     :type-spec <raw-resolved-definition>
      :unregistered? <bool> :schema-reject? <bool> :rejected? <bool>}
 
-  The child is resolved ONCE: `candidate-spawn-spec` returns nil exactly when
+  The child is resolved ONCE — `resolve-spawn-machine` below — and BOTH
+  derivatives are retained: `:spec`, the framework-stamped spec the install
+  lands, and `:type-spec`, the RAW definition that resolution returned. The raw
+  definition is what keeps an admitted child HANDLER-resolvable when the
+  registrar mutates between here and the install (rf2-rxjy3 — the install's
+  `prepared-type-ref` pins it onto the snapshot once the registrar has diverged
+  from it, so the actor's lazily-materialised handler and its prepared snapshot
+  stay one authority).
+
+  `resolve-spawn-machine` returns nil exactly when
   the TYPE is unregistered (an inline `:definition` always resolves to itself),
   so `:unregistered?` is derived from that one resolution rather than a second
   registry read. `:schema-reject?` runs the application `[:schemas :data]`
@@ -1013,13 +1116,15 @@
   belong to no invoke."
   [args join-state continue?]
   (let [spawned-id (pre-allocated-actor-id args)
-        ;; ONE resolution + framework-stamp, shared by the verdict AND the
-        ;; snapshot the install consumes — through the SAME `candidate-spawn-spec`
-        ;; path the fallback per-child install would run, so the two can never
-        ;; disagree about the value that gets validated.
+        ;; ONE resolution, feeding the verdict, the snapshot the install
+        ;; consumes, AND the definition reference the install stamps.
+        type-spec  (when spawned-id (resolve-spawn-machine args))
+        ;; The framework stamp runs through the SAME `stamp-spawn-spec` path the
+        ;; fallback per-child install's `candidate-spawn-spec` runs, so the two
+        ;; can never disagree about the value that gets validated.
         spec       (when spawned-id
-                     (candidate-spawn-spec
-                       args spawned-id
+                     (stamp-spawn-spec
+                       type-spec args spawned-id
                        (join-child-record-from-state join-state args spawned-id)))
         ;; Unregistered ⟺ a `:machine-id` (no inline `:definition`) that resolved
         ;; to no spec — read off the SAME resolution above, not a second lookup.
@@ -1035,6 +1140,7 @@
      :spawned-id     spawned-id
      :spec           spec
      :snap           snap
+     :type-spec      type-spec
      :unregistered?  unregistered?
      :schema-reject? schema-reject?
      :rejected?      (or unregistered? schema-reject?)}))
@@ -1105,9 +1211,14 @@
      :resolved?  false
      :spec       <invoke-all-spec>
      :rf/attempt <opaque-attempt-token>   ;; minted HERE per live seed (rf2-nvxehu)
-     :rf/prepared {<spawned-id> {:spec <stamped-spec> :snap <initial-snap>}, ...}}
+     :rf/prepared {<spawned-id> {:spec      <stamped-spec>
+                                 :snap      <initial-snap>
+                                 :type-spec <raw-resolved-definition>}, ...}}
        ;; EPHEMERAL — the authoritative prepared children each per-child install
        ;; CONSUMES then drops (rf2-ek435); gone once every child has installed.
+       ;; `:type-spec` is the definition reference the install stamps at
+       ;; `:rf/machine-type`, keeping the admitted child handler-resolvable
+       ;; across a mid-drain registrar mutation (rf2-rxjy3).
 
   Subsequent `:on-child-done` / `:on-child-error` events arrive at the
   parent's `make-machine-handler` boundary and are intercepted by
@@ -1342,7 +1453,7 @@
                                   (into {}
                                         (comp (filter :spawned-id)
                                               (map (juxt :spawned-id
-                                                         #(select-keys % [:spec :snap]))))
+                                                         #(select-keys % [:spec :snap :type-spec]))))
                                         prepared))))
               (trace/emit! :rf.machine :rf.machine.spawn-all/started
                            {;; The parent's live actor INSTANCE address;
