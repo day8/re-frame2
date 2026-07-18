@@ -95,7 +95,7 @@
   outer attrs map. The [[testid]] helper standardises the attrs
   fragment so the convention reads at every call site:
 
-      [:button (testid \"counter-inc\" {:on-click #(rf/dispatch [:counter/inc])})
+      [:button (testid \"counter-inc\" {:on-click #(dispatch [:counter/inc])})
        \"+\"]
 
   Equivalent to writing `{:data-testid \"counter-inc\" :on-click ...}`
@@ -465,7 +465,7 @@
 
   Use at the view call site:
 
-      [:button (testid \"counter-inc\" {:on-click #(rf/dispatch [:counter/inc])})
+      [:button (testid \"counter-inc\" {:on-click #(dispatch [:counter/inc])})
        \"+\"]
 
   Reads as one assertion-friendly fragment instead of inline
