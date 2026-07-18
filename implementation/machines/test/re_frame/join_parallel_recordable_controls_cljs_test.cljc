@@ -89,11 +89,11 @@
           (when (= on-complete (get-in js [:spec :on-all-complete])) [invoke js]))
         (spawned-joins)))
 
-(defn- auth-for
+(defn- attempt-for
   "The exact-attempt tuple for `:worker` in the region named by
   `[invoke-id join-state]`, with optional per-key `overrides` (to forge a
   wrong-spawned-id / wrong-invoke carrier)."
-  ([invoke-id js] (auth-for invoke-id js {}))
+  ([invoke-id js] (attempt-for invoke-id js {}))
   ([invoke-id js overrides]
    (merge {:parent-id  parent-kw
            :invoke-id  invoke-id
@@ -103,11 +103,12 @@
           overrides)))
 
 (defn- dispatch-carrier!
-  "Dispatch a completion carrier `[parent [kw child-id]]` carrying `auth` on the
-  recordable `:rf.cofx` fact (nil auth dispatches the bare, unstamped carrier)."
-  [inner auth]
-  (if auth
-    (rf/dispatch-sync [parent-kw inner] {:rf.cofx {:rf.machine/join-attempt auth}})
+  "Dispatch a completion carrier `[parent [kw child-id]]` carrying `attempt` on
+  the recordable `:rf.cofx` fact (nil attempt dispatches the bare, unstamped
+  carrier)."
+  [inner attempt]
+  (if attempt
+    (rf/dispatch-sync [parent-kw inner] {:rf.cofx {:rf.machine/join-attempt attempt}})
     (rf/dispatch-sync [parent-kw inner])))
 
 (defn- stale-reasons []
@@ -175,7 +176,7 @@
     (let [[r2-invoke r2-js] (region-invoke+join [:r2/done])]
       (mtest/reset-captured!)
       (dispatch-carrier! [:child/done :worker]
-                         (auth-for r2-invoke r2-js {:spawned-id :lud4af-par/bogus-instance}))
+                         (attempt-for r2-invoke r2-js {:spawned-id :lud4af-par/bogus-instance}))
       (let [[_ r2'] (region-invoke+join [:r2/done])]
         (is (= #{} (:done r2')) ":r2 folded nothing on the wrong-spawned-id carrier")
         (is (= [:rf.machine.spawn-all/attempt-superseded] (stale-reasons))
@@ -188,7 +189,7 @@
     (let [[r2-invoke r2-js] (region-invoke+join [:r2/done])]
       (mtest/reset-captured!)
       (dispatch-carrier! [:child/done :worker]
-                         (auth-for r2-invoke r2-js {:invoke-id [:r9 :nope]}))
+                         (attempt-for r2-invoke r2-js {:invoke-id [:r9 :nope]}))
       (let [[_ r1'] (region-invoke+join [:r1/done])
             [_ r2'] (region-invoke+join [:r2/done])]
         (is (= #{} (:done r1')) ":r1 folded nothing")
@@ -204,7 +205,7 @@
     (let [[r2-invoke r2-js] (region-invoke+join [:r2/done])]
       (mtest/reset-captured!)
       (dispatch-carrier! [:child/done :ghost]
-                         (auth-for r2-invoke r2-js {:child-id :ghost}))
+                         (attempt-for r2-invoke r2-js {:child-id :ghost}))
       (let [[_ r1'] (region-invoke+join [:r1/done])
             [_ r2'] (region-invoke+join [:r2/done])]
         (is (= #{} (:done r1')) ":r1 folded nothing")

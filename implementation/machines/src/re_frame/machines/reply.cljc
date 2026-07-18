@@ -105,8 +105,9 @@
 ;;                         with no `#n` suffix carries generation 1 for an
 ;;                         ordinary `:spawn`; a `:spawn-all` child reuses this
 ;;                         SAME slot for its runtime-minted join-attempt token,
-;;                         because that exact authority distinguishes reuse of
-;;                         the fixed address without inventing another identity.
+;;                         because that exact-attempt coordinate distinguishes
+;;                         reuse of the fixed address without inventing another
+;;                         identity.
 ;; ---------------------------------------------------------------------------
 
 (defn- generated-actor-generation
