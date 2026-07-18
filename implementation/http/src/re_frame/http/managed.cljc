@@ -249,19 +249,21 @@
                   interceptor by id as an fx. Args is the map
                   `{:frame <id> :id <kw>}` (NOT positional, matching the
                   fx-convention shape — sibling to `:rf.fx/reg-http-interceptor`
-                  which also takes a map). The fn-form `clear-http-interceptor`
-                  is the call-site surface (public opts form `(id {:frame f})`,
-                  or the internal frame-first plumbing this fx threads through);
-                   this fx is the data-shaped surface for EDN-driven callers.
+                  which also takes a map). The public call-site surface is
+                  the fn-form `clear-http-interceptor`'s opts form
+                  `(id {:frame f})`; this fx is the data-shaped surface for
+                  EDN-driven callers. It already holds a resolved frame, so it
+                  routes through the artefact-internal `clear-http-interceptor*`
+                  seam (frame-first) rather than the public opts form (rf2-s32bf).
 
                   EP-0002 — the carried frame is the fx-context `:frame`
                   (the cascade envelope stamp); the args `:frame` is the
                   per-call *override*. The args frame wins, else the
-                  fx-context frame, threaded explicitly into the fn-form's
-                   internal frame-first arity so it never repairs
-                   to a synthesised `:rf/default`."}
+                  fx-context frame, threaded explicitly into the internal
+                  frame-first seam so it never repairs to a synthesised
+                  `:rf/default`."}
            (fn [{ctx-frame :frame} {:keys [frame id]}]
-             (middleware/clear-http-interceptor (or frame ctx-frame) id)))
+             (middleware/clear-http-interceptor* (or frame ctx-frame) id)))
 
 ;; The canned effects and stub helpers are registered only when
 ;; `re-frame.http.test-support` is explicitly required. The namespace boundary,
