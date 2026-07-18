@@ -1,0 +1,4 @@
+# Self-test fixture marker (rf2-w6ltl).  Empty config is fine — the validator
+# only checks for this file's existence as the repo-root guard.  Negative control
+# for the renderer-parity tooth: the brace suffix itself is NOT a fragment target,
+# so a link aimed at it must be reported BROKEN.
