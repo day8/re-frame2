@@ -701,11 +701,25 @@ The checks that *do* exist are **shape** checks, and they are deliberately parti
   **runtime** expression is accepted unvalidated — the compiler cannot know the
   value, and the site is recorded as non-serialisable.
 - A non-string value reaching the JVM node builder raises
-  `:rf.error/ui-tree-malformed`. The browser has no equivalent runtime guard: the
-  value is handed to React unchecked.
+  `:rf.error/ui-tree-malformed`. The browser applies no equivalent check to the
+  **value**: it is handed to React as written. The gap is in value validation
+  alone — the browser is not unguarded at runtime, as the spelling rule below
+  makes plain.
 - The prop spellings (`:dangerouslySetInnerHTML`, `:dangerously-set-inner-html`,
   `:inner-html`) are compile errors naming `(ui/html …)` as the replacement — there
-  is exactly one spelling, and it is a node variant, not a prop.
+  is exactly one spelling, and it is a node variant, not a prop. **The rule is not
+  compile-time only.** A prop map assembled at runtime — `(ui/spread base
+  overrides)`, or the `caller` map of `(ui/spread-safe owned caller)` — is denied
+  the same spellings on **both hosts**, throwing `:rf.error/ui-tree-malformed`.
+  The deny compares each key's **canonical emitted slot** rather than matching a
+  list of spellings, so every alias reducing to React's raw-markup slot — keyword,
+  string, symbol, or namespace-qualified — is denied, while a spelling reducing to
+  a different slot is left alone precisely because it cannot reach that slot. It
+  runs in **every build**: an advanced production build denies exactly what dev
+  denies, production being the only build an attacker meets. A runtime map is
+  otherwise the one place raw markup can reach React with no `(ui/html …)` trust
+  assertion visible anywhere in the source. The sanctioned escape is unchanged —
+  `(ui/html …)`, attached at its own visible site, outside the runtime prop map.
 
 **The caller's guarantee.** Every `(ui/html s)` site asserts that `s` is trusted
 markup: an author-controlled literal, or a value that passed a real sanitiser at the

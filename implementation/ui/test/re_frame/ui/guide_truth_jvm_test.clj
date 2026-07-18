@@ -550,6 +550,80 @@
       (let [to (str/index-of text "\n## " (+ from (count heading)))]
         (subs text from (or to (count text)))))))
 
+(defn- subsection-text
+  "The text of `### ` subsection `heading` up to the next heading at the same or
+  a higher level, or nil if absent.
+
+  `section-text` slices to the next `## `, which swallows every sibling `### `
+  after the one asked for — too coarse to say WHERE a claim sits inside a long
+  chapter. That is rf2-vxcl7's lesson taken one level down: a census blind to
+  position lets a correct sentence in a neighbouring subsection keep a false one
+  green."
+  [text heading]
+  (let [text (str/replace text "\r\n" "\n")]
+    (when-let [from (str/index-of text heading)]
+      (let [after (+ from (count heading))
+            ends  (keep #(str/index-of text % after) ["\n### " "\n## "])]
+        (subs text from (if (seq ends) (apply min ends) (count text)))))))
+
+;; --- The RUNTIME half of the rejected-prop-spelling deny (rf2-0znjl) ---------
+;;
+;; rf2-5pr75 closed a live injection path: `rejected-prop-spellings` ("one
+;; spelling per name, and it is a node variant") was enforced only on LITERAL
+;; props by the analyzer, so `:dangerouslySetInnerHTML` inside a RUNTIME
+;; `ui/spread` map reached React's raw-markup slot with no `(ui/html ...)` trust
+;; assertion anywhere in the source. Spec 004's trusted-markup subsection said
+;; outright that "the browser has no equivalent runtime guard", which the fix
+;; falsified.
+;;
+;; The census is bound to that ONE subsection deliberately. Both the false
+;; sentence and its replacement are about `ui/html`, and the safe-spread policy
+;; chapter carries its own "every build" deny prose — so a document-wide row
+;; would be answerable by the wrong section in either direction, exactly the
+;; false-green shape rf2-vxcl7 named.
+(deftest spec-004-teaches-the-runtime-rejected-spelling-deny
+  (let [trusted (subsection-text
+                 (slurp (root-file "spec/004-Views.md"))
+                 "\n### Trusted markup — what `ui/html` does not do\n")]
+    (when (is (some? trusted)
+              "spec/004-Views.md lost its trusted-markup subsection")
+      (testing "the spelling deny is stated as runtime-enforced, both hosts, every build"
+        (doseq [[fact pattern]
+                [["the rule is not compile-time only"
+                  #"(?is)rule\s+is\s+not\s+compile-time\s+only"]
+                 ["ui/spread carries the runtime deny"
+                  #"(?is)\(ui/spread\s+base\s+overrides\)"]
+                 ["the spread-safe caller map shares it"
+                  #"(?is)`caller`\s+map\s+of\s+`\(ui/spread-safe\s+owned\s+caller\)`"]
+                 ["both hosts, throwing the existing malformed id"
+                  #"(?is)on\s+\*\*both\s+hosts\*\*,\s+throwing\s+`:rf\.error/ui-tree-malformed`"]
+                 ;; The mechanism is TOTALITY by canonicalization, not a
+                 ;; blocklist of spellings — a spec that taught the latter would
+                 ;; invite readers to hunt for an unlisted alias.
+                 ["canonical emitted slot, not a list of spellings"
+                  #"(?is)compares\s+each\s+key's\s+\*\*canonical\s+emitted\s+slot\*\*\s+rather\s+than\s+matching\s+a\s+list\s+of\s+spellings"]
+                 ["every alias of the raw-markup slot"
+                  #"(?is)every\s+alias\s+reducing\s+to\s+React's\s+raw-markup\s+slot"]
+                 ["not dev-only"
+                  #"(?is)runs\s+in\s+\*\*every\s+build\*\*"]
+                 ["production is the build that matters"
+                  #"(?is)production\s+being\s+the\s+only\s+build\s+an\s+attacker\s+meets"]
+                 ["the sanctioned escape sits outside the runtime map"
+                  #"(?is)outside\s+the\s+runtime\s+prop\s+map"]]]
+          (is (re-find pattern trusted)
+              (str "spec/004-Views.md trusted-markup subsection lost: " fact))))
+      (testing "the value-validation gap it really has is still stated"
+        ;; The JVM node builder checks the `ui/html` VALUE and the browser does
+        ;; not. That asymmetry is real and must survive the correction — the
+        ;; retired sentence was wrong about the browser being unguarded at
+        ;; runtime, not about the value going unchecked.
+        (is (re-find #"(?is)no\s+equivalent\s+check\s+to\s+the\s+\*\*value\*\*" trusted)
+            "spec/004-Views.md stopped stating the browser's unchecked ui/html value"))
+      (testing "the falsified sentence stays retired"
+        (is (not (re-find #"(?is)browser\s+has\s+no\s+equivalent\s+runtime\s+guard" trusted))
+            (str "spec/004-Views.md again claims the browser has no runtime guard; "
+                 "rf2-5pr75 shipped one at the shared spread seam on both hosts"))))))
+
 (deftest spec-004-abstract-teaches-per-host-analysis
   (let [abstract (section-text (slurp (root-file "spec/004-Views.md"))
                                "\n## Abstract\n")]
