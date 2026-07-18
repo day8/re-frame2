@@ -250,17 +250,18 @@ its widened event-prefix arm — `npm run test:ui-g8` runs as CI job `cljs-ui-g8
 `ui_gates` surface in real Chromium **and** WebKit, superseding S-5's jsdom-only
 evidence; G-11 (`npm run test:browser-prod-elision`, CI job
 `cljs-browser-prod-elision`, plus the absence scan `npm run test:ui-g1` carries); the
-G-15 atomic-local writer matrix (`npm run test:browser`); G-17 (its advanced arm in the
-prod-elision build, its dev arms in the `:node-test` and JVM suites); and G-12 (`npm run
-test:ui-isolation`, which fails closed unless both arms run). **Named open** — G-7
+G-15 atomic-local writer matrix (`npm run test:browser`); G-12 (`npm run
+test:ui-isolation`, which fails closed unless both arms run); and G-18 (`npm run
+test:ui-facade-isolation`, CI job `cljs-ui-facade-isolation`), whose single-view
+isolation assertion went green with the #6195 DCE packaging repair and which
+`rf2-kxork` promoted into the required matrix — its roster of proven views is the six
+named in the checker, not the library as a whole (`rf2-r4q98`). **Named open** — G-7
 beyond its production-absence arm: the dev↔prod equivalence matrix over generated
 shapes has no test yet; G-14's **remaining** arm — bounded guide-fixtures CI cost,
 which needs the guide-examples corpus (its wall-clock budget is an S3 stage item) —
 which has no assertion anywhere in the repository, as the gate's own suite states;
 G-16's "manifest slot sites present" arm (its cross-emitter
-parity and slot-arity arms do run); G-18, whose fixture and
-`test:ui-facade-isolation` script exist but are self-declared RED and deliberately held
-out of the required matrix until they go green; G-2/G-9 (wire with the stages shipping
+parity and slot-arity arms do run); G-2/G-9 (wire with the stages shipping
 their subjects); root-manifest hydration + failed-root isolation (S5 — the S-4 spike
 passed dual-host structural output only); G-10 and the remaining
 absence/equivalence/budget gates plus the one-time W11 trio table (S6). S3 closed
