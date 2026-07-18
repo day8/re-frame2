@@ -21,7 +21,10 @@
 # ai/, so the only correct surface is "the whole tree". Both scripts are
 # sub-second git invocations, so running them on every PR is cheap. They
 # run on PRs (the gate), on push to main (so a direct-to-main edit is still
-# caught), and via manual dispatch.
+# caught), and via manual dispatch. Both trigger shapes matter to the
+# ratchet specifically: it reads its base from HEAD^, which is the
+# base-branch tip on a PR merge commit and the previous tip on a push, so
+# the same one rule covers both without a second code path.
 #
 # NOTE for post-merge-workflow-sanity.yml: this workflow already runs on
 # push to main, so it is on that canary's EXCLUDE list — re-dispatching it
@@ -65,20 +68,31 @@ jobs:
         run: sh scripts/check-no-hardcoded-paths.sh
 
   ai-tracking-ratchet:
-    name: Tracked ai/ file count must not increase
+    name: No newly tracked files under ai/
     runs-on: ubuntu-latest
     steps:
+      # fetch-depth: 2 is REQUIRED, not incidental (rf2-ow7dz). The gate
+      # compares the tracked ai/ set against the same set at HEAD^ — the
+      # base-branch tip on a pull_request merge commit, the previous main
+      # tip on a push. At the default depth of 1 that parent is absent and
+      # the gate FAILS closed rather than passing vacuously, so this line is
+      # load-bearing.
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+        with:
+          fetch-depth: 2
 
       # Same precedent as the gate above: lint the gate script itself so a
       # future edit cannot introduce a shell bug that silently weakens it.
       - name: Shellcheck the ratchet script
         run: shellcheck scripts/check-ai-tracking-ratchet.sh
 
-      # Fails ONLY when `git ls-files ai/` counts MORE files than the
-      # committed baseline, naming the offending paths. A decrease passes —
-      # S7 (rf2-vxgfnd.99.1) removes the remaining trees and must never be
-      # blocked by this gate. Invoked via `sh` so the script needs no
-      # executable bit on the runner.
+      # Fails when any path is tracked under ai/ that was NOT tracked at the
+      # base, naming every such path. Counts are irrelevant to the decision,
+      # which is what makes it a ratchet rather than a ceiling: an addition
+      # fails even after an earlier removal, and even when a swap leaves the
+      # total unchanged. A decrease passes — S7 (rf2-vxgfnd.99.1) removes the
+      # remaining trees and must never be blocked by this gate — and the base
+      # then tightens on its own, because it is read from git. Invoked via
+      # `sh` so the script needs no executable bit on the runner.
       - name: Run the tracked-ai/ ratchet
         run: sh scripts/check-ai-tracking-ratchet.sh
