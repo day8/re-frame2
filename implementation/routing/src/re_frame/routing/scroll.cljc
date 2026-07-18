@@ -32,6 +32,7 @@
   facade owns the two `fx/reg-fx` calls so a `:reload` re-wires them on
   a fresh registrar."
   (:require [re-frame.frame :as frame]
+            [re-frame.routing.nav-fx-schemas :as nav-fx-schemas]
             [re-frame.routing.registry :as registry]
             [re-frame.trace :as trace]))
 
@@ -223,9 +224,18 @@
   (`re-frame.classification/project-trace-event` via `re-frame.trace/build-event`)
   redacts it to `:rf/redacted` on the EGRESS copy — the handler still
   receives the real URL in-process (the projection touches only the trace
-  tags, never the handler input), so scroll capture keeps working."
+  tags, never the handler input), so scroll capture keeps working.
+
+  rf2-sqams: carries the `:rf.fx.nav/capture-scroll-args` `:schema`
+  (`[:map [:url :string]]`) per [Spec-Schemas §Standard fx args
+  schemas]. `:url` is the cache KEY, so a missing / non-string one now
+  fails at the Spec 010 §step-5 `:fx-args` boundary rather than
+  silently writing nothing (or a garbage key) into the host-side
+  scroll-position cache. Malli maps are open, so the handler's internal
+  `:position` test-injection seam still validates."
   {:platforms #{:client}
    :sensitive [[:url]]
+   :schema    nav-fx-schemas/capture-scroll-args
    :doc       "Capture the current browser scroll position into the
 host-side per-frame transient scroll-position cache (keyed by url)
 before leaving a route. The cache is NOT runtime-db state and does not
@@ -278,11 +288,21 @@ egress to trace / epochs / SSR (rf2-1hncp2)."})
   mechanism) — route params/query/fragment are always carrier-shaped, so a
   blanket trace scrub of those slots is the correct posture rather than a
   per-route schema decision (which the fx layer cannot make — it does not
-  carry the matched route's schema)."
+  carry the matched route's schema).
+
+  rf2-sqams: carries the `:rf.fx.nav/scroll-args` `:schema` per
+  [Spec-Schemas §Standard fx args schemas]. The gate is orthogonal to
+  the `:sensitive` marks above — `:schema` runs on the handler's INPUT
+  (Spec 010 §step 5, before the handler), the marks run on the trace
+  EGRESS copy (after). `:saved-pos` members are `number?` rather than
+  `:int` because `window.scrollX/Y` are fractional at non-100% zoom and
+  on HiDPI displays; the `:fragment` slot is optional. See
+  `nav-fx-schemas/scroll-args` for the full rationale."
   {:platforms #{:client}
    :sensitive [[:from :params] [:from :query]
                [:to :params]   [:to :query]
                [:fragment]]
+   :schema    nav-fx-schemas/scroll-args
    :doc       "Per Spec 012 §Scroll restoration. Args: {:strategy :from
 :to :saved-pos :fragment}. Standard strategies are :top, :restore,
 :preserve. Map-form strategies are host-extensible; the runtime treats
