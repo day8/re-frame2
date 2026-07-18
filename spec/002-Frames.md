@@ -214,10 +214,10 @@ different policy on absence.
 
 **One ladder across both layers.** The three vocabularies that meet at this seam —
 `:rf.error/no-frame-context` (core, absent), `:ambiguous-frame` (tool, plural), and
-`:rf.tool/no-frame-selected` (tool, unselected) — are reconciled into **one ordered
+`:no-frame-selected` (tool, unselected) — are reconciled into **one ordered
 ladder**: **absent → ambiguous → unselected**. A core mutation that finds *absent*
 raises; a tool read that finds *plural* returns `:ambiguous-frame`; a tool surface
-with no pinned target returns `:rf.tool/no-frame-selected`. Same stamp, one ladder,
+with no pinned target returns `:no-frame-selected`. Same stamp, one ladder,
 different layer.
 
 ### `:rf/default` is an ordinary id
