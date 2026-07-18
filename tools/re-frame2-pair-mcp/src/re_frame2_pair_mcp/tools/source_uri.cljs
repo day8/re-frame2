@@ -11,14 +11,14 @@
      trigger-handler`). When the walker descends into a map and that
      map has a `:source-coord` slot whose value carries a usable
      `:file` string, the URI is spliced on the OUTER map at
-     `:rf.source/uri`.
+     `:rf.mcp/source-uri`.
   2. **Flat-key carrier** — `(rf/handler-meta kind id)` / `(rf/frame-
      meta id)` returns merge source-coords flat onto the registration-
      metadata map (`:ns` / `:line` / `:column` / `:file` at the top
      level — per Spec-Schemas `:rf/source-coord-meta`).
      When the walker descends into a map that itself carries a usable
      `:file` string alongside other source-coord keys (`:ns`/`:line`/
-     `:column`), the URI is spliced on THAT map at `:rf.source/uri`.
+     `:column`), the URI is spliced on THAT map at `:rf.mcp/source-uri`.
 
   The two carrier shapes are deliberately disjoint at the schema
   level — trace events nest because the trigger-handler is a separate
@@ -43,19 +43,19 @@
   - For the sub-map carrier: when the walker descends into a map M
     whose `:source-coord` value is itself a map carrying `:file`,
     the URI for that sub-map's `:file` is spliced onto M at
-    `:rf.source/uri`.
+    `:rf.mcp/source-uri`.
   - For the flat-key carrier: when the walker descends into a map M
     that itself carries a non-blank `:file` string AND at least one
     other source-coord key (`:ns`/`:line`/`:column`) — guarding
     against accidental decoration of unrelated maps that happen to
     have a `:file` key — the URI for M's `:file` is spliced onto M
-    at `:rf.source/uri`.
+    at `:rf.mcp/source-uri`.
   - When `:file` is missing / blank, the underlying `editor-uri`
-    returns nil; the decorator omits the `:rf.source/uri` key
-    entirely (keeps the response shape tight — no `:rf.source/uri
+    returns nil; the decorator omits the `:rf.mcp/source-uri` key
+    entirely (keeps the response shape tight — no `:rf.mcp/source-uri
     nil` slots).
   - The walk is idempotent. A map that already carries
-    `:rf.source/uri` is overwritten with the current editor's URI
+    `:rf.mcp/source-uri` is overwritten with the current editor's URI
     (so a stale URI from a server-side decorator can be replaced if
     the agent reconfigures the editor mid-session).
 
@@ -67,7 +67,8 @@
   and no broken `:source-coord` maps inside dedup-table cells
   (dedup replaces equal subtrees with a single canonical instance,
   so each source-coord is visited once)."
-  (:require [re-frame.source-coords.editor-uri :as editor-uri]))
+  (:require [re-frame.mcp-base.vocab :as base-vocab]
+            [re-frame.source-coords.editor-uri :as editor-uri]))
 
 ;; ---------------------------------------------------------------------------
 ;; The walker.
@@ -109,7 +110,7 @@
            (contains? m :column))))
 
 (defn- decorate-map
-  "Decorate `m` with `:rf.source/uri` when either:
+  "Decorate `m` with `:rf.mcp/source-uri` when either:
 
   - `m` carries a `:source-coord` sub-map with a usable file string
     (trace-event carrier — per `:rf/trace-event`); the URI is built
@@ -127,19 +128,19 @@
     (cond
       (coord-map? coord)
       (if-let [uri (editor-uri/editor-uri editor coord)]
-        (assoc m :rf.source/uri uri)
+        (assoc m base-vocab/source-uri-key uri)
         m)
 
       (flat-coord-carrier? m)
       (if-let [uri (editor-uri/editor-uri editor m)]
-        (assoc m :rf.source/uri uri)
+        (assoc m base-vocab/source-uri-key uri)
         m)
 
       :else
       m)))
 
 (defn decorate
-  "Walk `tree`, splicing `:rf.source/uri` onto every map that carries
+  "Walk `tree`, splicing `:rf.mcp/source-uri` onto every map that carries
   a `:source-coord` sub-map or is itself a flat-key source-coord
   carrier. Returns the decorated tree.
 
@@ -147,7 +148,7 @@
   / `:cursor` / `:windsurf` / `:zed` / `:idea` / `{:custom <template>}`.
 
   Pure data → data. Idempotent: re-decoration replaces an existing
-  `:rf.source/uri` with the URI for the current editor."
+  `:rf.mcp/source-uri` with the URI for the current editor."
   [tree editor]
   (cond
     (map? tree)

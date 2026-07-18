@@ -2352,7 +2352,7 @@ node SAY?". The data-plane reads (`snapshot` / `get-path` /
 trace?"; `read-dom` answers "what did the app actually put on screen?" —
 the read needed for "did the UI update?" and "what does the rendered
 node / attribute say?". It generalises the source-coord reads
-(`handler-meta`'s `:rf.source/uri`, which return where a handler is
+(`handler-meta`'s `:rf.mcp/source-uri`, which return where a handler is
 *defined*) to rendered-*content* reads (what's on screen *now*).
 
 **The two DOM-read planes** (rf2-q0r7e). `read-dom` (this op) is the
@@ -3525,7 +3525,7 @@ Source-coord keys (`:ns` / `:line` / `:column` / `:file`) are merged
 flat onto the top-level result per
 [`spec/Spec-Schemas.md` §`:rf/source-coord-meta`](../../../spec/Spec-Schemas.md#rfsource-coord-meta).
 The wire pipeline (rf2-cibp8) decorates a usable source-coord shape
-with an `:rf.source/uri` string so the AI host can render a clickable
+with an `:rf.mcp/source-uri` string so the AI host can render a clickable
 jump-to-editor link.
 
 **Args**: `kind` (string, **required** — one of `event` / `sub` /
@@ -3602,7 +3602,7 @@ slot to surface the spec.
  :line             42
  :column           1
  :file             "src/my/app/user.cljs"
- :rf.source/uri    "file:///abs/path/to/src/my/app/user.cljs#L42"
+ :rf.mcp/source-uri    "file:///abs/path/to/src/my/app/user.cljs#L42"
  :doc              "<docstring or nil>"
  :tags             #{...}                 ; if any
  ...custom-slots-emitted-by-the-reg-macro}

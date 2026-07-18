@@ -25,7 +25,7 @@
         → dedup               (structural sharing across the wire)
         → indicator-count     (count :rf.size/large-elided markers)
         → summary             (lazy-summary for non-app-db rich slices)
-        → source-uri          (splice :rf.source/uri onto
+        → source-uri          (splice :rf.mcp/source-uri onto
                                every :source-coord map; runs after
                                shrink so no URI build is wasted on
                                summary-replaced subtrees)
@@ -255,7 +255,7 @@
   legitimate use.
 
   After the per-kind arm returns, the source-URI decorator
-  splices `:rf.source/uri` onto every `:source-coord`-bearing map in
+  splices `:rf.mcp/source-uri` onto every `:source-coord`-bearing map in
   the result. Runs last so the decoration walks only the
   post-shrink tree — summary-replaced slices ship as `{:rf.mcp/summary
   ...}` markers (no `:source-coord` inside), so the walk is short."

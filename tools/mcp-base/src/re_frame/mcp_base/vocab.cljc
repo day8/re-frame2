@@ -17,7 +17,8 @@
   ## Two namespaces plus envelope slots
 
   `:rf.mcp/*` — per-tool wire-mechanism markers (overflow, cursor,
-                dedup-table, diff-from, cache-hit, cursor-stale).
+                dedup-table, diff-from, cache-hit, cursor-stale) plus
+                the source-uri editor-jump decoration.
                 Owned by the MCP servers; not part of the framework
                 runtime vocabulary.
 
@@ -130,6 +131,22 @@
   outcome; the elision walker still runs over the `:value` payload it
   carries. Per [Tool-Pair §Wire fidelity](../../../../spec/Tool-Pair.md)."
   :rf.mcp/result)
+
+(def source-uri-key
+  "Sibling key spliced onto a source-coord-bearing map by re-frame2-pair-mcp's
+  wire-pipeline source-URI decorator: a pre-built editor-jump URI string
+  (`vscode://…` / `cursor://…` / `idea://open?…`) an AI host auto-renders
+  as a clickable jump-to-definition link. Shape:
+    `{:source-coord {…} :rf.mcp/source-uri \"vscode://file/…:42:7\"}`
+  (or spliced flat onto a `handler-meta` return map alongside its
+  `:ns` / `:line` / `:file` keys). A wire DECORATION, not a single-key
+  wrapper marker — it carries NO schema/fixture in the wire-vocab
+  `canonical-markers` catalogue and trips no conformance gate.
+  Single-server today (re-frame2-pair-mcp); reserved cross-MCP under the
+  `:rf.mcp/*` family per Conventions §Reserved namespaces so the same key
+  shape is recognised if another server adopts source-coord decoration.
+  Built by `re-frame2-pair-mcp.tools.source-uri/decorate`."
+  :rf.mcp/source-uri)
 
 ;; ---------------------------------------------------------------------------
 ;; :rf.size/* — size-elision markers

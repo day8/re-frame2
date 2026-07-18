@@ -32,7 +32,7 @@
   kind, and (per Spec 001 §The public registrar query API) whatever
   custom slots the `reg-*` macro emitted. The wire-pipeline decorates
   every map that carries a usable source-coord shape with an
-  `:rf.source/uri` string — so the AI host renders an immediate
+  `:rf.mcp/source-uri` string — so the AI host renders an immediate
   jump-to-editor link off the handler-meta response.
 
   Supported kinds: `event`, `sub`, `fx`, `cofx`, `interceptor`, `view`,
