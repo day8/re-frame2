@@ -8,11 +8,20 @@
 # live in the POSIX-sh script scripts/check-no-hardcoded-paths.sh; this
 # workflow just runs it (plus a shellcheck of the script itself).
 #
-# UNLIKE lint.yml / docs.yml this gate has NO surface-detect job: ANY
-# tracked file can leak a personal path, so the only correct surface is
-# "the whole tree". The script is a sub-second `git grep`, so running it on
-# every PR is cheap. It runs on PRs (the gate), on push to main (so a
-# direct-to-main edit is still caught), and via manual dispatch.
+# It also carries the tracked-`ai/` RATCHET (rf2-lsp1i) — see that job
+# below. The two gates live together because the ratchet is the UPSTREAM
+# lock for the exact leak this workflow catches downstream: the 2026-07-18
+# incident was a force-added ai/ dossier carrying a personal worktree path,
+# which failed the portability gate ON MAIN and reddened every open PR.
+# Both are whole-tree, sub-second git invariants with identical trigger
+# needs, so they share one workflow rather than spawning a second.
+#
+# UNLIKE lint.yml / docs.yml neither gate has a surface-detect job: ANY
+# tracked file can leak a personal path, and ANY commit can force-add under
+# ai/, so the only correct surface is "the whole tree". Both scripts are
+# sub-second git invocations, so running them on every PR is cheap. They
+# run on PRs (the gate), on push to main (so a direct-to-main edit is still
+# caught), and via manual dispatch.
 #
 # NOTE for post-merge-workflow-sanity.yml: this workflow already runs on
 # push to main, so it is on that canary's EXCLUDE list — re-dispatching it
@@ -54,3 +63,22 @@ jobs:
       # a reintroduced personal path genuinely blocks the PR.
       - name: Run the portability gate
         run: sh scripts/check-no-hardcoded-paths.sh
+
+  ai-tracking-ratchet:
+    name: Tracked ai/ file count must not increase
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+
+      # Same precedent as the gate above: lint the gate script itself so a
+      # future edit cannot introduce a shell bug that silently weakens it.
+      - name: Shellcheck the ratchet script
+        run: shellcheck scripts/check-ai-tracking-ratchet.sh
+
+      # Fails ONLY when `git ls-files ai/` counts MORE files than the
+      # committed baseline, naming the offending paths. A decrease passes —
+      # S7 (rf2-vxgfnd.99.1) removes the remaining trees and must never be
+      # blocked by this gate. Invoked via `sh` so the script needs no
+      # executable bit on the runner.
+      - name: Run the tracked-ai/ ratchet
+        run: sh scripts/check-ai-tracking-ratchet.sh

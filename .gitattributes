@@ -1,5 +1,11 @@
 *.sh text eol=lf
 
+# The tracked-ai/ ratchet baseline (rf2-lsp1i) is compared line-by-line with
+# `comm` against live `git ls-files ai/` output, which is LF-terminated. Pin
+# LF so a Windows (core.autocrlf=true) checkout cannot CRLF-normalise it and
+# make every baseline line miscompare.
+scripts/ai-tracked-baseline.txt text eol=lf
+
 # The git-hook sources (post-merge, pre-commit) are POSIX sh but carry no
 # .sh extension, so the rule above misses them. Pin them to LF so the
 # checked-out source matches the LF-normalised installed hook byte-for-byte
