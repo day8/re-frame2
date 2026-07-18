@@ -451,20 +451,27 @@
   "(?:(?!\\|)(?!\\bnot\\b)(?!n't)(?!\\bno\\b)(?!\\bnever\\b).){0,40}")
 
 (def ^:private root-id-required-re
-  "The create-root row must assert authored `:root-id` is REQUIRED, EXACTLY
-   (rf2-e9q33; tightened rf2-asxo3): the WHOLE `:root-id` token — a trailing
-   `-`/word char (`(?![-\\w])`) rejects a `:root-id-v2` prefix drift — bridged
-   by `option-bridge` (same cell, no negation) to `required`. So `:root-id is
-   not required`, `:root-id-v2 required`, and far-away prose no longer pass."
-  (re-pattern (str ":root-id(?![-\\w])" option-bridge "\\brequired\\b")))
+  "The create-root row must assert authored `` `:root-id` `` is REQUIRED,
+   EXACTLY (rf2-e9q33; tightened rf2-asxo3, made exact rf2-xdda3): the token
+   is pinned by its Markdown CODE-SPAN delimiters — a backtick on BOTH edges —
+   bridged by `option-bridge` (same cell, no negation) to `required`. The
+   asxo3 right-edge lookahead `(?![-\\w])` was not a token boundary: it still
+   admitted `:root-id?`, `:root-id!`, `:root-id*`, `:root-id.v2`,
+   `:root-id/foo` (adjacent keyword chars outside `[-\\w]`) and, having no
+   left edge at all, `::root-id` and `:opts:root-id`. Each is a DIFFERENT
+   option. The backtick delimiters close both edges at once, so only the exact
+   token satisfies the pin."
+  (re-pattern (str "`:root-id`" option-bridge "\\brequired\\b")))
 
 (def ^:private disambiguator-invalid-re
-  "The create-root row must assert `:disambiguator` is INVALID, EXACTLY
-   (rf2-e9q33; tightened rf2-asxo3): the WHOLE `:disambiguator` token (no
-   `:disambiguator-old` prefix drift) bridged by `option-bridge` to `invalid`.
-   A row that drops it, renames the token, or reverses the polarity
-   (`:disambiguator is not invalid`, silently admitting the option) goes red."
-  (re-pattern (str ":disambiguator(?![-\\w])" option-bridge "\\binvalid\\b")))
+  "The create-root row must assert `` `:disambiguator` `` is INVALID, EXACTLY
+   (rf2-e9q33; tightened rf2-asxo3, made exact rf2-xdda3): the same
+   both-edge code-span delimiting as `root-id-required-re`, bridged by
+   `option-bridge` to `invalid`. A row that drops it, renames the token
+   (`:disambiguator-old`, `:disambiguator?`, `:disambiguator/old`,
+   `::disambiguator`), or reverses the polarity (`:disambiguator is not
+   invalid`, silently admitting the option) goes red."
+  (re-pattern (str "`:disambiguator`" option-bridge "\\binvalid\\b")))
 
 (defn read-api-md-lines
   "Read spec/API.md as `[[line-no line-text] ...]` (1-based). Shared by
