@@ -720,11 +720,11 @@
 (deftest live-ui-test-jvm-signature-matches-contract
   (testing "the committed :ui-test-signatures contract reconciles clean against
             the LIVE re-frame.ui.test JVM surface (kind + :clj arities; no live
-            drift), and the enumeration actually covers the nine blessed vars"
+            drift), and the enumeration actually covers the ten blessed vars"
     (let [contract (:vars (c/read-ui-test-signatures))
           surface  (c/live-ui-test-surface)]
-      (is (= 9 (count contract))
-          "the signature authority must carry all nine blessed vars")
+      (is (= 10 (count contract))
+          "the signature authority must carry all ten blessed vars")
       (is (= (set (keys contract)) (set (keys surface)))
           "live blessed vars and the contract must cover exactly the same names")
       (is (empty? (c/ui-test-arity-problems contract surface))

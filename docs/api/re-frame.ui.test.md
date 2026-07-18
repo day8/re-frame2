@@ -193,6 +193,29 @@ must be `.cljc` (the standard re-frame discipline) so the JVM render can resolve
   spinning. Calling it inside an open event drain throws `:rf.error/flush-in-open-epoch`
   (CLJS) / fails the shared open-drain guard.
 
+### `flush-presence!`
+
+- **Kind**: function
+- **Signature**:
+  ```clojure
+  ;; JVM (Tier 1): synchronous no-op
+  (flush-presence!) → nil
+  (flush-presence! ms) → nil
+  ;; CLJS (Tier 3): Promise-backed
+  (flush-presence!) → js/Promise
+  (flush-presence! ms) → js/Promise
+  ```
+- **Description**: Advance **presence** enter/exit transitions on a fake clock — the S4
+  twin of `flush!` — so retained (`:unmounting`) children reach their `:timeout-ms`
+  removal **without** wall-clock sleeps. `(flush-presence!)` advances to quiescence (every
+  pending exit fires); `(flush-presence! ms)` advances the logical clock by `ms`, firing
+  only the exits that come due. On **CLJS** the advance and its removal commits run inside
+  awaited React `act` and the returned Promise settles at the framework/React fixed point —
+  await it before asserting an enter/exit. On the **JVM** the structural render has no
+  lifecycle (presence renders `:present`, no retention timers), so both arities are a
+  synchronous no-op returning `nil`, present for host-parity. The open-event-drain guard
+  runs synchronously first.
+
 ## See also
 
 - [`re-frame.ui`](re-frame.ui.md) — the compiled-view substrate under test (`defview`,
