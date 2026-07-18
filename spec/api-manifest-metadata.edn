@@ -1099,6 +1099,14 @@
   ;; Tool-Pair observation surface, tiered exactly like its `epoch-history` /
   ;; `restore-epoch!` re-export siblings; :facade? true is generator-derived.
   ["re-frame.core" "epoch-listener-generation"] {:tier :tooling :owner "Tool-Pair" :status "v1 (dev-only)"}
+  ;; rf2-qg98y — CLAUSE TWO of that same receiver rule: the OBSERVATION-CONTINUUM
+  ;; authority. `epoch-listener-generation` discriminates REGISTRATION identity
+  ;; only; a same-id successor frame re-arms a callback by DELIVERY, which mints
+  ;; no generation, so a delayed silence published after that re-arm still carries
+  ;; a matching `:observed-gen`. This query answers "is my registration observing
+  ;; that frame right now?" so the receiver can discard it. Same dev-only
+  ;; Tool-Pair observation tiering as its clause-one sibling.
+  ["re-frame.core" "epoch-listener-observing?"] {:tier :tooling :owner "Tool-Pair" :status "v1 (dev-only)"}
   ;; EP-0001 two-partition mutators (rf2-q4i9ko / bead 3 + rf2-tfepxu /
   ;; bead 9) originally shipped as a four-mutator family. rf2-t3lftq
   ;; (API-shrink #3) consolidated replace-app-db! / reset-app-db! /
@@ -1557,6 +1565,10 @@
   ;; `:rf.epoch.cb/silenced-on-frame-destroy` consumer reads a cb-id's CURRENT
   ;; generation to self-filter a superseded (`:observed-gen` != current) signal.
   ["re-frame.epoch" "epoch-listener-generation"]  {:tier :tooling :owner "Tool-Pair" :status "v1 (dev-only)"}
+  ;; The observation-continuum peer (rf2-qg98y): clause two of the same rule, for
+  ;; the same consumer, discriminating a same-generation re-arm the generation
+  ;; query provably cannot see.
+  ["re-frame.epoch" "epoch-listener-observing?"]  {:tier :tooling :owner "Tool-Pair" :status "v1 (dev-only)"}
   ["re-frame.epoch" "clear-epoch-listeners!"]     {:tier :tooling :owner "Tool-Pair" :status "v1 (dev-only)"}
   ["re-frame.epoch" "clear-history!"]             {:tier :tooling :owner "Tool-Pair" :status "v1 (dev-only)"}
   ["re-frame.epoch" "projected-history"]          {:tier :tooling :owner "Tool-Pair" :status "v1 (dev-only)"}

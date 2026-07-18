@@ -704,6 +704,59 @@
       (rf/unregister-listener! :trace ::recorder6)
       (rf/unregister-listener! :epoch ::watcher6))))
 
+(deftest epoch-listener-observing-supersedes-a-same-generation-silence-cljs
+  (testing "rf2-qg98y (CLJS peer) — a silence whose `:observed-gen` still matches
+            can nonetheless be SUPERSEDED by a fresh delivery on the same
+            registration, because a delivery mints no generation. Clause 1 alone
+            accepts it; the two-clause supported receiver rule rejects it. Public
+            API only — no private state."
+    (let [rule (fn [tags]
+                 (and (= (:observed-gen tags)
+                         (rf/epoch-listener-generation (:cb-id tags)))
+                      (not (rf/epoch-listener-observing? (:cb-id tags) (:frame tags)))))]
+      ;; --- the query's own boundary behaviour ---
+      (is (false? (rf/epoch-listener-observing? ::never-obs-cljs :test/nowhere-cljs))
+          "an unregistered listener observes nothing")
+      (rf/register-listener! :epoch ::watcher7 (fn [_] nil))
+      (is (false? (rf/epoch-listener-observing? ::watcher7 :test/churn-cljs))
+          "a registered listener that consumed no record observes nothing")
+
+      (rf/reg-event :seed7 (fn [{:keys [db]} _] {:db {:n 0}}))
+      (rf/make-frame {:id :test/churn-cljs})
+      (let [recorded (atom [])]
+        (rf/register-listener! :trace ::recorder7 (fn [ev] (swap! recorded conj ev)))
+        (rf/dispatch-sync [:seed7] {:frame :test/churn-cljs})
+        (is (true? (rf/epoch-listener-observing? ::watcher7 :test/churn-cljs))
+            "after consuming a record it observes that frame")
+        (is (false? (rf/epoch-listener-observing? ::watcher7 :test/other-cljs))
+            "and only that frame")
+
+        (rf/destroy-frame! :test/churn-cljs)
+        (let [tags (->> @recorded
+                        (filter #(= :rf.epoch.cb/silenced-on-frame-destroy
+                                    (:operation %)))
+                        first
+                        :tags)]
+          (is (some? tags) "the destroy emitted a silence")
+          (is (false? (rf/epoch-listener-observing? ::watcher7 :test/churn-cljs))
+              "the destroy dropped the observation — the callback IS silent")
+          (is (true? (rule tags)) "so a receiver applying the rule ACCEPTS it")
+
+          ;; A same-id SUCCESSOR frame re-arms the SAME registration — no
+          ;; replacement, so no new generation. A consumer processing the trace
+          ;; stream after this point must not still read the silence as current.
+          (rf/make-frame {:id :test/churn-cljs})
+          (rf/dispatch-sync [:seed7] {:frame :test/churn-cljs})
+          (is (= (:observed-gen tags) (rf/epoch-listener-generation ::watcher7))
+              "clause 1 STILL MATCHES — a delivery mints no generation (the gap)")
+          (is (true? (rf/epoch-listener-observing? ::watcher7 :test/churn-cljs))
+              "but the callback is receiving records from that frame again")
+          (is (false? (rule tags))
+              "so the two-clause rule REJECTS the superseded silence")
+          (rf/destroy-frame! :test/churn-cljs))
+        (rf/unregister-listener! :trace ::recorder7)
+        (rf/unregister-listener! :epoch ::watcher7)))))
+
 ;; ---- rf2-oh1y8 — nil-evidence cleanup across every owned store, CLJS host ---
 ;;
 ;; The JVM peer `destroy-cleans-exact-owner-stores-when-snapshot-evidence-is-nil`

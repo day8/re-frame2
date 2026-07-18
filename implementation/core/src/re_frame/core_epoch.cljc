@@ -85,10 +85,37 @@
   emission linearization law): the signal carries `:observed-gen` G, and the
   consumer discards it when `(not= G (epoch-listener-generation cb-id))` — the
   registration has since been replaced or dropped, so G's silence no longer names
-  the current callback. The token is OPAQUE: compare for equality only. Late-bound
-  via `:epoch/epoch-listener-generation`."
+  the current callback. The token is OPAQUE: compare for equality only.
+
+  NECESSARY but not SUFFICIENT: a same-id successor FRAME re-arms a callback
+  under the UNCHANGED generation, so the full receiver rule pairs this with
+  `epoch-listener-observing?` (rf2-qg98y). Late-bound via
+  `:epoch/epoch-listener-generation`."
   {:hook :epoch/epoch-listener-generation :artefact epoch-artefact :on-absent :nil}
   ([id] :delegate))
+
+(defwrapper epoch-listener-observing?
+  "True when the CURRENT epoch-listener registration under `id` is observing
+  `frame-id` RIGHT NOW — it has consumed a record from `frame-id` under its live
+  generation and that observation has not since been dropped by the frame's
+  destroy. False when `id` is unregistered, never observed `frame-id`, observed
+  it only under a superseded generation, or when the `day8/re-frame2-epoch`
+  artefact is not on the classpath.
+
+  The OBSERVATION-CONTINUUM half of the supported
+  `:rf.epoch.cb/silenced-on-frame-destroy` receiver rule (Spec 009 §The
+  delayed-silence emission linearization law, rf2-qg98y).
+  `epoch-listener-generation` discriminates REGISTRATION identity only; a
+  same-id successor FRAME re-arming the callback mints NO new generation, so a
+  delayed predecessor's silence published after that re-arm still carries a
+  MATCHING `:observed-gen`. Both clauses, read at receipt time:
+
+      (and (= (:observed-gen tags) (epoch-listener-generation cb-id))
+           (not (epoch-listener-observing? cb-id (:frame tags))))
+
+  Late-bound via `:epoch/epoch-listener-observing?`."
+  {:hook :epoch/epoch-listener-observing? :artefact epoch-artefact :on-absent :false}
+  ([id frame-id] :delegate))
 
 (defwrapper clear-epoch-listeners!
   "Drop every registered epoch-settled callback. Test-isolation only —

@@ -275,6 +275,6 @@ Trace events emitted by the epoch-history machinery:
 | `:rf.epoch/replace-schema-mismatch` | `:frame`, `:failing-paths` |
 | `:rf.epoch/replace-history-disabled` | `:frame` |
 | `:rf.epoch.cb/listener-exception` | `:frame`, `:cb-id`, `:rf.epoch/id`, `:message` |
-| `:rf.epoch.cb/silenced-on-frame-destroy` | `:frame`, `:cb-id` |
+| `:rf.epoch.cb/silenced-on-frame-destroy` | `:frame`, `:cb-id`, `:observed-gen` |
 | `:rf.warning/epoch-redact-fn-exception` | `:frame`, `:rf.epoch/id`, `:ex-msg` |
 | `:rf.warning/restore-quiesce-hook-exception` | `:frame`, `:hook`, `:exception` |
