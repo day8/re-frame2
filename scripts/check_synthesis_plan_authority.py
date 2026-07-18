@@ -26,6 +26,11 @@ inside the one named anchor item:
      "<item> -> <bead>" clause — swapping two owners, or dropping one of a
      clause's beads (e.g. the `.12` half of `rf2-vxgfnd.8 / .12`), fails.
 
+Every id above is required as an EXACT tracker-id token (see `_exact_token_re`):
+a near miss that merely contains the id — `rf2-vxgfndx`, `rf2-vxgfnd.9x`,
+`rf2-vxgfnd.9.1`, `xrf2-vxgfnd` — names a different (nonexistent) bead and
+therefore fails the check it looks like it satisfies.
+
 It also forbids ONE drift-prone sentence shape anywhere in the plan's ACTIVE
 text: an unqualified live-stage progress claim. Live stage/progress state is
 owned by the epic and its beads, never by this plan. The rule has an honest,
@@ -77,12 +82,46 @@ _ARROW = "→"  # "→"
 # A Markdown checklist item line. `box` captures the checkbox state (` ` or `x`).
 _CHECKLIST_ITEM_RE = re.compile(r"^\s*-\s*\[(?P<box>[ xX])\]")
 
-# The authority attribution must be a BARE epic reference — `rf2-vxgfnd` NOT
-# immediately followed by a `.<digit>` child suffix. This is what makes the
+# --- Exact tracker-id tokens --------------------------------------------------
+# The tracker's id alphabet: alphanumerics plus the `-` word separator (`_` is
+# included for safety — it never splits an identifier in prose). A `.<digits>`
+# suffix names a child of the id before it.
+_ID_CHAR = r"[0-9A-Za-z_-]"
+
+
+def _exact_token_re(token: str) -> re.Pattern[str]:
+    """Compile `token` to match only as a COMPLETE tracker-id token.
+
+    ONE structural rule, applied at every site that looks for a known id: the
+    token matches only where it cannot be extended into a LONGER identifier.
+
+      * RIGHT — not followed by an id character, and not followed by a `.<digit>`
+        child suffix. So `rf2-vxgfndx`, `rf2-vxgfnd.9x` and `rf2-vxgfnd.90` are
+        rejected (alphanumeric extension), as are `rf2-vxgfnd.9` for the bare
+        epic and `rf2-vxgfnd.9.1` for the child `rf2-vxgfnd.9` (deeper-child
+        extension). That second clause GENERALIZES the old bare-epic-only
+        lookahead: exactness is now the guard's uniform rule, not a per-site
+        special case.
+      * LEFT — not preceded by an id character, so `xrf2-vxgfnd` is rejected.
+        A token that itself begins with the `.` child separator carries its own
+        left delimiter (it is the suffix half of the `<parent>.<n> / .<m>`
+        shorthand), so no lookbehind applies to it — which is also what lets
+        `.12` match a fully written `rf2-vxgfnd.12`, the same bead.
+
+    A trailing sentence period is NOT an extension (`.` not followed by a digit),
+    so prose like "... → rf2-vxgfnd.8." still resolves its owner.
+    """
+    left = "" if token.startswith(".") else rf"(?<!{_ID_CHAR})"
+    return re.compile(left + re.escape(token) + rf"(?!{_ID_CHAR})(?!\.\d)")
+
+
+# The authority attribution must be a BARE epic reference — the exact token
+# `rf2-vxgfnd`, NOT a child id `rf2-vxgfnd.<n>`. This is what makes the
 # attribution check CAUSAL: the child-id mappings (`rf2-vxgfnd.9`, ...) all
 # contain the substring "rf2-vxgfnd", so a bare `in` test would pass even after
-# the actual attribution clause is deleted. The negative lookahead rejects those.
-_BARE_EPIC_RE = re.compile(re.escape(ANCHOR_AUTHORITY) + r"(?!\.\d)")
+# the actual attribution clause is deleted. Exact-token matching rejects those
+# — and equally rejects a renamed authority such as `rf2-vxgfndx`.
+_BARE_EPIC_RE = _exact_token_re(ANCHOR_AUTHORITY)
 
 # The named implementer-question -> owning-bead mappings the coverage pass
 # produced. Each entry is (label, (bead, ...)): the label must occur on the
@@ -186,12 +225,13 @@ def _mapping_clauses(block: str) -> list[tuple[str, str]]:
 
 
 def _bead_present(text: str, bead: str) -> bool:
-    """True if `bead` occurs in `text` and is not the prefix of a longer id.
+    """True if `bead` occurs in `text` as an EXACT tracker-id token.
 
-    The trailing negative lookahead stops `rf2-vxgfnd.9` matching inside
-    `rf2-vxgfnd.90`, and `.12` matching inside `.120`.
+    An owner that is merely a fragment of some longer, nonexistent id does not
+    resolve the item: `rf2-vxgfnd.90`, `rf2-vxgfnd.9x` and `rf2-vxgfnd.9.1` all
+    fail to satisfy the owner `rf2-vxgfnd.9`. See `_exact_token_re`.
     """
-    return re.search(re.escape(bead) + r"(?!\d)", text) is not None
+    return _exact_token_re(bead).search(text) is not None
 
 
 def check(repo_root: Path, verbose: bool = False) -> int:
@@ -381,6 +421,63 @@ def _build_self_test_fixtures(base: Path) -> None:
         _PLAN_HEAD + _GOOD_ANCHOR.replace("rf2-vxgfnd.8 / .12", "rf2-vxgfnd.8"),
     )
 
+    # --- Exact-token mutations (rf2-eipo0) --------------------------------
+    # Each renames a required id into a DIFFERENT, nonexistent one while leaving
+    # the id's text visibly "there". Every one must fail exactly its own check.
+
+    # authority_suffix_extended: `rf2-vxgfnd` -> `rf2-vxgfndx`; the child-id
+    # mappings are untouched -> exactly 1 authority defect.
+    _write_fixture(
+        base / "authority_suffix_extended",
+        _PLAN_HEAD + _GOOD_ANCHOR.replace("`rf2-vxgfnd`", "`rf2-vxgfndx`"),
+    )
+
+    # authority_prefix_extended: `rf2-vxgfnd` -> `xrf2-vxgfnd` (extended on the
+    # LEFT) -> exactly 1 authority defect.
+    _write_fixture(
+        base / "authority_prefix_extended",
+        _PLAN_HEAD + _GOOD_ANCHOR.replace("`rf2-vxgfnd`", "`xrf2-vxgfnd`"),
+    )
+
+    # owner_suffix_extended: Q49's owner `rf2-vxgfnd.9` -> `rf2-vxgfnd.9x`
+    # -> exactly 1 mapping defect (only Q49's association breaks).
+    _write_fixture(
+        base / "owner_suffix_extended",
+        _PLAN_HEAD + _GOOD_ANCHOR.replace("rf2-vxgfnd.9;", "rf2-vxgfnd.9x;"),
+    )
+
+    # owner_child_extended: Q49's owner -> the deeper child `rf2-vxgfnd.9.1`,
+    # a different bead -> exactly 1 mapping defect.
+    _write_fixture(
+        base / "owner_child_extended",
+        _PLAN_HEAD + _GOOD_ANCHOR.replace("rf2-vxgfnd.9;", "rf2-vxgfnd.9.1;"),
+    )
+
+    # second_bead_suffix_extended: the abbreviated `.12` owner -> `.12x`
+    # -> exactly 1 mapping defect.
+    _write_fixture(
+        base / "second_bead_suffix_extended",
+        _PLAN_HEAD + _GOOD_ANCHOR.replace("rf2-vxgfnd.8 / .12", "rf2-vxgfnd.8 / .12x"),
+    )
+
+    # --- Positive controls: genuine id spellings must stay green ----------
+
+    # full_second_bead: the `.12` shorthand written out as the full child id
+    # names the SAME bead -> still passes (the rule is not over-tightened).
+    _write_fixture(
+        base / "full_second_bead",
+        _PLAN_HEAD
+        + _GOOD_ANCHOR.replace("rf2-vxgfnd.8 / .12", "rf2-vxgfnd.8 / rf2-vxgfnd.12"),
+    )
+
+    # sentence_final_owner: an owner ending a sentence is followed by a period,
+    # which is not a child suffix -> still passes.
+    _write_fixture(
+        base / "sentence_final_owner",
+        _PLAN_HEAD
+        + _GOOD_ANCHOR.replace("rf2-vxgfnd.8 (S2b ViewCell, per 03 §4).", "rf2-vxgfnd.8."),
+    )
+
     # missing_mapping: the :activity-hidden owner mapping stripped -> 1 defect.
     _write_fixture(
         base / "missing_mapping",
@@ -447,6 +544,13 @@ def _run_self_tests(verbose: bool = False) -> int:
         ("dropped_authority", 1),
         ("swapped_owners", 2),
         ("dropped_second_bead", 1),
+        ("authority_suffix_extended", 1),
+        ("authority_prefix_extended", 1),
+        ("owner_suffix_extended", 1),
+        ("owner_child_extended", 1),
+        ("second_bead_suffix_extended", 1),
+        ("full_second_bead", 0),
+        ("sentence_final_owner", 0),
         ("missing_mapping", 1),
         ("not_started_drift", 1),
         ("underway_drift", 1),
