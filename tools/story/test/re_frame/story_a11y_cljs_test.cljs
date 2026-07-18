@@ -69,7 +69,7 @@
 (deftest drop-frame-state-clears
   (testing "drop-frame-state! removes per-frame state"
     (swap! a11y/violations-by-frame assoc :story.x/y [{:dummy true}])
-    (swap! a11y/run-state           assoc :story.x/y :done)
+    (swap! a11y/run-state           assoc :story.x/y {:status :done})
     (a11y/drop-frame-state! :story.x/y)
     (is (not (contains? @a11y/violations-by-frame :story.x/y)))
     (is (not (contains? @a11y/run-state           :story.x/y)))))
@@ -111,7 +111,7 @@
       (try
         (let [p (a11y/run-axe! frame-id)]
           (is (some? p) "run-axe! returns a Promise even on the no-root path")
-          (is (= :no-root (get @a11y/run-state frame-id))
+          (is (= :no-root (a11y/status-for frame-id))
               "run-state for an unmounted variant must be :no-root, NOT :running or :done — surfacing that the scan was not run against the wrong tree"))
         (finally
           (set! js/console.warn orig-warn)
@@ -158,7 +158,7 @@
       (try
         (let [p (a11y/run-axe! frame-id fake-ctx)]
           (is (some? p) "run-axe! returns a Promise even on :no-consent")
-          (is (= :no-consent (get @a11y/run-state frame-id))
+          (is (= :no-consent (a11y/status-for frame-id))
               "without consent the panel must surface :no-consent —
                NOT :running or :loading — so the consent prompt has
                time to render"))

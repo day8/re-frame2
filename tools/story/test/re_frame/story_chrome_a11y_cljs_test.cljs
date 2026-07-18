@@ -93,15 +93,15 @@
 
 (deftest run-state-starts-idle
   (testing "run-state starts at :idle"
-    (is (= :idle @chrome-a11y/run-state))))
+    (is (= :idle (chrome-a11y/status)))))
 
 (deftest reset-state-clears-everything
   (testing "reset-state! clears violations + resets run-state"
     (reset! chrome-a11y/violations [{:dummy true}])
-    (reset! chrome-a11y/run-state :done)
+    (reset! chrome-a11y/run-state {:status :done})
     (chrome-a11y/reset-state!)
     (is (empty? @chrome-a11y/violations))
-    (is (= :idle @chrome-a11y/run-state))))
+    (is (= :idle (chrome-a11y/status)))))
 
 ;; ---- find-chrome-root degraded-environment safety -----------------------
 
