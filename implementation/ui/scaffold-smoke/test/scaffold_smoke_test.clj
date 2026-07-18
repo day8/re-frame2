@@ -22,7 +22,8 @@
    The manifest is the single source of truth: it lives in the README (the
    file authors read) and is parsed here (the file CI runs), so the documented
    claim and the tested contract cannot drift."
-  (:require [clojure.java.io :as io]
+  (:require [clojure.edn :as edn]
+            [clojure.java.io :as io]
             [clojure.string :as str]
             [clojure.test :refer [deftest is testing]]))
 
@@ -107,14 +108,34 @@
                "  unexpected (on disk, not documented): " (sort (remove allowed on-disk)) "\n"
                "  missing   (documented, not on disk):  " (sort (remove on-disk allowed)))))))
 
+(def ^:private contract-keys [:cache-blockers :build-defaults])
+
+(defn- read-config
+  "Read a shadow-cljs.edn as data. `:default` absorbs the build-tool reader tags
+  (`#shadow/env`) that appear in the monorepo's own config."
+  [file]
+  (edn/read-string {:default (fn [_tag v] v)} (slurp file)))
+
 (deftest shadow-config-carries-the-two-load-bearing-settings
   ;; spec/004C-Roots-and-Mount.md §2.1.1: both are load-bearing on Shadow.
-  (let [shadow (slurp (scaffold-file "shadow-cljs.edn"))]
-    (is (str/includes? shadow ":cache-blockers #{re-frame.ui}")
-        "shadow-cljs.edn dropped :cache-blockers #{re-frame.ui} — warm-cache starts get incomplete registries")
-    (is (re-find #":build-defaults\s+\{:build-hooks\s+\[\(re-frame\.ui\.compiler\.build-hook/hook\)\]\}"
-                 shadow)
-        "shadow-cljs.edn dropped the re-frame.ui.compiler.build-hook build hook")))
+  ;;
+  ;; rf2-vxgfnd.196 — DERIVED, not restated. This test used to spell the two
+  ;; settings as string literals, which made it a copy of the rule checking
+  ;; itself: edit the real configuration and this stayed green. The expected
+  ;; value is now the monorepo's own shadow-cljs.edn, read at run time, so the
+  ;; scaffold is pinned to what the framework actually configures.
+  (let [real (select-keys (read-config (io/file @root "implementation/shadow-cljs.edn"))
+                          contract-keys)]
+    ;; Shape guard first: if the framework config lost the settings, both sides
+    ;; would be {} and the comparison would pass vacuously.
+    (is (= (set contract-keys) (set (keys real)))
+        (str "implementation/shadow-cljs.edn no longer carries both top-level "
+             "settings; found " (sort (keys real))))
+    (is (= real (select-keys (read-config (scaffold-file "shadow-cljs.edn"))
+                             contract-keys))
+        (str "the scaffold's shadow-cljs.edn diverged from the framework's own "
+             "re-frame.ui configuration — a consumer copying this scaffold would "
+             "get incomplete registries on a warm-cache start"))))
 
 (deftest host-page-wires-the-mount-target-and-bundle
   (let [html (slurp (scaffold-file "resources/public/index.html"))]
