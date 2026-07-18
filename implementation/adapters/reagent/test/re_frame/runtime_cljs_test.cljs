@@ -873,7 +873,9 @@
 
 (deftest frame-provider-missing-or-nil-frame-key-fails-loud
   ;; EP-0002 (rf2-9o48ih) + rf2-nyea0r (frame-boundary split). `frame-provider`
-  ;; is now SCOPE-only: it requires a keyword `:frame` and creates nothing. An
+  ;; is now SCOPE-only: it requires a `:frame` target (a frame-id keyword or a
+  ;; live `make-frame` value — see frame-provider-frame-target-grammar below)
+  ;; and creates nothing. An
   ;; EMPTY prop map (no `:frame`, no `:id`) is a SCOPE with a nil `:frame`;
   ;; under the carried invariant there is no `(or (:frame props) :rf/default)`
   ;; floor, so it raises `:rf.error/no-frame-context` (Spec 002 §Frame target
@@ -914,15 +916,40 @@
       (is (= [[:header] [:main] [:footer]] (drop 2 tree))
           "all children present in source order"))))
 
-(deftest frame-provider-keyword-frame
-  (testing "frame-provider only handles keyword frame ids (per Spec 002 §Frame ids)"
+(deftest frame-provider-frame-target-grammar
+  ;; rf2-thg1s: `frame-provider`'s `:frame` teaches the SAME one frame-target
+  ;; grammar as `dispatch` / `subscribe` (API-shrink #1, rf2-csbbwu; Spec 002
+  ;; §`frame-provider`) — a frame-id KEYWORD or the live frame VALUE
+  ;; `make-frame` returns, the latter normalized ONE WAY to its id. This test
+  ;; previously asserted the retired keyword-only rule.
+  (testing "a frame-id keyword threads through to the scope tier unchanged"
     ;; SCOPE-only `{:frame …}` fails loud if absent — register the frame.
     (rf/make-frame {:id :rf.frame/anonymous-1})
-    ;; The component threads whatever keyword the user supplies through to the
-    ;; scope tier.
     (let [tree (rf/frame-provider {:frame :rf.frame/anonymous-1} [:p])]
       (is (= :rf.frame/anonymous-1 (second tree))
-          "namespaced gensym'd frame keyword threads through unchanged"))))
+          "namespaced gensym'd frame keyword threads through unchanged")))
+  (testing "a make-frame return VALUE normalizes to the same context id as its keyword"
+    ;; One frame, both spellings: the provider must write the SAME frame id
+    ;; into React Context whether the caller passes the value it is holding or
+    ;; the id keyword. No value->id accessor exists (or is needed) at the call
+    ;; site — passing the value directly is the low-friction intended API.
+    (let [frame-value  (rf/make-frame {:id :provider-target-by-value})
+          value-tree   (rf/frame-provider {:frame frame-value} [:p])
+          keyword-tree (rf/frame-provider {:frame :provider-target-by-value} [:p])]
+      (is (= :provider-target-by-value (second value-tree))
+          "the live frame value normalizes one way to its frame id")
+      (is (= (second keyword-tree) (second value-tree))
+          "value and keyword spellings scope the subtree to the same context id")
+      ;; The normalization must reach the React Context write itself, not just
+      ;; the wrapper's arg position — unwrap to the `:r>` Provider element.
+      (let [[_marker _provider-class js-props] (apply (first value-tree) (rest value-tree))]
+        (is (= :provider-target-by-value (aget js-props "value"))
+            "the Provider's :value carries the normalized frame id, not the value"))))
+  (testing "a target that is neither a keyword nor a frame value fails loud"
+    (rf/make-frame {:id :provider-bad-arg-neighbour})
+    (is (thrown-with-msg? :default #":rf.error/bad-frame-provider-arg"
+          (rf/frame-provider {:frame "provider-bad-arg-neighbour"} [:p]))
+        "a string target is rejected before React Context is written")))
 
 (deftest frame-provider-build-frame-provider-substrate
   (testing "build-frame-provider remains the lower-level substrate"

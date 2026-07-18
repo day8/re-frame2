@@ -123,9 +123,13 @@
   NOTHING. Inside the subtree, `(rf/capture-frame)` / `reg-view`-registered
   descendants resolve to the named frame. FAILS LOUD when the named frame is
   ABSENT (`:rf.error/frame-provider-frame-absent`) — scoping a subtree to a
-  frame that does not exist is a configuration error. `:frame` must be a
-  KEYWORD frame id (EP-0002 carried invariant): a missing / nil `:frame` is
-  `:rf.error/no-frame-context`; a non-nil non-keyword `:frame` is the distinct
+  frame that does not exist is a configuration error. `:frame` accepts a frame-id
+  KEYWORD or the live frame VALUE `make-frame` returns — the same one
+  frame-target grammar `dispatch` / `subscribe` teach (API-shrink #1,
+  rf2-csbbwu); a value normalizes one way to its id before React Context is
+  written, so a caller holding a value passes it directly with no accessor. A
+  missing / nil `:frame` is `:rf.error/no-frame-context`; a target that is
+  NEITHER a keyword nor a live frame value is the distinct
   `:rf.error/bad-frame-provider-arg`.
 
       [rf/frame-provider {:frame :session}
@@ -149,8 +153,9 @@
     (boundary/reject-frame-provider-id!
       (:id props)
       're-frame.views.provider/frame-provider))
-  ;; SCOPE: validate the keyword `:frame`, fail loud if the frame is absent,
-  ;; then scope via the shared scope-only provide tier.
+  ;; SCOPE: validate the `:frame` target (keyword id or live frame value,
+  ;; normalized to the id), fail loud if the frame is absent, then scope via
+  ;; the shared scope-only provide tier.
   (let [frame-kw (frame/require-keyword-frame-provider-arg!
                    (:frame props)
                    're-frame.views.provider/frame-provider)]
