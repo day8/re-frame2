@@ -1,4 +1,4 @@
-# 06 — SSR: one AST, two emitters; roots, frames, and hydration
+# 06 — SSR: one analyzer, one emitter per build; roots, frames, and hydration
 
 **Status:** final · 2026-07-11. **A React hydration root is not a re-frame2 frame** —
 a DOM/render unit and a state world are distinct identities (I-8), and they are
@@ -6,10 +6,14 @@ many-to-many. The term is **root**; "island" is not part of the vocabulary.
 
 ## 1. One compiled form; the honest JVM contract
 
-`defview` is `.cljc`: one normalized AST, two emitters — CLJS → direct JSX; JVM → the
-canonical serializable render tree consumed by the existing `re-frame2-ssr` artifact (no
-second server product; packaging in 05 §1). One contextual conversion/escaping rule
-table serves both; parity is **normalized structural equivalence** over semantic nodes
+`defview` is `.cljc`: each host build runs the shared analyzer over the source and hands
+that build's own AST to exactly one emitter — CLJS → direct JSX; JVM → the canonical
+serializable render tree consumed by the existing `re-frame2-ssr` artifact (no second
+server product; packaging in 05 §1). The hosts never meet as ASTs: analysis is
+host-parameterized, so the two AST values are not guaranteed equal, let alone one value.
+One contextual conversion/escaping rule table serves both emitters and a parity corpus
+compares their normalized output, so divergence is **detected** rather than prevented.
+Parity is **normalized structural equivalence** over semantic nodes
 (tag/ns, attr names+values, child order, escaping, keyed order, void/boolean, fragments,
 fallbacks) — fingerprinted, generatively tested (07 §4) — not byte-identical HTML.
 

@@ -48,7 +48,8 @@ gate roster and its stage-wiring rule.
 
 - fix the production posture: capability specialization, the absence roster, packaging,
   budgets-as-kill-gates, the scheduling stance;
-- fix the SSR posture: one AST, two emitters; the honest JVM subset; roots vs frames;
+- fix the SSR posture: one analyzer, one emitter per build; the honest JVM subset;
+  roots vs frames;
   root manifests, per-root hydration and failure isolation; explicit static-root
   policy; the `client-only` phase flip;
 - fix the testing posture: the five-tier pyramid, the `ui.test` contract (`flush!`
@@ -125,9 +126,11 @@ deterministic tooling, not applications.
 
 ### 2. SSR: one JVM structural tree
 
-`defview` is `.cljc`: one normalized AST, two emitters — CLJS → direct JSX; JVM → the
-canonical serializable render tree consumed by `re-frame2-ssr`. One contextual
-conversion/escaping rule table serves both. **Parity is normalized structural
+`defview` is `.cljc`: each host build runs the shared analyzer and hands that build's own
+AST to exactly one emitter — CLJS → direct JSX; JVM → the canonical serializable render
+tree consumed by `re-frame2-ssr`. The hosts never meet as ASTs. One contextual
+conversion/escaping rule table serves both emitters, and parity **detects** divergence
+between them rather than preventing it. **Parity is normalized structural
 equivalence over semantic nodes** (tag/ns, attr names+values, child order, escaping,
 keyed order, void/boolean, fragments, fallbacks), fingerprinted and generatively tested
 — **byte-identical HTML is not the contract**, consistent with Spec 011's canonical

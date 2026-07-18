@@ -21,7 +21,7 @@ capability vocabulary (05 §1) · `ui.test` contract (07 §2).
 | S-1 codegen | props/DOM/branches/keyed-list/event-vector `defview` → inspect advanced output | within G-1 parity |
 | S-2 push falsification | 500 mounted reactive views, 1 sub delta/epoch | confirms committed push economics; failure **reopens 03** (no silent fork) |
 | S-3 concurrency | ViewCell: conditional reads, abandoned mounts, commit-gap, Activity, **observation-target races, pass-scoped probe memo** | 10k abandoned renders retain zero; reconnect provable on public React |
-| S-4 dual host | one AST → CLJS + JVM tree → per-root hydration parity | structural agreement; failed-root isolation |
+| S-4 dual host | shared analyzer → CLJS + JVM tree → per-root hydration parity | structural agreement; failed-root isolation |
 | S-5 input synchrony | controlled input under the sync door (02 §3) | caret/IME matrix green |
 
 **Spike outcomes (2026-07-11; both reports in [spikes/](spikes/)):** S-1, S-2, S-3, and
