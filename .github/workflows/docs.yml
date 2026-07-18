@@ -67,6 +67,16 @@ on:
       # rf2-lq99wc — the retired-composition gate now scans the per-tool spec
       # trees too; a drift there must trigger the gate.
       - 'tools/**/spec/**'
+      # rf2-tzy13 — the live `cljs-rf2` cells run on docs/cljs/playground-rf2.js,
+      # which is no longer committed: this workflow BUILDS it (below) and ships
+      # what it built. The bundle bakes in re-frame2 core + reagent-slim +
+      # machines + flows, so a push touching any of them changes the deployed
+      # live-cell engine and must republish. (docs/tools/playground/** — the
+      # bundle's own source and build config — is already inside docs/**.)
+      - 'implementation/core/**'
+      - 'implementation/adapters/reagent-slim/**'
+      - 'implementation/machines/**'
+      - 'implementation/flows/**'
       - '.github/workflows/docs.yml'
   # PR trigger is intentionally UNFILTERED (see REQUIRED-CHECK SHAPE
   # below). The docs surface is re-applied job-side via the `detect` job.
@@ -102,8 +112,15 @@ jobs:
       # On a PR, classify the changed-file list against the docs surface.
       # On any non-PR event (push/dispatch) light the gate so the build
       # always runs. Mirrors the git-diff classifier shape used by
-      # .github/scripts/report-changed-surfaces.sh in test.yml. The path
-      # set is kept in lockstep with the `push.paths` filter above.
+      # .github/scripts/report-changed-surfaces.sh in test.yml.
+      #
+      # This path set is DELIBERATELY NARROWER than the `push.paths` filter
+      # above (rf2-tzy13). push.paths gained the four baked-in implementation
+      # surfaces so a core/reagent-slim/machines/flows merge republishes the
+      # regenerated live-cell bundle; this PR-side classifier must NOT, or every
+      # core PR would run a duplicate ~15-minute MkDocs build on top of the
+      # tools-playground job in test.yml that already builds + smokes the bundle
+      # at PR time. Deploy-time coverage here, PR-time coverage there.
       - name: Classify changed files against the docs surface
         id: detect
         run: |
@@ -142,27 +159,26 @@ jobs:
           cache: pip
           cache-dependency-path: requirements.txt
 
-      # --- SCI-bundle rebuild-on-publish (rf2-ssxvg1) --------------------------
+      # --- SCI-bundle build-on-publish (rf2-ssxvg1; sole source as of rf2-tzy13)
       #
       # The docs' live `cljs-rf2` cells run on docs/cljs/playground-rf2.js — a
       # shadow-cljs :advanced bundle that bakes in re-frame2 core + reagent-slim
-      # + machines + react@19 (the eval engine for every `cljs-rf2` cell). It is
-      # a committed, vendored binary. Deploying it verbatim let it drift: the
-      # committed snapshot is only as fresh as its last hand-rebuild, so a wave
-      # of `implementation/` changes (e.g. the EP-0003 resources wave) could
-      # leave the LIVE cells running stale re-frame2 while main moved on. The
-      # freshness gate (scripts/check-playground-sci-freshness.sh) only checks
-      # the machine-lifecycle creation marker, so it does not catch that class.
+      # + machines + flows + react@19 (the eval engine for every `cljs-rf2`
+      # cell). rf2-ssxvg1 made this workflow rebuild it fresh on every publish,
+      # because deploying the committed snapshot verbatim let the LIVE cells run
+      # stale re-frame2 while main moved on.
       #
-      # Fix (the standing anti-drift policy): rebuild the bundle FRESH from the
-      # checked-out main on every docs publish, so the DEPLOYED bundle is always
-      # current — eliminating the committed-stale-binary drift structurally. We
-      # build-in-pipeline (no commit-back): the rebuilt artefact overwrites the
-      # working-tree docs/cljs/playground*.js BEFORE `mkdocs build` stages it
-      # into site/, so the published bundle reflects current main. The committed
-      # snapshot may briefly lag until the next docs build, which is acceptable
-      # under this policy (and the tools-playground job in test.yml still gates
-      # that the committed bundle is a valid, fresh prebuilt on every PR).
+      # rf2-tzy13 finished the job: the bundle is no longer committed at all. It
+      # is .gitignored and generated at each consumption boundary — here on
+      # deploy, and in test.yml's tools-playground job at PR time. The committed
+      # snapshot existed only for clean-checkout local convenience, and it cost a
+      # repo-wide write lock: every PR touching a baked-in surface had to
+      # regenerate the same binary, and two such PRs always conflicted on it.
+      # Source/config/locks are now the single authority.
+      #
+      # THIS BUILD IS THE ONLY SOURCE OF THE DEPLOYED BUNDLE. Nothing is checked
+      # out to fall back on, so the steps below must not just build it but prove
+      # the built artefact works — see the smoke step.
       #
       # The build needs a JVM + Clojure CLI + Node (the shadow-cljs toolchain),
       # the same setup the tools-playground job in test.yml uses. The esbuild
@@ -207,21 +223,68 @@ jobs:
           npm ci
           npm run build
 
-      # Sanity-check the freshly-built SCI bundle exports its renderLast hook
-      # before it is staged + deployed. A build that "succeeded" but emitted a
+      # Fast structural pre-check on the freshly-built SCI bundle before the
+      # (heavier) Chromium smoke below. A build that "succeeded" but emitted a
       # wrong/empty artefact would otherwise ship a dead live-cell engine.
-      - name: Verify freshly-built SCI bundle is a valid re-frame2 prebuilt
+      - name: Verify freshly-built SCI bundle is a valid re-frame2 build
         run: |
           f=docs/cljs/playground-rf2.js
           if [ ! -s "$f" ]; then
-            echo "::error::$f missing or empty after rebuild — the SCI bundle build failed."
+            echo "::error::$f missing or empty after build — the SCI bundle build failed."
             exit 1
           fi
           if ! grep -q "rf2sci" "$f"; then
-            echo "::error::$f does not export rf2sci after rebuild — wrong/stale artefact."
+            echo "::error::$f does not export rf2sci after build — wrong artefact."
             exit 1
           fi
           echo "Freshly-built SCI bundle OK ($(wc -c < "$f") bytes)."
+
+      # --- Smoke the artefact that actually ships (rf2-tzy13 amendment) --------
+      #
+      # This is the deploy path's runtime gate, and it is NOT redundant with the
+      # PR-time tools-playground job:
+      #
+      #   - PRs merge by REBASE, so PR CI validated the pre-rebase tree, not the
+      #     tree that lands on main. Runtime composition of the merged tree was
+      #     only ever proven by the post-merge canary, which rf2-tzy13 retires.
+      #   - the structural pre-check above is a non-empty + rf2sci grep. It
+      #     cannot catch a bundle that is well-formed but throws at render (the
+      #     EP-0024 / rf2-qhu72t class, where a renamed frame provider made the
+      #     mount shape invalid against current core).
+      #   - expensive-tests.yml runs no playground job at all.
+      #
+      # Running the smoke HERE, after the build and before `mkdocs build` stages
+      # site/, means the artifact that ships is the artifact that was smoked —
+      # the invariant lives at the exact consumption boundary. Scoped to non-PR
+      # events: on a PR the docs build is a regression check that never deploys,
+      # and tools-playground already smokes the bundle at PR time. This also
+      # keeps main-push CI at ONE heavy bundle build instead of two.
+      - name: Install Playwright (Chromium + system deps)
+        if: github.event_name != 'pull_request'
+        working-directory: docs/tools/playground
+        run: npx playwright install --with-deps chromium
+
+      - name: Smoke the built bundles under headless Chromium
+        if: github.event_name != 'pull_request'
+        working-directory: docs/tools/playground
+        run: npm run smoke
+
+      # Stale-bootstrap detection on the POST-REBASE tree (rf2-tzy13). The
+      # esbuild bootstrap (playground.js/.css) is still committed and is
+      # byte-deterministic across platforms, so after the rebuild above a
+      # non-empty diff means the committed bootstrap does not match its source —
+      # a drift that PR CI could miss because it validated the pre-rebase tree.
+      # The SCI bundle is deliberately NOT diffed: it is untracked and
+      # .gitignored, and its Closure symbol allocation is not cross-machine
+      # reproducible anyway.
+      - name: Verify committed esbuild bootstrap matches the fresh build
+        if: github.event_name != 'pull_request'
+        run: |
+          if ! git diff --exit-code -- docs/cljs/playground.js docs/cljs/playground.css; then
+            echo "::error::Committed docs/cljs/playground.{js,css} are stale on main — run 'npm run build:bootstrap' in docs/tools/playground and commit the rebuilt bundles."
+            exit 1
+          fi
+          echo "Committed esbuild bootstrap matches a fresh build."
 
       # Cairo + Pango system libraries for Material's `social` plugin (rf2-orxjj).
       # The plugin's image backend (CairoSVG, pulled in by material[imaging] in

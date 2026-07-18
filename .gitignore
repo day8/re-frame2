@@ -58,6 +58,15 @@ Thumbs.db
 # never commit the staged copies.
 /docs/spec/
 /docs/migration/
+# The docs/cljs live-cell SCI bundle (rf2-tzy13) — a shadow-cljs :advanced
+# build over re-frame2 core + reagent-slim + machines + flows + react@19. It is
+# a GENERATED artefact, built at each consumption boundary (test.yml's
+# tools-playground job at PR time, docs.yml on deploy) and by `npm run build` in
+# docs/tools/playground locally. It was previously committed; every PR touching
+# a baked-in surface then had to regenerate the same ~1.7 MB binary, and two such
+# PRs always conflicted on it. Ignored by EXACT path — the esbuild bootstrap
+# (playground.js / playground.css) in the same directory stays committed.
+/docs/cljs/playground-rf2.js
 # Python bytecode from mkdocs_hooks.py (rf2-qvlf) and scripts/ (rf2-sefq).
 /__pycache__/
 **/__pycache__/

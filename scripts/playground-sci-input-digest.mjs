@@ -1,15 +1,26 @@
 #!/usr/bin/env node
 // scripts/playground-sci-input-digest.mjs
 //
-// Deterministic input digest for the committed playground SCI bundle
-// (docs/cljs/playground-rf2.js) — the mechanically-honest freshness contract
-// (rf2-i3e3q).
+// Deterministic input digest for the generated playground SCI bundle
+// (docs/cljs/playground-rf2.js) — build PROVENANCE (rf2-i3e3q, rescoped by
+// rf2-tzy13).
 //
-// The committed bundle is a shadow-cljs :advanced (Closure) build whose
-// minified-symbol allocation is NOT cross-machine reproducible, so it cannot be
-// byte-diffed against a fresh rebuild. What IS stable across machines is the SET
-// OF SOURCE INPUTS the bundle is compiled from. This module hashes exactly that
-// input roster into one 64-hex digest:
+// STATUS. This digest is no longer a freshness AUTHORITY. rf2-tzy13 untracked
+// the bundle: it is .gitignored and generated at each consumption boundary
+// (test.yml's tools-playground job at PR time, docs.yml on deploy), so there is
+// no committed snapshot that can lag its source and nothing to verify a marker
+// against. The former verifier, scripts/check-playground-sci-freshness.sh, was
+// deleted with the committed artefact. What survives — and why this module is
+// still here — is provenance: copy-bundle.mjs stamps the digest into the file it
+// emits, so any generated bundle records the exact input set it was compiled
+// from. That is diagnostic (answering "which tree produced this artefact?" for a
+// downloaded or deployed copy), not gating.
+//
+// The bundle is a shadow-cljs :advanced (Closure) build whose minified-symbol
+// allocation is NOT cross-machine reproducible, so it cannot be byte-diffed
+// against a fresh rebuild. What IS stable across machines is the SET OF SOURCE
+// INPUTS the bundle is compiled from. This module hashes exactly that input
+// roster into one 64-hex digest:
 //
 //   digest = sha256( sorted "<git-blob-sha>  <repo-relative-path>" lines )
 //
@@ -17,16 +28,11 @@
 // the path's clean filter — EOL normalisation — so the sha is identical on a
 // Windows checkout and a Linux CI runner). The digest therefore changes iff any
 // declared baked-in input changes, and does NOT change when Closure reshuffles
-// minified identifiers. It is computed here (Node) and consumed in two places
-// that MUST agree byte-for-byte, so both invoke THIS one module:
+// minified identifiers. It has one consumer:
 //
-//   1. docs/tools/playground/sci/scripts/copy-bundle.mjs appends the digest as
-//      an unminified `//# rf2-sci-input-digest=<hex>` marker to the bundle it
-//      emits, so the COMMITTED bundle records the inputs it was built from.
-//   2. scripts/check-playground-sci-freshness.sh recomputes this digest from the
-//      current inputs and compares it to the marker embedded in the committed
-//      bundle. Mismatch (or missing marker) => the committed bundle is stale vs
-//      its source and the gate fails until it is rebuilt + recommitted.
+//   docs/tools/playground/sci/scripts/copy-bundle.mjs appends the digest as an
+//   unminified `//# rf2-sci-input-digest=<hex>` marker to the bundle it emits,
+//   so a generated bundle records the inputs it was built from.
 //
 // CLI: prints the digest to stdout.
 //   node scripts/playground-sci-input-digest.mjs

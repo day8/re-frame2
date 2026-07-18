@@ -8,13 +8,16 @@
 scripts/git-hooks/post-merge text eol=lf
 scripts/git-hooks/pre-commit text eol=lf
 
-# The docs/cljs playground bundles are committed, vendored prebuilts that
-# esbuild / shadow-cljs emit with LF endings (rf2-ee38b.22). Pin LF so a
-# Windows checkout / rebuild never CRLF-normalises them — that would make the
-# CI bundle-drift gate (tools-playground) `git diff` against a fresh Linux
-# build spuriously fail.
+# The docs/cljs playground BOOTSTRAP bundles are committed, vendored prebuilts
+# that esbuild emits with LF endings (rf2-ee38b.22). Pin LF so a Windows
+# checkout / rebuild never CRLF-normalises them — that would make the CI
+# bundle-drift gate (tools-playground) `git diff` against a fresh Linux build
+# spuriously fail.
+#
+# docs/cljs/playground-rf2.js is deliberately absent (rf2-tzy13): the shadow-cljs
+# SCI bundle is no longer tracked — it is .gitignored and generated in CI and on
+# docs deploy — so it is never diffed and needs no EOL pin.
 docs/cljs/playground.js text eol=lf
-docs/cljs/playground-rf2.js text eol=lf
 docs/cljs/playground.css text eol=lf
 # Pin the source CSS to LF too: `copy-css.mjs` copies it byte-for-byte to the
 # committed docs/cljs/playground.css, so a CRLF source would yield a CRLF
