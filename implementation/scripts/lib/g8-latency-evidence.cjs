@@ -6,11 +6,12 @@
 // step-summary rendering are pure and unit-testable without spawning
 // shadow-cljs or Playwright.
 //
-// Latency is INVESTIGATION EVIDENCE ONLY. The canonical G-8 states the
-// compiled reusable control's event-to-commit p95 within 10% of an equivalent
-// hand-written React control; this module MEASURES that ratio, records the
-// sample count + noise policy, and REPORTS `within-10pct` — but nothing here
-// becomes a pass/fail wall-clock threshold. The gate follows G-13's
+// Latency is INVESTIGATION EVIDENCE ONLY. The canonical G-8 names 10% of an
+// equivalent hand-written React control's event-to-commit p95 as the
+// comparative REFERENCE BUDGET for that evidence — not as a gate requirement;
+// this module MEASURES that ratio, records the sample count + noise policy, and
+// REPORTS `within-10pct` — but nothing here becomes a pass/fail wall-clock
+// threshold. The gate follows G-13's
 // evidence-only/no-threshold posture: a noisy CI host must never redden a
 // correctness gate on a timing number. Deterministic correctness (one React
 // commit per ordinary input, exactly one at the committed IME boundary) is the

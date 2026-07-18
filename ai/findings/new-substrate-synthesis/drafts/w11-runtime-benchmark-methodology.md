@@ -420,8 +420,9 @@ remainder)"⟩ — and given what already recurs:
 - **No W11 scenario becomes a per-PR gate.** The recurring per-PR coverage of the
   claims already exists where it can be made deterministic: G-13 gates push economics
   (R-E's own-substrate arm) from S2; G-4/G-5/G-9 gate the work counts behind R-A/R-B;
-  G-8 gates the input path's correctness and its 10%-vs-hand-written-React latency
-  bound; G-1 gates the render path. A per-PR browser wall-clock comparison would
+  G-8 gates the input path's correctness and reports its 10%-vs-hand-written-React
+  latency ratio as evidence only (it gates no wall-clock number); G-1 gates the
+  render path. A per-PR browser wall-clock comparison would
   re-gate those claims with strictly worse signal-to-noise.
 - **The trio arms do not recur** post-S7. Helix is gone; Reagent/UIx remain frozen
   compatibility adapters, but recurring comparison would create the parity promise the
