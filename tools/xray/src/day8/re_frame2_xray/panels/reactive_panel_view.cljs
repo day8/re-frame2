@@ -749,6 +749,16 @@
          " (opaque)"
          (str " · " (pr-str handler)))))
 
+(defn- diagnostic-label
+  "One compile-tier a11y finding — `a11y-click-non-interactive · <div>`, with
+  the author's suppression reason when the finding was silenced at the source.
+  The compiler owns the verdict; this line only reports it."
+  [{:keys [id tag suppressed? reason]}]
+  (str (name id)
+       (when tag (str " · <" (name tag) ">"))
+       (when suppressed?
+         (str " · suppressed" (when reason (str ": " reason))))))
+
 (def ^:private view-site-row-style
   {:padding "8px 14px"
    :border-top (str "1px solid " (:border-subtle tokens))
@@ -760,8 +770,12 @@
    :font-family sans-stack :font-size "10px"
    :margin-top "3px"})
 
+(def ^:private view-site-diagnostic-style
+  (assoc view-site-detail-style :color (:warning tokens)))
+
 (defn- view-site-row
-  [{:keys [view-id source capabilities site-counts dependencies event-sites]}]
+  [{:keys [view-id source capabilities site-counts dependencies event-sites
+           diagnostics]}]
   (let [coord    (when (string? (:file source)) source)
         deps     (dependencies-summary dependencies)
         caps     (when (seq capabilities)
@@ -784,7 +798,14 @@
                     :style view-site-detail-style}]
              (for [[i site] (map-indexed vector event-sites)]
                ^{:key i}
-               [:div (event-site-label site)])))]))
+               [:div (event-site-label site)])))
+     (when (seq diagnostics)
+       (into [:div {:data-testid (str "rf-xray-reactive-view-site-diagnostics-"
+                                      (id-slug view-id))
+                    :style view-site-diagnostic-style}]
+             (for [[i d] (map-indexed vector diagnostics)]
+               ^{:key i}
+               [:div (diagnostic-label d)])))]))
 
 (defn- view-sites-section
   "The COMPILED VIEW SITES section — per-view event-site provenance +

@@ -63,8 +63,12 @@
    ;; count vector alone could not. Effects are structurally before (hook-prefix)
    ;; and do not advance it.
    :hook-ordinal (atom 0)
+   ;; `:diagnostics` carries the compile-tier a11y findings (S4-C) — INCLUDING
+   ;; suppressed ones, which stay manifest facts with their reason but never
+   ;; print. Every other kind is a lowering/ownership site.
    :sites     (atom {:events [] :subs [] :leases [] :htmls [] :frame-ops []
-                     :slots [] :locals [] :effects [] :dispatch-fns [] :react []})})
+                     :slots [] :locals [] :effects [] :dispatch-fns [] :react []
+                     :diagnostics []})})
 
 (defn warn! [env w]
   (swap! (:warnings env) conj w)

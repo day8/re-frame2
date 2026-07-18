@@ -892,6 +892,19 @@ the silent-when-zero grammar). Each row is shaped from `view-manifest`,
   inspectable, 04 §3).
 - **Capabilities** — the manifest capability bits (`:raw`/`:html`/`:foreign`/…),
   the "why does this view carry a client runtime?" absence story.
+- **Compile-tier a11y diagnostics** (`…-view-site-diagnostics-<slug>`, rendered in
+  the `:warning` token colour) — the compiler's `:rf.ui.compile/a11y-*` findings
+  for the view, each shown as `<finding-id> · <tag>`. This is a READ, not a
+  check: the compiler minted the stable site id and made the
+  suppressed-vs-printed call at `defview` expansion, and Xray never re-derives
+  either. A finding the author silenced with
+  `^{:rf.ui/suppress {<id> "reason"}}` still appears, trailing
+  `· suppressed: <reason>` — a suppression is an inspectable fact carrying its
+  justification, not an erasure, so a reviewer can see what was waived and why
+  without reading the source. A view with no findings renders no line at all
+  (the same silent-when-zero grammar as the section itself). Spec 004
+  §Compile-tier warnings owns the roster and the high-confidence charter;
+  rf2-74vlo (S4-C) is the delivering bead.
 
 This is the S3 event-site provenance surface: EP-0033's static interaction
 surface ("the inspector shows any element's event vector before it is clicked")
@@ -918,7 +931,7 @@ general JavaScript heap claim (rf2-vxgfnd.149). Tool absence stays zero-cost.
 | Focused epoch record | `:rf.sub/run`, `:rf.sub/skip` (memo hit → `:subs-skipped`, §3.4), `:rf.view/render` / `:rf.view/rendered` — read from the focused epoch record's `:trace-events` (rf2-rly4a — same `focus.epoch-id` scope as Trace, so Reactive + Trace stay correlated) |
 | Registries | Sub metadata (input-paths, signal-fn), view metadata (file:line) |
 | App-db | Seed-path resolution from the epoch's diff (§4) |
-| re-frame.ui view-evidence projections | `:rf.xray/viewcell-evidence` → `viewcell-evidence/rows` — the CUMULATIVE per-incarnation render evidence Xray owns, sourced from the versioned public `re-frame.ui.tool/explain-render` (§3.4.1; NOT epoch-scoped). `:rf.xray/view-evidence-sites` → `viewcell-evidence/view-sites` — the static per-view manifest sites from `view-manifest`/`view-dependencies`/`view-event-sites` (§3.4.2). `:rf.xray/viewcell-evidence-version` → `version-status` — the evidence-schema version honesty read |
+| re-frame.ui view-evidence projections | `:rf.xray/viewcell-evidence` → `viewcell-evidence/rows` — the CUMULATIVE per-incarnation render evidence Xray owns, sourced from the versioned public `re-frame.ui.tool/explain-render` (§3.4.1; NOT epoch-scoped). `:rf.xray/view-evidence-sites` → `viewcell-evidence/view-sites` — the static per-view manifest sites from `view-manifest`/`view-dependencies`/`view-event-sites`, including the manifest's compile-tier `:diagnostics` findings (§3.4.2). `:rf.xray/viewcell-evidence-version` → `version-status` — the evidence-schema version honesty read |
 
 Recompute edges resolve from `:rf.sub/run`: **`:rf.sub/cause-sub`** is the sub→sub edge
 (nil ⇒ Level-1, non-nil ⇒ Level-2) and **`:rf.sub/reader-render-key`** is the sub→view edge;

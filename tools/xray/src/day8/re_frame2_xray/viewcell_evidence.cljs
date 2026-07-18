@@ -422,7 +422,8 @@
      :template-fingerprint tf?
      :dependencies   {:subscriptions [{…}] :leases [{…}]}  ; literal vs :dynamic
      :event-sites    [{:prop :site-kind :classification :serializable?
-                       :handler …}]}              ; :literal/:normalized/:dynamic
+                       :handler …}]                ; :literal/:normalized/:dynamic
+     :diagnostics    [{:sid :id :tag :suppressed? :reason?}]}  ; compile-tier a11y
 
   These carry NO ownership (the registrar is not a per-span slot), so this
   read is NOT receipt-fenced; callers key it off the receipt-fenced evidence
@@ -446,5 +447,11 @@
                         :template-fingerprint (:template-fingerprint m)
                         :dependencies         {:subscriptions (:subscriptions deps [])
                                                :leases        (:leases deps [])}
-                        :event-sites          (:handlers events [])}))))))
+                        :event-sites          (:handlers events [])
+                        ;; The compile-tier a11y findings (S4-C). Static
+                        ;; evidence like everything else on this row: the
+                        ;; COMPILER minted the site ids and made the
+                        ;; suppressed-vs-printed call; this tier only reads
+                        ;; them. Nothing is re-derived, and no check runs here.
+                        :diagnostics          (:diagnostics m [])}))))))
         (or view-ids [])))

@@ -449,6 +449,52 @@
       (is (re-find #":cart/add" events) "a literal handler vector is shown")
       (is (re-find #"opaque" events) "a dynamic handler is honestly labelled opaque"))))
 
+(deftest compiled-view-sites-section-renders-compile-tier-a11y-diagnostics
+  (testing "rf2-74vlo (S4-C) — the compiler's a11y findings ride the SAME
+            static-evidence path as every other manifest fact; a suppressed
+            finding still shows, carrying the author's reason."
+    (facade/install!)
+    (rf/make-frame {:id :rf/xray})
+    (seed-reactive-data! {:has-event-bundle? false :focus {}})
+    (seed-evidence!
+      {:sites [{:view-id :cart/Row
+                :source {:file "src/cart.cljs" :line 12 :column 3}
+                :site-counts {:subs 0 :events 1}
+                :dependencies {:subscriptions [] :leases []}
+                :event-sites []
+                :diagnostics
+                [{:sid "sid1-aa" :id :rf.ui.compile/a11y-click-non-interactive
+                  :tag :div :suppressed? false}
+                 {:sid "sid1-bb" :id :rf.ui.compile/a11y-missing-accessible-name
+                  :tag :button :suppressed? true
+                  :reason "named by the adjacent legend"}]}]})
+    (let [tree  (view/reactive-panel)
+          diags (text-of tree "rf-xray-reactive-view-site-diagnostics-_cart_Row")]
+      (is (has-testid? tree "rf-xray-reactive-view-site-diagnostics-_cart_Row")
+          "the diagnostics line renders on the view's site row")
+      (is (re-find #"a11y-click-non-interactive" diags)
+          "an unsuppressed finding is named")
+      (is (re-find #"<div>" diags) "the offending element tag is shown")
+      (is (re-find #"suppressed: named by the adjacent legend" diags)
+          "a suppressed finding stays visible WITH its reason — a suppression
+           is an inspectable fact, not an erasure"))))
+
+(deftest compiled-view-sites-diagnostics-line-absent-when-clean
+  (testing "a view with no a11y findings renders no diagnostics line at all
+            (the silent-when-zero grammar, not an empty 'no issues' row)."
+    (facade/install!)
+    (rf/make-frame {:id :rf/xray})
+    (seed-reactive-data! {:has-event-bundle? false :focus {}})
+    (seed-evidence!
+      {:sites [{:view-id :cart/Row
+                :site-counts {:subs 0 :events 0}
+                :dependencies {:subscriptions [] :leases []}
+                :event-sites [] :diagnostics []}]})
+    (let [tree (view/reactive-panel)]
+      (is (nil? (th/find-by-testid
+                  tree "rf-xray-reactive-view-site-diagnostics-_cart_Row"))
+          "no diagnostics line for a clean view"))))
+
 (deftest compiled-view-sites-section-absent-when-no-sites
   (testing "no compiled-view sites → the section is absent entirely (the
             evidence-keyed silent-when-zero grammar, not an empty caption)."

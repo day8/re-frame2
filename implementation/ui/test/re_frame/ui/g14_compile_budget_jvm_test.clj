@@ -80,7 +80,11 @@
           (zero? n) [:p.ok "all clear"]
           (< n 5)   [:ul.alerts
                      (for [a alerts]
-                       [:li {:key (:id a) :on-click [:g14/ack]} (:msg a)])]
+                       ;; the acknowledge affordance is a real control — an
+                       ;; `:on-click` on the bare `:li` would (correctly) trip
+                       ;; the S4-C a11y roster on every budget run
+                       [:li {:key (:id a)}
+                        [:button {:on-click [:g14/ack]} (:msg a)]])]
           :else     [:p.flood "too many"]))
       [:footer.bottom
        [:span {:style {:padding 8 :opacity 0.8}} "g14"]
