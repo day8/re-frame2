@@ -332,6 +332,28 @@ preflight, finds the frame live on reload, and does not re-seed — which is exa
 the "your state survives edits" behaviour [01](01-getting-started.md) promises. The
 Pair's hot-swap is this same mechanism, invoked over nREPL.
 
+## What a mount claims
+
+[01](01-getting-started.md) states the platform requirement and the shutdown call in one
+line each. The mechanism behind both is a single admission transaction.
+
+**The platform probe.** re-frame.ui probes for `WeakRef` once, before admitting the
+first Root or attaching ViewCell ownership. A host without it fails loud with
+`:rf.error/ui-platform-incompatible`, data
+`{:platform :javascript :capability :js/WeakRef}`, and recovery
+`:use-a-weakref-capable-javascript-runtime`; it never falls back to a leaking strong
+registry. `FinalizationRegistry` is useful but optional — synchronous weak-registry
+compaction covers its absence.
+
+**The root claim.** A Root's id, container, and identifier prefix stay claimed until
+React teardown actually settles. That is normally synchronous; a deferred teardown
+releases at its settlement microtask. If host cleanup throws, re-frame.ui force-releases
+that exact incarnation's subscriptions but quarantines the unproven container claim, so
+mount into a fresh container rather than racing React's aborted cleanup. A first mount
+whose render throws follows the same transaction: its claim is fenced through cleanup
+and, on a normal cleanup return, frees on the next FIFO microtask before a retry is
+admitted.
+
 ## The dev/prod split *(S3 adds causes/manifests and their elision gates)*
 
 Dev and prod run the same semantics with different amounts of evidence. In dev, every

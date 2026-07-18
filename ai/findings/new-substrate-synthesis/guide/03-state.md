@@ -13,6 +13,11 @@ There is no fifth — and that is the feature. No ratoms, cursors, reactions, or
 external stores. State that matters lives in app-db, where events, time-travel,
 Story, and Xray can all see it.
 
+Start with `sub` and props: most views want nothing else. The sections below take each
+in turn, and add `effect` for the times a view must reach the world outside the tree.
+`sub` and `lease` are shipped today; `local` and `effect` carry a *(lands S3)* marker on
+their headings.
+
 ## Subscriptions: `sub`
 
 ```clojure
@@ -137,6 +142,18 @@ loop is too (extract a keyed child view).
 Rule of thumb: loading that belongs to navigation or workflow rides route/event
 resource plans; `lease` is for liveness that genuinely follows visible UI — dashboard
 tiles, hover cards, modals.
+
+## When you get it wrong
+
+The four inputs have few rules, and the ones they have fail where you can see them:
+
+| If you write | What you see | The fix |
+|---|---|---|
+| `(sub …)` inside a `for` | Compile error — a view's read sites must be finite | Extract a keyed child view that subscribes for one row |
+| `lease` in expression position — inside a `when`, a prop, a template | Compile error | Move the condition into the descriptor: `(lease (when live? descriptor))` |
+| `lease` inside a loop | Compile error | Extract a keyed child view; each child leases its own resource |
+| A dispatch during render | A dev warning pointing back at this page | Dispatch from `(effect …)`, or from a handler ([04](04-events.md)) |
+| `(ui/dispatch-fn)` called after the view disconnected | A loud error rather than a dispatch into the void | Return the cleanup fn from your `effect` so the listener is removed |
 
 !!! note
     Nothing on this page *fetches*. The resource system does. How data actually

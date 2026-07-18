@@ -1,8 +1,9 @@
 # 01 — Getting started
 
-In this chapter you install re-frame2 UI, write a complete counter, and drive the
-reactive loop — from a button, a REPL, or a test. Later chapters unpack each face:
-views, state, events, frames, then a real dashboard.
+By the end of this page you have a counter on screen and three ways to drive it: click
+the button, dispatch from a REPL, or assert it in a test that never opens a browser.
+Later chapters unpack each face — views, state, events, frames — and then grow the
+counter into a real dashboard.
 
 ## Install
 
@@ -17,17 +18,15 @@ views, state, events, frames, then a real dashboard.
 experimental additional substrate, the view surface this guide teaches. Stock Reagent,
 UIx, and reagent-slim remain first-class, actively-supported adapters; only Helix is deleted.
 
-The browser/runtime must provide the standard JavaScript `WeakRef` constructor (all
-current evergreen browsers and supported modern Node runtimes do). re-frame.ui probes
-it once, before admitting the first Root or attaching ViewCell ownership. An older host
-fails loud with `:rf.error/ui-platform-incompatible`, data
-`{:platform :javascript :capability :js/WeakRef}`, and recovery
-`:use-a-weakref-capable-javascript-runtime`; it never falls back to a leaking strong
-registry. `FinalizationRegistry` is useful but optional — synchronous weak-registry
-compaction covers its absence.
+Any current browser, and any supported modern Node runtime, works out of the box: the
+one platform requirement is the standard JavaScript `WeakRef` constructor. An older host
+is rejected at your first mount — before React allocates anything or any ownership is
+recorded — with a loud `:rf.error/ui-platform-incompatible` rather than degrading
+silently. The probe's timing, its ex-data, and its recovery key are in
+[12 — How it works](12-how-it-works.md#what-a-mount-claims).
 
-The compiler needs one whole-build view of your app. For Shadow CLJS, set these once
-(not once per build):
+The compiler needs one whole-build view of your app, so Shadow CLJS takes two settings.
+Set them once for the project, not once per build:
 
 ```clojure
 ;; shadow-cljs.edn
@@ -38,21 +37,19 @@ The compiler needs one whole-build view of your app. For Shadow CLJS, set these 
  }
 ```
 
-Forget either and the failure is loud: a misconfigured dev bundle refuses to hydrate or
-debug against a false identity. Evaluating a view in the REPL repaints it immediately;
-the *build digest* advances when you save and the next watch pass completes. Why that
-matters is [12 — How it works](12-how-it-works.md). None of this machinery reaches
-advanced production output.
+Miss either one and the failure is loud rather than mysterious: a misconfigured dev
+bundle refuses to hydrate, or to debug against a false identity.
+[12 — How it works](12-how-it-works.md) explains why. None of this machinery reaches
+your production output.
 
-A minimal project is **five** load-bearing files: `deps.edn`, `package.json`, and
-`shadow-cljs.edn` at the root, your app namespace under `src/`, and an `index.html` with
-a `<div id="root">`. The complete, checked, runnable tree — full dependency
-coordinates, the two Shadow settings above, and the exact non-interactive install and
-compile commands — is
-[`examples/ui/minimal-counter`](../../../../examples/ui/minimal-counter/README.md). A CI
-smoke materializes exactly those files, runs `npm install` + `shadow-cljs compile app`,
-and drops any one of them to prove it is genuinely required — so this count cannot quietly
-drift.
+That is the whole setup. A minimal project is **five** load-bearing files: `deps.edn`,
+`package.json`, and `shadow-cljs.edn` at the root, your app namespace under `src/`, and
+an `index.html` with a `<div id="root">`.
+[`examples/ui/minimal-counter`](../../../../examples/ui/minimal-counter/README.md) is
+exactly that tree, complete and checked — full dependency coordinates, the two Shadow
+settings above, and the non-interactive install and compile commands. A CI smoke builds
+it, then drops each file in turn to prove all five are genuinely load-bearing, so the
+count cannot quietly drift.
 
 ## The whole app
 
@@ -149,14 +146,13 @@ test wants one. Full testing story: [08](08-testing.md).
 ```
 
 `mount` is idempotent per root; views re-register by name; the frame is reused; edited
-views repaint against live state. This is the default development loop.
+views repaint against live state. This is the default development loop. Evaluating a
+view in the REPL repaints it immediately; the *build digest* advances when you save and
+the next watch pass completes.
 
-For deliberate shutdown, retain the Root returned by `mount` and call
-`(ui/unmount! root)`. The Root's id, container, and identifier prefix stay claimed
-until React teardown actually settles. That is normally synchronous; a deferred
-teardown releases at its settlement microtask. If host cleanup throws, re-frame.ui
-force-releases that exact incarnation's subscriptions but quarantines the unproven
-container claim, so mount into a fresh container rather than racing React's aborted
-cleanup. A first mount whose render throws follows the same transaction: its claim is
-fenced through cleanup and, on a normal cleanup return, frees on the next FIFO
-microtask before a retry is admitted.
+For deliberate shutdown — a test harness, an embedded widget — keep the Root that
+`mount` returned and call `(ui/unmount! root)`. Its id, container, and identifier prefix
+stay claimed until React's teardown actually settles, so nothing else can claim that id
+or that container while the old root is still winding down. The settlement rules,
+including what happens when host cleanup throws, are in
+[12 — How it works](12-how-it-works.md#what-a-mount-claims).
