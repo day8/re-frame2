@@ -1052,8 +1052,15 @@
 ;;   - STABLE IDENTITY per live incarnation: the bundle is cached keyed by
 ;;     the frame's incarnation token (`frame/frame-incarnation-token`), so
 ;;     repeated `(frame)` reads across renders return the IDENTICAL bundle
-;;     (rf= memo-friendly) and a render performs no registry construction —
-;;     one map lookup. A destroyed/replaced frame mints a fresh bundle.
+;;     (rf= memo-friendly) and a render CONSTRUCTS nothing — no bundle mint,
+;;     no closure allocation, no registry walk. A cache HIT is a BOUNDED,
+;;     allocation-free lifecycle+cache read: the incarnation token, the
+;;     incarnation-scoped closing check, the cache entry, and the token
+;;     identity compare that proves the entry belongs to THIS incarnation
+;;     (`frame-ops-for` below is the whole path). Bounded, not free — the
+;;     liveness reads are what make the stale-bundle fence sound, so they
+;;     are load-bearing rather than overhead. A destroyed/replaced frame
+;;     mints a fresh bundle.
 ;;   - INCARNATION-FENCED ops: each op checks the captured incarnation is
 ;;     still live (`frame/frame-incarnation-live?`) before delegating, so a
 ;;     bundle that outlives its frame fails loud with the canonical
