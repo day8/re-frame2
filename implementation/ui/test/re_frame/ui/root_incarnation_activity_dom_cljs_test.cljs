@@ -69,7 +69,15 @@
 (def ^:private Activity react/Activity)
 (def ^:private StrictMode react/StrictMode)
 
-(defview leaf [_] [:span.leaf (str (sub [:ract/n]))])
+;; rf2-vxgfnd.164: counts leaf render-body invocations. StrictMode's dev
+;; double-invoke renders the body TWICE per commit, so this is the positive
+;; control proving a replay really happened — see
+;; `strictmode-replay-control-stays-unannotated`.
+(defonce ^:private leaf-body-runs (atom 0))
+
+(defview leaf [_]
+  (let [_ (swap! leaf-body-runs inc)]
+    [:span.leaf (str (sub [:ract/n]))]))
 
 ;; Wraps the leaf in a React 19 <Activity>, its mode driven by a sub — flipping
 ;; :ract/hidden? re-renders this cell, hides the Activity subtree, and fires the
@@ -252,11 +260,18 @@
   ;; reconnect that also beats the settle. It must remain UNANNOTATED — same honest
   ;; :unknown floor as the consecutive-commits case; the host cannot tell them
   ;; apart, and NO :activity-hidden fact is fabricated.
+  ;;
+  ;; This control asserts the replay POSITIVELY. An earlier version only checked
+  ;; that no `:activity-hidden` reason appeared and hedged the disconnect as "if
+  ;; any" — which stayed green with StrictMode removed entirely, i.e. it proved
+  ;; nothing about replay classification. The body below now pins the actual
+  ;; setup→cleanup→setup interval first.
   (if-not (browser?)
     (is true ":node — no DOM; the :browser-test runner exercises the DOM body")
     (do
       (register-app!)
       (rf/dispatch-sync [:ract/seed] {:frame frame-kw})
+      (reset! leaf-body-runs 0)
       (let [c    (container)
             root (react-dom/flushSync
                   #(ui/mount [StrictMode {} [frame-provider {:frame frame-kw} [leaf {}]]]
@@ -265,6 +280,25 @@
         (is (= "7" (.-textContent (.querySelector c ".leaf"))) "leaf mounted under StrictMode")
         (is (= :connected (reactive/lifecycle cell))
             "after the dev double-invoke the leaf is connected")
-        (is (not-any? #(= :activity-hidden (:reason %)) (reactive/intervals cell))
-            "the StrictMode replay disconnect (if any) is NOT annotated an Activity hide")
+        ;; POSITIVE CONTROL FIRST (rf2-vxgfnd.164): prove the dev double-invoke
+        ;; ACTUALLY happened before asserting anything about how it was
+        ;; classified. StrictMode renders each body twice per commit, so a
+        ;; single mount runs the leaf body more than once. Dropping StrictMode
+        ;; from the tree above leaves exactly one run and turns this red, so the
+        ;; test can no longer pass vacuously on a replay that never occurred.
+        ;;
+        ;; NB the replay's disconnect does NOT land on the surviving cell: the
+        ;; double-invoke builds a cell that is torn down and replaced, so the
+        ;; live cell's own interval log is legitimately empty of disconnects.
+        ;; That is exactly why the earlier "the replay disconnect (if any)"
+        ;; phrasing proved nothing — there is no such interval to inspect, so
+        ;; the honest claim is about the whole live set, asserted below.
+        (is (> @leaf-body-runs 1)
+            "the StrictMode dev double-invoke really replayed the leaf body")
+        (is (not-any? (fn [c]
+                        (some #(= :activity-hidden (:reason %))
+                              (reactive/intervals c)))
+                      (reactive/current-live-cells))
+            "after a REAL StrictMode replay, NO live cell carries a fabricated
+             :activity-hidden proof (rf2-vxgfnd.164)")
         (react-dom/flushSync #(ui/unmount! root))))))
