@@ -1516,6 +1516,7 @@
   ["re-frame.ssr" "adapter"]                       {:tier :implementation :owner "011" :status "v1"}
   ["re-frame.ssr" "install-render-to-string!"]     {:tier :implementation :owner "011" :status "v1"}
   ["re-frame.ssr" "hydrate!"]                      {:tier :implementation :owner "011" :status "v1"}
+  ["re-frame.ssr" "hydrate-page!"]                 {:tier :implementation :owner "011" :status "v1"}
   ["re-frame.ssr" "verify-hydration!"]             {:tier :implementation :owner "011" :status "v1"}
   ["re-frame.ssr" "set-request!"]                  {:tier :implementation :owner "011" :status "v1"}
   ["re-frame.ssr" "get-request"]                   {:tier :implementation :owner "011" :status "v1"}
