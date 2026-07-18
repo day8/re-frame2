@@ -116,7 +116,8 @@ each add one capability; operate pages own production failure modes.
 
 Diátaxis with reference first-class.
 
-**Core track** (nav nested by arc): introduction (the **event pipeline**) →
+**Core track** (flat nav, learning order; the arc below is conceptual):
+introduction (the **event pipeline**) → hiccup (the notation) →
 **pure pipeline** (events → app-db → subscriptions → views) → **impurity**
 (effects, including run-to-completion teaching; coeffects) → **structure**
 (frames → flows → interceptors) → **operations** (errors → observability) →
@@ -139,7 +140,8 @@ not re-teach it.
 | Event vocabulary, `dispatch` | [Events](events.md) |
 | `{:db}`, facts vs conclusions, seed-as-event | [app-db](app-db.md) |
 | Named derivation, layers, `=` gate | [Subscriptions](subscriptions.md) |
-| Hiccup, `reg-view`, thin views | [Views](views.md) |
+| Hiccup notation, view-in-view composition | [Hiccup](hiccup.md) |
+| `reg-view` semantics, thin views | [Views](views.md) |
 | `:fx` grammar, RTC *idea*, `reg-fx` | [Effects](effects.md) |
 | Managed HTTP depth / retry / abort | [async](../async/http.md) (not Core) |
 | `:rf.cofx/requires`, grades, `reg-cofx` | [Coeffects](coeffects.md) |

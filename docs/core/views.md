@@ -71,7 +71,7 @@ Notes:
 
 ## Hiccup: the screen is data
 
-A view returns [hiccup](glossary.md#hiccup) — nested Clojure vectors shaped like the DOM they describe:
+A view returns [hiccup](hiccup.md) — the notation from early in the track: nested Clojure vectors shaped like the DOM they describe:
 
 ```clojure
 [:div.cart

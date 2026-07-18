@@ -2,76 +2,66 @@
 
 To understand re-frame2, you need to understand how it does computation.
 
-Which is an odd opening for a Single Page Application (SPA) library, I know. But bear with me.
+Which is an odd opening for a Single Page Application (SPA) library, I know, but bear with me.
 
 ## A working app
 
-To assist explanations, here's a tiny application — a counter app:
+To assist explanations, here's a tiny "counter" application. It has:
 
 - an increment button
-- a displayed value that gets incremented on each button click
+- a displayed value (initially 3), incremented by each button click
 
 ```cljs-rf2
+;; The re-frame2 core API namespace
 (require '[re-frame.core :as rf])
 
 ;; calls to four registration functions
-(rf/reg-event :initialise (fn [_ [_ v]] {:db {:value v}}))
+(rf/reg-event :initialise (fn [_ _] {:db 3}))
 (rf/reg-event :inc        (fn [{:keys [db]} _] {:db (update db :value inc)}))
 (rf/reg-sub   :value      (fn [db _] (:value db 0)))
 
-(rf/reg-view counter [background]
-  [:div {:style {:background background}}
+(rf/reg-view counter []
+  [:div 
    [:span "Count: " @(subscribe [:value]) " "]
    [:button {:on-click #(dispatch [:inc])} "+"]])
 ```
 
-None of this code has been explained yet, but all you need
-to grasp at the moment is that this entire application is simply a series of function calls,
-starting with `reg-`. Four function calls:
+The entire application is 4 calls to functions starting with `reg-xxx` and all four of them have the form:
+```clojure
+(reg-xxx id function)
+```
 
-- To start with, `reg-event` is called twice (to register two event handlers)
+- `reg-event` is called twice (to register two event handlers, and, yes, more on this soon)
 - then, `reg-sub` is called once (to register a subscription handler)
 - and finally, `reg-view` is called once (to register a view)
 
-**A re-frame2 app is a set of registrations**. Each registration associates:
+**A re-frame2 app is a set of registrations**.
 
-- an `id` (like `:inc` or `:initialise` above)
-- with a function like `(fn [_ _] {:db {:value 3}})`.
+Later, when your re-frame2 application is running, and the user is clicking buttons and seeing new DOM, etc., the re-frame2 runtime will look up these functions by their `id` and call them, and **THAT** is why you need to understand how re-frame2 does computation (the claim at the top of the page).  
 
-We don't **yet** need to understand what these functions are doing, but we do need to latch on to the idea that programming re-frame2 involves:
+You need to understand how to write functions that slot into the re-frame2 runtime.
 
-- writing functions
-- and registering them with an `id`
+## Running Counter
 
-Later, when the application is running, and the user is clicking buttons etc., these functions will be called by the re-frame2 computational engine to perform certain calculations.
+We might have created the Counter app (via those 4 registrations), but we haven't run it yet.
 
-## Running our app
-
-We might have created the Counter app (via those 4 registrations), but we haven't run it yet. To do that, we need to create a `frame`, which provides an isolated execution context.
-
-In fact, to double the excitement, let's create two `frames` and have two instances of our Counter app on the page at the same time: one with a blue background and one with a lavender background:
+To do that, we need to create a `frame`, which provides an isolated execution context. And, here's how:
 
 ```cljs-rf2
-[:div
-   [rf/frame-root
-     {:id :app1
-      :initial-events [[:initialise 3]]}
-     [counter "LightBlue"]]
-   [rf/frame-root
-     {:id :app2
-      :initial-events [[:initialise 10]]}
-     [counter "LavenderBlush"]]]
+[:div {:style {:background "LavenderBlush"}}
+   [rf/frame-root {:id :app1}
+     [counter]]]
 ```
 
-This code is `hiccup` (a data structure representing DOM). And in this in-browser dev environment, hiccup at the end of an interactive block is rendered, which is why we see the application running.
+This code is `hiccup` — a data structure representing DOM. And in this in-browser dev environment, hiccup at the end of an interactive block is rendered, which is why we see the DOM for the app above.
 
 That hiccup is:
 
-- a `[:div ...]`
-- containing two child `frame-root` nodes
-- each `frame-root` wraps the previously registered `counter` view, like this: `[counter "a colour"]`
+- a `<div>` which has a background style and which wraps ...
+- a `frame-root` node which injects an **ambient frame** into the DOM tree (think Provider)
+- a child `counter` view, previously registered above 
 
-When you see `frame-root` think of **Provider** in the **React Context** sense. A `frame-root` is like a wrapping view node which provides context to its child views — in this case a `frame` (an isolated execution context) is ambiently available to each of the two `counter` views, which are in different branches of the DOM.
+When you see `frame-root` think of **Provider** in the **React Context** sense. A `frame-root` is like a wrapping DOM node which provides context to its child views — in this case a `frame` (an isolated execution context) is ambiently available to the `counter` view beneath it.
 
 Experiment/edit this code:
 
@@ -149,8 +139,8 @@ speak them: timers, HTTP replies, route loaders. The next page,
 ## One map of state: app-db
 
 Each running instance holds application state as one immutable Clojure map —
-**app-db**. In the counter it starts `{}`, then becomes `{:value 3}` after
-`:initialise`, then `{:value 4}` after the first `:inc`.
+**app-db**. In the counter it starts `{}`, then becomes `{:value 0}` after
+`:initialise`, then `{:value 1}` after the first `:inc`.
 
 Handlers never "set state" as a side effect. They return the next map inside an
 effect description. [app-db](app-db.md) is the dedicated page for that doctrine.
