@@ -63,7 +63,7 @@ Goals:
 - the six-operation observation port as an adapter-internal seam;
 - transactional dependency reconciliation (stage-acquire, rollback, publish);
 - an honest observed lifecycle for cells (three states, retroactive labels);
-- committed push economics with drain-quiescence batching and a test flush;
+- committed push economics with host-checkpoint render batching and a test flush;
 - frames at host preflight; an excellent HMR contract, fixture-pinned.
 
 Non-goals:
@@ -105,7 +105,7 @@ The decision surface, as ruled; where graduated, the spec is the authority.
 
 Every lexical `(sub …)` is a compile-indexed site; all of a view's sites share
 one ViewCell: one `useSyncExternalStore` over a scalar revision snapshot, one
-notification per drain. Conditional reads are legal; loops are rejected (finite
+notification per render batch. Conditional reads are legal; loops are rejected (finite
 sites). Stabilization is by the frozen `rf=` law: literal queries are module
 constants, parametric sites reuse the prior query object while args are `rf=`,
 and a site returns the prior exact value when the new read is `rf=`. One
@@ -149,7 +149,7 @@ callback) under the split equality law (`:override-id` by `=`, `:version` by
 render resolves and probes without ownership · commit acquires the exact
 captured target · acquire before release · release is synchronous and
 idempotent · moved evidence corrects before paint · one notification per
-dirty cell per drain (boundary at quiescence, never epoch close).
+dirty cell per render batch (boundary at the host checkpoint, never epoch close).
 
 ### Transactional multi-acquire
 
@@ -178,10 +178,17 @@ Hidden renders may probe, never acquire, and receive no invalidations;
 
 Source-side notification is constant work (mark dirty with
 target/version/epoch/cause — never compute). Every queued event commits its own
-epoch record inside the run-to-completion drain; at quiescence each dirty cell
-flushes exactly once and React performs one read/render batch for the whole
-drain, on a true microtask (never a macrotask that could let a torn frame
-paint). `flush!` is **per-root** (Q51, pinned); `ui.test/flush!` is the sole
+epoch record inside the run-to-completion drain; each dirty cell then flushes
+exactly once per **render batch**, and React performs one read/render batch at
+the host's next microtask checkpoint (never a macrotask that could let a torn
+frame paint). The batch boundary is that checkpoint, not drain finalization —
+the UI scheduler takes no hook from the router and observes no drain boundary
+at all. A synchronous drain therefore can never be split across batches (N
+epochs settled in one drain coalesce into one), while several drains — or
+listener re-entry after a completed batch — reaching the same checkpoint may
+share one; only a real host yield separates renders. "One batch per drain" is
+the common case, exact whenever callers yield between drains, and is not
+normative. `flush!` is **per-root** (Q51, pinned); `ui.test/flush!` is the sole
 public test flush — a Promise on CLJS whose thunk arity runs inside React 19
 `act`, alternating drains and commits to joint quiescence; synchronous on the
 JVM; called inside an open drain it throws `:rf.error/flush-in-open-epoch`

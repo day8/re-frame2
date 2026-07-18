@@ -77,7 +77,7 @@
   [{:label "spec/006-ReactiveSubstrate.md"
     :path  "spec/006-ReactiveSubstrate.md"
     :from  "### The slice-scoped probe memo"
-    :to    "### Epoch finalization"}
+    :to    "### Render-batch finalization"}
    {:label "ai/findings/new-substrate-synthesis/03-reactivity-and-ownership.md"
     :path  "ai/findings/new-substrate-synthesis/03-reactivity-and-ownership.md"
     :from  "**First-mount fan-out mitigation:**"

@@ -22,7 +22,8 @@ nothing more (02 §5).
 
 Every lexical `(sub …)` is a compile-indexed site; all of a view's sites share **one
 ViewCell**: one `useSyncExternalStore`, one scalar revision snapshot, one notification
-per run-to-completion drain after quiescence (I-3/I-4/I-6). Conditional reads are legal;
+per render batch — the pending window closed by the next host checkpoint (I-3/I-4/I-6).
+Conditional reads are legal;
 loops are rejected (finite sites).
 Stabilization (I-8): literal queries are module constants; parametric sites reuse the
 prior query object while args are `rf=`; sites return the prior exact value when the new
@@ -91,8 +92,8 @@ context: headless tests pass overrides explicitly — `ui.test/render …
 **The six invariants are frozen:** render resolves and probes without ownership · commit
 acquires the exact captured target (the *identity*; the canonical *node* is re-resolved
 at acquire) · acquire-before-release prevents zero-owner churn · release is synchronous
-and idempotent · moved evidence corrects before paint · drain quiescence notifies each
-dirty cell once for the post-quiescence render batch.
+and idempotent · moved evidence corrects before paint · each dirty cell is notified once
+per render batch, the pending window closed by the next host checkpoint.
 
 **The seam, named.** The port is six functions in **`re-frame.substrate.observation`**
 (core artifact `day8/re-frame2`); its **sole consumer** is the `day8/re-frame2-ui` view
@@ -150,8 +151,8 @@ is a boot error, never undefined behaviour.
 **Callback/reentrancy rules.** `on-change` is constant-work (mark-dirty with
 node-key/version/epoch/cause; it never computes — I-5). `acquire!`/`release!` from
 inside the owner-notification fan-out throw `:rf.error/reentrant-graph-op`;
-React-driven acquire/release during the read/render commits *caused by* the
-drain-quiescence notification batch are outside the fan-out and always legal
+React-driven acquire/release during the read/render commits *caused by* the render
+batch's notification are outside the fan-out and always legal
 (S-3-validated). Two conservative rules S-3 did
 not exercise: `acquire!`/`release!` themselves never invoke `on-change` synchronously —
 no fan-out during acquire/release **[S2-CONFIRM]**; and HMR-disposal notifications
@@ -221,11 +222,14 @@ At layout commit, for the committed capture only:
 
 Notifications are constant-work (mark stale with target/version/epoch/cause — never
 execute a prop-dependent query, I-5). Every queued write-side event executes and commits
-its own epoch record inside the run-to-completion drain; only when that drain reaches
-quiescence are dirty cells advanced once and React given one read/render batch. The
-automatic path is microtask-aligned, and a real host yield separates drains and therefore
-separates render batches. On CLJS, `ui.test/flush!` returns a Promise and forces the same
-quiescent boundary under React 19 `act`; its thunk arity runs the write inside that
+its own epoch record inside the run-to-completion drain, and each mark joins the pending
+read/render window. That window — the render batch — is armed by the first dirty mark and
+closed at the next host checkpoint, not by drain finalization: the UI scheduler has no
+hook from the router and observes no drain boundary. When it closes, dirty cells advance
+once and React is given one read/render batch. A drain therefore never splits across
+batches, drains that finish before the same checkpoint may share one, and only a real
+host yield renders them separately. On CLJS, `ui.test/flush!` returns a Promise and
+forces that boundary explicitly under React 19 `act`; its thunk arity runs the write inside that
 boundary, then alternates dirty-cell drains and React commits until neither side can
 expose more work. Calling it from an open drain throws synchronously, before Promise
 construction or host work, with frame + epoch evidence. On the JVM it drains the

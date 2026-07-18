@@ -425,8 +425,8 @@ closure cost, and defeat the data idiom — the nudge is deliberate).
 **synchronously within the DOM event** — event → drain → commit → snapshot advance
 before React's discrete-event re-render — so value round-trips cannot drop characters,
 jump the caret, or break IME composition. This is the one sanctioned synchronous door;
-everything else batches (one notification per cell per render batch — the
-drain-quiescence boundary, not epoch close; I-6). Caret/IME
+everything else batches (one notification per cell per render batch — the window closing
+at the next host checkpoint, not drain quiescence and not epoch close; I-6). Caret/IME
 correctness gates first, latency second. **The trigger predicate (confirmed by the
 controlled-input door spike; the residual named gate is the G-8 real-browser input
 matrix, not the predicate):** the door applies where the compiler can *prove* the element

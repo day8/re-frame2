@@ -156,11 +156,11 @@ Related: [Introduction](introduction.md).
 <a id="event-cascade"></a>
 ### **event pipeline**
 
-The fixed stage sequence one dispatched [event](#event) traverses, in three **phases**: the [**update phase**](#update-phase) computes a *description* of the change, the [**commit phase**](#commit-phase) executes the declared effects — the `:db` write first, atomically — and the [**render phase**](#render-phase) brings the derivations and the screen up to date. The update and commit phases run per event — [assemble](#assemble) → [transform](#transform) → [commit](#commit) → [perform](#perform); the render phase runs once per [drain](#drain--run-to-completion) at settle — [derive](#derive) → [render](#render).
+The fixed stage sequence one dispatched [event](#event) traverses, in three **phases**: the [**update phase**](#update-phase) computes a *description* of the change, the [**commit phase**](#commit-phase) executes the declared effects — the `:db` write first, atomically — and the [**render phase**](#render-phase) brings the derivations and the screen up to date. The update and commit phases run per event — [assemble](#assemble) → [transform](#transform) → [commit](#commit) → [perform](#perform); the render phase runs once per [render batch](#render-batch), after the queue settles — [derive](#derive) → [render](#render).
 
 ```clojure
 ;; update + commit phases (per event):  assemble → transform → commit → perform
-;; render phase           (per drain):  derive → render
+;; render phase    (per render batch):  derive → render
 ```
 
 The `:db` write is the anchor: the pipeline is transactional up to it and best-effort after it, and the [view](#view) renders once, from the committed state — never mid-run.
@@ -171,7 +171,7 @@ Related: [Introduction](introduction.md). (Older prose called this the *event ca
 
 ### **run**
 
-One traversal of the [event pipeline](#event-pipeline) — a single dispatched [event](#event) carried through every stage: its update and commit phases, then the drain's shared render phase. It's the middle term of the triple: the [**pipeline**](#event-pipeline) is the fixed structure, a **run** is one trip through it, and the [**epoch**](#epoch) is the record that trip leaves. One dispatch = one run = one epoch. (A whole queue run to a fixed point before the render phase is a [drain](#drain--run-to-completion), which is many runs but one render phase.)
+One traversal of the [event pipeline](#event-pipeline) — a single dispatched [event](#event) carried through every stage: its update and commit phases, then the shared render phase of the [render batch](#render-batch) it settles into. It's the middle term of the triple: the [**pipeline**](#event-pipeline) is the fixed structure, a **run** is one trip through it, and the [**epoch**](#epoch) is the record that trip leaves. One dispatch = one run = one epoch. (A whole queue run to a fixed point before the render phase is a [drain](#drain--run-to-completion) — many runs, always sharing one render batch.)
 
 Related: [Introduction](introduction.md).
 
@@ -191,9 +191,22 @@ Related: [Effects](effects.md), [Introduction](introduction.md).
 <a id="read-side"></a>
 ### **render phase**
 
-The final phase — [derive](#derive) → [render](#render) — the part that runs *once per [drain](#drain--run-to-completion)*, after the queue settles, and brings the screen up to date. It reads only the value the [commit](#commit) landed; it never sees a half-written [app-db](#app-db), and it runs once no matter how many events the drain settled.
+The final phase — [derive](#derive) → [render](#render) — the part that brings the screen up to date once the queue has settled. It runs once per [**render batch**](#render-batch), not once per event: it reads only the value the [commit](#commit) landed, it never sees a half-written [app-db](#app-db), and a [drain](#drain--run-to-completion) is never split across batches, however many events it settled.
 
 Related: [Subscriptions](subscriptions.md), [Introduction](introduction.md).
+
+### **render batch**
+
+The window of pending reads and renders the [render phase](#render-phase) works through in one go. Everything marked dirty since the last batch renders together, once — and the batch closes at the host's next microtask checkpoint, or, in headless tests, at an explicit flush.
+
+The boundary belongs to the *host*, not to the [drain](#drain--run-to-completion): the UI scheduler takes no signal from the event queue and never observes a drain boundary at all. Two things follow, and both are what you want.
+
+- **A drain can never be split across batches.** Every event a drain settles renders together, so no intermediate state ever reaches the screen. This is the promise you actually lean on.
+- **Drains that finish before the same checkpoint may share a batch.** Two back-to-back `dispatch-sync` calls in one JavaScript stack render once, together; drains separated by a real host yield render separately.
+
+In ordinary application code a yield falls between drains, so this reads as "one render per drain" — a fine working model, as long as you hold it as the common case rather than the rule.
+
+Related: [render phase](#read-side), [drain](#drain--run-to-completion), [Effects — run to completion](effects.md#run-to-completion).
 
 ### **world**
 
@@ -490,7 +503,7 @@ Related: [Views](views.md). Use "component" for React-analogy callouts only.
 
 ## The Verbs
 
-The six pipeline stages — [**assemble → transform**](#write-side) (the [update phase](#write-side), per event), [**commit → perform**](#commit-phase) (the [commit phase](#commit-phase), per event) and [**derive → render**](#read-side) (the [render phase](#read-side), per drain) — are the verbs of the [event pipeline](#event-pipeline); they lead this section, in pipeline order.
+The six pipeline stages — [**assemble → transform**](#write-side) (the [update phase](#write-side), per event), [**commit → perform**](#commit-phase) (the [commit phase](#commit-phase), per event) and [**derive → render**](#read-side) (the [render phase](#read-side), per [render batch](#render-batch)) — are the verbs of the [event pipeline](#event-pipeline); they lead this section, in pipeline order.
 
 ### **assemble**
 
@@ -522,13 +535,13 @@ Related: [Effects](effects.md), [Coeffects](coeffects.md), [effect](#effect).
 
 ### **derive**
 
-The pipeline's fifth stage and the first of the [render phase](#read-side): recompute the [subscriptions](#subscription) (and the rest of [the derivation graph](#the-derivation-graph)) that watch the changed parts of the committed [app-db](#app-db). Values that come out equal (by `=`) to last time prune everything downstream. The render phase runs once per [drain](#drain--run-to-completion), so derivation happens against settled state, never mid-run. (The public verb you write is [`subscribe`](#subscribe--derive); *derive* names the stage.)
+The pipeline's fifth stage and the first of the [render phase](#read-side): recompute the [subscriptions](#subscription) (and the rest of [the derivation graph](#the-derivation-graph)) that watch the changed parts of the committed [app-db](#app-db). Values that come out equal (by `=`) to last time prune everything downstream. The render phase runs once per [render batch](#render-batch), so derivation happens against settled state, never mid-run. (The public verb you write is [`subscribe`](#subscribe--derive); *derive* names the stage.)
 
 Related: [Subscriptions](subscriptions.md).
 
 ### **render**
 
-The pipeline's sixth and final stage: the [views](#view) that deref a *changed* [subscription](#subscription) re-run, producing fresh [hiccup](#hiccup), and the [substrate](#substrate) patches just the DOM that moved. Because it runs once per [drain](#drain--run-to-completion) from settled state, the screen never flickers through an intermediate value.
+The pipeline's sixth and final stage: the [views](#view) that deref a *changed* [subscription](#subscription) re-run, producing fresh [hiccup](#hiccup), and the [substrate](#substrate) patches just the DOM that moved. Because it runs once per [render batch](#render-batch) from settled state — and a [drain](#drain--run-to-completion) is never split across batches — the screen never flickers through an intermediate value.
 
 Related: [Views](views.md).
 
@@ -557,10 +570,11 @@ Related: [Introduction](introduction.md).
 
 ### **drain / run-to-completion**
 
-The runtime normally drains the *whole* event queue to a fixed point — running the [update and commit phases](#write-side) of every queued [event](#event) to completion — before the [render phase](#read-side) runs. So update and commit run *per event*, the render phase runs *once per drain* at settle, and the UI updates once, from a settled state, never mid-flight. A drain-depth halt or successful exact-incarnation destruction claim is terminal. At a destroy claim an authored callback already on the stack may return and entered authored interceptor `:after` callbacks may unwind, but its returned framework tail is inert; later ordinary events do not begin and no render phase follows the interrupted event. A drain is normally many [pipeline runs](#event-pipeline) sharing one render phase.
+The runtime normally drains the *whole* event queue to a fixed point — running the [update and commit phases](#write-side) of every queued [event](#event) to completion — before the [render phase](#read-side) runs. So update and commit run *per event*, everything the drain settles lands in one [render batch](#render-batch), and the UI updates once, from a settled state, never mid-flight. A drain-depth halt or successful exact-incarnation destruction claim is terminal. At a destroy claim an authored callback already on the stack may return and entered authored interceptor `:after` callbacks may unwind, but its returned framework tail is inert; later ordinary events do not begin and no render phase follows the interrupted event. A drain is normally many [pipeline runs](#event-pipeline) sharing one render phase.
 
 ```clojure
-;; every queued event's update + commit phases run, THEN — once — subs recompute and views render
+;; every queued event's update + commit phases run, THEN — at the host's next
+;; checkpoint, once — subs recompute and views render
 ```
 
 Related: [Effects — run to completion](effects.md#run-to-completion) (idea + demo);

@@ -152,7 +152,7 @@ spikes feasibility-PASS before any production code.
 1. **S1 — compiler slice:** `defview`, AST, dual emitters (CLJS + JVM), roots/mount,
    compile-error roster, `ui.test` Tier-1 core, parity corpus, G-1/G-14 gates.
 2. **S2 — ownership + frames + HMR:** observation port, ViewCell + commit algorithm,
-   preflight ENSURE, drain-quiescence batching, `flush!`, the full HMR matrix.
+   preflight ENSURE, host-checkpoint render batching, `flush!`, the full HMR matrix.
 3. **S3 — committed host behavior + debugging as first consumer:** event vectors,
    sync-input door, `local`/`effect`/`dispatch-fn`, foreign boundaries, error boundary,
    evidence schema consumed by Xray, elision gates, one RealWorld vertical page. Carries

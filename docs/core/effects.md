@@ -70,16 +70,17 @@ When the runtime starts processing events, it
 [**drains the queue to completion**](glossary.md#drain--run-to-completion) before
 any view re-renders. The dequeued event runs its update and commit phases in full.
 Then any events its handler `:fx`-dispatched run theirs — until the queue is empty.
-Only then does the render phase run, **once**.
+Only then, at the host's next checkpoint, does the render phase run, **once**.
 
-> **Update and commit run per event; render runs once per drain, at settle.**
+> **Update and commit run per event; nothing renders until the queue settles — and
+> then it renders once.**
 
 That is dispatch semantics, not a mode. There is no opt-out.
 
 Picture the render boundary as a **theatre curtain**. Every event in a drain is a
-stagehand shifting scenery behind it; the curtain does not rise until the last
-stagehand steps off. If submitting a form fans out three follow-ups, the view never
-glimpses the intermediate states — it sees one settled state, once.
+stagehand shifting scenery behind it, and the curtain never rises while one is still
+on stage. If submitting a form fans out three follow-ups, the view never glimpses the
+intermediate states — it sees one settled state, once.
 
 Watch a form-shaped fan-out. One click dispatches `:drain.demo/submit`, which
 enqueues three follow-ups — four pipeline runs, one paint. Click into the cell and
@@ -129,7 +130,8 @@ All four steps appear **together**. The view never shows `[:submitted]` alone.
 Three notes that keep the mental model honest:
 
 1. **Each dequeued event is its own [epoch](glossary.md#epoch).** Parent and child
-   are two rows in the record, even though they settled in one drain and one paint.
+   are two rows in the record, even though they settled in one drain and rendered
+   together.
 2. **Async effects are not drained.** An HTTP request fired during the drain does
    not hold the curtain open; its reply arrives later as a fresh event and a fresh
    drain.
@@ -142,9 +144,11 @@ Operational detail — drain-depth limits, `dispatch-sync`, destroy cutoffs — 
 ??? info "For JavaScript developers"
 
     React batches state updates within an event handler and paints once at the end —
-    run-to-completion is that idea taken all the way: the batch boundary is the
-    *entire* settled drain, not one handler. You never need `flushSync` for ordinary
-    app work, and you never catch the UI mid-update between synchronous follow-ups.
+    run-to-completion is that idea taken all the way: the smallest thing that can
+    render is an *entire* settled drain, not one handler. As in React, the batch
+    itself closes at the host's next checkpoint, so two drains in the same stack can
+    render together. You never need `flushSync` for ordinary app work, and you never
+    catch the UI mid-update between synchronous follow-ups.
 
 ## The temptation to do it inline
 
@@ -286,9 +290,9 @@ When a handler returns `{:db new-db :fx [[a 1] [b 2] [c 3]]}`, four rules hold. 
 ## Day-one checklist
 
 You can return `{:db … :fx [[id args] …]}`, chain follow-ups with `[:dispatch …]`,
-trust run-to-completion (one paint per drain), and describe HTTP instead of calling
-`js/fetch` in a handler. Impurity is data until the runtime performs it. That is the
-whole of the day-one grammar — you can ship on it.
+trust run-to-completion (a drain never paints halfway), and describe HTTP instead
+of calling `js/fetch` in a handler. Impurity is data until the runtime performs it.
+That is the whole of the day-one grammar — you can ship on it.
 
 ## When things go wrong
 

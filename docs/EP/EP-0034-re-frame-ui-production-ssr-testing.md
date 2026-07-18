@@ -198,9 +198,9 @@ as the hydration-parity suite, including multi-root failure isolation.
 |---|---|
 | **G-1** direct-render parity | pure view within 10% of hand-written JSX CLJS (p50/p95) under the noise-robust estimator, plus an emitted-JS golden test pinning direct `jsx` calls (S-1's IFn-dispatch trap) |
 | **G-2** AOT peer | ≥ UIx-AOT parity on pure views; reactive one-read ≤ 15% update-p95 over raw correct `useSyncExternalStore` |
-| **G-3** multi-read scaling | one store listener and one body invocation per ViewCell; independent lexical-site leases; at most one notification per dirty cell; queued writes settle before one post-quiescence batch |
+| **G-3** multi-read scaling | one store listener and one body invocation per ViewCell; independent lexical-site leases; at most one notification per dirty cell; queued writes settle before one read/render batch at the following host checkpoint |
 | **G-4** equality no-op | `rf=` results ⇒ zero revisions, zero prop/sub-driven renders, stable references |
-| **G-5** drain fan-in | eight queued update+commit epochs all execute in one run-to-completion drain, then exactly **one** read/render batch; coalescing never drops writes; epoch count is never evidence of render/commit count |
+| **G-5** drain fan-in | eight queued update+commit epochs all execute in one run-to-completion drain and share exactly **one** read/render batch at the following host checkpoint — a drain is never split across batches; coalescing never drops writes; epoch count is never evidence of render/commit count |
 | **G-6** abandonment/disposal | 10k headless abandoned renders/cold probes and bounded mounted StrictMode/Activity cycles return every ownership surface to exact baseline |
 | **G-7** dev/prod equivalence | per generated shape + pairwise capabilities + high-risk triples: committed DOM/events/owners/cleanup/hydration agree, debug off |
 | **G-8** input correctness (hard) & latency evidence (widened 2026-07-16) | **Hard gate:** in real Chromium **and** WebKit — pre-paint synchronous commit under the sync door, ordering, caret restoration, IME composition, exactly one attributable React commit per ordinary input and exactly one at the committed IME boundary, with the deliberate async-door regression as the tooth; the matrix runs through a **reusable event-prefix component** (`ui/event` vector-outcome door) — toy literal fixtures alone do not close it. **Evidence only:** event→commit p95 against an equivalent hand-written React control in the same warmed run — the ratio, the 10% reference-budget observation, the sample count and the noise policy are recorded and reported; no wall-clock number gates (G-13's posture). An over-budget observation informs `rf2-dpwel`, it never fails G-8 |
@@ -318,10 +318,12 @@ API defect.
 - **Byte-identical HTML is NOT the contract (ruled).** Dual-emitter parity is
   normalized structural equivalence over semantic nodes, fingerprinted and generatively
   tested — consistent with Spec 011's canonical hydration-equivalence rule.
-- **Drain-quiescence batching is the G-5/G-13 subject (ruled).** Every queued epoch
-  executes; one read/render batch follows quiescence; epoch count alone is never
-  evidence for render or commit count. G-13 falsifies the committed economics; failure
-  reopens the design.
+- **Host-checkpoint render batching is the G-5/G-13 subject (ruled).** Every queued epoch
+  executes; the batch closes at the host's next microtask checkpoint (or an explicit
+  test flush), never at drain finalization — so a drain's epochs always share one
+  read/render batch, and drains reaching the same checkpoint may share one. Epoch count
+  alone is never evidence for render or commit count. G-13 falsifies the committed
+  economics; failure reopens the design.
 - **Component-library gates addition (directed, 2026-07-16).** G-15..G-18, the widened
   G-8 arm, and the proof pack join the roster per the re-com readiness package
   (EP-0035); they wire with their S3 features under the every-stage-wires-its-gates

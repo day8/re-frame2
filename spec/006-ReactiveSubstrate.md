@@ -1268,23 +1268,31 @@ These are normative (R-2). Each names the bug class it deletes.
    site's headless movement caught by nothing. *(Deletes: painting a frame computed from
    stale reads; a coincident-version reincarnation misread as unchanged; a retained
    headless site that self-corrects through no channel.)*
-6. **One notification per cell per render batch — the boundary is drain quiescence, not
-   epoch close.** An event/frame **epoch** is a commit-phase + diagnostic-evidence
-   unit (one per dequeued event — per
+6. **One notification per cell per render batch — the boundary is the host checkpoint, not
+   drain quiescence and not epoch close.** A **render batch** is the pending read/render
+   window that ends at the next CLJS host microtask checkpoint, or at an explicit
+   headless/test flush; the UI scheduler has no hook from router drain finalization and
+   observes no drain boundary at all (rf2-vxgfnd.166). An event/frame **epoch** is a
+   commit-phase + diagnostic-evidence unit (one per dequeued event — per
    [002 §Drain versus event](002-Frames.md#drain-versus-event--the-epoch-unit)); it is
    **not** a React render boundary. Source-side notification is constant work — mark the
    cell stale with target/version/epoch/cause evidence, never execute a prop-dependent
    query (per I-5) — carrying the moving epoch as **cause evidence only**. A single
    run-to-completion drain may settle several queued events, each committing its own epoch
-   record; every dirty cell coalesces the **whole drain's** epochs and is flushed
-   **exactly once** when the drain reaches quiescence (exact coalescing at the drain
-   boundary, keyed on the cell's pending state — never on the epoch tag, never
-   debounce-by-time; per I-3/I-6). Render **separation** is therefore **per drain, not per
-   epoch**: epochs settled in one drain share one render batch; epochs settled in separate
-   drains (distinct external events, the host regaining control between them) render
-   separately — **no render count may be inferred from the number of event/frame epochs**.
+   record; a dirty cell coalesces every epoch that marked it before the checkpoint and is
+   flushed **exactly once** when the window closes (exact coalescing at the checkpoint,
+   keyed on the cell's pending state — never on the epoch tag, never debounce-by-time; per
+   I-3/I-6). A synchronous drain therefore cannot be split across batches, and N epochs
+   settled in one drain share one batch — but the converse does not hold: several drains
+   finishing before the same checkpoint may share a batch, and only a real host yield
+   separates renders ([§Render-batch
+   finalization](#render-batch-finalization--the-host-checkpoint-boundary) states all four
+   guarantees). **No render count may be inferred from the number of event/frame epochs,
+   nor from the number of drains** — "one render batch per router drain" is **retired** as
+   normative and survives only as the common case, true exactly when callers yield between
+   drains.
    *(Deletes: zombie children; N-notifications-per-event fan-out; the false
-   N-epochs⇒N-renders equation.)*
+   N-epochs⇒N-renders equation; the false drain-quiescence render boundary.)*
 
 ### The port operations (final)
 
@@ -1438,8 +1446,12 @@ Spike-validated:
   never computes (invariant 6, I-5).
 - `acquire!`/`release!` called from **inside the owner-notification fan-out** throw
   `:rf.error/reentrant-graph-op` (dev-asserted). The rule is cheap because the fan-out
-  is separated from the cell flush: React-driven acquire/release — renders and commits
-  *caused by* the epoch-close notify — are outside the fan-out and always legal.
+  is separated from the cell flush: the notification only marks cells dirty, and the
+  layout commits that actually acquire and release run later, when the pending window
+  closes at the next host checkpoint. They therefore run after the fan-out has
+  returned and never trip the guard. Note that ownership moves in COMMITS only —
+  render probes without acquiring — and that the flush is coalesced across a batch,
+  so it is decoupled from the epoch count.
 
 Conservative rules written ahead of S-3 exercise, now confirmed by the S2a
 implementation:
@@ -1736,26 +1748,46 @@ non-watchable headless site, which guard (1) never reaches). No third mechanism 
 or is needed. A memo table that outlives its slice is a conformance bug (a leak fixture
 pins it).
 
-### Epoch finalization — the adapter-internal render-batch boundary
+### Render-batch finalization — the host-checkpoint boundary
 
 On the observation-port substrate, the invalidation algorithm's Phase 3
 ([§Invalidation algorithm](#invalidation-algorithm) — "notify subscribers") is realised
 as constant-work stale-marking (invariant 6). The commit sequence gains an
-**adapter-internal final phase — the drain-quiescence render batch**: a run-to-completion
-drain may settle several queued events, each settling its derivations (Phases 1–2) and
-marking dirty cells (Phase 3) as it commits its **own** epoch record; then, **when the
-drain reaches quiescence** (not at each epoch close), each dirty ViewCell is flushed
-**once** into the host scheduler and React performs **one read/render batch** over the
-whole drain's coalesced epochs. The moving epoch rides the stale-mark as **cause
-evidence only** — coalescing keys on the cell's pending state, never on the epoch tag —
-so N epochs committed in one drain produce exactly one render batch, and render
-separation follows **drain** boundaries, never the epoch count (see invariant 6). On
-CLJS the flush rides a **true host microtask** — `js/queueMicrotask` (a resolved-`Promise`
+**adapter-internal final phase — the host-checkpoint render batch**. A **render batch** is
+the pending read/render window that ends at the next CLJS host microtask checkpoint, or at
+an explicit headless/test flush. The window is armed by the **first** dirty mark, not by
+the start of a drain, and it closes at the **host's** checkpoint, not at the end of a
+drain: this scheduler has no hook from router drain finalization and observes no drain
+boundary at all (rf2-vxgfnd.166). A run-to-completion drain may settle several queued
+events, each settling its derivations (Phases 1–2) and marking dirty cells (Phase 3) as it
+commits its **own** epoch record; when the window closes, each dirty ViewCell is flushed
+**once** into the host scheduler and React performs **one read/render batch** over every
+epoch that marked it. The moving epoch rides the stale-mark as **cause evidence only** —
+coalescing keys on the cell's pending state, never on the epoch tag.
+
+Four guarantees follow, and they are the whole contract:
+
+1. A synchronous run-to-completion drain **cannot** be split across batches — the window
+   cannot close while the stack is still unwinding.
+2. N epochs settled within **one** drain coalesce into **one** batch.
+3. Several drains — or a listener re-entering after a completed batch — that finish before
+   the **same** host checkpoint **may share** one batch. Two back-to-back `dispatch-sync!`
+   calls in one JavaScript stack render once, not twice; so do nested cross-frame
+   synchronous drains.
+4. Drains separated by a real **host yield** render separately.
+
+"One render batch per router drain" is **retired** as normative. It remains the common
+case — true exactly when callers yield between drains (guarantee 4) — and it is not a rule
+this scheduler enforces, or could enforce without a drain-finalization seam that
+deliberately does not exist. Render separation follows host checkpoints, never the epoch
+count and never the drain count (see invariant 6).
+
+On CLJS the flush rides a **true host microtask** — `js/queueMicrotask` (a resolved-`Promise`
 job where absent), deliberately **not** `goog.async.nextTick`, which is a **macrotask**
 (`setImmediate`/`MessageChannel`/`setTimeout`) that yields to the event loop and could let
 a torn frame paint before the correction runs. A single microtask, armed by the first
-mark of the drain, cannot run until the synchronous drain unwinds, so it fires strictly
-**after** drain quiescence — at the event loop's microtask checkpoint, which runs
+mark of the window, cannot run until the synchronous stack unwinds, so it fires strictly
+**after** that stack completes — at the event loop's microtask checkpoint, which runs
 **before** the next paint — never between two queued events of the same drain, and always
 before a torn frame can show (rf2-vxgfnd.40). The headless (JVM/SSR) host has no async
 render loop and drains through the explicit test flush. On CLJS,
@@ -1765,7 +1797,9 @@ the JVM the zero-arity flush is synchronous and returns nil. It is the sole publ
 flush and has no public `re-frame.ui` twin. A call while an event drain is still open
 throws `:rf.error/flush-in-open-epoch` synchronously before Promise construction,
 notifications, or host work, carrying the active `:frame` and `:frame-epoch` (per
-[009 §Error event catalogue](009-Instrumentation.md#error-event-catalogue)). The
+[009 §Error event catalogue](009-Instrumentation.md#error-event-catalogue)). That guard
+rejects a misuse of the **explicit** flush; it is not the automatic scheduling boundary,
+which consults no drain state at all. The
 adapter's distinct production/tooling `flush-render!` contract is unchanged.
 
 ## What happens when a sub references an unknown sub

@@ -74,8 +74,8 @@ render-time evidence, corrects before paint. *(Deletes: interrupted-update corru
 zero-owner disposal races; render→commit tears.)*
 
 **I-3 · One React bridge per reactive view.** N reads are N observation targets but one
-`useSyncExternalStore`, one scalar snapshot, and at most one notification in the
-post-quiescence render batch for a run-to-completion drain.
+`useSyncExternalStore`, one scalar snapshot, and at most one notification in the pending
+render batch that a run-to-completion drain feeds.
 
 **I-4 · Snapshots are cached scalars.** The cell snapshot is a revision integer; values
 live in derivation nodes and are read during render. Why one integer suffices: React's
@@ -86,11 +86,16 @@ guards newly-observed sites — two independent guards, no third needed.
 target/version/epoch evidence; prop-dependent queries run only in the view's own render.
 *(Deletes: zombie children.)*
 
-**I-6 · One notification per dirty cell per drain.** Every queued write-side event
-executes and commits its own epoch record. Once that run-to-completion drain reaches
-quiescence, each dirty cell is notified exactly once for the read/render batch. A real
-host yield starts a distinct drain and therefore a distinct batch; this is exact
-pending-state coalescing, never debounce-by-time.
+**I-6 · One notification per dirty cell per render batch.** Every queued write-side event
+executes and commits its own epoch record. A render batch is the pending read/render
+window: armed by the first dirty mark, closed at the next CLJS host microtask checkpoint
+or an explicit headless/test flush. The UI scheduler takes no hook from router drain
+finalization and observes no drain boundary at all. Each dirty cell is notified exactly
+once per window, so a run-to-completion drain can never be split across batches and N
+epochs settled inside one drain coalesce into one. Several drains — or listener re-entry
+after a completed batch — reaching the same checkpoint may equally share a batch; only a
+real host yield renders drains separately. Exact pending-state coalescing, never
+debounce-by-time.
 
 **I-7 · Client markup is compiled, never interpreted.** Literal templates lower to
 `jsx`/`jsxs`; conversion is compile-time; static subtrees hoist. No walker, tag parser,

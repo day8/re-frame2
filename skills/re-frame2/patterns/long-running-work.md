@@ -138,7 +138,7 @@ Exiting `:working` fires one `:rf.machine/destroy` fx carrying `:rf/spawn-all tr
 ## Anti-patterns
 
 - **Computing in subscriptions.** Subs are cheap; compute belongs in event handlers.
-- **Multiple `assoc`s expecting interleaved renders.** Re-frame2 batches per drain — one render. Chunking is the only way to get intermediate renders.
+- **Multiple `assoc`s expecting interleaved renders.** Everything a drain settles renders together, once — no intermediate state ever reaches the screen. Chunking, so the host gets a yield between writes, is the only way to get intermediate renders.
 - **Manual chunk-state with `setTimeout`.** Re-derives what `:after` already provides; loses tracing and automatic teardown.
 - **Forgetting cancellation.** The exit cascade makes it trivial; omitting `:cancel` on `:working` leaves a runaway loop.
 - **`:always` cycles without a yielding `:after` between batches.** Hits `:rf.error/machine-always-depth-exceeded` (default 16). A `:yielding` state with a small positive `:after` delay (e.g. `:after {1 …}` — **not** `:after {0 …}`, which never schedules) resets depth between batches.
