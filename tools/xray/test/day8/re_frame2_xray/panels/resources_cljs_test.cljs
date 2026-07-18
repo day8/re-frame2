@@ -87,7 +87,26 @@
                   :stale-after-ms 60000 :gc-after-ms 300000
                   :tags (fn [_ _] #{}) :request (fn [_ _] {})}}})
 
-(def live-entries
+;; rf2-ybqse — the freshness horizon is anchored to the moment the fixture is
+;; SEEDED, which is why this is a fn and not a `def`.
+;;
+;; `derive-stale?` is a comparison against the wall clock: an entry is stale
+;; once `(.now js/Date)` AT RENDER TIME has passed its `:stale-at`. A horizon
+;; frozen at namespace-LOAD time therefore decays over the life of the run.
+;; `npm run test:cljs` loads every `*_cljs_test` namespace into one
+;; consolidated bundle up front and only then starts executing, so this
+;; namespace's tests ran ~30s after its own `def`s were evaluated on an idle
+;; box — leaving only ~30s of a 60s horizon. On a loaded machine that gap
+;; exceeded 60s, the entry was *legitimately* past its `:stale-at`, and
+;; `route-graph-shows-live-active-route` read `stale (1 work)` where it
+;; expected `fresh`. The panel was right; the fixture had rotted in place.
+;;
+;; Evaluating per-seed collapses the seed→render gap from "however long the
+;; suite takes to get here" to the microseconds inside one test body, which
+;; removes the coupling between this fixture's freshness and the suite's
+;; wall-clock duration. `stale-live-entries` pins the other side of the same
+;; comparison so the `fresh` assertions cannot pass vacuously.
+(defn- live-entries []
   {[session-scope :article/by-slug {:slug "welcome"}]
    {:resource/id :article/by-slug :status :loaded
     :data {:title "Welcome"} :generation 4
@@ -95,19 +114,26 @@
     :active-owners #{[:route :route/article "nav-1"]}
     :tags #{[:article "welcome"]} :request-id [:w 4]}})
 
+(defn- stale-live-entries []
+  (update-in (live-entries)
+             [[session-scope :article/by-slug {:slug "welcome"}] :stale-at]
+             - 120000))
+
 (def live-ledger
   {[:rf.work/resource [session-scope :article/by-slug {:slug "welcome"}] 4]
    {:work/id [:rf.work/resource [session-scope :article/by-slug {:slug "welcome"}] 4]
     :work/kind :resource :resource/key [session-scope :article/by-slug {:slug "welcome"}]
     :generation 4 :status :running :cancellable? true :deadline-at 5100}})
 
-(defn- seed-overrides! []
-  (rf/dispatch-sync [:rf.xray/set-registered-resources-override-for-test resource-regs]
-                    {:frame :rf/xray})
-  (rf/dispatch-sync [:rf.xray/set-resource-entries-override-for-test live-entries]
-                    {:frame :rf/xray})
-  (rf/dispatch-sync [:rf.xray/set-resource-work-ledger-override-for-test live-ledger]
-                    {:frame :rf/xray}))
+(defn- seed-overrides!
+  ([] (seed-overrides! (live-entries)))
+  ([entries]
+   (rf/dispatch-sync [:rf.xray/set-registered-resources-override-for-test resource-regs]
+                     {:frame :rf/xray})
+   (rf/dispatch-sync [:rf.xray/set-resource-entries-override-for-test entries]
+                     {:frame :rf/xray})
+   (rf/dispatch-sync [:rf.xray/set-resource-work-ledger-override-for-test live-ledger]
+                     {:frame :rf/xray})))
 
 ;; ---- (1) registry wiring ------------------------------------------------
 
@@ -464,6 +490,25 @@
         (is (some? status))
         (is (re-find #"loaded" (node-text status)) "status reads loaded")))))
 
+(defn- seed-live-route!
+  "Register the route declaring `:resources` so the graph has a node, and seed
+  the live routing slice with `:route/article` active under nav-1 with the
+  article scoped key still in the unsettled-blocking set.
+
+  Registration goes via the registrar directly (the routing artefact's
+  `reg-route` macro is not on the xray test classpath); the graph reads the
+  registry map decoupled via `(rf/registrations :route)`."
+  []
+  (registrar/register! :route :route/article
+                       {:path "/articles/:slug"
+                        :resources [{:resource :article/by-slug :blocking? true}]})
+  (rf/dispatch-sync
+    [:rf.xray/set-resource-routing-slice-override-for-test
+     {:current {:route-id :route/article :nav-token "nav-1"}
+      :resource-blocking
+      {"nav-1" #{[session-scope :article/by-slug {:slug "welcome"}]}}}]
+    {:frame :rf/xray}))
+
 (deftest route-graph-shows-live-active-route
   (testing "rf2-m5u3gt — with a live routing slice override, the route/resource
             graph flags the active route (● active) and surfaces the live
@@ -471,21 +516,7 @@
     (setup-xray-frame!)
     (rf/with-frame :rf/xray
       (seed-overrides!)
-      ;; Register the route declaring :resources so the graph has a node.
-      ;; Via the registrar directly (the routing artefact's reg-route macro
-      ;; is not on the xray test classpath); the graph reads the registry map
-      ;; decoupled via (rf/registrations :route).
-      (registrar/register! :route :route/article
-                           {:path "/articles/:slug"
-                            :resources [{:resource :article/by-slug :blocking? true}]})
-      ;; Seed the live routing slice: :route/article active under nav-1, with
-      ;; the article scoped key still in the unsettled-blocking set.
-      (rf/dispatch-sync
-        [:rf.xray/set-resource-routing-slice-override-for-test
-         {:current {:route-id :route/article :nav-token "nav-1"}
-          :resource-blocking
-          {"nav-1" #{[session-scope :article/by-slug {:slug "welcome"}]}}}]
-        {:frame :rf/xray})
+      (seed-live-route!)
       (let [tree (resources/Panel)
             row  (find-by-testid tree "rf-xray-resources-route-row-route/article")]
         (is (some? row) "the route row renders")
@@ -495,6 +526,28 @@
             "the live unsettled-blocking wait point surfaces")
         (is (re-find #"fresh" (node-text row))
             "the blocking :article/by-slug reads :fresh from its live cache entry")))))
+
+(deftest route-graph-freshness-chip-discriminates-stale
+  (testing "rf2-ybqse — the freshness chip is DISCRIMINATING, not decorative:
+            the SAME route graph over an entry whose `:stale-at` has already
+            passed reads `stale`, never `fresh`. This deterministically forces
+            the state that used to surface only as a flake (the sibling test's
+            load-time-anchored `:stale-at` decayed past its horizon mid-run and
+            read `stale (1 work)`), so both sides of the `derive-stale?`
+            comparison are now pinned by an assertion. Without this, a
+            regression that hard-wired the chip to `:fresh` would leave the
+            sibling green."
+    (setup-xray-frame!)
+    (rf/with-frame :rf/xray
+      (seed-overrides! (stale-live-entries))
+      (seed-live-route!)
+      (let [tree (resources/Panel)
+            row  (find-by-testid tree "rf-xray-resources-route-row-route/article")]
+        (is (some? row) "the route row renders")
+        (is (re-find #"stale" (node-text row))
+            "an entry past its :stale-at reads :stale on the route graph")
+        (is (not (re-find #"fresh" (node-text row)))
+            "and does NOT read :fresh — the two are mutually exclusive")))))
 
 ;; ---- (4) PRIVACY --------------------------------------------------------
 
