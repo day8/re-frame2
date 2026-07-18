@@ -21,11 +21,17 @@
   only ever confirm its own copy of it (the rf2-5e3ic failure mode: gates that
   answered `true` for a 404 and for a path outside the repo).
 
-  Three holders, compared as DATA:
+  Four holders, compared as DATA:
 
     1. the published page       docs/core/how-to/install-re-frame-ui.md
     2. this repo's own build    implementation/shadow-cljs.edn        (top level)
     3. the consumer scaffold    examples/ui/minimal-counter/shadow-cljs.edn
+    4. the setup skill          skills/re-frame2-setup/references/shadow-cljs.md
+
+  Holder 4 arrives with rf2-ftb3s. The setup skill points authors at the
+  published page for the reasoning and carries only the settings themselves,
+  behind the same `rf2:shadow-ui-contract` anchor — so the skill is pinned to
+  the real build config rather than becoming a fourth copy free to drift.
 
   Each is a separate lever: mutate any ONE of the three and this suite reds,
   naming which holder diverged.
@@ -48,6 +54,7 @@
 (def ^:private example-config-rel "examples/ui/minimal-counter/shadow-cljs.edn")
 (def ^:private example-deps-rel "examples/ui/minimal-counter/deps.edn")
 (def ^:private impl-package-rel "implementation/package.json")
+(def ^:private skill-rel "skills/re-frame2-setup/references/shadow-cljs.md")
 
 (defn- repo-root
   "Walk up from the working dir until a directory holds BOTH the published page
@@ -97,16 +104,31 @@
                       {:page page-rel :anchor anchor})))
     body))
 
-(defn- published-contract
-  "The two-setting map the page publishes, as data."
-  []
-  (let [form (edn/read-string (anchored-block (slurp-rel page-rel)
+(defn- anchored-contract
+  "The two-setting map a MARKDOWN holder publishes behind the shared
+  `rf2:shadow-ui-contract` anchor, as data. Every prose holder — the published
+  page, the setup skill — carries the settings under the same anchor, so one
+  reader serves them all."
+  [rel]
+  (let [form (edn/read-string (anchored-block (slurp-rel rel)
                                               "rf2:shadow-ui-contract"
                                               "clojure"))]
     (when-not (map? form)
-      (throw (ex-info "rf2-vxgfnd.196: the published contract block is not a map"
-                      {:read form})))
+      (throw (ex-info "rf2-vxgfnd.196: an anchored contract block is not a map"
+                      {:holder rel :read form})))
     form))
+
+(defn- published-contract
+  "The two-setting map the published how-to page publishes, as data."
+  []
+  (anchored-contract page-rel))
+
+(defn- skill-contract
+  "The two-setting map the re-frame2-setup skill hands authors, as data. The
+  skill points at the published page for the reasoning and carries only the
+  settings — this is what stops that block being a fourth free-drifting copy."
+  []
+  (anchored-contract skill-rel))
 
 (defn- published-shadow-version
   "The shadow-cljs version the page publishes, dug out of the `:shadow` alias it
@@ -175,7 +197,11 @@
     ;; converts that into a named failure rather than an error inside a
     ;; comparison test.
     (is (map? (published-contract)))
-    (is (string? (published-shadow-version)))))
+    (is (string? (published-shadow-version))))
+  (testing "the setup skill's anchored block resolves too"
+    ;; Same conversion for holder 4: delete the skill's anchor or its fence and
+    ;; the failure names the skill, rather than surfacing inside the comparison.
+    (is (map? (skill-contract)))))
 
 ;; ---------------------------------------------------------------------------
 ;; The drift comparisons — three levers, one per holder
@@ -194,6 +220,19 @@
         (str "the published snippet in " page-rel " has drifted from "
              example-config-rel ". A consumer copying the page would not get "
              "the scaffold's configuration."))))
+
+(deftest setup-skill-matches-this-repos-own-build
+  (testing "the setup skill hands authors exactly what a real build configures"
+    ;; Compared against the CONFIG rather than the page, deliberately: the
+    ;; config is the source of truth this suite exists to defend, so mutating
+    ;; either the skill's block or the real build reds here. A skill compared
+    ;; only against the page would agree with a page that had itself drifted.
+    (is (= (top-level-contract impl-config-rel) (skill-contract))
+        (str "the anchored block in " skill-rel " has drifted from "
+             impl-config-rel ". An author following the setup skill would not "
+             "configure re-frame.ui the way this repo actually does — "
+             "reconcile the skill against the real build config, and see "
+             page-rel " for the published reasoning."))))
 
 (deftest the-two-real-configs-agree
   (testing "this repo and the scaffold configure re-frame.ui identically"
