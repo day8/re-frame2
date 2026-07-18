@@ -349,6 +349,30 @@ from ordinary Clojure code fails loud** (they are not runtime helpers).
   `:rf.error/routing-artefact-missing` (naming the artefact, its Maven coord, and the
   link site). A plain `[:a]` stays available for intentional browser-native navigation.
 
+### `presence`
+
+- **Kind**: function (compile-time authoring form)
+- **Signature**: `(presence {:timeout-ms n} keyed-children)`
+- **Description**: Declarative **enter/exit retention**, deliberately bounded — **not** an
+  animation system. Keyed children pass `:mounting` → `:present` → `:unmounting`; an
+  exiting child stays **mounted** until its exit completes **or** the **mandatory**
+  `:timeout-ms` safety bound fires, whichever is first, then removal is **terminal and
+  exactly-once** (all ownership released). Removing then re-inserting a key **interrupts**
+  the exit and re-enters. A child reads its phase with `presence-phase`. On the JVM / SSR
+  the structural render yields `:present` (there is no lifecycle to retain).
+- **Errors**: missing / non-positive `:timeout-ms` → `:rf.ui.compile/bad-presence`; an
+  unkeyed child under the boundary → `:rf.ui.compile/presence-unkeyed-child`; direct call →
+  `:rf.error/ui-tree-malformed`.
+
+### `presence-phase`
+
+- **Kind**: function (render-time read)
+- **Signature**: `(presence-phase)` → `:mounting` / `:present` / `:unmounting`
+- **Description**: The single presence-phase read. Inside a `(presence …)` boundary it
+  returns the child's live phase; **outside** one it returns `:present` (so presence-aware
+  children stay reusable anywhere). A render-time read (a React context read on CLJS); the
+  JVM structural render always yields `:present`.
+
 ## Roots and mounting
 
 ### `mount`

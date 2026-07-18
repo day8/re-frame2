@@ -250,11 +250,12 @@
       (is (empty? problems) (probe/signature-report problems)))))
 
 (deftest ui-test-signature-contract-is-non-vacuous
-  (testing "the embedded contract carries the nine blessed ui.test vars and the
-            analyzer surfaced flush!'s live CLJS :fn 0/1-arity (guards against a
-            vacuous green from an unread sidecar or un-analysed namespace)"
+  (testing "the embedded contract carries the ten blessed ui.test vars (the nine
+            S1–S2 vars plus S4's flush-presence!) and the analyzer surfaced
+            flush!'s live CLJS :fn 0/1-arity (guards against a vacuous green from
+            an unread sidecar or un-analysed namespace)"
     (is (= "re-frame.ui.test" (:namespace ui-test-signature-contract)))
-    (is (= 9 (count (:vars ui-test-signature-contract))))
+    (is (= 10 (count (:vars ui-test-signature-contract))))
     (is (= :fn (get-in live-ui-test-surface ["flush!" :kind]))
         "flush! must be classified :fn by the live analyzer — the kind authority")
     (is (= #{[0] [1]} (get-in live-ui-test-surface ["flush!" :arities]))

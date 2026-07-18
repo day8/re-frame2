@@ -82,6 +82,10 @@
    ;; The blessed reader-conditional difference: 0-arity headless drain on
    ;; the JVM; 0-arity or 1-arity (thunk) awaited drain on CLJS.
    "flush!"    {:kind :fn    :clj #{[0]}     :cljs #{[0] [1]}}
+   ;; flush-presence! (rf2-uckeg, S4) — the fake-clock transition advance.
+   ;; Host-uniform 0/1-arity on BOTH hosts: `(flush-presence!)` advances to
+   ;; quiescence, `(flush-presence! ms)` by ms (JVM both no-op nil; CLJS awaited).
+   "flush-presence!" {:kind :fn :clj #{[0] [1]} :cljs #{[0] [1]}}
    ;; Macros — host-invariant call grammars (single .cljc definition).
    "render"    {:kind :macro :clj #{[1] [2]} :cljs #{[1] [2]}}
    "with-root" {:kind :macro :clj #{[1 :&]}  :cljs #{[1 :&]}}}}
@@ -375,6 +379,19 @@
   ;; blessed-set` JVM row landed with this feature. Owner 012 — routing owns the
   ;; link law + full conformance matrix; the ui table LINKS to 012.
   {:namespace "re-frame.ui" :var "route-link"     :kind :fn    :facade? false :tier :advanced    :owner "012" :status "Spec-004 S3" :runtime-verified? true}
+  ;; presence / presence-phase (rf2-uckeg — the FIRST S4 feature) — the ruled
+  ;; §Presence contract: declarative keyed enter/exit retention, deliberately
+  ;; bounded (NOT an animation system). `presence` is a resolution-only template
+  ;; `defn` (the compiler lowers `(ui/presence …)` into the runtime retention
+  ;; boundary; a direct call throws) with a MANDATORY :timeout-ms terminal bound;
+  ;; `presence-phase` is a render-time `defn` reading a child's
+  ;; :mounting/:present/:unmounting phase (:present outside a boundary / on the
+  ;; JVM). Both are advanced-tier authoring verbs (kin to slot / error-boundary /
+  ;; client-only). Their live public vars are reconciled by the CLJS probe
+  ;; (re-frame.ui is fully-rowed, both directions); the spec/API.md §Compiled
+  ;; views rows are the projection reconciliation.
+  {:namespace "re-frame.ui" :var "presence"       :kind :fn    :facade? false :tier :advanced    :owner "004" :status "Spec-004 S4" :runtime-verified? true}
+  {:namespace "re-frame.ui" :var "presence-phase" :kind :fn    :facade? false :tier :advanced    :owner "004" :status "Spec-004 S4" :runtime-verified? true}
   ;; re-frame.ui.react (rf2-vxgfnd.95.4) — the frozen seven-wrapper React interop
   ;; tier (Spec 004 §The React interop tier). Six host hooks (use-ref /
   ;; use-effect / use-layout-effect / use-effect-event / use-context / use-id)
@@ -1173,8 +1190,8 @@
   ;; owner + `with-root-outcome` (^:no-doc) are internal by classification.
   ;; Tier 1 (S1): render / find / find-all / text / attrs / dispatch!.
   ;; Tier 3 (S2): with-root / native-CSS query / (flush!)/(flush! thunk).
-  ;; S4's `flush-presence!` is NOT defined yet — it stays absent (no row)
-  ;; until its stage lands, then takes an ordinary manifest update.
+  ;; S4 (rf2-uckeg): `flush-presence!` — the fake-clock enter/exit transition
+  ;; advance (the S4 twin of `flush!`; JVM synchronous no-op, CLJS awaited).
   ;; =========================================================================
   ["re-frame.ui.test" "render"]    {:tier :testing :owner "008" :status "Spec-004 S1"}
   ["re-frame.ui.test" "find"]      {:tier :testing :owner "008" :status "Spec-004 S1"}
@@ -1185,6 +1202,7 @@
   ["re-frame.ui.test" "with-root"] {:tier :testing :owner "008" :status "Spec-004 S2"}
   ["re-frame.ui.test" "query"]     {:tier :testing :owner "008" :status "Spec-004 S2"}
   ["re-frame.ui.test" "flush!"]    {:tier :testing :owner "008" :status "Spec-004 S2"}
+  ["re-frame.ui.test" "flush-presence!"] {:tier :testing :owner "008" :status "Spec-004 S4"}
 
   ;; =========================================================================
   ;; re-frame.schemas — optional artefact (day8/re-frame2-schemas), §010.
