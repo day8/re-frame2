@@ -175,8 +175,8 @@ API redesign or a named interop boundary, not a substrate exception.
 
 Spike/checkpoint beads (§4) are filed against the **program epic** (`rf2-vxgfnd`) with
 their triggers in the description; the re-com **port** itself is a separate epic stub
-(Wave 0 gated on the §8 rulings) so the substrate stage epic never blocks on component
-migration.
+(whose Wave-0 product register is resolved — §8, R‑1…R‑10) so the substrate stage epic
+never blocks on component migration.
 
 ## 7. The conformance proof pack (rolling consumer)
 
@@ -190,12 +190,33 @@ door preserved) · schema-described component (one manifest projection → Story
 production elision) · inline popover (ref/layout-effect/passive split + pure geometry;
 informs the portal decision) · single-view advanced import (unused siblings absent).
 
-## 8. Residual product rulings (Mike; tracked in `ai/decisions/re-com-readiness.product-rulings.md`)
+## 8. Product rulings — RESOLVED as R‑1…R‑10 (was: six residual rulings)
 
-1. native/compat package + namespace names · 2. v1 parts power ceiling (data+slots
-only vs stateful registered) · 3. uncontrolled convenience tier (`:default-value`
-wrappers) · 4. theme transport (prop/frame-sub baseline; context only if proven) ·
-5. tables foreign-first confirmation · 6. middle-artifact timing (recommended: generic
-internals + guide now; public artifact on second consumer).
+**Status 2026-07-17: ruled and durable.** The six entries this section once listed as
+awaiting Mike were ruled on 2026-07-16 (R‑1's native coordinate confirmed 2026-07-17)
+and now live as the **ten-entry register R‑1…R‑10** in
+[EP-0035](../../../../docs/EP/EP-0035-component-library-readiness.md) §Resolved
+Decisions — the durable source of record — restated in the `rf2-6ajm6z` epic NOTES,
+which are authoritative over any summary. **Cite EP-0035, never this section.**
 
-None of these gate the P0/P1 package above; the spikes' triggers absorb them.
+The former six map onto the first six rulings, and the ruling **added four more** —
+read all ten, not the six:
+
+| Former residual entry | Ruling |
+|---|---|
+| 1. native/compat package + namespace names | **R‑1** packaging |
+| 2. v1 parts power ceiling (data+slots vs stateful registered) | **R‑2** parts ceiling |
+| 3. uncontrolled convenience tier (`:default-value`) | **R‑3** uncontrolled tier |
+| 4. theme transport (prop/frame-sub baseline; context only if proven) | **R‑4** theme transport |
+| 5. tables foreign-first confirmation | **R‑5** tables/grids |
+| 6. middle-artifact timing | **R‑6** helper artifact |
+| *(not previously listed)* | **R‑7** input ownership · **R‑8** cross-host date/time · **R‑9** accessibility target · **R‑10** CSS/Bootstrap posture |
+
+None of the ten gate the P0/P1 package above — that conclusion is unchanged, and now
+rests on the rulings being settled rather than on the spikes' triggers absorbing open
+questions. The spike triggers in §4 stand on their own terms.
+
+**Still scheduled** (per-wave *entry* decisions, not a Wave-0 gate, and not complete):
+the Wave-2 input roster freeze feeding `rf2-nzst23` (R‑7), the Wave-4 foreign-engine
+selection (R‑5), the adoption-wave compat-tier fix-acceptance/deletion policy, and the
+post-parity Bootstrap-layer removal decision (R‑10).

@@ -149,9 +149,12 @@ gaining Xray/epochs/Story/schemas/
 machines immediately; (2) views migrate to `ui` per subtree, later, with the migrator
 ([10-migration-from-reagent.md](10-migration-from-reagent.md)); re-com widgets are the
 last movers (Reagent islands / foreign heads until the `ui`-native answer lands — that
-answer is now a **directed program**: the re-com native-port epic `rf2-6ajm6z`, Wave 0
-gated on the `ai/decisions/re-com-readiness.product-rulings.md` register; substrate
-readiness rides S3 per `drafts/component-library-readiness.md`, 2026-07-16). **The repo's own adoption** (examples, testbeds, Story/Xray
+answer is now a **directed program**: the re-com native-port epic `rf2-6ajm6z`, whose
+Wave-0 product register is **resolved** — the ten rulings R‑1…R‑10 in
+[EP-0035](../../../docs/EP/EP-0035-component-library-readiness.md) §Resolved Decisions,
+the durable source of record, restated in that epic's NOTES; substrate
+readiness rides S3 per `drafts/component-library-readiness.md`, 2026-07-16; register
+resolved 2026-07-16, R‑1's coordinate confirmed 2026-07-17). **The repo's own adoption** (examples, testbeds, Story/Xray
 scenes, guides exercising `ui` where it earns its place) remains the budgeted Stage-6
 workstream — adoption of an experimental option, not a forced migration off the
 retained adapters.
