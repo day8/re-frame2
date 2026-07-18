@@ -109,6 +109,7 @@
             [re-frame.flows :as flows]
             [re-frame.flows.topo :as topo]
             [re-frame.frame :as frame]
+            [re-frame.registrar :as registrar]
             [re-frame.subs :as subs]
             [re-frame.substrate.adapter :as substrate-adapter]
             [re-frame.substrate.plain-atom :as plain-atom]
@@ -515,16 +516,28 @@
   [flow-id]
   (into #{} (keys (get (flows/last-inputs-snapshot) flow-id {}))))
 
-(defn- registrar-has-flow?
-  "True iff ANY frame still registers `flow-id` in the per-frame `flows`
-  store. SINGLE-STORE (rf2-en00bk): the frame-blind registrar `:flow` slot
-  is RESERVED-but-empty — never written — so the `:registrar-flow-slots-after`
-  matcher checks the user-visible equivalent the realignment workaround used to
-  preserve: 'does some frame still own the id?'. Per Spec 013 §Frame-destroy
-  teardown the id disappears from the store when the destroyed frame was the
-  last owner, and survives when a sibling frame still registers it."
-  [flow-id]
-  (boolean (some #(contains? % flow-id) (vals (flows/flows-snapshot)))))
+(defn- registrar-flow-slot-ids
+  "The id set of the REAL `:flow` registrar slot, read from the authoritative
+  registrar via the public `registrar/ids` query API.
+
+  Per rf2-en00bk the `:flow` registrar kind is RESERVED but its slot is
+  intentionally EMPTY — `reg-flow` writes ONLY the per-frame `flows` store
+  (`{frame-id {flow-id flow-map}}`), never the registrar — so this set MUST be
+  `#{}` at all times, before and after teardown. This is the authoritative
+  source the `:registrar-flow-slots-after` matcher asserts against.
+
+  rf2-3neiv: the prior matcher (`registrar-has-flow?`) read
+  `flows/flows-snapshot` (the per-frame STORE — the WRONG source, already
+  covered by `:flow-registry-after`) and the runner filtered the result over
+  the EXPECTED set, so an empty `#{}` expectation matched UNCONDITIONALLY and a
+  `:flow` registrar polluted with a forbidden row went undetected. Reading the
+  registrar slot directly and comparing the FULL slot to the expected set (in
+  `run-fixture` below) closes that gap — it proves the reserved-empty invariant
+  holds against the real registrar, not a proxy. The sibling JVM test
+  `re-frame.flows-destroy-frame-teardown-test` reads the registrar the same way
+  (`registrar/lookup :flow …`)."
+  []
+  (registrar/ids :flow))
 
 ;; ---- single-fixture execution -------------------------------------------
 
@@ -670,15 +683,17 @@
                                (into {}
                                      (for [[flow-id _] expected-li]
                                        [flow-id (last-inputs-frame-set flow-id)])))
-            ;; `:registrar-flow-slots-after` — strict set
-            ;; match of `:flow` registrar ids that survive the fixture's
-            ;; teardown. Per Spec 013 §Frame-destroy teardown: the slot
-            ;; drops iff no surviving frame still owns the id.
+            ;; `:registrar-flow-slots-after` — strict set match of the REAL
+            ;; `:flow` registrar slot after the fixture's teardown. Per
+            ;; rf2-en00bk the `:flow` registrar kind is reserved-EMPTY (flows
+            ;; live in the per-frame store, checked by `:flow-registry-after`),
+            ;; so this MUST be `#{}`. Read the FULL slot from the authoritative
+            ;; registrar and compare it EXACTLY to the expected set below — NOT
+            ;; a filter over the expected set (rf2-3neiv: filtering over an
+            ;; empty `#{}` expectation matched unconditionally, so a polluted
+            ;; registrar slid through undetected).
             expected-slots   (:registrar-flow-slots-after expect)
-            actual-slots     (when expected-slots
-                               (into #{}
-                                     (filter registrar-has-flow?
-                                             expected-slots)))
+            actual-slots     (when expected-slots (registrar-flow-slot-ids))
             ;; `:error-emit-records` — order-preserving subset match against
             ;; the captured always-on error-emit substrate stream. Per Spec 013
             ;; §Failure semantics rule 4 + Resolved decisions
@@ -860,3 +875,54 @@
                "capability or unclaimed spec-version is itself a failure — extend "
                "the claim + matcher, don't skip); "
                (count failed) " failed.")))))
+
+;; ---- mutation control: the registrar-slots matcher has teeth --------------
+;;
+;; rf2-3neiv regression guard. The `:registrar-flow-slots-after` matcher exists
+;; to prove teardown leaves NO `:flow` registrar row behind (the reserved-empty
+;; invariant, rf2-en00bk). The pre-fix matcher read the per-frame STORE and
+;; filtered over the (empty) EXPECTED set, so a `:flow` registrar polluted with
+;; a forbidden row passed UNCONDITIONALLY — the channel could not fail. This
+;; control seats a forbidden `:flow` registrar row directly in the real
+;; registrar, runs the real destroy fixture through `run-fixture`, and asserts
+;; the fixture now FAILS specifically on the registrar-slots channel. It is the
+;; red-before/green-after neuter: without the fix it would pass (matcher blind
+;; to the registrar); with the fix it fails (matcher reads the real registrar).
+
+(defn- destroy-teardown-fixture
+  "The `:flow/frame-destroy-teardown` fixture loaded from the corpus."
+  []
+  (some (fn [[_fname fx]]
+          (when (= :flow/frame-destroy-teardown (:fixture/id fx)) fx))
+        (all-flow-fixtures)))
+
+(deftest registrar-flow-slot-pollution-fails-the-destroy-fixture
+  (let [destroy-fixture (destroy-teardown-fixture)]
+    (is (some? destroy-fixture)
+        "the flow-frame-destroy-teardown fixture must be discoverable in the corpus")
+    ;; Positive control: a clean run reads the real registrar and finds it
+    ;; empty — the matcher is now anchored to the authoritative slot.
+    (reset-runtime
+      (fn []
+        (let [result (run-fixture destroy-fixture)]
+          (is (:passed? result)
+              (str "precondition: the unmutated destroy fixture passes — "
+                   (pr-str (dissoc result :exception))))
+          (is (= #{} (:actual-slots result))
+              "clean teardown: the real `:flow` registrar slot is empty"))))
+    ;; Neuter: seat a forbidden `:flow` registrar row. `reg-flow` never writes
+    ;; the `:flow` registrar kind (it writes the per-frame store) and
+    ;; `run-fixture` never clears it, so this row survives the whole fixture to
+    ;; the matcher — the exact pollution the reserved-empty invariant forbids
+    ;; and the pre-fix matcher could not observe.
+    (reset-runtime
+      (fn []
+        (registrar/register! :flow :rf.test/forbidden-registrar-row
+                             {:doc "rf2-3neiv pollution control — teardown must not leave this behind"})
+        (let [result (run-fixture destroy-fixture)]
+          (is (not (:passed? result))
+              "the fixture FAILS when the real `:flow` registrar carries a forbidden row")
+          (is (contains? (:actual-slots result) :rf.test/forbidden-registrar-row)
+              "the matcher READ the real registrar — the forbidden id appears in actual-slots")
+          (is (not= (:expected-slots result) (:actual-slots result))
+              "the registrar-slots channel specifically caught the pollution"))))))
