@@ -43,8 +43,8 @@ on the Python stdlib.
 from __future__ import annotations
 
 import argparse
-import os
 import re
+import subprocess
 import sys
 import urllib.parse
 from pathlib import Path
@@ -257,13 +257,15 @@ _INLINE_CODE_RE = re.compile(r"(`+)(?:.+?)\1(?!`)")
 #      markdown corpus links to it (an external bookmark has no in-repo linker to
 #      catch the break). A listed page that is deleted or renamed also fails, so
 #      the bookmarks it carries cannot silently vanish (rf2-57k74).
-#   2. The tracked-Clojure-source walk (_iter_source_files) — non-markdown source
+#   2. The tracked-Clojure-source scan (_iter_source_files) — non-markdown source
 #      files whose comments point readers at handbook anchors. Every
 #      `docs/<handbook>/<page>.md#anchor` substring is resolved and validated
 #      against the target page's slug index, so a stale comment link (or a reorg
 #      removing its target) fails here too. rf2-zq5i6 widened this from an
 #      examples-only glob roster to the whole tracked tree so moving a covered
-#      source file cannot silently drop it from validation.
+#      source file cannot silently drop it from validation; rf2-k30r7 then made
+#      "tracked" literally true (`git ls-files`, not a filesystem walk), so an
+#      untracked scratch file in a worktree cannot fail the scan.
 #
 # rf2-57k74 generalized the mechanism from Machines-only to the bounded set of
 # covered handbooks (Machines, Async, API, Routing); rf2-zq5i6 made that set
@@ -684,14 +686,44 @@ def _iter_source_files(
     exts: tuple[str, ...] = SOURCE_LINK_EXTS,
     exclude_dir_names: frozenset[str] = SOURCE_EXCLUDE_DIR_NAMES,
 ) -> Iterable[Path]:
-    """Yield every Clojure source file under repo_root, pruning vendor/generated
-    trees (rf2-zq5i6). os.walk prunes excluded directories in place so huge
-    vendored trees (node_modules) are never descended into."""
-    for dirpath, dirnames, filenames in os.walk(repo_root):
-        dirnames[:] = sorted(d for d in dirnames if d not in exclude_dir_names)
-        for fn in sorted(filenames):
-            if fn.endswith(exts):
-                yield Path(dirpath) / fn
+    """Yield every GIT-TRACKED Clojure source file under repo_root, pruning
+    vendor/generated trees (rf2-zq5i6, rf2-k30r7).
+
+    The roster is Git tracking, not a filesystem walk. An untracked or ignored
+    scratch file in a programmer's worktree is not repository content, so it
+    MUST NOT be able to fail this scan — a walk-based roster let any stray
+    `.clj` anywhere outside a fixed excluded directory raise a false BROKEN
+    SOURCE-COMMENT LINK. CI runs on clean clones with no such files, so the
+    breakage landed only on the authoring machine. `git ls-files` is the
+    authoritative tracked set (the same corpus-scan discipline the residue
+    checks follow: generated/untracked copies are not the corpus).
+
+    Exclusions still apply ON TOP of tracking, because a path can be tracked
+    AND excluded — the self-test's `node_modules/vendored.cljc` fixture is
+    exactly that. Pruning therefore stays a filter in its own right rather
+    than a side effect of the tracked roster.
+
+    `git ls-files` is scoped to (and reports relative to) `repo_root`, so the
+    self-tests can point this at a fixture subtree unchanged.
+    """
+    result = subprocess.run(
+        ["git", "ls-files", "-z", "--", *(f"*{ext}" for ext in exts)],
+        cwd=repo_root,
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        raise RuntimeError(
+            f"git ls-files failed in {repo_root}: {result.stderr.strip()}"
+        )
+    for rel in sorted(entry for entry in result.stdout.split("\0") if entry):
+        if any(part in exclude_dir_names for part in Path(rel).parts[:-1]):
+            continue
+        path = repo_root / rel
+        # A tracked path can be absent from the working tree mid-rename; the
+        # index still lists it. Skip rather than crash the whole scan.
+        if path.is_file():
+            yield path
 
 
 def _strip_inline_code(line: str) -> str:
@@ -1711,28 +1743,85 @@ def _run_self_tests(verbose: bool = False) -> int:
             "self-test PASS: every placement rule keys a real manifest anchor\n"
         )
 
-    # rf2-zq5i6 — the source-comment scan walks the whole tracked tree, so MOVING a
+    # rf2-zq5i6 — the source-comment scan covers the whole tracked tree, so MOVING a
     # covered comment to a deep non-examples path keeps it validated, while vendored
-    # trees stay pruned.
+    # trees stay pruned. `node_modules/vendored.cljc` is itself TRACKED, so this also
+    # proves the exclusions apply on top of tracking rather than falling out of it.
     source_walk = {
         p.relative_to(teeth_root).as_posix() for p in _iter_source_files(teeth_root)
     }
     if "lib/deep/moved_ref.cljc" not in source_walk:
         sys.stderr.write(
-            "self-test FAIL: source walk dropped a covered comment at a "
+            "self-test FAIL: source scan dropped a covered comment at a "
             f"non-examples path (got {sorted(source_walk)})\n"
         )
         failures += 1
     elif "node_modules/vendored.cljc" in source_walk:
         sys.stderr.write(
-            "self-test FAIL: source walk descended into a pruned vendor tree "
+            "self-test FAIL: source scan included a pruned vendor tree "
             f"(got {sorted(source_walk)})\n"
         )
         failures += 1
     elif verbose:
         sys.stderr.write(
-            "self-test PASS: source walk covers non-examples paths and prunes "
-            "vendored trees\n"
+            "self-test PASS: source scan covers tracked non-examples paths and "
+            "prunes vendored trees\n"
+        )
+
+    # rf2-k30r7 — the roster is Git tracking, not the filesystem. An UNTRACKED
+    # scratch source carrying a genuinely broken covered link must not reach the
+    # production scan. The tooth is causal in both directions: the same file is
+    # first proven poisonous via an explicit `source_files` input (it DOES report
+    # a break when handed over directly), then proven invisible to the tracked
+    # roster. A walk-based roster fails the second half.
+    scratch = teeth_root / "src" / "k30r7_untracked_scratch.cljc"
+    try:
+        scratch.write_text(
+            "(ns k30r7-untracked-scratch)\n"
+            ";; ../../docs/machines/concepts.md#rf2-k30r7-anchor-that-does-not-exist\n",
+            encoding="utf-8",
+        )
+        saved_stderr = sys.stderr
+        sys.stderr = _DevNull()
+        try:
+            explicit_broken = check(
+                teeth_root,
+                verbose=False,
+                compat_anchors={},
+                placement={},
+                source_files=(scratch,),
+            )
+        finally:
+            sys.stderr = saved_stderr
+        tracked_roster = {
+            p.relative_to(teeth_root).as_posix()
+            for p in _iter_source_files(teeth_root)
+        }
+    finally:
+        scratch.unlink(missing_ok=True)
+
+    if explicit_broken != 1:
+        sys.stderr.write(
+            "self-test FAIL: the untracked-scratch fixture is not actually broken, "
+            f"so the tracking tooth proves nothing (got broken={explicit_broken})\n"
+        )
+        failures += 1
+    elif scratch.relative_to(teeth_root).as_posix() in tracked_roster:
+        sys.stderr.write(
+            "self-test FAIL: an untracked scratch source reached the production "
+            f"scan (got {sorted(tracked_roster)})\n"
+        )
+        failures += 1
+    elif "src/valid.clj" not in tracked_roster:
+        sys.stderr.write(
+            "self-test FAIL: the tracked roster lost a tracked source while "
+            f"excluding the untracked one (got {sorted(tracked_roster)})\n"
+        )
+        failures += 1
+    elif verbose:
+        sys.stderr.write(
+            "self-test PASS: untracked scratch sources cannot fail the scan while "
+            "tracked sources stay covered\n"
         )
 
     # rf2-zq5i6 — placement ordering logic, driven directly with a correct and a
