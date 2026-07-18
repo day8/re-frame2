@@ -50,7 +50,9 @@ Epic `EPIC: re-frame.ui program` with per-stage children. Sequencing constraints
   08 §2 wins); (3) compile-error roster + didactic messages; (4) `ui.test`
   render/find/text over JVM trees; (5) parity corpus v0; (6) **interim Spec-004
   amendment merges here**, full 004 rewrite merges **atomically with the slice's
-  conformance fixtures**; (7) G-1/G-14 gates wired. *Contracts in place:* the public
+  conformance fixtures**; (7) G-1 wired, and G-14 only in its `defview` expansion-p95
+  arm — the other two arms (watch-loop rebuild delta, guide-fixtures CI cost) stay named
+  open, so G-14 is **not** complete at S1 ⟨07 §5⟩. *Contracts in place:* the public
   JVM-tree schema, conversion table, fingerprint/normalization inputs, and SSR consumption
   boundary are frozen in `spec/004B-UI-Tree-and-Conversion.md`, and the mount grammar,
   root identity, and locator rules in `spec/004C-Roots-and-Mount.md` (both promoted from
