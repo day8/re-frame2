@@ -44,6 +44,11 @@
             [re-frame.ui.compiler.env :as env]
             [re-frame.ui.parity-fixtures :as fx]
             [re-frame.ui.rules :as rules]
+            ;; COMPOSITION, not duplication: the S3 guard owns the frozen S1-S3
+            ;; rosters AND the row-binding machinery (repo-root / table-row-for /
+            ;; section-between). This profile reuses both rather than restating
+            ;; the S3 surface or re-implementing its helpers.
+            [re-frame.ui.s3-conformance-profile-jvm-test :as s3]
             [re-frame.ui.test :as uit]))
 
 ;; ---------------------------------------------------------------------------
@@ -246,19 +251,44 @@
 
 (def s4-arm-gates #{"G-7" "G-11"})
 
+;; ---------------------------------------------------------------------------
+;; (5) INHERITANCE. This profile is CUMULATIVE: S1-S3 ride the frozen S3 profile
+;; by exact reference. The facade publics the S3 guard classifies as "not S3"
+;; (`non-s3-facade-publics`) split into exactly two buckets — the S4 delta this
+;; profile rows, and the S1/S2 carry-over forms the Spec 004 family catalogues.
+;; Asserting that partition is EXACT is what makes a NEW PUBLIC SURFACE fail
+;; loudly: a new facade var lands in `non-s3-facade-publics` (the S3 guard's own
+;; exact-set check) and must then be classified here or listed below.
+;; ---------------------------------------------------------------------------
+
+(def s1-s2-carryover-publics
+  "Facade publics that are neither S3 nor the S4 delta — the S1/S1b/S1c/S2 forms
+  and the boot adapter, catalogued in the Spec 004 family. Listed explicitly so
+  every NEW public var must be classified (S3 verb/view, S4 delta, or here)."
+  '#{adapter defview mount create-root render! hydrate-root unmount!
+     frame-root frame-provider sub lease frame spread})
+
+(def s4-inherits-profile
+  "The frozen profile this one inherits by exact reference. A broken inheritance
+  link — the file gone, or the reference dropped from §0 — is red."
+  "S3-view-conformance-profile.md")
+
 ;; ===========================================================================
 ;; Executable surface pins — the shipped code honours each catalogued contract.
 ;; ===========================================================================
 
-(defn- repo-root []
-  (loop [d (io/file (System/getProperty "user.dir"))]
-    (cond
-      (nil? d) nil
-      (.exists (io/file d "spec" "conformance")) d
-      :else (recur (.getParentFile d)))))
+;; Shared with the S3 guard — see the :require note above.
+(def ^:private repo-root s3/repo-root)
+(def ^:private table-row-for s3/table-row-for)
+(def ^:private section-between s3/section-between)
 
 (defn- profile-doc []
   (io/file (repo-root) "spec" "conformance" "S4-view-conformance-profile.md"))
+
+(defn- s3-profile-doc []
+  (io/file (repo-root) "spec" "conformance" "S3-view-conformance-profile.md"))
+
+(defn- doc-lines [] (str/split-lines (slurp (profile-doc))))
 
 (defn- err-id
   "Run `f`; -> the thrown `:rf.error/id`, or ::no-throw."
@@ -268,6 +298,66 @@
 
 (defn- ex-data-of [f]
   (try (f) nil (catch clojure.lang.ExceptionInfo e (ex-data e))))
+
+;; ===========================================================================
+;; Inheritance — composes with the S3 guard (the ruled S4-E obligation):
+;; a new public surface, a broken inheritance link, or a moved/deleted proof row
+;; must fail loudly.
+;; ===========================================================================
+
+(defn- s4-facade-forms
+  "The S4-delta forms that live on the `re-frame.ui` facade (flush-presence! is
+  `re-frame.ui.test`'s, so it is not a facade public)."
+  []
+  (set (keys (into {} (remove (fn [[_ v]] (= 're-frame.ui.test (:ns v)))
+                              frozen-s4-forms)))))
+
+(deftest new-public-surface-fails-loudly
+  (testing "the non-S3 facade publics partition EXACTLY into the S4 delta + the S1/S2 carry-over — a NEW public var is red until it is classified"
+    (let [non-s3     s3/non-s3-facade-publics
+          classified (set/union (s4-facade-forms) s1-s2-carryover-publics)]
+      (is (= non-s3 classified)
+          (str "facade classification drift — "
+               "unclassified (new?) publics: " (sort (set/difference non-s3 classified))
+               "; classified-but-absent: " (sort (set/difference classified non-s3))))))
+  (testing "the live facade agrees — every classified name actually resolves"
+    (doseq [sym (set/union (s4-facade-forms) s1-s2-carryover-publics)]
+      (is (some? (ns-resolve 're-frame.ui sym))
+          (str "ui/" sym " is classified but does not resolve")))))
+
+(deftest s4-does-not-double-classify-any-s3-surface
+  (testing "no S4-delta form is also catalogued as an S3 verb, the S3 view, or a React wrapper"
+    (doseq [sym (keys frozen-s4-forms)]
+      (is (not (contains? s3/frozen-s3-verbs sym))
+          (str sym " must not be double-classified as an S3 verb"))
+      (is (not (contains? s3/frozen-s3-view sym))
+          (str sym " must not be double-classified as the S3 framework view"))
+      (is (not (contains? s3/frozen-react-wrappers sym))
+          (str sym " must not be double-classified as a React interop wrapper")))))
+
+(deftest inheritance-link-is-intact
+  (testing "the frozen S3 profile this one inherits still exists"
+    (is (.exists (s3-profile-doc))
+        (str "broken inheritance link — " s4-inherits-profile " is missing")))
+  (testing "§0 inherits S1-S3 by EXACT reference to the frozen S3 profile"
+    (let [section (section-between (slurp (profile-doc)) "## 0." "## 1.")]
+      (is (some? section) "the profile must have a §0 inheritance section and a §1 header")
+      (when section
+        (doseq [claim [s4-inherits-profile
+                       "cumulative"
+                       "by exact reference"
+                       "does not restate"]]
+          (is (str/includes? section claim)
+              (str "§0 must state: " claim))))))
+  (testing "the S4 profile does NOT restate the frozen S3 rosters (duplication IS drift)"
+    (let [lines (doc-lines)]
+      (doseq [sym (concat (keys s3/frozen-s3-verbs) (keys s3/frozen-s3-view))]
+        (is (nil? (table-row-for lines (str "`ui/" sym "`")))
+            (str "the S4 profile must not restate the S3 row for ui/" sym
+                 " — S1-S3 are inherited by reference (§0)")))
+      (doseq [sym (keys s3/frozen-react-wrappers)]
+        (is (nil? (table-row-for lines (str "`react/" sym "`")))
+            (str "the S4 profile must not restate the S3 row for react/" sym))))))
 
 (deftest s4-forms-resolve-with-their-frozen-kinds
   (testing "every catalogued S4 form resolves in its namespace with the frozen kind"
@@ -444,29 +534,6 @@
 ;; validated row by row rather than by whole-document token presence.
 ;; ===========================================================================
 
-(defn- table-row-for
-  "The single Markdown table row whose FIRST cell is exactly `token`, or nil when
-  there is not exactly one. Keying on the first cell (not mere occurrence) binds
-  a form to its OWN §1 catalogue row: prose mentions, wall bullets, and rows that
-  merely reference the form mid-contract do not match."
-  [lines token]
-  (let [first-cell (fn [line]
-                     (let [t (str/triml line)]
-                       (when (str/starts-with? t "|")
-                         (-> t (subs 1) (str/split #"\|") first str/trim))))
-        rows       (filter #(= token (first-cell %)) lines)]
-    (when (= 1 (count rows)) (first rows))))
-
-(defn- section-between
-  "The region of `text` from header `from` up to header `to`, so a claim is read
-  from the section that owns it rather than from incidental prose elsewhere."
-  [text from to]
-  (let [start (str/index-of text from)
-        end   (str/index-of text to)]
-    (when (and start end (< start end)) (subs text start end))))
-
-(defn- doc-lines [] (str/split-lines (slurp (profile-doc))))
-
 (defn- check-row!
   "Assert the profile row keyed by `token` exists exactly once and carries every
   fragment + every id in `musts`."
@@ -559,6 +626,112 @@
           (str "the profile names proof home " home
                ", which is not a test namespace under implementation/ui/test")))))
 
+;; --- the ruled sequencing, non-parity, S5-wall and hand-off obligations ------
+
+(def open-presence-grammar-bugs
+  "The two OPEN S4-epic bugs that change the ACCEPTED presence grammar. The
+  profile's presence rows state the post-fix grammar and must say so, and §8
+  must make closing both part of the S4-conforming declaration."
+  ["rf2-vxgfnd.96.1" "rf2-vxgfnd.96.2"])
+
+(deftest profile-sequences-presence-behind-the-open-grammar-bugs
+  (testing "§1.1 states that the presence rows track the POST-FIX grammar, naming both open bugs"
+    (let [section (section-between (slurp (profile-doc)) "### 1.1" "### 1.2")]
+      (is (some? section) "the profile must have a §1.1 presence section and a §1.2 header")
+      (when section
+        (doseq [claim (concat open-presence-grammar-bugs
+                              ["POST-FIX presence grammar"
+                               "part of the S4-conforming"])]
+          (is (str/includes? section claim)
+              (str "§1.1 must state: " claim))))))
+  (testing "§8 makes closing both bugs part of the S4-conforming declaration"
+    (let [text (slurp (profile-doc))
+          tail (subs text (str/index-of text "## 8."))]
+      (doseq [claim (concat open-presence-grammar-bugs
+                            ["S4 is not yet declarable conforming"
+                             "Closing both is part of the S4-conforming declaration"])]
+        (is (str/includes? tail claim)
+            (str "§8 must state: " claim))))))
+
+(deftest profile-rows-the-intentional-non-parity-facts
+  (testing "§4.1 rows each non-parity S4 fact against its real proof home — never the structural comparator"
+    (let [lines (doc-lines)]
+      (doseq [[token proof] {"`ui/raw` / foreign component head" "re-frame.ui.raw-foreign-boundary-jvm-test"
+                             "the document head"                 "absence of surface"
+                             "the a11y roster"                   a11y-proof-home
+                             "presence's three-phase machine"    "re-frame.ui.presence-dom-cljs-test"}]
+        (let [row (table-row-for lines token)]
+          (is (some? row)
+              (str "§4.1 must row the non-parity fact " token " in exactly one table row"))
+          (when row
+            (is (str/includes? row proof)
+                (str token "'s non-parity row must name its real proof home: " proof))))))))
+
+(deftest profile-defers-the-s5-surfaces-explicitly
+  (testing "§5 lists the deliberate S5 non-surfaces — S4 claims conformance for none of them"
+    (let [section (section-between (slurp (profile-doc)) "## 5." "## 6.")]
+      (is (some? section) "the profile must have a §5 wall and a §6 header")
+      (when section
+        (doseq [claim ["rf2-vxgfnd.97"
+                       "Root Manifest"
+                       "hydration"
+                       "`render-static`"
+                       "phase"
+                       "failed-root isolation"
+                       "root-hydration half of W14"]]
+          (is (str/includes? section claim)
+              (str "§5 must defer to S5: " claim)))))))
+
+(deftest profile-bounds-the-g7-growth
+  (testing "the §6 G-7 ROW itself carries the S4-shapes-only bound"
+    ;; Row-keyed, not section-keyed: the same phrase also appears in the §6
+    ;; prose, so a section-wide substring check would stay green when the ROW
+    ;; is hollowed out (the exact under-binding class rf2-pd0dh fixed for S3).
+    (let [row (table-row-for (doc-lines) "**G-7**")]
+      (is (some? row) "§6 must carry exactly one G-7 roster row")
+      (when row
+        (is (str/includes? row "**S4 shapes only**")
+            "the G-7 row must bound its arm to S4 shapes only"))))
+  (testing "§6 bounds G-7 to S4 shapes and disclaims the broader S1-S3 equivalence debt"
+    (let [section (section-between (slurp (profile-doc)) "## 6." "## 7.")]
+      (when section
+        (doseq [claim ["**S4 shapes only**"
+                       "first"
+                       "in scope here"
+                       "named-open owner"
+                       "existing"]]
+          (is (str/includes? section claim)
+              (str "§6 must bound the G-7 growth: " claim)))))))
+
+(deftest profile-carries-the-s5-handoff-row
+  (testing "§7 CITES the obligations already recorded on rf2-vxgfnd.97 and creates no parallel ones"
+    (let [section (section-between (slurp (profile-doc)) "## 7." "## 8.")]
+      (is (some? section) "the profile must have a §7 hand-off section and a §8 header")
+      (when section
+        (doseq [claim ["rf2-vxgfnd.97"
+                       "no parallel obligation"
+                       "root-manifest hydration + failed-root isolation fixtures"
+                       "rf2-d9yq3"
+                       "hydrated presence starts `:present`"
+                       "rf2-aozoi"
+                       "SSR-adoption custom-element"
+                       "semantic normalizer"
+                       "render-fingerprint vocabulary"]]
+          (is (str/includes? section claim)
+              (str "§7 hand-off must cite: " claim)))))))
+
+(deftest profile-cites-the-ruled-head-ownership
+  (testing "§3 cites the rf2-3i7tr ruling and the ui/raw portal qualification — S4 adds no head machinery"
+    (let [section (section-between (slurp (profile-doc)) "## 3." "## 4.")]
+      (when section
+        (doseq [claim ["rf2-3i7tr"
+                       "normatively owns"
+                       "Spec 011 normatively owns"
+                       "**`ui/raw` does widen it, and that is deliberate.**"
+                       "no head machinery"]]
+          (is (str/includes? section claim)
+              (str "§3 must cite the ruled ownership: " claim)))))))
+
 (deftest profile-gate-roster-is-exactly-the-arm-set
   (testing "the §6 gate roster names EXACTLY the certified S4 arms — S4 adds NO new named gate"
     (let [roster (section-between (slurp (profile-doc)) "## 6." "## 7.")]
@@ -578,8 +751,8 @@
       (let [section (section-between text "## 3." "## 4.")]
         (is (some? section) "the profile must have a §3 head section and a §4 header")
         (when section
-          (doseq [claim ["No compiled-view form renders into `<head>`"
-                         "no `ui/head`"
+          (doseq [claim ["No compiled *structural* form renders into `<head>`"
+                         "no `ui/head`, and no head channel"
                          "**absence of surface**"
                          "`reg-head`"]]
             (is (str/includes? section claim)
