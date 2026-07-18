@@ -221,18 +221,28 @@ takes no build dependency on re-com.
 
 ### 5. Stage honesty — wired/green vs named-open
 
-Every stage wires its own gates into CI in that stage, never later. As of 2026-07-16:
-**wired and green** — G-1 and G-14 (S1, complete; G-1 runs as `npm run test:ui-g1`),
-and the S2 family G-3/G-4/G-5/G-6/G-13 (landed with the S2 slice; S2 core verified
+Every stage wires its own gates into CI in that stage, never later. As of 2026-07-18:
+**wired and green** — G-1 and G-14 (S1, complete; G-1 runs as `npm run test:ui-g1`
+under the noise-robust estimator, as CI job `cljs-ui-g1`); the S2 family
+G-3/G-4/G-5/G-6/G-13 (landed with the S2 slice; S2 core verified
 S3-ready under the rf2-vxgfnd.22 boundary review, which absorbed the real-sub-cache
-graft conformance the S-3 spike left open). **Named open** —
-the G-8 real-browser matrix (S-5's evidence is jsdom-only) plus its widened
-event-prefix arm; G-7/G-11 elision (wire at S3); G-15..G-18 (wire with their S3
-features per the standing rule); G-2/G-9 (wire with the stages shipping their
-subjects); root-manifest hydration + failed-root isolation (S5 — the S-4 spike passed
-dual-host structural output only); G-10/G-12 and the remaining
-absence/equivalence/budget gates plus the one-time W11 trio table (S6). S3–S7 have not
-started.
+graft conformance the S-3 spike left open); the G-8 real-browser matrix **including**
+its widened event-prefix arm — `npm run test:ui-g8` runs as CI job `cljs-ui-g8` on the
+`ui_gates` surface in real Chromium **and** WebKit, superseding S-5's jsdom-only
+evidence; G-11 (`npm run test:browser-prod-elision`, CI job
+`cljs-browser-prod-elision`, plus the absence scan `npm run test:ui-g1` carries); the
+G-15 atomic-local writer matrix (`npm run test:browser`); G-17 (its advanced arm in the
+prod-elision build, its dev arms in the `:node-test` and JVM suites); and G-12 (`npm run
+test:ui-isolation`, which fails closed unless both arms run). **Named open** — G-7
+beyond its production-absence arm: the dev↔prod equivalence matrix over generated
+shapes has no test yet; G-16's "manifest slot sites present" arm (its cross-emitter
+parity and slot-arity arms do run); G-18, whose fixture and
+`test:ui-facade-isolation` script exist but are self-declared RED and deliberately held
+out of the required matrix until they go green; G-2/G-9 (wire with the stages shipping
+their subjects); root-manifest hydration + failed-root isolation (S5 — the S-4 spike
+passed dual-host structural output only); G-10 and the remaining
+absence/equivalence/budget gates plus the one-time W11 trio table (S6). S3 has landed
+and S4 is in flight; S5–S7 have not started.
 
 ## Rationale
 
