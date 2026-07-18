@@ -474,33 +474,32 @@ jobs:
         working-directory: implementation/ssr
         run: clojure -M:clein install
 
+      # rf2-ldkuk — the rewrite (and its fail-loud invariants) lives in
+      # .github/scripts/rewrite-local-root-coord.sh, unit-tested via
+      # implementation `npm run test:script-policy`
+      # (scripts/_rewrite-local-root-coord.test.cjs).
+      #
+      # It matches the coordinate in CODE, ignoring EDN comments. The
+      # previous inline version asserted a RAW substring count of 1, which
+      # a prose comment quoting the same coordinate defeats — that is
+      # precisely what made day8/reagent-slim unreleasable (its header
+      # comment quotes `:local/root "../../core"`, so the count was 2 and
+      # the step aborted). Counting only code keeps the invariant honest
+      # instead of dependent on how the comments happen to be worded.
       - name: Rewrite ${{ matrix.leaf }} :local/root → :mvn/version
         working-directory: ${{ matrix.directory }}
         env:
           VERSION: ${{ needs.deploy-core.outputs.version }}
           LOCAL_ROOT: ${{ matrix.local-root }}
           EXTRA_LOCAL_ROOT: ${{ matrix.extra-local-root }}
-          LEAF_DIR: ${{ matrix.directory }}
         run: |
           set -euo pipefail
-          rewrite_one() {
-            local local_root="$1"
-            local before=":local/root \"${local_root}\""
-            if ! grep -qF "${before}" deps.edn; then
-              echo "::error::expected '${before}' substring not found in ${LEAF_DIR}/deps.edn"
-              exit 1
-            fi
-            BEFORE="${before}" \
-            AFTER=":mvn/version \"${VERSION}\"" \
-            python3 -c 'import os, pathlib; p = pathlib.Path("deps.edn"); src = p.read_text(); before = os.environ["BEFORE"]; after = os.environ["AFTER"]; assert src.count(before) == 1, f"expected exactly one occurrence of {before!r}"; p.write_text(src.replace(before, after))'
-            echo "Rewrote ${before} → :mvn/version $VERSION"
-          }
-          rewrite_one "${LOCAL_ROOT}"
+          "$GITHUB_WORKSPACE/.github/scripts/rewrite-local-root-coord.sh" "${LOCAL_ROOT}" "${VERSION}"
           # rf2-qmhysc — ssr-ring carries a second in-repo dep (../ssr);
           # the matrix sets EXTRA_LOCAL_ROOT for it (empty for every other
           # leaf, so the conditional is a no-op there).
           if [ -n "${EXTRA_LOCAL_ROOT:-}" ]; then
-            rewrite_one "${EXTRA_LOCAL_ROOT}"
+            "$GITHUB_WORKSPACE/.github/scripts/rewrite-local-root-coord.sh" "${EXTRA_LOCAL_ROOT}" "${VERSION}"
           fi
           grep "day8/re-frame2" deps.edn
 
