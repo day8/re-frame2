@@ -983,7 +983,7 @@ The `:scroll` value is one of:
 | `:preserve` | Do nothing (current scroll position stays as is). |
 | `nil` / absent | **Not** `:preserve` — the implicit default applies (resolution order below): `:top` on forward navigation, `:restore` on popstate / initial. To genuinely suppress scrolling, declare `:preserve` (keeps the `:rf.nav/scroll` fx, which does nothing) or `false` (skips the fx entirely). |
 
-The vocabulary is **closed** to those three keywords. Any other value — including a map — is rejected: the `:rf.nav/scroll` args schema (`:rf.fx.nav/scroll-args`) enumerates exactly `:top`, `:restore`, `:preserve`, so an unsupported strategy fails at the `:fx-args` boundary and the effect is skipped ([010 §Validation order step 5](010-Schemas.md#validation-order-on-event-processing)); and the registered fx handler — the always-on leg, since the schemas artefact is optional — emits `:rf.error/unsupported-scroll-strategy` rather than doing nothing. See [§Custom scroll strategies](#custom-scroll-strategies).
+The vocabulary is **closed** to those three keywords. Any other value — including a map — is rejected: the `:rf.nav/scroll` args schema (`:rf.fx.nav/scroll-args`) enumerates exactly `:top`, `:restore`, `:preserve`, so an unsupported strategy fails at the `:fx-args` boundary and the effect is skipped ([010 §Validation order step 5](010-Schemas.md#validation-order-on-event-processing)); and the registered fx handler — the always-on leg, since the schemas artefact is optional — emits `:rf.error/unsupported-scroll-strategy` rather than doing nothing. That handler leg fans through the two-channel error seam (`re-frame.error-emit/emit-error-both!`), so the rejection is genuinely unconditional: it survives `:advanced` + `goog.DEBUG=false` on a host that never loaded the schemas artefact, where the dev trace is elided. See [§Custom scroll strategies](#custom-scroll-strategies) and [009 §Error event catalogue](009-Instrumentation.md#error-event-catalogue).
 
 Resolution order at navigation time:
 1. `:scroll` key in `:rf.route/navigate`'s `opts` map (per-call override). Wins.
@@ -1006,8 +1006,13 @@ When a `:rf.nav/scroll` effect is emitted, its args carry both the strategy and 
                   (.scrollTo js/window (first saved-pos) (second saved-pos)))
       :preserve nil
       ;; Closed vocabulary — an unrecognised strategy is a caller bug.
-      (emit-error! :rf.error/unsupported-scroll-strategy
-                   {:strategy strategy :supported [:top :restore :preserve]}))))
+      ;; Fanned on BOTH error channels, not the dev trace alone: this branch
+      ;; is the only rejection a schemas-less host gets, so it must survive
+      ;; `:advanced` + `goog.DEBUG=false` (009 §Error event catalogue).
+      (emit-error-both! :rf.error/unsupported-scroll-strategy
+                        {:strategy strategy
+                         :supported [:top :restore :preserve]
+                         :recovery :no-scroll}))))
 ```
 
 ### Custom scroll strategies

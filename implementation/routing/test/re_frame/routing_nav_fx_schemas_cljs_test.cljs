@@ -37,6 +37,7 @@
   `:rf.nav/capture-scroll` reads."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
+            [re-frame.error-emit :as error-emit]
             [re-frame.registrar :as registrar]
             [re-frame.routing :as routing]
             [re-frame.routing.scroll :as scroll]
@@ -54,7 +55,11 @@
     {:adapter reagent-adapter/adapter
      :init-fn (fn []
                 (routing/reset-counters!)
-                (routing/reset-scroll-cache!))}))
+                (routing/reset-scroll-cache!)
+                ;; rf2-2hkfy: the always-on error-emit listener registry is a
+                ;; `defonce` atom — clear it so a recorder from one test cannot
+                ;; leak into the next.
+                (error-emit/clear-error-listeners!))}))
 
 ;; ---- helpers -------------------------------------------------------------
 
@@ -88,6 +93,25 @@
   itself rather than by the (optional) schemas gate."
   [traces]
   (filterv #(= :rf.error/unsupported-scroll-strategy (:operation %)) traces))
+
+(defn- record-always-on-errors!
+  "Install a recorder on the ALWAYS-ON error-emit axis (surface #4) and
+  return the atom it accumulates into. rf2-2hkfy: this is the channel the
+  `:rf.error/unsupported-scroll-strategy` rejection has to ride — the
+  dev-trace recorder `with-trace-recorder!` installs is DCE'd under
+  `:advanced` + `goog.DEBUG=false`, so a test that only watches the trace
+  cannot tell an always-on rejection from a dev-only one."
+  []
+  (let [seen (atom [])]
+    (rf/register-listener! :errors :scroll-always-on/recorder
+                           (fn [record] (swap! seen conj record)))
+    seen))
+
+(defn- unsupported-records
+  "The `:rf.error/unsupported-scroll-strategy` records in an always-on
+  recording."
+  [records]
+  (filterv #(= :rf.error/unsupported-scroll-strategy (:error %)) records))
 
 (defn- scroll-xy []
   [(.-scrollX js/window) (.-scrollY js/window)])
@@ -394,6 +418,110 @@
           (is (= :rf/default (:frame tags))
               "frame-stamped so the diagnostic reaches epoch capture / Xray")
           (is (string? (:reason tags))))))))
+
+(deftest scroll-handler-rejection-rides-the-always-on-error-axis
+  (testing "rf2-2hkfy: the rejection must ride the ALWAYS-ON error-emit axis,
+            not the dev trace alone. rf2-px26m routed the default branch
+            through `trace/emit-error!`, which is wrapped in
+            `interop/debug-enabled?` and DCEs under `:advanced` +
+            `goog.DEBUG=false`. So on a PRODUCTION host without the optional
+            schemas artefact — precisely the configuration this branch exists
+            to cover — the handler ran, scrolled nothing, emitted nothing and
+            returned nil: the original defect, intact, for the consumers least
+            likely to notice. The record must reach a listener registered on
+            the production-survivable axis"
+    (set-scroll! 0 700)
+    (let [records (record-always-on-errors!)]
+      (scroll/scroll-fx-handler {:frame :rf/default}
+                                {:strategy {:to :element :selector "#article"}})
+      (let [errs (unsupported-records @records)]
+        (is (= 1 (count errs))
+            "exactly ONE always-on record — the rejection survives production")
+        (is (= [0 700] (scroll-xy))
+            "and still performs no scroll")
+        (let [r (first errs)]
+          (is (= :rf.error/unsupported-scroll-strategy (:error r)))
+          (is (= {:to :element :selector "#article"} (:strategy r))
+              "the rejected value is named on the production-surviving record")
+          (is (= [:top :restore :preserve] (:supported r))
+              "the supported vocabulary is named")
+          (is (= :no-scroll (:recovery r))
+              ":recovery :no-scroll — navigation is unaffected, only the scroll")
+          (is (= :rf/default (:frame r))
+              ":frame names the navigating frame")
+          (is (string? (:reason r))
+              "the human diagnostic rides the record, not only the DCE'd trace")
+          (is (number? (:time r)) ":time is a wall-clock millis number"))))))
+
+(deftest scroll-handler-rejection-emits-once-per-channel
+  (testing "rf2-2hkfy: fanning through `error-emit/emit-error-both!` must not
+            DOUBLE-emit. One unsupported strategy produces exactly one
+            always-on record AND exactly one dev trace — the dev-trace tag map
+            being the one rf2-px26m shipped, so existing trace consumers
+            (Xray, epoch capture) see no change"
+    (set-scroll! 0 700)
+    (let [records (record-always-on-errors!)]
+      (with-trace-recorder! [traces]
+        (scroll/scroll-fx-handler {:frame :rf/default} {:strategy :bogus})
+        (is (= 1 (count (unsupported @traces)))
+            "exactly one dev trace — no double emission on the trace channel")
+        (let [tags (:tags (first (unsupported @traces)))]
+          (is (= :bogus (:strategy tags)))
+          (is (= [:top :restore :preserve] (:supported tags)))
+          (is (= :rf/default (:frame tags)))
+          (is (string? (:reason tags)))
+          (is (= :no-scroll (:recovery (first (unsupported @traces))))
+              ":recovery is still hoisted to the envelope by build-event")))
+      (is (= 1 (count (unsupported-records @records)))
+          "exactly one always-on record — no double emission on that channel"))))
+
+(deftest scroll-handler-supported-strategies-emit-no-always-on-record
+  (testing "rf2-2hkfy POSITIVE control on the always-on channel: promoting the
+            rejection must not make the WORKING strategies loud in production.
+            `:top` / `:restore` / `:preserve` each drive their own branch and
+            fan NO always-on record — `:preserve` in particular stays the
+            silent documented no-op it is specified to be"
+    (let [records (record-always-on-errors!)]
+      ;; :top — no fragment element in the stub, so it falls back to (0,0).
+      (set-scroll! 0 700)
+      (scroll/scroll-fx-handler {:frame :rf/default} {:strategy :top})
+      (is (= [0 0] (scroll-xy)) ":top scrolled to the top")
+      ;; :restore — drives .scrollTo with the saved position.
+      (set-scroll! 0 700)
+      (scroll/scroll-fx-handler {:frame :rf/default}
+                                {:strategy :restore :saved-pos [0 420]})
+      (is (= [0 420] (scroll-xy)) ":restore restored the saved position")
+      ;; :preserve — the silent documented no-op. Nothing moves, nothing emits.
+      (set-scroll! 0 700)
+      (scroll/scroll-fx-handler {:frame :rf/default} {:strategy :preserve})
+      (is (= [0 700] (scroll-xy)) ":preserve left the scroll position alone")
+      (is (empty? (unsupported-records @records))
+          "no always-on rejection for any supported strategy — :preserve is a
+           silent no-op, not a rejection"))))
+
+(deftest scroll-handler-rejection-attributes-the-originating-event
+  (testing "rf2-2hkfy: when the fx context carries the originating event
+            vector (Spec 002 §The binary fx-handler signature — `do-fx`
+            threads `:event` onto the handler ctx), the always-on record is
+            attributed to it, so an off-box shipper can tell WHICH navigation
+            carried the bad strategy. A direct handler call with no `:event`
+            leaves both slots nil rather than inventing attribution"
+    (let [records (record-always-on-errors!)]
+      (scroll/scroll-fx-handler {:frame :rf/default
+                                 :event [:test/navigate-somewhere 42]}
+                                {:strategy :bogus})
+      (let [r (first (unsupported-records @records))]
+        (is (= [:test/navigate-somewhere 42] (:event r))
+            ":event carries the originating event vector")
+        (is (= :test/navigate-somewhere (:event-id r))
+            ":event-id is the event-vector head")))
+    (let [records (record-always-on-errors!)]
+      (scroll/scroll-fx-handler {:frame :rf/default} {:strategy :bogus})
+      (let [r (first (unsupported-records @records))]
+        (is (nil? (:event r))    "no event vector for a direct handler call")
+        (is (nil? (:event-id r)) "no event-id for a direct handler call")
+        (is (= :rf/default (:frame r))
+            "the frame stamp is still present")))))
 
 (deftest scroll-handler-adversarial-near-miss-strategies
   (testing "rf2-px26m adversarial: values that LOOK like a supported strategy
