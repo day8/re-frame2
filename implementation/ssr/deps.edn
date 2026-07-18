@@ -56,6 +56,20 @@
                        day8/re-frame2-flows      {:local/root "../flows"}
                        day8/re-frame2-routing    {:local/root "../routing"}
                        day8/re-frame2-machines   {:local/root "../machines"}
+                       ;; TEST-ONLY (rf2-2mq2f): the Root Manifest v1
+                       ;; subset-property suite drives the SHIPPED S1
+                       ;; descriptor emitter
+                       ;; (`re-frame.ui.compiler.root/root-descriptor`)
+                       ;; rather than a hand-transcribed fixture, so
+                       ;; "a manifest is a strict superset of a
+                       ;; descriptor" is proven against the real
+                       ;; compiler output. Production `re-frame.ssr`
+                       ;; never `:require`s `re-frame.ui` — the manifest
+                       ;; is pure data, and ui depends on core exactly
+                       ;; as ssr does (no cycle). The CLJS half needs no
+                       ;; wiring: `ui/src` is already on the shared
+                       ;; :node-test source paths.
+                       day8/re-frame2-ui         {:local/root "../ui"}
                        ;; Silent-on-success reporter.
                        day8/re-frame2-test-quiet {:local/root "../test-quiet"}}
          ;; The default PR/local gate excludes the heavy
