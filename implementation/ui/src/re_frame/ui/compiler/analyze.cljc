@@ -122,13 +122,22 @@
   (and (seq? f) (contains? #{'fn 'fn* 'clojure.core/fn 'cljs.core/fn} (first f))))
 
 (defn- host-portable-argv?
-  "The raw `fn*` special form binds only simple (unqualified) symbols, with an
-  optional single trailing `& rest`. Applied ONLY to a raw `fn*` initializer:
-  its parameters are what the host compiler binds directly, so destructuring,
-  non-symbol/qualified parameters, and malformed `&` forms are host-illegal
-  (and a map argv otherwise reaches binding-plan as a raw
+  "The raw `fn*` special form binds only DISTINCT simple (unqualified) symbols,
+  with an optional single trailing `& rest`. Applied ONLY to a raw `fn*`
+  initializer: its parameters are what the host compiler binds directly, so
+  destructuring, non-symbol/qualified parameters, and malformed `&` forms are
+  host-illegal (and a map argv otherwise reaches binding-plan as a raw
   IllegalArgumentException). Macro `fn` / source `letfn` legally destructure —
-  their expansion owns that grammar — so they keep the looser argv shape."
+  their expansion owns that grammar — so they keep the looser argv shape.
+
+  Distinctness (`[x x]`, `[x & x]`, `[x y x]`) is the rf2-wnhbm seam. Both
+  hosts *compile* a duplicate parameter, but by different mechanisms — the JVM
+  shadows the earlier binding, ClojureScript gensym-renames the later one to
+  `x__$1` — and this analyzer's own lexical model cannot represent either: it
+  threads scope as a SET (`env/binding-syms`), so `[x x]` collapses to one
+  local and a reactive-escape check on the second `x` silently reads the
+  first's scope. A duplicate parameter is never intentional, so the honest
+  bounded rule is to reject it rather than analyze a form we cannot model."
   [argv]
   (and (vector? argv)
        (let [[fixed tail] (split-with #(not= '& %) argv)]
@@ -136,20 +145,45 @@
               (case (count tail)
                 0 true                            ; no variadic marker
                 2 (simple-symbol? (second tail))  ; `& rest`: exactly one rest sym
-                false)))))                        ; bare `&`, or `& a b`
+                false)                            ; bare `&`, or `& a b`
+              (let [bound (cond-> (vec fixed) (seq tail) (conj (second tail)))]
+                (= (count bound) (count (distinct bound))))))))
 
 (defn- host-arities-compatible?
   "Bounded arity-overload check for a raw `fn*`: the host rejects two overloads
-  of the same fixed arity, or more than one variadic overload. (This is the
-  narrow host-portability seam, NOT a general Clojure arity grammar — the
-  fixed-vs-variadic param-count rule is left to the host compiler.)"
+  of the same fixed arity, more than one variadic overload, or a fixed overload
+  that reaches into the variadic overload's arity range. (This is the narrow
+  host-portability seam, NOT a general Clojure arity grammar.)
+
+  The fixed-vs-variadic boundary (rf2-wnhbm) is where the two hosts stop
+  agreeing, so it cannot be left to \"the host compiler\" — there are two of
+  them. Writing `v` for the variadic overload's REQUIRED count (its parameters
+  before `&`, so its emitted parameter count is `v + 1`) and `f` for a fixed
+  overload's arity:
+
+    f <= v      both hosts compile it, identically — legal.
+    f == v + 1  the JVM rejects (`Can't have fixed arity function with more
+                params than variadic function`); ClojureScript compiles it with
+                BOTH a :variadic-max-arity and an :overload-arity
+                (\"Can't have 2 overloads with same arity\") warning, emitting a
+                dispatch that silently drops the fixed overload.
+    f >  v + 1  the JVM rejects; ClojureScript warns :variadic-max-arity and
+                emits the same broken dispatch.
+
+  So every fixed arity must be strictly less than the variadic overload's
+  parameter count — equivalently `f <= v`. That single rule is exactly where
+  the JVM's hard error and ClojureScript's warnings both begin, which is what
+  makes the accept/reject verdict host-portable."
   [argvs]
   (let [variadic?   (fn [argv] (boolean (some #(= '& %) argv)))
-        fixed-count (fn [argv] (count (take-while #(not= '& %) argv)))
+        required    (fn [argv] (count (take-while #(not= '& %) argv)))
         variadics   (filter variadic? argvs)
-        fixed       (map fixed-count (remove variadic? argvs))]
+        fixed       (map required (remove variadic? argvs))]
     (and (<= (count variadics) 1)
-         (= (count fixed) (count (set fixed))))))
+         (= (count fixed) (count (set fixed)))
+         (or (empty? variadics)
+             (let [v (required (first variadics))]
+               (every? #(<= % v) fixed))))))
 
 (defn- fn-init-shape?
   "True when `init` is a structurally well-formed fn/fn* form — the only legal
@@ -161,16 +195,22 @@
   (one or more arity lists); every argv MUST be a vector.
 
   A RAW `fn*` (the host special form — not the `fn` macro) additionally binds
-  only host-portable parameters (`host-portable-argv?`) with non-duplicate
-  arities (`host-arities-compatible?`): the host compiler requires it, and
-  without it a destructuring/qualified/malformed argv is either silently
-  accepted here only to crash the later host compiler, or reaches binding-plan
-  as a raw IllegalArgumentException. Macro `fn` / source `letfn` legally
-  destructure, so their argv shape is left to their own expansion."
+  only host-portable parameters (`host-portable-argv?`) with host-compatible
+  arities (`host-arities-compatible?`), and its optional internal name must be
+  a SIMPLE symbol: the host compiler requires it, and without these a
+  destructuring/qualified/malformed argv is either silently accepted here only
+  to crash the later host compiler, or reaches binding-plan as a raw
+  IllegalArgumentException. A qualified internal name is the sharpest of these
+  (rf2-wnhbm): the JVM accepts `(fn* foo/bar ([x] x))`, while ClojureScript
+  compiles it to `function cljs$user$foo.bar(x){…}` — not valid JavaScript, a
+  parse-time SyntaxError far downstream of this analyzer. Macro `fn` / source
+  `letfn` legally destructure, so their argv shape is left to their own
+  expansion."
   [init]
   (and (fn-form? init)
        (let [raw?    (= 'fn* (first init))
-             tail    (cond-> (rest init) (symbol? (second init)) rest)
+             fname   (when (symbol? (second init)) (second init))
+             tail    (cond-> (rest init) fname rest)
              arities (cond
                        (vector? (first tail)) (list tail)   ; single arity
                        (and (seq tail)
@@ -181,7 +221,8 @@
           (and arities
                (or (not raw?)
                    (let [argvs (map first arities)]
-                     (and (every? host-portable-argv? argvs)
+                     (and (or (nil? fname) (simple-symbol? fname))
+                          (every? host-portable-argv? argvs)
                           (host-arities-compatible? argvs)))))))))
 
 (defn- raw-form? [e f]  (and (seq? f) (symbol? (first f)) (env/resolves-to? e (first f) ui-raw-fqns)))
