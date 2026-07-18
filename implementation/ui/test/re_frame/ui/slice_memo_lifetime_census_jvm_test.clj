@@ -42,7 +42,14 @@
   JVM-only by nature: it reads repository files, and the documents it gates are
   host-agnostic. The RUNTIME lifetime contract is proven per-host by
   `reactive-slice-memo-render-boundary-jvm-test` (the JVM thread-local scope) and
-  `reactive-slice-memo-incarnation-cljs-test` (the CLJS module holder)."
+  `reactive-slice-memo-incarnation-cljs-test` (the CLJS module holder).
+
+  This namespace carries a SECOND census, generalised out of the first. The
+  retired-wording arm (rf2-cpalh) pins a supersession marker on the two named
+  documents that state the retired slice-memo wording; rf2-5jbev found that the
+  mechanism which let those two go stale is broader than those two files, and
+  the marker-PRESENCE half of that arm generalises to the directory. See
+  §The synthesis standing-marker census below."
   (:require [clojure.java.io :as io]
             [clojure.string :as str]
             [clojure.test :refer [deftest is testing]]))
@@ -445,3 +452,258 @@ cleared by `queueMicrotask`, and belt-and-braces tagged with
                       (drift text "spec/006-ReactiveSubstrate.md" "some other document")
                       section)
                      :marker/current-authority-unlinked)))))
+
+;; ---------------------------------------------------------------------------
+;; The synthesis standing-marker census (rf2-5jbev)
+;; ---------------------------------------------------------------------------
+;;
+;; The arm above pins TWO named files. The mechanism that let them go stale is
+;; wider than those two: `drafts/`, `spikes/` and `reviews/` hold authority-
+;; SHAPED, git-tracked documents that NO census enumerates AS A CLASS. The #6310
+;; compiler-model-authorities census (`guide-truth-jvm-test`) names eight
+;; specific paths and none of these directories; `check_doc_slugs.py
+;; --synthesis-only` reaches `drafts/` for LINK VALIDITY only and does not reach
+;; `spikes/` or `reviews/` at all; `check_synthesis_plan_authority.py` is a
+;; stage-token gate; and mkdocs does not build `ai/`. So a document could state a
+;; retired model indefinitely and nothing objected — measured three times in one
+;; day: `drafts/spec-004-interim-amendment.md` sat at "final draft / merge
+;; condition: immediately" carrying wording Spec 004 had retired (rf2-3b931);
+;; two more were found by rf2-cpalh; and rf2-rzzlw repaired six broken references
+;; in `reviews/09-review-disposition.md` that no gate would have caught — in a
+;; relocation that itself passed green.
+;;
+;; THE ROSTER IS THE DIRECTORY LISTING, never a maintained file list. A named-file
+;; roster is precisely the shape that let these directories fall out of coverage
+;; in the first place: it cannot enumerate a document nobody remembered to add.
+;; A file landing tomorrow is censused the day it lands.
+;;
+;; WHAT IT PINS IS PRESENCE, NOT CONTENT. The dispositions here are genuinely not
+;; uniform, and a guard demanding one marker vocabulary would force a document
+;; into the wrong shape. Three real ones, all of which must pass:
+;;
+;;   1. superseded, anchors GONE — `drafts/spec-004-interim-amendment.md` targeted
+;;      a spec revision that no longer exists (rf2-3b931);
+;;   2. superseded, anchors PRESENT but edits ALREADY LANDED —
+;;      `drafts/spec-006-observation-port-amendment.md`, where re-applying would
+;;      duplicate them (rf2-cpalh). Opposite reason, same disposition;
+;;   3. NOT superseded — `spikes/s3-ownership-report.md` is a dated experimental
+;;      record whose §5 model is still the binding shape source cited by live
+;;      Spec 006. Retiring it would kill a document the spec depends on;
+;;      rewording it would falsify the experimental record. It carries a scoped
+;;      CORRECTION instead (rf2-cpalh).
+;;
+;; So the census asks one question — "does this document declare its standing
+;; where a reader meets it?" — and answers it from a small union of the marker
+;; vocabularies actually in use. It never reads what the marker CLAIMS; a wrong
+;; status is out of scope by ruling, and belongs to whoever edits the document.
+;;
+;; The accepted vocabulary is per-directory, because the directories differ in
+;; kind. `drafts/` documents are pending DIRECTION — an undated draft is
+;; actionable, so a bare date does not declare standing there and a status or
+;; supersession marker is required. `spikes/` and `reviews/` are dated RECORDS by
+;; nature: "written on date D by reviewer R" is the whole of their standing, and
+;; demanding `**Status:**` of a 2026-07-11 adversarial review would be the
+;; wrong-shape failure above. They accept a record marker as well.
+
+(def ^:private synthesis-root "ai/findings/new-substrate-synthesis")
+
+(def ^:private standing-marker-classes
+  "The marker vocabularies actually in use across the censused tree, as a
+  presence test each. Line-anchored (a blockquote `> ` prefix allowed) so a
+  passing mention of the word `draft` in running prose cannot satisfy the
+  census — a marker is a document's own leading declaration, not a word in it.
+
+    :status       `**Status:** DRAFT`, `**Status: SUPERSEDED — …**`, `**Status:**
+                  DIRECTED`, `**Status:** prep batch`, `**Status:** contract draft`
+    :supersession a leading banner retiring or qualifying the document:
+                  `**[SUPERSEDED NOTE — …]**`, `**HISTORICAL — EXECUTED …**`,
+                  `**⚠ CORRECTION (…)**`, `**[DELTA BANNER — …]**`,
+                  `**DRAFT — merges at S5.**`
+    :record       the dated-record header of a spike or review: `**Date:** …`,
+                  `**Written:** …`, `**When:** …`, optionally preceded on its line
+                  by one other bold field label (`**Worker:** … · **Date:** …`)."
+  {:status       #"(?m)^>?[ \t]*\*\*\[?Status:"
+   :supersession #"(?m)^>?[ \t]*\*\*[ \t]*\[?[ \t]*(?:⚠[ \t]*)?(?:SUPERSEDED|HISTORICAL|RETIRED|CORRECTION|DELTA BANNER|DRAFT)\b"
+   :record       #"(?m)^>?[ \t]*(?:\*\*[^*\n]{1,40}\*\*[^*\n]{0,40})?\*\*(?:Date|Written|When):\*\*"})
+
+(def ^:private censused-directories
+  "The censused directories and the marker classes each accepts.
+
+  Post-S7 `drafts/` is deleted under `rf2-vxgfnd.99.1` while `reviews/` and
+  `spikes/` survive — they become the only synthesis paths left, and so the only
+  ones still needing this. A vanished directory therefore REDS (`:roster/empty`)
+  rather than silently censusing nothing: dropping a row here must be a
+  deliberate, visible edit in the wave that deletes it, never a vacuous pass."
+  [{:dir "drafts"  :accepts #{:status :supersession}}
+   {:dir "spikes"  :accepts #{:status :supersession :record}}
+   {:dir "reviews" :accepts #{:status :supersession :record}}])
+
+(defn- first-section-index
+  "Index of the document's first `##` section heading, or nil. Matched with an
+  explicit matcher rather than `index-of` on the matched text, so an inline
+  `## ` earlier in the prose cannot report a false position."
+  [text]
+  (let [m (re-matcher #"(?m)^##[^#]" text)]
+    (when (.find m) (.start m))))
+
+(defn- preamble
+  "The document's opening — everything BEFORE its first `##` section heading.
+
+  This is the directory-level analogue of the retired-wording arm's deep-link
+  guard. That arm can name the section carrying the retired prose; a directory
+  census cannot, and inferring it would mean validating content. What generalises
+  is the reader-meets-it-first property: a marker in the preamble sits ahead of
+  every anchor-linkable section in the document, so no deep link can land past
+  it. A marker below the first heading is one a scanning or deep-linking reader
+  can miss entirely — which is how an authority-shaped document gets acted on."
+  [text]
+  (if-let [at (first-section-index text)]
+    (subs text 0 at)
+    text))
+
+(defn standing-marker-violations
+  "Census ONE document's text against the classes its directory `accepts`;
+  return the SET of violations (empty = conformant). Pure over text, so the
+  negative arm can prove it has teeth."
+  [text accepts]
+  (let [declared? (fn [region]
+                    (boolean (some (fn [[class re]]
+                                     (and (contains? accepts class)
+                                          (re-find re region)))
+                                   standing-marker-classes)))
+        anywhere  (declared? text)]
+    (cond-> #{}
+      (not anywhere)
+      (conj :marker/missing)
+
+      (and anywhere (not (declared? (preamble text))))
+      (conj :marker/below-first-section))))
+
+;; ---------------------------------------------------------------------------
+;; Positive arm — every tracked document in the censused directories
+;; ---------------------------------------------------------------------------
+
+(defn- directory-roster
+  "The roster: the DIRECTORY LISTING of `dir`'s markdown files, sorted for a
+  stable failure order. Never a maintained list of names."
+  [dir]
+  (let [d (io/file @root synthesis-root dir)]
+    (->> (.listFiles d)
+         (filter #(.isFile ^java.io.File %))
+         (filter #(str/ends-with? (.getName ^java.io.File %) ".md"))
+         (sort-by #(.getName ^java.io.File %)))))
+
+(deftest every-authority-shaped-synthesis-document-declares-its-standing
+  (doseq [{:keys [dir accepts]} censused-directories]
+    (testing (str synthesis-root "/" dir "/")
+      (let [roster (directory-roster dir)]
+        (is (seq roster)
+            (str synthesis-root "/" dir "/ censuses no documents — the directory "
+                 "is missing or empty. If the S7 removal wave (rf2-vxgfnd.99.1) "
+                 "deleted it, drop its row from `censused-directories` in the "
+                 "same change; do not let the census pass vacuously"))
+        (doseq [^java.io.File f roster]
+          (testing (.getName f)
+            (is (= #{} (standing-marker-violations (slurp f) accepts))
+                (str synthesis-root "/" dir "/" (.getName f) " is authority-shaped "
+                     "and tracked, so it must declare its standing — a status, a "
+                     "supersession/correction banner, or (in spikes/ and reviews/) "
+                     "a dated-record header — in its opening, before the first "
+                     "`##` heading. What the marker SAYS is not censused"))))))))
+
+(deftest the-three-real-dispositions-pass-the-standing-census
+  (testing "the census admits every disposition actually found, so no document is
+            forced into the wrong shape"
+    (doseq [[path accepts disposition]
+            [["drafts/spec-004-interim-amendment.md" #{:status :supersession}
+              "superseded, anchors GONE (rf2-3b931)"]
+             ["drafts/spec-006-observation-port-amendment.md" #{:status :supersession}
+              "superseded, anchors PRESENT but edits already landed (rf2-cpalh)"]
+             ["spikes/s3-ownership-report.md" #{:status :supersession :record}
+              "NOT superseded — a dated experimental record still cited as the
+               binding shape source by live Spec 006 (rf2-cpalh)"]]]
+      (testing (str path " — " disposition)
+        (is (= #{} (standing-marker-violations
+                    (slurp (io/file @root synthesis-root path))
+                    accepts)))))))
+
+;; ---------------------------------------------------------------------------
+;; Negative arm — the census must REJECT an undeclared document
+;; ---------------------------------------------------------------------------
+
+(defn- strip-standing-markers
+  "Remove every recognised standing marker from `text`, asserting the strip
+  actually landed. A no-op would leave the live (green) document in place and
+  make the negative arm vacuously pass — the same trap `drift` guards above."
+  [text]
+  (let [stripped (reduce (fn [acc re] (str/replace acc re "Note "))
+                         text
+                         (vals standing-marker-classes))]
+    (when (= stripped text)
+      (throw (ex-info "marker strip did not mutate the live document — the
+                       standing-marker vocabulary no longer matches the tree"
+                      {:head (subs text 0 (min 200 (count text)))})))
+    stripped))
+
+(deftest standing-census-rejects-an-undeclared-document-in-every-directory
+  (testing "strip the marker off a LIVE document of each censused directory and
+            the census must reject it — proving the arm has teeth in all three,
+            not only where a marker happens to be easy to find"
+    (doseq [{:keys [dir accepts]} censused-directories
+            ^java.io.File f (directory-roster dir)
+            :let [text (slurp f)]
+            ;; Only CONFORMANT documents are strippable, and only they make the
+            ;; no-op guard in `strip-standing-markers` meaningful. An already-
+            ;; undeclared document is the positive arm's business, and would
+            ;; make this one throw on a strip that could not land.
+            :when (= #{} (standing-marker-violations text accepts))]
+      (testing (str dir "/" (.getName f))
+        (is (contains? (standing-marker-violations
+                        (strip-standing-markers text)
+                        accepts)
+                       :marker/missing))))))
+
+(deftest standing-census-rejects-a-brand-new-undeclared-document
+  (testing "a document added to any censused directory with no standing
+            declaration is rejected — the roster is the directory listing, so it
+            is censused the day it lands"
+    (doseq [{:keys [accepts]} censused-directories]
+      (is (= #{:marker/missing}
+             (standing-marker-violations
+              "# Spec 004 — interim broadening amendment (R-1)\n\nTarget: `spec/004-Views.md`.\n\n## The portability law\n\nA portable view has one deterministic representation.\n"
+              accepts))))))
+
+(deftest standing-census-rejects-a-marker-a-deep-link-reader-would-miss
+  (testing "a marker BELOW the first `##` heading sits past an anchor-linkable
+            section, so a deep-linking reader can meet the body first"
+    (is (= #{:marker/below-first-section}
+           (standing-marker-violations
+            "# Spec 004 — interim broadening amendment (R-1)\n\n## The portability law\n\nA portable view has one deterministic representation.\n\n**Status: SUPERSEDED — historical staging material. Do not apply.**\n"
+            #{:status :supersession})))))
+
+(deftest standing-census-does-not-accept-a-bare-date-as-draft-direction
+  (testing "a dated header declares the standing of a RECORD, not of pending
+            direction: `drafts/` must still carry a status or supersession marker"
+    (let [dated "# DRAFT — G-10 bundle-baseline methodology\n\n**Date:** 2026-07-12\n\n## Method\n\nAttribute shared chunks.\n"]
+      (is (= #{:marker/missing} (standing-marker-violations dated #{:status :supersession})))
+      (is (= #{} (standing-marker-violations dated #{:status :supersession :record}))))))
+
+(deftest every-standing-marker-class-is-recognised
+  (testing "each accepted vocabulary is pinned by a real example from the tree,
+            so a future edit cannot silently drop a class and leave the
+            documents that rely on it uncensused"
+    (doseq [[class sample]
+            [[:status       "**Status:** DIRECTED · 2026-07-16 20:38 AUSEST"]
+             [:status       "> **Status: DRAFT — not merged · 2026-07-12.** Closes the 09 item."]
+             [:supersession "> **[SUPERSEDED NOTE — 2026-07-16.]** The S3 children were filed as"]
+             [:supersession "> **HISTORICAL — EXECUTED (non-operative).** This is a dated audit;"]
+             [:supersession "> **⚠ CORRECTION (⟨rf2-cpalh⟩) — one inference in §5 was disproven.**"]
+             [:supersession "> **[DELTA BANNER — 2026-07-16, component-library readiness.]**"]
+             [:supersession "> **DRAFT — merges at S5.** Drafted 2026-07-12 09:22 AUSEST,"]
+             [:record       "**Date:** 2026-07-11"]
+             [:record       "**Worker:** S-1/S-4 spike worker · **Date:** 2026-07-11 23:31:52 AUSEST"]
+             [:record       "**Written:** 2026-07-11 20:32 AUSEST · Reviewer: independent"]
+             [:record       "**When:** 2026-07-14 17:27 AUSEST"]]]
+      (testing (str class " — " sample)
+        (is (re-find (get standing-marker-classes class) sample))
+        (is (= #{} (standing-marker-violations sample #{class})))))))
