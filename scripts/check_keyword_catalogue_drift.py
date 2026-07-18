@@ -29,9 +29,22 @@ guard and retired-namespace guard are DEFERRED until a real miss motivates them.
 
   CHECK B — Reserved-namespace coverage.
     Every `:rf.*` keyword NAMESPACE emitted by the implementation source MUST be
-    reserved in spec/Conventions.md (the reserved-namespace authority). This is
-    the check that guards the class rf2-0lb6xc closed (≈14 impl-emitted
+    RESERVED by a `:rf.<ns>/*` glob DECLARATION in the spec/Conventions.md
+    reserved-namespace table (the "single-root reserved set" — the authority).
+    This is the check that guards the class rf2-0lb6xc closed (≈14 impl-emitted
     namespaces that lacked a Conventions row).
+
+    A reservation is a `:rf.<ns>/*` GLOB row of that table — NOT an incidental
+    member mention. rf2-qriq8: the earlier extractor took EVERY `:rf.*` token
+    anywhere in the doc, so a specific-member spelling like `:rf.world/inputs`
+    in prose, a link, or a row body granted reservation to `:rf.world/*` — a
+    namespace could then exist in code with no reserved-namespace row and the
+    gate stayed green. Now only a `/*` glob within the reserved-namespace table
+    reserves; a specific-member spelling never does. Retired accepted-input
+    tombstones deliberately retained in source (the `:rf.world/inputs`
+    did-you-mean spelling — Conventions §The tombstone rule) are classified as
+    non-emitting: an accepted-input spelling, not a framework-emitted/reserved
+    namespace, so they neither fire the check nor reserve `:rf.world/*`.
 
 SCAN SURFACE (corpus-sweep rules — same as the sibling residue guards)
 ----------------------------------------------------------------------
@@ -106,9 +119,18 @@ _ERR_WARN_RE = re.compile(r":rf\.(?:error|warning)/[a-z0-9]+(?:-[a-z0-9]+)*")
 # dotted `:rf.<seg>…/x`.
 _RF_KEYWORD_RE = re.compile(r":(rf(?:\.[a-z][\w.-]*)?)/[\w.*+!?<>=-]+")
 
-# Namespace token as it appears in the Spec (e.g. `:rf.error` inside
-# `:rf.error/*`); group 0 minus the leading colon is the reserved namespace.
-_RF_NS_TOKEN_RE = re.compile(r":rf(?:\.[a-z][\w.-]*)?")
+# A reserved-namespace GLOB DECLARATION as it appears in the reserved-namespace
+# table — a backticked `:rf.<ns>/*` token whose NAME is literally `*` (rf2-qriq8).
+# group 1 is the reserved namespace. A specific-member spelling (`:rf.world/inputs`)
+# is NOT a glob, so it never reserves — only a `/*` declaration does.
+_RF_NS_GLOB_RE = re.compile(r"`:(rf(?:\.[a-z][\w.-]*)?)/\*`")
+
+# The header row of the reserved-namespace table ("The single-root reserved
+# set"). Reservations are read from THIS table only — never from surrounding
+# prose or an unrelated table — so a `:rf.<ns>/*` glob outside it cannot reserve.
+_RESERVED_TABLE_HEADER_RE = re.compile(
+    r"^\|\s*Sub-namespace\s*\|\s*Used for\s*\|\s*Spec\s*\|\s*$"
+)
 
 
 # --------------------------------------------------------------------------
@@ -182,9 +204,25 @@ def emitted_err_warn_ids(masked: str) -> set[str]:
     return set(_ERR_WARN_RE.findall(masked))
 
 
+# Retired keyword LITERALS deliberately retained in implementation source as
+# accepted-input / did-you-mean tombstones (Conventions §The tombstone rule) — a
+# retired DRAFT spelling kept only so a stale supplied opt earns a targeted
+# did-you-mean. These are NOT framework-emitted reserved namespaces, so CHECK B
+# neither requires a reserved-namespace row for them nor lets them reserve one
+# (rf2-qriq8). Exact-literal set — the member matters: a real `:rf.world/other`
+# would still be an emitted namespace requiring a row.
+_RETIRED_ACCEPTED_INPUTS = frozenset({":rf.world/inputs"})
+
+
 def emitted_namespaces(masked: str) -> set[str]:
-    """The `:rf.*` keyword namespaces in masked source text (e.g. `rf.error`)."""
-    return {m.group(1) for m in _RF_KEYWORD_RE.finditer(masked)}
+    """The `:rf.*` keyword namespaces in masked source text (e.g. `rf.error`),
+    EXCLUDING the retired accepted-input tombstone literals (an accepted-input
+    spelling is not a framework-emitted namespace — rf2-qriq8)."""
+    return {
+        m.group(1)
+        for m in _RF_KEYWORD_RE.finditer(masked)
+        if m.group(0) not in _RETIRED_ACCEPTED_INPUTS
+    }
 
 
 def catalogue_ids(spec_009_text: str) -> set[str]:
@@ -195,10 +233,41 @@ def catalogue_ids(spec_009_text: str) -> set[str]:
     return set(_ERR_WARN_RE.findall(spec_009_text))
 
 
+def _reserved_ns_table_region(conventions_text: str) -> str:
+    """The text of the reserved-namespace table ("The single-root reserved set")
+    — from its header row through the last consecutive table row. Reservations
+    are read from this region only, so a `:rf.<ns>/*` glob in unrelated prose or
+    a different table cannot reserve a namespace (rf2-qriq8)."""
+    lines = conventions_text.splitlines()
+    start = next(
+        (i for i, ln in enumerate(lines) if _RESERVED_TABLE_HEADER_RE.match(ln)),
+        None,
+    )
+    if start is None:
+        return ""
+    region = [lines[start]]
+    for ln in lines[start + 1:]:
+        if ln.lstrip().startswith("|"):
+            region.append(ln)
+        else:
+            break
+    return "\n".join(region)
+
+
 def reserved_namespaces(conventions_text: str) -> set[str]:
-    """The set of `:rf.*` namespaces Conventions reserves — every `:rf` /
-    `:rf.<seg>…` token in the doc (the reserved-namespace authority)."""
-    return {m.group(0)[1:] for m in _RF_NS_TOKEN_RE.finditer(conventions_text)}
+    """The set of `:rf.*` namespaces Conventions RESERVES — the namespace of
+    every `:rf.<ns>/*` glob DECLARATION in the reserved-namespace table. A glob
+    row is the reservation form; a specific-member spelling (`:rf.world/inputs`)
+    in prose, a link, or a row body is NOT a reservation (rf2-qriq8 — that false
+    green is exactly the gap this check now closes). The glob may sit in a row's
+    first column or, for a framework-internal sub-namespace declared under its
+    parent (e.g. `:rf.route.internal/*` in the `:rf.route/*` row), that row's
+    body — a `/*` glob is an explicit reservation wherever it sits IN the table,
+    whereas a member reference never reserves."""
+    return {
+        m.group(1)
+        for m in _RF_NS_GLOB_RE.finditer(_reserved_ns_table_region(conventions_text))
+    }
 
 
 # --------------------------------------------------------------------------
@@ -266,10 +335,13 @@ _FIX_A = (
     "  emitted id must be catalogued (adapter- / test-harness-internal ids too)."
 )
 _FIX_B = (
-    "Each namespace above is emitted by implementation source but is NOT\n"
-    "  reserved in spec/Conventions.md. Add a reserved-namespace row (this is\n"
+    "Each namespace above is emitted by implementation source but has NO\n"
+    "  `:rf.<ns>/*` glob row in the spec/Conventions.md reserved-namespace table\n"
+    "  (the 'single-root reserved set'). Add a reserved-namespace row (this is\n"
     "  the class rf2-0lb6xc closed) — the reserved-namespace scheme is the\n"
-    "  collision protection + greppability anchor for framework-owned ids."
+    "  collision protection + greppability anchor for framework-owned ids. A\n"
+    "  prose / row-body mention of a specific member does NOT reserve the\n"
+    "  namespace (rf2-qriq8): the reservation must be a `:rf.<ns>/*` glob row."
 )
 
 
@@ -376,7 +448,19 @@ def _run_self_tests(verbose: bool = False) -> int:
         "| `:rf.warning/plain-fn` | ... |\n"
     )
     synthetic_conventions = (
-        "| `:rf.error/*` | ... |\n| `:rf.machine/*` | ... |\n| `:rf/*` | ... |\n"
+        "### The single-root reserved set\n"
+        "\n"
+        "| Sub-namespace | Used for | Spec |\n"
+        "|---|---|---|\n"
+        "| `:rf/*` | Pattern-level events | 002 |\n"
+        "| `:rf.error/*` | Error trace ops | 009 |\n"
+        "| `:rf.machine/*` | Machine lifecycle | 005 |\n"
+        "| `:rf.ui/*` | UI-domino namespace | 009 |\n"
+        "| `:rf.ui.tool/*` | UI-tool inspector namespace | 009 |\n"
+        "| `:rf.route/*` | Routing; internal sub-ns `:rf.route.internal/*` | 012 |\n"
+        "\n"
+        "Prose AFTER the table: the retired draft opt `:rf.world/inputs` and a\n"
+        "made-up `:rf.auditfake/member` mention — neither reserves a namespace.\n"
     )
     catalogue = catalogue_ids(synthetic_009)
     reserved = reserved_namespaces(synthetic_conventions)
@@ -396,12 +480,52 @@ def _run_self_tests(verbose: bool = False) -> int:
            emitted_err_warn_ids(prose_src) == set())
 
     # CHECK B teeth ---------------------------------------------------------
-    good_ns = mask('(trace :rf.machine/transition [:rf/redacted])')
-    bad_ns = mask('(trace :rf.zzznew/frobnicate 1)')
-    b_good = {ns for ns in emitted_namespaces(good_ns) if ns not in reserved}
-    b_bad = {ns for ns in emitted_namespaces(bad_ns) if ns not in reserved}
-    expect("B: reserved namespaces pass", b_good == set())
-    expect("B: unreserved namespace FIRES", b_bad == {"rf.zzznew"})
+    def b_fire(src: str, reserved_set: set[str]) -> set[str]:
+        """The namespaces an emitted source fires CHECK B on against reserved_set."""
+        return {ns for ns in emitted_namespaces(mask(src)) if ns not in reserved_set}
+
+    # A glob-declared namespace passes — INCLUDING one declared in a row BODY
+    # (the framework-internal `:rf.route.internal/*` sub-namespace under its
+    # parent's row), which the live table relies on (rf.route.internal /
+    # rf.mutation.internal / rf.resource.internal / rf.interceptor.path are each
+    # declared under their parent's row rather than in their own first column).
+    expect("B: glob-declared namespaces pass (incl body-declared sub-ns)",
+           b_fire('(trace :rf.machine/transition [:rf/x] '
+                  ':rf.route.internal/settle-transition)', reserved) == set())
+    expect("B: unreserved namespace FIRES",
+           b_fire('(trace :rf.zzznew/frobnicate 1)', reserved) == {"rf.zzznew"})
+
+    # (1) arbitrary-prose / specific-member mention does NOT reserve — the
+    #     rf2-qriq8 gap (an ordinary mention used to grant reservation).
+    expect("B: prose member mention does NOT reserve (rf.auditfake)",
+           "rf.auditfake" not in reserved)
+    expect("B: emitting an only-prose-mentioned namespace FIRES",
+           b_fire('(x :rf.auditfake/member)', reserved) == {"rf.auditfake"})
+
+    # (2) row deletion turns the check red: dropping the `:rf.ui.tool/*` row
+    #     un-reserves it (its glob lives only in that row).
+    reserved_no_ui_tool = reserved_namespaces(
+        synthetic_conventions.replace(
+            "| `:rf.ui.tool/*` | UI-tool inspector namespace | 009 |\n", ""
+        )
+    )
+    expect("B: with its row, :rf.ui.tool/* passes",
+           b_fire('(x :rf.ui.tool/open)', reserved) == set())
+    expect("B: deleting the :rf.ui.tool/* row makes it FIRE",
+           b_fire('(x :rf.ui.tool/open)', reserved_no_ui_tool) == {"rf.ui.tool"})
+
+    # (3) exact-namespace matching — a parent `:rf.ui/*` glob does NOT reserve
+    #     the distinct child namespace `rf.ui.tool` (no prefix descent).
+    expect("B: parent :rf.ui/* does not reserve child rf.ui.tool",
+           "rf.ui" in reserved_no_ui_tool and "rf.ui.tool" not in reserved_no_ui_tool)
+
+    # (4) tombstone classification — the retired `:rf.world/inputs` did-you-mean
+    #     spelling is an accepted input, not a framework namespace: emitting it
+    #     does NOT fire, while a real `:rf.world/other` member DOES.
+    expect("B: retired :rf.world/inputs tombstone does NOT fire",
+           b_fire('{:rf.world/inputs "did you mean :rf.cofx?"}', reserved) == set())
+    expect("B: a non-tombstone :rf.world/* member DOES fire",
+           b_fire('(x :rf.world/other)', reserved) == {"rf.world"})
 
     if failures:
         sys.stderr.write(f"\n{failures} self-test failure(s).\n")
