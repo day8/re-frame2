@@ -526,7 +526,7 @@
 ;; e.g. `"panel_gallery/event_detail_stories.cljs"`). Editor URI handlers
 ;; (`vscode://file/<path>...`, `cursor://...`, `idea://...`, etc.) resolve
 ;; `<path>` against the filesystem; a relative path fails with "Path does
-;; not exist". Xray's 'Open' chip + the `:rf.editor/open` reg-fx
+;; not exist". Xray's 'Open' chip + the `:rf.xray.fx/open-in-editor` reg-fx
 ;; therefore need to know the on-disk root to prepend before the URI
 ;; ships.
 ;;

@@ -129,10 +129,7 @@
   (and (keyword? id)
        (when-let [ns (namespace id)]
          (or (= "rf.xray" ns)
-             (re-matches #"rf\.xray\..*" ns)
-             ;; rf2-g5q8d — `:rf.editor/open` lives under the editor-
-             ;; generic prefix (cross-tool allowlist seam, rf2-cm93v).
-             (= "rf.editor" ns)))))
+             (re-matches #"rf\.xray\..*" ns)))))
 
 (def ^:private all-sub-names
   "Every Xray-namespaced sub registered by `register-xray-handlers!`.
@@ -881,11 +878,12 @@
    ;; trip).
    :rf.xray.static.machines/persist-selection
    :rf.xray.static.machines/persist-sub-mode
-   ;; rf2-g5q8d — cross-panel open-in-editor side-effect. Lives under
-   ;; the editor-generic `:rf.editor/*` prefix rather than `:rf.xray.fx/*`
-   ;; because the rf2-cm93v allowlist seam is editor-related, not
-   ;; Xray-specific.
-   :rf.editor/open))
+   ;; rf2-g5q8d — cross-panel open-in-editor side-effect. Xray-owned
+   ;; and `:rf.xray.fx/*`-scoped like every other Xray fx (rf2-5ot1d
+   ;; retired the shared `:rf.editor/*` reservation: the effect closes
+   ;; over Xray's editor/project-root/navigator, so Story registers its
+   ;; own distinct `:rf.story.fx/open-in-editor`).
+   :rf.xray.fx/open-in-editor))
 
 ;; ---- test-only override seam snapshot (rf2-e8330v / xxo3zz F3) ----------
 ;;
@@ -1789,14 +1787,14 @@
 (deftest event-open-in-editor-routes-through-editor-fx
   (testing "rf2-g5q8d — `:rf.xray/open-in-editor` is now a reg-event handler
             that returns `:fx` — it resolves the coord through the rf2-cm93v allowlist and
-            fires `:rf.editor/open`. It does NOT write to app-db (the
+            fires `:rf.xray.fx/open-in-editor`. It does NOT write to app-db (the
             click is pure navigation; the prior stub's
             `:last-open-in-editor-coord` slot is gone). Detailed
             contract assertions live in `open_in_editor_cljs_test.cljs`;
             here we pin the registry-level shape only."
     (setup-xray-frame!)
     ;; rf2-4s08ov — model a wired host: explicitly set an editor so the
-    ;; click navigates (fires `:rf.editor/open`) rather than surfacing
+    ;; click navigates (fires `:rf.xray.fx/open-in-editor`) rather than surfacing
     ;; the unconfigured-host DX hint. The unconfigured-host branch is
     ;; covered in `open_in_editor_cljs_test.cljs`.
     (config/set-editor! :vscode)
@@ -1805,17 +1803,17 @@
       ;; rf2-h1vqa4: a cross-ns re-registration of the xray-owned fx id
       ;; fails the frame's default-image assembly loud.
       (rf/make-frame {:id :rf/xray
-                      :fx-overrides {:rf.editor/open
+                      :fx-overrides {:rf.xray.fx/open-in-editor
                                      (fn [_ctx args] (swap! captured conj args))}})
       (rf/with-frame :rf/xray
         (rf/dispatch-sync [:rf.xray/open-in-editor
                            {:file "src/x.cljs" :line 10 :column 5}])
         (is (= 1 (count @captured))
-            "the event-fx emits exactly one :rf.editor/open fx")
+            "the event-fx emits exactly one :rf.xray.fx/open-in-editor fx")
         (is (= {:file "src/x.cljs" :line 10 :column 5}
                (:source-coord (first @captured)))
             "rf2-wn3bh — the fx carries the structured :source-coord so
-             :rf.editor/open can prefer the dev-server endpoint and fall
+             :rf.xray.fx/open-in-editor can prefer the dev-server endpoint and fall
              back to the editor:// URI")
         (is (nil? (:last-open-in-editor-coord
                     (frame/frame-app-db-value :rf/xray)))

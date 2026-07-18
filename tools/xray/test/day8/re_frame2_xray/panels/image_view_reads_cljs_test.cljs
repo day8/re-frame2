@@ -89,24 +89,24 @@
             its `*-cljs-test` sibling co-registering the SAME id, `xray-image`
             selects ONLY the production descriptor — the exclude prevents the
             assembly dup-id that blocked flipping the production singleton"
-    (let [pool [{:kind :fx :id :rf.editor/open
+    (let [pool [{:kind :fx :id :rf.xray.fx/open-in-editor
                  :rf.provenance/ns "day8.re-frame2-xray.open-in-editor" :impl :prod}
-                {:kind :fx :id :rf.editor/open
+                {:kind :fx :id :rf.xray.fx/open-in-editor
                  :rf.provenance/ns "day8.re-frame2-xray.open-in-editor-cljs-test" :impl :test}
                 {:kind :event :id :counter/inc
                  :rf.provenance/ns "day8.re-frame2-xray.test-helpers.host-fixtures.counter"
                  :impl :fixture}]
           sel  (image/select-descriptors (reads/xray-image) pool)]
-      ;; only the production :rf.editor/open survives; the test sibling +
+      ;; only the production :rf.xray.fx/open-in-editor survives; the test sibling +
       ;; test-helpers fixture are excluded.
       (is (= 1 (count sel)) "exactly one descriptor selected")
-      (is (= :rf.editor/open (:id (first sel))))
+      (is (= :rf.xray.fx/open-in-editor (:id (first sel))))
       (is (= "day8.re-frame2-xray.open-in-editor" (:rf.provenance/ns (first sel)))
           "the PRODUCTION descriptor, not the `*-cljs-test` sibling")
       ;; and assembly seals it WITHOUT a dup-id throw (the blocker is gone).
       (let [gen (image-assembly/assemble [(reads/xray-image)] pool)]
-        (is (contains? (reads/application-resolver-keyset gen) [:fx :rf.editor/open])
-            "the production :rf.editor/open is in the sealed generation")))))
+        (is (contains? (reads/application-resolver-keyset gen) [:fx :rf.xray.fx/open-in-editor])
+            "the production :rf.xray.fx/open-in-editor is in the sealed generation")))))
 
 ;; A descriptor authored under XRAY's OWN source namespace (the shape the live
 ;; source store stamps for every :rf.xray/* registration). Used to give Xray's

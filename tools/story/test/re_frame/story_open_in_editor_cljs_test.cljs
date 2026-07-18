@@ -10,7 +10,7 @@
     URI when the coord carries `:file`.
   - The chip carries the `data-test` hook for the e2e suite.
   - `open-chip-for-variant` reads `:source` off the variant body.
-  - rf2-r2un8 — `:rf.story/open-in-editor` reg-event + `:rf.editor/open`
+  - rf2-r2un8 — `:rf.story/open-in-editor` reg-event + `:rf.story.fx/open-in-editor`
     reg-fx produce a resolved URI through the same denylist seam the
     chip uses (Xray-parity port).
   - rf2-ox357n — the positive allowlist was removed; only the
@@ -186,7 +186,7 @@
 
 (deftest open!-denylist-gates-pre-resolved-uri
   (testing "rf2-ox357n — `open!` re-applies the scheme denylist at the
-            pre-resolved {:uri ...} handoff (the :rf.editor/open reg-fx
+            pre-resolved {:uri ...} handoff (the :rf.story.fx/open-in-editor reg-fx
             path that bypasses editor-uri's build-time gating). Forbidden
             schemes never reach the navigator; non-dangerous schemes
             (incl. unknown custom) navigate."
@@ -539,14 +539,14 @@
     (is (= "lapce://open?file=src/x.cljs"
            (open-in-editor/resolve-uri {:file "src/x.cljs"})))))
 
-;; ---- :rf.story/open-in-editor + :rf.editor/open (rf2-r2un8) ------------
+;; ---- :rf.story/open-in-editor + :rf.story.fx/open-in-editor (rf2-r2un8) ------------
 ;;
 ;; The dispatch-based path Story exposes alongside the imperative chip.
 ;; Hosts that don't render the chip directly (agents replaying via MCP,
 ;; custom panels) can dispatch `[:rf.story/open-in-editor coord]` and
 ;; let the registered fx fire the URI through the same denylist gate.
-;; Mirrors Xray's `:rf.xray/open-in-editor` + `:rf.editor/open`
-;; pairing (port per rf2-r2un8). Tests stub the `:rf.editor/open` reg-fx
+;; Mirrors Xray's `:rf.xray/open-in-editor` + `:rf.story.fx/open-in-editor`
+;; pairing (port per rf2-r2un8). Tests stub the `:rf.story.fx/open-in-editor` reg-fx
 ;; with a capture, mirroring the Xray test pattern — no `window.location`
 ;; mutation under the test runner.
 
@@ -554,7 +554,7 @@
 
 (defn- install-with-capture!
   "Install Story's open-in-editor handlers then replace the
-  `:rf.editor/open` reg-fx with a capture stub so the test can inspect
+  `:rf.story.fx/open-in-editor` reg-fx with a capture stub so the test can inspect
   the fx args without touching `window.location`. Same pattern Xray's
   test suite uses.
 
@@ -571,7 +571,7 @@
   ;; on (these tests exercise the dispatch→fx glue, not a variant frame).
   (frame/ensure-default-frame!)
   (open-in-editor/install!)
-  (rf/reg-fx :rf.editor/open
+  (rf/reg-fx :rf.story.fx/open-in-editor
     (fn [_ctx args]
       (swap! captured-editor-fx conj
              (assoc args
@@ -580,7 +580,7 @@
 
 (deftest open-in-editor-event-emits-fx-with-resolved-uri
   (testing "rf2-r2un8 — dispatching `:rf.story/open-in-editor` with a
-            bare coord produces a `:rf.editor/open` fx whose :uri is the
+            bare coord produces a `:rf.story.fx/open-in-editor` fx whose :uri is the
             resolved URI"
     (install-with-capture!)
     (with-frame :rf/default
@@ -652,7 +652,7 @@
 (deftest open-in-editor-fx-receives-source-coord-key-rf2-wn3bh
   (testing "rf2-wn3bh — `:rf.story/open-in-editor` emits the structured
             `{:source-coord {...}}` shape (NOT a pre-resolved `:uri`) so
-            `:rf.editor/open` can prefer the dev-server endpoint and fall
+            `:rf.story.fx/open-in-editor` can prefer the dev-server endpoint and fall
             back to the `editor://` URI"
     (install-with-capture!)
     (with-frame :rf/default

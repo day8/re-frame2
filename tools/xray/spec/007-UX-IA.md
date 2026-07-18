@@ -1505,7 +1505,7 @@ itself guide the developer.
   `config/editor-configured?` and route through the same decision when
   it is false (NEITHER the host explicitly set `:rf.xray/editor` NOR a
   valid operator override is present): neither may fire the silent
-  `:rf.editor/open` navigation.
+  `:rf.xray.fx/open-in-editor` navigation.
   - The panel-side `:rf.xray/open-in-editor` event-fx dispatches
     `:rf.xray/editor-hint-show`.
   - The in-DOM `open-chip` `<a>` routes its `:on-click` through

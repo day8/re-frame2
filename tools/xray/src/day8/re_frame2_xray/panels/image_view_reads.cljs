@@ -133,7 +133,7 @@
   sweeps in EVERY Xray-authored registration — including, in any dev/test build
   that loads them, Xray's OWN `*-cljs-test` namespaces. Those tests co-register
   the same `:rf.xray/*` / `:rf.*` ids the production sources do (e.g.
-  `day8.re-frame2-xray.open-in-editor-cljs-test` registers `[:fx :rf.editor/open]`
+  `day8.re-frame2-xray.open-in-editor-cljs-test` registers `[:fx :rf.xray.fx/open-in-editor]`
   alongside the production `day8.re-frame2-xray.open-in-editor`). Within one image
   a `(kind, id)` collision is fail-loud (`:rf.error/image-duplicate-id`) — which
   blocked flipping the production singleton onto image-loaded seating.

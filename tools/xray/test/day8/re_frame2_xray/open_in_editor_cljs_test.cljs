@@ -17,7 +17,7 @@
     rf2-ox357n the positive allowlist was removed, so http:/https: and
     unknown custom schemes now render.
   - rf2-g5q8d — the `:rf.xray/open-in-editor` reg-event handler produces a
-    `:rf.editor/open` fx with a URI resolved through the rf2-vwcsq
+    `:rf.xray.fx/open-in-editor` fx with a URI resolved through the rf2-vwcsq
     scheme denylist; runs on the `:rf/xray` frame without contaminating
     the host."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
@@ -166,7 +166,7 @@
 ;; ("panel_gallery/event_detail_stories.cljs:115:3") that the editor's
 ;; filesystem resolver could not find. The Xray config now exposes
 ;; `:rf.xray/project-root` — set once at boot via `xray-config/configure!` — and
-;; `resolve-uri` (which both the chip and the `:rf.editor/open` fx share)
+;; `resolve-uri` (which both the chip and the `:rf.xray.fx/open-in-editor` fx share)
 ;; prepends it before the URI ships. Mirror of Story's rf2-zfy1e matrix.
 
 (deftest open-chip-default-no-project-root
@@ -311,7 +311,7 @@
               :line 42
               :column 1})))))
 
-;; ---- rf2-g5q8d — :rf.xray/open-in-editor + :rf.editor/open ------------
+;; ---- rf2-g5q8d — :rf.xray/open-in-editor + :rf.xray.fx/open-in-editor ------------
 ;;
 ;; Per the rf2-3vucz audit, the four Xray panels (trace, issues-ribbon,
 ;; mcp-server, hydration-debugger) dispatch `[:rf.xray/open-in-editor
@@ -321,7 +321,7 @@
 ;;
 ;; The block below pins the contract of the rewired event-fx + fx pair:
 ;;
-;;   1. Dispatching the event produces a `:rf.editor/open` fx whose
+;;   1. Dispatching the event produces a `:rf.xray.fx/open-in-editor` fx whose
 ;;      `:uri` resolves through `resolve-uri` (= rf2-vwcsq denylist).
 ;;   2. Both dispatch shapes are accepted: the bare-coord form (the
 ;;      hydration debugger's call site) and the `{:source-coord ...}`
@@ -339,7 +339,7 @@
 (defn- setup!
   "Per-test bootstrap shared by every rf2-g5q8d test: register Xray's
   handlers, allocate the `:rf/xray` frame, and replace the
-  `:rf.editor/open` reg-fx with a capture stub so assertions can
+  `:rf.xray.fx/open-in-editor` reg-fx with a capture stub so assertions can
   inspect the fx args without touching `window.location`. Mirrors the
   fx-replacement pattern in `time_travel_cljs_test.cljs`.
 
@@ -354,13 +354,13 @@
   (registry/register-xray-handlers!)
   ;; rf2-h1vqa4: capture via the frame's `:fx-overrides` (fn-value form) —
   ;; the DESIGNED per-frame fx-replacement seam — instead of re-registering
-  ;; `:rf.editor/open` from this test ns, which would sit beside Xray's own
+  ;; `:rf.xray.fx/open-in-editor` from this test ns, which would sit beside Xray's own
   ;; registration as a cross-namespace duplicate and fail the `:rf/xray`
   ;; frame's default-image assembly loud.
   (rf/make-frame
     {:id :rf/xray
      :fx-overrides
-     {:rf.editor/open
+     {:rf.xray.fx/open-in-editor
       (fn [_ctx args]
         ;; Record the raw fx args AND the URI the coord resolves to, so
         ;; tests can assert either the new `:source-coord` shape or the
@@ -373,7 +373,7 @@
 (deftest open-in-editor-event-emits-fx-with-resolved-uri
   (testing "rf2-g5q8d — dispatching `:rf.xray/open-in-editor` with
             a bare coord (the hydration-debugger shape) produces a
-            `:rf.editor/open` fx whose :uri is the resolved URI"
+            `:rf.xray.fx/open-in-editor` fx whose :uri is the resolved URI"
     (setup!)
     (rf/with-frame :rf/xray
       (rf/dispatch-sync [:rf.xray/open-in-editor
@@ -503,7 +503,7 @@
                db-only handler's behaviour, removed by rf2-g5q8d)"))))))
 
 (deftest open-in-editor-fx-receives-source-coord-key-rf2-wn3bh
-  (testing "rf2-wn3bh — `:rf.editor/open` is invoked with the structured
+  (testing "rf2-wn3bh — `:rf.xray.fx/open-in-editor` is invoked with the structured
             `{:source-coord {...}}` shape (NOT a pre-resolved `:uri`) so
             the fx can prefer the dev-server endpoint and fall back to the
             `editor://` URI. The resolution is deferred to the fx /
@@ -558,7 +558,7 @@
 ;;
 ;;   1. When NEITHER the host nor the operator has confirmed an editor
 ;;      (`config/editor-configured?` false), the open-in-editor event
-;;      routes to `:rf.xray/editor-hint-show` (NOT `:rf.editor/open`).
+;;      routes to `:rf.xray/editor-hint-show` (NOT `:rf.xray.fx/open-in-editor`).
 ;;   2. Once the host explicitly sets an editor (even `:vscode`), or an
 ;;      operator override is present, the click resolves + navigates as
 ;;      before — the hint never fires.
@@ -577,7 +577,7 @@
 
 (deftest open-in-editor-event-hints-when-no-editor-configured
   (testing "rf2-4s08ov — with NO editor effectively configured, the
-            event does NOT fire `:rf.editor/open` (the silent vscode:
+            event does NOT fire `:rf.xray.fx/open-in-editor` (the silent vscode:
             navigation) — it routes to the editor-hint instead"
     (setup-unconfigured!)
     (is (false? (config/editor-configured?))
@@ -586,7 +586,7 @@
       (rf/dispatch-sync [:rf.xray/open-in-editor
                          {:file "src/x.cljs" :line 1}])
       (is (= 0 (count @captured-editor-fx))
-          "no `:rf.editor/open` fx fires — the silent vscode: nav is
+          "no `:rf.xray.fx/open-in-editor` fx fires — the silent vscode: nav is
            replaced by the hint dispatch")))
   ;; Reset the override slot so the leaked `nil` write does not bleed
   ;; into sibling tests' `get-editor` reads.
@@ -610,7 +610,7 @@
 (deftest open-in-editor-event-navigates-when-host-set-editor
   (testing "rf2-4s08ov — once the host explicitly sets an editor (even
             the framework-default :vscode), the click resolves + fires
-            `:rf.editor/open` as before; the hint never fires"
+            `:rf.xray.fx/open-in-editor` as before; the hint never fires"
     (setup-unconfigured!)
     (config/set-editor! :vscode)
     (is (true? (config/editor-configured?))
@@ -703,7 +703,7 @@
 
 (deftest open-bang-calls-navigator
   (testing "rf2-muvs8 — `open!` (the public seam shared by the chip and
-            the `:rf.editor/open` reg-fx) invokes the navigator with
+            the `:rf.xray.fx/open-in-editor` reg-fx) invokes the navigator with
             an allowed URI"
     (let [[nav calls] (capturing-navigator)]
       (with-stub-navigator nav
@@ -722,7 +722,7 @@
 (deftest open-bang-denylist-gates-pre-resolved-uri
   (testing "rf2-muvs8 / rf2-ox357n — `open!` re-applies the scheme
             denylist at the pre-resolved {:uri ...} handoff (the
-            :rf.editor/open reg-fx path that bypasses editor-uri's
+            :rf.xray.fx/open-in-editor reg-fx path that bypasses editor-uri's
             build-time gating). Forbidden schemes never reach the
             navigator — case-insensitively + leading-whitespace tolerant
             — even when `open!` is called directly (e.g. an MCP-side

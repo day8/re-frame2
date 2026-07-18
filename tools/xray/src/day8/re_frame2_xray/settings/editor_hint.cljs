@@ -21,7 +21,7 @@
   When `config/editor-configured?` is false (NEITHER the host nor the
   operator has confirmed an editor — the target is the implicit
   framework default), the `:rf.xray/open-in-editor` event-fx routes to
-  `:rf.xray/editor-hint-show` instead of `:rf.editor/open`. This toast
+  `:rf.xray/editor-hint-show` instead of `:rf.xray.fx/open-in-editor`. This toast
   appears in the bottom-right of the shell with a one-line note and an
   'Open Settings' button that lands the operator on the General tab's
   editor picker. Once an editor IS configured (host or operator), the

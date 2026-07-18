@@ -945,7 +945,7 @@
     ;; subscribe time so registration order is purely cosmetic.
     ;;
     ;; The open-in-editor install is cross-panel — its
-    ;; `:rf.xray/open-in-editor` event-fx + `:rf.editor/open` fx are
+    ;; `:rf.xray/open-in-editor` event-fx + `:rf.xray.fx/open-in-editor` fx are
     ;; dispatched from trace, mcp-server, and the
     ;; hydration debugger. Installed alongside the
     ;; per-panel installs so the registration order matches the

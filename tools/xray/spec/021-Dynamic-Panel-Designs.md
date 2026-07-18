@@ -2854,7 +2854,7 @@ the verb so the affordance is read inline with the cascade rhythm
   <coord>}]` on the `:rf/xray` frame envelope. Click handler calls
   `.stopPropagation` so the verb-link doesn't trigger the row's own
   expand-toggle. URI resolution + `Location.assign` happens
-  downstream in the `:rf.editor/open` reg-fx via the rf2-vwcsq
+  downstream in the `:rf.xray.fx/open-in-editor` reg-fx via the rf2-vwcsq
   scheme denylist (rf2-ox357n).
 - **Test surface.** `data-testid` is
   `rf-xray-epoch-handler-verb-link` (clickable variant) or

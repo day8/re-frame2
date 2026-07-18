@@ -33,6 +33,7 @@
             [re-frame.story.save-variant :as save-variant]
             [re-frame.story.ui.cofx      :as ui-cofx]
             #?(:cljs [re-frame.story.ui.panels          :as ui-panels])
+            #?(:cljs [re-frame.story.ui.open-in-editor  :as ui-open-in-editor])
             #?(:cljs [re-frame.story.ui.multi-substrate :as ui-multi-substrate])
             #?(:cljs [re-frame.story.sub-overrides       :as sub-overrides])))
 
@@ -145,6 +146,7 @@
    ui-cofx/install-canonical-cofx!
    #?@(:cljs [ui-multi-substrate/install-reagent-substrate!
               install-render-host!
+              ui-open-in-editor/install!
               ui-panels/install-canonical-panels!])])
 
 ;; ---- auto-install gate --------------------------------------------------
