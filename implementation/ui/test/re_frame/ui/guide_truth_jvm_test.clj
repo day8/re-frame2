@@ -738,6 +738,95 @@
             (is (str/includes? line shipped)
                 (str path " (" label ") must still list " shipped))))))))
 
+;; --- The S3 frozen-surface corrections in spec/API.md (rf2-kc4kl) ------------
+;;
+;; rf2-3iwpr corrected two claims that no gate objected to for as long as they
+;; were false, and recorded that the corrected truth stayed UNGUARDED:
+;;
+;;   (a) frame-targeted `ui.test/dispatch!` was attributed to the §2b row's S2
+;;       clause while it actually landed at S1 — `ffe8824b00`, the ui.test
+;;       Tier-1 core commit, is the sole commit to introduce `defn dispatch!`
+;;       and the S2 slice never touched it;
+;;   (b) the shipped `re-frame.ui/spread-safe` was absent from the blessed §2
+;;       table, whose own closing rule is "anything not in this table does not
+;;       exist" — so a shipped public fn was formally not public. The second-
+;;       arity spelling was considered and NOT taken: it is a sibling name.
+;;
+;; Both rows are bound BY REGION, and (b) by region AND row. That binding is
+;; load-bearing on real history, not a synthetic worry: spec/API.md carries
+;; THREE `spread-safe` table rows — §Compiled views, §2 and §2b — and before
+;; the correction the §Compiled-views one already existed while §2 and §2b both
+;; lacked theirs. A document-wide "a `spread-safe` row exists" census was
+;; therefore GREEN through the entire falsehood, which is exactly the blindness
+;; rf2-vxcl7 named: a census cannot see WHERE a claim sits.
+
+(def ^:private api-blessed-heading
+  "\n### Public surface + demand-bar audit (the blessed §2 table)\n")
+
+(def ^:private api-matrix-heading
+  "\n### Authoritative surface matrix (§2b — name → stage / owner / proof / spec home)\n")
+
+;; The ONE sanctioned mention of `dispatch!` inside the row's S2 clause: it
+;; names the S1 surface being reused, not an S2 landing. Excising it before the
+;; negative assertion is what lets that assertion stay exact — the clause may
+;; explain the reuse, it may not claim the landing.
+(def ^:private s2-dispatch-reuse-note
+  "the S1 `dispatch!` is reused unchanged inside a mounted root, not re-landed here")
+
+(deftest api-s2b-binds-ui-test-dispatch-to-the-s1-clause
+  (let [matrix (subsection-text (slurp (root-file "spec/API.md")) api-matrix-heading)]
+    (when (is (some? matrix) "spec/API.md lost its §2b surface-matrix subsection")
+      (let [row (table-row matrix "`re-frame.ui.test/*`")]
+        (when (is (some? row) "§2b lost its `re-frame.ui.test/*` row")
+          (let [s1-at (str/index-of row "**S1 core**")
+                s2-at (str/index-of row "**S2 mounted semantics**")
+                s3-at (str/index-of row "**S3**")]
+            (when (is (and s1-at s2-at s3-at (< s1-at s2-at s3-at))
+                      "§2b's ui.test row lost its S1 → S2 → S3 stage clauses")
+              (let [s1-clause (subs row s1-at s2-at)
+                    s2-clause (subs row s2-at s3-at)]
+                (testing "the S1 clause is where dispatch! lands"
+                  (is (str/includes? s1-clause "`dispatch!`")
+                      (str "§2b's ui.test row moved `dispatch!` out of its S1 clause; "
+                           "ffe8824b00 landed it in the Tier-1 core slice"))
+                  (is (str/includes? s1-clause "frame-targeted synchronous `dispatch!`")
+                      "the S1 clause lost the frame-targeted synchronous characterisation"))
+                (testing "the S2 clause claims no dispatch! landing of its own"
+                  (is (str/includes? s2-clause s2-dispatch-reuse-note)
+                      "the S2 clause lost its explicit S1-reuse note")
+                  (is (not (str/includes? (str/replace s2-clause s2-dispatch-reuse-note "")
+                                          "dispatch!"))
+                      (str "§2b's ui.test row again attributes `dispatch!` to S2; "
+                           "the S2 slice never touched it")))))))))))
+
+(def ^:private api-spread-regions
+  "Each blessed table that must carry `spread` and `spread-safe` as two rows,
+  with the anti-overload sentence that table states in its own voice."
+  [{:label   "§2 blessed public-surface table"
+    :heading api-blessed-heading
+    :row     "`spread`"
+    :states  "not an overload of this row"}
+   {:label   "§2b authoritative surface matrix"
+    :heading api-matrix-heading
+    :row     "`spread-safe`"
+    :states  "a distinct sibling name, never an arity of `spread`"}])
+
+(deftest api-tables-keep-spread-safe-as-a-distinct-row
+  (let [api (slurp (root-file "spec/API.md"))]
+    (doseq [{:keys [label heading row states]} api-spread-regions]
+      (testing (str "spec/API.md " label)
+        (let [region (subsection-text api heading)]
+          (when (is (some? region) (str "spec/API.md lost its " label " subsection"))
+            (is (some? (table-row region "`spread`"))
+                (str label " lost its `spread` row"))
+            (is (some? (table-row region "`spread-safe`"))
+                (str label " lost its distinct `spread-safe` row — `re-frame.ui/spread-safe`"
+                     " ships, and this table's own rule is that anything not in it"
+                     " does not exist"))
+            (is (str/includes? (or (table-row region row) "") states)
+                (str label " stopped stating that `spread-safe` is a sibling name"
+                     " rather than a second `spread` arity"))))))))
+
 (deftest xray-s3-stays-on-existing-views-surfaces
   (let [views       (slurp-guide "02-views.md")
         debugging   (slurp-guide "09-debugging.md")
