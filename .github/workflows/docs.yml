@@ -84,11 +84,40 @@ on:
     branches: [main]
   workflow_dispatch:
 
-# Allow only one concurrent Pages deployment, but do not cancel an
-# in-progress run so it can finish before the next starts.
+# Two DIFFERENT concurrency concerns share this workflow, so the group is
+# event-scoped (rf2-k8l1m).
+#
+#   push / workflow_dispatch -> group `pages`, never cancel in progress.
+#     These are the deploy path. Pages must publish one artifact at a time,
+#     so every main push serializes in the single `pages` group exactly as
+#     before. A newer main push may still supersede an older PENDING main
+#     push — that is correct, because the newer commit contains the older
+#     one's history and will deploy it.
+#
+#   pull_request -> group `docs-pr-<number>`, cancel in progress.
+#     PR runs are a build-only regression check: the `deploy` job is gated
+#     `if: github.event_name == 'push'`, so a PR run never publishes. Each
+#     PR therefore gets its own group, and a new push to that PR supersedes
+#     its own older run (the repo-wide idiom — cf. test.yml / lint.yml).
+#
+# WHY the split, not just a rename: the pull_request trigger above is
+# deliberately UNFILTERED, so EVERY open PR entered the `pages` group. GitHub
+# keeps at most one running plus one pending run per group and cancels the
+# older PENDING run when a newer one arrives — even with
+# cancel-in-progress: false. A routine PR docs check could therefore cancel a
+# queued main-push DEPLOYMENT before any job started, and because main's push
+# trigger is paths-filtered the next commit often did not re-trigger a
+# deploy at all. That is exactly how the live playground bundle went stale
+# after #6329 (main run 29638598705 cancelled by PR #6330's run 29638609140).
+#
+# WHAT IS NEWLY PARALLEL: PR docs builds — against each other, and against a
+# main deploy. Nothing else. Two Pages deployments still CANNOT overlap: the
+# `deploy` job exists only on `push`, and all pushes remain in the single
+# uncancelled `pages` group. A PR run's `upload-pages-artifact` is scoped to
+# its own run and is never consumed by `deploy-pages`.
 concurrency:
-  group: pages
-  cancel-in-progress: false
+  group: ${{ github.event_name == 'pull_request' && format('docs-pr-{0}', github.event.pull_request.number) || 'pages' }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   # Lightweight changed-surface gate (rf2-aemyt). On a pull_request this
