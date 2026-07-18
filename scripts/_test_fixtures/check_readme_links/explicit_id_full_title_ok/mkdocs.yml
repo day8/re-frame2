@@ -1,0 +1,5 @@
+# Self-test fixture marker (rf2-w6ltl).  Empty config is fine — the validator
+# only checks for this file's existence as the repo-root guard.  Renderer-parity
+# tooth for the README gate: a `{#id}` suffix is NOT honoured as a custom heading
+# id (GitHub ignores the syntax outright, and the project's MkDocs config leaves
+# attr_list disabled), so the fragment id is the slugified FULL visible title.

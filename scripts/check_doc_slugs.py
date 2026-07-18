@@ -203,21 +203,6 @@ EXCLUDE_DIR_REL = frozenset({Path("docs/spec"), Path("docs/migration")})
 # treats as code, not headings.
 _HEADING_RE = re.compile(r"^(?:[ \t]*>[ \t]?)*(#{1,6})[ \t]+(.+?)[ \t]*#*[ \t]*$")
 
-# Custom heading id syntax: "## Title {#explicit-id}".  python-markdown honours
-# this ONLY when the attr_list extension is enabled, and mkdocs.yml does NOT
-# enable it (see `markdown_extensions`: meta, admonition, footnotes, toc,
-# pymdownx.*).  Under the real configuration the brace suffix is therefore
-# ordinary heading TEXT: "## One {#dup}" renders the visible title "One {#dup}"
-# with id "one-dup", not "dup".  `_scan_rendered_ids` consequently slugifies the
-# full visible title and has no explicit-id special case — the predecessor's
-# special case recorded "dup" and so certified fragments the site never mints
-# (rf2-ru0wg).
-#
-# The pattern is retained only because scripts/check_readme_links.py imports it
-# (it validates the GitHub-rendered READMEs, a different renderer with its own
-# heading-id rules).  Nothing in THIS module uses it.
-_EXPLICIT_ID_RE = re.compile(r"\{#([A-Za-z0-9_\-:.]+)\}\s*$")
-
 # Inline HTML anchor — authors use `<a name="foo"></a>` / `<a id="foo"></a>`
 # to mint a stable target slug that is independent of (and often shorter than)
 # the heading's auto-derived slug.  Browsers and the rendered MkDocs site

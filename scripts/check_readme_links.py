@@ -69,7 +69,6 @@ try:
     from check_doc_slugs import (
         SLUGIFY,
         SLUG_SEP,
-        _EXPLICIT_ID_RE,
         _HEADING_RE,
         _HTML_ANCHOR_RE,
         _LINK_RE,
@@ -84,7 +83,6 @@ except ImportError as exc:  # pragma: no cover - dev-env path
         from check_doc_slugs import (  # type: ignore  # noqa: F401
             SLUGIFY,
             SLUG_SEP,
-            _EXPLICIT_ID_RE,
             _HEADING_RE,
             _HTML_ANCHOR_RE,
             _LINK_RE,
@@ -205,11 +203,14 @@ def _slug_index(path: Path) -> set[str]:
         if not m:
             continue
         title = m.group(2).strip()
-        explicit = _EXPLICIT_ID_RE.search(title)
-        if explicit:
-            slug = explicit.group(1)
-        else:
-            slug = SLUGIFY(title, SLUG_SEP)
+        # A trailing `{#id}` is NOT a custom heading id here.  GitHub — which
+        # renders these READMEs — does not support the syntax at all, and the
+        # project's mkdocs.yml leaves `attr_list` disabled, so under BOTH
+        # renderers the brace suffix is ordinary heading TEXT: "## One {#dup}"
+        # shows the visible title "One {#dup}" and mints the id "one-dup", not
+        # "dup".  Slugify the full visible title; no explicit-id special case
+        # (rf2-w6ltl, mirroring rf2-ru0wg in check_doc_slugs.py).
+        slug = SLUGIFY(title, SLUG_SEP)
         if not slug:
             continue
         n = seen_counts.get(slug, 0)
@@ -447,6 +448,8 @@ def _run_self_tests(verbose: bool = False) -> int:
         ("underscore_disambig_ok",           0),  # MkDocs _N suffix
         ("inline_code_link_ignored",         0),  # fence + inline-code guard
         ("external_link_skipped_by_default", 0),  # off without --check-external
+        ("explicit_id_full_title_ok",        0),  # `{#id}` is heading TEXT (rf2-w6ltl)
+        ("explicit_id_brace_not_a_target",   1),  # ...so the brace id resolves nowhere
     ]
 
     failures = 0

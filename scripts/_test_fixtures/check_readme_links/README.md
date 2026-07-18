@@ -24,6 +24,8 @@ Fixtures:
 | `underscore_disambig_ok`             | 0        | Duplicate `## Errors` headings → MkDocs slug `errors_1` (underscore), not GitHub's `errors-1`.       |
 | `inline_code_link_ignored`           | 0        | Broken-looking links inside fenced code blocks AND inline code spans — skipped.                      |
 | `external_link_skipped_by_default`   | 0        | External `https://` URL — skipped without `--check-external` (the default + `--ci` mode).            |
+| `explicit_id_full_title_ok`          | 0        | `## One {#dup}` is heading TEXT — the id is the full-title slug `one-dup`, so that link resolves.    |
+| `explicit_id_brace_not_a_target`     | 1        | Negative control: a link to the brace id `#dup` targets nothing → flagged.                           |
 
 The MkDocs-vs-GitHub slug fixtures (`mkdocs_slug_anchor_ok` +
 `github_slug_anchor_broken`) are the load-bearing pair that locks in
