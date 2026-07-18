@@ -1792,7 +1792,7 @@ A related case is `subscribe` itself naming an unregistered sub-id — most ofte
 
 ## CLJS reference: Reagent as default adapter
 
-The CLJS reference ships its adapters across sibling Maven artefacts — the full catalogue (each adapter's `:kind`, namespace, coordinate, repository home, and lifecycle role) is the canonical inventory in [§CLJS reference scope](#cljs-reference-scope). Each implements the closed ten-fn contract above; the runtime picks per platform. This section walks the **Reagent** adapter as the worked reference — the other adapters realise the same contract against their own substrate. Per [Conventions §Adapter shipping convention](Conventions.md#adapter-shipping-convention).
+The CLJS reference ships its adapters across sibling Maven artefacts — the full catalogue (each adapter's `:kind`, namespace, coordinate, repository home, and lifecycle role) is the canonical inventory in [§CLJS reference scope](#cljs-reference-scope). Each implements the closed ten-fn contract above; the consumer chooses one and installs it **explicitly** with `(rf/init! …)` (per [§Adapter selection at boot](#adapter-selection-at-boot)) — there is no auto-by-platform selection. This section walks the **Reagent** adapter as the worked reference — the other adapters realise the same contract against their own substrate. Per [Conventions §Adapter shipping convention](Conventions.md#adapter-shipping-convention).
 
 This section is the **bridging pseudocode** for both. For each contract function, the pseudocode shows which Reagent (or, on the JVM, plain-Clojure) primitive realises it. An AI implementing the CLJS reference can lift this directly; non-CLJS implementors read it as one worked example of the contract.
 
@@ -2152,7 +2152,9 @@ The plain-atom adapter is **trivially** revertibility-compliant ([§Reference-ad
          '[re-frame.adapter.helix :as helix])
 (rf/init! helix/adapter)
 
-;; re-frame.ui (CLJS/JVM, day8/re-frame2-ui) — first-party compiled-view:
+;; re-frame.ui (CLJS/JVM) — first-party compiled-view, in-tree / pre-publication:
+;; the day8/re-frame2-ui coordinate is not yet published (publication owned by
+;; rf2-vxgfnd.99.2), so consume it in-tree today — not as a released dependency.
 (require '[re-frame.core :as rf]
          '[re-frame.ui :as ui])
 (rf/init! ui/adapter)
@@ -2305,14 +2307,14 @@ This is a Reagent-substrate concern, not a core-framework one. Non-React substra
 Per [011](011-SSR.md), the server-side render path doesn't use the adapter's reactivity machinery at all. The flow:
 
 1. Server creates a frame (per [002 §make-frame](002-Frames.md#make-frame--atomic-create-and-register-and-the-canonical-config-grammar)).
-2. The frame's `app-db` is a plain atom (the **core's plain-atom adapter**, not the Reagent adapter).
+2. The frame's `app-db` is a plain atom — the server boots the distinct **`re-frame.ssr` adapter** (`:rf.adapter/ssr`), which is plain-atom-*shaped* (a `clojure.core/atom` container, no React reactivity) but is **not** the core plain-atom substrate; see the [canonical inventory](#cljs-reference-scope).
 3. `:initial-events` run; the drain settles.
 4. The view fn is called as a *plain function* against the now-stable `app-db` value.
 5. The hiccup output is rendered to a string by `render-to-string`.
 
 No Reagent. No React. No reactivity. Pure data → pure data → string.
 
-The adapter that the core uses on the server is the **plain-atom adapter** (or "headless adapter"). The CLJS reference ships this alongside the Reagent adapter; the runtime picks based on platform.
+The server-side adapter is the distinct **`re-frame.ssr` adapter** (`:kind :rf.adapter/ssr`) — a headless, plain-atom-*shaped* adapter that binds its own `render-to-string`. The caller boots it **explicitly** with `(rf/init! ssr/adapter)` (per [§Adapter selection at boot](#adapter-selection-at-boot)); nothing auto-selects it by platform. It is distinct from the core plain-atom adapter, which some headless SSR paths also use — both live in the [canonical inventory](#cljs-reference-scope).
 
 ## CLJS reference scope
 
@@ -2320,7 +2322,7 @@ The adapter that the core uses on the server is the **plain-atom adapter** (or "
 
 The **core** artefact `day8/re-frame2` carries the substrate-agnostic runtime (the registrar, the drain, the dispatch envelope, the trace stream, sub topology, sub computation, effect-map interpretation), the adapter API contract, the headless **plain-atom adapter** (in the inventory below), and — per Decision 2 — the shared React frame Context object at `re-frame.adapter.context` that every React-shaped adapter consumes.
 
-The **canonical adapter inventory** below is the single source of truth for the shipped adapter set — every adapter's `:kind`, published namespace, Maven coordinate, repository home, and lifecycle role. Adapters ship across sibling Maven artefacts per [Conventions §Adapter shipping convention](Conventions.md#adapter-shipping-convention). Every other "the reference adapters" claim in this spec points here rather than re-stating its own list.
+The **canonical adapter inventory** below is the single source of truth for the adapter set — the **six shipped, published rows** (Reagent, reagent-slim, UIx, Helix, plain-atom, SSR) plus the **in-tree, pre-publication `re-frame.ui` row** — carrying every adapter's `:kind`, namespace, Maven coordinate, repository home, and lifecycle role. The shipped adapters go out across sibling Maven artefacts per [Conventions §Adapter shipping convention](Conventions.md#adapter-shipping-convention); `re-frame.ui` is not yet published (see its row and [§Adapter selection at boot](#adapter-selection-at-boot)). Every other "the reference adapters" claim in this spec points here rather than re-stating its own list.
 
 | Adapter | `:kind` | Published namespace (exports `adapter`) | Maven coordinate | Repository home | Lifecycle role |
 |---|---|---|---|---|---|
@@ -2328,13 +2330,13 @@ The **canonical adapter inventory** below is the single source of truth for the 
 | **reagent-slim** | `:rf.adapter/reagent-slim` | `re-frame.adapter.reagent` — the **publication exception**: the in-tree source ns is `re-frame.adapter.reagent-slim`, renamed to the canonical `re-frame.adapter.reagent` at publication (IMPL-SPEC §13.1) so the slim jar is a drop-in swap for the stock jar. | `day8/reagent-slim` — drops the `re-frame2-` prefix (the lone coordinate exception, per IMPL-SPEC DECISION-1). | `implementation/adapters/reagent-slim/` | **View adapter — first-class, actively-supported.** The slim `reagent2.*` implementation with no stock-Reagent dependency (React 19). |
 | **UIx** | `:rf.adapter/uix` | `re-frame.adapter.uix` | `day8/re-frame2-uix` | `implementation/adapters/uix/` | **View adapter — first-class, actively-supported.** UIx 2.x hooks substrate; see [§UIx as alternative substrate](#cljs-reference-uix-as-alternative-substrate). |
 | **Helix** | `:rf.adapter/helix` | `re-frame.adapter.helix` | `day8/re-frame2-helix` | `implementation/adapters/helix/` | **View adapter — [TRANSITION].** The only adapter retiring: removed at the Spec 004 S7 wave. See [§Helix as alternative substrate](#cljs-reference-helix-as-alternative-substrate). |
-| **re-frame.ui** | `:rf.adapter/ui` | `re-frame.ui` | `day8/re-frame2-ui` | `implementation/ui/` | **View substrate — *new, experimental*.** First-party compiled-view adapter offered alongside the live view adapters, not their replacement. CLJS uses the watchable native-React realization; the JVM uses the headless atom realization. |
+| **re-frame.ui** | `:rf.adapter/ui` | `re-frame.ui` | `day8/re-frame2-ui` *(pre-publication)* | `implementation/ui/` | **View substrate — *new, experimental*; in-tree / pre-publication.** First-party compiled-view adapter offered alongside the live view adapters, not their replacement. **Not yet published:** its `implementation/ui/deps.edn` carries no deploy aliases and it is absent from the release matrix, so the `day8/re-frame2-ui` coordinate is not yet consumable — consume it in-tree today; publication is owned by rf2-vxgfnd.99.2. CLJS uses the watchable native-React realization; the JVM uses the headless atom realization. |
 | **plain-atom** | `:rf.adapter/plain-atom` | `re-frame.substrate.plain-atom` | *(none — ships inside the core artefact `day8/re-frame2`)* | `implementation/core/` | **Headless adapter (no view layer).** A `clojure.core/atom` container, reachable on both JVM and CLJS; used by headless tests and some SSR paths. **Distinct from the SSR adapter** below. |
 | **SSR** | `:rf.adapter/ssr` | `re-frame.ssr` | `day8/re-frame2-ssr` | `implementation/ssr/` | **Headless adapter (no view layer).** JVM server-side rendering — carries `render-to-string` directly in its slot; the `:render` slot throws `:rf.error/render-on-headless-adapter`. **Distinct from plain-atom** (which some SSR paths also use). |
 
 The UIx and Helix rows realise the same eight adapter decisions (the `use-subscribe` hook, the `use-frame` hold hook, the `flush-views!` test-flush helper, a source-coord wrapping component, and the SCOPE-only `frame-provider` / ENSURE `frame-root` pair consuming the shared React context; apps write ordinary `defui` / `defnc` components — `reg-view*` is optional registry addressing, since the `reg-view` macro stays Reagent-flavoured) — see [§UIx](#cljs-reference-uix-as-alternative-substrate) and [§Helix](#cljs-reference-helix-as-alternative-substrate) for the per-adapter detail.
 
-The **repository-home** column reflects the source layout: the four shipped **view-adapter** sources live under `implementation/adapters/<name>/` — `reagent/`, `reagent-slim/`, `uix/`, and `helix/`. A fifth `implementation/adapters/` directory, `test-react/`, is a **local-test-only** fixture (a pure-CLJC React class-3 lifecycle simulator): no Maven coordinate, no `:kind` in the shipped set, absent from the release matrix. The experimental `re-frame.ui` compiled-view substrate is housed separately under `implementation/ui/`; the SSR adapter is the per-feature `implementation/ssr/` artefact; and the headless plain-atom adapter ships inside the core artefact (`implementation/core/`). Other per-feature artefacts (`schemas`, `machines`, `routing`, `flows`, `http`, `ssr`, `epoch`) stay flat under `implementation/<name>/`. The directory split surfaces the adapter-vs-per-feature distinction in the layout — adapters implement the [§adapter API contract](#the-adapter-api-contract); per-feature artefacts plug into core via the late-bind hook table per [Conventions §Independence rule](Conventions.md#independence-rule). The directory is `adapters/`, not `substrates/` — "substrate" names the abstract contract, "adapter" names each implementation.
+The **repository-home** column reflects the source layout: the four shipped **view-adapter** sources live under `implementation/adapters/<name>/` — `reagent/`, `reagent-slim/`, `uix/`, and `helix/`. Two further `implementation/adapters/` directories are **not** adapters: `test-react/` is a **local-test-only** fixture (a pure-CLJC React class-3 lifecycle simulator — no Maven coordinate, no `:kind` in the shipped set, absent from the release matrix), and `scripts/` is **shared adapter-smoke tooling** (the `run-adapter-smokes.cjs` / `serve-and-run-adapter-smokes.cjs` runners), not a substrate. The experimental `re-frame.ui` compiled-view substrate is housed separately under `implementation/ui/`; the SSR adapter is the per-feature `implementation/ssr/` artefact; and the headless plain-atom adapter ships inside the core artefact (`implementation/core/`). Other per-feature artefacts (`schemas`, `machines`, `routing`, `flows`, `http`, `ssr`, `epoch`) stay flat under `implementation/<name>/`. The directory split surfaces the adapter-vs-per-feature distinction in the layout — adapters implement the [§adapter API contract](#the-adapter-api-contract); per-feature artefacts plug into core via the late-bind hook table per [Conventions §Independence rule](Conventions.md#independence-rule). The directory is `adapters/`, not `substrates/` — "substrate" names the abstract contract, "adapter" names each implementation.
 
 Per-host adapters for non-CLJS implementations ship as separate packages, implementing the same contract — the per-adapter-artefact pattern is JS-cross-compile-language-agnostic across the eight in-scope hosts (TypeScript-React, Fable.React / Feliz, scalajs-react / Slinky, React.Basic, kotlin-react, ReasonReact, Melange-React, Squint-with-React). All ship a React-binding adapter; non-React substrates are out of scope per [§Abstract](#abstract).
 
@@ -2452,7 +2454,7 @@ Re-installing an adapter after frames exist is rejected (per [Adapter selection]
 ## Cross-references
 
 - [000 §Substrate decoupling](000-Vision.md#substrate-decoupling-reagent-fusion) — the framework-level commitment to substrate decoupling.
-- [011-SSR.md](011-SSR.md) — SSR uses the plain-atom adapter on the JVM.
+- [011-SSR.md](011-SSR.md) — SSR boots the distinct `re-frame.ssr` adapter (`:rf.adapter/ssr`, plain-atom-shaped) on the JVM.
 - [008-Testing.md](008-Testing.md) — the headless-test path uses the plain-atom adapter.
 - [002-Frames.md](002-Frames.md) — frames are the core's primary structure; the adapter holds their `app-db` containers.
 - [004-Views.md](004-Views.md) — view rendering is the adapter's job.
