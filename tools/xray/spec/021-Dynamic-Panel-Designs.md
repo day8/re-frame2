@@ -691,8 +691,10 @@ was. Rows display + key by the full query vector (documented fallback to the
 registered id only when the skip evidence genuinely lacks a query-v);
 source-coordinate lookup keeps the registered id. Each row's `data-testid`
 (`rf-xray-reactive-unchanged-row-<selector>`) is minted through a GENUINELY
-INJECTIVE concrete-query selector (rf2-bk2c6, hardened rf2-haoip) — the
-readable `id-slug` stem plus a lossless, order-canonical encoding of the full
+INJECTIVE concrete-query selector (rf2-bk2c6, hardened rf2-haoip and
+rf2-5h9td) — the
+readable `id-slug` stem plus a lossless, order-canonical, TYPE-PRESERVING
+encoding of the full
 identity (a small local `canonical-str` rendering, made DOM-safe via
 `encodeURIComponent`). `id-slug` alone is LOSSY: it flattens every non-alnum
 char to `_`, so distinct valid queries (`[:item/derived :a-b]` and
@@ -700,12 +702,34 @@ char to `_`, so distinct valid queries (`[:item/derived :a-b]` and
 one selector the DOM can no longer address independently. A 32-bit `hash`
 suffix did NOT close this: a 32-bit hash COLLIDES, so distinct queries
 (`[:item/derived " @"]` and `[:item/derived "!!"]` share hash `1127258382`)
-still minted the identical selector. The lossless suffix is collision-free —
-distinct concrete queries always receive distinct selectors — while
-value-equal identities (maps built in any insertion order included) canonicalize
+still minted the identical selector. Nor was a lossless encoding alone
+sufficient: ClojureScript RECORDS satisfy `map?`, so an encoder whose first
+branch is `map?` discards the record's type tag and renders `(->A 1)`,
+`(->B 1)` and `{:x 1}` all as `{:x 1}` — three pairwise-UNEQUAL concrete
+queries back onto one selector. Records are legal concrete-query arguments
+(the fresh-object cache diagnostic names them explicitly: `map / collection /
+record built inline`), so the encoding matches records FIRST and tags them
+`#my.ns/MyRec` — a compile-time, `:advanced`-safe name read off the type's
+`cljs$lang$ctorPrWriter` — before canonicalizing their entries; a record's
+extension entries stay order-canonical exactly like a plain map's, and the
+tag can collide with neither a set (`#{`) nor a map. The lossless suffix is
+collision-free —
+distinct concrete queries always receive distinct selectors, at every nesting
+depth — while
+value-equal identities (maps built in any insertion order included, and equal
+records whose extension maps were built in different insertion orders)
+canonicalize
 to ONE stable selector, so repeated evidence keeps a single row matching the
 dedup contract; the React key, the visible label, and `data-query-v` still
-carry the full query vector unchanged. It is NOT reconstructed by
+carry the full query vector unchanged. The SUPPORTED DOMAIN is stated
+honestly: injectivity holds for the EDN value space a concrete query is built
+from — the collections above plus scalars whose `pr-str` is faithful and
+type-distinct (keyword, symbol, string, number, boolean, nil, char, uuid,
+inst, regex). It does NOT hold for values `pr-str` cannot separate — raw JS
+objects/arrays and functions, which are `=`-distinct by identity — nor for
+deliberately reader-hostile symbols that print as structure; those are not
+concrete-query identities in practice and the selector makes no claim about
+them. It is NOT reconstructed by
 filtering `:sub-runs` on `(complement :recomputed?)`, which is structurally
 always empty. The
 graph's `unchanged` (dashed, short-circuited) nodes are subs that RAN with

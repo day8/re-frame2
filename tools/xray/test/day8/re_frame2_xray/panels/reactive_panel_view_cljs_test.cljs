@@ -608,6 +608,114 @@
           "the two value-equal map orders collapse to ONE selector; the
            genuinely-different map keeps its own — 2 distinct selectors total"))))
 
+;; rf2-5h9td — REAL ClojureScript records for the type-preservation tests
+;; below. `RecA` and `RecB` are structurally identical (one field `x`) and
+;; differ ONLY by record type, which is exactly the pair the pre-fix `map?`
+;; branch could not separate.
+
+(defrecord RecA [x])
+(defrecord RecB [x])
+
+(deftest unchanged-row-selectors-preserve-record-type
+  (testing "rf2-5h9td — CLJS records satisfy `map?`, so the rf2-haoip encoder's
+            leading `(map? x)` branch discarded the record TAG and rendered
+            `(->RecA 1)`, `(->RecB 1)` and `{:x 1}` all as `{:x 1}`. Those three
+            concrete queries are pairwise UNEQUAL (`(= (->RecA 1) (->RecB 1))`
+            and `(= (->RecA 1) {:x 1})` are both false), so collapsing them onto
+            one `data-testid` was false identity — rows the DOM cannot address
+            independently, violating rf2-haoip's every-distinct-valid-query AC.
+            Each must now mint its OWN selector. (Red before this fix: distinct
+            testid count was 1, and that shared testid addressed 3 nodes.)"
+    (facade/install!)
+    (rf/make-frame {:id :rf/xray})
+    (is (map? (->RecA 1)) "premise — a CLJS record IS `map?`, hence the bug")
+    (is (not= (->RecA 1) (->RecB 1)) "premise — the two record types are unequal")
+    (is (not= (->RecA 1) {:x 1}) "premise — record and plain map are unequal")
+    (seed-reactive-data!
+      {:has-event-bundle? true :frame :rf/app :focus {:current :ep-1}
+       :counts {} :level-1-subs [] :level-2-subs [] :view-rows []
+       :show-unchanged? true
+       :subs-skipped [{:sub-id :cfg/derived :query-v [:cfg/derived (->RecA 1)]
+                       :reason :input-value-equal :input-paths-unchanged []}
+                      {:sub-id :cfg/derived :query-v [:cfg/derived (->RecB 1)]
+                       :reason :input-value-equal :input-paths-unchanged []}
+                      {:sub-id :cfg/derived :query-v [:cfg/derived {:x 1}]
+                       :reason :input-value-equal :input-paths-unchanged []}]})
+    (let [tree    (view/reactive-panel)
+          testids (unchanged-row-testids tree)]
+      (is (= 3 (count testids)) "all three seeded rows render")
+      (is (= 3 (count (distinct testids)))
+          "RecA, RecB and the plain map each mint a DISTINCT selector — the
+           record TYPE is preserved, not flattened into the entries")
+      (doseq [id (distinct testids)]
+        (is (= 1 (count (th/find-all-by-testid tree id)))
+            "each concrete query's test-id addresses exactly one row")))))
+
+(deftest unchanged-row-selector-canonical-across-record-extension-order
+  (testing "rf2-5h9td ADVERSARIAL — type preservation must not cost
+            order-canonicality. A record's EXTENSION entries (assoc'd beyond its
+            declared fields) live in `__extmap`, whose small-map representation
+            preserves INSERTION order, so `(assoc (->RecA 1) :b 2 :c 3)` and
+            `(assoc (->RecA 1) :c 3 :b 2)` iterate differently while being `=`.
+            They must mint ONE stable selector, while a genuinely different
+            extension value (`:c 4`) keeps its own — order-invariance is not
+            value-collapse."
+    (facade/install!)
+    (rf/make-frame {:id :rf/xray})
+    (is (= (assoc (->RecA 1) :b 2 :c 3) (assoc (->RecA 1) :c 3 :b 2))
+        "premise — the two extension orders are value-equal")
+    (seed-reactive-data!
+      {:has-event-bundle? true :frame :rf/app :focus {:current :ep-1}
+       :counts {} :level-1-subs [] :level-2-subs [] :view-rows []
+       :show-unchanged? true
+       :subs-skipped [{:sub-id  :cfg/derived
+                       :query-v [:cfg/derived (assoc (->RecA 1) :b 2 :c 3)]
+                       :reason :input-value-equal :input-paths-unchanged []}
+                      {:sub-id  :cfg/derived
+                       :query-v [:cfg/derived (assoc (->RecA 1) :c 3 :b 2)]
+                       :reason :input-value-equal :input-paths-unchanged []}
+                      {:sub-id  :cfg/derived
+                       :query-v [:cfg/derived (assoc (->RecA 1) :b 2 :c 4)]
+                       :reason :input-value-equal :input-paths-unchanged []}]})
+    (let [tree    (view/reactive-panel)
+          testids (unchanged-row-testids tree)]
+      (is (= 3 (count testids)) "all three seeded rows render")
+      (is (= 2 (count (distinct testids)))
+          "the two extension-insertion orders collapse to ONE selector; the
+           genuinely-different extension keeps its own — 2 distinct total"))))
+
+(deftest unchanged-row-selectors-preserve-record-type-at-depth
+  (testing "rf2-5h9td ADVERSARIAL — the record tag must survive RECURSION, not
+            just a top-level query argument. A record nested as a map VALUE
+            (`{:k (->RecA 1)}`) and a plain map in the same slot
+            (`{:k {:x 1}}`) are unequal queries and must stay individually
+            addressable; a second record TYPE at that same depth must differ
+            again. (Red before the fix: all three collapsed to one testid.)"
+    (facade/install!)
+    (rf/make-frame {:id :rf/xray})
+    (seed-reactive-data!
+      {:has-event-bundle? true :frame :rf/app :focus {:current :ep-1}
+       :counts {} :level-1-subs [] :level-2-subs [] :view-rows []
+       :show-unchanged? true
+       :subs-skipped [{:sub-id  :cfg/derived
+                       :query-v [:cfg/derived {:k (->RecA 1)}]
+                       :reason :input-value-equal :input-paths-unchanged []}
+                      {:sub-id  :cfg/derived
+                       :query-v [:cfg/derived {:k (->RecB 1)}]
+                       :reason :input-value-equal :input-paths-unchanged []}
+                      {:sub-id  :cfg/derived
+                       :query-v [:cfg/derived {:k {:x 1}}]
+                       :reason :input-value-equal :input-paths-unchanged []}]})
+    (let [tree    (view/reactive-panel)
+          testids (unchanged-row-testids tree)]
+      (is (= 3 (count testids)) "all three seeded rows render")
+      (is (= 3 (count (distinct testids)))
+          "nested RecA, nested RecB and the nested plain map each mint a
+           DISTINCT selector — the encoder is type-preserving at every depth")
+      (doseq [id (distinct testids)]
+        (is (= 1 (count (th/find-all-by-testid tree id)))
+            "each nested-record query's test-id addresses exactly one row")))))
+
 (deftest unchanged-row-unparameterized-shows-plain-sub-id
   (testing "rf2-cj2yx / rf2-bk2c6 — a bare unparameterized skip (query-v
             `[:sub/id]`) renders the plain sub-id label (the common case is
