@@ -110,7 +110,19 @@ existing automated guards did not catch (the no-bead-id guard was scoped to
      `:contextType`" stay green), a token-only semantic reversal, a positive
      `reg-view` MACRO registration (bare, not `reg-view*`), or a bare no-arg
      `capture-frame` used as the frame-carry (the negated "cannot" warnings
-     stay green).
+     stay green). (6c — rf2-szw6c) A leaf-wide coherence floor cannot force a
+     TABLE CELL right while the leaf's adjacent paragraph stays right, and it
+     reaches only the leaves this skill globs. So the three concrete recipe
+     blocks a programmer or a model actually copies are additionally anchored
+     as BOUNDED BLOCKS, checked in place: the UIx and Helix ordinary-view rows
+     of the `references/fundamentals/views.md` per-adapter table, the
+     `skills/re-frame2-setup/references/first-counter.md` "Reagent only"
+     warning, and the canonical UIx/Helix paragraph under the `spec/
+     006-ReactiveSubstrate.md` adapter inventory. The last two live outside
+     this skill entirely, so the block anchor is their ONLY protection — and
+     deliberately so: only the named block is read, never the whole file (spec/
+     006 lawfully carries bead ids and Reagent-owned `:contextType` prose that
+     the leaf-wide rules would reject).
 
 Scanned leaves (globbed, so a new leaf is covered automatically):
     SKILL.md, README.md, references/**/*.md, patterns/**/*.md,
@@ -608,6 +620,90 @@ def hooks_leaf_incoherent(text: str) -> bool:
     return _coherent_recipe_sentence(text) is None
 
 
+# --- Rule 6c (rf2-szw6c): BOUNDED BLOCK anchors on the three concrete recipe
+#     blocks. Rule 6a is a leaf-wide floor, so it is satisfied by ANY coherent
+#     sentence in the leaf: the views leaf's per-adapter TABLE can regress to
+#     the retired "required `reg-view*` on a `defui`/`defnc`" cell while its own
+#     adjacent paragraph stays lawful and the floor still passes. And two of the
+#     bounded authorities (the setup skill's greenfield warning, the Spec 006
+#     paragraph) are not in `scanned_files()` at all, so no rule reached them.
+#
+#     Each anchor names ONE block by a stable lead-in and checks it in place:
+#       * the block MUST itself be a coherent recipe (ordinary `defui`/`defnc` +
+#         `use-subscribe` + `use-frame` in one sentence) — the same Rule 6a
+#         predicate, applied at block scope rather than leaf scope; and
+#       * no sentence of the block may carry a Rule 6b residue shape.
+#     Only the anchored block is read — never the whole file. That is what makes
+#     it safe to anchor `spec/006-ReactiveSubstrate.md`, which lawfully carries
+#     bead ids (Rule 1) and Reagent-owned `:contextType` prose elsewhere.
+HOOKS_ANCHORED_BLOCKS = (
+    (
+        ("skills", "re-frame2", "references", "fundamentals", "views.md"),
+        "the per-adapter table's UIx ordinary-view row",
+        re.compile(r"^\|\s*\*\*UIx\*\*\s*\|"),
+    ),
+    (
+        ("skills", "re-frame2", "references", "fundamentals", "views.md"),
+        "the per-adapter table's Helix ordinary-view row",
+        re.compile(r"^\|\s*\*\*Helix\*\*\s*\|"),
+    ),
+    (
+        ("skills", "re-frame2-setup", "references", "first-counter.md"),
+        "the 'Reagent only' greenfield warning",
+        re.compile(r"^>\s*\*\*Reagent only\.\*\*"),
+    ),
+    (
+        ("spec", "006-ReactiveSubstrate.md"),
+        "the canonical UIx/Helix paragraph under the adapter inventory",
+        re.compile(r"^The UIx and Helix rows\b"),
+    ),
+)
+
+# A block runs from its anchor line to the next Markdown block boundary: a blank
+# line, a new table row (`|`), a heading, or a fence. Ordinary wrapped prose
+# continues (its continuation lines start none of those), so the relationship
+# checks tolerate Markdown wrapping; a sibling table row never bleeds in.
+BLOCK_BREAK_RE = re.compile(r"^\s*$|^\s*\||^\s*#|^\s*```")
+
+
+def anchored_block(text: str, anchor_re: re.Pattern[str]) -> tuple[int, str] | None:
+    """The bounded block introduced by `anchor_re`: the anchor line plus its
+    wrapped continuation lines, joined into one logical line. Returns
+    (lineno, block) or None when the anchor is absent."""
+    lines = text.splitlines()
+    for idx, line in enumerate(lines):
+        if anchor_re.search(line):
+            block = [line]
+            for cont in lines[idx + 1:]:
+                if BLOCK_BREAK_RE.match(cont):
+                    break
+                block.append(cont.strip())
+            return idx + 1, " ".join(block)
+    return None
+
+
+def anchored_block_problems(label: str, block: str) -> list[str]:
+    """Rule 6c — the bounded block must itself hold the coherent hooks recipe
+    and carry no Rule 6b residue shape."""
+    problems: list[str] = []
+    if _coherent_recipe_sentence(block) is None:
+        problems.append(
+            f"HOOKS-BLOCK-INCOHERENT: {label} no longer states the hooks recipe "
+            "in place — an ordinary `defui` / `defnc` that reads subs with "
+            "`use-subscribe` and carries the frame with `use-frame`. This block "
+            "is a bounded authority: it is the concrete recipe a programmer or "
+            "a model copies, so a correct paragraph elsewhere in the file does "
+            "NOT cover it. `reg-view*` on these adapters is OPTIONAL registry "
+            "addressing (see examples/substrates/helix/counter/core.cljs — a "
+            "plain `defnc` with `use-subscribe` + `use-frame` and no "
+            "`reg-view*`); it is never required, and never the frame wiring."
+        )
+    for sent in SENTENCE_SPLIT_RE.split(block):
+        if HOOKS_CTX_RE.search(sent):
+            problems.extend(hooks_sentence_problems(sent))
+    return problems
+
+
 # --- Rule 3: launcher points at BOTH canonical files, without regrowing the
 #     tree / locks sections. Operates on the whole authoring-prompt.md body
 #     (not the line-by-line leaf scan). `design.md` / `inputs.md` are the
@@ -759,6 +855,34 @@ def find_drift(files: list[Path]) -> tuple[list[str], int]:
                 "render-time capture-frame idiom. Restore the coherent recipe."
             )
 
+    # Rule 6c — BOUNDED BLOCK anchors. Each named block is read in place (never
+    # the whole file), so the two authorities outside this skill — the setup
+    # skill's greenfield warning and the Spec 006 paragraph — are covered
+    # without importing the leaf-wide rules onto them.
+    for parts, label, anchor_re in HOOKS_ANCHORED_BLOCKS:
+        target = REPO_ROOT.joinpath(*parts)
+        rel = "/".join(parts)
+        if not target.is_file():
+            problems.append(
+                f"{rel}: SETUP: bounded hooks-recipe authority missing — the "
+                f"Rule 6c anchor for {label} has no file."
+            )
+            continue
+        found = anchored_block(_slurp(target), anchor_re)
+        if found is None:
+            problems.append(
+                f"{rel}: HOOKS-BLOCK-ANCHOR-MISSING: {label} is a bounded "
+                "hooks-recipe authority, and its anchor "
+                f"(/{anchor_re.pattern}/) no longer matches any line. If the "
+                "block legitimately moved or was reworded, re-point the anchor "
+                "in HOOKS_ANCHORED_BLOCKS in the same change — don't leave the "
+                "recipe unguarded."
+            )
+            continue
+        lineno, block = found
+        for text in anchored_block_problems(label, block):
+            problems.append(f"{rel}:{lineno}: {text}")
+
     # Rule 3 — the launcher (authoring-prompt.md) is checked as a whole body,
     # not line-by-line, and lives under spec/ (out of the leaf scan above).
     if not AUTHORING_PROMPT.is_file():
@@ -790,8 +914,9 @@ def run(*, verbose: bool, ci: bool) -> int:
             "re-frame2 no-bead-id + verify-posture + launcher-canonical + "
             "machine-handler-recipe + managed-http-recipe + uix-helix-hooks "
             "guard: scanned "
-            f"{len(files)} user-facing leaves ({lines_checked} lines) plus the "
-            "spec/authoring-prompt.md launcher."
+            f"{len(files)} user-facing leaves ({lines_checked} lines), "
+            f"{len(HOOKS_ANCHORED_BLOCKS)} bounded hooks-recipe blocks, plus "
+            "the spec/authoring-prompt.md launcher."
         )
 
     if not problems:
@@ -803,7 +928,10 @@ def run(*, verbose: bool, ci: bool) -> int:
                 "hooks leaves each carry a coherent defui/defnc + use-subscribe + "
                 "use-frame recipe with no residue shape (no :contextType "
                 "attribution, semantic reversal, reg-view-macro registration, or "
-                "bare no-arg capture-frame carry), and the "
+                "bare no-arg capture-frame carry), the bounded recipe blocks "
+                "(the views per-adapter UIx/Helix rows, the setup skill's "
+                "'Reagent only' warning, and the Spec 006 UIx/Helix paragraph) "
+                "each still state that recipe in place, and the "
                 "launcher points at design.md + inputs.md without regrowing the "
                 "tree / locks."
             )
@@ -822,7 +950,9 @@ def run(*, verbose: bool, ci: bool) -> int:
         "retired co-located `:rf/reply` default), keep each UIx/Helix hooks "
         "stateful-component leaf carrying a coherent defui/defnc + use-subscribe "
         "+ use-frame recipe (never a reg-view-macro / bare-capture-frame / "
-        ":contextType-attribution / semantic-reversal residue), and keep the "
+        ":contextType-attribution / semantic-reversal residue), keep each "
+        "bounded recipe block stating that recipe IN PLACE (a correct paragraph "
+        "elsewhere in the file does not cover the table cell), and keep the "
         "launcher pointing at the canonical design.md + inputs.md instead of "
         "re-holding the tree / locks."
     )
@@ -1216,6 +1346,90 @@ def _self_test() -> int:
         # The coherence floor is load-bearing: strip use-frame → incoherent.
         if not hooks_leaf_incoherent(text.replace("use-frame", "the-frame")):
             print(f"SELF-TEST FAIL (T coherence floor not load-bearing): {rel}")
+            failures += 1
+
+    # --- Rule 6c (rf2-szw6c): the bounded block anchors. Every mutation below
+    #     is a REAL-TEXT REPLACEMENT inside the shipped block — the drift shape
+    #     an edit to that exact recipe would produce — not a free-floating bad
+    #     sentence appended after it. Each must fail the block on its own.
+    block_mutations = (
+        # The retired "required `reg-view*`" recipe: the block names `reg-view*`
+        # where the two hooks belong. It carries no Rule 6b residue (`reg-view*`
+        # is the lawful spelling), so ONLY the block-scoped coherence floor
+        # catches it — the regression this rule exists for.
+        ("required-reg-view*",
+         lambda b: b.replace("use-subscribe", "reg-view*")
+                    .replace("use-frame", "reg-view*")),
+        # The frame carried by a wrapped bare no-arg capture-frame.
+        ("wrapped-bare-capture",
+         lambda b: b.replace(
+             "use-frame", "use-frame wrapped as (:dispatch (rf/capture-frame))")),
+        # Semantic reversal steering the hooks author back to the macro.
+        ("semantic-reversal",
+         lambda b: b.replace(
+             "use-frame",
+             "use-frame (do not use use-frame or use-subscribe; "
+             "use reg-view instead)")),
+        # A `:contextType` attributed to the hooks adapter.
+        ("hooks-contexttype-attribution",
+         lambda b: b.replace(
+             "use-frame", "use-frame, which gives the component a `:contextType`")),
+    )
+    for parts, label, anchor_re in HOOKS_ANCHORED_BLOCKS:
+        target = REPO_ROOT.joinpath(*parts)
+        rel = "/".join(parts)
+        if not target.is_file():
+            print(f"SELF-TEST FAIL (U anchored file missing): {rel}")
+            failures += 1
+            continue
+        found = anchored_block(_slurp(target), anchor_re)
+        if found is None:
+            print(f"SELF-TEST FAIL (U anchor matches nothing): {rel} — {label}")
+            failures += 1
+            continue
+        _lineno, block = found
+        # The shipped block is the lawful recipe — GREEN.
+        shipped = anchored_block_problems(label, block)
+        if shipped:
+            print(f"SELF-TEST FAIL (U shipped block flagged): {rel} — {label}: "
+                  f"{shipped}")
+            failures += 1
+        # Each real-text mutation of the shipped block independently turns RED.
+        for mut_label, mutate in block_mutations:
+            mutated = mutate(block)
+            if mutated == block:
+                print(f"SELF-TEST FAIL (U {mut_label} mutation was a no-op): "
+                      f"{rel} — {label}")
+                failures += 1
+                continue
+            if not anchored_block_problems(label, mutated):
+                print(f"SELF-TEST FAIL (U {mut_label} mutation not caught): "
+                      f"{rel} — {label}")
+                failures += 1
+
+    # Lawful wording must stay GREEN at block scope too: optional registry
+    # addressing, a Reagent-owned `:contextType` comparison, a tightly-scoped
+    # negation, and a warning to avoid the Reagent macro on a hooks adapter.
+    lawful_blocks = (
+        ("V1 optional registry addressing",
+         "| **UIx** | ordinary `defui`; subs via `use-subscribe`, frame via "
+         "`use-frame`; `reg-view*` optional (registry addressing only) |"),
+        ("V2 Reagent-owned :contextType comparison",
+         "On UIx / Helix an ordinary `defui` / `defnc` reads subs with "
+         "`use-subscribe` and carries the frame with `use-frame`, unlike a "
+         "Reagent `reg-view` component's `:contextType` wiring."),
+        ("V3 tightly-scoped negation",
+         "On UIx / Helix an ordinary `defui` / `defnc` uses `use-subscribe` and "
+         "`use-frame` and has no `:contextType`."),
+        ("V4 warning to avoid the Reagent macro",
+         "On UIx / Helix do not reach for `reg-view` — an ordinary `defui` / "
+         "`defnc` reads subs with `use-subscribe` and carries the frame with "
+         "`use-frame`."),
+    )
+    for lawful_label, lawful in lawful_blocks:
+        got = anchored_block_problems("fixture", lawful)
+        if got:
+            print(f"SELF-TEST FAIL ({lawful_label}): expected green, got {got}")
             failures += 1
 
     if failures:
