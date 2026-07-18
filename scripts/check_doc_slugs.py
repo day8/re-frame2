@@ -587,16 +587,18 @@ def _scan_rendered_ids(path: Path) -> dict[str, int]:
     by `_strip_fences`, HTML comments are masked by `_mask_html_comments`, and
     inline-code spans are masked by `_strip_inline_code` before the anchor regex
     runs — anchor-shaped text that the browser never turns into a fragment target
-    therefore contributes nothing. Heading slugs are still derived from the
-    fence-stripped line (inline code inside a heading title is part of the
-    rendered slug, so it must NOT be masked away there).
+    therefore contributes nothing. Heading slugs are derived from the SAME
+    comment-masked line (rf2-ehxs8 — the predecessor matched headings on the raw
+    line, so a heading buried in a multiline HTML comment still minted a slug),
+    but inline code is deliberately NOT masked away there: inline code inside a
+    heading title is part of the rendered slug.
     """
     text = path.read_text(encoding="utf-8", errors="replace")
     counts: dict[str, int] = {}
     seen_counts: dict[str, int] = {}
     fence_stripped = _strip_fences(text.splitlines())
     comment_masked = _mask_html_comments(fence_stripped)
-    for (_, raw_line), (_, masked_line) in zip(fence_stripped, comment_masked):
+    for _, masked_line in comment_masked:
         # HTML anchor elements can appear on any line (heading or not). Only a
         # RENDERED anchor counts, so recognise them on the comment- and
         # inline-code-masked line.
@@ -605,7 +607,11 @@ def _scan_rendered_ids(path: Path) -> dict[str, int]:
             aid = am.group(1)
             counts[aid] = counts.get(aid, 0) + 1
 
-        m = _HEADING_RE.match(raw_line)
+        # Headings are recognised on the comment-masked line (rf2-ehxs8): a
+        # heading that lives entirely inside a multiline HTML comment renders no
+        # fragment target and must not be indexed. Inline code is NOT masked
+        # here — a heading title's inline code IS part of the rendered slug.
+        m = _HEADING_RE.match(masked_line)
         if not m:
             continue
         title = m.group(2).strip()
@@ -656,7 +662,9 @@ def _anchor_precedes_passage(
 ) -> bool:
     """True iff an explicit `<a id=anchor_id>` appears before the named passage.
 
-    `lines` are fence-stripped content lines. Returns False if the anchor is
+    `lines` are content lines the CALLER has already reduced to rendered source —
+    fence-stripped, and (from `_check_compat_anchor_placement`) HTML-comment- and
+    inline-code-masked, so only a real fragment target matches. Returns False if the anchor is
     absent, the passage is absent, or the anchor appears at/after the passage —
     each is a placement defect the caller reports (rf2-zq5i6). Kept a pure
     function so the placement teeth can drive it with a correct and a mutated
@@ -882,11 +890,17 @@ def _check_compat_anchor_placement(
         if not page.is_file():
             misplaced.append((page_rel, anchor, "page missing from working tree"))
             continue
+        # Placement must locate the RENDERED anchor (rf2-ehxs8): mask HTML
+        # comments and inline code as well as fenced code, so anchor-shaped text
+        # the browser never turns into a fragment target cannot stand in for the
+        # real anchor. Without this a commented/backticked fake anchor before the
+        # passage passes placement while the sole rendered anchor sits after it.
+        fence_stripped = _strip_fences(
+            page.read_text(encoding="utf-8", errors="replace").splitlines()
+        )
         lines = [
-            content
-            for _, content in _strip_fences(
-                page.read_text(encoding="utf-8", errors="replace").splitlines()
-            )
+            _strip_inline_code(content)
+            for _, content in _mask_html_comments(fence_stripped)
         ]
         if not _anchor_precedes_passage(lines, anchor, passage_re):
             misplaced.append(
@@ -1595,6 +1609,20 @@ def _run_self_tests(verbose: bool = False) -> int:
         ("placement drifted — anchor after passage",
          dict(compat_anchors={}, source_files=(),
               placement={("docs/routing/loader_drifted.md", "when-a-loader-fails"):
+                         re.compile(r"On loader failure")}), 1),
+        # rf2-ehxs8 — both remaining raw/fence-only source paths made
+        # render-faithful. (1) A heading that exists ONLY inside a multiline HTML
+        # comment mints no fragment target, so it must not satisfy the manifest
+        # (the predecessor matched headings on the raw line). (2) Placement must
+        # locate the RENDERED anchor: commented and backticked anchor-shaped text
+        # before the passage must not stand in for the sole real anchor, which
+        # sits after it.
+        ("commented-only heading mints no rendered slug",
+         dict(compat_anchors={"docs/machines/commented_heading.md": ("keep-me",)},
+              source_files=(), placement={}), 1),
+        ("placement ignores commented/backticked fake anchor before passage",
+         dict(compat_anchors={}, source_files=(),
+              placement={("docs/routing/loader_fake_before.md", "when-a-loader-fails"):
                          re.compile(r"On loader failure")}), 1),
         # rf2-57k74 source-comment mechanism (Machines).
         ("source-comment link valid",
