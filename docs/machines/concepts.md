@@ -158,10 +158,16 @@ Return truthy/falsey. No combinator DSL — compound logic is ordinary Clojure:
 
 ```clojure
 :guards
-{:under-retry-limit (fn [{data :data}] (< (:attempts data) 3))
+{:under-retry-limit (fn [{data :data}] (< (:attempts data) 2))   ;; three attempts total
  :form-valid?       (fn [{[_ creds] :event}]
                       (and (seq (:email creds)) (seq (:password creds))))}
 ```
+
+A guard sees the snapshot as it stands *before* the transition's action runs, so
+`:under-retry-limit` reads the count from the two failures already recorded and
+the boundary sits one below the total you want — `2` for the
+[tutorial](tutorial.md)'s three-attempt lockout. XState guards evaluate in the
+same place, ahead of the `assign`, so the off-by-one reads the same there.
 
 <a id="name-them-or-inline-them"></a>
 
