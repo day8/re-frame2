@@ -211,7 +211,12 @@
       (is (= 3 (:sub-recomputes rc)) "1 + 2 across the two epochs")
       (is (= 2 (:view-renders rc))   "1 + 1")
       (is (= {:total 3} (:by-sub-id rc)) "the over-recompute signal: :total recomputed 3×")
-      (is (= {:v 2} (:by-view rc)) "view :v rendered once per epoch → 2 across the cascade")
+      ;; The tape SUPPLIES one render row for :v in each of the two epochs, so
+      ;; the aggregate is 2. The count comes from the rows the tape carries —
+      ;; never inferred from the epoch count, which is not a render-count proxy
+      ;; (rf2-vxgfnd.167).
+      (is (= {:v 2} (:by-view rc))
+          "the two supplied :v render rows aggregate to 2")
       (is (= {:a {:sub-recomputes 1 :view-renders 1}
               :b {:sub-recomputes 2 :view-renders 1}} (:by-cause rc)))
       (is (= [{:epoch-id 1 :sub-recomputes 1 :view-renders 1}

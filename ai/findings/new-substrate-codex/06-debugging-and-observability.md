@@ -101,7 +101,7 @@ A committed render carries one or more typed causes:
 | `:root-render` | Explicit root render with changed root props/options. |
 | `:foreign-or-react` | React rendered for a cause the substrate cannot refine, such as a raw foreign context. |
 
-Multiple subscription sites changed in one re-frame2 epoch but still yield one component render. The cause vector retains all changed sites; the header cause can say “3 dependencies changed in event `::refresh-complete`.”
+Multiple subscription sites changed before the same host checkpoint still yield one component render, whether they changed inside one epoch or across several. The cause vector retains all changed sites; the header cause can say “3 dependencies changed in event `::refresh-complete`.”
 
 The fallback category is honest. The debugger must not fabricate precision when a raw React Hook or foreign component caused the render.
 

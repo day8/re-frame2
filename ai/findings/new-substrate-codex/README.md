@@ -1,5 +1,13 @@
 # re-frame2 UI: blank-slate React substrate
 
+> **Historical — superseded design proposal, not authoritative.**
+> This tree is a July 2026 proposal for a blank-slate React substrate, retained for history. It
+> describes no shipped behaviour and governs nothing. The authoritative reactive-substrate contract
+> is [`spec/006-ReactiveSubstrate.md`](../../../spec/006-ReactiveSubstrate.md) — in particular
+> invariant 6 and *Render-batch finalization — the host-checkpoint boundary* — and the authoritative
+> view contract is [`spec/004-Views.md`](../../../spec/004-Views.md). Where this tree and those specs
+> disagree, the specs win.
+
 Status: design proposal, 2026-07-11. No implementation is claimed.
 
 This suite proposes a new library, provisionally named **re-frame2 UI**:
@@ -58,7 +66,7 @@ That source compiles to a named, memoized React function component. The `:button
 9. [API, delivery plan, and risks](09-api-delivery-and-risks.md)
 10. [Research sources](sources.md)
 
-The [user guide](guide/README.md) is written as if the proposed API existed. This is deliberate: examples are an API design test, and disagreements between the architecture and the manual are defects in the proposal.
+The [user guide](guide/README.md) is written as if the proposed API existed. That was deliberate at the time: examples served as an API design test, and disagreements between the architecture and the manual counted as defects in the proposal. Neither document is authoritative today.
 
 ## What is deliberately absent
 
@@ -77,14 +85,14 @@ Most contracts survive unchanged: frames are carried, events remain data, subscr
 
 One current requirement needs an explicit amendment rather than wordplay. [Spec 004](../../../spec/004-Views.md) currently requires the client render result itself to be serializable data. Direct JSX-runtime output is a React element and is not serializable Clojure data. This proposal moves portability to the stronger boundary: **one serializable compile-time template AST, with deterministic client and JVM code generators**. The JVM result remains a serializable render tree; the client result is direct React output. Hydration parity is checked from the shared AST. The change removes a mandatory client interpreter without sacrificing one-source SSR.
 
-[Spec 006](../../../spec/006-ReactiveSubstrate.md) needs one narrow private observation port: an owner-free subscription probe followed by commit-time acquire/read/release. The new adapter also gives its existing derivation epoch an internal final phase that flushes dirty ViewCells once; this is not a new public callback or generic adapter plug-in seam. Both contracts are formalized in the integration document.
+[Spec 006](../../../spec/006-ReactiveSubstrate.md) needs one narrow private observation port: an owner-free subscription probe followed by commit-time acquire/read/release. The new adapter also gives its scheduler an internal final phase that flushes dirty ViewCells once when the pending render batch closes at the host microtask checkpoint; this is not a new public callback or generic adapter plug-in seam. Both contracts are formalized in the integration document.
 
 ## Masterpiece test
 
 The proposal earns that posture only if a prototype demonstrates all of the following:
 
 - a literal view compiles within 10% of equivalent hand-written React JSX runtime cost;
-- a component reading many subscriptions still owns one external-store hook and receives at most one notification per re-frame2 epoch;
+- a component reading many subscriptions still owns one external-store hook and receives at most one ViewCell notification for the whole render batch, however many epochs settled inside that window;
 - an abandoned render retains zero subscription refs and zero resource leases;
 - an Activity-hidden tree retains local UI state but owns zero live re-frame2 subscriptions/resources, then reconnects without duplicates;
 - a production bundle contains no runtime tag parser, Hiccup walker, source paths, debug manifests, or trace-building code;

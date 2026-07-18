@@ -14,7 +14,7 @@ It does not replace any of them.
 | Subscription definitions | `reg-sub`, query vectors, cached derivation graph | Unchanged. `ui/sub` is a compiled observation site over those nodes. |
 | Subscription lifetime | per-frame cache ref counts, synchronous zero-owner disposal | ViewCell acquires after commit and releases on retarget, unmount, or React Activity disconnection. |
 | Events | data vectors, frame-carried dispatch, run-to-completion drain | DOM event vectors compile to stable callbacks that dispatch through the existing router with an explicit committed frame. |
-| Epochs | coherent derivation recompute and trace attribution | Adapter flushes each dirty ViewCell once after its derivation scheduler drains. |
+| Epochs | write/evidence unit — one per dequeued event — carrying commit-phase and trace attribution | Epochs ride ViewCell marks as cause evidence only; they are not React render boundaries. Each dirty ViewCell flushes once when the pending render batch closes at the host checkpoint. |
 | Resources | explicit ensure/refetch commands, passive reads, owner leases | `ui/lease` aggregates commit-owned view leases; `ui/sub [:rf/resource ...]` remains passive. |
 | Machines | registered event-driven runtime | Views read machine subs and send machine events; no component actor system is added. |
 | Views | registry metadata, source coords, instance render keys | `defview` registers compiler metadata and a stable React component; ViewCell supplies committed instance facts. |
@@ -38,7 +38,7 @@ It does not replace any of them.
 
 The state/derivation side is a React-native plain-container adapter, not a Reagent ratom adapter. Its derived-value scheduler retains the current UIx/Helix guarantees: lazy computation, coherent multi-input recompute, equality suppression, and synchronous disposal.
 
-The scheduler also owns the adapter-local dirty ViewCell set. `replace-container!` opens a reactive epoch, drains all affected derivations, then advances each dirty cell once. This is an implementation-level guarantee of the new adapter; no ViewCell callback is added to the generic public adapter map.
+The scheduler also owns the adapter-local dirty ViewCell set. `replace-container!` drains all affected derivations and marks the affected cells; each dirty cell then advances exactly once when the pending render batch closes at the next host microtask checkpoint, so several replacements within one JavaScript stack share a single advance. This is an implementation-level guarantee of the new adapter; no ViewCell callback is added to the generic public adapter map.
 
 `render` receives a native React element emitted by the compiler. It never accepts arbitrary Hiccup on CLJS. `render-to-string` remains a late-bound SSR seam so the core artefact does not pull a server renderer into browser bundles.
 
@@ -120,7 +120,7 @@ The first shape scopes an existing live frame and fails if absent. The second en
 
 ### Frame destruction
 
-Destroying a frame disposes its derivation nodes and container state under existing rules. The adapter additionally detaches ViewCell subscription leases and resource owners targeting that frame, removes those cells from pending epoch sets, and schedules a loud error/render for any still-mounted view whose scope now resolves to the destroyed frame.
+Destroying a frame disposes its derivation nodes and container state under existing rules. The adapter additionally detaches ViewCell subscription leases and resource owners targeting that frame, removes those cells from the pending dirty set, and schedules a loud error/render for any still-mounted view whose scope now resolves to the destroyed frame.
 
 Mounted UI never silently migrates to another frame.
 

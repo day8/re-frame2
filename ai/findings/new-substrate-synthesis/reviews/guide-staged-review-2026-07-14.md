@@ -102,8 +102,8 @@ feel it" cross-links back to guides):
    (cache-blockers, build hooks, version-zero passes, why a misconfigured dev bundle
    fails loudly). 01 keeps the recipe; this page keeps the why.
 3. **The reactive core.** How `sub` re-renders a view with one React bridge: read-site
-   registration, drain to quiescence, one notification per drain, identical references
-   short-circuiting child comparators. Ownership: acquire/release across mount,
+   registration, the pending render batch and the host checkpoint that closes it, one
+   notification per batch, identical references short-circuiting child comparators. Ownership: acquire/release across mount,
    unmount, Activity hide, abandoned renders — why there is no tearing window and no
    order-A-data-against-order-B-id frame.
 4. **Memoization that is correct, not heuristic.** `rf=` per prop slot; identity fast

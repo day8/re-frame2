@@ -82,6 +82,7 @@ stable DOM callback
   → re-frame2 event drain
   → derivations recompute once per graph node/epoch
   → affected cells enter one dirty set
+  → the pending render batch closes at the host microtask checkpoint
   → each dirty cell advances once
   → React renders affected components
 ```
@@ -96,7 +97,7 @@ Let:
 - `Dᵥ` be active subscription sites in view `v`;
 - `Eᵥ` be event sites in `v`;
 - `Lᵥ` be active resource lease sites in `v`;
-- `C` be cells affected by one re-frame2 epoch;
+- `C` be cells affected within one render batch;
 - `Kᵥ` be changed derivation sites in an affected cell.
 
 Steady mounted memory is:
@@ -108,7 +109,7 @@ O(V) ViewCells
 + O(ΣLᵥ) real resource owners
 ```
 
-An update epoch schedules:
+One render batch schedules:
 
 ```text
 O(changed derivation graph)
@@ -166,7 +167,7 @@ A generic substrate cannot make every keystroke cheap if the application intenti
 2. Uncommitted IME composition and DOM-only mechanics stay uncontrolled/local.
 3. Field and validation views subscribe to narrow projections, not an entire form map when avoidable.
 
-The event compiler removes handler closure churn. Epoch coalescing removes duplicate renders from one input event. It does not hide an application subscription that recomputes the world.
+The event compiler removes handler closure churn. Render-batch coalescing removes duplicate renders from one input event. It does not hide an application subscription that recomputes the world.
 
 ## Lists
 
@@ -188,7 +189,7 @@ It performs exact work reduction instead:
 
 - derivations settle coherently;
 - equal results do not notify;
-- cells coalesce once per epoch;
+- cells coalesce once per render batch;
 - React sees cached snapshots;
 - application code may use React-local deferred presentation for a genuinely local expensive view.
 
@@ -211,7 +212,7 @@ The same fixtures compare against current UIx AOT and Helix DOM constructors. A 
 For components with 1, 4, 8, and 16 subscription sites:
 
 - React external-store Hook count remains one;
-- one epoch invokes the component at most once;
+- one render batch invokes the component at most once;
 - notification count remains one;
 - additional CPU is attributable to the extra derivation reads/reconciliation, not repeated Hook scaffolding.
 
@@ -225,9 +226,9 @@ An event that changes app-db but leaves a view's derived results `rf=` produces:
 - zero React renders for that cell;
 - stable site value references on a later unrelated parent render.
 
-### B-5: Epoch fan-in
+### B-5: Render-batch fan-in
 
-If eight dependencies of one view change in one event, the view receives one revision and one render. If eight events run in separately committed epochs, eight updates are allowed; the substrate does not merge distinct transactions by time.
+If eight dependencies of one view change in one event, the view receives one revision and one render. If eight events settle before the same host checkpoint — in one drain or several — they still coalesce into that one render batch, so the fixture must assert one revision and one render there too. No render count may be inferred from how many epochs settled. Eight separate updates appear only when the caller yields to the host between them, and the substrate never merges work by timer.
 
 ### B-6: Abandonment and disposal
 
@@ -244,7 +245,7 @@ After 10,000 Activity hide/reveal cycles, hidden trees have zero live subscripti
 
 ### B-7: Input latency
 
-A representative text field with narrow app-db state measures event-to-commit latency against UIx and hand-written React on the same browser/hardware. The new path must be within 10% of hand-written React at p95 and show one framework/React commit per input epoch.
+A representative text field with narrow app-db state measures event-to-commit latency against UIx and hand-written React on the same browser/hardware. The new path must be within 10% of hand-written React at p95 and show one framework/React commit per keystroke, because each keystroke yields to the host before the next arrives.
 
 IME composition and caret fixtures verify correctness before speed.
 
@@ -337,7 +338,7 @@ The new substrate's credible production wins are elsewhere:
 - direct internal props ABI;
 - one React bridge per view instead of per read;
 - stable event callbacks without author memoization;
-- exact epoch coalescing;
+- exact render-batch coalescing;
 - identity stabilization across subscription and prop boundaries;
 - debug code proven absent.
 

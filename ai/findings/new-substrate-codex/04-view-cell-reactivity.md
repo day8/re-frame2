@@ -218,34 +218,35 @@ These are three different states:
 
 No render writes a shared “latest capture” to make reconnection work. The prototype must prove that React reconnects the effect/resource closures associated with the latest hidden commit; if it does not, Activity integration remains unsupported rather than reintroducing speculative shared mutation.
 
-## Invalidation and epoch coalescing
+## Invalidation and render-batch coalescing
 
-A subscription callback performs constant work:
+A subscription callback performs constant work. The moving epoch rides the mark as cause evidence; coalescing keys on the cell's pending state, never on the epoch tag:
 
 ```text
 on-node-change(cell, change):
   if debug: append bounded cause detail
-  if cell not already dirty in change.epoch:
+  if cell not already pending:
       add cell to adapter dirty set
+  if window not armed: arm host-checkpoint flush
 ```
 
-At derivation epoch close:
+When the pending render batch closes — at the next host microtask checkpoint, or at an explicit headless/test flush:
 
 ```text
-flush-dirty-cells(epoch):
+flush-dirty-cells():
   for each cell in dirty set:
       cell.revision += 1
       if cell.notify exists: cell.notify()
   clear dirty set
 ```
 
-Multiple changed subscriptions in one event therefore produce one scalar change and one React callback for a view. No timer, animation frame, or heuristic batching window is involved.
+Multiple changed subscriptions therefore produce one scalar change and one React callback for a view, whether they changed within a single event or across several events that settled before the same checkpoint. No timer, animation frame, or heuristic batching window is involved.
 
-If a node changes outside an explicit event drain, the adapter opens a one-change epoch around the container replacement, preserving the same rule.
+If a node changes outside an explicit event drain, the container replacement marks the affected cells the same way and joins the same pending window, preserving the rule.
 
 `getSnapshot` simply returns `cell.revision`. It allocates nothing and remains stable until the cell is flushed. `subscribe` stores React's callback and returns a cleanup that clears that exact callback. Both functions are stable methods created with the cell, not render closures.
 
-The revision is the React-visible publication boundary. Supported root/flush APIs never ask React to render while a re-frame2 derivation epoch is open: `flush-render!` and test `ui/flush!` drain and close framework work first. A raw re-entrant `flushSync` from inside an event handler/effect would expose half-settled external state, so development rejects it with the current epoch/event evidence rather than pretending it is safe. Normal React event batching renders only after the callback and settled epoch return.
+The revision is the React-visible publication boundary. Supported root/flush APIs never ask React to render while a re-frame2 derivation epoch is open: `flush-render!` and test `ui/flush!` drain and close framework work first. A raw re-entrant `flushSync` from inside an event handler/effect would expose half-settled external state, so development rejects it with the current epoch/event evidence rather than pretending it is safe. Normal React event batching renders only after the callback returns and the pending window closes at the host checkpoint.
 
 ## Correctness scenarios
 
@@ -313,7 +314,7 @@ One ViewCell keeps actual derivation nodes granular while making the React bound
 
 - N derivation leases, because N dependencies are real;
 - one React snapshot, because the component has one render result;
-- one notification per transaction, because React cannot usefully render the same component N times for the same settled epoch.
+- one notification per render batch, because React cannot usefully render the same component N times for state that has already settled by the time the window closes.
 
 That is the right division of granularity.
 
@@ -323,7 +324,7 @@ The runtime should stay small enough to audit. The target implementation units a
 
 1. compact cell and capture operations;
 2. subscription probe/acquire/read/release port;
-3. epoch dirty-set integration;
+3. dirty-set and host-checkpoint render-batch integration;
 4. event-slot and dispatcher operations;
 5. resource-site passive reconciliation;
 6. development recorder behind a compile-time gate.

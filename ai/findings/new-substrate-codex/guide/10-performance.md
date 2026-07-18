@@ -11,7 +11,7 @@ Ordinary code already gets:
 - generated `rf=` prop comparison;
 - stable query identities and equal result references;
 - one external-store Hook per reactive view;
-- one ViewCell notification per framework epoch;
+- one ViewCell notification per render batch, however many epochs settled inside it;
 - zero live re-frame2 owners for Activity-hidden trees;
 - stable event/handler callbacks;
 - development instrumentation removed from production.
@@ -49,7 +49,7 @@ One cell, one external-store Hook, one real derivation lease.
     ...))
 ```
 
-Still one React bridge and one render per settled epoch. Keep separate meaningful subscriptions; do not merge merely to reduce Hook count.
+Still one React bridge, and one render for the whole batch that closes at the next host checkpoint. Keep separate meaningful subscriptions; do not merge merely to reduce Hook count.
 
 ## Make derivations do derivation work
 
