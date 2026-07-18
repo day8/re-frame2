@@ -15,13 +15,27 @@
   in document order'`) + `ssr_streaming_conformance_test` (fixture-
   pinned FIFO).
 
-  The hiccup author marks deferred subtrees with the
-  `:rf/suspense-boundary` reserved hiccup head:
+  Authors mark deferred subtrees with the `re-frame.ssr.boundary/boundary`
+  COMPONENT — the one form expressible on every host:
+
+    [boundary
+     {:id      :news/comments
+      :fallback [:p \"Loading comments…\"]}
+     [comments-section]]
+
+  which expands, on the server, to the internal `:rf/suspense-boundary`
+  wire marker this walker consumes:
 
     [:rf/suspense-boundary
      {:id      :news/comments
       :fallback [:p \"Loading comments…\"]}
-     [:comments/section]]
+     [comments-section]]
+
+  The marker is INTERNAL syntax between the component and this walker,
+  not an authoring surface — a keyword head is an HTML element on every
+  client substrate (rf2-j81hs), so a marker written by hand into a shared
+  render tree paints a phantom `<suspense-boundary>`. The walker protocol
+  below is unchanged by the component's introduction.
 
   Three load-bearing operations:
 
@@ -61,6 +75,12 @@
             ;; debug-gated source-coord injection). The shell walk no longer
             ;; consults the registry to decide what a head means.
             [re-frame.late-bind :as late-bind]
+            ;; The suspense COMPONENT's reserved runtime-db slot. `boundary`
+            ;; depends on core only (frame + error), never on this ns, so the
+            ;; require is acyclic: the component expands TO the marker this
+            ;; walker consumes, and both sides read the slot path from one
+            ;; source rather than repeating the literal.
+            [re-frame.ssr.boundary :as boundary]
             [re-frame.ssr.emit :as emit]
             [re-frame.ssr.html-helpers :as html]
             [re-frame.ssr.payload-policy :as payload-policy]
@@ -619,6 +639,28 @@
            :failed?       true
            :continuations []})))))
 
+(defn- with-failed-boundaries
+  "Record the failed-boundary id set in the projected runtime-db slice, at
+  `re-frame.ssr.boundary/failed-boundaries-path`.
+
+  The server has known `:failed?` per continuation since streaming
+  shipped and DROPPED it: the client could see a
+  `data-rf2-suspense-failed` chunk in the DOM, but nothing survived into
+  the hydrated frame-state, so a client render tree had no way to know
+  which boundaries should re-render their fallback. Carrying the set on
+  the serialisable runtime slice closes that — it rides the existing
+  `:rf/runtime-db` key and the existing `:replace-frame-state` install.
+
+  Empty / absent set contributes NO key: `project-runtime-db` returns nil
+  when no durable subsystem fact is present, and a page where nothing
+  failed must keep that nil so `build-payload` omits `:rf/runtime-db`
+  entirely. Only a genuine failure materialises the slice."
+  [projected policy-opts]
+  (let [failed (:failed-boundaries policy-opts)]
+    (if (seq failed)
+      (assoc-in (or projected {}) boundary/failed-boundaries-path (set failed))
+      projected)))
+
 (defn build-final-payload
   "After every continuation has drained, construct the canonical
   `:rf/hydration-payload` for the `__rf_payload` final chunk. The
@@ -662,7 +704,19 @@
   the whole `app-db`). Absence throws
   `:rf.error/ssr-missing-payload-policy`. The Ring host adapter
   validates at handler-construction time so misconfigured deployments
-  fail at boot rather than at first request."
+  fail at boot rather than at first request.
+
+  `policy-opts` may carry `:failed-boundaries` — the set of boundary ids
+  whose continuation render THREW (each `render-continuation` call
+  reports `:failed? true`). The host adapter accumulates them as it
+  drains and hands the set here; it rides the serialisable runtime-db
+  slice at `re-frame.ssr.boundary/failed-boundaries-path`, so the
+  `:rf/hydrate` `:replace-frame-state` install puts it in the client
+  frame's runtime-db with no new payload key and no hydrate-handler
+  change. The client `boundary` component reads it to render a failed
+  boundary's DECLARED fallback — the markup the failed chunk actually
+  left in the DOM. Empty / absent contributes NO key (the ordinary
+  nothing-failed page carries nothing extra on the wire)."
   [frame-id render-hash {:as policy-opts}]
   (let [;; rf2-j538f7.15 — pin the frame's per-incarnation identity BEFORE
         ;; reading its state. The app-db / runtime-db below are captured off the
@@ -706,7 +760,8 @@
        ;; ambient one. A streaming build called outside `with-frame`, or under a
        ;; different ambient frame, otherwise serialized classified route / machine
        ;; / resource runtime state under nil / the wrong frame's policy.
-       (assoc policy-opts :runtime-db (payload-policy/project-runtime-db runtime-db frame-id)))
+       (assoc policy-opts :runtime-db (-> (payload-policy/project-runtime-db runtime-db frame-id)
+                                          (with-failed-boundaries policy-opts))))
       ;; rf2-j538f7.15 — the request frame was destroyed / re-registered between
       ;; state capture and projection: its classification authority is gone, so
       ;; the captured app-db / runtime-db must NOT ship under absent / substituted
