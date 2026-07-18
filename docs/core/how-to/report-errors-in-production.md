@@ -16,7 +16,7 @@ This guide builds a production bridge to Sentry, one step at a time: register th
 
     You'd reach for `Sentry.init` plus the global `window.onerror` hook. That gives you the exception and its stack — genuinely useful — but it can't tell you what the app was actually *doing* when things went sideways. re-frame2's record carries the in-flight event alongside the throwable, so your issue tracker shows the *cause*, not just the crash site. The slogan: **production keeps the dossiers, not the firehose.**
 
-## 1. Register a listener {#register-a-listener}
+## 1. Register a listener
 
 Here is the smallest possible bridge. It catches every production failure and ships the throwable to Sentry:
 
@@ -46,7 +46,7 @@ One trap to disarm before you go further. There's a *different* stream, `registe
 
     The closest analogue is a logging / crash-reporting middleware you `applyMiddleware` once at store creation. The difference: this listener sits *outside* the data path entirely. It observes failures; it never sits in the reducer chain; it has no power to swallow, retry, or rewrite the action. It's a read-only seat by design — more on that in §5.
 
-## 2. Gate it so it can't fire in dev {#gate-it}
+## 2. Gate it so it can't fire in dev
 
 The substrate is always on, in dev *and* production, so the bare listener from §1 fires against your real Sentry project every time something throws while you're developing. Not what you want. The fix is to register it only in an actual production build — gate it behind your own build flag:
 
@@ -82,7 +82,7 @@ Two more properties fall out of the substrate's design for free:
 
 To take the bridge back down — a feature flag flipping off, say — call `(rf/unregister-listener! :errors ::sentry-bridge)`.
 
-## 3. Branch on the category, never the prose {#branch-on-the-category}
+## 3. Branch on the category, never the prose
 
 Now the second naive assumption. The `record` your listener receives isn't one fixed shape — it's one of several related shapes (a *union*), and not all of them carry an `:exception`. So your bridge has to look at a record and decide *which* kind it's holding before it reads fields off it.
 
@@ -124,7 +124,7 @@ Because these have no throwable, your bridge falls through to `captureMessage` �
 
     When the failing handler or subscription was registered through a `reg-*` macro, the record carries a `:source-coord` of `{:ns … :file … :line …}` — the definition site of the *broken* component. It's the production analogue of the jump-to-source chip [Xray](../glossary.md#xray) shows in dev, and it survives elision on purpose: the coord rides a separate always-on registry, *not* the public registration metadata (which is stripped of coord keys under `goog.DEBUG=false`). Ship it as `:extra` (above) and your Sentry issue links straight back to the line; it also makes a stabler fingerprint than a stack trace whose frames shift between builds. The slot is simply **absent** when the component was registered programmatically (no macro to capture the coord) — so read it defensively, never assume it's there.
 
-### Name the *failing* component, not just the event {#name-the-failing-component}
+### Name the *failing* component, not just the event
 
 Here's the subtlety that's the difference between a useful Sentry issue and a useless one. For most categories the failing id *is* the event id — `:rf.error/handler-exception` fails the handler, and the handler *is* the event; the `:rf.error/sub-*` categories carry the sub-id under `:event-id`. But two categories fail a component **distinct** from the dispatched event:
 
@@ -137,13 +137,13 @@ For exactly these two, the record **also** carries `:failing-id` (the broken int
 
     The error payload is a *tagged union* (a sum type) keyed by `(:error record)`, with `:exception` an *optional* field rather than a guaranteed one — so a correct consumer is a fold over the discriminant with a presence-check on the optional. The substrate guarantees the tag is a stable closed vocabulary while leaving the `:reason` prose free to vary: the classic move of pinning the machine-readable variant tag and treating the human string as a non-contractual rendering. Branch on the tag, project the optional, ignore the prose.
 
-### Don't scrub the `:event` yourself {#dont-scrub-the-event}
+### Don't scrub the `:event` yourself
 
 You don't have to redact the event vector by hand to keep secrets out of Sentry. The substrate runs it through `re-frame.elision/elide-wire-value` once before fan-out, with the off-box defaults. Paths your app classified as sensitive arrive as `:rf/redacted`, and oversized payloads arrive as the `:rf.size/large-elided` marker rather than the full thing. That's [data classification](../glossary.md#data-classification) doing its job at the egress boundary ([Keep secrets out of traces](keep-secrets-out-of-traces.md)).
 
 Now the flip side, out loud: the raw `:exception` is **not** scrubbed. The `:event` vector is wire-elided, but the host throwable rides raw — deliberately, because a post-mortem shipper needs the stack to be useful. The consequence: a value that landed in an exception message or `ex-data` is *not* redacted on this surface. This is the documented exception to the always-on substrate's "structured data only" rule. If that worries you for a given frame, the projected frame sink (§8) drops the `:exception` for you under its `:rf.egress/public-error` profile.
 
-## 4. Handle the frame-teardown report {#handle-the-frame-teardown-report}
+## 4. Handle the frame-teardown report
 
 One record shape breaks bridges written for "an error is an event with an exception," and it deserves its own branch. When a frame is destroyed it runs a batch of best-effort cleanup hooks — [flow](../glossary.md#flow) teardown, [resource](../../resources/glossary.md#resource) cleanup, [schema](../glossary.md#schema) deregistration, trace-ring release. Any of those may throw, and the runtime reports *all the ones that threw together*, in one bounded record with **no `:event` and no top-level `:exception`**:
 
@@ -197,7 +197,7 @@ Notice where the throwables live: **inside** the `:hook-failures` vector, one pe
 
     On the [server-side-rendering](../../ssr/glossary.md#ssr) tier, a handful of non-event categories arrive on this stream: `:rf.error/ssr-render-failed`, `:rf.error/ssr-streaming-writer-failed`, `:rf.error/malformed-hydration-payload`, `:rf.error/ssr-head-resolution-failed`, `:rf.error/sanitised-on-projection`, `:rf.error/ssr-ring-error-view-failed`, and `:rf.error/hydration-frame-id-mismatch`. They carry no `:event` / `:event-id`, each has its own flat keys, and some carry an `:exception` while others don't — one more reason the structural branch checks `:exception` presence rather than assuming it.
 
-## 5. Know what survives elision {#what-survives-elision}
+## 5. Know what survives elision
 
 It's worth being precise about what's still running in production, because the line isn't obvious from outside. ([Observability](../observability.md) is the full account of what [elision](../glossary.md#elide) removes and spares; here's the short version a monitor needs.)
 
@@ -213,7 +213,7 @@ It's worth being precise about what's still running in production, because the l
 
     On the JVM the diagnostic gate defaults **on**, the opposite of what you want in production. A production SSR host must set `-Dre-frame.debug=false` explicitly to shed the dev-verbose overhead (otherwise it retains user input in trace rings, per request). The good news: the error substrate fires under *both* settings, so this bridge keeps working there regardless — flipping the gate is purely about cost, not coverage.
 
-## 6. Verify it in dev {#verify-it-in-dev}
+## 6. Verify it in dev
 
 The substrate is live in dev too — only your gates keep the bridge *off* — which is convenient, because you can eyeball the branch before you ship. Register the listener body **without the gates**, dropping a `println` where the Sentry calls go:
 
@@ -235,7 +235,7 @@ Now exercise a few failing paths and watch the records print **synchronously**:
 
 That same handler failure also lands on Xray's trace surface as the full dev dossier — the firehose you have in dev, sitting right next to the tight record production will actually keep. Seeing both side by side is the fastest way to build the right intuition for what gets dropped at the elision boundary.
 
-## 7. Pair `:errors` with its `:events` sibling {#pair-errors-with-events}
+## 7. Pair `:errors` with its `:events` sibling
 
 Crash reporting is the `:errors` stream's job. Its sibling, the `:events` stream, answers the *other* production-observability question: how many events am I processing, how fast, and how many aborted? It fires one tight record per processed event after the run settles:
 
@@ -261,7 +261,7 @@ The two streams pair naturally: `:events` tells you *something is wrong* (a spik
 
     Think of `:events` as the per-query lifecycle telemetry you'd feed a metrics dashboard, and `:errors` as the crash channel you'd feed an issue tracker — except here they're two streams of one verb, differentiated by data, not two separate libraries you bolt on.
 
-## 8. Prefer the frame sink for metrics and privacy-bound egress {#prefer-the-frame-sink}
+## 8. Prefer the frame sink for metrics and privacy-bound egress
 
 So far every listener has been **corpus-wide** — one fan-out covering every frame in the app, carrying the raw `:exception` deliberately, because a post-mortem monitor needs the host throwable and its stack to be useful. That's the right tool for crash reporting. It is *not* the right tool for everything.
 
