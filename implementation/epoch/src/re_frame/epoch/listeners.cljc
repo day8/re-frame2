@@ -483,12 +483,18 @@
          ;; acquiring a frame's :drain-lock) never runs while a ledger lock is
          ;; held. That is what breaks the ledger↔:drain-lock AB-BA deadlock
          ;; rf2-9bhne6 introduced by emitting UNDER the locks (rf2-8b9twg).
-         ;; Generation authority survives WITHOUT the lock by QUALIFYING the emit
-         ;; with `observed-gen`: the reserved generation G is carried on the
+         ;; REGISTRATION authority survives WITHOUT the lock by QUALIFYING the
+         ;; emit with `observed-gen`: the reserved generation G is carried on the
          ;; payload, so a same-id replacement H landing in the reserve→emit window
          ;; is never mistaken as the silence's subject — a receiver whose current
          ;; generation for cb-id != the carried `:observed-gen` self-filters the
-         ;; stale signal. Only a granted reservation emits; if the external
+         ;; stale signal. OBSERVATION-continuum authority does NOT ride that
+         ;; qualifier: a same-id SUCCESSOR frame re-arming cb-id in the same window
+         ;; mints no generation, so `:observed-gen` still matches while the callback
+         ;; is live again. The receiver discriminates that case by re-reading
+         ;; `re-frame.epoch/epoch-listener-observing?` for (cb-id, frame) —
+         ;; the second clause of the supported receiver rule (rf2-qg98y). Only a
+         ;; granted reservation emits; if the external
          ;; delivery throws, the reservation is rolled back (under silence-lock)
          ;; and the fault propagates.
          (doseq [[cb-id observed-gen] (sort-by (comp str key) silenced-cbs)]

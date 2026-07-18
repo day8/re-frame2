@@ -2491,10 +2491,35 @@
   signal: the signal carries `:observed-gen` G, and the consumer discards it
   when `(not= G (epoch-listener-generation cb-id))` — the registration has since
   been replaced or dropped, so G's silence no longer names the current callback.
-  The token is OPAQUE (compare for equality only). Per Tool-Pair §Surface
-  behaviour against destroyed frames + Spec 009 §The delayed-silence emission
-  linearization law. Late-bound via `:epoch/epoch-listener-generation`."}
+  The token is OPAQUE (compare for equality only). NECESSARY but not SUFFICIENT
+  — a same-id successor FRAME re-arms a callback under the UNCHANGED generation,
+  so the full rule pairs this with `epoch-listener-observing?` (rf2-qg98y). Per
+  Tool-Pair §Surface behaviour against destroyed frames + Spec 009 §The
+  delayed-silence emission linearization law. Late-bound via
+  `:epoch/epoch-listener-generation`."}
   epoch-listener-generation  rf-epoch/epoch-listener-generation)
+
+(def ^{:doc "True when the CURRENT epoch-listener registration under `id` is
+  observing `frame-id` RIGHT NOW — it consumed a record from `frame-id` under
+  its live generation and that observation has not since been dropped by the
+  frame's destroy. False when `id` is unregistered, never observed `frame-id`,
+  observed it only under a superseded generation, or when the
+  `day8/re-frame2-epoch` artefact is absent.
+
+  The OBSERVATION-CONTINUUM half of the supported
+  `:rf.epoch.cb/silenced-on-frame-destroy` receiver rule.
+  `epoch-listener-generation` discriminates REGISTRATION identity only — a
+  same-id successor FRAME re-arming the callback mints NO new generation, so a
+  delayed predecessor's silence published after that re-arm still carries a
+  MATCHING `:observed-gen`. Both clauses, read at receipt time:
+
+      (and (= (:observed-gen tags) (rf/epoch-listener-generation cb-id))
+           (not (rf/epoch-listener-observing? cb-id (:frame tags))))
+
+  Per Tool-Pair §Surface behaviour against destroyed frames + Spec 009 §The
+  delayed-silence emission linearization law (rf2-qg98y). Late-bound via
+  `:epoch/epoch-listener-observing?`."}
+  epoch-listener-observing?  rf-epoch/epoch-listener-observing?)
 
 ;; ---- frame-state write surface (rf2-q4i9ko / rf2-tfepxu / rf2-t3lftq) -----
 ;;
