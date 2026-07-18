@@ -591,11 +591,11 @@
   "A store modelling the EP-0023 §Xray Beside The Target singleton-seating case:
   PRODUCTION namespaces alongside their `*-cljs-test` siblings that co-register
   the same `(kind, id)` — the collision a :select-ns :exclude of the test nss avoids."
-  [(desc "day8.re-frame2-xray.open-in-editor"          :fx    :rf.editor/open)
+  [(desc "day8.re-frame2-xray.open-in-editor"          :fx    :rf.xray.fx/open-in-editor)
    (desc "day8.re-frame2-xray.mount"                   :event :rf.xray/open)
    (desc "day8.re-frame2-xray.panels.app-db-diff"      :sub   :rf.xray/diff)
    ;; the colliding test siblings (same ids, `*-cljs-test` provenance)
-   (desc "day8.re-frame2-xray.open-in-editor-cljs-test" :fx    :rf.editor/open)
+   (desc "day8.re-frame2-xray.open-in-editor-cljs-test" :fx    :rf.xray.fx/open-in-editor)
    (desc "day8.re-frame2-xray.mount-cljs-test"          :event :rf.xray/open)
    (desc "day8.re-frame2-xray.panels.app-db-diff-cljs-test" :sub :rf.xray/diff)
    ;; a test-helpers support ns (clean whole-segment boundary)
@@ -626,14 +626,14 @@
     (let [include-only (image/image {:id :rf.xray/image
                                      :select-ns {:include ["day8.re-frame2-xray.**"]}})
           sel-all      (image/select-descriptors include-only xray-style-store)
-          editor-all   (filter #(= :rf.editor/open (:id %)) sel-all)
+          editor-all   (filter #(= :rf.xray.fx/open-in-editor (:id %)) sel-all)
           narrowed     (image/image {:id :rf.xray/image
                                      :select-ns {:include ["day8.re-frame2-xray.**"]
                                                  :exclude ["day8.re-frame2-xray.**.*-cljs-test"
                                                            "day8.re-frame2-xray.test-helpers.**"]}})
           sel-narrow   (image/select-descriptors narrowed xray-style-store)
-          editor-narrow (filter #(= :rf.editor/open (:id %)) sel-narrow)]
-      ;; the bare `**` glob selects TWO :rf.editor/open descriptors (prod + test)
+          editor-narrow (filter #(= :rf.xray.fx/open-in-editor (:id %)) sel-narrow)]
+      ;; the bare `**` glob selects TWO :rf.xray.fx/open-in-editor descriptors (prod + test)
       ;; — that is the duplicate-id that fails assembly.
       (is (= 2 (count editor-all)) "the bare glob sweeps in the colliding pair")
       ;; the exclude narrows it to exactly the production one.

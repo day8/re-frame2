@@ -196,7 +196,7 @@ re-create, re-asserting only the gate.
 exposed a selector-grain blocker: `xray-image`'s `day8.re-frame2-xray.**`
 `:include-ns` glob sweeps in Xray's OWN `*-cljs-test` + `test-helpers.**`
 namespaces in any dev/test build that loads them, and those co-register the same
-`:rf.xray/*` ids the production sources do (e.g. `[:fx :rf.editor/open]` from both
+`:rf.xray/*` ids the production sources do (e.g. `[:fx :rf.xray.fx/open-in-editor]` from both
 `open-in-editor` and `open-in-editor-cljs-test`) — so assembling the image failed
 loud (`:rf.error/image-duplicate-id`) under the node-test build. The fix is an
 EP-0023 `:exclude-ns` SELECTOR (added to the framework image API) that subtracts

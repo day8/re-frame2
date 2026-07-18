@@ -17,15 +17,16 @@
        render their own button/code/span affordance and dispatch this
        event; the trace bus then captures the click as a first-class
        observable operation under the `:rf/xray` frame. The handler
-       returns an effect map that fires `:rf.editor/open` with the
-       resolved URI.
+       returns an effect map that fires `:rf.xray.fx/open-in-editor`
+       with the resolved URI.
 
-    3. `:rf.editor/open` reg-fx — the side-effectful launcher. Resolves
-       the URI from the source-coord against `config/get-editor`,
-       re-applies the rf2-vwcsq scheme denylist, then calls
-       `Location.assign` (per rf2-muvs8). Standalone so non-Xray
-       callers (e.g. a future test-mode shortcut, MCP-side open-uri
-       replay) can share the gate.
+    3. `:rf.xray.fx/open-in-editor` reg-fx — the side-effectful
+       launcher. Resolves the URI from the source-coord against
+       `config/get-editor`, re-applies the rf2-vwcsq scheme denylist,
+       then calls `Location.assign` (per rf2-muvs8). Xray-owned
+       (rf2-5ot1d): the effect closes over Xray's editor, project-root
+       and navigator, so it is scoped under `:rf.xray.fx/*` like every
+       other Xray fx rather than a shared cross-tool id.
 
   Per rf2-g5q8d (P0 — the panel chip was a no-op previously). The
   earlier wiring routed clicks to a stub `reg-event` that recorded
@@ -40,7 +41,7 @@
   §Editor URI scheme allowlist): everything other than the three
   known-bad schemes passes through. The click-time `open!` seam below
   re-applies the same cheap denylist (`editor-uri/forbidden-scheme?`)
-  because the `:rf.editor/open` reg-fx accepts a pre-resolved
+  because the `:rf.xray.fx/open-in-editor` reg-fx accepts a pre-resolved
   `{:uri ...}` arg that bypasses `editor-uri`'s build-time gating — the
   denylist must fire at every handoff. Per rf2-ox357n the prior positive
   allowlist was removed: it failed CLOSED on any uncatalogued editor
@@ -145,7 +146,7 @@
   nil-tolerant — when unset, behaviour matches the v1 2-arg call (file
   ships verbatim) so legacy hosts and tests aren't broken.
 
-  The chip render path and the `:rf.editor/open` reg-fx both call this
+  The chip render path and the `:rf.xray.fx/open-in-editor` reg-fx both call this
   — one source of truth for the URI shape across the data path and the
   side-effect path."
   [source-coord]
@@ -199,7 +200,7 @@
   Per rf2-vwcsq + rf2-ox357n: this fn re-applies the cheap scheme
   denylist (`editor-uri/forbidden-scheme?`) before handing the URI off.
   A URI built via `resolve-uri` was already denylist-gated at build
-  time, but the `:rf.editor/open` reg-fx also accepts a pre-resolved
+  time, but the `:rf.xray.fx/open-in-editor` reg-fx also accepts a pre-resolved
   `{:uri ...}` arg that bypasses build-time gating — so the denylist
   must fire here too. A URI on a forbidden scheme (`javascript:` /
   `data:` / `vbscript:`, case-insensitive, leading-whitespace tolerant)
@@ -220,7 +221,7 @@
   tests stub the navigation without mutating `js/window.location`
   (which is non-configurable in modern browsers).
 
-  Public so the `:rf.editor/open` reg-fx (registered in `install!`) can
+  Public so the `:rf.xray.fx/open-in-editor` reg-fx (registered in `install!`) can
   share the exact same gate the in-DOM chip uses."
   [uri]
   (when (and uri (not (editor-uri/forbidden-scheme? uri)))
@@ -365,24 +366,29 @@
       four panels (trace, issues-ribbon, mcp-server, hydration-
       debugger) use when their source-coord affordance is clicked.
       The handler unwraps the payload, resolves the URI, and returns
-      `{:fx [[:rf.editor/open {:uri ...}]]}`. The dispatch lands in
+      `{:fx [[:rf.xray.fx/open-in-editor {:uri ...}]]}`. The dispatch lands in
       the trace bus as a first-class observable operation under the
       `:rf/xray` frame — agents reading the buffer see the click as
       `{:operation :rf.xray/open-in-editor :tags {:frame :rf/xray}
         ...}` rather than as a silent `window.location` write.
 
-    - `:rf.editor/open` reg-fx — the side-effectful launcher. Calls
-      `open!` (which re-applies the rf2-vwcsq scheme denylist + writes
-      `window.location.href`). Lives under the `:rf.editor/*` prefix
-      rather than `:rf.xray.fx/*` because the gate is editor-related,
-      not Xray-specific — a future Story / re-frame2-pair caller can fire
-      `[:rf.editor/open {:uri ...}]` and share the same denylist
-      seam.
+    - `:rf.xray.fx/open-in-editor` reg-fx — the side-effectful
+      launcher. Calls `open!` (which re-applies the rf2-vwcsq scheme
+      denylist + writes `window.location.href`). Xray-owned and
+      scoped under `:rf.xray.fx/*` like every other Xray fx
+      (rf2-5ot1d). It closes over Xray's editor preference, project
+      root and navigator seam, so it is NOT interchangeable with
+      Story's parallel `:rf.story.fx/open-in-editor` — the two tools
+      register distinct ids and neither can commandeer the other's
+      policy by load order. What genuinely deserves sharing (URI
+      build, scheme denylist, dev-server endpoint fallback) is shared
+      as core fns in `re-frame.source-coords.*`, not as a shared
+      registration.
 
   Called from `registry.cljs/register-xray-handlers!` alongside the
   per-panel `install!` fns."
   []
-  ;; ---- :rf.editor/open ----
+  ;; ---- :rf.xray.fx/open-in-editor ----
   ;;
   ;; The side-effect handler. Arg shapes accepted:
   ;;
@@ -396,7 +402,7 @@
   ;; Per rf2-wn3bh the event-fx now emits `:source-coord` (not `:uri`)
   ;; so the endpoint is preferred; the `:uri` shape stays for callers
   ;; that hold a pre-resolved URI (e.g. an MCP-side open-uri replay).
-  (rf/reg-fx :rf.editor/open
+  (rf/reg-fx :rf.xray.fx/open-in-editor
     (fn [_ctx args]
       (if-let [coord (:source-coord args)]
         (open-coord! coord)
@@ -407,7 +413,7 @@
   ;; Pre-rf2-g5q8d this was a `reg-event` stub that recorded the
   ;; coord into app-db and did nothing else; the editor never opened.
   ;; The handler now resolves the URI through the denylist seam and
-  ;; routes it to `:rf.editor/open`.
+  ;; routes it to `:rf.xray.fx/open-in-editor`.
   ;;
   ;; The handler does NOT write to `db` — the click is a pure
   ;; navigation, not a state transition. Per Spec 002 §Effect map
@@ -440,6 +446,6 @@
           ;; instrumentable seam for replay/dev-tools.
           ;;
           ;; Per rf2-wn3bh emit the structured `:source-coord` (not a
-          ;; pre-resolved `:uri`) so `:rf.editor/open` can prefer the
-          ;; dev-server endpoint and fall back to the URI.
-          {:fx [[:rf.editor/open {:source-coord coord}]]})))))
+          ;; pre-resolved `:uri`) so `:rf.xray.fx/open-in-editor` can
+          ;; prefer the dev-server endpoint and fall back to the URI.
+          {:fx [[:rf.xray.fx/open-in-editor {:source-coord coord}]]})))))

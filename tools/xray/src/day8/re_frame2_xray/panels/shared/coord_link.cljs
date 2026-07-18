@@ -32,7 +32,7 @@
   by design. `coord-link` (like `coord-chip`) dispatches via the trace
   bus so the click is observable as a first-class operation on the
   `:rf/xray` frame; the `:rf.xray/open-in-editor` reg-event →
-  `:rf.editor/open` reg-fx pipeline resolves the URI.
+  `:rf.xray.fx/open-in-editor` reg-fx pipeline resolves the URI.
 
   See `panels/shared/coord_chip.cljs` for the icon-only sibling and
   spec/021 §9.1.6.2 for the contract."

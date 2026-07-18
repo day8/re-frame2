@@ -254,7 +254,7 @@ rf2-4s08ov surfaces it at click-time.
 When `config/editor-configured?` is false — NEITHER the host
 explicitly set `:rf.xray/editor` NOR a valid operator override sits in
 `[:general :editor-override]` — BOTH open-in-editor surfaces MUST NOT
-fire the silent `:rf.editor/open` navigation:
+fire the silent `:rf.xray.fx/open-in-editor` navigation:
 
 - The panel-side `:rf.xray/open-in-editor` event-fx dispatches
   `:rf.xray/editor-hint-show` instead.
@@ -308,7 +308,7 @@ stamped at registration time are classpath-relative (form-meta `:file`
 slot, e.g. `"app/cart/handlers.cljs"`); editor URI handlers
 (`vscode://file/<path>...`, `cursor://...`, `idea://...`, etc.) resolve
 `<path>` against the filesystem. A relative path fails with "Path does
-not exist", so Xray's Open chip and the `:rf.editor/open` reg-fx need
+not exist", so Xray's Open chip and the `:rf.xray.fx/open-in-editor` reg-fx need
 to know the on-disk root to prepend before the URI ships.
 
 | Value | Meaning |
@@ -324,8 +324,9 @@ root for Story); two atoms, two `configure!` surfaces.
 
 #### Open-in-editor launch modes (rf2-wn3bh — Option B dev-server endpoint)
 
-Jump-to-source has TWO launch paths; the chip + the `:rf.editor/open`
-reg-fx PREFER the first and FALL BACK to the second. The mechanism is
+Jump-to-source has TWO launch paths; the chip + the
+`:rf.xray.fx/open-in-editor` reg-fx PREFER the first and FALL BACK to
+the second. The mechanism is
 additive — B never removes the URI path. (See also
 [`spec/Tool-Pair.md` §Open-in-editor launch modes](../../../spec/Tool-Pair.md).)
 

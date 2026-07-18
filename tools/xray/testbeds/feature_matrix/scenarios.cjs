@@ -350,7 +350,7 @@ async function assertSourceCoordBridge(page, state, ctx, opts) {
   }
 
   // The chip-click handler dispatches `:rf.xray/open-in-editor` under the
-  // `:rf/xray` frame, which then fires `:rf.editor/open` as an fx (also
+  // `:rf/xray` frame, which then fires `:rf.xray.fx/open-in-editor` as an fx (also
   // `:rf/xray`-framed). The trace-bus ingest filter (`xray-internal-
   // event?`) correctly drops those self-emitted events before they reach
   // Xray's buffer — they are Xray machinery, not host activity. The bridge

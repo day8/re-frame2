@@ -39,7 +39,7 @@
   static page). The button chip here dispatches via the trace bus so
   the click is observable as a first-class operation on the
   `:rf/xray` frame, and the URI resolution happens inside the
-  `:rf.xray/open-in-editor` reg-event → `:rf.editor/open` reg-fx
+  `:rf.xray/open-in-editor` reg-event → `:rf.xray.fx/open-in-editor` reg-fx
   pipeline. Both surfaces co-exist by design (rf2-evgf5 / rf2-g5q8d
   decision)."
   (:require [day8.re-frame2-xray.panels.event.icons :as icons]
@@ -72,7 +72,7 @@
   Clicking dispatches `[:rf.xray/open-in-editor {:source-coord coord}]`
   through the caller-supplied frame-aware dispatcher (rf2-r0o63) so the
   open-in-editor event lands on the surrounding instance frame; the
-  trace bus records the click, the `:rf.editor/open` fx resolves the
+  trace bus records the click, the `:rf.xray.fx/open-in-editor` fx resolves the
   URI through the rf2-cm93v allowlist, and `Location.assign` fires.
 
   Accessibility: the chip is a `<button>` (so Enter / Space activate

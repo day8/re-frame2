@@ -66,7 +66,7 @@
   allowlist): everything other than the three known-bad schemes passes
   through. The click-time `open!` seam below re-applies the same cheap
   denylist (`editor-uri/forbidden-scheme?`) because the
-  `:rf.editor/open` reg-fx accepts a pre-resolved `{:uri ...}` arg that
+  `:rf.story.fx/open-in-editor` reg-fx accepts a pre-resolved `{:uri ...}` arg that
   bypasses `editor-uri`'s build-time gating — the denylist must fire at
   every handoff. There is no positive allowlist (it would fail CLOSED on
   any uncatalogued editor scheme — a silent dead button — the exact
@@ -181,7 +181,7 @@
   verbatim) so legacy hosts and tests aren't broken.
 
   The chip render path, `open-source-coord!` (element-inspector), and
-  the `:rf.editor/open` reg-fx all call this — one source of truth for
+  the `:rf.story.fx/open-in-editor` reg-fx all call this — one source of truth for
   the URI shape across the data path and the side-effect path. Mirrors
   Xray's `resolve-uri` (rf2-r2un8 port)."
   [source-coord]
@@ -232,7 +232,7 @@
   seam (default `Location.assign`). Custom URI schemes hand off to
   the OS handler chain. Returns nothing.
 
-  Public so the element-inspector (rf2-h0jc0), the `:rf.editor/open`
+  Public so the element-inspector (rf2-h0jc0), the `:rf.story.fx/open-in-editor`
   reg-fx (registered in `install!`), and any host panel that wants the
   click-time gate can share the exact same launcher. One launcher, one
   denylist seam.
@@ -240,7 +240,7 @@
   Per rf2-vwcsq + rf2-ox357n: this fn re-applies the cheap scheme
   denylist (`editor-uri/forbidden-scheme?`) before handing the URI off.
   A URI built via `resolve-uri` was already denylist-gated at build
-  time, but the `:rf.editor/open` reg-fx also accepts a pre-resolved
+  time, but the `:rf.story.fx/open-in-editor` reg-fx also accepts a pre-resolved
   `{:uri ...}` arg that bypasses build-time gating — so the denylist
   must fire here too. A URI on a forbidden scheme (`javascript:` /
   `data:` / `vbscript:`, case-insensitive, leading-whitespace tolerant)
@@ -381,11 +381,14 @@
 ;; directly — agents replaying via MCP, custom Story-host panels — can
 ;; dispatch `[:rf.story/open-in-editor coord]` and let the registered
 ;; fx fire the URI through the same denylist gate the chip uses. The
-;; `:rf.editor/open` reg-fx is namespaced under `:rf.editor/*` (not
-;; `:rf.story.fx/*`) because the gate is editor-related, not Story-
-;; specific — Xray registers the same fx-id, idempotently. Either tool
-;; loading first wins; the registered handler is the same shape so the
-;; runtime cost of double-registration is zero.
+;; `:rf.story.fx/open-in-editor` reg-fx is Story-owned (rf2-5ot1d): it
+;; closes over Story's editor, project-root and navigator, so it gets a
+;; Story-scoped id. Xray registers its own distinct
+;; `:rf.xray.fx/open-in-editor`; co-loading the two tools in either
+;; order is now inert, because neither writes the other's registration.
+;; The genuinely shared machinery (URI build, scheme denylist,
+;; dev-server endpoint fallback) is shared as core fns in
+;; `re-frame.source-coords.*`, not as a shared registration.
 
 (defn install!
   "Idempotent install for the dispatch-side open-in-editor wiring
@@ -397,25 +400,29 @@
       host panel that wants the trace bus to record the click can fire.
       Accepts either a bare source-coord map or a wrapper
       `{:source-coord <coord-or-string>}`. The handler resolves the URI
-      and returns `{:fx [[:rf.editor/open {:uri ...}]]}`.
+      and returns `{:fx [[:rf.story.fx/open-in-editor {:uri ...}]]}`.
 
-    - `:rf.editor/open` reg-fx — the side-effectful launcher. Calls
-      `open!` (which re-applies the rf2-vwcsq scheme denylist + writes
-      `window.location` via the navigator seam). Shares the
-      `:rf.editor/*` namespace with Xray's parallel registration so
-      both tools observe a single registered fx-id at runtime; whichever
-      preload loads first wins, the handler body is identical so it
-      doesn't matter.
+    - `:rf.story.fx/open-in-editor` reg-fx — the side-effectful
+      launcher. Calls `open!` (which re-applies the rf2-vwcsq scheme
+      denylist + writes `window.location` via the navigator seam).
+      Story-owned and Story-scoped (rf2-5ot1d): it resolves through
+      Story's editor preference, project root and navigator seam.
+      Xray's parallel `:rf.xray.fx/open-in-editor` is a separate
+      registration, so load order between the two tools carries no
+      policy — a fact the flagship topology (Story mounting Xray as
+      its embed) depends on.
 
   Idempotent — safe to call on every reload. Hosts that drive the
-  Story shell don't need to call this directly; the shell mount path
-  calls it once at boot.
+  Story shell don't need to call this directly: this installer is in
+  the canonical installer roster (`re-frame.story.canonical`), so it
+  runs on explicit `canonical/install!` AND on the auto-install
+  triggered by the first `reg-*` call.
 
   The handler does NOT write to `db` — the click is a pure navigation,
   not a state transition. Per Spec 002 §Effect map shape, omitting
   `:db` from the return leaves the app-db untouched."
   []
-  ;; ---- :rf.editor/open ----
+  ;; ---- :rf.story.fx/open-in-editor ----
   ;;
   ;; Side-effect handler. Arg shapes accepted:
   ;;
@@ -430,9 +437,10 @@
   ;; the endpoint is preferred; the `:uri` shape stays for callers that
   ;; hold a pre-resolved URI.
   ;;
-  ;; Xray registers the same fx-id idempotently — whichever preload loads
-  ;; first wins; the handler body is the same shape so it doesn't matter.
-  (rf/reg-fx :rf.editor/open
+  ;; Xray owns a separate `:rf.xray.fx/open-in-editor`; the two ids are
+  ;; distinct, so co-loading cannot make either tool adopt the other's
+  ;; editor/project-root/navigator.
+  (rf/reg-fx :rf.story.fx/open-in-editor
     (fn [_ctx args]
       (if-let [coord (:source-coord args)]
         (open-coord! coord)
@@ -443,7 +451,7 @@
   ;; Event handler. Accepts the same coord-shape `coerce-coord`
   ;; recognises (bare map, `{:source-coord ...}` wrapper, or a
   ;; `"file:line"` display string). Resolves the URI through the
-  ;; denylist seam and routes it to `:rf.editor/open`.
+  ;; denylist seam and routes it to `:rf.story.fx/open-in-editor`.
   (rf/reg-event :rf.story/open-in-editor
     (fn [_ctx [_event-id payload]]
       (let [coord (coerce-coord payload)]
@@ -455,6 +463,6 @@
         ;; instrumentable seam for replay/dev-tools.
         ;;
         ;; Per rf2-wn3bh emit the structured `:source-coord` (not a
-        ;; pre-resolved `:uri`) so `:rf.editor/open` can prefer the
-        ;; dev-server endpoint and fall back to the URI.
-        {:fx [[:rf.editor/open {:source-coord coord}]]}))))
+        ;; pre-resolved `:uri`) so `:rf.story.fx/open-in-editor` can
+        ;; prefer the dev-server endpoint and fall back to the URI.
+        {:fx [[:rf.story.fx/open-in-editor {:source-coord coord}]]}))))
