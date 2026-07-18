@@ -121,6 +121,18 @@
     ;; payload` sibling) so an off-box shipper sees the wrong-frame rejection
     ;; under `goog.DEBUG=false`. Driven through `dispatch-error-record!` below.
     :rf.error/hydration-frame-id-mismatch
+    ;; rf2-1b0po (S5-C): a root of a multi-root page failed to boot and was
+    ;; ISOLATED — the page's other roots hydrated and are running without it.
+    ;; `always-on` because a root can fail in PRODUCTION and the containment
+    ;; must reach an off-box shipper under `goog.DEBUG=false`: a page quietly
+    ;; serving N-1 roots with no signal is the failure mode the isolation
+    ;; contract exists to prevent. Rides the non-event union-record helper
+    ;; (`error-emit/dispatch-error-record!`), the `malformed-hydration-payload`
+    ;; sibling — a contained boot failure is not a dispatched-event failure.
+    ;; Emitted by `re-frame.ssr.boot/report-root-boot-failed!`; per
+    ;; [011 §Failed-root isolation]. Driven through `dispatch-error-record!`
+    ;; below.
+    :rf.error/root-boot-failed
     ;; EP-0017 (rf2-alc1lf): the cofx error family graduated `always-on` in
     ;; the Spec 009 catalogue by the `:rf.cofx` contract spec commit
     ;; (2536b2d98). Each is a causal-token / coeffect-contract validation that
@@ -256,7 +268,11 @@
     :rf.error/hydration-frame-id-mismatch
     ;; rf2-fcbrjo: the drain-depth halt rides the same non-event union-record
     ;; helper (structural-only: ids / counts / the cycle-evidence ring).
-    :rf.error/drain-depth-exceeded})
+    :rf.error/drain-depth-exceeded
+    ;; rf2-1b0po (S5-C): an isolated root-boot failure is a page-lifecycle
+    ;; fact, not a dispatched-event failure, so it rides the same non-event
+    ;; union-record helper as its `malformed-hydration-payload` sibling.
+    :rf.error/root-boot-failed})
 
 ;; ---------------------------------------------------------------------------
 ;; Fixture — fresh registrar + plain-atom adapter per test; the always-on
