@@ -9,12 +9,21 @@ batching laws, the evidence projections, and the explicit non-surfaces) and
 names, for each row, the gate that proves it. The runtime behaviour is proven by
 those gates (browser / JVM / elision suites), not re-asserted in prose here.
 
-The verb surface and the gate references are kept honest by an executable drift
+The frozen surface and the gate references are kept honest by an executable drift
 guard, `implementation/ui/test/re_frame/ui/s3_conformance_profile_jvm_test.clj`:
-its `frozen-s3-verbs` map is the source of truth this document restates, and it
-fails if this profile omits a frozen verb or an S3 gate.
+its `frozen-s3-verbs`, `frozen-s3-view`, and `frozen-react-wrappers` maps are the
+source of truth this document restates, and it fails if this profile omits a
+frozen verb or an S3 gate.
 
-## 1. Frozen S3 verbs
+## 1. Frozen S3 surface
+
+The frozen S3 surface is three closed rosters: the ten compiler-owned **verbs**
+of the `re-frame.ui` facade, the one framework-authored **view** (`route-link`),
+and the seven-wrapper **React interop tier** (`re-frame.ui.react`). Each row names
+its kind and contract, its direct-call behaviour where applicable, and the gate or
+proof home that proves its real runtime behaviour.
+
+### 1.1 Compiler-owned verbs
 
 Each S3 verb is a compiler-owned form recognised structurally in a `defview`
 body. Its `re-frame.ui` facade entry is a `(defn …)` that exists for symbol
@@ -35,10 +44,57 @@ the real work happens at compile time in the analyzer/emitters and at runtime in
 | `ui/error-boundary` | explicit error component; `:fallback` view renders on a caught render/lifecycle throw; `:on-error` dispatches after the failing commit through a live frame; `:reset-key` (compared `rf=`) clears the error | `:rf.error/ui-tree-malformed` | **G-6** |
 | `ui/client-only` | browser-only subtree with a **mandatory capability-free fallback** (compiler-checked); JVM/SSR render the fallback, the browser renders the client subtree | `:rf.error/ui-tree-malformed` | **G-7** |
 
+### 1.2 The framework-authored view: `route-link`
+
+`route-link` is the one framework-authored S3 view: an ordinary compiled
+`defview` over the routing-owned late-bound link seam (`:routing/link-model` /
+`:routing/activate-link!`) — **not** a compiler intrinsic and **not** a fail-loud
+stub. Its var carries `:rf.ui/view` metadata and the registered view-id
+`:re-frame.ui/route-link`, so it is consumed like any compiled view and a direct
+call does **not** fail loud. It renders a real `<a href>`; a plain left-click
+dispatches with `:source :router`, while native/modifier clicks defer to the
+browser. Rendering it without the routing artefact installed fails loud with
+`:rf.error/routing-artefact-missing`. The click/href law and full conformance
+matrix live in Spec 012 (routing owns the law); the JVM/SSR shell and
+client-render proof homes are named here.
+
+| View | Kind | Contract | Absent-artefact error | Proven by |
+|---|---|---|---|---|
+| `ui/route-link` | ordinary compiled `defview` (`:rf.ui/view`, view-id `:re-frame.ui/route-link`); not a fail-loud stub | real `<a href>`; plain left-click dispatches `:source :router`; native/modifier clicks defer to the browser | `:rf.error/routing-artefact-missing` | JVM `re-frame.ui.route-link-jvm-test`; CLJS `re-frame.ui.route-link-dom-cljs-test` |
+
+### 1.3 The React interop tier (`re-frame.ui.react`)
+
+The frozen `re-frame.ui.react` interop tier is seven wrappers (Spec 004 §The
+React interop tier) for compiled views that must participate in a *foreign* React
+world — an exported `defview` living inside a foreign parent, or a foreign widget
+whose API demands refs, contexts, ids, or code-splitting. It is **not** a second
+state or reactivity model, and the roster is closed. Six of the seven
+(`use-ref` … `use-id`) are **host hooks**: `(defn …)` stubs the compiler
+recognises by resolved head and lowers to `re-frame.ui.hooks/*` under the
+position law (a hook site is legal only where it evaluates unconditionally,
+exactly once per render); like the verbs, a **direct call fails loud** with
+`:rf.error/ui-tree-malformed`. `lazy` is a **def-level macro** (a `React.lazy`
+constructor), exempt from the position law but a compile error inside a view
+body/template. All seven ride the same proof homes:
+`re-frame.ui.react-interop-jvm-test` (JVM structural subset + compile-time
+position law + HMR signature) and `re-frame.ui.react-interop-dom-cljs-test` (real
+React client behaviour).
+
+| Wrapper | Kind | Contract | Direct-call behaviour |
+|---|---|---|---|
+| `react/use-ref` | host hook (`useRef`) | host ref object; read/write via `.current`; assignment never re-renders; the preferred `:ref` object; no deps (JVM yields an inert ref) | fails loud `:rf.error/ui-tree-malformed` |
+| `react/use-effect` | host hook (`useEffect`) | passive after-paint effect; setup returns a cleanup; `Object.is` deps; `[]` = connect-only; StrictMode-replay-idempotent — the `effect` contract in a foreign spelling | fails loud `:rf.error/ui-tree-malformed` |
+| `react/use-layout-effect` | host hook (`useLayoutEffect`) | after DOM mutation, **before** paint — the measure-before-paint door; same setup/cleanup/`Object.is`-deps contract as `use-effect` | fails loud `:rf.error/ui-tree-malformed` |
+| `react/use-effect-event` | host hook (`useEffectEvent`, React 19.2) | returned fn always sees the latest render's committed values; its identity is **not** stable (a fresh fn each render); takes no deps; must never appear in a deps vector nor be called during render | fails loud `:rf.error/ui-tree-malformed` |
+| `react/use-context` | host hook (`useContext`) | reads a **foreign** Context object's current value (theme/i18n/router); internal state uses `frame-provider`/`sub`, never React context | fails loud `:rf.error/ui-tree-malformed` |
+| `react/use-id` | host hook (`useId`) | host-generated tree-positional id token; SSR determinism rides the root contract; JVM yields a deterministic inert string | fails loud `:rf.error/ui-tree-malformed` |
+| `react/lazy` | def-level macro (`React.lazy`) | code-splitting over a foreign `load-thunk`, legal only where foreign heads are; optional `{:fallback tpl}`; not a loading-orchestration surface | compile error if called inside a view body/template (not a direct-call stub) |
+
 The S1/S2 forms S3 builds on — `defview`, `custom-element`, `sub`, `lease`,
 `frame-provider`, `mount`/`create-root`/`hydrate-root`, `html`, `raw`, `spread`
 — keep their earlier contracts unchanged and are catalogued in the Spec 004
-family; only the rows above froze at S3.
+family; the verbs, the `route-link` view, and the React interop tier above are
+what froze at S3.
 
 ## 2. Host behaviour
 
