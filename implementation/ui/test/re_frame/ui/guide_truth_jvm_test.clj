@@ -407,7 +407,7 @@
     (testing "JVM emission is structural data and HTML serialization is S5"
       (doseq [required ["versioned `re-frame.ui.tree` structural data"
                         "`re-frame.ssr/emit-ui-tree`"
-                        "frozen Reagent/hiccup"
+                        "Reagent/hiccup"
                         "conversion contract and parity gates"]]
         (is (or (str/includes? ssr required)
                 (str/includes? how required))
