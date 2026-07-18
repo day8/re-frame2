@@ -178,21 +178,28 @@
 
   `collisions` is the deterministic `[[<resolved-address> [<logical-child-id> …]]
   …]` vector `spawn-all-address-collisions` returns (first-appearance order,
-  stable on CLJ and CLJS); one trace fans per invoke, its `:collisions` a
-  `{<resolved-address> [<logical-child-id> …]}` map whose per-address child-id
-  VECTORS carry the declaration order (the map itself is presentation).
+  stable on CLJ and CLJS); one trace fans per invoke, and its `:collisions` tag
+  is THAT VECTOR, carried through unchanged (rf2-hys95) — both the GROUP order
+  (first appearance in the declaration) and each group's per-address child-id
+  order are read positionally, identically on both hosts.
+
+  It is deliberately NOT re-presented as a `{<resolved-address>
+  [<logical-child-id> …]}` map: past the 8-entry array-map threshold that
+  degrades to a hash map whose seq order is neither declaration order nor
+  host-stable, so a developer reading the reject to find WHICH declarations
+  collided would get a shuffled list. The human `reason` text derives from the
+  same vector, so message and tag can never disagree.
 
   This is the FIRST diagnostic an aliased invoke can fan and, because the alias
   short-circuits ahead of preparation, its ONLY one (rf2-ri19s): no child TYPE
   was resolved and no `[:schemas :data]` validator ran, so there is no
   unregistered-type or schema-validation reject to order against."
   [frame-id parent-id invoke-id collisions]
-  (let [collisions-map (into {} collisions)
-        reason (error/human-message
+  (let [reason (error/human-message
                  :rf.error/machine-spawn-all-duplicate-id
                  (str "Cannot start :spawn-all invoke " invoke-id " on " parent-id
                       ": distinct logical children resolve to the SAME actor "
-                      "address " (pr-str collisions-map)
+                      "address " (pr-str collisions)
                       " — two children would collapse to one live actor (a silent "
                       "overwrite), so the whole invoke is rejected fail-closed. "
                       "Give each colliding child a distinct :fixed-actor-id, or "
@@ -201,7 +208,7 @@
     (trace/emit-error! :rf.error/machine-spawn-all-duplicate-id
                        {:parent-id  parent-id
                         :invoke-id  invoke-id
-                        :collisions collisions-map
+                        :collisions collisions
                         :frame      frame-id
                         :recovery   :no-recovery
                         :reason     reason})
