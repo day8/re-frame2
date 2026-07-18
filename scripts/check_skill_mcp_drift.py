@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Drift smoke-test: skill `allowed-tools` vs MCP server tool catalogue (rf2-flzdp + rf2-yiccf + rf2-4kyg6).
 
-Three axes of cross-check.
+Four axes of cross-check.
 
 **MCP axis** (rf2-flzdp): every (mcp-server, consumer-skill) pair declared
 in `MAPPINGS` below. For each pair, builds two sets:
@@ -48,6 +48,17 @@ restricted safe alphabet, never-paste-evidence-into-`--title`).
   - MISSING-TITLE-SAFETY — a consumer neither links the shared leaf nor
     carries the local clauses, and is not under a tracked per-rule
     `allowance_bead` follow-up allowance.
+
+**Doc-coverage axis** (rf2-l2y4n): the MCP axis proves a tool is
+allow-listed, not that anyone can find out what it DOES. For each rule in
+`DOC_COVERAGE_RULES`, the descriptor manifest's tool-name set must equal the
+set of names appearing as a first-column code span in a markdown table row of
+the named reference — the skill's transport index, whose `Semantics home`
+column routes onward to the per-tool prose.
+
+  - MISSING-DOC-ROW — the server exposes a tool with no row (shipped,
+    counted, allow-listed, undocumented — the rf2-l2y4n defect).
+  - STALE-DOC-ROW — a row names a tool the server no longer exposes.
 
 Xray-MCP is currently spec-only (no `src/`); the script skips its entry
 gracefully rather than failing on missing files.
@@ -894,6 +905,106 @@ def check_title_safety_rules(
 
 
 # ---------------------------------------------------------------------------
+# Doc-coverage axis — every server tool must have a documented semantic home
+# (rf2-l2y4n).
+#
+# The MCP axis above proves a tool is ALLOW-LISTED; it says nothing about
+# whether a human or agent can find out what the tool DOES. rf2-l2y4n is the
+# defect that gap admits: PR #6184 allow-listed the five S3 view-inspection
+# tools and reconciled the prose tool COUNT to 35, so every existing gate
+# stayed green while `explain-render` / `read-view-manifest` /
+# `read-view-dependencies` / `read-view-event-sites` / `read-mounted-views`
+# appeared nowhere but the SKILL.md frontmatter — no arg shape, no semantics,
+# no workflow.
+#
+# The check is deliberately ONE structural comparison, not a prose reader:
+# the descriptor manifest's tool-name set must equal the set of tool names
+# appearing as a FIRST-COLUMN code span in a markdown table row of the named
+# doc. That doc's table is the skill's transport index, and its
+# `Semantics home` column is what routes onward to the per-tool prose — so a
+# name present there is a tool with a findable home, and a name absent is a
+# tool with none.
+#
+# Both directions fail:
+#
+#   - MISSING-DOC-ROW — the server exposes a tool with no row. This is the
+#     rf2-l2y4n defect: shipped, counted, allow-listed, undocumented.
+#   - STALE-DOC-ROW  — a row names a tool the server no longer exposes. The
+#     row outlived its tool and now documents a phantom.
+#
+# What it deliberately does NOT do: read prose, count tools, judge a row's
+# CONTENT, or generate documentation. A row whose prose is wrong is a review
+# problem, not a gate problem.
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class DocCoverageRule:
+    """One (descriptor manifest, documenting reference) pair to cross-check.
+
+    `name`        — human label used in drift messages.
+    `server_src`  — descriptor source path(s), lexed by `extract_server_tools`
+                    (the same extractor the MCP axis uses, so the two axes can
+                    never disagree about what the server exposes).
+    `doc_md`      — the reference whose table rows must cover every tool.
+    """
+    name: str
+    server_src: tuple[Path, ...]
+    doc_md: Path
+
+
+DOC_COVERAGE_RULES: list[DocCoverageRule] = [
+    DocCoverageRule(
+        name="re-frame2-pair-mcp <-> references/mcp-transport.md",
+        server_src=(REPO_ROOT / "tools" / "re-frame2-pair-mcp" / "src" / "re_frame2_pair_mcp" / "tools" / "descriptors_data.cljs",),
+        doc_md=REPO_ROOT / "skills" / "re-frame2-pair" / "references" / "mcp-transport.md",
+    ),
+]
+
+
+# A tool row in the transport index: a table row whose FIRST cell is a code
+# span holding a tool name. Anchored to the line start so a code span in a
+# later column (an arg name, an example) can never be mistaken for a row's
+# subject. The leading `[a-z]` keeps the sibling keyword tables out — their
+# first column holds `:reason` keywords (`:build-not-running`), which start
+# with a colon and so never match.
+_DOC_TABLE_TOOL_RE = re.compile(
+    rf"^\|\s*`([a-z][{_TOOL_NAME_CHARS}]*)`", re.MULTILINE
+)
+
+
+def extract_documented_tools(path: Path) -> set[str]:
+    """The set of tool names documented as table rows in `path`."""
+    return set(_DOC_TABLE_TOOL_RE.findall(path.read_text(encoding="utf-8")))
+
+
+def check_doc_coverage_rules(
+    rules: Iterable[DocCoverageRule],
+) -> tuple[list[Drift], list[str]]:
+    """Run the doc-coverage axis (rf2-l2y4n). Returns (drift, info-messages)."""
+    info: list[str] = []
+    drift: list[Drift] = []
+    for rule in rules:
+        missing = [p for p in (*rule.server_src, rule.doc_md) if not p.exists()]
+        if missing:
+            rels = ", ".join(str(p) for p in missing)
+            raise FileNotFoundError(
+                f"doc-coverage: rule '{rule.name}' input not found at {rels}"
+            )
+        server_tools = extract_server_tools(rule.server_src)
+        documented = extract_documented_tools(rule.doc_md)
+        info.append(
+            f"doc-coverage: {rule.name}: server={len(server_tools)} tools, "
+            f"doc={len(documented)} rows."
+        )
+        for t in sorted(server_tools - documented):
+            drift.append(Drift(f"doc-coverage:{rule.name}", "missing-doc-row", t))
+        for t in sorted(documented - server_tools):
+            drift.append(Drift(f"doc-coverage:{rule.name}", "stale-doc-row", t))
+    return drift, info
+
+
+# ---------------------------------------------------------------------------
 # Drift detection.
 # ---------------------------------------------------------------------------
 
@@ -927,6 +1038,23 @@ class Drift:
                 f"never paste evidence into `--title`) is enforced. Link the "
                 f"shared leaf, or add the clauses to the consumer's local "
                 f"recipe. (rf2-4kyg6)"
+            )
+        if self.direction == "missing-doc-row":
+            return (
+                f"{self.mapping_name}: MCP server exposes tool '{self.tool}' "
+                f"but the reference has no table row documenting it. A tool "
+                f"that is shipped, counted, and allow-listed but undocumented "
+                f"leaves callers with no arg shape, semantics, or workflow. "
+                f"Add a row (name | arg signature | semantics home) to the "
+                f"transport index, and its semantics to the home it points at. "
+                f"(rf2-l2y4n)"
+            )
+        if self.direction == "stale-doc-row":
+            return (
+                f"{self.mapping_name}: the reference documents a tool "
+                f"'{self.tool}' the MCP server does not expose. The row "
+                f"outlived its tool — remove it, or restore the tool. "
+                f"(rf2-l2y4n)"
             )
         if self.direction == "missing-search-clause":
             return (
@@ -1369,16 +1497,111 @@ def _run_self_test(ci: bool) -> int:
                 "never-paste shell-safety note (rf2-ij6ulc)."
             )
 
+    # (6) Doc-coverage axis (rf2-l2y4n) — prove it is not vacuous. The shipped
+    #     rules must be green; a doc missing one server tool's row MUST fire
+    #     missing-doc-row; a doc naming a tool the server dropped MUST fire
+    #     stale-doc-row. The fixtures use a synthetic two-tool descriptor in
+    #     their own temp dir, so the proof depends on neither the live roster's
+    #     size nor the title-safety fixtures above.
+    doc_drift, _ = check_doc_coverage_rules(DOC_COVERAGE_RULES)
+    if doc_drift:
+        failures.append(
+            "shipped DOC_COVERAGE_RULES produced drift: "
+            + "; ".join(f"{d.direction}:{d.tool}" for d in doc_drift)
+            + " -- every server tool needs a transport-index row and every "
+            "row needs a live tool."
+        )
+
+    with tempfile.TemporaryDirectory() as doc_td:
+        doc_td_path = Path(doc_td)
+
+        fake_src = doc_td_path / "descriptors_data.cljs"
+        fake_src.write_text(
+            '(def descriptors\n'
+            '  [{:name "read-widget" :description "..."}\n'
+            '   {:name "explain-widget" :description "..."}])\n',
+            encoding="utf-8",
+        )
+
+        # POSITIVE: every server tool has a row -> green.
+        covered = doc_td_path / "covered.md"
+        covered.write_text(
+            "| MCP tool | Arg signature | Semantics home |\n"
+            "|---|---|---|\n"
+            "| `read-widget` | `{id}` | ops.md |\n"
+            "| `explain-widget` | `{id?}` | ops.md |\n",
+            encoding="utf-8",
+        )
+        covered_drift, _ = check_doc_coverage_rules([DocCoverageRule(
+            name="synthetic-covered", server_src=(fake_src,), doc_md=covered,
+        )])
+        if covered_drift:
+            failures.append(
+                "a synthetic doc covering every server tool fired drift "
+                f"({[d.direction for d in covered_drift]}) -- the doc-coverage "
+                "row extraction is broken (rf2-l2y4n)."
+            )
+
+        # NEGATIVE: drop one row, leave the prose tool COUNT intact -- exactly
+        # the rf2-l2y4n shape (counted + allow-listed + undocumented).
+        undocumented = doc_td_path / "undocumented.md"
+        undocumented.write_text(
+            "The server exposes **2 tools**, all allow-listed.\n\n"
+            "| MCP tool | Arg signature | Semantics home |\n"
+            "|---|---|---|\n"
+            "| `read-widget` | `{id}` | ops.md |\n",
+            encoding="utf-8",
+        )
+        undoc_drift, _ = check_doc_coverage_rules([DocCoverageRule(
+            name="synthetic-undocumented", server_src=(fake_src,),
+            doc_md=undocumented,
+        )])
+        if not [
+            d for d in undoc_drift
+            if d.direction == "missing-doc-row" and d.tool == "explain-widget"
+        ]:
+            failures.append(
+                "a synthetic doc missing one server tool's row did NOT fire "
+                "missing-doc-row drift -- the doc-coverage axis is a no-op, "
+                "and a shipped+counted+allow-listed tool can stay "
+                "undocumented (rf2-l2y4n)."
+            )
+
+        # NEGATIVE: a row naming a tool the server does not expose.
+        phantom = doc_td_path / "phantom.md"
+        phantom.write_text(
+            "| MCP tool | Arg signature | Semantics home |\n"
+            "|---|---|---|\n"
+            "| `read-widget` | `{id}` | ops.md |\n"
+            "| `explain-widget` | `{id?}` | ops.md |\n"
+            "| `retired-widget` | `{}` | ops.md |\n",
+            encoding="utf-8",
+        )
+        phantom_drift, _ = check_doc_coverage_rules([DocCoverageRule(
+            name="synthetic-phantom", server_src=(fake_src,), doc_md=phantom,
+        )])
+        if not [
+            d for d in phantom_drift
+            if d.direction == "stale-doc-row" and d.tool == "retired-widget"
+        ]:
+            failures.append(
+                "a synthetic doc row naming a tool the server does not expose "
+                "did NOT fire stale-doc-row drift -- a row can outlive its "
+                "tool (rf2-l2y4n)."
+            )
+
     if failures:
         for f in failures:
-            _emit_error(f"title-safety self-test: {f}", ci)
+            _emit_error(f"self-test: {f}", ci)
         return 1
 
-    print("title-safety self-test: PASS "
-          "(shipped consumers green with no allowance; synthetic negative "
-          "fires; synthetic local-clauses positive stays green; search-clause "
-          "negative fires + positive stays green; implementor enforced via its "
-          "local body+title+search clauses).")
+    print("self-test: PASS "
+          "(title-safety: shipped consumers green with no allowance; synthetic "
+          "negative fires; synthetic local-clauses positive stays green; "
+          "search-clause negative fires + positive stays green; implementor "
+          "enforced via its local body+title+search clauses. doc-coverage: "
+          "shipped rules green; synthetic covered stays green; missing row and "
+          "phantom row both fire).")
     return 0
 
 
@@ -1395,9 +1618,11 @@ def main(argv: Iterable[str]) -> int:
     parser.add_argument("--show-baseline", action="store_true",
                         help="Print the current accepted baseline and exit.")
     parser.add_argument("--self-test", action="store_true",
-                        help="Run the title-safety-axis self-test (rf2-4kyg6) and exit. "
-                             "Proves the all-consumers backstop fires when an allowance "
-                             "is removed and that link-presence consumers stay green.")
+                        help="Run the title-safety (rf2-4kyg6) + doc-coverage (rf2-l2y4n) "
+                             "self-tests and exit. Proves the all-consumers backstop fires "
+                             "when an allowance is removed, that link-presence consumers "
+                             "stay green, and that the doc-coverage axis fires on both a "
+                             "missing row and a phantom row.")
     args = parser.parse_args(list(argv))
 
     ci = args.ci or _is_ci()
@@ -1449,6 +1674,19 @@ def main(argv: Iterable[str]) -> int:
         title_drift, title_info = [], []
     all_info.extend(title_info)
     for d in title_drift:
+        all_drift.append((None, d))
+
+    # Doc-coverage axis (rf2-l2y4n) — every server tool must have a table row
+    # in the reference that routes to its semantics home. Same accumulator,
+    # mapping=None; Drift.message handles both directions.
+    try:
+        doc_drift, doc_info = check_doc_coverage_rules(DOC_COVERAGE_RULES)
+    except FileNotFoundError as e:
+        _emit_error(str(e), ci)
+        saw_setup_error = True
+        doc_drift, doc_info = [], []
+    all_info.extend(doc_info)
+    for d in doc_drift:
         all_drift.append((None, d))
 
     if args.verbose:
