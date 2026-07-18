@@ -1,5 +1,11 @@
 # 09 — Decision log and provenance
 
+**Status:** live decision log · standing, append-only · first entry 2026-07-11 · a
+permanent survivor under `reviews/`, so the S7 removal wave (`rf2-vxgfnd.99.1`) does not
+delete it. Each entry records what was decided *on its date* and is never rewritten to
+agree with what the specs say now; where a decision was later overtaken, the log says so
+in a subsequent entry rather than editing the earlier one.
+
 History lives here; every other document states final decisions and state only.
 
 **Reading the paths below.** Relative paths are relative to this file (a permanent
