@@ -44,10 +44,12 @@
  *   `ui/deps.edn` graph with `clojure -Stree` and rejects any wrapper
  *   coordinate. A full pass additionally requires a POSITIVE control — the
  *   resolved graph must carry re-frame.ui's own core coordinate `day8/re-frame2`
- *   as a GENUINE resolved row (the coordinate followed by version/local-root
- *   evidence), not merely as a token string — so a vacuous exit-0 (empty /
- *   whitespace / malformed / core-absent stdout) OR token-shaped garbage (the
- *   bare coordinate, or the coordinate trailed by prose) fails closed instead of
+ *   as a GENUINE resolved row: the coordinate at the HEAD of the row, followed by
+ *   evidence matching one of the three forms tools.deps `ext/coord-summary`
+ *   actually emits (Maven version, git tag/short-SHA, absolute :local root),
+ *   matched end-to-end — so a vacuous exit-0 (empty / whitespace / malformed /
+ *   core-absent stdout) OR token-shaped garbage (the bare coordinate, or the
+ *   coordinate trailed by arbitrary prose) fails closed instead of
  *   masquerading as a "0 resolved coordinates" PASS. Resolving the JVM/Clojure graph also proves
  *   the JVM/headless emitter entry stays browser-wrapper-free without forcing
  *   browser-only libraries onto the JVM classpath.
@@ -122,18 +124,21 @@ const forbiddenCoordinatePatterns = [
   /^day8\/re-frame2-(reagent(-slim)?|uix|helix)$/,
 ];
 
-// Arm-2 POSITIVE CONTROL (rf2-xgfpq, hardened rf2-tutg8). An exit-0
-// `clojure -Stree` only counts as trustworthy evidence that the graph actually
-// resolved when re-frame.ui's own required core dependency, `day8/re-frame2`
-// (declared `:local/root "../core"` in ui/deps.edn), appears as a GENUINE
-// resolved-graph row — the coordinate followed by real version/local-root
-// evidence — not merely as a token string. Requiring only the token's PRESENCE
-// (rf2-xgfpq) still accepted token-shaped garbage: a bare `day8/re-frame2` with
-// no evidence, or `day8/re-frame2 this-is-not-a-tree` where the coordinate is
-// trailed by diagnostic prose, both exit 0 and satisfied a presence-only check.
-// Requiring a plausible resolved ROW closes that, while empty, whitespace-only,
-// malformed, and core-absent stdout still lack the row entirely. It is the
-// resolved-graph analogue of Arm 1's `requiredImport` positive control.
+// Arm-2 POSITIVE CONTROL (rf2-xgfpq, hardened rf2-tutg8, anchored rf2-rbget). An
+// exit-0 `clojure -Stree` only counts as trustworthy evidence that the graph
+// actually resolved when re-frame.ui's own required core dependency,
+// `day8/re-frame2` (declared `:local/root "../core"` in ui/deps.edn), appears as
+// a GENUINE resolved-graph row. Requiring only the token's PRESENCE (rf2-xgfpq)
+// accepted token-shaped garbage: a bare `day8/re-frame2`, or the coordinate
+// trailed by diagnostic prose. Requiring trailing text to CONTAIN a digit or a
+// path separator (rf2-tutg8) narrowed that but still accepted a matching first
+// token followed by ANYTHING carrying an incidental character —
+// `day8/re-frame2 diagnostic-123`, `... this/is/not/a/tree`, `... error C404`,
+// `... nope\x`, `... [FAILED 123]`. Matching the row against the bounded evidence
+// forms tools.deps actually emits (see hasResolvedCoordinateRow) closes that,
+// while empty, whitespace-only, malformed, and core-absent stdout still lack the
+// row entirely. It is the resolved-graph analogue of Arm 1's `requiredImport`
+// positive control.
 const requiredCoordinate = 'day8/re-frame2';
 
 // Each `clojure -Stree` line is `<glyphs?> group/artifact <version|path...>`.
@@ -146,23 +151,73 @@ function coordinatesFrom(treeText) {
     .map((line) => line.split(/\s+/)[0]);
 }
 
-// Does `treeText` carry a GENUINE resolved-graph row for `coordinate`? A real
-// `clojure -Stree` row resolves a coordinate with nonempty evidence: a version
-// (`1.12.4`, `v20250820`, a git SHA) or a local-root path (`../core`,
-// `/repo/.../core`, `C:\...\core`). Structurally, every Maven/git version
-// carries a digit and every resolved local-root carries a path separator, so a
-// row is genuine when the tokens AFTER the coordinate contain a digit or a `/`
-// or `\`. Token-shaped garbage — the coordinate alone, or trailed by prose like
-// `this-is-not-a-tree` — carries neither and fails. This is the smallest
-// invariant that separates a resolved row from a line that merely contains the
-// coordinate string; it is deliberately NOT a dependency-tree parser (rf2-xgfpq
-// fence).
+// ANCHORED required-row evidence (rf2-rbget). `clojure -Stree` prints each row
+// through `clojure.tools.deps.tree/print-node`, whose payload is exactly
+// `(ext/coord-summary lib coord)` — i.e. `"<lib> <evidence>"` — and the evidence
+// half is produced by exactly three procurer methods:
+//
+//   :mvn    (extensions/maven.clj)  -> `(str lib " " (:mvn/version coord))`
+//   :git    (extensions/git.clj)    -> `(str lib " " (or tag (subs sha 0 7)))`
+//   :local  (extensions/local.clj)  -> `(str lib " " (:local/root coord))`
+//
+// so the evidence is BOUNDED, and each form can be matched end-to-end rather
+// than probed for an incidental character. Real sample from this repo's
+// `implementation/ui` graph:
+//
+//   org.clojure/clojure 1.12.4
+//     . org.clojure/spec.alpha 0.5.238
+//   day8/re-frame2 C:\Users\miket\code\re-frame2\implementation\core
+//     . org.clojure/clojurescript 1.12.145
+//       . com.google.javascript/closure-compiler v20250820
+//       . org.clojure/google-closure-library 0.0-20250515-f04e4c0e
+//
+// Maven versions and version-shaped git tags start with a digit (optionally
+// `v`-prefixed, as `v20250820` does) and then run over the Maven version
+// charset. A git coord with no tag summarises to a 7-char short SHA. A :local
+// root is ALWAYS ABSOLUTE: `ext/canonicalize :local` rewrites `:local/root` to
+// `(.getCanonicalPath ...)` before the tree is printed, which is why the
+// declared `:local/root "../core"` above prints as `C:\...\implementation\core`.
+// Requiring absoluteness is what rejects relative path-shaped prose; the tail of
+// an absolute root is left unconstrained because a canonical path may legitimately
+// contain spaces (`C:\Program Files\...`).
+const MVN_VERSION_EVIDENCE = /^v?[0-9][0-9A-Za-z._+-]*$/;
+const GIT_SHA_EVIDENCE = /^[0-9a-f]{7,40}$/;
+const LOCAL_ROOT_EVIDENCE = /^(?:\/|\\\\|[A-Za-z]:[\\/])\S/;
+
+// The row furniture `print-node` may wrap around that payload, and nothing else:
+// leading indent plus the `. ` glyph for a `:new-dep`/`:same-version`/
+// `:newer-version` row, and — on a `:newer-version` row only — the reason keyword
+// appended after the summary. (The `X `/`? ` glyph rows are NOT accepted as
+// positive-control evidence: they mark a coordinate that was superseded, excluded,
+// or omitted, i.e. NOT in the resolved classpath. Their top-level counterpart row
+// is what carries the real evidence.)
+const RESOLVED_ROW_PREFIX = /^\s*(?:\.\s+)?/;
+const RESOLVED_ROW_REASON = /\s+:newer-version$/;
+
+function isResolvedEvidence(evidence) {
+  return (
+    MVN_VERSION_EVIDENCE.test(evidence) ||
+    GIT_SHA_EVIDENCE.test(evidence) ||
+    LOCAL_ROOT_EVIDENCE.test(evidence)
+  );
+}
+
+// Does `treeText` carry a GENUINE resolved-graph row for `coordinate`? The row
+// must BE one — the coordinate at the head of the row, followed by evidence that
+// matches a real `coord-summary` form end-to-end. Requiring merely that the
+// trailing text CONTAIN a digit or a separator (the pre-rf2-rbget shape) accepted
+// any first-token match trailed by anything: `day8/re-frame2 diagnostic-123`,
+// `day8/re-frame2 this/is/not/a/tree`, `day8/re-frame2 error C404`,
+// `day8/re-frame2 nope\x` and `day8/re-frame2 [FAILED 123]` all passed on an
+// incidental character and let junk stdout report a full G-12 PASS. This stays a
+// single required-row predicate — it does NOT parse the dependency tree, read
+// EDN, or model coordinates generally (rf2-xgfpq / rf2-tutg8 fence).
 function hasResolvedCoordinateRow(treeText, coordinate) {
+  const head = `${coordinate} `;
   return treeText.split(/\r?\n/).some((line) => {
-    const [coord, ...rest] = line.replace(/^[.\s]+/, '').trim().split(/\s+/);
-    if (coord !== coordinate) return false;
-    const evidence = rest.join(' ');
-    return /[0-9]/.test(evidence) || /[\\/]/.test(evidence);
+    const row = line.replace(RESOLVED_ROW_PREFIX, '').trimEnd().replace(RESOLVED_ROW_REASON, '');
+    if (!row.startsWith(head)) return false;
+    return isResolvedEvidence(row.slice(head.length).trim());
   });
 }
 
@@ -368,6 +423,39 @@ function selfTest() {
     '  . org.clojure/clojurescript 1.12.145',
   ].join('\n');
 
+  // VERBATIM `clojure -Stree` output from this repo's `implementation/ui`
+  // artefact (captured 2026-07-18, tools.deps 0.29.1598). This is the row shape
+  // the anchored positive control MUST keep accepting — an over-tightened
+  // predicate that reds this would break the G-12 gate against the real graph.
+  const realUiTree = [
+    'org.clojure/clojure 1.12.4',
+    '  . org.clojure/spec.alpha 0.5.238',
+    '  . org.clojure/core.specs.alpha 0.4.74',
+    'day8/re-frame2 C:\\Users\\miket\\code\\re-frame2\\implementation\\core',
+    '  . org.clojure/clojurescript 1.12.145',
+    '    . com.google.javascript/closure-compiler v20250820',
+    '    . org.clojure/google-closure-library 0.0-20250515-f04e4c0e',
+    '      . org.clojure/google-closure-library-third-party 0.0-20250515-f04e4c0e',
+    '    . com.cognitect/transit-java 1.0.362',
+    '      . com.fasterxml.jackson.core/jackson-core 2.8.7',
+    '      . org.msgpack/msgpack 0.6.12',
+    '        . com.googlecode.json-simple/json-simple 1.1.1',
+    '        . org.javassist/javassist 3.18.1-GA',
+    '      . javax.xml.bind/jaxb-api 2.3.0',
+    '    . org.clojure/tools.reader 1.3.6',
+  ].join('\n');
+
+  // The five prose spoofs rf2-rbget names: a matching FIRST TOKEN trailed by
+  // junk that merely carries a digit, a `/`, or a `\`. Each satisfied the
+  // rf2-tutg8 contains-a-character check and reported a full G-12 PASS.
+  const proseSpoofs = [
+    ['digit-bearing prose', 'day8/re-frame2 diagnostic-123'],
+    ['relative path-shaped prose', 'day8/re-frame2 this/is/not/a/tree'],
+    ['error prose with a digit', 'day8/re-frame2 error C404'],
+    ['backslash-bearing prose', 'day8/re-frame2 nope\\x'],
+    ['bracketed failure prose', 'day8/re-frame2 [FAILED 123]'],
+  ];
+
   // --- Arm 1 (module closure) ---------------------------------------------
 
   // Clean closure (incl. the legitimate adapter-neutral spine module) passes.
@@ -495,22 +583,38 @@ function selfTest() {
     ['bare core token (no evidence)', 'day8/re-frame2'],
     ['core token + diagnostic prose', 'day8/re-frame2 this-is-not-a-tree'],
     ['core token as substring of prose line', 'resolved day8/re-frame2 not a tree'],
+    // rf2-rbget TEETH — a matching first token trailed by prose that merely
+    // CONTAINS a digit / `/` / `\`. Reverting to the contains-a-character check
+    // re-accepts every one of these as `ran` and fails here.
+    ...proseSpoofs,
+    // Also anchored: a coordinate whose evidence is a superseded/excluded `X `
+    // row (not in the resolved classpath), and prose that merely starts with the
+    // coordinate as a longer lib name.
+    ['excluded X-glyph row only', 'X day8/re-frame2 1.2.3 :excluded'],
+    ['longer lib name, not the coordinate', 'day8/re-frame2-extras 1.2.3'],
   ]) {
     const outcome = classifyArm2({ status: 0, stdout }).outcome;
     if (outcome !== 'no-graph') {
       return fail(`classifyArm2 must map ${label} exit-0 stdout -> no-graph (got ${outcome})`);
     }
   }
-  // A GENUINE resolved row for the positive control is `ran` — whether the
-  // evidence is a version, a POSIX local-root path, or a Windows local-root
-  // path (the real UI graph resolves `day8/re-frame2` to its `../core` local
-  // root, printed as an absolute path), and still `ran` with extra rows around
-  // it. These pin that the tightened invariant does not red the real graph.
+  // A GENUINE resolved row for the positive control is `ran`. These pin the
+  // authoritative row forms `ext/coord-summary` can emit for the required
+  // coordinate — Maven version, git tag, git short SHA, POSIX local root, and
+  // Windows local root — and, crucially, the VERBATIM real `implementation/ui`
+  // graph. An over-tightened predicate that reds any of these breaks the gate.
   for (const [label, stdout] of [
-    ['version-form row', 'day8/re-frame2 1.2.3'],
+    ['REAL implementation/ui -Stree output', realUiTree],
+    ['maven version row', 'day8/re-frame2 1.2.3'],
+    ['maven v-prefixed version row', 'day8/re-frame2 v20250820'],
+    ['maven qualified version row', 'day8/re-frame2 0.0-20250515-f04e4c0e'],
+    ['git short-sha row', 'day8/re-frame2 a1b2c3d'],
+    ['git tag row', 'day8/re-frame2 v1.2.3'],
     ['posix local-root row', 'day8/re-frame2 /repo/implementation/core'],
     ['windows local-root row', 'day8/re-frame2 C:\\Users\\me\\code\\core'],
+    ['windows local-root row with a space', 'day8/re-frame2 C:\\Program Files\\core'],
     ['glyph-nested version row', 'org.clojure/clojure 1.12.4\n  . day8/re-frame2 1.2.3'],
+    ['newer-version reason row', 'org.clojure/clojure 1.12.4\n  . day8/re-frame2 1.2.3 :newer-version'],
     ['core positive control among extra rows', `${cleanTree}\n  some.other/lib 1.0.0`],
   ]) {
     if (classifyArm2({ status: 0, stdout }).outcome !== 'ran') {
@@ -576,6 +680,9 @@ function selfTest() {
     ['bare core token (no evidence)', 'day8/re-frame2'],
     ['core token + diagnostic prose', 'day8/re-frame2 this-is-not-a-tree'],
     ['core token as substring of prose line', 'resolved day8/re-frame2 not a tree'],
+    // rf2-rbget TEETH, end-to-end: on origin/main each of these injected exit-0
+    // stdouts classified as `ran` and made main() print a full PASS.
+    ...proseSpoofs,
   ]) {
     const exit = runMain([], {
       readLoaderImports: () => ({ imports: [requiredImport, 're_frame.core.js'] }),
@@ -620,11 +727,24 @@ function selfTest() {
     return fail(`clean full run must pass (exit 0), got exit ${fullPass}`);
   }
 
+  // POSITIVE CONTROL, end-to-end (rf2-rbget) — the VERBATIM real
+  // `implementation/ui` graph still passes. This is the assertion that fails if
+  // the anchored predicate is ever tightened past the row shape tools.deps
+  // actually emits.
+  const realGraphPass = runMain([], {
+    readLoaderImports: () => ({ imports: clean }),
+    resolveTree: () => ({ status: 0, stdout: realUiTree }),
+  });
+  if (realGraphPass !== 0) {
+    return fail(`the real implementation/ui -Stree graph must pass (exit 0), got exit ${realGraphPass}`);
+  }
+
   console.log(
     '[ui-adapter-isolation] self-test PASS (module-closure incl. reagent2 + resolved-graph ' +
-      'controls red on synthetic leaks; vacuous exit-0 / token-shaped garbage / missing / ' +
-      'untrusted clojure fails closed; positive control requires a GENUINE day8/re-frame2 ' +
-      'resolved row; --modules-only is explicit)'
+      'controls red on synthetic leaks; vacuous exit-0 / token-shaped garbage / digit- and ' +
+      'separator-bearing prose fails closed; missing / untrusted clojure fails closed; positive ' +
+      'control requires an ANCHORED day8/re-frame2 coord-summary row and the real ' +
+      'implementation/ui graph still passes; --modules-only is explicit)'
   );
   return 0;
 }
