@@ -1716,7 +1716,7 @@ The interceptor's `:before` receives a ctx `{:request :args :frame :event}` and 
 
 **What to do.** Nothing on the migration path — the surface is additive. Apps that had a per-call-site request builder threading common headers can collapse the threading into a single `reg-http-interceptor` registration; the migration agent does not rewrite this automatically (the rewrite depends on whether the helper still has per-call concerns the interceptor wouldn't cover). Apps with response-side cross-cutting concerns (rate-limit parsing, response-time telemetry, 401 refresh) can now collapse those into the same registration via `:after`.
 
-**Public API** (in `re-frame.core`): `(rf/reg-http-interceptor id interceptor-map)` (per rf2-uheqq shape iii — see [M-63](#m-63-reg-http-interceptor-reshaped-to-single-interceptor-map)) and `(rf/clear-http-interceptor id)` / `(rf/clear-http-interceptor frame id)`. Both ship in the `day8/re-frame2-http` artefact (per [M-31](#m-31-managed-http-spec-014-ships-in-a-separate-artefact--day8re-frame2-http)) and are late-bound through the standard `:rf.error/http-artefact-missing` pattern.
+**Public API** (in `re-frame.core`): `(rf/reg-http-interceptor id interceptor-map)` (per rf2-uheqq shape iii — see [M-63](#m-63-reg-http-interceptor-reshaped-to-single-interceptor-map)) and `(rf/clear-http-interceptor id)` / `(rf/clear-http-interceptor id {:frame target})`. Both ship in the `day8/re-frame2-http` artefact (per [M-31](#m-31-managed-http-spec-014-ships-in-a-separate-artefact--day8re-frame2-http)) and are late-bound through the standard `:rf.error/http-artefact-missing` pattern.
 
 ---
 
