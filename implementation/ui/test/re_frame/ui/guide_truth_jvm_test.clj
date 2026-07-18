@@ -516,21 +516,30 @@
       (is (str/includes? (one-line pipeline)
                          "Guide 08 (formerly Guide 09) de-adaptation completed at S2")))))
 
-(deftest guide02-s4-passages-stay-unmarked-shipped-behaviour
+(deftest s4-passages-stay-unmarked-shipped-behaviour
   ;; The S4 analogue of the `:until :s2` zero-occurrence tooth above
   ;; (rf2-krdzy). S4-A presence (rf2-uckeg) and S4-B custom-element
   ;; classification (rf2-vea1f) SHIPPED, so under the guide's own
-  ;; `unmarked = shipped` law these two passages must carry no
+  ;; `unmarked = shipped` law these three passages must carry no
   ;; future-stage marker. Reintroducing one reddens here.
-  (let [views (slurp-guide "02-views.md")]
-    (is (zero? (count (re-seq #"(?i)lands\s+S4" views)))
-        "no Guide 02 passage may be parked on the shipped S4 stage")
-    (testing "the two headings read as shipped behaviour (no trailing marker)"
+  (let [views   (slurp-guide "02-views.md")
+        testing-guide (slurp-guide "08-testing.md")]
+    (testing "guide 02 — the presence and custom-element passages"
+      (is (zero? (count (re-seq #"(?i)lands\s+S4" views)))
+          "no Guide 02 passage may be parked on the shipped S4 stage")
       (is (re-find #"### Exit animations: `ui/presence`\s*\r?\n" views))
-      (is (re-find #"### Custom elements\s*\r?\n" views)))
-    (is (not (str/includes? (one-line views)
-                            "These land later and do not change the core view model"))
-        "the §Advanced preamble must not re-park the shipped passages beneath it")))
+      (is (re-find #"### Custom elements\s*\r?\n" views))
+      (is (not (str/includes? (one-line views)
+                              "These land later and do not change the core view model"))
+          "the §Advanced preamble must not re-park the shipped passages beneath it"))
+    (testing "guide 08 — the flush-presence! passage"
+      (is (zero? (count (re-seq #"(?i)lands\s+S4" testing-guide)))
+          "no Guide 08 passage may be parked on the shipped S4 stage")
+      (is (str/includes? (one-line testing-guide)
+                         "Presence transitions advance with `(ui.test/flush-presence!)`, the presence twin of `flush!`")
+          "the passage must read as shipped behaviour")
+      (is (str/includes? (one-line testing-guide) "(flush-presence! ms)")
+          "…and must state the ms-arity the fixture binds"))))
 
 (deftest every-host-fence-declares-the-dom-target
   (let [fences (mapcat clojure-fences chapter-files)

@@ -16,11 +16,14 @@
 
   Enrolled here: the Tier-1 code block (`add-button-carries-intent`), the
   intent-through-attrs respelling, the dispatch → sub → re-render loop, a
-  seeded-state render, and the sub-override door. The chapter's
+  seeded-state render, the sub-override door, and — since S4 presence
+  shipped (rf2-uckeg) and the chapter dropped its `(lands S4)` marker —
+  the `flush-presence!` one-liner's HOST-PARITY claim (both arities
+  callable and inert on the JVM). The chapter's
   selector-grammar and literal-root fences and its Tier-2/Tier-3 examples
   are NOT enrolled by this file (README + guide-fixture-pipeline draft
   track the exact per-chapter coverage)."
-  (:require [clojure.test :refer [deftest is use-fixtures]]
+  (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.frame :as frame]
             [re-frame.substrate.plain-atom :as plain-atom]
@@ -147,6 +150,41 @@
       (is (= "Remove" (-> tree (uit/find :button) uit/text))
           "the override door pins the membership read — the button reads Remove
            over an empty real cart, the read never touching app-db"))))
+
+;; ---------------------------------------------------------------------------
+;; §Presence transitions — the chapter's flush-presence! one-liner (S4)
+;; ---------------------------------------------------------------------------
+
+;; "Presence transitions advance with (ui.test/flush-presence!) … The zero-arity
+;;  form advances to quiescence …; (flush-presence! ms) advances the logical clock
+;;  by ms …. On the JVM structural host there is no lifecycle, so both arities are
+;;  a no-op — a .cljc test body calls them on either host."
+;;
+;; The chapter's claim is a HOST-PARITY claim, and that is exactly what this JVM
+;; fixture can prove: both arities exist, are callable, and are inert here. The
+;; fake-clock BEHAVIOUR (retention, :timeout-ms removal, exactly-once cleanup)
+;; is the client's and is proven in `presence_dom_cljs_test` — not duplicated
+;; here, and not claimed by this file.
+(deftest flush-presence-carries-both-arities-on-either-host
+  (testing "the zero-arity form the chapter names is callable on the JVM"
+    (is (nil? (uit/flush-presence!))
+        "no lifecycle on the JVM structural host — a no-op, not an error"))
+  (testing "the ms-arity form is callable on the JVM too (host parity)"
+    (is (nil? (uit/flush-presence! 300))
+        "a .cljc body may pass a duration on either host")))
+
+(deftest flush-presence-is-inert-on-the-jvm-structural-render
+  ;; Host parity is only useful if the call changes nothing on the JVM: a render
+  ;; either side of a flush-presence! must be identical, so a .cljc test body can
+  ;; carry the call unconditionally.
+  (reg-cart!)
+  (rf/with-new-frame
+    [frame (rf/make-frame {:initial-events [[:rf/set-db {:cart #{42} :catalog fixture-catalog}]]})]
+    (let [before (uit/render [toggle-card {:product (product 42)}] {:frame frame})
+          _      (uit/flush-presence!)
+          after  (uit/render [toggle-card {:product (product 42)}] {:frame frame})]
+      (is (= before after)
+          "advancing the (absent) presence clock leaves the structural render untouched"))))
 
 (deftest caller-owned-frame-releases-live-frame-and-sub-cache-after-throw
   (reg-cart!)
