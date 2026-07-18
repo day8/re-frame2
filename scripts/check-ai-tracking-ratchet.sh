@@ -77,6 +77,15 @@ fi
 current_list=$(mktemp)
 added_list=$(mktemp)
 removed_list=$(mktemp)
+# `cleanup` IS reachable: `trap cleanup EXIT` below invokes it, and a POSIX
+# EXIT trap fires on every `exit` in this script. ShellCheck cannot see that.
+# Its reachability analysis models the EXIT trap as the script's fall-through
+# ending, and every path here ends in an explicit `exit`, so it concludes the
+# body is dead. Removing it would leak three temp files per run. Both codes
+# are listed because the diagnostic was renumbered: pre-0.10 shellcheck (what
+# the ubuntu runner ships) reports SC2317 on the `rm`, 0.10+ reports SC2329
+# on the function. Listing both keeps this lint-clean on either version.
+# shellcheck disable=SC2317,SC2329
 cleanup() {
   rm -f "$current_list" "$added_list" "$removed_list"
 }
