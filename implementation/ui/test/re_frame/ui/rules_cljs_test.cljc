@@ -384,7 +384,7 @@
   (rules/register-custom-element! :seed-el {:properties #{:s3}} 'app.seed)
   (rules/commit-reload!)
   (is (= #{:r} (rules/custom-element-properties :reentrant-el))
-      "the reentrant row is in :sources, so a subsequent unrelated reload keeps it"))
+      "the reentrant row is in ::sources, so a subsequent unrelated reload keeps it"))
 
 (deftest reentrant-registration-applies-exactly-once-never-doubled
   ;; The reentrant registration must not be applied twice (once as a stray

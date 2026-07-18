@@ -52,3 +52,35 @@
   (is (= #{:p} (rules/custom-element-properties :prod-el))
       "production registration is a direct write-through, immediately live")
   (rules/reset-custom-elements!))
+
+(deftest no-reload-ledger-state-exists-in-advanced-production
+  ;; rf2-k9yuy — the CAUSAL half of the ledger-elision proof (the lexical half is
+  ;; the `re-frame.ui.rules/sources` + `re-frame.ui.rules/cycles` bundle grep in
+  ;; scripts/check-ui-mounted-prod-elision.cjs).
+  ;;
+  ;; Before rf2-k9yuy `ledger-state` was an unconditional `defonce (atom
+  ;; {:sources {} :cycles {}})` and EVERY production registration `swap-vals!`'d
+  ;; against it before updating the aggregate — hidden bookkeeping a consumer
+  ;; shipped and paid for, invisible to the visible-classification assertions
+  ;; above. The gate now folds the ledger out of `:advanced`, so the private var
+  ;; holds NO atom at all.
+  ;;
+  ;; Reading the PRIVATE var directly is the point: a renamed-but-still-rooted
+  ;; successor atom would satisfy every public assertion in this namespace, so the
+  ;; oracle has to look where the residue would actually live. The marker string
+  ;; below is asserted PRESENT in the release bundle by the same scanner, proving
+  ;; this deftest was really compiled into the artefact rather than dropped.
+  (let [marker "rf-ui-custom-element-reload-ledger-absent-v1"]
+    (rules/reset-custom-elements!)
+    (is (nil? @#'rules/ledger-state)
+        (str marker " — the reload ledger var holds no atom in advanced production"))
+    (rules/register-custom-element! :ledger-probe-el {:properties #{:q}} 'app.ledger-probe)
+    (is (nil? @#'rules/ledger-state)
+        (str marker " — registration allocated no ledger on the way to the aggregate"))
+    (is (= #{:q} (rules/custom-element-properties :ledger-probe-el))
+        "and the one direct aggregate update still classified the element")
+    (is (= #{} (rules/in-flight-cycles))
+        "no cycle can be open where there is no ledger")
+    (is (= @rules/custom-elements (rules/projected-aggregate))
+        "with no ledger the live aggregate IS the projection")
+    (rules/reset-custom-elements!)))
