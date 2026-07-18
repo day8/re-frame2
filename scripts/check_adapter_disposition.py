@@ -24,6 +24,15 @@ sweep. It scans a CLOSED roster of files that are ACTIVE dispatchable authoritie
 (`SUPERSEDED_PATTERNS`). Prose that merely mentions an adapter, or discusses the
 lifecycle/technical realizations, is out of scope by construction.
 
+TWO CLASSES of superseded shape are matched. The first asserts an adapter STATUS
+("frozen compatibility adapters", "reagent-slim is deleted"). The second, added by
+rf2-cwhsh, asserts an OPERATIONAL INSTRUCTION that only made sense under that
+status — deleting an example, template, or CI surface belonging to a RETAINED
+adapter ("`substrates/` deletion", "template collapse", "three named causal
+suites"). The second class is the dangerous one precisely because it can name no
+adapter at all, so a status-only guard reads green while a dispatchable
+instruction still sends a worker to remove first-class coverage.
+
 HONEST EXEMPTIONS — a line that states a superseded status is NOT a defect when it
 is visibly RECORDING that the status is superseded rather than asserting it. Two
 exemptions, both requiring an explicit marker on the SAME line:
@@ -35,6 +44,11 @@ exemptions, both requiring an explicit marker on the SAME line:
   2. A genuine dated historical snapshot — a snapshot/historical/"as of"
      qualifier AND an ISO-8601 date (YYYY-MM-DD). A bare "historically" with no
      date does not exempt.
+
+Exemption is evaluated over a ±1-line window for PROSE (which hard-wraps) but over
+the line alone for a Markdown TABLE ROW, each row being a self-contained claim.
+See `scan_text`; without that split, one row's marker silently neutralizes its
+neighbours.
 
 HTML comment regions (`<!-- ... -->`) are blanked before the scan, so guidance
 prose inside a comment cannot trip the rule.
@@ -143,6 +157,39 @@ SUPERSEDED_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
         re.compile(r"defaults?\s+to\s+`?re-frame\.ui`?", re.I),
         "`re-frame.ui` is experimental and is not the default view layer",
     ),
+    # --- Superseded OPERATIONAL instructions ---------------------------------
+    # Every pattern above matches an assertion about an adapter's STATUS. These
+    # match an ACTION that only made sense under the superseded status: deleting
+    # an example, template, or CI surface that belongs to a RETAINED adapter.
+    # rf2-cwhsh found this class false-green — a stale dispatchable instruction
+    # can name no adapter at all ("template collapse", "three named causal
+    # suites") and still send a worker to remove first-class coverage.
+    (
+        re.compile(
+            r"`?substrates/`?\s+delet(?:ion|ed)"
+            r"|delet(?:e|es|ing|ion\s+of)\s+(?:the\s+)?`?substrates/`?",
+            re.I,
+        ),
+        "`substrates/` is RETAINED — only its Helix arm is removed, because "
+        "Reagent, reagent-slim, and UIx keep their example coverage (W4)",
+    ),
+    (
+        re.compile(r"three\s+named\s+causal\s+suites", re.I),
+        "the W9 end state is FOUR named causal suites — the new-UI conformance "
+        "suite plus the Reagent, reagent-slim, and UIx adapter suites",
+    ),
+    (
+        re.compile(
+            r"(?:three\s+)?substrate\s+variants?\s+collapse"
+            r"|collaps\w*\s+(?:the\s+)?(?:three\s+)?substrate\s+variants?"
+            r"|collaps\w*\s+to\s+(?:one|a\s+single)\s+`?re-frame\.ui`?\s+scaffold"
+            r"|template\s+collapse",
+            re.I,
+        ),
+        "collapsing the template to a single `re-frame.ui` scaffold would drop the "
+        "retained Reagent and UIx boot choices; the template's variant menu is a "
+        "product choice reserved to Mike and is not prescribed by W8/W12",
+    ),
 )
 
 # --- Exemptions ---------------------------------------------------------------
@@ -166,6 +213,7 @@ SUPERSESSION_MARKERS = (
     "not retiring",
 )
 
+_TABLE_ROW = re.compile(r"^\s*\|")
 _HISTORICAL_QUALIFIER = re.compile(r"snapshot|historical|historically|as of\b", re.I)
 _ISO_DATE = re.compile(r"\b\d{4}-\d{2}-\d{2}\b")
 _HTML_COMMENT = re.compile(r"<!--.*?-->", re.S)
@@ -227,13 +275,24 @@ def scan_text(text: str, rel: str) -> list[str]:
     it ("... is superseded", "not the\\nonly taught view layer") routinely land on
     adjacent lines. One line of slack is enough for wrapped prose and is still far
     too tight to let an unqualified assertion hide behind a distant disclaimer.
+
+    EXCEPT inside a Markdown TABLE, where each row is a complete, self-contained
+    claim and the hard-wrap rationale does not apply. A table row is therefore
+    exempted only by a marker on its OWN line. Without this, one row's marker
+    silently neutralizes its neighbours — which is exactly how the stale W8/W12
+    rows of `11-adoption-workstreams.md` stayed invisible (rf2-cwhsh): W8 was
+    shielded by the *unrelated* "superseded attempts" in the W7b row above it,
+    and W12 by the correctly-reconciled W13 row below it.
     """
     problems: list[str] = []
     lines = _blank_html_comments(text).splitlines()
     for index, line in enumerate(lines):
         lineno = index + 1
-        window = " ".join(lines[max(0, index - 1): index + 2])
-        if _line_is_exempt(window):
+        if _TABLE_ROW.match(line):
+            context = line
+        else:
+            context = " ".join(lines[max(0, index - 1): index + 2])
+        if _line_is_exempt(context):
             continue
         for pattern, explanation in SUPERSEDED_PATTERNS:
             match = pattern.search(line)
@@ -401,6 +460,74 @@ def _run_self_tests(*, verbose: bool = False) -> int:
         "The substrate is the only taught view layer.\n\n\n"
         "Separately, and much later: this was superseded.",
         dirty=True, label="C7 distant disclaimer does NOT exempt (window is +/-1)",
+    )
+
+    # Superseded OPERATIONAL instructions (rf2-cwhsh) must be caught.
+    expect(
+        "examples migration with the `substrates/` deletion (W4)",
+        dirty=True, label="E1 substrates/ deletion",
+    )
+    expect(
+        "W4 deletes the substrates/ tree once `ui` variants land.",
+        dirty=True, label="E2 deleting substrates/ (verb-first)",
+    )
+    expect(
+        "the CI rewrite ending at three named causal suites (W9)",
+        dirty=True, label="E3 three named causal suites",
+    )
+    expect(
+        "| W8 | **Template** | Three substrate variants collapse to one "
+        "`re-frame.ui` scaffold; feeds the deiym split gates. | Stage 6 |",
+        dirty=True, label="E4 template variants collapse to one ui scaffold",
+    )
+    expect(
+        "| W12 | Repo meta-docs | `docs/release-process.md` (new coordinate; "
+        "template collapse). | Stage 6-7 |",
+        dirty=True, label="E5 template collapse",
+    )
+
+    # The corrected instructions must NOT trip.
+    expect(
+        "examples gain `re-frame.ui` variants while `substrates/` is retained "
+        "minus its Helix arm (W4)",
+        dirty=False, label="F1 retained substrates/ wording is clean",
+    )
+    expect(
+        "the end state has four named causal suites: the new-UI conformance suite "
+        "and the Reagent, reagent-slim, and UIx adapter suites",
+        dirty=False, label="F2 four named causal suites is clean",
+    )
+    expect(
+        "| W8 | **Template** | The template gains a `re-frame.ui` scaffold and "
+        "drops its Helix variant. | Stage 6 |",
+        dirty=False, label="F3 corrected W8 row is clean",
+    )
+
+    # Table rows are self-contained: a NEIGHBOUR's marker must not exempt them,
+    # but a marker on the row's OWN line still must.
+    expect(
+        "| W7b | Story's superseded attempts settle explicitly. | Stage 5-6 |\n"
+        "| W8 | Three substrate variants collapse to one `re-frame.ui` scaffold. |",
+        dirty=True,
+        label="G1 neighbouring row's unrelated 'superseded' does NOT exempt",
+    )
+    expect(
+        "| W12 | `docs/release-process.md` (new coordinate; template collapse). |\n"
+        "| W13 | This row formerly read \"Freeze + deletion wave\"; superseded. |",
+        dirty=True,
+        label="G2 reconciled row below does NOT exempt the stale row above",
+    )
+    expect(
+        '| W8 | This row formerly read "three substrate variants collapse to one '
+        '`re-frame.ui` scaffold" — superseded (Mike, 2026-07-17). | Stage 6 |',
+        dirty=False,
+        label="G3 marker on the row's OWN line still exempts",
+    )
+    expect(
+        "Markdown prose about the template collapse\n"
+        "is superseded, and wraps across lines.",
+        dirty=False,
+        label="G4 non-table prose keeps the +/-1 wrap window",
     )
 
     # EP-0030 positive assertions.
