@@ -587,6 +587,88 @@ independent demand for platform-scale features). The seven wrappers of the forei
 React-interop tier — `re-frame.ui.react` — carry their own call-shape contract in
 §The React interop tier below.
 
+### Trusted markup — what `ui/html` does not do
+
+`ui/html` is the one place escaping is bypassed, and the bypass is a **naming**
+device rather than a safety device. The call is visible in the template, the
+compiler manifest records every site, and the compiled view declares an `:html`
+capability — so the set of bypasses in a codebase is finite and enumerable by
+construction. That enumerability *is* the mechanism. **`re-frame.ui` does not
+sanitise.**
+
+| Host | What the string becomes | Escaping / filtering applied |
+|---|---|---|
+| Browser | the parent element's React `dangerouslySetInnerHTML` — `{__html: s}` | **none** — React assigns it to `innerHTML` verbatim |
+| JVM | the trusted-HTML node `{:html s}`, carried by normalization `N` as an opaque raw-markup leaf and compared verbatim | **none** — no escape pass runs over it (the tree→HTML serialiser lands S5 and is contracted to write these leaves verbatim, per [004B §Children, text, and escaping](004B-UI-Tree-and-Conversion.md#children-text-and-escaping)) |
+
+There is no allowlist, no tag or attribute filter, no `javascript:`-scheme gate, and
+no DOM-purifier pass on either host. A `<script>` element, an `onerror=` attribute,
+or a `javascript:` href inside the string reaches the document exactly as written.
+
+The checks that *do* exist are **shape** checks, and they are deliberately partial:
+
+- The form takes exactly one argument and must be the **sole child** of a non-void
+  DOM element (`[:div (ui/html s)]`) — violations are the compile errors
+  `:rf.ui.compile/bad-html`, `:rf.ui.compile/html-not-sole-child`, and
+  `:rf.ui.compile/void-children`.
+- A **literal** non-string scalar (`(ui/html 42)`) is rejected at compile time. A
+  **runtime** expression is accepted unvalidated — the compiler cannot know the
+  value, and the site is recorded as non-serialisable.
+- A non-string value reaching the JVM node builder raises
+  `:rf.error/ui-tree-malformed`. The browser has no equivalent runtime guard: the
+  value is handed to React unchecked.
+- The prop spellings (`:dangerouslySetInnerHTML`, `:dangerously-set-inner-html`,
+  `:inner-html`) are compile errors naming `(ui/html …)` as the replacement — there
+  is exactly one spelling, and it is a node variant, not a prop.
+
+**The caller's guarantee.** Every `(ui/html s)` site asserts that `s` is trusted
+markup: an author-controlled literal, or a value that passed a real sanitiser at the
+boundary where it entered the app. "Trusted" is a claim about the string's
+*provenance*, not about its content — the framework cannot check it and does not
+try. Passing user-, tenant-, or CMS-authored markup into `ui/html` without
+sanitising it first is an arbitrary-script-injection XSS vector, and that call is
+the app's to make. This is the same posture the SSR host adapter's shell hooks take
+([011 §Trusted shell hook contract](011-SSR.md#trusted-shell-hook-contract)): the
+framework names the boundary, validates the shape, and points at structured
+alternatives; the content trust itself is caller-owned. See
+[Security §XSS at output boundaries](Security.md#xss-at-output-boundaries).
+
+**Prefer, in order:** ordinary template children (strings everywhere else always
+escape — full 5-char escaping in text and attribute values); a compiled child view
+for structured content; `re-frame.ui.data` for genuinely runtime-authored trees.
+Reach for `ui/html` only when the markup itself is the data *and* its provenance is
+trusted — a build-time Markdown render, a sanitiser's output, a static SVG string.
+
+### The document head is host-owned
+
+**No compiled-view form renders into `<head>`.** `re-frame.ui` mounts into a root
+element inside `<body>` (§Roots and mounting), and every template form in this Spec
+produces nodes beneath that root: there is no head-targeting form, no `ui/head`, and
+no head channel in the view AST or the JVM tree. The document head belongs to the
+**host** — the HTML shell the app serves and, for server-rendered apps, Spec 011's
+structured [`reg-head` / `active-head`](011-SSR.md#headmeta-contract) channel, which
+derives the head model from `app-db` through registered fns and applies
+position-appropriate escaping at every leaf.
+
+`ui/html` does not widen this. It is the sole child of a **DOM element** in the
+rendered tree, and `<head>` is neither a mount target nor reachable from a template,
+so trusted markup cannot be used to reach into it.
+
+The reasoning is that head elements are document-global singletons with
+de-duplication, ordering, and precedence semantics that no part of the compiled
+substrate models today, and the server-rendered head already carries its own
+`:rf/head-hash` channel — deliberately separate from `:rf/render-hash` — with its
+own mismatch-detection path. A view-level head API would have to reconcile with both
+before it could be correct. Head rendering therefore stays host-owned until that
+hardening lands, which is the posture S1–S3 already shipped under.
+
+> **[S4-OPEN — normative home undecided].** This section records the standing
+> policy; the question of *which* Spec normatively owns the head-render policy —
+> this one, [011](011-SSR.md) (which owns the server-side head model), or elsewhere
+> — has not been ruled. The text lives here, next to the §Interop boundary table it
+> constrains, pending that ruling. No S4 conformance fixture asserts it: it states
+> an absence of surface, not a behaviour.
+
 ## `ui/route-link` — a framework-provided compiled view over the routing seam
 
 `ui/route-link` is the compiled counterpart of the stock-Reagent `rf/route-link` — a
