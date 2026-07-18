@@ -1,6 +1,44 @@
-# DRAFT — Spec 006 amendment (R-2): the internal observation port
+# Spec 006 amendment (R-2): the internal observation port — SUPERSEDED (merged, then amended)
 
-> **Status: DRAFT — not merged · 2026-07-12.** Target: `spec/006-ReactiveSubstrate.md`.
+> **Status: SUPERSEDED — historical staging material. Do not apply.**
+>
+> **All three edits below have LANDED in `spec/006-ReactiveSubstrate.md`**, which is the
+> current contract: Insertion 1 as §The internal observation port (adapter-internal),
+> sitting exactly where this draft placed it — after `### Per-host implementation notes`,
+> before `## What happens when a sub references an unknown sub`; Insertion 2 as the
+> "**The internal observation port is not part of this contract**" blockquote in
+> §The adapter API contract; the companion edit as the "**Observation-target consultation
+> (observation-port substrate)**" paragraph in §The sub-override subscribe seam. Applying
+> this draft again would duplicate all three.
+>
+> **The merged §The slice-scoped probe memo has since been amended** (⟨rf2-er64a⟩,
+> ⟨rf2-2g7pxq⟩) and no longer reads as it does below. The current law is **per-host**:
+>
+> - **JVM** — a thread-local render scope (`*slice*`, opened by `with-slice-memo`); the
+>   binding discards the table synchronously when the render thunk returns. There is no
+>   microtask on the JVM.
+> - **CLJS** — a module holder **released at the host microtask checkpoint**
+>   (`queueMicrotask`, under a CAS guard). That checkpoint is the holder's **maximum**
+>   lifetime, and what it guarantees is exactly this: no holder or table survives *past* it
+>   into the next window. **The whole host-microtask window is one CLJS slice** — because
+>   `queueMicrotask` is FIFO, a genuinely-later render in a microtask interposed *before*
+>   that checkpoint finds the holder still installed and reuses it. That is a bounded
+>   within-window economy and the intended design, not a shortfall; one holder can serve
+>   several synchronous render passes.
+>
+> **§The slice-scoped probe memo below states the retired universal wording** — the table
+> "scoped to the **current synchronous execution slice**", with no entry surviving into "a
+> later slice" — which read as *sharing ends with the originating synchronous call*.
+> PR #6070's executable inverse-FIFO proof disproved that for CLJS. It is preserved
+> verbatim as design history and is deliberately NOT corrected in place; read it as
+> archaeology, never as direction. Its shape source carries the same disproven inference —
+> see the correction notice on [spikes/s3-ownership-report.md](../spikes/s3-ownership-report.md).
+>
+> Current authorities: `spec/006-ReactiveSubstrate.md` §The slice-scoped probe memo,
+> [03-reactivity-and-ownership §3](../03-reactivity-and-ownership.md), and the
+> `slice-memo*` docstring in `implementation/ui/src/re_frame/ui/reactive.cljc` (⟨rf2-5ea8f⟩).
+
+**Original status:** DRAFT — not merged · 2026-07-12. Target: `spec/006-ReactiveSubstrate.md`.
 > Semantics **and shapes final**: spike S-3 has run, and per the binding codex2
 > disposition ([09 §codex2 disposition, F1](../09-review-disposition.md)) the spike's
 > §5 target/evidence/lease model
@@ -335,6 +373,14 @@ The port and the public read API split deliberately ⟨09 codex2 F1 — binding�
   unknown input mid-graph, sub-body exception, cycle detection]**
 
 ### The slice-scoped probe memo
+
+> **⚠ SUPERSEDED — retired wording, preserved as design history.** The "**current
+> synchronous execution slice**" lifetime stated below was disproven for CLJS by PR #6070's
+> executable inverse-FIFO proof. The current law is per-host and lives in
+> `spec/006-ReactiveSubstrate.md` §The slice-scoped probe memo: on the JVM the thread-local
+> scope discards synchronously when the render thunk returns; on CLJS **the whole
+> host-microtask window is one slice**, so a genuinely-later callback interposed before the
+> microtask checkpoint reuses the still-installed holder. See this document's header.
 
 Probes are ownership-free, so N sibling sites probing the same query during one render
 pass (first-mount fan-out: N rows probing `[:orders/by-id id]`) would recompute shared

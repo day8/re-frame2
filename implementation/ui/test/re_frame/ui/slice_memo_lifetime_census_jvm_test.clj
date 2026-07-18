@@ -315,3 +315,133 @@ interrupted or abandoned slice's table becomes unreachable garbage.")
       (is (contains? (slice-memo-lifetime-violations (drift section match replace))
                      expect)
           (str "census must reject " label " when " drift-label)))))
+
+;; ---------------------------------------------------------------------------
+;; The retired-wording sources (rf2-cpalh)
+;; ---------------------------------------------------------------------------
+;;
+;; Two authority-SHAPED documents still state the retired universal wording. They
+;; are deliberately NOT censused by `slice-memo-lifetime-violations` above: they
+;; quote the retired claim verbatim as design history, and correcting it in place
+;; would rewrite archaeology as though it had always said something else.
+;;
+;;   - `drafts/spec-006-observation-port-amendment.md` — all three of its edits
+;;     LANDED in Spec 006 (§The internal observation port et al), and the merged
+;;     section was then amended per-host by rf2-er64a. Its merge condition was
+;;     satisfied and then overtaken, so it is superseded, not pending.
+;;   - `spikes/s3-ownership-report.md` — a dated experimental record whose 55/55
+;;     fixtures stand and whose §5 model remains the port's binding shape source.
+;;     Exactly ONE inference in it was disproven by the inverse-FIFO proof; the
+;;     report is corrected at that claim, not superseded wholesale.
+;;
+;; What they must carry instead is an unmistakable marker that reaches a reader
+;; BEFORE the retired prose does — including one who deep-links straight to the
+;; carrying section. That is what this arm pins.
+
+(def ^:private retired-wording-sources
+  [{:label   "ai/findings/new-substrate-synthesis/drafts/spec-006-observation-port-amendment.md"
+    :path    "ai/findings/new-substrate-synthesis/drafts/spec-006-observation-port-amendment.md"
+    :section "### The slice-scoped probe memo"}
+   {:label   "ai/findings/new-substrate-synthesis/spikes/s3-ownership-report.md"
+    :path    "ai/findings/new-substrate-synthesis/spikes/s3-ownership-report.md"
+    :section "### The pass token"}])
+
+(def ^:private retired-marker-re
+  "The supersession / correction marker. Either spelling is unmistakable at a
+  glance; both must precede the retired prose they guard."
+  #"(?i)\*\*Status:\s*SUPERSEDED|⚠\s*(?:CORRECTION|SUPERSEDED)|—\s*SUPERSEDED")
+
+(defn retired-source-violations
+  "Census ONE retired-wording source; return the SET of violations (empty =
+  conformant). Pure over text, so the negative arm can prove it has teeth."
+  [text section-heading]
+  (let [marker-at   (some-> (re-find retired-marker-re text) (->> (str/index-of text)))
+        claim-at    (some-> (re-find obsolete-synchronous-slice-re text)
+                            (->> (str/index-of text)))
+        section-at  (str/index-of text section-heading)
+        after-head  (when section-at (subs text section-at))
+        sec-marker  (some-> after-head (->> (re-find retired-marker-re))
+                            (->> (str/index-of after-head)))
+        sec-claim   (some-> after-head (->> (re-find obsolete-synchronous-slice-re))
+                            (->> (str/index-of after-head)))]
+    (cond-> #{}
+      ;; It must be marked at all, and prominently — within the opening of the
+      ;; document, not buried where a scanning reader never reaches it.
+      (nil? marker-at)
+      (conj :marker/missing)
+
+      (and marker-at (> marker-at 400))
+      (conj :marker/not-prominent)
+
+      ;; The marker must not be vacuous: it states the law that replaced the
+      ;; retired claim, in the same words the live authorities use.
+      (not (re-find cljs-window-reuse-re text))
+      (conj :marker/host-window-law-missing)
+
+      ;; ... and points at the document that now carries the contract.
+      (not (str/includes? text "spec/006-ReactiveSubstrate.md"))
+      (conj :marker/current-authority-unlinked)
+
+      ;; The retired claim must never lead. A reader meets the marker first.
+      (and claim-at marker-at (< claim-at marker-at))
+      (conj :claim/precedes-marker)
+
+      ;; Deep-link guard: the carrying section must be marked in its own right,
+      ;; before its retired prose — the document header is invisible to a reader
+      ;; who lands on the anchor.
+      (nil? section-at)
+      (conj :section/heading-missing)
+
+      (and section-at (nil? sec-marker))
+      (conj :section/unmarked)
+
+      (and sec-claim sec-marker (< sec-claim sec-marker))
+      (conj :section/claim-precedes-marker))))
+
+(deftest retired-wording-sources-read-as-history-not-direction
+  (doseq [{:keys [label path section]} retired-wording-sources]
+    (testing label
+      (is (= #{} (retired-source-violations (slurp (io/file @root path)) section))
+          (str label " preserves the retired slice-memo wording as design "
+               "history, so it must carry a prominent supersession/correction "
+               "marker — document-level AND on the carrying section — that "
+               "states the host-window law and points at Spec 006")))))
+
+(def ^:private pre-cpalh-amendment-draft
+  "The ACTUAL opening and carrying section of the amendment draft before this
+  bead — the state in which it read as PENDING design direction while stating
+  the retired universal wording. The census must reject it."
+  "# DRAFT — Spec 006 amendment (R-2): the internal observation port
+
+> **Status: DRAFT — not merged · 2026-07-12.** Target: `spec/006-ReactiveSubstrate.md`.
+> Semantics **and shapes final**: spike S-3 has run.
+
+### The slice-scoped probe memo
+
+Probes are ownership-free, so N sibling sites probing the same query during one render
+pass would recompute shared derivation parents N times. The port permits one mitigation:
+a **slice-scoped pure memo table**. Within one slice, probes share computed derivation
+parents; the table dies with the slice. No entry survives into cache state, ownership
+state, or a later slice.
+
+**Lifetime (S-3-settled).** There is no public React render-pass token; the table is
+scoped to the **current synchronous execution slice**: created lazily on first probe,
+cleared by `queueMicrotask`, and belt-and-braces tagged with
+`(frame, frame-epoch, registry-epoch)` — invalidated on any mismatch.")
+
+(deftest retired-source-census-rejects-the-unmarked-pre-cpalh-state
+  (testing "an unmarked draft stating the retired wording as live direction is
+            rejected: no marker at all, no host-window law, and a carrying
+            section a deep-link reader would meet unguarded"
+    (is (= #{:marker/missing
+             :marker/host-window-law-missing
+             :section/unmarked}
+           (retired-source-violations pre-cpalh-amendment-draft
+                                      "### The slice-scoped probe memo"))))
+  (testing "dropping the pointer to the current authority is caught on the live text"
+    (let [{:keys [path section]} (first retired-wording-sources)
+          text (slurp (io/file @root path))]
+      (is (contains? (retired-source-violations
+                      (drift text "spec/006-ReactiveSubstrate.md" "some other document")
+                      section)
+                     :marker/current-authority-unlinked)))))

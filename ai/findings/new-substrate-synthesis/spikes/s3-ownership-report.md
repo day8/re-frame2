@@ -1,5 +1,41 @@
 # Spike S-3 report — ViewCell ownership/concurrency (+ S-2 push falsification, S-5 input synchrony riders)
 
+> **⚠ CORRECTION (⟨rf2-cpalh⟩) — one inference in §5 was later disproven. The report is
+> otherwise unamended and still stands.**
+>
+> This is a dated experimental record of a throwaway spike, preserved verbatim: its 55/55
+> fixtures stand, and its §5 target/evidence/lease model remains the binding **sole shape
+> source** for the observation port (⟨09 codex2 F1⟩). One inference in
+> [§5 The pass token](#the-pass-token-memo-table-lifetime--the-mechanism-s-3-was-asked-to-settle)
+> is **wrong** and must not be built on:
+>
+> - **Disproven:** "React's scheduler yields via a macrotask, so the microtask always runs
+>   at slice end", and therefore that a `queueMicrotask` clear ends sharing with the
+>   originating synchronous call.
+> - **Disproven:** "staleness impossible within a slice (single-threaded — no dispatch can
+>   interleave)" — a dispatch **can** interleave within the window.
+> - **The law, as PR #6070's executable inverse-FIFO proof settled it:** `queueMicrotask`
+>   is FIFO, so a callback enqueued *before* the first probe drains *before* the clear. **The
+>   whole bounded host-microtask window is one CLJS slice**, and a genuinely-later render
+>   interposed before the checkpoint finds the holder still installed and reuses it. One
+>   holder can serve several synchronous render passes. That wider lifetime is the
+>   **intended design**, not a shortfall; the checkpoint is the holder's **maximum**
+>   lifetime, guaranteeing only that no holder or table survives *past* it into the next
+>   window.
+>
+> **The spike's conclusion survives; only its reason was wrong.** The memo is still safe —
+> not because nothing can interleave, but because every table hit is re-validated against
+> the handle's own exact `(frame, frame-epoch, registry-epoch)` + incarnation tag, so an
+> interposed later render at a moved epoch fails the tag check and mints a fresh table
+> rather than serving a stale value. The two-guard rule covers the rest. Exact
+> incarnation/epoch tag safety and bounded within-window reuse are distinct properties.
+>
+> Current authorities: `spec/006-ReactiveSubstrate.md` §The slice-scoped probe memo,
+> [03-reactivity-and-ownership §3](../03-reactivity-and-ownership.md), and the `slice-memo*`
+> docstring in `implementation/ui/src/re_frame/ui/reactive.cljc` (⟨rf2-5ea8f⟩). The
+> amendment draft that took this spike as its shape source is superseded for the same reason
+> ([drafts/spec-006-observation-port-amendment.md](../drafts/spec-006-observation-port-amendment.md)).
+
 **2026-07-11 23:23:18 AUSEST** · spike branch: **`spike/ui-s3-ownership`** (worktree
 `re-frame2-worktrees/spike-ui-s3-ownership`, code under `spikes/ui-s3-ownership/`;
 throwaway, no PR to main) · React **19.2.0** (from a pinned fresh install matching
@@ -216,6 +252,13 @@ through the pass memo.
   static-lease concept and needs its Tier-3 fixture in Stage 2.)*
 
 ### The pass token (memo-table lifetime — the mechanism S-3 was asked to settle)
+
+> **⚠ CORRECTION — the paragraph below carries the disproven inference.** See the correction
+> notice at the top of this report. The recommendation ("adopt slice-scoped") was adopted, but *slice* is
+> bounded **per-host**: on CLJS the whole host-microtask window is one slice, so sharing does
+> **not** end with the originating synchronous call and a dispatch **can** interleave before
+> the clear. Preserved verbatim as the spike's record; read it as archaeology, never as
+> direction.
 
 There is no public React render-pass token. The prototype's answer: scope the table
 to the **current synchronous execution slice** — created lazily on first probe,
