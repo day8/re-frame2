@@ -13,9 +13,9 @@ views, state, events, frames, then a real dashboard.
         day8/re-frame2-ui {…}}}
 ```
 
-`package.json` carries `react` and `react-dom` — nothing else. `re-frame.ui` is the
-default and the only view surface this guide teaches. Stock Reagent and UIx remain
-optional, frozen compatibility adapters; Helix and slim are deleted.
+`package.json` carries `react` and `react-dom` — nothing else. `re-frame.ui` is an
+experimental additional substrate, the view surface this guide teaches. Stock Reagent,
+UIx, and reagent-slim remain first-class, actively-supported adapters; only Helix is deleted.
 
 The browser/runtime must provide the standard JavaScript `WeakRef` constructor (all
 current evergreen browsers and supported modern Node runtimes do). re-frame.ui probes

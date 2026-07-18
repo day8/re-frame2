@@ -46,7 +46,7 @@ compiles one fixture set through both emitters and compares the results once eac
 is fully lowered and projected into a common semantic space, so divergence is *detected*
 rather than prevented.
 
-Contrast the frozen stock-Reagent path: `reg-view` is registration and frame injection
+Contrast the stock-Reagent path: `reg-view` is registration and frame injection
 only — the body is spliced **verbatim** and still interpreted by Reagent. It is not
 "the same compiler under another name". The migration map is
 [13 — From other worlds](13-from-other-worlds.md).
@@ -302,7 +302,7 @@ and parity gates compare the two outputs so conversion drift fails loudly.
 Neither JVM emission nor that parity gate produces HTML. At S5,
 `re-frame.ssr/emit-ui-tree` is the separate serializer that turns the versioned tree
 into HTML; its conversion/escaping contract and parity gates control drift across that
-boundary. Until then, `render-to-string` remains the frozen Reagent/hiccup compatibility
+boundary. Until then, `render-to-string` remains the Reagent/hiccup compatibility
 route. At S5 a fingerprint in the root manifest lets hydration check the delivered
 structure rather than hope.
 
