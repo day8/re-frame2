@@ -217,8 +217,12 @@ no "wait for the next tick" folklore. Overlapping acts fail loudly with
 Native DOM mechanics already host-owned — focus, selection, a foreign component's raw
 callback — use ordinary platform APIs. There is no library gesture language.
 
-Presence transitions advance with `(ui.test/flush-presence!)` *(lands S4 with
-presence)*.
+Presence transitions advance with `(ui.test/flush-presence!)`, the presence twin of
+`flush!` — a fake clock, never a wall-clock sleep. The zero-arity form advances to
+quiescence, firing every pending exit; `(flush-presence! ms)` advances the logical
+clock by `ms` and fires only the exits that come due. On the JVM structural host
+there is no lifecycle, so both arities are a no-op — a `.cljc` test body calls them
+on either host.
 
 ## Story *(rides the migration wave — S6)*
 
