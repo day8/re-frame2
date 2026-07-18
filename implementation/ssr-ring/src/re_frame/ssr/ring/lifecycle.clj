@@ -107,7 +107,15 @@
   either a hiccup vector directly OR a 0-arity fn that returns hiccup.
   Resolve once per request so a non-idempotent function cannot make rendered
   HTML and payload hashes describe different trees. Streaming re-resolves only
-  after at least one continuation, when post-drain state needs a fresh hash."
+  after at least one continuation, when post-drain state needs a fresh hash.
+
+  The hiccup vector's HEAD must be a callable — the Var `reg-view` defs,
+  or `(rf/view :id)`. A keyword head is an HTML element on every host,
+  never a view (rf2-j81hs / Conventions §Render-tree shape vs runtime
+  lookup), so `:root-view [:app/root]` renders an empty `<root>` element
+  rather than the application. Prefer the 0-arity fn form when the opts
+  map is built before the view is registered, since `(rf/view :id)`
+  resolves where it is written."
   [root-view]
   (cond
     (vector? root-view) root-view

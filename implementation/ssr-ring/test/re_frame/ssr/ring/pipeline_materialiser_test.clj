@@ -609,7 +609,7 @@
                            {:status 204 :headers {} :body ""})
           app ((ssr-ring/ssr-middleware
                  {:initial-events      [[:init/mw-blank]]
-                  :root-view      [:pages/mw-blank]
+                  :root-view      [(rf/view :pages/mw-blank)]
                   :payload :rf.ssr.payload/whole-app-db})
                wrapped)
           response (app {:uri "/" :request-method :get})]
@@ -627,7 +627,7 @@
                            {:status 201 :headers {} :body "from wrapped"})
           app ((ssr-ring/ssr-middleware
                  {:initial-events      [[:init/mw-blank]]
-                  :root-view      [:pages/mw-blank]
+                  :root-view      [(rf/view :pages/mw-blank)]
                   :payload :rf.ssr.payload/whole-app-db})
                wrapped)]
       (doseq [method [:post :put :delete :head]]

@@ -167,7 +167,7 @@
         ;; identity ("jake"), with article data.
         (seed-feed-runtime-db! fid "jake" 1 {:articles [:a :b]})
         (let [opts     {:initial-events nil
-                        :root-view  [:p026f5/root]
+                        :root-view  [(rf/view :p026f5/root)]
                         :emit-hash? true
                         :html-shell shell/default-html-shell
                         ;; whole-app-db so the test isolates the runtime-db
@@ -219,7 +219,7 @@
       (try
         (seed-feed-runtime-db! fid "jake" 1 {:articles [:a :b]})
         (let [opts     {:initial-events nil
-                        :root-view  [:p026f5/root]
+                        :root-view  [(rf/view :p026f5/root)]
                         :emit-hash? true
                         :html-shell shell/default-html-shell
                         :payload    :rf.ssr.payload/whole-app-db}
@@ -293,7 +293,7 @@
             fid assoc state/resources-key {:entries     {(state/key-id sk) entry}
                                            :tag-index   {} :owner-index {}})
           (let [opts    {:initial-events nil
-                         :root-view  [:p026f5/root2]
+                         :root-view  [(rf/view :p026f5/root2)]
                          :emit-hash? true
                          :html-shell shell/default-html-shell
                          :payload    :rf.ssr.payload/whole-app-db}

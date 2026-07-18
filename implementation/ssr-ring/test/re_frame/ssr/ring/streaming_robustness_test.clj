@@ -122,10 +122,10 @@
   (rf/reg-view ^{:rf/id :test/root} root-view []
     [:main
      [:h1 "News"]
-     [:test/article-list]
+     [(rf/view :test/article-list)]
      [:rf/suspense-boundary
       {:id :test/comments :fallback [:p "Loading comments…"]}
-      [:test/comments-section]]
+      [(rf/view :test/comments-section)]]
      [:footer "End"]]))
 
 ;; ---- Jetty + JDK HTTP client + leak detector -----------------------------
@@ -264,7 +264,7 @@
     (register-baseline-handlers!)
     (let [handler (ssr-ring/stream-handler
                     {:initial-events [[:rf.test.server/init]]
-                     :root-view [:test/root]
+                     :root-view [(rf/view :test/root)]
                      :payload :rf.ssr.payload/whole-app-db})]
       (ts/with-jetty [port handler]
         (let [client   (ts/new-http-client)
@@ -409,10 +409,10 @@
         [:main
          [:rf/suspense-boundary
           {:id :test/parker :fallback [:p "loading"]}
-          [:test/parking-section]]])
+          [(rf/view :test/parking-section)]]])
       (let [handler  (ssr-ring/stream-handler
                        {:initial-events [[:rf.test.server/init]]
-                        :root-view [:test/parking-root]
+                        :root-view [(rf/view :test/parking-root)]
                         :payload :rf.ssr.payload/whole-app-db})
             response (handler {:uri "/" :request-method :get})
             drain    (future (with-open [^InputStream is (:body response)] (slurp is)))]
@@ -518,7 +518,7 @@
               ^{:key i} [:p (str "row-" i "-padding-padding-padding")])))
     (let [handler   (ssr-ring/stream-handler
                       {:initial-events [[:rf.test.server/init-bad-cookie]]
-                       :root-view [:test/big-root]
+                       :root-view [(rf/view :test/big-root)]
                        :payload :rf.ssr.payload/whole-app-db})
           ;; Direct handler call (no Jetty needed — the throw is on the
           ;; request thread during head materialisation, before any
@@ -592,7 +592,7 @@
       (fn [_ _] {:db {}}))
     (let [handler (ssr-ring/stream-handler
                     {:initial-events [[:rf.test.server/init-min]]
-                     :root-view [:test/uses-throwing-sub]
+                     :root-view [(rf/view :test/uses-throwing-sub)]
                      :ssr       {:public-error-id   :rf.ssr/default-error-projector
                                  :dev-error-detail? false}
                      :payload :rf.ssr.payload/whole-app-db})]
@@ -647,17 +647,17 @@
        [:p "WIRE_OUTER_CONTENT"]
        [:rf/suspense-boundary
         {:id :wire/inner :fallback [:p "wire inner loading"]}
-        [:test/wire-inner]]])
+        [(rf/view :test/wire-inner)]]])
     (rf/reg-view ^{:rf/id :test/wire-nested-root} wire-nested-root []
       [:main
        [:h1 "WireNested"]
        [:rf/suspense-boundary
         {:id :wire/outer :fallback [:p "wire outer loading"]}
-        [:test/wire-outer]]
+        [(rf/view :test/wire-outer)]]
        [:footer "End"]])
     (let [handler (ssr-ring/stream-handler
                     {:initial-events [[:rf.test.server/init-nested]]
-                     :root-view [:test/wire-nested-root]
+                     :root-view [(rf/view :test/wire-nested-root)]
                      :payload :rf.ssr.payload/whole-app-db})]
       (ts/with-jetty [port handler]
         (let [client (ts/new-http-client)

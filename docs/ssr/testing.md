@@ -45,7 +45,7 @@ When the assertion is about *structure* rather than the serialised string, the h
 ```clojure
 (deftest the-server-answers
   (let [handler (ssr-ring/ssr-handler {:initial-events [[:rf/server-init]]
-                                       :root-view      [:app/root]
+                                       :root-view      [(rf/view :app/root)]
                                        :payload        [:articles]})
         response (handler {:request-method :get :uri "/articles/intro"})]
     (is (= 200 (:status response)))
@@ -63,7 +63,7 @@ Two SSR surfaces are deliberately test-shaped:
     ```clojure
     (deftest payload-policy-is-mandatory
       (is (= :rf.error/ssr-missing-payload-policy
-             (try (ssr-ring/ssr-handler {:root-view [:app/root]})
+             (try (ssr-ring/ssr-handler {:root-view [(rf/view :app/root)]})
                   (catch Exception e (:rf.error/id (ex-data e)))))))
     ```
 

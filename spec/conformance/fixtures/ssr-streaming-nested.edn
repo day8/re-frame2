@@ -54,7 +54,7 @@
             [:rf/suspense-boundary
              {:id :streaming-nested.test/inner
               :fallback [:p.fallback "Loading inner…"]}
-             [:streaming-nested.test/inner-section]]]]]
+             [:view-ref :streaming-nested.test/inner-section]]]]]
 
          :streaming-nested.test/root
          [[:hiccup
@@ -63,7 +63,7 @@
             [:rf/suspense-boundary
              {:id :streaming-nested.test/outer
               :fallback [:p.fallback "Loading outer…"]}
-             [:streaming-nested.test/outer-section]]
+             [:view-ref :streaming-nested.test/outer-section]]
             [:footer "End"]]]]}}
 
  :fixture/frame-config {:platform :server}
@@ -73,7 +73,7 @@
   ;; inner is buried in the unresolved outer subtree. The shell carries
   ;; the OUTER fallback placeholder, NOT the inner.
   {:call   :ssr.streaming/render-shell
-   :input  [:streaming-nested.test/root]
+   :input  [:view-ref :streaming-nested.test/root]
    :expect
    {:shell-html-includes
     ["<main"
@@ -97,7 +97,7 @@
   ;; BODY is NOT in the outer chunk — it is deferred.
   {:call   :ssr.streaming/render-continuation
    :input  {:id :streaming-nested.test/outer
-            :subtree [:streaming-nested.test/outer-section]}
+            :subtree [:view-ref :streaming-nested.test/outer-section]}
    :expect
    {:html-includes ["<section"
                     "outer content above inner"
@@ -113,7 +113,7 @@
   ;; nested boundaries.
   {:call   :ssr.streaming/render-continuation
    :input  {:id :streaming-nested.test/inner
-            :subtree [:streaming-nested.test/inner-section]}
+            :subtree [:view-ref :streaming-nested.test/inner-section]}
    :expect
    {:html-includes ["<div class=\"inner-body\""
                     "inner body content"]

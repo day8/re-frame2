@@ -56,9 +56,11 @@
             [clojure.string]
             [re-frame.error :as error]
             [re-frame.frame :as frame]
-            [re-frame.interop :as interop]
+            ;; rf2-j81hs — `re-frame.registrar` / `re-frame.interop` dropped
+            ;; with the walker's keyword-view branch (registry lookup +
+            ;; debug-gated source-coord injection). The shell walk no longer
+            ;; consults the registry to decide what a head means.
             [re-frame.late-bind :as late-bind]
-            [re-frame.registrar :as registrar]
             [re-frame.ssr.emit :as emit]
             [re-frame.ssr.html-helpers :as html]
             [re-frame.ssr.payload-policy :as payload-policy]
@@ -331,8 +333,8 @@
 
 ;; Walk DOM children once and handle suspense boundaries where encountered.
 ;; A recursive pre-scan would revisit subtrees and become quadratic on a deep
-;; tree. It would also miss boundaries returned by registered views unless the
-;; view were resolved during both passes.
+;; tree. It would also miss boundaries returned by a callable-headed view
+;; unless the view were invoked during both passes.
 
 (defn- walk-children [children acc]
   (clojure.string/join (mapv #(walk-shell % acc) children)))
@@ -424,9 +426,11 @@
     (walk-suspense-boundary el acc)
 
     ;; Recurse into vector children so nested suspense-boundaries are
-    ;; reachable. For DOM-tag heads, we re-walk children manually and
-    ;; emit the wrapping tag. For view-refs, we resolve the view and
-    ;; recurse on its output. For fragments, we splice children.
+    ;; reachable. For DOM-tag heads (which is what EVERY keyword head is,
+    ;; per rf2-j81hs) we re-walk children manually and emit the wrapping
+    ;; tag. For fragments, we splice children. Callable heads — the Var /
+    ;; `(rf/view :id)` forms that reference a view — are invoked and their
+    ;; output recursed, on the `ifn?` branch further down.
     (and (vector? el) (keyword? (first el)))
     (let [head (first el)]
       (cond
@@ -442,33 +446,33 @@
         (= :> head)
         (emit/emit-element el)
 
-        ;; Registered view — resolve and recurse on the body. Note that
-        ;; subscribe calls inside the view body run synchronously
-        ;; against the frame's static app-db, same as the non-streaming
-        ;; emitter (per Spec 011 §The render-tree → HTML emitter).
+        ;; An unrecognised head in the reserved `:rf/*` scheme — delegate
+        ;; to the standard emitter so the single
+        ;; `:rf.error/invalid-hiccup-head` reserved-head throw lives in
+        ;; one place, exactly as the `:>` branch above does (rf2-j81hs).
+        (emit/reserved-rf-head? head)
+        (emit/reject-reserved-rf-hiccup-head! el head)
+
+        ;; DOM / custom element — always recurse via `walk-dom-tag` so
+        ;; nested suspense-boundaries are reachable. Per rf2-muasb the
+        ;; prior `some-suspense-boundary?` pre-scan was a perf
+        ;; anti-pattern: O(N) per descent, dominated whatever it saved by
+        ;; short-circuiting to `emit/emit-element`.
+        ;;
+        ;; rf2-j81hs — this branch used to probe
+        ;; `(registrar/lookup :view head)` FIRST and resolve a registered
+        ;; view, falling through to `walk-dom-tag` only on a miss. That
+        ;; made a keyword head mean "registered view" on the streaming
+        ;; server and "an HTML element" on every client substrate. One
+        ;; grammar now holds corpus-wide: a keyword head is a DOM / custom
+        ;; element on EVERY host (Spec 004 + Conventions own the head
+        ;; grammar; this finishes rf2-n82bbu). Views are referenced by
+        ;; callable binding — the Var `reg-view` defs, or `(rf/view :id)`
+        ;; — both of which the `ifn?` branch below resolves and recurses
+        ;; through, so a suspense boundary inside a view body is still
+        ;; reachable.
         :else
-        (if-let [v (registrar/lookup :view head)]
-          (let [raw (apply (:handler-fn v) (rest el))
-                ;; Source-coord annotation (Spec 006) is applied by
-                ;; `emit/emit-element` on its registered-view branch;
-                ;; we mirror the structural-injection shape here on
-                ;; the walked subtree so streamed shells still carry
-                ;; the annotation. Gated on `interop/debug-enabled?` so a
-                ;; production streamed render elides the internal source
-                ;; coords — same production-elision contract the non-
-                ;; streaming emitter obeys (rf2-wtd8z finding 3).
-                coord (when interop/debug-enabled?
-                        (emit/format-view-source-coord head v))
-                out   (if coord
-                        (emit/inject-coord-on-root-hiccup coord raw)
-                        raw)]
-            (walk-shell out acc))
-          ;; DOM tag — always recurse via `walk-dom-tag` so nested
-          ;; suspense-boundaries are reachable. Per rf2-muasb the
-          ;; prior `some-suspense-boundary?` pre-scan was a perf
-          ;; anti-pattern: O(N) per descent, dominated whatever it
-          ;; saved by short-circuiting to `emit/emit-element`.
-          (walk-dom-tag el acc))))
+        (walk-dom-tag el acc)))
 
     (and (vector? el) (ifn? (first el)))
     ;; Callable component head — a plain fn OR a Var reference
@@ -477,7 +481,7 @@
     ;; to the `(sequential? el)` / scalar arms and emitting EDN text rather
     ;; than resolving it (rf2-wtd8z finding 2 — same gap as the non-
     ;; streaming emitter). The keyword branch above (DOM tags, fragments,
-    ;; `:>`, registered views) is reached first, so the only callables
+    ;; `:>`, reserved `:rf/*` heads) is reached first, so the only callables
     ;; reaching here are fns and Var references. Resolve + recurse on the
     ;; body so the shell walk threads through the Var head.
     ;;

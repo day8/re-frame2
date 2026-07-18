@@ -17,7 +17,7 @@
 
  :fixture/calls
  [{:call    :render-to-string
-   :input   [:greeting "world"]
+   :input   [:view-ref :greeting "world"]
    :expect  "<div class=\"greet\"><h1>Hello</h1><p>Welcome, <strong>world</strong></p></div>"}
 
   ;; Void elements self-close per HTML5.

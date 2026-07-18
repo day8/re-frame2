@@ -109,6 +109,9 @@
                       in an event payload; use the `:rf.server/request` coeffect
                       for ambient request reads.
     :root-view      — hiccup vector or 0-arity fn returning hiccup, rendered
+                      (head must be a CALLABLE — the Var reg-view defs, or
+                      (rf/view :id); a keyword head is an HTML element, never
+                      a view — rf2-j81hs)
                       against the settled request frame.
     :payload        — non-empty allowlist of top-level app-db keys, or the
                       explicit `:rf.ssr.payload/whole-app-db` opt-in. Missing
@@ -206,7 +209,7 @@
     (rf/init! (requiring-resolve 'ssr-ring-app/ssr-adapter))
     (def handler
       (ssr-ring/ssr-handler {:initial-events [[:rf/server-init]]
-                             :root-view      [:app/root]
+                             :root-view      [(rf/view :app/root)]
                              ;; A vector allowlists top-level app-db keys;
                              ;; `:rf.ssr.payload/whole-app-db` opts into
                              ;; the whole db. Omit it and construction throws
@@ -293,7 +296,7 @@
       (-> default-handler
           ((ssr-ring/ssr-middleware
              {:initial-events [[:rf/server-init]]
-              :root-view      [:app/root]
+              :root-view      [(rf/view :app/root)]
               :payload        [:articles :session-user]
               :match?         (fn [req] (= :get (:request-method req)))}))
           wrap-static-assets))"

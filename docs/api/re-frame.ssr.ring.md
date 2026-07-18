@@ -32,7 +32,7 @@ Ships in the `day8/re-frame2-ssr-ring` artefact. See [Server-side rendering — 
   - `:initial-events` — an ordered vector of events, dispatched synchronously and in order into the per-request frame at creation. Alternatively, a `(fn [request] → initial-events-vector)` that derives the vector from the Ring request. The fn form is the replay-safe seam for folding a request-derived fact into a boot event's payload, e.g. `(fn [req] [[:auth/server-init {:user (extract-user req)}]])`. For non-durable request reads inside a handler, declare `:rf.cofx/requires [:rf.server/request]` on the registration instead.
     - Omission throws `:rf.error/ssr-ring-missing-initial-events` at construction.
     - A value that is neither a vector nor a fn, or a fn returning a non-vector, throws `:rf.error/invalid-initial-events` per request.
-  - `:root-view` — a hiccup vector (e.g. `[:app/root]`) or a 0-arity fn returning hiccup, rendered against the per-request frame after the drain settles.
+  - `:root-view` — a hiccup vector (e.g. `[(rf/view :app/root)]`) or a 0-arity fn returning hiccup, rendered against the per-request frame after the drain settles. The head must be a **callable** — the Var `rf/reg-view` defs, or `(rf/view :id)`. A keyword head is an HTML element on every host, never a view, so `[:app/root]` renders an empty `<root>` element.
     - Omission throws `:rf.error/ssr-ring-missing-root-view` at construction.
     - Any other shape throws `:rf.error/invalid-root-view` at render time.
   - `:payload` — **REQUIRED, fail-closed.** The hydration-payload policy, one opt with two shapes:
@@ -76,7 +76,7 @@ Ships in the `day8/re-frame2-ssr-ring` artefact. See [Server-side rendering — 
   (def handler
     (ssr.ring/ssr-handler
       {:initial-events [[:rf/server-init]]
-       :root-view      [:app/root]
+       :root-view      [(rf/view :app/root)]
        ;; :payload is REQUIRED, fail-closed. A vector is an allowlist of
        ;; top-level app-db keys to ship; :rf.ssr.payload/whole-app-db opts
        ;; into the whole db. Omit it and construction throws
@@ -122,7 +122,7 @@ Ships in the `day8/re-frame2-ssr-ring` artefact. See [Server-side rendering — 
   (def handler
     (ssr.ring/stream-handler
       {:initial-events [[:rf/server-init]]
-       :root-view      [:app/root]
+       :root-view      [(rf/view :app/root)]
        :payload        [:articles :session-user]
        :script-src     "/js/main.js"}))
 
@@ -148,7 +148,7 @@ Ships in the `day8/re-frame2-ssr-ring` artefact. See [Server-side rendering — 
     (-> default-handler
         ((ssr.ring/ssr-middleware
            {:initial-events [[:rf/server-init]]
-            :root-view      [:app/root]
+            :root-view      [(rf/view :app/root)]
             :payload        [:articles :session-user]
             :match?         (fn [req] (= :get (:request-method req)))}))
         wrap-static-assets))

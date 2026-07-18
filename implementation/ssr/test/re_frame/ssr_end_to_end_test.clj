@@ -61,14 +61,21 @@
   (second (re-find #"data-rf-render-hash=\"([0-9a-f]{8})\"" html)))
 
 (defn- resolve-tree
-  "Resolve a [:view-id args...] reference under a frame so the rendered
+  "Resolve a `[view-fn args...]` reference under a frame so the rendered
   tree reflects the frame's current app-db. Used to compute a state-
-  dependent hash that mirrors what a real client recompute would do."
+  dependent hash that mirrors what a real client recompute would do.
+
+  rf2-j81hs — a view reference is a CALLABLE head (the Var `reg-view`
+  defs, or `(rf/view :id)`), never a keyword: a keyword head is a DOM /
+  custom element on every host, so it has nothing to resolve and is
+  returned untouched. The `keyword?` guard is load-bearing — a keyword is
+  itself `ifn?`, so a bare `ifn?` test would `apply` a plain DOM head like
+  `:div` to its own children."
   [frame-id render-tree]
   (rf/with-frame frame-id
     (let [head (first render-tree)]
-      (if-let [view-fn (rf/view head)]
-        (apply view-fn (rest render-tree))
+      (if (and (ifn? head) (not (keyword? head)))
+        (apply head (rest render-tree))
         render-tree))))
 
 ;; ===========================================================================
@@ -108,9 +115,10 @@
         {:db (assoc db :articles articles)}))
 
     (rf/reg-sub :articles (fn [db _] (:articles db)))
-    ;; Plain-fn surface (reg-view*): the SSR test references the view by
-    ;; the literal :pages/articles keyword in render-to-string, so we
-    ;; preserve the explicit id rather than auto-derive.
+    ;; Plain-fn surface (reg-view*) with an explicit id: the render below
+    ;; reaches the view through `(rf/view :pages/articles)`, the callable
+    ;; handle keyed on that id, so the id is named here rather than
+    ;; auto-derived.
     (rf/reg-view* :pages/articles
       (fn []
         (let [arts (rf/subscribe-once [:articles])]
@@ -136,7 +144,7 @@
           "the request map flowed through :rf/server-init into app-db")
 
       ;; ---- (4) render against the registered root view -------------------
-      (let [render-tree   [:pages/articles]
+      (let [render-tree   [(rf/view :pages/articles)]
             html          (rf/with-frame server-frame
                             (rf/render-to-string render-tree {:emit-hash? true}))
             ;; The data-rf-render-hash embedded on the wire is the input-
@@ -2708,9 +2716,16 @@
       (fn [{:keys [db]} _] {:db {:articles [{:id "a" :title "Article A" :body "Body A"}
                             {:id "b" :title "Article B" :body "Body B"}]}}))
     (rf/reg-sub :articles (fn [db _] (:articles db)))
-    ;; Test exercises the keyword-id [:pages/articles] hiccup head — not
-    ;; the macro shape — so it uses the plain-fn surface reg-view* with
-    ;; an explicit id rather than the defn-shape macro.
+    ;; Test exercises the `(rf/view :id)` callable head — the runtime
+    ;; handle, as opposed to the Var the defn-shape macro defs — so it
+    ;; registers through the plain-fn surface `reg-view*` with an explicit
+    ;; id, giving an id to look the handle up by and no Var to reach for.
+    ;;
+    ;; rf2-j81hs — this previously read "exercises the keyword-id
+    ;; [:pages/articles] hiccup head". That head no longer references a
+    ;; view on ANY host: a keyword head is a DOM / custom element
+    ;; everywhere, so `[:pages/articles]` now paints an empty
+    ;; `<articles>` element and the assertions below would fail.
     (rf/reg-view* :pages/articles
       (fn []
         (let [arts (rf/subscribe-once [:articles])]
@@ -2722,7 +2737,7 @@
 
     ;; Server flow: dispatch the seed event, render the root, capture hash.
     (rf/dispatch-sync [:articles/seed])
-    (let [html (rf/render-to-string [:pages/articles] {:emit-hash? true})]
+    (let [html (rf/render-to-string [(rf/view :pages/articles)] {:emit-hash? true})]
       (is (str/includes? html "Article A")
           "rendered HTML contains the title from app-db")
       (is (str/includes? html "Article B"))
@@ -2731,7 +2746,7 @@
           "root <div> carries a data-rf-render-hash attribute")
       ;; The hash is reproducible: re-render the same tree, same hash.
       (let [h1 (re-find #"data-rf-render-hash=\"([0-9a-f]{8})\""  html)
-            html-2 (rf/render-to-string [:pages/articles] {:emit-hash? true})
+            html-2 (rf/render-to-string [(rf/view :pages/articles)] {:emit-hash? true})
             h2 (re-find #"data-rf-render-hash=\"([0-9a-f]{8})\""  html-2)]
         (is (= (second h1) (second h2))
             "re-rendering the same view+state yields the same hash")))))

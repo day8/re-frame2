@@ -476,6 +476,12 @@
 (defn- run-call
   "Execute one `:fixture/calls` entry. Returns `{:passed? bool :detail msg}`."
   [call]
+  ;; Resolve the fixture's portable `[:view-ref <id> & args]` markers once,
+  ;; up front, so every call kind below sees a tree this host's emitter can
+  ;; actually render (rf2-j81hs — a keyword head is a DOM element on every
+  ;; host, so EDN cannot name a view as a head). Recurses into maps, which
+  ;; is what reaches the `:subtree` inside a render-continuation input.
+  (let [call (update call :input conformance/realise-view-refs)]
   (case (:call call)
     :render-to-string
     (let [out  (try (ssr/render-to-string (:input call) (or (:opts call) {}))
@@ -590,7 +596,7 @@
                               " actual: " version-actual "\n"))))})
 
     {:passed? false
-     :detail  (str "unknown :call form for ssr runner: " (:call call))}))
+     :detail  (str "unknown :call form for ssr runner: " (:call call))})))
 
 ;; ---- SSR-specific matchers (the ones core's runner doesn't implement) ---
 

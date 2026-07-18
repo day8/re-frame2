@@ -189,7 +189,7 @@
 
     (let [handler (ssr-ring/ssr-handler
                     {:initial-events [[:init/route-to-missing]]
-                     :root-view [:pages/not-found]
+                     :root-view [(rf/view :pages/not-found)]
                      :ssr       {:public-error-id   :rf.ssr/default-error-projector
                                  :dev-error-detail? false}
                      :payload :rf.ssr.payload/whole-app-db})]
@@ -272,7 +272,7 @@
 
         (let [handler (ssr-ring/ssr-handler
                         {:initial-events [[:init/navigate-bad-param]]
-                         :root-view [:pages/article]
+                         :root-view [(rf/view :pages/article)]
                          :ssr       {:public-error-id   :rf.ssr/default-error-projector
                                      :dev-error-detail? false}
                          :payload :rf.ssr.payload/whole-app-db})]
@@ -336,7 +336,7 @@
 
     (let [handler (ssr-ring/ssr-handler
                     {:initial-events [[:init/route-from-uri]]
-                     :root-view [:pages/concurrent-root]
+                     :root-view [(rf/view :pages/concurrent-root)]
                      :ssr       {:public-error-id   :rf.ssr/default-error-projector
                                  :dev-error-detail? false}
                      :payload :rf.ssr.payload/whole-app-db})]

@@ -277,9 +277,22 @@
   appropriate escaping and the app's own styling/shell, instead of the
   hardcoded minimal `render-error-body`:
 
-    - a keyword → resolved as a registered view: `[error-view public-error]`
-      (the view receives the public-error map as its single prop),
+    - a keyword → looked up in the view registry and used as a CALLABLE
+      head: `[(rf/view error-view) public-error]` (the view receives the
+      public-error map as its single prop),
     - a 1-arity fn → called with the public-error map, returning hiccup.
+
+  rf2-j81hs — the keyword arm used to build `[error-view public-error]`
+  and lean on the emitter resolving a keyword head through the registry.
+  That resolution is gone (a keyword head is a DOM element on every
+  host), so the lookup happens HERE instead. The `:error-view` OPT is
+  unchanged — a registered-view keyword is still accepted, and callers
+  see no difference; only the internal construction moved from an
+  emitter-side probe to an explicit `rf/view` call. An `:error-view`
+  keyword naming no registered view now fails loud into the containment
+  path below (previously it silently emitted a phantom
+  `<error-page>` element as the error page, which is the exact
+  silent-mis-render this bead exists to remove).
 
   Both paths render via `render-to-string` (no doctype, no hash — the
   error body is the inner shell body). When no `:error-view` is supplied,
@@ -305,7 +318,18 @@
     (render-error-body public-error)
     (try
       (let [hiccup (cond
-                     (keyword? error-view) [error-view public-error]
+                     (keyword? error-view)
+                     (if-let [view-fn (rf/view error-view)]
+                       [view-fn public-error]
+                       (error/throw-error!
+                         :rf.error/ssr-ring-invalid-error-view
+                         'rf.ssr/ssr-handler
+                         (str ":error-view keyword " error-view " names no "
+                              "registered view. Register it with reg-view, or "
+                              "pass a 1-arity fn to ssr-handler.")
+                         {:recovery :register-the-view-or-supply-a-1-arity-fn
+                          :extra    {:received error-view}}))
+
                      (fn? error-view)      (error-view public-error)
                      :else
                      (error/throw-error!

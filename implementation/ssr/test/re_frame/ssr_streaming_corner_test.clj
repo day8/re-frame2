@@ -270,7 +270,7 @@
        [:rf/suspense-boundary
         {:id :buried/in-view :fallback [:p "buried loading"]}
         [:p "buried body"]]])
-    (let [tree [:main [:test/wrapper]]
+    (let [tree [:main [(rf/view :test/wrapper)]]
           {:keys [shell-html continuations]} (streaming/render-shell tree)]
       (is (= 1 (count continuations))
           "the walker recursed into the registered view and found the
@@ -278,9 +278,7 @@
       (is (= :buried/in-view (-> continuations first :id))
           "the buried boundary's id propagates")
       (is (str/includes? shell-html "<section")
-          "the view's wrapping <section> rendered in the shell
-           (source-coord injection adds a data-rf2-source-coord attr
-           on the registered view's root DOM element per Spec 006)")
+          "the view's wrapping <section> rendered in the shell")
       (is (str/includes? shell-html "buried loading")
           "the buried boundary's fallback materialised inline")
       (is (str/includes? shell-html "data-rf2-suspense-id=\":buried/in-view\"")
@@ -421,15 +419,13 @@
                     [:p "mutated"])
           tree    [:rf/suspense-boundary
                    {:id :mutator :fallback [:p "loading"]}
-                   [:test/mutating]]
+                   [(rf/view :test/mutating)]]
           {:keys [continuations]} (streaming/render-shell tree)
           entry   (first continuations)
           result  (streaming/render-continuation fid entry)]
       (is (not (:failed? result)))
       (is (str/includes? (:html result) "mutated")
-          "the resolved chunk's html carries the view's rendered
-           output (source-coord injection rides the root element
-           per Spec 006 — we only assert the textual content)")
+          "the resolved chunk's html carries the view's rendered output")
       ;; The delta MUST include the new key that the render-time
       ;; dispatch put on app-db.
       (is (contains? (:delta result) :new-key)

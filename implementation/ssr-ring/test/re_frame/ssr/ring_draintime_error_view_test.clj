@@ -115,7 +115,7 @@
     (reset! error-view-calls 0)
     (let [handler  (ssr-ring/ssr-handler
                      {:initial-events [[:init/set-safe] [:init/boom]]
-                      :root-view  [:pages/counting-root]
+                      :root-view  [(rf/view :pages/counting-root)]
                       :error-view (fn [{:keys [status message]}]
                                     (swap! error-view-calls inc)
                                     [:div.branded-error
@@ -149,7 +149,7 @@
     (reg-counting-root!)
     (let [handler  (ssr-ring/ssr-handler
                      {:initial-events [[:init/boom]]
-                      :root-view [:pages/counting-root]
+                      :root-view [(rf/view :pages/counting-root)]
                       :payload   :rf.ssr.payload/whole-app-db})
           response (handler {:uri "/boom" :request-method :get})
           body     (body->str (:body response))]
@@ -175,7 +175,7 @@
     (reset! error-view-calls 0)
     (let [handler  (ssr-ring/ssr-handler
                      {:initial-events [[:init/route-to-missing]]
-                      :root-view  [:pages/not-found]
+                      :root-view  [(rf/view :pages/not-found)]
                       :error-view (fn [_] (swap! error-view-calls inc)
                                     [:div "SHOULD-NOT-APPEAR"])
                       :payload    :rf.ssr.payload/whole-app-db})
@@ -201,7 +201,7 @@
       (reg-counting-root!)
       (let [handler  (ssr-ring/ssr-handler
                        {:initial-events [[:init/boom]]
-                        :root-view [:pages/counting-root]
+                        :root-view [(rf/view :pages/counting-root)]
                         :ssr       {:public-error-id :myapp/degraded}
                         :payload   :rf.ssr.payload/whole-app-db})
             response (handler {:uri "/boom" :request-method :get})
@@ -218,7 +218,7 @@
       (reg-counting-root!)
       (let [handler  (ssr-ring/ssr-handler
                        {:initial-events [[:init/set-500]]
-                        :root-view [:pages/counting-root]
+                        :root-view [(rf/view :pages/counting-root)]
                         :payload   :rf.ssr.payload/whole-app-db})
             response (handler {:uri "/manual-500" :request-method :get})
             body     (body->str (:body response))]
@@ -285,7 +285,7 @@
         (with-redefs [interop/debug-enabled? debug?]
           (let [handler  (ssr-ring/ssr-handler
                            {:initial-events [[:init/ok]]
-                            :root-view  [:pages/render-throws-ev]
+                            :root-view  [(rf/view :pages/render-throws-ev)]
                             :error-view (fn [_public]
                                           (swap! calls inc)
                                           (throw (ex-info "error-view-broke-detail" {})))
@@ -334,7 +334,7 @@
       (with-redefs [interop/debug-enabled? false]
         (let [handler  (ssr-ring/ssr-handler
                          {:initial-events [[:init/ok]]
-                          :root-view  [:pages/render-throws-rn]
+                          :root-view  [(rf/view :pages/render-throws-rn)]
                           :error-view :myapp/sub-error-view
                           :ssr        {:public-error-id   :rf.ssr/default-error-projector
                                        :dev-error-detail? false}
@@ -367,7 +367,7 @@
     (reg-counting-root!)
     (let [handler  (ssr-ring/ssr-handler
                      {:initial-events [[:init/redirect-then-boom]]
-                      :root-view  [:pages/counting-root]
+                      :root-view  [(rf/view :pages/counting-root)]
                       :error-view (fn [_] [:div "SHOULD-NOT-APPEAR"])
                       :payload    :rf.ssr.payload/whole-app-db})
           response (handler {:uri "/gated" :request-method :get})
@@ -394,7 +394,7 @@
     (with-redefs [interop/debug-enabled? false]
       (let [handler  (ssr-ring/ssr-handler
                        {:initial-events [[:init/ok]]
-                        :root-view  [:pages/uses-throwing-render-sub]
+                        :root-view  [(rf/view :pages/uses-throwing-render-sub)]
                         :ssr        {:public-error-id   :rf.ssr/default-error-projector
                                      :dev-error-detail? false}
                         :payload    :rf.ssr.payload/whole-app-db})
@@ -420,7 +420,7 @@
     (reg-counting-root!)
     (let [handler  (ssr-ring/stream-handler
                      {:initial-events [[:init/boom]]
-                      :root-view  [:pages/counting-root]
+                      :root-view  [(rf/view :pages/counting-root)]
                       :error-view (fn [{:keys [message]}]
                                     [:div.branded-stream-error
                                      "STREAM-BRANDED-ERROR" [:span message]])
@@ -452,7 +452,7 @@
     (with-redefs [interop/debug-enabled? false]
       (let [handler  (ssr-ring/stream-handler
                        {:initial-events [[:init/ok]]
-                        :root-view [:pages/shell-uses-throwing-sub]
+                        :root-view [(rf/view :pages/shell-uses-throwing-sub)]
                         :ssr       {:public-error-id   :rf.ssr/default-error-projector
                                     :dev-error-detail? false}
                         :payload   :rf.ssr.payload/whole-app-db})

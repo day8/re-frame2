@@ -2,27 +2,44 @@
   "Pure hiccup → HTML emitter. Per Spec 011 §The render-tree → HTML emitter.
 
   HTML5: void elements self-close bare, doctype prefix on demand, full
-  attr/text escaping, `:tag#id.cls` keyword parsing, registered-view
-  resolution via the `:view` registry. `render-to-string` returns ONE
+  attr/text escaping, `:tag#id.cls` keyword parsing, callable-head
+  (fn / Var) component resolution. `render-to-string` returns ONE
   shape: an HTML STRING — the structural hash and HTTP response triple
   live in sibling namespaces (`re-frame.ssr.hash` /
   `re-frame.ssr.response`).
 
-  Source-coordinate annotation is applied here on registered-view roots: the emitter
-  injects `data-rf2-source-coord=\"<ns>:<sym>:<line>:<col>\"` on the
-  view's root DOM element so pair-tool consumers can map server-rendered
-  HTML back to the `reg-view` call site.
+  ## One head grammar (rf2-j81hs)
+
+  A KEYWORD head is a DOM / custom element. Always, on every host. This
+  emitter used to probe `(registrar/lookup :view head)` first and resolve
+  a registered view, which made `[:dashboard/card 7]` mean \"registered
+  view\" here and `<card>` on every client substrate (Reagent's
+  `parse-tag` runs `(name tag)`; UIx and Helix are not hiccup at all).
+  A `.cljc` app sharing views across both — the point of the SSR story —
+  therefore could not write a keyword head that meant one thing, and
+  because the SERVER rendered it correctly the mistake survived every
+  server-side test.
+
+  Views are referenced by a CALLABLE head: the Var `reg-view` defs, or
+  `(rf/view :id)`. Spec 004 + Conventions own this grammar; Spec 011's
+  keyword-resolution prose was a non-owning spec extending it and has
+  been corrected. Finishes rf2-n82bbu — these emitters were the last
+  surface out of conformance.
 
   HTML escape helpers (`escape-html`, `escape-attr`, `attr-string`) live
   in `re-frame.ssr.html-helpers`, shared with the head/meta emitter.
   `attr-string` is re-exported below so consumers who
   `:require [re-frame.ssr.emit :as emit]` keep seeing it at
   `emit/attr-string`; the emitter calls `html/escape-html` directly."
+  ;; rf2-j81hs — `re-frame.registrar` and `re-frame.interop` are no longer
+  ;; required here. Both existed solely for the deleted keyword-view
+  ;; branch: `registrar/lookup` resolved the head, `interop/debug-enabled?`
+  ;; gated its source-coord injection. The emitter is now a pure
+  ;; hiccup → HTML function with no registry dependency at all, which is
+  ;; the honest shape — resolving a name was never the emitter's job.
   (:require [clojure.string]
             [re-frame.error :as error]
-            [re-frame.interop :as interop]
             [re-frame.late-bind :as late-bind]
-            [re-frame.registrar :as registrar]
             [re-frame.ssr.hash :as hash]
             [re-frame.ssr.html-helpers :as html]
             #?(:cljs [re-frame.substrate.plain-atom :as plain-atom-cljs])))
@@ -218,13 +235,34 @@
 
 ;; ---- source-coord annotation on registered-view roots --------------------
 ;;
+;; ⚠ ORPHANED BY rf2-j81hs — HANDED TO rf2-8vi4q. Read before reusing.
+;;
 ;; Per Spec 006 §Source-coord annotation (rf2-z7f7 / rf2-z9n1) and
-;; Spec 011 §Source-coord annotation under SSR: when emitting HTML for a
-;; registered view, the SSR emitter injects
-;; `data-rf2-source-coord="<ns>:<sym>:<line>:<col>"` on the view's root
-;; DOM element so pair-tool consumers can map server-rendered HTML back
-;; to the reg-view call site. Mirrors the CLJS-side Reagent-adapter
-;; behaviour (re-frame.views/reg-view*).
+;; Spec 011 §Source-coord annotation under SSR, the SSR emitter injected
+;; `data-rf2-source-coord="<ns>:<sym>:<line>:<col>"` on a registered
+;; view's root DOM element so pair-tool consumers could map server-
+;; rendered HTML back to the reg-view call site.
+;;
+;; The ONLY call site was the keyword-view branch of `emit-element` (and
+;; its mirror in the streaming walker). rf2-j81hs deleted that branch, so
+;; BOTH fns below are now unreachable from this namespace: no server
+;; render annotates anything. That is the ruled outcome, not an oversight
+;; — per the rf2-j81hs ruling §5 the keyword-branch coord injection "dies
+;; WITH the branch", and per rf2-8vi4q's own evidence it never fired on
+;; any boundary a hydratable page can contain (isomorphic pages compose
+;; via `(rf/view :id)` fn-refs, where the JVM stores the raw unwrapped
+;; handler-fn, so emitter-side annotation never ran there anyway).
+;;
+;; The fns are LEFT IN PLACE deliberately. rf2-8vi4q is the bead that
+;; owns this surface: its ruling moves annotation to the reg-view
+;; REGISTRATION boundary (a debug-gated wrapper on the registered
+;; `:handler-fn`, mirroring Spec 006's client injection) and deletes
+;; `inject-coord-on-root-hiccup` plus its call sites as step 2. Deleting
+;; them here would pre-empt that design and strand its tests; the call
+;; sites are already gone, which is this bead's half of the work.
+;;
+;; Until rf2-8vi4q lands there is NO server-side source-coord annotation.
+;; `re-frame.ssr-source-coord-test` pins exactly that interim contract.
 
 (defn format-view-source-coord
   "Render the registered view's metadata as the attribute value
@@ -325,12 +363,63 @@
        :extra    {:tag    tag-name
                   :source source-head}})))
 
+(defn reserved-rf-head?
+  "True when `head` is a keyword in the framework-reserved `:rf/*` scheme
+  — the bare `rf` namespace (`:rf/suspense-boundary`) or a dotted
+  subsystem segment under it (`:rf.ssr/…`). Per Conventions §Reserved
+  namespaces the whole scheme is framework-owned, so no author DOM element
+  can legitimately live there.
+
+  rf2-j81hs — the discriminator for the reserved-head guard below. Callers
+  consume the RECOGNISED reserved heads (`:>`, `:rf/suspense-boundary`)
+  before consulting this, so a `true` here means \"reserved namespace, not
+  a marker this emitter implements\"."
+  [head]
+  (when-let [ns* (and (keyword? head) (namespace head))]
+    (or (= "rf" ns*)
+        (clojure.string/starts-with? ns* "rf."))))
+
+(defn reject-reserved-rf-hiccup-head!
+  "Throw `:rf.error/invalid-hiccup-head` for an UNRECOGNISED head in the
+  framework-reserved `:rf/*` scheme.
+
+  rf2-j81hs — with keyword heads now uniformly DOM/custom elements
+  (§Keyword heads below), a reserved-namespace head would otherwise sail
+  through the element branch: `:rf/suspense-boundry` (typo) has a `name`
+  that passes the `[A-Za-z][A-Za-z0-9-]*` tag grammar, so the emitter
+  would paint a phantom `<suspense-boundry>` and say nothing — the exact
+  silent-phantom failure mode this bead exists to kill, just moved one
+  keystroke away. The `:rf/*` root is framework-owned, so there is no
+  legitimate author element to preserve here and the guard costs one
+  namespace test on a branch that already destructures the keyword.
+
+  Reuses `:rf.error/invalid-hiccup-head` rather than minting a near-
+  duplicate id: the head genuinely has no HTML interpretation, which is
+  precisely what that id names. The message and `:recovery` distinguish
+  the arm."
+  [el head]
+  (error/throw-error!
+    :rf.error/invalid-hiccup-head
+    'rf.ssr/emit
+    (str "hiccup vector head " (pr-str head)
+         " (in element " (pr-str el) ") is in the framework-reserved"
+         " :rf/* namespace but is not a hiccup head this emitter"
+         " recognises. The recognised reserved heads are :<> (fragment),"
+         " :> (Reagent-native interop) and :rf/suspense-boundary"
+         " (streaming, shell walker only). The :rf/* scheme is framework-"
+         "owned (Conventions §Reserved namespaces), so this cannot be an"
+         " author DOM element — emitting it would paint a phantom <"
+         (name head) "> element silently. Check the spelling, or use an"
+         " unreserved keyword if you meant a custom element.")
+    {:recovery :use-a-recognised-reserved-head-or-an-unreserved-keyword
+     :extra    {:head    head
+                :element el}}))
+
 (defn reject-invalid-hiccup-head!
   "Throw `:rf.error/invalid-hiccup-head` for a hiccup vector whose head is
-  neither a keyword (DOM tag / registered view / `:<>` / `:>` /
-  `:rf/suspense-boundary`) nor a callable component (a fn or Var). A head
-  that is a string / nil / number / boolean / collection has no HTML
-  interpretation.
+  neither a keyword (DOM tag / `:<>` / `:>` / `:rf/suspense-boundary`) nor
+  a callable component (a fn or Var). A head that is a string / nil /
+  number / boolean / collection has no HTML interpretation.
 
   Per rf2-y1jbaq — the prior `(str el)` fallthrough stringified the WHOLE
   hiccup vector RAW and UNESCAPED onto the wire, so a malformed-head vector
@@ -348,7 +437,7 @@
     'rf.ssr/emit
     (str "hiccup vector head " (pr-str (first el))
          " (in element " (pr-str el) ") is not a valid hiccup head — a head"
-         " must be a keyword (DOM tag / registered view / :<> / :> /"
+         " must be a keyword (DOM tag / :<> / :> /"
          " :rf/suspense-boundary) or a callable component (fn / Var). A"
          " string / nil / number / boolean / collection head has no HTML"
          " interpretation; emitting its EDN form raw would bypass output"
@@ -508,58 +597,68 @@
            {:recovery :render-via-stream-handler
             :extra    {:element el}})
 
+         ;; An unrecognised head in the framework-reserved `:rf/*` scheme.
+         ;; The recognised reserved heads are consumed above (`:<>`, `:>`,
+         ;; `:rf/suspense-boundary`); anything else under the reserved root
+         ;; is a typo or a marker this emitter does not implement, and its
+         ;; name passes the `[A-Za-z][A-Za-z0-9-]*` tag grammar — so
+         ;; falling through to the element branch would paint a phantom
+         ;; `<suspense-boundry>` / `<hydrate>` and say nothing. Per
+         ;; Conventions §Reserved namespaces the `:rf/*` root is framework-
+         ;; owned, so no author element can legitimately live there; fail
+         ;; loud (rf2-j81hs §4). Reuses `:rf.error/invalid-hiccup-head` —
+         ;; the head genuinely has no HTML interpretation, which is exactly
+         ;; what that id names — rather than minting a near-duplicate id.
+         (reserved-rf-head? head)
+         (reject-reserved-rf-hiccup-head! el head)
+
          (keyword? head)
-         (let [;; Look up registered view first.
-               maybe-view (registrar/lookup :view head)]
-           (if maybe-view
-             (let [raw   (apply (:handler-fn maybe-view) (rest el))
-                   ;; Spec 006 §Source-coord annotation / Spec 011 §SSR
-                   ;; production elision: inject the data-rf2-source-coord
-                   ;; attribute on the registered view's root DOM element
-                   ;; when the slot's metadata carries source coords —
-                   ;; but ONLY when the debug gate is on. Source coords are
-                   ;; internal ns/symbol/line info; emitting them in a
-                   ;; production render leaks them into public HTML and
-                   ;; violates the SSR production-elision contract
-                   ;; (rf2-wtd8z finding 3). Gating the computation behind
-                   ;; `interop/debug-enabled?` means a production JVM render
-                   ;; never even calls `format-view-source-coord` for an
-                   ;; annotated slot, so `coord` is nil and the injection is
-                   ;; skipped — identical to the no-coords path.
-                   coord (when interop/debug-enabled?
-                           (format-view-source-coord head maybe-view))
-                   out   (if coord
-                           (inject-coord-on-root-hiccup coord raw)
-                           raw)]
-               ;; Pass root-attrs through view-ref resolution so the hash
-               ;; lands on the resolved DOM root, alongside the source-coord.
-               (emit-element out root-attrs))
-             (let [[tag-name tag-attrs] (parse-tag-name head)
-                   [user-attrs children]
-                   (if (map? (second el))
-                     [(second el) (drop 2 el)]
-                     [{} (rest el)])
-                   merged-attrs (merge-class-attrs tag-attrs user-attrs)
-                   attrs        (if root-attrs
-                                  (merge-root-attrs merged-attrs root-attrs)
-                                  merged-attrs)
-                   ;; rf2-hzttr finding 3 — void + raw-text classification
-                   ;; must be CASE-INSENSITIVE. `validate-tag-name!` admits
-                   ;; upper/mixed-case names (`[:BR]`, `[:SCRIPT …]`), but
-                   ;; `void-elements` / `raw-text-tags` are keyed lower-case,
-                   ;; so a `[:BR]` was emitted as a non-void open+close pair
-                   ;; and a `[:SCRIPT "if (a<b)"]` bypassed the raw-text body
-                   ;; guard (XSS-adjacent). Normalise for classification while
-                   ;; preserving the author's emitted case.
-                   norm-tag     (clojure.string/lower-case tag-name)
-                   void?        (contains? void-elements (keyword norm-tag))]
-               (if void?
-                 (str "<" tag-name (attr-string attrs) ">")
-                 (do
-                   (reject-raw-text-string-children! tag-name children head)
-                   (str "<" tag-name (attr-string attrs) ">"
-                        (emit-children children)
-                        "</" tag-name ">"))))))
+         ;; rf2-j81hs — ONE render-tree head grammar, corpus-wide: a
+         ;; keyword head is a DOM / custom element on EVERY host. This
+         ;; branch used to probe `(registrar/lookup :view head)` first and
+         ;; resolve a registered view, which made `[:dashboard/card 7]`
+         ;; mean "registered view" here and "an HTML `<card>` element" on
+         ;; every client substrate (Reagent's `parse-tag` runs `(name
+         ;; tag)`; UIx/Helix are not hiccup at all). A `.cljc` app sharing
+         ;; views across both — the whole point of the SSR story — could
+         ;; not write a keyword head that meant one thing, and the server
+         ;; rendered it CORRECTLY while the client painted a phantom, so
+         ;; the mistake survived every server-side test (rf2-o4rbh found it
+         ;; in the flagship streaming example).
+         ;;
+         ;; Spec 004 + Conventions own the head grammar; Spec 011's
+         ;; keyword-resolution prose was a non-owning spec extending it and
+         ;; is CORRECTED, not changed (rf2-3i7tr grammar ownership). This
+         ;; finishes rf2-n82bbu — the JVM emitters were the last surface
+         ;; out of conformance with "keyword tags stay plain substrate-
+         ;; owned HTML elements". Views are referenced by callable binding:
+         ;; the Var `reg-view` defs, or `(rf/view :id)`.
+         (let [[tag-name tag-attrs] (parse-tag-name head)
+               [user-attrs children]
+               (if (map? (second el))
+                 [(second el) (drop 2 el)]
+                 [{} (rest el)])
+               merged-attrs (merge-class-attrs tag-attrs user-attrs)
+               attrs        (if root-attrs
+                              (merge-root-attrs merged-attrs root-attrs)
+                              merged-attrs)
+               ;; rf2-hzttr finding 3 — void + raw-text classification
+               ;; must be CASE-INSENSITIVE. `validate-tag-name!` admits
+               ;; upper/mixed-case names (`[:BR]`, `[:SCRIPT …]`), but
+               ;; `void-elements` / `raw-text-tags` are keyed lower-case,
+               ;; so a `[:BR]` was emitted as a non-void open+close pair
+               ;; and a `[:SCRIPT "if (a<b)"]` bypassed the raw-text body
+               ;; guard (XSS-adjacent). Normalise for classification while
+               ;; preserving the author's emitted case.
+               norm-tag     (clojure.string/lower-case tag-name)
+               void?        (contains? void-elements (keyword norm-tag))]
+           (if void?
+             (str "<" tag-name (attr-string attrs) ">")
+             (do
+               (reject-raw-text-string-children! tag-name children head)
+               (str "<" tag-name (attr-string attrs) ">"
+                    (emit-children children)
+                    "</" tag-name ">"))))
 
          ;; Callable component head — a plain fn OR a Var reference
          ;; (`[#'component & args]`). On the JVM a Var is `ifn?` but NOT

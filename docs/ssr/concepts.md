@@ -79,7 +79,7 @@ Wire the Ring adapter once. It owns the whole lifecycle above — frame create, 
 (def handler
   (ssr-ring/ssr-handler
     {:initial-events [[:rf/server-init]]
-     :root-view      [:app/root]
+     :root-view      [(rf/view :app/root)]
      :payload        [:articles :session-user]}))   ;; allowlist of app-db keys to ship
 
 (jetty/run-jetty handler {:port 3000 :join? false})
@@ -88,7 +88,7 @@ Wire the Ring adapter once. It owns the whole lifecycle above — frame create, 
 Three opts do the work:
 
 - **`:initial-events`** — the per-request setup vector, lowered verbatim into the per-request frame's `:initial-events` (step 2 of the lifecycle). It accepts a vector of events, or a `(fn [request] → initial-events-vector)` when the setup must be derived from the Ring request.
-- **`:root-view`** — the view ref the adapter renders once the frame settles (step 4).
+- **`:root-view`** — the render tree the adapter renders once the frame settles (step 4). Its head is a **callable** view reference — the Var `rf/reg-view` defs, or `(rf/view :id)`. A bare keyword head is an HTML element, never a view.
 - **`:payload`** — the allowlist of top-level app-db keys to serialise for the client (step 5). It's a security boundary with its [own section below](#payload--the-fail-closed-allowlist).
 
 That's a working SSR server. Everything below refines one step of the lifecycle. (The [tutorial](tutorial.md) builds this same lifecycle by hand first — `set-request!`, `make-frame`, `render-to-string`, `destroy-frame!` — which is the better order if the adapter feels like magic.)
@@ -392,7 +392,7 @@ the server's DOM.
    (def handler
      (ssr-ring/ssr-handler
        {:initial-events [[:rf/server-init]]
-        :root-view      [:app/root]                 ;; hiccup vector or 0-arity fn
+        :root-view      [(rf/view :app/root)]                 ;; hiccup vector or 0-arity fn
         :payload        [:articles :session-user]})))  ;; required allowlist
 
 #?(:cljs

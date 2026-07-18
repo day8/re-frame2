@@ -85,10 +85,10 @@
       (rf/reg-event :init/facade-example {:platforms #{:server}} (fn [_ _] {}))
       (rf/reg-view* :pages/facade-example (fn [] [:div "facade example"]))
       (is (= (assoc opts :initial-events [[:init/facade-example]]
-                         :root-view [:pages/facade-example])
+                         :root-view [(rf/view :pages/facade-example)])
              (lifecycle/validate-construction-opts!
                (assoc opts :initial-events [[:init/facade-example]]
-                           :root-view [:pages/facade-example])))
+                           :root-view [(rf/view :pages/facade-example)])))
           "the ssr-handler example opts map passes validate-construction-opts!"))))
 
 (deftest ssr-middleware-docstring-example-is-curried-and-includes-payload
