@@ -122,6 +122,10 @@
   [:section.lists
    [:ul.els
     (for [i items]
+      ^{:rf.ui/suppress
+        {:rf.ui.compile/a11y-click-non-interactive
+         "parity fixture: this row pins keyed-for lowering and the exact
+          host-to-host HTML, so the element must stay an <li> with a handler"}}
       [:li {:key (:id i) :on-click [:list/refresh]} (:label i)])]
    [:ul.views
     (for [i items]
@@ -270,7 +274,12 @@
     "remove"]
    [:button {:on-click (if on? [:mode/a] [:mode/b])} "dyn-vec"]
    [:button {:on-click (when on? [:mode/only])} "dyn-nil"]
-   [:ul (for [k ks] [:li {:key k :on-click [:list/refresh]} k])]])
+   [:ul (for [k ks]
+          ^{:rf.ui/suppress
+            {:rf.ui.compile/a11y-click-non-interactive
+             "parity fixture: pins a capture-free event vector shared across
+              rows, and the HTML side pins no-handler-attributes-ever"}}
+          [:li {:key k :on-click [:list/refresh]} k])]])
 
 (defview with-defaults
   "Q2 :or defaults — absent slot takes the default, present-nil stays

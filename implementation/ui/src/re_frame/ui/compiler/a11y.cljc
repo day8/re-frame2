@@ -247,7 +247,11 @@
   suppressed finding stays an inspectable fact carrying its reason); it prints
   only when unsuppressed."
   [e {:keys [id sid tag msg suppress]}]
-  (let [reason (get suppress id)]
+  (let [reason (get suppress id)
+        ;; `sid` is a delay: the vast majority of elements produce no finding,
+        ;; and minting a lexical site id costs a digest. Findings on one element
+        ;; share the one id.
+        sid    @sid]
     (env/add-site! e :diagnostics
                    (cond-> {:sid sid :id id :tag tag :path (:path e)
                             :suppressed? (some? reason)}
@@ -505,7 +509,7 @@
   (let [suppress (suppressions e form)]
     (when-not custom?
       (let [ctx {:tag tag :props props :children children :html html
-                 :sid (sid-fn [:a11y]) :suppress suppress}]
+                 :sid (delay (sid-fn [:a11y])) :suppress suppress}]
         (check-missing-accessible-name! e ctx)
         (check-literal-aria! e ctx)
         (check-click-non-interactive! e ctx)
