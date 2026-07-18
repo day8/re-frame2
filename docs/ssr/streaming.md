@@ -25,12 +25,28 @@ Runnable tree:
    [:div.article-body @(rf/subscribe [:article/body])]
    [:section.article-extras
     [:rf/suspense-boundary
-     {:id :region.comments :fallback [:article/comments-skeleton]}
-     [:article/comments]]
+     {:id :region.comments :fallback [comments-skeleton]}
+     [comments]]
     [:rf/suspense-boundary
-     {:id :region.author-feed :fallback [:article/author-feed-skeleton]}
-     [:article/author-feed]]]])
+     {:id :region.author-feed :fallback [author-feed-skeleton]}
+     [author-feed]]]])
 ```
+
+Two things about the heads inside a boundary. Reference views by **Var**
+(`comments`, which `rf/reg-view` defs for you) or by `(rf/view :id)` lookup — a
+bare `[:article/comments]` head is an *HTML element*, never a view, so it paints
+`<comments>` in the browser. The JVM SSR emitter *does* resolve keyword heads
+through the view registry, which makes this a particularly quiet mistake: the
+server renders it correctly and only the client goes wrong.
+
+And `:rf/suspense-boundary` itself is **server-only** — it means something to the
+streaming shell walker and to nothing else. Your client render tree carries the
+resolved subtree directly (a view that reads its own app-db slice and falls back
+to its skeleton when that slice is absent renders correctly in both runtimes; see
+`card-slot` in
+[the worked example](../../examples/capabilities/ssr/ssr_streaming/core.cljc)).
+Left in a client render tree, the marker's name passes the DOM tag grammar and
+React paints a phantom `<suspense-boundary>` element.
 
 The streaming walker emits the shell on the first byte, with each boundary's
 `:fallback` markup carried inside an **inert** `<template data-rf2-suspense-fallback>`

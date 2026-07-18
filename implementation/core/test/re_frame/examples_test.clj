@@ -511,7 +511,14 @@
         (is (= 3 (count ok-chunks)))
         (doseq [c ok-chunks]
           (is (clojure.string/includes? (:template c)
-                                         "data-rf2-suspense-resolved=\"1\""))))
+                                         "data-rf2-suspense-resolved=\"1\""))
+          ;; rf2-o4rbh: the deferred body is a Var-headed hiccup vector
+          ;; (`[card-view :revenue]`), not a keyword view-ref. Pin that the
+          ;; emitter still resolves it to the rendered card — a regression
+          ;; here would emit an unresolved head instead of the card markup.
+          (is (clojure.string/includes? (:template c) "class=\"card\"")
+              (str "resolved chunk must carry the rendered card body; got "
+                   (:template c)))))
       ;; Final payload carries the canonical :rf/* keys.
       (is (= 1 (:rf/version (:final-payload result))))
       (is (some? (:rf/render-hash (:final-payload result))))
