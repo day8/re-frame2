@@ -52,10 +52,15 @@
      same-/backwards-millisecond recompile (rf2-suz5b). A later `:compile-prepare` hook
      (Shadow deep-merges build-local hooks after `:build-defaults` and lets them
      mutate build state) can force a source to recompile AFTER re-frame.ui observed
-     the schedule; reading the finish-time marker and Shadow's compile record, not
-     the intermediate prepare schedule, closes that hook-order gap so a forced
+     the schedule; reading the finish-time marker — and, where the marker is
+     absent, re-frame.ui's OWN analyzer-pass compile witness — rather than the
+     intermediate prepare schedule closes that hook-order gap, so a forced
      recompile that removed a source's final `ui/defview` evicts its accepted row
-     instead of leaving a ghost view. Missing, malformed, or contradictory
+     instead of leaving a ghost view. The witness is what makes this work without
+     re-admitting the retired wall-clock authority: it records the fact that
+     Shadow's compiler ANALYZED the source, outside the `[:output rid]` map any
+     replacement controls, so no `:compiled-at` comparison and no
+     `::build-info :compiled` membership is consulted anywhere on this path. Missing, malformed, or contradictory
      per-source provenance fails loudly before any candidate is published, never
      silently treated as untouched;
   1. derive the candidate finalized slice (commit staged sources, evict sources
