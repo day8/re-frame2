@@ -135,7 +135,13 @@
          (when (instance? clojure.lang.IAtom v) v)))))
 
 #?(:clj
-   (defn- ui-owned-compiler-state []
+   (defn- owned-compiler-state
+     "Raw recognizer: the bound compiler-env state iff re-frame.ui-owned (a
+     private carrier key or Shadow's still-recognized outer bridge marker), else
+     nil. Does NOT validate build identity — every ambient read/write that
+     observes or mutates the carrier goes through `validated-compiler-state`,
+     which additionally fails closed on a malformed or contradictory identity."
+     []
      (when-let [a (compiler-env-atom)]
        (let [s @a]
          (when (ui-owned-compiler-state? s) s)))))
@@ -174,75 +180,96 @@
 ;; Ambient build identity
 ;; ---------------------------------------------------------------------------
 
-(defn- any-pass-open?
-  "Whether a lifecycle hook has an open compiler pass in this JVM. Used only
-  with a Shadow-shaped compiler env to reject an unresolved per-thread build
-  id while retaining the documented session fallback for plain CLJS compiler
-  and REPL contexts."
-  []
-  (boolean (some (comp true? :pass-open?) (vals @state))))
+#?(:clj
+   (defn- carrier-build-id
+     "THE single validated re-frame.ui build-identity resolver — private-carrier
+     presence, build-id extraction, and private-versus-Shadow agreement in ONE
+     place, resolved from re-frame.ui's OWN authority rather than Shadow's outer
+     marker. Every ambient read/write/finish boundary traverses it, so a
+     malformed or contradictory carrier is rejected fail-closed everywhere, not
+     just where `current-build-id` happens to be consulted.
+
+     When `compiler-state` carries re-frame.ui's private accepted carrier, that
+     carrier is authoritative: its `:build-id` is the answer. A private carrier
+     with a MISSING build id, or with an id that DISAGREES with a still-present
+     Shadow bridge id, fails loudly — downgrading to the process session
+     fallback could route this compilation into a different parallel build.
+
+     With no private carrier yet (the pre-hook window / legacy path) the state is
+     re-frame.ui-recognized ONLY through Shadow's outer bridge marker, so that
+     recognized bridge MUST supply the id: a bridge present without its leaf id
+     fails loudly rather than downgrade to the session fallback, which the
+     contract reserves for a genuinely plain CLJS/REPL environment carrying
+     NEITHER recognized marker NOR private carrier. Callers pass a state already
+     known re-frame.ui-owned (see `owned-compiler-state`); the fail-closed throw
+     is the gate."
+     [compiler-state]
+     (let [private?   (some #(contains? compiler-state %) private-carrier-keys)
+           private-id (get-in compiler-state [accepted-snapshot-key :build-id])
+           shadow-id  (get-in compiler-state
+                              [shadow-bridge-key :shadow.build/build-id])]
+       (if private?
+         (cond
+           (nil? private-id)
+           (throw
+            (ex-info
+             (str "re-frame.ui compiler found its private build carrier but no "
+                  "build id in the accepted snapshot; refusing the session-build "
+                  "fallback because it can route this compilation into a "
+                  "different parallel build")
+             {::error ::private-build-id-unresolved
+              :recovery :check-ui-build-carrier
+              :expected-path [accepted-snapshot-key :build-id]}))
+
+           (and (some? shadow-id) (not= shadow-id private-id))
+           (throw
+            (ex-info
+             (str "re-frame.ui compiler private build carrier id " private-id
+                  " disagrees with Shadow's still-present build id " shadow-id
+                  "; refusing to guess which build this compilation belongs to")
+             {::error ::private-build-id-shadow-disagreement
+              :recovery :check-ui-build-carrier
+              :private-build-id private-id
+              :shadow-build-id shadow-id}))
+
+           :else private-id)
+
+         ;; No private carrier yet: the state is re-frame.ui-recognized only
+         ;; through Shadow's outer bridge, which must therefore carry the id.
+         (do
+           (when (nil? shadow-id)
+             (throw
+              (ex-info
+               (str "re-frame.ui compiler could not resolve shadow's build id "
+                    "from a recognized build bridge; refusing the session-build "
+                    "fallback because it can route this compilation into a "
+                    "different parallel build")
+               {::error ::shadow-build-id-unresolved
+                :recovery :check-shadow-compiler-env
+                :expected-path [shadow-bridge-key :shadow.build/build-id]})))
+           shadow-id)))))
+
+#?(:clj
+   (defn- validated-compiler-state
+     "The ONE resolver every ambient accepted/scratch/overlay read and every
+     ambient write traverses: the bound owned compiler-state with its build
+     identity validated by `carrier-build-id`, which throws fail-closed on a
+     malformed or contradictory carrier BEFORE it can be observed or mutated.
+     nil when no owned carrier is bound (the genuinely plain / REPL fallback)."
+     []
+     (when-let [s (owned-compiler-state)]
+       (carrier-build-id s)                 ; fail-closed identity gate
+       s)))
 
 #?(:clj
    (defn- ambient-build-id
-     "The build id the current compilation belongs to, resolved from
-     re-frame.ui's OWN authority rather than Shadow's outer marker.
-
-     When the bound compiler-env carries re-frame.ui's private accepted carrier,
-     that carrier is authoritative: its `:build-id` is the answer. A private
-     carrier present with a MISSING build id, or with an id that DISAGREES with a
-     still-present Shadow bridge id, fails loudly — downgrading to the process
-     session fallback could route this compilation into a different parallel
-     build.
-
-     With no private carrier yet (the pre-hook window / legacy path) a
-     recognized Shadow bridge supplies the id; a recognized bridge missing its
-     leaf id while a pass is open still fails loudly. A plain/no-marker compiler
-     env returns nil and uses the documented session fallback."
+     "The build id the current compilation belongs to, resolved and validated
+     through `carrier-build-id` from re-frame.ui's OWN authority rather than
+     Shadow's outer marker. nil for a genuinely plain / REPL env (no owned
+     carrier), where `current-build-id` uses the session fallback."
      []
-     (when-let [compiler-state (ui-owned-compiler-state)]
-       (let [private?   (some #(contains? compiler-state %) private-carrier-keys)
-             private-id (get-in compiler-state [accepted-snapshot-key :build-id])
-             shadow-id  (get-in compiler-state
-                                [shadow-bridge-key :shadow.build/build-id])]
-         (if private?
-           (cond
-             (nil? private-id)
-             (throw
-              (ex-info
-               (str "re-frame.ui compiler found its private build carrier but no "
-                    "build id in the accepted snapshot; refusing the session-build "
-                    "fallback because it can route this compilation into a "
-                    "different parallel build")
-               {::error ::private-build-id-unresolved
-                :recovery :check-ui-build-carrier
-                :expected-path [accepted-snapshot-key :build-id]}))
-
-             (and (some? shadow-id) (not= shadow-id private-id))
-             (throw
-              (ex-info
-               (str "re-frame.ui compiler private build carrier id " private-id
-                    " disagrees with Shadow's still-present build id " shadow-id
-                    "; refusing to guess which build this compilation belongs to")
-               {::error ::private-build-id-shadow-disagreement
-                :recovery :check-ui-build-carrier
-                :private-build-id private-id
-                :shadow-build-id shadow-id}))
-
-             :else private-id)
-
-           ;; No private carrier yet: a recognized Shadow bridge supplies the id.
-           (do
-             (when (and (nil? shadow-id) (any-pass-open?))
-               (throw
-                (ex-info
-                 (str "re-frame.ui compiler could not resolve shadow's build id "
-                      "while a build pass is open; refusing the session-build "
-                      "fallback because it can route this compilation into a "
-                      "different parallel build")
-                 {::error ::shadow-build-id-unresolved
-                  :recovery :check-shadow-compiler-env
-                  :expected-path [shadow-bridge-key :shadow.build/build-id]})))
-             shadow-id))))))
+     (when-let [s (owned-compiler-state)]
+       (carrier-build-id s))))
 
 (defn current-build-id
   "The build id a contribution belongs to: the explicit `*build-id*`
@@ -279,9 +306,10 @@
      "Effective disposable slice for the currently bound Shadow compiler.
      During a file/watch pass this is `scratch`; during no-pass REPL work it is
      an isolated overlay seeded from the accepted snapshot. Neither is an
-     accepted successful-build authority."
+     accepted successful-build authority. The carrier's build identity is
+     validated (`validated-compiler-state`) before any slice is observed."
      []
-     (when-let [compiler-state (ui-owned-compiler-state)]
+     (when-let [compiler-state (validated-compiler-state)]
        (or (get compiler-state scratch-key)
            (get compiler-state repl-overlay-key)
            (assoc empty-slice
@@ -289,7 +317,7 @@
 
 #?(:clj
    (defn- ambient-accepted-slice []
-     (when-let [compiler-state (ui-owned-compiler-state)]
+     (when-let [compiler-state (validated-compiler-state)]
        (assoc empty-slice
               :committed (:registries (accepted-snapshot compiler-state))))))
 
@@ -374,6 +402,12 @@
          (let [updated (atom nil)]
            (swap! compiler-atom
                   (fn [compiler-state]
+                    ;; Fail-closed identity gate BEFORE any scratch/overlay
+                    ;; mutation: a carrier whose build identity is missing or
+                    ;; disagrees with a still-present Shadow bridge id must not
+                    ;; be written (the same authority `validated-compiler-state`
+                    ;; enforces on the read side).
+                    (carrier-build-id compiler-state)
                     (let [k (if (contains? compiler-state scratch-key)
                               scratch-key
                               repl-overlay-key)
@@ -682,7 +716,7 @@
   plain-JVM fallback build's committed digest. Real Shadow tooling should use
   `accepted-build-digest` with an explicit retained build-state."
   ([]
-   (if-let [compiler-state #?(:clj (ui-owned-compiler-state) :cljs nil)]
+   (if-let [compiler-state #?(:clj (validated-compiler-state) :cljs nil)]
      (:digest (accepted-snapshot compiler-state))
      (finalized-build-digest (current-build-id))))
   ([build-id]
@@ -714,8 +748,32 @@
 (defn shadow-finish-candidate
   "Derive, but do not externally publish, the successful compiler candidate
   from `build-state`'s disposable scratch. The snapshot version advances once
-  per finalized pass and its digest is computed exactly once."
+  per finalized pass and its digest is computed exactly once.
+
+  Before deriving anything, the supplied `build-id` is validated against
+  re-frame.ui's OWN accepted private carrier and any still-present Shadow bridge
+  id via `carrier-build-id` — the same fail-closed identity every ambient
+  read/write traverses. A carrier for build :A whose id disagrees with a
+  supplied :B (or with a still-present Shadow bridge :B) therefore cannot
+  finalize into a :B-stamped snapshot carrying A's registry rows: it fails
+  before a candidate is derived."
   [build-state build-id members]
+  ;; Fail-closed identity gate (JVM build-time only): the supplied build-id must
+  ;; agree with the accepted private carrier and any still-present Shadow bridge
+  ;; id before a candidate is derived.
+  #?(:clj
+     (when (ui-owned-compiler-state? (:compiler-env build-state))
+       (let [resolved (carrier-build-id (:compiler-env build-state))]
+         (when (and (some? resolved) (not= resolved build-id))
+           (throw
+            (ex-info
+             (str "re-frame.ui compile-finish supplied build id " build-id
+                  " disagrees with its accepted private build carrier id "
+                  resolved "; refusing to finalize a cross-build candidate")
+             {::error ::private-build-id-shadow-disagreement
+              :recovery :check-ui-build-carrier
+              :private-build-id resolved
+              :shadow-build-id build-id}))))))
   (let [accepted (accepted-snapshot build-state)
         scratch (get-in build-state [:compiler-env scratch-key])]
     (when-not (and scratch (:pass-open? scratch))

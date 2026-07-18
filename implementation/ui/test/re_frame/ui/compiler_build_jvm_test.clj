@@ -348,6 +348,151 @@
   (is (= #{:fallback/row} (set (keys (build/aggregate build/views :app))))
       "the same-keyed session slice is untouched by the private-carrier writes"))
 
+;; ---------------------------------------------------------------------------
+;; Carrier identity is enforced at EVERY read, write and finish boundary
+;; (rf2-qbjdu). #5970 made `current-build-id` fail-closed on a private carrier
+;; that is missing its id or disagrees with a still-present Shadow bridge, but
+;; the registry paths did not traverse that check: ambient reads, `contribute!`,
+;; and `shadow-finish-candidate` accepted a mismatched carrier. A carrier for
+;; build :A carrying a still-present Shadow bridge id :B must now be rejected
+;; fail-closed at each boundary — never observed, mutated, or finalized — while
+;; a genuinely agreeing carrier still passes.
+;; ---------------------------------------------------------------------------
+
+(defn- ab-carrier
+  "A compiler-env atom carrying re-frame.ui's PRIVATE accepted+scratch carrier
+  for `private-build` AND a still-present Shadow outer bridge naming a DIFFERENT
+  `shadow-build` — the exact A/B contradiction the boundary guards reject."
+  [private-build shadow-build members]
+  (atom (assoc (:compiler-env (build/prepare-shadow-build {} private-build
+                                                          (set members)
+                                                          (set members)))
+               :shadow.build.cljs-bridge/state
+               {:shadow.build/build-id shadow-build})))
+
+(deftest read-through-an-a-carrier-with-a-b-bridge-is-rejected
+  ;; Pre-seed an :a/view row in the private accepted carrier for :app-a and
+  ;; attach a still-present Shadow bridge naming :app-b. Pre-fix, every ambient
+  ;; read EXPOSED the row (the ui-owned recognizer skipped identity); now each
+  ;; read fails closed before observing the malformed carrier.
+  (binding [cljs-env/*compiler*
+            (atom {build/accepted-snapshot-key
+                   {:build-id :app-a
+                    :registries {'app.a {build/views {:a/view ["tfa" "hsa"]}}}
+                    :digest "d" :version 1}
+                   :shadow.build.cljs-bridge/state {:shadow.build/build-id :app-b}})]
+    (doseq [[label read-fn]
+            [[:aggregate          #(build/aggregate build/views)]
+             [:committed-aggregate #(build/committed-aggregate build/views)]
+             [:element-properties #(build/element-properties :x-el)]
+             [:pass-open?         #(build/pass-open?)]
+             [:finalized-digest   #(build/finalized-build-digest)]]]
+      (testing (name label)
+        (let [ex (try (read-fn) nil (catch clojure.lang.ExceptionInfo e e))]
+          (is (some? ex)
+              (str (name label) " must reject the A-carrier + B-bridge read"))
+          (is (= :re-frame.ui.compiler.build/private-build-id-shadow-disagreement
+                 (:re-frame.ui.compiler.build/error (ex-data ex)))))))))
+
+(deftest write-through-an-a-carrier-with-a-b-bridge-is-rejected-before-mutation
+  ;; contribute! (the sole write boundary) must reject the mismatched carrier
+  ;; before it stages/upserts anything — pre-fix it created an overlay row and
+  ;; aggregate exposed it.
+  (let [carrier (ab-carrier :app-a :app-b '#{app.a})]
+    (binding [cljs-env/*compiler* carrier]
+      (let [ex (try (build/contribute! build/views 'app.a :a/view ["tfa" "hsa"])
+                    nil
+                    (catch clojure.lang.ExceptionInfo e e))]
+        (is (some? ex)
+            "contribute! must reject a private-A / shadow-B carrier")
+        (is (= :re-frame.ui.compiler.build/private-build-id-shadow-disagreement
+               (:re-frame.ui.compiler.build/error (ex-data ex))))))
+    (is (nil? (get-in @carrier [build/scratch-key :staged 'app.a]))
+        "the rejected write staged nothing — fail BEFORE mutation")))
+
+(deftest read-and-write-through-a-private-carrier-missing-its-id-are-rejected
+  ;; A private carrier present but with NO build id in its accepted snapshot must
+  ;; reject reads and writes too, not only `current-build-id`.
+  (binding [cljs-env/*compiler*
+            (atom {build/accepted-snapshot-key
+                   {:registries {'app.a {build/views {:a/view ["tfa" "hsa"]}}}
+                    :digest "d" :version 0}})]        ; NO :build-id
+    (let [read-ex (try (build/aggregate build/views) nil
+                       (catch clojure.lang.ExceptionInfo e e))]
+      (is (= :re-frame.ui.compiler.build/private-build-id-unresolved
+             (:re-frame.ui.compiler.build/error (ex-data read-ex)))
+          "aggregate must reject a private carrier missing its build id"))
+    (let [write-ex (try (build/contribute! build/views 'app.a :b/view ["tfb" "hsb"])
+                        nil
+                        (catch clojure.lang.ExceptionInfo e e))]
+      (is (= :re-frame.ui.compiler.build/private-build-id-unresolved
+             (:re-frame.ui.compiler.build/error (ex-data write-ex)))
+          "contribute! must reject the same carrier before mutation"))))
+
+(deftest recognized-bridge-without-build-id-fails-loud-even-with-no-pass-open
+  ;; The bead's third case: a recognized Shadow bridge carrying no leaf id must
+  ;; NOT downgrade to the session fallback merely because no pass is marked open
+  ;; — the fallback is reserved for a genuinely plain env with NEITHER marker NOR
+  ;; carrier. (`hook-open-shadow-compile-without-build-id-fails-loud` covers the
+  ;; pass-open variant; this covers the no-pass variant that pre-fix downgraded.)
+  (binding [cljs-env/*compiler* (atom {:shadow.build.cljs-bridge/state {}})]
+    (let [ex (try (build/current-build-id) nil
+                  (catch clojure.lang.ExceptionInfo e e))]
+      (is (some? ex)
+          "a recognized bridge with no id must fail even with no pass open")
+      (is (= :re-frame.ui.compiler.build/shadow-build-id-unresolved
+             (:re-frame.ui.compiler.build/error (ex-data ex)))))
+    (is (thrown? clojure.lang.ExceptionInfo (build/aggregate build/views))
+        "and the ambient read fails closed the same way")))
+
+(deftest finish-with-supplied-id-contradicting-the-carrier-is-rejected
+  ;; The finish boundary: pre-fix `shadow-finish-candidate` trusted its explicit
+  ;; build-id argument and would stamp a :B snapshot from an :A carrier's scratch.
+  ;; Both a still-present disagreeing Shadow bridge and a bare supplied-id
+  ;; mismatch must now fail before a candidate is derived.
+  (doseq [{:keys [label attach-bridge?]}
+          [{:label "A-carrier + still-present B-bridge" :attach-bridge? true}
+           {:label "A-carrier, no bridge, supplied B"    :attach-bridge? false}]]
+    (testing label
+      (let [prepared (build/prepare-shadow-build {} :app-a '#{app.a} '#{app.a})
+            build-state (cond-> prepared
+                          attach-bridge?
+                          (assoc-in [:compiler-env
+                                     :shadow.build.cljs-bridge/state]
+                                    {:shadow.build/build-id :app-b}))
+            ex (try (build/shadow-finish-candidate build-state :app-b '#{app.a})
+                    nil
+                    (catch clojure.lang.ExceptionInfo e e))]
+        (is (some? ex)
+            "finish must reject a supplied id contradicting the accepted carrier")
+        (is (= :re-frame.ui.compiler.build/private-build-id-shadow-disagreement
+               (:re-frame.ui.compiler.build/error (ex-data ex))))
+        (is (= :app-a (:private-build-id (ex-data ex))))
+        (is (= :app-b (:shadow-build-id (ex-data ex))))))))
+
+(deftest matched-carrier-passes-reads-writes-and-finish
+  ;; The control: a genuinely agreeing carrier (private :app == bridge :app) must
+  ;; still pass at EVERY boundary — the guards reject only contradictions.
+  (let [carrier (atom (assoc (:compiler-env
+                              (build/prepare-shadow-build {} :app '#{app.a}
+                                                          '#{app.a}))
+                             :shadow.build.cljs-bridge/state
+                             {:shadow.build/build-id :app}))]
+    (binding [cljs-env/*compiler* carrier]
+      (is (nil? (build/contribute! build/views 'app.a :a/view ["tfa" "hsa"]))
+          "a matched carrier accepts the write")
+      (is (= {:a/view ["tfa" "hsa"]} (build/aggregate build/views))
+          "and the read exposes the staged row")
+      (is (string? (build/finalized-build-digest))
+          "and the digest read resolves"))
+    (let [finished (build/shadow-finish-candidate {:compiler-env @carrier}
+                                                  :app '#{app.a})]
+      (is (= :app (get-in finished [:snapshot :build-id]))
+          "finish with the agreeing supplied id publishes an :app-stamped snapshot")
+      (is (= {:a/view ["tfa" "hsa"]}
+             (get-in finished [:snapshot :registries 'app.a build/views]))
+          "carrying app.a's own committed row"))))
+
 (deftest explicit-view-id-collision-fails-in-either-compile-order
   (doseq [[first-ns second-ns] [['app.alpha 'app.beta]
                                 ['app.beta 'app.alpha]]]
