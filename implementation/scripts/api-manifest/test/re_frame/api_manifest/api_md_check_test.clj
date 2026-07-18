@@ -570,6 +570,66 @@
                        "`:rf.ui.compile/missing-root-id` and `:disambiguator` is invalid"))))))
 
 ;; ---------------------------------------------------------------------------
+;; create-root option grammar — EXACT KEYWORD TOKENS (rf2-xdda3).
+;;
+;; asxo3's `(?![-\w])` guarded only the token's RIGHT edge, and only against
+;; `[-\w]`. So every keyword char OUTSIDE that class still bridged a different
+;; option to the pin (`:root-id?`, `:root-id!`, `:root-id*`, `:root-id.v2`,
+;; `:root-id/foo`), and — with no left edge at all — so did anything that
+;; merely ENDED with the token (`::root-id`, `:opts:root-id`). Each names a
+;; different option yet false-greened the exact `:root-id` REQUIRED /
+;; `:disambiguator` INVALID contract. The repair pins the token by its
+;; Markdown code-span delimiters (a backtick on BOTH edges). These fixtures
+;; pin each enumerated exactness hole RED.
+;; ---------------------------------------------------------------------------
+
+(deftest option-token-punctuation-suffix-fails
+  (testing "adjacent keyword punctuation outside [-\\w] (`?`, `!`, `*`, `.`)
+            names a DIFFERENT option and no longer satisfies either pin"
+    (doseq [suffix ["?" "!" "*" ".v2"]]
+      (is (= [:root-id-not-required]
+             (map :kind (option-probe
+                          (str "`:root-id" suffix "` required and "
+                               "`:disambiguator` is invalid"))))
+          (str ":root-id" suffix " must not satisfy the :root-id pin"))
+      (is (= [:disambiguator-admitted]
+             (map :kind (option-probe
+                          (str "`:root-id` required and "
+                               "`:disambiguator" suffix "` is invalid"))))
+          (str ":disambiguator" suffix " must not satisfy the :disambiguator pin")))))
+
+(deftest option-namespaced-token-fails
+  (testing "a NAMESPACED variant (`:root-id/foo`, `:disambiguator/old`) is a
+            different option — the `/` no longer slips past the right edge"
+    (is (= #{:root-id-not-required :disambiguator-admitted}
+           (set (map :kind (option-probe
+                             (str "`:root-id/foo` required and "
+                                  "`:disambiguator/old` is invalid"))))))))
+
+(deftest option-auto-resolved-token-fails
+  (testing "an AUTO-RESOLVED keyword (`::root-id`, `::disambiguator`) is a
+            different option — the LEFT edge asxo3 never guarded"
+    (is (= #{:root-id-not-required :disambiguator-admitted}
+           (set (map :kind (option-probe
+                             (str "`::root-id` required and "
+                                  "`::disambiguator` is invalid"))))))))
+
+(deftest option-left-edge-token-suffix-fails
+  (testing "a token that merely ENDS with the pinned name (`:opts:root-id`)
+            no longer matches as a SUFFIX — both edges are pinned"
+    (is (= #{:root-id-not-required :disambiguator-admitted}
+           (set (map :kind (option-probe
+                             (str "`:opts:root-id` required and "
+                                  "`:opts:disambiguator` is invalid"))))))))
+
+(deftest option-token-must-be-a-code-span
+  (testing "the pin requires the token as a Markdown CODE SPAN — bare prose
+            mentioning the option (no backticks) is not the exact token"
+    (is (= #{:root-id-not-required :disambiguator-admitted}
+           (set (map :kind (option-probe
+                             "authored :root-id required and :disambiguator is invalid")))))))
+
+;; ---------------------------------------------------------------------------
 ;; re-frame.ui.test HOST-SIGNATURE guard — JVM (:clj) lane (rf2-5bcdi;
 ;; kind-aware + exact rf2-d7sso).
 ;;
