@@ -824,6 +824,10 @@
     :producer-ns 're-frame.epoch
     :design-bead "rf2-6ys5n"
     :description "Return the opaque, process-unique GENERATION token of the CURRENT epoch-listener registration under a cb-id (or nil when none). Each register-epoch-listener! (including a same-id replacement) mints a fresh, never-reused generation. The SUPPORTED authority a consumer of a generation-qualified :rf.epoch.cb/silenced-on-frame-destroy signal uses to SELF-FILTER a superseded signal: the signal carries :observed-gen G, and the consumer discards it when (not= G (epoch-listener-generation cb-id)) — its registration has since been replaced or dropped. Before this query the current generation was reachable only through the private listener registry (state/listeners-snapshot), so the consumer rule the signal documents was not implementable through any supported API."}
+   {:key         :epoch/epoch-listener-observing?
+    :producer-ns 're-frame.epoch
+    :design-bead "rf2-qg98y"
+    :description "True when the CURRENT epoch-listener registration under a cb-id is observing a frame RIGHT NOW — it consumed a record from that frame under its live generation and the observation has not since been dropped by the frame's destroy. Clause TWO of the supported :rf.epoch.cb/silenced-on-frame-destroy receiver rule, and the half :epoch/epoch-listener-generation cannot express: a same-id SUCCESSOR frame re-arms a callback by DELIVERY, which mints no generation, so a delayed predecessor's silence published after that re-arm still carries a MATCHING :observed-gen. Full rule, both clauses read at receipt time: (and (= (:observed-gen tags) (epoch-listener-generation cb-id)) (not (epoch-listener-observing? cb-id (:frame tags))))."}
    {:key         :epoch/configure!
     :producer-ns 're-frame.epoch
     :description "Configure epoch buffer size / capture policy."}
