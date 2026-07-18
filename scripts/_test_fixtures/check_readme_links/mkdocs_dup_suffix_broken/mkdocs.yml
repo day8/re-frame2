@@ -1,0 +1,6 @@
+# Self-test fixture marker.
+#
+# Negative control for the renderer mismatch this gate exists to catch:
+# MkDocs/pymdownx.toc mints `errors_1` for a repeated heading, GitHub mints
+# `errors-1`.  A README linking to the MkDocs shape must be flagged.
+# Expected: 1 finding (rf2-zzt2r).

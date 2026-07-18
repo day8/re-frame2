@@ -1,0 +1,7 @@
+# Self-test fixture marker.
+#
+# GitHub's slugger re-checks the disambiguated slug and bumps again on a
+# collision, so a heading whose NATURAL slug equals an earlier heading's
+# GENERATED one lands on `errors-1-1`.  Pins the `while` loop in
+# _github_dedupe against a naive one-shot suffix.  Expected: 0 findings
+# (rf2-zzt2r).
