@@ -86,7 +86,33 @@ The `re-frame.core` facade re-exports a curated set of render and head primitive
 
 ## Streaming render
 
-Streaming emits the shell HTML first, then continues rendering boundary subtrees as their data settles. The render tree marks boundaries with `:rf/suspense-boundary`. Each boundary becomes a continuation.
+Streaming emits the shell HTML first, then continues rendering boundary subtrees as their data settles. Authors mark a streamed region with the `boundary` component; on the server it expands to the internal `:rf/suspense-boundary` marker, and each marker becomes a continuation.
+
+### `boundary`
+
+- **Kind**: function (component)
+- **Signature**:
+  ```clojure
+  (boundary attrs & body) → hiccup
+  ```
+- **Description**: Declare a streaming suspense boundary around `body`. This is the authoring surface for a streamed region — one form that works on every host. `attrs` requires two keys:
+  - `:id` — the boundary's identity, unique per page. It is how an arriving chunk is paired with its placeholder. A keyword or a string.
+  - `:fallback` — hiccup rendered inline in the shell while the body is still resolving, and re-rendered by this component when the boundary is reported failed.
+
+  Per host:
+  - **Server**: expands to the internal `:rf/suspense-boundary` marker the shell walker consumes. That marker is wire syntax, never authored directly; outside a stream the non-streaming emitter still rejects it with `:rf.error/ssr-suspense-boundary-outside-stream`.
+  - **Client**: renders `body`, or `:fallback` when `:id` is in the page's failed-boundary record written at stream finalization. No recorded outcome — a plain client mount, a non-streamed page — renders `body`, so it fails soft by construction.
+
+  Malformed `attrs` raise `:rf.error/suspense-boundary-invalid-attrs`.
+
+  This is not React Suspense: no promises, no thrown thenables, no selective hydration. The server decides what defers; the client paints the fallback and swaps content as chunks land.
+- **Example**:
+  ```clojure
+  (require '[re-frame.ssr :as ssr])
+
+  [ssr/boundary {:id :card.revenue :fallback [card-skeleton :revenue]}
+   [card-view :revenue]]
+  ```
 
 ### `streaming-render-shell`
 
