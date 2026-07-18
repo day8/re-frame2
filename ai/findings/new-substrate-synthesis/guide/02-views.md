@@ -161,9 +161,9 @@ the server failure policy ([11](11-ssr.md)).
 
 ## Advanced: presence and custom elements
 
-These land later and do not change the core view model above.
+These do not change the core view model above.
 
-### Exit animations: `ui/presence` *(lands S4)*
+### Exit animations: `ui/presence`
 
 When state says an element is gone, React removes it instantly. Toasts slide out;
 modals fade. `ui/presence` owns the gap between *no longer true* and *no longer
@@ -186,7 +186,7 @@ A removed child keeps rendering as `:unmounting` until its transition ends (or
 Outside any presence boundary, `(presence-phase)` returns `:present`. Animations
 themselves are CSS (or a foreign library at an interop boundary).
 
-### Custom elements *(lands S4)*
+### Custom elements
 
 A tag containing a `-` is a custom element — used directly, never forced through
 `ui/raw`:
