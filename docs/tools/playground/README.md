@@ -241,11 +241,23 @@ carries an unminified `//# rf2-sci-input-digest=<hex>` marker:
 
 - `scripts/playground-sci-input-digest.mjs` hashes the declared input roster —
   the `core` / `reagent-slim` / `machines` / `flows` source trees + their
-  `deps.edn`, the SCI bundle source, the shadow build config, and the npm lock —
-  into one deterministic 64-hex digest (each file via `git hash-object`, so the
-  digest is identical on a Windows checkout and a Linux runner).
+  `deps.edn`, the SCI bundle source, the shadow build config, the npm lock, the
+  `copy-bundle.mjs` postprocess step, and the digest script itself — into one
+  deterministic 64-hex digest (each file via `git hash-object`, so the digest is
+  identical on a Windows checkout and a Linux runner). The last two entries are
+  there because they change the emitted bytes or the meaning of the marker:
+  omitting them would let the stamp attest to a tree that no longer describes
+  the file (rf2-nyjml).
 - `docs/tools/playground/sci/scripts/copy-bundle.mjs` stamps it into the bundle
   it emits, so any artefact records the input set it was compiled from.
+
+The roster is declared, not derived — deriving it would mean resolving the CLJS
+require graph plus the `deps.edn` classpath. Two checks keep the declaration
+honest: the digest fails if **any** entry stops matching tracked files (so a
+renamed tree REDs instead of silently leaving the digest), and
+`implementation/scripts/_playground-sci-inputs.test.cjs` expands the real roster
+to prove every declared input selects the `playground` CI job, so the digest's
+inputs and the job that rebuilds the bundle cannot drift apart.
 
 This is **diagnostics, not a gate**. It answers "which tree produced this
 file?" for a deployed or downloaded copy. It used to be a freshness authority —
