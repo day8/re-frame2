@@ -478,6 +478,61 @@
           (is (not (re-find pattern text))
               (str path " reintroduced retired claim: " claim)))))))
 
+(defn- table-row
+  "The one Markdown table row whose leading cell is `id`, or nil if absent.
+
+  Row scoping is load-bearing for the same reason `section-text` scopes by
+  region (below): the synthesis delivery record is a long document whose other
+  rows legitimately discuss adapters, budgets and risks, so a document-wide
+  census there would be answerable by unrelated prose in either direction."
+  [text id]
+  (->> (str/split-lines (str/replace text "\r\n" "\n"))
+       (filter #(str/starts-with? % (str "| " id " |")))
+       first))
+
+;; --- The synthesis delivery record + its interim draft (rf2-3b931) ----------
+;;
+;; `08-delivery.md` §5 is the ACTIVE decision record for this program, so R-1
+;; reads as current direction and carries the same per-host obligation as the
+;; authorities above. rf2-kxkag reconciled that file's prose but not its own
+;; decision row, and neither source is in `compiler-model-authorities`, so the
+;; contradiction survived while every guarded phrase stayed green.
+;;
+;; `drafts/spec-004-interim-amendment.md` is deliberately NOT censused for
+;; retired claims: it quotes the retired law verbatim as design history, and
+;; rewriting archaeology as though it had always said something else was
+;; explicitly rejected. What it must carry instead is an unmistakable
+;; supersession marker, so no reader or model mistakes staging material whose
+;; merge condition read "immediately" for pending work.
+(deftest delivery-decision-record-and-interim-draft-stay-current
+  (let [record (table-row (slurp (root-file "ai/findings/new-substrate-synthesis/08-delivery.md"))
+                          "R-1")]
+    (when (is (some? record) "08-delivery.md lost its R-1 decision row")
+      (testing "R-1 states the shipped per-host compiler law"
+        (doseq [pattern [#"(?is)produced\s+by\s+the\s+shared\s+analyzer\s+and\s+consumed\s+by\s+that\s+build's\s+host\s+emitter"
+                         #"(?is)analysis\s+is\s+host-parameterized"
+                         #"(?is)hands\s+it\s+to\s+exactly\s+one\s+emitter"
+                         #"(?is)hosts\s+never\s+meet\s+as\s+ASTs"
+                         #"(?is)normalized\s+structural\s+equivalence"
+                         #"(?is)divergence\s+rather\s+than\s+preventing\s+it"]]
+          (is (re-find pattern record)
+              (str "08-delivery.md R-1 lost its per-host statement: " pattern))))
+      (testing "retired cross-host claims stay absent from the decision row"
+        (doseq [[claim pattern] retired-claim-patterns]
+          (is (not (re-find pattern record))
+              (str "08-delivery.md R-1 reintroduced retired claim: " claim))))))
+  (testing "the interim amendment draft reads as superseded, not pending"
+    (let [draft (slurp (root-file (str "ai/findings/new-substrate-synthesis/drafts/"
+                                       "spec-004-interim-amendment.md")))]
+      (doseq [pattern [#"(?i)\*\*Status:\s*SUPERSEDED"
+                       #"(?is)current\s+contract\s+is\s+`spec/004-Views\.md`"]]
+        (is (re-find pattern draft)
+            (str "spec-004-interim-amendment.md lost its supersession marker: "
+                 pattern)))
+      (is (not (re-find #"(?im)^\*\*Merge\s+condition:\*\*\s+immediately" draft))
+          (str "spec-004-interim-amendment.md again presents an immediate merge "
+               "condition as current work")))))
+
 (defn- section-text
   "The text of `heading` up to the next same-level heading, or nil if absent.
 
