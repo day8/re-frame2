@@ -445,6 +445,100 @@
     (is (nil? (reject-id '[:div {:title (letfn* [f (fn* ([] 0) ([x] x))] f)}]))
         "legal distinct raw fn* fixed arities — accepted")))
 
+(defn- letfn*-init-id
+  "reject-id for `init` used as the single raw letfn* initializer."
+  [init]
+  (reject-id (list :div {:title (list 'letfn* ['f init] 'f)})))
+
+(deftest letfn*-raw-fn*-binding-and-arity-is-host-portable
+  ;; rf2-wnhbm — rf2-9rqmq's bounded grammar still let three host-NON-portable
+  ;; shapes through the typed bad-let boundary. Verdicts below are the measured
+  ;; behaviour of both host compilers, not inference:
+  ;;
+  ;;   duplicate bindings  `[x x]` / `[x & x]` — BOTH hosts compile, by
+  ;;     different mechanisms (JVM shadows the earlier binding, CLJS
+  ;;     gensym-renames the later to `x__$1`). This analyzer threads lexical
+  ;;     scope as a SET, so it cannot model either: `[x x]` collapses to one
+  ;;     local and a reactive-escape check on the second `x` reads the first's
+  ;;     scope. Unmodellable, never intentional -> reject.
+  ;;
+  ;;   qualified internal name  `(fn* foo/bar ([x] x))` — the JVM ACCEPTS it;
+  ;;     CLJS emits `function cljs$user$foo.bar(x){…}`, which is not valid
+  ;;     JavaScript (`SyntaxError: Unexpected token '.'`). A hard host split.
+  ;;
+  ;;   fixed-vs-variadic arity — writing `v` for the variadic overload's
+  ;;     required (pre-`&`) count, so its emitted parameter count is `v + 1`:
+  ;;       f <= v      both hosts compile it identically — legal.
+  ;;       f == v + 1  JVM REJECTS ("Can't have fixed arity function with more
+  ;;                   params than variadic function"); CLJS compiles with
+  ;;                   :variadic-max-arity + :overload-arity ("Can't have 2
+  ;;                   overloads with same arity") and emits a dispatch that
+  ;;                   silently DROPS the fixed overload.
+  ;;       f >  v + 1  JVM REJECTS; CLJS warns :variadic-max-arity, same broken
+  ;;                   dispatch.
+  ;;     So `f <= v` is exactly where the JVM's hard error and CLJS's warnings
+  ;;     both begin — the one rule that makes the verdict host-portable.
+  ;;
+  ;; The analyzer is pure, so this .cljc file IS the CLJ/CLJS parity fixture:
+  ;; every row below is asserted on BOTH hosts and must agree.
+  (testing "raw fn* argv bindings must be distinct"
+    (is (= :rf.ui.compile/bad-let (letfn*-init-id '(fn* [x x] x)))
+        "a duplicate fixed binding is not modellable by set-shaped scope")
+    (is (= :rf.ui.compile/bad-let (letfn*-init-id '(fn* [x & x] x)))
+        "the rest binding may not duplicate a fixed binding")
+    (is (= :rf.ui.compile/bad-let (letfn*-init-id '(fn* [x y x] x)))
+        "adversarial: non-adjacent duplicates are still duplicates")
+    (is (= :rf.ui.compile/bad-let (letfn*-init-id '(fn* ([a] a) ([b b] b))))
+        "adversarial: a duplicate in a LATER overload of a legal-looking fn*")
+    (is (= :rf.ui.compile/bad-let (letfn*-init-id '(fn* [a b & a] a)))
+        "adversarial: rest duplicating the FIRST of several fixed bindings"))
+  (testing "the raw fn* internal name must be a simple symbol"
+    (is (= :rf.ui.compile/bad-let (letfn*-init-id '(fn* foo/bar ([x] x))))
+        "a qualified internal name compiles on the JVM but emits invalid JS")
+    (is (= :rf.ui.compile/bad-let (letfn*-init-id '(fn* foo/bar [x] x)))
+        "adversarial: same hole via the single-arity spelling"))
+  (testing "every fixed arity must be <= the variadic overload's required count"
+    (is (= :rf.ui.compile/bad-let (letfn*-init-id '(fn* ([x] x) ([& r] r))))
+        "f == v+1 (v=0): JVM rejects, CLJS drops the fixed overload")
+    (is (= :rf.ui.compile/bad-let (letfn*-init-id '(fn* ([a b] a) ([x & r] x))))
+        "f == v+1 (v=1): same boundary one arity up")
+    (is (= :rf.ui.compile/bad-let (letfn*-init-id '(fn* ([a b c] a) ([x & r] x))))
+        "f > v+1: JVM rejects, CLJS emits a broken dispatch")
+    (is (= :rf.ui.compile/bad-let (letfn*-init-id '(fn* ([& r] r) ([a] a))))
+        "adversarial: offending pair with the variadic overload written FIRST")
+    (is (= :rf.ui.compile/bad-let
+           (letfn*-init-id '(fn* ([] 0) ([a b] a) ([c & r] c))))
+        "adversarial: a legal 0-arity prefix does not excuse the f=2 > v=1 pair"))
+  (testing "legal host-portable raw fn* stays accepted"
+    (is (nil? (letfn*-init-id '(fn* ([x] x) ([a b & r] a))))
+        "f < v control (f=1, v=2) — accepted")
+    (is (nil? (letfn*-init-id '(fn* ([a b] a) ([c d & r] c))))
+        "f == v boundary (f=2, v=2) — both hosts compile it cleanly, so ACCEPT")
+    (is (nil? (letfn*-init-id '(fn* ([] 0) ([& r] r))))
+        "f == v == 0 — accepted")
+    (is (nil? (letfn*-init-id '(fn* f [x & ys] x)))
+        "distinct bindings + simple internal name — accepted"))
+  (testing "the boundary is raw fn* ONLY — macro fn keeps its own grammar"
+    (is (nil? (letfn*-init-id '(fn [x x] x)))
+        "macro fn owns its parameter grammar — not the raw fn* boundary")
+    (is (nil? (letfn*-init-id '(fn ([x] x) ([& r] r))))
+        "macro fn arity combinations are its expansion's problem, not ours"))
+  (testing "the accept/reject verdict is identical on both analyzer hosts"
+    ;; A single table asserted on whichever host is running: CLJ and CLJS must
+    ;; produce this same vector, which is what "host-portable" means here.
+    (is (= [:rf.ui.compile/bad-let :rf.ui.compile/bad-let :rf.ui.compile/bad-let
+            :rf.ui.compile/bad-let :rf.ui.compile/bad-let nil nil]
+           (mapv letfn*-init-id
+                 ['(fn* [x x] x)
+                  '(fn* [x & x] x)
+                  '(fn* foo/bar ([x] x))
+                  '(fn* ([x] x) ([& r] r))
+                  '(fn* ([a b c] a) ([x & r] x))
+                  '(fn* ([a b] a) ([c d & r] c))
+                  '(fn* f ([x] x))]))
+        (str "host-portable verdict table, evaluated here on "
+             #?(:clj "the JVM analyzer host" :cljs "the ClojureScript analyzer host")))))
+
 (deftest frame-finite-sites
   (is (= :rf.ui.compile/frame-in-loop
          (reject-id '(for [x xs] [:li {:key x} (:frame (frame))])))
