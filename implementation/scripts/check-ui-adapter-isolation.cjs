@@ -162,11 +162,12 @@ function coordinatesFrom(treeText) {
 //
 // so the evidence is BOUNDED, and each form can be matched end-to-end rather
 // than probed for an incidental character. Real sample from this repo's
-// `implementation/ui` graph:
+// `implementation/ui` graph (the checkout-specific local root re-rooted onto a
+// neutral placeholder — every runner resolves a different absolute path there):
 //
 //   org.clojure/clojure 1.12.4
 //     . org.clojure/spec.alpha 0.5.238
-//   day8/re-frame2 C:\Users\miket\code\re-frame2\implementation\core
+//   day8/re-frame2 C:\proj\re-frame2\implementation\core
 //     . org.clojure/clojurescript 1.12.145
 //       . com.google.javascript/closure-compiler v20250820
 //       . org.clojure/google-closure-library 0.0-20250515-f04e4c0e
@@ -423,15 +424,20 @@ function selfTest() {
     '  . org.clojure/clojurescript 1.12.145',
   ].join('\n');
 
-  // VERBATIM `clojure -Stree` output from this repo's `implementation/ui`
-  // artefact (captured 2026-07-18, tools.deps 0.29.1598). This is the row shape
-  // the anchored positive control MUST keep accepting — an over-tightened
-  // predicate that reds this would break the G-12 gate against the real graph.
+  // `clojure -Stree` output from this repo's `implementation/ui` artefact
+  // (captured 2026-07-18, tools.deps 0.29.1598). Reproduced row-for-row EXCEPT
+  // the `day8/re-frame2` local root, which is re-rooted onto the neutral
+  // `C:\proj\...` placeholder: that path is checkout-specific (every runner
+  // resolves a different absolute path) and a personal home path may not be
+  // committed — see scripts/check-no-hardcoded-paths.sh. The row SHAPE, which is
+  // all the predicate keys on, is unchanged. This is the shape the anchored
+  // positive control MUST keep accepting — an over-tightened predicate that reds
+  // this would break the G-12 gate against the real graph.
   const realUiTree = [
     'org.clojure/clojure 1.12.4',
     '  . org.clojure/spec.alpha 0.5.238',
     '  . org.clojure/core.specs.alpha 0.4.74',
-    'day8/re-frame2 C:\\Users\\miket\\code\\re-frame2\\implementation\\core',
+    'day8/re-frame2 C:\\proj\\re-frame2\\implementation\\core',
     '  . org.clojure/clojurescript 1.12.145',
     '    . com.google.javascript/closure-compiler v20250820',
     '    . org.clojure/google-closure-library 0.0-20250515-f04e4c0e',
@@ -601,7 +607,7 @@ function selfTest() {
   // A GENUINE resolved row for the positive control is `ran`. These pin the
   // authoritative row forms `ext/coord-summary` can emit for the required
   // coordinate — Maven version, git tag, git short SHA, POSIX local root, and
-  // Windows local root — and, crucially, the VERBATIM real `implementation/ui`
+  // Windows local root — and, crucially, the captured real `implementation/ui`
   // graph. An over-tightened predicate that reds any of these breaks the gate.
   for (const [label, stdout] of [
     ['REAL implementation/ui -Stree output', realUiTree],
@@ -727,7 +733,7 @@ function selfTest() {
     return fail(`clean full run must pass (exit 0), got exit ${fullPass}`);
   }
 
-  // POSITIVE CONTROL, end-to-end (rf2-rbget) — the VERBATIM real
+  // POSITIVE CONTROL, end-to-end (rf2-rbget) — the captured real
   // `implementation/ui` graph still passes. This is the assertion that fails if
   // the anchored predicate is ever tightened past the row shape tools.deps
   // actually emits.
