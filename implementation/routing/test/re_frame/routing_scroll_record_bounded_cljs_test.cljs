@@ -109,10 +109,18 @@
         (range width)))
 
 (defn- record-size
-  "Serialized size of the whole always-on record — the honest measure of what
-  an off-box shipper pays and stores per rejection."
+  "Serialized size of the always-on record — the honest measure of what an
+  off-box shipper pays and stores per rejection.
+
+  `:time` is excluded, and ONLY `:time`. On CLJS `interop/now-ms` is
+  `performance.now()`, an origin-relative high-resolution FLOAT whose printed
+  length varies run to run (e.g. `987.2000000476837` vs `1234.5999999046326`).
+  That jitter is unrelated to the rejected value, so leaving it in would couple
+  a structural-invariance claim to a clock and make the assertion flaky in
+  exactly the direction that teaches nothing. Every other slot is retained,
+  including the ones a regression would grow."
   [record]
-  (count (pr-str record)))
+  (count (pr-str (dissoc record :time))))
 
 ;; ===========================================================================
 ;; (a) No fragment of the rejected value reaches the always-on record.

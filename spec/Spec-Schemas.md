@@ -1225,11 +1225,53 @@ Common keys (`:category`, `:failing-id`, `:reason`, `:frame`) are inherited from
   ;; Orthogonal to the envelope's `:category` rule above (`:category` is required
   ;; here because `:rf.error/frame-destroyed` is an `:error` envelope; `:op`'s
   ;; optionality is a per-emit-site axis, not a per-branch one).
+  ;;
+  ;; rf2-g8ict — the payload slots below are reconciled against what the FOUR
+  ;; live emitters actually stamp. This schema previously declared `:rf.event/v`
+  ;; and `:rf.sub/query-v` as the payload pair; `:rf.event/v` was PHANTOM for
+  ;; this category (no emitter stamps it), while the slots three of the four
+  ;; emitters DO stamp — the bare `:event`, `:query-v`, `:reason`, `:where`,
+  ;; `:rf.sub/id` — were undeclared.
+  ;;
+  ;; The bare `:event` spelling is NOT an accident to be normalised away: it is
+  ;; a first-class, classification-aware slot. `re-frame.classification/project-
+  ;; trace-event` walks `:rf.event/v` AND `:event` through the SAME
+  ;; `project-event-tags` chokepoint, and the late-bind directory names "the
+  ;; bare `:event` error slot" as one of the event-bearing trace slots the
+  ;; redaction chokepoint consults. `:rf.event/v` is the DISPATCH-PIPELINE
+  ;; spelling (`:rf.event/run-start`, `:rf.event/dispatched`, …); the bare
+  ;; `:event` is the ERROR-tag spelling. So the document was wrong, not the
+  ;; runtime, and the repair is here rather than at four emit sites.
+  ;;
+  ;; `:recovery` is deliberately ABSENT: `trace/build-event` `dissoc`s it from
+  ;; `:tags` on EVERY branch and hoists it to the envelope's top level, so a
+  ;; `:recovery` declared here could never be satisfied (subs and the
+  ;; observation port both pass one in, and neither survives into `:tags`).
+  ;;
+  ;; Per-slot ownership — the emitter that stamps it:
+  ;;   :event    router/emit-frame-destroyed! + ui/frames/emit-and-throw-frame-destroyed!
+  ;;   :query-v  subs/emit-frame-destroyed-recovery!
+  ;;   :reason   router + ui/frames (the constant `:frame-destroyed`)
+  ;;   :where / :rf.sub/id / :rf.sub/query-v
+  ;;             substrate/observation/throw-frame-destroyed! (the internal
+  ;;             fail-loud observation port, which uses the NAMESPACED sub
+  ;;             spellings — matching its `:rf.error/observation-retry-exhausted`
+  ;;             sibling row in Spec 009)
+  ;;
+  ;; `:event` is `:any`, not `[:vector :any]`: the ui surface REDACTS the
+  ;; attempted payload body at source (`privacy/redacted-sentinel`) and stamps
+  ;; nil on its `:capture` arm, and the classification projection may replace
+  ;; any `:event` slot with `:rf/redacted` / `:rf.size/large-elided` on egress.
+  ;; Declaring a vector there would be a claim the runtime does not honour.
   [:map
    [:category       :keyword]
    [:frame          :keyword]
    [:op             {:optional true} [:enum :dispatch :dispatch-sync :subscribe :capture]]
-   [:rf.event/v     {:optional true} [:vector :any]]
+   [:event          {:optional true} :any]
+   [:query-v        {:optional true} [:vector :any]]
+   [:reason         {:optional true} :keyword]
+   [:where          {:optional true} :any]
+   [:rf.sub/id      {:optional true} :any]
    [:rf.sub/query-v {:optional true} [:vector :any]]])
 
 (def NoFrameContextTags
