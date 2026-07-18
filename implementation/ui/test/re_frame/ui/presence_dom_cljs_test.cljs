@@ -7,8 +7,12 @@
       not-yet-due exit retained (the timeout-fires-before-exit adversarial case);
     - mounted: a keyed child enters :mounting → :present; a removed key is
       RETAINED :unmounting until flush-presence! reaches :timeout-ms, then it is
-      removed and its ownership released exactly once; reinsertion re-enters."
-  (:require [cljs.test :refer [async deftest is testing use-fixtures]]
+      removed and its ownership released exactly once; reinsertion re-enters;
+    - ownership identity: a key claimed twice at one boundary retains ONE child
+      (the first claimant) and owns ONE exit timer, and the collision is
+      diagnosed as `:rf.error/ui-duplicate-key`."
+  (:require [clojure.string :as str]
+            [cljs.test :refer [async deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.test-support :as test-support]
             [re-frame.ui :as ui :refer [defview]]
@@ -174,3 +178,81 @@
             (.then (fn [_] (rf/destroy-frame! f) (done))
                    (fn [e] (rf/destroy-frame! f)
                      (reject-unexpectedly! done "reinsertion rejected" e))))))))
+
+;; ---------------------------------------------------------------------------
+;; Ownership identity at a MOUNTED boundary (rf2-vxgfnd.96.2)
+;;
+;; The compiler admits keyed siblings and keyed `for` rows independently, so
+;; nothing upstream can see that an explicit key and a dynamic one alias at the
+;; boundary. Left alone, the two children reconcile to two entries under one
+;; key, render under duplicate Provider keys, and share ONE exit timer whose
+;; removal drops both.
+;; ---------------------------------------------------------------------------
+
+(defview aliased-toasts []
+  (ui/presence {:timeout-ms 300}
+    ;; explicit sibling and a `for` row in a separate flattened array, both
+    ;; claiming "dup" — the collision no per-list-site check can see.
+    [toast-card {:key "dup" :msg "first"}]
+    [toast-card {:key "dup" :msg "second"}]
+    (for [t (ui/sub [::toasts])]
+      [toast-card {:key (:id t) :msg (:msg t)}])))
+
+(defn- capture-console-warn!
+  "Redirect `js/console.warn` into `sink` until `(restore)` is called. The
+  presence warning fires inside React's render, which `flush!` drives
+  ASYNCHRONOUSLY — so the capture has to span the promise, not a thunk."
+  [sink]
+  (let [prior (.-warn js/console)]
+    (set! (.-warn js/console) (fn [& args] (swap! sink conj (str/join " " (map str args)))))
+    (fn [] (set! (.-warn js/console) prior))))
+
+(deftest duplicate-identities-collapse-to-one-retained-child
+  (if-not (browser?)
+    (is true "mounted presence needs a DOM host — covered in the browser job")
+    (async done
+      (let [f       (rf/make-frame {:initial-events
+                                    [[::set-toasts [{:id "dup" :msg "third"}
+                                                    {:id "solo" :msg "solo"}]]]})
+            warns   (atom [])
+            restore (capture-console-warn! warns)]
+        (-> (uit/with-root [root [ui/frame-provider {:frame f} [aliased-toasts]]]
+              (-> (uit/flush!)
+                  (.then (fn [_]
+                           (restore)
+                           (testing "one key, one child — three claimants collapse to the first"
+                             (is (= 2 (count (toasts root)))
+                                 "the aliased identity renders ONCE, alongside the distinct key")
+                             (is (= "present" (phase-of root "first"))
+                                 "the FIRST claimant in document order owns the identity")
+                             (is (nil? (phase-of root "second")) "the later sibling is dropped")
+                             (is (nil? (phase-of root "third")) "the aliasing `for` row is dropped")
+                             (is (= "present" (phase-of root "solo"))
+                                 "a distinct key is completely unaffected"))
+                           (testing "the collision is diagnosed loudly in dev"
+                             (let [dup (filter #(str/includes? % ":rf.error/ui-duplicate-key") @warns)]
+                               (is (seq dup) "the catalogued duplicate-key id is reported")
+                               (is (some #(str/includes? % "dup") dup)
+                                   "the warning names the colliding key")
+                               (is (some #(str/includes? % "presence") dup)
+                                   "…and the boundary it collided at")))
+                           ;; drop the whole source list: the aliased identity must
+                           ;; own exactly ONE exit timer, not one shared by two entries.
+                           (uit/dispatch! f [::set-toasts []])
+                           (uit/flush!)))
+                  (.then (fn [_]
+                           (testing "exit ownership stays 1:1"
+                             (is (= 1 (presence/pending-count))
+                                 "only the departed `solo` key retains an exit timer")
+                             (is (= "present" (phase-of root "first"))
+                                 "the aliased identity is still claimed, so it never exits")
+                             (is (= "unmounting" (phase-of root "solo"))))
+                           (uit/flush-presence!)))
+                  (.then (fn [_]
+                           (testing "the timeout removes only the identity that left"
+                             (is (= 1 (count (toasts root))))
+                             (is (= "present" (phase-of root "first")))
+                             (is (zero? (presence/pending-count))))))))
+            (.then (fn [_] (restore) (rf/destroy-frame! f) (done))
+                   (fn [e] (restore) (rf/destroy-frame! f)
+                     (reject-unexpectedly! done "duplicate presence identities rejected" e))))))))
