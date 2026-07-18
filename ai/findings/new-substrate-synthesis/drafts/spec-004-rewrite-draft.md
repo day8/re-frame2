@@ -73,10 +73,12 @@ pattern-level commitments: ⟨01 invariants⟩
    frame and no cross-frame read spelling. Frames are created at **host preflight**
    ([002](002-Frames.md)); the view layer only *scopes* live frames. ⟨I-10, 03 §8⟩
 3. **The portability law.** A portable view has one deterministic, serialisable
-   **template representation** consumed by each host emitter. Emitted host values may be
-   host-native and need not themselves be serialisable. One normalized template AST
-   controls every emitter; parity between emitters is **normalized structural
-   equivalence** (fingerprinted), not byte-identical output. ⟨R-1, I-13⟩
+   **template representation**, produced by the shared analyzer and consumed by that
+   build's host emitter. Emitted host values may be host-native and need not themselves
+   be serialisable. Analysis is host-parameterized, so each build lowers its own AST and
+   hands it to exactly one emitter — the hosts never meet as ASTs. Parity between the
+   two emitter implementations is **normalized structural equivalence**
+   (fingerprinted), not byte-identical output. ⟨R-1, I-13⟩
 4. **Client markup is compiled, never interpreted.** Literal templates lower to
    `jsx`/`jsxs` calls; conversion is compile-time; static subtrees hoist. No hiccup
    walker, tag parser, camelizer, or component-shape detector ships in a browser
