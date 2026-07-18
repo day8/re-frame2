@@ -1,0 +1,6 @@
+# Self-test fixture marker.
+#
+# The duplicate counter must be bounded by the number of repeats: two
+# `## Errors` headings mint `errors` and `errors-1` and nothing further,
+# so `#errors-2` is broken.  Guards against a rule that blesses any
+# `-N` suffix.  Expected: 1 finding (rf2-zzt2r).

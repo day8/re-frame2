@@ -14,11 +14,29 @@ What this validates per README:
     * BROKEN TARGET   — internal link points at a .md file (or any
                         repo-internal path) that does not exist.
     * BROKEN ANCHOR   — target file exists but the #anchor isn't a real
-                        slug as the MkDocs build would emit it.  Slug
-                        rules are the project's `pymdownx.slugs.slugify`
-                        config (case=lower, _N disambiguation) — the
-                        same rules `check_doc_slugs.py` enforces, so the
-                        two gates agree by construction (rf2-br5u7).
+                        slug as **GitHub** would emit it.  These READMEs
+                        are rendered by GitHub, so GitHub's heading
+                        slugger is the authority here — NOT MkDocs'
+                        (rf2-zzt2r).  Two rules make up a heading id:
+
+                          base slug — the visible heading title, cased
+                            down, punctuation dropped, spaces hyphenated.
+                            Shared with `check_doc_slugs.py` via SLUGIFY:
+                            measured to produce byte-identical results to
+                            GitHub's slugger on every heading in this
+                            corpus (545/545), so the shared helper is
+                            reused rather than re-implemented.  One known
+                            divergence class stays unexercised here — see
+                            the SLUGIFY import note below.
+
+                          duplicate suffix — when two headings slugify
+                            alike, GitHub appends `-1`, `-2`, … to the
+                            later ones (`## One` / `## One` -> `one` and
+                            `one-1`).  MkDocs/pymdownx.toc instead appends
+                            `_1`.  This gate models GitHub's `-N`; the
+                            docs gate models MkDocs' `_N`.  The two gates
+                            deliberately DISAGREE on this rule because
+                            their renderers do.
 
 What this skips (deliberate scope cuts):
 
@@ -60,11 +78,24 @@ import urllib.request
 from pathlib import Path
 from typing import Iterable
 
-# Reuse the docs-gate's slugifier and inline-extraction helpers so the
-# two scripts agree by construction (rf2-br5u7).  This is a deliberate
-# direct import rather than a separately-factored helper module: the
-# imported symbols are the slug-rule source of truth, and routing them
-# via a third file would dilute that.
+# Reuse the docs-gate's BASE slugifier and inline-extraction helpers
+# (rf2-br5u7).  This is a deliberate direct import rather than a
+# separately-factored helper module: the imported symbols are the
+# base-slug source of truth, and routing them via a third file would
+# dilute that.
+#
+# Sharing SLUGIFY across two different renderers is a measured decision,
+# not an assumption (rf2-zzt2r).  pymdownx's slugify and GitHub's
+# slugger were diffed over every heading in the in-scope README corpus:
+# 545 headings, 0 divergences.  One divergence class is known and
+# currently unexercised by any live README — heading text shaped like an
+# HTML tag: pymdownx strips `<name>` entirely, GitHub escapes it and
+# keeps `name`.  The `mkdocs_slug_anchor_ok` /
+# `github_slug_anchor_broken` fixtures pin that gap so it stays visible;
+# closing it needs a GitHub-specific base slugifier, which is out of
+# scope until a real README heading exercises it.
+#
+# What is NOT shared is the duplicate-heading suffix — see `_slug_index`.
 try:
     from check_doc_slugs import (
         SLUGIFY,
@@ -180,22 +211,56 @@ def _iter_readmes(repo_root: Path) -> Iterable[Path]:
         yield path
 
 
+def _github_dedupe(slug: str, occurrences: dict[str, int]) -> str:
+    """Return `slug` disambiguated per GitHub's duplicate-heading rule.
+
+    A faithful port of `github-slugger`'s `slug()` bookkeeping — the
+    package GitHub uses to mint heading ids in rendered Markdown:
+
+        while (own.call(self.occurrences, result)) {
+          self.occurrences[originalSlug]++
+          result = originalSlug + '-' + self.occurrences[originalSlug]
+        }
+        self.occurrences[result] = 0
+
+    So a repeated heading gets `-1`, `-2`, … appended (starting at the
+    SECOND occurrence), and `occurrences` is mutated across calls — pass
+    one dict per document.  Note this is MkDocs' `_N` rule with a
+    different separator AND a different collision walk; do not collapse
+    the two (rf2-zzt2r).
+
+    The `while` loop is load-bearing, not defensive: a document with
+    `## Errors`, `## Errors`, `## Errors-1` renders ids `errors`,
+    `errors-1`, and `errors-1-1` — the third heading's natural slug
+    collides with the second's generated one and gets bumped again.
+    """
+    original = slug
+    while slug in occurrences:
+        occurrences[original] += 1
+        slug = f"{original}-{occurrences[original]}"
+    occurrences[slug] = 0
+    return slug
+
+
 def _slug_index(path: Path) -> set[str]:
     """Compute the slug set for headings + inline HTML anchors in `path`.
 
-    Mirrors check_doc_slugs.py's `_slug_index` exactly so the two gates
-    apply identical slug rules.  Kept as a private copy here (rather
-    than imported) because check_doc_slugs.py's version is tagged
-    `_slug_index` with a leading underscore but is used identically.
-    Re-implementing it locally would risk drift; importing it directly
-    would couple this script to a private symbol.  Chose the latter —
-    private-symbol import — for now.  If check_doc_slugs.py promotes
-    `_slug_index` to a public function (`slug_index`), update both
-    call sites.
+    Base slugification is check_doc_slugs.py's SLUGIFY (see the import
+    note above: measured identical to GitHub's on this corpus).  The
+    DUPLICATE-heading rule is GitHub's and diverges from the docs gate's
+    on purpose — READMEs are rendered by GitHub, so `-N` is what actually
+    resolves in a browser (rf2-zzt2r).
+
+    Inline HTML anchors are indexed but deliberately kept OUT of the
+    duplicate bookkeeping: GitHub's slugger only ever sees heading text,
+    so an `<a id="errors">` does not push a later `## Errors` heading to
+    `errors-1`.  (It mints a duplicate id in the HTML, which the browser
+    resolves to whichever comes first — not something a link checker can
+    usefully flag.)
     """
     text = path.read_text(encoding="utf-8", errors="replace")
     slugs: set[str] = set()
-    seen_counts: dict[str, int] = {}
+    occurrences: dict[str, int] = {}
     for _, line in _strip_fences(text.splitlines()):
         for am in _HTML_ANCHOR_RE.finditer(line):
             slugs.add(am.group(1))
@@ -213,12 +278,7 @@ def _slug_index(path: Path) -> set[str]:
         slug = SLUGIFY(title, SLUG_SEP)
         if not slug:
             continue
-        n = seen_counts.get(slug, 0)
-        if n == 0:
-            slugs.add(slug)
-        else:
-            slugs.add(f"{slug}_{n}")
-        seen_counts[slug] = n + 1
+        slugs.add(_github_dedupe(slug, occurrences))
     return slugs
 
 
@@ -397,9 +457,13 @@ def check(
             )
         sys.stderr.write(
             "\nFix: confirm the heading still exists in the target file and "
-            "update the link, or rename the heading and re-link.  Anchor "
-            "slugs use MkDocs' `pymdownx.slugs.slugify` rules (case=lower, "
-            "underscore-N disambiguation), NOT GitHub's rules.\n"
+            "update the link, or rename the heading and re-link.  These "
+            "READMEs render on GitHub, so anchors follow GitHub's heading "
+            "slugger: the visible title cased down with punctuation dropped "
+            "and spaces hyphenated, and repeated headings disambiguated with "
+            "`-1`, `-2`, ... on the second and later occurrences.  GitHub's "
+            "`-N` suffix is NOT MkDocs' `_N` suffix — `#errors_1` is a "
+            "docs-corpus anchor and will not resolve in a README (rf2-zzt2r).\n"
         )
 
     if broken_external:
@@ -442,10 +506,21 @@ def _run_self_tests(verbose: bool = False) -> int:
         # (fixture-dir, expected-finding-count)
         ("valid_readme",                     0),  # baseline: clean README
         ("broken_internal_link",             1),  # missing target file
-        ("mkdocs_slug_anchor_ok",            0),  # MkDocs slug rule, NOT GitHub
-        ("github_slug_anchor_broken",        1),  # would pass on GitHub, fails on MkDocs
+        # Known base-slug gap (rf2-zzt2r): heading text shaped like an HTML
+        # tag is the one measured divergence between the shared SLUGIFY and
+        # GitHub's slugger, and no live README heading exercises it.  These
+        # two pin the CURRENT behaviour so the gap stays visible rather than
+        # silently drifting; they are not an endorsement of the MkDocs rule.
+        ("mkdocs_slug_anchor_ok",            0),  # `<name>` stripped (shared SLUGIFY)
+        ("github_slug_anchor_broken",        1),  # `<name>` kept — GitHub's real shape
         ("mustache_placeholder_ignored",     0),  # rf2-br5u7 false-positive guard
-        ("underscore_disambig_ok",           0),  # MkDocs _N suffix
+        # GitHub duplicate-heading rule — `-N` from the second occurrence
+        # (rf2-zzt2r).  Positive, wrong-separator negative, out-of-range
+        # negative, and the collision re-bump.
+        ("github_dup_suffix_ok",             0),  # errors / errors-1 / errors-2
+        ("mkdocs_dup_suffix_broken",         1),  # `#errors_1` is MkDocs', not GitHub's
+        ("dup_suffix_out_of_range_broken",   1),  # `#errors-2` with only two headings
+        ("github_dup_collision_bump_ok",     0),  # `## Errors-1` after two `## Errors`
         ("inline_code_link_ignored",         0),  # fence + inline-code guard
         ("external_link_skipped_by_default", 0),  # off without --check-external
         ("explicit_id_full_title_ok",        0),  # `{#id}` is heading TEXT (rf2-w6ltl)
