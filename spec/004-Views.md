@@ -851,7 +851,7 @@ without touching React's hook order — the property the position law relies on.
 | `use-ref` | `(react/use-ref)` / `(react/use-ref initial)` → ref | `useRef`; the foreign ref object, read/write via `(.-current ref)`. Assignment never re-renders — its reason to exist beside `local` — and it is the preferred object ref for `:ref` positions. No deps. |
 | `use-effect` | `(react/use-effect setup)` / `(react/use-effect setup deps)` → nil | `useEffect` (passive, after paint); `setup` returns a cleanup fn or nil, honored on dep change, disconnect, and unmount; StrictMode dev replay is expected and MUST be idempotent-safe — the `effect` contract in a foreign spelling. |
 | `use-layout-effect` | `(react/use-layout-effect setup)` / `(… setup deps)` → nil | `useLayoutEffect` (after DOM mutation, before paint) for measure-then-mutate work that would flicker under passive timing; observes the committed frame, never a mid-commit state. |
-| `use-effect-event` | `(react/use-effect-event f)` → stable fn | `useEffectEvent`; a fn with stable identity across renders whose body sees the latest render's values. Takes **no** deps; the returned fn MUST NOT appear in any deps vector and MUST NOT be called during render (it is effect-phase machinery). App intent still goes through event vectors / `ui/event`. |
+| `use-effect-event` | `(react/use-effect-event f)` → fn | `useEffectEvent` (React 19.2, native — no shim); a fn whose body always sees the latest render's committed values. Its identity is **not** stable — React allocates a fresh fn every render, so never rely on stability. Takes **no** deps; the returned fn MUST NOT appear in any deps vector and MUST NOT be called during render (it is effect-phase machinery). App intent still goes through event vectors / `ui/event`. |
 | `use-context` | `(react/use-context ctx)` → value | `useContext`; `ctx` is a foreign Context object (`React.createContext` in foreign code, an opaque foreign value). Internal state never rides React context — frames have `frame-root` / `frame-provider`, app state has `sub`; this reads the *foreign* world's providers, and the value is handed through uncoerced. |
 | `use-id` | `(react/use-id)` → string | `useId`; a host-generated tree-positional token prefixed by the root's `identifierPrefix`. Determinism under SSR rides the root contract — a hydrating root takes the server's prefix from the manifest ([004C](004C-Roots-and-Mount.md)). |
 | `lazy` | `(react/lazy load-thunk)` / `(react/lazy load-thunk {:fallback tpl})` | `React.lazy` over a foreign component-loading thunk (a zero-arg fn returning a Promise of a foreign component); the result is a foreign component reference, legal exactly where foreign heads are. Def-level only. |
@@ -921,8 +921,9 @@ six hooks changes the hook signature ⇒ a deliberate clean remount (never a cor
 order); same-signature edits preserve state. Fast Refresh re-runs effects on every refresh
 (cleanup then setup) even when deps are unchanged, so the view generation participates in
 the kernel-internal deps comparison — the `rf=` economy must never out-vote Fast Refresh
-semantics. `use-effect-event` keeps stable identity across same-signature refreshes with
-its latest body swapped in; `use-ref`'s `current` survives same-signature refreshes and
+semantics. `use-effect-event` picks up its latest body across same-signature refreshes —
+its identity is not preserved, and never was stable to begin with (React allocates a
+fresh fn every render); `use-ref`'s `current` survives same-signature refreshes and
 resets on remount. Reloading the module that defines a `react/lazy` mints a new component
 identity, so the foreign subtree below it remounts — the foreign boundary's cost, not a
 `ui` HMR defect.
