@@ -951,11 +951,13 @@ const NON_BROWSER_OPTIONAL = new Set(['core', 'ssr-ring']);
 // filenames under scripts/, and `command` is the package.json script that
 // invokes them. validateDedicatedGate() binds it to the EXACT runtime AND the
 // EXACT executable (rf2-kfn9q):
-//   - every checker file EXISTS under scripts/;
+//   - every checker is a REGULAR FILE under scripts/;
 //   - `command` is a real package script whose body RUNS each checker as a
-//     directly-invoked, reachable `node <checker>` step (echo, comment,
-//     argument-only, name-substring, and unreachable `false &&` mentions do NOT
-//     count as running it); and
+//     directly-invoked, reachable `node scripts/<checker>` step — the checker
+//     being the script operand Node ACTUALLY executes, immediately after `node`
+//     (echo, comment, argument-only, name-substring, wrong-directory same-name,
+//     `--require`/`-r` preload and other pre-script option positions, and
+//     unreachable `false &&` mentions do NOT count as running it); and
 //   - the runtime being covered (the map KEY / relPath) is OWNED by one of the
 //     checkers — it appears in that checker's exported COVERS_RUNTIMES — so an
 //     unrelated existing checker can NOT be reused for a new runtime it never
@@ -1000,17 +1002,46 @@ function readPackageScripts(root = ROOT) {
   }
 }
 
+// Normalise a script operand as WRITTEN in a package script (whose cwd is the
+// package root) to a comparable posix-relative path, so `scripts/x.cjs`,
+// `./scripts/x.cjs` and `scripts\x.cjs` are one path and not three.
+function normaliseScriptOperand(operand) {
+  return path.posix.normalize(String(operand).replace(/\\/g, '/'));
+}
+
 // True iff `body` (a package.json script body, in this repo's bounded
-// `&&`-chained grammar) RUNS `checker` as a DIRECTLY-INVOKED, REACHABLE step: a
-// `node <path>` command whose script argument's basename is EXACTLY the checker.
-// Substring / echo / comment / argument-only mentions, and any step guarded
-// behind a statically-failing `false &&` short-circuit, do NOT count — so a
-// checker's mere textual presence in the body can not launder coverage (rf2-kfn9q).
+// `&&`-chained grammar) RUNS `checker` as a DIRECTLY-INVOKED, REACHABLE step:
+// a `node <path>` command whose script operand is EXACTLY the checker's
+// package-root-relative path (`scripts/<checker>`). Substring / echo / comment /
+// argument-only mentions, and any step guarded behind a statically-failing
+// `false &&` short-circuit, do NOT count — so a checker's mere textual presence
+// in the body can not launder coverage (rf2-kfn9q).
 //
-// This is a BOUNDED recogniser (split on `&&`, drop trailing `#` comments,
-// tokenise on whitespace), not a general shell parser: it recognises exactly the
-// `program arg…` steps the repo's isolation scripts are written in.
-function commandRunsChecker(body, checker) {
+// Two identity rules make the operand the ACTUAL executed script (rf2-n36v6):
+//
+//   - POSITION. Node's script operand is the token IMMEDIATELY after `node`.
+//     Matching "the first token that does not start with `-`" instead is wrong
+//     for Node's real CLI grammar, because several options CONSUME the next
+//     token (`--require <preload>`, `-r <preload>`, `--import <x>`, …): in
+//     `node --require scripts/<checker> other.cjs` the checker is a PRELOAD,
+//     whose `require.main === module` guard deliberately runs no bundle work,
+//     and `other.cjs` is what Node executes. Rather than carry a Node option
+//     table (this is not a Node CLI parser), any `node` step with a pre-script
+//     option is rejected outright: the repo writes its gates as plain
+//     `node scripts/<checker>`, and an unrecognised shape fails CLOSED.
+//
+//   - PATH. The operand is compared as a whole normalised path, not by
+//     `basename`, so `node elsewhere/<checker>` — a different file that merely
+//     shares the descriptor's filename — does not bind coverage.
+//
+// This stays a BOUNDED recogniser (split on `&&`, drop trailing `#` comments,
+// tokenise on whitespace), not a general shell or Node parser: it recognises
+// exactly the `program arg…` steps the repo's isolation scripts are written in.
+function commandRunsChecker(body, checker, { scriptsDir = SCRIPTS_DIR } = {}) {
+  // The package root is the scripts dir's parent, so the operand a package
+  // script must name is `scripts/<checker>` relative to it.
+  const expected = normaliseScriptOperand(
+    path.relative(path.dirname(scriptsDir), path.join(scriptsDir, checker)));
   for (const rawStep of String(body).split('&&')) {
     const step = rawStep.split('#')[0].trim();  // drop trailing shell comment
     if (step === '') continue;
@@ -1019,12 +1050,25 @@ function commandRunsChecker(body, checker) {
     // runs — a checker sitting behind it is unreachable.
     if (tokens[0] === 'false') break;
     if (tokens[0] !== 'node') continue;
-    // node's script argument is its first non-flag operand; only THAT running the
-    // checker counts (checker as a later argument to another script does not).
-    const scriptArg = tokens.slice(1).find((t) => !t.startsWith('-'));
-    if (scriptArg && path.basename(scriptArg) === checker) return true;
+    const scriptArg = tokens[1];
+    // A pre-script option (recognised or not) may consume the operand after it;
+    // this step's executed script is not statically known, so it counts for
+    // nothing.
+    if (!scriptArg || scriptArg.startsWith('-')) continue;
+    if (normaliseScriptOperand(scriptArg) === expected) return true;
   }
   return false;
+}
+
+// True iff `p` is a REGULAR file. Descriptors name checker SCRIPTS, so mere path
+// existence is too weak — a directory (or any non-file entry) sharing a
+// checker's name must not discharge enrolment (rf2-n36v6).
+function isRegularFile(p) {
+  try {
+    return fs.statSync(p).isFile();
+  } catch (_e) {
+    return false;
+  }
 }
 
 // The implementation-relative runtimes a checker OWNS (its exported
@@ -1062,8 +1106,8 @@ function validateDedicatedGate(gate, { scriptsDir = SCRIPTS_DIR, scripts = readP
   const command = typeof gate.command === 'string' ? gate.command : null;
   if (checkers.length === 0) reasons.push('no checker script(s) declared');
   for (const checker of checkers) {
-    if (!fs.existsSync(path.join(scriptsDir, checker))) {
-      reasons.push(`checker script does not exist: ${checker}`);
+    if (!isRegularFile(path.join(scriptsDir, checker))) {
+      reasons.push(`checker script is not a regular file: ${checker}`);
     }
   }
   if (!command) {
@@ -1074,10 +1118,11 @@ function validateDedicatedGate(gate, { scriptsDir = SCRIPTS_DIR, scripts = readP
       reasons.push(`declared command is not an invoked package.json script: ${command}`);
     } else {
       for (const checker of checkers) {
-        if (!commandRunsChecker(body, checker)) {
+        if (!commandRunsChecker(body, checker, { scriptsDir })) {
           reasons.push(`package command '${command}' does not RUN checker '${checker}' ` +
             'as a directly-invoked reachable step (echo / comment / argument-only / ' +
-            'name-substring / unreachable false-and mentions do not count)');
+            'name-substring / wrong-directory / pre-script-option (e.g. --require ' +
+            'preload) / unreachable false-and mentions do not count)');
         }
       }
     }

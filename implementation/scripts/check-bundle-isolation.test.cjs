@@ -290,6 +290,73 @@ coverageMutations += 1;
   assert(!grammarGate('gate:substring').ok, 'a longer filename containing the checker name as a substring does not RUN it');
   assert(grammarGate('gate:real').ok, 'a real `node scripts/<checker>` step RUNS the checker');
 
+  // rf2-n36v6 — SCRIPT IDENTITY: the operand that counts is the one Node
+  // ACTUALLY executes. Two families of false-green are closed here.
+  //
+  // (a) PRE-SCRIPT OPTIONS. Several Node options consume the following token, so
+  //     "first token not starting with `-`" credits a PRELOAD as the script: in
+  //     `node --require scripts/<checker> other.cjs`, the checker is preloaded
+  //     (its `require.main === module` guard runs no bundle work) and other.cjs
+  //     is what executes. Every pre-script option position — value-taking,
+  //     bare, or unrecognised — fails CLOSED rather than being guessed at.
+  const identityScripts = {
+    'gate:require-preload':  'node --require scripts/check-login-bundle-isolation.cjs scripts/check-bundle-isolation.test.cjs',
+    'gate:r-preload':        'node -r scripts/check-login-bundle-isolation.cjs scripts/check-bundle-isolation.test.cjs',
+    'gate:import-preload':   'node --import scripts/check-login-bundle-isolation.cjs scripts/check-bundle-isolation.test.cjs',
+    'gate:loader-preload':   'node --experimental-loader scripts/check-login-bundle-isolation.cjs scripts/check-bundle-isolation.test.cjs',
+    'gate:env-file':         'node --env-file scripts/check-login-bundle-isolation.cjs scripts/check-bundle-isolation.test.cjs',
+    'gate:unlisted-option':  'node --frobnicate scripts/check-login-bundle-isolation.cjs scripts/check-bundle-isolation.test.cjs',
+    'gate:bare-flag':        'node --enable-source-maps scripts/check-login-bundle-isolation.cjs',
+    'gate:wrong-dir':        'node elsewhere/check-login-bundle-isolation.cjs',
+    'gate:parent-escape':    'node ../scripts/check-login-bundle-isolation.cjs',
+    'gate:dot-slash':        'node ./scripts/check-login-bundle-isolation.cjs',
+    'gate:win-sep':          'node scripts\\check-login-bundle-isolation.cjs',
+    'gate:trailing-args':    'node scripts/check-login-bundle-isolation.cjs --verbose',
+  };
+  const identityGate = (command) => validateDedicatedGate(
+    { checkers: ['check-login-bundle-isolation.cjs'], command },
+    { scripts: identityScripts });
+  for (const option of ['require', 'r', 'import', 'loader']) {
+    assert(!identityGate(`gate:${option}-preload`).ok,
+      `a --${option} PRELOAD operand is not the executed script and does not RUN the checker`);
+  }
+  assert(!identityGate('gate:env-file').ok,
+    'an --env-file option operand is not the executed script and does not RUN the checker');
+  assert(!identityGate('gate:unlisted-option').ok,
+    'an UNLISTED pre-script option fails closed (no Node option table is guessed at)');
+  assert(!identityGate('gate:bare-flag').ok,
+    'a pre-script option position fails closed even when the checker would be the real script');
+
+  // (b) PATH IDENTITY. The operand is compared whole, not by basename, so a
+  //     different file sharing the checker's filename can not bind coverage.
+  assert(!identityGate('gate:wrong-dir').ok,
+    'a same-basename script in another directory does not RUN the declared checker');
+  assert(!identityGate('gate:parent-escape').ok,
+    'a path escaping the package root does not RUN the declared checker');
+
+  // The real written forms still bind (separator- and argument-insensitive).
+  assert(identityGate('gate:dot-slash').ok, '`./scripts/<checker>` RUNS the checker');
+  assert(identityGate('gate:win-sep').ok, 'a Windows-separator operand RUNS the checker');
+  assert(identityGate('gate:trailing-args').ok, 'trailing arguments after the script operand are fine');
+
+  // rf2-n36v6 — a descriptor names a checker SCRIPT: a non-regular file (here a
+  // DIRECTORY sharing a checker's name) must not discharge enrolment, which mere
+  // existsSync path existence would have allowed.
+  {
+    const fakeScripts = fs.mkdtempSync(path.join(os.tmpdir(), 'bundle-iso-scripts-'));
+    try {
+      fs.mkdirSync(path.join(fakeScripts, 'check-login-bundle-isolation.cjs'));
+      const dirShaped = validateDedicatedGate(
+        { checkers: ['check-login-bundle-isolation.cjs'], command: 'gate:real' },
+        { scriptsDir: fakeScripts, scripts: grammarScripts });
+      assert(!dirShaped.ok, 'a directory sharing a checker name is not a checker script');
+      assert(dirShaped.reasons.some((r) => /regular file/.test(r)),
+        'the non-regular-file failure says so');
+    } finally {
+      fs.rmSync(fakeScripts, { recursive: true, force: true });
+    }
+  }
+
   // rf2-kfn9q — RUNTIME binding: with a relPath, a checker must OWN that exact
   // runtime (COVERS_RUNTIMES). The login checker owns adapters/reagent, not
   // adapters/newpub.
