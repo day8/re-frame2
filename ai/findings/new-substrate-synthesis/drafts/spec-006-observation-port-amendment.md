@@ -215,15 +215,19 @@ These are normative (R-2). Each names the bug class it deletes.
    movement in the render→commit gap advances the cell's revision and notifies, and the
    host corrects **before paint**. *(Deletes: painting a frame computed from stale
    reads.)*
-6. **One notification per dirty cell per drain — the boundary is quiescence, not epoch
-   close.** Source-side notification is constant work — mark the cell stale with
-   target/version/epoch/cause evidence, never execute a prop-dependent query (per I-5).
-   Every queued write-side event executes and commits its own epoch record; once the
-   run-to-completion drain reaches quiescence, each dirty cell flushes **exactly once**
-   for the read/render batch. A real host yield starts a distinct drain and therefore a
-   distinct batch. Coalescing keys on pending cell state, never the epoch tag and never
-   time. *(Deletes: zombie children; N-notifications-per-event fan-out; epoch-count
-   inference about render or commit count.)*
+6. **One notification per dirty cell per render batch — the boundary is the host
+   checkpoint, not drain finalization and not epoch close.** Source-side notification is
+   constant work — mark the cell stale with target/version/epoch/cause evidence, never
+   execute a prop-dependent query (per I-5). Every queued write-side event executes and
+   commits its own epoch record, and each mark joins the pending read/render window. That
+   window is armed by the first dirty mark and closed at the next CLJS host microtask
+   checkpoint or an explicit headless/test flush; the scheduler takes no hook from router
+   drain finalization and observes no drain boundary. Each dirty cell flushes **exactly
+   once** per window, so a run-to-completion drain never splits across batches, drains
+   reaching the same checkpoint may share one, and only a real host yield renders them
+   separately. Coalescing keys on pending cell state, never the epoch tag and never time.
+   *(Deletes: zombie children; N-notifications-per-event fan-out; epoch-count inference
+   about render or commit count.)*
 
 ### The port operations (final)
 
@@ -324,7 +328,7 @@ Spike-validated ⟨S-3 §5, µ⟩:
 - `acquire!`/`release!` called from **inside the owner-notification fan-out** throw
   `:rf.error/reentrant-graph-op` (dev-asserted). The rule is cheap because the fan-out
   is separated from the cell flush: React-driven acquire/release during the read/render
-  commits *caused by* the drain-quiescence notification batch are outside the fan-out
+  commits *caused by* the render batch's notification are outside the fan-out
   and always legal.
 
 Conservative, not exercised by S-3 ⟨09 codex2 F1 — write the conservative rule⟩:
@@ -406,17 +410,22 @@ commit reconciler's evidence comparison (invariant 5) catches movement of
 corrects before paint. No third mechanism exists or is needed. A memo table that
 outlives its slice is a conformance bug (a leak fixture pins it).
 
-### Drain-quiescence finalization — the adapter-internal final phase
+### Render-batch finalization — the host-checkpoint boundary
 
 On the observation-port substrate, the invalidation algorithm's Phase 3
 ([§Invalidation algorithm](#invalidation-algorithm) — "notify subscribers") is realised
 as constant-work stale-marking (invariant 6), and the commit sequence gains an
-**adapter-internal final phase — the drain-quiescence render batch**: a
+**adapter-internal final phase — the render batch**: a
 run-to-completion drain may settle several queued events, each committing its own epoch
-record after settling derivations (Phases 1–2) and marking dirty cells (Phase 3). Once
-the drain reaches quiescence, each dirty ViewCell is flushed **once** into the host
-scheduler and React performs one read/render batch for the drain. Drain→React scheduling
-is microtask-aligned. `flush-render!` and the test-only `ui.test/flush!` both settle the
+record after settling derivations (Phases 1–2) and marking dirty cells (Phase 3). Those
+marks accumulate in a pending read/render window armed by the first of them and closed at
+the next CLJS host microtask checkpoint (or an explicit headless/test flush) — the
+scheduler has no hook from router drain finalization and observes no drain boundary. When
+the window closes, each dirty ViewCell is flushed **once** into the host scheduler and
+React performs one read/render batch. A synchronous drain therefore cannot be split
+across batches and its N epochs coalesce into one; several drains finishing before the
+same checkpoint may share a batch, and drains separated by a real host yield render
+separately. `flush-render!` and the test-only `ui.test/flush!` both settle the
 drain **before** React renders; a re-entrant `flushSync`-style forcing into an open drain is a
 dev error carrying epoch evidence
 (`:rf.error/flush-in-open-epoch`, dev tier — catalogue row required per

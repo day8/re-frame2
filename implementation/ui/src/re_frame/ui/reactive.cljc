@@ -1782,7 +1782,7 @@
   shown cap (its count is the honest fan-out loss, `:dropped-exact?` flags
   saturation). The `re-frame.ui.tool`/Xray projection reads this (or receives
   it via `set-evidence-sink!`) to attribute a coalesced render to its
-  contributing movement WITHOUT forcing a render per epoch (rf2-vxgfnd.46;
+  contributing movement WITHOUT forcing a render for every epoch (rf2-vxgfnd.46;
   tool/test read)."
   [^ViewCell cell]
   (:evidence @(state cell)))

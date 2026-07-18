@@ -12,14 +12,16 @@ If you arrived here from a source-only / spec-only question, you're in the wrong
   ordinary app frame an app may register, with no framework privilege (EP-0002
   — not auto-created, not a fallback).
 - **epoch** — one assembled **pipeline run** for a given dispatch (its update
-  and commit phases, plus the drain's render phase at settle); the unit of
+  and commit phases, plus the render phase it settles into); the unit of
   `epoch-history` and `restore-epoch`.
 - **app-db** — a frame's reactive root atom; read via `app-db/snapshot`,
   written via REPL ops (ephemeral) or source edits (permanent).
 - **dispatch** — the event-entry op (`(rf/dispatch ...)` / the `dispatch`
   structured op).
 - **subscribe** / **reg-sub** — the render-phase surface of the pipeline
-  (subscriptions recompute and views re-render once per drain, at settle)
+  (subscriptions recompute and views re-render once per render batch: the
+  queue settles first, and the host's next checkpoint closes the batch, so a
+  drain is never split across two of them)
   and its registration form. `sub-cache` is the per-frame memoisation
   surface.
 - **reg-event** — the update-phase handler registration form (the one

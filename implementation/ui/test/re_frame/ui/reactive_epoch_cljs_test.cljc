@@ -1,22 +1,30 @@
 (ns re-frame.ui.reactive-epoch-cljs-test
   "rf2-vxgfnd.10 (S2d) — epoch coalescing + `flush!` scope over the ViewCell
   notification scheduler (03 §3 invariant 6 'one notification per cell per
-  render batch — the boundary is drain quiescence, not epoch close'; Spec 006
-  §Epoch finalization). Headless fixtures on the REAL
+  render batch — the boundary is the host checkpoint, not drain quiescence and
+  not epoch close'; Spec 006 §Render-batch finalization). Headless fixtures on
+  the REAL
   observation port + plain-atom sub-cache — the value-movement `on-change`
   watch channel is a reactive-host surface, so these fixtures drive the
   notification seam DIRECTLY (`mark-dirty!` with an epoch tag) exactly the
   way the reactive spine's watch fan-out would, then force with `flush!`.
 
+  Because they poke the seam directly, these fixtures say nothing about ROUTER
+  boundaries — a batch here is bounded by the explicit `flush!` that stands in
+  for the host checkpoint. The real-router proof that several completed drains
+  share one window is `render-batch-host-checkpoint-cljs-test`
+  (rf2-vxgfnd.166); do not read a drain boundary into the rows below.
+
   The rows:
 
-    - DRAIN COALESCING — N event/frame EPOCHS committed in ONE
+    - BATCH COALESCING — N event/frame EPOCHS committed in ONE
       run-to-completion drain advance a cell's revision ONCE, coalescing
       into ONE render batch (the corrected sixth invariant: the render
-      boundary is drain quiescence, NOT epoch close; epoch ids are cause
-      evidence, never render triggers). A separate later drain notifies
-      again — later work stays observable, but NO render count follows from
-      the epoch count (replaces the retired false gate `N epochs ⇒ N renders`);
+      boundary is the host checkpoint, NOT epoch close and NOT drain
+      completion; epoch ids are cause evidence, never render triggers). Work
+      marked after a batch has closed notifies again — later work stays
+      observable, but NO render count follows from the epoch count (replaces
+      the retired false gate `N epochs ⇒ N renders`);
     - flush! SCOPE (the Q51 ruling) — the frame arity `flush-frame!` flushes
       only cells observing that frame; a scoped `flush-scope!` leaves
       out-of-scope cells pending; the global `flush-pending!` /
@@ -79,7 +87,7 @@
   cell)
 
 ;; ===========================================================================
-;; Drain coalescing — N epochs in ONE drain → ONE render batch
+;; Batch coalescing — N epochs before ONE checkpoint → ONE render batch
 ;; ===========================================================================
 
 (deftest n-deltas-in-one-epoch-notify-once
@@ -118,18 +126,19 @@
   ;; The corrected sixth invariant, replacing the retired false gate
   ;; "N epochs ⇒ N renders". A run-to-completion drain may settle SEVERAL
   ;; queued events, each committing its OWN epoch record, before the host
-  ;; regains control (and flushes). Every one of those epochs folds into ONE
-  ;; render batch — the render boundary is DRAIN QUIESCENCE, not epoch close.
+  ;; regains control. Every one of those epochs folds into ONE render batch —
+  ;; the render boundary is the HOST CHECKPOINT (here the explicit `flush!`),
+  ;; not epoch close and not drain completion.
   ;; Epoch ids ride the invalidation as CAUSE EVIDENCE only: coalescing keys
   ;; on the pending flag, never on the epoch tag. Render SEPARATION follows
-  ;; DRAIN boundaries, never the epoch count.
+  ;; HOST CHECKPOINTS, never the epoch count and never the drain count.
   (let [cell (reactive/make-cell ::v)
         hits (atom 0)]
     (reactive/subscribe cell (fn [] (swap! hits inc)))
     (testing "8 distinct epochs committed in ONE drain ⇒ ONE render batch"
       ;; one drain: 8 queued events each commit their own epoch, each firing
       ;; on-change with a DISTINCT epoch tag, all BEFORE the flush that rides
-      ;; drain quiescence (the CLJS microtask / the headless explicit flush)
+      ;; the host checkpoint (the CLJS microtask / the headless explicit flush)
       (doseq [e (range 1 9)] (reactive/mark-dirty! cell e))
       (is (reactive/dirty? cell) "the cell is pending after the drain")
       (is (= 1 (reactive/pending-cell-count)) "enrolled ONCE despite 8 epochs")
@@ -140,24 +149,28 @@
       (is (= 1 (reactive/revision cell)) "8 epochs in one drain ⇒ ONE revision advance")
       (is (= 1 @hits) "⇒ ONE notification — one render batch, not eight")
       (is (nil? (reactive/pending-epoch cell)) "the evidence tag clears with the flush"))
-    (testing "a SEPARATE later drain renders separately — later work stays observable"
+    (testing "a mark AFTER the batch closed renders separately — later work stays observable"
+      ;; NB: what separates these two batches is the CHECKPOINT above, not a
+      ;; drain boundary — this fixture never ran a drain at all. The real-router
+      ;; separation proof (a genuine host yield) is
+      ;; render-batch-host-checkpoint-dom-cljs-test (rf2-vxgfnd.166).
       (reactive/mark-dirty! cell 9)
-      (is (= 9 (reactive/pending-epoch cell)) "a fresh drain re-anchors the evidence")
+      (is (= 9 (reactive/pending-epoch cell)) "a fresh window re-anchors the evidence")
       (reactive/flush-pending!)
       (is (= 2 (reactive/revision cell))
-          "render SEPARATION follows DRAIN boundaries, never the epoch count")
+          "render SEPARATION follows HOST CHECKPOINTS, never the epoch count")
       (is (= 2 @hits)))))
 
 ;; ===========================================================================
 ;; G-3 multi-read scaling (S2f) — 1/4/8/16 sites: ONE body invocation, ONE
-;; notification per drain, against the REAL observation port
+;; notification per render batch, against the REAL observation port
 ;; ===========================================================================
 ;;
 ;; N lexical (sub …) sites in a view share ONE ViewCell (one
 ;; useSyncExternalStore hook). The render body runs ONCE for all N sites, the
 ;; commit acquires N REAL leases (deduped by target identity), and when all N
-;; sites fan in during ONE drain the cell coalesces to ONE notification — the
-;; notification count per drain is INVARIANT to the site count. Fully against
+;; sites fan in before ONE checkpoint the cell coalesces to ONE notification —
+;; the notification count per batch is INVARIANT to the site count. Fully against
 ;; the real port + plain-atom cache — no scheduler seam, no mock — but be
 ;; honest about WHICH invalidation channel drives the fan-in: each sub is
 ;; RE-REGISTERED (reg-sub again), so the port disposes its canonical node and
@@ -201,7 +214,7 @@
       (doseq [q queries]
         (is (= 1 (ref-count q)) "each site owns exactly one lease — deduped by target"))
       (reactive/subscribe cell (fn [] (swap! hits inc)))
-      ;; ONE drain fans in ALL n sites through the REAL port: re-registering
+      ;; ONE batch fans in ALL n sites through the REAL port: re-registering
       ;; each sub disposes its canonical node and fires that committed lease's
       ;; REAL on-change (cause :hmr) — the genuine invalidation channel the port
       ;; drives, not a scheduler seam. All n fan into the SAME ViewCell, which
@@ -211,19 +224,19 @@
       (is (reactive/dirty? cell)
           (str "the " n " real on-change fan-ins marked the cell dirty"))
       (is (= 1 (reactive/pending-cell-count))
-          (str "enrolled ONCE despite " n " site invalidations in one drain"))
+          (str "enrolled ONCE despite " n " site invalidations in one batch"))
       (reactive/flush-pending!)
       (is (= 1 (reactive/revision cell))
-          (str n " site invalidations in ONE drain → ONE revision advance (not " n ")"))
+          (str n " site invalidations in ONE batch → ONE revision advance (not " n ")"))
       (is (= 1 @hits)
-          (str n " sites → ONE notification per drain — scaling the site count "
-               "does not scale notifications-per-drain"))
+          (str n " sites → ONE notification per batch — scaling the site count "
+               "does not scale notifications-per-batch"))
       ;; release the case's leases so the next case starts clean
       (reactive/teardown! cell))))
 
-(deftest g3-multi-read-scaling-one-notification-per-drain
+(deftest g3-multi-read-scaling-one-notification-per-batch
   (doseq [n [1 4 8 16]]
-    (testing (str n " sites share one ViewCell and one per-drain notification")
+    (testing (str n " sites share one ViewCell and one per-batch notification")
       (reactive/reset-scheduler!)
       (g3-scaling-case n))))
 
@@ -590,7 +603,7 @@
 ;; debug plane retains enough to attribute that render to its contributing
 ;; movement (first/latest epoch, a cause set, a capped target vector + a
 ;; bounded `:dropped` set whose `:dropped-exact?` flag records saturation)
-;; WITHOUT forcing a render per epoch.
+;; WITHOUT forcing a render for every epoch.
 
 (deftest n-invalidations-in-one-drain-preserve-bounded-evidence
   ;; N invalidations with DISTINCT epochs fold before one flush: ONE revision

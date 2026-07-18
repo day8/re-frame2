@@ -30,12 +30,14 @@
       React unmount / Activity hide releases owners and reveal reacquires
       and corrects before paint.
 
-  ## Drain quiescence → React (S2d)
+  ## Host checkpoint → React (S2d)
 
   Sub deltas do NOT re-render synchronously. A moving site's `on-change`
   (registered at commit) marks the cell dirty in `reactive`'s dirty
-  registry (constant-work, coalesced once per cell per DRAIN — every epoch
-  a run-to-completion drain commits folds into one render batch, 03 §3);
+  registry (constant-work, coalesced once per cell per PENDING WINDOW — the
+  window closes at the next host checkpoint, so every epoch a
+  run-to-completion drain commits folds into one render batch, as does any
+  further drain finishing before that checkpoint; rf2-vxgfnd.166, 03 §3);
   one flush on the host MICROTASK queue (`reactive/schedule-flush!` →
   `queue-microtask!`, a true microtask that runs before the next paint —
   rf2-vxgfnd.40, NOT `goog.async.nextTick`) advances the cell's revision,
@@ -43,7 +45,7 @@
   movement is corrected before a torn frame can show. React BATCHING is
   inherited, not
   hand-rolled: `useSyncExternalStore` routes every revision advance
-  through React's own scheduler, so N cells flushed in one drain settle in
+  through React's own scheduler, so N cells flushed in one batch settle in
   ONE render pass, and adding an explicit batch wrapper here would only
   fight React's ownership of the schedule. The synchronous forcing door is
   `reactive/flush-frame!` / `ui.test/flush!` (the Q51 scope ruling —

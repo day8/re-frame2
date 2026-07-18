@@ -53,7 +53,7 @@ converter + frame context).
 | handler allocation | fresh closures per render | none on the compiled vector path |
 | re-render scope | argv-sCU heuristics | memo on `rf=` + honest scope above |
 | subscription read | reaction bookkeeping | N site reads through one cell; scalar snapshot |
-| React bridge | — | one hook per view; at most one notification per dirty cell per drain |
+| React bridge | — | one hook per view; at most one notification per dirty cell per render batch |
 
 **The identity pipeline** (I-8): unchanged fact → equal derivation output suppressed at
 the node → site returns the prior exact reference → child comparator short-circuits →
@@ -68,11 +68,12 @@ independently; `jsx`/`jsxs` selected at compile time. No whole-program heroics.
 With V mounted reactive views, Dᵥ/Eᵥ/Lᵥ active sites, and C cells touched across one
 run-to-completion drain:
 memory O(V) cells + O(ΣDᵥ) leases + O(ΣEᵥ) slots + O(ΣLᵥ) owners (compact JS shapes);
-the write side remains O(changed graph) per epoch and every queued epoch executes; after
-drain quiescence, O(ΣKᵥ) constant marks collapse to O(C) cell advances/notifications and
-React body work for C affected views. React batches those bodies into one commit for
-each affected root in the drain — never C commits, never ΣKᵥ component renders, never
-timer batching. Per reactive render: one compact capture + the dynamic elements.
+the write side remains O(changed graph) per epoch and every queued epoch executes; when
+the pending render batch closes at the next host checkpoint, O(ΣKᵥ) constant marks
+collapse to O(C) cell advances/notifications and React body work for C affected views.
+React batches those bodies into one commit per affected root per render batch — and a
+drain never splits across batches, so C bounds the whole drain: never C commits, never
+ΣKᵥ component renders, never timer batching. Per reactive render: one compact capture + the dynamic elements.
 First-mount fan-out is bounded by the slice-scoped memo table (03 §3). The push model is
 committed; G-13 exists to falsify this section's economics, not to fork them.
 

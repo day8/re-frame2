@@ -35,7 +35,7 @@ W11 refuses to re-own it:
 |---|---|
 | Bundle bytes, scaling slope, absolute size budgets | G-10 ⟨drafts/g10-bundle-baseline-methodology.md⟩ — the same one-time trio table on the bytes axis; W11 and G-10 share the S6 archive tag |
 | Server-render throughput (per-render µs vs hand-written JSX CLJS) | G-1 — shipped and CI-gated (`npm run test:ui-g1`) ⟨implementation/scripts/run-ui-bench.cjs; 07 §5 G-1⟩ |
-| The CI-gated push-economics falsification bench (fixed affected-cell count C while mounted V varies, plus a multi-write single-drain arm; own-substrate headless Chromium via Playwright) | G-13, built by the S2 gate work as the S-2 spike's permanent successor ⟨07 §5 G-13; 08 §1 S-2⟩. Exact validity counts are C ViewCell enroll/advances + C component-body renders + one root commit batch per drain. W11 runs that count shape comparatively (§4 R-E); any sustained one-delta timing arm is a distinct W11 extension, not the exact G-13 fixture |
+| The CI-gated push-economics falsification bench (fixed affected-cell count C while mounted V varies, plus a multi-write single-drain arm; own-substrate headless Chromium via Playwright) | G-13, built by the S2 gate work as the S-2 spike's permanent successor ⟨07 §5 G-13; 08 §1 S-2⟩. Exact validity counts are C ViewCell enroll/advances + C component-body renders + one root commit batch per measured drain — measured drains are yield-separated, so each closes its own render batch. W11 runs that count shape comparatively (§4 R-E); any sustained one-delta timing arm is a distinct W11 extension, not the exact G-13 fixture |
 | Input **correctness** — caret stability, IME, one-commit-per-input, the real-browser Chromium/WebKit matrix | G-8 ⟨07 §5 G-8⟩. W11 measures input *latency* comparatively (§4 R-C) and defers every correctness assertion to G-8 |
 | Update-parity micro-gates vs hand-written React (`useSyncExternalStore` baselines, multi-read scaling, equality no-ops, epoch fan-in, keyed-list work counts) | G-2 / G-3 / G-4 / G-5 / G-9 ⟨07 §5⟩ — parity/work gates against *hand-written React*, not the trio; W11's scenarios are macro-composites of these micro-claims |
 | Memory / retention / disposal | G-6 ⟨07 §5⟩. W11 notes heap flatness as a cross-check only |
@@ -79,8 +79,8 @@ ownership or hydration semantics to make a number" ⟨05 header⟩):
    small commit step… 'no store hook' ≠ 'free'" ⟨05 §1 honest costs⟩. This is a
    *disclosed cost*, and W11 measures it rather than hiding it. → R-D's capability
    grading.
-3. **Push economics** — every write epoch executes; after drain quiescence, one
-   notification per dirty cell, O(changed graph) + O(C)
+3. **Push economics** — every write epoch executes; at the render batch's host
+   checkpoint, one notification per dirty cell, O(changed graph) + O(C)
    notify, never ΣKᵥ component renders ⟨05 §3⟩; S-2 confirmed the design in jsdom
    (pull 4.0–6.5× worse, gap growing with scale ⟨spikes/s3-ownership-report.md §3⟩)
    and predicted the margin *widens* in a real browser ⟨s3 report §6 risk 6⟩. → R-E.
@@ -107,7 +107,7 @@ baselined; the trio variants written once at S6 and archived.
 
 - **Claim**: one sub delta → exactly the K affected views repaint, at a lower
   constant cost per notified view than reaction bookkeeping (one hook per view, one
-  notification per dirty cell per drain, scalar snapshot ⟨05 §2⟩).
+  notification per dirty cell per render batch, scalar snapshot ⟨05 §2⟩).
 - **Fixture** `F-fanout`: N mounted views, each reading its own narrow sub
   (`[:cell/by-id i]`); one dispatch per operation updates K entities. Grid:
   N ∈ {100, 500}; K ∈ {1, 10, 100} at N = 500 and K ∈ {1, 10} at N = 100. Plus the
@@ -220,7 +220,8 @@ baselined; the trio variants written once at S6 and archived.
   `useSyncExternalStore` — per the §6.1 idiom review; no variant hand-rolls a
   coarse-grained store-read that would manufacture O(N) work. The G-13 validity
   precheck is exact: C cell enroll/advances, C component-body renders, and one root
-  commit batch per drain on every substrate. A run with different counts is invalid
+  commit batch per measured drain — measured drains are yield-separated, so each closes
+  its own render batch — on every substrate. A run with different counts is invalid
   until fixed or documented as idiom-inherent.
 - **Environment**: headless real Chromium through the repo's Playwright harness for
   both the own-substrate G-13 CI gate and W11's comparative arms. G-13 has no
@@ -454,9 +455,9 @@ bead also resolves every `[S6-CONFIRM]` in this draft at filing/run time (item 8
 react-peer ruling jointly with the G-10 bead — one ruling, both tables); none has
 another venue.
 
-1. **S2 reactivity shipped** — ViewCell, `sub`, drain-quiescence batching, commit
+1. **S2 reactivity shipped** — ViewCell, `sub`, host-checkpoint render batching, commit
    reconciliation ⟨12 §3 S2 epic⟩: prerequisite for R-A, R-D, R-E (and R-C's
-   drain-quiescence/reactive-commit half). Specifically the **S2 G-13 bench harness**
+   render-batch/reactive-commit half). Specifically the **S2 G-13 bench harness**
    (the S-2 spike's permanent successor): fixed C while V varies, plus the
    multi-write/single-drain arm, with C
    cell enroll/advances + C component bodies + one root commit batch expected. R-E

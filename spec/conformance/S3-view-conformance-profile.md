@@ -129,7 +129,9 @@ descriptor/inner-Fiber machinery are `goog.DEBUG`-gated and elide in production
 (the `hmr-*` sentinels, **G-11**).
 
 **Event batching.** Ordinary handlers queue on the batched path: N native events
-run all writes, then **one** read/render batch per drain quiescence. The
+run all writes, then **one** read/render batch — the batch closing at the next host
+checkpoint, not at drain quiescence, so a drain's epochs always render together while
+drains reaching the same checkpoint may share a batch (rf2-vxgfnd.166). The
 **controlled-input sync door** is the exception — at a compiler-proven controlled
 site a literal vector or a synchronous `ui/event` vector result drains inside the
 native `dispatchEvent`, committing before paint so the caret/IME are safe. The

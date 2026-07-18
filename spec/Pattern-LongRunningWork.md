@@ -162,7 +162,7 @@ The `:dispatch-later {:ms 0}` schedules through the host clock primitive (via `r
 ## Anti-patterns
 
 - **Computing in subscriptions.** Subs should be cheap and pure; long compute belongs in event handlers. A sub that takes seconds slows every render that touches it.
-- **Multiple `assoc`s in one handler expecting interleaved renders.** re-frame2 batches per drain — only one render per drain regardless of how many `:db` updates within. Splitting into chunks via the state-machine pattern is the only way to get intermediate renders.
+- **Multiple `assoc`s in one handler expecting interleaved renders.** A drain cannot be split across render batches, so it renders once regardless of how many `:db` updates it makes — and a drain that finishes before the same host checkpoint as another may not even get a render of its own. Splitting into chunks via the state-machine pattern, which yields to the host between chunks, is the only way to get intermediate renders.
 - **Manual chunk-state in app-db.** A state machine fits the chunked-progression structure more cleanly: explicit states, named transitions, encapsulated `:data`. App-db flags work but are harder to reason about.
 - **Forgetting cancellation.** Long jobs need a cancel path. The state-machine pattern makes this trivial; ad-hoc loops make it painful.
 - **`:always` cycles without `:after 0` between batches.** A pure `:always` chain hits the `:rf.error/machine-always-depth-exceeded` cap (default 16). The `:yielding` state's `:after 0` resets the depth and yields to the browser.
