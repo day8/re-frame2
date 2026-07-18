@@ -403,8 +403,22 @@
       (when step
         (let [idx     (count (:ran (get @stepper-state frame-id)))
               run-fn  (late-bind/get-fn :run-play-step)
+              ;; rf2-iz0t8 — a `[:flush-presence]` against a Promise-backed
+              ;; host is the ONE step whose outcome is not known by the time
+              ;; the executor returns. The executor calls this back with the
+              ;; SETTLED result a microtask later, so the stepper records the
+              ;; same verdict the auto-run loop would. Every other step calls
+              ;; back synchronously, BEFORE the slot below exists — hence the
+              ;; bounds guard: the synchronous return value already recorded
+              ;; the final result in that case, and there is nothing to amend.
+              settle! (fn [settled]
+                        (swap! stepper-state update-in [frame-id :results]
+                               (fn [rs]
+                                 (if (and rs (< idx (count rs)))
+                                   (assoc rs idx settled)
+                                   rs))))
               result  (cond
-                        run-fn (run-fn frame-id idx step)
+                        run-fn (run-fn frame-id idx step settle!)
 
                         ;; Fallback: executor unavailable. Drive dispatch
                         ;; steps directly via `dispatch-one!`; record nothing

@@ -27,10 +27,19 @@
   `presence-cljs-test`, whose harness this ns reuses.
 
   The wall clock is DISABLED throughout, so the logical advance is the sole
-  removal driver — the determinism the whole rung exists for."
+  removal driver — the determinism the whole rung exists for.
+
+  The final block (rf2-iz0t8) covers the PROMISE-BACKED-ness itself rather
+  than the clock: resolved and rejected thenable controls driven through the
+  real run loop and the real interactive stepper. Those need a host whose
+  Promise the test can settle on demand, which the real clock cannot give —
+  so they use two-line stub hosts, and the real-clock tests above are what
+  keep the stubs honest about the shape they stand in for."
   (:require [cljs.test :refer [async deftest is testing use-fixtures]]
             [re-frame.core                     :as rf]
             [re-frame.router                   :as router]
+            [re-frame.story.play               :as play]
+            [re-frame.story.play.presence      :as story-presence]
             ;; The shipped optional bridge — the one canonical installation
             ;; path (rf2-36biz). Requiring it is exactly what a consuming app
             ;; does; `install!` re-arms it after the shared fixture's teardown.
@@ -152,3 +161,115 @@
                (is (= 1 (presence-rt/pending-count))
                    "the real exit is still pending — nothing advanced the clock")
                (done)))))
+
+;; ===========================================================================
+;; Promise-backed host settlement (rf2-iz0t8)
+;; ===========================================================================
+;;
+;; The canonical CLJS host returns `re-frame.ui.test/flush-presence!`'s
+;; Promise. `presence/advance!` used to call it inside a synchronous `try` and
+;; immediately return `{:status :advanced}` — so the executor recorded a clean
+;; step, the run loop merely yielded a `setTimeout` 0, and a LATER rejection
+;; (a React `act` failure, `:rf.error/flush-convergence-exceeded`) landed
+;; outside the `try`, became an unhandled rejection, and could no longer
+;; change the already-recorded result. A presence-bearing play reported
+;; `:pass` over a flush that had actually failed.
+;;
+;; The two hosts below differ in exactly ONE thing — whether their Promise
+;; resolves or rejects — so neither verdict can be an artefact of anything
+;; else. The resolving host is the POSITIVE CONTROL: without it, "always
+;; fail the step" would pass the rejection test while breaking every real
+;; presence run.
+
+(defn- install-thenable-host!
+  "Install a host whose advance returns a Promise settling on the next
+  microtask. `outcome` is `:resolve` or `:reject`. Records each advance's ms
+  into `calls` so the tests can prove the verb was actually reached."
+  [outcome calls]
+  (story-presence/install-presence-flush!
+    (fn [ms]
+      (swap! calls conj ms)
+      (if (= :reject outcome)
+        (js/Promise.reject (ex-info "presence flush failed" {:ms ms}))
+        (js/Promise.resolve :ok)))))
+
+(deftest resolving-thenable-host-passes-the-run
+  (async done
+    (let [calls (atom [])]
+      (install-thenable-host! :resolve calls)
+      (re/run! shared/presence-frame "resolving"
+               {:name   "resolving"
+                :script [[:dispatch [:presence/tick]]
+                         [:flush-presence 100]
+                         [:assert-db [:toast] :retained]]}
+               (fn [state]
+                 (is (= :pass (:status state))
+                     "a host whose Promise RESOLVES still passes — the await
+                      must not turn every Promise-backed flush into a failure")
+                 (is (= [100] @calls) "the verb was reached, ms threaded")
+                 (done))))))
+
+(deftest rejecting-thenable-host-fails-the-run
+  (async done
+    (let [calls (atom [])]
+      (install-thenable-host! :reject calls)
+      (re/run! shared/presence-frame "rejecting"
+               {:name   "rejecting"
+                :script [[:dispatch [:presence/tick]]
+                         [:flush-presence 100]
+                         [:assert-db [:toast] :retained]]}
+               (fn [state]
+                 (is (not= :pass (:status state))
+                     "rf2-iz0t8 — the flush FAILED, so the run must not
+                      report a pass. The following :assert-db holds either
+                      way (the toast is retained because nothing advanced,
+                      not because the advance stayed below :timeout-ms), so
+                      only the STEP can carry the failure")
+                 (is (= :fail (:status state)))
+                 (is (= [100] @calls)
+                     "the host really ran — this is a rejection, not a
+                      never-installed host")
+                 (let [flush-result (->> (:results state)
+                                         (filter #(= :flush-presence (:type %)))
+                                         first)]
+                   (is (true? (:exception flush-result))
+                       "the rejection lands in the EXISTING step-exception
+                        vocabulary — the same one a synchronously throwing
+                        host produces, not a new async status")
+                   (is (false? (:passed? flush-result)))
+                   (is (nil? (:cannot-run? flush-result))
+                       "a rejected flush is a failure, not a refusal — the
+                        host WAS installed and WAS reached"))
+                 (done))))))
+
+(deftest stepper-and-auto-run-agree-on-a-rejecting-host
+  (async done
+    (let [calls (atom [])]
+      (install-thenable-host! :reject calls)
+      ;; Seed the stepper cursor directly rather than through
+      ;; `begin-stepper!`, which resolves the script off a REGISTERED
+      ;; variant — registering one would add a story fixture without adding
+      ;; any coverage. `stepper-state` is the documented substrate surface,
+      ;; and `step-once!` (the fn under test) is driven exactly as the UI
+      ;; widget drives it.
+      (swap! play/stepper-state assoc shared/presence-frame
+             {:remaining [[:flush-presence 100]] :ran [] :results []})
+      (play/step-once! shared/presence-frame)
+      ;; The stepper is synchronous, so at THIS point the host's Promise has
+      ;; not settled. One macrotask later it has, and the recorded result must
+      ;; have become the same failure the auto-run loop records — otherwise
+      ;; the debugger would show a clean flush for a run that fails.
+      (js/setTimeout
+        (fn []
+          (let [result (first (:results (get @play/stepper-state
+                                             shared/presence-frame)))]
+            (is (some? result) "the stepper recorded a result for the step")
+            (is (true? (:exception result))
+                "rf2-iz0t8 — the interactive stepper records the SETTLED
+                 result, agreeing with the auto-run path")
+            (is (false? (:passed? result)))
+            (is (= [100] @calls)))
+          ;; `stepper-state` is process-global — leave no cursor behind.
+          (swap! play/stepper-state dissoc shared/presence-frame)
+          (done))
+        0))))
