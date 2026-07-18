@@ -381,29 +381,83 @@
       (is (str/includes? testing-guide "(rf/destroy-frame! frame)"))
       (is (str/includes? testing-guide "reject-after-current!")))))
 
+;; --- The retired per-host-AST claims (rf2-kxkag) -----------------------------
+;;
+;; Shipped reality (`compiler.cljc`): a build runs the SHARED analyzer over its
+;; own source and hands the resulting AST to exactly ONE emitter —
+;; `(if cljs? (emit-cljs/emit-defview args) (emit-jvm/emit-defview args))`.
+;; Analysis is host-parameterized, so the hosts' ASTs are separate values that
+;; never meet, and the parity corpus DETECTS divergence rather than preventing
+;; it. Every retired formulation of the opposite is listed here once and
+;; censused over both the guide chapters and the parent authorities below.
+(def ^:private retired-claim-patterns
+  [["host outputs cannot drift"
+    #"(?is)(?:(?:client|browser|server|ssr|jvm)[^\n]{0,120}(?:cannot|can't)\s+drift|(?:cannot|can't)\s+drift[^\n]{0,120}(?:client|browser|server|ssr|jvm))"]
+   ["browser/JVM share one AST value"
+    #"(?i)(?:same|shared)\s+(?:template\s+)?AST\b|\bshare(?:s|d)?\s+the\s+AST\b|\btwin\s+of\s+the\s+same\s+AST\b"]
+   ;; The semantically-equivalent retired formulation: ONE parse/AST feeding the
+   ;; per-host emitters. "one AST and one emitter per host build" is the current
+   ;; law and must NOT match, so the emitter side requires two/both/per-host.
+   ["one parse/AST → per-host emitters"
+    #"(?i)(?:one|a\s+single)\s+(?:normalized\s+|normalised\s+|template\s+)*(?:parse|AST)\b[^\n]{0,80}(?:two|both|per-host|each\s+host)\s+emitter"]
+   ["one emitter implements both hosts"
+    #"(?i)(?:(?:one|same)\s+emitter[^\n]{0,120}(?:both\s+hosts|client[^\n]*server|browser[^\n]*jvm)|(?:both\s+hosts|client[^\n]*server|browser[^\n]*jvm)[^\n]{0,120}(?:one|same)\s+emitter)"]
+   ["host output is identical"
+    #"(?i)identically\s+on\s+(?:the\s+)?(?:client|browser)[^\n]{0,40}(?:server|jvm)"]
+   ["no second serializer"
+    #"(?i)no\s+second\s+seriali[sz]er"]
+   ["JVM string emitter"
+    #"(?i)(?:a\s+)?string\s+emitter\s+for\s+the\s+jvm"]
+   ["equivalent by construction"
+    #"(?i)structurally\s+equivalent\s+by\s+construction"]
+   ["no implementation can drift"
+    #"(?i)there\s+is\s+no\s+second\s+implementation\s+to\s+drift"]])
+
+;; The ACTIVE parent authorities guide 12 sends maintainers to. Each carries a
+;; positive re-analysis assertion, so a wording-only deletion cannot false-green
+;; the retired-claim census above.
+(def ^:private compiler-model-authorities
+  {"spec/Ownership.md"
+   [#"(?i)one\s+normalized\s+AST\s+and\s+one\s+emitter\s+per\s+host\s+build"]
+
+   "ai/findings/new-substrate-synthesis/06-ssr-islands.md"
+   [#"(?i)each\s+host\s+build\s+runs\s+the\s+shared\s+analyzer"
+    #"(?is)hosts\s+never\s+meet\s+as\s+ASTs"
+    #"(?is)divergence\s+is\s+\*\*detected\*\*\s+rather\s+than\s+prevented"]
+
+   "ai/findings/new-substrate-synthesis/drafts/spec-004-rewrite-draft.md"
+   [#"(?i)\*\*One\s+AST\s+per\s+build\.\*\*"
+    #"(?is)hosts'?\s+ASTs\s+are\s+not\s+guaranteed\s+equal\s+values"
+    #"(?is)hosts\s+never\s+meet\s+as\s+ASTs"]
+
+   "ai/findings/new-substrate-synthesis/skill/SKILL.md"
+   [#"(?is)SSR\s+drift\s+is\s+\*detected\*"]
+
+   "docs/EP/EP-0034-re-frame-ui-production-ssr-testing.md"
+   [#"(?is)hands\s+that\s+build's\s+own\s+AST\s+to\s+exactly\s+one\s+emitter"
+    #"(?is)hosts\s+never\s+meet\s+as\s+ASTs"]
+
+   "docs/EP/EP-0030-the-compiled-view-substrate-program.md"
+   [#"(?is)each\s+host\s+build\s+emits\s+from\s+its\s+own"]})
+
+(deftest compiler-authorities-teach-per-host-analysis
+  (doseq [[path required] compiler-model-authorities]
+    (let [text (slurp (root-file path))]
+      (testing (str path " — positive per-host re-analysis")
+        (doseq [pattern required]
+          (is (re-find pattern text)
+              (str path " lost its per-host analysis statement: " pattern))))
+      (testing (str path " — retired claims stay absent")
+        (doseq [[claim pattern] retired-claim-patterns]
+          (is (not (re-find pattern text))
+              (str path " reintroduced retired claim: " claim)))))))
+
 (deftest pipeline-and-stage-claims-stay-truthful
   (let [chapters (into {} (map (juxt identity slurp-guide) chapter-files))
         views    (get chapters "02-views.md")
         ssr      (get chapters "11-ssr.md")
         how      (get chapters "12-how-it-works.md")
-        limits   (get chapters "14-compile-time-limits.md")
-        retired-claim-patterns
-        [["host outputs cannot drift"
-          #"(?is)(?:(?:client|browser|server|ssr|jvm)[^\n]{0,120}(?:cannot|can't)\s+drift|(?:cannot|can't)\s+drift[^\n]{0,120}(?:client|browser|server|ssr|jvm))"]
-         ["browser/JVM share one AST value"
-          #"(?i)(?:same|shared)\s+(?:template\s+)?AST\b|\bshare(?:s|d)?\s+the\s+AST\b|\btwin\s+of\s+the\s+same\s+AST\b"]
-         ["one emitter implements both hosts"
-          #"(?i)(?:(?:one|same)\s+emitter[^\n]{0,120}(?:both\s+hosts|client[^\n]*server|browser[^\n]*jvm)|(?:both\s+hosts|client[^\n]*server|browser[^\n]*jvm)[^\n]{0,120}(?:one|same)\s+emitter)"]
-         ["host output is identical"
-          #"(?i)identically\s+on\s+(?:the\s+)?(?:client|browser)[^\n]{0,40}(?:server|jvm)"]
-         ["no second serializer"
-          #"(?i)no\s+second\s+seriali[sz]er"]
-         ["JVM string emitter"
-          #"(?i)(?:a\s+)?string\s+emitter\s+for\s+the\s+jvm"]
-         ["equivalent by construction"
-          #"(?i)structurally\s+equivalent\s+by\s+construction"]
-         ["no implementation can drift"
-          #"(?i)there\s+is\s+no\s+second\s+implementation\s+to\s+drift"]]]
+        limits   (get chapters "14-compile-time-limits.md")]
     (testing "JVM emission is structural data and HTML serialization is S5"
       (doseq [required ["versioned `re-frame.ui.tree` structural data"
                         "`re-frame.ssr/emit-ui-tree`"

@@ -51,9 +51,10 @@ merge.
 
 > Status: Drafting. **v1-required.** A view is `ui/defview` — a pure function of **one
 > props map** to a **template**. Templates are Reagent-familiar hiccup with the
-> ambiguities removed; a compiler lowers every view to **one normalized, serialisable
-> template AST** consumed by two emitters — direct React code for the browser, a
-> structural render tree for the JVM. No interpreter ships. Event handlers are **data**
+> ambiguities removed; a shared analyzer lowers every view to a **normalized,
+> serialisable template AST**; each host build hands its own AST to exactly one emitter
+> — direct React code for the browser, a structural render tree for the JVM. No
+> interpreter ships. Event handlers are **data**
 > (event vectors) by default. Every view is memoized by default. The CLJS realisation is
 > **`re-frame.ui`** (artifact `day8/re-frame2-ui`, alias `ui/`); frames are created at
 > host preflight (per [002](002-Frames.md)), never from render. SSR
@@ -98,14 +99,18 @@ for readability. ⟨02 header, guide 01⟩
 
 ⟨R-1, I-7, I-13, 06 §1⟩
 
-**A portable view has one deterministic, serialisable template representation consumed
-by each host emitter. Emitted host values may be host-native and need not themselves be
-serialisable.**
+**A portable view has one deterministic, serialisable template representation, produced
+by a shared analyzer and consumed by that build's host emitter. Emitted host values may
+be host-native and need not themselves be serialisable.**
 
-- **One AST.** `defview` is `.cljc`. The compiler normalizes the template — including
-  the control forms (§Template grammar) — into one closed-node-set AST. Every analyzer
-  and every emitter consumes that AST; no emitter consumes raw source or another
-  emitter's output.
+- **One AST per build.** `defview` is `.cljc`. A build runs the shared analyzer, which
+  normalizes the template — including the control forms (§Template grammar) — into one
+  closed-node-set AST, and hands it to exactly one emitter; no emitter consumes raw
+  source or another emitter's output. That discipline is about *one* compilation and
+  does not reach across hosts: analysis is host-parameterized (a symbol resolving to
+  `cljs.core/map` here and `clojure.core/map` there lands differently), so the two
+  hosts' ASTs are not guaranteed equal values, let alone one value, and the hosts never
+  meet as ASTs.
 - **Two emitters.** The browser emitter generates direct React code (`jsx`/`jsxs`
   calls, hoisted static subtrees, compile-time prop conversion). The JVM emitter
   generates the canonical serialisable structural render tree consumed by the existing
@@ -120,7 +125,10 @@ serialisable.**
 - **Parity.** Equivalence between emitters is **normalized structural equivalence** over
   semantic nodes — tag/ns, attribute names + values, child order, escaping, keyed order,
   void/boolean handling, fragments, fallbacks — fingerprinted and generatively tested
-  (per [008](008-Testing.md)). Byte-identical HTML is NOT the contract. ⟨I-13, 06 §1⟩
+  (per [008](008-Testing.md)). Byte-identical HTML is NOT the contract. The two emitters
+  are separate implementations that the shared analyzer and the written conversion
+  contract keep aligned — they *can* diverge, and the parity corpus is what makes a
+  divergence a detected bug rather than a surprise. ⟨I-13, 06 §1⟩
 - **Serialisation boundary.** The template AST's structure — tags, nesting, non-function
   attribute values, and literal event vectors — is fully serialisable and survives a
   print/read round-trip; event vectors are retained *as data* in the compiler manifest
@@ -745,7 +753,7 @@ order and is a defect in this table.
 
 | Normative section (this Spec) | Stage | What that stage's fixtures assert |
 |---|---|---|
-| §The portability law and the template AST | **S1** | one AST → two emitters; normalized structural equivalence (parity corpus v0); serialisation boundary; closed node set; AST-shape gate |
+| §The portability law and the template AST | **S1** | shared analyzer → one AST and one emitter per host build; normalized structural equivalence (parity corpus v0); serialisation boundary; closed node set; AST-shape gate |
 | §`ui/defview` — grammar, props ABI, options map, registration, `rf=` comparator | **S1** | declaration arities + diagnostics; props ABI encoding + `:key` reservation; registrar `:view` entries; the ruled `rf=` comparator emitted and asserted against prop-driven re-render (subscription/local interplay asserts S2/S3; stable-shell identity is S2 HMR work) |
 | §Template grammar — forms, control forms, rejection roster | **S1** | table forms lower; compile-error roster with didactic messages |
 | §Template grammar — prop conversion (the rule table; `ui/spread`) | **S1** | conversion-table fixtures consumed by both emitters (owning table: [jvm-tree-and-conversion-contract.md](jvm-tree-and-conversion-contract.md)); `spread` dynamic-map cases |

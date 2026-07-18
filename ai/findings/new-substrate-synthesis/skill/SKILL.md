@@ -135,7 +135,10 @@ compiler sees through them.
   nil/false = nothing.
 - `:class` — string, vector, or map-of-flags. `:style` — a map; keyword
   values stringify. **Prop conversion is compile-time, contextual, total** —
-  the same rule table drives both emitters, so SSR output cannot drift.
+  the same rule table drives both emitters, and a parity corpus compares their
+  normalized output, so SSR drift is *detected* (the emitters are separate
+  implementations; the shared rules and the gate are what make a divergence a
+  bug rather than a surprise).
 - **DOM prop spelling is pinned**: hyphenated lowercase mirroring React's
   camelCase — `:on-click`, `:on-key-down`, `:on-input` (never `:on-keydown`).
 - **Keys on list items are required** — a missing key is a *build failure*

@@ -27,8 +27,9 @@ Type: standards-track
 ## Abstract
 
 re-frame2 gets one first-party view layer. Views are hiccup with event vectors as
-handlers; a compiler lowers them to one normalized AST and emits direct React code for
-the browser and a structural render tree for the JVM — no interpreter ships. A view's
+handlers; a shared analyzer lowers them to a normalized AST, and each host build emits
+from its own — direct React code for the browser, a structural render tree for the
+JVM — no interpreter ships. A view's
 reads share one React bridge under a committed push-ownership protocol, frames are
 created at host preflight (never from render), dev builds are a glass cockpit that
 provably vanishes from production. `re-frame.ui` ships as a **new, experimental,
