@@ -550,17 +550,20 @@ enter/exit retention is out of scope):
     [toast-card {:key (:id t) :toast t}]))
 ```
 
-- Keyed children pass `:mounting → :present → :unmounting`; an exiting child stays
-  mounted until its transition/animation completes, with `:timeout-ms` as the
-  **mandatory** safety bound (unit-suffixed); then cleanup is terminal and exactly-once
-  (all ownership released). Unkeyed children under a presence boundary are a build
-  failure.
+- Keyed children pass `:mounting → :present → :unmounting`; an exiting child is retained
+  for exactly `:timeout-ms` — the **mandatory** (unit-suffixed) exit retention duration
+  *and* terminal bound, not a cap over some other completion signal — then cleanup is
+  terminal and exactly-once (all ownership released). Unkeyed children under a presence
+  boundary are a build failure.
 - `(presence-phase)` is the single phase read. Outside a presence boundary it returns
   `:present`, so presence-aware children stay reusable anywhere.
-- Removal-then-reinsertion of a key has deterministic interruption/re-entry; exiting
-  children are `inert`/`aria-hidden` by default; reduced-motion takes the immediate
-  path; hydration does not fabricate enter transitions; tests advance transitions via
-  `ui.test/flush-presence!` (no wall-clock sleeps).
+- Removal-then-reinsertion of a key has deterministic interruption/re-entry; hydration
+  does not fabricate enter transitions; tests advance transitions via
+  `ui.test/flush-presence!` (no wall-clock sleeps). The boundary is **DOM-agnostic**: it
+  inserts no wrapper node, stamps no attributes, and observes no DOM events. A
+  presence-aware child owns its own exit styling and accessibility — stamp `inert` /
+  `aria-hidden` and the exit class against `(presence-phase)` = `:unmounting`, and let
+  the child's stylesheet honour `prefers-reduced-motion`.
 - The JVM emitter renders `:present` and exposes presence metadata structurally.
   Occurrence-paths (§View identity) identify retained exiting rows in tooling.
 
@@ -1292,7 +1295,8 @@ stages in small batches, 011 → S5).
   `re-frame.ui.test` / `.react` / (if earned) `.data`. Separate artifact on a lockstep
   release train initially (R-6).
 - **R-4 — the narrow bare-fn law + strict lint** (§Handlers).
-- **Presence ruling** — wrapper form, no reserved nodes; `:timeout-ms` mandatory;
+- **Presence ruling** — wrapper form, no reserved nodes; `:timeout-ms` mandatory (it *is*
+  the exit retention duration, and the boundary stays DOM-agnostic — rf2-0ufty);
   `presence-phase` returns `:present` outside a boundary (§Presence).
 - **Refs policy** — `:ref` reserved; object refs preferred; callback refs explicit
   `ui/raw-fn` (§Handlers).

@@ -355,11 +355,15 @@ from ordinary Clojure code fails loud** (they are not runtime helpers).
 - **Signature**: `(presence {:timeout-ms n} keyed-children)`
 - **Description**: Declarative **enter/exit retention**, deliberately bounded — **not** an
   animation system. Keyed children pass `:mounting` → `:present` → `:unmounting`; an
-  exiting child stays **mounted** until its exit completes **or** the **mandatory**
-  `:timeout-ms` safety bound fires, whichever is first, then removal is **terminal and
-  exactly-once** (all ownership released). Removing then re-inserting a key **interrupts**
-  the exit and re-enters. A child reads its phase with `presence-phase`. On the JVM / SSR
-  the structural render yields `:present` (there is no lifecycle to retain).
+  exiting child is **retained** for exactly the **mandatory** `:timeout-ms` — the exit
+  retention duration *and* terminal bound — then removal is **terminal and exactly-once**
+  (all ownership released). Removing then re-inserting a key **interrupts** the exit and
+  re-enters. A child reads its phase with `presence-phase`. On the JVM / SSR the
+  structural render yields `:present` (there is no lifecycle to retain). The boundary is
+  **DOM-agnostic**: no wrapper node, no stamped attributes, no observed DOM events — a
+  presence-aware child owns its own exit styling and accessibility (stamp `inert` /
+  `aria-hidden` and the exit class against `presence-phase` = `:unmounting`; the child's
+  stylesheet owns `prefers-reduced-motion`).
 - **Errors**: missing / non-positive `:timeout-ms` → `:rf.ui.compile/bad-presence`; an
   unkeyed child under the boundary → `:rf.ui.compile/presence-unkeyed-child`; direct call →
   `:rf.error/ui-tree-malformed`.
