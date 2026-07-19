@@ -167,8 +167,8 @@
 
   Routes through `mount/ensure-xray-frame!` so the frame is not just
   registered but ALSO seeded via the first-mount hook table
-  — `::seed-trace-and-target-frame`, `::hydrate-filters`,
-  `::hydrate-spine-filters`, `::hydrate-static-mode`,
+  — `::seed-trace-and-target-frame`, `::reset-transient-filters`,
+  `::seed-configured-filters`, `::hydrate-static-mode`,
   `::auto-open-watcher`. A direct `(rf/make-frame {:id :rf/xray})` here
   would register the frame but skip the hook table, leaving Xray's
   trace-buffer slot empty + `:target-frame` pinned to

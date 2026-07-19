@@ -17,8 +17,10 @@
       (one-step) and 'Always hide this event-type…' (the existing
       OUT-pill flow). Both items prevent the browser context menu.
     - The mute set persists to localStorage under
-      `xray.spine.muted-event-ids` (per bead) and round-trips
-      through the same hydrate-on-install pattern as the IN/OUT pills.
+      `xray.spine.muted-event-ids` (per bead) as a transient
+      within-session slot — reset to empty on every load by
+      `mount.cljs`'s `::reset-transient-filters` hook, the same
+      transient pattern as the IN/OUT pills (no hydrate on install).
     - The L1 ribbon carries a mute-count indicator (`🔇 N`) when at
       least one event-id is muted. Click it → unmute manager modal
       with a list of muted ids + per-row unmute buttons + a 'Clear
@@ -176,10 +178,13 @@
 ;; ---- hydration ----------------------------------------------------------
 
 (defn hydrate!
-  "Drive the localStorage → app-db hydration. Mirrors
-  `filters/hydrate!`'s shape — re-entrant, safe to call from
-  preload-time `install!` AND from `mount.cljs/ensure-xray-frame!`.
-  Returns nil."
+  "The localStorage → app-db DATA LAYER for the muted-event-ids slot.
+  Mirrors `filters/hydrate!`: re-entrant + idempotent, but DELIBERATELY
+  NOT on the production init path (rf2-swclw) — the mute set is a
+  transient filter that resets on every load, so restoring localStorage
+  here on boot would resurrect the stale set the reset exists to kill.
+  Retained for its data-layer callers (the round-trip tests + hosts that
+  opt back into localStorage-restoring behaviour). Returns nil."
   []
   (let [loaded (load)]
     (when (and (seq loaded)

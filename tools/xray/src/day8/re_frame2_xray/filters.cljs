@@ -14,7 +14,9 @@
     Mounting at the shell root also keeps the popup's subscribes
     inside the `:rf/xray` frame-provider's React context.
   - `install!` — orchestrator that installs the subs / events / fxs
-    + the persistence fx + the load-time hydration.
+    + the persistence fx. It does NOT hydrate on load: the transient
+    pills reset every load and the host seed lands via `mount.cljs`'s
+    `::seed-configured-filters` first-mount hook.
 
   ## What does NOT live here
 

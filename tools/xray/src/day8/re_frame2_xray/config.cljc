@@ -1782,8 +1782,12 @@
            (write-storage!)))))
   ;; Filter seed + storage key — two independent axes. The storage key
   ;; governs the transient user-pill localStorage round-trip (within-
-  ;; session writes + the load-time reset cleanup); the filter seed is
-  ;; an in-memory boot baseline that is never persisted (rf2-fhtes).
+  ;; session writes + the load-time reset cleanup); the filter seed is an
+  ;; in-memory boot baseline whose hook never reads or writes localStorage.
+  ;; The seed value is still not durable across loads: once it lands, a
+  ;; later pill edit persists the whole :active-filters set (seeded pills
+  ;; included) under the storage key, until the next-load reset clears it
+  ;; and reapplies the baseline (rf2-fhtes).
   ;; Storage key is set first, but the ordering does not affect the seed.
   (when (contains? opts :rf.xray/filters-storage-key)
     (set-filters-storage-key! filters-key-opt))

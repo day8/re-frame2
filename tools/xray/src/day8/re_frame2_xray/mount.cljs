@@ -539,7 +539,7 @@
 ;; Insertion order is load-bearing: hooks that depend on a prior hook
 ;; (e.g. `::auto-open-watcher` depends on the mode slot being present)
 ;; appear after their dependencies. The id keywords are mount-internal
-;; (`::seed-trace-and-target-frame`, `::hydrate-filters`, ...) — not
+;; (`::seed-trace-and-target-frame`, `::reset-transient-filters`, ...) — not
 ;; part of the public API.
 
 (register-first-mount-hook!

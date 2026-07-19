@@ -991,10 +991,11 @@
     ;; Filters install AFTER `:rf.xray/active-filters` + the
     ;; add-filter / remove-filter events above are registered (the
     ;; filters facade adds `:rf.xray/filtered-event-bundles` + the edit-
-    ;; popup events + the persistence fx + hydrates the slot from
-    ;; localStorage). Hydration runs through the orchestrator so the
-    ;; idempotency sentinel above prevents the hydrate-dispatch from
-    ;; firing twice on shadow-cljs `:after-load`.
+    ;; popup events + the persistence fx). Install does NOT hydrate
+    ;; `:active-filters` from localStorage — the transient user pills
+    ;; reset on load, and the host seed lands via `mount.cljs`'s
+    ;; `::seed-configured-filters` first-mount hook (after
+    ;; `::reset-transient-filters`).
     (filters/install!)
     ;; Per-event-id mute filter. Installs the
     ;; `:rf.xray/muted-event-ids` slot + the mute / unmute / clear
