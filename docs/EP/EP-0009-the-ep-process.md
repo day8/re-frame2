@@ -136,15 +136,28 @@ The `Status:` line is machine-readable. Its value MUST be one of:
 
 ### Document conventions
 
-- Filename `EP-NNNN-slug.md`; preamble lines `Status:` and `Type:`; standard
-  sections (Abstract, Motivation, Goals/Non-Goals, Relationships,
-  Specification, Rationale, Backwards Compatibility, Bead Plan /
-  Reference Implementation, Open Issues, Recommendation) as applicable.
+- Filename `EP-NNNN-slug.md`; preamble lines `Status:` and `Type:`, plus
+  `Created:` and — from acceptance onward — `Resolution:` for new EPs. New and
+  materially revised EPs follow one forward-looking top-level structure:
+  **Abstract → Motivation → Specification → Rationale → Backwards Compatibility
+  → Resolved Decisions → Open Issues → References**, keeping the sections that
+  apply. This is the compact PEP shape the EP-0030..EP-0035 corpus adopted, and
+  it is the authoring default. Older EPs (this one included) keep their existing
+  sections — their bodies are a historical record, not a migration backlog.
+- Where the older house sections now live: **scope** (goals/non-goals) opens the
+  Specification, and the **ownership** half of the old Relationships section
+  joins it there; **relationships/provenance** — dependencies, cross-references,
+  and supporting spikes/findings — live in **References**; **implementation
+  tracking** lives in the beads issue tracker (referenced from References), and
+  the graduation **guide-impact** assessment closes the Specification (rule 5);
+  **resolved rulings** live in **Resolved Decisions** (rule 2); and the author's
+  **recommendation** is argued in the body and dispositioned under Resolved
+  Decisions once the operator rules.
 - New EPs carry `Type: standards-track` or `Type: process`. EPs predating this
   process may omit `Type:` and are treated as standards-track.
 - State the positive principle first; subtractive framing is migration
   mechanics, not the rule (the EP-0002 lesson).
-- Dependencies live in `Relationships`; the index row in `docs/EP/README.md`
+- Dependencies live in `References`; the index row in `docs/EP/README.md`
   carries status + one-line summary. `check_ep_status_sync.py` enforces README
   status sync, the status grammar, and the `Type:` header rule for post-EP-0005
   EPs.

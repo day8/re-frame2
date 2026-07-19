@@ -2,6 +2,7 @@
 
 Status: proposal
 Type: standards-track
+Created: <YYYY-MM-DD>
 
 <!--
 AUTHORING TEMPLATE — copy this file to `EP-NNNN-<slug>.md`, fill it in, and
@@ -54,6 +55,12 @@ require the header; the gate enforces it).
     (e.g. EP-0007 names `Conventions.md` §Namespacing) or the active EP
     itself (the PEP-8 precedent — EP-0009's home is EP-0009). Name exactly one.
 
+==== Created / Resolution ====
+
+`Created:` is the date this EP file was first added (ISO `YYYY-MM-DD`). Add a
+`Resolution:` line when the operator rules — the acceptance or finalisation date
+(the six re-frame.ui EPs carry both). A `proposal` has no `Resolution:` yet.
+
 ==== Not every EP graduates into spec/ ====
 
 Graduation is per-type, and graduation is not the only outcome. A process EP
@@ -94,49 +101,50 @@ subtractive framing is migration mechanics, not the rule.
 <!-- The problem. Why a bead is not enough — the unresolved alternatives or the
 durable rationale that warrants an EP. -->
 
-## Goals / Non-Goals
-
-<!-- What is in scope for this decision surface, and what is explicitly out.
-One EP, one decision surface — bundling independent decisions invites
-all-or-nothing rulings. -->
-
-## Relationships
-
-<!-- Dependencies and cross-references live HERE (not scattered in prose):
-the EPs and specs this builds on, supersedes, or is constrained by. The
-README index row carries only status + a one-line summary. -->
-
 ## Specification
 
-<!-- The normative content. For a standards-track EP this is the design that
-will graduate into `spec/`; for a process EP it is the rule (and, if the home
-is this EP, this section IS the rule and the rest of the document is
-rationale). Normative-voiced text is permitted at `proposal` — it makes
-graduation a move, not a rewrite — but it binds nothing until accepted. -->
+<!-- The normative content. OPEN with a **Scope** paragraph: what this decision
+surface owns and what is explicitly out — this absorbs the older Goals/Non-Goals
+section and the ownership half of the older Relationships section. One EP, one
+decision surface — bundling independent decisions invites all-or-nothing
+rulings. For a standards-track EP the body is the design that will graduate into
+`spec/`; for a process EP it is the rule (and, if the home is this EP, this
+section IS the rule and the rest of the document is rationale). Normative-voiced
+text is permitted at `proposal` — it makes graduation a move, not a rewrite —
+but it binds nothing until accepted. CLOSE with a **Guide impact** paragraph
+naming which `docs/core` chapters change and which payoffs become newly
+teachable, or recording "no human-facing guide change yet" and why (EP-0009
+§Durability rules 5). Implementation tracking lives in the beads issue tracker,
+not a section here — reference the tracker or program record from References. -->
 
 ## Rationale
 
-<!-- Why this shape over the alternatives considered. -->
+<!-- Why this shape over the alternatives considered. This is where the proposal
+argues its recommended disposition; the operator's ruling on it is recorded
+under Resolved Decisions. -->
 
 ## Backwards Compatibility
 
 <!-- Pre-alpha: there is usually no compatibility surface to preserve. State
 the migration mechanics, if any, here — not as the headline rule. -->
 
-## Bead Plan / Reference Implementation
+## Resolved Decisions
 
-<!-- The waves that carry this EP into its normative home + implementation.
-Each graduation wave includes a guide-impact assessment: name which
-`docs/core` chapters change and which payoffs become newly teachable, or
-record "no human-facing guide change yet" and why. Ledger rows cite live
-bead ids and are struck as they close. -->
+<!-- Operator rulings on this EP's open issues, as they land: decision +
+rationale, dated. An EP MUST NOT go `final`/`active` with open issues silently
+unresolved (EP-0009 §Durability rules 2 — the EP-0001/0002 pattern); a fresh
+proposal may have none yet. After resolution the body is a historical record —
+later factual drift is corrected with dated errata/addenda beside the affected
+passage, never by rewriting settled prose (EP-0009 §Durability rules 3). -->
 
 ## Open Issues
 
-<!-- Questions awaiting an operator ruling. An EP MUST NOT go `final`/`active`
-with open issues silently unresolved — record the disposition of each in a
-`Resolved Decisions` section as rulings land (the EP-0001/0002 pattern). -->
+<!-- Questions awaiting an operator ruling. Each is dispositioned under
+Resolved Decisions as its ruling lands. -->
 
-## Recommendation
+## References
 
-<!-- The author's recommended disposition for the operator to rule on. -->
+<!-- Dependencies, cross-references, and provenance live HERE (not scattered in
+prose): the EPs and specs this builds on, supersedes, or is constrained by, plus
+supporting spikes/findings and the beads/program record that tracks
+implementation. The README index row carries only status + a one-line summary. -->
