@@ -8,8 +8,10 @@ Type: standards-track
 > graduation: the Spec 004 rewrite (handler synchrony law, local placement
 > law, render slots, spread), `spec/004B` (conversion table), `spec/008`
 > (gate roster), `spec/009` (diagnostic rows). Directed by Mike 2026-07-16
-> (in-session); accepted on direction — the implementation beads it filed have
-> all since closed (see §Bead Plan).
+> (in-session); accepted on direction — the immediate S3 implementation beads it
+> filed have all since closed; the trigger-gated candidates it also filed are
+> carried on the program epic `rf2-vxgfnd` against the triggers recorded in
+> §Resolved Decisions (see §Bead Plan).
 
 ## Abstract
 
