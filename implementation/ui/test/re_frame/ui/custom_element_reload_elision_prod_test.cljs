@@ -148,4 +148,34 @@
     (is (= #{:after} (rules/custom-element-properties :own-el))
         (str marker " — a source replaces its own declaration in production"))
 
+    ;; COMPOSITION (rf2-7uyl9) — equal-duplicate admission THEN a replacement from
+    ;; one equal declarer, under :advanced + goog.DEBUG=false. Two sources declare
+    ;; the SAME fact, so BOTH are live declarers; when one then re-declares a
+    ;; different manifest it is NOT a lone self-replacement — the other still
+    ;; contributes #{:p} — so it must be REJECTED with BOTH declarers named, and
+    ;; the shared manifest must survive. This is exactly the provenance the entry
+    ;; must carry through DCE: one canonical owner would have admitted the
+    ;; overwrite here too.
+    (rules/reset-custom-elements!)
+    (rules/register-custom-element! :both-el {:properties #{:p}} 'app.one)
+    (rules/register-custom-element! :both-el {:properties #{:p}} 'app.two)
+    (is (= #{:p} (rules/custom-element-properties :both-el))
+        (str marker " — equal duplicates from two sources co-exist in production"))
+    (let [outcome (try
+                    (rules/register-custom-element! :both-el
+                                                    {:properties #{:changed}}
+                                                    'app.one)
+                    :admitted
+                    (catch :default e (ex-data e)))]
+      (is (= :rf.error/custom-element-conflict (:rf.error/id outcome))
+          (str marker " — a re-declaration over a live equal duplicate is REJECTED "
+               "under DCE, not silently admitted by dropping the other declarer"))
+      (is (= [{:build build :ns 'app.one :properties #{:changed}}
+              {:build build :ns 'app.two :properties #{:p}}]
+             (:declarations outcome))
+          (str marker " — the evidence names EVERY equal declarer, not one "
+               "canonical owner")))
+    (is (= #{:p} (rules/custom-element-properties :both-el))
+        (str marker " — the shared last-known-good manifest survives the rejection"))
+
     (rules/reset-custom-elements!)))

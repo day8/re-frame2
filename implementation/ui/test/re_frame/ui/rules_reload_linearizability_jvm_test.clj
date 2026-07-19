@@ -32,13 +32,14 @@
 
 (defn- declared
   "The live aggregate with each entry's owner provenance stripped
-  (rf2-vxgfnd.143 stamps `[build-id ns-sym]` onto every entry in the same swap
-  as the declaration). These rounds assert WHICH declarations are live under a
-  race, which is orthogonal to who owns them; provenance and the conflict law it
-  anchors are pinned by `re-frame.ui.rules-custom-element-conflict-cljs-test`."
+  (rf2-vxgfnd.143 stamps the declarer `[build-id ns-sym]` set onto every entry in
+  the same swap as the declaration — rf2-7uyl9). These rounds assert WHICH
+  declarations are live under a race, which is orthogonal to who owns them;
+  provenance and the conflict law it anchors are pinned by
+  `re-frame.ui.rules-custom-element-conflict-cljs-test`."
   []
   (into {}
-        (map (fn [[tag entry]] [tag (dissoc entry :re-frame.ui.rules/owner)]))
+        (map (fn [[tag entry]] [tag (dissoc entry :re-frame.ui.rules/owners)]))
         @rules/custom-elements))
 
 (deftest register-races-commit-equals-a-legal-serial-execution

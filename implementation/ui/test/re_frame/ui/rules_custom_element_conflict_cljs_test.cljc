@@ -354,3 +354,100 @@
   (is (= #{:l} (rules/custom-element-properties :lib-el))
       "the other build's row is untouched by the reconcile")
   (is (= (rules/projected-aggregate) @rules/custom-elements)))
+
+;; ---------------------------------------------------------------------------
+;; Every equal declarer is preserved before a replacement (rf2-7uyl9)
+;;
+;; When several sources contribute `rf=`-equal declarations for one tag, the
+;; aggregate must record EVERY one of them — not a single canonical owner. Losing
+;; the others let a source's later self-replacement silently overwrite a manifest
+;; another source still declared, and left conflict evidence unable to name every
+;; declarer. These folds compose the two situations the prior tests covered only
+;; in isolation: equal duplicates, and a source replacing itself.
+;; ---------------------------------------------------------------------------
+
+(deftest an-equal-duplicate-blocks-a-conflicting-self-replacement
+  ;; The bead's canonical repro. Two sources declare the SAME fact, so BOTH are
+  ;; live declarers of :x-el #{:p}. When either of them then re-declares a
+  ;; DIFFERENT manifest it is NOT a lone self-replacement: the OTHER source still
+  ;; contributes #{:p}, so the arriving #{:q} contradicts a live declaration and
+  ;; must be rejected, naming the remaining declarer AND the arrival. Recording
+  ;; one canonical owner lost the other declarer and admitted the overwrite —
+  ;; whether the re-declaration came from the canonical owner or the other one.
+  (doseq [replacer '[a.ns z.ns]]
+    (rules/reset-custom-elements!)
+    (rules/register-custom-element! :x-el {:properties #{:p}} 'a.ns)
+    (rules/register-custom-element! :x-el {:properties #{:p}} 'z.ns)
+    (let [known-good @rules/custom-elements
+          outcome    (register! [:x-el {:properties #{:q}} replacer])
+          arrival    (first (filter #(= replacer (:ns %)) (:declarations outcome)))]
+      (is (= conflict-id (:rf.error/id outcome))
+          (str replacer " re-declaring over a live equal duplicate is rejected"))
+      (is (= 2 (count (:declarations outcome)))
+          "the evidence names the remaining declarer AND the arrival")
+      (is (= #{:q} (:properties arrival))
+          "the arriving source carries its own new declaration")
+      (is (= #{:p} (rules/custom-element-properties :x-el))
+          "the last-known-good manifest is untouched — no silent overwrite")
+      (is (= known-good @rules/custom-elements)
+          "neither the aggregate nor its provenance changed")
+      (is (= (rules/projected-aggregate) @rules/custom-elements)
+          "ledger and aggregate stay coherent — the row never entered ::sources"))))
+
+(deftest a-replacement-conflict-names-every-equal-declarer
+  ;; N sources state the same fact; a contradictory replacement must name EVERY
+  ;; one of them, not a single canonical owner — the anchors are supposed to be
+  ;; complete. And because the evidence is sorted, it is byte-identical under
+  ;; every order the N equal declarers were registered in.
+  (let [declarers '[a.ns m.ns z.ns]
+        run (fn [order]
+              (rules/reset-custom-elements!)
+              (doseq [ns-sym order]
+                (is (= :admitted (register! [:x-el {:properties #{:p}} ns-sym]))
+                    (str ns-sym " states the shared fact and co-exists")))
+              ;; a NEW source contradicts all N equal declarers
+              (register! [:x-el {:properties #{:q}} 'new.ns]))
+        outcomes (map run (permutations declarers))]
+    (is (= 6 (count outcomes)) "all 3! declarer orders ran")
+    (is (every? #(= conflict-id (:rf.error/id %)) outcomes)
+        "the contradiction is rejected in every declarer order")
+    (is (= 1 (count (set outcomes)))
+        "and the evidence is BYTE-IDENTICAL under declarer order")
+    (let [ev (first outcomes)]
+      (is (= 4 (count (:declarations ev)))
+          "all three equal declarers are named, plus the arrival — not one canonical")
+      (is (= '[a.ns m.ns new.ns z.ns] (mapv :ns (:declarations ev)))
+          "every declarer named, sorted by [build ns]")
+      (is (= [#{:p} #{:p} #{:q} #{:p}] (mapv :properties (:declarations ev)))
+          "each equal declarer keeps #{:p}; the arrival carries #{:q}"))
+    (is (= #{:p} (rules/custom-element-properties :x-el))
+        "the last-known-good manifest survives — the replacement never wrote")))
+
+(deftest a-sole-remaining-declarer-can-replace-itself-after-eviction
+  ;; A source replacing its OWN sole declaration is never a conflict. And once a
+  ;; co-declarer is GENUINELY removed — a reload in which it re-runs contributing
+  ;; nothing evicts it — the remaining source becomes sole and may replace itself:
+  ;; provenance shrinks to exactly the live declarers, never a frozen owner.
+  (rules/reset-custom-elements!)
+  (rules/register-custom-element! :x-el {:properties #{:p}} 'a.ns)
+  (is (= :admitted (register! [:x-el {:properties #{:q}} 'a.ns]))
+      "a sole declarer replaces its own declaration freely")
+  (is (= #{:q} (rules/custom-element-properties :x-el)))
+  ;; Reintroduce a co-declarer: now a.ns can no longer change the manifest.
+  (rules/reset-custom-elements!)
+  (rules/register-custom-element! :x-el {:properties #{:p}} 'a.ns)
+  (rules/register-custom-element! :x-el {:properties #{:p}} 'z.ns)
+  (is (= conflict-id (:rf.error/id (register! [:x-el {:properties #{:q}} 'a.ns])))
+      "while z.ns still co-declares, a.ns cannot replace the shared manifest")
+  ;; z.ns's file drops the declaration: it re-runs this cycle contributing
+  ;; nothing, so the reload evicts its row.
+  (rules/notify-reload!)
+  (rules/note-reloaded-sources! ['z.ns])
+  (rules/register-custom-element! :x-el {:properties #{:p}} 'a.ns) ; a.ns re-runs unchanged
+  (rules/commit-reload!)
+  (is (= #{:p} (rules/custom-element-properties :x-el))
+      "z.ns is evicted; a.ns is the sole declarer")
+  (is (= :admitted (register! [:x-el {:properties #{:q}} 'a.ns]))
+      "now the sole remaining declarer may replace itself")
+  (is (= #{:q} (rules/custom-element-properties :x-el)))
+  (is (= (rules/projected-aggregate) @rules/custom-elements)))
