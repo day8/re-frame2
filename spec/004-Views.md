@@ -1139,6 +1139,21 @@ here), **occurrence-path** (a keyed repetition inside one instance — owned her
 compile-time indexes + source anchors; identity under HMR is source anchor + structural
 path + generation, released/remounted on ambiguity.
 
+**Specified vs certified.** The surface below is the ruled design intent; the S3
+conformance slice certifies a bounded **subset** of it
+([`spec/conformance/S3-view-conformance-profile.md`](conformance/S3-view-conformance-profile.md)),
+mirroring [EP-0033 §Shipped surface](../docs/EP/EP-0033-re-frame-ui-view-evidence.md#shipped-surface-and-specified-extensions).
+**Certified today:** occurrence-shaped instance records — an `:occurrence` ordinal +
+`:view-id` + `:root-id` + `:connection` + `:lifecycle` intervals + bounded render evidence
+with explicit loss accounting — and a bounded render-cause **set**, `#{:value :hmr
+:disposed}`. **Specified for S6:** the rich per-commit committed-instance record (integer
+`render-key` / `parent-render-key` / `generation`; **keyword** `frame-id`; `root-id`,
+`view-id`, connection state, observations); the full `:rf.view/causes` **vector** and its
+cause-kind roster; the `data-rf2-source-coord` + render-key DOM annotation on
+compiler-owned host roots; and the Spec 009 evidence-schema rows. That unshipped delta is
+staged to **S6** and owned by `rf2-vxgfnd.98.1`; consumers tolerate the absences
+explicitly rather than fabricating them (`tools/xray/spec/021` §3.4.1).
+
 - **Compiler manifest — what *can* happen.** Per view, dev: source coords, prop slots +
   schema, template fingerprint, hook signature, capability bits, and every site (subs
   with query shapes; events with event shapes + `:serializable?`/`:dynamic` flags;
@@ -1377,7 +1392,7 @@ a conflict is resolved in that order and is a defect in this table.
 | §Roots and mounting — frame preflight ENSURE (runtime) + `frame-root`/`frame-provider` scoping | **S2** | preflight-exactly-once, non-reseed, StrictMode/HMR-immune fixtures |
 | §Roots and mounting — hydration + Root Manifest v1 | **S5** | manifest extension keys; multi-root hydration + failed-root isolation |
 | `ui.test` surfaces this Spec references | **S1** core (render/find/find-all/text/attrs over Tier-1 trees; the frame-targeted synchronous `dispatch!` dispatch-and-drain, no mounted variant; `query` enforces the tier split) → **S2** mounted semantics (Promise-backed `with-root`; native-CSS `query`; Promise-backed zero/thunk `flush!` on CLJS, synchronous nil on JVM; platform APIs for already-host-owned DOM mechanics, no gesture DSL) → **S4** `flush-presence!` | selector-grammar fixtures; JVM-subset enforcement; real React mount/query/total-teardown/open-drain/forgotten-await/fixed-point fixtures. Compiled event-vector delivery through native events rides the S3 handler row, not the S2 mount surface |
-| §View identity and the instrumentation surface | **S3** → budget/absence gates complete **S6** | manifests, instance records, cause vectors, Xray consumption (compile-time site anchors exist from S1; the evidence schema asserts S3); production erasure G-7/G-11 |
+| §View identity and the instrumentation surface | **S3** → budget/absence gates complete **S6** | manifests, instance records, cause vectors, Xray consumption (compile-time site anchors exist from S1; the **bounded evidence subset** asserts S3 — the full evidence schema plus the budget/absence gates complete S6, owned by `rf2-vxgfnd.98.1`); production erasure G-7/G-11 |
 | §The JVM structural subset — structure/props/branches/lists/event intent/`ui/html` + `:rf.error/jvm-host-op` | **S1** | Tier-1 rendering against the tree contract |
 | §The JVM structural subset — subs via the pure snapshot path | **S2** | the Q32/Q22 answer: `sub` *grammar* compiles at S1, but no Stage-1 Tier-1 fixture exercises a sub read — a Tier-1 render through a sub site (frame or `:sub-overrides`) is an S2 assertion |
 | §Hot reload — the view-side contract | **S2** | the full HMR matrix ([EP-0030 §Stages S1–S7](../docs/EP/EP-0030-the-compiled-view-substrate-program.md#stages-s1s7) places it with reactivity, deliberately early) |

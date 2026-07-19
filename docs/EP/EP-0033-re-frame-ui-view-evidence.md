@@ -63,7 +63,7 @@ loss accounting; and a bounded render-cause **set** — `#{:value :hmr
 :disposed}` — with `:local-state` cause evidence riding G-15.
 
 **Specified below but not yet shipped:** the integer `:render-key` /
-`:parent-render-key` / `:frame-id` / `:generation` record fields; the
+`:parent-render-key` / `:generation` record fields and the keyword `:frame-id`; the
 `:rf.view/causes` **vector** and its full cause-kind roster (`:mount`,
 `:subscription` with version from→to, `:prop`, `:epoch-restore`,
 `:hydration-correction`, `:reconnect-correction`, `:foreign-or-react`, …); the
@@ -72,9 +72,10 @@ roots; and the Spec 009 evidence-schema rows.
 
 Consumers tolerate the absences explicitly rather than fabricating them
 (`tools/xray/spec/021` §3.4.1: the S3 producer emits no epoch-restore evidence
-op, and Xray does not invent one). The unshipped delta carries no stage
-assignment and no owner — the Spec 004 ledger row names only budget/absence
-gates for S6 (see Open Issues). The schema below is the ruled design intent.
+op, and Xray does not invent one). The unshipped delta is staged to **S6** and
+owned by `rf2-vxgfnd.98.1` (rf2-ed1py ruling, 2026-07-19); the Spec 004 ledger
+row names its budget/absence gates for S6. The schema below is the ruled design
+intent.
 
 ### Two evidence layers
 
@@ -251,9 +252,11 @@ its own versioned schema from day one.
 
 ## Open Issues
 
-1. The specified-but-unshipped evidence-schema delta (§Shipped surface and
-   specified extensions) has no stage assignment and no owner — the Spec 004
-   ledger row names only budget/absence gates for S6.
+1. **Resolved by assignment (rf2-ed1py ruling, 2026-07-19).** The
+   specified-but-unshipped evidence-schema delta (§Shipped surface and specified
+   extensions) is staged to **S6** and owned by `rf2-vxgfnd.98.1`, a
+   trigger-gated child of the S6 epic. The Spec 004 ledger row's budget/absence
+   gates for S6 stand.
 2. Deferred with a named trigger: a Static-mode mounted-views/manifest-browse
    surface goes to the post-S3 IA review, triggered only if dogfooding shows
    the Views-tab + `mounted-views` assembly failing.
