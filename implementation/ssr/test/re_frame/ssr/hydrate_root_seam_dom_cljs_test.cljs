@@ -129,6 +129,13 @@
    :identifier-prefix      server-prefix
    :element-locator        {:id "seam-container"}})
 
+;; rf2-y3swx — a BARE manifest OMITS :identifier-prefix: the server rendered
+;; under React's effective EMPTY prefix. Valid per the subset property.
+(def ^:private bare-manifest
+  {:rf.root/schema-version 1
+   :root-id                server-root-id
+   :element-locator        {:id "seam-container"}})
+
 (defn- plant-host!
   "Append the shape a real server render emits: the root's container, its Root
   Manifest as the IMMEDIATELY FOLLOWING element sibling (that adjacency is the
@@ -136,15 +143,16 @@
   host so the test can remove it.
 
   `:manifest?` false plants the container with NO adjacent manifest — the
-  `{:missing :manifest}` arm."
-  [{:keys [manifest? server-html]}]
+  `{:missing :manifest}` arm. `:manifest` overrides the planted manifest
+  (defaults to `server-manifest`)."
+  [{:keys [manifest? server-html manifest]}]
   (let [host (.createElement js/document "div")]
     (set! (.-innerHTML host)
           (str "<div id=\"seam-container\">" (or server-html "") "</div>"
                (when manifest?
                  (str "<script type=\"application/edn\" "
                       constants/root-manifest-marker-attribute ">"
-                      (pr-str server-manifest)
+                      (pr-str (or manifest server-manifest))
                       "</script>"))
                "<script id=\"" constants/payload-script-id
                "\" type=\"application/edn\">"
@@ -344,3 +352,117 @@
           (late-bind/set-fn! :ssr/discover-root-manifest original)
           (teardown! host root-atom)
           (restore-act-env! act-prev))))))
+
+;; ---------------------------------------------------------------------------
+;; 4. Omitted manifest prefix -> React's effective empty prefix (rf2-y3swx)
+;;
+;; A Root Manifest that OMITS :identifier-prefix means the server rendered under
+;; React's effective EMPTY prefix "" (hydrateRoot canonicalizes an omitted
+;; identifierPrefix to ""; useId derives from it). The client must treat it the
+;; same, so (a) the client's useId is React's empty-prefix token — identical to
+;; what the server's omitted-prefix render uses, i.e. server and client useId
+;; AGREE — and never a client-synthesized root-id-derived prefix; and (b) two
+;; live omitted-prefix roots both own "" and the second is rejected.
+;; ---------------------------------------------------------------------------
+
+(defn- plant-two-bare-roots!
+  "Two adjacent [container + BARE manifest] pairs (distinct root-ids) in one
+  host — the shape two independently-rendered omitted-prefix roots produce on
+  one page. Server HTML byte-matches the client's first render (`::revealed?`
+  false ⇒ an empty `<i class=\"uid\">`) so hydration is a clean adoption."
+  []
+  (let [host (.createElement js/document "div")
+        pair (fn [id root-id]
+               (str "<div id=\"" id "\"><div class=\"seam\">"
+                    "<span class=\"greeting\">client-default</span>"
+                    "<i class=\"uid\"></i></div></div>"
+                    "<script type=\"application/edn\" "
+                    constants/root-manifest-marker-attribute ">"
+                    (pr-str {:rf.root/schema-version 1
+                             :root-id                root-id
+                             :element-locator        {:id id}})
+                    "</script>"))]
+    (set! (.-innerHTML host) (str (pair "bare-a" ::bare-a) (pair "bare-b" ::bare-b)))
+    (.appendChild (.-body js/document) host)
+    host))
+
+(deftest two-omitted-prefix-hydrations-collide-on-empty-effective-prefix
+  (when (browser?)
+    (async done
+      (let [act-prev  (disable-act-env!)
+            host      (plant-two-bare-roots!)
+            root-atom (atom nil)]
+        (rf/init! ui/adapter)
+        (rf/make-frame {:id app-frame :platform :client})
+        (try
+          ;; the FIRST omitted-prefix root hydrates and registers
+          (reset! root-atom
+                  (ui/hydrate-root (.querySelector host "#bare-a")
+                                   [ui/frame-provider {:frame app-frame} [seam-root]]))
+          (testing "the live-root registry records the actual effective prefix \"\""
+            (is (= "" (:identifier-prefix (ui-client/live-root-entry ::bare-a)))
+                "an omitted manifest prefix is stored as React's effective empty prefix"))
+          ;; the SECOND — distinct root-id, distinct container — is rejected
+          ;; BEFORE any React work, because both own the effective "" prefix
+          (let [{:keys [id data]}
+                (thrown-error #(ui/hydrate-root (.querySelector host "#bare-b")
+                                                [ui/frame-provider {:frame app-frame}
+                                                 [seam-root]]))]
+            (testing "the second omitted-prefix root is rejected loud"
+              (is (= :rf.error/duplicate-identifier-prefix id)
+                  "two live roots cannot share React's effective \"\" prefix")
+              (is (= "" (:identifier-prefix data))
+                  "the collision reports the effective empty prefix")
+              (is (= ::bare-a (:owner-root-id data))
+                  "and names the owning root")))
+          (finally
+            (js/setTimeout
+             (fn [] (teardown! host root-atom) (restore-act-env! act-prev) (done))
+             0)))))))
+
+(deftest hydrate-root-omitted-prefix-uses-react-effective-empty-prefix
+  (when (browser?)
+    (async done
+      (let [act-prev (disable-act-env!)
+            host     (plant-host!
+                      {:manifest?   true
+                       :manifest    bare-manifest
+                       :server-html (str "<div class=\"seam\">"
+                                         "<span class=\"greeting\">seam-server</span>"
+                                         "<i class=\"uid\"></i>"
+                                         "</div>")})
+            root-atom (atom nil)]
+        (rf/init! ui/adapter)
+        (rf/make-frame {:id app-frame :platform :client})
+        (ssr/hydrate! {:frame app-frame})
+        (reset! root-atom
+                (ui/hydrate-root (container host)
+                                 [ui/frame-provider {:frame app-frame} [seam-root]]))
+        (js/setTimeout
+         (fn []
+           (rf/dispatch-sync [::reveal-uid] {:frame app-frame})
+           (js/setTimeout
+            (fn []
+              (try
+                (testing "the omitted-prefix root took React's effective EMPTY prefix"
+                  (let [uid (.-textContent (.querySelector host "i.uid"))]
+                    (is (seq uid)
+                        "the compiled view rendered the use-id value")
+                    ;; React 19.2's empty-prefix useId is `_R_<n>_` — the prefix
+                    ;; segment between the leading `_` and `R` is EMPTY. A
+                    ;; non-empty prefix would appear there (e.g. `_srv7-R_0_`),
+                    ;; and the ui-derived default would inject the root-id slug.
+                    ;; The empty prefix is EXACTLY what the server uses when it
+                    ;; omits identifierPrefix, so server and client useId AGREE.
+                    (is (str/starts-with? uid "_R")
+                        (str "the rendered use-id " (pr-str uid) " carries React's "
+                             "empty-prefix marker — the same effective prefix the "
+                             "server used, so server and client use-id agree"))
+                    (is (not (str/includes? uid "rf2-"))
+                        "no root-id-derived prefix was synthesized on the client")))
+                (finally
+                  (teardown! host root-atom)
+                  (restore-act-env! act-prev)
+                  (done))))
+            0))
+         0)))))

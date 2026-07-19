@@ -422,10 +422,19 @@ Registering an id already live in the document throws
 is untouched (failure isolation). This is the last line, catching fragments composed
 client-side by independently shipped bundles. It also asserts **identifier-prefix
 uniqueness** across the document's live roots — the client-tier mirror of the Layer-2
-server check — so two live roots that share an effective `identifierPrefix` (only
-possible via an **authored** `:identifier-prefix`; the derived default is injective
-over root-id, §1) fail loud on the second claim rather than colliding `use-id` output;
-release frees the prefix.
+server check — so two live roots that share an effective `identifierPrefix` fail loud
+on the second claim rather than colliding `use-id` output; release frees the prefix. A
+shared effective prefix arises **two** ways: an **authored** `:identifier-prefix` that
+aliases (the derived mount-path default `"rf2-" + root-id-slug + "-"` is injective over
+root-id, §1, so it never collides on its own); **or** a **hydrating** root whose Root
+Manifest OMITS `:identifier-prefix` — the server rendered under React's effective
+**empty** prefix `""` (React's `hydrateRoot` has no distinct "no prefix" state: it
+canonicalizes an omitted `identifierPrefix` to `""`, and `useId` derives from it), which
+discovery canonicalizes so two such omitted-prefix roots are seen to share `""` and the
+second is rejected. Discovery canonicalizes only the resolved **identity**; the manifest
+wire form keeps `:identifier-prefix` an optional extension key (§2), and no root-id-
+derived prefix is ever synthesized client-side (that would disagree with the server the
+manifest speaks for and break hydration).
 
 A failed first mount that already allocated/registered its React Root is an exact-incarnation
 teardown transaction, not an inline registry delete: mark the whole claim `:tearing-down` before
@@ -449,7 +458,7 @@ prefix-uniqueness backstop share the roster:
 | `:rf.error/duplicate-root-id` | equal root-id at any layer above; client `:existing` includes `:tearing-down? true` while settlement is fenced |
 | `:rf.error/root-container-missing` | hydration locator resolves to no element (§4) |
 | `:rf.error/root-container-in-use` | `create-root`/`mount` on a node already owned by a different live or tearing-down root |
-| `:rf.error/duplicate-identifier-prefix` | `create-root`/`mount` whose effective `identifierPrefix` is already claimed by a different live root — backstops authored `:identifier-prefix` aliasing (the derived default is injective over root-id, §1) |
+| `:rf.error/duplicate-identifier-prefix` | `create-root`/`mount`/`hydrate-root` whose effective `identifierPrefix` is already claimed by a different live root — backstops authored `:identifier-prefix` aliasing, and hydrating roots that share React's effective empty prefix `""` when the manifest omits `:identifier-prefix` (the derived mount default is injective over root-id, §1) |
 | `:rf.error/root-not-live` | `render!` on a `Root` whose id is no longer live — `unmount!`ed, tearing-down, or superseded by a newer root claiming the same id (guarded like `unmount!`, but fails loud rather than no-op, before any side effect) |
 | `:rf.error/root-manifest-invalid` | manifest missing/unreadable at hydrate, schema-version incompatible, identity opts passed client-side, unserialisable props at emit, prefix conflict |
 | `:rf.error/frame-payload-conflict` | below |

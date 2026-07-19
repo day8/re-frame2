@@ -26,6 +26,9 @@
             [re-frame.ssr.manifest :as manifest]
             [re-frame.ui.compiler.env :as env]
             [re-frame.ui.compiler.root :as root]
+            ;; CLJS-only: the rf2-y3swx registry-collision proof drives the
+            ;; client Layer-3 root-claim registry (headless — no DOM needed).
+            #?(:cljs [re-frame.ui.client :as ui-client])
             #?(:clj  [clojure.edn]
                :cljs [cljs.reader])))
 
@@ -718,9 +721,13 @@
 
 #?(:cljs
    (deftest discovery-is-adjacency-and-content
+     ;; `m` carries an AUTHORED `:identifier-prefix`, so `discover` passes it
+     ;; through verbatim and this test stays about ADJACENCY (the omitted-prefix
+     ;; canonicalization has its own test below, rf2-y3swx).
      (let [m    (manifest/manifest {:rf.root/schema-version 1
                                     :root-id :page/shop}
-                                   {:element-locator {:id "shop-root"}})
+                                   {:element-locator   {:id "shop-root"}
+                                    :identifier-prefix "shop-"})
            body (pr-str m)
            script (stub-el {:attrs {"type" "application/edn"
                                     constants/root-manifest-marker-attribute ""}
@@ -748,3 +755,101 @@
                     (stub-el {:tag "DIV"
                               :next (stub-el {:tag "DIV" :next script})})))
              "discovery does not walk — adjacency is the whole rule")))))
+
+;; ---------------------------------------------------------------------------
+;; Omitted identifier-prefix -> React's effective empty prefix (rf2-y3swx)
+;;
+;; React 19.2's hydrateRoot has no distinct "no prefix" state: it canonicalizes
+;; an omitted `identifierPrefix` option to the empty string "", and useId
+;; derives its ids from that empty prefix (server renderToString with no prefix
+;; does the same). So a bare Root Manifest that OMITS :identifier-prefix means
+;; the server rendered under React's effective EMPTY prefix — not "no effective
+;; prefix". Discovery, the hydration identity boundary, resolves that to "".
+;; ---------------------------------------------------------------------------
+
+(deftest canonicalize-effective-prefix-resolves-omitted-to-react-empty
+  (testing "an OMITTED :identifier-prefix resolves to React's effective \"\""
+    (is (= {:rf.root/schema-version 1 :root-id :page/shop :identifier-prefix ""}
+           (manifest/canonicalize-effective-prefix
+            {:rf.root/schema-version 1 :root-id :page/shop})))
+    (is (= "" (:identifier-prefix
+               (manifest/canonicalize-effective-prefix
+                {:rf.root/schema-version 1 :root-id :page/shop})))
+        "the resolved effective prefix is the empty string, not nil"))
+  (testing "an AUTHORED :identifier-prefix is passed through UNTOUCHED"
+    (is (= {:rf.root/schema-version 1 :root-id :page/shop :identifier-prefix "shop-"}
+           (manifest/canonicalize-effective-prefix
+            {:rf.root/schema-version 1 :root-id :page/shop :identifier-prefix "shop-"})))
+    (is (= {:rf.root/schema-version 1 :root-id :page/shop :identifier-prefix ""}
+           (manifest/canonicalize-effective-prefix
+            {:rf.root/schema-version 1 :root-id :page/shop :identifier-prefix ""}))
+        "an explicitly-empty authored prefix is left as-is (already \"\")")))
+
+#?(:cljs
+   (deftest discover-stamps-react-empty-prefix-on-a-bare-manifest
+     ;; RED-BEFORE: the shipped `discover` returned the bare manifest verbatim,
+     ;; so `hydrate-root*` read a NIL prefix and the Layer-3 prefix-uniqueness
+     ;; arm (a no-op on nil) admitted every omitted-prefix root.
+     (let [bare   (manifest/manifest {:rf.root/schema-version 1 :root-id :page/a})
+           script (stub-el {:attrs {"type" "application/edn"
+                                    constants/root-manifest-marker-attribute ""}
+                            :text  (pr-str bare)})
+           found  (manifest/discover (stub-el {:tag "DIV" :next script}))]
+       (testing "the bare manifest omits :identifier-prefix on the wire"
+         (is (not (contains? bare :identifier-prefix))
+             "manifest optionality is preserved — the extension key is absent"))
+       (testing "discovery resolves it to React's effective empty prefix"
+         (is (= "" (:identifier-prefix found)))
+         (is (= (assoc bare :identifier-prefix "") found)
+             "identity is the manifest plus the resolved effective prefix")))))
+
+#?(:cljs
+   (deftest omitted-prefix-roots-collide-on-react-empty-effective-prefix
+     ;; The end-to-end property, driven headlessly through the client Layer-3
+     ;; registry (`re-frame.ui.client`) with infos derived exactly as
+     ;; `hydrate-root*` derives them from a discovered manifest.
+     (try
+       (ui-client/reset-live-roots!)
+       (let [pfx-a (:identifier-prefix (manifest/canonicalize-effective-prefix
+                                        {:rf.root/schema-version 1 :root-id :y3swx/a}))
+             pfx-b (:identifier-prefix (manifest/canonicalize-effective-prefix
+                                        {:rf.root/schema-version 1 :root-id :y3swx/b}))
+             info-a {:root-id :y3swx/a :provenance :manifest :identifier-prefix pfx-a}
+             info-b {:root-id :y3swx/b :provenance :manifest :identifier-prefix pfx-b}
+             c-a    #js {} c-b #js {}]
+         (testing "both omitted-prefix manifests resolve to React's empty prefix"
+           (is (= "" pfx-a))
+           (is (= "" pfx-b)))
+         ;; first bare-manifest root claims + registers
+         (ui-client/check-root-claim! 're-frame.ssr.test info-a c-a)
+         (ui-client/register-live-root! info-a c-a (ui-client/->Root nil c-a :y3swx/a))
+         (testing "the live-root registry records the actual effective prefix \"\""
+           (is (= "" (:identifier-prefix (ui-client/live-root-entry :y3swx/a)))))
+         (testing "a SECOND omitted-prefix root is rejected before any React work"
+           (let [{:keys [id data]}
+                 (try (ui-client/check-root-claim! 're-frame.ssr.test info-b c-b) nil
+                      (catch :default e {:id (:rf.error/id (ex-data e)) :data (ex-data e)}))]
+             (is (= :rf.error/duplicate-identifier-prefix id)
+                 "two omitted-prefix roots share React's effective \"\" prefix")
+             (is (= "" (:identifier-prefix data))
+                 "the collision reports the effective empty prefix")
+             (is (= :y3swx/a (:owner-root-id data))
+                 "and names the owning root"))))
+       (finally (ui-client/reset-live-roots!)))))
+
+#?(:cljs
+   (deftest red-before-nil-prefix-roots-do-not-collide
+     ;; The exact pre-fix gap: a NIL prefix (what un-canonicalized discovery
+     ;; yielded) is a no-op in the prefix-uniqueness arm, so two bare roots were
+     ;; both admitted. This is the failure the canonicalization closes.
+     (try
+       (ui-client/reset-live-roots!)
+       (let [info-a {:root-id :y3swx/c :provenance :manifest :identifier-prefix nil}
+             info-b {:root-id :y3swx/d :provenance :manifest :identifier-prefix nil}
+             c-a    #js {} c-b #js {}]
+         (ui-client/check-root-claim! 're-frame.ssr.test info-a c-a)
+         (ui-client/register-live-root! info-a c-a (ui-client/->Root nil c-a :y3swx/c))
+         (is (nil? (try (ui-client/check-root-claim! 're-frame.ssr.test info-b c-b) nil
+                        (catch :default e (:rf.error/id (ex-data e)))))
+             "with a nil effective prefix the second root is (wrongly) admitted — the gap"))
+       (finally (ui-client/reset-live-roots!)))))
