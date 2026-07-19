@@ -401,10 +401,21 @@
                     "the delta (which arrived FIRST) is quarantined once its boundary resolved FAILED — never merged")
                 (is (zero? (count (array-seq (.querySelectorAll host (str "[" wire/attr-suspense-hydrate "]")))))
                     "the contradictory delta script is consumed")
+                ;; Scope the match to THIS boundary's own id. `captured` is a
+                ;; PROCESS-GLOBAL trace listener — it observes every namespace's
+                ;; events, including any deferred emit a sibling suite leaked into
+                ;; this test's `js/setTimeout` settle window — so an
+                ;; `:operation`+`:recovery`-only match could go green on a foreign
+                ;; `:quarantined-delta` while THIS `:card.flaky` boundary emitted
+                ;; none (the rf2-veyfp false-green). The producer carries the
+                ;; authored boundary under `[:tags :id]` (see string-boundary-id
+                ;; test); scoping by it is a pure narrowing — it can only reject a
+                ;; foreign boundary, never loosen the subject match.
                 (is (some #(and (= :rf.ssr/suspense-boundary-failed (:operation %))
-                                (= :quarantined-delta (:recovery %)))
+                                (= :quarantined-delta (:recovery %))
+                                (= :card.flaky (-> % :tags :id)))
                           @captured)
-                    ":quarantined-delta diagnostic emitted for the failed-boundary delta")
+                    ":quarantined-delta diagnostic emitted for the :card.flaky failed-boundary delta")
                 (stop!)
                 (remove-root! host)
                 (done))
