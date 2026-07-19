@@ -657,35 +657,44 @@ For per-run structured projections (sub-cache hit/miss, render attribution, effe
 
 ### Subscribing to assembled epoch records
 
-`register-epoch-listener!` callbacks publish one record per **dequeued event** (one per epoch, per [002 §Drain versus event](002-Frames.md#drain-versus-event--the-epoch-unit)), with the run's `:sub-runs` / `:renders` / `:effects` projections already computed. A drain that settles several events back-to-back therefore publishes one record per settled event, in dequeue order. The callback is a **publication**, not a counter: the same epoch re-publishes — carrying the same `:epoch-id` — when a post-settle render / sub-run / unmount back-fills into it, and synthetic records (`:rf.epoch/db-replaced`, `:halted-depth`, and the terminal `:halted-destroy`) publish with no dequeued event. Since the listener is process-global while `:epoch-id` is unique only within one frame, reconcile on the pair `[(:frame record) (:epoch-id record)]` and REPLACE on re-publication rather than counting callbacks. Pair-shaped tools, post-mortem dashboards, and "what just happened?" probes typically consume this shape rather than re-folding the raw trace stream:
+`register-epoch-listener!` callbacks publish one record per **dequeued event** (one per epoch, per [002 §Drain versus event](002-Frames.md#drain-versus-event--the-epoch-unit)), with the run's `:sub-runs` / `:renders` / `:effects` projections already computed. A drain that settles several events back-to-back therefore publishes one record per settled event, in dequeue order. The callback is a **publication**, not a counter: the same epoch re-publishes — carrying the same `:epoch-id` — when a post-settle render / sub-run / unmount back-fills into it; the synthetic `:rf.epoch/db-replaced` and `:halted-depth` records publish with no dequeued event, while the terminal `:halted-destroy` closes an already-started event interrupted mid-drain by frame destruction (delivered to listeners only). Since the listener is process-global while `:epoch-id` is unique only within one frame, reconcile on the pair `[(:frame record) (:epoch-id record)]` and REPLACE on re-publication rather than counting callbacks. Pair-shaped tools, post-mortem dashboards, and "what just happened?" probes typically consume this shape rather than re-folding the raw trace stream:
 
 ```clojure
 ;; A pair-tool dashboard routing diagnostics off the assembled per-run record.
-;; - One callback per dequeued event / epoch (NOT per drain, NOT per emitted trace event).
+;; - One callback per PUBLICATION, not per event: the same [frame epoch-id]
+;;   re-publishes when a post-settle render / sub-run / unmount back-fills into
+;;   it, so the callback REPLACES that key's cached summary rather than
+;;   accumulating — cumulative side effects would double-count (and re-fire an
+;;   fx-error alert) on re-publication.
 ;; - The record is fully shaped: :db-before, :db-after, :sub-runs, :renders, :effects.
-;; - The record has already been appended to (rf/epoch-history (:frame ev)).
+;; - The record is in (rf/epoch-history (:frame ev)) only WHEN DEPTH PERMITS — a
+;;   depth-0 ring retains nothing and the terminal :halted-destroy record is
+;;   listener-only — so the dashboard reads its OWN cache, not the ring.
+
+(defonce dashboard-cache (atom {}))   ;; {[frame epoch-id] -> per-run summary}
 
 (rf/register-listener! :epoch
   :my-tool/dashboard
-  (fn [{:keys [frame event-id epoch-id sub-runs renders effects] :as record}]
-    ;; Cache-hit-vs-rerun: every entry in :sub-runs is a recompute;
-    ;; cache-hit subs are absent. Counting :sub-runs answers
-    ;; "how many subs moved this run?"
-    (record-recomputes! frame event-id (count sub-runs))
-
-    ;; Render attribution: :renders[*].:render-key is [<view-id> <instance-token>].
-    ;; Aggregate by first slot to count "view X re-rendered N times this run."
-    (doseq [{:keys [render-key elapsed-ms]} renders]
-      (record-render! frame (first render-key) elapsed-ms))
-
-    ;; Fx outcome: every dispatched fx surfaces exactly one :effects entry.
-    ;; :outcome ∈ {:ok :error :skipped-on-platform}; route :error entries to UI.
-    (doseq [{:keys [fx-id outcome error-trace]} effects]
-      (when (= :error outcome)
-        (surface-fx-error! frame epoch-id fx-id error-trace)))
-
-    ;; The epoch is already in (rf/epoch-history frame); no need to re-query
-    ;; unless the dashboard wants the full vector for context.
+  (fn [{:keys [frame epoch-id sub-runs renders effects]}]
+    ;; Reconcile on [frame epoch-id] and REPLACE that entry: a re-published
+    ;; epoch overwrites its prior summary instead of counting a second time.
+    ;; (:epoch-id is unique only within one frame; the listener is process-global.)
+    (swap! dashboard-cache assoc [frame epoch-id]
+           {;; Cache-hit-vs-rerun: every entry in :sub-runs is a recompute;
+            ;; cache-hit subs are absent. (count sub-runs) answers
+            ;; "how many subs moved this run?"
+            :recomputes      (count sub-runs)
+            ;; Render attribution: :renders[*].:render-key is
+            ;; [<view-id> <instance-token>]. Group by first slot to count
+            ;; "view X re-rendered N times this run."
+            :renders-by-view (frequencies (map (comp first :render-key) renders))
+            ;; Fx outcome: every dispatched fx surfaces exactly one :effects
+            ;; entry. :outcome ∈ {:ok :error :skipped-on-platform}.
+            :fx-errors       (filterv #(= :error (:outcome %)) effects)})
+    ;; Derive / render the dashboard from the cache — idempotent under
+    ;; re-publication because the key's entry was replaced, so an fx-error
+    ;; alert fires once, not again each time the epoch re-publishes.
+    (render-dashboard! @dashboard-cache)
     nil))
 ```
 
