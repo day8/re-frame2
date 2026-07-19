@@ -231,9 +231,9 @@ Three durable owners, no overlap. When you have a secret, this is the table to w
 
     A sub or flow that *reads* a sensitive input does **not** auto-classify its output. If you derive a secret to a new path — through a sub, a flow, a rendered field — classify *that* path. A sensitive flow output is just a classified db path. There's no value-match "same value redacted everywhere" engine and no declassification claim that travels with a derived value. Path in, path out, every time. The design picks the simplest thing that works: record the path, redact at egress. No taint, no propagation, no magic.
 
-!!! note "The size backstop is the one thing that fires without a declaration"
+!!! warning "The size threshold *warns*; it does not elide"
 
-    The large axis has a safety net the sensitive axis doesn't: an *oversized* value auto-elides at egress even at a path you never classified `:large`, governed by `:rf.size/threshold-bytes` (default 16384, overridable via `(rf/configure! {:elision {:rf.size/threshold-bytes N}})`). That keeps a surprise 5MB blob out of a trace. It is **not** a secrecy backstop — a small secret sails straight through. Sensitive is strictly opt-in by path.
+    It is tempting to think the large axis has a safety net the sensitive axis lacks — that an *oversized* value is auto-elided at egress even at a path you never classified `:large`. **It is not.** When the walker meets a large string at an undeclared path it emits the `:rf.warning/large-value-unschema'd` advisory — a *nudge* to go classify the path — governed by `:rf.size/threshold-bytes` (default 16384, overridable via `(rf/configure! {:elision {:rf.size/threshold-bytes N}})`), and then **forwards the value raw**. The threshold is a warning signal, not a cap. To actually keep an oversized value out of a trace you must declare the path `:large`; to keep a *secret* out you must declare it `:sensitive`. Nothing auto-protects a value you never classified — classification is strictly opt-in by path, on both axes.
 
 ## Wire an off-box shipper
 
