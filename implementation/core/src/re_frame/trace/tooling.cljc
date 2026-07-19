@@ -819,9 +819,13 @@
 ;; Emission ORDER is preserved:
 ;; the ring push and epoch capture still run inline, the pending vector
 ;; is FIFO, and the whole batch is flushed under one monitor hold, so a drain's
-;; own traces reach listeners contiguously and in order. Each deferred event is
-;; driven through its OWN `run-outermost-fanout!`, so a listener's reentrant emit
-;; is scheduled against that event exactly as it would have been inline.
+;; own traces reach listeners contiguously and in order. The WHOLE captured batch
+;; is queued onto ONE fan-out schedule before any callback runs (rf2-t6vs3) —
+;; `run-outermost-fanout!` for a top-level flush, `into` the active `*fanout-ctx*`
+;; for an integrated one — so a listener that authors a later trace while an
+;; earlier deferred entry is being fanned out appends BEHIND the still-pending
+;; later entries rather than overtaking them, exactly as an inline delivery of the
+;; same run would have ordered them.
 ;;
 ;; Same-thread reentrancy does NOT re-acquire the monitor: a nested emit sees
 ;; `*fanout-ctx*` already bound and takes the append+drive branch below, so it
@@ -968,27 +972,30 @@
                 (recur))))))))
 
 (defn- run-outermost-fanout!
-  "Seed a fresh fan-out schedule for `event`, bind it as `*fanout-ctx*` so
-  reentrant emits from listener bodies advance the SAME schedule, and drive it to
-  completion. Always runs under `fanout-monitor` on the JVM so concurrent emits
-  serialize (rf2-uw7hg) — either directly (a clean emit) or inside the post-drain
-  flush of a deferred batch (rf2-wxy1c); see the `deliver-to-tooling!` outermost
-  branch. The binding + drive are the whole critical section.
+  "Seed ONE fresh fan-out schedule for a whole `batch` of queue entries, bind it
+  as `*fanout-ctx*` so reentrant emits from listener bodies advance the SAME
+  schedule, and drive it to completion. Always runs under `fanout-monitor` on the
+  JVM so concurrent emits serialize (rf2-uw7hg) — either a single clean emit
+  (`batch` is one entry) or the whole post-drain flush of a deferred batch
+  (rf2-wxy1c); see the `deliver-to-tooling!` outermost branch and
+  `drain-deferred-batch!`. The binding + drive are the whole critical section.
 
-  `entries` pre-seeds the listener snapshot for THIS event instead of letting the
-  driver take one at delivery time. The post-drain flush passes the snapshot
-  captured when the event was APPENDED, so a deferred delivery reaches exactly the
-  listeners an inline delivery would have; nil (the default) keeps the ordinary
-  snapshot-at-delivery behaviour. Reentrant events queued behind this one always
-  re-snapshot — the driver resets `:entries` to nil as it advances."
-  ([event continue?] (run-outermost-fanout! event continue? nil))
-  ([event continue? entries]
-   (let [ctx {:q       (volatile! [[event continue?]])
-              :head    (volatile! 0)
-              :entries (volatile! entries)
-              :lcursor (volatile! 0)}]
-     (binding [*fanout-ctx* ctx]
-       (drive-fanout! ctx)))))
+  Seeding the WHOLE batch before driving is what keeps a deferred batch FIFO
+  (rf2-t6vs3): a listener that authors a later trace while an EARLIER deferred
+  entry is being fanned out appends BEHIND the still-pending later entries rather
+  than overtaking them. `:entries` starts nil and `drive-fanout!` re-reads it per
+  event as it advances `:head`, so a queued triple `[event continue? snapshot]`
+  delivers under the listener snapshot captured when it was APPENDED (exactly the
+  listeners an inline delivery would have reached), while a plain pair
+  `[event continue?]` — a single clean emit, or a reentrant child queued behind
+  the batch — re-snapshots live, as an inline listener-body emit always does."
+  [batch]
+  (let [ctx {:q       (volatile! (vec batch))
+             :head    (volatile! 0)
+             :entries (volatile! nil)
+             :lcursor (volatile! 0)}]
+    (binding [*fanout-ctx* ctx]
+      (drive-fanout! ctx))))
 
 (def ^:private unread
   "Distinct baseline sentinel for `deferred-continue` — a fresh object, held by
@@ -1079,23 +1086,27 @@
           ;; A listener-initiated `dispatch-sync` (rf2-6t6qk): the flush runs
           ;; while an OUTER listener fan-out is still paused inside the very
           ;; listener body that opened this drain. INTEGRATE into that active
-          ;; schedule rather than seeding fresh outermost fan-outs — `drive-
+          ;; schedule rather than seeding fresh outermost fan-outs. Enqueue the
+          ;; WHOLE captured batch FIRST, then drive once (rf2-t6vs3): `drive-
           ;; fanout!` advances the paused outer event to its remaining listeners
           ;; FIRST, so every listener still observes the outer event before these
-          ;; nested drain-owned ones (rf2-1zxlsm), and the whole batch is
-          ;; delivered before the enclosing `dispatch-sync` returns (rf2-s522m).
-          ;; The appended triple carries the append-time listener snapshot, which
-          ;; `drive-fanout!` honours. No monitor re-acquire is needed: the outer
-          ;; drive already holds it (JVM), and CLJS has none.
-          (doseq [[event continue? entries] batch]
-            (vswap! (:q ctx) conj [event continue? entries])
-            (drive-fanout! ctx))
-          ;; Outermost drain (a top-level dispatch-sync / async drain): each
-          ;; event is its own outermost fan-out under its append-time snapshot,
-          ;; so a listener's reentrant emit is scheduled against it exactly as it
-          ;; would have been inline.
-          (doseq [[event continue? entries] batch]
-            (run-outermost-fanout! event continue? entries)))
+          ;; nested drain-owned ones (rf2-1zxlsm); the whole batch is delivered
+          ;; before the enclosing `dispatch-sync` returns (rf2-s522m); and a
+          ;; listener that authors a later trace while an EARLIER batch item is
+          ;; being driven appends BEHIND the still-pending later items instead of
+          ;; overtaking them (rf2-t6vs3 FIFO). Each entry already carries its
+          ;; append-time listener snapshot, which `drive-fanout!` honours. No
+          ;; monitor re-acquire is needed: the outer drive already holds it (JVM),
+          ;; and CLJS has none.
+          (do (vswap! (:q ctx) into batch)
+              (drive-fanout! ctx))
+          ;; Outermost drain (a top-level dispatch-sync / async drain): seed ONE
+          ;; fresh outermost schedule for the WHOLE batch (rf2-t6vs3), so the
+          ;; entire batch is queued before any callback runs and a listener's
+          ;; reentrant emit during an earlier deferred event lands behind the
+          ;; later ones rather than overtaking them. Each event is still delivered
+          ;; under its own append-time snapshot.
+          (run-outermost-fanout! batch))
         (recur)))))
 
 (defn- flush-deferred-fanout!
@@ -1248,8 +1259,8 @@
        ;; held for the whole drive, and nothing can wait on it through a
        ;; drain-lock. CLJS is single-threaded and runs every outermost emit inline
        ;; with no monitor.
-       #?(:clj  (locking fanout-monitor (run-outermost-fanout! event continue?))
-          :cljs (run-outermost-fanout! event continue?))))))
+       #?(:clj  (locking fanout-monitor (run-outermost-fanout! [[event continue?]]))
+          :cljs (run-outermost-fanout! [[event continue?]]))))))
 
 (late-bind/set-fn! :trace.tooling/deliver! deliver-to-tooling!)
 
