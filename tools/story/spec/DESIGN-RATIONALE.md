@@ -2,9 +2,10 @@
 
 > WHY each major design call was made. The capability docs say *what*
 > the surface is; this document says *why* it's that shape and not
-> some other plausible shape. The seven rf2-m6tu §6 decisions, the
-> Phase-2 SOTA additions, plus the calls that emerged during the
-> IMPL-SPEC drafting itself.
+> some other plausible shape. The seven rf2-m6tu §6 decisions and the
+> five ownership boundaries that accompany them, the Phase-2 SOTA
+> additions, plus the calls that emerged during the IMPL-SPEC drafting
+> itself.
 
 ## The seven architectural decisions (rf2-m6tu §6, resolved 2026-05-11)
 
@@ -157,41 +158,98 @@ registration call) and to `nil` in production. Compile-time flag is
 override to `false` for prod builds). See
 [`005-SOTA-Features.md`](005-SOTA-Features.md) §Production elision.
 
-### §xray-embed — embed via `reg-story-panel`
+### §xray-embed — embed via Xray's per-panel mount API
 
-**Decision.** Story does **not** reimplement an epoch UI. Story
-registers Xray's existing epoch / time-travel panel as a story panel
-via (Xray is the structural successor to re-frame-10x, per
+**Decision.** Story does **not** reimplement a diagnostics UI. Story
+mounts Xray's own panels into its right-hand inspector through
+Xray's explicit per-panel mount API (Xray is the structural
+successor to re-frame-10x, per
 [`tools/xray/spec/DESIGN-RATIONALE.md`](../../xray/spec/DESIGN-RATIONALE.md)
-Lock #1):
+Lock #1). The RHS hosts **one** panel at a time; a chip-row picker
+swaps the lens at runtime, and a story may preselect one through the
+`:xray-panel` slot.
+
+The integration point is a single embed descriptor — the sole
+mount-routing owner — pairing each panel id with the
+`day8.re-frame2-xray.panels/mount-<panel>!` fn that renders it:
 
 ```clojure
-(story/reg-story-panel :rf.story/xray-epoch
-  {:doc       "Xray's epoch buffer for the active variant."
-   :title     "Epochs (Xray)"
-   :placement :bottom
-   :render    :day8.re-frame2-xray.panels.time-travel/Panel})
+;; tools/story/src/re_frame/story/ui/xray_embed.cljs
+[{:panel :epoch    :chip? true :mount xray-panels/mount-epoch-panel!}
+ {:panel :app-db   :chip? true :mount xray-panels/mount-app-db-diff!}
+ {:panel :views    :chip? true :mount xray-panels/mount-reactive-panel!}
+ {:panel :trace    :chip? true :mount xray-panels/mount-trace!}
+ {:panel :machines :chip? true :mount xray-panels/mount-machine-inspector!}
+ {:panel :routing  :chip? true :mount xray-panels/mount-routing!}
+ ;; non-chip: routable, but never offered in the picker
+ {:panel :event-spine :chip? false :mount xray-panels/mount-event-spine!}]
 ```
 
-The view is consumed from `day8/re-frame2-xray` (per the
-`tools/xray/` line in [`tools/README.md`](../../README.md)).
-Story's panel is the **adapter**; Xray stays its own artefact, on
-its own release cadence.
+Six chip panels plus the non-chip `:event-spine` band. The chip-row
+catalog, the valid-slot set, and the mount dispatch are all *derived*
+from this one descriptor, so a panel cannot be half-wired; `:chip?`
+is what keeps the exposed set a deliberate curated subset. `:epoch`
+is the default lens.
 
-**Rationale.** The epoch panel's UX (time-travel scrubber, app-db
-follower, event replay) is already best-in-class inside Xray
-(carrying forward the design re-frame-10x established). Reimplementing
-it inside Story would (a) double the implementation surface, (b) split
-the maintenance work, (c) drift over time. Embedding keeps one source
-of truth.
+**Rationale.** Unchanged from the original call — which is why the
+mechanism could be replaced without reopening the decision. Each
+panel's UX is already best-in-class inside Xray (carrying forward the
+design re-frame-10x established). Reimplementing any of it inside
+Story would (a) double the implementation surface, (b) split the
+maintenance work, (c) drift over time. Embedding keeps one source of
+truth.
 
-**Implication.** Story's `:rf.story/xray-epoch` registration ships
-with v1 but the panel only activates if `day8/re-frame2-xray` is on
-the classpath (per the late-bind hook in spec/002). If Xray is
-absent, the sidebar entry hides. The Xray artefact owns the actual
-view; Story owns the *integration*. See
+Per-panel mounting beats the whole-shell embed it replaced on two
+further counts. **Width:** Xray's four-layer chrome needs roughly
+720px to render usefully and Story's RHS is 320px, so the whole shell
+clipped horizontally on every render. **Focus:** Story is a workshop
+— the user hovers over one component asking one diagnostic question,
+and one panel is one diagnostic lens.
+
+**Implication.** Story owns the *integration* — the descriptor, the
+chip row, the context bridge, and lifecycle cleanup. Xray owns the
+panel internals and stays its own artefact, on its own release
+cadence. Every mount path wraps the panel in
+`[rf/frame-provider {:frame :rf/xray} …]`, so a panel's own state
+resolves on `:rf/xray` regardless of the host's React context.
+
+`reg-story-panel` is **not** this mechanism. It remains Story's own
+chrome extension point (a11y, schema validation, layout debug) plus a
+user-facing authoring hook for third-party panels; the machines-viz
+panel-adapter promise was dropped on exactly that reading
+(`rf2-w9rohp`, closed), with the Machines chip above standing as
+Story's machine-chart surface. The provenance for the per-panel
+change lives in the `re-frame.story.ui.xray-embed` namespace
+docstring. See
 [`005-SOTA-Features.md`](005-SOTA-Features.md) §Xray epoch panel
 embed.
+
+## The five ownership boundaries (rf2-m6tu)
+
+The same decision packet closed with a refinement the seven calls
+depend on: state the ownership boundaries precisely, so that a later
+feature cannot quietly annex a neighbour's job. They are recorded
+here because they are the test a Story change has to pass, not
+commentary on it.
+
+1. **Story-MCP owns protocol transport; Story owns artefacts and
+   execution.** The split is the one §separate-mcp-jar makes
+   physical — transport lives behind a jar boundary precisely so it
+   cannot leak into the core.
+2. **The Tool Pair is the only live-browser agent door**
+   (`rf2-3fc89f.22`, closed). Story does not grow a second, parallel
+   channel for agents to reach a running browser.
+3. **Story owns scenario context; Xray owns diagnostic computation
+   and panels.** This is §xray-embed stated as a rule rather than a
+   mechanism, and it is what makes "just one small duplicate
+   inspector" the way the boundary erodes.
+4. **Local storage owns ephemeral layout preference; exported
+   registered EDN/transit owns durable team intent.** A pane the user
+   dragged is not a decision the team made; only the exported form
+   travels.
+5. **The unified run result owns truth; UI, tests, and agents only
+   project it.** Three consumers, one record — none of them may
+   compute a fourth answer of its own.
 
 ## Decisions surfaced during IMPL-SPEC drafting
 
@@ -270,12 +328,18 @@ RENDERS a host app's design tokens for the developer to inspect;
 the chrome's own tokens are the substrate that affordance would
 render against.)
 
-### §xray-embed-inert-without-xray — Xray embed registration ships in v1 but stays inert if Xray absent
+### §xray-embed-inert-without-xray — the Xray embed ships in v1 but degrades gracefully if Xray is absent
 
-Per §xray-embed above. The `reg-story-panel` call is unconditional;
-the panel's `:render` resolves via late-bind to a hidden no-op if
-Xray isn't present. This keeps the user experience graceful when
-Xray isn't on the classpath.
+Per §xray-embed above, and still the call: Story never takes a hard
+dependency on Xray merely to avoid an empty inspector. What ships is
+an explicit unavailable state rather than a silently hidden one — the
+embed surface checks whether Xray is on the classpath and, when it
+isn't, renders a short "Xray is not loaded in this build" placeholder
+in the RHS. Variants keep running; only the diagnostic lens is
+missing, and the reason is on screen instead of inferred from a gap.
+
+The popout-to-full-Xray chip is gated on the same check, so it cannot
+offer a door that doesn't open.
 
 ## Phase-2 SOTA additions — tier choices
 
@@ -520,8 +584,8 @@ pixel-space tests. This is the
 
 ### Rejected: Full Xray reimplementation
 
-**Rejected (delegated).** Story embeds Xray's epoch panel (the
-structural successor to re-frame-10x); does not own a parallel
+**Rejected (delegated).** Story embeds Xray's panels (Xray being the
+structural successor to re-frame-10x); it does not own a parallel
 implementation. See §xray-embed above.
 
 **Why.** Xray's UX is mature; replicating it would split maintenance
