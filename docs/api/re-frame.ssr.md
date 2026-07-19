@@ -43,6 +43,27 @@ The `re-frame.core` facade re-exports a curated set of render and head primitive
     (ssr/render-to-string [app-root] {:doctype? true}))
   ```
 
+### `emit-ui-tree`
+
+- **Kind**: function
+- **Signature**:
+  ```clojure
+  (emit-ui-tree tree)
+  (emit-ui-tree tree opts) → HTML string
+  ```
+- **Description**: Serialises an **already-rendered** version-1 structural tree to a string. Where `render-to-string` consumes hiccup and renders it, this seam consumes the value `re-frame.ui.tree/render` already produced, and calls nothing: no view is invoked, no subscription is resolved, no frame is bound. Every dynamic value is already a literal in the tree. Pure, JVM-runnable, and deterministic to the byte.
+  - It emits the markup for one root's tree only. Manifests, payloads, root identity, and the HTTP response belong to the SSR artefact's other surfaces.
+  - `opts` keys (all optional):
+    - `:doctype?` — prefixes `<!DOCTYPE html>`.
+  - Raises:
+    - `:rf.error/ssr-ui-tree-version-unsupported` — the root `:rf.ui/tree-version` is missing, non-integer, or unsupported. Checked **first**, before any emission, and carries `{:got <received> :supported #{1}}`. This is a deploy-skew condition: the server is older than the tree it was handed.
+    - `:rf.error/ui-tree-malformed` — a structurally invalid node past the version gate. The shared tree-consumer id, signalling a code bug rather than skew.
+- **Example**:
+  ```clojure
+  ;; The tree arrives already rendered; this call only folds it to markup.
+  (ssr/emit-ui-tree tree {:doctype? true})
+  ```
+
 ### `render-tree-hash`
 
 - **Kind**: function
