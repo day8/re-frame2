@@ -1217,11 +1217,22 @@ Common keys (`:category`, `:failing-id`, `:reason`, `:frame`) are inherited from
   ;; branch: only a site that already knows the realm stamps it — the compiled-view
   ;; `(frame)` bundle fences (all four values; `:capture` is ui-only, a `(frame)`
   ;; read that resolved a dead incarnation before any op ran), the `capture-frame`
-  ;; stale-op pre-check seam, and the router / subs LATE captured-op fences
-  ;; (`:dispatch` / `:dispatch-sync` / `:subscribe`). An ORDINARY address-directed
-  ;; dispatch / subscribe into a destroyed frame carries NO captured incarnation,
-  ;; so it omits `:op` and remains valid without it — that emit keeps its tight
-  ;; keyset and the realm-ambiguous `[:sub]`-then-`[:event]` source-coord fallback.
+  ;; stale-op pre-check seam, the router / subs LATE captured-op fences
+  ;; (`:dispatch` / `:dispatch-sync` / `:subscribe`), and — rf2-alk8a — the
+  ;; ORDINARY address-directed SUBSCRIBE emitters (subs `emit-frame-destroyed-
+  ;; recovery!` + the internal observation port's `throw-frame-destroyed!`), which
+  ;; are subscribe-realm BY CONSTRUCTION and so stamp `:op :subscribe`
+  ;; UNCONDITIONALLY. rf2-alk8a SUPERSEDES rf2-a2x2w's scoping sentence for the
+  ;; SUBSCRIBE realm: an ORDINARY address-directed **DISPATCH** into a destroyed
+  ;; frame still carries NO captured incarnation, so it omits `:op` and remains
+  ;; valid without it — that emit keeps its tight keyset, its per-path `:event`
+  ;; elision + unresolvable-frame fail-closed, and the realm-ambiguous
+  ;; `[:sub]`-then-`[:event]` source-coord fallback (a dispatched event vector is
+  ;; PAYLOAD, not identity). The ordinary SUBSCRIBE path no longer omits `:op`:
+  ;; a subscription's query vector is IDENTITY (rf2-zwgqe), so the `:subscribe`
+  ;; stamp routes it raw on `:event` and resolves the `[:sub id]` coord realm-exact
+  ;; (omitting when the sub-id is unregistered, never stealing a same-keyword
+  ;; event's coord).
   ;; Orthogonal to the envelope's `:category` rule above (`:category` is required
   ;; here because `:rf.error/frame-destroyed` is an `:error` envelope; `:op`'s
   ;; optionality is a per-emit-site axis, not a per-branch one).
@@ -1251,6 +1262,12 @@ Common keys (`:category`, `:failing-id`, `:reason`, `:frame`) are inherited from
   ;; Per-slot ownership — the emitter that stamps it:
   ;;   :event    router/emit-frame-destroyed! + ui/frames/emit-and-throw-frame-destroyed!
   ;;   :query-v  subs/emit-frame-destroyed-recovery!
+  ;;   :op       ui/frames (all four values) + capture-frame pre-check + router/subs
+  ;;             LATE captured-op fences; rf2-alk8a — subs/emit-frame-destroyed-
+  ;;             recovery! stamps `:subscribe` on these dev-trace tags AND the
+  ;;             always-on record (subscribe-realm by construction). The internal
+  ;;             observation port stamps `:op :subscribe` on the ALWAYS-ON record
+  ;;             only, not these dev-trace tags.
   ;;   :reason   router + ui/frames (the constant `:frame-destroyed`)
   ;;   :where / :rf.sub/id / :rf.sub/query-v
   ;;             substrate/observation/throw-frame-destroyed! (the internal

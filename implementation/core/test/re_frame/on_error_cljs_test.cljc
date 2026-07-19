@@ -212,6 +212,13 @@
         ;; attempted vector is redacted whole rather than shipped verbatim
         ;; under no policy. The structural `:event-id` keyword still survives
         ;; for observability — it is not a user-value tree slot.
+        ;;
+        ;; WHAT-STAYS counter-pin (rf2-alk8a): a DISPATCHED event vector is
+        ;; PAYLOAD, not identity, so it stays `:rf/redacted` under the
+        ;; unresolvable frame. alk8a's raw egress is SUBSCRIBE-realm-only (see
+        ;; `listener-fires-on-frame-destroyed-subscribe`), NOT a blanket raw —
+        ;; the `:op :subscribe` stamp is the discriminator, and no `:op` rides
+        ;; this dispatch emit's op-nil path.
         (is (= :rf/redacted (:event r))
             ":event fails closed under an unresolvable frame (no empty-policy leak)")
         (is (= :whatever (:event-id r)))))))
@@ -244,12 +251,18 @@
       (let [r (first @seen)]
         (is (= :rf.error/frame-destroyed (:error r)))
         (is (= :gone/frame (:frame r)))
-        ;; EP-0015 issue 1 (rf2-t55hxg.18) — `:event` (here the attempted
-        ;; query-v) is projected against the record's frame. The frame is
-        ;; UNRESOLVABLE, so the slot fails closed to `:rf/redacted` rather
-        ;; than leaking the attempted query-v under no policy.
-        (is (= :rf/redacted (:event r))
-            ":event fails closed under an unresolvable frame (no empty-policy leak)")))))
+        ;; rf2-alk8a (Option A — RAW): the attempted query-v is IDENTITY
+        ;; (rf2-zwgqe / Spec 015), so it egresses on `:event` VERBATIM even
+        ;; under an unresolvable frame — the subscribe emitters stamp
+        ;; `:op :subscribe`, routing `:event` raw through
+        ;; `raw-identity-query-vector-event?`. rf2-t55hxg.18's fail-closed guards
+        ;; policy-walked VALUE slots (dispatched event vectors — see
+        ;; `listener-fires-on-frame-destroyed-dispatch`, still `:rf/redacted`),
+        ;; NOT identity slots, which never consult frame policy.
+        (is (= [:any-sub] (:event r))
+            ":event egresses the query vector raw (identity)")
+        (is (= :subscribe (:op r))
+            ":op :subscribe stamped on the always-on subscribe-realm record")))))
 
 (deftest listener-fires-on-frame-destroyed-after-destroy-frame
   (testing "Per rf2-2hvga + Spec 002 §Destroy: after `destroy-frame!`,
@@ -986,10 +999,13 @@
 
 (deftest ordinary-address-directed-frame-destroyed-omits-op-and-keeps-fallback
   (testing "rf2-a2x2w (keyset ratification — the negative) — an ORDINARY
-            address-directed dispatch into an unknown frame carries NO `:op`
-            realm slot (the tight record keyset is PRESERVED) — `:op` rides ONLY
-            the captured-op recovery records, never the realm-ambiguous
-            bare-id callers."
+            address-directed DISPATCH into an unknown frame carries NO `:op`
+            realm slot (the tight record keyset is PRESERVED). rf2-alk8a narrows
+            this to the DISPATCH path only: a dispatched event vector is PAYLOAD,
+            so it keeps op-omission, its per-path elision, and its
+            unresolvable-frame fail-closed. The ordinary SUBSCRIBE path now
+            stamps `:op :subscribe` because a query vector is IDENTITY (see
+            `ordinary-subscribe-frame-destroyed-stamps-op-egresses-raw-resolves-sub-coord`)."
     (let [seen (atom [])]
       (rf/register-listener! :errors :a2x2w/plain (fn [record] (swap! seen conj record)))
       (rf/dispatch-sync [:a2x2w/nope] {:frame :a2x2w/gone-frame})
@@ -997,7 +1013,64 @@
       (let [r (first @seen)]
         (is (= :rf.error/frame-destroyed (:error r)))
         (is (not (contains? r :op))
-            "ordinary address-directed frame-destroyed carries NO `:op` — tight keyset preserved")))))
+            "ordinary address-directed DISPATCH frame-destroyed carries NO `:op` — tight keyset preserved")))))
+
+;; ============================================================================
+;; rf2-alk8a — the ORDINARY address-directed SUBSCRIBE frame-destroyed path
+;;   stamps `:op :subscribe`, egresses the query vector RAW, and resolves the
+;;   `:source-coord` under the EXACT `[:sub id]` realm (never the legacy
+;;   `[:sub]`-then-`[:event]` fallback that could steal a same-keyword event's
+;;   coord). These drive the REAL runtime path (`rf/subscribe-once` into a
+;;   missing frame), NOT a simulated `emit-error-both!` call — so they pin the
+;;   emitter stamp end-to-end. RAW because a subscription's query vector is
+;;   IDENTITY (rf2-zwgqe / Spec 015 "pass identifiers, not secrets"); the
+;;   rf2-t55hxg.18 fail-closed guards policy-walked VALUE slots, which identity
+;;   slots never consult.
+;; ============================================================================
+
+(deftest ordinary-subscribe-frame-destroyed-stamps-op-egresses-raw-resolves-sub-coord
+  (testing "rf2-alk8a — an ORDINARY address-directed subscribe into a missing
+            frame stamps `:op :subscribe`, egresses the query vector RAW on
+            `:event`, and resolves its `:source-coord` under the EXACT `[:sub
+            id]` realm even when the id is ALSO registered as a same-keyword
+            event."
+    (source-coords/forget-error-coords!)
+    ;; the id collides: distinct coords under BOTH `[:event id]` and `[:sub id]`.
+    (source-coords/remember-error-coords! :event :alk8a/collide xgkgx-event-coord)
+    (source-coords/remember-error-coords! :sub   :alk8a/collide xgkgx-sub-coord)
+    (let [seen (atom [])]
+      (rf/register-listener! :errors :alk8a/recorder (fn [record] (swap! seen conj record)))
+      (is (nil? (rf/subscribe-once [:alk8a/collide] {:frame :alk8a/gone-frame}))
+          "subscribe into a missing frame recovers to nil")
+      (is (= 1 (count @seen)))
+      (let [r (first @seen)]
+        (is (= :rf.error/frame-destroyed (:error r)))
+        (is (= :subscribe (:op r))
+            "the ordinary subscribe path now stamps the `:subscribe` realm (rf2-alk8a)")
+        (is (= [:alk8a/collide] (:event r))
+            ":event egresses the query vector RAW (identity, rf2-zwgqe)")
+        (is (= xgkgx-sub-coord (:source-coord r))
+            ":source-coord resolves the SUB coord realm-exact, never the collision event's")))))
+
+(deftest ordinary-subscribe-frame-destroyed-omits-coord-for-same-keyword-event-only
+  (testing "rf2-alk8a (SOURCE-COORD UPGRADE — the anti-stealing case) — an
+            ordinary subscribe into a missing frame for an id registered ONLY as
+            a same-keyword EVENT OMITS `:source-coord` rather than STEALING the
+            event's. Pre-fix the op-nil path's `[:sub]`-then-`[:event]` fallback
+            returned the unrelated EVENT coord; the `:op :subscribe` stamp
+            resolves `[:sub id]` (a miss) and omits the slot."
+    (source-coords/forget-error-coords!)
+    (source-coords/remember-error-coords! :event :alk8a/event-only xgkgx-event-coord)
+    (let [seen (atom [])]
+      (rf/register-listener! :errors :alk8a/recorder2 (fn [record] (swap! seen conj record)))
+      (is (nil? (rf/subscribe-once [:alk8a/event-only] {:frame :alk8a/gone-frame})))
+      (is (= 1 (count @seen)))
+      (let [r (first @seen)]
+        (is (= :rf.error/frame-destroyed (:error r)))
+        (is (= :subscribe (:op r)) "the `:subscribe` realm still rides the record")
+        (is (= [:alk8a/event-only] (:event r)) ":event raw (identity)")
+        (is (not (contains? r :source-coord))
+            "no sub coord ⇒ :source-coord ABSENT, never the same-keyword event's")))))
 
 (deftest non-recovery-categories-fan-out-to-listener
   (testing "Per rf2-2hvga (= B / widen): every catalogued production-
