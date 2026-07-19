@@ -669,11 +669,12 @@ portals, presence timing, error recovery) requires a Tier-3 mounted test. This i
 same JVM-structural-subset boundary [004-Views.md §The JVM structural subset](004-Views.md#the-jvm-structural-subset)
 draws — Tier-1 is that subset's test surface.
 
-## Compiled-view gates — G-1, G-14, and the parity corpus
+## Compiled-view gates
 
-The compiled-view substrate ships three CI gates that [004-Views.md](004-Views.md)
-references (portability-law parity, expansion budget); they are catalogued here as the
-owning testing surface.
+The compiled-view substrate ships the CI gates that [004-Views.md](004-Views.md)
+references — portability-law parity and expansion budget among them; they are
+catalogued here as the owning testing surface, every row below owned by this
+document.
 
 | Gate | Asserts | Where |
 |---|---|---|
