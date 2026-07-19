@@ -940,8 +940,16 @@
   structural render-tree hash (the `:render-tree-fn` hash channel is
   hiccup-tier-only); it VERIFIES by React-native ADOPTION — React diffs the
   root's first `:server`-phase render (its `ui/client-only` fallbacks) against
-  the server DOM during hydration and reports any divergence through
-  `onRecoverableError`. In the ADOPTION WINDOW — before this root's phase flip,
+  the server DOM during hydration and reports the divergences it
+  AUTOMATICALLY RECOVERS FROM (a text-content mismatch, or a missing / extra /
+  wrong-type element) through `onRecoverableError`. This is NOT exhaustive
+  server-vs-client divergence detection: an ATTRIBUTE-ONLY mismatch (a stale
+  `class` / `style` / ARIA value) takes React's dev-only warning path, is not
+  guaranteed to be patched, and fires NEITHER `onRecoverableError` nor any
+  production equivalent — so it surfaces NO `:rf.ssr/hydration-mismatch` here
+  (an intrinsic boundary of React-native adoption; the compiled tier carries no
+  structural hash — Spec 011 §Hydration-mismatch detection, the attribute-only
+  boundary). In the ADOPTION WINDOW — before this root's phase flip,
   tracked by `adoption-ref` (a `#js {:adopting true}` the `PhaseFlipper` clears
   on its `:server` commit) — such a recoverable error IS the compiled tier's
   `:rf.ssr/hydration-mismatch` signal: surface the framework diagnostic FIRST,

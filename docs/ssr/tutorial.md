@@ -249,6 +249,32 @@ You wired the detector already: the server's `:rf/render-hash` in Step 3, and th
 
 What the detector guarantees is that the bug is **never silent**. For CI, escalate it: a frame registered with `:ssr {:on-mismatch :hard-error}` throws a structured exception instead of warning, so a mismatch fails the build rather than shipping. Then fix the view the right way — put the timestamp in app-db at init, where it rides the payload and both sides render the same value.
 
+### The compiled-UI tier — adoption instead of hashing
+
+Everything above is the **hiccup tier**: Reagent views return a data render-tree, so the server and client each hash it and compare. The first-party **compiled** substrate (`re-frame.ui`, `defview`) has no such tree — its views compile straight to React elements — so it verifies a different way: **React-native adoption**. The boot is still two calls, but `ssr/hydrate!` runs **without** `:render-tree-fn` (there is no client tree to hash), and `ui/hydrate-root` adopts the DOM:
+
+```clojure
+(ns my-app.client
+  (:require [re-frame.core :as rf]
+            [re-frame.ssr  :as ssr]
+            [re-frame.ui   :as ui]))
+
+(defn run []
+  (rf/init! ui/adapter)
+  (rf/make-frame {:id :app :platform :client})
+  (let [el      (js/document.getElementById "app")
+        payload (ssr/hydrate! {:frame :app})]        ;; state only — NO :render-tree-fn
+    (when payload
+      (ui/hydrate-root el
+        [ui/frame-provider {:frame :app} [(rf/view :app/root)]]
+        {:on-recoverable-error                        ;; optional — compose your own hook
+         (fn [error _info] (js/console.warn "recoverable:" error))}))))
+```
+
+React diffs the root's first `:server`-phase render (its `ui/client-only` fallbacks) against the server DOM. On a **recoverable** mismatch — divergent text, a missing or extra node — it calls `onRecoverableError`, and the runtime surfaces that as the same `:rf.ssr/hydration-mismatch` trace you saw above (this time tagged `:where` `re-frame.ui/hydrate-root`, plus `:root-id` and `:error` — no hash), *then* still calls your `:on-recoverable-error`. It composes over your hook; it never replaces it.
+
+**One honest limit.** Adoption reports only what React itself recovers from. An **attribute-only** mismatch — a stale `class`, `style`, or ARIA value on an element whose tag and text still match — is not in that set: React warns in development, makes [no promise to patch it](https://react.dev/reference/react-dom/client/hydrateRoot), and calls neither `onRecoverableError` nor any production equivalent. So a divergent attribute hydrates silently on this tier, with **no** trace. It is a real bug; the compiled tier simply does not carry the structural hash that would catch it — that is the trade the hiccup tier makes by keeping a client render-tree it *can* hash.
+
 ## Step 6 — gate the one-sided code: `:platforms`
 
 Some work is meaningless on one side. `localStorage` doesn't exist on the JVM; the request coeffect doesn't exist in the browser. You don't branch in handler bodies — you declare, once, where a capability is allowed to run:

@@ -205,9 +205,32 @@
      Hydrating mount — identity comes FROM the server-emitted manifest
      (root-id + identifier-prefix); supplying identity opts client-side
      is a compile error (the client must use the server's prefix or
-     use-id hydration breaks). opts: host-behaviour tier only. Server
-     rendering + manifests land S5 — at S1 every hydrate fails loud with
-     :rf.error/root-manifest-invalid."
+     use-id hydration breaks). opts: host-behaviour tier only
+     (:on-uncaught-error / :on-caught-error / :on-recoverable-error). A
+     hydrate with no valid server manifest fails loud with
+     :rf.error/root-manifest-invalid.
+
+     Canonical SSR boot — two calls. Seed state with ssr/hydrate! WITHOUT
+     :render-tree-fn (a compiled root has no hashable client render-tree,
+     so the :render-tree-fn hash channel is hiccup-tier-only), then adopt
+     the server DOM here:
+
+       (ssr/hydrate! {:frame :app :payload payload})   ;; state only
+       (ui/hydrate-root el [ui/frame-provider {:frame :app} [app-root]]
+                        {:on-recoverable-error my-handler})
+
+     Verification is by React-native ADOPTION, not a hash: React diffs this
+     root's first :server-phase render (its ui/client-only fallbacks)
+     against the server DOM, and the runtime surfaces a React-RECOVERABLE
+     adoption error (a text-content or structural mismatch) as a
+     :rf.ssr/hydration-mismatch diagnostic, composed OVER any authored
+     :on-recoverable-error (framework emit first, THEN your callback —
+     never clobbered). ATTRIBUTE-ONLY mismatches (a stale class / style /
+     ARIA value) are NOT surfaced — React takes its dev-only warning path
+     for those and re-frame2 emits no trace on this tier (Spec 011
+     §Hydration-mismatch detection, the attribute-only boundary).
+
+     Returns the Root."
      ([dom-node root-form]
       (root/hydrate-root-form &form &env dom-node root-form {}))
      ([dom-node root-form opts]
