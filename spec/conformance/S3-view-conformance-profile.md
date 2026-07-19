@@ -186,7 +186,7 @@ roster. The S3-specific arms this profile certifies:
 | Gate | S3 arm |
 |---|---|
 | **G-6** | `effect`/`error-boundary` lifecycle + StrictMode/Activity ownership baselines |
-| **G-7** | dev/prod equivalence; `client-only` fallback; committed DOM/events/owners agree with debug off |
+| **G-7** | dev↔prod **structural** equivalence over the generated corpus (Layer 1 — wired by the advanced parity-corpus prod-elision proof, debug off); `client-only` fallback; committed-DOM/events/owner **mounted** behaviour named-open under the S6 leaf (`rf2-55zsd`) |
 | **G-8** | real Chromium **and** WebKit controlled-input matrix — IME composition, caret restoration, event ordering, pre-paint — through the reusable event-prefix component, with the deliberate async-door regression as the tooth |
 | **G-11** | exact production absence of the debug + absence rosters (view evidence, manifest, HMR shell, source-coord, `re-frame.ui.test`) from advanced bundles |
 | **G-15** | atomic-local writer matrix — N same-turn `update!` writers land; fn-value `set!` stores exactly; **mixed `update!`+dispatch**; StrictMode replay; JVM typed failure; writer composition + render count (not a `:local-state` cause row — that cause is specified for S6); HMR ride |

@@ -734,10 +734,10 @@
     (let [section (section-between (slurp (profile-doc)) "## 6." "## 7.")]
       (when section
         (doseq [claim ["**S4 shapes only**"
-                       "first"
-                       "in scope here"
-                       "named-open owner"
-                       "existing"]]
+                       "Layer 1"
+                       "mounted"
+                       "rf2-55zsd"
+                       "in scope here"]]
           (is (str/includes? section claim)
               (str "§6 must bound the G-7 growth: " claim)))))))
 
