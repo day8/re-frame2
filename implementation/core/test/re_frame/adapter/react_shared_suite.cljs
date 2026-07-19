@@ -3166,6 +3166,73 @@
                 (set! (.-IS_REACT_ACT_ENVIRONMENT js/globalThis) act-prev)
                 (done)))))))))
 
+(defn assert-native-hydration-window-bounds-emit
+  "rf2-qfz65 residual (the over-fire fix): the native-tier hydration-mismatch
+  reporter emits `:rf.ssr/hydration-mismatch` ONLY inside the hydration ADOPTION
+  WINDOW. React holds a hydrating root's `onRecoverableError` for the root's WHOLE
+  LIFETIME and fires it for post-hydration recoverable errors too; #6526's
+  root-lifetime wrapper had NO window sentinel, so it emitted a FALSE
+  hydration-mismatch for those later recoveries. The fix bounds the framework emit
+  to a root-local `#js {:adopting true}` flag that the `adoption-window-closer`
+  clears on the hydration commit, while STILL delegating to the host callback in
+  BOTH windows.
+
+  Drives the REAL production seam deterministically: `spine/native-hydration-
+  reporter` (the exact callback `make-render` installs) over a flag the REAL
+  `spine/adoption-window-closer`, mounted here and flushed under `act`, clears —
+  so it never waits on React's own post-hydration recoverable-error scheduling.
+  Mounted DOM: the closer runs its passive effect on commit.
+
+  RED-BEFORE: without the window flag the reporter emits on EVERY call, so the
+  post-window invocation adds a SECOND `:rf.ssr/hydration-mismatch` — the
+  `(= 1 (count @mismatches))` AFTER the window closes is the lever. The host
+  callback firing BOTH times is the compose-intact invariant, in and out of the
+  window."
+  [{:keys [name]}]
+  (testing (str name " — native hydration-mismatch emit is bounded to the adoption window (rf2-qfz65)")
+    (with-browser-act
+     (fn [act-fn]
+       (let [mismatches (atom [])
+             host-calls (atom [])
+             lk         (keyword (gensym "rf.qfz65-win-"))
+             adoption   #js {:adopting true}
+             reporter   (spine/native-hydration-reporter
+                          adoption (fn [e _] (swap! host-calls conj e)))
+             node       (make-mount-node!)
+             root       (react-dom-client/createRoot node)]
+         (trace-tooling/register-listener!
+           lk (fn [ev] (when (= :rf.ssr/hydration-mismatch (:operation ev))
+                         (swap! mismatches conj ev))))
+         (try
+           ;; WINDOW OPEN — a recoverable error IS the hydration-mismatch signal:
+           ;; the framework emits AND the host callback fires.
+           (reporter (js/Error. "within-window") nil)
+           (is (= 1 (count @mismatches))
+               "in-window: a recoverable error surfaces exactly one framework trace")
+           (is (= 1 (count @host-calls))
+               "in-window: the host callback fired for it (compose)")
+           ;; Mount the REAL closer with the SAME flag and flush effects via act,
+           ;; so its passive effect clears `.-adopting` — closing the window.
+           (act-fn (fn []
+                     (.render root
+                              (React/createElement spine/adoption-window-closer
+                                                   #js {:rfAdoption adoption}))))
+           (is (false? (.-adopting adoption))
+               "the mounted adoption-window-closer cleared the flag on its commit")
+           ;; WINDOW CLOSED — a later recoverable error is NOT a hydration
+           ;; mismatch: the framework must NOT emit, but the host STILL fires.
+           (reporter (js/Error. "post-window") nil)
+           (is (= 1 (count @mismatches))
+               (str "over-fire fix: RED-BEFORE a root-lifetime wrapper emits a "
+                    "FALSE :rf.ssr/hydration-mismatch after the window closes; "
+                    "after the fix the count stays 1. Saw: " (pr-str @mismatches)))
+           (is (= 2 (count @host-calls))
+               "post-window: the reporter STILL delegates to the host (compose intact)")
+           (finally
+             (trace-tooling/unregister-listener! lk)
+             (try (.unmount root) (catch :default _ nil))
+             (when-let [p (.-parentNode node)] (.removeChild p node)))))))))
+
 ;; ---- use-subscribe (rf2-518sp / rf2-7g959 / rf2-mwft2 / rf2-rcgsc) --------
 ;;
 ;; The probe components read the sub via `use-subscribe` and push the

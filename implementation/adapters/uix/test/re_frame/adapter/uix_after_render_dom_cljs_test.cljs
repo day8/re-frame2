@@ -81,3 +81,10 @@
 ;; adoption stays silent. Browser-only mounted DOM proof.
 (deftest native-hydration-mismatch-surfaces-diagnostic-uix
   (suite/assert-native-hydration-mismatch-surfaces-diagnostic cfg))
+
+;; rf2-qfz65 residual — the native reporter's framework emit is bounded to the
+;; hydration ADOPTION WINDOW: after the window closes (the adoption-window-closer
+;; clears the flag on the hydration commit) a later recoverable error no longer
+;; emits a FALSE :rf.ssr/hydration-mismatch, but the host callback still fires.
+(deftest native-hydration-window-bounds-emit-uix
+  (suite/assert-native-hydration-window-bounds-emit cfg))
