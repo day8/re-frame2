@@ -14,8 +14,10 @@
 
   HOST BOUNDARY, stated rather than papered over: the JVM structural
   render has no lifecycle, so the three-phase enter/exit machine (a
-  removed child retained as `:unmounting` until its transition ends or
-  `:timeout-ms` fires, then terminal exactly-once removal) is NOT
+  removed child retained as `:unmounting` for exactly the mandatory
+  `:timeout-ms` retention duration — the boundary is DOM-agnostic and
+  observes no transition or animation completion — then terminal
+  exactly-once removal) is NOT
   provable here — it rides `presence_dom_cljs_test` on the client, and
   `flush-presence!` advances it there (guide 08's fixture binds that
   contract). What this file binds on the JVM is what the JVM genuinely
