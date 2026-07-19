@@ -22,12 +22,13 @@
   a redundant copy here (#16 → re-frame.ssr-end-to-end-test).
 
   ns ends in -cljs-test so shadow-cljs ':node-test' picks it up."
-  (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
+  (:require [cljs.test :refer-macros [deftest is testing use-fixtures async]]
             [reagent.dom.client :as rdc]
             ["react-dom" :as react-dom]
             [re-frame.core :as rf]
             [re-frame.fx :as fx]
             [re-frame.frame :as frame]
+            [re-frame.trace.tooling :as trace-tooling]
             ;; rf2-k682: routing ships in day8/re-frame2-routing.
             ;; Required here so its load-time hook + reg-sub
             ;; registrations fire before this ns's reg-route calls.
@@ -81,9 +82,55 @@
 ;; machines.cljc's :rf/machine sub, which were registered at ns-load time.
 ;; Snapshot/restore preserves those while rolling back the test's own
 ;; registrations on the way out.
+;; MAP-FORM fixture (`:async? true`, rf2-7r78l): cljs.test requires `:each`
+;; fixtures to be maps once the ns contains ANY `async` test (a fn-form
+;; fixture's teardown runs before the async body's `done` fires). The four
+;; registered-view DOM tests below now await their deferred `:rf.view/unmounted`
+;; teardown across macrotask windows (mirroring #6502), so they became `async`.
+;; `:ambient-frame` is left at its `:rf/default` default — the non-DOM
+;; interaction tests rely on the ambient scope, and the render tests clear it
+;; locally with `(binding [frame/*current-frame* nil] …)` where tier-2 is under
+;; test.
 (use-fixtures :each
   (test-support/make-reset-runtime-fixture
-    {:adapter reagent-adapter/adapter}))
+    {:adapter reagent-adapter/adapter :async? true}))
+
+;; ---- deferred-teardown await (rf2-7r78l) ----------------------------------
+;;
+;; Same leak class + fix as #6502 (rf2-vp3m9) in
+;; frame_provider_context_dom_cljs_test. On the Reagent family the
+;; `:rf.view/unmounted` teardown marker rides the per-component render-reaction
+;; DISPOSAL, which React/Reagent defer to a macrotask PAST the synchronous
+;; unmount commit (passive-effect cleanups are async even under `flushSync`). A
+;; registered-view root that `(rdc/unmount root)`s in a bare `finally` therefore
+;; lets its teardown marker fire AFTER the test body returns, leaking into the
+;; process-global trace listener the one `:browser-test` page shares across
+;; every `-dom-cljs-test` namespace. Each registered-view root below now awaits
+;; its OWN teardown so no marker outlives it — the same local settle idiom
+;; #6502 proved, NOT a new runtime and NOT a shared framework.
+
+(defn- settle-macrotasks
+  "Resolve after `n` macrotask turns so Reagent's deferred render-reaction
+  disposal (which fires `:rf.view/unmounted` on a real unmount) has settled
+  before the test completes."
+  [n]
+  (js/Promise.
+    (fn [resolve _]
+      (letfn [(step [remaining]
+                (if (zero? remaining)
+                  (resolve nil)
+                  (js/setTimeout #(step (dec remaining)) 4)))]
+        (step n)))))
+
+(defn- await-teardown!
+  "Unmount `root` through the real host teardown path under `flushSync` (so the
+  unmount commits synchronously), then await Reagent's deferred reaction
+  disposal so the `:rf.view/unmounted` marker fires WITHIN the caller's window
+  rather than leaking into the shared runner after the test ends. Returns a
+  Promise; settle-count 3 matches the proven #6502 idiom."
+  [root]
+  (try (react-dom/flushSync (fn [] (rdc/unmount root))) (catch :default _ nil))
+  (settle-macrotasks 3))
 
 ;; ---------------------------------------------------------------------------
 ;; Interaction 1 — Frame disposal with active machine instances
@@ -806,37 +853,58 @@
    Provider's frame, so their subscribe calls route correctly."
   (if-not (browser?)
     (is true ":node-test: no DOM — browser-test runner exercises the assertions")
-    (let [target-frame :tenant-reg-view-no-warn]
-      (rf/make-frame {:id target-frame :doc "non-default frame for reg-view negative test"})
-      (rf/reg-event :seed-reg-view (fn [{:keys [db]} _] {:db {:k 11}}))
-      (rf/dispatch-sync [:seed-reg-view] {:frame target-frame})
-      (rf/reg-sub :reg-view-test/k (fn [db _] (:k db)))
-      ;; (The plain-fn-under-non-default-frame warning + its
-      ;; :views/clear-plain-fn-warned-pairs! suppression-cache reset were
-      ;; retired per EP-0002 / removed in rf2-k4xous; the warning is
-      ;; superseded by the always-on :rf.error/no-frame-context. This
-      ;; negative case now simply confirms a reg-view'd component renders
-      ;; cleanly under a non-default frame with no such warning emitted.)
-      (rf/reg-view* :rf.cross-spec-10/registered-view
-                    (fn registered-impl []
-                      (let [_ @(rf/subscribe [:reg-view-test/k])]
-                        [:div "reg-view"])))
-      (let [render-fn  (rf/view :rf.cross-spec-10/registered-view)
-            mount-node (make-mount-node!)
-            root       (rdc/create-root mount-node)]
-       (with-trace-recorder! [traces]
-        (try
-          (react-dom/flushSync
-            (fn []
-              (rdc/render root [rf/frame-provider {:frame target-frame}
-                                [render-fn]])))
-          (let [warns (filter #(= :rf.warning/plain-fn-under-non-default-frame-once
-                                   (:operation %))
-                              @traces)]
-            (is (empty? warns)
-                "no warning fires for reg-view'd components — the wiring lets them read the surrounding frame"))
-          (finally
-            (try (rdc/unmount root) (catch :default _ nil)))))))))
+    (async done
+      (let [target-frame :tenant-reg-view-no-warn]
+        (rf/make-frame {:id target-frame :doc "non-default frame for reg-view negative test"})
+        (rf/reg-event :seed-reg-view (fn [{:keys [db]} _] {:db {:k 11}}))
+        (rf/dispatch-sync [:seed-reg-view] {:frame target-frame})
+        (rf/reg-sub :reg-view-test/k (fn [db _] (:k db)))
+        ;; (The plain-fn-under-non-default-frame warning + its
+        ;; :views/clear-plain-fn-warned-pairs! suppression-cache reset were
+        ;; retired per EP-0002 / removed in rf2-k4xous; the warning is
+        ;; superseded by the always-on :rf.error/no-frame-context. This
+        ;; negative case now simply confirms a reg-view'd component renders
+        ;; cleanly under a non-default frame with no such warning emitted.)
+        (rf/reg-view* :rf.cross-spec-10/registered-view
+                      (fn registered-impl []
+                        (let [_ @(rf/subscribe [:reg-view-test/k])]
+                          [:div "reg-view"])))
+        (let [unmounts   (atom [])
+              render-fn  (rf/view :rf.cross-spec-10/registered-view)
+              mount-node (make-mount-node!)
+              root       (rdc/create-root mount-node)
+              ;; rf2-7r78l teeth: await THIS root's deferred teardown, assert its
+              ;; :rf.view/unmounted fired WITHIN the awaited window (not leaked
+              ;; past `done` into the shared runner), then finish.
+              finish     (fn []
+                           (-> (await-teardown! root)
+                               (.then (fn [_]
+                                        (trace-tooling/unregister-listener! ::reg-view-no-warn-unmounts)
+                                        (is (= 1 (count @unmounts))
+                                            (str "rf2-7r78l: exactly one :rf.view/unmounted fired for "
+                                                 ":rf.cross-spec-10/registered-view WITHIN the awaited window "
+                                                 "— teardown awaited, not leaked; got " (count @unmounts)))
+                                        (done)))))]
+          (trace-tooling/register-listener! ::reg-view-no-warn-unmounts
+            (fn [ev]
+              (when (and (= :rf.view/unmounted (:operation ev))
+                         (= :rf.cross-spec-10/registered-view (-> ev :tags :rf.view/id)))
+                (swap! unmounts conj ev))))
+          (with-trace-recorder! [traces]
+            (try
+              (react-dom/flushSync
+                (fn []
+                  (rdc/render root [rf/frame-provider {:frame target-frame}
+                                    [render-fn]])))
+              (let [warns (filter #(= :rf.warning/plain-fn-under-non-default-frame-once
+                                       (:operation %))
+                                  @traces)]
+                (is (empty? warns)
+                    "no warning fires for reg-view'd components — the wiring lets them read the surrounding frame"))
+              (finish)
+              (catch :default e
+                (is false (str "reg-view-under-non-default-frame-no-warning threw: " (pr-str e)))
+                (finish)))))))))
 
 ;; ---------------------------------------------------------------------------
 ;; rf2-d4sf — subscribe + dispatch consult the React-context tier
@@ -867,48 +935,66 @@
    (not :rf/default)."
   (if-not (browser?)
     (is true ":node-test: no DOM — browser-test runner exercises the assertions")
-    (let [target-frame :tenant-rf2-d4sf]
-      ;; Two distinct frames whose app-dbs hold different values so the
-      ;; subscribed reaction tells us unambiguously which one served it.
-      (rf/make-frame {:id target-frame :doc "non-default frame — :v 42"})
-      (rf/reg-event :seed-target (fn [{:keys [db]} _] {:db {:v 42}}))
-      (rf/reg-event :seed-default (fn [{:keys [db]} _] {:db {:v 7}}))
-      (rf/dispatch-sync [:seed-target]  {:frame target-frame})
-      (rf/dispatch-sync [:seed-default] {:frame :rf/default})
-      (rf/reg-sub :rf2-d4sf/v (fn [db _] (:v db)))
-      ;; The view captures the resolved frame and the subscribed value
-      ;; into shared atoms so the test can read them after the render.
-      (let [resolved-frame (atom nil)
-            resolved-value (atom nil)]
-        (rf/reg-view* :rf.cross-spec-d4sf/probe
-                      (fn probe-impl []
-                        (reset! resolved-frame (rf/current-frame-id))
-                        (reset! resolved-value @(rf/subscribe [:rf2-d4sf/v]))
-                        [:div "probe"]))
-        (let [render-fn  (rf/view :rf.cross-spec-d4sf/probe)
-              mount-node (make-mount-node!)
-              root       (rdc/create-root mount-node)]
-          (try
-            ;; EP-0002 (rf2-9o48ih): the reset-runtime fixture binds an ambient
-            ;; `*current-frame*` :rf/default scope around the test body. The
-            ;; React render below runs SYNCHRONOUSLY inside `flushSync` — i.e.
-            ;; still inside that dynamic extent — so the reg-view's
-            ;; `current-frame-id` / `subscribe` would resolve the ambient
-            ;; :rf/default (tier 1) and never reach the React-context tier
-            ;; (tier 2) under test. Clear the ambient scope around the render so
-            ;; the provider's frame is actually resolved via React context —
-            ;; the contract this test pins.
-            (binding [frame/*current-frame* nil]
-              (react-dom/flushSync
-                (fn []
-                  (rdc/render root [rf/frame-provider {:frame target-frame}
-                                    [render-fn]]))))
-            (is (= target-frame @resolved-frame)
-                "current-frame inside the reg-view reads the surrounding provider's frame, not :rf/default")
-            (is (= 42 @resolved-value)
-                "subscribe routes the query against the provider's frame — :v 42 (target) not :v 7 (:rf/default)")
-            (finally
-              (try (rdc/unmount root) (catch :default _ nil)))))))))
+    (async done
+      (let [target-frame :tenant-rf2-d4sf]
+        ;; Two distinct frames whose app-dbs hold different values so the
+        ;; subscribed reaction tells us unambiguously which one served it.
+        (rf/make-frame {:id target-frame :doc "non-default frame — :v 42"})
+        (rf/reg-event :seed-target (fn [{:keys [db]} _] {:db {:v 42}}))
+        (rf/reg-event :seed-default (fn [{:keys [db]} _] {:db {:v 7}}))
+        (rf/dispatch-sync [:seed-target]  {:frame target-frame})
+        (rf/dispatch-sync [:seed-default] {:frame :rf/default})
+        (rf/reg-sub :rf2-d4sf/v (fn [db _] (:v db)))
+        ;; The view captures the resolved frame and the subscribed value
+        ;; into shared atoms so the test can read them after the render.
+        (let [resolved-frame (atom nil)
+              resolved-value (atom nil)]
+          (rf/reg-view* :rf.cross-spec-d4sf/probe
+                        (fn probe-impl []
+                          (reset! resolved-frame (rf/current-frame-id))
+                          (reset! resolved-value @(rf/subscribe [:rf2-d4sf/v]))
+                          [:div "probe"]))
+          (let [unmounts   (atom [])
+                render-fn  (rf/view :rf.cross-spec-d4sf/probe)
+                mount-node (make-mount-node!)
+                root       (rdc/create-root mount-node)
+                finish     (fn []
+                             (-> (await-teardown! root)
+                                 (.then (fn [_]
+                                          (trace-tooling/unregister-listener! ::d4sf-probe-unmounts)
+                                          (is (= 1 (count @unmounts))
+                                              (str "rf2-7r78l: exactly one :rf.view/unmounted fired for "
+                                                   ":rf.cross-spec-d4sf/probe WITHIN the awaited window; got "
+                                                   (count @unmounts)))
+                                          (done)))))]
+            (trace-tooling/register-listener! ::d4sf-probe-unmounts
+              (fn [ev]
+                (when (and (= :rf.view/unmounted (:operation ev))
+                           (= :rf.cross-spec-d4sf/probe (-> ev :tags :rf.view/id)))
+                  (swap! unmounts conj ev))))
+            (try
+              ;; EP-0002 (rf2-9o48ih): the reset-runtime fixture binds an ambient
+              ;; `*current-frame*` :rf/default scope around the test body. The
+              ;; React render below runs SYNCHRONOUSLY inside `flushSync` — i.e.
+              ;; still inside that dynamic extent — so the reg-view's
+              ;; `current-frame-id` / `subscribe` would resolve the ambient
+              ;; :rf/default (tier 1) and never reach the React-context tier
+              ;; (tier 2) under test. Clear the ambient scope around the render so
+              ;; the provider's frame is actually resolved via React context —
+              ;; the contract this test pins.
+              (binding [frame/*current-frame* nil]
+                (react-dom/flushSync
+                  (fn []
+                    (rdc/render root [rf/frame-provider {:frame target-frame}
+                                      [render-fn]]))))
+              (is (= target-frame @resolved-frame)
+                  "current-frame inside the reg-view reads the surrounding provider's frame, not :rf/default")
+              (is (= 42 @resolved-value)
+                  "subscribe routes the query against the provider's frame — :v 42 (target) not :v 7 (:rf/default)")
+              (finish)
+              (catch :default e
+                (is false (str "subscribe-routes-via-react-context-under-non-default-frame threw: " (pr-str e)))
+                (finish)))))))))
 
 (deftest subscribe-routes-default-without-frame-provider
   "rf2-d4sf negative — without a `frame-provider`, subscribe still
@@ -917,7 +1003,7 @@
    behaviour."
   (if-not (browser?)
     (is true ":node-test: no DOM — browser-test runner exercises the assertions")
-    (do
+    (async done
       (rf/reg-event :seed-no-provider (fn [{:keys [db]} _] {:db {:w 99}}))
       (rf/dispatch-sync [:seed-no-provider])
       (rf/reg-sub :rf2-d4sf/w (fn [db _] (:w db)))
@@ -928,9 +1014,24 @@
                         (reset! resolved-frame (rf/current-frame-id))
                         (reset! resolved-value @(rf/subscribe [:rf2-d4sf/w]))
                         [:div "probe"]))
-        (let [render-fn  (rf/view :rf.cross-spec-d4sf/probe-no-provider)
+        (let [unmounts   (atom [])
+              render-fn  (rf/view :rf.cross-spec-d4sf/probe-no-provider)
               mount-node (make-mount-node!)
-              root       (rdc/create-root mount-node)]
+              root       (rdc/create-root mount-node)
+              finish     (fn []
+                           (-> (await-teardown! root)
+                               (.then (fn [_]
+                                        (trace-tooling/unregister-listener! ::d4sf-probe-no-provider-unmounts)
+                                        (is (= 1 (count @unmounts))
+                                            (str "rf2-7r78l: exactly one :rf.view/unmounted fired for "
+                                                 ":rf.cross-spec-d4sf/probe-no-provider WITHIN the awaited window; got "
+                                                 (count @unmounts)))
+                                        (done)))))]
+          (trace-tooling/register-listener! ::d4sf-probe-no-provider-unmounts
+            (fn [ev]
+              (when (and (= :rf.view/unmounted (:operation ev))
+                         (= :rf.cross-spec-d4sf/probe-no-provider (-> ev :tags :rf.view/id)))
+                (swap! unmounts conj ev))))
           (try
             (react-dom/flushSync
               (fn []
@@ -939,8 +1040,10 @@
                 "no provider in the tree → resolution falls through to :rf/default")
             (is (= 99 @resolved-value)
                 "subscribe routes against :rf/default's app-db")
-            (finally
-              (try (rdc/unmount root) (catch :default _ nil)))))))))
+            (finish)
+            (catch :default e
+              (is false (str "subscribe-routes-default-without-frame-provider threw: " (pr-str e)))
+              (finish))))))))
 
 (deftest with-frame-wins-over-react-context
   "rf2-d4sf — the dynamic-var tier (set by `with-frame`) sits ABOVE the
@@ -1011,34 +1114,52 @@
    no explicit `:frame` opt) routes to the provider's frame."
   (if-not (browser?)
     (is true ":node-test: no DOM — browser-test runner exercises the assertions")
-    (let [target-frame :tenant-d4sf-dispatch]
-      (rf/make-frame {:id target-frame :doc "non-default frame for dispatch routing test"})
-      (rf/reg-event :rf2-d4sf/record-here (fn [{:keys [db]} _] {:db (assoc db :stamped :here)}))
-      (rf/reg-view* :rf.cross-spec-d4sf/dispatcher-probe
-                    (fn dispatcher-probe-impl []
-                      ;; Dispatch with no :frame opt — must route to the
-                      ;; surrounding provider's frame, not :rf/default.
-                      (rf/dispatch-sync [:rf2-d4sf/record-here])
-                      [:div "probe"]))
-      (let [render-fn  (rf/view :rf.cross-spec-d4sf/dispatcher-probe)
-            mount-node (make-mount-node!)
-            root       (rdc/create-root mount-node)]
-        (try
-          ;; EP-0002 (rf2-9o48ih): clear the fixture's ambient `*current-frame*`
-          ;; :rf/default scope around the synchronous render so the dispatch's
-          ;; `:frame` default resolves via the React-context tier (the provider's
-          ;; frame), not the ambient :rf/default that tier 1 would otherwise win.
-          (binding [frame/*current-frame* nil]
-            (react-dom/flushSync
-              (fn []
-                (rdc/render root [rf/frame-provider {:frame target-frame}
-                                  [render-fn]]))))
-          (is (= :here (:stamped (rf/app-db-value target-frame)))
-              "dispatch routed to the provider's frame — its app-db carries the stamp")
-          (is (not= :here (:stamped (rf/app-db-value :rf/default)))
-              ":rf/default's app-db is NOT stamped — the dispatch did not fall through")
-          (finally
-            (try (rdc/unmount root) (catch :default _ nil))))))))
+    (async done
+      (let [target-frame :tenant-d4sf-dispatch]
+        (rf/make-frame {:id target-frame :doc "non-default frame for dispatch routing test"})
+        (rf/reg-event :rf2-d4sf/record-here (fn [{:keys [db]} _] {:db (assoc db :stamped :here)}))
+        (rf/reg-view* :rf.cross-spec-d4sf/dispatcher-probe
+                      (fn dispatcher-probe-impl []
+                        ;; Dispatch with no :frame opt — must route to the
+                        ;; surrounding provider's frame, not :rf/default.
+                        (rf/dispatch-sync [:rf2-d4sf/record-here])
+                        [:div "probe"]))
+        (let [unmounts   (atom [])
+              render-fn  (rf/view :rf.cross-spec-d4sf/dispatcher-probe)
+              mount-node (make-mount-node!)
+              root       (rdc/create-root mount-node)
+              finish     (fn []
+                           (-> (await-teardown! root)
+                               (.then (fn [_]
+                                        (trace-tooling/unregister-listener! ::d4sf-dispatcher-probe-unmounts)
+                                        (is (= 1 (count @unmounts))
+                                            (str "rf2-7r78l: exactly one :rf.view/unmounted fired for "
+                                                 ":rf.cross-spec-d4sf/dispatcher-probe WITHIN the awaited window; got "
+                                                 (count @unmounts)))
+                                        (done)))))]
+          (trace-tooling/register-listener! ::d4sf-dispatcher-probe-unmounts
+            (fn [ev]
+              (when (and (= :rf.view/unmounted (:operation ev))
+                         (= :rf.cross-spec-d4sf/dispatcher-probe (-> ev :tags :rf.view/id)))
+                (swap! unmounts conj ev))))
+          (try
+            ;; EP-0002 (rf2-9o48ih): clear the fixture's ambient `*current-frame*`
+            ;; :rf/default scope around the synchronous render so the dispatch's
+            ;; `:frame` default resolves via the React-context tier (the provider's
+            ;; frame), not the ambient :rf/default that tier 1 would otherwise win.
+            (binding [frame/*current-frame* nil]
+              (react-dom/flushSync
+                (fn []
+                  (rdc/render root [rf/frame-provider {:frame target-frame}
+                                    [render-fn]]))))
+            (is (= :here (:stamped (rf/app-db-value target-frame)))
+                "dispatch routed to the provider's frame — its app-db carries the stamp")
+            (is (not= :here (:stamped (rf/app-db-value :rf/default)))
+                ":rf/default's app-db is NOT stamped — the dispatch did not fall through")
+            (finish)
+            (catch :default e
+              (is false (str "dispatch-default-frame-routes-via-react-context threw: " (pr-str e)))
+              (finish))))))))
 
 ;; ---------------------------------------------------------------------------
 ;; Interaction 11 — Machine action throws
