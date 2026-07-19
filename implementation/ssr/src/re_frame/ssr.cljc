@@ -31,6 +31,8 @@
             ;; Plain-data schemas attached to the seven server effects.
             [re-frame.ssr.server-fx-schemas :as server-fx-schemas]
             [re-frame.ssr.substrate :as substrate]
+            ;; The S5 structural-tree -> HTML serialiser (rf2-3omxp).
+            [re-frame.ssr.ui-tree :as ui-tree]
             ;; Publishes streaming server hooks at namespace load.
             re-frame.ssr.streaming
             ;; CLJS-only DOM consumer for streamed boundary chunks.
@@ -44,6 +46,11 @@
 ;; `def`s expose the supported sub-namespace functions at the façade.
 
 (def render-to-string                emit/render-to-string)
+;; The S5 tree->HTML seam: an already-rendered version-1 structural tree
+;; (from the JVM emitter) -> HTML string. Distinct from `render-to-string`,
+;; which consumes hiccup and renders it (calls views, resolves subs).
+;; Per Spec 004B §The SSR consumption boundary (rf2-3omxp).
+(def emit-ui-tree                    ui-tree/emit-ui-tree)
 (def install-render-to-string!       emit/install-render-to-string!)
 (def ^:private format-view-source-coord emit/format-view-source-coord)
 (def render-tree-hash                hash/render-tree-hash)
