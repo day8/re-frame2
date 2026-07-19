@@ -278,18 +278,21 @@
                      (is false (str "inline-popover: " e)) (done))))))))
 
 ;; ---------------------------------------------------------------------------
-;; Roster completeness — the six tests above must cover the whole library
+;; Roster completeness is owned by the G-18 checker (rf2-syell)
 ;; ---------------------------------------------------------------------------
-
-(deftest every-library-view-is-rendered-somewhere-in-this-namespace
-  ;; Runs on BOTH runtimes: it is a static roster claim, not a mounted one.
-  ;; G-18 derives its sentinel roster from library.cljs; this pins the RENDER
-  ;; side to the same six, so adding a seventh view arms this test too instead
-  ;; of quietly escaping render coverage (the rf2-r4q98 drift shape).
-  (is (= 6 (count [lib/controlled-input lib/selection-controller lib/list-cell
-                   lib/safe-form-control lib/schema-described lib/inline-popover]))
-      "the library ships exactly the six views this namespace mounts")
-  (is (= 6 (count (distinct [sel-controlled-input sel-selection-controller
-                             sel-list-cell sel-safe-form-control
-                             sel-schema-described sel-inline-popover])))
-      "each view is scoped by a DISTINCT sentinel selector — no test can be satisfied by a sibling"))
+;;
+;; "Every library view is exercised here" used to be a deftest in this file, but
+;; its only roster assertion was a hand-maintained `(= 6 (count [lib/... ]))`
+;; over a spelled-out var list: a seventh `defview` in library.cljs armed
+;; NEITHER side, so a shipped view rendered nowhere stayed green — the exact
+;; regression #6459 exists to prevent (rf2-kxork probe: a real seventh view left
+;; 495 tests / 2765 assertions green). A .cljs test cannot read library.cljs at
+;; runtime to derive that roster without a macro or generated source, so the
+;; completeness claim lives in the one seam that already derives the library
+;; roster from source: scripts/check-ui-facade-isolation.cjs (the required
+;; cljs-ui-facade-isolation gate). It compares the derived `defview` set against
+;; the sentinel selectors THIS suite references — the sel-* constants above are
+;; that suite's half of the comparison. So a seventh view REDs the gate until it
+;; is mounted and scoped here, and a removed/renamed view REDs on its stale
+;; selector, neither able to drift on a hard-coded count. Sentinel distinctness
+;; (no test satisfied by a sibling) is likewise enforced there, per view.

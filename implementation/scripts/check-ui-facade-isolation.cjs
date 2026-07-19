@@ -70,11 +70,28 @@
 // must not be shared between views, and an empty or single-view roster FAILS —
 // a derivation that stops matching must RED, not pass (rf2-5jbev, rf2-vxgfnd.167).
 //
+// ROSTER COMPLETENESS OF THE MOUNTED SUITE (rf2-syell). The same library-source
+// roster this gate already derives also pins the RENDER side. The mounted
+// browser suite `re-frame.ui.proof-pack.library-dom-cljs-test` exercises each
+// view scoped to that view's own `[data-pp=...]` sentinel, but its own
+// roster-completeness claim used to be a hand-maintained `(= 6 (count [lib/... ]))`:
+// a seventh `defview` armed neither side, so a shipped view rendered nowhere
+// stayed green — the exact regression #6459 meant to prevent (rf2-kxork probe:
+// 495 tests / 2765 assertions green with a real seventh view). A `.cljs` test
+// cannot read library.cljs at runtime to self-derive without a macro/generated
+// source, so the completeness claim is owned here, next to the roster it already
+// derives: the derived defview set is compared against the sentinel literals the
+// mounted suite references (its `sel-*` selectors). A view uncovered by the suite
+// FAILS (a shipped view rendered nowhere), and a suite selector no library view
+// owns FAILS (a stale entry a removed/renamed view left behind) — so neither
+// side can drift on a hard-coded count. No new build, CI job, or registry: it is
+// a pure source comparison reusing this file's own defview derivation.
+//
 // `--self-test` drives the derivation over synthetic sources, including the
-// seven-view drift case and every anti-vacuity branch. It needs no build, no
-// JVM and no toolchain, so it is the arm that runs cheaply everywhere; the
-// bundle assertions above are verified by CI. Same shape as
-// check-ui-adapter-isolation.cjs --self-test.
+// seven-view drift case, the roster-completeness red paths, and every
+// anti-vacuity branch. It needs no build, no JVM and no toolchain, so it is the
+// arm that runs cheaply everywhere; the bundle assertions above are verified by
+// CI. Same shape as check-ui-adapter-isolation.cjs --self-test.
 
 const fs = require('fs');
 const path = require('path');
@@ -88,6 +105,7 @@ const ALL = path.join(IMPL, 'out', 'proof-pack-all');
 const PROOF_PACK = path.join(IMPL, 'ui', 'proof-pack', 're_frame', 'ui', 'proof_pack');
 const LIBRARY_SRC = path.join(PROOF_PACK, 'library.cljs');
 const CONSUMER_SRC = path.join(PROOF_PACK, 'single_view.cljs');
+const MOUNTED_SUITE_SRC = path.join(PROOF_PACK, 'library_dom_cljs_test.cljs');
 
 // The namespace the single-view consumer imports from. Naming the derivation's
 // two INPUTS is not a roster — what is derived is which views exist and which
@@ -249,6 +267,55 @@ function deriveRoster(librarySource, consumerSource) {
   };
 }
 
+// --- mounted-suite roster completeness (rf2-syell) --------------------------
+
+// Which library-view render sentinels the mounted browser suite references.
+// Each per-view test scopes its assertions by a `[data-pp='<sentinel>']`
+// selector, so the sentinel literals present in the suite source are exactly the
+// views it exercises — the same "sentinel literal present" coverage signal G-18
+// reads from a bundle, here read from the mounted suite's own source.
+function deriveMountedCoverage(mountedSuiteSource) {
+  return [...new Set(mountedSuiteSource.match(SENTINEL_RE) || [])];
+}
+
+// The completeness contract, pure over the derived views and the suite's covered
+// set so the self-test can drive both red paths without a browser. Every library
+// view must be exercised by the suite, and every sentinel the suite references
+// must be owned by a live view (no stale entry from a removed/renamed view).
+function evaluateMountedCoverage(views, covered) {
+  const problems = [];
+  const coveredSet = new Set(covered);
+
+  // Forward: each library view must have at least one of its sentinels covered.
+  for (const v of views) {
+    if (!v.sentinels.some((s) => coveredSet.has(s))) {
+      problems.push(
+        `roster completeness: library view ${v.name} (sentinel ${v.sentinels.join(', ')}) is NOT ` +
+        'exercised by the mounted suite (library-dom-cljs-test). A shipped proof-pack view rendered ' +
+        'nowhere is the rf2-kxork drift #6459 exists to prevent: mount it on a real root and scope an ' +
+        'assertion to its own [data-pp=...] sentinel.');
+    }
+  }
+
+  // Reverse: every sentinel the suite references must belong to a live view.
+  const owned = new Set(views.flatMap((v) => v.sentinels));
+  for (const s of covered) {
+    if (!owned.has(s)) {
+      problems.push(
+        `roster completeness: the mounted suite references sentinel ${s}, which NO library view owns ` +
+        '— a stale roster entry a removed or renamed view left behind. Drop the dead selector or ' +
+        'restore the view; a renamed view must RED here, not pass on a hard-coded selector.');
+    }
+  }
+
+  return problems;
+}
+
+function checkMountedCoverageFromRepo(views) {
+  const covered = deriveMountedCoverage(readSource(MOUNTED_SUITE_SRC, 'proof-pack mounted suite'));
+  return { covered, problems: evaluateMountedCoverage(views, covered) };
+}
+
 function readSource(abs, label) {
   let src;
   try {
@@ -335,6 +402,20 @@ function main() {
   console.log(`  rooted by the single-view consumer: ${roster.importedView} (alias ${roster.alias}/)`);
   console.log(`  imported sentinel(s): ${roster.imported.join(', ')}`);
   console.log(`  sibling sentinel(s): ${roster.siblings.length}`);
+
+  // Roster completeness (rf2-syell): every derived library view must be
+  // exercised by the mounted browser suite, checked from source rather than from
+  // a hand-maintained count in the suite. Pure source comparison — no build — so
+  // it fails fast before the release below.
+  const { covered, problems: coverageProblems } = checkMountedCoverageFromRepo(roster.views);
+  console.log('=== mounted-suite roster completeness ===');
+  console.log(`  library views: ${roster.views.length}; mounted suite covers ${covered.length} sentinel(s)`);
+  if (coverageProblems.length) {
+    console.error('\n=== proof-pack roster completeness FAIL ===');
+    for (const p of coverageProblems) console.error(`  - ${p}`);
+    process.exit(1);
+  }
+  console.log('  roster complete — every library view is exercised by the mounted suite.');
 
   shadow('release', 'proof-pack-single', 'proof-pack-all');
 
@@ -568,6 +649,78 @@ function selfTest() {
     );
   });
 
+  // --- mounted-suite roster completeness, driven over synthetic sources ------
+  //
+  // rf2-syell. The mounted browser suite named its own roster with a hardcoded
+  // count, so a 7th view could ship rendered nowhere while it stayed green
+  // (the rf2-kxork probe: 495 tests green with a real seventh view). These arms
+  // drive `evaluateMountedCoverage` over the same synthetic library the bundle
+  // arms use, so a 7th view REDs until it is exercised and a stale selector REDs
+  // when a view is removed/renamed — the completeness gap #6459 could not see.
+  //
+  // `mountedSuite` fakes the suite as the sel-* selector constants that carry
+  // the sentinels it exercises — the same shape the real suite has.
+  const mountedSuite = (...sentinels) =>
+    '(ns re-frame.ui.proof-pack.library-dom-cljs-test)\n' +
+    sentinels.map((s, i) => `(def ^:private sel-${i} "[data-pp='${s}']")`).join('\n') + '\n';
+  const SIX_SENTINELS = [
+    'rf2-pp-alpha-sentinel', 'rf2-pp-beta-sentinel', 'rf2-pp-gamma-sentinel',
+    'rf2-pp-delta-sentinel', 'rf2-pp-epsilon-sentinel', 'rf2-pp-zeta-sentinel',
+  ];
+
+  check('COVERAGE: a suite exercising every view passes completeness', () => {
+    const r = deriveRoster(lib(...SIX), consumer('alpha'));
+    const covered = deriveMountedCoverage(mountedSuite(...SIX_SENTINELS));
+    const problems = evaluateMountedCoverage(r.views, covered);
+    assert(problems.length === 0, `expected complete, got: ${problems.join(' | ')}`);
+  });
+
+  // THE rf2-syell DRIFT, now caught. A seventh library view the suite does not
+  // mount stays rendered nowhere. Under the retired hardcoded `(= 6 (count ...))`
+  // roster the suite counted its own six vars and passed; here it REDs.
+  check('COVERAGE: a SEVENTH view unexercised by the suite FAILS (the rf2-syell drift)', () => {
+    const r = deriveRoster(lib(...SEVEN), consumer('alpha'));
+    const covered = deriveMountedCoverage(mountedSuite(...SIX_SENTINELS)); // suite still only the six
+    const problems = evaluateMountedCoverage(r.views, covered);
+    assert(
+      problems.some((p) => p.includes('eta') && p.includes('NOT') && p.includes('exercised')),
+      `the 7th view must be reported unexercised, got: ${problems.join(' | ')}`,
+    );
+
+    // Negative control: a hand-maintained count of the six the suite DID mount
+    // sees nothing wrong — that six-equals-six pass is exactly the drift closed.
+    assert(covered.length === 6, `the suite still covers six, got ${covered.length}`);
+  });
+
+  check('COVERAGE: a stale suite selector (removed/renamed view) FAILS', () => {
+    const r = deriveRoster(lib(...SIX), consumer('alpha'));
+    // The suite still references a sentinel for a view no longer in the library.
+    const covered = deriveMountedCoverage(mountedSuite(...SIX_SENTINELS, 'rf2-pp-ghost-sentinel'));
+    const problems = evaluateMountedCoverage(r.views, covered);
+    assert(
+      problems.some((p) => p.includes('rf2-pp-ghost-sentinel') && p.includes('stale')),
+      `the stale selector must be reported, got: ${problems.join(' | ')}`,
+    );
+  });
+
+  check('COVERAGE: a renamed view REDs on BOTH sides (uncovered new + stale old)', () => {
+    const r = deriveRoster(lib(...SIX), consumer('alpha'));
+    // library renamed zeta's sentinel; the suite still carries the OLD one.
+    const renamed = r.views.map((v) =>
+      v.name === 'zeta' ? { ...v, sentinels: ['rf2-pp-zeta2-sentinel'] } : v);
+    const covered = deriveMountedCoverage(mountedSuite(...SIX_SENTINELS)); // old zeta sentinel
+    const problems = evaluateMountedCoverage(renamed, covered);
+    assert(problems.some((p) => p.includes('zeta') && p.includes('NOT')), 'the renamed view must be uncovered');
+    assert(problems.some((p) => p.includes('rf2-pp-zeta-sentinel') && p.includes('stale')), 'the old selector must be stale');
+  });
+
+  check('COVERAGE: the real mounted suite exercises every real library view', () => {
+    const r = rosterFromRepo();
+    const { covered, problems } = checkMountedCoverageFromRepo(r.views);
+    assert(problems.length === 0, `real roster completeness must hold, got: ${problems.join(' | ')}`);
+    console.log(`       real coverage: ${covered.length} sentinel(s) cover all ${r.views.length} views`);
+  });
+
   if (failed > 0) {
     console.error(`[ui-facade-isolation] self-test FAILED: ${failed}`);
     process.exit(1);
@@ -588,4 +741,7 @@ if (require.main === module) {
   }
 }
 
-module.exports = { deriveRoster, deriveViews, deriveRooted, rosterFromRepo, evaluateBundles };
+module.exports = {
+  deriveRoster, deriveViews, deriveRooted, rosterFromRepo, evaluateBundles,
+  deriveMountedCoverage, evaluateMountedCoverage, checkMountedCoverageFromRepo,
+};
