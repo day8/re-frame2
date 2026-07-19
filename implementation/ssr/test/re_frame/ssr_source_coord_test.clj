@@ -1,183 +1,230 @@
 (ns re-frame.ssr-source-coord-test
-  "INTERIM CONTRACT — no server-side source-coord annotation (rf2-j81hs).
+  "Server-side (JVM) dev-mode view annotation, at the reg-view REGISTRATION
+  boundary (rf2-8vi4q).
 
-  ## What this namespace used to pin, and why it no longer can
+  ## What this pins
 
-  Per Spec 011 §Source-coord annotation under SSR (rf2-z7f7 / rf2-z9n1)
-  the JVM emitter injected `data-rf2-source-coord=\"<ns>:<sym>:<line>:<col>\"`
-  on a registered view's root DOM element, mirroring Spec 006's client
-  contract. Every assertion here drove that through a KEYWORD head —
-  `(ssr/render-to-string [:rf.ssr-coord-test/banner] {})` — because the
-  emitter's keyword branch was the only place the injection ever ran.
+  A registered view reached through its CALLABLE head — `[(rf/view :id) …]`
+  or a Var, the shape isomorphic pages actually compose with — renders on
+  the server WITH both dev-mode annotations: `data-rf2-source-coord`
+  (Spec 006 §Source-coord annotation) and `data-rf-view` (Spec 006 §View
+  tagging contract). The client stamps the same two at React render time,
+  so the server markup byte-matches the dev client render and a dev SSR
+  page hydrates as a clean ADOPTION rather than an attribute mismatch.
 
-  rf2-j81hs deleted that branch: a keyword head is a DOM / custom element
-  on every host, and views are referenced by callable head (the Var
-  `reg-view` defs, or `(rf/view :id)`). The callable branch NEVER
-  annotated. So server-side source-coord annotation is now unreachable —
-  not disabled, not gated, structurally unreachable.
+  ## History
 
-  That is the ruled outcome rather than a regression, on two grounds the
-  rf2-j81hs ruling §5 states directly: the keyword-branch coord injection
-  \"dies WITH the branch\", and per rf2-8vi4q's own evidence it never
-  fired on any boundary a hydratable page can contain — an isomorphic
-  page composes via `(rf/view :id)` fn-refs, where the JVM stores the raw
-  unwrapped handler-fn, so the injection was already dead on every shape
-  that matters. The shipped non-streaming example reaches its DOM root
-  with no attribute server-side while the client stamps two.
+  This namespace used to pin the INTERIM absence rf2-j81hs created: it had
+  deleted the emitter's keyword-view branch (a keyword head is a DOM
+  element on every host) — the branch that carried the old emitter-side
+  injection — leaving no server render annotated. rf2-8vi4q closes that
+  gap by moving annotation to the registration boundary on BOTH hosts (a
+  debug-gated wrapper on the registered `:handler-fn`,
+  `re-frame.views.jvm-source-coord-annotation`), and deletes the orphaned
+  emitter fns. So the assertions here flipped from `not annotated` to
+  `annotated`, and the production-gate arm is reinstated at the new site.
 
-  ## Why pin the absence at all
-
-  Because \"the attribute stopped appearing\" must be a DELIBERATE,
-  greppable fact rather than something a future reader discovers by
-  finding no test. These assertions fail the moment anyone reintroduces
-  emitter-side annotation — which is exactly the design rf2-8vi4q
-  REJECTED (its Option A: emitter-side injection, rejected because it
-  only ever reaches keyword-ref boundaries that hydratable pages cannot
-  use).
-
-  The production-elision property the old `debug-enabled?` tests guarded
-  (rf2-wtd8z finding 3 — a production render must not leak internal
-  source coordinates into public HTML) now holds VACUOUSLY and
-  unconditionally: there is no annotation site left to gate. It is
-  re-pinned below as an absolute rather than as a gate, so the guarantee
-  survives the transition instead of quietly lapsing.
-
-  ## Who takes it from here
-
-  rf2-8vi4q owns the replacement: annotation moves to the reg-view
-  REGISTRATION boundary as a debug-gated wrapper on the registered
-  `:handler-fn`, so BOTH hosts annotate at the same architectural seam
-  and the callable-head shape real pages use is covered for the first
-  time. When that lands, this namespace should be REPLACED by tests that
-  drive annotation through `[(rf/view :id) …]` / Var heads — not restored
-  to its keyword-head form, and its production-gate arm reinstated at the
-  new site.
-
-  The orphaned `format-view-source-coord` / `inject-coord-on-root-hiccup`
-  fns are left in `re-frame.ssr.emit` for rf2-8vi4q to delete; only their
-  call sites are gone."
+  A keyword head is still NOT a view and still NOT annotated — it is a DOM
+  element, unchanged by this bead (`keyword-head-*` below)."
   (:require [clojure.string :as str]
             [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.interop :as interop]
             [re-frame.ssr :as ssr]
             [re-frame.ssr.streaming :as streaming]
-            [re-frame.ssr.test-fixture :as tf]))
+            [re-frame.ssr.test-fixture :as tf]
+            [re-frame.views.jvm-source-coord-annotation :as jvm-annot]))
 
-;; Shared reset fixture lives in `re-frame.ssr.test-fixture` (rf2-i3qc0).
 (use-fixtures :each tf/reset-runtime)
 
-(defn- annotated?
-  "True when `html` carries a source-coord annotation attribute."
-  [html]
-  (str/includes? html "data-rf2-source-coord="))
+(defn- source-coord? [html] (str/includes? html "data-rf2-source-coord="))
+(defn- view-id?      [html] (str/includes? html "data-rf-view="))
+(defn- both-annotations? [html] (and (source-coord? html) (view-id? html)))
 
 ;; ---------------------------------------------------------------------------
-;; The interim contract: nothing the JVM emitters produce is annotated
+;; A registered view reached through a callable head IS annotated
 ;; ---------------------------------------------------------------------------
 
-(deftest callable-head-view-is-not-annotated-server-side
-  (testing "rf2-j81hs — a registered view reached through a CALLABLE head
-            (the shape every isomorphic page actually uses) renders with
-            no source-coord attribute. This was ALREADY true before the
-            keyword branch was deleted; the branch simply hid it, because
-            nothing here exercised the callable shape."
-    (rf/reg-view ^{:rf/id :rf.ssr-coord-test/banner} banner-view []
+(deftest callable-head-view-is-annotated-server-side
+  (testing "rf2-8vi4q — a view reached through its callable head (the shape
+            every isomorphic page uses) renders with BOTH annotations on
+            its root DOM element."
+    (rf/reg-view ^{:rf/id :ssr-coord-test/banner} banner-view []
       [:h1 "hi"])
 
     (testing "Var head"
-      (is (not (annotated? (ssr/render-to-string [banner-view] {})))))
+      (is (both-annotations? (ssr/render-to-string [banner-view] {}))))
 
     (testing "`(rf/view :id)` head"
-      (is (not (annotated? (ssr/render-to-string
-                             [(rf/view :rf.ssr-coord-test/banner)] {})))))
+      (is (both-annotations?
+            (ssr/render-to-string [(rf/view :ssr-coord-test/banner)] {}))))
 
-    (testing "the view genuinely rendered — otherwise this asserts nothing"
-      (is (= "<h1>hi</h1>" (ssr/render-to-string [banner-view] {}))))))
+    (testing "the data-rf-view value is `(str id)`"
+      (is (str/includes? (ssr/render-to-string [banner-view] {})
+                         "data-rf-view=\":ssr-coord-test/banner\"")))
 
-(deftest keyword-head-is-an-element-and-is-not-annotated
-  (testing "rf2-j81hs — the head that USED to be annotated is now an
-            element. It carries no source-coord attribute because it
-            resolves to no view at all: `:coord-demo/banner` renders
-            `<banner>`, taking the keyword's name as the tag.
+    (testing "the view genuinely rendered its own root — not swallowed"
+      (is (str/starts-with? (ssr/render-to-string [banner-view] {}) "<h1 ")))))
 
-            Registered under an UNRESERVED namespace deliberately. The
-            rest of this file registers under `:rf.ssr-coord-test/*`,
-            which sits inside the framework-reserved `:rf.<area>/*` scheme
-            — harmless as a registry id, but as a HEAD it now trips the
-            reserved-head guard and throws instead of rendering an
-            element. Using a reserved id here would test the guard, not
-            the element branch."
-    (rf/reg-view ^{:rf/id :coord-demo/banner} banner-view []
-      [:h1 "hi"])
-    (let [html (ssr/render-to-string [:coord-demo/banner] {})]
-      (is (= "<banner></banner>" html))
-      (is (not (annotated? html))))))
+;; ---------------------------------------------------------------------------
+;; Exact byte shape for a programmatic (coordless) registration — degrade
+;; ---------------------------------------------------------------------------
 
-(deftest plain-hiccup-not-annotated
-  (testing "unchanged by rf2-j81hs — ordinary tags were never annotated"
-    (is (not (annotated? (ssr/render-to-string [:div [:span "x"]] {}))))))
+(deftest coordless-programmatic-registration-degrades-to-question-marks
+  (testing "rf2-8vi4q — a `reg-view*` with no macro-captured coords still
+            annotates, degrading the source-coord to <ns>:<sym>:?:? so both
+            hosts match on the programmatic path too."
+    (rf/reg-view* :ssr-coord-test/prog {} (fn [] [:div "prog"]))
+    (let [html (ssr/render-to-string [(rf/view :ssr-coord-test/prog)] {})]
+      (is (= (str "<div data-rf2-source-coord=\"ssr-coord-test:prog:?:?\""
+                  " data-rf-view=\":ssr-coord-test/prog\">prog</div>")
+             html)
+          (str "coordless degrade must produce exactly the client shape; got: "
+               (pr-str html))))))
 
-(deftest streaming-walker-emits-no-source-coord
-  (testing "rf2-j81hs — the streaming shell walker mirrored the sync
-            emitter's injection on its OWN keyword branch. Both are gone,
-            so a streamed shell is unannotated too. Pinned separately
-            because the walker carried its own copy: a partial restore
-            touching only one emitter would leave the two diverging again,
-            which is the whole failure class this bead closes."
-    (rf/reg-view ^{:rf/id :rf.ssr-coord-test/shell} shell-view []
+;; ---------------------------------------------------------------------------
+;; Author-supplied attribute values are PRESERVED
+;; ---------------------------------------------------------------------------
+
+(deftest author-supplied-annotation-values-are-preserved
+  (testing "rf2-8vi4q — an author who set data-rf2-source-coord / data-rf-view
+            on the root keeps THEIR value; the wrapper only fills a missing
+            key. Mirrors the client `inject-source-coord-attr` preservation."
+    (rf/reg-view* :ssr-coord-test/authored {}
+                  (fn [] [:div {:data-rf-view "author-owned"
+                                :id           "x"} "a"]))
+    (let [html (ssr/render-to-string [(rf/view :ssr-coord-test/authored)] {})]
+      (is (str/includes? html "data-rf-view=\"author-owned\"")
+          "the author's data-rf-view value survives")
+      (is (not (str/includes? html "data-rf-view=\":ssr-coord-test/authored\""))
+          "the wrapper did not overwrite it")
+      (is (source-coord? html)
+          "the missing key IS still filled by the wrapper"))))
+
+;; ---------------------------------------------------------------------------
+;; Form-2 views: the inner render fn's output is annotated
+;; ---------------------------------------------------------------------------
+
+(deftest form-2-view-inner-output-is-annotated
+  (testing "rf2-8vi4q — a Form-2 view (outer fn returns an inner render fn)
+            has the INNER output annotated, mirroring the client Form-2
+            wrapper. The emitter unwraps the inner fn; the wrapper's Form-2
+            branch re-wraps so the inner hiccup gets the attributes."
+    (rf/reg-view* :ssr-coord-test/form2 {}
+                  (fn [] (fn [] [:section "inner"])))
+    (let [html (ssr/render-to-string [(rf/view :ssr-coord-test/form2)] {})]
+      (is (both-annotations? html)
+          (str "Form-2 inner output must be annotated; got: " (pr-str html)))
+      (is (str/starts-with? html "<section ")))))
+
+;; ---------------------------------------------------------------------------
+;; Non-DOM roots (fragment, nested view-ref head) skip — documented exemption
+;; ---------------------------------------------------------------------------
+
+(deftest fragment-root-is-not-annotated
+  (testing "rf2-8vi4q — a fragment `:<>` root is a non-DOM root: the wrapper
+            skips it (the exact exemption the client walk takes), so the
+            fragment's children emit unwrapped."
+    (rf/reg-view* :ssr-coord-test/frag {}
+                  (fn [] [:<> [:p "a"] [:p "b"]]))
+    (let [html (ssr/render-to-string [(rf/view :ssr-coord-test/frag)] {})]
+      (is (= "<p>a</p><p>b</p>" html))
+      (is (not (both-annotations? html))))))
+
+(deftest nested-view-ref-root-is-not-doubly-annotated
+  (testing "rf2-8vi4q — a view whose root is ANOTHER view-ref (a callable
+            head) skips at the outer wrapper: the head is a fn, not a
+            DOM-tag keyword. The inner view annotates its own root, so the
+            single annotated element is the inner one — no double-stamp."
+    (rf/reg-view* :ssr-coord-test/inner {} (fn [] [:span "in"]))
+    (rf/reg-view* :ssr-coord-test/outer {}
+                  (fn [] [(rf/view :ssr-coord-test/inner)]))
+    (let [html (ssr/render-to-string [(rf/view :ssr-coord-test/outer)] {})]
+      (is (str/includes? html "data-rf-view=\":ssr-coord-test/inner\"")
+          "the inner view annotated its own root")
+      (is (not (str/includes? html "data-rf-view=\":ssr-coord-test/outer\""))
+          "the outer view (callable-head root) did not stamp itself")
+      (is (= 1 (count (re-seq #"data-rf-view=" html)))
+          (str "exactly one annotated element; got: " (pr-str html))))))
+
+;; ---------------------------------------------------------------------------
+;; The streaming shell walker inherits annotation through the handler-fn
+;; ---------------------------------------------------------------------------
+
+(deftest streaming-shell-annotates-through-the-wrapped-handler
+  (testing "rf2-8vi4q — the streaming walker carries NO annotation logic; it
+            resolves callable heads through the SAME wrapped handler-fn, so a
+            streamed shell is annotated identically to the sync render. The
+            emitter-side asymmetry (two walkers, two copies) that rf2-j81hs
+            worried about is gone: one wrapper, both paths."
+    (rf/reg-view ^{:rf/id :ssr-coord-test/shell} shell-view []
       [:main "shell"])
     (let [{:keys [shell-html]} (streaming/render-shell [shell-view])]
-      (is (= "<main>shell</main>" shell-html))
-      (is (not (annotated? shell-html))))))
-
-(deftest no-emitter-path-annotates
-  (testing "rf2-j81hs — a sweep across the shapes the old tests covered
-            (nested views, fragment roots, programmatic registration).
-            None annotates. Stated as one sweep rather than five near-
-            identical deftests: the contract is now uniform, and its
-            uniformity is the point."
-    (rf/reg-view ^{:rf/id :rf.ssr-coord-test/inner} inner-view []
-      [:span "in"])
-    (rf/reg-view ^{:rf/id :rf.ssr-coord-test/outer} outer-view []
-      [:section [inner-view]])
-    (rf/reg-view ^{:rf/id :rf.ssr-coord-test/frag} frag-view []
-      [:<> [:p "a"] [:p "b"]])
-    ;; Programmatic registration — no macro-captured coords at all.
-    (rf/reg-view* :rf.ssr-coord-test/programmatic {} (fn [] [:div "prog"]))
-
-    (doseq [[label tree]
-            [["nested views"  [outer-view]]
-             ["fragment root" [frag-view]]
-             ["programmatic"  [(rf/view :rf.ssr-coord-test/programmatic)]]]]
-      (is (not (annotated? (ssr/render-to-string tree {})))
-          (str label " must not carry a source-coord annotation")))))
+      (is (both-annotations? shell-html)
+          (str "streamed shell must be annotated; got: " (pr-str shell-html)))
+      (is (str/includes? shell-html "data-rf-view=\":ssr-coord-test/shell\"")))))
 
 ;; ---------------------------------------------------------------------------
-;; Production elision (rf2-wtd8z finding 3) — now unconditional
+;; A keyword head is an element, still NOT a view, still NOT annotated
 ;; ---------------------------------------------------------------------------
 
-(deftest no-source-coord-leak-in-either-debug-mode
-  (testing "rf2-wtd8z finding 3, restated for the post-rf2-j81hs world:
-            a production render must never leak internal source
-            coordinates into public HTML. The old tests proved this by
-            flipping `interop/debug-enabled?` and checking the OFF arm
-            elided. With no annotation site left, the guarantee is
-            unconditional — so pin it against BOTH settings of the gate.
+(deftest keyword-head-is-an-element-and-is-not-annotated
+  (testing "unchanged by rf2-8vi4q — a keyword head is a DOM / custom element
+            on every host (rf2-j81hs), never a view, so it carries no
+            annotation even when a view of the same id is registered."
+    (rf/reg-view* :coord-demo/card {} (fn [_] [:div.card "x"]))
+    (let [html (ssr/render-to-string [:coord-demo/card :revenue] {})]
+      (is (= "<card>revenue</card>" html))
+      (is (not (both-annotations? html))))))
 
-            Driving debug ON is the load-bearing half: it is the arm that
-            used to annotate, so it is the arm that would catch an
-            accidental reintroduction."
-    (rf/reg-view ^{:rf/id :rf.ssr-coord-test/gated} gated-view []
-      [:h2 "g"])
-    (doseq [debug? [true false]]
-      (with-redefs [interop/debug-enabled? debug?]
-        (testing (str "sync emitter, debug-enabled? = " debug?)
-          (let [html (ssr/render-to-string [gated-view] {})]
-            (is (= "<h2>g</h2>" html))
-            (is (not (annotated? html)))))
+(deftest plain-hiccup-not-annotated
+  (testing "unchanged — ordinary tags were never annotated"
+    (is (not (both-annotations? (ssr/render-to-string [:div [:span "x"]] {}))))))
 
-        (testing (str "streaming walker, debug-enabled? = " debug?)
-          (let [{:keys [shell-html]} (streaming/render-shell [gated-view])]
-            (is (= "<h2>g</h2>" shell-html))
-            (is (not (annotated? shell-html)))))))))
+;; ---------------------------------------------------------------------------
+;; Production gate (rf2-wtd8z finding 3) — reinstated at the new site
+;; ---------------------------------------------------------------------------
+;;
+;; The gate is read at REGISTRATION time (mirroring the client
+;; `make-wrap-view`, which decides whether to wrap when the view is
+;; registered). So the production arm must REGISTER the view under a false
+;; `interop/debug-enabled?`; flipping it only around the render would not
+;; un-wrap an already-wrapped handler-fn. That registration-time semantics
+;; is itself the thing under test — a production SSR build reads the flag
+;; false at boot, before any view registers.
+
+(deftest production-build-emits-no-annotation
+  (testing "rf2-8vi4q — a view REGISTERED under `interop/debug-enabled?`
+            false (the production SSR posture) stores an unwrapped
+            handler-fn, so its server markup carries neither annotation —
+            symmetric with the CLJS :advanced + goog.DEBUG=false build that
+            Closure DCEs the client walk. The dev arm annotates; the prod
+            arm does not."
+    (testing "debug ON at registration — annotated (the load-bearing arm)"
+      (rf/reg-view* :ssr-coord-test/gated-dev {} (fn [] [:h2 "g"]))
+      (let [html (ssr/render-to-string [(rf/view :ssr-coord-test/gated-dev)] {})]
+        (is (str/starts-with? html "<h2 "))
+        (is (both-annotations? html))))
+
+    (testing "debug OFF at registration — NOT annotated"
+      (with-redefs [interop/debug-enabled? false]
+        (rf/reg-view* :ssr-coord-test/gated-prod {} (fn [] [:h2 "g"])))
+      ;; render with debug back at its default — the wrap decision was made
+      ;; at registration, so the markup is unannotated regardless.
+      (let [html (ssr/render-to-string [(rf/view :ssr-coord-test/gated-prod)] {})]
+        (is (= "<h2>g</h2>" html))
+        (is (not (both-annotations? html)))))))
+
+;; ---------------------------------------------------------------------------
+;; The formatter unit itself degrades — belt-and-braces on the shared dialect
+;; ---------------------------------------------------------------------------
+
+(deftest jvm-formatter-produces-the-shared-dialect
+  (testing "rf2-8vi4q — the JVM formatter is byte-identical in shape to the
+            CLJS one (pinned cross-host in `source-coord-parity-test`). Here
+            just confirm the two value shapes directly."
+    (is (= "a.b:c:1:2"
+           (jvm-annot/format-source-coord :a.b/c {:line 1 :column 2})))
+    (is (= "a.b:c:?:?"
+           (jvm-annot/format-source-coord :a.b/c {})))
+    (is (= ":a.b/c" (jvm-annot/format-view-id :a.b/c)))))

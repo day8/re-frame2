@@ -1,35 +1,31 @@
 (ns re-frame.source-coord-parity-cljs-test
-  "Per Spec 006 §Source-coord annotation (rf2-z7f7 / rf2-z9n1) and Spec
-  011 §Source-coord annotation under SSR: the CLJS-side Reagent
-  adapter's `format-source-coord` (in `re-frame.views`) and the JVM-
-  side SSR emitter's `format-view-source-coord` (in `re-frame.ssr`)
-  MUST produce byte-identical attribute values for the same input —
-  same id, same captured `:line` / `:column`. Pair tools that consume
-  the `data-rf2-source-coord` attribute parse the same shape regardless
-  of whether the HTML came from server-side rendering or client-side
-  Reagent — divergent formats would silently break the source-mapping
-  contract.
+  "Per Spec 006 §Source-coord annotation (rf2-z7f7 / rf2-z9n1) + §View
+  tagging contract (rf2-01il5): the CLJS-side Reagent adapter's
+  `format-source-coord` / `format-view-id` and the JVM-side
+  registration-boundary formatters (in
+  `re-frame.views.jvm-source-coord-annotation`) MUST produce byte-
+  identical attribute VALUES for the same input — same id, same captured
+  `:line` / `:column`. Pair tools that consume `data-rf2-source-coord` /
+  `data-rf-view` parse the same shape whether the HTML came from server-
+  side rendering or client-side Reagent — divergent formats would
+  silently break the source-mapping contract.
 
-  The parser fix in rf2-7g2q's re-frame2-pair work assumed both sides produce
-  the same `<ns>:<sym>:<line>:<col>` string for the same registration.
-  No test exercises both paths against a single fixture to confirm.
-  This file pins parity from the CLJS side (rf2-d4v7 sub-gap 3 /
-  rf2-o423 audit); the JVM-side counterpart lives at
-  `implementation/ssr/test/re_frame/source_coord_parity_test.clj`
-  and pins the same canonical literal against
-  `format-view-source-coord`.
+  rf2-8vi4q moved server-side annotation to the reg-view registration
+  boundary and added `data-rf-view` to the SSR side, so both hosts now
+  emit BOTH attributes. This file pins BOTH formatters from the CLJS side
+  (rf2-d4v7 sub-gap 3 / rf2-o423 audit); the JVM-side counterpart lives at
+  `implementation/ssr/test/re_frame/source_coord_parity_test.clj` and pins
+  the same canonical literals.
 
-  Strategy: each helper is `defn-` (private), but the var is
-  reachable via `#'ns/sym`. This CLJS test exercises
-  `re-frame.views/format-source-coord` against fixture inputs and
-  asserts it produces a single canonical literal. The companion JVM
-  test exercises `re-frame.ssr/format-view-source-coord` against the
-  SAME fixture and asserts the SAME canonical literal. If either
-  helper drifts from the canonical shape, the corresponding host's
-  test fails. The literal IS the byte-comparison point — both sides
-  pin it independently."
+  Strategy: this CLJS test exercises `re-frame.views/format-source-coord`
+  and `re-frame.views.source-coord-annotation/format-view-id` against
+  fixture inputs and asserts single canonical literals. The companion JVM
+  test exercises the JVM formatters against the SAME fixtures and asserts
+  the SAME literals. If either host's formatter drifts, its test fails.
+  The literals ARE the byte-comparison point — both sides pin independently."
   (:require [cljs.test :refer-macros [deftest is testing]]
-            [re-frame.views]))
+            [re-frame.views]
+            [re-frame.views.source-coord-annotation :as source-coord]))
 
 ;; ---- the canonical attribute-value shape (shared spec) -------------------
 ;;
@@ -48,6 +44,9 @@
 
 ;; Canonical: <ns>=rf.parity-test, <sym>=sample-view, <line>=42, <col>=7.
 (def expected-attr "rf.parity-test:sample-view:42:7")
+
+;; `data-rf-view` is `(str id)` — a printed keyword, leading colon included.
+(def expected-view-id ":rf.parity-test/sample-view")
 
 ;; Degraded canonical: programmatic registration with no macro coords.
 (def fixture-meta-no-line-no-col
@@ -72,6 +71,17 @@
           (str "CLJS `format-source-coord` MUST produce the canonical "
                "<ns>:<sym>:<line>:<col> shape. Expected: "
                (pr-str expected-attr) " — got: " (pr-str cljs-output))))))
+
+;; ---- CLJS side: format-view-id pins the canonical data-rf-view value -----
+
+(deftest cljs-format-view-id-byte-identical-to-canonical
+  (testing "rf2-8vi4q — CLJS `format-view-id` produces `(str id)`, the same
+            `data-rf-view` value the JVM host now stamps. Both hosts emit
+            this attribute; before rf2-8vi4q only the client did."
+    (is (= expected-view-id (source-coord/format-view-id fixture-id))
+        (str "CLJS `format-view-id` MUST produce `(str id)`. Expected: "
+             (pr-str expected-view-id) " — got: "
+             (pr-str (source-coord/format-view-id fixture-id))))))
 
 ;; ---- CLJS side: degraded shape (no line / col) pins the canonical -------
 

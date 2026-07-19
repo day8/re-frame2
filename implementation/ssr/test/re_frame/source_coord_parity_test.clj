@@ -1,146 +1,128 @@
 (ns re-frame.source-coord-parity-test
-  "Per Spec 006 §Source-coord annotation (rf2-z7f7 / rf2-z9n1) and Spec
-  011 §Source-coord annotation under SSR: the JVM-side SSR emitter's
-  `format-view-source-coord` (in `re-frame.ssr`) and the CLJS-side
-  Reagent adapter's `format-source-coord` (in `re-frame.views`) MUST
-  produce byte-identical attribute values for the same input — same
-  id, same captured `:line` / `:column`. Pair tools that consume the
-  `data-rf2-source-coord` attribute parse the same shape regardless
-  of whether the HTML came from server-side rendering or client-side
-  Reagent — divergent formats would silently break the source-mapping
-  contract.
+  "Per Spec 006 §Source-coord annotation (rf2-z7f7 / rf2-z9n1) + §View
+  tagging contract (rf2-01il5): the JVM-side registration-boundary
+  annotation (`re-frame.views.jvm-source-coord-annotation`) and the
+  CLJS-side Reagent adapter's `format-source-coord` / `format-view-id`
+  (in `re-frame.adapter.context`, re-exported via `re-frame.views`) MUST
+  produce byte-identical attribute VALUES for the same input — same id,
+  same captured `:line` / `:column`. Pair tools that consume
+  `data-rf2-source-coord` / `data-rf-view` parse the same shape whether
+  the HTML came from server-side rendering or client-side Reagent;
+  divergent formats would silently break the source-mapping contract.
 
-  The parser fix in rf2-7g2q's re-frame2-pair work assumed both sides produce
-  the same `<ns>:<sym>:<line>:<col>` string for the same registration.
-  No test exercises both paths against a single fixture to confirm.
-  This file pins parity from the JVM side (rf2-d4v7 sub-gap 3 /
-  rf2-o423 audit); the CLJS-side counterpart lives at
-  `implementation/adapters/reagent/test/re_frame/source_coord_parity_cljs_test.cljs`
-  and pins the same canonical literal against `format-source-coord`.
+  rf2-8vi4q moved server-side annotation from the (now-deleted) emitter
+  fn `re-frame.ssr/format-view-source-coord` to the reg-view registration
+  boundary, and added `data-rf-view` to the SSR side so BOTH attributes
+  are emitted on both hosts (previously the emitter stamped only
+  `data-rf2-source-coord`). This test therefore pins BOTH formatters and,
+  at the end, drives the FULL render path through a callable head — the
+  shape hydratable pages actually use — to prove both attributes reach the
+  server markup.
 
-  Strategy: each helper is `defn-` (private), but Clojure exposes
-  private vars via `#'ns/sym`. This JVM test exercises
-  `re-frame.ssr/format-view-source-coord` against fixture inputs and
-  asserts it produces a single canonical literal. The companion CLJS
-  test exercises `re-frame.views/format-source-coord` against the
-  SAME fixture and asserts the SAME canonical literal. If either
-  helper drifts from the canonical shape, the corresponding host's
-  test fails. The literal IS the byte-comparison point — both sides
-  pin it independently."
-  (:require [clojure.test :refer [deftest is testing]]
-            [re-frame.ssr]))
+  Strategy: exercise the JVM formatters against fixed fixtures and assert
+  the canonical literals. The companion CLJS test
+  (`implementation/adapters/reagent/test/re_frame/source_coord_parity_cljs_test.cljs`)
+  exercises the CLJS formatters against the SAME fixtures and asserts the
+  SAME literals. The literals ARE the cross-host byte-comparison point —
+  if either host's formatter drifts, its test fails."
+  (:require [clojure.test :refer [deftest is testing use-fixtures]]
+            [re-frame.core :as rf]
+            [re-frame.ssr :as ssr]
+            [re-frame.ssr.test-fixture :as tf]
+            [re-frame.views.jvm-source-coord-annotation :as jvm-annot]))
 
-;; ---- the canonical attribute-value shape (shared spec) -------------------
+(use-fixtures :each tf/reset-runtime)
+
+;; ---- the canonical attribute-value shapes (shared spec) ------------------
 ;;
-;; Per Spec 006 §Source-coord annotation: `<ns>:<sym>:<line>:<col>`.
-;; <ns> is the registry id keyword's namespace; <sym> is its name;
-;; <line> / <col> come from `(meta &form)` at reg-view macro-expansion
-;; time. The fixture below is the same "stamped meta" shape both
-;; helpers consume; the expected string is the canonical literal.
+;; `data-rf2-source-coord` = `<ns>:<sym>:<line>:<col>` (Spec 006
+;; §Source-coord annotation). `data-rf-view` = `(str id)` (Spec 006 §View
+;; tagging contract). The fixtures below are the same stamped-meta shape
+;; both hosts' formatters consume; the expected strings are the canonical
+;; literals the CLJS companion pins independently.
 
 (def fixture-id :rf.parity-test/sample-view)
 
-(def fixture-meta {:ns         'rf.parity-test
-                   :line       42
-                   :column     7
-                   :file       "rf/parity_test.cljs"
-                   ;; :handler-id is the slot's id key in the registrar
-                   ;; — neither helper consumes it, but the audit's
-                   ;; bead lists it among the stamped-meta keys so we
-                   ;; carry it for shape-fidelity.
-                   :handler-id fixture-id})
+(def fixture-coords {:ns         'rf.parity-test
+                     :line       42
+                     :column     7
+                     :file       "rf/parity_test.cljs"
+                     :handler-id fixture-id})
 
-;; The byte-string both helpers MUST produce for the fixture above.
 ;; <ns>=rf.parity-test, <sym>=sample-view, <line>=42, <col>=7.
-(def expected-attr "rf.parity-test:sample-view:42:7")
+(def expected-source-coord "rf.parity-test:sample-view:42:7")
 
-;; The degraded-shape canonical literal — a programmatic registration
-;; that bypassed the macro path (no :line / :column captured) but
-;; still carried :ns. Per Spec 006 §Source-coord annotation: 'A
-;; registration that bypassed the macro path … still annotates with
-;; <ns>:<sym>:?:? — degrading gracefully so pair tools can still
-;; resolve <ns>/<sym> via the registrar's :rf/id lookup.'
-(def fixture-meta-no-line-no-col
+;; `data-rf-view` is `(str id)` — a printed keyword, leading colon included.
+(def expected-view-id ":rf.parity-test/sample-view")
+
+;; Degraded canonical: a programmatic registration that bypassed the macro
+;; path (no :line / :column) but still carried :ns. Per Spec 006
+;; §Source-coord annotation the source-coord degrades to <ns>:<sym>:?:?.
+(def fixture-coords-no-line-no-col
   {:ns         'rf.parity-test
    :file       "rf/parity_test.cljs"
-   ;; :line and :column intentionally absent.
    :handler-id fixture-id})
 
-(def expected-attr-no-line-no-col
-  "rf.parity-test:sample-view:?:?")
+(def expected-source-coord-no-line-no-col "rf.parity-test:sample-view:?:?")
 
-;; ---- JVM SSR side: format-view-source-coord pins the canonical literal ---
+;; ---- JVM side: the formatters pin the canonical literals -----------------
 
-(deftest ssr-format-view-source-coord-byte-identical-to-canonical
-  (testing "JVM SSR `format-view-source-coord` consumes the fixture
-            (id + line + column + file) and produces the canonical
-            <ns>:<sym>:<line>:<col> string — bytes match the literal
-            the CLJS-side companion test pins. The literal IS the
-            cross-host byte-comparison point."
-    (let [ssr-format #'re-frame.ssr/format-view-source-coord
-          ssr-output (ssr-format fixture-id fixture-meta)]
-      (is (= expected-attr ssr-output)
-          (str "JVM SSR `format-view-source-coord` MUST produce the "
-               "canonical <ns>:<sym>:<line>:<col> shape. Expected: "
-               (pr-str expected-attr) " — got: " (pr-str ssr-output))))))
+(deftest jvm-format-source-coord-byte-identical-to-canonical
+  (testing "the JVM `format-source-coord` consumes the fixture and produces
+            the canonical <ns>:<sym>:<line>:<col> string — bytes match the
+            literal the CLJS companion pins."
+    (is (= expected-source-coord
+           (jvm-annot/format-source-coord fixture-id fixture-coords))
+        "JVM data-rf2-source-coord value must match the canonical literal")))
 
-;; ---- JVM SSR side: degraded shape (no line / col) pins the canonical -----
+(deftest jvm-format-view-id-byte-identical-to-canonical
+  (testing "rf2-8vi4q — the JVM `format-view-id` produces `(str id)`, the
+            same `data-rf-view` value the CLJS host stamps. This is the
+            attribute the SSR side previously never emitted."
+    (is (= expected-view-id (jvm-annot/format-view-id fixture-id))
+        "JVM data-rf-view value must match the canonical literal")))
 
-(deftest ssr-format-view-source-coord-degraded-shape-byte-identical
-  (testing "When :line / :column are absent (programmatic reg-view*
-            with :ns stamped from a sibling macro registration in the
-            same compilation unit), the SSR helper degrades to
-            <ns>:<sym>:?:? — byte-identical to the CLJS-side helper's
-            degraded shape. Per Spec 006 §Source-coord annotation."
-    (let [ssr-format #'re-frame.ssr/format-view-source-coord
-          ssr-output (ssr-format fixture-id fixture-meta-no-line-no-col)]
-      (is (= expected-attr-no-line-no-col ssr-output)
-          (str "SSR degraded shape: expected "
-               (pr-str expected-attr-no-line-no-col)
-               " — got: " (pr-str ssr-output))))))
+(deftest jvm-format-source-coord-degraded-shape-byte-identical
+  (testing "When :line / :column are absent (programmatic reg-view*), the
+            JVM helper degrades to <ns>:<sym>:?:? — byte-identical to the
+            CLJS helper's degraded shape. Per Spec 006 §Source-coord
+            annotation."
+    (is (= expected-source-coord-no-line-no-col
+           (jvm-annot/format-source-coord fixture-id fixture-coords-no-line-no-col))
+        "JVM degraded source-coord must match the canonical degraded literal")))
 
-;; ---- end-to-end byte parity: SSR-rendered HTML carries the canonical ----
+;; ---- end-to-end byte parity: SSR-rendered HTML carries BOTH attributes ---
+;;
+;; This closes the placeholder rf2-j81hs left (the interim
+;; "carries-no-attribute-pending-rf2-8vi4q" assertion): a registered view
+;; reached through its CALLABLE head — `[(rf/view id) …]` or a Var, the
+;; shape isomorphic pages actually compose with — now renders WITH both
+;; annotations, so the server markup byte-matches the dev client render and
+;; hydration adopts. This is the assertion the old emitter-only test never
+;; covered.
 
-(deftest ssr-rendered-html-carries-no-attribute-pending-rf2-8vi4q
-  (testing "rf2-j81hs — this deftest used to drive the canonical
-            attribute through the FULL render path, not just the helper.
-            It no longer can, and the reason is worth stating precisely
-            because the helper tests above still pass.
-
-            `format-view-source-coord` is intact and still produces the
-            canonical literal — the parity contract those tests pin is
-            untouched. What is gone is its only CALL SITE: the emitter's
-            keyword-view branch. rf2-j81hs made every keyword head a DOM
-            element, so no server render annotates anything, and the
-            callable-head branch never annotated to begin with.
-
-            So parity now holds between a live CLJS formatter and a JVM
-            formatter that nothing calls. That is a real gap, and it is
-            rf2-8vi4q's to close: its ruling moves annotation to the
-            reg-view REGISTRATION boundary on both hosts, at which point
-            this test should be restored driving `[(rf/view id)]` /
-            Var heads — the shape hydratable pages actually use, and the
-            shape this end-to-end assertion never covered.
-
-            Pinned as an explicit absence rather than deleted, so the gap
-            is greppable and so a reintroduced emitter-side injection
-            (rf2-8vi4q's REJECTED Option A) fails loudly here."
-    (require '[re-frame.registrar :as registrar]
-             '[re-frame.ssr      :as ssr])
-    (let [registrar  (resolve 're-frame.registrar/register!)
-          ssr-render (resolve 're-frame.ssr/render-to-string)
-          view-fn    (fn [] [:p "body"])
-          _ (registrar :view fixture-id
-                       (assoc fixture-meta :handler-fn view-fn))
-          ;; A CALLABLE head. `fixture-id` is `:rf.parity-test/sample-view`,
-          ;; which sits in the framework-reserved `:rf.<area>/*` scheme, so
-          ;; as a HEAD it would now (correctly) trip the reserved-head guard
-          ;; and throw rather than render — testing the guard, not this.
-          html (ssr-render [view-fn] {})]
-      (is (= "<p>body</p>" html)
-          (str "the view still renders through its callable head; got: "
+(deftest ssr-rendered-html-carries-both-annotations-through-callable-head
+  (testing "rf2-8vi4q — a registered view reached through `(rf/view id)`
+            renders with BOTH data-rf2-source-coord AND data-rf-view on its
+            root DOM element, and their values are exactly the shared
+            formatters' output for the slot's stored coords."
+    (rf/reg-view* fixture-id fixture-coords (fn [] [:p "body"]))
+    (let [html    (ssr/render-to-string [(rf/view fixture-id)] {})
+          ;; The values the formatters produce for the coords actually
+          ;; stored in the slot (the merge-coords result). Reading them off
+          ;; the shared formatters keeps this test honest even if the fixture
+          ;; coords are altered — it asserts the render used THE dialect, not
+          ;; a hardcoded copy of it.
+          coord   (jvm-annot/format-source-coord fixture-id fixture-coords)
+          view-id (jvm-annot/format-view-id fixture-id)]
+      (is (.contains html (str "data-rf2-source-coord=\"" coord "\""))
+          (str "server markup must carry the source-coord attribute; got: "
                (pr-str html)))
-      (is (not (.contains html "data-rf2-source-coord"))
-          (str "no server-side source-coord annotation until rf2-8vi4q "
-               "relocates it to the registration boundary; got: "
+      (is (.contains html (str "data-rf-view=\"" view-id "\""))
+          (str "server markup must carry the view-id attribute (rf2-8vi4q); "
+               "got: " (pr-str html)))
+      (is (= (str "<p data-rf2-source-coord=\"" coord "\""
+                  " data-rf-view=\"" view-id "\">body</p>")
+             html)
+          (str "the full annotated root, both attributes present; got: "
                (pr-str html))))))

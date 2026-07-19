@@ -55,19 +55,25 @@
   adapter — against real planted server DOM.
 
   The view here is a PLAIN component (not `reg-view`) on the `:rf/default`
-  frame — deliberately. In a DEV build a registered-view root carries the
-  `data-rf-view` / `data-rf2-source-coord` annotations the reagent CLIENT
-  render stamps but no server renderer reproduces (`rf/render-to-string`
-  emits only `data-rf2-source-coord`; reagent's SSR renderer emits
-  neither), so a registered view's server markup can never byte-match its
-  own dev client render — React then treats hydration as a mismatch and
-  REGENERATES the tree, masking the adopt-vs-replace distinction under
-  test. A plain component carries no such annotations on either side, so
-  the markup matches and the adoption signal is clean. (Production elides
-  the annotations on both sides; the dev-only asymmetry is a separate
-  finding — filed as an rf2 follow-up.) The app is still idiomatic
-  re-frame2: app-db + a `::toggle` event + a `::show?` sub, dispatched /
-  subscribed on `:rf/default`.
+  frame — for ISOLATION, so this proof reads the adopt-vs-replace signal
+  through the mount branch alone with no annotation reconciliation in the
+  mix. (Historically the plain component was also NECESSARY: in a dev
+  build the reagent CLIENT render of a registered view stamps
+  `data-rf-view` / `data-rf2-source-coord` on the root, and the JVM
+  emitter reproduced NEITHER on a callable-head view — so a registered
+  view's server markup could not byte-match its dev client render. That
+  asymmetry is FIXED (rf2-8vi4q moved annotation to the reg-view
+  registration boundary on both hosts; a registered view now adopts
+  cleanly, proven in
+  `re-frame.ssr-reg-view-hydration-adoption-dom-cljs-test`). Note the
+  causal correction the rf2-8vi4q browser probe established: on React
+  18.3 / 19.2 an attribute-only mismatch WARNS and is left unpatched but
+  does NOT replace the node — the earlier claim that React `regenerates
+  the tree` on that mismatch was wrong. The node survives either way;
+  what the pre-fix asymmetry cost was the clean, warning-free adoption,
+  not the node.) Production elides the annotations on both hosts. The app
+  is still idiomatic re-frame2: app-db + a `::toggle` event + a `::show?`
+  sub, dispatched / subscribed on `:rf/default`.
 
   ## What this proves
 
@@ -162,11 +168,12 @@
   a client-only load).
 
   The tree is a PLAIN component (see the ns docstring), not the recipe's own
-  registered `:app/root` view: a registered view's dev-only `data-rf-*`
-  annotations — which no server renderer reproduces — would make React treat
-  hydration as a mismatch and regenerate the tree, masking the adopt-vs-replace
-  signal. Driving `mount!` with a plain, annotation-free tree keeps that signal
-  clean while still executing the canonical mount branch."
+  registered `:app/root` view: a plain, annotation-free tree keeps the
+  adopt-vs-replace signal isolated from annotation reconciliation while still
+  executing the canonical mount branch. (A registered view now also adopts
+  cleanly — rf2-8vi4q fixed the dev-mode annotation asymmetry — but that is
+  proven separately; here the point is the mount branch, not annotation
+  parity.)"
   [root-atom]
   (rf/init! reagent-adapter/adapter)
   (rf/make-frame {:id app-frame :platform :client})

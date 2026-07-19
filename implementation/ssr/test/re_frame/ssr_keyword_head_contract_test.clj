@@ -160,19 +160,38 @@
            (emit/render-to-string [:dashboard/card.revenue {:data-x "1"} [:b "hi"]] nil)))))
 
 (deftest views-are-referenced-by-callable-head
-  (testing "rf2-j81hs — the two supported spellings both resolve, so the
-            migration away from keyword refs has somewhere to land"
-    (testing "Var reference (the symbol `reg-view` defs)"
+  (testing "rf2-j81hs — the two supported spellings both RESOLVE the view
+            (the head-grammar point: a callable head is a view, a keyword
+            head is an element), so the migration away from keyword refs
+            has somewhere to land. rf2-8vi4q layers on top: the REGISTERED
+            handle `(rf/view :id)` carries the dev-mode registration-
+            boundary annotations, while a bare fn Var that never went
+            through registration does not — a distinction the raw
+            `card-view` fn (a test-only stand-in) now makes visible."
+    (testing "a bare fn Var resolves the view — UNANNOTATED (it is the raw
+              render fn, not the registered handle)"
       (is (= "<div class=\"card\"><h3>:revenue</h3></div>"
              (emit/render-to-string [card-view :revenue] nil))))
 
-    (testing "`(rf/view :id)` runtime handle"
-      (is (= "<div class=\"card\"><h3>:revenue</h3></div>"
+    (testing "`(rf/view :id)` — the REGISTERED handle — resolves the view AND
+              carries both dev annotations (rf2-8vi4q). In idiomatic usage
+              the symbol `reg-view` defs IS `(rf/view id)`, so THIS is what a
+              real Var reference emits."
+      (is (= (str "<div class=\"card\""
+                  " data-rf2-source-coord=\"dashboard:card:?:?\""
+                  " data-rf-view=\":dashboard/card\">"
+                  "<h3>:revenue</h3></div>")
              (emit/render-to-string [(rf/view :dashboard/card) :revenue] nil))))
 
-    (testing "both spellings agree byte-for-byte"
-      (is (= (emit/render-to-string [card-view :revenue] nil)
-             (emit/render-to-string [(rf/view :dashboard/card) :revenue] nil))))))
+    (testing "both spellings resolve to the SAME view subtree — the class and
+              child agree; the registered handle merely adds the debug-gated
+              annotation attributes on the root"
+      (is (str/includes? (emit/render-to-string [card-view :revenue] nil)
+                         "class=\"card\""))
+      (is (str/includes? (emit/render-to-string [(rf/view :dashboard/card) :revenue] nil)
+                         "class=\"card\""))
+      (is (str/includes? (emit/render-to-string [(rf/view :dashboard/card) :revenue] nil)
+                         "<h3>:revenue</h3>")))))
 
 ;; ===========================================================================
 ;; The streaming shell walker — `render-shell`
