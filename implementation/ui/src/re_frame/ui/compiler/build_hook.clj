@@ -90,13 +90,11 @@
   Transaction boundary: the accepted build-state and active HMR runtime are
   last-known-good. Shadow may have partially rewritten its raw output directory
   before a late failure; re-frame.ui does not claim filesystem rollback for that
-  raw directory. The opt-in `promote-served-generation` helper below can copy
-  that output onto a separate served directory after earlier pipeline steps, but
-  it is a best-effort incremental copy, not content-atomic activation: partial
-  failure can expose mixed bytes and candidate-absent destinations are retained.
-  It is currently wired only by the digest-probe build, not `:build-defaults`."
-  (:require [clojure.java.io :as io]
-            [clojure.string :as str]
+  raw directory — Shadow's output directory is Shadow's to publish. A fresh page
+  load served straight from it can therefore briefly execute rejected candidate
+  bytes until the next accepted build overwrites them; the accepted compiler
+  snapshot and runtime digest, which re-frame.ui does own, revert."
+  (:require [clojure.string :as str]
             [re-frame.ui.compiler.build :as build]
             [re-frame.ui.compiler.harvest :as harvest]))
 
@@ -568,85 +566,6 @@
            {:carrier-resource-id rid :sentinel-count n :js-string? (string? js)}))
         (assoc-in build-state [:output rid :js]
                   (str/replace js digest-sentinel digest))))))
-
-;; ---------------------------------------------------------------------------
-;; Opt-in served-output copy helper (rf2-vxgfnd.237)
-;;
-;; Shadow's browser target flushes the candidate module bytes to its raw
-;; `:output-dir` at `:flush`, BEFORE any later `:flush` step can fail; on a
-;; downstream failure Shadow discards the returned build-state (reverting the
-;; accepted compiler snapshot) but does NOT roll back that raw directory. So a
-;; fresh page load or a first lazy-module request served straight from
-;; `:output-dir` would execute/advertise the rejected candidate generation.
-;;
-;; With a separate dev-http `:http-root`, configuring this hook last means an
-;; earlier flush failure aborts before copying starts. The copy itself is NOT
-;; atomic generation activation: `publish-tree!` overwrites files one by one,
-;; uses only existence/length/mtime as its freshness check, has no rollback, and
-;; retains destination files absent from the candidate. A copy failure can
-;; therefore leave mixed served bytes. Only the digest-probe build currently
-;; installs this helper; the standard `:build-defaults` do not.
-;; ---------------------------------------------------------------------------
-
-(defn- stale-copy?
-  "Cheap freshness check: copy `src` onto `dest` only when the destination is
-  missing or differs in length / is older. Keeps warm publishes O(changed)."
-  [^java.io.File src ^java.io.File dest]
-  (or (not (.exists dest))
-      (not= (.length src) (.length dest))
-      (> (.lastModified src) (.lastModified dest))))
-
-(defn- publish-tree!
-  "Recursively copy every regular file under `from` onto `to`, creating parent
-  directories and overwriting stale destinations. Deliberately does NOT delete
-  destination files absent from `from`: the served shell (a hand-written
-  index.html) lives in the stable directory and is not a build artifact."
-  [^java.io.File from ^java.io.File to]
-  (when (.isDirectory from)
-    (let [from-path (.toPath from)]
-      (doseq [^java.io.File src (file-seq from)
-              :when (.isFile src)]
-        (let [dest (io/file to (.toString (.relativize from-path (.toPath src))))]
-          (when (stale-copy? src dest)
-            (io/make-parents dest)
-            (io/copy src dest)))))))
-
-(defn promote-served-generation
-  "A `:flush`-stage build hook that makes an opt-in, best-effort incremental
-  copy of just-flushed candidate output onto a separate served directory.
-
-  Configure it as the LAST entry in a dev `:browser` build's `:build-hooks`,
-  with the build's `:output-dir` pointing at a CANDIDATE directory and the
-  dev-http `:http-root` pointing at a separate STABLE served directory:
-
-    :output-dir \"out/<build>/candidate\"
-    :devtools   {:http-root \"out/<build>/stable\" ...}
-    :build-hooks [... (re-frame.ui.compiler.build-hook/promote-served-generation)]
-
-  When configured as the terminal `:flush` hook, ordering ensures earlier
-  pipeline failures abort before copying starts. The hook does not enforce that
-  placement. Once started, it overwrites files one by one using
-  existence/length/mtime freshness, without rollback or removal of destinations
-  absent from the candidate. It is therefore not content-atomic: copy failure
-  can leave mixed served bytes, and a later hook can still reject the build.
-
-  The repository currently installs this helper only in
-  `:ui-digest-probe-lazy`; standard `:build-defaults` do not install it.
-
-  When no separation is configured (`:http-root` absent, or the same path as
-  `:output-dir`) it is a no-op — the served directory IS the output directory,
-  the un-separated legacy behaviour. Dev-only JVM build tooling; never part of
-  any CLJS bundle."
-  {:shadow.build/stages #{:flush}}
-  [build-state]
-  (let [candidate (get-in build-state [:build-options :output-dir])
-        stable    (get-in build-state [:shadow.build/config :devtools :http-root])]
-    (when (and candidate (seq (str stable)))
-      (let [candidate (io/file candidate)
-            stable    (io/file stable)]
-        (when-not (= (.getCanonicalPath candidate) (.getCanonicalPath stable))
-          (publish-tree! candidate stable)))))
-  build-state)
 
 ;; ---------------------------------------------------------------------------
 ;; Deterministic custom-element pre-seed (rf2-vxgfnd.141, dimension 2)

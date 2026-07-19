@@ -121,6 +121,6 @@ Working from a checkout of this repository? `npm run test:ui-digest-carrier` is 
 
 `re-frame.ui.compiler.build-hook/hook` is a **required host-integration seam**: a versioned contract between re-frame.ui and one specific build tool at one specific version. You name it once in `shadow-cljs.edn` and never again — you don't call it, wrap it, compose it, or reach past it.
 
-Everything else in that namespace is internal implementation and carries no stability promise. `promote-served-generation` in particular is an opt-in helper this repository installs on a single internal build; it is not part of the supported consumer configuration and application code should not reach for it. If you ever find yourself calling into the namespace from application code, the answer is somewhere else — the [API reference](../../api/README.md) carries the surfaces meant for you.
+Everything else in that namespace is internal implementation and carries no stability promise; it is not part of the supported consumer configuration and application code should not reach for it. If you ever find yourself calling into the namespace from application code, the answer is somewhere else — the [API reference](../../api/README.md) carries the surfaces meant for you.
 
 For the normative statement of this contract, see `spec/004C-Roots-and-Mount.md` §2.1.1.
