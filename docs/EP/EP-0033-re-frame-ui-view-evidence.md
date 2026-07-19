@@ -60,7 +60,9 @@ of the schema this EP specifies.
 instance records (`:occurrence` ordinal + `:view-id` + `:root-id` +
 `:connection` + `:lifecycle` intervals + bounded render evidence) with explicit
 loss accounting; and a bounded render-cause **set** — `#{:value :hmr
-:disposed}` — with `:local-state` cause evidence riding G-15.
+:disposed}`. Host-state writers (`local`) are proven through G-15's writer
+composition and render count, not a `:local-state` cause row — that render
+cause is specified for S6 (`rf2-vxgfnd.98.1`), not shipped at S3.
 
 **Specified below but not yet shipped:** the integer `:render-key` /
 `:parent-render-key` / `:generation` record fields and the keyword `:frame-id`; the
