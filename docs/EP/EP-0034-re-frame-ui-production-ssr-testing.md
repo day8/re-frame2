@@ -242,16 +242,27 @@ the stages ahead follow
 - **G-18** (`npm run test:ui-facade-isolation`, a standing required CI job);
   its roster of proven views is derived from the proof-pack library source, so
   a new library view either arms the gate or fails it.
+- **G-16**, render-slot parity, certified with the S3 slice: cross-emitter
+  structural parity, keyed reorder under slots, and purity diagnostics inside
+  slot bodies all run, and the **manifest slot-site arm now ships** — the
+  analyzer indexes each slot site into the compiler manifest and the public
+  `:render-slots` projection reports it, both pinned by focused acceptance.
 
 **Named open:**
 
-- **G-7** beyond its production-absence arm: the dev↔prod equivalence matrix
-  over generated shapes has no test yet.
+- **G-7's broad equivalence matrix.** The production-absence arm is wired and
+  green, and the per-stage equivalence arms landed with their conformance
+  profiles — the S3-shape arm (S3 profile) and the S4-shapes-only arm (S4
+  profile, which deliberately bounded itself to S4 shapes and left the broader
+  debt to its owner). What has no test yet is the *broad, retroactive* S1–S3
+  dev↔prod equivalence matrix over generated shapes — per generated shape,
+  pairwise capabilities, high-risk triples. The requirement stands in full and
+  is owned by **S6** (`rf2-vxgfnd.98`), the stage carrying the remaining
+  absence/equivalence/budget gates (below); it is deferred to that owner, not
+  narrowed.
 - **G-14's remaining arm** — bounded guide-fixtures CI cost, which needs the
   guide-examples corpus and has no assertion anywhere in the repository, as the
   gate's own suite states.
-- **G-16's** "manifest slot sites present" arm (its cross-emitter parity and
-  slot-arity arms do run).
 - **G-2/G-9** — wire with the stages shipping their subjects.
 - Root-manifest hydration + failed-root isolation (S5 — the dual-host spike
   passed structural output only).
