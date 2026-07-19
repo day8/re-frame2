@@ -882,9 +882,42 @@
      flushed and walked away. Those events would never be delivered to any
      listener. A `ThreadLocal` is not conveyed, so a scheduled task starts clean
      and opens its own scope. Cleared with `.remove` on the way out, so the flush
-     — and any drain a listener body starts from it — sees no scope. JVM-only:
-     CLJS has no concurrent drains and keeps the historical inline delivery."
+     — and any drain a listener body starts from it — sees no scope. The CLJS
+     single-threaded analogue is `deferred-drain-fanout-cljs` below (rf2-uoy6m)."
      (ThreadLocal.)))
+
+#?(:cljs
+   (def ^:private deferred-drain-fanout-cljs
+     "The CLJS post-drain deferral scope (rf2-uoy6m): a volatile holding this
+     drain region's `pending` FIFO vector while a drain is active, else nil. The
+     single-threaded analogue of the JVM `deferred-drain-fanout` ThreadLocal.
+
+     A plain top-level volatile suffices where the JVM needs a ThreadLocal
+     precisely because JS is single-threaded: a drain runs to completion — its
+     post-drain flush included — before any other drain or any scheduled
+     `next-tick` / `set-timeout!` callback runs, and `call-with-deferred-fanout`
+     clears the volatile synchronously on the way out. So a later async task
+     always starts with a clean (nil) scope and opens its own, exactly the
+     not-conveyed property the JVM ThreadLocal buys against `bound-fn` conveyance."
+     (volatile! nil)))
+
+(defn- deferral-pending
+  "The `pending` vector of the post-drain deferral scope active on this thread of
+  execution, or nil when none is — i.e. nil PROVES the caller holds no frame
+  `:drain-lock` (`call-with-deferred-fanout` brackets every acquire → run →
+  release region). The JVM reads its `ThreadLocal`; CLJS reads the
+  single-threaded volatile."
+  []
+  #?(:clj  (.get ^ThreadLocal deferred-drain-fanout)
+     :cljs @deferred-drain-fanout-cljs))
+
+(defn- set-deferral-pending! [pending]
+  #?(:clj  (.set ^ThreadLocal deferred-drain-fanout pending)
+     :cljs (vreset! deferred-drain-fanout-cljs pending)))
+
+(defn- clear-deferral-pending! []
+  #?(:clj  (.remove ^ThreadLocal deferred-drain-fanout)
+     :cljs (vreset! deferred-drain-fanout-cljs nil)))
 
 (defn- drive-fanout!
   "Drive the shared fan-out schedule `ctx` to completion: deliver every queued
@@ -948,95 +981,121 @@
      (binding [*fanout-ctx* ctx]
        (drive-fanout! ctx)))))
 
-#?(:clj
-   (defn- deferred-continue
-     "Wrap an appended event's `continue?` snapshot so deferral cannot change
-     WHETHER the event is delivered — only when.
+(def ^:private unread
+  "Distinct baseline sentinel for `deferred-continue` — a fresh object, held by
+  identity. Deliberately NOT a keyword: CLJS keyword literals are not guaranteed
+  `identical?` across evaluation sites, so a keyword sentinel would fail its own
+  first-check `identical?` on CLJS and silently break the deferral-continuation
+  distinction (rf2-uoy6m)."
+  #?(:clj (Object.) :cljs (js-obj)))
 
-     THE PROBLEM DEFERRAL CREATES. `drive-fanout!` consults `continue?` before
-     every listener, and rf2-eaxnai gives a false reading ONE meaning: a listener
-     body just suppressed this event, so stop fanning it out. That reading is only
-     sound while every check is taken in the SAME dynamic context, which is what
-     inline delivery guaranteed — the whole fan-out ran inside `deliver!`, inside
-     the drain.
+(defn- deferred-continue
+  "Wrap an appended event's `continue?` snapshot so deferral cannot change
+  WHETHER the event is delivered — only when.
 
-     A deferred fan-out runs after the drain has unwound, and these predicates are
-     not pure functions of registry state: the dispatch-path fence
-     (`re-frame.router/dispatch!`'s `target-live?`) reaches
-     `frame/event-owner-live?`, which reads the DYNAMIC `frame/*event-owner*`. Once
-     the drain returns that var is unbound, so the fence reads false for every
-     cascaded dispatch — no destroy, no suppression, just an unwound stack. Under a
-     bare live re-read the driver would take that as suppression and abandon
-     listeners 2..N, silently dropping the `:rf.event/dispatched` envelope of every
-     cascaded event for every app with more than one listener. Level-testing a
-     context-dependent predicate outside its context is the defect; the reading has
-     to be made relative to the context the fan-out actually runs in.
+  THE PROBLEM DEFERRAL CREATES. `drive-fanout!` consults `continue?` before
+  every listener, and rf2-eaxnai gives a false reading ONE meaning: a listener
+  body just suppressed this event, so stop fanning it out. That reading is only
+  sound while every check is taken in the SAME dynamic context, which is what
+  inline delivery guaranteed — the whole fan-out ran inside `deliver!`, inside
+  the drain.
 
-     THE DISTINCTION. Detect a TRANSITION, not a level. The first call — taken in
-     the flush, immediately before listener 1 — records the BASELINE and always
-     returns true (mirroring inline, whose first check passed in the same breath as
-     `deliver!`'s own `(continuing?)` gate). Every check thereafter runs in that
-     same flush context, so the only thing that can have changed the reading
-     between two consecutive checks is the listener body that ran between them:
+  A deferred fan-out runs after the drain has unwound, and these predicates are
+  not pure functions of registry state: the dispatch-path fence
+  (`re-frame.router/dispatch!`'s `target-live?`) reaches
+  `frame/event-owner-live?`, which reads the DYNAMIC `frame/*event-owner*`. Once
+  the drain returns that var is unbound, so the fence reads false for every
+  cascaded dispatch — no destroy, no suppression, just an unwound stack. Under a
+  bare live re-read the driver would take that as suppression and abandon
+  listeners 2..N, silently dropping the `:rf.event/dispatched` envelope of every
+  cascaded event for every app with more than one listener. Level-testing a
+  context-dependent predicate outside its context is the defect; the reading has
+  to be made relative to the context the fan-out actually runs in.
 
-       - baseline TRUE  -> consult the live predicate. A later false is a genuine
-         mid-fan-out suppression and stops the remainder, exactly as rf2-eaxnai
-         requires. This is the case for every context-free fence — notably
-         `process-event!`'s `#(frame/event-continuation-live? frame-id owner-token)`,
-         which reads only the frame registry — so a listener that destroys the
-         outer incarnation still fences that incarnation's remaining fan-out.
-       - baseline FALSE -> the predicate was ALREADY false when the fan-out began,
-         before any listener could act. That is ordinary post-drain state (the
-         unwound owner binding above), never evidence of suppression, so it cannot
-         abandon the remaining listeners. The event was authorised at emission and
-         is delivered in full — just later.
+  THE DISTINCTION. Detect a TRANSITION, not a level. The first call — taken in
+  the flush, immediately before listener 1 — records the BASELINE and always
+  returns true (mirroring inline, whose first check passed in the same breath as
+  `deliver!`'s own `(continuing?)` gate). Every check thereafter runs in that
+  same flush context, so the only thing that can have changed the reading
+  between two consecutive checks is the listener body that ran between them:
 
-     Deferral therefore changes delivery TIMING only, never the recipient set."
-     [continue?]
-     (let [baseline (volatile! ::unread)]
-       (fn []
-         (let [b @baseline]
-           (cond
-             ;; First check, taken in the flush: record the baseline, always pass.
-             (identical? b ::unread) (do (vreset! baseline (boolean (continue?)))
-                                         true)
-             ;; Already false before any listener ran — ordinary post-drain
-             ;; falsity, not suppression. Never abandon the remaining listeners.
-             (false? b)              true
-             ;; Was live when the fan-out began: a false reading now is a
-             ;; listener-caused suppression (rf2-eaxnai). Honour it.
-             :else                   (boolean (continue?))))))))
+    - baseline TRUE  -> consult the live predicate. A later false is a genuine
+      mid-fan-out suppression and stops the remainder, exactly as rf2-eaxnai
+      requires. This is the case for every context-free fence — notably
+      `process-event!`'s `#(frame/event-continuation-live? frame-id owner-token)`,
+      which reads only the frame registry — so a listener that destroys the
+      outer incarnation still fences that incarnation's remaining fan-out.
+    - baseline FALSE -> the predicate was ALREADY false when the fan-out began,
+      before any listener could act. That is ordinary post-drain state (the
+      unwound owner binding above), never evidence of suppression, so it cannot
+      abandon the remaining listeners. The event was authorised at emission and
+      is delivered in full — just later.
 
-#?(:clj
-   (defn- flush-deferred-fanout!
-     "Deliver a drain's appended trace events to their listeners at the post-drain
-     boundary. The caller has already released the frame's `:drain-lock`, so this
-     is the first point at which arbitrary listener code may run and the first at
-     which blocking on `fanout-monitor` is safe.
+  Deferral therefore changes delivery TIMING only, never the recipient set.
+  Cross-platform (rf2-uoy6m): CLJS now defers drain-owned emits too, and the
+  same context-dependent-fence unwinding applies there, so this reasoning is not
+  JVM-specific. The `unread` sentinel is a dedicated object, NOT a keyword: CLJS
+  keyword literals are not guaranteed `identical?` across evaluation sites, so a
+  keyword baseline sentinel would make the first-check branch unreachable there —
+  every check would level-test the live predicate, and a context-dependent
+  post-drain fence (a cascaded `:rf.event/dispatched` envelope's `target-live?`,
+  unbound once the drain unwinds) would read false and DROP the event. That was
+  the CLJS-only face of rf2-eaxnai's REGRESSION 1."
+  [continue?]
+  (let [baseline (volatile! unread)]
+    (fn []
+      (let [b @baseline]
+        (cond
+          ;; First check, taken in the flush: record the baseline, always pass.
+          (identical? b unread)   (do (vreset! baseline (boolean (continue?)))
+                                      true)
+          ;; Already false before any listener ran — ordinary post-drain
+          ;; falsity, not suppression. Never abandon the remaining listeners.
+          (false? b)              true
+          ;; Was live when the fan-out began: a false reading now is a
+          ;; listener-caused suppression (rf2-eaxnai). Honour it.
+          :else                   (boolean (continue?)))))))
 
-     The whole batch is flushed under ONE monitor hold, so a drain's traces reach
-     every listener contiguously and in emission order rather than interleaved
-     with a concurrent drain's. Each event is driven through its own outermost
-     schedule under the listener snapshot taken when it was appended, so a
-     listener's reentrant emit is scheduled against that event exactly as it would
-     have been inline. The drain loop re-reads `pending` so an append that somehow
-     raced the flush still settles here — exactly once — rather than being
-     stranded."
-     [pending]
-     (when (seq @pending)
-       (locking fanout-monitor
-         (loop []
-           (let [batch @pending]
-             (when (seq batch)
-               (vreset! pending [])
-               (doseq [[event continue? entries] batch]
-                 (run-outermost-fanout! event continue? entries))
-               (recur))))))))
+(defn- drain-deferred-batch!
+  "The body of the post-drain flush (see `flush-deferred-fanout!`), factored out
+  so the JVM can run it under `fanout-monitor` and CLJS can run it bare. Each
+  event is driven through its own outermost schedule under the listener snapshot
+  taken when it was appended, so a listener's reentrant emit is scheduled against
+  that event exactly as it would have been inline. Re-reads `pending` each turn so
+  an append that somehow raced the flush still settles here — exactly once —
+  rather than being stranded."
+  [pending]
+  (loop []
+    (let [batch @pending]
+      (when (seq batch)
+        (vreset! pending [])
+        (doseq [[event continue? entries] batch]
+          (run-outermost-fanout! event continue? entries))
+        (recur)))))
+
+(defn- flush-deferred-fanout!
+  "Deliver a drain's appended trace events to their listeners at the post-drain
+  boundary. The caller has already released the frame's `:drain-lock`, so this
+  is the first point at which arbitrary listener code may run and — on the JVM —
+  the first at which blocking on `fanout-monitor` is safe.
+
+  On the JVM the whole batch is flushed under ONE monitor hold, so a drain's
+  traces reach every listener contiguously and in emission order rather than
+  interleaved with a concurrent drain's. CLJS is single-threaded — no concurrent
+  drains, no monitor — so it flushes bare (rf2-uoy6m). When this flush runs while
+  an outer listener fan-out is still in progress on this thread (a listener-
+  initiated `dispatch-sync`, rf2-6t6qk), the JVM monitor hold is a reentrant re-
+  acquire of the one the outer drive already owns."
+  [pending]
+  (when (seq @pending)
+    #?(:clj  (locking fanout-monitor (drain-deferred-batch! pending))
+       :cljs (drain-deferred-batch! pending))))
 
 (defn ^:no-doc call-with-deferred-fanout
   "Run `f` as one post-drain listener-delivery region: trace events emitted inside
-  it by a thread that owns a frame's `:drain-lock` are appended rather than fanned
-  out, and the batch is delivered here, on the way out, under `fanout-monitor`.
+  it while the framework owns a frame's `:drain-lock` are appended rather than
+  fanned out, and the batch is delivered here, on the way out (under
+  `fanout-monitor` on the JVM).
 
   Wrap the WHOLE acquire → run → release region of every path that takes a
   `:drain-lock` (`re-frame.router/drain-try!` / `drain-block!` and
@@ -1065,24 +1124,30 @@
   inside its owner's scope and appends to the same batch, which the OWNER flushes
   once it has dropped the lock.
 
-  JVM-only behaviour. CLJS has no concurrent drains, no monitor, and keeps its
-  historical inline delivery, so this is the identity call there — and in
-  production, where the trace fan-out is elided entirely."
+  Cross-platform (rf2-uoy6m). CLJS defers exactly as the JVM does — a single-
+  threaded post-drain queue with no monitor — so a CLJS listener observes only
+  settled state, matching the JVM and the Spec 009 contract. The mechanism differs
+  only where the platform forces it: a plain volatile stands in for the JVM
+  ThreadLocal, and the flush needs no monitor. Isolation is preserved by the
+  CALLER: `re-frame.trace/call-with-deferred-listener-delivery` reaches this fn
+  through late-bind on CLJS (never a static reference from the production-reachable
+  drain path), so a production bundle that never loads this tooling sibling DCEs
+  the whole deferral machinery — and there, with no listener registry, there is
+  nothing to defer regardless."
   [f flush-scope]
-  #?(:clj  (if (or (not interop/debug-enabled?)
-                   (.get deferred-drain-fanout))
-             (f)
-             (let [pending (volatile! [])]
-               (try
-                 (.set deferred-drain-fanout pending)
-                 (f)
-                 (finally
-                   ;; Clear BEFORE flushing: the flush runs listener bodies, and a
-                   ;; listener that dispatches must open its own scope rather than
-                   ;; append to the batch currently draining.
-                   (.remove deferred-drain-fanout)
-                   (flush-scope #(flush-deferred-fanout! pending))))))
-     :cljs (f)))
+  (if (or (not interop/debug-enabled?)
+          (deferral-pending))
+    (f)
+    (let [pending (volatile! [])]
+      (try
+        (set-deferral-pending! pending)
+        (f)
+        (finally
+          ;; Clear BEFORE flushing: the flush runs listener bodies, and a
+          ;; listener that dispatches must open its own scope rather than
+          ;; append to the batch currently draining.
+          (clear-deferral-pending!)
+          (flush-scope #(flush-deferred-fanout! pending)))))))
 
 (defn- deliver-to-tooling!
   "Push `event` onto its in-flight frame's run-keyed ring (when the run has a
@@ -1137,25 +1202,34 @@
      ;; spin on its `:drain-lock`, closing a hard AB-BA cycle (rf2-jl75r). Such an
      ;; emit APPENDS instead — capturing the listener snapshot and latching
      ;; `continue?` so the deferred delivery reaches exactly what an inline one
-     ;; would have — and the post-drain flush delivers it under the monitor once
-     ;; the lock is released, before the enclosing dispatch / drain returns
-     ;; (rf2-wxy1c). No lock is held by, or awaited by, a drain-owned emit.
+     ;; would have — and the post-drain flush delivers it once the lock is
+     ;; released, before the enclosing dispatch / drain returns (rf2-wxy1c). No
+     ;; lock is held by, or awaited by, a drain-owned emit. CLJS opens the same
+     ;; scope (rf2-uoy6m), so a single-threaded host defers too and its listeners
+     ;; never observe partially settled state.
      ;;
      ;; Every OTHER outermost emit is, by that same bracketing, provably issued by
      ;; a thread holding NO drain-lock — so it serializes on `fanout-monitor`
      ;; across concurrent emits (rf2-uw7hg) with the monitor held for the whole
      ;; drive, and nothing can wait on it through a drain-lock. CLJS is
-     ;; single-threaded, never opens a deferral scope, and runs every outermost
-     ;; emit inline with no monitor.
-     #?(:clj  (if-let [pending (.get deferred-drain-fanout)]
-                (do (vswap! ^clojure.lang.Volatile pending conj
-                            [event (deferred-continue continue?)
-                             (vec (seq @listeners))])
-                    nil)
-                (locking fanout-monitor (run-outermost-fanout! event continue?)))
-        :cljs (run-outermost-fanout! event continue?)))))
+     ;; single-threaded and needs no monitor.
+     (if-let [pending (deferral-pending)]
+       (do (vswap! pending conj [event (deferred-continue continue?)
+                                 (vec (seq @listeners))])
+           nil)
+       #?(:clj  (locking fanout-monitor (run-outermost-fanout! event continue?))
+          :cljs (run-outermost-fanout! event continue?))))))
 
 (late-bind/set-fn! :trace.tooling/deliver! deliver-to-tooling!)
+
+;; rf2-uoy6m: the drain seam reaches the post-drain deferral wrapper through this
+;; hook on CLJS. `re-frame.trace/call-with-deferred-listener-delivery` is called
+;; from the always-reachable production drain path, so a STATIC reference to this
+;; sibling from there would defeat the `:advanced` DCE that keeps the whole tooling
+;; body out of the counter bundle (`check-bundle-isolation.cjs`). Late-bind carries
+;; no static edge — identical isolation posture to `:trace.tooling/deliver!` above.
+;; The JVM drain calls `call-with-deferred-fanout` directly (no DCE concern there).
+(late-bind/set-fn! :trace.tooling/call-with-deferred-fanout call-with-deferred-fanout)
 
 ;; `re-frame.core/configure!`'s `:trace-buffer` key routes through this hook so
 ;; consumer call sites don't have to thread the tooling-ns require

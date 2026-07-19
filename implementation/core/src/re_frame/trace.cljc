@@ -132,29 +132,32 @@
   (let [p *continuation-predicate*]
     (fn [] (or (nil? p) (p)))))
 
-#?(:clj
-   (defn- call-with-ordinary-delivery-scope
-     "Run `f` under the ordinary delivery defaults the public trace-listener
-     fan-out is entitled to — the same four axes `deliver!` restores around an
-     inline fan-out (rf2-vf2qke + rf2-eaxnai): epoch capture, frame-no-emit policy
-     and ring retention back to their defaults, and the exact-owner continuation
-     neutralised.
+(defn- call-with-ordinary-delivery-scope
+  "Run `f` under the ordinary delivery defaults the public trace-listener
+  fan-out is entitled to — the same four axes `deliver!` restores around an
+  inline fan-out (rf2-vf2qke + rf2-eaxnai): epoch capture, frame-no-emit policy
+  and ring retention back to their defaults, and the exact-owner continuation
+  neutralised.
 
-     `deliver!` gets this for free because an inline fan-out runs inside its
-     `binding`. A DEFERRED fan-out (rf2-wxy1c) runs later, at the post-drain
-     boundary, long after `deliver!` returned — so without re-establishing the
-     scope here a listener body would inherit whatever authority the DRAIN was
-     running under. That is precisely the rf2-eaxnai defect: a listener whose
-     nested authored work (dispatch / destroy / create) consults a fence that
-     belongs to the drain's own event tail gets silently dropped.
+  `deliver!` gets this for free because an inline fan-out runs inside its
+  `binding`. A DEFERRED fan-out (rf2-wxy1c) runs later, at the post-drain
+  boundary, long after `deliver!` returned — so without re-establishing the
+  scope here a listener body would inherit whatever authority the DRAIN was
+  running under. That is precisely the rf2-eaxnai defect: a listener whose
+  nested authored work (dispatch / destroy / create) consults a fence that
+  belongs to the drain's own event tail gets silently dropped.
 
-     JVM-only, like the deferral seam it serves."
-     [f]
-     (binding [*epoch-capture-enabled?*  true
-               *frame-policy-enabled?*   true
-               *ring-retention-enabled?* true
-               *continuation-predicate*  nil]
-       (f))))
+  Cross-platform (rf2-uoy6m): CLJS defers drain-owned delivery too, so its flush
+  runs after `deliver!` returned and needs the same scope re-established. The
+  four dynamic vars exist on both hosts; in a production CLJS bundle this fn is
+  referenced only from the DCE-eliminated `debug-enabled?` branch of
+  `call-with-deferred-listener-delivery`, so it does not survive elision."
+  [f]
+  (binding [*epoch-capture-enabled?*  true
+            *frame-policy-enabled?*   true
+            *ring-retention-enabled?* true
+            *continuation-predicate*  nil]
+    (f)))
 
 (defn ^:no-doc call-with-deferred-listener-delivery
   "Run `f` as one post-drain trace-listener delivery region — the rf2-wxy1c seam.
@@ -170,18 +173,33 @@
   `re-frame.trace.tooling/call-with-deferred-fanout` for the mechanism and the
   invariants that placement carries.
 
-  JVM-only by construction, and the reader conditional is load-bearing for
-  BUNDLE ISOLATION, not just for clarity. The drain is production code, so this
-  fn is live in a production CLJS build; routing it through the tooling sibling
-  unconditionally would give that always-reachable call site a static reference
-  into `re-frame.trace.tooling`, pulling the dev-only listener registry + ring
-  machinery (and its `check-bundle-isolation.cjs` sentinel) into the production
-  counter bundle. CLJS is single-threaded — no concurrent drains, no monitor,
-  nothing to defer — so the `:cljs` arm is the identity call and emits no
-  reference at all."
+  Cross-platform behaviour, host-specific WIRING (rf2-uoy6m). The contract is
+  uniform: a drain-owned emit is delivered post-drain — settled state only, no
+  intra-drain observation or influence — on JVM and CLJS alike. What differs is
+  how this fn reaches the tooling wrapper, and only because CLJS has `:advanced`
+  DCE that the JVM does not:
+
+    - JVM calls `re-frame.trace.tooling/call-with-deferred-fanout` directly.
+
+    - CLJS reaches it through the `:trace.tooling/call-with-deferred-fanout`
+      late-bind hook, gated by `interop/debug-enabled?`. This fn is on the
+      always-reachable production drain path, so a STATIC reference to the tooling
+      sibling from here would pull the dev-only listener registry + ring machinery
+      (and its `check-bundle-isolation.cjs` sentinel) into the production counter
+      bundle. `(and debug-enabled? …)` folds to `false` under
+      `:advanced` + `goog.DEBUG=false`, DCE-ing the whole branch — hook lookup and
+      `call-with-ordinary-delivery-scope` reference included — so a production
+      bundle carries no edge into the tooling ns and, with no listener registry
+      there, has nothing to defer regardless. In dev the hook resolves to the
+      cross-platform `call-with-deferred-fanout`, which runs the single-threaded
+      CLJS deferral."
   [f]
   #?(:clj  (trace-tooling/call-with-deferred-fanout f call-with-ordinary-delivery-scope)
-     :cljs (f)))
+     :cljs (if-let [defer (and interop/debug-enabled?
+                               (late-bind/get-fn-cached
+                                 :trace.tooling/call-with-deferred-fanout))]
+             (defer f call-with-ordinary-delivery-scope)
+             (f))))
 
 (defn ^:no-doc call-with-structural-delivery
   "Deliver a structural trace without bare-id epoch/policy attribution and
