@@ -244,6 +244,68 @@
 ;; Render-time props (004C §5)
 ;; ---------------------------------------------------------------------------
 
+(def ^:const max-safe-integer
+  "`2^53 - 1` — the largest integer a browser number (an IEEE-754 double)
+  holds EXACTLY. Beyond it, consecutive integers share a representation:
+  the CLJS reader turns `9007199254740993` into `9007199254740992` and
+  says nothing (rf2-v4foc)."
+  9007199254740991)
+
+(defn- wire-number?
+  "Can the number `v` cross the wire UNCHANGED? The whole predicate is
+  the round-trip equality itself — `v` is admitted exactly when printing
+  it here and reading it on the OTHER host yields an EQUAL value.
+
+  The two hosts answer differently because they hold different numbers,
+  not because there are two rules:
+
+  **CLJS** — every number IS an IEEE-754 double, and the JVM reader
+  reconstructs a double exactly, so every CLJS number crosses unchanged.
+  The single exception is `##NaN`, which the property excludes on its
+  own terms: NaN is not `=` to itself, so no NaN can satisfy a
+  round-trip-EQUALITY test on any host.
+
+  **JVM** — the server holds numeric types the browser has none of, and
+  integers wider than a double can hold. Both cross badly, and both
+  cross SILENTLY (rf2-v4foc):
+
+  | JVM value | prints | CLJS reads back |
+  |---|---|---|
+  | `9007199254740993N` (BigInt)  | `9007199254740993N` | `9007199254740992` |
+  | `1.5M` (BigDecimal)           | `1.5M`   | `1.5` |
+  | `1/3` (Ratio)                 | `1/3`    | `0.3333333333333333` |
+  | `9007199254740993` (Long)     | same     | `9007199254740992` |
+  | `(float 0.1)` (Float)         | `0.1`    | `0.1` ≠ the Float |
+
+  So: no Ratio, BigDecimal, BigInt or Float; integers only within the
+  safe range; no NaN. `Float` is rejected for failing the property on
+  the JVM ALONE — `(= (float 0.1) (read \"0.1\"))` is already false,
+  because the printed shortest-decimal names the *double* 0.1.
+
+  A large DOUBLE (`1.0E308`) is fine and is not a contradiction: it is
+  already an IEEE-754 double, so the far side reconstructs it bit for
+  bit. The safe-integer bound is about REPRESENTABILITY, not magnitude —
+  a Long past `2^53` carries precision no double can hold, while a
+  double of any size carries only precision a double can hold.
+
+  Rejecting rather than coercing follows the `record?` arm below: a
+  BigInt silently arriving as a plain number, or a Ratio as an
+  approximation, changes the prop's TYPE between server and client,
+  which is the very defect a fail-loud wire exists to prevent. The
+  author narrows the value explicitly, so both hosts agree about what
+  they are holding."
+  [v]
+  #?(:clj
+     (cond
+       (or (ratio? v) (decimal? v))    false
+       (integer? v)                    (and (not (instance? clojure.lang.BigInt v))
+                                            (not (instance? java.math.BigInteger v))
+                                            (<= (- max-safe-integer) v max-safe-integer))
+       (double? v)                     (not (Double/isNaN v))
+       :else                           false)
+     :cljs
+     (not (js/Number.isNaN v))))
+
 (defn edn-carryable?
   "Can `v` ride the manifest's EDN wire? Scalars (nil / boolean / number
   / string / keyword / symbol) and collections of carryable values.
@@ -251,13 +313,17 @@
   silently dropped (see `serialise-props`).
 
   The question this answers is exactly `(= v (read (pr-str v)))` under
-  the BUNDLED safe reader — not \"is `v` map-shaped\". The distinction is
-  what the `record?` arm below exists for."
+  the BUNDLED safe reader ON EITHER HOST — not \"is `v` map-shaped\", and
+  not \"is `v` a number\". Those two distinctions are what the `record?`
+  and `wire-number?` arms below exist for."
   [v]
   (cond
     (nil? v)     true
     (boolean? v) true
-    (number? v)  true
+    ;; Not every number crosses. The JVM has numeric types and integer
+    ;; widths the browser has none of, and each one arrives silently
+    ;; WRONG rather than failing — see `wire-number?` (rf2-v4foc).
+    (number? v)  (wire-number? v)
     (string? v)  true
     (keyword? v) true
     (symbol? v)  true
@@ -309,10 +375,15 @@
                 (if bad-key? "KEY" "value")
                 " the manifest's EDN wire cannot carry — the manifest "
                 "records RENDER-TIME prop values and hydration applies "
-                "them as the server-rendered truth, so dropping one would "
-                "hydrate a different tree. Pass serialisable data (derive "
-                "the opaque value inside the view instead of handing it "
-                "in as a prop)")
+                "them as the server-rendered truth, so carrying one "
+                "INEXACTLY would hydrate a different tree. Either the "
+                "value is opaque (a fn, a host object, a record), or it "
+                "is a JVM-only number the browser's reader cannot "
+                "reproduce (a ratio, a bigdec, a bigint, a float, or an "
+                "integer beyond " max-safe-integer "). Pass data both "
+                "hosts hold identically — derive an opaque value inside "
+                "the view, and narrow a number to a double or an "
+                "in-range integer at the point you know what it means")
            {:recovery :pass-serialisable-root-props
             :extra    {:unserialisable-prop k
                        :unserialisable-half (if bad-key? :key :value)}}))))
@@ -400,11 +471,16 @@
     (error/throw-error!
      :rf.error/root-manifest-invalid 'rf.ssr/manifest-script
      (str "root manifest key " (pr-str k) " holds a value the EDN wire "
-          "cannot carry, so the emitted body would not read back — "
-          "`pr-str` emits a tagged or host-object literal the bundled "
-          "safe reader has no constructor for, which would defer an "
-          "emit-time authoring mistake into a client hydration failure. "
-          "Every value on the manifest must be plain EDN data")
+          "cannot carry, so the emitted body would not read back AS "
+          "WRITTEN — either `pr-str` emits a tagged or host-object "
+          "literal the bundled safe reader has no constructor for, or "
+          "it emits a JVM-only number (a ratio, a bigdec, a bigint, a "
+          "float, or an integer beyond " max-safe-integer ") that the "
+          "browser's reader silently reproduces as a DIFFERENT value. "
+          "Both defer an emit-time authoring mistake into the client: "
+          "the first as a hydration failure, the second as a hydration "
+          "that quietly disagrees with the server. Every value on the "
+          "manifest must be plain EDN data both hosts hold identically")
      {:recovery :pass-serialisable-root-props
       :extra    {:unserialisable-manifest-key k}}))
   (str "<script type=\"" manifest-script-type "\" "

@@ -466,6 +466,159 @@
   (testing "a record used as a prop KEY is caught by the same arm"
     (is (not (manifest/edn-carryable? {(->WireProbeRecord 1) :v})))))
 
+;; ---------------------------------------------------------------------------
+;; THE NUMERIC HALF OF THE ROUND TRIP (rf2-v4foc, Codex audit of #6407)
+;; ---------------------------------------------------------------------------
+;;
+;; The round-trip property above is driven by ONE host at a time: the JVM
+;; suite emits and reads with `clojure.edn`, the CLJS suite with
+;; `cljs.reader`. Every JVM-only numeric form passes THAT test — it is
+;; the CROSSING that loses, and no same-host suite can see it. This is
+;; why SSR 419/1911, UI 928/16132 and CLJS 10099/49944 were all green
+;; while the wire silently changed application-visible hydration props.
+;;
+;; So the proof below is joined by BYTES rather than by a shared host.
+;; `jvm-emitted-body` is the exact script body the shipped emitter
+;; produced for `{:props {:x 9007199254740993N}}`. Each host then asserts
+;; its OWN half against those same bytes, with the shipped reader:
+;;
+;;   JVM  reads them back as 9007199254740993N  — the value rendered
+;;   CLJS reads them back as 9007199254740992   — a DIFFERENT number
+;;
+;; One wire, two hosts, two values, no error on either side. That is the
+;; defect stated as an executable fact, and it stays executable after the
+;; fix: it is *why* the emitter must now refuse the value.
+
+(def ^:private jvm-emitted-body
+  "The exact `<script>` body the JVM emitter produced for a bigint prop
+  before this fix. Pinned as BYTES because bytes are what actually cross
+  — reconstructing it per-host would beg the question the test asks.
+
+  The JVM half below pins the one token that matters
+  (`9007199254740993N`) against the live printer, so this literal cannot
+  quietly go stale."
+  "{:rf.root/schema-version 1, :root-id :page/shop, :phase :server, :props {:x 9007199254740993N}}")
+
+(deftest jvm-emitted-number-reads-back-differently-on-cljs
+  (testing "rf2-v4foc — the SAME wire bytes, read by the SHIPPED
+            `read-manifest` on each host, yield DIFFERENT hydration props.
+            Asserted as an observable VALUE: nothing throws, which is the
+            entire danger."
+    (let [x (get-in (manifest/read-manifest 'test jvm-emitted-body) [:props :x])]
+      #?(:clj
+         (do
+           (is (= (pr-str 9007199254740993N) "9007199254740993N")
+               "the JVM printer really does emit the bigint token pinned in
+                `jvm-emitted-body` — if this reds, that literal is stale")
+           (is (= 9007199254740993N x)
+               "the SERVER reads its own wire back exactly")
+           (is (= "9007199254740993N" (pr-str x))))
+
+         :cljs
+         (do
+           (is (= "9007199254740992" (pr-str x))
+               "THE DEFECT: the browser's reader silently rounds the
+                server's 9007199254740993 down to 9007199254740992. The app
+                hydrates with a number the server never rendered.")
+           (is (not= "9007199254740993" (pr-str x))
+               "stated the other way round, so the assertion cannot pass by
+                naming the value it is supposed to reject"))))))
+
+(deftest numeric-wire-guard-is-load-bearing
+  (testing "THE RED-BEFORE for the numeric arm, kept executable in the same
+            shape as the `record?` lever above: re-create the predicate
+            that said `(number? v) true` and prove it ACCEPTS the very
+            value the test above shows the far host mangles."
+    (let [lenient-number? (fn [v] (number? v))]
+      #?(:clj
+         (doseq [v [9007199254740993N 1.5M 1/3 9007199254740993 (float 0.1)]]
+           (is (true? (lenient-number? v))
+               (str "the defective predicate waves " (pr-str v) " through — if
+                     this ever goes false the lever is gone"))
+           (is (not (manifest/edn-carryable? v))
+               (str "…and the SHIPPED predicate refuses it: " (pr-str v))))
+         :cljs
+         (let [nan js/NaN]
+           (is (true? (lenient-number? nan)))
+           (is (not (manifest/edn-carryable? nan))))))))
+
+(deftest only-cross-host-numbers-ride-the-wire
+  (testing "rf2-v4foc — what the numeric subset ADMITS. These must keep
+            working: narrowing the wire must not narrow ordinary props."
+    (doseq [v [0 -1 1 1.5 -1.5 9.0 0.1
+               manifest/max-safe-integer
+               (- manifest/max-safe-integer)
+               #?(:clj 1.0E308 :cljs 1e308)]]
+      (is (manifest/edn-carryable? v) (str "must still carry " (pr-str v))))
+
+    (testing "…including through nesting and as a prop KEY"
+      (is (manifest/edn-carryable? {:a [1 {:b #{2 3.5}}]}))
+      (is (manifest/edn-carryable? {1 :v}))))
+
+  (testing "what it REFUSES, and why each one is not merely pedantic"
+    (is (not (manifest/edn-carryable? #?(:clj Double/NaN :cljs js/NaN)))
+        "NaN is excluded by the round-trip property itself — it is not `=`
+         to itself, so it cannot read back EQUAL on any host")
+
+    #?(:clj
+       (do
+         (is (not (manifest/edn-carryable? 9007199254740993N))
+             "bigint: prints an `N` token the browser reproduces as a
+              different number")
+         (is (not (manifest/edn-carryable? 1.5M))
+             "bigdec: prints an `M` token the browser reads as a plain
+              number, changing the prop's TYPE")
+         (is (not (manifest/edn-carryable? 1/3))
+             "ratio: the browser reads `1/3` as 0.3333333333333333 — an
+              APPROXIMATION, silently")
+         (is (not (manifest/edn-carryable? (inc manifest/max-safe-integer)))
+             "a Long one past 2^53-1 carries precision no double holds")
+         (is (not (manifest/edn-carryable? (- (inc manifest/max-safe-integer))))
+             "…and the bound is symmetric about zero")
+         (is (not (manifest/edn-carryable? (float 0.1)))
+             "float: fails the property on the JVM ALONE — the printed
+              shortest-decimal names the DOUBLE 0.1, so it does not read
+              back equal even here")))
+
+    (testing "a large DOUBLE is admitted though it dwarfs the integer
+              bound — the bound is about representability, not magnitude"
+      (is (manifest/edn-carryable? #?(:clj 1.0E308 :cljs 1e308))))))
+
+#?(:clj
+   (deftest non-carryable-number-fails-before-emission
+     (testing "rf2-v4foc — a JVM-only number is refused at ASSEMBLY naming
+               the prop, and at the EMISSION gate naming the manifest key,
+               exactly as an opaque value is. Not a second mechanism —
+               the same `edn-carryable?`, told the truth about numbers."
+       (let [data (try (manifest/manifest
+                        'test {:rf.root/schema-version 1 :root-id :page/shop}
+                        {:props {:promo :spring :ratio 1/3}})
+                       nil
+                       (catch clojure.lang.ExceptionInfo e (ex-data e)))]
+         (is (= :rf.error/root-manifest-invalid (:rf.error/id data))
+             "the EXISTING error id — a non-carryable number is not a new
+              failure kind, so it needs no new catalogue row")
+         (is (= :ratio (:unserialisable-prop data)) "the offending prop is NAMED")
+         (is (= :value (:unserialisable-half data))))
+
+       (testing "and the emission gate covers a DESCRIPTOR key too, which
+                 `serialise-props` never sees"
+         (let [data (try (manifest/script-html
+                          {:rf.root/schema-version 1
+                           :root-id                :page/shop
+                           :static-props           {:limit 9007199254740993N}})
+                         nil
+                         (catch clojure.lang.ExceptionInfo e (ex-data e)))]
+           (is (= :rf.error/root-manifest-invalid (:rf.error/id data)))
+           (is (= :static-props (:unserialisable-manifest-key data)))))
+
+       (testing "the bigint that started this: `script-html` no longer
+                 emits the body the CLJS reader mangles"
+         (is (thrown? clojure.lang.ExceptionInfo
+                      (manifest/script-html
+                       (assoc {:rf.root/schema-version 1 :root-id :page/shop}
+                              :props {:x 9007199254740993N}))))))))
+
 (deftest script-emission-gates-the-whole-manifest
   (testing "rf2-v4foc — `serialise-props` screens `:props` at assembly, but
             `script-html` is the only door onto the wire and DESCRIPTOR
