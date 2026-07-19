@@ -243,7 +243,9 @@
 
   `raw-event?` (trailing, default false — #6441 / rf2-zwgqe) marks `:event` as
   a subscription QUERY VECTOR: raw IDENTITY that egresses VERBATIM, never
-  app-db-elided. When set, the record carries `:rf.observe/raw-event?` so
+  app-db-elided. When set, the record carries the transient projector-input
+  marker `:re-frame.projection/raw-event?` (an internal keyword OUTSIDE the
+  closed `:rf.observe/*` `:kind` vocabulary; dropped before sink delivery) so
   `re-frame.projection/project-error-record` keeps `:event` raw on this sink
   route rather than policy-walking it (a concrete integer app-db path
   coincidentally matching a query-vector coordinate would otherwise mutate
@@ -265,7 +267,7 @@
                              :elapsed-ms elapsed-ms
                              :time       time}
                       (some? correlation) (assoc :correlation correlation)
-                      raw-event?          (assoc :rf.observe/raw-event? true))]
+                      raw-event?          (assoc :re-frame.projection/raw-event? true))]
          (route-stream! frame-id record entries))))
    nil))
 
