@@ -74,6 +74,10 @@
             [re-frame.error :as error]
             [re-frame.ssr.constants :as constants]
             [re-frame.ssr.html-helpers :as html]
+            ;; CLJS-only: the `:ssr/discover-root-manifest` publication at the
+            ;; bottom of this namespace is the DOM-side discovery seam, so the
+            ;; registry is only reached on the host that has a DOM.
+            #?(:cljs [re-frame.late-bind :as late-bind])
             #?(:clj  [clojure.edn :as edn]
                :cljs [cljs.reader :as reader])))
 
@@ -583,3 +587,34 @@
      (let [el (some-> container .-nextElementSibling)]
        (when (manifest-script? el)
          (read-manifest 'rf.ssr/discover-root-manifest (.-textContent el))))))
+
+;; ---------------------------------------------------------------------------
+;; The `ui -> core late-bind <- ssr` discovery seam (rf2-3omxp)
+;; ---------------------------------------------------------------------------
+;;
+;; `re-frame.ui/hydrate-root` must resolve a container's Root Manifest, but the
+;; discovery code lives HERE, in the optional `day8/re-frame2-ssr` artefact. A
+;; direct `re-frame.ui -> re-frame.ssr.manifest` require is ruled out twice
+;; over: the Independence rule reserves the single sanctioned direct
+;; cross-artefact require for `core -> ui` (Conventions §Internal cross-artefact
+;; seams), and this namespace is absent from a ui-only app's classpath — a
+;; static require would fail to COMPILE every non-SSR ui app and drag ssr into
+;; every ui bundle.
+;;
+;; So the seam is late-bind, the third instance of the shape ui already
+;; exercises against routing (`:routing/link-model` / `:routing/activate-link!`).
+;; The hook does EXACTLY what its name says: hand back the validated adjacent
+;; Root Manifest, or nil when there is none. It exposes no payload install and
+;; no other ssr operation — the two-call boot model (`ssr/hydrate!` for state,
+;; then `ui/hydrate-root` for DOM adoption) is unchanged by it.
+;;
+;; Validation failures still throw `:rf.error/root-manifest-invalid` out of
+;; `validate!` (a corrupt manifest is a wire fault, not an absence); nil means
+;; "no manifest here" and the CALLER decides — `ui/hydrate-root` fails loud with
+;; `{:missing :manifest}`, a client-only mount never asks.
+;;
+;; Per Spec 011 §Discovery and the drift-parity rule (Conventions §Late-bind
+;; hook key grammar rule 3, enforced by `late_bind_drift_test.clj`): this
+;; publication, the `re-frame.late-bind.directory` row, and the
+;; `re-frame.ui.client/hydrate-root*` consumer land as ONE change.
+#?(:cljs (late-bind/set-fn! :ssr/discover-root-manifest discover))

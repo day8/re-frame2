@@ -45,10 +45,17 @@
   untouched. Pinned by the G-4/G-6 fixtures
   (`re-frame.ui.preflight-frame-wiring-dom-cljs-test`).
 
-  S1 scope notes: hydration manifests land S5, so `hydrate-root*` fails
-  loud (`:rf.error/root-manifest-invalid`) — there is no server to have
-  emitted a manifest yet (hydrate preflight will share the same
-  `execute-frame-plans!` path when it lands). Descriptors + site coords
+  `hydrate-root*` runs that same preflight path and then ADOPTS the
+  server-rendered DOM (rf2-3omxp): it resolves the container's Root
+  Manifest through the `:ssr/discover-root-manifest` late-bind hook the
+  optional SSR artefact publishes, takes `:root-id` and
+  `:identifier-prefix` from the validated manifest's CONTENT, and hands
+  the compiled element to `hydrateRoot`. It does NOT install the
+  hydration payload — `re-frame.ssr/hydrate!` owns that, and the public
+  boot is the two calls in order (`ssr/hydrate!`, then
+  `ui/hydrate-root`). No manifest is a loud
+  `:rf.error/root-manifest-invalid` `{:missing :manifest}`; no SSR
+  artefact is a loud `:rf.error/ssr-artefact-missing`. Descriptors + site coords
   ride the registry in dev only (goog.DEBUG — production carries no
   manifests, I-12); root-id and container ownership are load-bearing
   identity and stay in production."
@@ -56,6 +63,7 @@
             ["react-dom/client" :as rdc]
             [clojure.string :as str]
             [re-frame.error :as error]
+            [re-frame.late-bind :as late-bind]
             [re-frame.ui.digest-carrier :as digest-carrier]
             [re-frame.substrate.adapter :as substrate-adapter]
             [re-frame.ui.frames :as frames]
@@ -1304,22 +1312,143 @@
         (abort-seated-attempt! rid receipt incarnation)
         (throw e)))))
 
+(def ^:private ssr-artefact
+  ;; The optional-artefact identity the fail-loud missing-hook error reports.
+  ;; Mirrors `re-frame.core-ssr/ssr-artefact` (core owns its private copy for
+  ;; the `rf/*` wrappers) exactly as `re-frame.ui.route-link-seam` carries its
+  ;; own routing copy — the ui artefact names the missing ssr artefact at the
+  ;; hydrate site without reaching into core internals.
+  {:error-keyword :rf.error/ssr-artefact-missing
+   :maven         "day8/re-frame2-ssr"
+   :require-ns    "re-frame.ssr"})
+
+(defn- discover-root-manifest!
+  "Resolve the `:ssr/discover-root-manifest` hook and read `container`'s Root
+  Manifest — the validated manifest, or nil when there is none.
+
+  `hydrate-root` is a BOOT-TIME caller, so this is the plain unmemoised
+  resolution (Conventions §Late-bind hook key grammar rule 6): no cached
+  resolution, because this is not a hot path. `require-fn!` supplies the
+  hook-absent throw — `:rf.error/ssr-artefact-missing`, carrying the
+  copy-pasteable `day8/re-frame2-ssr` coordinate and the `re-frame.ssr`
+  require-ns — so an app that compiled `ui/hydrate-root` without the SSR
+  artefact on its classpath is told exactly what to add."
+  [container]
+  ((late-bind/require-fn! :ssr/discover-root-manifest
+                          're-frame.ui/hydrate-root
+                          ssr-artefact)
+   container))
+
+(defn- react-opts-with-identifier-prefix
+  "Return a fresh copy of `react-opts` carrying the SERVER-AUTHORED
+  `identifierPrefix`. Hydration cannot choose its own prefix: React's `useId`
+  output is derived from it, so a client prefix that disagrees with the one the
+  server render used produces different ids and breaks hydration. The compiled
+  `hydrate-root` call site therefore emits `nil` for the prefix (identity opts
+  client-side are a COMPILE error) and the effective value arrives here, from
+  the manifest's content. A manifest that carries no `:identifier-prefix` means
+  the server used none, so none is set — never a synthesised default, which
+  would be exactly the disagreement this guards."
+  [react-opts identifier-prefix]
+  (let [o (if react-opts (js/Object.assign #js {} react-opts) #js {})]
+    (when (some? identifier-prefix)
+      (unchecked-set o "identifierPrefix" identifier-prefix))
+    o))
+
 (defn hydrate-root*
-  "Runtime half of `ui/hydrate-root`. Hydrating mounts read identity FROM
-  the server-emitted manifest adjacent to the container — and server
-  rendering, the manifest script-element convention, and hydrate preflight
-  all land S5. At S1 no manifest can exist, so every hydrate fails loud
-  (`:rf.error/root-manifest-invalid`) rather than guessing identity."
-  [_container _element-thunk _plans-thunk _react-opts]
+  "Runtime half of `ui/hydrate-root` — the compiled-view DOM-ADOPTION call.
+
+  Hydrating mounts read identity FROM the server-emitted Root Manifest adjacent
+  to the container, never from opts (identity opts at a hydrate site are a
+  compile error) and never from the container element itself. Discovery lives in
+  the optional SSR artefact and is reached through the `:ssr/discover-root-
+  manifest` late-bind hook (rf2-3omxp) — `ui -> core registry <- ssr`, the same
+  shape `route-link` uses against routing; a direct require is forbidden by the
+  Independence rule and would fail to compile every non-SSR ui app.
+
+  RESPONSIBILITY BOUNDARY (Spec 011 §Client-side hydration boot helper). This
+  function adopts server-rendered DOM; it does NOT install the hydration
+  payload. `re-frame.ssr/hydrate!` remains the explicit SSR state-boot call —
+  it reads `__rf_payload`, installs it idempotently, dispatches `:rf/hydrate`,
+  and verifies. The public boot is therefore TWO calls, in order: `ssr/hydrate!`
+  then `ui/hydrate-root`, so the first compiled render already sees the server's
+  app-db.
+
+  Two distinct failures, neither of them a new error id:
+
+    - the SSR artefact is ABSENT — `:rf.error/ssr-artefact-missing` from
+      `require-fn!`, naming `day8/re-frame2-ssr`;
+    - the artefact is present but discovery finds NO adjacent manifest —
+      `:rf.error/root-manifest-invalid` `{:missing :manifest}`. There is
+      nothing left to hydrate *as*, so this fails loud rather than guessing
+      identity (Spec 011 §Discovery). A corrupt manifest already threw the same
+      id out of the SSR artefact's own `validate!`.
+
+  ORDER mirrors `mount*`'s fresh path — claim check, preflight, adapter-
+  admission revalidation, claim re-check, then React — with ONE forced
+  difference: React fuses root creation and the initial render for hydration
+  (`hydrateRoot` takes the children as its second argument), so registration and
+  the pending-attempt seat necessarily follow the call rather than precede the
+  render. The incarnation is minted BEFORE `hydrateRoot` and baked into the
+  element, so every ViewCell is scoped to this root regardless of that ordering;
+  registration and seating are plain `swap!`s with no user code between them and
+  the call, so they complete before React can flush the scheduled hydration
+  work. A synchronous throw from the element thunk or `hydrateRoot` settles the
+  preflight receipt and leaves no registry entry (there is nothing to roll back
+  — registration had not happened)."
+  [container element-thunk plans-thunk react-opts]
   (require-root-creation-open! 're-frame.ui/hydrate-root)
-  (error/throw-error!
-   :rf.error/root-manifest-invalid 're-frame.ui/hydrate-root
-   (str "no root manifest is discoverable — hydrating mounts take root-id "
-        "and identifier-prefix from the manifest the server render emits "
-        "adjacent to the container, and server rendering lands with S5. "
-        "Use ui/mount for a client-only root")
-   {:recovery :use-ui-mount
-    :extra {:missing :manifest}}))
+  ;; The root-id is genuinely unknown until the manifest is read, so a nil
+  ;; container is reported before discovery — otherwise `discover` would walk
+  ;; `nil.nextElementSibling`, return nil, and the honest "you handed me no
+  ;; container" fault would masquerade as "no manifest here".
+  (require-container! 're-frame.ui/hydrate-root nil container)
+  (let [manifest (discover-root-manifest! container)]
+    (when (nil? manifest)
+      (error/throw-error!
+       :rf.error/root-manifest-invalid 're-frame.ui/hydrate-root
+       (str "no root manifest is discoverable — hydrating mounts take root-id "
+            "and identifier-prefix from the manifest the server render emits "
+            "as the container's immediately following element sibling, and "
+            "nothing was found there. Use ui/mount for a client-only root")
+       {:recovery :use-ui-mount
+        :extra {:missing :manifest}}))
+    (let [root-id (:root-id manifest)
+          prefix  (:identifier-prefix manifest)
+          info    {:root-id           root-id
+                   :provenance        :manifest
+                   :identifier-prefix prefix}]
+      (check-root-claim! 're-frame.ui/hydrate-root info container)
+      ;; rf2-vxgfnd.199 — capture the EXACT adapter generation admitting this
+      ;; hydrate BEFORE the side-effecting preflight, and revalidate after.
+      (let [adapter-receipt (current-adapter-generation)
+            receipt         (run-preflight! root-id plans-thunk)
+            incarnation     (reactive/make-root-incarnation)]
+        (try
+          (require-adapter-generation-open! 're-frame.ui/hydrate-root
+                                            adapter-receipt)
+          ;; rf2-vxgfnd.52 — preflight drained `:initial-events` synchronously
+          ;; (arbitrary app code) which may have claimed this id / container /
+          ;; prefix. Re-check before any React work.
+          (check-root-claim! 're-frame.ui/hydrate-root info container)
+          (let [react-root (rdc/hydrateRoot
+                            container
+                            (render-attempt-element
+                             receipt root-id incarnation (element-thunk))
+                            (react-opts-with-attempt-abort
+                             (react-opts-with-identifier-prefix react-opts prefix)
+                             root-id incarnation))
+                root       (Root. react-root container root-id)]
+            (register-live-root! info container root incarnation)
+            (seat-pending-attempt! root-id receipt incarnation)
+            root)
+          (catch :default e
+            ;; The element thunk, the claim fence, or the host hydrate threw.
+            ;; No registry entry exists on this path, so `abort-seated-attempt!`
+            ;; does exactly what is owed: settle the receipt terminally (it
+            ;; aborts unconditionally, seated or not) and clear nothing.
+            (abort-seated-attempt! root-id receipt incarnation)
+            (throw e)))))))
 
 (defn unmount!*
   "Runtime half of `ui/unmount!` — TOTAL teardown: unmount the React root

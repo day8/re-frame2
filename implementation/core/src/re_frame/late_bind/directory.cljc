@@ -722,6 +722,12 @@
     :design-bead "rf2-fcj33"
     :description "Clear the SSR side-channel atoms (pending-error-traces, request-slots, response-slots) for a destroyed frame, per Spec 011 §Per-request frame teardown contract. The response-slots entry joined under rf2-jbcmt when the `:rf/response` accumulator moved off `app-db` to plug a hydration-payload leak + per-fx full-app-db swap. Also invokes `:ssr/head-on-frame-destroyed` (if registered) so the head ns can release per-frame snapshot bookkeeping (rf2-4dra9)."}
 
+   ;; ---- re-frame.ssr.manifest (Root Manifest v1 discovery) -----------------
+   {:key         :ssr/discover-root-manifest
+    :producer-ns 're-frame.ssr.manifest
+    :design-bead "rf2-3omxp"
+    :description "CLJS-only Root Manifest discovery `(fn [container]) -> validated Root Manifest | nil`, published by `re-frame.ssr.manifest` at ns-load and consumed by the compiled `re-frame.ui.client/hydrate-root*`. Discovery is POSITIONAL — the manifest is the container's immediately following element sibling and nothing else is searched (Spec 011 §Discovery); identity is then read from the CONTENT (`:root-id`, `:identifier-prefix`), never from the element. THE HOOK DOES EXACTLY WHAT ITS NAME SAYS: it resolves and validates one manifest. It exposes NO payload install and no other ssr operation — `re-frame.ssr/hydrate!` remains the explicit SSR state-boot call (payload read → `:rf/hydrate` → verify) and `ui/hydrate-root` is the DOM-adoption call, so the two-call boot model stays the public contract. A corrupt wire still throws `:rf.error/root-manifest-invalid` out of `validate!`; `nil` means \"no manifest here\" and the CALLER decides — `hydrate-root` fails loud `{:missing :manifest}`, a client-only mount never asks. Unbound when the ssr artefact is absent: `hydrate-root` resolves through `late-bind/require-fn!` and fails loud with `:rf.error/ssr-artefact-missing` naming `day8/re-frame2-ssr`. This is the third instance of the `ui -> core registry <- optional-artefact` shape ui already exercises against routing (`:routing/link-model` / `:routing/activate-link!`) — a direct `ui -> ssr` require is forbidden by the Independence rule AND would fail to compile every non-SSR ui app."}
+
    ;; ---- re-frame.ssr.head (head/meta contract) -----------------------------
    {:key         :ssr/reg-head
     :producer-ns 're-frame.ssr.head
