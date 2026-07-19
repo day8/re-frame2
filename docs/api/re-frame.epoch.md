@@ -1,6 +1,6 @@
 # re-frame.epoch
 
-`re-frame.epoch` is the per-frame epoch-history surface: dev-only time-travel and post-mortem. On each dequeued event, the runtime records one `:rf/epoch-record` into a per-frame ring buffer. Recording happens at the event's run-to-completion boundary, not once per drain. Each record captures before/after frame-state, the triggering event, and the harvested trace stream. Pair-shaped tools (Xray, re-frame2-pair, Story) read this history. Production builds (`:advanced` + `goog.DEBUG=false`) elide the whole surface: no allocation, no storage, no overhead.
+`re-frame.epoch` is the per-frame epoch-history surface: dev-only time-travel and post-mortem. On each handled event, the runtime records one `:rf/epoch-record` into a per-frame ring buffer. Recording happens at the event's run-to-completion boundary, not once per drain. Each record captures before/after frame-state, the triggering event, and the harvested trace stream. Pair-shaped tools (Xray, re-frame2-pair, Story) read this history. Production builds (`:advanced` + `goog.DEBUG=false`) elide the whole surface: no allocation, no storage, no overhead.
 
 ```clojure
 (:require [re-frame.epoch :as epoch])
@@ -10,7 +10,7 @@ Most of this surface is re-exported on the `re-frame.core` facade, so `rf/restor
 
 ## Epoch history
 
-Per-frame epoch snapshots, recorded on each dequeued event's run-to-completion in dev builds. Read by pair-shaped tools for time-travel and post-mortem. Production builds elide entirely.
+Per-frame epoch snapshots, recorded on each handled event's run-to-completion in dev builds. Read by pair-shaped tools for time-travel and post-mortem. Production builds elide entirely.
 
 ### `epoch-history`
 
@@ -111,16 +111,20 @@ Per-frame epoch snapshots, recorded on each dequeued event's run-to-completion i
   (register-epoch-listener! id callback-fn) → id
   ```
 - **Description**: Registers a process-global assembled-epoch listener. Returns the `id`. The app-facing route is `(rf/register-listener! :epoch id callback-fn)`, the `:epoch` stream of the one stream-parameterized listener verb. `epoch/register-epoch-listener!` is the direct epoch-namespace form of the same registry. There is no `rf/register-epoch-listener!` facade re-export; it was retired in API-shrink #4.
-  - `callback-fn` is invoked with the fully-assembled raw `:rf/epoch-record`, after it lands in the frame's ring buffer. Records commit once per dequeued event, but the callback is **not** one-invocation-per-event: the same `:epoch-id` re-publishes when a post-settle render / sub-run / unmount back-fills into an already-settled epoch (a corrected same-`:epoch-id` record), and synthetic records fire with no dequeued event at all (`:rf.epoch/db-replaced` from `replace-frame-state!`, and the terminal `:halted-destroy`). Reconcile on `:epoch-id` + `:outcome`; do not count callbacks as events. Listeners receive every record regardless of `:outcome`.
+  - `callback-fn` is invoked with the fully-assembled raw `:rf/epoch-record`. The callback is a record **publication** notification, not a once-per-event clock. An ordinary handled event publishes one initial record when it settles; the SAME record re-publishes — carrying the same `:epoch-id` — when a post-settle render / sub-run / unmount back-fills into that already-settled epoch (a corrected record). Non-ordinary records publish too: `:rf.epoch/db-replaced` for each `replace-frame-state!` write and a `:halted-depth` record when a drain hits the depth ceiling (both ring-retained when depth permits), plus the terminal `:halted-destroy` — an already-started event interrupted by frame destruction, delivered to listeners only and never retained (the destroyed frame's history is already gone). A dequeued event rejected before it runs (no handler) publishes nothing.
+  - The listener is **process-global**, but `:epoch-id` is unique only within one frame's history. Reconcile on the pair `[(:frame record) (:epoch-id record)]`: cache each record under that key and REPLACE it on re-publication, so a same-identity backfill corrects the snapshot rather than double-counting. `:outcome` is record STATE (`:ok` / `:halted-depth` / `:halted-destroy`) read off the record — not part of its identity and not an event counter. Listeners receive every record regardless of `:outcome`.
   - `id` may be any comparable value; registering the same `id` twice replaces.
   - Listener exceptions are caught and isolated, emitting `:rf.epoch.cb/listener-exception`. One broken listener cannot block others.
   - When a frame that a callback has observed is destroyed, the framework emits a one-shot `:rf.epoch.cb/silenced-on-frame-destroy` trace for that callback.
 
 ```clojure
-;; Observe each assembled epoch as frames settle (app-facing route).
+;; Reconcile a per-[frame epoch-id] cache as records publish. Re-publication
+;; (a backfilled same-identity record) REPLACES its entry, so it corrects the
+;; snapshot rather than double-counting (app-facing route).
+(def epochs (atom {}))
 (rf/register-listener! :epoch :my-app/epoch-watch
   (fn [record]
-    (js/console.log (:frame record) (:epoch-id record))))
+    (swap! epochs assoc [(:frame record) (:epoch-id record)] record)))
 
 ;; Equivalent direct epoch-namespace form.
 (epoch/register-epoch-listener! :my-app/epoch-watch
