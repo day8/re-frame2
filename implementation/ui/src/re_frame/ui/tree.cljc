@@ -507,3 +507,21 @@
      (fn []
        (let [root (view props)]
          (assoc root :rf.ui/tree-version tree-version))))))
+
+(defn render-root-tree
+  "Run a compiled ROOT-FORM tree `thunk` inside the JVM render-slice memo scope
+  and stamp the versioned structural tree — the literal-root-form sibling of
+  `render` (which takes a compiled view fn + props). `re-frame.ui/render-static`
+  renders the server tree through here before `re-frame.ssr/emit-ui-tree`
+  serialises it to an inert HTML string; the root node is the single mounted
+  view's boundary (or the top-region wrapper enclosing it) the root form
+  produced.
+
+  Renders against the AMBIENT frame (the SSR host's surrounding `with-frame`); a
+  frame-scoped read with no frame bound raises `:rf.error/no-frame-context` —
+  honest, never defaulted. Re-entrant: a nested `with-capture` reuses the
+  enclosing slice, exactly as `render` does."
+  [thunk]
+  (reactive/with-slice-memo
+    (fn []
+      (assoc (thunk) :rf.ui/tree-version tree-version))))

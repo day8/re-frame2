@@ -407,6 +407,16 @@
   ;; views rows are the projection reconciliation.
   {:namespace "re-frame.ui" :var "presence"       :kind :fn    :facade? false :tier :advanced    :owner "004" :status "Spec-004 S4" :runtime-verified? true}
   {:namespace "re-frame.ui" :var "presence-phase" :kind :fn    :facade? false :tier :advanced    :owner "004" :status "Spec-004 S4" :runtime-verified? true}
+  ;; render-static (rf2-oo5lb — the FIRST S5 facade delta) — the pure :server
+  ;; static-HTML render entry: `(ui/render-static root-form)` renders a compiled
+  ;; root to an inert HTML string, non-hydrating (no manifest, no payload, no
+  ;; phase flip; Spec 011 §Phase flip). A def-level `defmacro` (kind :macro) so it
+  ;; enforces the LITERAL root form at the call site like the other root verbs —
+  ;; the ruled fn→macro delta (spec/API.md §Compiled views + §2b). JVM/server
+  ;; only. Its live public var + the `export-surface-is-exactly-the-blessed-set`
+  ;; JVM row landed with this feature; the CLJS probe reconciles it (re-frame.ui
+  ;; is fully-rowed, both directions).
+  {:namespace "re-frame.ui" :var "render-static"  :kind :macro :facade? false :tier :advanced    :owner "004" :status "Spec-004 S5" :runtime-verified? true}
   ;; re-frame.ui.react (rf2-vxgfnd.95.4) — the frozen seven-wrapper React interop
   ;; tier (Spec 004 §The React interop tier). Six host hooks (use-ref /
   ;; use-effect / use-layout-effect / use-effect-event / use-context / use-id)
