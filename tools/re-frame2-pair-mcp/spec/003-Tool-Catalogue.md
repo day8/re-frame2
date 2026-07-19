@@ -142,11 +142,16 @@ framework's app-installed `:redact-fn` produced (per [Tool-Pair §Time-travel
 §Redaction hook](../../../spec/Tool-Pair.md#time-travel-epoch-snapshots-and-undo)
 and [Security §Epoch privacy posture](../../../spec/Security.md#epoch-privacy-posture--raw-in-process-records-vs-projected-egress)).
 When the consuming app has called `(rf/configure! {:epoch-history
-{:redact-fn (fn [record] …)}})`, the runtime invokes the fn
-**once per assembled record at build-time** (between
-`build-record` and ring-append / listener fan-out) — so the
-per-frame ring buffer, every `register-epoch-listener!` listener, and
-the records re-frame2-pair-mcp egresses all see the same redacted shape.
+{:redact-fn (fn [record] …)}})`, the per-frame ring buffer and
+every `:epoch`-stream (`register-listener! :epoch`) listener still
+retain the **raw** assembled record (causal replay material) — the
+`:redact-fn` never runs at `build-record` / ring-append / listener
+fan-out. It runs projection-side, at off-box egress **only**: every
+record re-frame2-pair-mcp ships is first routed through
+`projected-record`, which applies the built-in frame/profile
+projection and THEN invokes `:redact-fn` once per projection call. So
+the redacted shape is what crosses the MCP wire, while the in-process
+ring and listeners stay raw for exact replay.
 Tools cannot recover raw shapes from the wire: any slot the fn
 rewrote ships as `:rf/redacted` (the reserved sentinel, per
 [Spec-Schemas §`:rf/epoch-record`](../../../spec/Spec-Schemas.md#rfepoch-record))
