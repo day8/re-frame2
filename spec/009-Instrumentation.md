@@ -14,7 +14,7 @@ The tracing surface is designed to be **stable** (required fields don't change),
 
 ## The trace event model
 
-A trace event is an immutable map describing one moment of work in the runtime — an event dispatch, a sub recomputation, a render, an fx invocation, a machine transition. Events flow into a single per-application trace stream; listeners receive each event synchronously, one at a time.
+A trace event is an immutable map describing one moment of work in the runtime — an event dispatch, a sub recomputation, a render, an fx invocation, a machine transition. Events flow into a single per-application trace stream, and listeners receive them one at a time, never concurrently. Delivery is **two-tier**: a **public** emit fans out synchronously, while an **internal, drain-owned** emit is delivered at the post-drain boundary of the operation that produced it, before that operation returns (see [§Subscription / consumption](#subscription--consumption)).
 
 The shape is documented below.
 
@@ -621,7 +621,18 @@ Pair-shaped tools and Xray's flow panel filter `op-type :flow` (per [Tool-Pair �
 
 ## Subscription / consumption
 
-re-frame2's trace API uses **synchronous, event-at-a-time delivery** — every registered listener is invoked once per emitted trace event while the runtime is still on the emit call stack. Listener-invocation order is **not contract**; tools must not depend on the order in which sibling listeners receive a given event. There is no batching, debounce window, or background delivery loop. Listeners SHOULD do minimal work in the callback (queue, append to a buffer, mark a flag) and defer expensive work to a separate timer or animation frame they own.
+re-frame2's trace API uses **event-at-a-time delivery**: every registered listener is invoked once per emitted trace event, one event at a time, never concurrently with itself. There is no batching, debounce window, or background delivery loop — every event a public operation produces is delivered before that operation returns. Listener-invocation order is **not contract**; tools must not depend on the order in which sibling listeners receive a given event. Listeners SHOULD do minimal work in the callback (queue, append to a buffer, mark a flag) and defer expensive work to a separate timer or animation frame they own.
+
+**Trace listeners are observers, not participants.** *When* a listener is invoked depends on who emitted the event, and the runtime distinguishes two tiers:
+
+- **Public emits** — an emit raised outside a frame drain, including one an application or tool raises itself — fan out **synchronously**, on the emitting call stack, through callback completion.
+- **Internal, drain-owned emits** — those the runtime raises while it owns a frame's drain lock — are delivered at the **post-drain boundary**. They are queued during the drain and fanned out on the way out: **serialized process-wide**, in **emission order**, and **completing before the enclosing dispatch / drain call returns**. A listener therefore never observes a partially settled state, and two frames draining concurrently can never enter the same listener at once.
+
+The reason is a hard invariant: **arbitrary listener code is never invoked, nor awaited, while the framework owns any frame drain lock.** A listener that dispatched, destroyed a frame, or blocked would otherwise be running inside the runtime's own critical section — which on a multi-threaded host admits overlapping delivery across independent frames, and lock cycles through listener-authored work.
+
+The corollary is a contract boundary tools must respect: **a listener's side effects cannot influence the drain that produced the event.** A mutation performed in a callback takes effect when that callback runs, which for a drain-owned emit is after the drain has finished — exactly as if it had been written on the line following `dispatch-sync`. Code that depends on a listener body altering the outcome of the in-flight operation is **out of contract on every platform**. Single-threaded hosts may deliver inline, but that is an implementation detail of the host, not a promise; portable tools must not read intra-drain influence into it.
+
+Observation itself is unaffected: every event is still delivered, exactly once, in emission order, before the operation that produced it returns.
 
 ### The listener API
 
