@@ -1132,6 +1132,22 @@
   provenance; no double emission). Centralizing all arms through this one helper
   keeps their two-channel contract from drifting. Never returns.
 
+  ## Out of the same-id successor's error sink (rf2-bf0io)
+
+  This seam fires ONLY for a DEAD captured incarnation, so `frame-id` no longer
+  names the incarnation the failure belongs to — a same-id destroy→reincarnation
+  may have reseated a SUCCESSOR B under it. The corpus-wide record and dev trace
+  are exact-incarnation FACTS and rightly carry A's bare frame id; but the
+  EP-0015 frame-OWNED `:observability :errors` sink route resolves that bare id
+  to the CURRENT frame — B — and would deliver A's failure into B's OWN sink,
+  violating exact-incarnation attribution (B must not own A's error routing). So
+  we pass `error-emit/emit-error-both!` a false `route-frame?`: the corpus
+  fan-out (axis 1) and the dev trace (axis 2) still fire exactly once, and the
+  typed throw still propagates — only the frame-owned sink route is suppressed.
+  This is the exact-incarnation mirror of the predecessor teardown-report seam
+  (rf2-vxgfnd.118), which suppresses the same frame-owned route for a post-dissoc
+  report. Ordinary live / address-directed frame errors keep the default route.
+
   ## Fail closed for stale-bundle payload egress (rf2-01ihi)
 
   This seam fires ONLY for a DEAD captured incarnation (a stale bundle op, or a
@@ -1202,7 +1218,11 @@
      0                               ;; elapsed-ms — not a timed path
      (interop/now-ms)                ;; time
      {:frame frame-id :op op :event egress-event :reason :frame-destroyed} ;; dev-trace tags (axis 2)
-     {:op op})                       ;; category-specific attribution for the always-on record (axis 1)
+     {:op op}                        ;; category-specific attribution for the always-on record (axis 1)
+     false)                          ;; route-frame? — suppress ONLY the frame-owned sink route (rf2-bf0io):
+                                     ;; a dead incarnation's bare id must never resolve to a same-id
+                                     ;; successor's :observability :errors sink. Corpus record + dev
+                                     ;; trace (above) + the throw (below) all still fire exactly once.
     (error/throw-error!
      :rf.error/frame-destroyed 're-frame.ui/frame
      reason
