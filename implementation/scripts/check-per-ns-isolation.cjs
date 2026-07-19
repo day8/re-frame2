@@ -32,6 +32,24 @@
  * gate fails at the SOURCE: the self-incomplete fixture, not a victim
  * downstream.
  *
+ * WHAT THIS GATE IS NOT
+ * ---------------------
+ * This gate detects ONE direction only: deterministic "red alone, green in
+ * company" fixture defects. It does NOT certify test-order independence. It
+ * is structurally blind to the inverse direction — green alone, red in
+ * company (e.g. a wall-clock captured in a top-level `def` decaying across
+ * the suite prefix, rf2-ybqse): running such a namespace alone makes the bug
+ * LESS likely, not more. And it is only probabilistically sensitive to
+ * intermittent races (rf2-i36h6 was red alone on just 4 of 10 runs
+ * unfixed). Do NOT add run-counting, order permutation, or timing analysis
+ * here.
+ *
+ * The bar a FIX in the order-dependence family must clear is the rf2-ybqse
+ * structural-unreachability standard, enforced at REVIEW time: prove the
+ * failure UNREACHABLE (a measured margin, an invariant, an awaited
+ * thenable) rather than merely unobserved, with a positive control that
+ * fails in the consolidated run.
+ *
  * WHY A CURATED ALLOWLIST, NOT A BLANKET SCAN
  * -------------------------------------------
  * Running every `*_cljs_test` ns alone would be slow (one node process
@@ -56,15 +74,24 @@ const fs = require('node:fs');
 const path = require('node:path');
 
 // ---------------------------------------------------------------------------
-// The curated scan surface — EP-0023 image/frame runtime-construction test
-// namespaces whose fixtures MUST self-install a substrate adapter (a runnable
-// `make-frame` backing record needs one). Each is run ALONE; a
-// fixture leaning on a sibling's leaked adapter goes red standalone.
+// The curated scan surface. Each namespace is run ALONE; a fixture leaning on
+// a sibling's leaked runtime state goes red standalone. The roster carries TWO
+// strata:
 //
-// To add a namespace: append its ns symbol (the `(ns ...)` name). Run
-// `node scripts/check-per-ns-isolation.cjs --list` to see the live set.
+//   1. the EP-0023 image/frame runtime-construction lineage, whose fixtures
+//      MUST self-install a substrate adapter (a runnable `make-frame` backing
+//      record needs one);
+//   2. shipped order-dependence regressions whose failure signature is
+//      red-alone — namespaces that actually broke this way once, kept here so
+//      the same fixture cannot silently re-acquire the dependency.
+//
+// To add a namespace: append its ns symbol (the `(ns ...)` name) to the
+// matching stratum. Run `node scripts/check-per-ns-isolation.cjs --list` to
+// see the live set. Only add a namespace whose regression is visible ALONE —
+// see WHAT THIS GATE IS NOT above.
 // ---------------------------------------------------------------------------
 const ISOLATION_NAMESPACES = [
+  // --- 1. EP-0023 frame-construction lineage ---
   're-frame.conformance-corpus-cljs-test',
   're-frame.ep0023-conformance-cljs-test',
   're-frame.example-frame-scoping-cljs-test',
@@ -80,6 +107,19 @@ const ISOLATION_NAMESPACES = [
   're-frame.router-carried-frame-cljs-test',
   're-frame.subs-override-seam-cljs-test',
   're-frame.views-current-component-cljs-test',
+
+  // --- 2. Shipped order-dependence regressions (red-alone signature) ---
+  // rf2-oslyz (#6367): passed only because an earlier namespace had called
+  // `init!`; alone it gave 5 `:rf.error/no-adapter-installed` errors, and in
+  // the other selection order 5 `:rf.error/image-duplicate-id`. Deleting its
+  // adapter self-install is visible ONLY here — the gate's exact design class.
+  're-frame.story.open-in-editor-ownership-cljs-test',
+  // rf2-i36h6 (#6385): yielded one `setTimeout 0` on the premise that a
+  // macrotask lands after React `act` settles. It does not. Deterministically
+  // green solo post-fix, so zero noise while healthy; its regression is masked
+  // in company by the warmed `act` path, making this gate the only automatic
+  // detector.
+  're-frame.story.play.presence-real-clock-cljs-test',
 ];
 
 const NODE_TEST_BUNDLE = 'out/node-test.js';
