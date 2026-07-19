@@ -42,6 +42,30 @@
          ;; artefact under `re-frame.http.managed`.
          day8/re-frame2-http     {:local/root "../../implementation/http"}
 
+         ;; Xray is Story's diagnostic engine, not an optional plugin.
+         ;; The shipped shell unconditionally composes it: the RHS
+         ;; inspector mounts Xray's own panels through
+         ;; `day8.re-frame2-xray.panels/mount-<panel>!`, the popout
+         ;; escape hatch calls `day8.re-frame2-xray.mount/popout!`, and
+         ;; the evidence spine routes focus commands through
+         ;; `day8.re-frame2-xray.core/focus!`. Those are hard
+         ;; compile-time `:require`s in `re-frame.story.ui.xray-embed`,
+         ;; `re-frame.story.xray-preset`, and
+         ;; `re-frame.story.ui.evidence-spine` — so Xray belongs in the
+         ;; package graph, declared and lockstep-versioned like every
+         ;; other Story dep. The repository-wide Shadow build previously
+         ;; masked the omission by carrying `../tools/xray/src` on its
+         ;; global :source-paths; a consumer whose only tool dep was
+         ;; `day8/re-frame2-story` could not compile the shell at all
+         ;; (rf2-r8trk).
+         ;;
+         ;; Direction: Story → Xray only. Xray never requires Story, so
+         ;; there is no cycle. Both are dev-only tools artefacts and
+         ;; neither reaches a production bundle, so bundle-isolation is
+         ;; unaffected (that gate forbids `implementation/` → `tools/`,
+         ;; not `tools/story` → `tools/xray`).
+         day8/re-frame2-xray     {:local/root "../xray"}
+
          ;; Malli drives Story's three-level args / argtypes auto-derivation
          ;; from Spec 010 schemas (see IMPL-SPEC §4 + §5.2). Malli is
          ;; already a transitive dep via implementation/core; the version
