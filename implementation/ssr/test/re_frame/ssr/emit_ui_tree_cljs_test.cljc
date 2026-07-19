@@ -262,6 +262,63 @@
            (ui-tree/emit-ui-tree (v1 {:tag :div :children ["</script>"]})))
         "and </script> in a <div> is inert escaped text, not a raw-text escape")))
 
+;; ---------------------------------------------------------------------------
+;; Raw-text elements honor the ui/html trusted-markup child (rf2-0spji)
+;;
+;; ANCHOR (rf2-0spji): the raw-text fast path (rf2-2dh3b) ran
+;; `(str/join (:children el))` over ALL children, so a `{:html s}` child — the
+;; `ui/html` trusted-markup bypass, which the CLJS emitter lowers to React
+;; `dangerouslySetInnerHTML` and the JVM tree records as `{:html s}` — was
+;; STRINGIFIED to its printed EDN map instead of emitting its trusted body. The
+;; sole `{:html s}` child must emit `s` VERBATIM (react-dom/server pushes
+;; `dangerouslySetInnerHTML.__html` raw — no entity escape, no closing-sequence
+;; rewrite), byte-identical to the general `:html` node path; any other
+;; structural child fails loud rather than leaking as EDN text.
+;; ---------------------------------------------------------------------------
+
+(deftest raw-text-honors-ui-html-trusted-child
+  (testing "a sole {:html s} child under <script> emits the trusted body, NOT the printed map"
+    ;; RED-BEFORE lever (rf2-0spji): the shipped fast path emitted the literal
+    ;; EDN "<script>{:html \"const x=1;\"}</script>".
+    (is (= "<script>const x=1;</script>"
+           (ui-tree/emit-ui-tree (v1 {:tag :script :children [{:html "const x=1;"}]})))))
+  (testing "a sole {:html s} child under <style> likewise emits its trusted body"
+    (is (= "<style>.x{color:red}</style>"
+           (ui-tree/emit-ui-tree (v1 {:tag :style :children [{:html ".x{color:red}"}]})))))
+  (testing "the :html body is VERBATIM — the trusted bypass, NEITHER escaped NOR closing-sequence-rewritten"
+    ;; Contrast the STRING path: "</script>" as a string CHILD is rewritten to
+    ;; "</\\u0073cript>" (raw-text-closing-sequences-*). The :html trusted bypass
+    ;; writes it verbatim — exactly as react-dom pushes dangerouslySetInnerHTML
+    ;; and as the general :html node path (writes-trusted-html-verbatim) does.
+    (is (= "<script>var s = '</script>';</script>"
+           (ui-tree/emit-ui-tree (v1 {:tag :script :children [{:html "var s = '</script>';"}]}))))
+    (is (= "<script>if (1 < 2 && 3) {}</script>"
+           (ui-tree/emit-ui-tree (v1 {:tag :script :children [{:html "if (1 < 2 && 3) {}"}]})))
+        "< and & stay literal — the :html body is never 5-char escaped")))
+
+(deftest raw-text-structural-child-fails-loud-not-stringified
+  (testing "an element child under <script> is the SHARED malformed id, not stringified EDN"
+    ;; RED-BEFORE lever: the fast path stringified it to
+    ;; "<script>{:tag :b, :children [\"x\"]}</script>".
+    (let [d (caught-ex-data
+              #(ui-tree/emit-ui-tree
+                 (v1 {:tag :script :children [{:tag :b :children ["x"]}]})))]
+      (is (= :rf.error/ui-tree-malformed (:rf.error/id d))
+          "a structural child in a raw-text element is the SHARED malformed id")
+      (is (= [] (:path d)) "locates the offending raw-text element (the root here)")))
+  (testing "a non-string :html under <style> is the SAME shared malformed id, located at the child"
+    (let [d (caught-ex-data
+              #(ui-tree/emit-ui-tree (v1 {:tag :style :children [{:html 42}]})))]
+      (is (= :rf.error/ui-tree-malformed (:rf.error/id d)))
+      (is (= [:children 0] (:path d)) "the reused :html row locates the non-string body")))
+  (testing "a body mixing string content with a structural child is malformed"
+    ;; React forbids both `children` and `dangerouslySetInnerHTML`; a mixed body
+    ;; likewise fails loud rather than half-stringifying.
+    (let [d (caught-ex-data
+              #(ui-tree/emit-ui-tree
+                 (v1 {:tag :script :children ["const x=1;" {:html "y"}]})))]
+      (is (= :rf.error/ui-tree-malformed (:rf.error/id d))))))
+
 (deftest custom-element-property-props-omitted
   (testing "property-classified props never reach markup; attributes do"
     (is (= "<my-widget id=\"w\"></my-widget>"
@@ -347,6 +404,32 @@
     (is (= "<div>\nhello</div>"
            (ui-tree/emit-ui-tree (v1 {:tag :div :children ["\nhello"]})))
         "the compensation is scoped to pre/listing/textarea only")))
+
+;; ---------------------------------------------------------------------------
+;; Leading-LF compensation for a sole trusted-HTML child (rf2-0spji)
+;;
+;; ANCHOR (rf2-0spji): React compensates the eaten leading LF for a single
+;; STRING body applied to a string child AND to `dangerouslySetInnerHTML.__html`.
+;; The shipped `leading-newline-compensation` only recognised a direct string
+;; child, so a valid sole `{:html "\n…"}` child under <pre>/<listing> emitted a
+;; single LF the parser then eats — one FEWER newline than authored.
+;; ---------------------------------------------------------------------------
+
+(deftest leading-newline-compensated-for-sole-trusted-html-child
+  (testing "<pre> sole {:html s} child beginning with LF gets React's compensating LF"
+    ;; RED-BEFORE lever (rf2-0spji): emitted "<pre>\n<b>x</b></pre>" (one LF).
+    (is (= "<pre>\n\n<b>x</b></pre>"
+           (ui-tree/emit-ui-tree (v1 {:tag :pre :children [{:html "\n<b>x</b>"}]})))))
+  (testing "<listing> compensates a sole trusted-HTML LF body the same way"
+    (is (= "<listing>\n\n<i>y</i></listing>"
+           (ui-tree/emit-ui-tree (v1 {:tag :listing :children [{:html "\n<i>y</i>"}]})))))
+  (testing "VACUITY: a :html body NOT beginning with LF gets no compensation"
+    (is (= "<pre><b>x</b></pre>"
+           (ui-tree/emit-ui-tree (v1 {:tag :pre :children [{:html "<b>x</b>"}]})))
+        "the fix must not add an LF when none is owed")
+    (is (= "<div>\n<b>x</b></div>"
+           (ui-tree/emit-ui-tree (v1 {:tag :div :children [{:html "\n<b>x</b>"}]})))
+        "a non-newline-eating element is never compensated, even for a :html body")))
 
 (deftest doctype-opt
   (is (= "<!DOCTYPE html><html></html>"
