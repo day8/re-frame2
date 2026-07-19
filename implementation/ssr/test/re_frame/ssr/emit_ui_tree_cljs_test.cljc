@@ -114,6 +114,37 @@
               #(ui-tree/emit-ui-tree (v1 {:tag :div :children [{:html 42}]})))]
       (is (= :rf.error/ui-tree-malformed (:rf.error/id d))))))
 
+(deftest trusted-html-child-under-textarea-is-rejected
+  ;; rf2-ib4fd — a hand-written trusted-markup (`{:html …}`) child beneath a
+  ;; <textarea> is host-divergent: react-dom/server 19.2 rejects
+  ;; dangerouslySetInnerHTML on a textarea (its content is value/defaultValue
+  ;; or a text child). The compiler rejects the source shape; this seam is the
+  ;; runtime defence for a manually-authored tree — it fails loud through the
+  ;; SHARED malformed-tree path rather than emitting a body React would reject.
+  (testing "a sole {:html s} child under <textarea> throws the shared id"
+    ;; RED-BEFORE lever: the shipped serialiser emitted the markup verbatim
+    ;; ("<textarea><b>x</b></textarea>"), diverging from React 19.2.
+    (let [d (caught-ex-data
+              #(ui-tree/emit-ui-tree
+                 (v1 {:tag :textarea :children [{:html "<b>x</b>"}]})))]
+      (is (= :rf.error/ui-tree-malformed (:rf.error/id d))
+          "a textarea trusted-markup child is the shared tree-consumer id")
+      (is (= [{:html "<b>x</b>"}] (:value d))
+          "ex-data carries the offending children")))
+  (testing "a leading-LF {:html …} child under <textarea> is rejected, NOT "
+           "leading-LF-compensated — trusted-HTML compensation is pre/listing only"
+    (let [d (caught-ex-data
+              #(ui-tree/emit-ui-tree
+                 (v1 {:tag :textarea :children [{:html "\n<b>x</b>"}]})))]
+      (is (= :rf.error/ui-tree-malformed (:rf.error/id d)))))
+  (testing "an ordinary <textarea> body still emits — only :html children reject"
+    (is (= "<textarea>hi</textarea>"
+           (ui-tree/emit-ui-tree (v1 {:tag :textarea :children ["hi"]})))
+        "a string child is fine")
+    (is (= "<textarea>plain</textarea>"
+           (ui-tree/emit-ui-tree (v1 {:tag :textarea :attrs {:value "plain"}})))
+        ":value content is fine")))
+
 ;; ---------------------------------------------------------------------------
 ;; Emission — the serialisation half of the conversion table
 ;; ---------------------------------------------------------------------------

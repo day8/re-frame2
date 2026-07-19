@@ -697,6 +697,19 @@ The checks that *do* exist are **shape** checks, and they are deliberately parti
   DOM element (`[:div (ui/html s)]`) — violations are the compile errors
   `:rf.ui.compile/bad-html`, `:rf.ui.compile/html-not-sole-child`, and
   `:rf.ui.compile/void-children`.
+- A **static host element that rejects trusted markup rejects it at compile.**
+  `(ui/html …)` beneath a literal `<textarea>` is `:rf.ui.compile/html-in-textarea`,
+  naming `:value` (or an ordinary text child) as the escape — a textarea's content
+  is `value`/`defaultValue`, never `dangerouslySetInnerHTML`, which React 19 rejects
+  on a textarea. A literal `<script>`/`<style>` is an HTML raw-text element that
+  React renders from a **single text body**: it accepts no body, one text-producing
+  child, or a sole `(ui/html s)`, but a multiple-child or visibly structural body is
+  `:rf.ui.compile/raw-text-children` (React would otherwise join the children into a
+  warning array that loses the body, or drop/stringify a structural child), naming
+  `(str …)` or `(ui/html s)` as the escape. Both are static rules on the known host
+  tag; a runtime-dynamic child stays programmer-trusted. The equivalent hand-written
+  structural-tree shapes reject at the SSR seam — see
+  [004B §Children, text, and escaping](004B-UI-Tree-and-Conversion.md#children-text-and-escaping).
 - A **literal** non-string scalar (`(ui/html 42)`) is rejected at compile time. A
   **runtime** expression is accepted unvalidated — the compiler cannot know the
   value, and the site is recorded as non-serialisable.
