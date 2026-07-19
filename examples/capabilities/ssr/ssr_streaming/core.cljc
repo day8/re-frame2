@@ -314,13 +314,21 @@
 ;; and [hydrate, then verify](../../../../docs/ssr/concepts.md#the-client-side-hydrate-then-verify).
 ;;
 ;; One honest caveat: this example boots from a hand-written `index.html`
-;; that plays the part of the streaming server, with the resolved chunks and
-;; final payload baked in. No Clojure server runs in the loop. That works
-;; because the streaming runtime is additive — a page whose chunks already
-;; resolved hydrates exactly the same way: the install sweep finds nothing
-;; left to swap, sees `__rf_payload` already there, and goes straight to the
-;; `ssr/hydrate!` reconciliation. The genuinely progressive path (swap on
-;; chunk arrival, merge the delta, then the final payload) is what the
+;; that plays the part of the streaming server. No Clojure server runs in
+;; the loop. It bakes the WHOLE wire byte sequence at once — the shell with
+;; a `<template data-rf2-suspense-fallback>` per boundary, then every
+;; resolved chunk, the `data-rf2-suspense-failed` chunk for `:card.flaky`,
+;; and the final `__rf_payload` — captured verbatim from the streaming
+;; emitter (the same bytes `handle-request` above returns). Those bytes are
+;; the real streamed shape, so `install!` runs the SAME path a live stream
+;; drives: it materialises each fallback into an `<rf-suspense>` mount, swaps
+;; in each resolved chunk, records `:card.flaky` as FAILED from its marker,
+;; then unwraps the mounts on the final payload and hydrates. The failed
+;; boundary keeps its declared skeleton because the client observed the
+;; failed chunk, exactly as it would on the wire. The one thing the offline
+;; stand-in drops is the network TIMING — every chunk is present at once
+;; instead of arriving over the wire. That genuinely time-separated arrival
+;; (swap on each chunk, merge its delta, then the final payload) is what the
 ;; browser acceptance test `re-frame.ssr.streaming-client-dom-cljs-test`
 ;; drives end to end.
 
