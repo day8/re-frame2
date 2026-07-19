@@ -452,11 +452,16 @@ the code half from re-implementing them:
   hydration payload, and the install ledger are
   [011 §Root Manifest v1](011-SSR.md#root-manifest-v1) and the sections following it.
   `emit-ui-tree` neither writes them nor reads them.
-- **No container, no identity.** Root-ids, identifier prefixes, element locators and the
-  root marker attribute are root identity
+- **No container, no identity.** Root-ids, identifier prefixes and element locators are
+  root identity
   ([004C §7](004C-Roots-and-Mount.md#7-duplicate-and-conflict-detection--fail-loud-three-layers)),
   settled before the seam is called and stamped by whatever assembles the page around
-  its output.
+  its output. The `data-rf-root` marker is **not** identity, and it does not belong on
+  the emitted tree either: it is a bare discriminator on the manifest script that the
+  page assembler writes immediately after the container, saying only that a manifest is
+  here and never which root
+  ([011 §The wire form](011-SSR.md#the-wire-form)). *Which* root is the manifest's
+  `:root-id`, spelled once, in the content.
 - **No response.** Status, headers, cookies and redirects live in the per-request
   response accumulator
   ([011 §HTTP response contract](011-SSR.md#http-response-contract)). A string is the
