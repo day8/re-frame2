@@ -58,11 +58,6 @@ current ruling. Deleting the ruling from EP-0030 while leaving every other file
 merely silent would otherwise pass; `EP0030_REQUIRED` prevents that.
 
 NOT YET IN THE ROSTER (pending, deliberate):
-  * `spec/004-Views.md` — its transition annex (the `[SUPERSEDED]`-marked block
-    and the reg-view "freezes"/"v1 (frozen — compat tier)" text ABOVE that
-    marker) still carries the superseded shape. It is HOT-ZONE and was held by
-    another worker when rf2-vxgfnd.290 ran, so its repair is sequenced
-    separately. ADD IT TO `ACTIVE_AUTHORITIES` in the same PR that repairs it.
   * `.github/workflows/release.yml` — one stale comment phrase ("the compiled-
     view substrate that will replace the adapter trio"). CI surfaces are owned by
     rf2-nojiwy; add the file here when that owner corrects the phrase.
@@ -85,6 +80,7 @@ from pathlib import Path
 # --- The closed roster of ACTIVE dispatchable authorities ---------------------
 ACTIVE_AUTHORITIES = (
     "docs/EP/EP-0030-the-compiled-view-substrate-program.md",
+    "spec/004-Views.md",
     "skills/re-frame2-implementor/references/phase-2-impl-order.md",
     "implementation/README.md",
     "implementation/adapters/reagent/README.md",

@@ -657,7 +657,7 @@ enter/exit retention is out of scope):
 |---|---|
 | `(ui/raw react-element)` | embed an existing React element (child position; SSR paths need a `client-only` sibling fallback) |
 | `[ForeignComponent {…}]` | foreign React head; open props, JS values pass through; callbacks per §The decision table |
-| `(ui/->react view)` | export a view as a React component — the outward migration bridge. **v1, lands S6** with the migration wave. Contract: the compat-boundary contract §3 (promotes as `spec/004A-Reagent-Compat.md` at the S7 wave) — memoised per view id (returns the stable shell), no new React root/manifest/preflight; the exported view scopes frames, never creates them |
+| `(ui/->react view)` | export a view as a React component — the outward migration bridge. **v1, lands S6** with the migration wave. Contract: the compat-boundary contract §3, whose rules stay in their committed homes (no `spec/004A` appendix lands) — memoised per view id (returns the stable shell), no new React root/manifest/preflight; the exported view scopes frames, never creates them |
 | `(ui/element type props & children)` | runtime-chosen element/component **[WAVE-2]** |
 | `(ui/view id)` | registry-addressed component; production use requires production registry entries (dev-only string ids cannot serve prod lookup) **[WAVE-2]** |
 | `(ui/spread base overrides)` | the one generic runtime prop-map conversion — **v1**; the conversion architecture's single dynamic-map path, driven by the owning rule table |
@@ -1177,7 +1177,7 @@ path + generation, released/remounted on ambiguity.
   scanned absence roster. The always-on Spec 009 error contracts remain.
 - **[TRANSITION]** The `[view-id instance-token]` `:render-key` wire shape and the
   `[:rf.view/anonymous nil]` fallback for unregistered render fns are emitted by the
-  Reagent, UIx, and reagent-slim adapters — the compatibility/interop tier that lives on —
+  Reagent, UIx, and reagent-slim adapters — first-class, actively-supported adapters —
   and by the Helix adapter until it is removed at S7; the compiled substrate emits its own
   versioned evidence schema (integer render-key + separate `:view-id` + `occurrence-path`)
   in the 009 catalogue.
@@ -1252,21 +1252,22 @@ Compile budgets (expansion p95, watch-loop rebuild) are gated per
 There is exactly **one** component form. The following do not exist in this contract:
 
 - **Form-1 / Form-2 / Form-3.** No closure-form components, no class components, no
-  outer/inner render split; the Forms live on only in the stock-Reagent
-  compatibility/interop tier (live normative home: the compatibility appendix
-  `spec/004A-Reagent-Compat.md`, per §8 of the compat-boundary contract), taught on one
-  migration page only. Form-2 local state is `local`;
+  outer/inner render split; the Forms live on in the stock-Reagent adapter, which
+  remains first-class and actively supported. Their contract stays in the committed
+  homes named in the annex below (per §8 of the compat-boundary contract) — no
+  `spec/004A` appendix lands. Form-2 local state is `local`;
   Form-3 lifecycle work is
   `effect` (+ refs) or a foreign-boundary component; setup-on-mount work is a frame's
   `:initial-events` or a route/domain transition — never a render-phase or
   mount-lifecycle dispatch.
 - **The `reg-view` family.** `reg-view`, `reg-view*`, the two registration lanes, and
-  the `(rf/view id)` runtime lookup are absent from this contract — the family freezes
-  with the stock-Reagent compatibility tier, and its **live contract moves to the
-  compatibility appendix `spec/004A-Reagent-Compat.md`** (lands with the S7 deletion
-  wave; the appendix retains the family's API/facade/Conventions rows under a
-  `v1 (frozen — compat tier)` status — **the exports relocate, they are not removed**;
-  §8 of the compat-boundary contract). `defview` is the one
+  the `(rf/view id)` runtime lookup are absent from this contract — the family ships
+  with the **stock-Reagent adapter, which lives on as first-class and actively
+  supported**. Its live contract stays in the committed homes named in the annex below,
+  and its API/facade/Conventions rows keep their existing status: nothing freezes,
+  nothing relocates, and no `spec/004A` appendix lands (§8 of the compat-boundary
+  contract). Absent *from this contract* is a scoping statement about
+  `re-frame.ui`, not a judgement on the adapter. `defview` is the one
   registration surface;
   the registrar `:view` kind persists as the tooling read surface (Story mounts by view
   id; Xray lists by registry query). Runtime-chosen components are `ui/view` /
@@ -1290,57 +1291,39 @@ There is exactly **one** component form. The following do not exist in this cont
   frameworks, resumability machinery** — non-goals (resumability is research-tier per
   R-5).
 
-> **[SUPERSEDED — adapter disposition reframed 2026-07-17, Mike; EP-0030 Resolved
-> Decisions.]** The freeze/deletion framing in the [TRANSITION] block below is superseded
-> on the adapter-disposition point. **Reagent, UIx, and reagent-slim live on as
-> first-class, actively-supported adapters** (not frozen, not removed), and **only Helix
-> is removed** at S7. `re-frame.ui` is a *new experimental* substrate offered alongside
-> them, so `ui/defview` is **not** the only taught component form. The technical mechanics
-> below — the [TRANSITION] carriers, the `spec/004A-Reagent-Compat.md` appendix as the
-> Reagent tier's live home, the two-direction boundary contract, and old/new co-mounting —
-> remain valid; only the "frozen / adapters removed" labeling is retired. Read "deletion
-> wave" as "Helix-removal wave." A follow-up bead will fold this reframing into the annex
-> prose.
+**[TRANSITION] The adapter tier and this contract coexist.** `re-frame.ui` is a **new,
+experimental** substrate offered **alongside** the existing adapters — not a mandated
+replacement for them. **Stock Reagent (with the `reg-view` family), reagent-slim, and
+UIx all live on as first-class, actively-supported adapters**: not frozen, not scheduled
+for removal, each keeping its artifact, its public exports, its contract suite and one
+smoke, and its documented boot choice. **Only Helix is removed**, at S7 and strictly
+behind the soak gates recorded in
+[EP-0030 §Resolved Decisions](../docs/EP/EP-0030-the-compiled-view-substrate-program.md#resolved-decisions),
+which is the source of record for this disposition. Nothing in this contract retires an
+adapter or relocates its exports, and **no `spec/004A` compatibility appendix lands** —
+there is no compatibility tier to relocate exports into. `ui/defview` is *this*
+contract's one component form; the adapter tier's Forms remain taught alongside it. Old
+and new trees co-mount at explicit boundaries (per the migration guide), and the dataflow
+layer is untouched throughout. The process still installs exactly one adapter at boot —
+never per frame, never within one frame. After the Helix-removal wave, Spec 006's
+host-neutral contracts, the plain-atom substrate, and the benchmark results + fixtures
+are kept, along with a git tag over the removed Helix surfaces **as provenance, not
+contract**.
 
-**[TRANSITION] Until the adapter deletion wave** (proof/default/soak gates per the
-Adapters decision recorded in
-[EP-0030 §Resolved Decisions](../docs/EP/EP-0030-the-compiled-view-substrate-program.md#resolved-decisions):
-RealWorld-resources green · Story + Xray green ·
-SSR/hydration + HMR matrices green · production-specialization + bundle-absence gates
-green · templates/docs/examples defaulted · zero repo-owned non-historical
-UIx/Helix/slim imports · two consecutive green nightlies + one week with no fallback),
-the UIx and Helix adapters (and reagent-slim) remain shipping surfaces governed by the
-carried pre-rewrite contract text under these [TRANSITION] markers — **the markers, not
-git history, are the live contract during the transition** (the git tag is provenance
-only, never a normative home). **The Reagent-tier forms — Form-1/2/3 and the `reg-view`
-family — are not deleted at the wave: they freeze into the stock-Reagent compatibility
-tier**, whose **live normative home is the compatibility appendix
-`spec/004A-Reagent-Compat.md`** (lands with the wave; carries the freeze rules, the
-preserved Form/`reg-view`/Reagent-adapter/frame-context sections as live text, the
-two-direction boundary contract, the retained API/facade rows, and the two-suite CI
-surface — §8 of the compat-boundary contract). Correct but
-frozen: contract suite + one smoke in CI; no new capabilities; taught on exactly one
-migration page; `ui/defview` is the only *taught* component form. Old and new trees
-co-mount at explicit boundaries during migration (per the migration guide); the
-dataflow layer is untouched throughout. After the wave: Spec 006's host-neutral
-contracts, the plain-atom substrate, and benchmark results + fixtures are kept, and a
-git tag of UIx/Helix/slim is kept **as provenance, not contract**; those adapters are
-not.
-
-**Transition annex — where the frozen family's live contract text is carried until S7.**
-The compatibility appendix `spec/004A-Reagent-Compat.md` lands with the deletion wave;
-until then the carried pre-rewrite contract text for the frozen Form/`reg-view` family
-lives in the committed homes that already hold it, and **these markers name those homes
-as the live carriers**: [002](002-Frames.md) (`reg-view` injection + view ergonomics +
-Form pointers), [Conventions](Conventions.md) (the auto-id derivation rule + the
-`*`-suffix pair), [API.md](API.md) (the `reg-view` / `reg-view*` / `view` rows with
-shape + semantics notes), [009](009-Instrumentation.md)
+**Transition annex — where the adapter tier's view contract lives.** The `reg-view`
+family and Form-1/2/3 are absent from *this* contract because this contract specifies
+`re-frame.ui`; they remain live in the adapter tier, and **these markers name the
+committed homes that hold their contract text**: [002](002-Frames.md) (`reg-view`
+injection + view ergonomics + Form pointers), [Conventions](Conventions.md) (the auto-id
+derivation rule + the `*`-suffix pair), [API.md](API.md) (the `reg-view` / `reg-view*` /
+`view` rows with shape + semantics notes), [009](009-Instrumentation.md)
 (`:rf.registry/handler-replaced`), and [Spec-Schemas](Spec-Schemas.md) (the view
-registry-slot shape). Two governing sentences are carried here verbatim so the markers
-are the live contract: **the authoring-lane rule** — a state-touching view MUST be a
-registered view (`reg-view`), never a plain fn — governs the shipping adapters until the
-wave; and **`(rf/view id)` re-resolves the current registered implementation per call**,
-so a hot-reloaded view is picked up on the next render through the id handle.
+registry-slot shape). **Those homes are the live contract; git history never is.** Two
+governing sentences are carried here verbatim so the markers stand on their own: **the
+authoring-lane rule** — a state-touching view MUST be a registered view (`reg-view`),
+never a plain fn — governs the adapter tier; and **`(rf/view id)` re-resolves the current
+registered implementation per call**, so a hot-reloaded view is picked up on the next
+render through the id handle.
 
 ## Stage conformance profiles
 
@@ -1399,7 +1382,7 @@ a conflict is resolved in that order and is a defect in this table.
 | §The JVM structural subset — subs via the pure snapshot path | **S2** | the Q32/Q22 answer: `sub` *grammar* compiles at S1, but no Stage-1 Tier-1 fixture exercises a sub read — a Tier-1 render through a sub site (frame or `:sub-overrides`) is an S2 assertion |
 | §Hot reload — the view-side contract | **S2** | the full HMR matrix ([EP-0030 §Stages S1–S7](../docs/EP/EP-0030-the-compiled-view-substrate-program.md#stages-s1s7) places it with reactivity, deliberately early) |
 | §Removed forms — the absences | **S1** | absences are compile errors + export-surface checks from the first slice |
-| §Removed forms — [TRANSITION] freeze + the 004A appendix | **S7** | deletion-wave soak gates; `spec/004A-Reagent-Compat.md` lands |
+| §Removed forms — the [TRANSITION] coexistence statement | **S7** | Helix-removal soak gates; the retained adapters keep their suites and their contract homes — no appendix lands, no adapter is retired |
 
 **The S1 profile — what the R-1 atomic merge requires:** the rows tagged S1 above —
 portability law + parity corpus v0 · `defview` grammar/props-ABI/registration/
@@ -1410,7 +1393,8 @@ non-reactive rows · the removed-forms absences. That set passing its named asse
 **is** "the first conforming Stage-1 slice".
 
 **Ripple-row timing** (the atomic-merge sets for the inventory below): rows marked
-[TRANSITION] and every "moves to 004A" row land at **S7** with the appendix;
+[TRANSITION] land at **S7** with the Helix-removal wave — no row moves to a 004A
+appendix, because none lands;
 identity/naming/reservation rows (Conventions reserved `:rf.ui/*` namespace + artifact
 registration + lint key, Ownership's new-surface rows, `spec/API.md`'s `re-frame.ui`
 additions, the 008 `ui.test`/selector rows) land at **S1** with this rewrite;
