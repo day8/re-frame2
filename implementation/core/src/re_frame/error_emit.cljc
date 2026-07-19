@@ -267,12 +267,19 @@
   `re-frame.interop/debug-enabled?`) — fires in CLJS production builds
   where the trace surface is elided.
 
-  ALWAYS fires for every catalogued production-reachable RUNTIME
-  `:rf.error/*` category. This is the off-box observability stream
-  (Sentry / Datadog / Xray / the SSR error-projection listener) and
-  is the production-survivable source of truth: a category that does
-  NOT fan out here goes silent under `goog.DEBUG=false`. (Dev-only-
-  validation / registration-time categories — dev schema checks,
+  Fires for every catalogued RUNTIME `:rf.error/*` category PROMOTED
+  onto this always-on listener axis (the promotion criterion, Spec 009
+  §Observability channels). This is the off-box observability stream
+  (Sentry / Datadog / Xray / the SSR error-projection listener) and is
+  the production-survivable source of truth for THAT set. Promotion is
+  NOT automatic for every production-reachable category: a
+  production-reachable category whose sole surfacing is a caller-observed
+  pure `error/throw-error!` stays DIAGNOSTIC and does NOT fan a record
+  here — the caller observes the throw at the call site and fixes the
+  declaration there, so the fact does not silently disappear
+  (`:rf.error/custom-element-conflict`, `:rf.error/dispatch-disconnected`,
+  `:rf.error/flush-convergence-exceeded`). (Dev-only-validation /
+  registration-time categories — dev schema checks,
   machine-unresolved-guard — stay dev-trace-only and do NOT call
   this fn; that is correct, not a gap.)
 
@@ -422,7 +429,9 @@
 
 ;; ---- the two-channel fan-out helper ---------------------------------------
 ;;
-;; EVERY production-reachable runtime `:rf.error/*` site fans the SAME category
+;; Every PROMOTED runtime `:rf.error/*` site (the always-on set — not every
+;; production-reachable category; a caller-observed pure `throw-error!` such as
+;; `:rf.error/custom-element-conflict` stays diagnostic) fans the SAME category
 ;; out along BOTH error channels in lock-step: the always-on
 ;; `dispatch-on-error!` listener registry (axis 1 — production-survivable; the
 ;; off-box-shipper / SSR-projector source of truth) AND the dev-only
@@ -440,8 +449,8 @@
   registry (axis 1 — production-survivable; survives CLJS `:advanced` +
   `goog.DEBUG=false`, the off-box-shipper + SSR-error-projector source of truth)
   AND the dev-only `re-frame.trace/emit-error!` surface (axis 2 — DCE'd in CLJS
-  production). The shared two-channel fan-out every catalogued production-
-  reachable runtime error site uses.
+  production). The shared two-channel fan-out every catalogued PROMOTED
+  (always-on) runtime error site uses.
 
   `category` is the `:rf.error/*` keyword (the SAME value flows to both
   channels). `event` / `event-id` / `frame` / `exception` / `elapsed-ms` / `time`

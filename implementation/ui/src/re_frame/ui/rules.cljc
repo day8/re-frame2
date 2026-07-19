@@ -1007,12 +1007,18 @@
 ;; The ONE cross-source declaration law (rf2-vxgfnd.143)
 ;;
 ;; Delegated ruling 2026-07-15, Option A — FAIL ATOMICALLY, never a merge or a
-;; winner law. For a given [build-id tag] the effective declaration is the
-;; unique value contributed by live sources IFF every cross-source pair is
-;; `rf=`-equal. Any non-`rf=`-equal same-tag declaration from a DIFFERENT source
-;; fails atomically, carrying a sorted vector of [build-id ns-sym] anchors —
-;; every equal incumbent declarer plus the arrival — and leaves the
-;; last-known-good aggregate unchanged.
+;; winner law. For a given tag the effective declaration is the unique value
+;; contributed by every live source across the one JS realm IFF every
+;; cross-source pair is `rf=`-equal. The runtime aggregate is keyed by TAG alone
+;; — one shared `custom-elements` registry per realm — so `[build-id ns-sym]` is
+;; DECLARER PROVENANCE (the anchor a contradiction names), never a partition key:
+;; two sources with different build-ids that classify one tag differently
+;; contradict, and the runtime cross-build test pins exactly that. (The COMPILE
+;; arm's per-build registry legitimately permits different manifests in different
+;; builds — separate builds are separate compilation units, not one realm.) Any
+;; non-`rf=`-equal same-tag declaration from a DIFFERENT source fails atomically,
+;; carrying a sorted vector of [build-id ns-sym] anchors — every equal incumbent
+;; declarer plus the arrival — and leaves the last-known-good aggregate unchanged.
 ;;
 ;; ## Where the law lives, and why it is not where it was first ruled
 ;;
