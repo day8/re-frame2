@@ -47,16 +47,26 @@
     deterministically fresh indefinitely — no rebased clock, no rotting
     absolute deadline — with explicit invalidation as the real freshness
     authority. So the hydrated entry is fresh, and the client does NOT refetch.
+
+    The `#app` subtree is the dev-build output of `rf/render-to-string` — the
+    same string `handle-request` inlines, minus the `data-rf-render-hash`
+    attribute (this offline stand-in bakes `:rf/render-hash nil` below, so
+    neither the wire hash nor its DOM twin appears). In a dev build the reg-view
+    REGISTRATION boundary stamps two annotations on every registered view's root
+    DOM element (Spec 006 §Source-coord annotation / §View tagging contract,
+    moved cross-host to the reg-view boundary by rf2-8vi4q): the
+    `:pages/articles` view's `<div class="page">` root carries
+    `data-rf2-source-coord="pages:articles:165:1"` (its `<ns>:<sym>:<line>:<col>`
+    reg-view call site) and `data-rf-view=":pages/articles"`, so pair-shaped
+    tooling can map the node back to its view. The client's dev render stamps
+    the SAME two attributes, so this page hydrates as a clean ADOPTION rather
+    than an attribute mismatch. `:app/root` renders `[(rf/view :pages/articles)]`
+    — a callable head, not a DOM element — so it contributes no wrapper node and
+    no annotation of its own. A production build (`goog.DEBUG=false` /
+    `re-frame.debug=false`) elides the annotations on both hosts, so prod markup
+    is attribute-free.
   -->
-  <div id="app">
-    <div class="page">
-      <h1>Recent articles</h1>
-      <ul data-testid="articles-list">
-        <li data-testid="article-welcome">Welcome to re-frame2</li>
-        <li data-testid="article-resources">Server-state as resources</li>
-      </ul>
-    </div>
-  </div>
+  <div id="app"><div class="page" data-rf2-source-coord="pages:articles:165:1" data-rf-view=":pages/articles"><h1>Recent articles</h1><ul data-testid="articles-list"><li data-testid="article-welcome">Welcome to re-frame2</li><li data-testid="article-resources">Server-state as resources</li></ul></div></div>
   <script id="__rf_payload" type="application/edn">
 {:rf/version 1
  :rf/frame-id :rf/default
