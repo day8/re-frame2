@@ -170,6 +170,61 @@
       (is (= (rules/projected-aggregate) @rules/custom-elements)
           (str "round " round ": settled aggregate equals the ledger projection")))))
 
+(deftest conflicting-write-throughs-linearize-across-ledger-and-live-registry
+  ;; rf2-u25hr. Two DIFFERENT sources write-through a CONTRADICTORY declaration of
+  ;; ONE tag with no cycle open. The admission must be ONE decision across the
+  ;; ledger `::sources` and the live `custom-elements` aggregate: exactly one is
+  ;; admitted, the rejected row is ABSENT from `::sources`, and the ledger
+  ;; projection equals the live registry.
+  ;;
+  ;; THE LEVER is a `CyclicBarrier` redef'd into the live-registry write
+  ;; `write-element!`, forcing BOTH registrations past their ledger step before
+  ;; EITHER live write — the exact interleaving the pre-fix code mis-serialised:
+  ;; both prechecked the still-EMPTY live aggregate `@custom-elements` in their
+  ;; ledger swap, so both entered `::sources`; then one live write won and the
+  ;; other threw, stranding the loser's row in `::sources`. The projection then
+  ;; went nil (a ledger holding a contradiction) while the live aggregate held the
+  ;; winner — the two atoms torn apart. Post-fix the verdict is decided INSIDE the
+  ;; single `ledger-state` swap against the ledger's own projection, so the second
+  ;; write-through sees the first's `::sources` row and is rejected there, never
+  ;; reaching a live write — and the lever, which only trips inside `write-element!`
+  ;; (unused by the dev write-through path), is simply inert.
+  (dotimes [round 200]
+    (rules/reset-custom-elements!)
+    (let [gate  (CyclicBarrier. 2)
+          start (CyclicBarrier. 2)
+          orig  @#'rules/write-element!
+          [ra rb]
+          (with-redefs-fn
+            {#'rules/write-element!
+             (fn [& args] (.await gate) (apply orig args))}
+            (fn []
+              (let [a (future (await-barrier start)
+                              (try (rules/register-custom-element!
+                                    :x-el {:properties #{:a}} 'a.ns :b1)
+                                   :admitted
+                                   (catch Exception e (:rf.error/id (ex-data e)))))
+                    b (future (await-barrier start)
+                              (try (rules/register-custom-element!
+                                    :x-el {:properties #{:z}} 'z.ns :b2)
+                                   :admitted
+                                   (catch Exception e (:rf.error/id (ex-data e)))))]
+                [@a @b])))]
+      (is (= #{:admitted :rf.error/custom-element-conflict} (set [ra rb]))
+          (str "round " round ": exactly one admitted, one conflict-rejected"))
+      (is (= 1 (count @rules/custom-elements))
+          (str "round " round ": the live aggregate holds exactly one winner"))
+      (is (contains? #{#{:a} #{:z}} (rules/custom-element-properties :x-el))
+          (str "round " round ": the winner is one of the two declarations"))
+      ;; THE cross-atom consistency proof: the ledger projects to EXACTLY the live
+      ;; aggregate. A rejected row left in `::sources` would make the projection a
+      ;; contradiction (nil) that diverges from the non-nil live winner — the
+      ;; pre-fix failure this asserts against.
+      (is (= (rules/projected-aggregate) @rules/custom-elements)
+          (str "round " round
+               ": the ledger projection EQUALS the live aggregate — the rejected "
+               "write-through left no row in ::sources")))))
+
 (deftest concurrent-write-throughs-on-distinct-builds-compose
   ;; Two DISJOINT ledger partitions, no cycles: concurrent initial-load
   ;; registrations must both land in the aggregate — the publication path never

@@ -1305,6 +1305,30 @@
           {:keys [conflict]} (aggregate reconciled)]
       (if conflict {:conflict conflict} {:sources reconciled}))))
 
+(defn- write-through-verdict
+  "Pure: the verdict of admitting `source`'s declaration of `tag` into ledger
+  value `st` on the WRITE-THROUGH path (no cycle open for the build).
+
+  Decided against the ledger's OWN projection (`aggregate` over `::sources`), so
+  the whole admission is ONE decision on the single `ledger-state` atom
+  (rf2-u25hr) — never a check against a snapshot of `@custom-elements`, which a
+  concurrent, differently-timed live write can leave stale. That split is exactly
+  the defect: two write-throughs each prechecked the still-empty live aggregate,
+  both entered `::sources`, and only one live write won — stranding the loser's
+  row in the ledger while the projection went nil. Deciding against `::sources`
+  instead serialises the two on this one atom: the second sees the first's row
+  and is rejected before it can enter.
+
+  Returns `{:sources st'}` with the row recorded in `::sources` when admitted, or
+  `{:conflict evidence}` when it contradicts a live source, leaving `::sources`
+  untouched. `::sources` is conflict-free by invariant (a rejected row never
+  enters it), so its projection is always a clean aggregate."
+  [st source tag decl]
+  (let [live (:aggregate (aggregate (::sources st)))]
+    (if-let [conflict (:conflict (admit live tag decl source))]
+      {:conflict conflict}
+      {:sources (update-in st [::sources source] (fnil assoc {}) tag decl)})))
+
 (defn register-custom-element!
   "Register `tag`'s runtime property classification under its declaring source.
   Emitted top-level by `ui/custom-element`, so it re-runs on every ns hot-reload.
@@ -1344,30 +1368,39 @@
                            (if (contains? (::cycles st) build-id)
                              (update-in st [::cycles build-id :staged source]
                                         (fnil assoc {}) tag decl)
-                             ;; WRITE-THROUGH. Apply the SAME verdict the
-                             ;; aggregate barrier below is about to apply, so a
-                             ;; REJECTED write-through leaves no row behind for a
-                             ;; later `commit-reload!` to publish — which would
-                             ;; let the next reload defeat the barrier, and would
-                             ;; wedge every subsequent commit against a ledger
-                             ;; that can no longer be projected.
+                             ;; WRITE-THROUGH. The admission verdict is decided
+                             ;; INSIDE this one `ledger-state` swap, against the
+                             ;; ledger's OWN projection (`write-through-verdict`),
+                             ;; never against a snapshot of `@custom-elements` a
+                             ;; concurrent live write can leave stale (rf2-u25hr).
+                             ;; Two write-throughs for one tag therefore serialise
+                             ;; on this atom: the second sees the first's row in
+                             ;; `::sources` and is rejected, so a rejected row can
+                             ;; never remain in `::sources` while the live
+                             ;; aggregate holds the winner. A rejected write-through
+                             ;; leaves `::sources` untouched here and (below)
+                             ;; publishes nothing — NEITHER atom moves off
+                             ;; last-known-good.
                              ;;
                              ;; A STAGED row is deliberately NOT checked here: it
                              ;; is not live yet, and the rows it would be checked
                              ;; against are the very ones this cycle is about to
-                             ;; replace, so a stage-time check would reject
-                             ;; legitimate edits. The reconciled fold in
-                             ;; `commit-reload!` is the staged path's check, and
-                             ;; it decides on the POST-reconciliation value.
-                             (if (:conflict (admit @custom-elements tag decl source))
-                               st
-                               (update-in st [::sources source]
-                                          (fnil assoc {}) tag decl)))))]
-         ;; The winning transition saw `old`; if `old` had no open cycle it was a
-         ;; write-through, so publish this row incrementally. (Staged
+                             ;; replace. `commit-reload!` is the staged path's
+                             ;; check, on the POST-reconciliation value.
+                             (:sources (write-through-verdict st source tag decl)
+                                       st))))]
+         ;; The winning transition saw `old`; re-derive its verdict from that same
+         ;; `old` to PUBLISH or to RAISE. `::sources` already carries the admitted
+         ;; row (written in the swap above), so `publish!` — a pure projection of
+         ;; the LIVE ledger — republishes it without a second, differently-timed
+         ;; opinion and cannot lose it to a concurrent commit; a rejected
+         ;; write-through raises without either atom having moved. (Staged
          ;; registrations stay invisible until commit.)
          (when-not (contains? (::cycles old) build-id)
-           (write-element! tag decl source)))
+           (let [{:keys [conflict]} (write-through-verdict old source tag decl)]
+             (if conflict
+               (throw-element-conflict! conflict)
+               (publish! build-id)))))
        (write-element! tag decl source)))
    tag))
 
