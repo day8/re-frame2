@@ -92,6 +92,26 @@ version — you do not add it yourself, and there is no reduced
 [`spec/DESIGN-RATIONALE.md`](./spec/DESIGN-RATIONALE.md)
 §xray-is-a-declared-dependency.
 
+### How Story is published
+
+[`.github/workflows/release-story.yml`](../../.github/workflows/release-story.yml)
+publishes `day8/re-frame2-story` on a `story-v<VERSION>` tag push.
+
+Story declares five in-repo dependencies via `:local/root` (core, the
+Reagent adapter, machines, HTTP, Xray). `clein pom` silently SKIPS
+`:local/root` coordinates, so the workflow rewrites all five to
+`:mvn/version "<VERSION>"` on the throwaway runner checkout before
+packaging, then reads the **generated pom back** and refuses to deploy
+unless every one is present at the lockstep version
+([`preflight-story-package.sh`](../../.github/scripts/preflight-story-package.sh)).
+Clojars has no yank, so the last gate before publishing inspects the
+actual artefact rather than the inputs meant to produce it.
+
+Those five siblings must already be on Clojars at the same version, so
+tags are cut in order: `v<VERSION>` (framework) → `xray-v<VERSION>` →
+`story-v<VERSION>`. The order is enforced structurally — resolving the
+rewritten graph fails if a coordinate is not yet published.
+
 re-frame2-story DCEs under `:advanced` builds — `reg-story` / `reg-variant`
 macros elide entirely, leaving the production bundle with zero Story bytes.
 See [`spec/005-SOTA-Features.md`](./spec/005-SOTA-Features.md) §Production

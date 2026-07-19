@@ -309,6 +309,13 @@ xray|day8/re-frame2 {:local/root "../../implementation/core"}
 story|day8/re-frame2 {:local/root "../../implementation/core"}
 story|day8/re-frame2-reagent {:local/root "../../implementation/adapters/reagent"}
 story|day8/re-frame2-machines {:local/root "../../implementation/machines"}
+# rf2-wht9a — Story's HTTP + Xray edges were absent from this inventory, so
+# the verifier's green could not catch either omission. Both are main-`:deps`
+# runtime coordinates (`:network` world slot / the RHS inspector), and
+# release-story.yml rewrites all FIVE before packaging: a coordinate missing
+# from this list is a coordinate nothing asserts is rewritable.
+story|day8/re-frame2-http {:local/root "../../implementation/http"}
+story|day8/re-frame2-xray {:local/root "../xray"}
 story-mcp|day8/re-frame2-story {:local/root "../story"}
 machines-viz|day8/re-frame2 {:local/root "../../implementation/core"}
 EOF
