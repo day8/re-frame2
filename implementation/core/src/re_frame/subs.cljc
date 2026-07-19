@@ -1655,23 +1655,13 @@
   target})` to read a named frame from outside any scope (async callbacks,
   tools, tests, SSR); `target` is a frame-id keyword or a live frame value.
 
-  Per Spec 006 §Plain-fn-under-non-default-frame warning:
-  the 1-arity form runs the plain-fn detection check — if the
-  surrounding React-context Provider names a non-default frame and the
-  rendering component is NOT reg-view-wrapped (so its subscribe call
-  has fallen through to :rf/default), `:rf.warning/plain-fn-under-
-  non-default-frame-once` fires once per (component-id, frame-id)
-  pair. The check is late-bound through re-frame.views (CLJS-only) so
-  the JVM build never loads it; production (`:advanced` +
-  `goog.DEBUG=false`) elides via `interop/debug-enabled?`.
-
-  The explicit-frame form `(subscribe query-v {:frame target})`
-  **deliberately skips** the plain-fn detection check. Naming an
-  explicit frame IS the opt-out — the caller has told the runtime
-  exactly which frame to target, so a fall-through-to-`:rf/default`
-  diagnostic doesn't apply. Use the opts form from a plain
-  Reagent fn body when you want to subscribe against a known frame
-  without triggering the warning surface.
+  Per Spec 006 §Plain-fn footgun is `:rf.error/no-frame-context`: a
+  plain (non-`reg-view`) Reagent fn carries no `:contextType` wiring, so
+  it cannot read the surrounding frame boundary's frame from React
+  context and its ambient 1-arity `subscribe` raises
+  `:rf.error/no-frame-context`. Use the opts form from a plain Reagent
+  fn body to subscribe against a known frame: naming the target
+  explicitly is what carries the frame the ambient chain cannot find.
 
   This is the runtime-callable fn form. The macro form
   `re-frame.core/subscribe` captures `(meta &form)` and calls straight

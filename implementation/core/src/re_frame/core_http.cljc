@@ -91,7 +91,9 @@
     (clear-http-interceptor id {:frame target})  ;; explicit frame
 
   The single-arity `(clear-http-interceptor id)` resolves the frame through
-  the carried-invariant scope chain (a `with-frame` / frame-provider scope);
+  the carried-invariant scope chain (a `with-frame` scope, or the closest
+  enclosing frame boundary — a `frame-provider` (SCOPE) or a `frame-root`
+  (ENSURE));
   under no scope it raises `:rf.error/no-frame-context` — it does NOT
   synthesise a `:rf/default` target.
 
