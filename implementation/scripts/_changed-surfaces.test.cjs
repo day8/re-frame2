@@ -972,6 +972,39 @@ test('synthesis-docs job runs the opt-in link scan and focused guide truth fixtu
   assert.match(aggregator, /- synthesis-docs\r?\n/);
 });
 
+// rf2-2718r — the adapter-disposition guard scans a FIXED cross-repo roster
+// (ACTIVE_AUTHORITIES: EP-0030, spec/004-Views.md, implementation/README.md,
+// skills/…), not the diff. Conditional execution keyed to a diff classifier is
+// a category mismatch for a guard that scans a fixed inventory — a PR editing a
+// roster file may not fire the guard that pins it (the same inventory<->trigger
+// bug class as rf2-d9v3n / rf2-rf7gu). The ruled fix (option (e)) moves the
+// guard out of the surface-gated synthesis-docs job into the UNCONDITIONAL
+// verify-readme-links job so it runs on every PR, dissolving the roster<->
+// classifier sync problem with zero machinery. These arms pin the wiring:
+// verify-readme-links must carry BOTH guard invocations and synthesis-docs must
+// carry NONE. A future PR un-moving or gutting the wiring fails here (this file
+// runs under the unconditional js-harness-self-tests job's test:script-policy).
+test('adapter-disposition guard runs UNCONDITIONALLY in verify-readme-links, not synthesis-docs (rf2-2718r)', () => {
+  const workflow = fs.readFileSync(WORKFLOW, 'utf8');
+  const readmeLinks = jobBlock(workflow, 'verify-readme-links');
+  assert.match(
+    readmeLinks,
+    /python scripts\/check_adapter_disposition\.py --self-test --verbose/,
+    'verify-readme-links must self-test the adapter-disposition guard (unconditional job)',
+  );
+  assert.match(
+    readmeLinks,
+    /python scripts\/check_adapter_disposition\.py --verbose --ci/,
+    'verify-readme-links must run the adapter-disposition guard (unconditional job)',
+  );
+  const synthesis = jobBlock(workflow, 'synthesis-docs');
+  assert.doesNotMatch(
+    synthesis,
+    /check_adapter_disposition/,
+    'the surface-gated synthesis-docs job must no longer carry the fixed-roster guard (rf2-2718r moved it)',
+  );
+});
+
 // rf2-f79t8 (a) — workflow-level shape: jvm-core + cljs must be
 // job-level gated (needs + if), NOT trigger-filtered, and the
 // pull_request trigger must stay unfiltered so the aggregator is always
