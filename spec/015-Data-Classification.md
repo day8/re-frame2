@@ -381,7 +381,7 @@ Three rules keep the helper humble without weakening egress correctness:
 - **no** `:rf.egress/output-sensitivity` declassification claim (and no `:rf.egress/inherit` / `:rf.egress/sensitive` / `:rf.egress/public` value set) — there is nothing to declassify because nothing propagates; the key is gone and silently ignored if present;
 - **no** universal "same value redacted everywhere" value-match / taint engine (see the derived-tree note in [§project-egress](#project-egress--the-record-level-boundary-primitive)).
 
-This is a deliberate scope decision: propagation is machinery for an unusual case already covered by classifying the output path, and dropping it keeps the helper lightweight. The egress rules over the paths you *do* classify are unchanged: **sensitive wins over large** at the same path; a `:large`-marked subtree containing a `:sensitive` descendant redacts rather than showing a size preview; large auto-elides an oversized value even at an undeclared path (the size backstop).
+This is a deliberate scope decision: propagation is machinery for an unusual case already covered by classifying the output path, and dropping it keeps the helper lightweight. The egress rules over the paths you *do* classify are unchanged: **sensitive wins over large** at the same path; a `:large`-marked subtree containing a `:sensitive` descendant redacts rather than showing a size preview. An oversized value at an **undeclared** path is **not** auto-elided — the size threshold is advisory, firing `:rf.warning/large-value-unschema'd` once while the value ships unchanged; declaring the path `:large` is what elides it.
 
 ## Author guidance for the exception-path residual
 

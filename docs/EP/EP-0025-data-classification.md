@@ -216,8 +216,10 @@ is already a no-op, so when data disappears the redaction effectively disappears
 it. `:clear-sensitive` / `:clear-large` mainly matter when a path is *reused*
 for non-secret data, or when a subsystem tidies its registry on teardown.
 
-**Egress rules.** Sensitive wins over large at the same path. Large auto-elides an
-oversized value even at an undeclared path (the size backstop). A `:large`-marked
+**Egress rules.** Sensitive wins over large at the same path. An oversized value at an
+undeclared path is **not** auto-elided — the size threshold is advisory, firing
+`:rf.warning/large-value-unschema'd` while the value ships unchanged; declaring the
+path `:large` is what elides it. A `:large`-marked
 subtree containing a `:sensitive` descendant redacts rather than showing a size
 preview. **Classification does not propagate** — you redact exactly the paths you
 classify, and nothing is inherited (no "derived output takes its input's sensitivity,"

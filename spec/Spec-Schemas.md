@@ -2826,7 +2826,8 @@ A frame owns two durable partitions held as one physical frame-state container (
   ;; (durable app-db, `:source :effect`), subsystem projection-relative
   ;; declarations (lowered per instance), and flow outputs — the sources UNION
   ;; at egress lookup. Un-declared over-threshold slots fire
-  ;; :rf.warning/large-value-unschema'd; the size backstop auto-elides them.
+  ;; :rf.warning/large-value-unschema'd (advisory only — the value ships
+  ;; unchanged); declaring the path `:large` is what elides it.
   ;; Schema-attached `:sensitive?` / `:large?` slot props do NOT feed this
   ;; registry (schemas describe shape, not durable app-db egress policy).
   [:map
