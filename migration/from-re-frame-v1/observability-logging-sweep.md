@@ -124,17 +124,28 @@ Observability payloads can be unboundedly large — a `:db/state-loaded` event c
 
 ### The cap pattern
 
-Every listener body that walks a payload bounded by user input or by app-db size MUST apply a size cap. The cap is **per-payload bytes**, applied after sensitive redaction:
+Every listener body that walks a payload bounded by user input or by app-db size MUST apply a size cap. Two mechanisms cooperate, and the migration must not conflate them:
+
+- The **wire-elision walker** elides *declared* paths — schema/effect-declared `:sensitive` → `:rf/redacted`, declared `:large` → a `:rf.size/large-elided` marker. Its `:rf.size/threshold-bytes` is **advisory only**: for an *undeclared* large string over the threshold the walker emits the dev-only `:rf.warning/large-value-unschema'd` nudge and **returns the value unchanged** (per [009 §Size elision in traces](../../spec/009-Instrumentation.md#size-elision-in-traces): *"The walker does not auto-elide unschema'd values"*). It never bounds an undeclared value.
+- A **genuine per-payload byte budget** — the hard cap. Because an undeclared oversize value survives the walk, the helper measures the serialised size of the elided result and, when it still exceeds the destination budget, drops the payload to a compact over-budget marker rather than letting it ride off-box. The cap is **per-payload bytes**, applied after sensitive redaction:
 
 ```clojure
 (defn cap-or-elide
-  "Returns [bounded-value dropped-count]. Walks v through the wire-elision walker
-   with a size threshold; returns the elided value plus a count of slots the walker
-   dropped (sensitive + large combined)."
-  [v {:keys [threshold-bytes frame]
-      :or   {threshold-bytes 16384
-             frame           :rf/default}}]
-  (let [opts    {:rf.size/threshold-bytes threshold-bytes
+  "Returns [payload dropped-count over-budget?].
+   1. Elides DECLARED paths through the wire-elision walker (declared :sensitive →
+      :rf/redacted, declared :large → a :rf.size/large-elided marker — independent
+      of any byte threshold).
+   2. Enforces a GENUINE serialised-byte budget on the elided result: an undeclared
+      oversize value is NOT bounded by the walker (its threshold is advisory — it
+      warns via :rf.warning/large-value-unschema'd and returns the value unchanged),
+      so this backstop drops the whole payload to an over-budget marker.
+   dropped-count is the count of DECLARED elisions; over-budget? is whether the byte
+   budget fired. The advisory warning, the declared-elision count, and the genuine
+   budget stay three distinct signals — none is conflated with another."
+  [v {:keys [budget-bytes frame]
+      :or   {budget-bytes 16384
+             frame        :rf/default}}]
+  (let [opts    {:rf.size/threshold-bytes    budget-bytes   ;; advisory nudge for undeclared-large
                  :rf.size/include-sensitive? false
                  :rf.size/include-large?     false
                  :frame                      frame}
@@ -142,12 +153,19 @@ Every listener body that walks a payload bounded by user input or by app-db size
         ;; Count :rf.size/large-elided markers and :rf/redacted sentinels in elided
         dropped (->> (tree-seq coll? seq elided)
                      (filter #(or (= :rf/redacted %)
-                                  (and (map? %) (= :rf.size/large-elided (:rf.size/marker %)))))
-                     count)]
-    [elided dropped]))
+                                  (and (map? %) (contains? % :rf.size/large-elided))))
+                     count)
+        ;; Genuine backstop: the walker leaves an undeclared oversize value in place,
+        ;; so cap the SERIALISED result (pr-str length) against the destination budget.
+        over?   (> (count (pr-str elided)) budget-bytes)]
+    (if over?
+      [{:audit/over-budget {:budget-bytes budget-bytes
+                            :bytes        (count (pr-str elided))}}
+       dropped true]
+      [elided dropped false])))
 ```
 
-`16384` bytes is the framework default per [API.md §wire-elision walker](../../spec/API.md#elide-wire-value-the-wire-boundary-walker) configure key; the operator picks a per-listener cap that matches the destination's payload budget (Sentry's 100KB event-payload soft cap suggests ~32-64KB per listener; a self-hosted log file can be larger). The default is the right floor for production telemetry; specialised listeners (a dev-only `console.log` panel reading the trace buffer) can opt for a higher cap.
+`16384` is the framework's default **advisory** threshold per [API.md §wire-elision walker](../../spec/API.md#elide-wire-value-the-wire-boundary-walker) configure key — the size above which the walker nudges an *undeclared* large string. It is **not** a wire cap; only paths you *declared* `:large` (via the commit-plane `:large` effect, EP-0025) elide to a marker, independent of the threshold. The genuine per-listener bound is `cap-or-elide`'s `:budget-bytes` backstop — the operator sets it to the destination's payload budget (Sentry's 100KB event-payload soft cap suggests ~32-64KB per listener; a self-hosted log file can be larger). Passing the same number as the advisory threshold is deliberate: an undeclared value over budget both nudges you to declare it `:large` and trips the backstop that keeps it off the wire.
 
 ### Surfacing the dropped count via `register-listener!`
 
@@ -160,26 +178,29 @@ The cap silently elides — but silent elision is the wrong default for operatio
                (not (:sensitive? trace-event)))                      ;; default-drop sensitive cascades
       (let [event-v   (-> trace-event :tags :event-v)
             [bounded
-             dropped] (cap-or-elide event-v
-                                    {:threshold-bytes 32768
-                                     :frame           (:frame trace-event)})]
-        (when (pos? dropped)
+             dropped
+             over?]   (cap-or-elide event-v
+                                    {:budget-bytes 32768
+                                     :frame        (:frame trace-event)})]
+        (when (or (pos? dropped) over?)
           ;; Per-batch counter: operator sees how often the cap fires
-          (rf/dispatch [:audit/dropped-counter-inc {:dropped dropped
-                                                    :operation (:operation trace-event)}]))
+          (rf/dispatch [:audit/dropped-counter-inc {:dropped     dropped
+                                                    :over-budget over?
+                                                    :operation   (:operation trace-event)}]))
         (sentry/capture-message
           {:message "audit event"
-           :extra   {:event/operation (:operation trace-event)
-                     :event/payload   bounded
-                     :event/dropped   dropped}})))))
+           :extra   {:event/operation   (:operation trace-event)
+                     :event/payload     bounded
+                     :event/dropped     dropped
+                     :event/over-budget over?}})))))
 ```
 
 Two diagnostic signals:
 
-1. **The `:event/dropped` slot on every forwarded payload** — the operator opening the destination dashboard sees per-event how many slots were filtered.
+1. **The `:event/dropped` + `:event/over-budget` slots on every forwarded payload** — the operator opening the destination dashboard sees per-event how many declared slots were filtered and whether the byte-budget backstop dropped the payload. Reporting them separately keeps a declared-elision distinct from a genuine over-budget drop — the two must not be conflated.
 2. **The `[:audit/dropped-counter-inc ...]` dispatch into the runtime** — accumulates a counter the operator can query via `(rf/subscribe [:audit/dropped-counter])` for a continuous "how often is the cap firing" view.
 
-The two together let the operator distinguish "the cap is a healthy backstop firing twice a day" from "the cap is firing on every event because a misconfigured schema is leaking the whole `app-db`." Both signals MUST land on the rewrite — silent elision is the failure mode this rule defends against.
+The two together let the operator distinguish "the backstop fires twice a day" from "the backstop fires on every event because a misconfigured schema is leaking the whole `app-db`." Both signals MUST land on the rewrite — silent elision is the failure mode this rule defends against.
 
 ### Composition with the framework default
 
@@ -258,20 +279,28 @@ This is the v2-canonical target for the **majority** of "observer (off-box egres
     v))
 
 (defn- cap-or-elide
-  "Returns [bounded-value dropped-count] — applies schema-aware wire-elision walker
-   first, then floor redaction as a fallback for undeclared keys."
-  [v {:keys [threshold-bytes frame] :or {threshold-bytes 32768 frame :rf/default}}]
+  "Returns [payload dropped-count over-budget?] — elides DECLARED sensitive/large
+   paths (schema-aware walker) plus floor redaction for undeclared sensitive keys,
+   then enforces a genuine serialised-byte budget as a backstop. The walker's
+   threshold is ADVISORY (it warns on an undeclared large value and returns it
+   unchanged, it does not bound it); the :budget-bytes backstop is the hard cap
+   that keeps an oversize undeclared value off the wire."
+  [v {:keys [budget-bytes frame] :or {budget-bytes 32768 frame :rf/default}}]
   (let [floor-redacted (redact-sensitive-floor v)
-        opts           {:rf.size/threshold-bytes    threshold-bytes
+        opts           {:rf.size/threshold-bytes    budget-bytes
                         :rf.size/include-sensitive? false
                         :rf.size/include-large?     false
                         :frame                      frame}
         elided         (rf/elide-wire-value floor-redacted opts)
         dropped        (->> (tree-seq coll? seq elided)
                             (filter #(or (= :rf/redacted %)
-                                         (and (map? %) (= :rf.size/large-elided (:rf.size/marker %)))))
-                            count)]
-    [elided dropped]))
+                                         (and (map? %) (contains? % :rf.size/large-elided))))
+                            count)
+        over?          (> (count (pr-str elided)) budget-bytes)]
+    (if over?
+      [{:audit/over-budget {:budget-bytes budget-bytes :bytes (count (pr-str elided))}}
+       dropped true]
+      [elided dropped false])))
 
 ;; --- The trace listener registration (the M-13 / M-17 replacement) ---
 
@@ -282,27 +311,32 @@ This is the v2-canonical target for the **majority** of "observer (off-box egres
       (let [event-v   (-> trace-event :tags :event-v)
             frame     (:frame trace-event)
             [bounded
-             dropped] (cap-or-elide event-v {:threshold-bytes 32768
-                                             :frame           frame})]
-        (when (pos? dropped)
+             dropped
+             over?]   (cap-or-elide event-v {:budget-bytes 32768
+                                             :frame        frame})]
+        (when (or (pos? dropped) over?)
           (rf/dispatch [:audit/dropped-counter-inc
-                        {:operation (:operation trace-event)
-                         :dropped   dropped}]))
+                        {:operation   (:operation trace-event)
+                         :dropped     dropped
+                         :over-budget over?}]))
         (sentry/capture-message
           {:message "audit event"
-           :extra   {:event/operation  (:operation trace-event)
-                     :event/payload    bounded
+           :extra   {:event/operation   (:operation trace-event)
+                     :event/payload     bounded
                      :event/dispatch-id (:dispatch-id trace-event)
                      :event/dropped     dropped
+                     :event/over-budget over?
                      :event/frame       frame}})))))
 
 ;; --- The dropped-counter event + sub (operator-visible signal #2) ---
 
 (rf/reg-event-db :audit/dropped-counter-inc
-  (fn [db [_ {:keys [operation dropped]}]]
+  (fn [db [_ {:keys [operation dropped over-budget]}]]
     (-> db
-        (update-in [:audit/counters :total-dropped]                 (fnil + 0) dropped)
-        (update-in [:audit/counters :per-operation operation]        (fnil + 0) dropped))))
+        (update-in [:audit/counters :total-dropped]           (fnil + 0) (or dropped 0))
+        (update-in [:audit/counters :per-operation operation]  (fnil + 0) (or dropped 0))
+        (cond-> over-budget
+          (update-in [:audit/counters :over-budget]           (fnil inc 0))))))
 
 (rf/reg-sub :audit/dropped-counter
   (fn [db _] (:audit/counters db)))
@@ -320,23 +354,31 @@ When the v1 observer assembled a per-cascade summary (an audit-log entry per dra
     (when-not (:rf.epoch/sensitive? epoch-record)                  ;; honour epoch-level rollup
       ;; Project at the egress boundary FIRST — the listener holds the RAW record.
       ;; projected-record is the single off-box projection (frame/profile redaction,
-      ;; raw :db-before / :db-after stripped, plus any installed :redact-fn); the
-      ;; size-cap below then bounds the already-projected payload.
-      (let [projected         (rf/projected-record epoch-record)
-            [bounded dropped] (cap-or-elide projected
-                                            {:threshold-bytes 65536
-                                             :frame           (:frame epoch-record)})]
-        (when (pos? dropped)
+      ;; raw :db-before / :db-after stripped, plus any installed :redact-fn). It elides
+      ;; DECLARED sensitive/large paths but does NOT bound an undeclared oversize slot,
+      ;; so cap-or-elide's :budget-bytes backstop below is what actually bounds the
+      ;; already-projected payload against the destination budget.
+      (let [projected               (rf/projected-record epoch-record)
+            [bounded dropped over?] (cap-or-elide projected
+                                                  {:budget-bytes 65536
+                                                   :frame        (:frame epoch-record)})]
+        (when (or (pos? dropped) over?)
           (rf/dispatch [:audit/dropped-counter-inc
-                        {:operation :epoch/settled
-                         :dropped   dropped}]))
-        (post-mortem-svc/forward
-          {:trigger-event (:trigger-event bounded)
-           :outcome       (:outcome bounded)
-           :sub-runs      (:sub-runs bounded)
-           :renders       (:renders bounded)
-           :effects       (:effects bounded)
-           :dropped       dropped})))))
+                        {:operation   :epoch/settled
+                         :dropped     dropped
+                         :over-budget over?}]))
+        (if over?
+          ;; Over budget even after projection — forward the bounded over-budget
+          ;; marker, never the oversize record.
+          (post-mortem-svc/forward {:over-budget (:audit/over-budget bounded)
+                                    :dropped     dropped})
+          (post-mortem-svc/forward
+            {:trigger-event (:trigger-event bounded)
+             :outcome       (:outcome bounded)
+             :sub-runs      (:sub-runs bounded)
+             :renders       (:renders bounded)
+             :effects       (:effects bounded)
+             :dropped       dropped}))))))
 ```
 
 Two epoch-specific notes:
@@ -360,6 +402,6 @@ When the agent applies this rule:
 - The migration report lists every observability site found, classified per §1 (observer-off-box / observer-local / behaviour-modifying / misclassified-handler-body) with file/line.
 - Each rewrite shows: the v1 site, the production-survivability classification (must-survive vs dev-only), the v2 target shape (0 / A / B / C), the framework defaults composed (sensitive guard, walker defaults — or the frame-sink projection for Shape 0), the floor-checklist drops applied, the dropped-count signal added.
 - The "schema-annotation follow-ons" section lists every sensitive-key + schema-slot pair the agent found, with a per-slot proposal of `{:sensitive? true}` and the rationale (which observability site walked it).
-- The "size-cap configuration" section lists each listener's chosen `threshold-bytes` and the rationale (Sentry budget, log-file size, dashboard payload limit) — operator confirmation per listener.
+- The "size-cap configuration" section lists each listener's chosen `:budget-bytes` backstop and the rationale (Sentry budget, log-file size, dashboard payload limit) — operator confirmation per listener. (The walker's `:rf.size/threshold-bytes` advisory is separate: it only nudges undeclared-large paths toward a `:large` declaration and does not bound the payload.)
 - Any hit the agent could not classify ("the body does too much / does both observer and behaviour-modifying work") is listed as an escalation, with the recommended path (split the body, port halves to different surfaces).
 - The "framework defaults" section reminds the operator that the production-survivable observability surfaces are the frame `:observability` sinks (`register-observability-sink!` — the default) and the corpus-wide always-on event-emit / error-emit listeners beneath them (per [009 §What IS available in production](../../spec/009-Instrumentation.md#what-is-available-in-production) and the entry-point hierarchy in [009 §Use case × surface routing](../../spec/009-Instrumentation.md#use-case--surface-routing)). Observability sites that need a production-survivable path go through those surfaces, not through `register-listener!` / `register-epoch-listener!` (which elide on `:advanced + goog.DEBUG=false`). (There is **no** app-steering `:on-error` recovery policy — that earlier draft surface was removed; recovery is framework-owned. See [M-13](README.md#m-13-reg-event-error-handler-is-dropped--error-policy-is-per-frame-on-error).)
