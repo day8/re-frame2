@@ -79,7 +79,7 @@ Example consumer registration:
 
 ## Why the cap exists
 
-The MCP transport carries text payloads to the agent host (Claude, GPT, etc.). Agents have **context budgets** measured in tokens; an MCP tool that responds with 50K tokens of payload would consume the agent's working context, leaving no room for the agent's reasoning. The cap is the agent-ergonomics counterpart to the framework's `:rf.size/threshold-bytes` (which caps per-leaf byte size); both close the "response too big for the consumer to use" failure mode.
+The MCP transport carries text payloads to the agent host (Claude, GPT, etc.). Agents have **context budgets** measured in tokens; an MCP tool that responds with 50K tokens of payload would consume the agent's working context, leaving no room for the agent's reasoning. The cap is the agent-ergonomics counterpart to the framework's `:rf.size/threshold-bytes` — though where this MCP cap hard-truncates the response, that framework threshold only *warns* on an oversized unschema'd leaf (the `:rf.warning/large-value-unschema'd` advisory; actual elision needs the path declared `:large`), rather than capping per-leaf byte size. Both target the "response too big for the consumer to use" failure mode.
 
 The default is enforced at the wire boundary by the shared cap algorithm. Callers may choose a different cap or explicitly disable it with `:max-tokens 0`.
 
