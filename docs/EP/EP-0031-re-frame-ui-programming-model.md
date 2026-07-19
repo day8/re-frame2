@@ -51,8 +51,8 @@ the observation port (EP-0032); evidence, manifests, and instrumentation
 (EP-0033); the component-library readiness deltas' own design records (EP-0035 —
 summarized here only where they amend this surface); SSR/roots/hydration
 mechanics beyond the authoring seam (Specs 004C/011); or Reagent migration
-mechanics (the S6/S7 migration wave — the migrator plus the `spec/004A`
-Reagent-compat appendix).
+mechanics (the S6/S7 migration wave — the migrator, whose rules stay in
+their committed homes; no `spec/004A` appendix lands).
 
 ### 1. `defview` — the one component form
 
@@ -188,8 +188,8 @@ this surface; its contract detail is Spec 004 §The React interop tier.
 ### 6. Removed forms — normative absences
 
 Form-1/2/3 and the `reg-view` family (not `re-frame.ui` forms — they belong to
-the coexisting Reagent compatibility tier, live home
-`spec/004A-Reagent-Compat.md` at S7); positional view args; plain render fns as
+the coexisting Reagent compatibility tier, whose live contract stays in its
+committed homes — no `spec/004A` appendix lands); positional view args; plain render fns as
 frame-aware views; ratoms/cursors/reactions (a second state model);
 `:on-mount`/`:on-unmount`; Suspense-as-loading; the `h` macro and bare-keyword
 view heads. Absences are compile errors + export checks from the first slice.
@@ -236,11 +236,11 @@ it.
 
 Pre-alpha: clean breaks, no shims. The Reagent, UIx, and reagent-slim adapters
 live on as first-class shipping surfaces under Spec 004's [TRANSITION] markers;
-the Reagent-tier forms are retained (not deleted), with their live home
-`spec/004A-Reagent-Compat.md` landing at S7. Only Helix is removed, at the S7
+the Reagent-tier forms are retained (not deleted), their live contract staying
+in its committed homes; no `spec/004A` appendix lands. Only Helix is removed, at the S7
 removal wave. Migration rides `ui/->react` per-subtree co-mounting (S6;
-mechanics land with the S6 migration wave — the migrator plus the `spec/004A`
-Reagent-compat appendix).
+mechanics land with the S6 migration wave — the migrator, whose rules stay in
+their committed homes; no `spec/004A` appendix lands).
 
 ## Resolved Decisions
 
