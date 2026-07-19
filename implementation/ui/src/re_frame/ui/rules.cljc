@@ -719,12 +719,11 @@
 ;;
 ;; .48 evicted a source's contribution ONLY when it re-registered — i.e. it used
 ;; a SURVIVING declaration as the signal that the source was rebuilt. That left
-;; three holes: a source that deletes its LAST declaration (or whose file is
+;; two holes: a source that deletes its LAST declaration (or whose file is
 ;; deleted) never re-registers, so its stale rows lingered until a full page
-;; reload; a reload that threw mid-way left the live registry half-mutated; and
-;; two builds sharing one runtime atom cross-contaminated. .67 replaces
-;; registration-triggered eviction with an explicit reload-cycle protocol driven
-;; from the reload BOUNDARY, not from re-registration:
+;; reload; and a reload that threw mid-way left the live registry half-mutated.
+;; .67 replaces registration-triggered eviction with an explicit reload-cycle
+;; protocol driven from the reload BOUNDARY, not from re-registration:
 ;;
 ;;   (notify-reload! [build?])    ^:dev/before-load — OPEN a reload cycle. From
 ;;                                here re-registrations STAGE; the live aggregate
@@ -756,20 +755,24 @@
 ;; closed cycle and write-through's into the next generation instead of staging
 ;; into a cycle the commit is about to discard.
 ;;
-;; Ownership is [build-id ns-sym] so two builds sharing one atom (two bundles in
-;; one JS realm, a shared JVM, a test) reconcile independently — evicting one
-;; build's source can never drop another's rows.
+;; A ledger row is keyed [build-id ns-sym]. The `ns-sym` is what partitions a real
+;; host's sources; the `build-id` is the INTERNAL PRODUCER SEAM — the identity the
+;; reset producer stamps and every arity default resolves through — and, in tests,
+;; a STATE-PARTITION TOKEN that lets one process drive several independent ledgers
+;; without them colliding. It is NOT a claim that two dev builds can share one copy
+;; of this namespace and reconcile independently: they cannot, and nothing shadow
+;; exposes could tell them apart. See §THE ISOLATION UNIT below for the contract
+;; that bounds this.
 ;;
-;; That key is only worth its weight if `build-id` is a REAL identity, and every
-;; participant in a cycle agrees on it (rf2-vxgfnd.142). It used to be the
-;; placeholder `::default` on every real path — emitted registrations, both
-;; lifecycle hooks, the reset producer — with a second identity reachable only
-;; from a test-only arity. Two real builds sharing a realm therefore collapsed
-;; into one row at [::default ns], and reloading one could evict or replace the
-;; other's contribution. Now `current-build-id` resolves shadow's own build name
-;; and is the default for EVERY arity in the protocol, so an emitted registration
-;; and the cycle that reconciles it cannot key a row differently. The explicit
-;; build-scoped arities remain the seam for multi-build reconciliation and tests.
+;; The key is only worth its weight if `build-id` is COHERENT — every participant
+;; in a cycle must agree on it (rf2-vxgfnd.142). It used to be the placeholder
+;; `::default` on every real path — emitted registrations, both lifecycle hooks,
+;; the reset producer — with a second identity reachable only from a test-only
+;; arity, so an emitted registration and the cycle meant to reconcile it could key
+;; a row differently and strand it. Now `current-build-id` is the ONE rule every
+;; arity default resolves through, so they cannot disagree. The explicit
+;; build-scoped arities remain the seam the producer routes through and the token
+;; tests partition state with.
 ;;
 ;; ## Production carries none of this (rf2-k9yuy)
 ;;
@@ -794,19 +797,41 @@
 ;; `goog.DEBUG=true`) stages, reconciles and commits real cycles, so removing the
 ;; dev branch reddens there rather than silently satisfying the bundle grep.
 ;;
-;; ## Bounded by shadow's reload surface (the honest edge)
+;; ## THE ISOLATION UNIT — one dev build per CLJS root (rf2-4vm19, NORMATIVE)
 ;;
-;; Per-build isolation reaches exactly as far as shadow's runtime seam allows.
-;; `before-load-src` calls each SHADOW_NS_RESET callback with the reloaded ns and
-;; NOTHING else, and lifecycle hooks are invoked with no arguments after being
-;; resolved by name off the SHARED `$CLJS` object. So a callback learns which
-;; build is reloading only from the identity BAKED INTO ITS OWN BUNDLE — which is
-;; exactly what `current-build-id` reads. Two bundles, each with their own copy of
-;; this namespace, are therefore isolated: each copy carries its own build's name
-;; and reconciles only its own rows. Two builds that share ONE copy of this
-;; namespace (one `$CLJS`, one set of atoms, one `defonce`d producer) cannot be
-;; told apart by any mechanism shadow exposes, because the hooks themselves are
-;; then a single shared singleton.
+;; THE CONTRACT: ONE Shadow dev build per CLJS global namespace root containing
+;; `re-frame.ui.rules`. That is the unit this ledger isolates. It is a stated
+;; boundary, not an aspiration — everything below follows from what shadow's
+;; runtime seam does and does not convey.
+;;
+;; The unit is the CLJS ROOT — not the page, and not the output file. Separate
+;; output files are not automatically separate runtime copies: standard shadow dev
+;; output shares the global root, and single-module release output is wrapped by
+;; default.
+;;
+;; SUPPORTED, and isolated by construction:
+;;   - one app plus its `:preloads` tools — that is ONE build;
+;;   - iframes and workers — separate JS realms, so separate roots;
+;;   - independently compiled release bundles — output-wrapped, own copy, and no
+;;     ledger at all (see §Production carries none of this);
+;;   - separate pages.
+;;
+;; UNSUPPORTED, and UNOBSERVABLE from inside: two dev builds fused onto ONE shared
+;; root. `before-load-src` calls each SHADOW_NS_RESET callback with the reloaded ns
+;; and NOTHING else, and lifecycle hooks are invoked with no arguments after being
+;; resolved by name off the SHARED `$CLJS` object. So a callback learns which build
+;; is reloading only from the identity BAKED INTO ITS OWN BUNDLE — which is exactly
+;; what `current-build-id` reads. Two bundles that each carry their OWN copy of
+;; this namespace are therefore isolated: each copy resolves its own build's name
+;; and reconciles only its own rows. But two builds sharing ONE copy (one `$CLJS`,
+;; one set of atoms, one `defonce`d producer) share one set of hooks — a single
+;; shared singleton — and cannot be told apart by anything shadow exposes.
+;;
+;; There is deliberately NO runtime detection, warning, or error for the fused
+;; case. From inside the shared copy the condition is unobservable, so any check
+;; would be heuristic or tautological — the same "agreeing with itself by
+;; construction" defect this namespace rejects for cycle tokens below. The
+;; boundary is held by construction and stated here, never policed at runtime.
 ;;
 ;; ## Overlapping cycles are unsupported, and no token can change that (rf2-84173)
 ;;
@@ -1580,12 +1605,15 @@
 ;; `defonce` still guarantees exactly one entry, while the BEHAVIOUR it runs is
 ;; always the freshly loaded code.
 ;;
-;; The trampoline is TAGGED with its owning build identity, so the install can
-;; REPLACE its own previous entry instead of appending, and never touches an
-;; entry owned by shadow or another library. The tag carries the build id
-;; because `SHADOW_NS_RESET` lives on `goog.global` — SHARED across every build
-;; in one realm — so two builds' producers must coexist rather than evict each
-;; other.
+;; The trampoline carries its owning build identity as a TAG, and the install
+;; REPLACES the entry it already owns instead of appending — but what identifies
+;; that entry is OBJECT IDENTITY, never the tag (rf2-ymfix); the tag is provenance
+;; a reader can inspect, not an ownership lever. An entry owned by shadow or
+;; another library is never touched at all. The tag names a build because
+;; `SHADOW_NS_RESET` lives on `goog.global`, which is SHARED across a whole JS
+;; realm: two bundles that each carry their OWN copy of this namespace (the
+;; supported multi-copy topology — see §THE ISOLATION UNIT) put two producers on
+;; that one array, so they must coexist rather than evict each other.
 ;;
 ;; ## And the INSTALL is self-upgrading too (rf2-mp6fz)
 ;;
