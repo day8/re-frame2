@@ -205,9 +205,10 @@ Methodology, binding on every gate: identical fixtures, distributions not best
 runs, pinned browsers, cold+warm, dev overhead separate, no precomputed-props
 cheating. The component-library **proof pack** (controlled input, selection
 controller, slotted list cell, safe-attrs form control, schema-described
-component, inline popover, single-view import) lands in the conformance/parity
-corpus as the rolling consumer; the substrate takes no build dependency on
-re-com.
+component, inline popover, single-view import) is rendered and exercised by a
+mounted DOM suite (`re-frame.ui.proof-pack.library-dom-cljs-test`) — its
+host-bearing views have no JVM side and cannot be dual-emitter parity-corpus
+rows; the substrate takes no build dependency on re-com.
 
 ### 5. Gate wiring status
 
