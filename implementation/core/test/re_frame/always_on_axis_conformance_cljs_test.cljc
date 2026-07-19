@@ -226,6 +226,28 @@
     :rf.error/observation-retry-exhausted
     :rf.error/observation-on-change-failed
     :rf.error/frame-preflight-evidence-mismatch
+    ;; rf2-vxgfnd.143: the custom-element cross-source declaration law's RUNTIME
+    ;; arm graduated `always-on` in the Spec 009 catalogue (placement amendment
+    ;; 2026-07-19). Two DIFFERENT sources declaring ONE tag with non-`rf=`-equal
+    ;; `:properties` is a property-classification contradiction that changes what
+    ;; `ui/spread` sends to the DOM, so it must fail on EVERY build: a law
+    ;; enforced only under `goog.DEBUG` is the shape of two shipped defects
+    ;; (rf2-2hkfy, rf2-5pr75). It is a THROWN ex-info (the canonical
+    ;; `error/throw-error!` builder), NOT an error-emit fan-out — `always-on`
+    ;; means production-survivable, and the throw is unconditional: the write
+    ;; barrier lives on the direct `custom-elements` update in
+    ;; `re-frame.ui.rules/register-custom-element!`, the one registration path
+    ;; that survives `:advanced` + `goog.DEBUG=false` (the hot-reload ledger
+    ;; folds away with `reload-ledger?`, rf2-k9yuy). The emit SITE lives in the
+    ;; `ui` artefact; this leg drives the category through the per-event `:else`
+    ;; axis (`dispatch-on-error!`) synthetically — the exact payload is not the
+    ;; contract under test here — to prove the listener fan-out, so the literal
+    ;; pins the catalogue's always-on set regardless of the artefact wiring. The
+    ;; production elision is pinned from inside the release bundle by
+    ;; `re-frame.ui.custom-element-reload-elision-prod-test`. The JVM companion
+    ;; (`parsed-always-on-set-equals-the-exercise-literal`) keeps this set ==
+    ;; the parsed catalogue.
+    :rf.error/custom-element-conflict
     ;; rf2-2hkfy: the closed-vocabulary `:rf.nav/scroll` strategy rejection
     ;; graduated `always-on` in the Spec 009 catalogue. rf2-px26m made the
     ;; handler's default branch loud, but through `trace/emit-error!` ALONE —
