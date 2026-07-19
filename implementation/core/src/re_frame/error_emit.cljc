@@ -136,6 +136,79 @@
     :rf.error/no-such-sub
     :rf.error/observation-on-change-failed})
 
+;; ---- raw query-vector identity on the always-on error :event slot --------
+;;
+;; #6441 / rf2-zwgqe (RULED — option c, accepted fail-open, documented): a
+;; subscription QUERY VECTOR is IDENTITY — the sub-cache key (Spec 006), the
+;; skip-dedup key, the reactive-graph edge endpoint. Identity is structurally
+;; public to every layer that touches the cache, so it is NEVER redacted at the
+;; classification chokepoint; it egresses VERBATIM on EVERY query-vector-bearing
+;; slot, INCLUDING "the always-on error `:query-v` / `:event` slots" (the
+;; ruling's own words). The only retained exception is the SEPARATE Spec 010
+;; schema-axis backstop (a `:sensitive?`-schema'd sub's validation-failure trace
+;; whole-slot scrubs `:rf.sub/query-v` in `re-frame.schemas.validate`), which
+;; this path does not touch.
+;;
+;; `dispatch-on-error!` runs `:event` through `elision/elide-wire-value` (the
+;; frame's durable app-db elision registry). For a DISPATCHED EVENT that is
+;; payload hygiene. For a SUB error `:event` is the query vector, and a concrete
+;; integer app-db path coincidentally matching a query-vector coordinate mutates
+;; identity at egress (`[1]` turns `[:patient/record "SECRET"]` into
+;; `[:patient/record :rf/redacted]`). The closed decision note WRONGLY reasoned
+;; an app-db path could not match a query vector; concrete integer paths prove
+;; otherwise (`elision_test.clj` pins that behaviour — it is correct for
+;; position-precise app-db elision and stays). So the always-on error path must
+;; skip elision for a query-vector `:event`.
+
+(def ^:private query-vector-event-categories
+  "Every production `:rf.error/*` category whose positional `:event` slot
+  carries a subscription QUERY VECTOR (raw IDENTITY per #6441 / rf2-zwgqe), NOT
+  a dispatched event. ENUMERATED STRUCTURALLY by reading each emit site — NOT
+  matched by a category-name prefix: a `sub-*` prefix check catches the
+  reactive/compute + input-fn categories but MISSES the observation-port
+  query-vector categories and the frame-destroyed subscribe realm, re-leaking
+  the exact rf2-s3n6h 'bound that does not bound' class.
+
+  A SUPERSET of [[sub-error-categories]] (whose narrower purpose is `[:sub id]`
+  SOURCE-COORD resolution). It ALSO includes the two observation-port
+  categories whose `:event` is the lease's query vector but whose source-coord
+  is deliberately NOT `[:sub]`-resolved:
+    - `:rf.error/read-after-release`         (`observation/read` on a released lease)
+    - `:rf.error/observation-retry-exhausted`(`observation/acquire!` — fired for a
+                                             frame it KNOWS is LIVE, so the
+                                             coincidental-path match genuinely bites)
+  Both pass the lease's `query-v` through `observation/emit-and-throw!` /
+  `observation/read`. The realm-AMBIGUOUS `:rf.error/frame-destroyed` is handled
+  separately in [[raw-identity-query-vector-event?]] — it carries a query vector
+  only in the `:subscribe` operation realm."
+  #{:rf.error/sub-input-fn-exception
+    :rf.error/sub-input-fn-bad-return
+    :rf.error/sub-exception
+    :rf.error/no-such-sub
+    :rf.error/observation-on-change-failed
+    :rf.error/read-after-release
+    :rf.error/observation-retry-exhausted})
+
+(defn- raw-identity-query-vector-event?
+  "STRUCTURAL discriminator: does the positional `event` slot for an `error-kw`
+  / `op` error record carry a subscription QUERY VECTOR that must egress
+  VERBATIM (raw IDENTITY per #6441 / rf2-zwgqe), rather than a dispatched EVENT
+  whose args keep their existing per-path app-db elision (payload hygiene)?
+
+  True for every category in [[query-vector-event-categories]], and for the
+  realm-ambiguous `:rf.error/frame-destroyed` ONLY in the `:subscribe`
+  operation realm — a captured / superseded subscribe passes the attempted
+  query vector as `:event` (the record carries `:op :subscribe`, stamped by
+  `subs/emit-frame-destroyed-recovery!` and `router/emit-frame-destroyed!`),
+  whereas a `:dispatch` / `:dispatch-sync` passes a dispatched event that keeps
+  its elision. Keyed on `=`, never `identical?`, on the keyword operands (a
+  `.cljc` `identical?` keyword compare is JVM-only sound, CLJS-unreachable —
+  #6365)."
+  [error-kw op]
+  (or (contains? query-vector-event-categories error-kw)
+      (and (= :rf.error/frame-destroyed error-kw)
+           (= :subscribe op))))
+
 (defn- error-source-coord
   "Resolve the `{:ns :file :line}` source-coord for the failing `id` of an
   `error-kw` category, pivoting on the registry kind the `id` was
@@ -272,14 +345,27 @@
                               (throw e))))]
        ;; Generation/source resolution is a callback-bearing stage.
        (when (trace/continuation-live?)
-         (let [;; Per-path wire-walker: paths flagged `:sensitive?` / `:large?`
+         (let [;; #6441 / rf2-zwgqe: a subscription QUERY VECTOR is raw IDENTITY
+               ;; on the always-on error `:event` slot — it egresses VERBATIM,
+               ;; NEVER app-db-elided (a concrete integer path coincidentally
+               ;; matching a query-vector coordinate would otherwise mutate
+               ;; identity). Enumerated STRUCTURALLY (see
+               ;; [[raw-identity-query-vector-event?]] /
+               ;; [[query-vector-event-categories]]), not by a category-name
+               ;; prefix. A dispatched EVENT keeps its per-path elision below.
+               raw-identity-event? (raw-identity-query-vector-event?
+                                     error-kw (:op attrs))
+               ;; Per-path wire-walker: paths flagged `:sensitive?` / `:large?`
                ;; via the per-frame `:rf.runtime/elision` registry get their
-               ;; per-path substitutions.
-               elided-event (try
-                              (elision/elide-wire-value event {:frame frame-id})
-                              (catch #?(:clj Throwable :cljs :default) e
-                                (when (trace/continuation-live?)
-                                  (throw e))))
+               ;; per-path substitutions. Skipped for a raw-identity query
+               ;; vector, which egresses verbatim.
+               elided-event (if raw-identity-event?
+                              event
+                              (try
+                                (elision/elide-wire-value event {:frame frame-id})
+                                (catch #?(:clj Throwable :cljs :default) e
+                                  (when (trace/continuation-live?)
+                                    (throw e)))))
                ;; Lift the component-attributed slots into the always-on
                ;; record so an off-box shipper sees WHICH interceptor / cofx
                ;; failed in production (the `:event-id` slot carries the EVENT
@@ -314,13 +400,17 @@
              ((:fan-out registry) record trace/continuation-live?)
              ;; EP-0015 §9: frame-owned observability sink route. Pass the RAW
              ;; event so the sink projects under its own egress profile rather
-             ;; than double-eliding. Late-bound to avoid a require cycle.
+             ;; than double-eliding. `raw-identity-event?` (#6441 / rf2-zwgqe)
+             ;; rides through so the sink keeps a sub query vector VERBATIM on
+             ;; THIS second egress route too — otherwise `project-error-record`
+             ;; app-db-walks `:event` and the same coincidental integer path
+             ;; redacts identity here. Late-bound to avoid a require cycle.
              (when (trace/continuation-live?)
                (when-let [route-error! (late-bind/get-fn-cached
                                          :observability/route-error)]
                  (try
                    (route-error! error-kw event event-id frame-id exception
-                                 elapsed-ms time nil)
+                                 elapsed-ms time nil raw-identity-event?)
                    (catch #?(:clj Throwable :cljs :default) e
                      (when (trace/continuation-live?)
                        (throw e)))))))))))

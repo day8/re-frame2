@@ -239,22 +239,35 @@
   Fail-closed: a NO-OP when `frame-id` is unresolved or declares no
   `:errors` policy. Returns nil. Called from `error-emit/dispatch-on-error!`
   via the `:observability/route-error` late-bind hook, ALONGSIDE the
-  always-on corpus-wide error-listener fan-out."
-  [error-kw event event-id frame-id exception elapsed-ms time correlation]
-  (let [observability (frame-observability frame-id)
-        entries       (:errors observability)]
-    (when (seq entries)
-      (let [record (cond-> {:kind       :rf.observe/error
-                            :frame      frame-id
-                            :error      error-kw
-                            :event-id   event-id
-                            :event      event
-                            :exception  exception
-                            :elapsed-ms elapsed-ms
-                            :time       time}
-                     (some? correlation) (assoc :correlation correlation))]
-        (route-stream! frame-id record entries))))
-  nil)
+  always-on corpus-wide error-listener fan-out.
+
+  `raw-event?` (trailing, default false — #6441 / rf2-zwgqe) marks `:event` as
+  a subscription QUERY VECTOR: raw IDENTITY that egresses VERBATIM, never
+  app-db-elided. When set, the record carries `:rf.observe/raw-event?` so
+  `re-frame.projection/project-error-record` keeps `:event` raw on this sink
+  route rather than policy-walking it (a concrete integer app-db path
+  coincidentally matching a query-vector coordinate would otherwise mutate
+  identity here, exactly as it did on the corpus-wide record). The 8-arity
+  keeps every dispatched-event caller unchanged (elided as before)."
+  ([error-kw event event-id frame-id exception elapsed-ms time correlation]
+   (route-error! error-kw event event-id frame-id exception elapsed-ms time
+                 correlation false))
+  ([error-kw event event-id frame-id exception elapsed-ms time correlation raw-event?]
+   (let [observability (frame-observability frame-id)
+         entries       (:errors observability)]
+     (when (seq entries)
+       (let [record (cond-> {:kind       :rf.observe/error
+                             :frame      frame-id
+                             :error      error-kw
+                             :event-id   event-id
+                             :event      event
+                             :exception  exception
+                             :elapsed-ms elapsed-ms
+                             :time       time}
+                      (some? correlation) (assoc :correlation correlation)
+                      raw-event?          (assoc :rf.observe/raw-event? true))]
+         (route-stream! frame-id record entries))))
+   nil))
 
 ;; ---- non-event union record route (EP-0008) -------------------------------
 ;;
