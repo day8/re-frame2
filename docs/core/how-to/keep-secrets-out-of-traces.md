@@ -129,6 +129,25 @@ The same `:sensitive` metadata key works on **every** registration that introduc
 
     A path like `[:password]` reaches into the event's **arg-map** (`[:auth/sign-in {:password "…"}]`), so the mark can name it. A positionally-passed secret (`[:auth/sign-in "alice" "hunter2"]`) has **no** stable named path — a positional index isn't addressable, so there's nothing for `:sensitive` to classify. Under fail-open that means it ships RAW into every trace and error sink. This is a structural limitation, not a bug: redaction is path-based, and only the arg-map (`(second event)`) is reachable. **So when an event carries a secret, pass a map payload and classify the key.** (The glossary [recommends a map payload over positional args](../glossary.md#event) anyway — this is one more reason.) The positional form is fine for data you wouldn't mind seeing in a trace.
 
+!!! warning "Gotcha — a subscription's query vector is a cache key, so treat it like a URL"
+
+    That `{:sensitive [[]]}` on `:partner/api-token` classifies what the sub **computes**. It says nothing about the vector you *call it with* — and a query vector is never redacted, on purpose.
+
+    A query vector is **identity**: it's the key your subscription is cached under, the key used to decide a recompute can be skipped, and the endpoint of an edge in the reactive graph. A value doing that much work is visible to every layer that touches the cache — the trace stream, the epoch history, Xray, your shipper — so redacting it in one place couldn't contain it, and the framework doesn't pretend otherwise. It ships raw on **every** slot that carries it, including the always-on error records that survive into production.
+
+    So pass **identifiers, not secrets** — the same instinct that stops you putting a password in a URL:
+
+    ```clojure
+    ;; PREFERRED — an id in the vector; the secret stays in classified app-db.
+    (rf/reg-sub :patient/record {:sensitive [[:ssn]]}
+      (fn [db [_ patient-id]] (get-in db [:patients patient-id])))
+
+    (rf/subscribe [:patient/record patient-id])   ;; ✓ an id
+    ;; (rf/subscribe [:patient/record ssn])       ;; ✗ rides raw on every trace slot
+    ```
+
+    The body reads the secret out of app-db (redacted by *its* path) and the sub's own `:sensitive` redacts the **output**. This is the positional gotcha above, one surface over: a query argument *is* a positional argument, unreachable by a path-based mark for exactly the same reason.
+
 Note the `:decode` schema in the sign-in example: `[:token {:sensitive? true} :string]` classifies the *response body*. That's a second, separate declaration for the same secret — the **HTTP reply** is redacted by its `:decode` schema, and the **durable copy** that `:auth/signed-in` later stores at `[:auth :token]` is redacted by the path classification from the first section. There's no propagation carrying one to the other. **Classify each surface the secret crosses** — the wire it arrives on, *and* the slot it comes to rest in.
 
 And while a mark at a *missing* slot is a silent no-op, a *malformed* mark is loud: a non-vector path is rejected at *registration* with `:rf.error/bad-classification` (a [flow](../glossary.md#flow)'s bad output marks raise `:rf.error/flow-bad-marks`), so the typo surfaces when you reload — not in a production log six weeks later.
