@@ -49,8 +49,9 @@
 (defn register-epoch-collector!
   "Register Xray's epoch-settle pump under `:rf.xray/epoch-collector`.
 
-  On every drain-settle the framework's epoch artefact fires this
-  callback with the assembled `:rf/epoch-record`; the cb dispatches
+  On every dequeued event's settle the framework's epoch artefact fires
+  this callback with the assembled `:rf/epoch-record` (one record per
+  event's run-to-completion, not per drain-settle); the cb dispatches
   `:rf.xray/epoch-recorded` into the `:rf/xray` frame so the
   registry's event handler re-reads `rf/epoch-history` and pumps the
   fresh snapshot into Xray's app-db. The scrubber's
