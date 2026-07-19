@@ -97,7 +97,7 @@ Direct-read tools — `get-app-db`, `get-app-db-diff`, `get-machine-state`, `get
 
 #### Epoch privacy posture — raw in-process records vs projected egress
 
-The epoch artefact (per [Tool-Pair §Time-travel](Tool-Pair.md#time-travel-epoch-snapshots-and-undo) and [Spec-Schemas §`:rf/epoch-record`](Spec-Schemas.md#rfepoch-record)) records, per drain-settle, an `:rf/epoch-record` carrying `:db-before`, `:db-after`, the raw `:trace-events` vector, and the `:sub-runs` / `:renders` / `:effects` projections. Three distinct surfaces consume these records: the per-frame ring buffer (`epoch-history`), the `register-epoch-listener!` listener fan-out, and any tool that egresses a record off-box (Xray-MCP `watch-epochs`, Story / pair recorders, hosted post-mortem dashboards). Each surface has a different trust posture and a different default.
+The epoch artefact (per [Tool-Pair §Time-travel](Tool-Pair.md#time-travel-epoch-snapshots-and-undo) and [Spec-Schemas §`:rf/epoch-record`](Spec-Schemas.md#rfepoch-record)) records, per dequeued event, an `:rf/epoch-record` carrying `:db-before`, `:db-after`, the raw `:trace-events` vector, and the `:sub-runs` / `:renders` / `:effects` projections. Three distinct surfaces consume these records: the per-frame ring buffer (`epoch-history`), the `register-epoch-listener!` listener fan-out, and any tool that egresses a record off-box (Xray-MCP `watch-epochs`, Story / pair recorders, hosted post-mortem dashboards). Each surface has a different trust posture and a different default.
 
 The pattern-level MUSTs:
 

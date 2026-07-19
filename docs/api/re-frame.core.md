@@ -1228,10 +1228,10 @@ There is deliberately **no** facade `clear-listeners!` verb. Dropping every list
 
 ### Epoch-settled listeners
 
-Epoch drain-settle listeners are the `:epoch` stream of the stream-parameterized listener verb. There is no separate facade `register-epoch-listener!` fn — the per-channel pair was retired in API-shrink #4. The epoch stream registers through the one verb exactly like `:trace` / `:events` / `:errors`.
+Epoch-settled listeners are the `:epoch` stream of the stream-parameterized listener verb. There is no separate facade `register-epoch-listener!` fn — the per-channel pair was retired in API-shrink #4. The epoch stream registers through the one verb exactly like `:trace` / `:events` / `:errors`.
 
 - **Signature**: `(rf/register-listener! :epoch key callback-fn)` / `(rf/unregister-listener! :epoch key)`
-- **Description**: Process-global assembled-epoch listener, dev-only. The callback fires once per drain-settle with the assembled `:rf/epoch-record`; re-registering the same `key` replaces. A callback whose previously-observed frame is destroyed receives a one-shot `:rf.epoch.cb/silenced-on-frame-destroy` trace. Returns `key`, or `nil` when the `day8/re-frame2-epoch` artefact is absent.
+- **Description**: Process-global assembled-epoch listener, dev-only. The callback fires once per dequeued event with the assembled `:rf/epoch-record`; re-registering the same `key` replaces. A callback whose previously-observed frame is destroyed receives a one-shot `:rf.epoch.cb/silenced-on-frame-destroy` trace. Returns `key`, or `nil` when the `day8/re-frame2-epoch` artefact is absent.
 - **Example**:
   ```clojure
   (rf/register-listener! :epoch :my-app/epoch-watch

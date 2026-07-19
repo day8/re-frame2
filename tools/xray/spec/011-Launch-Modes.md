@@ -642,15 +642,15 @@ key is reserved — host code MUST NOT register a competing callback
 under the same id (a duplicate registration would replace the
 collector and silence Xray's epoch-driven panels).
 
-**Trigger.** The callback fires once per **drain-settle**, after
+**Trigger.** The callback fires once per **dequeued event**, after
 the framework has appended the assembled record to its per-frame
 `epoch-history` ring buffer. The callback runs synchronously on the
 framework's emit call stack, per
 [Spec 009 §Listener invocation rules](../../../spec/009-Instrumentation.md#listener-invocation-rules)
 — there is no batching, no debounce, no background delivery. A
-multi-event drain yields exactly one callback invocation, not
-one per event (the trace collector's job is per-event; the epoch
-collector's is per-drain).
+multi-event drain yields one callback invocation per settled event:
+a parent event and the `:fx [[:dispatch …]]` child it queued settle
+as two epochs, so the collector fires twice.
 
 **What the callback does.** On every invocation the callback MUST
 re-enter the runtime under the `:rf/xray` frame binding (via
