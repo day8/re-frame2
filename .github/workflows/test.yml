@@ -507,6 +507,24 @@ jobs:
       - name: Validate README inventories (layout-map <-> disk + count claims)
         run: python scripts/check_readme_inventories.py --verbose
 
+      # Adapter disposition (Mike, 2026-07-17; source of record EP-0030 §Resolved
+      # Decisions): `re-frame.ui` is a NEW, EXPERIMENTAL substrate offered
+      # alongside the adapters; Reagent, reagent-slim, and UIx live on as
+      # first-class, actively-supported adapters; ONLY Helix is removed. An
+      # earlier "frozen compatibility adapters / reagent-slim removed / only
+      # taught view layer" shape had propagated into planning, implementor,
+      # source-comment, and synthesis authorities — dispatching from any of them
+      # would have removed or downgraded a supported surface. This guard scans a
+      # closed roster of ACTIVE authorities for that superseded shape. Pure
+      # Python stdlib — no extra deps.
+      # The guard scans a fixed cross-repo roster, not the diff, so it runs
+      # unconditionally (rf2-2718r).
+      - name: Self-test the adapter-disposition guard (rf2-vxgfnd.290)
+        run: python scripts/check_adapter_disposition.py --self-test --verbose
+
+      - name: Guard the current adapter disposition
+        run: python scripts/check_adapter_disposition.py --verbose --ci
+
   # rf2-vxgfnd.135 — the pre-publication re-frame.ui synthesis guide is
   # tracked and authoritative, but intentionally does not enter MkDocs until
   # S6. Give exactly guide/** + active drafts/** their own link/anchor pass,
@@ -548,22 +566,6 @@ jobs:
 
       - name: Guard the synthesis plan's S0 coverage-pass authority
         run: python scripts/check_synthesis_plan_authority.py --verbose
-
-      # Adapter disposition (Mike, 2026-07-17; source of record EP-0030 §Resolved
-      # Decisions): `re-frame.ui` is a NEW, EXPERIMENTAL substrate offered
-      # alongside the adapters; Reagent, reagent-slim, and UIx live on as
-      # first-class, actively-supported adapters; ONLY Helix is removed. An
-      # earlier "frozen compatibility adapters / reagent-slim removed / only
-      # taught view layer" shape had propagated into planning, implementor,
-      # source-comment, and synthesis authorities — dispatching from any of them
-      # would have removed or downgraded a supported surface. This guard scans a
-      # closed roster of ACTIVE authorities for that superseded shape. Pure
-      # Python stdlib — no extra deps.
-      - name: Self-test the adapter-disposition guard (rf2-vxgfnd.290)
-        run: python scripts/check_adapter_disposition.py --self-test --verbose
-
-      - name: Guard the current adapter disposition
-        run: python scripts/check_adapter_disposition.py --verbose --ci
 
       - name: Set up JDK 21
         uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654  # v5.2.0
