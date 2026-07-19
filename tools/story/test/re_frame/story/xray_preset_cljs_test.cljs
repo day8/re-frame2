@@ -34,7 +34,9 @@
     `(do (wire-cross-host!) (apply-open!))` directly.)"
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [day8.re-frame2-xray.config :as xray-config]
+            [day8.re-frame2-xray.filters.typed-predicates :as xray-typed]
             [day8.re-frame2-xray.keybinding :as xray-keybinding]
+            [day8.re-frame2-xray.registry :as xray-registry]
             [re-frame.core :as rf]
             [re-frame.frame :as frame]
             [re-frame.registrar :as registrar]
@@ -59,6 +61,58 @@
   (story/install-canonical-vocabulary!))
 
 (use-fixtures :each (fn [t] (reset-all!) (t)))
+
+;; ---- Xray-side helpers (rf2-q5pd6) --------------------------------------
+;;
+;; The `:filters` tests assert against Xray's REAL `:active-filters`
+;; slot, so they need Xray's handler set + the `:rf/xray` frame. This is
+;; the same lightweight setup Xray's own filter suites use
+;; (`filters/persistence-cljs-test`): register the handlers, make the
+;; frame. `reset-for-test!` clears the registry's idempotency sentinel,
+;; which `reset-all!`'s `registrar/clear-all!` would otherwise leave set
+;; over an emptied registrar — handlers would silently not re-register.
+
+(defn- mount-xray!
+  "Model what Xray's `mount-<panel>!` does to the world: register the
+  handler set and the `:rf/xray` frame. Does NOT drain the pending
+  filter slot — the tests that exercise parking need the flush to be
+  their own act."
+  []
+  (xray-registry/reset-for-test!)
+  (xray-registry/register-xray-handlers!)
+  (rf/make-frame {:id :rf/xray})
+  nil)
+
+(defn- install-xray-frame!
+  "`mount-xray!` plus a clean slate: drain anything a previous test
+  parked (`flush-pending-filters!` is the only accessor) and reset the
+  live slot to unfiltered."
+  []
+  (mount-xray!)
+  (xray-preset/flush-pending-filters!)
+  (rf/with-frame :rf/xray
+    (rf/dispatch-sync [:rf.xray/hydrate-filters {:in [] :out []}]))
+  nil)
+
+(defn- active-filters
+  "Read Xray's live `:active-filters` slot through its own sub."
+  []
+  (rf/with-frame :rf/xray
+    @(rf/subscribe [:rf.xray/active-filters])))
+
+(defn- reg-filtered-variant!
+  "Register a story + variant carrying `xray-preset` as its `:xray` slot."
+  [variant-id preset]
+  (story/reg-story :story.filt
+    {:doc "filters" :component :Some.view})
+  (story/reg-variant variant-id
+    {:doc "v" :xray preset})
+  variant-id)
+
+(defn- bundle
+  "Minimal event-bundle shaped as Xray's matcher reads it."
+  [event-id]
+  {:event [event-id {}]})
 
 ;; ---- disable-keybinding! -------------------------------------------------
 
@@ -221,6 +275,137 @@
     (story/reg-variant :story.nilpre/v
       {:doc "v"})
     (is (nil? (xray-preset/apply-preset! :story.nilpre/v)))))
+
+;; ---- :filters preset drives Xray's real filter surface (rf2-q5pd6) -------
+;;
+;; Before this bead the `:filters` slot was accepted by the schema,
+;; produced no validation error, and did nothing: `apply-filters!` probed
+;; `day8.re-frame2-xray.filters.config/configure!`, a namespace Xray has
+;; never shipped, so the detect was permanently false and every non-empty
+;; preset only warned.
+;;
+;; These tests assert the REAL `:rf/xray` `:active-filters` slot and a
+;; real matcher outcome. They deliberately do NOT assert that a
+;; `configure!` shim was called — a shimmed-call assertion is exactly the
+;; shape that let an inert preset read as covered.
+
+(deftest filters-preset-lands-on-live-active-filters-slot
+  (testing "a schema-valid {:out [:app/noise]} preset becomes Xray's
+            canonical pill shape in the live :active-filters slot"
+    (install-xray-frame!)
+    (let [vid (reg-filtered-variant! :story.filt/out {:filters {:out [:app/noise]}})]
+      (is (= {:filters {:out [:app/noise]}} (xray-preset/apply-preset! vid))
+          "apply-preset! returns the resolved preset")
+      (is (= {:in [] :out [{:pattern :app/noise}]} (active-filters))
+          "the live slot carries Xray's pill shape, not Story's bare keyword"))))
+
+(deftest filters-preset-actually-matches-events
+  (testing "the landed pill matches the declared event and nothing else —
+            this is the assertion that proves the preset FILTERS rather
+            than merely occupying the slot. A bare keyword handed over
+            unlowered canonicalises to :never and would match nothing."
+    (install-xray-frame!)
+    (let [vid (reg-filtered-variant! :story.filt/match {:filters {:out [:app/noise]}})]
+      (xray-preset/apply-preset! vid)
+      (let [pill (first (:out (active-filters)))]
+        (is (true? (xray-typed/event-bundle-matches-pill? (bundle :app/noise) pill))
+            "the OUT pill matches the event-bundle the story declared")
+        (is (false? (xray-typed/event-bundle-matches-pill? (bundle :app/signal) pill))
+            "and does not match an unrelated event")
+        ;; The regression this bead closes, stated directly: Story's
+        ;; own wire shape must not reach Xray unlowered.
+        (is (false? (xray-typed/event-bundle-matches-pill? (bundle :app/noise) :app/noise))
+            "a BARE keyword canonicalises to :never — the inert shape")))))
+
+(deftest filters-preset-lands-on-both-axes
+  (testing ":in and :out both lower and both land"
+    (install-xray-frame!)
+    (let [vid (reg-filtered-variant! :story.filt/both
+                {:filters {:in [:keep/a] :out [:drop/b]}})]
+      (xray-preset/apply-preset! vid)
+      (is (= {:in [{:pattern :keep/a}] :out [{:pattern :drop/b}]}
+             (active-filters))))))
+
+(deftest filters-preset-seeds-xray-config-surface
+  (testing "the preset also seeds Xray's established host-seed surface
+            (:rf.xray/filters), the value filters/hydrate! reads"
+    (install-xray-frame!)
+    (xray-config/set-filter-seed! nil)
+    (try
+      (let [vid (reg-filtered-variant! :story.filt/seed {:filters {:out [:app/noise]}})]
+        (xray-preset/apply-preset! vid)
+        (is (= {:in [] :out [{:pattern :app/noise}]} (xray-config/get-filter-seed))
+            "the seed carries the lowered pill shape too"))
+      (finally (xray-config/set-filter-seed! nil)))))
+
+;; ---- pre-first-mount: the parked set (rf2-q5pd6) -------------------------
+
+(deftest filters-preset-parks-then-flushes-when-frame-arrives
+  (testing "an initially selected variant can resolve its preset BEFORE
+            the RHS panel's first mount created :rf/xray. The lowered set
+            parks and the embed's post-mount flush lands it — dropping it
+            would be the same silent no-op this bead removes."
+    ;; Model the pre-mount world: drain any prior park, then remove the
+    ;; frame so `apply-preset!` genuinely has nowhere to dispatch.
+    (install-xray-frame!)
+    (swap! frame/frames dissoc :rf/xray)
+    (is (nil? (frame/frame :rf/xray))
+        "precondition: the Xray frame does not exist yet")
+    (let [vid (reg-filtered-variant! :story.filt/park {:filters {:out [:app/noise]}})]
+      (xray-preset/apply-preset! vid)
+      ;; The RHS panel-host now mounts Xray, registering the frame; its
+      ;; very next act is the flush.
+      (mount-xray!)
+      (is (= {:in [] :out [{:pattern :app/noise}]}
+             (xray-preset/flush-pending-filters!))
+          "the flush returns the pill set it applied")
+      (is (= {:in [] :out [{:pattern :app/noise}]} (active-filters))
+          "and the live slot now carries it"))))
+
+(deftest flush-pending-filters-is-idempotent
+  (testing "a second panel mount does not re-apply a preset the user may
+            since have edited away through the ribbon"
+    (install-xray-frame!)
+    (swap! frame/frames dissoc :rf/xray)
+    (let [vid (reg-filtered-variant! :story.filt/once {:filters {:out [:app/noise]}})]
+      (xray-preset/apply-preset! vid)
+      (mount-xray!)
+      (is (some? (xray-preset/flush-pending-filters!))
+          "first flush applies the parked set")
+      ;; User clears the pills through the ribbon.
+      (rf/with-frame :rf/xray
+        (rf/dispatch-sync [:rf.xray/hydrate-filters {:in [] :out []}]))
+      (is (nil? (xray-preset/flush-pending-filters!))
+          "second flush is a no-op — nothing is pending")
+      (is (= {:in [] :out []} (active-filters))
+          "the user's cleared slot survives the second mount"))))
+
+;; ---- empty vs absent :filters (rf2-q5pd6) -------------------------------
+
+(deftest explicit-empty-filters-clears-the-slot
+  (testing "a PRESENT but empty :filters map asserts the whole filter
+            state — 'this story is deliberately unfiltered' — so it
+            clears whatever pills were active"
+    (install-xray-frame!)
+    (rf/with-frame :rf/xray
+      (rf/dispatch-sync [:rf.xray/hydrate-filters {:in [] :out [{:pattern :stale/pill}]}]))
+    (is (= [{:pattern :stale/pill}] (:out (active-filters)))
+        "precondition: a stale pill is active")
+    (let [vid (reg-filtered-variant! :story.filt/empty {:filters {:in [] :out []}})]
+      (xray-preset/apply-preset! vid)
+      (is (= {:in [] :out []} (active-filters))
+          "the explicit empty preset cleared the pills"))))
+
+(deftest absent-filters-leaves-the-slot-alone
+  (testing "a preset with NO :filters key is a cheap no-op — it must not
+            clobber the user's own ribbon pills"
+    (install-xray-frame!)
+    (rf/with-frame :rf/xray
+      (rf/dispatch-sync [:rf.xray/hydrate-filters {:in [] :out [{:pattern :user/pill}]}]))
+    (let [vid (reg-filtered-variant! :story.filt/nofilters {:panel :trace})]
+      (xray-preset/apply-preset! vid)
+      (is (= [{:pattern :user/pill}] (:out (active-filters)))
+          "the user's pill survives a preset that says nothing about filters"))))
 
 ;; ---- project-root propagator (rf2-r1uod) ---------------------------------
 

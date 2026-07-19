@@ -216,18 +216,24 @@
           (str "Xray sources must not require re-frame.story.* — found: "
                (str/join ", " cycles))))))
 
-;; Sibling gap NOT fixed here (rf2-r8trk is scoped to the dependency
-;; graph): `re-frame.story.xray-preset/filters-available?` probes
-;; `day8.re-frame2-xray.filters.config/configure!`, a namespace Xray
-;; does not expose. That detect is therefore always false and Story's
-;; `:xray {:filters …}` preset slot never applies. Filed separately.
-(deftest filters-config-namespace-is-genuinely-absent
-  (testing "documents WHY xray-preset keeps one real feature-detect:
-            Xray exposes no filters.config namespace, so unlike the
-            mount/config/keybinding surfaces this one cannot become a
-            direct :require. If Xray ever adds it, retire the probe."
-    (let [xray-root (get (declared-source-roots (read-deps)) 'day8/re-frame2-xray)]
-      (is (not (resolvable-under? [xray-root] 'day8.re-frame2-xray.filters.config))
-          "if this reds, day8.re-frame2-xray.filters.config now exists —
-           replace xray-preset's resolve-fn probe with a direct :require
-           and delete filters-available?"))))
+;; rf2-q5pd6 closed the sibling gap this file used to document. The old
+;; `filters-config-namespace-is-genuinely-absent` test asserted that
+;; `day8.re-frame2-xray.filters.config` does not exist, in order to
+;; justify keeping a runtime probe for it in `xray-preset`. Both the
+;; probe and `filters-available?` are gone: the preset now drives the
+;; surface Xray actually ships (`config/configure!`'s `:rf.xray/filters`
+;; seed + the `:rf.xray/hydrate-filters` event). Asserting the continued
+;; absence of a namespace nothing references would pin a fact with no
+;; consequence, so the test retired with the probe.
+;;
+;; What replaced it is behavioural, not structural: the CLJS suite
+;; (`xray-preset-cljs-test`) asserts the real `:rf/xray` `:active-filters`
+;; slot and a real matcher outcome, so a regression back to an inert
+;; preset reds on the BEHAVIOUR rather than on a namespace-absence proxy.
+;;
+;; A source-text assertion ("xray_preset.cljc must not contain
+;; find-ns-obj") was written and then dropped: it is satisfiable by
+;; rewording a comment, and it red-lit on this file's own prose
+;; explaining the history it guards. The `required-day8-namespaces`
+;; gate above already covers the structural half honestly — it parses
+;; ns forms rather than grepping text.

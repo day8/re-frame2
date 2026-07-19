@@ -63,7 +63,11 @@
             [re-frame.story.theme.glyphs :as glyphs]
             [re-frame.story.theme.motion :as motion]
             [re-frame.story.theme.typography :as typography :refer [sans-stack]]
-            [re-frame.story.ui.state :as state]))
+            [re-frame.story.ui.state :as state]
+            ;; rf2-q5pd6 — the panel-host flushes a parked `:filters`
+            ;; preset right after Xray's mount registers the `:rf/xray`
+            ;; frame. One-way: `xray-preset` never requires this ns.
+            [re-frame.story.xray-preset :as xray-preset]))
 
 ;; ---- embed descriptor: the single mount-routing source (rf2-jf87oq) -------
 ;;
@@ -535,7 +539,19 @@
                               (let [unmount! (mount-fn container)]
                                 (reset! mounted-ref
                                         {:unmount unmount!
-                                         :container container}))
+                                         :container container})
+                                ;; rf2-q5pd6 — `mount-fn` routes through
+                                ;; Xray's `ensure-xray-handlers-installed!`
+                                ;; → `mount/ensure-xray-frame!`, so `:rf/xray`
+                                ;; and its handler set are live exactly here
+                                ;; and not one instruction earlier. A
+                                ;; `:xray {:filters …}` preset applied while
+                                ;; the frame was still absent parked its
+                                ;; lowered pill set; this is the first moment
+                                ;; it can land. No-op (and cheap) when nothing
+                                ;; is pending, which is every mount after the
+                                ;; first.
+                                (xray-preset/flush-pending-filters!))
                               (catch :default e
                                 (when (and (exists? js/console)
                                            (.-warn js/console))

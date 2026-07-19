@@ -20,15 +20,33 @@
   ## Xray is a declared dependency, not a feature-detect
 
   `day8/re-frame2-xray` is declared in `tools/story/deps.edn`, so
-  Xray's mount, config, and keybinding surfaces are guaranteed on the
-  classpath and are reached through direct `:require`s. There is no
-  runtime availability probe: a build that resolves this namespace has
-  already resolved Xray's (rf2-r8trk).
+  Xray's mount, config, filter, and keybinding surfaces are guaranteed
+  on the classpath and are reached through direct `:require`s. There is
+  no runtime availability probe of any kind: a build that resolves this
+  namespace has already resolved Xray's (rf2-r8trk).
 
-  The one genuine feature-detect that remains is the filters API
-  (`day8.re-frame2-xray.filters.config/configure!`), which Xray does
-  not currently expose. When it is absent only the `:filters` step is
-  skipped, with a console.warn breadcrumb so authors notice.
+  ## The `:filters` seam (rf2-q5pd6)
+
+  Story's public filter API is the compact keyword vector authors
+  actually want to write (`{:out [:app/noise]}`). Xray's runtime
+  representation is a vector of PILLS (`[{:pattern :app/noise}]`) —
+  `day8.re-frame2-xray.filters.typed-predicates/canonicalise-pill`
+  reads a bare keyword as the `:never` kind, so handing Story's shape
+  to Xray verbatim would build filters that match nothing. `lower-filters`
+  below is the boundary: Story keeps its compact API, Xray receives its
+  own canonical shape.
+
+  Application is two-sided because the preset can resolve either side of
+  the RHS panel's first mount:
+
+  - `xray-config/configure! {:rf.xray/filters …}` seeds Xray's own
+    established config surface, the value `filters/hydrate!` reads.
+  - `:rf.xray/hydrate-filters` dispatched into `:rf/xray` updates the
+    LIVE slot — this is what actually hides events, and it needs the
+    frame to exist. When it doesn't yet, the lowered set parks in
+    `pending-filters` and the embed's panel-host flushes it the moment
+    Xray's `mount-<panel>!` (which routes through
+    `mount/ensure-xray-frame!`) returns.
 
   ## Where it runs
 
@@ -63,6 +81,7 @@
             ;; `implementation/` → `tools/` requires, not
             ;; `tools/story` → `tools/xray` (the inverse is explicitly
             ;; fine, and neither artefact reaches a production bundle).
+            #?(:cljs [re-frame.frame :as frame])
             #?@(:cljs [[day8.re-frame2-xray.mount :as xray-mount]
                        [day8.re-frame2-xray.config :as xray-config]
                        [day8.re-frame2-xray.keybinding :as xray-keybinding]])))
@@ -97,43 +116,39 @@
     (when (or story-preset var-preset)
       (merge-preset story-preset var-preset))))
 
-;; ---- feature detection (CLJS-only) ---------------------------------------
+;; ---- pure: Story keyword vectors → Xray pills ----------------------------
 
-#?(:cljs
-   (defn- resolve-fn
-     "Resolve a fully-qualified `'ns/name` symbol to a fn via
-     `cljs.core/find-ns-obj` + property lookup. Returns nil when the
-     namespace or symbol is not loaded.
+(defn lower-filters
+  "Lower Story's compact `:filters` preset to Xray's canonical pill
+  representation. Pure data → data; the Story→Xray wire boundary.
 
-     Used for the filters API ONLY. Xray's mount / config / keybinding
-     surfaces are declared dependencies reached via direct `:require`
-     (see the ns docstring) — this walk is unreliable under node-test
-     and must not be reintroduced for them.
+      (lower-filters {:out [:app/noise]})
+      ;=> {:in [] :out [{:pattern :app/noise}]}
 
-     CLJS `find-ns-obj` returns the JS object backing the namespace
-     and we read the property by munged name. Returns the live fn or
-     nil."
-     [sym]
-     (try
-       (let [ns-str   (namespace sym)
-             name-str (name sym)
-             ns-obj   (when ns-str (find-ns-obj (symbol ns-str)))]
-         (when ns-obj
-           (let [munged (-> name-str
-                            (.replace #"-" "_")
-                            (.replace #"\?" "_QMARK_")
-                            (.replace #"\!" "_BANG_"))
-                 v      (aget ns-obj munged)]
-             (when (fn? v) v))))
-       (catch :default _ nil))))
+  Story's public API is a vector of bare event-id keywords, because that
+  is what a story author wants to type. Xray's filter engine matches on
+  PILLS: `filters.typed-predicates/canonicalise-pill` reads
+  `{:pattern :app/noise}` as the `:event-id-pattern` kind, but reads a
+  BARE `:app/noise` as `:never` — a filter that matches nothing. Passing
+  Story's shape through unlowered would therefore produce a filter set
+  that is present, well-formed, and completely inert (rf2-q5pd6).
 
-#?(:cljs
-   (defn filters-available?
-     "True iff the Xray filters API exposes a `configure!` fn.
-     Feature-detect — when false the `:filters` step of the preset is
-     skipped with a `console.warn`."
-     []
-     (some? (resolve-fn 'day8.re-frame2-xray.filters.config/configure!))))
+  Both axes are normalised to a vector, so the result is always the
+  full `{:in [...] :out [...]}` shape Xray's `:active-filters` slot
+  expects — a preset that declares only `:out` does not leave `:in`
+  nil in the live slot.
+
+  An entry that is ALREADY a map passes through verbatim, so a
+  hand-written typed pill (`{:kind :machine :params {…}}`) survives
+  the boundary un-double-wrapped. Returns nil for a non-map input."
+  [filters]
+  (when (map? filters)
+    (reduce (fn [acc axis]
+              (assoc acc axis
+                     (mapv #(if (map? %) % {:pattern %})
+                           (get filters axis []))))
+            {}
+            [:in :out])))
 
 ;; ---- preset application (CLJS-only) --------------------------------------
 
@@ -345,25 +360,96 @@
        (safe-call! ":rf.xray/select-panel"
                    rf/dispatch [:rf.xray/select-panel panel] {:frame :rf/xray}))))
 
+;; ---- :filters bridge (rf2-q5pd6) ----------------------------------------
+;;
+;; `apply-filters!` used to probe `day8.re-frame2-xray.filters.config/
+;; configure!` through a `find-ns-obj` walk. That namespace has never
+;; existed, so the probe was permanently false and EVERY non-empty
+;; `:filters` preset only warned. The slot was schema-valid, accepted
+;; without complaint, and did nothing — the worst shape a public API can
+;; take. The surface Story actually needs was already shipped by Xray:
+;; `config/configure!`'s `:rf.xray/filters` seed plus the
+;; `:rf.xray/hydrate-filters` event on the `:rf/xray` frame.
+
+#?(:cljs
+   (defonce ^:private pending-filters
+     ;; Lowered pill set from a preset that resolved BEFORE the `:rf/xray`
+     ;; frame existed. Parked here rather than dropped, because dropping it
+     ;; is precisely the silent-no-op this bead removes. Flushed by
+     ;; `flush-pending-filters!` from the embed's panel-host — see below.
+     (atom nil)))
+
+#?(:cljs
+   (defn- hydrate-filters!
+     "Dispatch `lowered` into Xray's live `:active-filters` slot.
+     Callers MUST have checked the `:rf/xray` frame exists — the frame is
+     registered by `mount/ensure-xray-frame!`, which Xray's panel mounts
+     run immediately after `registry/register-xray-handlers!`, so a live
+     frame also guarantees the event handler is registered.
+
+     `dispatch-sync` (not `dispatch`) so the slot is committed before the
+     caller returns: the preset is applied from a selection edge whose
+     very next act is a render against the filtered event list."
+     [lowered]
+     (safe-call! ":rf.xray/hydrate-filters"
+                 (fn []
+                   (rf/with-frame :rf/xray
+                     (rf/dispatch-sync [:rf.xray/hydrate-filters lowered]))))))
+
+#?(:cljs
+   (defn flush-pending-filters!
+     "Apply a `:filters` preset that resolved before the `:rf/xray` frame
+     existed. Returns the flushed pill set, or nil when nothing was
+     pending.
+
+     Called by the RHS embed's panel-host immediately after Xray's
+     `mount-<panel>!` returns. That mount routes through
+     `mount/ensure-xray-frame!`, so by the time we run here the frame and
+     its handler set are live and the parked set can land.
+
+     Idempotent — the pending slot is cleared on flush, so a second panel
+     mount (a chip-driven panel swap) does not re-apply a preset the user
+     may since have edited through the ribbon."
+     []
+     (when config/enabled?
+       (when-let [lowered @pending-filters]
+         (when (some? (frame/frame :rf/xray))
+           (reset! pending-filters nil)
+           (hydrate-filters! lowered)
+           lowered)))))
+
 #?(:cljs
    (defn- apply-filters!
-     "Configure Xray filters via the optional filters API. Skipped with
-     a warn breadcrumb when filters is not on the classpath."
+     "Drive Xray's real filter surface from the preset's `:filters` slot.
+
+     Two writes, because the preset can resolve either side of the RHS
+     panel's first mount:
+
+       1. Seed `xray-config/configure! {:rf.xray/filters …}` — Xray's
+          established host-seed surface, read by `filters/hydrate!`.
+       2. Update the LIVE slot via `:rf.xray/hydrate-filters` when the
+          `:rf/xray` frame exists; park the set in `pending-filters` for
+          the embed's post-mount flush when it does not.
+
+     A PRESENT `:filters` map is an assertion about the whole filter
+     state, so an explicitly empty one (`{:filters {}}` or
+     `{:filters {:in [] :out []}}`) lowers to `{:in [] :out []}` and
+     CLEARS Xray's pills — 'this story is deliberately unfiltered'. A
+     preset with no `:filters` key at all never reaches here
+     (`apply-preset!` skips the step), so the common case stays a cheap
+     no-op that leaves the user's own ribbon pills alone.
+
+     Returns the lowered pill set."
      [filters]
-     (cond
-       (not (map? filters))
-       nil
-
-       (filters-available?)
-       (when-let [configure! (resolve-fn 'day8.re-frame2-xray.filters.config/configure!)]
-         (safe-call! "filters/configure!" configure! filters))
-
-       :else
-       (when (and (exists? js/console) (.-warn js/console))
-         (.warn js/console
-                "[re-frame.story.xray-preset] :filters preset skipped — "
-                "day8.re-frame2-xray.filters.config/configure! not loaded "
-                "(rf2-ak4ms in flight)")))))
+     (when (map? filters)
+       (let [lowered (lower-filters filters)]
+         (safe-call! "config/configure!" xray-config/configure!
+                     {:rf.xray/filters lowered})
+         (if (some? (frame/frame :rf/xray))
+           (do (reset! pending-filters nil)
+               (hydrate-filters! lowered))
+           (reset! pending-filters lowered))
+         lowered))))
 
 #?(:cljs
    (defn- apply-focus!
@@ -380,13 +466,14 @@
 #?(:cljs
    (defn apply-preset!
      "Apply the resolved Xray preset for `variant-id`. No-op when no
-     preset is set OR when Xray is not on the classpath.
+     preset is set.
 
      Steps (only those whose slot is present run):
 
        1. `:open?` true → `mount/open!`.
        2. `:panel` set → dispatch `:rf.xray/select-panel` into `:rf/xray`.
-       3. `:filters` set → `filters.config/configure!` (or warn-skip).
+       3. `:filters` set → lower to Xray pills, seed
+          `:rf.xray/filters`, and hydrate the live `:rf/xray` slot.
        4. `:focus`   set → dispatch `:rf.xray/focus-event` with coords.
 
      Returns the resolved preset (or nil) so the shell can log /

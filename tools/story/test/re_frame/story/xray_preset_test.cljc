@@ -95,6 +95,46 @@
       (is (= :trace                              (:panel p)))
       (is (= {:in [:keep/x] :out [:drop/y]}      (:filters p))))))
 
+;; ---- pure: lower-filters (rf2-q5pd6) -------------------------------------
+;;
+;; The Story→Xray wire boundary. Story's schema accepts bare event-id
+;; keywords; Xray's matcher reads a bare keyword as the `:never` kind.
+;; These tests pin the translation itself — the LIVE application of the
+;; lowered set against a real `:rf/xray` frame is asserted in the
+;; `-cljs-test` sibling.
+
+(deftest lower-filters-wraps-keywords-as-pattern-pills
+  (testing "a bare event-id keyword becomes Xray's {:pattern <kw>} pill"
+    (is (= {:in [] :out [{:pattern :app/noise}]}
+           (xray-preset/lower-filters {:out [:app/noise]})))))
+
+(deftest lower-filters-normalises-both-axes
+  (testing "a preset declaring only one axis still yields the full
+            {:in [...] :out [...]} shape Xray's :active-filters slot
+            expects — a missing axis must not land as nil in the slot"
+    (is (= {:in [{:pattern :keep/x}] :out []}
+           (xray-preset/lower-filters {:in [:keep/x]})))
+    (is (= {:in [] :out []}
+           (xray-preset/lower-filters {})))))
+
+(deftest lower-filters-lowers-every-entry
+  (testing "multiple pills per axis all lower"
+    (is (= {:in  [{:pattern :a/one} {:pattern :a/two}]
+            :out [{:pattern :b/one}]}
+           (xray-preset/lower-filters {:in [:a/one :a/two] :out [:b/one]})))))
+
+(deftest lower-filters-passes-maps-through
+  (testing "an already-canonical typed pill survives the boundary
+            un-double-wrapped (no {:pattern {:kind …}} nesting)"
+    (let [typed {:kind :machine :params {:machine-id :m/one}}]
+      (is (= {:in [typed] :out [{:pattern :b/two}]}
+             (xray-preset/lower-filters {:in [typed] :out [:b/two]}))))))
+
+(deftest lower-filters-nil-on-non-map
+  (testing "a non-map :filters slot lowers to nil rather than throwing"
+    (is (nil? (xray-preset/lower-filters nil)))
+    (is (nil? (xray-preset/lower-filters [:app/noise])))))
+
 ;; ---- Why there are no CLJS-only tests in this file -----------------------
 ;;
 ;; This namespace is `re-frame.story.xray-preset-test`. The `:node-test`
