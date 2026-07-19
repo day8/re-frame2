@@ -1181,7 +1181,7 @@ There is deliberately **no** facade `clear-listeners!` verb. Dropping every list
   ```clojure
   (epoch-history frame-id) → vector of epoch records
   ```
-- **Description**: Per-frame epoch snapshots, recorded on each drain-completion in dev builds. Returns `[]` for an unknown / destroyed frame. Used by pair-shaped tools for time-travel and post-mortem analysis. Production builds elide entirely. See [re-frame.epoch.md](re-frame.epoch.md).
+- **Description**: Per-frame epoch snapshots in dev builds. Ordinary event processing commits one record per dequeued event, not one per drain: a parent and the `:fx [[:dispatch …]]` child it queues are separate records, while a machine macrostep stays a single epoch. `replace-frame-state!` writes and depth/destroy halts also land synthetic records (see [Epoch-settled listeners](#epoch-settled-listeners)). Returns `[]` for an unknown / destroyed frame. Used by pair-shaped tools for time-travel and post-mortem analysis. Production builds elide entirely. See [re-frame.epoch.md](re-frame.epoch.md).
 - **Example**:
   ```clojure
   (rf/epoch-history :app/main)
@@ -1231,7 +1231,7 @@ There is deliberately **no** facade `clear-listeners!` verb. Dropping every list
 Epoch-settled listeners are the `:epoch` stream of the stream-parameterized listener verb. There is no separate facade `register-epoch-listener!` fn — the per-channel pair was retired in API-shrink #4. The epoch stream registers through the one verb exactly like `:trace` / `:events` / `:errors`.
 
 - **Signature**: `(rf/register-listener! :epoch key callback-fn)` / `(rf/unregister-listener! :epoch key)`
-- **Description**: Process-global assembled-epoch listener, dev-only. The callback fires once per dequeued event with the assembled `:rf/epoch-record`; re-registering the same `key` replaces. A callback whose previously-observed frame is destroyed receives a one-shot `:rf.epoch.cb/silenced-on-frame-destroy` trace. Returns `key`, or `nil` when the `day8/re-frame2-epoch` artefact is absent.
+- **Description**: Process-global assembled-epoch listener, dev-only. The callback is a record-**publication** notification, not a once-per-event clock. It receives the assembled `:rf/epoch-record` when an epoch first commits, and again — carrying the same `:epoch-id` — when a post-settle backfill (a late render, sub-run, or unmount attributed to that epoch) corrects the record, so a consumer caching `epoch-history` re-syncs to the fixed snapshot. It also receives synthetic records that no dequeued event produced: a `:rf.epoch/db-replaced` record for each `replace-frame-state!` write, and a `:halted-depth` / `:halted-destroy` record when a drain halts. Reconcile on `:epoch-id` and `:outcome` rather than counting callbacks as events. Re-registering the same `key` replaces. A callback whose previously-observed frame is destroyed receives a one-shot `:rf.epoch.cb/silenced-on-frame-destroy` trace. Returns `key`, or `nil` when the `day8/re-frame2-epoch` artefact is absent.
 - **Example**:
   ```clojure
   (rf/register-listener! :epoch :my-app/epoch-watch
