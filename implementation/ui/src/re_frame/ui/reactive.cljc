@@ -79,9 +79,31 @@
        the window cannot close while the stack is still unwinding.
     2. N epochs/events settled within ONE drain coalesce into ONE batch.
     3. SEVERAL drains — or listener re-entry after a completed batch — that
-       finish before the SAME host checkpoint MAY SHARE one batch. Two
-       back-to-back `dispatch-sync!` calls in one JavaScript stack render
-       once, not twice; so do nested cross-frame synchronous drains.
+       finish before the SAME host checkpoint MAY SHARE one batch. Nested
+       cross-frame synchronous drains do.
+
+       This is a PERMISSION, not a guarantee, and the difference is load
+       bearing. It used to carry an UNCONDITIONAL example — two back-to-back
+       `dispatch-sync!` calls in one JavaScript stack render once, not twice —
+       which is retracted (rf2-kahkr). It holds HEADLESS, where
+       `render-batch-host-checkpoint-cljs-test` still pins a genuinely shared
+       batch. It is FALSE on the MOUNTED React path, so it could never be
+       stated unconditionally.
+
+       Measured on the mounted path, three back-to-back `dispatch-sync!` calls
+       advance the revision 0 -> 1 -> 2: a host microtask checkpoint runs DURING
+       the second and third calls, so each flushes its predecessor's mark.
+       What advances it is the ordinary armed `schedule-flush!` microtask —
+       every captured `flush-scope!` stack terminated at that closure with no
+       router frame above it, and `commit*`/`advance-revision!` never ran. It is
+       NOT a hidden synchronous flush and NOT a React layout-commit correction.
+       A control `js/queueMicrotask` enqueued by the fixture ran at the same
+       point, so the checkpoint is the host's: `dispatch-sync!` is simply not
+       microtask-atomic on this path — it yields. Whether it SHOULD is a ROUTER
+       question, not a scheduler one, and is deliberately left open.
+
+       So: do not rely on two separate `dispatch-sync!` calls sharing a batch.
+       Guarantees 1 and 2 — one drain, one batch — are what a caller may lean on.
     4. Drains separated by a real HOST YIELD render separately.
 
   `One render batch per router drain` is RETIRED as normative. It remains
