@@ -693,6 +693,79 @@
                           (harvest/source-seed ns))))))
           build-sources)))
 
+;; ---------------------------------------------------------------------------
+;; Declaration-edit warm staleness — COARSE invalidation (rf2-vxgfnd.141, dim 3)
+;;
+;; A literal view bakes its property/attribute classification at compile from the
+;; effective manifest. So a WARM edit that changes only a declaration — a source
+;; whose `(ui/custom-element …)` grew, shrank, or vanished — leaves every
+;; consumer view that Shadow does NOT recompile (no `:require` edge to that
+;; declaring source) with a STALE baked lowering: the warm build no longer equals
+;; a clean build. The digest dimension (#6432) DETECTS this; it does not re-bake.
+;;
+;; The ruled fix (rf2-vxgfnd.141 DECISION, coarse per the Codex opinion) is
+;; deliberately NOT a per-tag declaration->consumer dependency graph: declarations
+;; are few and change rarely, so when the harvested manifest changes THIS pass we
+;; recompile the whole re-frame.ui literal-consumer set (the cache-blocked set the
+;; hook already identifies). Every consumer then re-bakes against the new manifest
+;; = a clean build. A change is detected against the ACCEPTED manifest, so an
+;; ordinary view-only edit (no declaration delta) invalidates nothing, and a pure
+;; cross-namespace move that leaves the tag->properties manifest identical (the
+;; provenance-only case the digest also ignores) does not either.
+;; ---------------------------------------------------------------------------
+
+(defn- effective-manifest
+  "The `tag -> decl` manifest this pass WILL commit: the accepted rows of the
+  sources NOT recompiled this pass, overlaid with the harvested declarations of
+  the recompiled sources (whose accepted rows are being replaced). A pure
+  function of the accepted snapshot plus this pass's harvest."
+  [build-state recompiled-nss seed]
+  (let [warm (reduce-kv
+              (fn [m src regs]
+                (if (contains? recompiled-nss src)
+                  m
+                  (merge m (get regs build/elements))))
+              {}
+              (:registries (build/accepted-snapshot build-state)))]
+    (reduce (fn [m [_src tag decl]] (assoc m tag decl)) warm seed)))
+
+(defn- manifest-changed?
+  "Whether this pass's effective `tag -> decl` manifest differs from the accepted
+  one — the coarse invalidation trigger. Compares only the property manifest, so
+  a declaration's provenance (owning namespace) moving does not count as a change
+  unless the declared properties actually differ."
+  [build-state recompiled-nss seed]
+  (not= (build/accepted-aggregate build/elements build-state)
+        (effective-manifest build-state recompiled-nss seed)))
+
+(defn- invalidate-ui-consumers
+  "Reset retained output for every re-frame.ui literal-consumer source, so the
+  next schedule recompiles and re-bakes them against the changed manifest. Coarse
+  by design (the ruled dimension-3 mechanism): a declaration change is rare, and
+  a full UI-consumer recompile trivially restores warm=clean without a per-tag
+  dependency graph."
+  [build-state]
+  (reduce (fn [bs resource-id]
+            (if (ui-cache-blocked-source? (get-in bs [:sources resource-id]))
+              (update bs :output dissoc resource-id)
+              bs))
+          build-state
+          (:build-sources build-state)))
+
+(defn- reconcile-declaration-edits
+  "If this pass changes the custom-element manifest on a WARM build (accepted
+  version > 0), coarse-invalidate the UI literal-consumer set so no view keeps a
+  stale baked lowering (rf2-vxgfnd.141, dimension 3). On the version-0 pass
+  `reset-cold-ui-consumer-output` already covers it, so this only acts warm."
+  [build-state]
+  (let [version (long (or (:version (build/accepted-snapshot build-state)) 0))]
+    (if (and (pos? version)
+             (manifest-changed? build-state
+                                (recompiled-member-nss build-state)
+                                (harvest-seed build-state)))
+      (invalidate-ui-consumers build-state)
+      build-state)))
+
 (defn hook
   "Shadow build hook. Configure once in `:build-defaults` as
   `:build-hooks [(re-frame.ui.compiler.build-hook/hook)]`."
@@ -705,6 +778,12 @@
     (do
       (validate-ui-cache-blocker! build-state)
       (let [build-state (reset-cold-ui-consumer-output build-state)
+            ;; Coarse dimension-3 invalidation: a WARM edit that changed the
+            ;; custom-element manifest recompiles every UI literal consumer so
+            ;; none keeps a stale baked lowering (rf2-vxgfnd.141). Must precede
+            ;; the schedule/stamp so the widened consumer set is scheduled and
+            ;; re-seeded this same pass.
+            build-state (reconcile-declaration-edits build-state)
             pass-token  (str (java.util.UUID/randomUUID))
             witnessed   (atom #{})
             stamped     (-> build-state
