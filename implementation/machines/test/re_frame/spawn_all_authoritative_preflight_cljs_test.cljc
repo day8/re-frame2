@@ -14,11 +14,21 @@
   accepted per-child spawn re-resolved / rebuilt / re-validated the same child:
 
    - a direct all-valid invoke observed TWO validator calls per child, and
-   - a `:rf.machine.spawn-all/started` listener could re-register the child TYPE
-     between the two passes, so the preflight accepted v1 and published a live
-     child-bearing join while the per-child install resolved a now-rejecting v2
-     and installed NO snapshot — leaving an impossible half-live join naming a
-     child whose snapshot a SECOND verdict omitted.
+   - a mid-drain re-registration of the child TYPE between the two passes meant
+     the preflight accepted v1 and published a live child-bearing join while the
+     per-child install resolved a now-rejecting v2 and installed NO snapshot —
+     leaving an impossible half-live join naming a child whose snapshot a SECOND
+     verdict omitted.
+
+  MID-DRAIN INSTRUMENTS (rf2-wxy1c). Both the validator-cardinality sample and
+  the mid-drain re-registration used to run in a TRACE LISTENER. Under the
+  rf2-wxy1c ruling trace listeners are OBSERVERS: internal drain-owned emits
+  deliver at the post-drain boundary on every platform, so a listener body can
+  neither sample nor mutate inside a drain. Both instruments now ride the child's
+  own `[:schemas :data]` validator — ordinary in-drain application code the
+  framework calls synchronously, positioned by `prepare-spawn-all-child` strictly
+  after the child's TYPE was resolved + retained and strictly before its install.
+  Platform-uniform: schema validation is not reader-conditional.
 
   Pinned here (JVM + CLJS):
 
@@ -45,7 +55,6 @@
    ;; publishes Malli's validate/explain into the late-bind table.
    [re-frame.schemas]
    [re-frame.schemas.malli]
-   [re-frame.trace :as trace]
    #?@(:clj  [[re-frame.substrate.plain-atom :as plain-atom]]
        :cljs [[re-frame.adapter.reagent :as reagent-adapter]])))
 
@@ -105,37 +114,38 @@
 
 (deftest each-spawn-all-child-is-validated-exactly-once-per-attempt
   (testing "an all-valid :spawn-all child's [:schemas :data] validator runs
-            EXACTLY once for the attempt — the preflight prepares + validates it
-            and the per-child install CONSUMES that prepared snapshot rather than
-            re-validating (the pre-fix all-valid path observed TWO calls). The
-            count is sampled at the child's :rf.machine.lifecycle/spawned trace —
-            after the install, before any later macrostep re-validation."
-    (let [calls       (atom 0)
-          at-install  (atom nil)
-          listener-id ::count-at-install]
-      ;; A conforming schema that COUNTS every validate call. It passes
-      ;; ({:n 1} is a pos-int?), so the child installs on both the fixed and the
-      ;; pre-fix path — the DISCRIMINATOR is how many times it was validated by
-      ;; install time, not whether it installed.
+            EXACTLY once BY INSTALL TIME for the attempt — the preflight prepares
+            + validates it and the per-child install CONSUMES that prepared
+            snapshot rather than re-validating (the pre-fix all-valid path
+            observed TWO calls, the second at the install)."
+    (let [pre-install (atom 0)]
+      ;; A conforming schema that counts every validate call taken BEFORE the
+      ;; child's snapshot exists. It passes ({:n 1} is a pos-int?), so the child
+      ;; installs on both the fixed and the pre-fix path — the DISCRIMINATOR is
+      ;; how many times it was validated by install time, not whether it
+      ;; installed.
+      ;;
+      ;; THE SAMPLING INSTRUMENT (rf2-wxy1c). This count used to be sampled in a
+      ;; trace listener on `:rf.machine.lifecycle/spawned`. Internal drain-owned
+      ;; traces now deliver at the POST-DRAIN boundary, so that sample is taken
+      ;; after the actor's later macrosteps have re-validated a LIVE child's
+      ;; `:data` — it measures liveness, not install-time cardinality. The
+      ;; validator's own view of the runtime-db has no such assumption: a call
+      ;; taken while the snapshot is absent is BY DEFINITION pre-install. No
+      ;; listener, no timing assumption, no platform split.
       (rf/reg-machine :sa/counted
                       {:initial :running
                        :data    {:n 1}
-                       :schemas {:data [:fn (fn [v] (swap! calls inc) (pos-int? (:n v)))]}
+                       :schemas {:data [:fn (fn [v]
+                                              (when (nil? (snap-of :sa/counted#1))
+                                                (swap! pre-install inc))
+                                              (pos-int? (:n v)))]}
                        :states  {:running {}}})
       (rf/reg-machine :sup/count (parent-over [{:id :c :machine-id :sa/counted}]))
-      (trace/register-listener!
-        listener-id
-        (fn [ev]
-          (when (and (= :rf.machine.lifecycle/spawned (:operation ev))
-                     (= :sa/counted#1 (get-in ev [:tags :spawned-id]))
-                     (nil? @at-install))
-            (reset! at-install @calls))))
-      (try
-        (rf/dispatch-sync [:sup/count [:start]])
-        (finally (trace/unregister-listener! listener-id)))
+      (rf/dispatch-sync [:sup/count [:start]])
       (is (some? (snap-of :sa/counted#1))
           "(precondition) the conforming child installed a live snapshot")
-      (is (= 1 @at-install)
+      (is (= 1 @pre-install)
           "validated EXACTLY once by install time — the preflight prepared it and
            the install consumed that result (the pre-fix path re-validated → 2)"))))
 
@@ -145,32 +155,41 @@
 ;; ===========================================================================
 
 (deftest type-reregistration-between-preflight-and-install-cannot-omit-a-snapshot
-  (testing "a :rf.machine.spawn-all/started listener that RE-REGISTERS a child
-            TYPE to a now-rejecting spec cannot flip the admitted child into a
-            rejected one: the per-child install consumes the preflight's prepared
-            v1 snapshot rather than re-resolving + re-validating the v2 the
-            listener installed, so the child installs and the join is FULLY live
-            — never a child-bearing join whose snapshot a SECOND verdict omitted."
-    (rf/reg-machine :sa/strict strict-child)         ; v1 — pos-int?, data {:n 1}, conforms
-    (rf/reg-machine :sup/rereg (parent-over [{:id :c :machine-id :sa/strict}]))
-    (let [listener-id ::rereg
-          fired       (atom false)]
-      (trace/register-listener!
-        listener-id
-        (fn [ev]
-          (when (and (= :rf.machine.spawn-all/started (:operation ev))
-                     (not @fired))
-            (reset! fired true)
-            ;; v2 — the SAME states but a schema that REJECTS the very {:n 1}
-            ;; data the preflight already admitted. A pre-fix install re-resolves
-            ;; this and rejects the child, installing no snapshot.
-            (rf/reg-machine :sa/strict
-                            (assoc strict-child :schemas {:data [:map [:n neg-int?]]})))))
-      (try
-        (rf/dispatch-sync [:sup/rereg [:start]])
-        (finally (trace/unregister-listener! listener-id)))
+  (testing "a mid-drain mutator that RE-REGISTERS a child TYPE to a now-rejecting
+            spec cannot flip the admitted child into a rejected one: the
+            per-child install consumes the preflight's prepared v1 snapshot
+            rather than re-resolving + re-validating the v2 that landed, so the
+            child installs and the join is FULLY live — never a child-bearing
+            join whose snapshot a SECOND verdict omitted."
+    ;; THE MID-DRAIN MUTATOR (rf2-wxy1c). This used to re-register from a
+    ;; `:rf.machine.spawn-all/started` trace listener. Internal drain-owned emits
+    ;; now deliver POST-DRAIN on every platform, so a listener body can no longer
+    ;; run in the preflight→install window. The child's own `[:schemas :data]`
+    ;; validator still can, and is ordinary in-drain application code:
+    ;; `prepare-spawn-all-child` resolves + retains the TYPE, builds the
+    ;; snapshot, THEN runs the validator — so a registrar mutation from inside it
+    ;; lands strictly after the child was prepared and strictly before its
+    ;; install.
+    (let [fired (atom false)]
+      ;; v1 — pos-int?, data {:n 1}, conforms. Its validator swaps the registrar
+      ;; to a v2 whose schema REJECTS the very {:n 1} data the preflight is
+      ;; admitting in this very call. A pre-fix install re-resolves that v2 and
+      ;; rejects the child, installing no snapshot.
+      (rf/reg-machine :sa/strict
+                      (assoc strict-child
+                             :schemas
+                             {:data [:fn (fn [v]
+                                           (when-not @fired
+                                             (reset! fired true)
+                                             (rf/reg-machine
+                                               :sa/strict
+                                               (assoc strict-child
+                                                      :schemas {:data [:map [:n neg-int?]]})))
+                                           (pos-int? (:n v)))]}))
+      (rf/reg-machine :sup/rereg (parent-over [{:id :c :machine-id :sa/strict}]))
+      (rf/dispatch-sync [:sup/rereg [:start]])
       (is (true? @fired)
-          "(precondition) the started listener fired and re-registered the type"))
+          "(precondition) the mid-drain mutator ran and re-registered the type"))
     (let [slot (join-slot :sup/rereg)]
       (is (contains? slot :children)
           "a LIVE child-bearing join was seeded")

@@ -12,11 +12,24 @@
   for tools (Xray, re-frame-10x, story-mcp) that key on the trace.
 
   Spec 005 §Declarative `:spawn` §Composition with explicit `:entry` /
-  `:exit` (005:2138) pins the order: the `:exit` action reads the
-  actor's final snapshot *before* the auto-destroy clears it, so a
-  consumer observing the db between `:exit` and `:rf.machine/destroyed`
-  sees the live snapshot. That makes exit-then-destroyed the
-  spec-correct convention; this file pins it on all three paths.
+  `:exit` (005:3026) pins what is guaranteed: the user's `:exit` ACTION
+  reads the actor's final snapshot *before* the auto-destroy clears it.
+  That is an ACTION-ordering guarantee, and both sides of it run in-drain,
+  so it is what makes exit-then-destroyed the spec-correct convention.
+  This file pins that convention on all three paths.
+
+  SCOPE CORRECTION (rf2-wxy1c). This docstring used to cite 005:2138 —
+  which is the state-tags worked example, not a destroy-ordering rule —
+  and to extend the guarantee into a claim that \"a consumer observing the
+  db between `:exit` and `:rf.machine/destroyed` sees the live snapshot\".
+  That sentence existed only here; the spec never wrote it. It read an
+  action-vs-fx ordering guarantee as a TRACE-INTERLEAVING one, which the
+  governing section does not give. Under rf2-wxy1c internal drain-owned
+  traces deliver at the post-drain boundary, so a multi-child teardown
+  batches its `:destroyed` traces after the whole `:exit` cascade — and
+  that is the order rf2-wxy1c's own \"no partially settled state\"
+  criterion prefers, since the old interleaving let a consumer keyed on
+  child A's `:destroyed` read a db with child B still half-alive.
 
   Mechanism: a shared ordered log captures both the `:exit` action's
   fire (the action conjes a marker) and the `:rf.machine/destroyed`
@@ -103,7 +116,7 @@
 ;; ---- Path 2: :spawn-all per-child teardown (destroy-spawn-all-children!) --
 
 (deftest destroyed-after-exit-on-invoke-all-teardown
-  (testing ":spawn-all per-child teardown fires each :exit BEFORE its :destroyed"
+  (testing ":spawn-all per-child teardown fires every :exit BEFORE any :destroyed"
     (let [log   (atom [])
           unreg (record-order! log)]
       (try
@@ -128,11 +141,20 @@
                      :idle {}}})
         (rf/dispatch-sync [:eo/ia-parent [:rf.machine.spawn/spawned]])
         (rf/dispatch-sync [:eo/ia-parent [:ia/cancel]])     ;; tear children down
-        ;; Two children: each fires :exit then :destroyed. The
-        ;; per-child loop runs them sequentially, so the log is a
-        ;; strict [:exit :destroyed :exit :destroyed].
-        (is (= [:exit :destroyed :exit :destroyed] @log)
-            "each child emits :exit then :destroyed, in per-child order")
+        ;; Two children torn down inside ONE events-fx walk. The `:exit`
+        ;; actions are in-drain and run per-child, sequentially; the
+        ;; `:rf.machine/destroyed` traces are internal drain-owned emits,
+        ;; so under rf2-wxy1c they deliver together at the post-drain
+        ;; boundary — in EMISSION ORDER, after the whole cascade. Hence
+        ;; the BATCHED [:exit :exit :destroyed :destroyed], not the old
+        ;; interleaved [:exit :destroyed :exit :destroyed].
+        ;;
+        ;; The convention this file exists to pin is intact: every
+        ;; `:exit` still precedes every `:destroyed`. What changed is the
+        ;; INTERLEAVING between two children, which the spec never
+        ;; guaranteed (see the ns docstring's scope correction).
+        (is (= [:exit :exit :destroyed :destroyed] @log)
+            "every :exit precedes every :destroyed — the destroyed traces batch at the post-drain boundary")
         (finally (unreg))))))
 
 ;; ---- Path 3: final-state auto-destroy (finalize-machine) ------------------
