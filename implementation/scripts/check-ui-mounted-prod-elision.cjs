@@ -210,6 +210,30 @@ for (const forbidden of ['re-frame.ui.rules/sources', 're-frame.ui.rules/cycles'
 }
 
 /*
+ * rf2-vxgfnd.143 — the conflict law must SURVIVE where the ledger does not.
+ *
+ * The two scans above prove the reload ledger is absent from the release. On
+ * their own they would be equally satisfied by deleting the cross-source
+ * declaration law along with it — which is precisely the failure the placement
+ * amendment exists to prevent, and precisely how rf2-2hkfy (#6376) and
+ * rf2-5pr75 (#6352) shipped. So the same bundle must also carry the production
+ * enforcement pin: a deftest that registers a contradictory declaration under
+ * goog.DEBUG=false and asserts it is rejected with both [build-id ns-sym]
+ * anchors while the prior entry survives.
+ *
+ * Same oracle as LEDGER_CONTROL above — a string literal, which Closure never
+ * rewrites — so DCE-ing or deleting that deftest reddens HERE rather than
+ * silently shrinking the production suite's test count.
+ */
+const CONFLICT_CONTROL = 'rf-ui-custom-element-conflict-law-live-v1';
+if (!ledgerProdTest.includes(CONFLICT_CONTROL)) {
+  fail(`custom-element conflict-law production pin is absent from its test: ${CONFLICT_CONTROL}`);
+}
+if (!bundle.includes(CONFLICT_CONTROL)) {
+  fail('custom-element conflict-law production pin was omitted from advanced bundle');
+}
+
+/*
  * rf2-vxgfnd.94.8 — REAL compiled mutation control. A second advanced build
  * flips a private goog-define which roots an unrelatedly named atom/reset path
  * inside re-frame.ui.tool.evidence. The same production test must turn red on

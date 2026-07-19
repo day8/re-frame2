@@ -6,6 +6,19 @@
   (:require [clojure.test :refer [deftest is]]
             [re-frame.ui.rules :as rules]))
 
+(defn- declared
+  "`agg` (default: the live aggregate) with each entry's owner provenance
+  stripped. rf2-vxgfnd.143 stamps `[build-id ns-sym]` onto every entry in the
+  same swap as the declaration, so the conflict law can anchor BOTH sides of a
+  contradiction without a second atom. The reload-protocol assertions below are
+  about WHICH declarations are live, not who owns them; provenance and the law
+  it serves are pinned by `re-frame.ui.rules-custom-element-conflict-cljs-test`."
+  ([] (declared @rules/custom-elements))
+  ([agg]
+   (into {}
+         (map (fn [[tag entry]] [tag (dissoc entry :re-frame.ui.rules/owner)]))
+         agg)))
+
 ;; ---------------------------------------------------------------------------
 ;; Attribute names (author kebab -> React prop)
 ;; ---------------------------------------------------------------------------
@@ -275,7 +288,7 @@
     (rules/register-custom-element! :b-el {:properties #{:b-prop}} 'app.b)
     (rules/commit-reload!)
     (is (= {:a-el {:properties #{:a-prop2}}
-            :b-el {:properties #{:b-prop}}} @rules/custom-elements)
+            :b-el {:properties #{:b-prop}}} (declared))
         "the recovering reload commits the full new manifest, no ghost of the abort")))
 
 (deftest build-ids-are-isolated
@@ -311,7 +324,7 @@
           repl      (build-then-drop!)]
       (is (= file-save repl)
           "REPL re-eval and file-save HMR converge to the same manifest")
-      (is (= {:k-el {:properties #{:keep-me}}} file-save)
+      (is (= {:k-el {:properties #{:keep-me}}} (declared file-save))
           "the zero-declaration source's rows are gone; the untouched one survives"))))
 
 (deftest incremental-reconcile-equals-a-full-page-reload
@@ -401,7 +414,7 @@
       (rules/commit-reload!)))
   (is (= {:keep-el {:properties #{:k2}}
           :new-el  {:properties #{:n}}}
-         @rules/custom-elements)
+         (declared))
       "the published aggregate equals the legal serial execution exactly — the
        reentrant row appears once, the committing source's reload applied"))
 
@@ -472,7 +485,7 @@
   (is (empty? (rules/in-flight-cycles))
       "the stale completion closes nothing and creates nothing")
   (is (= {:base-el {:properties #{:b}} :m-el {:properties #{:m}}}
-         @rules/custom-elements)
+         (declared))
       "the settled manifest is exactly the supported model's legal outcome")
   (is (= (rules/projected-aggregate) @rules/custom-elements)
       "settled aggregate equals the ledger projection — nothing doubled"))

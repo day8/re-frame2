@@ -84,3 +84,68 @@
     (is (= @rules/custom-elements (rules/projected-aggregate))
         "with no ledger the live aggregate IS the projection")
     (rules/reset-custom-elements!)))
+
+(deftest custom-element-conflict-law-is-enforced-in-advanced-production
+  ;; rf2-vxgfnd.143, placement amendment 2026-07-19 — THE production pin.
+  ;;
+  ;; The 2026-07-15 ruling placed the runtime conflict law on the reload-ledger
+  ;; paths: a pre-write check in `register-custom-element!`, a checked fold in
+  ;; the rebuild, an atomic reject in `commit-reload!`. Every one of those sits
+  ;; behind `reload-ledger?`, which Closure constant-folds to false and DCEs
+  ;; HERE. Implemented as first ruled, the law would have existed only in
+  ;; development — the exact shape of two defects that shipped in the same week
+  ;; (rf2-2hkfy #6376, an "always-on" rejection that was goog.DEBUG-gated;
+  ;; rf2-5pr75 #6352, an XSS closed only by making the check fire on every
+  ;; build). So the law lives on the direct `custom-elements` write path, which
+  ;; is what survives a release build, and this deftest — executing INSIDE the
+  ;; `:advanced`, goog.DEBUG=false bundle — is what stops it rotting back.
+  ;;
+  ;; The ledger assertions above prove the reload machinery is ABSENT here; this
+  ;; one proves the law is PRESENT anyway. Both halves are needed: absence alone
+  ;; would be satisfied by deleting the law with the ledger.
+  ;;
+  ;; The marker string is asserted PRESENT in the release bundle by
+  ;; scripts/check-ui-mounted-prod-elision.cjs, so deleting or eliminating this
+  ;; assertion reddens that gate rather than silently shrinking the test count.
+  (let [marker "rf-ui-custom-element-conflict-law-live-v1"
+        build  :re-frame.ui.rules/default]
+
+    ;; REJECTION — a contradictory cross-source declaration, in production.
+    (rules/reset-custom-elements!)
+    (rules/register-custom-element! :conflict-el {:properties #{:first}} 'app.first)
+    (let [outcome (try
+                    (rules/register-custom-element! :conflict-el
+                                                    {:properties #{:second}}
+                                                    'app.second)
+                    :admitted
+                    (catch :default e (ex-data e)))]
+      (is (= :rf.error/custom-element-conflict (:rf.error/id outcome))
+          (str marker " — a contradictory cross-source declaration is REJECTED "
+               "with goog.DEBUG=false, not merely in development"))
+      (is (= :conflict-el (:tag outcome))
+          (str marker " — the conflicting tag rides the production error"))
+      (is (= [{:build build :ns 'app.first  :properties #{:first}}
+              {:build build :ns 'app.second :properties #{:second}}]
+             (:declarations outcome))
+          (str marker " — BOTH [build-id ns-sym] anchors are present in "
+               "production, sorted, each carrying its own declaration")))
+    (is (= #{:first} (rules/custom-element-properties :conflict-el))
+        (str marker " — the PRIOR entry is retained: the rejected declaration "
+             "never wrote, so there is no last-call-wins flip here either"))
+
+    ;; ADMISSION — the law is not a blanket refusal. An `rf=`-equal duplicate
+    ;; co-exists, so the pin cannot be satisfied by rejecting everything.
+    (rules/reset-custom-elements!)
+    (rules/register-custom-element! :dup-el {:properties #{:p}} 'app.one)
+    (rules/register-custom-element! :dup-el {:properties #{:p}} 'app.two)
+    (is (= #{:p} (rules/custom-element-properties :dup-el))
+        (str marker " — rf=-equal duplicates co-exist in production"))
+
+    ;; ADMISSION — a source replacing its OWN declaration is never a conflict.
+    (rules/reset-custom-elements!)
+    (rules/register-custom-element! :own-el {:properties #{:before}} 'app.own)
+    (rules/register-custom-element! :own-el {:properties #{:after}} 'app.own)
+    (is (= #{:after} (rules/custom-element-properties :own-el))
+        (str marker " — a source replaces its own declaration in production"))
+
+    (rules/reset-custom-elements!)))
