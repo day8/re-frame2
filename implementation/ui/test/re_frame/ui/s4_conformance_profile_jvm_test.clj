@@ -254,19 +254,31 @@
 ;; ---------------------------------------------------------------------------
 ;; (5) INHERITANCE. This profile is CUMULATIVE: S1-S3 ride the frozen S3 profile
 ;; by exact reference. The facade publics the S3 guard classifies as "not S3"
-;; (`non-s3-facade-publics`) split into exactly two buckets — the S4 delta this
-;; profile rows, and the S1/S2 carry-over forms the Spec 004 family catalogues.
-;; Asserting that partition is EXACT is what makes a NEW PUBLIC SURFACE fail
-;; loudly: a new facade var lands in `non-s3-facade-publics` (the S3 guard's own
-;; exact-set check) and must then be classified here or listed below.
+;; (`non-s3-facade-publics`) split into three buckets — the S4 delta this profile
+;; rows, the S1/S2 carry-over forms the Spec 004 family catalogues, and the S5
+;; delta (`render-static`, rf2-oo5lb). Asserting that partition is EXACT is what
+;; makes a NEW PUBLIC SURFACE fail loudly: a new facade var lands in
+;; `non-s3-facade-publics` (the S3 guard's own exact-set check) and must then be
+;; classified here (S4 delta, S1/S2 carry-over, or the S5 delta bucket) or listed
+;; below.
 ;; ---------------------------------------------------------------------------
 
 (def s1-s2-carryover-publics
   "Facade publics that are neither S3 nor the S4 delta — the S1/S1b/S1c/S2 forms
   and the boot adapter, catalogued in the Spec 004 family. Listed explicitly so
-  every NEW public var must be classified (S3 verb/view, S4 delta, or here)."
+  every NEW public var must be classified (S3 verb/view, S4 delta, the S5 delta,
+  or here)."
   '#{adapter defview mount create-root render! hydrate-root unmount!
      frame-root frame-provider sub lease frame spread})
+
+(def s5-facade-delta
+  "The S5 facade delta — the ONE new re-frame.ui public S5 adds (rf2-oo5lb):
+  `render-static`, the pure :server static-HTML render macro (non-hydrating: no
+  manifest, no payload, no phase flip). Held as its own partition SLOT so the
+  non-S3 exact-set classification recognises it as an S5 public rather than an
+  unexpected surface member — the S5 conformance profile §3 named this the
+  missing 'S5 bucket' prerequisite for landing render-static."
+  '#{render-static})
 
 (def s4-inherits-profile
   "The frozen profile this one inherits by exact reference. A broken inheritance
@@ -313,15 +325,15 @@
                               frozen-s4-forms)))))
 
 (deftest new-public-surface-fails-loudly
-  (testing "the non-S3 facade publics partition EXACTLY into the S4 delta + the S1/S2 carry-over — a NEW public var is red until it is classified"
+  (testing "the non-S3 facade publics partition EXACTLY into the S4 delta + the S1/S2 carry-over + the S5 delta — a NEW public var is red until it is classified"
     (let [non-s3     s3/non-s3-facade-publics
-          classified (set/union (s4-facade-forms) s1-s2-carryover-publics)]
+          classified (set/union (s4-facade-forms) s1-s2-carryover-publics s5-facade-delta)]
       (is (= non-s3 classified)
           (str "facade classification drift — "
                "unclassified (new?) publics: " (sort (set/difference non-s3 classified))
                "; classified-but-absent: " (sort (set/difference classified non-s3))))))
   (testing "the live facade agrees — every classified name actually resolves"
-    (doseq [sym (set/union (s4-facade-forms) s1-s2-carryover-publics)]
+    (doseq [sym (set/union (s4-facade-forms) s1-s2-carryover-publics s5-facade-delta)]
       (is (some? (ns-resolve 're-frame.ui sym))
           (str "ui/" sym " is classified but does not resolve")))))
 

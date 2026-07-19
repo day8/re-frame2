@@ -25,6 +25,9 @@
     hydrate-root     (hydrate-root dom-node root-form opts?) — macro;
                      identity comes FROM the manifest (S5) — S1 fails loud
     unmount!         total teardown; unregisters the root-id
+    render-static    (render-static root-form) — macro; the pure :server
+                     static-HTML render (S5), non-hydrating: no manifest, no
+                     payload, no phase flip. JVM/server only
     frame-root       the static ENSURE-plan wrapper, legal only in a root
                      form's top region — plans compile into the Root
                      Descriptor (:rf.root/schema-version 1); ENSURE runs
@@ -212,6 +215,28 @@
       (root/hydrate-root-form &form &env dom-node root-form {}))
      ([dom-node root-form opts]
       (root/hydrate-root-form &form &env dom-node root-form opts))))
+
+#?(:clj
+   (defmacro render-static
+     "(render-static root-form) => an inert HTML string
+
+     The pure static-HTML render entry — the compiled-view counterpart of
+     React's `renderToStaticMarkup`. It renders a compiled root to a static
+     HTML string in the pure `:server` phase: NON-hydrating, with NO manifest,
+     NO hydration payload, and NO phase flip (a `client-only` site renders its
+     capability-free fallback and stops there). It is the static-page path, not
+     the SSR-then-hydrate path — `ui/hydrate-root` + `re-frame.ssr/hydrate!` own
+     that (Spec 011).
+
+     Like `mount` / `render!` / `hydrate-root`, render-static is a MACRO so it
+     enforces the LITERAL root form at the call site — a runtime-assembled vector
+     is the same `:rf.ui.compile/runtime-root-form` compile error (a macro sees
+     the literal form; a fn cannot). The root form mounts exactly one view (its
+     derived identity — §7). JVM/server only: a CLJS expansion is a compile error
+     (there are no structural trees in the browser). Renders against the ambient
+     per-request frame (the SSR host's `with-frame`)."
+     [root-form]
+     (root/render-static-form &form &env root-form)))
 
 (defn unmount!
   "(unmount! root) — TOTAL exact-incarnation teardown. The complete

@@ -401,7 +401,11 @@
             route-link
             ;; S4 presence (rf2-uckeg): declarative enter/exit retention — the
             ;; template form + its single phase read
-            presence presence-phase}
+            presence presence-phase
+            ;; S5 render-static (rf2-oo5lb): the pure :server static-HTML render
+            ;; macro — non-hydrating (no manifest/payload/phase flip); enforces the
+            ;; literal root form like the other root macros
+            render-static}
          (set (keys (ns-publics 're-frame.ui))))
       "no reg-view family, no Form-1/2/3 helpers, no h macro, no view
        lookup, no ratom/cursor/reaction — Spec 004 §Removed forms"))

@@ -160,7 +160,10 @@
      unmount! frame-root frame-provider sub lease frame raw html raw-fn spread
      ;; S4 presence (rf2-uckeg): the enter/exit retention template form + its
      ;; single phase read — not part of the S3 surface
-     presence presence-phase})
+     presence presence-phase
+     ;; S5 render-static (rf2-oo5lb): the pure :server static-HTML render macro —
+     ;; not part of the S3 surface (the S4 guard partitions it into its S5 bucket)
+     render-static})
 
 ;; The S3-specific gate arms this profile certifies (07 §5 / EP-0034 §4): every
 ;; verb gate PLUS the two non-verb S3 arms — G-11 (HMR shell + view-evidence /

@@ -6,7 +6,7 @@
  {:doc
  "GENERATED public-API manifest — do NOT hand-edit the :vars list. Regenerate with: clojure -M -m re-frame.api-manifest.gen (run from implementation/scripts/api-manifest/). The tier/owner/status axes are curated in spec/api-manifest-metadata.edn; existence + kind + facade? are derived from live public vars. See that generator ns for the design.",
  :keystone "rf2-3nbl5.2",
- :var-count 520,
+ :var-count 521,
  :tier-vocab
  [:front-porch
   :advanced
@@ -514,6 +514,7 @@
   {:namespace "re-frame.ui", :var "raw-fn", :tier :advanced, :kind :fn, :owner "004", :status "Spec-004 S1", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.ui", :var "render!", :tier :advanced, :kind :macro, :owner "004", :status "Spec-004 S1", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.ui", :var "render-fn", :tier :advanced, :kind :fn, :owner "004", :status "Spec-004 S3", :facade? false, :runtime-verified? true}
+  {:namespace "re-frame.ui", :var "render-static", :tier :advanced, :kind :macro, :owner "004", :status "Spec-004 S5", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.ui", :var "route-link", :tier :advanced, :kind :fn, :owner "012", :status "Spec-004 S3", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.ui", :var "slot", :tier :advanced, :kind :fn, :owner "004", :status "Spec-004 S3", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.ui", :var "spread", :tier :advanced, :kind :fn, :owner "004", :status "Spec-004 S1", :facade? false, :runtime-verified? true}

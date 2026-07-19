@@ -49,7 +49,8 @@
             [re-frame.ui.compiler.env :as env]
             [re-frame.ui.fingerprint :as fingerprint]
             #?@(:clj [[re-frame.ui.compiler :as compiler]
-                      [re-frame.ui.compiler.emit-cljs :as emit-cljs]])))
+                      [re-frame.ui.compiler.emit-cljs :as emit-cljs]
+                      [re-frame.ui.compiler.emit-jvm :as emit-jvm]])))
 
 ;; ---------------------------------------------------------------------------
 ;; Root-id grammar (contract §1)
@@ -787,5 +788,63 @@
                 (fn [] ~body)
                 ~(plans-thunk-form plans)
                 ~(react-opts-form nil opts)))))))))
+
+(defn render-static-form
+  "`(ui/render-static root-form)` — the pure `:server`-phase static-HTML render
+  (Spec 004C §3; Spec 011 §Phase flip). JVM-ONLY, the counterpart of the client
+  mount verbs: it compiles the LITERAL root form to the versioned JVM structural
+  tree and hands it to `re-frame.ssr/emit-ui-tree`, folding it to an INERT HTML
+  string — NO manifest, NO hydration payload, NO phase flip (a `client-only` site
+  renders its capability-free fallback and stops there; there is no fallback pass
+  to flip away from). It is the static-page path, not the SSR-then-hydrate path.
+
+  Three invariants, all reusing the mount-surface machinery:
+
+    - LITERAL ROOT FORM — `analyze-root` rejects a runtime-assembled vector with
+      the SAME `:rf.ui.compile/runtime-root-form` compile error mount / render! /
+      hydrate-root / ui.test-render raise (a macro sees the literal form; a fn
+      cannot). This is the kind-label delta a fn could not honour.
+    - IDENTITY PARTICIPATION (§7) — with no opts the root-id derives from the
+      single mounted view, so `resolve-root-identity` enforces exactly one view
+      (`:rf.ui.compile/no-single-mounted-view` otherwise); the render itself needs
+      no id (no manifest is emitted), but the static root is identity-bearing the
+      way the derivation default is. Layer-2 duplicate detection (server render
+      time, S5) is the SSR host's per-response registry, not the macro's.
+    - INDEPENDENCE — the macro EMITS a `re-frame.ssr/emit-ui-tree` call rather
+      than requiring it, so `re-frame.ui` never statically depends on
+      `re-frame.ssr` (Spec 011 §wall — no `ui → ssr` static require). The emitted
+      code runs where the server render already has `re-frame.ssr` on the
+      classpath.
+
+  Expanding in a CLJS build is a compile error (`:rf.ui.compile/ui-render-static-jvm-only`)
+  — CLJS has no structural trees (the client emitter targets React directly), and
+  a CLJS expansion would emit the JVM tree + SSR serialiser into a browser bundle."
+  [form menv root-form]
+  ;; JVM-only. A CLJS expansion would (a) render statically in a browser — wrong —
+  ;; and (b) pull the JVM tree + SSR emitter into the CLJS bundle (a ui→ssr edge).
+  ;; Reject before touching the compiler, mirroring ui.test/render.
+  (when (some? (:ns menv))
+    (fail :rf.ui.compile/ui-render-static-jvm-only
+          (str "ui/render-static is the pure :server static-HTML render — it "
+               "runs on the JVM/server. CLJS builds have no structural trees "
+               "(the client emitter targets React directly); author render-static "
+               "in a .clj / .cljc-on-JVM server render namespace, and mount in the "
+               "browser with ui/mount / ui/hydrate-root")
+          nil))
+  (let [coords (source-coords form false)]
+    (anchored coords
+      (fn []
+        (let [e (-> (env/make-env {:host :clj :ns-sym (ns-name *ns*)})
+                    (env/with-locals (keys menv)))
+              {:keys [ast views]} (analyze-root e 'ui/render-static root-form)]
+          ;; Identity participation (§7): no opts ⇒ derive from the single mounted
+          ;; view; reuse the exact one-view invariant + its frozen compile id.
+          (resolve-root-identity 'ui/render-static {} views)
+          (print-warnings! e 'ui/render-static)
+          ;; Emit (not require) the SSR serialiser over the JVM structural tree —
+          ;; `~'` keeps `re-frame.ui` free of any static `re-frame.ssr` require.
+          `(~'re-frame.ssr/emit-ui-tree
+            (~'re-frame.ui.tree/render-root-tree
+             (fn [] ~(emit-jvm/emit-node ast)))))))))
 
 ))

@@ -135,6 +135,10 @@
     :rf.ui.compile/bad-test-render-form
     :rf.ui.compile/bad-test-root
     :rf.ui.compile/ui-test-jvm-only
+    ;; render-static surface (S5, rf2-oo5lb) — the pure :server static-HTML render
+    ;; macro rejects a CLJS expansion (no structural trees in the browser; a CLJS
+    ;; expansion would emit the JVM tree + SSR serialiser into a browser bundle)
+    :rf.ui.compile/ui-render-static-jvm-only
     ;; a11y-diagnostic suppression grammar (S4-C, rf2-74vlo) — a malformed
     ;; ^{:rf.ui/suppress {<id> "reason"}} is loud, never a silent no-op
     :rf.ui.compile/bad-suppress})
@@ -178,6 +182,9 @@
                              bad-frame-root
     root_mount_jvm_test      client-entry-on-jvm
     test_render_jvm_test     bad-test-render-form / bad-test-root
+    render_static_jvm_test   ui-render-static-jvm-only (re-frame.ssr artefact —
+                             render-static is a JVM/server surface, so its CLJS-
+                             expansion rejection is exercised where it renders)
     custom_element_conflict_jvm_test
                              custom-element-conflict (needs TWO declaring
                              sources in one build — not reachable by
@@ -197,7 +204,8 @@
     :rf.ui.compile/bad-frame-root
     :rf.ui.compile/client-entry-on-jvm
     :rf.ui.compile/bad-test-render-form
-    :rf.ui.compile/bad-test-root})
+    :rf.ui.compile/bad-test-root
+    :rf.ui.compile/ui-render-static-jvm-only})
 
 (def ^:private direct-call-ids
   "Ids exercised by a direct analyzer-fn call below (defensive sites the
