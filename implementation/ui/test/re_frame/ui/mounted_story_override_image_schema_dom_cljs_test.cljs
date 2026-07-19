@@ -362,9 +362,18 @@
                  (let [{:keys [cell sid lease remount]} @seen
                        site      (reactive/committed-site cell sid)
                        nil-lease (:lease site)
+                       ;; Scope to THIS frame's own failures. `errors` is a
+                       ;; PROCESS-GLOBAL trace listener (every `:op-type :error`
+                       ;; across every namespace), so an `:operation`-only count
+                       ;; can be padded by a sibling suite's schema-validation
+                       ;; failure that lands in this fixture's async settle
+                       ;; window — measuring the suite, not this frame
+                       ;; (rf2-veyfp). The failure carries `:tags :frame`
+                       ;; (asserted below), so scope the count to it.
                        failures (filter
-                                 #(= :rf.error/schema-validation-failure
-                                     (:operation %))
+                                 #(and (= :rf.error/schema-validation-failure
+                                          (:operation %))
+                                       (= frame-id (-> % :tags :frame)))
                                  @errors)
                        failure  (first failures)]
                    (testing "HMR revalidates against the new image and installs a nil HIT"
