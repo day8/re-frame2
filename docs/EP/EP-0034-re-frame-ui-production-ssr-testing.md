@@ -228,7 +228,7 @@ takes no build dependency on re-com.
 
 ### 5. Stage honesty — wired/green vs named-open
 
-Every stage wires its own gates into CI in that stage, never later. As of 2026-07-18:
+Every stage wires its own gates into CI in that stage, never later. As of 2026-07-19:
 **wired and green** — G-1 (S1, complete; `npm run test:ui-g1` under the noise-robust
 estimator, as CI job `cljs-ui-g1`); **two of G-14's three arms** —
 `g14_compile_budget_jvm_test.clj` expands three fixture sizes against a 50 ms
@@ -244,8 +244,10 @@ pass, which needs a namespace-scale roster or a scaling ratio across two roster 
 (the suite carries the arithmetic). G-14's third arm is named open below, so G-14 is
 **not** complete at S1; the S2 family
 G-3/G-4/G-5/G-6/G-13 (landed with the S2 slice; S2 core verified
-S3-ready under the rf2-vxgfnd.22 boundary review, which absorbed the real-sub-cache
-graft conformance the S-3 spike left open); the G-8 real-browser matrix **including**
+S3-ready under the rf2-vxgfnd.22 boundary review — the real-sub-cache graft
+conformance the S-3 spike left open was implemented and proved by S2a
+(`rf2-vxgfnd.7`, PR #5706), and the .22 review subsequently reviewed and
+accepted it); the G-8 real-browser matrix **including**
 its widened event-prefix arm — `npm run test:ui-g8` runs as CI job `cljs-ui-g8` on the
 `ui_gates` surface in real Chromium **and** WebKit, superseding S-5's jsdom-only
 evidence; G-11 (`npm run test:browser-prod-elision`, CI job
@@ -254,8 +256,9 @@ G-15 atomic-local writer matrix (`npm run test:browser`); G-12 (`npm run
 test:ui-isolation`, which fails closed unless both arms run); and G-18 (`npm run
 test:ui-facade-isolation`, CI job `cljs-ui-facade-isolation`), whose single-view
 isolation assertion went green with the #6195 DCE packaging repair and which
-`rf2-kxork` promoted into the required matrix — its roster of proven views is the six
-named in the checker, not the library as a whole (`rf2-r4q98`). **Named open** — G-7
+`rf2-kxork` promoted into the required matrix — its roster of proven views is
+derived from the proof-pack library source (`rf2-r4q98`, closed by #6414), so a
+new library view either arms the gate or fails it. **Named open** — G-7
 beyond its production-absence arm: the dev↔prod equivalence matrix over generated
 shapes has no test yet; G-14's **remaining** arm — bounded guide-fixtures CI cost,
 which needs the guide-examples corpus (its wall-clock budget is an S3 stage item) —
@@ -284,9 +287,12 @@ the design rather than toggling a fork — the roster is honesty, not marketing.
 ## Backwards Compatibility
 
 Pre-alpha; no back-compat shims. The legacy shared-adapter parity
-matrix collapses into three causal owners (new-UI conformance + smoke; Reagent
-and UIx compatibility suites + one smoke each); only the Helix arm retires, at
-S7 (reagent-slim is kept). The coexisting adapters keep a pinned correctness contract —
+matrix collapses into **four** named causal suites (W9): new-UI conformance +
+smoke, and Reagent, UIx, and reagent-slim compatibility suites + one smoke
+each; only the Helix arm retires, at S7. *(Corrected 2026-07-19: an earlier
+revision counted three owners with reagent-slim merely "kept" — EP-0030's ruled
+W9 end state is four suites, reagent-slim first-class.)* The coexisting
+adapters keep a pinned correctness contract —
 a distinct compiled substrate makes no automatic parity promise.
 Spec 008's adapter-era testing surface (`flush-views!`, `re-frame.test-helpers`) keeps
 governing the compatibility tier until the `ui.test` contract graduates into 008.
