@@ -428,9 +428,30 @@ from ordinary Clojure code fails loud** (they are not runtime helpers).
   (hydrate-root dom-node root-form opts)
   ```
 - **Description**: Hydrating mount. Identity comes from the **server manifest**, not
-  client identity opts (passing `:root-id` / `:identifier-prefix` is an error). Full
-  hydration lands with SSR roots; earlier stages fail loud with
-  `:rf.error/root-manifest-invalid` when no valid manifest is present.
+  client identity opts (passing `:root-id` / `:identifier-prefix` is an error). `opts`
+  is host-behaviour tier only (`:on-uncaught-error` / `:on-caught-error` /
+  `:on-recoverable-error`). A hydrate with no valid server manifest fails loud with
+  `:rf.error/root-manifest-invalid`.
+- **Canonical SSR boot — two calls.** Seed state with `ssr/hydrate!` **without**
+  `:render-tree-fn` (a compiled root has no hashable client render-tree, so the
+  `:render-tree-fn` hash channel is hiccup-tier-only), then adopt the server DOM:
+
+  ```clojure
+  (ssr/hydrate! {:frame :app :payload payload})        ;; state only — no :render-tree-fn
+  (ui/hydrate-root el
+    [ui/frame-provider {:frame :app} [app-root]]
+    {:on-recoverable-error (fn [error info] …)})        ;; optional host hook
+  ```
+
+  Verification is by **React-native adoption**, not a hash: React diffs this root's
+  first `:server`-phase render (its `ui/client-only` fallbacks) against the server DOM,
+  and the runtime surfaces a **React-recoverable** adoption error (a text-content or
+  structural mismatch) as a `:rf.ssr/hydration-mismatch` diagnostic, composed **over**
+  any authored `:on-recoverable-error` (framework emit first, then your callback — never
+  clobbered). **Attribute-only mismatches** (a stale `class` / `style` / ARIA value) are
+  **not** surfaced — React takes its development-only warning path for those and
+  re-frame2 emits no trace on this tier (see
+  [Spec 011 §Hydration-mismatch detection](../../spec/011-SSR.md#hydration-mismatch-detection)).
 
 ### `unmount!`
 

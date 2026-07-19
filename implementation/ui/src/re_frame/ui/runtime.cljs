@@ -686,7 +686,10 @@
   ;; §Hydration-mismatch detection). A compiled root instead VERIFIES by
   ;; React-native ADOPTION: React diffs the root's first `:server`-phase render
   ;; (its `ui/client-only` fallbacks) against the server DOM during hydration
-  ;; and reports any divergence through the root's `onRecoverableError`.
+  ;; and reports the divergences it RECOVERS FROM (text-content / structural)
+  ;; through the root's `onRecoverableError` — NOT attribute-only mismatches,
+  ;; which take React's dev-only warning path and surface no trace on this tier
+  ;; (Spec 011 §Hydration-mismatch detection, the attribute-only boundary).
   ;; `re-frame.ui.client/hydrate-root*` surfaces that adoption-window divergence
   ;; HERE, as the SAME `:rf.ssr/hydration-mismatch` category the hiccup tier
   ;; emits — tier-discriminated by `:where` (the compiled adoption site), with
@@ -719,8 +722,9 @@
   ;;
   ;; The `:server`-phase first render is also what makes the compiled tier's
   ;; hydration VERIFICATION honest: React ADOPTS the server DOM by diffing it
-  ;; against this fallback-bearing render, and reports any divergence through
-  ;; the root's `onRecoverableError` — which `hydrate-root*` surfaces as
+  ;; against this fallback-bearing render, and reports the divergences it
+  ;; recovers from (text / structural, not attribute-only) through the root's
+  ;; `onRecoverableError` — which `hydrate-root*` surfaces as
   ;; `:rf.ssr/hydration-mismatch` (rf2-6z1i2). That verification is React-native
   ;; adoption, not a render-tree hash: a compiled root produces React elements,
   ;; not the hashable structural tree the hiccup-tier `:render-tree-fn` hash
