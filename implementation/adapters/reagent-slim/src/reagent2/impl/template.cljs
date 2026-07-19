@@ -132,8 +132,19 @@
   not reachable from this bundle-isolated adapter (see the sibling
   `:rf.error/template-empty-vector` throw in `vec-to-elem`). The id and the
   `:recovery` token are the ones the JVM emitters' reserved-head arm already
-  carries, so server and client teach one grammar."
-  [head]
+  carries, so server and client teach one grammar.
+
+  `element` is the WHOLE offending hiccup vector and is REQUIRED (rf2-vzno0).
+  Spec 009's `:rf.error/invalid-hiccup-head` row promises the payload pair
+  `:head`, `:element` on BOTH arms, and the JVM arm
+  (`re-frame.ssr.emit/reject-reserved-rf-hiccup-head!`) supplies both. This
+  arm stamped `:head` alone, so a diagnostic consumer reading the documented
+  payload got the head server-side and nil client-side for the same
+  category — exactly the cross-host friction the shared id exists to avoid.
+  Required rather than optional because every live caller has the vector in
+  hand: an optional arity would only re-open a path that stamps `:element
+  nil`, which is a claim the catalogue does not permit."
+  [head element]
   (when (reserved-rf-head? head)
     (let [reason (str "hiccup vector head " head " is in the framework-reserved "
                       ":rf/* namespace but is not a head this renderer "
@@ -149,7 +160,8 @@
                        :where       'reagent2.template/parse-tag
                        :reason      reason
                        :recovery    :use-a-recognised-reserved-head-or-an-unreserved-keyword
-                       :head        head})))))
+                       :head        head
+                       :element     element})))))
 
 (defn parse-tag
   "Parse a hiccup tag keyword into its `:tag` / `:id` / `:class` parts.
@@ -166,16 +178,19 @@
 
   Examples:
 
-    (parse-tag :div)         → HiccupTag{tag \"div\" id nil  class nil}
-    (parse-tag :div.cls)     → HiccupTag{tag \"div\" id nil  class \"cls\"}
-    (parse-tag :div#id)      → HiccupTag{tag \"div\" id \"id\" class nil}
-    (parse-tag :div#id.a.b)  → HiccupTag{tag \"div\" id \"id\" class \"a b\"}
-    (parse-tag :div.a.b#id)  → HiccupTag{tag nil   id nil  class nil}  ; NOT supported
+    (parse-tag :div        [:div])         → HiccupTag{tag \"div\" id nil  class nil}
+    (parse-tag :div.cls    [:div.cls])     → HiccupTag{tag \"div\" id nil  class \"cls\"}
+    (parse-tag :div#id     [:div#id])      → HiccupTag{tag \"div\" id \"id\" class nil}
+    (parse-tag :div#id.a.b [:div#id.a.b])  → HiccupTag{tag \"div\" id \"id\" class \"a b\"}
+    (parse-tag :div.a.b#id [:div.a.b#id])  → HiccupTag{tag nil   id nil  class nil}  ; NOT supported
 
   Rejects an UNRECOGNISED head in the framework-reserved `:rf/*` scheme —
-  see `reject-reserved-rf-head!` (rf2-01zvu)."
-  [hiccup-tag]
-  (reject-reserved-rf-head! hiccup-tag)
+  see `reject-reserved-rf-head!` (rf2-01zvu). `element` is the whole hiccup
+  vector `hiccup-tag` heads; it is carried ONLY so the reject can stamp the
+  `:element` payload slot Spec 009 promises (rf2-vzno0) and takes no part in
+  parsing. Every call site has it in hand, so it is required, not optional."
+  [hiccup-tag element]
+  (reject-reserved-rf-head! hiccup-tag element)
   (let [[_ tag id class-shorthand]
         (re-matches re-tag (name hiccup-tag))
         class (when class-shorthand
@@ -240,12 +255,12 @@
       (str ns* "/" n)
       n)))
 
-(defn- cached-parse [k]
+(defn- cached-parse [k element]
   (let [n (cache-key k)]
     (if (and (not (reserved-prop-key? n))
              (.hasOwnProperty tag-name-cache n))
       (aget tag-name-cache n)
-      (let [v (parse-tag k)]
+      (let [v (parse-tag k element)]
         (when-not (reserved-prop-key? n)
           (aset tag-name-cache n v))
         v))))
@@ -1028,7 +1043,7 @@
 
       ;; DOM-tag head — keyword, symbol, or string.
       (hiccup-tag? tag)
-      (native-element (cached-parse tag) argv 1)
+      (native-element (cached-parse tag argv) argv 1)
 
       ;; Reagent / React class head — instantiate directly.
       (component/reagent-class? tag)

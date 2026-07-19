@@ -33,35 +33,35 @@
 
 (deftest parse-tag-bare
   (testing "bare tag: :div"
-    (let [parsed (template/parse-tag :div)]
+    (let [parsed (template/parse-tag :div [:div])]
       (is (= "div" (.-tag parsed)))
       (is (nil? (.-id parsed)))
       (is (nil? (.-className parsed))))))
 
 (deftest parse-tag-with-class
   (testing ":div.foo"
-    (let [parsed (template/parse-tag :div.foo)]
+    (let [parsed (template/parse-tag :div.foo [:div.foo])]
       (is (= "div" (.-tag parsed)))
       (is (nil? (.-id parsed)))
       (is (= "foo" (.-className parsed))))))
 
 (deftest parse-tag-with-id
   (testing ":div#bar"
-    (let [parsed (template/parse-tag :div#bar)]
+    (let [parsed (template/parse-tag :div#bar [:div#bar])]
       (is (= "div" (.-tag parsed)))
       (is (= "bar" (.-id parsed)))
       (is (nil? (.-className parsed))))))
 
 (deftest parse-tag-with-id-and-class
   (testing ":div#bar.foo"
-    (let [parsed (template/parse-tag :div#bar.foo)]
+    (let [parsed (template/parse-tag :div#bar.foo [:div#bar.foo])]
       (is (= "div" (.-tag parsed)))
       (is (= "bar" (.-id parsed)))
       (is (= "foo" (.-className parsed))))))
 
 (deftest parse-tag-with-multiple-classes
   (testing ":div.a.b.c"
-    (let [parsed (template/parse-tag :div.a.b.c)]
+    (let [parsed (template/parse-tag :div.a.b.c [:div.a.b.c])]
       (is (= "div" (.-tag parsed)))
       (is (nil? (.-id parsed)))
       (is (= "a b c" (.-className parsed))
@@ -69,12 +69,12 @@
 
 (deftest parse-tag-input
   (testing ":input — void element parses normally"
-    (let [parsed (template/parse-tag :input)]
+    (let [parsed (template/parse-tag :input [:input])]
       (is (= "input" (.-tag parsed))))))
 
 (deftest parse-tag-id-before-class-supported
   (testing ":div#id.a.b — id MUST precede classes (the supported form)"
-    (let [parsed (template/parse-tag :div#id.a.b)]
+    (let [parsed (template/parse-tag :div#id.a.b [:div#id.a.b])]
       (is (= "div" (.-tag parsed)))
       (is (= "id" (.-id parsed)))
       (is (= "a b" (.-className parsed))))))
@@ -85,7 +85,7 @@
   ;; `re-matches` returns nil and the result carries a nil tag. Pin the
   ;; constraint so the docstring and the code can never silently disagree.
   (testing ":div.a#id — class-before-id is NOT supported (nil tag)"
-    (let [parsed (template/parse-tag :div.a#id)]
+    (let [parsed (template/parse-tag :div.a#id [:div.a#id])]
       (is (nil? (.-tag parsed))
           "class-before-id yields a nil tag, not a parsed element"))))
 
