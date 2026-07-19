@@ -949,15 +949,75 @@ test('every check_doc_slugs --synthesis-only guarded path fires the synthesis-do
     'true',
   );
 
-  // The roots are NOT a whole-directory sweep: the 01-10 narrative chapters and
-  // README sit beside the named files and stay unguarded, so they must stay
-  // unclassified. This keeps the arms above honest rather than vacuously true.
+  // The roots are still NOT a whole-directory sweep, but the pinned set grew.
+  // rf2-341p2 — 06-ssr-islands.md and 08-delivery.md USED to sit here as
+  // unclassified narrative chapters; they are now classified because the
+  // guide-truth JVM fixture
+  // (implementation/ui/test/re_frame/ui/guide_truth_jvm_test.clj) content-pins
+  // them (the compiler-model-authorities map + the R-1 delivery-record census),
+  // and the rf2-341p2 arm below fires synthesis_docs for exactly those pinned
+  // cross-tree files. An unpinned chapter like 02-programming-model.md and the
+  // README stay unclassified, so these arms remain non-vacuous and the rule is
+  // provably a pinned-file list, not a directory sweep.
   assert.equal(
     classify('ai/findings/new-substrate-synthesis/08-delivery.md').synthesis_docs,
+    'true',
+  );
+  assert.equal(
+    classify('ai/findings/new-substrate-synthesis/02-programming-model.md').synthesis_docs,
     'false',
   );
   assert.equal(
     classify('ai/findings/new-substrate-synthesis/README.md').synthesis_docs,
+    'false',
+  );
+});
+
+// rf2-341p2 — the guide-truth JVM fixture
+// (implementation/ui/test/re_frame/ui/guide_truth_jvm_test.clj) positively PINS
+// content in EIGHT cross-tree files that live OUTSIDE the synthesis roots the
+// rf7gu/vs60jg arms already fire for: its compiler-model-authorities map
+// (spec/Ownership.md, spec/004-Views.md, EP-0030, EP-0034, 06-ssr-islands.md,
+// skill/SKILL.md), its R-1 delivery-record census (08-delivery.md), and its
+// spec/API.md surface-table checks. That whole namespace runs in the
+// surface-gated synthesis-docs job, so without a classifier arm a doc-only PR
+// editing one of those eight files could merge without ever firing the job that
+// guards it — the same inventory-vs-trigger bug class as rf2-2718r / rf2-rf7gu,
+// one level out. The rf2-341p2 arm in report-changed-surfaces.sh fires
+// synthesis_docs for exactly these eight paths (a hardcoded mirror of the
+// fixture's cross-tree pins, kept in lockstep by the maintenance rule commented
+// in the fixture). These direct asserts pin each of the eight. The fixture also
+// pins compiler.cljc and drafts/spec-004-rewrite-draft.md, but those are ALREADY
+// covered (jvm-ui runs `clojure -M:test` over the ui artefact on every
+// implementation_jvm PR; the drafts/* arm fires for the rewrite draft), so they
+// are deliberately not re-listed.
+test('every guide-truth cross-tree pinned file fires the synthesis-docs job (rf2-341p2)', () => {
+  for (const file of [
+    'spec/004-Views.md',
+    'spec/API.md',
+    'spec/Ownership.md',
+    'docs/EP/EP-0030-the-compiled-view-substrate-program.md',
+    'docs/EP/EP-0034-re-frame-ui-production-ssr-testing.md',
+    'ai/findings/new-substrate-synthesis/06-ssr-islands.md',
+    'ai/findings/new-substrate-synthesis/08-delivery.md',
+    'ai/findings/new-substrate-synthesis/skill/SKILL.md',
+  ]) {
+    assert.equal(
+      classify(file).synthesis_docs,
+      'true',
+      `${file} is content-pinned by the guide-truth JVM fixture; editing it must fire the synthesis-docs job that guards it (rf2-341p2)`,
+    );
+  }
+
+  // The arm ADDS synthesis_docs; it replaces nothing. spec/API.md keeps its
+  // pre-existing cljs_node_test classification (rf2-4ka7c2), proving the two
+  // classifications OR together rather than shadowing each other.
+  assert.equal(classify('spec/API.md').cljs_node_test, 'true');
+
+  // Non-vacuity / not-a-directory-sweep: an unpinned sibling chapter under the
+  // same synthesis tree stays unclassified.
+  assert.equal(
+    classify('ai/findings/new-substrate-synthesis/02-programming-model.md').synthesis_docs,
     'false',
   );
 });

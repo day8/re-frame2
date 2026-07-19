@@ -430,6 +430,19 @@
    ["no implementation can drift"
     #"(?i)there\s+is\s+no\s+second\s+implementation\s+to\s+drift"]])
 
+;; CI MAINTENANCE RULE (rf2-341p2): the paths pinned by this map and the other
+;; cross-tree inventories in this namespace (the 08-delivery R-1 census below, the
+;; spec/API.md surface-table checks) live OUTSIDE the synthesis roots the CI
+;; surface classifier already fires for. This whole namespace runs only in the
+;; surface-gated synthesis-docs CI job, so every cross-tree file a test here pins
+;; MUST also be named in the rf2-341p2 arm of
+;; .github/scripts/report-changed-surfaces.sh (with its assert in
+;; implementation/scripts/_changed-surfaces.test.cjs) — otherwise a doc-only PR
+;; editing that file would not fire the job that guards it. When a test here
+;; begins pinning a NEW file outside the already-firing roots (guide/, drafts/,
+;; prep/, the named synthesis files, implementation/**), add that path to BOTH the
+;; classifier arm and its node assert in the SAME change.
+;;
 ;; The ACTIVE parent authorities guide 12 sends maintainers to. Each carries a
 ;; positive re-analysis assertion, so a wording-only deletion cannot false-green
 ;; the retired-claim census above.
