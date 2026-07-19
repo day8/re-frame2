@@ -635,6 +635,17 @@
   `children`...\" — rejected, though rendered non-self-closing)."
   (conj void-tags :menuitem))
 
+(def raw-text-tags
+  "The HTML RAW-TEXT elements — `<script>`/`<style>`. React 19.2 takes a
+  SINGLE text body (one string) for these: multiple children reach React as an
+  array that warns and loses the body, and a structural (element/list) child is
+  dropped or stringified. The compiler holds them to a single text-producing
+  child, a sole `(ui/html …)` trusted-markup body, or no body (rf2-ib4fd). The
+  compile-tier KEYWORD counterpart of the SSR serialiser's string set
+  `re-frame.ssr.ui-tree/raw-text-tags` (`#{\"script\" \"style\"}`). `:title`
+  and `:textarea` are escapable RCDATA, NOT raw text, and are absent here."
+  #{:script :style})
+
 (def boolean-attrs
   "HTML boolean attributes: true -> presence (attr=\"\"), false/absent ->
   omitted. Probed row-by-row against react-dom/server 19.2.0

@@ -558,22 +558,39 @@
   survives the parse round-trip."
   #{"pre" "listing" "textarea"})
 
+(def trusted-html-newline-eating-tags
+  "The newline-eating elements whose SOLE trusted-markup (`{:html s}`) child
+  React ALSO leading-LF-compensates — `<pre>`/`<listing>` only. `<textarea>` is
+  deliberately absent: react-dom/server 19.2 rejects a trusted-markup child on a
+  textarea outright (its content is `value`/`defaultValue` or a text child), so
+  a `{:html …}` child never survives to be compensated there — the seam rejects
+  it through `:rf.error/ui-tree-malformed` (rf2-ib4fd). A textarea's STRING
+  `:value` beginning with LF is still compensated via `newline-eating-tags`."
+  #{"pre" "listing"})
+
 (defn- sole-newline-content
   "The single content STRING React's leading-LF rule applies to, or nil. React
   compensates only when a newline-eating element's body is ONE string: a lone
   text child, OR a lone `{:html s}` trusted-markup child — React's
   `dangerouslySetInnerHTML.__html`, likewise a `typeof … === 'string'` body it
   doctors the same way (rf2-0spji). A multi-child, element, or non-string-`:html`
-  body is left untouched. `content` is the element's content as a seq — one entry
-  means a single (already text-coalesced) string child, a textarea's `:value`, or
-  a sole trusted-markup child."
-  [content]
+  body is left untouched. The `{:html s}` arm applies only under the
+  trusted-html newline-eating tags (`<pre>`/`<listing>`); a textarea's
+  trusted-markup child is rejected upstream and never reaches here (rf2-ib4fd).
+  `content` is the element's content as a seq — one entry means a single
+  (already text-coalesced) string child, a textarea's `:value`, or a sole
+  trusted-markup child."
+  [tag-lc content]
   (when (= 1 (count content))
     (let [c (first content)]
       (cond
-        (string? c)                        c
-        (and (map? c) (string? (:html c))) (:html c)
-        :else                              nil))))
+        (string? c)
+        c
+        (and (map? c) (string? (:html c))
+             (contains? trusted-html-newline-eating-tags tag-lc))
+        (:html c)
+        :else
+        nil))))
 
 (defn leading-newline-compensation
   "-> the compensating LF (`\"\\n\"`) react-dom/server 19.2 prefixes inside a
@@ -590,7 +607,7 @@
   applies but React does not doctor a multi-child body."
   [tag-lc content]
   (if (and (contains? newline-eating-tags tag-lc)
-           (let [c (sole-newline-content content)]
+           (let [c (sole-newline-content tag-lc content)]
              (and (some? c) (str/starts-with? c "\n"))))
     "\n"
     ""))
@@ -813,6 +830,21 @@
         ;; textarea/select :value never serialises as a `value` attribute.
         attrs     (cond-> attrs (or textarea? select?) (dissoc :value))
         open      (str "<" tag-name (attrs->string attrs pp))]
+    ;; rf2-ib4fd — a manual trusted-markup (`{:html …}`) child beneath a
+    ;; <textarea> is host-divergent: react-dom/server 19.2 rejects
+    ;; dangerouslySetInnerHTML on a textarea (its content is
+    ;; value/defaultValue or a text child), while this serialiser would
+    ;; otherwise emit the markup verbatim. Fail loud through the shared
+    ;; malformed-tree path rather than emit a body React would reject.
+    (when (and textarea?
+               (some #(and (map? %) (contains? % :html)) (:children el)))
+      (malformed-node!
+        (str "a <textarea> cannot carry a trusted-markup (:html) child — "
+             "react-dom/server 19.2 rejects dangerouslySetInnerHTML on a "
+             "textarea (its content is value/defaultValue or a text child); "
+             "supply the text via :value or a string child: "
+             (pr-str (:children el)))
+        path {:value (:children el)}))
     (cond
       void?          (str open ">")
       ;; rf2-2dh3b — <script>/<style> content is HTML raw text: emit it

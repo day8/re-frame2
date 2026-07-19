@@ -1892,6 +1892,22 @@
         (map-indexed (fn [i f] (analyze (update e :path conj i) f)))
         forms))
 
+(defn- raw-text-structural-child?
+  "A source child form beneath a static `<script>`/`<style>` that VISIBLY
+  denotes host STRUCTURE rather than text — a hiccup element/fragment vector,
+  or a keyed-list (`for`) markup form. React drops or stringifies such a child
+  (a raw-text body is one text string) and the JVM serialiser rejects it, so it
+  is a compile error here (rf2-ib4fd). A runtime-dynamic expression — a symbol,
+  a `(str …)`/other call, a branch — is NOT visibly structural and stays
+  programmer-trusted: it produces the text string at render time."
+  [e f]
+  (or (vector? f)
+      (and (seq? f)
+           (let [h (first f)]
+             (and (symbol? h)
+                  (= h 'for)
+                  (not (contains? (:locals e) h)))))))
+
 (defn- analyze-element [e form]
   (let [head      (nth form 0)
         tag-info  (parse-tag e head)
@@ -1916,6 +1932,44 @@
                         "parent element. Wrap it: [:div (ui/html s)] "
                         "(conservative S1 pin)")
                    {:form form})))
+    ;; rf2-ib4fd — (ui/html …) beneath a static <textarea> lowers to React
+    ;; `dangerouslySetInnerHTML`, which react-dom/server 19.2 REJECTS on a
+    ;; textarea (its content is `:value`/`defaultValue`, or an ordinary text
+    ;; child). Reject at compile — a clear fail-fast beats a silent wrong render
+    ;; (React throws / the JVM tree emits divergent trusted markup).
+    (when (and (= tag :textarea) html-kid?)
+      (env/fail! e :rf.ui.compile/html-in-textarea
+                 (str "(ui/html …) is not valid inside <textarea> — React sets a "
+                      "textarea's content through :value (or an ordinary text "
+                      "child), never trusted markup (dangerouslySetInnerHTML), "
+                      "which React 19 rejects on a <textarea>. Use :value \"…\" "
+                      "or an ordinary text child.")
+                 {:tag tag :form form}))
+    ;; rf2-ib4fd — a static <script>/<style> is an HTML RAW-TEXT element: React
+    ;; takes a SINGLE text body (one string). Multiple source children reach
+    ;; React as an array that warns and loses the body; a visibly structural
+    ;; sole child (a hiccup element/fragment, or a `for` list) is dropped or
+    ;; stringified by React and rejected by the JVM serialiser. Reject both at
+    ;; compile. A sole (ui/html …) is the sanctioned trusted-markup body (the
+    ;; html-kid? path below); a runtime-dynamic expression stays trusted.
+    (when (and (contains? rules/raw-text-tags tag) (not html-kid?))
+      (cond
+        (> (count child-fs) 1)
+        (env/fail! e :rf.ui.compile/raw-text-children
+                   (str "<" (name tag) "> is an HTML raw-text element and takes a "
+                        "SINGLE text child, but " (count child-fs) " children were "
+                        "given — React joins them into an array that warns and "
+                        "loses the body. Construct ONE string, e.g. (str a b …), "
+                        "or use (ui/html s) for trusted markup.")
+                   {:tag tag :form form})
+        (and (= 1 (count child-fs))
+             (raw-text-structural-child? e (first child-fs)))
+        (env/fail! e :rf.ui.compile/raw-text-children
+                   (str "<" (name tag) "> is an HTML raw-text element and takes a "
+                        "SINGLE text child, not structural markup — React drops or "
+                        "stringifies an element child here. Construct ONE string, "
+                        "e.g. (str …), or use (ui/html s) for trusted markup.")
+                   {:tag tag :form form})))
     (let [children (if html-kid? [] (analyze-children e child-fs))
           html-ast (when html-kid?
                      (let [[_ s & extra] (first child-fs)]

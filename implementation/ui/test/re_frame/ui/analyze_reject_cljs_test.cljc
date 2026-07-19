@@ -748,6 +748,53 @@
   (is (= :rf.ui.compile/void-children (reject-id '[:br (html "<b>x</b>")]))
       "void elements cannot own trusted markup either"))
 
+(deftest special-element-child-shapes
+  ;; rf2-ib4fd — static special-element child shapes the TARGET (React 19.2 /
+  ;; the JVM serialiser) rejects are rejected at COMPILE, not emitted to fail
+  ;; later. Fail-fast with a clear diagnostic beats a silent wrong render.
+  (testing "(ui/html …) beneath a static <textarea> is rejected (React 19.2 "
+           "rejects dangerouslySetInnerHTML on a textarea)"
+    ;; RED-BEFORE lever: this compiled and lowered to React
+    ;; dangerouslySetInnerHTML / a divergent JVM trusted-markup body.
+    (is (= :rf.ui.compile/html-in-textarea
+           (reject-id '[:textarea (html "<b>x</b>")]))
+        "a textarea's content is :value or a text child, not trusted markup"))
+  (testing "an ordinary <textarea> body stays supported"
+    (is (nil? (reject-id '[:textarea {:value txt}]))
+        ":value is the textarea content channel")
+    (is (nil? (reject-id '[:textarea "plain text"]))
+        "an ordinary text child is fine")
+    (is (nil? (reject-id '[:textarea]))
+        "an empty textarea is fine"))
+  (testing "a static <script>/<style> raw-text element rejects a host-divergent "
+           "multi-child or structural-child body"
+    ;; RED-BEFORE lever: `[:script "a" "b"]` compiled (the emitter coalesced the
+    ;; strings), and `[:script [:span]]` compiled through analyze (failing only
+    ;; later at the JVM serialiser) — React warns/loses the multi body and
+    ;; drops/stringifies a structural child.
+    (is (= :rf.ui.compile/raw-text-children (reject-id '[:script "a" "b"]))
+        "multiple source children under <script>")
+    (is (= :rf.ui.compile/raw-text-children (reject-id '[:style "a" "b"]))
+        "multiple source children under <style>")
+    (is (= :rf.ui.compile/raw-text-children (reject-id '[:script [:span "x"]]))
+        "a visibly structural (hiccup) sole child under <script>")
+    (is (= :rf.ui.compile/raw-text-children
+           (reject-id '[:style (for [x xs] [:span {:key x} x])]))
+        "a `for` list markup sole child under <style>"))
+  (testing "the accepted <script>/<style> bodies retain their intended paths"
+    (is (nil? (reject-id '[:script "console.log(1)"]))
+        "one literal text child")
+    (is (nil? (reject-id '[:style (str a b)]))
+        "one text-producing expression")
+    (is (nil? (reject-id '[:script js-src]))
+        "a runtime-dynamic scalar stays programmer-trusted")
+    (is (nil? (reject-id '[:script (html "console.log(1)")]))
+        "a sole (ui/html …) is the sanctioned trusted-markup body")
+    (is (nil? (reject-id '[:style]))
+        "no body is fine")
+    (is (nil? (reject-id '[:script {:src "/main.js"}]))
+        "attributes with no body are fine")))
+
 (deftest statically-pure-bodies
   (is (= :rf.ui.compile/multi-form-body
          (reject-id '(do (prn "side effect") [:p "x"])))

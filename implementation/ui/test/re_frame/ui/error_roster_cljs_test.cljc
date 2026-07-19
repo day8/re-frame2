@@ -96,6 +96,11 @@
     ;; structure
     :rf.ui.compile/void-children
     :rf.ui.compile/html-not-sole-child
+    ;; static special-element child shapes the target rejects (rf2-ib4fd):
+    ;; (ui/html …) under <textarea>, and a multi/structural body under a
+    ;; raw-text <script>/<style>
+    :rf.ui.compile/html-in-textarea
+    :rf.ui.compile/raw-text-children
     :rf.ui.compile/bad-html
     :rf.ui.compile/bad-raw
     :rf.ui.compile/raw-fn-child
@@ -466,6 +471,10 @@
    [:rf.ui.compile/html-not-sole-child '(html "<b>x</b>") ["[:div (ui/html s)]"]]
    [:rf.ui.compile/bad-html '[:div (html "a" "b")] ["exactly one argument"]]
    [:rf.ui.compile/bad-html '[:div (html 42)] ["requires a string"]]
+   ;; static special-element child shapes the target rejects (rf2-ib4fd)
+   [:rf.ui.compile/html-in-textarea '[:textarea (html "<b>x</b>")] [":value"]]
+   [:rf.ui.compile/raw-text-children '[:script "a" "b"] ["(str" "ui/html"]]
+   [:rf.ui.compile/raw-text-children '[:style [:span "x"]] ["(str" "ui/html"]]
    [:rf.ui.compile/bad-raw '(raw) ["one argument"]]
    [:rf.ui.compile/raw-fn-child '(raw-fn f) ["prop positions"]]
    [:rf.ui.compile/children-prop '[child-view {:children [x]}] ["positional"]]
