@@ -70,7 +70,7 @@
       (:id props) 're-frame.adapter.helix/frame-provider))
   ;; Validate before consulting the registry so malformed ids get the
   ;; configuration error rather than the absent-frame error.
-  (let [frame-kw (frame/require-keyword-frame-provider-arg!
+  (let [frame-kw (frame/require-frame-provider-target!
                    (:frame props) 're-frame.adapter.helix/frame-provider)]
     (boundary/require-live-frame-for-scope!
       frame-kw 're-frame.adapter.helix/frame-provider)

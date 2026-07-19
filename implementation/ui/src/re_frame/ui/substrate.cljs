@@ -92,7 +92,7 @@
   compiles straight to the shared Context Provider; this component serves the
   lower-level `:register-context-provider` slot without UIx/Helix marshalling."
   [props]
-  (let [frame-id (frame/require-keyword-frame-provider-arg!
+  (let [frame-id (frame/require-frame-provider-target!
                   (.-frame props)
                   're-frame.ui/frame-provider)]
     (boundary/require-live-frame-for-scope!

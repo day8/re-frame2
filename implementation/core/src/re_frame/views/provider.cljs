@@ -156,7 +156,7 @@
   ;; SCOPE: validate the `:frame` target (keyword id or live frame value,
   ;; normalized to the id), fail loud if the frame is absent, then scope via
   ;; the shared scope-only provide tier.
-  (let [frame-kw (frame/require-keyword-frame-provider-arg!
+  (let [frame-kw (frame/require-frame-provider-target!
                    (:frame props)
                    're-frame.views.provider/frame-provider)]
     (boundary/require-live-frame-for-scope!

@@ -1699,3 +1699,60 @@
         (rf/destroy-frame! :addr/x)                  ;; keyword → destroys CURRENT = B
         (is (nil? (frame/frame :addr/x))
             "a bare-id destroy targets whatever incarnation is currently live")))))
+
+;; ---- frame-provider target triage (rf2-6muz2) ------------------------------
+;; `require-frame-provider-target!` teaches ONE frame-target grammar: a frame-id
+;; KEYWORD or the live frame VALUE `make-frame` returns. rf2-6muz2 retired the
+;; keyword-only names this fn and its recovery id used to carry, which
+;; contradicted the triage the fn actually performs. These pin the grammar and
+;; the recovery id so neither can silently narrow back to keyword-only.
+
+(deftest require-frame-provider-target-accepts-both-target-spellings
+  (testing "a frame-id KEYWORD normalizes to itself"
+    (rf/make-frame {:id :target/kw :doc "kw target"})
+    (is (= :target/kw
+           (frame/require-frame-provider-target! :target/kw 'test/where))
+        "a keyword target passes through as the frame id"))
+  (testing "a live frame VALUE normalizes to the SAME id the keyword names"
+    (let [v (rf/make-frame {:id :target/val :doc "value target"})]
+      (is (frame/frame-value? v) "make-frame returns a frame VALUE")
+      (is (= :target/val
+             (frame/require-frame-provider-target! v 'test/where))
+          "a frame value normalizes to its frame id — the same grammar as the keyword"))))
+
+(deftest require-frame-provider-target-rejects-neither-shape-with-supply-frame-target
+  (testing "a non-nil value that is neither a keyword nor a frame value throws
+            :rf.error/bad-frame-provider-arg carrying :recovery :supply-frame-target"
+    (doseq [bad ["app" 7 ['x] {:not :a-frame}]]
+      (let [data (try
+                   (frame/require-frame-provider-target! bad 'test/where)
+                   ::no-throw
+                   (catch clojure.lang.ExceptionInfo e (ex-data e)))]
+        (is (map? data) (str "a " (pr-str bad) " target throws ex-info"))
+        (is (= :rf.error/bad-frame-provider-arg (:rf.error/id data))
+            (str (pr-str bad) " is a bad public provider argument"))
+        (is (= :supply-frame-target (:recovery data))
+            (str (pr-str bad) " carries the target-grammar recovery id, not a keyword-only one"))
+        (is (= bad (:received data)) "the payload echoes the offending value")
+        (is (= 'test/where (:where data)) "the payload names the validating call site")))))
+
+(deftest require-frame-provider-target-nil-remains-no-frame-context
+  (testing "nil stays ABSENCE — :rf.error/no-frame-context, not a bad argument"
+    (let [data (try
+                 (frame/require-frame-provider-target! nil 'test/where)
+                 ::no-throw
+                 (catch clojure.lang.ExceptionInfo e (ex-data e)))]
+      (is (= :rf.error/no-frame-context (:rf.error/id data))
+          "a nil target is absence, a distinct category from a bad argument")
+      (is (= :supply-frame (:recovery data))
+          "the absence recovery is unchanged by the target-vocabulary rename"))))
+
+(deftest bad-frame-provider-arg-payload-carries-supply-frame-target
+  (testing "the canonical payload builder spells the recovery :supply-frame-target"
+    (let [payload (frame/bad-frame-provider-arg-payload "app")]
+      (is (= :rf.error/bad-frame-provider-arg (:rf.error/id payload)))
+      (is (= :supply-frame-target (:recovery payload)))
+      (is (re-find #"frame id keyword" (:reason payload))
+          "the human reason still names the keyword arm")
+      (is (re-find #"live frame value" (:reason payload))
+          "the human reason still names the frame-value arm — the recovery id now agrees with it"))))
