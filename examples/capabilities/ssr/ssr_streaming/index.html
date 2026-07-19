@@ -16,50 +16,87 @@
 </head>
 <body>
   <!--
-    A real server (re-frame.ssr.ring/stream-handler from
-    day8/re-frame2-ssr-ring) would stream this page chunk by chunk:
+    This static page stands in for a live streaming server. A real host
+    (re-frame.ssr.ring/stream-handler from day8/re-frame2-ssr-ring) would
+    flush these exact bytes chunk by chunk; here they are baked in one file
+    so the browser can boot the example via shadow-cljs with no Clojure
+    server in the loop. The bytes below ARE the wire shape, frozen — the
+    same sequence the streaming emitter produces, captured verbatim from
+    the example's own `handle-request` (ssr-streaming/core.cljc):
 
-      1. Shell prefix + this <body> opening, <div id="app"> with the
-         skeleton fallback cards
+      1. Shell prefix + this <body> opening, then <div id="app"> holding
+         the shell HTML — the <main class="dashboard"> with an inline
+         <template data-rf2-suspense-fallback="1"> placeholder per boundary
+         (each carrying its skeleton fallback). #app CLOSES here; every
+         chunk below streams OUTSIDE the hydrated root.
       2. <template data-rf2-suspense-id=":card.revenue"
-                   data-rf2-suspense-resolved="1">…</template>
-         + <script data-rf2-suspense-hydrate=":card.revenue">delta</script>
+                   data-rf2-suspense-resolved="1">…resolved card…</template>
+         + <script data-rf2-suspense-hydrate=":card.revenue"
+                   type="application/edn">delta</script>
+         The delta is {} here: :rf/server-init seeds all three card values
+         up front (ssr-streaming/core.cljc), so each continuation only READS
+         app-db and mutates nothing. A per-service-fetch app would carry a
+         non-empty delta per card.
       3. (same for :card.signups, :card.latency)
-      4. The "flaky" card chunk carries data-rf2-suspense-failed="1"
-      5. <script id="__rf_payload">canonical-payload</script>
+      4. The "flaky" boundary's chunk carries data-rf2-suspense-failed="1"
+         and NO hydrate delta: its subtree threw on the server, so the
+         chunk ships the DECLARED fallback (the skeleton) rather than the
+         card body.
+      5. <script id="__rf_payload">canonical-payload</script> — the final
+         chunk. Its :rf/runtime-db names the failed boundary set
+         (#{:card.flaky}); the deltas were speculative, this payload wins.
       6. </body></html>
 
-    This static index.html stands in for the streaming output — it
-    ships with the final resolved state pre-baked so the browser can
-    boot the example via shadow-cljs without a Clojure server in the
-    middle. The same code that's wired up to streaming server-side
-    (ssr-streaming/core.cljc) hydrates this static page just fine
-    because the streaming runtime's contract is purely additive — a
-    page with the final payload already inlined skips the per-chunk
-    swap path and goes straight to :rf/hydrate.
+    This resolved-and-failed DOM is produced by the STREAMING emitter, NOT
+    by `rf/render-to-string`. Standard rendering deliberately REJECTS a
+    :rf/suspense-boundary marker (:rf.error/ssr-suspense-boundary-outside-
+    stream) — boundaries only serve through the streaming pipeline:
+    `render-shell` walks the tree into the shell + a continuation per
+    boundary, `render-continuation` drains each subtree (catching a throw
+    into the failed fallback), and `build-final-payload` seals the
+    canonical state. The client streaming runtime (`ssr/streaming-install!`,
+    wired in ssr-streaming/core.cljc's `run`) consumes exactly the bytes
+    below: it materialises each inert fallback <template> into a live
+    <rf-suspense> mount (now the skeletons paint), swaps in each resolved
+    chunk, records :card.flaky as FAILED from its data-rf2-suspense-failed
+    marker, then on the final payload unwraps every mount and signals
+    :on-ready. Hydration adopts the resulting DOM: the boundary that
+    declared [card-skeleton :flaky] re-renders that skeleton (it is in the
+    failed set), so the client render matches the painted markup exactly.
 
-    The #app subtree is the dev-build FINAL resolved DOM — every boundary
-    already swapped to its body, and the flaky boundary to its declared
-    skeleton fallback — as `rf/render-to-string` emits it. In a dev build
-    the reg-view REGISTRATION boundary stamps `data-rf2-source-coord`
-    (`<ns>:<sym>:<line>:<col>`, the reg-view call site) and `data-rf-view`
-    (`(str id)`) on every registered view's root DOM element (Spec 006
-    §Source-coord annotation / §View tagging contract, moved cross-host to
-    the reg-view boundary by rf2-8vi4q). So `:dashboard/root` stamps the
-    `<main class="dashboard">` root, each resolved `:dashboard/card` stamps
-    its `<div class="card">`, and the flaky boundary's declared fallback
-    `:dashboard/card-skeleton` stamps `<div class="card skeleton">`. The
-    client's dev render stamps the same attributes, so the page adopts
-    cleanly and pair-shaped tooling can map each node to its view; a
-    production build elides them on both hosts.
+    In a dev build the reg-view REGISTRATION boundary stamps
+    `data-rf2-source-coord` (`<ns>:<sym>:<line>:<col>`, the reg-view call
+    site) and `data-rf-view` (`(str id)`) on every registered view's root
+    DOM element (Spec 006 §Source-coord annotation / §View tagging contract,
+    moved cross-host to the reg-view boundary by rf2-8vi4q). So
+    `:dashboard/root` stamps the `<main class="dashboard">` root, each
+    resolved `:dashboard/card` stamps its `<div class="card">`, and each
+    `:dashboard/card-skeleton` fallback stamps its `<div class="card
+    skeleton">`. The client's dev render stamps the same attributes, so the
+    page adopts cleanly and pair-shaped tooling can map each node to its
+    view; a production build elides them on both hosts.
+
+    (`:rf/render-hash` in the payload is the placeholder "00000000": this
+    offline stand-in leaves out `:render-tree-fn`, so hydration runs no
+    render-hash mismatch check — see the note in ssr-streaming/core.cljc's
+    `run`. A real streaming server stamps the genuine body hash and passes
+    `:render-tree-fn` to switch verification on.)
   -->
-  <div id="app"><main class="dashboard" data-rf2-source-coord="dashboard:root:159:1" data-rf-view=":dashboard/root"><header><h1>Dashboard</h1><p>Streamed SSR demo — shell renders first, cards stream in.</p></header><section class="cards"><div class="card" data-rf2-source-coord="dashboard:card:89:1" data-rf-view=":dashboard/card"><h3>Revenue (last 7 days)</h3><p class="value">42375</p></div><div class="card" data-rf2-source-coord="dashboard:card:89:1" data-rf-view=":dashboard/card"><h3>New signups (last 7 days)</h3><p class="value">318</p></div><div class="card" data-rf2-source-coord="dashboard:card:89:1" data-rf-view=":dashboard/card"><h3>P50 latency (ms)</h3><p class="value">24</p></div><div class="card skeleton" data-rf2-source-coord="dashboard:card-skeleton:84:1" data-rf-view=":dashboard/card-skeleton"><h3>Loading flaky …</h3><p class="value">—</p></div></section><footer><p>Each card above is a `:rf/suspense-boundary`.</p></footer></main></div>
+  <div id="app"><main class="dashboard" data-rf2-source-coord="dashboard:root:159:1" data-rf-view=":dashboard/root"><header><h1>Dashboard</h1><p>Streamed SSR demo — shell renders first, cards stream in.</p></header><section class="cards"><template data-rf2-suspense-id=":card.revenue" data-rf2-suspense-fallback="1"><div class="card skeleton" data-rf2-source-coord="dashboard:card-skeleton:84:1" data-rf-view=":dashboard/card-skeleton"><h3>Loading revenue …</h3><p class="value">—</p></div></template><template data-rf2-suspense-id=":card.signups" data-rf2-suspense-fallback="1"><div class="card skeleton" data-rf2-source-coord="dashboard:card-skeleton:84:1" data-rf-view=":dashboard/card-skeleton"><h3>Loading signups …</h3><p class="value">—</p></div></template><template data-rf2-suspense-id=":card.latency" data-rf2-suspense-fallback="1"><div class="card skeleton" data-rf2-source-coord="dashboard:card-skeleton:84:1" data-rf-view=":dashboard/card-skeleton"><h3>Loading latency …</h3><p class="value">—</p></div></template><template data-rf2-suspense-id=":card.flaky" data-rf2-suspense-fallback="1"><div class="card skeleton" data-rf2-source-coord="dashboard:card-skeleton:84:1" data-rf-view=":dashboard/card-skeleton"><h3>Loading flaky …</h3><p class="value">—</p></div></template></section><footer><p>Each card above is a `:rf/suspense-boundary`.</p></footer></main></div>
+  <template data-rf2-suspense-id=":card.revenue" data-rf2-suspense-resolved="1"><div class="card" data-rf2-source-coord="dashboard:card:89:1" data-rf-view=":dashboard/card"><h3>Revenue (last 7 days)</h3><p class="value">42375</p></div></template>
+  <script data-rf2-suspense-hydrate=":card.revenue" type="application/edn">{}</script>
+  <template data-rf2-suspense-id=":card.signups" data-rf2-suspense-resolved="1"><div class="card" data-rf2-source-coord="dashboard:card:89:1" data-rf-view=":dashboard/card"><h3>New signups (last 7 days)</h3><p class="value">318</p></div></template>
+  <script data-rf2-suspense-hydrate=":card.signups" type="application/edn">{}</script>
+  <template data-rf2-suspense-id=":card.latency" data-rf2-suspense-resolved="1"><div class="card" data-rf2-source-coord="dashboard:card:89:1" data-rf-view=":dashboard/card"><h3>P50 latency (ms)</h3><p class="value">24</p></div></template>
+  <script data-rf2-suspense-hydrate=":card.latency" type="application/edn">{}</script>
+  <template data-rf2-suspense-id=":card.flaky" data-rf2-suspense-resolved="1" data-rf2-suspense-failed="1"><div class="card skeleton" data-rf2-source-coord="dashboard:card-skeleton:84:1" data-rf-view=":dashboard/card-skeleton"><h3>Loading flaky …</h3><p class="value">—</p></div></template>
   <script id="__rf_payload" type="application/edn">
 {:rf/version 1
  :rf/app-db {:cards {:revenue {:title "Revenue (last 7 days)" :value 42375}
                      :signups {:title "New signups (last 7 days)" :value 318}
                      :latency {:title "P50 latency (ms)" :value 24}}}
- :rf/render-hash "00000000"}
+ :rf/render-hash "00000000"
+ :rf/runtime-db {:rf.runtime/ssr {:streaming {:failed-boundaries #{:card.flaky}}}}}
   </script>
   <script src="main.js"></script>
 </body>

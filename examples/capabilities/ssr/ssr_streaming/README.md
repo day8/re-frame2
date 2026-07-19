@@ -40,10 +40,13 @@ Var (`card-view`, which `reg-view` defs for you) or by `(rf/view :id)`.
 One caveat up front: this demo runs **offline**, with no Clojure server.
 Instead of fetching from three real services, `:rf/server-init` seeds all
 three card values synchronously, and the page boots from a hand-written
-`index.html` with the final resolved state and payload pre-baked. The
-`:clj` side still produces the full *wire shape* — shell, per-card
-chunks, final payload — as plain data returned from `handle-request`,
-frozen and replayable, no live streaming host needed. It's the worked
+`index.html` that bakes the whole streamed *wire shape* — the shell with a
+fallback `<template>` per boundary, each card's resolved chunk, the failed
+`:card.flaky` chunk, and the final payload — captured verbatim from the
+streaming emitter (the plain data `handle-request` returns), frozen and
+replayable, no live streaming host needed. The client runtime processes
+those baked bytes exactly as it would a live stream; only the network
+*timing* is missing. It's the worked
 companion to
 [Spec 011 §Streaming SSR](../../../../spec/011-SSR.md#streaming-ssr).
 
