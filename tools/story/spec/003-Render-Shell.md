@@ -343,17 +343,18 @@ The RHS stacks four regions vertically:
      mounts a Reagent tree. The host is owned by a Reagent class-3
      component (see §Mount lifecycle) that drives the
      mount/unmount round-trip on every panel-id swap.
-   - **Empty / no-Xray states.** When no variant is focused, the
-     region renders an italic placeholder ("Select a variant to
-     inspect via Xray."). When Xray is not on the host build's
-     classpath the region renders a distinct empty state ("Xray
-     is not loaded in this build — embed surface unavailable.")
-     so the chrome stays honest about what's available rather than
-     blanking silently.
+   - **Empty state.** When no variant is focused, the region renders
+     an italic placeholder ("Select a variant to inspect via Xray.").
+     There is no companion no-Xray state: `day8/re-frame2-xray` is a
+     declared Story dependency (rf2-r8trk), so a build that renders
+     this region has already resolved Xray's panels. The former
+     "Xray is not loaded in this build" placeholder and the
+     `xray-available?` predicate that gated it were both retired —
+     see [`DESIGN-RATIONALE.md`](DESIGN-RATIONALE.md)
+     §xray-is-a-declared-dependency.
 
-   Feature-detection rides
-   `re-frame.story.xray-preset/xray-available?`. The selection-
-   watcher seam in [`shell.cljs`](../src/re_frame/story/ui/shell.cljs)
+   The selection-watcher seam in
+   [`shell.cljs`](../src/re_frame/story/ui/shell.cljs)
    calls `xray-preset/wire-cross-host!` on every variant-selection
    edge to bridge Story's configuration into Xray's slots
    (`:rf.xray/project-root`, `:rf.xray/keybinding-enabled?`, listener

@@ -280,12 +280,13 @@ The view is consumed from `day8/re-frame2-xray` (per the
 [`tools/README.md`](../../README.md)). Story's panel is the
 **adapter**; Xray stays its own artefact, on its own release cadence.
 
-Story's `:rf.story/xray-epoch` registration ships with v1 but the
-panel only activates if `day8/re-frame2-xray` is on the classpath
-(per the late-bind hook in spec/002). If Xray is absent, the sidebar
-entry hides. The Xray artefact owns the actual view; Story owns the
-*integration*. See [`DESIGN-RATIONALE.md`](DESIGN-RATIONALE.md)
-§xray-embed.
+Story's `:rf.story/xray-epoch` registration ships with v1 and the
+panel always activates: `day8/re-frame2-xray` is a declared Story
+dependency (rf2-r8trk), so it is on the classpath by construction and
+there is no absent-Xray path for the sidebar entry to hide behind. The
+Xray artefact owns the actual view; Story owns the *integration*. See
+[`DESIGN-RATIONALE.md`](DESIGN-RATIONALE.md) §xray-embed and
+§xray-is-a-declared-dependency.
 
 ### Test Codegen — record-as-`:script` (rf2-5fc15 + rf2-0wrud + rf2-7mj4z)
 
@@ -760,8 +761,9 @@ into Xray's slot by `re-frame.story.xray-preset/propagate-project-root!`:
 - One-way (`story → xray`). Hosts that want Xray pointed at a
   different on-disk root than Story call `xray-config/configure!`
   directly AFTER `story/configure!` to override the bridge.
-- Feature-detect-safe: when Xray is not on the classpath the
-  propagator returns nil without touching the wire.
+- The bridge reaches Xray's `configure!` through a declared
+  `:require` (rf2-r8trk), not a runtime namespace probe. The only
+  no-op case is Story having no `:rf.story/project-root` configured.
 
 Symmetric to shop's [rf2-6jyf6](https://github.com/day8/re-frame2/pull/1493) —
 Xray's standalone testbeds (shop) seed Xray's project-root directly

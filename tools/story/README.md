@@ -85,6 +85,13 @@ grammar `:story.<path>/<variant>` is locked at the spec level.
 {:deps {day8/re-frame2-story-mcp {:mvn/version "..."}}}
 ```
 
+Story is one coordinate. Its RHS inspector *is* Xray, so
+`day8/re-frame2-xray` comes in transitively at the same lockstep
+version — you do not add it yourself, and there is no reduced
+"Story without Xray" build to opt into. See
+[`spec/DESIGN-RATIONALE.md`](./spec/DESIGN-RATIONALE.md)
+§xray-is-a-declared-dependency.
+
 re-frame2-story DCEs under `:advanced` builds — `reg-story` / `reg-variant`
 macros elide entirely, leaving the production bundle with zero Story bytes.
 See [`spec/005-SOTA-Features.md`](./spec/005-SOTA-Features.md) §Production

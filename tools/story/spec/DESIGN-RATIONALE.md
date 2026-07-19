@@ -328,18 +328,50 @@ RENDERS a host app's design tokens for the developer to inspect;
 the chrome's own tokens are the substrate that affordance would
 render against.)
 
-### §xray-embed-inert-without-xray — the Xray embed ships in v1 but degrades gracefully if Xray is absent
+### §xray-is-a-declared-dependency — Xray is Story's diagnostic engine, not an optional plugin
 
-Per §xray-embed above, and still the call: Story never takes a hard
-dependency on Xray merely to avoid an empty inspector. What ships is
-an explicit unavailable state rather than a silently hidden one — the
-embed surface checks whether Xray is on the classpath and, when it
-isn't, renders a short "Xray is not loaded in this build" placeholder
-in the RHS. Variants keep running; only the diagnostic lens is
-missing, and the reason is on screen instead of inferred from a gap.
+An earlier draft of this document promised the opposite: that Story
+"never takes a hard dependency on Xray", that the embed surface would
+check the classpath and render a short "Xray is not loaded in this
+build" placeholder when Xray was missing, and that the
+popout-to-full-Xray chip was gated on the same check.
 
-The popout-to-full-Xray chip is gated on the same check, so it cannot
-offer a door that doesn't open.
+The shipped artefact could never reach that state, and rf2-r8trk
+retired the promise rather than the coupling. Story's shell composes
+Xray unconditionally in three places: the RHS inspector mounts Xray's
+own panels through `day8.re-frame2-xray.panels/mount-<panel>!`, the
+popout escape hatch calls `day8.re-frame2-xray.mount/popout!`, and the
+evidence spine routes focus commands through
+`day8.re-frame2-xray.core/focus!`. All three are hard compile-time
+`:require`s. The "graceful absence" branch was unreachable code
+guarded by a vacuous predicate — `xray-available?` reduced to
+`(some? xray-mount/open!)` *after* a direct require, so any build that
+compiled had already proved the symbol bound.
+
+Worse, `tools/story/deps.edn` declared no Xray dependency at all. The
+repository-wide Shadow build masked that by carrying
+`../tools/xray/src` on its global `:source-paths`, so every in-repo
+build compiled while a fresh consumer whose only tool dependency was
+`day8/re-frame2-story` could not compile the shell at all.
+
+So the package graph now matches the product. `day8/re-frame2-xray` is
+a declared, lockstep-versioned Story dependency; the absence branch,
+its placeholder, and the availability predicate are gone; and
+installing Story is one coordinate. This is the honest shape of the
+six-panel + event-spine artefact Story actually ships, and it avoids
+inventing optional-plugin machinery for a lens the shell cannot
+render without.
+
+Story and Xray remain separate artefacts on the same release cadence —
+the dependency runs Story → Xray only, never back, so there is no
+cycle. Both are dev-only tools; neither reaches a production bundle,
+so the bundle-isolation contract (which forbids `implementation/` →
+`tools/`) is untouched.
+
+The one genuine feature-detect that survives is the filters API
+(`day8.re-frame2-xray.filters.config/configure!`), a namespace Xray
+does not currently expose. That probe stays until Xray ships the
+surface — see `re-frame.story.xray-preset/filters-available?`.
 
 ## Phase-2 SOTA additions — tier choices
 

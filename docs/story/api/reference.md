@@ -168,9 +168,9 @@ The Xray-RHS embed component. Reach here from the embed component or the Xray pr
 
 | Symbol | Kind | Audience | Intuition |
 |---|---|---|---|
-| `xray-embed-panel` | Reagent component | `user-app` (rare) / `chrome-shell` | The RHS Xray-host Reagent component. Renders the chip-row picker plus the Xray panel-host `<div>`. Feature-detect-safe — graceful no-op when Xray's preload is not on the classpath. |
+| `xray-embed-panel` | Reagent component | `user-app` (rare) / `chrome-shell` | The RHS Xray-host Reagent component. Renders the chip-row picker plus the Xray panel-host `<div>`. Shows a "Select a variant to inspect via Xray." placeholder when no variant is focused; there is no absent-Xray state, since `day8/re-frame2-xray` is a declared Story dependency. |
 | `mount-fn-for` | Pure dispatch fn | `chrome-shell` | `(mount-fn-for panel-id)` returns the Xray `mount-<panel>!` fn for `panel-id` (one of `:event-detail` / `:app-db` / `:views` / `:trace` / `:machines` / `:routing` / `:issues`), or nil for an unknown id. Compile-time symbol resolution. |
-| `popout-full-shell!` | User-callable lifecycle | `user-app` | Pop out the full Xray 4-layer shell into a second window. Gated on `xray-preset/xray-available?` so the chip is a graceful no-op when Xray's preload is absent. |
+| `popout-full-shell!` | User-callable lifecycle | `user-app` | Pop out the full Xray 4-layer shell into a second window. Xray is a declared Story dependency, so the popout symbol is always on the classpath; the only gate is Story's own elision posture. |
 
 ## `re-frame.story.xray-preset`
 
@@ -179,7 +179,6 @@ The chrome / Xray bridge.
 | Symbol | Kind | Audience | Intuition |
 |---|---|---|---|
 | `wire-cross-host!` | Internal bridge | `chrome-shell` | Bridges-only host-wiring helper called by the shell on every variant selection. Threads through Xray's host-installation hooks (project-root, keybinding) but does NOT mount Xray. |
-| `xray-available?` | Pure predicate | `user-app` / `chrome-shell` | True when Xray's preload is on the build. The chip-row, popout, and `wire-cross-host!` all check this. |
 | `propagate-project-root!` | Internal bridge | `chrome-shell` | Bridges Story's `:rf.story/project-root` from `configure!` into Xray's `:rf.xray/project-root` slot so Xray-as-RHS source-coord chips share the same on-disk root. |
 
 ## `re-frame.story.theme.*`
