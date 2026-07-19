@@ -677,22 +677,65 @@
   (when interop/debug-enabled?
     (trace/emit! :info :rf.ssr/phase-flip {:root-id root-id})))
 
+(defn emit-hydration-mismatch!
+  ;; The compiled-tier `:rf.ssr/hydration-mismatch` diagnostic (rf2-6z1i2, the
+  ;; Path A ruling). A hydrating compiled root has NO structural render-tree
+  ;; hash — the CLJS emitter produces React elements, not the hashable JVM
+  ;; structural tree, so the `:rf/render-hash` / `:render-tree-fn` /
+  ;; `verify-hydration!` hash channel is HICCUP-TIER-ONLY (Spec 011
+  ;; §Hydration-mismatch detection). A compiled root instead VERIFIES by
+  ;; React-native ADOPTION: React diffs the root's first `:server`-phase render
+  ;; (its `ui/client-only` fallbacks) against the server DOM during hydration
+  ;; and reports any divergence through the root's `onRecoverableError`.
+  ;; `re-frame.ui.client/hydrate-root*` surfaces that adoption-window divergence
+  ;; HERE, as the SAME `:rf.ssr/hydration-mismatch` category the hiccup tier
+  ;; emits — tier-discriminated by `:where` (the compiled adoption site), with
+  ;; `:root-id` and the recoverable `:error` message, and NO
+  ;; `:server-hash`/`:client-hash` (there is no compiled-tier hash to report).
+  ;;
+  ;; Rides the diagnostic channel via `re-frame.trace/emit!`; the
+  ;; `interop/debug-enabled?` gate DCEs the whole call under `:advanced` +
+  ;; `goog.DEBUG=false` (Spec 009 §Production builds), exactly like
+  ;; `emit-phase-flip!`. It is NOT an event and mints no epoch — it fires from a
+  ;; React root-error callback, outside any dispatch/handler scope.
+  [root-id error]
+  (when interop/debug-enabled?
+    (trace/emit! :warning :rf.ssr/hydration-mismatch
+                 {:root-id  root-id
+                  :error    (some-> error .-message)
+                  :where    're-frame.ui/hydrate-root
+                  :recovery :warned-and-replaced})))
+
 (defn ^:private PhaseFlipper
   ;; Drives the phase flip for ONE hydrating root. It boots `:server` (so the
-  ;; first = hydration render produces fallbacks, matching the server markup and
-  ;; keeping the hydration-mismatch snapshot honest — the snapshot is taken over
-  ;; the `:server`-phase tree by `ssr/hydrate!` BEFORE this even mounts), then
-  ;; flips to `:client` as the root's NEXT ORDINARY UPDATE after the hydration
-  ;; commit. A passive effect (`useEffect`) does the flip: passive effects run
-  ;; after the commit AND after paint, so the flip never beats the snapshot, and
-  ;; a painted fallback frame before the swap is by design (there is no
-  ;; `flushSync` — the capability-free fallback is presentable UI, nothing to
-  ;; race). The single phase-context write swaps EVERY client-only site in the
-  ;; root in the one update it produces. A root that fails to boot never commits
-  ;; this component, so its passive effect never runs and it never flips — its
-  ;; server fallback markup stays inert (`:rf.error/root-boot-failed` already
-  ;; fired; no additional error). Per-root and independent: each flipper is keyed
-  ;; to its own root's commit, so a slow/failed sibling never delays this flip.
+  ;; first = hydration render produces fallbacks, matching the server markup),
+  ;; then flips to `:client` as the root's NEXT ORDINARY UPDATE after the
+  ;; hydration commit. A passive effect (`useEffect`) does the flip: passive
+  ;; effects run after the commit AND after paint, so the flip never beats the
+  ;; hydration adoption, and a painted fallback frame before the swap is by
+  ;; design (there is no `flushSync` — the capability-free fallback is
+  ;; presentable UI, nothing to race). The single phase-context write swaps
+  ;; EVERY client-only site in the root in the one update it produces.
+  ;;
+  ;; The `:server`-phase first render is also what makes the compiled tier's
+  ;; hydration VERIFICATION honest: React ADOPTS the server DOM by diffing it
+  ;; against this fallback-bearing render, and reports any divergence through
+  ;; the root's `onRecoverableError` — which `hydrate-root*` surfaces as
+  ;; `:rf.ssr/hydration-mismatch` (rf2-6z1i2). That verification is React-native
+  ;; adoption, not a render-tree hash: a compiled root produces React elements,
+  ;; not the hashable structural tree the hiccup-tier `:render-tree-fn` hash
+  ;; channel consumes (Spec 011 §Hydration-mismatch detection, the two-tier
+  ;; split). Because the flip is a POST-commit passive effect, it runs strictly
+  ;; after that adoption — the Spec 011 timing constraint (the flip must not
+  ;; precede the mismatch check) holds by construction. The flip clears the
+  ;; root's `adoption-ref` on its `:server` commit, closing the adoption window
+  ;; so a later recoverable error is NOT misclassified as a hydration mismatch.
+  ;;
+  ;; A root that fails to boot never commits this component, so its passive
+  ;; effect never runs and it never flips — its server fallback markup stays
+  ;; inert (`:rf.error/root-boot-failed` already fired; no additional error).
+  ;; Per-root and independent: each flipper is keyed to its own root's commit,
+  ;; so a slow/failed sibling never delays this flip.
   [^js props]
   (let [root-id   (.-rfRootId props)
         pair      (react/useState :server)
@@ -701,11 +744,15 @@
     (react/useEffect
      (fn phase-flip []
        ;; The effect fires once per phase value. On the `:server` (mount /
-       ;; hydration) commit it schedules the flip; on the `:client` commit — the
+       ;; hydration) commit it CLOSES the adoption window (the hydration commit
+       ;; has landed) and schedules the flip; on the `:client` commit — the
        ;; flip commit — it emits the trace. `phase` is monotonic (`:server` ->
        ;; `:client`, once), so the trace fires exactly once per hydrating root.
        (if (= :server phase)
-         (set-phase :client)
+         (do
+           (when-some [adoption (.-rfAdoption props)]
+             (set! (.-adopting adoption) false))
+           (set-phase :client))
          (emit-phase-flip! root-id))
        js/undefined)
      #js [phase])
@@ -722,6 +769,13 @@
   installs no flipper, so its tree has no phase Provider and every
   `ui/client-only` site reads the `:client` default and renders its client
   subtree on the first render — byte-identical to S3. `render-static` likewise
-  installs none and stays pure `:server`."
-  [root-id element]
-  (react/createElement PhaseFlipper #js {:rfRootId root-id} element))
+  installs none and stays pure `:server`.
+
+  `adoption-ref` is the root-local mutable flag `#js {:adopting true}` the
+  hydration-mismatch `onRecoverableError` wrapper reads (rf2-6z1i2): the flipper
+  sets `.-adopting` false on its `:server` commit, closing the adoption window.
+  Passed through from `hydrate-root*`, which owns both ends of the flag."
+  [root-id element adoption-ref]
+  (react/createElement PhaseFlipper
+                       #js {:rfRootId root-id :rfAdoption adoption-ref}
+                       element))

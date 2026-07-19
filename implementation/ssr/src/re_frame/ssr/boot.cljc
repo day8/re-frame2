@@ -185,6 +185,23 @@
                  hash-mismatch detection, or runs `verify-hydration!`
                  itself at its own render site).
 
+                 **The render-tree hash is HICCUP-TIER-ONLY** (Spec 011
+                 §Hydration-mismatch detection, the two-tier split). It applies
+                 to substrates whose view is a pure fn returning a hashable
+                 render-tree — Reagent / UIx / Helix, where `((rf/view :app/root))`
+                 yields hiccup. The COMPILED-UI substrate (`re-frame.ui`) has NO
+                 hashable client render-tree — its views compile to React
+                 elements, not the structural tree the server hashes — so it does
+                 NOT pass `:render-tree-fn`. **The canonical compiled-ui boot is
+                 `ssr/hydrate!` WITHOUT `:render-tree-fn`, then `ui/hydrate-root`**:
+                 the compiled root VERIFIES by React-native ADOPTION (React diffs
+                 its first `:server`-phase render against the server DOM during
+                 hydration and reports divergence through `onRecoverableError`,
+                 surfaced as `:rf.ssr/hydration-mismatch` — see
+                 `re-frame.ui.runtime/emit-hydration-mismatch!`). The
+                 `:ssr {:on-mismatch :hard-error}` escalation is likewise
+                 hiccup-tier-only.
+
   Opts:
 
     :frame          — REQUIRED. The target frame id to hydrate into. The
