@@ -233,90 +233,39 @@
                        (emit-element child (when (zero? i) root-attrs)))
                      v)))))
 
-;; ---- source-coord annotation on registered-view roots --------------------
+;; ---- source-coord annotation: NOT the emitter's job ----------------------
 ;;
-;; ⚠ ORPHANED BY rf2-j81hs — HANDED TO rf2-8vi4q. Read before reusing.
+;; The two dev-mode view annotations — `data-rf2-source-coord` and
+;; `data-rf-view` — are stamped at the reg-view REGISTRATION boundary on
+;; every host, NOT by this emitter (rf2-8vi4q). The JVM half is a
+;; debug-gated hiccup walk wrapping the stored `:handler-fn` in
+;; `re-frame.core/reg-view*`'s `:clj` branch (see
+;; `re-frame.views.jvm-source-coord-annotation`); the CLJS half rides the
+;; substrate wrappers. So a registered view reached through its callable
+;; head (`[(rf/view :id) …]` / a Var — the shape isomorphic pages use)
+;; arrives here ALREADY annotated, and this emitter just stringifies it.
 ;;
-;; Per Spec 006 §Source-coord annotation (rf2-z7f7 / rf2-z9n1) and
-;; Spec 011 §Source-coord annotation under SSR, the SSR emitter injected
-;; `data-rf2-source-coord="<ns>:<sym>:<line>:<col>"` on a registered
-;; view's root DOM element so pair-tool consumers could map server-
-;; rendered HTML back to the reg-view call site.
-;;
-;; The ONLY call site was the keyword-view branch of `emit-element` (and
-;; its mirror in the streaming walker). rf2-j81hs deleted that branch, so
-;; BOTH fns below are now unreachable from this namespace: no server
-;; render annotates anything. That is the ruled outcome, not an oversight
-;; — per the rf2-j81hs ruling §5 the keyword-branch coord injection "dies
-;; WITH the branch", and per rf2-8vi4q's own evidence it never fired on
-;; any boundary a hydratable page can contain (isomorphic pages compose
-;; via `(rf/view :id)` fn-refs, where the JVM stores the raw unwrapped
-;; handler-fn, so emitter-side annotation never ran there anyway).
-;;
-;; The fns are LEFT IN PLACE deliberately. rf2-8vi4q is the bead that
-;; owns this surface: its ruling moves annotation to the reg-view
-;; REGISTRATION boundary (a debug-gated wrapper on the registered
-;; `:handler-fn`, mirroring Spec 006's client injection) and deletes
-;; `inject-coord-on-root-hiccup` plus its call sites as step 2. Deleting
-;; them here would pre-empt that design and strand its tests; the call
-;; sites are already gone, which is this bead's half of the work.
-;;
-;; Until rf2-8vi4q lands there is NO server-side source-coord annotation.
-;; `re-frame.ssr-source-coord-test` pins exactly that interim contract.
-
-(defn format-view-source-coord
-  "Render the registered view's metadata as the attribute value
-  `<ns>:<sym>:<line>:<col>` per Spec 006 §Source-coord annotation. Returns
-  nil when the slot has no captured coords (programmatic registration that
-  bypassed the macro path) — the emitter then skips the annotation."
-  [id slot]
-  (when (or (:ns slot) (:line slot) (:file slot) (:column slot))
-    (let [ns-part  (or (namespace id) "?")
-          sym-part (name id)
-          line     (:line slot)
-          col      (:column slot)]
-      (str ns-part ":" sym-part ":"
-           (if line (str line) "?")
-           ":"
-           (if col (str col) "?")))))
-
-(defn inject-coord-on-root-hiccup
-  "Inject :data-rf2-source-coord into the root element of a hiccup form,
-  if the root is a DOM-tag keyword. Mirrors the CLJS-side wrapper in
-  re-frame.views per Spec 006 §Source-coord annotation. Non-DOM roots
-  (fragment :<>, fn-or-component head, lazy-seq) are returned unchanged
-  — pair tools fall back to :rf/id for those (documented exemption)."
-  [coord out]
-  (cond
-    (and (vector? out)
-         (keyword? (first out))
-         (not= :<> (first out))
-         (not= :> (first out)))
-    (let [head        (first out)
-          maybe-attrs (second out)]
-      (if (map? maybe-attrs)
-        (if (contains? maybe-attrs :data-rf2-source-coord)
-          out
-          (into [head (assoc maybe-attrs :data-rf2-source-coord coord)]
-                (drop 2 out)))
-        (into [head {:data-rf2-source-coord coord}] (rest out))))
-
-    :else out))
+;; This is the ruled outcome of rf2-8vi4q. The rejected alternative
+;; (Option A) stamped the annotation inside the emitter's keyword-view
+;; branch — a branch rf2-j81hs deleted (a keyword head is a DOM element on
+;; every host) and that never fired on the callable-head shape hydratable
+;; pages actually contain. rf2-j81hs left the orphaned emitter-side
+;; `format-view-source-coord` / `inject-coord-on-root-hiccup` fns for this
+;; bead to delete; they are gone. The emitter is a pure hiccup → HTML
+;; function with no annotation logic.
 
 ;; ---- root-attrs injection (per rf2-lxwse) --------------------------------
 ;;
 ;; The render-hash (data-rf-render-hash) is stamped on the first DOM-tag
 ;; element of the rendered tree. Historically this used a post-emit regex
 ;; replace on the output string; rf2-lxwse refactored that into a
-;; structural injection on the hiccup root before stringification — the
-;; same pattern as `inject-coord-on-root-hiccup` above. To compose with
-;; that source-coord injection (which only runs inside the view-ref
-;; resolution branch of `emit-element`), the injection threads an optional
-;; `root-attrs` map down through `emit-element` and consumes it on the
-;; first DOM-tag emission — past any view-refs, fragments (`:<>`),
-;; Reagent-native heads (`:>`), or fn-headed components on the root path.
-;; Non-DOM-rooted trees silently no-op on the injection (matches the
-;; source-coord exemption).
+;; structural injection on the hiccup root before stringification. The
+;; injection threads an optional `root-attrs` map down through
+;; `emit-element` and consumes it on the first DOM-tag emission — past any
+;; fragments (`:<>`), Reagent-native heads (`:>`), or fn-headed /
+;; view-ref components on the root path. Non-DOM-rooted trees silently
+;; no-op on the injection (the same exemption the registration-boundary
+;; source-coord annotation takes for a non-DOM root).
 
 (defn merge-root-attrs
   "Merge root-level injected attrs (per rf2-lxwse) into the attrs map of

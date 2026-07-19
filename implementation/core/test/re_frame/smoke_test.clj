@@ -878,9 +878,18 @@
     ;; rf2-j81hs — `[(rf/view :greet) "world"]`, not `[:greet "world"]`.
     ;; A keyword head is a DOM / custom element on every host; the emitter
     ;; no longer probes the registry for it.
-    (is (= "<p>hello <strong>world</strong></p>"
-           (rf/render-to-string [(rf/view :greet) "world"]))
-        "render-to-string resolves a callable head")
+    ;;
+    ;; rf2-8vi4q — in a DEV build the registered handle's root also carries
+    ;; the two debug-gated view annotations (data-rf2-source-coord /
+    ;; data-rf-view — their exact bytes are pinned in
+    ;; `re-frame.ssr-source-coord-test`), so assert the RESOLUTION
+    ;; structurally here rather than couple the smoke test to the
+    ;; annotation format.
+    (let [html (rf/render-to-string [(rf/view :greet) "world"])]
+      (is (clojure.string/includes? html "hello <strong>world</strong>")
+          "render-to-string resolves a callable head")
+      (is (clojure.string/starts-with? html "<p ")
+          "the resolved view's <p> root is present (now carrying dev annotations)"))
     (is (fn? (rf/view :greet))
         "view returns the registered render fn")
     (is (nil? (rf/view :no-such-view))))

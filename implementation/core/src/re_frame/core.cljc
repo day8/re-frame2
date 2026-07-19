@@ -54,6 +54,12 @@
             ;; bundle-isolation gate verifies. Xray's Reactive panel
             ;; loads the ns explicitly from its tools-side build.
             #?@(:clj [[re-frame.trace.cascade]])
+            ;; JVM-only: the server-side reg-view registration-boundary
+            ;; annotation (rf2-8vi4q). The `:clj` branch of `reg-view*`
+            ;; wraps the stored `:handler-fn` with it; the CLJS view path
+            ;; annotates through the substrate wrappers (spine / views),
+            ;; so this ns is deliberately absent from CLJS bundles.
+            #?@(:clj [[re-frame.views.jvm-source-coord-annotation :as jvm-view-annot]])
             [re-frame.event-emit :as event-emit]
             [re-frame.error :as error]
             [re-frame.error-emit :as error-emit]
@@ -704,8 +710,23 @@
    #?(:cljs
       (views/reg-view* id (source-coords/merge-coords metadata) render-fn)
       :clj
-      (registrar/register! :view id (assoc (source-coords/merge-coords metadata)
-                                           :handler-fn render-fn)))
+      ;; rf2-8vi4q — the JVM registration boundary is the single home of
+      ;; the two dev-mode view annotations (`data-rf2-source-coord` /
+      ;; `data-rf-view`), mirroring the CLJS `views/reg-view*` path above
+      ;; which annotates through the substrate wrappers. The stored
+      ;; `:handler-fn` is wrapped with a debug-gated hiccup walk so a
+      ;; server render emits the same evidence the dev client render
+      ;; stamps, and a dev SSR page hydrates as a clean ADOPTION. In a
+      ;; production SSR build (`interop/debug-enabled?` false) the wrap is
+      ;; a no-op — the raw handler-fn is stored and markup stays
+      ;; annotation-free. The coords the walk stamps are the SAME merged
+      ;; coords stored in the slot, so the attribute value matches
+      ;; whatever pair tools read back off the registry.
+      (let [coords (source-coords/merge-coords metadata)]
+        (registrar/register!
+          :view id
+          (assoc coords
+                 :handler-fn (jvm-view-annot/wrap-handler-fn id coords render-fn)))))
    id))
 
 (defn view

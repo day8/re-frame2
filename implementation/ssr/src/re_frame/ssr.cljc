@@ -52,7 +52,10 @@
 ;; Per Spec 004B §The SSR consumption boundary (rf2-3omxp).
 (def emit-ui-tree                    ui-tree/emit-ui-tree)
 (def install-render-to-string!       emit/install-render-to-string!)
-(def ^:private format-view-source-coord emit/format-view-source-coord)
+;; rf2-8vi4q — `format-view-source-coord` (and its emitter-side companion
+;; `inject-coord-on-root-hiccup`) are deleted: dev-mode view annotation
+;; now lives at the reg-view registration boundary
+;; (`re-frame.views.jvm-source-coord-annotation`), not in the emitter.
 (def render-tree-hash                hash/render-tree-hash)
 ;; framework-private: tests reach into `#'ssr/canonical-edn` for the
 ;; JVM↔CLJS canonical-EDN parity check (hash_check_cljs_test).
