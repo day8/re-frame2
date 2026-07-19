@@ -2088,7 +2088,14 @@
   KNOW the realm and pass it: the `capture-frame` stale-op PRE-CHECK seam
   (`emit-captured-frame-superseded!`), AND — rf2-a2x2w — the router's LATE
   captured-op fences (the A→B incarnation mismatch + the post-token-match /
-  pre-enqueue / pre-drain-acquire window in `dispatch!` / `dispatch-sync!`)."
+  pre-enqueue / pre-drain-acquire window in `dispatch!` / `dispatch-sync!`).
+
+  A present `op` ALSO suppresses the EP-0015 frame-owned sink route (rf2-qjfrw,
+  the capture-realm extension of the rf2-bf0io UI seam): every op-bearing caller
+  is a KNOWN-DEAD captured incarnation whose bare `frame-id` may now name a live
+  same-id SUCCESSOR, so routing to it would leak a dead incarnation's failure
+  into the successor's own sink. The corpus fan-out + dev trace still fire; only
+  the frame-owned route is dropped. Nil `op` (address-directed) keeps its route."
   ([event-id event frame-id]
    (emit-frame-destroyed! event-id event frame-id nil))
   ([event-id event frame-id op]
@@ -2100,12 +2107,31 @@
    ;; — the ratified-public `:op` realm attribution, which also steers source-
    ;; coord); nil `op` leaves the record shape exactly as the bare-drain
    ;; callers have always emitted it (no `:op` key).
+   ;;
+   ;; rf2-qjfrw: `route-frame?` false SUPPRESSES ONLY the EP-0015 frame-owned
+   ;; sink route (the rf2-bf0io seam, extended from the UI `(frame)` bundle to
+   ;; the core `capture-frame` primitive) whenever `op` is present. A present
+   ;; `op` marks a CAPTURED-op rejection — the pre-check seam
+   ;; (`emit-captured-frame-superseded!`) and the router's late captured-op
+   ;; fences (the A→B incarnation mismatch + the post-token-match windows in
+   ;; `dispatch!` / `dispatch-sync!`). Every one of those is a KNOWN-DEAD
+   ;; captured incarnation whose bare `frame-id` no longer names the incarnation
+   ;; the failure belongs to: a same-id destroy→reincarnation may have reseated
+   ;; a live SUCCESSOR B under it, and resolving the bare id to B would deliver a
+   ;; dead incarnation's failure into B's OWN `:observability :errors` sink
+   ;; (frame isolation; exact-incarnation attribution). The corpus fan-out
+   ;; (axis 1 listener) and the dev trace (axis 2) still fire exactly once; only
+   ;; the frame-owned route is dropped. A nil `op` (the ordinary
+   ;; address-directed router drain / no-such-frame emit) keeps the default
+   ;; route — an ordinary frame-destroyed's bare id is address-directed, so it
+   ;; stays route-eligible.
    (error-emit/emit-error-both!
      :rf.error/frame-destroyed
      event event-id frame-id nil 0 (interop/now-ms)
      (cond-> {:frame frame-id :event event :reason :frame-destroyed}
        op (assoc :op op))
-     (when op {:op op}))))
+     (when op {:op op})
+     (nil? op))))
 
 (defn- handle-frame-destroyed!
   "Per Spec 002 §Run-to-completion: a frame disposed between enqueue and

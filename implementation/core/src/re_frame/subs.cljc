@@ -958,8 +958,19 @@
   under the unresolvable frame (rf2-t55hxg.18's fail-closed guards policy-walked
   VALUE slots, which identity slots never consult). `:op` rides BOTH the
   dev-trace tags (axis 2) and the ratified-public always-on record-attrs
-  (axis 1), exactly like `router/emit-frame-destroyed!`."
-  [frame-id query-v]
+  (axis 1), exactly like `router/emit-frame-destroyed!`.
+
+  `route-frame?` (rf2-qjfrw) gates ONLY the EP-0015 frame-owned sink route (the
+  capture-realm extension of the rf2-bf0io UI seam). A CAPTURED subscribe whose
+  pinned incarnation was SUPERSEDED passes false: its bare `frame-id` may now
+  name a live same-id SUCCESSOR B, and A's dead-incarnation failure must not
+  land in B's OWN `:observability :errors` sink (frame isolation;
+  exact-incarnation attribution). The corpus fan-out (axis 1) and dev trace
+  (axis 2) still fire exactly once. An ORDINARY address-directed subscribe to a
+  missing/destroyed frame passes true — its bare id names no captured
+  incarnation, so it keeps the default route (and, its frame being absent,
+  resolves to no sink anyway)."
+  [frame-id query-v route-frame?]
   (when-let [emit-error-both!
              (late-bind/get-fn-cached :error-emit/emit-error-both)]
     (emit-error-both!
@@ -974,7 +985,8 @@
        :query-v  query-v
        :recovery :replaced-with-default
        :op       :subscribe}        ;; dev-trace tags (axis 2)
-      {:op :subscribe}))            ;; always-on record realm attribution (axis 1)
+      {:op :subscribe}              ;; always-on record realm attribution (axis 1)
+      route-frame?))                ;; suppress the frame-owned route for a dead captured incarnation (rf2-qjfrw)
   ;; RECOVER to nil (the `:replaced-with-default` value the subscribe surfaces),
   ;; independent of the emit hook's own return.
   nil)
@@ -1039,7 +1051,12 @@
      ;; rf2-alk8a: `emit-frame-destroyed-recovery!` is subscribe-realm by
      ;; construction and stamps `:op :subscribe`, so the resolved `:source-coord`
      ;; names the EXACT `[:sub id]` realm, never the realm-ambiguous fallback.
-     (do (emit-frame-destroyed-recovery! frame-id query-v) nil)
+     ;; rf2-qjfrw: this branch is reached ONLY for a CAPTURED subscribe (guarded
+     ;; by `some? expected-incarnation`) whose pinned incarnation is dead, so the
+     ;; bare `frame-id` may name a live same-id successor B — pass `route-frame?`
+     ;; false to keep A's failure out of B's frame-owned `:observability :errors`
+     ;; sink (corpus record + dev trace still fire).
+     (do (emit-frame-destroyed-recovery! frame-id query-v false) nil)
      ;; else — the existing build, against the validated `frame-record` for a
      ;; captured read (never a bare-id re-resolve), or re-resolved by id for the
      ;; unchanged ambient/address-directed path.
@@ -1607,7 +1624,13 @@
          ;; the EXACT `[:sub id]` realm (omitting when the sub-id is genuinely
          ;; unregistered), and the attempted query vector egresses on the `:event`
          ;; slot as raw IDENTITY (rf2-zwgqe) rather than fail-closed to redacted.
-         (emit-frame-destroyed-recovery! frame-id query-v)   ;; emits, returns nil
+         ;; rf2-qjfrw: suppress the EP-0015 frame-owned sink route ONLY for a dead
+         ;; CAPTURED incarnation (`superseded?` — a captured pin whose frame was
+         ;; destroyed/reseated, so the bare `frame-id` may name a live same-id
+         ;; successor B). An ORDINARY address-directed subscribe (`superseded?`
+         ;; false, `expected-incarnation` nil, frame simply missing) keeps its
+         ;; default route — its bare id names no captured incarnation.
+         (emit-frame-destroyed-recovery! frame-id query-v (not superseded?)) ;; emits, returns nil
 
          :else
          (let [cache (:sub-cache frame-record)
