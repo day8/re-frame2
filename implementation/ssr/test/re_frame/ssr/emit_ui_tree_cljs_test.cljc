@@ -199,6 +199,69 @@
     (is (= "<div><b>raw</b></div>"
            (ui-tree/emit-ui-tree (v1 {:tag :div :children [{:html "<b>raw</b>"}]}))))))
 
+;; ---------------------------------------------------------------------------
+;; Raw-text elements — <script>/<style> content (rf2-2dh3b)
+;;
+;; ANCHOR (rf2-2dh3b): react-dom/server 19.2 emits <script>/<style> text as HTML
+;; RAW TEXT — the parser decodes no entities inside them, so the content is NOT
+;; sent through `escape-html`; only an embedded closing-tag sequence is rewritten
+;; to a context-safe spelling (a JS `s` unicode escape for </script, a CSS
+;; `\73 ` escape for </style) so the raw-text parser cannot terminate early. This
+;; is the raw-text EXCEPTION to Spec 004B §Children, text, and escaping's blanket
+;; 5-char escaping row; the expected strings below are byte-pinned against
+;; react-dom/server 19.2 (renderToStaticMarkup). It is NOT a sanitiser: the tree
+;; is already-rendered, server-authored content (the ns trust contract), exactly
+;; what react-dom/server itself emits raw.
+;; ---------------------------------------------------------------------------
+
+(deftest raw-text-script-style-is-not-html-escaped
+  (testing "ordinary ampersand / less-than / greater-than in <script> stays LITERAL"
+    ;; RED-BEFORE lever: the shipped `escape-html` path emitted
+    ;; "<script>a &amp; b &lt; c &gt; d</script>" — a corrupted script body.
+    (is (= "<script>a & b < c > d</script>"
+           (ui-tree/emit-ui-tree (v1 {:tag :script :children ["a & b < c > d"]}))))
+    (is (= "<script>if (a && b) {}</script>"
+           (ui-tree/emit-ui-tree (v1 {:tag :script :children ["if (a && b) {}"]})))))
+  (testing "ordinary ampersand / less-than in <style> stays LITERAL"
+    (is (= "<style>a & b < c > d</style>"
+           (ui-tree/emit-ui-tree (v1 {:tag :style :children ["a & b < c > d"]})))))
+  (testing "a childless raw-text element still emits an explicit close tag"
+    (is (= "<script></script>" (ui-tree/emit-ui-tree (v1 {:tag :script}))))
+    (is (= "<style></style>" (ui-tree/emit-ui-tree (v1 {:tag :style}))))))
+
+(deftest raw-text-closing-sequences-get-context-safe-spellings
+  (testing "<script> content: (<|</)script -> the s/S becomes \\u0073 / \\u0053"
+    ;; RED-BEFORE lever: the escape path emitted the entity spellings
+    ;; "&lt;/script&gt;" whose entities stay LITERAL inside raw text — the DOM
+    ;; would carry the text </script> and terminate the element early.
+    (is (= "<script>var x = '</\\u0073cript>';</script>"
+           (ui-tree/emit-ui-tree (v1 {:tag :script :children ["var x = '</script>';"]}))))
+    (is (= "<script>a<\\u0073cript>b</script>"
+           (ui-tree/emit-ui-tree (v1 {:tag :script :children ["a<script>b"]})))
+        "an OPENING <script in content is escaped too, matching React")
+    (is (= "<script>a</\\u0053CRIPT>b</script>"
+           (ui-tree/emit-ui-tree (v1 {:tag :script :children ["a</SCRIPT>b"]})))
+        "case is preserved except the escaped s/S; uppercase S -> \\u0053")
+    (is (= "<script>a</\\u0053cRiPt>b</script>"
+           (ui-tree/emit-ui-tree (v1 {:tag :script :children ["a</ScRiPt>b"]})))
+        "mixed-case suffix preserved verbatim"))
+  (testing "<style> content: (<|</)style -> the s/S becomes \\73 / \\53 (CSS escape)"
+    (is (= "<style>.x{content:'</\\73 tyle>'}</style>"
+           (ui-tree/emit-ui-tree (v1 {:tag :style :children [".x{content:'</style>'}"]}))))
+    (is (= "<style>a</\\53 TYLE>b</style>"
+           (ui-tree/emit-ui-tree (v1 {:tag :style :children ["a</STYLE>b"]}))))))
+
+(deftest raw-text-own-lever-p-still-escapes
+  (testing "VACUITY probe: the SAME text in a NON-raw-text element IS escaped"
+    ;; The fix is narrow: only <script>/<style> bypass entity escaping. If the
+    ;; branch mis-fired for ordinary elements this would drop the entities.
+    (is (= "<p>a &amp; b &lt; c &gt; d</p>"
+           (ui-tree/emit-ui-tree (v1 {:tag :p :children ["a & b < c > d"]})))
+        "an ordinary <p> keeps full 5-char escaping")
+    (is (= "<div>&lt;/script&gt;</div>"
+           (ui-tree/emit-ui-tree (v1 {:tag :div :children ["</script>"]})))
+        "and </script> in a <div> is inert escaped text, not a raw-text escape")))
+
 (deftest custom-element-property-props-omitted
   (testing "property-classified props never reach markup; attributes do"
     (is (= "<my-widget id=\"w\"></my-widget>"
