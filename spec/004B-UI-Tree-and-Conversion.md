@@ -388,6 +388,102 @@ shapes.
   `emit-ui-tree`; the response accumulator, error projection, and payload machinery are
   unchanged `re-frame2-ssr` surfaces.
 
+### Stage — spec ahead of code
+
+Both halves belong to S5 (`rf2-vxgfnd.97`): the spelling in this section, and the
+serialiser in the SSR artefact that must meet it. Where the repo already names
+`emit-ui-tree` — `re-frame.ui.compiler.root`'s compile-error message, the guide's
+pipeline sentence — it is pointing at *this contract*, under the same
+rows-land-with-stages rule that leaves the version gate's catalogue row uncatalogued
+above. Spec leads code here, so a reader who greps the name and finds no function has
+found the design working rather than a gap.
+
+Until that stage the JVM has no tree→HTML path at all.
+[011 §The render-tree → HTML emitter](011-SSR.md#the-render-tree--html-emitter-cljs-reference)
+serves the Reagent/hiccup tier and does not transfer — for the reason below, which is
+also why there was never a shim between them available to write.
+
+### What the seam consumes
+
+`render-to-string` and `emit-ui-tree` both end in an HTML string, and that shared ending
+is the whole of their similarity. `render-to-string` consumes a **hiccup form** and does
+the rendering itself: it walks the form, calls views through their callable head, and
+resolves each subscription against the frame's static `app-db`. `emit-ui-tree` consumes
+a **structural tree that has already been rendered** — the version-1 value the JVM
+emitter produced — and calls nothing. Every view has run, every subscription is
+resolved, and every dynamic value is already a literal in the tree.
+
+The two seams therefore sit at different points of one pipeline rather than at two ends
+of a translation. The hiccup emitter's central job is invoking views, and that is work
+`emit-ui-tree` must never do: a view invoked here would be a *second* render, against a
+frame whose state has already moved past the one the tree was built from. `emit-ui-tree`
+needs no bound frame and no request context. It is a function of its arguments.
+
+### Emission is pure, deterministic, and JVM-runnable
+
+**Pure.** No React, no DOM, no JS runtime, no reactive substrate. The tree is data and
+the seam is a fold over it: nothing is subscribed, dispatched, mounted or scheduled, a
+call leaves no mark on the frame the tree came from, and two calls on one tree are
+indistinguishable from one.
+
+**Deterministic to the byte.** One tree emits one string, on every run. That is what
+makes server output cacheable and golden-file testable, and it is the serialiser's half
+of the S5 proof that a server-rendered root hydrates without mismatch. The tree admits
+values whose *comparison* is order-insensitive — an `:attrs` map, a `:style` map
+(§Normalization) — and for those the seam emits in a **pinned total order** rather than
+iteration order, because map iteration order is trusted here exactly as little as it is
+in the `:class` flag-map row above. *Which* total order is a code-half choice the parity
+corpus pins; that there is one, and that it is total, is the contract.
+
+**One table, no seam-local rows.** Emission applies the serialisation half of §The DOM
+conversion table and adds nothing to it. Where a row is version-pinned to a React
+release — the unitless style set, the boolean-attribute set — the seam carries the copy
+the client emitter targets, and the parity corpus is what catches drift between them.
+Divergence between the two emitters is *detected, not prevented*: they are separate code
+by design, and this contract's job is to give them one table to be separate against.
+
+### What the seam does not do
+
+The seam emits the markup for **one root's tree**. Everything else a real page carries
+belongs to the SSR artefact's other surfaces, and drawing the line here is what keeps
+the code half from re-implementing them:
+
+- **No manifest, no payload, no ledger.** The per-root manifest script, the page-wide
+  hydration payload, and the install ledger are
+  [011 §Root Manifest v1](011-SSR.md#root-manifest-v1) and the sections following it.
+  `emit-ui-tree` neither writes them nor reads them.
+- **No container, no identity.** Root-ids, identifier prefixes, element locators and the
+  root marker attribute are root identity
+  ([004C §7](004C-Roots-and-Mount.md#7-duplicate-and-conflict-detection--fail-loud-three-layers)),
+  settled before the seam is called and stamped by whatever assembles the page around
+  its output.
+- **No response.** Status, headers, cookies and redirects live in the per-request
+  response accumulator
+  ([011 §HTTP response contract](011-SSR.md#http-response-contract)). A string is the
+  seam's entire return value.
+- **No recovery.** The seam fails loud, above, and never substitutes a fallback for a
+  tree it cannot emit. Containing a failed root so its siblings still render is a
+  page-assembly decision, and it is taken above this seam.
+
+### Markup and fingerprint read one tree by two rules
+
+`emit-ui-tree` and `ui-tree-fingerprint` are handed the **same tree value**, and they
+disagree about it on purpose. Markup is the conversion table applied to the tree as
+built; the fingerprint is the canonical-EDN serialisation of `N(tree)` (§Normalization),
+which has already spliced view boundaries and fragments, dropped `:events` and `:key`s,
+and coalesced text.
+
+The consequence is worth stating outright: **a difference normalization erases does not
+move the fingerprint, even where it moves the bytes.** Two renders differing only in a
+stripped dev annotation agree structurally, and are meant to. The fingerprint answers
+*did the server and the client build the same thing*, not *are these two strings equal* —
+and hashing the emitted HTML instead would answer the second question while appearing to
+answer the first.
+
+This contract owns the fingerprint's **input** only; the hash algorithm, the digest
+encoding, and the manifest field that carries it are Spec 011's (§Normalization, and
+[011 §Root Manifest v1](011-SSR.md#root-manifest-v1)).
+
 ## [S1-CONFIRM] roster (collected)
 
 1. SVG camelCase attribute alias table (mirror React's `possibleStandardNames`).
