@@ -52,8 +52,9 @@
   active frame's `[:rf.runtime/machines :system-ids]` reverse index, or nil.
 
   EP-0002 carried invariant: the 1-arity ambient form resolves the frame
-  through the scope/hold chain (`with-frame` / frame-provider / a carried
-  stamp) via `frame/require-current-frame!` — a lookup under no established
+  through the scope/hold chain (`with-frame`, a `frame-provider` (SCOPE) or
+  a `frame-root` (ENSURE) boundary, or a carried stamp) via
+  `frame/require-current-frame!` — a lookup under no established
   scope raises `:rf.error/no-frame-context`, with NO `:rf/default` floor.
   Pass the public opts form `(machine-by-system-id system-id {:frame
   target})` to name a frame explicitly (async callbacks / tools /

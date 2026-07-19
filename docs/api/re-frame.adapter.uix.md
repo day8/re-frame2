@@ -70,7 +70,7 @@ For narrative coverage and the substrate decision set, see [Use UIx, Helix, or r
 
   Returns the current sub value and re-renders the calling component when the value changes.
 
-  - The 1-arg form resolves the frame through the standard chain: `with-frame` dynamic scope first, then the surrounding `frame-provider`. It raises `:rf.error/no-frame-context` when neither is in scope (there is no `:rf/default` floor).
+  - The 1-arg form resolves the frame through the standard chain: `with-frame` dynamic scope first, then the surrounding `frame-provider` (SCOPE) / `frame-root` (ENSURE) via React context. It raises `:rf.error/no-frame-context` when neither is in scope (there is no `:rf/default` floor).
   - The 2-arg form pins to an explicit frame-id, bypassing the chain.
 - **Example**:
   ```clojure

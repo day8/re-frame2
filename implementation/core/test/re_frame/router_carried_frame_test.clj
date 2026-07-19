@@ -7,8 +7,9 @@
   Router envelope frame resolution order:
     1. explicit `{:frame …}` opt WINS (override);
     2. otherwise `frame/require-current-frame!` reads the scope/hold stamp
-       (`with-frame` / frame-provider / a captured `*current-frame*`
-       binding via a capture-frame);
+       (`with-frame`, a `frame-provider` (SCOPE) or a `frame-root`
+       (ENSURE) boundary, or a captured `*current-frame*` binding via a
+       capture-frame);
     3. no frame ⇒ NO enqueue — the dispatch raises
        `:rf.error/no-frame-context` at envelope-build time, BEFORE any
        frame-registry lookup. There is no `:rf/default` floor.

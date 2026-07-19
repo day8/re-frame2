@@ -168,7 +168,8 @@
                       ;; EP-0002 — HTTP interceptor registration is
                       ;; CONTEXT-REQUIRED FRAME-LOCAL: the explicit `:frame`
                       ;; (the *override*) wins, else the carried-invariant
-                      ;; scope chain (a `with-frame` / frame-provider scope,
+                      ;; scope chain (a `with-frame` scope, a `frame-provider`
+                      ;; (SCOPE) or `frame-root` (ENSURE) boundary,
                       ;; or a frame `:initial-events` step). Registering under no
                       ;; scope and no explicit `:frame` raises the always-on
                       ;; `:rf.error/no-frame-context` rather than installing
@@ -250,7 +251,9 @@
     (clear-http-interceptor id {:frame target})  ;; explicit frame
 
   The single-arity `(clear-http-interceptor id)` resolves the frame through
-  the carried-invariant scope chain (a `with-frame` / frame-provider scope);
+  the carried-invariant scope chain (a `with-frame` scope, or the closest
+  enclosing frame boundary — a `frame-provider` (SCOPE) or a `frame-root`
+  (ENSURE));
   under no scope it raises the always-on `:rf.error/no-frame-context` rather
   than clearing against a synthesised `:rf/default`.
 

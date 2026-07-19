@@ -158,9 +158,11 @@
     :frame              resolved frame keyword per the EP-0002 carried
                         invariant: explicit `{:frame …}` opt wins
                         (override), else `frame/require-current-frame!`
-                        reads the scope/hold stamp (`with-frame` /
-                        frame-provider / a captured `*current-frame*`
-                        binding). Absence raises `:rf.error/no-frame-
+                        reads the scope/hold stamp (`with-frame`, a
+                        `frame-provider` (SCOPE) or a `frame-root`
+                        (ENSURE) boundary, or a captured
+                        `*current-frame*` binding). Absence raises
+                        `:rf.error/no-frame-
                         context` BEFORE any registry lookup — there is no
                         `:rf/default` floor. Per Spec 002 §Frame target
                         resolution — the carried invariant.
@@ -307,9 +309,11 @@
         ;;      lookup failure at the dispatch site, a DIFFERENT category
         ;;      from absence).
         ;;   2. otherwise `frame/require-current-frame!` reads the
-        ;;      scope/hold stamp (`with-frame` / frame-provider via
-        ;;      `resolve-current-frame`, or a captured `*current-frame*`
-        ;;      binding). When no scope is established and no stamp is
+        ;;      scope/hold stamp (`with-frame`, or the closest enclosing
+        ;;      frame boundary — a `frame-provider` (SCOPE) or a
+        ;;      `frame-root` (ENSURE) — via `resolve-current-frame`, or a
+        ;;      captured `*current-frame*` binding). When no scope is
+        ;;      established and no stamp is
         ;;      carried, it emits the always-on `:rf.error/no-frame-
         ;;      context` (with capture-site ancestry) and THROWS — so the
         ;;      dispatch raises here, BEFORE the frame-registry lookup in
