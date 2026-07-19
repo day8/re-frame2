@@ -759,11 +759,40 @@
     (is (= :rf.ui.compile/html-in-textarea
            (reject-id '[:textarea (html "<b>x</b>")]))
         "a textarea's content is :value or a text child, not trusted markup"))
+  (testing "a static <textarea>'s single-text-child contract rejects the "
+           "host-divergent multi/value+child/structural shapes (rf2-ib4fd "
+           "residual — the cases #6517's (ui/html …) rule did NOT cover)"
+    ;; RED-BEFORE lever: each of these COMPILED before this rule — React 19.2
+    ;; throws "<textarea> can only have at most one child" for two children and
+    ;; for value+child, and renders a structural child as "[object Object]",
+    ;; while the JVM serialiser emitted `ab` / silently dropped the child for
+    ;; `v` / emitted `<span>x</span>` respectively.
+    (is (= :rf.ui.compile/textarea-children
+           (reject-id '[:textarea "a" "b"]))
+        "two text children — React allows at most one")
+    (is (= :rf.ui.compile/textarea-children
+           (reject-id '[:textarea {:value "v"} "c"]))
+        "literal :value AND an authored child — React rejects the pair")
+    (is (= :rf.ui.compile/textarea-children
+           (reject-id '[:textarea {:default-value "v"} "c"]))
+        "literal :default-value AND an authored child rejects identically")
+    (is (= :rf.ui.compile/textarea-children
+           (reject-id '[:textarea [:span "x"]]))
+        "a structural (hiccup element) sole child — React renders [object Object]")
+    (is (= :rf.ui.compile/textarea-children
+           (reject-id '[:textarea (for [x xs] [:span {:key x} x])]))
+        "a `for` list sole child (a seq of children) rejects the same way"))
   (testing "an ordinary <textarea> body stays supported"
     (is (nil? (reject-id '[:textarea {:value txt}]))
         ":value is the textarea content channel")
+    (is (nil? (reject-id '[:textarea {:default-value "d"}]))
+        ":default-value alone (no child) is fine")
     (is (nil? (reject-id '[:textarea "plain text"]))
         "an ordinary text child is fine")
+    (is (nil? (reject-id '[:textarea body-str]))
+        "a runtime-dynamic sole text child stays programmer-trusted")
+    (is (nil? (reject-id '[:textarea {:read-only true} txt]))
+        "a non-value prop plus a single text child is fine")
     (is (nil? (reject-id '[:textarea]))
         "an empty textarea is fine"))
   (testing "a static <script>/<style> raw-text element rejects a host-divergent "

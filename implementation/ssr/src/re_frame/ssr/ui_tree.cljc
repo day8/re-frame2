@@ -799,6 +799,91 @@
            "stringify into the element): " (pr-str children))
       path {:value children})))
 
+(defn- transparent-wrapper?
+  "A tree node that SPLICES its children into the host's child stream rather
+  than nesting them — a view boundary (`{:view-id …}`, HTML has no view
+  boundaries, so it erases) or a fragment (a map carrying `:children` and NONE
+  of `:tag`/`:view-id`/`:html`). Both erase; the host sees the spliced children
+  directly (004B §The node schema). A `:tag` element, a `:html` leaf, and a
+  string are OPAQUE — never descended."
+  [node]
+  (and (map? node)
+       (let [ds (filterv #(contains? node %) node-discriminators)]
+         (or (= ds [:view-id])
+             (and (empty? ds) (contains? node :children))))))
+
+(defn- effective-children
+  "The EFFECTIVE child stream a host sees beneath a node, after ERASING every
+  transparent wrapper (fragment / view boundary) — each splices its own
+  children in-place, recursively — so a leaf nested inside wrappers surfaces
+  into the stream exactly as the serialiser will emit it. Each entry is
+  `[node real-path]`, the root-relative `get-in` path that LOCATES the
+  (possibly spliced) leaf for a precise diagnostic. Used to validate a
+  `<textarea>`'s content against its host child contract at the ACTUAL offending
+  path, not merely its immediate children (rf2-ib4fd)."
+  [children parent-path]
+  (vec
+    (mapcat
+      (fn [i c]
+        (let [p (conj parent-path :children i)]
+          (if (transparent-wrapper? c)
+            (effective-children (:children c) p)
+            [[c p]])))
+      (range)
+      children)))
+
+(defn- reject-textarea-content!
+  "rf2-ib4fd — a `<textarea>`'s content is host-divergent unless it is a single
+  text child OR its `:value`/`:default-value`. Validate the EFFECTIVE child
+  stream (after transparent fragment / view-boundary splicing) so a nested
+  trusted-markup (`:html`) leaf, a structural element child, several children,
+  or a value-plus-child shape fails loud at its ACTUAL path through the SHARED
+  malformed-tree path — rather than emitting a body react-dom/server 19.2
+  rejects (`dangerouslySetInnerHTML` / value+children) or misrenders (`[object
+  Object]`). A sole string child, and `:value` alone, stay valid.
+
+  `ta-val` is the textarea's already-resolved `:value`/`:default-value`, or nil;
+  `raw-children` the element's source children (carried in ex-data); `path` the
+  element's root-relative path (each spliced leaf carries its own real path)."
+  [ta-val raw-children path]
+  (let [eff (effective-children raw-children path)]
+    (cond
+      (and (some? ta-val) (seq eff))
+      (let [[c p] (first eff)]
+        (malformed-node!
+          (str "a <textarea> takes its content from EITHER :value / "
+               ":default-value OR a single text child, never both — "
+               "react-dom/server 19.2 rejects a textarea given a value AND a "
+               "child: " (pr-str c))
+          p {:value raw-children}))
+
+      (> (count eff) 1)
+      (let [[_ p] (second eff)]
+        (malformed-node!
+          (str "a <textarea> takes at most ONE child, but " (count eff)
+               " reached it after splicing — react-dom/server 19.2 rejects a "
+               "textarea with more than one child: " (pr-str (mapv first eff)))
+          p {:value raw-children}))
+
+      (= 1 (count eff))
+      (let [[c p] (first eff)]
+        (cond
+          (and (map? c) (contains? c :html))
+          (malformed-node!
+            (str "a <textarea> cannot carry a trusted-markup (:html) child — "
+                 "react-dom/server 19.2 rejects dangerouslySetInnerHTML on a "
+                 "textarea (its content is value/defaultValue or a text child); "
+                 "supply the text via :value or a string child: " (pr-str c))
+            p {:value raw-children})
+
+          (and (map? c) (contains? c :tag))
+          (malformed-node!
+            (str "a <textarea> takes a single TEXT child, not a structural "
+                 "element — react-dom/server 19.2 renders an element child as "
+                 "\"[object Object]\"; supply the text via :value or a string "
+                 "child: " (pr-str c))
+            p {:value raw-children}))))))
+
 (defn- emit-element
   "Emit an element node. Applies the form-control special forms
   (`:default-value`/`:default-checked` -> `value`/`checked`; `:value` on
@@ -830,21 +915,14 @@
         ;; textarea/select :value never serialises as a `value` attribute.
         attrs     (cond-> attrs (or textarea? select?) (dissoc :value))
         open      (str "<" tag-name (attrs->string attrs pp))]
-    ;; rf2-ib4fd — a manual trusted-markup (`{:html …}`) child beneath a
-    ;; <textarea> is host-divergent: react-dom/server 19.2 rejects
-    ;; dangerouslySetInnerHTML on a textarea (its content is
-    ;; value/defaultValue or a text child), while this serialiser would
-    ;; otherwise emit the markup verbatim. Fail loud through the shared
-    ;; malformed-tree path rather than emit a body React would reject.
-    (when (and textarea?
-               (some #(and (map? %) (contains? % :html)) (:children el)))
-      (malformed-node!
-        (str "a <textarea> cannot carry a trusted-markup (:html) child — "
-             "react-dom/server 19.2 rejects dangerouslySetInnerHTML on a "
-             "textarea (its content is value/defaultValue or a text child); "
-             "supply the text via :value or a string child: "
-             (pr-str (:children el)))
-        path {:value (:children el)}))
+    ;; rf2-ib4fd — a <textarea>'s content is host-divergent unless it is a single
+    ;; text child or its :value/:default-value. Validate the EFFECTIVE child
+    ;; stream (after transparent fragment / view-boundary splicing), not merely
+    ;; the immediate children: a nested trusted-markup leaf, a structural child,
+    ;; several children, or a value-plus-child shape fails loud at its actual
+    ;; path rather than emitting a body react-dom/server 19.2 rejects/misrenders.
+    (when textarea?
+      (reject-textarea-content! ta-val (:children el) path))
     (cond
       void?          (str open ">")
       ;; rf2-2dh3b — <script>/<style> content is HTML raw text: emit it

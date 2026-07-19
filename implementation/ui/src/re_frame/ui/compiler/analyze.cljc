@@ -1893,10 +1893,11 @@
         forms))
 
 (defn- raw-text-structural-child?
-  "A source child form beneath a static `<script>`/`<style>` that VISIBLY
-  denotes host STRUCTURE rather than text — a hiccup element/fragment vector,
-  or a keyed-list (`for`) markup form. React drops or stringifies such a child
-  (a raw-text body is one text string) and the JVM serialiser rejects it, so it
+  "A source child form beneath a static single-text-body host element — a
+  `<script>`/`<style>` raw-text element, or a `<textarea>` — that VISIBLY
+  denotes host STRUCTURE rather than text: a hiccup element/fragment vector, or
+  a keyed-list (`for`) markup form. React drops or stringifies such a child
+  (these elements take one text string) and the JVM serialiser rejects it, so it
   is a compile error here (rf2-ib4fd). A runtime-dynamic expression — a symbol,
   a `(str …)`/other call, a branch — is NOT visibly structural and stays
   programmer-trusted: it produces the text string at render time."
@@ -1945,6 +1946,44 @@
                       "which React 19 rejects on a <textarea>. Use :value \"…\" "
                       "or an ordinary text child.")
                  {:tag tag :form form}))
+    ;; rf2-ib4fd (residual) — a static <textarea>'s CHILD contract, the sibling
+    ;; of the html-in-textarea rule above. React 19.2 renders a textarea's
+    ;; content from ONE channel: its :value/:default-value, OR a single ordinary
+    ;; text child — never both, never several children, never structural markup.
+    ;; `[:textarea "a" "b"]` throws "<textarea> can only have at most one child";
+    ;; :value/:default-value + an authored child throws; a structural child
+    ;; renders "[object Object]" (and the JVM serialiser emits a divergent
+    ;; <span>…</span> body). Reject the host-divergent shapes at compile — a
+    ;; sole text child (literal or runtime-dynamic) and :value alone stay valid.
+    (when (= tag :textarea)
+      (let [literal-value? (and (map? second*)
+                                (or (contains? second* :value)
+                                    (contains? second* :default-value)))]
+        (cond
+          (and literal-value? (seq child-fs))
+          (env/fail! e :rf.ui.compile/textarea-children
+                     (str "<textarea> takes its content from EITHER "
+                          ":value / :default-value OR a single text child, never "
+                          "both — React rejects a textarea given a value AND a "
+                          "child. Drop the child, or drop :value.")
+                     {:tag tag :form form})
+
+          (> (count child-fs) 1)
+          (env/fail! e :rf.ui.compile/textarea-children
+                     (str "<textarea> takes at most ONE child, but "
+                          (count child-fs) " were given — React rejects a "
+                          "textarea with more than one child. Supply a single "
+                          "text child, or set the content through :value.")
+                     {:tag tag :form form})
+
+          (and (= 1 (count child-fs))
+               (raw-text-structural-child? e (first child-fs)))
+          (env/fail! e :rf.ui.compile/textarea-children
+                     (str "<textarea> takes a single TEXT child, not structural "
+                          "markup — React renders an element child as "
+                          "\"[object Object]\". Supply text (a string, or a "
+                          "(str …)), or set the content through :value.")
+                     {:tag tag :form form}))))
     ;; rf2-ib4fd — a static <script>/<style> is an HTML RAW-TEXT element: React
     ;; takes a SINGLE text body (one string). Multiple source children reach
     ;; React as an array that warns and loses the body; a visibly structural

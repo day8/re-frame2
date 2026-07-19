@@ -97,9 +97,11 @@
     :rf.ui.compile/void-children
     :rf.ui.compile/html-not-sole-child
     ;; static special-element child shapes the target rejects (rf2-ib4fd):
-    ;; (ui/html …) under <textarea>, and a multi/structural body under a
-    ;; raw-text <script>/<style>
+    ;; (ui/html …) under <textarea>, a textarea's single-text-child contract
+    ;; (multiple / value-plus-child / structural), and a multi/structural body
+    ;; under a raw-text <script>/<style>
     :rf.ui.compile/html-in-textarea
+    :rf.ui.compile/textarea-children
     :rf.ui.compile/raw-text-children
     :rf.ui.compile/bad-html
     :rf.ui.compile/bad-raw
@@ -473,6 +475,11 @@
    [:rf.ui.compile/bad-html '[:div (html 42)] ["requires a string"]]
    ;; static special-element child shapes the target rejects (rf2-ib4fd)
    [:rf.ui.compile/html-in-textarea '[:textarea (html "<b>x</b>")] [":value"]]
+   ;; the textarea single-text-child contract — one row per throw site
+   ;; (value-plus-child / multiple children / structural child)
+   [:rf.ui.compile/textarea-children '[:textarea {:value "v"} "c"] [":value"]]
+   [:rf.ui.compile/textarea-children '[:textarea "a" "b"] [":value"]]
+   [:rf.ui.compile/textarea-children '[:textarea [:span "x"]] [":value"]]
    [:rf.ui.compile/raw-text-children '[:script "a" "b"] ["(str" "ui/html"]]
    [:rf.ui.compile/raw-text-children '[:style [:span "x"]] ["(str" "ui/html"]]
    [:rf.ui.compile/bad-raw '(raw) ["one argument"]]
