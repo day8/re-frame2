@@ -672,7 +672,7 @@ The other three streams take the same verb. `:events` and `:errors` are the **al
 ```clojure
 (rf/register-listener! :events id listener-fn)  ;; always-on event-emit record
 (rf/register-listener! :errors id listener-fn)  ;; always-on error-emit record
-(rf/register-listener! :epoch  key callback-fn) ;; one :rf/epoch-record per dequeued event
+(rf/register-listener! :epoch  key callback-fn) ;; assembled :rf/epoch-record — a publication, not a per-event count
 ```
 
 Conventional keys: `:my-app/recorder`, `:my-app/timing-monitor`, etc.
@@ -714,8 +714,10 @@ Alongside the raw `:trace` stream, the `:epoch` stream delivers a parallel **ass
 ;;   stream      — :epoch
 ;;   key         — any comparable value identifying the listener
 ;;                 (replaces same-key registration)
-;;   callback-fn — invoked with one :rf/epoch-record per dequeued event
-;;                 (one per epoch). Signature: (fn [epoch-record] ...)
+;;   callback-fn — invoked with one :rf/epoch-record per publication: one per
+;;                 dequeued event, and again when a post-settle back-fill
+;;                 re-publishes the same epoch (reconcile on [frame epoch-id];
+;;                 see the invocation rules below). Signature: (fn [epoch-record] ...)
 ;;
 ;; The record is the same shape the runtime appends to (rf/epoch-history frame-id):
 ;; assembled :event-id / :trigger-event / :db-before / :db-after, plus the structured
@@ -727,8 +729,8 @@ Alongside the raw `:trace` stream, the `:epoch` stream delivers a parallel **ass
 
 **Invocation rules** (mirrors `register-listener!`):
 
-- **Per dequeued event, not per drain — and a publication, not a counter.** An ordinary event's full pipeline run (and, for a machine event, its entire macrostep) is one epoch (per [002 §Drain versus event](002-Frames.md#drain-versus-event--the-epoch-unit)). A drain that settles a parent event and the child it `:fx`-dispatched publishes **two** records — one per event — not one for the drain. A machine's `:raise` sub-events and `:always` microsteps do not publish: they ride inside the triggering event's epoch (per [005 §Drain semantics](005-StateMachines.md#drain-semantics)). But the callback is a record-**publication** notification, not a once-per-event clock: the SAME epoch re-publishes — carrying the same `:epoch-id` — when a post-settle render / sub-run / unmount back-fills into that already-settled epoch (a corrected record), and synthetic records publish with no dequeued event at all (`:rf.epoch/db-replaced`, `:halted-depth`, `:halted-destroy`; see [Spec-Schemas §`:rf/epoch-record` §Outcomes](Spec-Schemas.md#outcomes)). Because the listener is process-global while `:epoch-id` is unique only within one frame, **reconcile on the pair `[(:frame record) (:epoch-id record)]`** — cache under that key and REPLACE on re-publication rather than counting callbacks as events; `:outcome` is record STATE (`:ok` / `:halted-depth` / `:halted-destroy`), not identity. A dequeued event rejected before it runs (no handler) publishes nothing.
-- **After commit.** The callback receives a fully-formed record with `:db-after`, `:sub-runs`, `:renders`, `:effects`, and any optional `:trace-events` populated. An ordinary, `:halted-depth`, or `:rf.epoch/db-replaced` record has already been appended to the frame's `epoch-history` ring buffer when the callback runs; the terminal `:halted-destroy` record is the exception — it is delivered to listeners **only** and never appended (see Halted runs below).
+- **Per dequeued event, not per drain — and a publication, not a counter.** An ordinary event's full pipeline run (and, for a machine event, its entire macrostep) is one epoch (per [002 §Drain versus event](002-Frames.md#drain-versus-event--the-epoch-unit)). A drain that settles a parent event and the child it `:fx`-dispatched publishes **two** records — one per event — not one for the drain. A machine's `:raise` sub-events and `:always` microsteps do not publish: they ride inside the triggering event's epoch (per [005 §Drain semantics](005-StateMachines.md#drain-semantics)). But the callback is a record-**publication** notification, not a once-per-event clock: the SAME epoch re-publishes — carrying the same `:epoch-id` — when a post-settle render / sub-run / unmount back-fills into that already-settled epoch (a corrected record); the synthetic `:rf.epoch/db-replaced` and `:halted-depth` records publish with no dequeued event at all, while the terminal `:halted-destroy` closes an already-started event interrupted mid-drain by frame destruction (see [Spec-Schemas §`:rf/epoch-record` §Outcomes](Spec-Schemas.md#outcomes)). Because the listener is process-global while `:epoch-id` is unique only within one frame, **reconcile on the pair `[(:frame record) (:epoch-id record)]`** — cache under that key and REPLACE on re-publication rather than counting callbacks as events; `:outcome` is record STATE (`:ok` / `:halted-depth` / `:halted-destroy`), not identity. A dequeued event rejected before it runs (no handler) publishes nothing.
+- **After commit.** The callback receives a fully-formed record with `:db-after`, `:sub-runs`, `:renders`, `:effects`, and any optional `:trace-events` populated. An ordinary, `:halted-depth`, or `:rf.epoch/db-replaced` record has been appended to the frame's `epoch-history` ring buffer **when depth permits** — the runtime attempts the append before it publishes, but a depth-0 ring retains nothing while the record still publishes; the terminal `:halted-destroy` record is delivered to listeners **only** and is never appended (see Halted runs below).
 - **Exception isolation.** An exception thrown by an epoch callback is caught and does not propagate. One broken epoch listener cannot break the app or block other listeners (raw-trace or epoch).
 - **Listener ordering** is not contract.
 - **Production elision.** The epoch listener machinery is gated on the same `re-frame.interop/debug-enabled?` flag (alias of `goog.DEBUG`) as the raw-trace surface — see [§Production builds](#production-builds-zero-overhead-zero-code). Production builds elide registration, dispatch, and the epoch ring-buffer all together.
