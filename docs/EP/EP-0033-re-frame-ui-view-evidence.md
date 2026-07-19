@@ -16,6 +16,11 @@ Type: standards-track
 > normative text (the R-1 rewrite); per EP-0009, where it and this EP differ,
 > **the spec governs**. Implementation lands in the S3 wave (asserts **S3**,
 > budget/absence gates complete **S6**) via beads rf2-vxgfnd.95.6/.95.7/.95.8.
+> **[UPDATED 2026-07-19]** The S3 wave has landed: .95.6/.95.7/.95.8 closed
+> 2026-07-17, the S3 epic closed 2026-07-18, and S3/S4 are declared conforming
+> (S5 is the live stage). What S3 **certified** is a bounded subset of the
+> schema this EP specifies — see the dated status note at the top of
+> §Specification.
 
 ## Abstract
 
@@ -73,9 +78,20 @@ evidence; no production telemetry — the always-on error channel is EP-0008's.
   keeps exactly the always-on error channel; this evidence is the dev-only tier.
 - **EP-0025** (data classification) — occurrence keys, override values, query
   args, and event payloads route through the one egress-projection policy.
+  **[CORRECTED 2026-07-19 — rf2-zwgqe ruling (2026-07-19, delegated):]** sub
+  query vectors do **not** route through the classification egress chokepoint.
+  They are identity — the sub-cache key, the skip-dedup key, reactive-graph
+  edge endpoints — and egress raw on every query-vector-bearing slot as an
+  accepted, documented fail-open (the positional-event-args precedent). Only
+  the Spec 010 schema-axis backstop whole-slot scrubs them, for
+  `:sensitive?`-schema'd subs. The other slots named above route as written.
 - **`spec/009-Instrumentation.md`** — the one-catalogue rule (rf2-cs0kd1): every
   evidence schema, trace op, and error/warning id this design names gets a
-  catalogue row there.
+  catalogue row there. **[QUALIFIED 2026-07-19 — rf2-vxgfnd.95.13 / PR #6153:]**
+  runtime-tier ids only, matching Spec 004 §One catalogue (runtime tier);
+  compile-tier `:rf.ui.compile/*` ids live in the maintained compiler roster
+  and deliberately get no Spec 009 rows. The banner's one-catalogue phrasing
+  reads with this qualifier.
 - **`spec/004-Views.md`** §View identity and the instrumentation surface — the
   primary normative home (see banner).
 - Design record: graduated into this EP + the normative `spec/009-Instrumentation.md`
@@ -84,6 +100,28 @@ evidence; no production telemetry — the always-on error channel is EP-0008's.
   `tools/xray/spec/`. Both synthesis-tree sources are tombstoned per rf2-mgy7pz.
 
 ## Specification
+
+> **Status note — 2026-07-19 (specified vs certified).** The S3 wave landed and
+> was certified (`spec/conformance/S3-view-conformance-profile.md`), but the
+> certified surface is a bounded subset of the schema specified below. **Shipped
+> at S3:** the five `re-frame.ui.tool` projections; occurrence-shaped instance
+> records (`:occurrence` ordinal + `:view-id` + `:root-id` + `:connection` +
+> `:lifecycle` intervals + bounded render evidence) with explicit loss
+> accounting; and a bounded render-cause **set** — `#{:value :hmr :disposed}`
+> (≤3 tags), with `:local-state` cause evidence riding G-15. **Specified below
+> but not yet shipped:** the integer `:render-key` / `:parent-render-key` /
+> `:frame-id` / `:generation` record fields; the `:rf.view/causes` **vector**
+> and its full cause-kind roster (`:mount`, `:subscription` with version
+> from→to, `:prop`, `:epoch-restore`, `:hydration-correction`,
+> `:reconnect-correction`, `:foreign-or-react`, …); the
+> `data-rf2-source-coord` + render-key DOM annotation on compiler-owned host
+> roots; and the Spec 009 evidence-schema rows. Consumers tolerate the absences
+> explicitly rather than fabricating them (`tools/xray/spec/021` §3.4.1: the S3
+> producer emits no epoch-restore evidence op, and Xray does not invent one).
+> The delta currently has **no stage assignment and no owning bead** — the Spec
+> 004 ledger row names only budget/absence gates for S6. The schema below
+> remains the ruled design intent, unchanged; this note records
+> landed-vs-not-landed honesty only and assigns nothing.
 
 ### Two evidence layers
 
@@ -221,6 +259,11 @@ substrate emits its own versioned schema from day one, and its interim legacy at
 machinery is deleted once equivalent evidence is live (.95.7).
 
 ## Bead Plan / Reference Implementation
+
+**[STATUS 2026-07-19]** All four items below are landed and closed
+(.95.6/.95.7/.95.8 on 2026-07-17; .95.10 via #6182; the S3 epic closed
+2026-07-18; S3 and S4 declared conforming). What the certification covered is
+recorded in the §Specification status note.
 
 S3 of the `re-frame.ui` plan (epic rf2-vxgfnd.95):
 
