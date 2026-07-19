@@ -215,8 +215,19 @@
               "fallback present at hydration — the root booted :server phase")
           (is (nil? (.querySelector host "button.live"))
               "client subtree absent at hydration — the site is phase-conditional")
+          ;; Poll the FLIP TRACE, not the DOM. `PhaseFlipper` flips via a POST-
+          ;; PAINT passive `useEffect` (no `flushSync`): the `:client` commit
+          ;; paints `button.live` FIRST, and only afterwards does the passive
+          ;; effect run `emit-phase-flip!`. Polling `button.live` can therefore
+          ;; fire `k` in the window after the commit but before the effect's
+          ;; emit — `@flips` still 0 — which flakes `(= 1 (count @flips))` on a
+          ;; slow host (green locally, red on CI). Waiting on the very trace the
+          ;; assertions read closes that race, and because the flip trace fires
+          ;; STRICTLY after the client subtree is committed, every DOM assertion
+          ;; below still holds. Bounded, so a genuinely-missing flip still fails
+          ;; honestly. Mirrors test 2's `#(seq @mismatches)` idiom.
           (wait-for
-           #(some? (.querySelector host "button.live"))
+           #(seq @flips)
            (fn []
              (try
                (testing "React adopted the :server-phase fallbacks with NO framework mismatch"
