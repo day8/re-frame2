@@ -38,11 +38,17 @@
                             re-serialises every hook signature: a deliberate
                             one-time global remount wave when S3 lands (pre-
                             alpha, no shim).
-      build-digest          \"bd1-\"  input: the SORTED vector of
-                            [view-id template-fingerprint hook-signature]
-                            triples of every view in the build (sorted by
-                            view-id so the digest is compile-order
-                            independent)
+      build-digest          \"bd1-\"  input: the SORTED vector of the build's
+                            identity rows, each `[row-key & values]` (sorted
+                            by row-key so the digest is compile-order
+                            independent). The caller supplies the rows; the
+                            compiler's build slice contributes one per view
+                            ([[::views view-id] template-fingerprint
+                            hook-signature]) and one per custom-element
+                            declaration ([[::elements tag] declaration]) —
+                            element :properties decide attribute-vs-property
+                            emission, so they are build output, not
+                            bookkeeping (rf2-0wvoj)
       config-fingerprint    \"cf1-\"  input: [frame-id config-source-map]
                             — a root form's static frame plan (S1c,
                             root-identity contract §6): the frame-root's
@@ -289,10 +295,12 @@
                      :react   (vec react)}]))
 
 (defn build-digest
-  "\"bd1-\" digest over `[[view-id template-fingerprint hook-signature] ...]`
-  triples, sorted by view-id (compile-order independent)."
-  [triples]
-  (digest "bd1-" (vec (sort-by (comp pr-str first) triples))))
+  "\"bd1-\" digest over the build's identity `rows` — each `[row-key & values]`
+  — sorted by row-key (compile-order independent). The compiler's build slice
+  supplies a row per view and a row per custom-element declaration; see the
+  namespace docstring for the row shapes."
+  [rows]
+  (digest "bd1-" (vec (sort-by (comp pr-str first) rows))))
 
 (defn config-fingerprint
   "\"cf1-\" digest of a static frame plan (S1c root-identity contract §6):

@@ -736,7 +736,7 @@
         (is (contains? (:elements incremental) :y-el))
         (is (not (contains? (:elements incremental) :x-el))          "custom-element :x-el gone")
         (is (= 1 (count (:views incremental)))                        "view foo gone, only bar"))
-      (testing "the digest is a function of current views only"
+      (testing "the digest is a function of the CURRENT declared facts — no ghost of the pre-edit source"
         (is (= (:digest clean) (:digest incremental)))))))
 
 ;; ---------------------------------------------------------------------------
@@ -803,6 +803,91 @@
     (build/commit-build! :app)
     (is (not= committed-1 (get-in (root/descriptor-index) [:page/m :build-digest]))
         "the digest advances only at the successful commit boundary")))
+
+;; ---------------------------------------------------------------------------
+;; The digest covers custom-element declarations too (rf2-0wvoj)
+;;
+;; The digest IS build identity. Custom-element `:properties` decide whether a
+;; prop is emitted as a DOM property or an attribute, so two builds whose
+;; element classification differs EMIT DIFFERENT DOM. A digest that folded only
+;; the view rows called those two builds identical, and everything keyed on the
+;; digest — caching, staleness, served-output freshness — inherited that lie.
+;;
+;; Each assertion below is driven by its OWN two-build fixture (rf2-wlqfq): the
+;; views are held byte-identical and ONLY the element declarations move, so the
+;; sole thing that can make the digests differ is the element fold. Dropping
+;; `elements` from `digest-for-slice` reds these and nothing else has to.
+;; ---------------------------------------------------------------------------
+
+(defn- digest-of
+  "Finalized whole-build digest of a fresh build authority containing exactly
+  what `declare!` contributes. Reset before AND after, so the value depends on
+  nothing a neighbouring test left behind."
+  [declare!]
+  (build/reset-build!)
+  (build/begin-build! :app)
+  (declare!)
+  (build/commit-build! :app)
+  (let [d (compiler/current-build-digest)]
+    (build/reset-build!)
+    d))
+
+(deftest digest-distinguishes-differing-custom-element-properties
+  ;; SAME view source, SAME tag, DIFFERENT :properties — different DOM, so the
+  ;; build identity must differ.
+  (let [with-help (digest-of (fn []
+                               (declare-view!    'app.a 'foo [:div "foo"])
+                               (declare-element! 'app.a :x-el #{:help-text})))
+        with-label (digest-of (fn []
+                                (declare-view!    'app.a 'foo [:div "foo"])
+                                (declare-element! 'app.a :x-el #{:label})))]
+    (is (not= with-help with-label)
+        "#{:help-text} vs #{:label} on the same tag classifies props differently (property vs attribute) — the digest must not call these one build")))
+
+(deftest digest-distinguishes-a-declared-element-from-no-declaration
+  ;; SAME view source; one build declares a custom element, the other declares
+  ;; none. An undeclared tag classifies every prop as an attribute.
+  (let [declared (digest-of (fn []
+                              (declare-view!    'app.a 'foo [:div "foo"])
+                              (declare-element! 'app.a :x-el #{:help-text})))
+        undeclared (digest-of (fn []
+                                (declare-view! 'app.a 'foo [:div "foo"])))]
+    (is (not= declared undeclared)
+        "adding a custom-element declaration changes what the build emits — the digest must advance")))
+
+(deftest digest-distinguishes-a-renamed-custom-element-tag
+  ;; SAME view source, SAME :properties, DIFFERENT tag.
+  (let [x-el (digest-of (fn []
+                          (declare-view!    'app.a 'foo [:div "foo"])
+                          (declare-element! 'app.a :x-el #{:help-text})))
+        y-el (digest-of (fn []
+                          (declare-view!    'app.a 'foo [:div "foo"])
+                          (declare-element! 'app.a :y-el #{:help-text})))]
+    (is (not= x-el y-el)
+        "renaming the declared tag re-points the classification — the digest must advance")))
+
+(deftest digest-is-stable-across-declaring-namespace-and-compile-order
+  ;; The complement, and the guard against "fix" by folding raw slice structure:
+  ;; the digest is a function of the DECLARED FACTS, not of which namespace
+  ;; declared them or in what order the macros expanded.
+  (let [a-first (digest-of (fn []
+                             (declare-view!    'app.a 'foo [:div "foo"])
+                             (declare-element! 'app.a :x-el #{:help-text})
+                             (declare-element! 'app.a :y-el #{:label})))
+        reordered (digest-of (fn []
+                               (declare-element! 'app.a :y-el #{:label})
+                               (declare-element! 'app.a :x-el #{:help-text})
+                               (declare-view!    'app.a 'foo [:div "foo"])))]
+    (is (= a-first reordered)
+        "compile order does not change build identity"))
+  (let [one-ns (digest-of (fn []
+                            (declare-view!    'app.a 'foo [:div "foo"])
+                            (declare-element! 'app.a :x-el #{:help-text})))
+        split-ns (digest-of (fn []
+                              (declare-view!    'app.a 'foo [:div "foo"])
+                              (declare-element! 'app.b :x-el #{:help-text})))]
+    (is (= one-ns split-ns)
+        "moving a declaration to another namespace declares the same fact — same identity")))
 
 (deftest repeated-rebuilds-stay-bounded
   ;; correctness across a watch session — re-declaring the same namespace N

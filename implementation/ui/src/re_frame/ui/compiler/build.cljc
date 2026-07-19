@@ -709,13 +709,38 @@
           (fn [committed]
             (select-keys committed (filter keep? (keys committed))))))
 
+(defn- committed-rows
+  "Pure: one finalized slice's COMMITTED rows for `reg-id`, merged across
+  sources (the same fold `committed-aggregate` performs, over an explicit
+  slice)."
+  [slice reg-id]
+  (reduce-kv (fn [m _src regs] (merge m (get regs reg-id)))
+             {} (:committed slice)))
+
 (defn- digest-for-slice
-  "Pure whole-build digest of one finalized slice's committed view rows."
+  "Pure whole-build digest of one finalized slice's committed build-identity
+  rows: the view rows AND the custom-element declarations.
+
+  Element declarations are in the fold because they are build OUTPUT, not
+  bookkeeping. A tag's declared `:properties` decide whether `ui/spread` emits
+  a prop as a DOM property or as an attribute (see `element-properties`), so
+  two builds with IDENTICAL view sources but different element classification
+  emit DIFFERENT DOM. The digest is build identity; folding only the views made
+  those two builds indistinguishable to every digest consumer — caching,
+  staleness detection, served-output freshness (rf2-0wvoj).
+
+  Declaration PROVENANCE is deliberately excluded: `element-declarations`
+  (tag -> owning ns) records WHO declared a fact, not WHAT the build emits, so
+  moving a declaration between namespaces must not change build identity.
+
+  Each row is keyed by `[reg-id k]`, so a view-id and an element tag can never
+  collide in the digest's sorted input."
   [slice]
   (fingerprint/build-digest
-   (mapv (fn [[id [tf hs]]] [id tf hs])
-         (reduce-kv (fn [m _src regs] (merge m (get regs views)))
-                    {} (:committed slice)))))
+   (into (mapv (fn [[id [tf hs]]] [[views id] tf hs])
+               (committed-rows slice views))
+         (map (fn [[tag decl]] [[elements tag] decl]))
+         (committed-rows slice elements))))
 
 (defn finalized-build-digest
   "The accepted whole-build digest in the ambient compiler context, or the
