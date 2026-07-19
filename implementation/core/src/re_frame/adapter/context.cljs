@@ -27,6 +27,7 @@
   (:require ["react" :as React]
             [re-frame.frame :as frame]
             [re-frame.interop :as interop]
+            [re-frame.source-coords :as source-coords]
             [re-frame.trace :as trace]))
 
 (def no-provider-sentinel
@@ -110,43 +111,35 @@
 ;;
 ;; The `data-rf2-source-coord` / `data-rf-view` DOM attribute VALUES are
 ;; pure string projections of the registry slot's id + captured coords.
-;; The DOM output MUST be byte-identical across substrates (Reagent's
-;; hiccup walk in `re-frame.views.source-coord-annotation` and the
-;; React-element-clone walk in `re-frame.substrate.spine` produce the SAME
-;; attribute string for the same view), so the formatters live here once —
-;; a shared leaf both walks already require — rather than as drifting
-;; per-walk copies. The injection WALKS stay split (hiccup vs React-element
-;; are genuinely different); only these pure formatters are shared.
+;; The DOM output MUST be byte-identical across substrates AND across hosts
+;; (Reagent's hiccup walk in `re-frame.views.source-coord-annotation`, the
+;; React-element-clone walk in `re-frame.substrate.spine`, and the JVM
+;; registration-boundary annotation in
+;; `re-frame.views.jvm-source-coord-annotation` all emit the SAME attribute
+;; string for the same view). rf2-5q0jv moved the single implementation into
+;; the neutral `.cljc` contract owner `re-frame.source-coords`, co-located
+;; with its inverse parsers, so a JVM copy and a CLJS copy can no longer
+;; drift. These two vars are CLJS-side aliases preserving the historical
+;; `re-frame.adapter.context` names the injection walks (and the
+;; `re-frame.views` / `re-frame.substrate.spine` re-exports) already call.
+;; The injection WALKS stay split (hiccup vs React-element are genuinely
+;; different); only these pure formatters are shared.
 
-(defn format-source-coord
-  "Render the registry slot's captured coords as the attribute value shape
-  `<ns>:<sym>:<line>:<col>`. The id keyword's namespace and name give us
-  `<ns>` and `<sym>`; `<line>` / `<col>` come from the captured coords
-  (CLJS reg-view macro at expansion time). `<col>` is `?` when the column
-  was not captured (the column-key is optional per Spec 001). Per Spec 006
-  §Source-coord annotation. Shared by the Reagent hiccup walk
-  (`re-frame.views.source-coord-annotation`) and the React-element-clone
-  walk (`re-frame.substrate.spine`) so the attribute value is identical
-  across substrates."
-  [id coords]
-  (let [ns-part  (or (namespace id) "?")
-        sym-part (name id)
-        line     (:line coords)
-        col      (:column coords)]
-    (str ns-part ":" sym-part ":"
-         (if line (str line) "?")
-         ":"
-         (if col (str col) "?"))))
+(def format-source-coord
+  "Render the registry slot's captured coords as the `data-rf2-source-coord`
+  attribute value `<ns>:<sym>:<line>:<col>` (Spec 006 §Source-coord
+  annotation). CLJS-side alias of the neutral cross-host owner
+  [[re-frame.source-coords/format-source-coord]] (rf2-5q0jv) — kept under this
+  name so the Reagent hiccup walk, the React-element-clone walk, and the
+  `re-frame.views` re-export are unchanged."
+  source-coords/format-source-coord)
 
-(defn format-view-id
-  "Render the registry id keyword as the `:data-rf-view` attribute value.
-  Returns `(str id)` so `:rf.foo/bar` → `\":rf.foo/bar\"`. The walker reads
-  it back via `(keyword (subs s 1))` when the leading `:` is present. Per
-  Spec 006 §View tagging contract (rf2-01il5). Shared by the Reagent and
-  React-element walks so the attribute value is identical across
-  substrates."
-  [id]
-  (str id))
+(def format-view-id
+  "Render the registry id keyword as the `:data-rf-view` attribute value
+  `(str id)`, so `:rf.foo/bar` → `\":rf.foo/bar\"` (Spec 006 §View tagging
+  contract, rf2-01il5). CLJS-side alias of the neutral cross-host owner
+  [[re-frame.source-coords/format-view-id]] (rf2-5q0jv)."
+  source-coords/format-view-id)
 
 (defn non-dom-root-warning
   "Build the one-shot `console.warn` text for a reg-view'd component whose

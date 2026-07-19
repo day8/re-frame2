@@ -111,21 +111,83 @@
         (merge coords (or user-meta {}))
         (or user-meta {})))))
 
+;; ---- source-coord annotation value formatters (rf2-5q0jv) -----------------
+;;
+;; The pure string projections of the two dev-mode DOM-annotation attribute
+;; VALUES: `data-rf2-source-coord` = `<ns>:<sym>:<line>:<col>` (Spec 006
+;; §Source-coord annotation) and `data-rf-view` = `(str id)` (Spec 006 §View
+;; tagging contract). They live HERE, in the neutral `.cljc` source-coord
+;; contract owner, so BOTH hosts compile the SAME source and emit byte-
+;; identical attribute values BY CONSTRUCTION:
+;;
+;;   - JVM registration-boundary annotation
+;;     (`re-frame.views.jvm-source-coord-annotation`) aliases these.
+;;   - CLJS injection walks — the Reagent hiccup walk
+;;     (`re-frame.views.source-coord-annotation`) and the React-element-clone
+;;     walk (`re-frame.substrate.spine`), both routed through
+;;     `re-frame.adapter.context` — alias these.
+;;
+;; Before rf2-5q0jv the JVM copy (`.clj`) and the CLJS copy (`.cljs`,
+;; in `adapter.context`) were two hand-kept duplicates; the canonical-literal
+;; parity tests could only catch a drift AFTER it shipped. Collapsing both
+;; into this single `.cljc` implementation makes cross-host divergence
+;; structurally impossible and honours this namespace's contract that a
+;; format and its inverse parse live together (the parsers below,
+;; [[parse-source-coord]] / [[parse-view-id]], are their inverses). The
+;; host-specific hiccup / React injection WALKS stay split — they are
+;; genuinely different — but the pure value projections are shared.
+
+(defn format-source-coord
+  "Render a registry slot's id + captured coords as the `data-rf2-source-coord`
+  attribute value `<ns>:<sym>:<line>:<col>`. `<ns>` / `<sym>` derive from the
+  id keyword (`(namespace id)` / `(name id)`), degrading `<ns>` to `?` for an
+  unqualified id; `<line>` / `<col>` come from the macro-captured `coords`
+  (`:line` / `:column`) and degrade to `?` when absent (a programmatic
+  `reg-view*` that bypassed the macro path — `:column` is optional per Spec
+  001). Per Spec 006 §Source-coord annotation.
+
+  The single cross-host implementation (rf2-5q0jv): the JVM registration-
+  boundary annotation and the CLJS Reagent / React-element injection walks
+  all alias this one `.cljc` fn, so the value is byte-identical across hosts
+  by construction. Its inverse is [[parse-source-coord]] below."
+  [id coords]
+  (let [ns-part  (or (namespace id) "?")
+        sym-part (name id)
+        line     (:line coords)
+        col      (:column coords)]
+    (str ns-part ":" sym-part ":"
+         (if line (str line) "?")
+         ":"
+         (if col (str col) "?"))))
+
+(defn format-view-id
+  "Render a registry id keyword as the `data-rf-view` attribute value —
+  `(str id)`, so `:rf.foo/bar` → `\":rf.foo/bar\"` (leading colon included).
+  Per Spec 006 §View tagging contract (rf2-01il5).
+
+  The single cross-host implementation (rf2-5q0jv): the JVM registration-
+  boundary annotation and the CLJS injection walks all alias this one `.cljc`
+  fn. Its inverse is [[parse-view-id]] below (which reads the leading `:` back
+  into a keyword)."
+  [id]
+  (str id))
+
 ;; ---- DOM source-coord attribute parser (rf2-nr7vf2) -----------------------
 ;;
-;; The inverse of `re-frame.adapter.context/format-source-coord` (re-exported
-;; as `re-frame.views/format-source-coord` / `re-frame.substrate.spine/
+;; The inverse of [[format-source-coord]] above (aliased on the CLJS side as
+;; `re-frame.adapter.context/format-source-coord`, re-exported as
+;; `re-frame.views/format-source-coord` / `re-frame.substrate.spine/
 ;; format-source-coord`). The formatter renders a registry slot's id + coords
 ;; into the `data-rf2-source-coord` DOM-attribute value `<ns>:<sym>:<line>:
 ;; <col>`; this parser recovers `{:ns :handler-id :line :col}` from that
-;; string. It lives HERE — in the source-coord contract owner (Spec 006
-;; §Source-coord annotation / Tool-Pair §Source-mapping), not in the
-;; CLJS-only `adapter.context` ns — because consumers reading the attribute
-;; include JVM-side `.cljc` surfaces (Story's element-inspector pure helpers,
-;; the SSR round-trip parity test). Co-locating format + parse here keeps the
-;; round-trip a single source of truth (rf2-nr7vf2 collapses the parser that
-;; was reimplemented near-byte-for-byte in Story's element_inspector.cljc and
-;; the re-frame2-pair preload runtime).
+;; string. Both live HERE — in the source-coord contract owner (Spec 006
+;; §Source-coord annotation / Tool-Pair §Source-mapping) — because consumers
+;; reading the attribute include JVM-side `.cljc` surfaces (Story's
+;; element-inspector pure helpers, the SSR round-trip parity test).
+;; Co-locating format + parse here keeps the round-trip a single source of
+;; truth (rf2-nr7vf2 collapses the parser that was reimplemented near-byte-
+;; for-byte in Story's element_inspector.cljc and the re-frame2-pair preload
+;; runtime; rf2-5q0jv brought the formatters home beside them).
 ;;
 ;; Tool-Pair.md declares the attribute value opaque to consumers and warns
 ;; downstream callers MUST NOT depend on the parsed shape's stability across
@@ -146,7 +208,8 @@
 (defn parse-source-coord
   "Parse a `data-rf2-source-coord` attribute value into
   `{:ns :handler-id :line :col}`, or nil. The inverse of
-  `re-frame.adapter.context/format-source-coord` (re-exported as
+  [[format-source-coord]] above (aliased on the CLJS side as
+  `re-frame.adapter.context/format-source-coord`, re-exported as
   `re-frame.views/format-source-coord`).
 
   Per Spec 006 §Attribute value format the value is a four-segment colon-
@@ -178,18 +241,20 @@
 
 ;; ---- data-rf-view attribute parser (rf2-ztxnm8 / rf2-16znzb) ---------------
 ;;
-;; The inverse of `re-frame.adapter.context/format-view-id` (re-exported as
+;; The inverse of [[format-view-id]] above (aliased on the CLJS side as
+;; `re-frame.adapter.context/format-view-id`, re-exported as
 ;; `re-frame.views/format-view-id` / `re-frame.substrate.spine/format-view-id`).
 ;; The formatter renders a registry id keyword into the `data-rf-view` DOM-
 ;; attribute value via `(str id)` — `:rf.foo/bar` → `":rf.foo/bar"`; this parser
-;; recovers the id from that string. It lives HERE — beside `parse-source-coord`,
-;; in the source-coord contract owner (Spec 006 §View tagging contract /
-;; §Source-coord annotation) — because the read rule used to live ONLY in
-;; `format-view-id`'s docstring + Spec 006 prose and was re-implemented inline by
-;; every consumer (the Xray fallback view-walker and the re-frame2-pair preload
-;; runtime's `view-entity`). Co-locating format + parse keeps the round-trip a
-;; single source of truth (rf2-ztxnm8 collapses those re-derivations — the
-;; data-rf-view analogue of the `parse-source-coord` work in rf2-nr7vf2).
+;; recovers the id from that string. Both live HERE — in the source-coord
+;; contract owner (Spec 006 §View tagging contract / §Source-coord annotation) —
+;; because the read rule used to live ONLY in `format-view-id`'s docstring +
+;; Spec 006 prose and was re-implemented inline by every consumer (the Xray
+;; fallback view-walker and the re-frame2-pair preload runtime's `view-entity`).
+;; Co-locating format + parse keeps the round-trip a single source of truth
+;; (rf2-ztxnm8 collapses those re-derivations — the data-rf-view analogue of the
+;; `parse-source-coord` work in rf2-nr7vf2; rf2-5q0jv brought the formatters
+;; home beside them).
 ;;
 ;; Tool-Pair.md declares the attribute value opaque to consumers and warns
 ;; downstream callers MUST NOT depend on the parsed shape's stability across
@@ -198,7 +263,8 @@
 
 (defn parse-view-id
   "Parse a `data-rf-view` attribute value back into the registry id. The
-  inverse of `re-frame.adapter.context/format-view-id` (re-exported as
+  inverse of [[format-view-id]] above (aliased on the CLJS side as
+  `re-frame.adapter.context/format-view-id`, re-exported as
   `re-frame.views/format-view-id` / `re-frame.substrate.spine/format-view-id`),
   which renders the id via `(str id)`.
 

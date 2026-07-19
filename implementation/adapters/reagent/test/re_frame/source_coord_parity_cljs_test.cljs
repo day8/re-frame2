@@ -24,6 +24,8 @@
   the SAME literals. If either host's formatter drifts, its test fails.
   The literals ARE the byte-comparison point — both sides pin independently."
   (:require [cljs.test :refer-macros [deftest is testing]]
+            [re-frame.adapter.context :as adapter-context]
+            [re-frame.source-coords :as source-coords]
             [re-frame.views]
             [re-frame.views.source-coord-annotation :as source-coord]))
 
@@ -100,3 +102,32 @@
           (str "CLJS degraded shape: expected "
                (pr-str expected-attr-no-line-no-col)
                " — got: " (pr-str cljs-output))))))
+
+;; ---- convergence: source-coords is the single cross-host owner (rf2-5q0jv) -
+;;
+;; Before rf2-5q0jv the CLJS formatters (in `re-frame.adapter.context`) and the
+;; JVM formatters (in `re-frame.views.jvm-source-coord-annotation`) were two
+;; hand-kept copies; a canonical-literal test could only catch a drift AFTER it
+;; shipped. They now alias one `.cljc` implementation in `re-frame.source-coords`,
+;; so a CLJS copy can no longer drift from the JVM host. Prove it: the neutral
+;; owner emits the canonical literals directly, and the adapter.context vars ARE
+;; that same fn object (`identical?` on fn references, not a keyword literal).
+
+(deftest neutral-owner-is-the-single-cljs-formatter-implementation
+  (testing "rf2-5q0jv — the CLJS adapter.context vars (and the re-frame.views /
+            spine re-exports built on them) alias the one cross-host
+            implementation in re-frame.source-coords; the neutral owner emits
+            the canonical literals and the adapter.context var is the identical
+            fn object."
+    (is (= expected-attr
+           (source-coords/format-source-coord fixture-id fixture-meta))
+        "neutral owner must emit the canonical data-rf2-source-coord literal")
+    (is (= expected-view-id
+           (source-coords/format-view-id fixture-id))
+        "neutral owner must emit the canonical data-rf-view literal")
+    (is (identical? source-coords/format-source-coord
+                    adapter-context/format-source-coord)
+        "CLJS format-source-coord must be an alias of the neutral owner")
+    (is (identical? source-coords/format-view-id
+                    adapter-context/format-view-id)
+        "CLJS format-view-id must be an alias of the neutral owner")))

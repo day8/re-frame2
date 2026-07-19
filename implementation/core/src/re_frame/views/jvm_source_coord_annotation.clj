@@ -35,43 +35,40 @@
 
   ## The dialect is shared, not reinvented
 
-  `format-source-coord` / `format-view-id` produce byte-identical VALUES
-  to their CLJS counterparts in `re-frame.adapter.context` (there is no
-  shared `.cljc` home for them — the CLJS copy is `.cljs`-only), and the
-  hiccup walk mirrors `re-frame.views.source-coord-annotation`'s DOM-root
-  branch exactly: merge both attributes onto a DOM-tag root, preserve any
-  author-supplied value, recurse through Form-2 fns, skip fragment /
-  callable-head roots. The `source-coord-parity` tests (JVM + CLJS) pin
-  the two formatters to one canonical literal so they cannot drift."
-  (:require [re-frame.interop :as interop]))
+  `format-source-coord` / `format-view-id` are the SAME implementation on
+  every host: rf2-5q0jv moved them into the neutral `.cljc` contract owner
+  `re-frame.source-coords` (co-located with their inverse parsers), and both
+  the vars below and the CLJS `re-frame.adapter.context` counterparts are
+  thin aliases of it — so a JVM copy and a CLJS copy can no longer drift.
+  The hiccup walk here still mirrors
+  `re-frame.views.source-coord-annotation`'s DOM-root branch exactly: merge
+  both attributes onto a DOM-tag root, preserve any author-supplied value,
+  recurse through Form-2 fns, skip fragment / callable-head roots. The
+  `source-coord-parity` tests (JVM + CLJS) pin the shared formatters to one
+  canonical literal and assert both hosts resolve to the neutral owner."
+  (:require [re-frame.interop :as interop]
+            [re-frame.source-coords :as source-coords]))
 
 (set! *warn-on-reflection* true)
 
-(defn format-source-coord
+(def format-source-coord
   "Render a registry slot's id + captured coords as the
   `data-rf2-source-coord` attribute value `<ns>:<sym>:<line>:<col>`.
   `<line>` / `<col>` degrade to `?` when the coords were not captured
   (a programmatic `reg-view*` that bypassed the macro path). Per Spec 006
-  §Source-coord annotation. Byte-identical to the CLJS
-  `re-frame.adapter.context/format-source-coord` — the two are pinned to
-  one canonical literal by the `source-coord-parity` tests."
-  [id coords]
-  (let [ns-part  (or (namespace id) "?")
-        sym-part (name id)
-        line     (:line coords)
-        col      (:column coords)]
-    (str ns-part ":" sym-part ":"
-         (if line (str line) "?")
-         ":"
-         (if col (str col) "?"))))
+  §Source-coord annotation. JVM-side alias of the neutral cross-host owner
+  `re-frame.source-coords/format-source-coord` (rf2-5q0jv) — the single
+  implementation both hosts share, pinned to one canonical literal by the
+  `source-coord-parity` tests so it cannot drift."
+  source-coords/format-source-coord)
 
-(defn format-view-id
+(def format-view-id
   "Render a registry id keyword as the `data-rf-view` attribute value —
   `(str id)`, so `:rf.foo/bar` → `\":rf.foo/bar\"` (leading colon
-  included). Per Spec 006 §View tagging contract. Byte-identical to the
-  CLJS `re-frame.adapter.context/format-view-id`."
-  [id]
-  (str id))
+  included). Per Spec 006 §View tagging contract. JVM-side alias of the
+  neutral cross-host owner `re-frame.source-coords/format-view-id`
+  (rf2-5q0jv)."
+  source-coords/format-view-id)
 
 (defn- dom-tag-head?
   "True when `head` is a Hiccup DOM-tag keyword. The React-fragment marker
