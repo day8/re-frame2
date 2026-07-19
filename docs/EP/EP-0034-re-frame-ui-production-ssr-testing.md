@@ -203,12 +203,15 @@ table governs.
 
 Methodology, binding on every gate: identical fixtures, distributions not best
 runs, pinned browsers, cold+warm, dev overhead separate, no precomputed-props
-cheating. The component-library **proof pack** (controlled input, selection
-controller, slotted list cell, safe-attrs form control, schema-described
-component, inline popover, single-view import) is rendered and exercised by a
-mounted DOM suite (`re-frame.ui.proof-pack.library-dom-cljs-test`) — its
+cheating. The component-library **proof pack**'s six library views (controlled
+input, selection controller, slotted list cell, safe-attrs form control,
+schema-described component, inline popover) are rendered and exercised by a
+mounted DOM suite (`re-frame.ui.proof-pack.library-dom-cljs-test`) — their
 host-bearing views have no JVM side and cannot be dual-emitter parity-corpus
-rows; the substrate takes no build dependency on re-com.
+rows. The separate single-view import consumer
+(`re-frame.ui.proof-pack.single-view`) roots exactly one of those views for the
+advanced reachability scan that proves G-18 sibling isolation; it is not part of
+the mounted suite. The substrate takes no build dependency on re-com.
 
 ### 5. Gate wiring status
 
