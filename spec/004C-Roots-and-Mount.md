@@ -367,7 +367,12 @@ top-region wrappers, in document order.)
   additive per §2's compatibility rule.
 - Payload install remains **idempotent and order-independent** (ratified): the first
   hydrating root referencing a payload installs it; later roots find it live and do
-  not re-seed. Conflict is the exception, and it is fail-loud (§7).
+  not re-seed. Conflict is the exception, and it is fail-loud (§7). Install is the
+  **state-boot** call's work, not the DOM-adoption call's: it is `re-frame.ssr/hydrate!`
+  that reads the payload and installs it, and `ui/hydrate-root` never does
+  ([011 §Client-side hydration boot helper](011-SSR.md#client-side-hydration-boot-helper)).
+  "The first hydrating root installs it" therefore describes the ORDER the two-call boot
+  runs in across N roots on a page, not a step hidden inside `hydrate-root`.
 
 ## 7. Duplicate and conflict detection — fail-loud, three layers
 
@@ -618,7 +623,7 @@ unregisters (a leaked registration failing a later mount is a test-harness bug, 
 | Surface | Stage |
 |---|---|
 | Root Descriptor v1, mount grammar + identity opts, derivation + slug, Layer-1 + Layer-3 duplicate detection, client mount/`create-root`/`render!`/`unmount!`, `ui.test/render` forms, frame-plan-conflict preflight (the `:config-fingerprint` ENSURE arm — build tier S1c, client-mount/`render!` runtime tier S2c) | **S1** (the S1 "root descriptor" deliverable, defined by §2 above; stage roster per [EP-0030 §Stages S1–S7](../docs/EP/EP-0030-the-compiled-view-substrate-program.md#stages-s1s7)) |
-| Root Manifest v1 extension keys, `hydrate-root` preflight (manifest discovery/validation → payload install → hydrate), locator generation, Layer-2 registry, payload-**content-digest** conflict preflight (the hydrate arm of `:rf.error/frame-payload-conflict` only — the plan-fingerprint arm ships at S1c/S2c, row above), `render-static` identity participation | **S5** (the S5 "root manifests" deliverable — the additive extension of S1; see [011 §Root Manifest v1](011-SSR.md#root-manifest-v1)) |
+| Root Manifest v1 extension keys, the hydrating-root boot sequence (manifest discovery/validation → payload install → hydrate) — `ui/hydrate-root` owns manifest discovery/validation and DOM adoption, while payload install and `:rf/hydrate` belong to `re-frame.ssr/hydrate!`, the state-boot call that runs first — locator generation, Layer-2 registry, payload-**content-digest** conflict preflight (the hydrate arm of `:rf.error/frame-payload-conflict` only — the plan-fingerprint arm ships at S1c/S2c, row above), `render-static` identity participation | **S5** (the S5 "root manifests" deliverable — the additive extension of S1; see [011 §Root Manifest v1](011-SSR.md#root-manifest-v1)) |
 
 ## Q24–Q28 coverage
 
