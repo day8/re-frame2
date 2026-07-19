@@ -113,6 +113,36 @@ Paths index into that registration's primary data shape: the **event payload** (
 
 **`:rf.http/managed` is not special, and neither is a websocket effect** — every effect / coeffect / event / sub author declares its own sensitive arg-paths once, at registration. The framework ships sensible defaults for its own effects (e.g. the standard sensitive-header denylist for HTTP — see [§HTTP carriers](#http-carriers)); library authors do it for theirs. There is **no propagation**: a sub's `:sensitive` declaration classifies *that sub's own output paths*, not anything derived from it (see [§No propagation, no taint](#no-propagation-no-taint)).
 
+### A subscription's query vector is identity, and it egresses raw
+
+A `reg-sub` declaration is **output-rooted**: it classifies the value the sub *computes*. The **query vector is the sub's input**, and no declaration on this axis classifies it. That is deliberate, and it is a **documented fail-open** rather than a gap awaiting a fix.
+
+A query vector is **identity**. It is the sub-cache key — a frame's sub-cache is keyed by `rf=` on the whole query vector ([006 §Value-keyed cache-key contract](006-ReactiveSubstrate.md#value-keyed-cache-key-contract)) — as well as the skip-dedup key and the reactive-graph edge endpoint. **A value used as a cache key is structurally public to every layer that touches the cache** — the trace bus, the epoch store, tooling, memory — so redaction at a single projection could not contain it, and the framework must not pretend it can. A query vector therefore ships **verbatim** on every query-vector-bearing slot:
+
+- `:rf.sub/query-v` on `:rf.sub/run`, `:rf.sub/skip`, and `:rf.sub/dispose`;
+- the `:rf.sub/inputs` and `:rf.sub/cause-sub` of any downstream sub that consumes it;
+- the always-on error `:query-v` / `:event` slots — which survive into **production** builds;
+- epoch capture rows, which key on the query vector;
+- machine-timer rows with `:delay-source :sub`.
+
+This is the **positional fail-open one surface over**. A query argument *is* a positional argument (see the positional note in [§Registration-owned transient classification](#registration-owned-transient-classification) above), and it ships raw for the same structural reason: there is no stable named path for a mark to name.
+
+**So pass identifiers, not secrets.** Treat a query vector the way you would treat a URL:
+
+```clojure
+;; PREFERRED — the query vector carries an identifier; the secret never enters it.
+(rf/reg-sub :patient/record {:sensitive [[:ssn]]}
+  (fn [db [_ patient-id]] (get-in db [:patients patient-id])))
+
+(subscribe [:patient/record patient-id])
+```
+
+The sub body reads the secret material out of **classified app-db** (redacted by path) and its own `:sensitive` declaration redacts the **output**. A secret passed *as a query argument* — `(subscribe [:patient/record ssn])` — rides raw on every slot listed above.
+
+> **Do not attempt to close this by routing the query vector through the sub classification chokepoint.** A sub's declaration is rooted at its **output** shape; the query vector is an **input** with a different shape. Walking an input vector with output-rooted paths matches nothing and **silently no-ops** — shipping a bound that does not bound, which is strictly worse than an honest fail-open. Hardening query-vector arguments would require a *separate* arg-rooted declaration axis; that was considered and rejected, as was a blanket scrub of `:rf.sub/query-v` at egress (it destroys parameterized-instance identity and reactive-graph edges while still leaking the same vector through the sibling slots above).
+
+**The schema axis is the one backstop, and it is unchanged.** When a sub's Malli schema declares a `:sensitive?` slot, a schema-**validation-failure** trace whole-slot scrubs `:rf.sub/query-v` to `:rf/redacted` ([010 §`:sensitive?` — privacy in schema-validation error traces](010-Schemas.md#sensitive--privacy-in-schema-validation-error-traces)). That is a distinct, narrower mechanism on a distinct axis — it covers the validation-failure trace, not the ordinary `:rf.sub/run` / `:rf.sub/skip` egress described above.
+
 **Three fx-ids carry classification the static registration model cannot express, and the same fx-arg walk honours it.** A `[:dispatch [target-event …]]` (or `:dispatch-later` `{:ms … :event […]}`) entry carries a **target event**, so the walk recurses into the **target event registration's** own `:sensitive` / `:large` (rooted at the target's arg-map, exactly as the target's own dispatched-event trace redacts) — a classified event nested inside another handler's `:fx` vector never ships its payload raw at the *dispatching* handler's trace slots. And a `:rf.http/managed` entry's privacy is **dynamic** — the per-call `:sensitive?` flag plus the carrier denylists ([014 §Privacy](014-HTTPRequests.md#privacy)) — so the walk applies the same request redaction the dedicated `:rf.http/*` trace composers apply (via an http-published projection hook; with the http artefact absent the entry passes through, matching the unregistered-fx fail-open).
 
 **An fx's classification covers every fx-arg-bearing trace slot at egress — not just `:rf.fx/handled`.** A `reg-fx` `:sensitive` / `:large` declaration is applied by the trace chokepoint (`re-frame.classification/project-trace-event`) to **every** trace slot that carries that fx's args, keyed off the slot **shape** rather than a single trace op: (1) the per-effect `:rf.fx/args` on the `:rf.fx/handled` success trace; (2) the `:rf.event/fx` aggregate on `:rf.fx/do-fx` — the handler's whole returned effect vector, each `[fx-id args]` entry's args redacted through *that* entry's registration, mirroring the sibling `:rf.event/db` walk (per [009 §Canonical per-event trace sequence](009-Instrumentation.md#canonical-per-event-trace-sequence)); and (3) the `:rf.fx/args` on the always-on fx **error** traces (`:rf.error/fx-handler-exception` + siblings) and `:rf.fx/skipped-on-platform` — these ride the production-survivable error-emit axis, so an fx that throws while persisting / sending a classified value (a session token to `localStorage`, an auth header) never egresses it raw. An **unregistered** fx-id (`:rf.error/no-such-fx`) has no registration to read a declaration off and is the documented fail-open. A **keyword-redirected** fx (an `:fx-overrides` id-redirect, per [002 §`:fx-overrides`](002-Frames.md#fx-overrides--replace-fx-handlers)) stamps the *original* fx-id as `:rf.fx/from` on these same arg-bearing slots (the tag vocabulary `:rf.fx/override-applied` already uses), and the walk applies **both** registrations' classification — the redirect target's own declaration *and* the original id's static paths + dynamic classification — so a `:sensitive? true` managed request redirected to a canned/test stub redacts at the stub's `:rf.fx/handled` exactly as it would at the original id's.
