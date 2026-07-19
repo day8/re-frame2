@@ -318,10 +318,26 @@
   `router.cljc` (handler-exception, flow-eval, frame-destroyed) and via
   the `:error-emit/dispatch-on-error` late-bind hook from `fx.cljc`,
   `subs/memo.cljc`, `subs.cljc`, and `router/diagnostics.cljc` (those
-  layers cannot static-require this ns — load cycle). Returns nil."
+  layers cannot static-require this ns — load cycle). Returns nil.
+
+  ## Frame-owned sink-route suppression (rf2-bf0io)
+
+  The trailing `route-frame?` (default true) gates ONLY the EP-0015
+  frame-owned observability sink route below — the corpus-wide listener
+  fan-out (axis 1's off-box source of truth) ALWAYS fires regardless.
+  `re-frame.ui.frames`' `emit-and-throw-frame-destroyed!` passes false for a
+  KNOWN-DEAD-incarnation `(frame)`-bundle emission: the captured bare frame id
+  no longer names the incarnation the failure belongs to, so resolving it to a
+  live same-id SUCCESSOR would deliver a dead incarnation's failure into the
+  successor's own `:observability :errors` sink. This is the event-centric
+  mirror of the union-path `route-frame?` seam rf2-vxgfnd.118 added for the
+  post-dissoc teardown report. Every ordinary live / address-directed caller
+  keeps the default, so normal frame-owned routing is untouched."
   ([error-kw event event-id frame-id exception elapsed-ms time]
-   (dispatch-on-error! error-kw event event-id frame-id exception elapsed-ms time nil))
+   (dispatch-on-error! error-kw event event-id frame-id exception elapsed-ms time nil true))
   ([error-kw event event-id frame-id exception elapsed-ms time attrs]
+   (dispatch-on-error! error-kw event event-id frame-id exception elapsed-ms time attrs true))
+  ([error-kw event event-id frame-id exception elapsed-ms time attrs route-frame?]
    (when (trace/continuation-live?)
      (let [;; Always-on error-coord registry: source-coords
            ;; for the failing handler/sub ride the always-on parallel
@@ -409,7 +425,11 @@
              ;; THIS second egress route too — otherwise `project-error-record`
              ;; app-db-walks `:event` and the same coincidental integer path
              ;; redacts identity here. Late-bound to avoid a require cycle.
-             (when (trace/continuation-live?)
+             ;; `route-frame?` false (rf2-bf0io) SUPPRESSES ONLY this route for a
+             ;; known-dead-incarnation UI-bundle emission, so a dead incarnation's
+             ;; bare id can never resolve to a same-id successor's error sink; the
+             ;; corpus fan-out above still fired.
+             (when (and route-frame? (trace/continuation-live?))
                (when-let [route-error! (late-bind/get-fn-cached
                                          :observability/route-error)]
                  (try
@@ -476,24 +496,35 @@
   Returns nil. Reached directly by `router.cljc` (static require) and via the
   `:error-emit/emit-error-both` late-bind hook by `fx` / `subs` / `subs.memo` /
   `cofx` / `router.diagnostics` (those layers cannot static-require this ns — a
-  load cycle through `elision` → `frame`)."
+  load cycle through `elision` → `frame`).
+
+  The trailing `route-frame?` (default true — rf2-bf0io) threads straight into
+  [[dispatch-on-error!]]'s frame-owned sink route gate: false suppresses ONLY
+  that route (the corpus record + the axis-2 dev trace still fire), for the UI
+  dead-incarnation `(frame)`-bundle emit that must not deliver a dead
+  incarnation's failure into a same-id successor's sink."
   ([category event event-id frame exception elapsed-ms time trace-tags]
    (emit-error-both! category event event-id frame exception elapsed-ms time
-                     trace-tags nil))
+                     trace-tags nil true))
   ([category event event-id frame exception elapsed-ms time trace-tags record-attrs]
+   (emit-error-both! category event event-id frame exception elapsed-ms time
+                     trace-tags record-attrs true))
+  ([category event event-id frame exception elapsed-ms time trace-tags record-attrs
+    route-frame?]
    ;; Axis 1 — always-on corpus-wide listener (+ EP-0015 frame-owned sink).
    ;; Start from the caller's category-specific `record-attrs` (axis-1 only),
    ;; then lift the component-attributed `:failing-id` / `:reason` from the
    ;; trace-tags when the failing component is DISTINCT from the dispatched
    ;; event (interceptor / cofx categories). The distinct-from-event-id guard
    ;; keeps the record tight for the categories whose `:failing-id` already
-   ;; equals `:event-id`.
+   ;; equals `:event-id`. `route-frame?` gates ONLY the frame-owned sink route
+   ;; inside `dispatch-on-error!` (rf2-bf0io) — the corpus fan-out is unconditional.
    (let [failing-id (:failing-id trace-tags)
          attrs      (cond-> record-attrs
                       (and (some? failing-id) (not= failing-id event-id))
                       (assoc :failing-id failing-id :reason (:reason trace-tags)))]
      (dispatch-on-error! category event event-id frame exception elapsed-ms time
-                         attrs))
+                         attrs route-frame?))
    ;; Axis 2 — dev-only trace surface; DCEs under `:advanced` + `goog.DEBUG=false`
    ;; (the `interop/debug-enabled?` gate lives inside `trace/emit-error!`).
    (when (trace/continuation-live?)
