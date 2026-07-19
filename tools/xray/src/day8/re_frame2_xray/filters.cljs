@@ -161,8 +161,11 @@
 
     - Effects: `:rf.xray.filters/persist` — localStorage write fx.
 
-    - Side-effect: hydrate `:active-filters` from localStorage at
-      first install via a no-history dispatch.
+    - Side-effect: NONE — install does NOT hydrate `:active-filters`
+      from localStorage (rf2-fhtes). The slot starts at its registry
+      default; the transient reset and the configured boot-baseline
+      seed land later on the mount path (`mount.cljs`'s `::reset-
+      transient-filters` then `::seed-configured-filters`).
 
   Called from `registry/register-xray-handlers!` after the
   `:rf.xray/active-filters` slot is registered (so the sub-graph

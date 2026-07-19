@@ -47,7 +47,7 @@ The full v1 key surface, grouped by topical cluster:
    ;; Settings cluster — bulk-replace the Settings popup state
    :rf.xray/settings              {:theme :dark :general {:density :cosy}}
 
-   ;; Filters cluster — host-supplied seed pill set on first install
+   ;; Filters cluster — host-supplied boot-baseline seed (re-applied every load)
    :rf.xray/filters               {:out [{:pattern ":mouse-move"}]}
    :rf.xray/filters-storage-key   "re-frame2.xray.filters.v1"})
 ```
@@ -209,7 +209,7 @@ The settings persist under the localStorage key `day8.re-frame2-xray/settings/v1
 
 ## Filters cluster
 
-The Trace panel ships filter pills (`+ pattern`, `- pattern`, `+ :origin`, `+ frame`) that drive in / out filtering of the displayed events. Filter state persists in localStorage across reloads; hosts that want to seed a starting filter set on first install reach for the filters cluster.
+The Trace panel ships filter pills (`+ pattern`, `- pattern`, `+ :origin`, `+ frame`) that drive in / out filtering of the displayed events. A user's own pills are **transient** — written to localStorage only *within* a session and reset to unfiltered on every load, so a stale filter never silently hides rows after a reload. Hosts that want a known starting set reach for the filters cluster's seed: an explicit **boot baseline**, re-applied on every load, not durable user-filter persistence.
 
 ### `set-filter-seed!`
 
@@ -217,7 +217,7 @@ The Trace panel ships filter pills (`+ pattern`, `- pattern`, `+ :origin`, `+ fr
   ```clojure
   (set-filter-seed! seed-map) → nil
   ```
-- **Description**: Host-supplied seed pill set the registry hydrates `:active-filters` with on FIRST install (when localStorage is empty). Shape: `{:in [{...}] :out [{...}]}`. Default `nil` — first session boots with no filters (first-session honesty beats first-session quietness). Story testbeds use this to inject a known starting point for reproducibility.
+- **Description**: Host-supplied seed pill set applied to `:active-filters` as the explicit **boot baseline**. A non-empty seed lands on **every** load via the first-mount `::seed-configured-filters` hook, which runs *after* the transient-filter reset — so the host's baseline always wins over a user's stale session pills. The seed is seed-only: it never reads localStorage and is never persisted. Shape: `{:in [{...}] :out [{...}]}`. Default `nil` — a fully-unfiltered first paint (first-session honesty beats first-session quietness). Story testbeds use this to inject a known, reproducible starting posture. To change filters *live* (mid-session), use the filter pill events / Story path — not a post-mount `configure!`, since the seed is read once per frame at first mount, not on every use.
 
 ### `set-filters-storage-key!`
 
