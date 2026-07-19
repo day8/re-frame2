@@ -232,7 +232,13 @@
             cap       (rf/capture-frame :qt/frame)        ;; pins incarnation A
             errors    (atom [])
             cleanup   (js/Error. "queue-then-throw host cleanup")]
-        (rf/register-listener! :errors ::qt-leak (fn [r] (swap! errors conj (:error r))))
+        ;; Retain the FULL error record (not just `(:error r)`): `:errors` is a
+        ;; PROCESS-GLOBAL always-on listener, so a bare `:error`-kw match could go
+        ;; green on a foreign `:rf.error/frame-destroyed` a sibling suite leaked
+        ;; into one of the act / queued-microtask / mount / macrotask settle
+        ;; windows this test crosses (the rf2-veyfp false-green). Keeping the
+        ;; record lets the assertion scope to THIS frame's own attribution.
+        (rf/register-listener! :errors ::qt-leak (fn [r] (swap! errors conj r)))
         (-> (act-promise
              #(vreset! root* (ui/mount [cell-less-root] container {:root-id :qt/root})))
             (.then
@@ -271,9 +277,25 @@
                (is (nil? (:leaked? (rf/app-db-value :qt/frame)))
                    "the queued predecessor captured dispatch did not enter same-id
                     frame B — clearing DOM/markers was not treated as settlement")
-               (is (some #{:rf.error/frame-destroyed} @errors)
+               ;; Scope to THIS frame's own stale op. Matching only the
+               ;; `:rf.error/frame-destroyed` category would accept a foreign
+               ;; same-category record a sibling suite leaked into a settle
+               ;; window. The subject record carries its own attribution — the
+               ;; core `capture-frame` stale-dispatch path stamps `:frame
+               ;; :qt/frame`, `:event-id :qt/mutate`, `:event [:qt/mutate]`, and
+               ;; `:op :dispatch-sync` — so require all of them. A pure
+               ;; narrowing: it still matches the subject's own emit, but a
+               ;; foreign same-category record cannot substitute.
+               (is (some #(and (= :rf.error/frame-destroyed (:error %))
+                               (= :qt/frame (:frame %))
+                               (= :qt/mutate (:event-id %))
+                               (= [:qt/mutate] (:event %))
+                               (= :dispatch-sync (:op %)))
+                         @errors)
                    "the superseded queued dispatch recovered-but-emitted
-                    :rf.error/frame-destroyed")
+                    :rf.error/frame-destroyed for THIS frame's own stale
+                    :dispatch-sync op (a foreign same-category record cannot
+                    satisfy it)")
                (rf/unregister-listener! :errors ::qt-leak)
                (act-promise rf/destroy-adapter!)))
             (.then (fn [] (done))
