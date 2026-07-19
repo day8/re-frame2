@@ -398,52 +398,68 @@
                          [:span.cell (:name only-row)])}])
 
 ;; ---------------------------------------------------------------------------
-;; Component-library PROOF PACK (readiness §7; EP-0035) — representative
-;; library-shaped components donated to the parity corpus as a rolling consumer
-;; (the substrate takes no re-com build dependency). These prove CROSS-HOST
-;; STRUCTURAL equivalence of the component-library shapes; the behavioural
-;; guarantees ride the owning gates (controlled-input sync door / IME / caret =
-;; G-8; multi-writer local = G-15; safe-spread deny = G-17; slot purity = G-16;
-;; manifest + production absence = G-7/G-11; single-view import = G-18).
+;; Library-shaped grammar rows (rf2-kxork)
+;;
+;; These three rows USED to be named `pp-*` and documented as the
+;; "component-library PROOF PACK … donated to the parity corpus", which read as
+;; though this corpus covered `re-frame.ui.proof-pack.library`. IT NEVER DID.
+;; They are independent re-implementations with materially different markup and
+;; props, so the framing was an assertions-decoupled-from-reality claim: the
+;; corpus asserted on these while the real library went unrendered. The claim is
+;; retired here; the rows survive on their own grammar merit, under names that
+;; describe what they actually are.
+;;
+;; The real library is now RENDERED AND EXERCISED — all six views, on a real
+;; React root — by `re-frame.ui.proof-pack.library-dom-cljs-test`. It cannot be
+;; a member of THIS corpus: the corpus is dual-emitter `.cljc` (every row must
+;; also render on the JVM), the library is `.cljs`, and four of its six views
+;; are host-bearing (`ui/sub`, `ui/local` + `ui/handler`, `ui/effect :connect`)
+;; and so have no JVM side to compare.
+;;
+;; A fourth row, `pp-controlled-input`, was RETIRED outright rather than
+;; renamed: its shape (a literal `:value` co-present with an `:on-input`
+;; handler, plus `:read-only`) is already covered exactly by `form-controls`
+;; rows 1 and 3, so nothing is left uncovered by its removal.
 ;; ---------------------------------------------------------------------------
 
-(defview pp-controlled-input
-  "Proof pack — reusable controlled text input (the event-prefix control's
-  STRUCTURAL shell; the synchronous door + IME/caret behaviour is G-8). A
-  literal :value co-present with the handler is the controlled site."
-  [{:keys [value]}]
-  [:input.pp-input {:type :text :value value :read-only true
-                    :on-input [:pp/typed :rf.ui/value]}])
-
-(defview pp-list-cell
-  "Proof pack — a reusable list rendering each row through an INLINE compiled
-  render slot (keys/occurrences preserved; JVM structure faithful)."
+(defview inline-slot-render-fn
+  "Grammar row: a list rendering each row through a render-fn constructed
+  INLINE at the `ui/slot` call site — the complement of `slot-consumer`, which
+  carries its render-fn as a PROP. Keys/occurrences preserved; JVM structure
+  faithful. NOT the proof-pack library's `list-cell` (that view takes `render`
+  as a prop; it is exercised in library-dom-cljs-test)."
   [{:keys [rows]}]
-  [:ul.pp-list
+  [:ul.slot-list
    (for [[i r] (map-indexed vector rows)]
-     [:li.pp-cell {:key (:id r)}
-      (ui/slot (ui/render-fn [idx row] [:span.pp-body (str idx ":" (:name row))]) i r)])])
+     [:li.slot-cell {:key (:id r)}
+      (ui/slot (ui/render-fn [idx row] [:span.slot-body (str idx ":" (:name row))]) i r)])])
 
-(defview pp-safe-form-control
-  "Proof pack — a form control forwarding caller attrs through the spread-safe
-  policy onto its owned input: owned props win, aria-*/data-* pass through, the
-  controlled site is retained."
+(defview safe-spread-controlled
+  "Grammar row: `ui/spread-safe` over a CONTROLLED owned map — the clause
+  `safe-spread-trusted` does not reach, since its owned map carries no
+  `:value`. Owned props win, aria-*/data-* pass through, and the literal
+  `:value` co-present with the handler keeps the sync door across the spread.
+  NOT the proof-pack library's `safe-form-control` (that view sources its value
+  from `ui/sub`, not a prop; it is exercised in library-dom-cljs-test)."
   [{:keys [value attrs]}]
-  [:input.pp-form (ui/spread-safe {:type :text :value value :read-only true
-                                   :on-input [:pp/typed :rf.ui/value]}
-                                  attrs)])
+  [:input.safe-form (ui/spread-safe {:type :text :value value :read-only true
+                                     :on-input [:corpus/typed :rf.ui/value]}
+                                    attrs)])
 
-(defview pp-schema-described
-  "Proof pack — a schema-described component: its literal props schema drives the
-  view-manifest projection (Story/docs/Xray) and is proven production-absent
-  under G-7/G-11. Structurally it is ordinary markup."
+(defview schema-described-markup
+  "Grammar row: the corpus's only view carrying a LITERAL props schema, pinning
+  that a schema-described view renders identically on both hosts (the schema is
+  manifest/validation metadata and must not perturb output). NOT the proof-pack
+  library's `schema-described`, whose schema is `{:closed true}` over `:label`
+  ALONE and whose markup is a single `<label>` — this row's `:hint` prop does
+  not exist there and would violate that closed schema."
   {:props [:map
            [:label {:doc "the field label"} :string]
            [:hint {:doc "optional helper text" :optional true} :string]]}
   [{:keys [label hint]}]
-  [:div.pp-described
-   [:span.pp-label label]
-   (when hint [:small.pp-hint hint])])
+  [:div.described
+   [:span.described-label label]
+   (when hint [:small.described-hint hint])])
 
 ;; ---------------------------------------------------------------------------
 ;; S4 corpus additions (W14; rf2-yho9j) — the S4 surfaces that HAVE two
@@ -527,10 +543,10 @@
    :children-flow   children-flow
    :slot-consumer   slot-consumer
    :slot-empty      slot-empty
-   :pp-controlled-input   pp-controlled-input
-   :pp-list-cell          pp-list-cell
-   :pp-safe-form-control  pp-safe-form-control
-   :pp-schema-described   pp-schema-described
+   ;; rf2-kxork — library-shaped grammar rows (formerly the `pp-*` stand-ins)
+   :inline-slot-render-fn    inline-slot-render-fn
+   :safe-spread-controlled   safe-spread-controlled
+   :schema-described-markup  schema-described-markup
    ;; S4 (W14, rf2-yho9j)
    :presence-toasts       presence-toasts
    :presence-inline       presence-inline
@@ -584,14 +600,14 @@
                                                                     {:id 3 :name "third"}]}}
    {:id :slot-empty           :view :slot-empty      :props {:rows [{:id 1 :name "x"}
                                                                     {:id 2 :name "y"}]}}
-   {:id :pp-controlled-input  :view :pp-controlled-input :props {:value "typed & <kept>"}}
-   {:id :pp-list-cell         :view :pp-list-cell       :props {:rows [{:id 1 :name "a & <b>"}
-                                                                       {:id 2 :name "second"}]}}
-   {:id :pp-safe-form-control :view :pp-safe-form-control :props {:value "v & <x>"
-                                                                  :attrs {:aria-label "field"
-                                                                          :data-testid "pp"
-                                                                          :class "extra"}}}
-   {:id :pp-schema-described  :view :pp-schema-described :props {:label "Name" :hint "your full name"}}
+   ;; rf2-kxork — library-shaped grammar rows (formerly the `pp-*` stand-ins)
+   {:id :inline-slot-render-fn :view :inline-slot-render-fn :props {:rows [{:id 1 :name "a & <b>"}
+                                                                          {:id 2 :name "second"}]}}
+   {:id :safe-spread-controlled :view :safe-spread-controlled :props {:value "v & <x>"
+                                                                      :attrs {:aria-label "field"
+                                                                              :data-testid "sc"
+                                                                              :class "extra"}}}
+   {:id :schema-described-markup :view :schema-described-markup :props {:label "Name" :hint "your full name"}}
    ;; --- S4 (W14; rf2-yho9j) — the dual-emitter S4 rows -------------------
    {:id :presence-two         :view :presence-toasts :props {:toasts [{:id 1 :msg "a & <b>"}
                                                                       {:id 2 :msg "second"}]}}
