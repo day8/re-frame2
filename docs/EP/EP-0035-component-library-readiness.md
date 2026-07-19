@@ -2,31 +2,33 @@
 
 Status: accepted
 Type: standards-track
-
-> The directed amendment package that makes `re-frame.ui`
-> component-library-ready ahead of the re-com native port. Normative homes on
-> graduation: the Spec 004 rewrite (handler synchrony law, local placement
-> law, render slots, spread), `spec/004B` (conversion table), `spec/008`
-> (gate roster), `spec/009` (diagnostic rows). Directed by Mike 2026-07-16
-> (in-session); accepted on direction — the immediate S3 implementation beads it
-> filed have all since closed; the trigger-gated candidates it also filed are
-> carried on the program epic `rf2-vxgfnd` against the triggers recorded in
-> §Resolved Decisions (see §Bead Plan).
+Created: 2026-07-16
+Resolution: accepted 2026-07-16 (directed)
 
 ## Abstract
 
 re-com is the first and most important consumer test for `re-frame.ui`; the
-substrate gets ready for it now, without waiting for the port. The package
-is deliberately small — *correct three semantics, add two library contracts,
-clarify two rules, gate the rest, never cross the wall* — putting into the
-substrate only what a library cannot build soundly itself; everything else
-is a guide convention or a trigger-gated candidate with a recorded ruling.
+substrate gets ready for it ahead of the port. The package is deliberately
+small — *correct three semantics, add two library contracts, clarify two rules,
+gate the rest, never cross the wall* — putting into the substrate only what a
+library cannot build soundly itself; everything else is a guide convention or a
+trigger-gated candidate with a recorded ruling.
+
+The normative homes are the Spec 004 rewrite (handler synchrony law, local
+placement law, render slots, spread),
+[`spec/004B-UI-Tree-and-Conversion.md`](../../spec/004B-UI-Tree-and-Conversion.md)
+(conversion table), [`spec/008-Testing.md`](../../spec/008-Testing.md) (gate
+roster), and [`spec/009-Instrumentation.md`](../../spec/009-Instrumentation.md)
+(diagnostic rows); per EP-0009, where this EP and the spec differ, the spec
+governs. The package shipped with the S3 conformance slice; the trigger-gated
+candidates remain gated on the triggers recorded in Resolved Decisions.
 
 ## Motivation
 
-The tri-analysis of re-com (three analyses + three cross-reviewed syntheses
-against `0e2675a`, no material divergence) found exactly three places where
-the in-flight S3 contracts force a library into unsound workarounds:
+The tri-analysis of re-com (three analyses plus three cross-reviewed syntheses
+of re-com at `0e2675a`, no material divergence) found exactly three places
+where the S3 contracts as first drafted would force a library into unsound
+workarounds:
 
 1. **Last-write-wins local state.** re-com has 348 `reset!`/`swap!` lines in
    27 files, with multi-writer idioms throughout. A setter computed from the
@@ -43,54 +45,23 @@ props (36 re-com `:attr` files) and one manifest projection replacing ~57
 parallel args-desc Vars — public-contract decisions with rejected
 alternatives; an EP, not a bead.
 
-## Goals / Non-Goals
-
-Goals:
-
-- amend the S3 contracts so a native component library builds on
-  `re-frame.ui` without unsound workarounds — before the port begins;
-- keep the amendment minimal: substrate changes only where a library
-  provably cannot supply the semantics itself;
-- gate every speculative candidate behind a named, measurable trigger with a
-  recorded ruling; record the doctrine and the wall as durable rationale.
-
-Non-goals:
-
-- the re-com port itself (separate epic, `rf2-6ajm6z`; its ruled product
-  register is recorded here because it anchors the triggers);
-- any wall crossing: no ratoms/cursors/reactions or generic `IDeref`, runtime
-  hiccup interpreter in core, parts interpreter, dynamic heads or blanket
-  `ui/element`, Form-2/3 / `component-did-*`, render-phase mutation, memo
-  opt-out, theme registry / widget controllers / async loaders / focus
-  policy, dual kwargs/map parser, or CSS/Bootstrap ownership;
-- reopening the blessed v1 API freeze — the row-level changes here entered
-  under the freeze's own delta protocol (deltas #4 and #5).
-
-## Relationships
-
-- **EP-0030** (the `re-frame.ui` program) owns the staged program this
-  package amends; stage epic `rf2-vxgfnd.95` carries the fold-in.
-- **EP-0031** (the compiled-view contracts) defines the amended surfaces:
-  handler decision table + synchrony law, `local`/`effect` placement law,
-  template grammar, `ui/spread`.
-- **EP-0032 / EP-0033 / EP-0034** (siblings of this wave) own the adjacent
-  touched surfaces — interop tier, tool/evidence projections,
-  conformance/production gates; amendments land in their normative homes.
-- **EP-0029** is the ISO-8601 precedent: the port register's date/time ruling
-  (R-8 below) deliberately matches the XState-v6 duration ruling.
-- **Specs:** `spec/004-Views.md`, `spec/004B-UI-Tree-and-Conversion.md`,
-  `spec/006-ReactiveSubstrate.md`, `008-Testing`, `009-Instrumentation`.
-- **Provenance (working analyses; `ai/` is local-only by default, with a few trees
-  force-tracked as a temporary exception — `git ls-files ai/` is the roster — and
-  content restated in beads):** the owning delta doc — graduated into this EP + the P0/P1 spec homes
-  (`spec/004-Views.md`, `spec/004B-UI-Tree-and-Conversion.md`,
-  `spec/006-ReactiveSubstrate.md`, `spec/008-Testing.md`, `spec/009-Instrumentation.md`),
-  from the tombstoned `drafts/component-library-readiness.md` (rf2-mgy7pz);
-  the tri-synthesis consensus `synthesis.{fable,codex,grok}.md` under
-  `ai/findings/re-com-port/`; the blessed table's delta record (`spec/API.md`
-  §"re-frame.ui — blessed public-surface freeze"); the 07 gate roster.
-
 ## Specification
+
+**Scope.** This EP amends the S3 contracts so a native component library builds
+on `re-frame.ui` without unsound workarounds — before the port begins; keeps
+the amendment minimal (substrate changes only where a library provably cannot
+supply the semantics itself); and gates every speculative candidate behind a
+named, measurable trigger with a recorded ruling, recording the doctrine and
+the wall as durable rationale. It does not own the re-com port itself (a
+separate directed program; its ruled product register is recorded here because
+it anchors the triggers); it does not cross the wall — no
+ratoms/cursors/reactions or generic `IDeref`, no runtime hiccup interpreter in
+core, no parts interpreter, no dynamic heads or blanket `ui/element`, no
+Form-2/3 / `component-did-*`, no render-phase mutation, no memo opt-out, no
+theme registry / widget controllers / async loaders / focus policy, no dual
+kwargs/map parser, no CSS/Bootstrap ownership; and it does not reopen the
+blessed v1 API freeze — the row-level changes here entered under the freeze's
+own delta protocol (deltas #4 and #5).
 
 ### P0 — three semantic corrections
 
@@ -103,7 +74,8 @@ handler) compose instead of last-write-wins. Both are legal in committed
 handlers and effect callbacks; render-phase use remains the existing dev
 error; `update!` joins `:local-state` cause evidence, rides the HMR hook
 signature, and raises the same typed `:rf.error/jvm-host-op` on the JVM.
-Out: reset-key / derived local (a scheduled spike) and fn-overloaded setters.
+Out: reset-key / derived local (a trigger-gated spike) and fn-overloaded
+setters.
 
 **P0-2 · Sync-door widening: compiler-known `ui/event` vector outcomes.** At
 a compiler-proven controlled DOM site (the unchanged S-5 predicate: literal
@@ -118,12 +90,12 @@ existing diagnostic. The competing compiled event-template projection is
 **demoted** — a second handler language — revisited only on proven JVM/Xray
 inadequacy evidence.
 
-**P0-3 · Internal compiled render slots.** `ui/render-fn` becomes valid for
+**P0-3 · Internal compiled render slots.** `ui/render-fn` is valid for
 **internal** library seams (previously foreign-boundary only), invoked
-exclusively through the compiler-owned form **`ui/slot`** (name final at spec
-landing). `ui/slot` accepts only `ui/render-fn` values or `nil`; the callback
-body is lexically visible at the consumer call site and therefore **compiled**
-(both emitters, closed grammar inside); the body is pure render phase —
+exclusively through the compiler-owned form **`ui/slot`**. `ui/slot` accepts
+only `ui/render-fn` values or `nil`; the callback body is lexically visible at
+the consumer call site and therefore **compiled** (both emitters, closed
+grammar inside); the body is pure render phase —
 `sub`/`lease`/`local`/`effect`/dispatch/hooks inside are didactic errors;
 result normalization/error behaviour, keys/occurrence identity,
 capability/fingerprint propagation, `ui.test` structural representation,
@@ -136,9 +108,9 @@ props · pure render slots · registered stateful views (gated).
 
 ### P1 — two library-facing contracts
 
-**P1-4 · Literal safe-spread policy.** A policy form joins `ui/spread` as a
-**distinct sibling name** — landed at spec landing as `ui/spread-safe`, not as a
-second `spread` arity — with compiler-visible allow/deny: denied structural/controlled/identity keys
+**P1-4 · Literal safe-spread policy.** A policy form joins `ui/spread` as the
+**distinct sibling name `ui/spread-safe`** — not a second `spread` arity —
+with compiler-visible allow/deny: denied structural/controlled/identity keys
 (`:key` `:ref` `:value` `:checked` owned `:on-*`) are rejected in **every
 build**, never dev-only; allowed `:on-*` values classify through the handler
 decision table; `aria-*`/`data-*`/`title`/class/style pass through per the
@@ -184,6 +156,7 @@ The **component-library proof pack** lands in the conformance/parity corpus
 as a rolling consumer (no re-com build dependency): controlled input ·
 selection controller · slotted list cell · safe-attrs form control ·
 schema-described component · inline popover · single-view advanced import.
+EP-0034 owns the roster of record and the wiring status.
 
 ### The trigger-gated candidate register
 
@@ -195,7 +168,7 @@ Nothing below is pre-approved; each row's full ruling is in Resolved Decisions:
 | lexical `ui/tpl` | Wave-3 checkpoint; if fired, pre-committed as literal-only **sugar over zero-arg `ui/render-fn` + `ui/slot`**, never a parallel primitive |
 | registered `ui/view` | gate **closed** for re-com v1; trigger refined to runtime-**open** identity (never mere statefulness) |
 | `ui/portal` | superseded-in-part: overlay plan of record is **inline + native top-layer** (`dialog.showModal()`, the `popover` attribute); graduation bar raised |
-| `defview-alias` | fallback-first (canonical defviews in the public ns); if fired, a meta-copying macro; bare-alias **dev warning ruled in now** |
+| `defview-alias` | fallback-first (canonical defviews in the public ns); if fired, a meta-copying macro; the bare-alias **dev warning is ruled in and shipped** |
 | event-template projection | demoted (second handler language); revisit only on JVM/Xray inadequacy evidence from P0-2 |
 | library DCE/packaging | fixture-first: only a structural G-18 failure justifies packaging work; the emitter already `goog.DEBUG`-gates registration (production arm is a direct `React.memo`) |
 
@@ -207,6 +180,14 @@ executable value crossing a library boundary has an explicit phase, identity,
 ownership, host meaning, evidence shape, and production cost. A consumer
 that appears to need the wall crossed gets an API redesign or a named
 interop boundary, never a substrate exception.
+
+### Guide impact
+
+The events guide gains the C-13b event-prefix convention; the interop guide
+gains the C-6 measure-before-paint recipe and the safe-spread passthrough
+pattern; the component-library authoring guide lands from port Wave 0 (R-6);
+the four-lane content convention (see the `ui/tpl` ruling) is publishable
+ahead of Wave 3.
 
 ## Rationale
 
@@ -226,130 +207,113 @@ a permissive alternative, and those refusals are half an EP's value.
 Pre-alpha; no shims. `local`'s two-tuple destructuring sites migrate to the
 three-tuple (the migrator's `swap!` rewrite retargets to `update!`, retiring
 its MANUAL flag on multi-writer idioms). The sync-door widening is strictly
-additive at proven-controlled sites — `.95.1`'s literal-only door was an
+additive at proven-controlled sites — the earlier literal-only door was an
 implementation waypoint, never shipped law — and the v1 API freeze is not
 reopened: deltas #4/#5 entered under the freeze's own delta protocol.
 
-## Bead Plan / Reference Implementation
-
-The per-bead fold-in against S3 stage epic `rf2-vxgfnd.95`, which closed
-2026-07-18. Per EP-0009 a ledger's rows cite live bead ids and are struck as they
-close; every row below is now closed, so this table records finished work rather
-than tracking it.
-
-| Delta | Owning bead | State |
-|---|---|---|
-| P0-1 three-tuple `local` + G-15 | `rf2-vxgfnd.95.2` (amended notes authoritative over its original scope) | closed |
-| P0-2 sync-door widening + widened G-8 | `rf2-8k14ia` — the pre-conformance **correction** filed after `.95.1` merged (the completeness audit fixed the epic's truncated reference to it); blocked `.95.10` | closed |
-| P0-3 `ui/slot` + G-16 (the delta as filed also folded in the bare-alias dev warning) | `rf2-ri0k6n` — `ui/slot` + G-16; blocked `.95.10`; S3→S4 compiler surface. The bare-alias dev warning was **not** delivered under `rf2-ri0k6n`: it shipped separately as `rf2-vxgfnd.95.15`, also closed. | closed |
-| P1-4 safe-spread policy + G-17 | `rf2-isdqjv`; blocked `.95.10` | closed |
-| C-6 interop blessing + fixtures | `rf2-vxgfnd.95.4` | closed |
-| C-13a fn-prop fixtures | `rf2-vxgfnd.95.3` (kept distinct from `rf2-ri0k6n`'s internal-slot fixtures) | closed |
-| P1-5 manifest projection | `rf2-vxgfnd.95.6` | closed |
-| Gates wiring + proof pack + G-18 fixture | `rf2-vxgfnd.95.10` (deps added on the three new children) | closed |
-| RealWorld vertical rider | `rf2-vxgfnd.95.9` — unchanged; the proof pack complements it | closed |
-
-Spike/checkpoint beads live on the **program epic** (`rf2-vxgfnd`):
-`rf2-nzst23`, `rf2-1hm7a3`, `rf2-a62fje`, `rf2-efxb1h`, `rf2-ho1iba`. The
-re-com **port** is the separate epic `rf2-6ajm6z`, whose Wave-0 product
-register is resolved — the ten rulings R-1..R-10 below; the substrate stage
-epic never blocks on component migration.
-
-Guide-impact assessment (EP-0009 rule 5): the events guide gains the C-13b
-event-prefix convention; the interop guide gains the C-6 measure-before-paint
-recipe and the safe-spread passthrough pattern; the component-library
-authoring guide lands from port Wave 0 (R-6); the four-lane content
-convention (below) is publishable ahead of Wave 3.
-
-## Open Issues
-
-None open at acceptance. The two spellings that deferred to spec landing as
-mechanical choices are **now settled**: the render-slot invocation landed as
-`ui/slot`, and the safe-spread form landed as the sibling name `ui/spread-safe`
-(the second-arity option was not taken). The gated candidates each carry a
-recorded ruling and trigger.
-
 ## Resolved Decisions
 
-Rulings of 2026-07-16, delegated per Mike's in-session direction; each bead's
-NOTES block is authoritative over any summary here.
+Delegated rulings (2026-07-16):
 
-- **Reset-key `local` (`rf2-nzst23`) — SCHEDULED, with the init ruling.**
-  The bounded `(local initial reset-key)` spike runs at port Wave-2 entry
-  with the controlled-vs-commit/draft input classification (aborting if
-  every internal-model case dissolves into redesign). **Non-negotiable:** the
-  key is an explicit caller revision, never the model value — value-equality
-  is provably blind to same-value rejection. **Init ruling:** `initial` **is
+- **Reset-key `local` — SCHEDULED, with the init ruling.** The bounded
+  `(local initial reset-key)` spike runs at port Wave-2 entry with the
+  controlled-vs-commit/draft input classification (aborting if every
+  internal-model case dissolves into redesign). **Non-negotiable:** the key
+  is an explicit caller revision, never the model value — value-equality is
+  provably blind to same-value rejection. **Init ruling:** `initial` **is
   re-evaluated at reset**, render-pure and retry-correct. Mechanism: the
   bounded compiler-emitted adjust-during-render idiom (effect-based reset,
   key-remount, and general render-time state setting all rejected). Public
   promotion needs a second distinct buffered consumer + all ten pins green.
-- **`ui/tpl` (`rf2-1hm7a3`) — demand-gated; pre-committed as slot sugar.**
-  Disposition A: not in v1; runtime hiccup values / a general template
-  function rejected permanently. If the measurable trigger fires (≥3
-  unrelated components + ≥20 materially-improved call sites + ≥1 defect
-  beyond verbosity), the authorized spike is literal-only call-site sugar
-  lowering onto zero-arg `ui/render-fn` + `ui/slot`. Primary checkpoint is
-  Wave 3 (popovers); Wave 1 is early-warning only. The library-wide content
-  convention is decided now, tpl-independently: rich content → child
-  position/compound children; parameterized fragments → `ui/render-fn` via
-  `ui/slot`; unparameterized named fragments → zero-arg `ui/render-fn`;
-  strings stay data props.
-- **Registered `ui/view` (`rf2-a62fje`) — gate closed; trigger refined.**
-  Statefulness and runtime-chosen identity are orthogonal; only the latter
-  needs a registry. A stateful replacement is already expressible as a pure
-  slot body mounting a static stateful defview; runtime choice among a known
-  finite set compiles as a `case` over view heads (re-com has zero
-  open-set-id part sites, and firing would create the substrate's first-ever
-  production registry). The trigger now fires only on irreducibly
-  runtime-**open** identity (open-set ids from config/app-db/CMS) with
-  finite `case` and `re-frame.ui.data` both proven inadequate, or a
-  parts-ceiling escalation; general `ui/element` is rejected outright,
-  forever.
-- **`ui/portal` (`rf2-efxb1h`) — superseded-in-part by inline + top-layer.**
-  Overlay plan of record: `<dialog>` + `showModal()` for modals (native
-  backdrop, inert background, Esc, focus return); the `popover` attribute +
-  measured geometry for anchored overlays; `position:fixed` + pure geometry
-  elsewhere. re-com uses zero portals (parity needs none); the top layer is
-  immune to its fixed-position emulation's failure modes. Graduation now
-  requires evidence the **top layer** cannot solve it (foreign-DOM-node
-  rendering is the one portal-only capability); a thin `createPortal`
-  wrapper is rejected permanently.
-- **`defview-alias` (`rf2-ho1iba`) — fallback-first; dev warning now.** The
-  facade strategy is canonical `defview`s in the public namespace, impl
-  namespaces demoted to helpers; try that first. A bare
-  `(def alias impl/view)` renders correctly but silently loses compile-time
-  props/children checks and view identity — so a **dev-only warning** when a
-  foreign-classified head's runtime value is a registered view shell is
-  ruled in and lands now (absorbed into `rf2-ri0k6n`). If the trigger fires
-  (material facade-prototype harm, or a consumer incident from silent
-  check-loss), the authorized shape is a meta-copying macro — no compiler
-  naming graph; wrapper views / dynamic forwarding rejected permanently.
+- **`ui/tpl` — demand-gated; pre-committed as slot sugar.** Not in v1;
+  runtime hiccup values / a general template function rejected permanently.
+  If the measurable trigger fires (≥3 unrelated components + ≥20
+  materially-improved call sites + ≥1 defect beyond verbosity), the
+  authorized spike is literal-only call-site sugar lowering onto zero-arg
+  `ui/render-fn` + `ui/slot`. Primary checkpoint is Wave 3 (popovers); Wave 1
+  is early-warning only. The library-wide content convention is decided now,
+  tpl-independently: rich content → child position/compound children;
+  parameterized fragments → `ui/render-fn` via `ui/slot`; unparameterized
+  named fragments → zero-arg `ui/render-fn`; strings stay data props.
+- **Registered `ui/view` — gate closed; trigger refined.** Statefulness and
+  runtime-chosen identity are orthogonal; only the latter needs a registry. A
+  stateful replacement is already expressible as a pure slot body mounting a
+  static stateful defview; runtime choice among a known finite set compiles
+  as a `case` over view heads (re-com has zero open-set-id part sites, and
+  firing would create the substrate's first-ever production registry). The
+  trigger fires only on irreducibly runtime-**open** identity (open-set ids
+  from config/app-db/CMS) with finite `case` and `re-frame.ui.data` both
+  proven inadequate, or a parts-ceiling escalation; general `ui/element` is
+  rejected outright, forever.
+- **`ui/portal` — superseded-in-part by inline + top-layer.** Overlay plan of
+  record: `<dialog>` + `showModal()` for modals (native backdrop, inert
+  background, Esc, focus return); the `popover` attribute + measured geometry
+  for anchored overlays; `position:fixed` + pure geometry elsewhere. re-com
+  uses zero portals (parity needs none); the top layer is immune to its
+  fixed-position emulation's failure modes. Graduation requires evidence the
+  **top layer** cannot solve it (foreign-DOM-node rendering is the one
+  portal-only capability); a thin `createPortal` wrapper is rejected
+  permanently.
+- **`defview-alias` — fallback-first; dev warning ruled in.** The facade
+  strategy is canonical `defview`s in the public namespace, impl namespaces
+  demoted to helpers; try that first. A bare `(def alias impl/view)` renders
+  correctly but silently loses compile-time props/children checks and view
+  identity — so a **dev-only warning** when a foreign-classified head's
+  runtime value is a registered view shell is ruled in, and has shipped. If
+  the trigger fires (material facade-prototype harm, or a consumer incident
+  from silent check-loss), the authorized shape is a meta-copying macro — no
+  compiler naming graph; wrapper views / dynamic forwarding rejected
+  permanently.
 
-**The port product register (`rf2-6ajm6z`) — R-1..R-10, all ruled:**
+**The port product register — R-1..R-10, all ruled:**
 
 | # | Ruling |
 |---|---|
-| R-1 packaging | same repo; native `re-com/re-com-ui` with `re-com.ui.*`; the coexisting Reagent legacy keeps `re-com.*` |
+| R-1 packaging | same repo; native `re-com/re-com-ui` with `re-com.ui.*` (coordinate confirmed final 2026-07-17); the coexisting Reagent legacy keeps `re-com.*` |
 | R-2 parts ceiling | data/style values + pure compiled slots only; slots receive the component's declared state; no registered stateful replacements in v1 |
 | R-3 uncontrolled tier | narrow, per-component `:default-value`; `:value` XOR `:default-value` validated; type-based ownership inference rejected permanently |
 | R-4 theme transport | explicit props + frame subscriptions; theme values plain data only (context graduation stays non-breaking) |
-| R-5 tables/grids | foreign-virtualization-first behind a re-com-owned data/event/slot boundary; four named criteria to ever go native; engine selection is a Wave-4-entry decision bead |
+| R-5 tables/grids | foreign-virtualization-first behind a re-com-owned data/event/slot boundary; four named criteria to ever go native; engine selection is a Wave-4-entry decision |
 | R-6 helper artifact | generic internals + the authoring guide from Wave 0; a public middle artifact only on a second consuming library |
 | R-7 input ownership | ownership law approved now (controlled roster vs commit/draft vs local interaction state; rejected drafts identified only by explicit `:reset-key`); per-component roster frozen at Wave-2 entry |
 | R-8 dates/times | host-neutral ISO-8601 strings as the canonical ABI (EP-0029 consistency); no `goog.date`/`js/Date`/`java.time` across the public ABI |
 | R-9 accessibility | WAI-ARIA APG semantics per component class, shipped with each component's wave — legacy parity (one `aria-` attribute total) is not the bar |
-| R-10 CSS/Bootstrap | retained through the parity waves as an isolated, removable theme-data layer; removal is a named post-parity decision bead |
+| R-10 CSS/Bootstrap | retained through the parity waves as an isolated, removable theme-data layer; removal is a named post-parity decision |
 
-> **Errata — 2026-07-17 (delegated, recorded on `rf2-6ajm6z`).** R-1's native
-> coordinate — `re-com/re-com-ui` with the `re-com.ui.*` namespace family — was
-> confirmed final; the original ruling's "may be adjusted before first
-> publication" window is now closed.
+## Open Issues
 
-## Recommendation
+None. Every gated candidate carries a recorded ruling and a measurable
+trigger (Resolved Decisions); firing one later is execution, not design
+reopening. The package's contract text lives in its normative homes with
+`spec/008`/`spec/009` carrying gates and catalogue rows; the port proceeds on
+its ruled register — the substrate never waits on it, and the wall never
+moves.
 
-Accepted as directed. Land the package through the mapped S3 beads with
-gates wired in-stage; hold every candidate to its recorded trigger; graduate
-the contract text into the Spec 004/004B rewrite with `spec/008`/`spec/009`
-carrying gates and catalogue rows. The port proceeds on its ruled register —
-the substrate never waits on it, and the wall never moves.
+## References
+
+- [EP-0030](EP-0030-the-compiled-view-substrate-program.md) — the
+  `re-frame.ui` program this package amends; the S3 stage carried the
+  fold-in.
+- [EP-0031](EP-0031-re-frame-ui-programming-model.md) — the compiled-view
+  contracts this package amends: handler decision table + synchrony law,
+  `local`/`effect` placement law, template grammar, `ui/spread`.
+- [EP-0032](EP-0032-re-frame-ui-reactivity-and-ownership.md) /
+  [EP-0033](EP-0033-re-frame-ui-view-evidence.md) /
+  [EP-0034](EP-0034-re-frame-ui-production-ssr-testing.md) — siblings of this
+  wave owning the adjacent touched surfaces — interop tier, tool/evidence
+  projections, conformance/production gates; amendments land in their
+  normative homes.
+- [EP-0029](EP-0029-xstate-v6-machine-parity.md) — the ISO-8601 precedent: the
+  port register's date/time ruling (R-8) deliberately matches the XState-v6
+  duration ruling.
+- Specs: [`spec/004-Views.md`](../../spec/004-Views.md),
+  [`spec/004B-UI-Tree-and-Conversion.md`](../../spec/004B-UI-Tree-and-Conversion.md),
+  [`spec/006-ReactiveSubstrate.md`](../../spec/006-ReactiveSubstrate.md),
+  [`spec/008-Testing.md`](../../spec/008-Testing.md),
+  [`spec/009-Instrumentation.md`](../../spec/009-Instrumentation.md); the
+  blessed table's delta record in [`spec/API.md`](../../spec/API.md)
+  §"re-frame.ui — blessed public-surface freeze".
+- Design provenance: the readiness delta document graduated into this EP and
+  the P0/P1 spec homes from the tombstoned synthesis tree
+  (`ai/findings/new-substrate-synthesis/`); the tri-synthesis consensus
+  analyses under `ai/findings/re-com-port/`.
