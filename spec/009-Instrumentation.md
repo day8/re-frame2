@@ -661,7 +661,7 @@ The other three streams take the same verb. `:events` and `:errors` are the **al
 ```clojure
 (rf/register-listener! :events id listener-fn)  ;; always-on event-emit record
 (rf/register-listener! :errors id listener-fn)  ;; always-on error-emit record
-(rf/register-listener! :epoch  key callback-fn) ;; one :rf/epoch-record per drain-settle
+(rf/register-listener! :epoch  key callback-fn) ;; one :rf/epoch-record per dequeued event
 ```
 
 Conventional keys: `:my-app/recorder`, `:my-app/timing-monitor`, etc.
