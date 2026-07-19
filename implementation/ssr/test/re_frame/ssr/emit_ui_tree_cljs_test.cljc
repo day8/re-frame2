@@ -145,6 +145,73 @@
            (ui-tree/emit-ui-tree (v1 {:tag :textarea :attrs {:value "plain"}})))
         ":value content is fine")))
 
+(deftest textarea-effective-child-stream-is-validated
+  ;; rf2-ib4fd (residual) — #6517's direct `{:html …}` check inspected only the
+  ;; textarea's IMMEDIATE children, so a trusted-HTML leaf spliced in through a
+  ;; transparent fragment or view boundary slipped through and emitted verbatim.
+  ;; This seam validates the EFFECTIVE child stream (after splicing) against the
+  ;; textarea host child contract, failing loud at the ACTUAL offending path.
+  (testing "trusted markup nested through a transparent FRAGMENT is rejected"
+    ;; RED-BEFORE lever: the fragment spliced {:html …} into the textarea and the
+    ;; shipped serialiser emitted "<textarea><b>x</b></textarea>".
+    (let [d (caught-ex-data
+              #(ui-tree/emit-ui-tree
+                 (v1 {:tag :textarea
+                      :children [{:children [{:html "<b>x</b>"}]}]})))]
+      (is (= :rf.error/ui-tree-malformed (:rf.error/id d)))
+      (is (= [:children 0 :children 0] (:path d))
+          "the diagnostic locates the SPLICED leaf, not the textarea")))
+  (testing "trusted markup nested through a VIEW BOUNDARY is rejected"
+    (let [d (caught-ex-data
+              #(ui-tree/emit-ui-tree
+                 (v1 {:tag :textarea
+                      :children [{:view-id :my/view
+                                  :children [{:html "<b>x</b>"}]}]})))]
+      (is (= :rf.error/ui-tree-malformed (:rf.error/id d)))
+      (is (= [:children 0 :children 0] (:path d)))))
+  (testing "a structural element child is rejected (React renders [object Object])"
+    (let [d (caught-ex-data
+              #(ui-tree/emit-ui-tree
+                 (v1 {:tag :textarea :children [{:tag :span :children ["x"]}]})))]
+      (is (= :rf.error/ui-tree-malformed (:rf.error/id d)))
+      (is (= [:children 0] (:path d)))))
+  (testing "more than one effective child is rejected (React allows at most one)"
+    (let [d (caught-ex-data
+              #(ui-tree/emit-ui-tree (v1 {:tag :textarea :children ["a" "b"]})))]
+      (is (= :rf.error/ui-tree-malformed (:rf.error/id d)))
+      (is (= [:children 1] (:path d)) "locates the surplus (second) child"))
+    ;; a fragment does not hide the count — two spliced children still reject
+    (let [d (caught-ex-data
+              #(ui-tree/emit-ui-tree
+                 (v1 {:tag :textarea :children [{:children ["a" "b"]}]})))]
+      (is (= :rf.error/ui-tree-malformed (:rf.error/id d)))))
+  (testing ":value / :default-value plus an authored child is rejected"
+    (let [d (caught-ex-data
+              #(ui-tree/emit-ui-tree
+                 (v1 {:tag :textarea :attrs {:value "v"} :children ["c"]})))]
+      (is (= :rf.error/ui-tree-malformed (:rf.error/id d)))
+      (is (= [:children 0] (:path d))))
+    (let [d (caught-ex-data
+              #(ui-tree/emit-ui-tree
+                 (v1 {:tag :textarea :attrs {:default-value "v"} :children ["c"]})))]
+      (is (= :rf.error/ui-tree-malformed (:rf.error/id d))
+          ":default-value maps to value and rejects the pair identically")))
+  (testing "the valid shapes still emit unchanged — value, sole text, spliced text"
+    (is (= "<textarea>plain</textarea>"
+           (ui-tree/emit-ui-tree (v1 {:tag :textarea :attrs {:value "plain"}})))
+        ":value alone is valid")
+    (is (= "<textarea>hi</textarea>"
+           (ui-tree/emit-ui-tree (v1 {:tag :textarea :children ["hi"]})))
+        "a sole string child is valid")
+    (is (= "<textarea>hi</textarea>"
+           (ui-tree/emit-ui-tree
+             (v1 {:tag :textarea :children [{:children ["hi"]}]})))
+        "a single string spliced through a fragment is valid")
+    (is (= "<textarea>hi</textarea>"
+           (ui-tree/emit-ui-tree
+             (v1 {:tag :textarea :children [{:view-id :v :children ["hi"]}]})))
+        "a single string spliced through a view boundary is valid")))
+
 ;; ---------------------------------------------------------------------------
 ;; Emission — the serialisation half of the conversion table
 ;; ---------------------------------------------------------------------------

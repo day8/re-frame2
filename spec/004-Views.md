@@ -701,7 +701,14 @@ The checks that *do* exist are **shape** checks, and they are deliberately parti
   `(ui/html …)` beneath a literal `<textarea>` is `:rf.ui.compile/html-in-textarea`,
   naming `:value` (or an ordinary text child) as the escape — a textarea's content
   is `value`/`defaultValue`, never `dangerouslySetInnerHTML`, which React 19 rejects
-  on a textarea. A literal `<script>`/`<style>` is an HTML raw-text element that
+  on a textarea. A literal `<textarea>` renders its content from a **single text
+  channel** — its `:value`/`:default-value`, **or** one ordinary text child, never
+  both and never several: multiple children, a `:value`/`:default-value` combined
+  with an authored child, or a visibly structural sole child is
+  `:rf.ui.compile/textarea-children` (React rejects a textarea with more than one
+  child or a value-plus-child pair, and renders an element child as `[object
+  Object]`), naming `:value` or a single text child as the escape. A literal
+  `<script>`/`<style>` is an HTML raw-text element that
   React renders from a **single text body**: it accepts no body, one text-producing
   child, or a sole `(ui/html s)`, but a multiple-child or visibly structural body is
   `:rf.ui.compile/raw-text-children` (React would otherwise join the children into a
