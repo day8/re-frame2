@@ -1330,6 +1330,26 @@
 ;; because `SHADOW_NS_RESET` lives on `goog.global` — SHARED across every build
 ;; in one realm — so two builds' producers must coexist rather than evict each
 ;; other.
+;;
+;; ## And the INSTALL is self-upgrading too (rf2-mp6fz)
+;;
+;; A trampoline keeps the entry's BEHAVIOUR current. It cannot keep the ENTRY
+;; current — the object's own construction, its captured owner, and the installer
+;; that placed it are all fixed at the moment of installation. While the install
+;; was `defonce`d that moment was the page's first load, forever: a live page
+;; kept whatever entry it had, and the only way to adopt a change to this
+;; machinery was a full reload. The concrete failure that names: an entry
+;; installed before shadow's build-id carrier was consulted captured `::default`,
+;; and the page went on routing every reset to the placeholder owner even once
+;; the real build identity became resolvable.
+;;
+;; So the install runs on EVERY load and retires what this copy already owns
+;; (`owned-producer`). Ownership is OBJECT IDENTITY, never the tag: the tag says
+;; which build an entry claims, identity says this copy put it there, and the two
+;; diverge in exactly the cases that matter — our own entry whose captured tag
+;; has gone stale, and a co-loaded bundle's entry carrying the tag we are leaving
+;; behind. `defonce` moved from the install (where it froze the machinery) to the
+;; ownership record (where surviving the reload is the whole point).
 ;; ---------------------------------------------------------------------------
 
 #?(:cljs
@@ -1367,6 +1387,27 @@
            :else                                            (recur (inc i)))))))
 
 #?(:cljs
+   (defonce ^{:private true
+              :doc "The array entry THIS copy of the namespace currently owns, or
+  nil before its first install (and always in `:advanced` production, which
+  installs no producer at all — the atom is gated exactly like `ledger-state`, so
+  no cell is allocated there either).
+
+  `defonce` because it is the one thing that must SURVIVE a hot-reload of this
+  namespace while the install itself deliberately does not (rf2-mp6fz): it is how
+  the freshly loaded installer learns which entry the PREVIOUS generation of this
+  code put on the shared array, so it can retire it instead of appending beside
+  it.
+
+  Identity, not tag, is the ownership proof. A tag says which BUILD an entry
+  claims; only object identity says that THIS copy installed it. The two diverge
+  exactly when migration matters — an entry whose captured tag is now stale is
+  still ours, and a co-loaded bundle's entry carrying the very same tag is not.
+  Retiring by tag would get both of those backwards."}
+     owned-producer
+     (when ^boolean js/goog.DEBUG (atom nil))))
+
+#?(:cljs
    (defn- make-reload-source-producer
      "One stable callback object owned by `build-id` that resolves the CURRENT
      `reload-source-reset!` on every call. `reload-source-reset!` compiles to a
@@ -1386,30 +1427,45 @@
      neither clobbers nor is clobbered by shadow's own init), so shadow calls it
      with each reloaded source's ns from `before-load-src`.
 
-     IDEMPOTENT per build identity: an existing entry tagged with this build is
-     REPLACED in place, never appended to, and entries owned by shadow or other
-     libraries/builds are never inspected for anything but their tag. Dev-only
-     (gated on `js/goog.DEBUG`, elided from `:advanced` production)."
+     IDEMPOTENT, and SELF-UPGRADING across a hot reload (rf2-mp6fz). It reuses
+     the slot this copy already owns — its own previous entry (by identity, so
+     the slot is reused even when the tag it captured has since gone stale),
+     else this build's tagged entry — and REPLACES it in place; only a copy that
+     owns nothing appends. So repeated installs can neither duplicate the
+     producer nor strand a predecessor still routing to an identity this build
+     no longer resolves, and entries owned by shadow or other libraries/builds
+     are never inspected for anything but their tag, never moved, and never
+     retired. Dev-only (gated on `js/goog.DEBUG`, elided from `:advanced`
+     production)."
      []
      (when ^boolean js/goog.DEBUG
        (let [arr      (or js/goog.global.SHADOW_NS_RESET #js [])
              build-id (current-build-id)]
          (set! (.-SHADOW_NS_RESET js/goog.global) arr)
-         (let [i (tagged-producer-index arr build-id)
-               f (make-reload-source-producer build-id)]
+         (let [prev @owned-producer
+               mine (if prev (.indexOf arr prev) -1)
+               i    (if (neg? mine) (tagged-producer-index arr build-id) mine)
+               f    (make-reload-source-producer build-id)]
            (if (neg? i)
              (.push arr f)
-             (aset arr i f)))
+             (aset arr i f))
+           (reset! owned-producer f))
          true))))
 
-#?(:cljs
-   (defonce ^:private _reload-source-producer
-     ;; Install at client load so the shipped reload path has a producer the
-     ;; moment this ns is present; `defonce` survives a hot-reload of rules.cljc
-     ;; itself, so exactly one entry is registered — and because that entry is a
-     ;; trampoline, it runs the RELOADED implementation rather than the object
-     ;; realized here (rf2-vxgfnd.145).
-     (install-reload-source-producer!)))
+;; Install at client load so the shipped reload path has a producer the moment
+;; this ns is present — and re-install on EVERY load, which is what makes the
+;; producer self-upgrading (rf2-mp6fz).
+;;
+;; This deliberately is NOT `defonce`d. The `defonce` existed to stop the
+;; original `.push` from appending a duplicate on each reload; once .145 gave the
+;; entry an owner tag and a replace-in-place install, that job belonged to the
+;; install itself — and the `defonce` had become the thing PINNING the installer,
+;; so no change to it, to the trampoline's construction, or to the owner tag
+;; could reach a page without a full reload. That is the same staleness .145 fixed
+;; one level down, at the level above it: .145 made the entry run current code,
+;; this makes the ENTRY ITSELF current. `owned-producer` carries the ownership
+;; record across the reload boundary that this form no longer needs to.
+#?(:cljs (install-reload-source-producer!))
 
 (defn reset-custom-elements!
   "Test support: clear the runtime custom-element registry, the per-source
