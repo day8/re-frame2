@@ -312,7 +312,7 @@ This is the **structural rewrite target** for every *dev-only* "observer-shaped 
 
 ### Shape B — `register-epoch-listener!` for assembled-epoch observers
 
-When the v1 observer assembled a per-cascade summary (an audit-log entry per drain, an error-projection per failed cascade, a post-mortem record per top-level event), the v2-canonical surface is `register-epoch-listener!` rather than `register-listener!` — the framework hands the listener one assembled `:rf/epoch-record` per drain-settle with the structured `:sub-runs` / `:renders` / `:effects` projections (per [009 §`register-epoch-listener!` — assembled-epoch listener](../../spec/009-Instrumentation.md#register-epoch-listener--assembled-epoch-listener)). The mediation body is **structurally similar** to Shape A but operates on the epoch record:
+When the v1 observer assembled a per-cascade summary (an audit-log entry per drain, an error-projection per failed cascade, a post-mortem record per top-level event), the v2-canonical surface is `register-epoch-listener!` rather than `register-listener!` — the framework hands the listener one assembled `:rf/epoch-record` per dequeued event's run-to-completion — not per drain-settle, so a parent event plus the `:fx [[:dispatch …]]` child it queues yields two records — with the structured `:sub-runs` / `:renders` / `:effects` projections (per [009 §`register-epoch-listener!` — assembled-epoch listener](../../spec/009-Instrumentation.md#register-epoch-listener--assembled-epoch-listener)). The mediation body is **structurally similar** to Shape A but operates on the epoch record:
 
 ```clojure
 (rf/register-listener! :epoch :my-app/post-mortem-shipper
@@ -337,7 +337,7 @@ When the v1 observer assembled a per-cascade summary (an audit-log entry per dra
 Two epoch-specific notes:
 
 - **`(:rf.epoch/sensitive? epoch-record)`** is the framework-computed rollup over the schema-declared sensitive leaves of `:db-before` / `:db-after` / `:trigger-event` / `:trace-events` (per [Security.md §Sensitive rollup at the record level](../../spec/Security.md#epoch-privacy-posture--raw-in-process-records-vs-projected-egress)). The shipper MUST default-drop sensitive epochs; the rollup is exactly the signal to gate on.
-- **The `(rf/configure! {:epoch-history {:redact-fn ...}})` build-time hook** is a stronger alternative — instead of every off-box forwarder applying its own `cap-or-elide`, the operator installs one redact-fn at boot that erases sensitive material from the record **once per drain**; every downstream consumer (ring buffer, listener fan-out, off-box egress) sees the redacted shape. The agent SHOULD recommend the build-time hook when the codebase has multiple forwarders against the same epoch surface; for single-forwarder codebases the per-listener `cap-or-elide` is sufficient.
+- **The `(rf/configure! {:epoch-history {:redact-fn ...}})` build-time hook** is a stronger alternative — instead of every off-box forwarder applying its own `cap-or-elide`, the operator installs one redact-fn at boot that erases sensitive material from each `:rf/epoch-record` **once, as it is committed** (per record — not once per off-box forwarder); every downstream consumer (ring buffer, listener fan-out, off-box egress) sees the redacted shape. The agent SHOULD recommend the build-time hook when the codebase has multiple forwarders against the same epoch surface; for single-forwarder codebases the per-listener `cap-or-elide` is sufficient.
 
 ### Shape C — per-frame `:interceptors` for behaviour-modifying interceptors
 
