@@ -95,10 +95,17 @@
 ;; recognised interop heads (`:<>`, `:>`, `:r>`, `:f>`) are unnamespaced
 ;; and are consumed by `vec-to-elem` before the tag grammar is reached.
 ;;
-;; COST: this sits in `parse-tag`, which `cached-parse` reaches only on a
-;; cache MISS — once per distinct head — so steady-state rendering pays
-;; nothing (the ruling's requirement). `reagent2.dom.server` calls
-;; `parse-tag` directly, so the one guard covers both surfaces.
+;; COST: the guard runs in `parse-tag` (the cache-MISS path, and the
+;; `reagent2.dom.server` direct-call path) AND once more at the top of
+;; `cached-parse`, BEFORE the cache lookup (rf2-sgbna). A `parse-tag`-only
+;; guard was reached only on a cache MISS, but the reserved keyword `:rf/x`
+;; and a valid STRING head "rf/x" share the same cache key "rf/x", so an
+;; app that first rendered the string form let the later reserved keyword
+;; ride the cache-HIT path and skip the reject entirely — see the note on
+;; `cached-parse`. The pre-lookup guard is a single cheap `reserved-rf-head?`
+;; predicate (keyword? + namespace, false-fast for the common unnamespaced
+;; head), so a legitimate head still resolves through the cache at
+;; essentially the same cost.
 ;;
 ;; ALWAYS-ON: no `goog.DEBUG` gate. This is a correctness reject on a
 ;; runtime DATA branch, so it survives `:advanced` + `goog.DEBUG=false`
@@ -249,6 +256,14 @@
 ;; reads `(name …)`, so the two spellings always produced the same
 ;; `HiccupTag` — the collision was harmless until this guard made the head's
 ;; namespace load-bearing.)
+;;
+;; NOTE (rf2-sgbna): the reserved-head phantom is now prevented at its
+;; source — `cached-parse` rejects a reserved keyword head BEFORE this key
+;; is even computed — so no cache key can serve a reserved head. The
+;; fully-qualified key remains to keep distinct keyword spellings distinct;
+;; it is no longer the reserved-head guard. (This very qualification is also
+;; what made `:rf/x` alias the string head "rf/x", the collision rf2-sgbna
+;; closes.)
 (defn- cache-key [k]
   (let [n (name k)]
     (if-let [ns* (and (keyword? k) (namespace k))]
@@ -256,6 +271,20 @@
       n)))
 
 (defn- cached-parse [k element]
+  ;; Reject a reserved `:rf/*` keyword head BEFORE consulting the cache
+  ;; (rf2-sgbna). `reject-reserved-rf-head!` also runs inside `parse-tag`,
+  ;; but `parse-tag` is reached only on a cache MISS. The fully-qualified
+  ;; `cache-key` for the reserved keyword `:rf/x` is the string "rf/x" —
+  ;; IDENTICAL to the key a valid STRING head "rf/x" seeds (a string's
+  ;; `cache-key` is its own name). So an app that first renders the string
+  ;; form seeds "rf/x", and the later reserved keyword `:rf/x` takes the
+  ;; cache-HIT path, never reaches `parse-tag`, and paints a phantom
+  ;; <rf/x> — the type-aliased cache silently disarming the fail-loud
+  ;; guard. Rejecting here, before the lookup, closes that path. The reject
+  ;; is keyword-only (`reserved-rf-head?` is false-fast for the common
+  ;; unnamespaced head and for any string head), so a legitimate head pays
+  ;; a single cheap predicate and still resolves through the cache.
+  (reject-reserved-rf-head! k element)
   (let [n (cache-key k)]
     (if (and (not (reserved-prop-key? n))
              (.hasOwnProperty tag-name-cache n))

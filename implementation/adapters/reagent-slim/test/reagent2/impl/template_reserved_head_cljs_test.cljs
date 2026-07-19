@@ -14,9 +14,13 @@
   boundary` is a streaming-SSR-only marker — so the guard is TOTAL: every
   `:rf/*` / `:rf.<area>/*` head is rejected, with no allow-list carve-out.
 
-  The check lives in `parse-tag`, which `cached-parse` reaches ONLY on a
-  cache MISS (zero steady-state cost, per the ruling) and which
-  `reagent2.dom.server` calls directly — one guard, both surfaces.
+  The check lives in `parse-tag` (the cache-MISS path, and the path
+  `reagent2.dom.server` calls directly) AND at the top of `cached-parse`,
+  ahead of the cache lookup (rf2-sgbna) — because the reserved keyword
+  `:rf/x` and a valid string head of the same qualified name share the
+  cache key `rf/x`, so a `parse-tag`-only guard let the string-seeded
+  keyword ride a cache HIT and skip the reject. Two guard points, all
+  three surfaces.
 
   ns ends in -cljs-test so shadow-cljs's :node-test build picks it up."
   (:require [cljs.test :refer-macros [deftest is testing]]
@@ -96,3 +100,30 @@
     (is (= :rf.error/invalid-hiccup-head
            (:rf.error/id (head-error [:rf/button {}])))
         "the reserved twin must still fail loud")))
+
+(deftest reserved-head-survives-a-string-aliased-cache-entry
+  ;; rf2-sgbna — the STRING-vs-keyword twin, distinct from the
+  ;; keyword-vs-keyword case above. The rf2-01zvu fix keyed the cache on the
+  ;; head's FULLY-QUALIFIED name, so the reserved keyword `:rf/x` keys to the
+  ;; string "rf/x". A valid STRING head "rf/x" keys to the SAME "rf/x" (a
+  ;; string's `cache-key` is its own `name`). Rendering the string form first
+  ;; therefore SEEDS that entry, and the later reserved keyword took the
+  ;; cache-HIT path — bypassing `parse-tag`'s `reject-reserved-rf-head!` and
+  ;; painting a phantom <rf/x>, its React type the aliased string. The guard
+  ;; must run BEFORE the cache lookup so a type-aliased hit cannot disarm it.
+  ;; The lever: seed the STRING, then probe the reserved KEYWORD twin — with
+  ;; the guard only in `parse-tag` (cache-miss-only) the probe returns nil
+  ;; (rendered, no throw); with the guard hoisted ahead of the lookup it
+  ;; throws the catalogued reject carrying the exact `:element` (#6460).
+  (testing "a string-form twin seeded first does not disarm the guard"
+    (is (some? (template/as-element ["rf/cache-string-twin" "ordinary"]))
+        "seed the cache under the aliased string key \"rf/cache-string-twin\"")
+    (let [data (head-error [:rf/cache-string-twin {:id 1}])]
+      (is (= :rf.error/invalid-hiccup-head (:rf.error/id data))
+          "the reserved keyword twin must still fail loud after the string seed")
+      (is (= :rf/cache-string-twin (:head data))
+          "the offending reserved head rides the payload")
+      ;; #6460 (rf2-vzno0): the reject carries the COMPLETE offending vector,
+      ;; and it must do so on the cache-hit path too — not just from parse-tag.
+      (is (= [:rf/cache-string-twin {:id 1}] (:element data))
+          "the COMPLETE offending vector rides :element, per #6460 / rf2-vzno0"))))
