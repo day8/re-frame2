@@ -262,6 +262,27 @@ error by the ABI guard.
   finalization. The corrected law is normative in
   `spec/006-ReactiveSubstrate.md`; this EP's text above states it as
   corrected. The other five invariants were never in question.
+- **Original drain-quiescence wording preserved (2026-07-19, rf2-r7ahi).** The
+  host-checkpoint correction did not touch invariant 6 alone: PR #6393 reworded
+  three further settled passages in place from the original drain-quiescence
+  phrasing, and the Abstract summary carries the same drain → host-checkpoint
+  change. Those rewrites read as current truth above, but the freeze-meaning
+  ruling (rf2-r7ahi) requires the settled originals to stay visible, so they are
+  preserved here — `spec/006-ReactiveSubstrate.md` (host-checkpoint render
+  batching) remains the current normative truth:
+  - **Goals** originally read "committed push economics with *drain-quiescence
+    batching* and a test flush".
+  - **§One ViewCell per view** originally read "one `useSyncExternalStore` over a
+    scalar revision snapshot, one *notification per drain*".
+  - **§Push economics** originally read "Every queued event commits its own epoch
+    record inside the run-to-completion drain; *at quiescence each dirty cell
+    flushes exactly once and React performs one read/render batch for the whole
+    drain*, on a true microtask (never a macrotask that could let a torn frame
+    paint)".
+
+  The correction is factual — the shipped scheduler batches at the host
+  checkpoint, never at drain quiescence — but per the ruling it is recorded, not
+  applied by silently rewriting the settled prose.
 
 ## Open Issues
 
