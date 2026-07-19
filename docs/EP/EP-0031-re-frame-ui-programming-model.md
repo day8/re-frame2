@@ -1,19 +1,23 @@
 # EP-0031: The re-frame.ui Programming Model
 
-Status: accepted
+Status: final
 Type: standards-track
 
-> **Graduation banner.** The S1/S2 surfaces of this EP are already spec-live:
-> [`spec/004-Views.md`](../../spec/004-Views.md) (with companions
+> **Graduation banner.** Graduated to `final` — recorded 2026-07-19
+> (rf2-hgwpq). [`spec/004-Views.md`](../../spec/004-Views.md) (with companions
 > [004B](../../spec/004B-UI-Tree-and-Conversion.md),
 > [004C](../../spec/004C-Roots-and-Mount.md),
 > [004D](../../spec/004D-UI-Test-Selectors.md)) is the normative home, and per
-> EP-0009 **where this EP and the spec differ, the spec governs**. The spec's
-> §Stage conformance profiles device applies throughout: rows tagged S3+ are
-> *declared, not yet asserted* — text final, enforcement riding the S3+ slices.
-> This EP is the durable design record behind that contract: what was decided, why,
-> what was rejected, and which accepted pieces are still landing (each marked below
-> with its live bead).
+> EP-0009 **where this EP and the spec differ, the spec governs**. Stage
+> honesty as of the flip: **S1–S4 are asserted** — S1/S2 by their landed
+> conformance slices, S3 by `spec/conformance/S3-view-conformance-profile.md`
+> (#6182), S4 by `spec/conformance/S4-view-conformance-profile.md` §8. The
+> stages still ahead ride their own epics — the `client-only` phase flip (S5,
+> `rf2-vxgfnd.97`), `->react` (S6, `rf2-vxgfnd.98`), 004A landing + Helix
+> removal (S7, `rf2-vxgfnd.99`). This EP is the durable design record behind
+> that contract: what was decided, why, what was rejected; the per-item stage
+> markers below are the historical staging record (their cited beads have
+> closed).
 
 ## Abstract
 
@@ -148,7 +152,9 @@ stable identity), `ui/render-fn` (render phase, pure — and, per the 2026-07-16
 amendment, also the value an internal `ui/slot` accepts), the **narrow bare-fn law
 (R-4)** — bare `#(…)` legal only in known native event properties, with a day-one
 strict lint (`{:re-frame.ui/bare-handlers :warn|:error}`) instead of a language
-flip — a compile error at foreign-component boundaries, and `ui/raw-fn` for
+flip (as of 2026-07-19 the lint key is reserved in `spec/Conventions.md` but not
+yet implemented in the compiler) — a compile error at foreign-component
+boundaries, and `ui/raw-fn` for
 identity-as-protocol APIs and callback refs. Dynamic handler expressions classify at
 runtime by type; placeholders are recognized in literal vectors only (dev warns on a
 placeholder riding a runtime vector); loop handlers that capture the binding are
@@ -290,7 +296,8 @@ Xray-before-any-click, and library controls that keep the IME/caret guarantee.
 
 None open on the decision surface. Named residuals — gates or bounded spec-landing
 choices, not design questions: the G-8 real-browser matrix (including the reusable
-event-prefix arm). The two spellings delegated to spec landing by the 2026-07-16
+event-prefix arm) — **met 2026-07-17**: certified in real Chromium + WebKit via
+#6182 (`rf2-vxgfnd.95.10`). The two spellings delegated to spec landing by the 2026-07-16
 direction are **now settled**: the render-slot invocation landed as `ui/slot`, and
 the safe-spread form landed as the sibling name `ui/spread-safe` (the second-arity
 option was not taken).
@@ -323,7 +330,17 @@ option was not taken).
 
 ## Recommendation
 
-Keep `accepted`. Graduate to `final` when the S3 conformance slice
-(`rf2-vxgfnd.95.10`, including the widened G-8 and the four cited landing beads)
-closes — the decisions are settled now; `final` should also assert the enforcement.
-Where any wording here drifts from Spec 004 and its companions, the spec governs.
+`Status: final` — recorded 2026-07-19 (rf2-hgwpq delegated ruling). The
+graduation trigger this section set — graduate to `final` when the S3
+conformance slice (`rf2-vxgfnd.95.10`, including the widened G-8 and the four
+cited landing beads) closes — is **met**: `.95.10` closed via #6182 (G-8
+certified in real Chromium + WebKit, including the reusable event-prefix arm;
+S3 conformance profile + proof pack landed; G-7/11/15/16/17 certified); the
+four landing beads `rf2-vxgfnd.95.2` / `rf2-8k14ia` / `rf2-ri0k6n` /
+`rf2-isdqjv` all closed; the G-18 carve-out closed via `rf2-edpam` (#6195,
+`test:ui-facade-isolation` now a standing required CI job); the S3 epic
+(`rf2-vxgfnd.95`) closed 2026-07-18; S4 has since been declared conforming
+(`spec/conformance/S4-view-conformance-profile.md` §8). `final` means what
+EP-0009 says: the decisions are settled and the spec is authoritative — it
+does not assert the build is gap-free. Where any wording here drifts from
+Spec 004 and its companions, the spec governs.
