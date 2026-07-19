@@ -206,8 +206,12 @@ None are optional; `ui.test`, the migrator, and the skills are critical path.
 Because the retained adapters keep their example coverage, their suites, and their boot
 choices, none of these workstreams deletes a surface that belongs to Reagent, UIx, or
 reagent-slim; each one *adds* the `re-frame.ui` option beside them and subtracts only
-Helix. Whether the template's variant menu narrows beyond dropping Helix is a product
-choice reserved to Mike, and W8 does not presume one.
+Helix. The template's post-Helix variant menu is now a **ruled supported external-alpha
+surface** (2026-07-19, delegated — see Resolved Decisions): W8 adds the experimental
+`re-frame.ui` scaffold beside the retained `:reagent` (default) and `:uix` variants,
+drops `:helix`, and leaves reagent-slim a reserved future variant on its existing
+trigger. Whether the menu ever narrows *later* remains a product choice reserved to
+Mike, and W8 does not presume one.
 
 ### Migration posture
 
@@ -292,7 +296,8 @@ relocations gate that tombstone: (i) the **blessed 12 §2/§2b API tables** — 
 freeze authority with an active delta protocol — graduate to their durable home,
 `spec/API.md` §`re-frame.ui` (the W5 manifest), carrying the delta protocol with them;
 (ii) `09-review-disposition.md` — the binding codex2 per-finding rulings — relocates
-under `reviews/` as retained historical evidence. Step two, at **S7 per
+under `reviews/` as retained historical evidence. *(Fired — rf2-mgy7pz merged
+2026-07-18; both relocations landed.)* Step two, at **S7 per
 `rf2-vxgfnd.99.1`**: the tree itself is git-rm'd once every cited contract has its
 spec home and no live brief dangles (that bead's own audit). Until step two the tree
 remains force-tracked in place. Survival rules meanwhile: `drafts/*` survive until
@@ -347,6 +352,17 @@ rebuilds the playground. Sibling EPs name per-domain impacts.
   mechanism (shared React context object, `frame-provider`, HMR-inward, sibling/inward/
   outward granularities) stays valid because Reagent still coexists with `re-frame.ui`;
   only the "frozen tier" *labeling* is retired in favour of "compatibility/interop tier."
+- **Template variant menu ruled a supported surface (2026-07-19, delegated; recorded in
+  `rf2-deiym` NOTES).** The template's post-Helix variant menu is a **supported
+  external-alpha surface**, not superseded by `re-frame.ui`: `:reagent` (default) and
+  `:uix` stay supported variants, W8 adds the experimental `re-frame.ui` scaffold beside
+  them (labelled experimental), `:helix` is removed behind the S7 soak gates, and
+  reagent-slim remains a reserved future variant on its existing trigger — consistent
+  with the 2026-07-17 adapter disposition above. The parked rf2-deiym G1–G4
+  external-alpha gate ruling is restated on its surviving basis (no emitted
+  `day8/re-frame2*` coordinate resolves remotely yet), retiring its superseded
+  W8-collapse premise; the deferred gate contract itself stands. Whether the menu ever
+  narrows later is expressly reserved as a future product decision on its own evidence.
 
 ## Recommendation
 
