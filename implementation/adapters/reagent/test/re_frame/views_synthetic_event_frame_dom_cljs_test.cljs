@@ -48,7 +48,8 @@
             ["react-dom" :as react-dom]
             [re-frame.core :as rf]
             [re-frame.adapter.reagent :as reagent-adapter]
-            [re-frame.test-support :as test-support])
+            [re-frame.test-support :as test-support]
+            [re-frame.trace.tooling :as trace-tooling])
   (:require-macros [re-frame.core :refer [reg-view]]))
 
 ;; `:ambient-frame nil` OPTS OUT of the fixture's default ambient
@@ -68,6 +69,43 @@
 (defn- browser? []
   (and (exists? js/document)
        (some? (.-createElement js/document))))
+
+;; ---- deferred-teardown await (rf2-7r78l) ----------------------------------
+;;
+;; Same leak class + fix as #6502 (rf2-vp3m9). `proof-view` is a Reagent
+;; `reg-view`, so its `:rf.view/unmounted` teardown marker rides the per-
+;; component render-reaction DISPOSAL, which Reagent defers to a macrotask PAST
+;; the synchronous unmount commit. The finalizer's bare `(rdc/unmount root)`
+;; therefore let the marker fire AFTER `done`, leaking into the process-global
+;; trace listener the one `:browser-test` page shares across every
+;; `-dom-cljs-test` namespace. The finalizer now awaits that disposal so the
+;; marker fires WITHIN the test's window — the same local settle idiom #6502
+;; proved, NOT a new runtime and NOT a shared framework.
+
+(defn- settle-macrotasks
+  "Resolve after `n` macrotask turns so Reagent's deferred render-reaction
+  disposal (which fires `:rf.view/unmounted` on a real unmount) has settled
+  before the test completes."
+  [n]
+  (js/Promise.
+    (fn [resolve _]
+      (letfn [(step [remaining]
+                (if (zero? remaining)
+                  (resolve nil)
+                  (js/setTimeout #(step (dec remaining)) 4)))]
+        (step n)))))
+
+(defn- await-teardown!
+  "Unmount `root` through the real host teardown path under `flushSync` (so the
+  unmount commits synchronously), then await Reagent's deferred reaction
+  disposal so the `:rf.view/unmounted` marker fires WITHIN the caller's window
+  rather than leaking into the shared runner after the test ends. Returns a
+  Promise; settle-count 3 matches the proven #6502 idiom. A nil `root` (setup
+  threw before create-root) is tolerated — the flushSync throw is swallowed and
+  the settle still runs."
+  [root]
+  (try (react-dom/flushSync (fn [] (rdc/unmount root))) (catch :default _ nil))
+  (settle-macrotasks 3))
 
 ;; Captures the error id a bare `rf/dispatch` raises from the click handler.
 ;; A namespace-level atom so the `reg-view` body (spliced verbatim) can close
@@ -120,18 +158,37 @@
             ;; render) throws before the happy path is reached.
             node-atom  (atom nil)
             root-atom  (atom nil)
+            ;; rf2-7r78l teeth: record proof-view's OWN :rf.view/unmounted marker,
+            ;; scoped by :rf.view/id, so the finalizer can assert it fired WITHIN
+            ;; the awaited window rather than leaking past `done` into the shared
+            ;; runner. `reg-view`'s macro id is `<ns>/<sym>` (core-reg-view-macro).
+            proof-view-id :re-frame.views-synthetic-event-frame-dom-cljs-test/proof-view
+            unmounts   (atom [])
             ;; THE single guaranteed finalizer: idempotent, runs on EVERY path —
             ;; success, poll-until timeout, or a throw anywhere in setup/mount.
-            ;; Unmounts the root, removes the DOM node, destroys the frame,
-            ;; completes the async test. No fixed sleeps anywhere.
+            ;; AWAITS proof-view's deferred reaction disposal (so its
+            ;; :rf.view/unmounted fires within the test window, rf2-7r78l), then
+            ;; removes the DOM node, destroys the frame, asserts the teardown
+            ;; marker landed, and completes the async test. No fixed sleeps.
             finalize!  (fn []
                          (when (compare-and-set! done? false true)
-                           (when-let [r @root-atom] (try (rdc/unmount r) (catch :default _ nil)))
-                           (when-let [n @node-atom] (try (.remove n)     (catch :default _ nil)))
-                           (try (rf/destroy-frame! target) (catch :default _ nil))
-                           (done)))]
+                           (-> (await-teardown! @root-atom)
+                               (.then (fn [_]
+                                        (when-let [n @node-atom] (try (.remove n) (catch :default _ nil)))
+                                        (try (rf/destroy-frame! target) (catch :default _ nil))
+                                        (trace-tooling/unregister-listener! ::proof-view-unmounts)
+                                        (is (= 1 (count @unmounts))
+                                            (str "rf2-7r78l: exactly one :rf.view/unmounted fired for "
+                                                 "proof-view WITHIN the awaited window — teardown awaited, "
+                                                 "not leaked into the shared runner; got " (count @unmounts)))
+                                        (done))))))]
         (try
           (reset! raised nil)
+          (trace-tooling/register-listener! ::proof-view-unmounts
+            (fn [ev]
+              (when (and (= :rf.view/unmounted (:operation ev))
+                         (= proof-view-id (-> ev :tags :rf.view/id)))
+                (swap! unmounts conj ev))))
           (let [mount-node (.createElement js/document "div")]
             (reset! node-atom mount-node)
             (.appendChild (.-body js/document) mount-node)
