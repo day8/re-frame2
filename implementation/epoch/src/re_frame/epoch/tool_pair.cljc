@@ -729,8 +729,11 @@
   The 2-arity therefore carries the restore's EXACT `incarnation-token` INTO the
   loop and revalidates ownership at every hook boundary, STOPPING the chain the
   moment the incarnation is lost rather than retargeting the remaining A-only
-  cleanup onto B. nil token (the 1-arity) has no incarnation to fence and fires
-  the whole chain, as before."
+  cleanup onto B. That revalidation covers the THROWING path too (rf2-vy2hj):
+  the swallow-and-warn catch is itself a post-callback tail, so it announces
+  only while the captured incarnation is still owned. nil token (the 1-arity)
+  has no incarnation to fence and fires the whole chain — and every warning —
+  as before."
   ([frame-id] (quiesce-orphaned-async-host-work! frame-id nil))
   ([frame-id incarnation-token]
    (let [still-owned? (fn []
@@ -741,12 +744,28 @@
        (when-let [f (late-bind/get-fn hook-key)]
          (try (f frame-id)
               (catch #?(:clj Throwable :cljs :default) ex
-                (trace/emit-error! :rf.warning/restore-quiesce-hook-exception
-                                   {:category  :rf.warning/restore-quiesce-hook-exception
-                                    :hook      hook-key
-                                    :frame     frame-id
-                                    :exception ex
-                                    :recovery  :ignored}))))))
+                ;; rf2-vy2hj: the SETTLED path needs the same fence as the
+                ;; loop's `:while`. A hook is the very callback boundary this
+                ;; chain polices, so hook 1 may destroy A, seat a same-id
+                ;; successor B, and only THEN throw — unwinding into a catch
+                ;; that addresses the frame by BARE id, which B now owns. The
+                ;; unfenced emit does NOT error; it silently RESURRECTS A's
+                ;; cleanup diagnostic as B's, fanning synchronously through B's
+                ;; public trace listeners (and retainable under B's id) BEFORE
+                ;; the loop's next `:while` gets to stop hook 2. The hazard is
+                ;; a run OUTLIVING its claim, not a token failing to arrive —
+                ;; the token is already conveyed correctly — so the repair is
+                ;; the same live-slot comparison, taken once more at the moment
+                ;; of announcement. A hook that throws under a STILL-LIVE
+                ;; incarnation is unaffected: it emits its one warning and the
+                ;; best-effort chain continues.
+                (when (still-owned?)
+                  (trace/emit-error! :rf.warning/restore-quiesce-hook-exception
+                                     {:category  :rf.warning/restore-quiesce-hook-exception
+                                      :hook      hook-key
+                                      :frame     frame-id
+                                      :exception ex
+                                      :recovery  :ignored})))))))
    nil))
 
 (defn commit-resources-restore-traces!
