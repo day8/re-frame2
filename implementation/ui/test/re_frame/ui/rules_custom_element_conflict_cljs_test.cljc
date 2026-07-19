@@ -3,12 +3,18 @@
   (rf2-vxgfnd.143 — delegated ruling 2026-07-15 Option A, placed by the
   2026-07-19 amendment).
 
-  THE LAW. For a given `[build-id tag]` the effective declaration is the unique
-  value contributed by live sources IFF every cross-source pair is `rf=`-equal.
-  `rf=`-equal duplicates co-exist; a source never conflicts with itself; any
-  non-`rf=`-equal same-tag declaration from a DIFFERENT source fails atomically
-  with BOTH `[build-id ns-sym]` anchors, leaving the last-known-good aggregate
-  unchanged.
+  THE LAW. For a given `tag` the effective declaration is the unique value
+  contributed by every live source across the one JS realm IFF every cross-source
+  pair is `rf=`-equal. The runtime aggregate is keyed by `tag` alone (one shared
+  `custom-elements` registry per realm), so `[build-id ns-sym]` is DECLARER
+  PROVENANCE — the anchor a contradiction names — never a partition key: two
+  sources with different build-ids classifying one tag differently contradict
+  (`two-builds-contradicting-one-tag-conflict-with-both-build-anchors` below),
+  where the COMPILE arm's per-build registry permits different manifests in
+  different builds. `rf=`-equal duplicates co-exist; a source never conflicts
+  with itself; any non-`rf=`-equal same-tag declaration from a DIFFERENT source
+  fails atomically with BOTH `[build-id ns-sym]` anchors, leaving the
+  last-known-good aggregate unchanged.
 
   WHY THESE TESTS ARE PERMUTATION FOLDS. The defect this closes was not a
   crash — it was two different winner rules for one registry: a last-call-wins
