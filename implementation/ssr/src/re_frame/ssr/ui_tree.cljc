@@ -1,0 +1,797 @@
+(ns re-frame.ssr.ui-tree
+  "The S5 structural-tree -> HTML serialiser (`re-frame.ssr/emit-ui-tree`).
+  Owning contract: [Spec 004B §The SSR consumption boundary]
+  (../../../spec/004B-UI-Tree-and-Conversion.md). Filed by rf2-3omxp
+  (item 2, the code half); the spec half shipped as rf2-vxgfnd.97.2.
+
+  ## What this is, and what it is NOT
+
+  `emit-ui-tree` receives an ALREADY-RENDERED version-1 structural tree
+  (the value `re-frame.ui.tree/render` / `ui.test/render` produced on the
+  JVM) and folds it to an HTML string. It calls NOTHING: no view is
+  invoked, no subscription is resolved, no frame is bound. Every view has
+  run and every dynamic value is already a literal in the tree — a view
+  invoked here would be a SECOND render against a frame whose state has
+  moved past the one the tree was built from (004B §What the seam
+  consumes). It is a pure function of its arguments, JVM-runnable, and
+  deterministic to the byte.
+
+  It emits the markup for ONE root's tree only. Manifests, payloads,
+  ledgers, containers, root identity, and the HTTP response live in the
+  SSR artefact's other surfaces (004B §What the seam does not do); this
+  seam neither writes nor reads them.
+
+  ## The version gate — fail loud FIRST, before any emission
+
+  The root `:rf.ui/tree-version` is validated BEFORE any traversal. A
+  MISSING, NON-INTEGER, or UNSUPPORTED version throws
+  `:rf.error/ssr-ui-tree-version-unsupported` with `{:got <received>
+  :supported #{1}}` — an OPERATIONAL deploy-skew condition (the server is
+  too old for the tree it was handed), deliberately DISTINCT from the
+  code-bug `:rf.error/ui-tree-malformed` a malformed node past the gate
+  throws. Two ids, one per failure class: version = the new id;
+  structural = the shared tree-consumer id (004B §The SSR consumption
+  boundary; ruling on rf2-vxgfnd.97, Fable 2026-07-19). The Tier-1 gate
+  `re-frame.ui.semantic/normalize` keeps its deliberate REUSE of the
+  shared id — a different boundary, unchanged.
+
+  ## One table, carried by the seam
+
+  Emission applies the SERIALISATION HALF of [the DOM conversion table]
+  (../../../spec/004B-UI-Tree-and-Conversion.md#the-dom-conversion-table--normative-rows)
+  and adds nothing to it. That table has two consumers — the `re-frame.ui`
+  client emitter and this JVM serialiser — and, because the Independence
+  rule forbids `re-frame.ssr` requiring `re-frame.ui` (production
+  `re-frame.ssr` never pulls the compiler onto the classpath), the seam
+  carries its OWN copy of the version-pinned rows. This is the same
+  `duplicated by intent` pattern `re-frame.ssr.emit/void-elements` and
+  `re-frame.ssr.html-helpers/unitless-style-props-camel` already use.
+  Provenance is `re-frame.ui.rules` / `re-frame.ui.semantic`; the copies
+  below are pinned byte-for-byte against that source by
+  `re-frame.ssr.emit-ui-tree-cljs-test` (which requires the UI compiler as
+  a TEST-ONLY dep), and the parity corpus catches any drift the two
+  emitters develop against react-dom.
+
+  Scope note (rf2-3omxp): this seam is the tree->HTML CODE. The FULL
+  react-dom byte-parity corpus that pins the two emitters against each
+  other (004B §Emission is pure) is a separate S5 leaf; a compact copy of
+  the conversion-table rows the seam needs ships here."
+  (:require [clojure.string :as str]
+            [re-frame.error :as error]
+            [re-frame.ssr.hash :as hash]))
+
+;; ---------------------------------------------------------------------------
+;; Version gate — the headline. Validated FIRST, before any emission.
+;; ---------------------------------------------------------------------------
+
+(def supported-tree-versions
+  "The node-schema versions `emit-ui-tree` accepts. `#{1}` is a versioning
+  scheme with exactly one implementation; bumping the integer edits this
+  set DELIBERATELY, in lockstep with the walk below. Mirrors
+  `re-frame.ui.semantic/supported-tree-versions` — the Tier-1 gate over
+  the same field."
+  #{1})
+
+(defn- validate-tree-version!
+  "Fail loud on a MISSING / NON-INTEGER / UNSUPPORTED root
+  `:rf.ui/tree-version` BEFORE any emission, so a future-version or corrupt
+  tree never emits plausible markup. Throws
+  `:rf.error/ssr-ui-tree-version-unsupported` — the SSR-seam sibling of the
+  shared `:rf.error/ui-tree-malformed` (004B §The SSR consumption
+  boundary). `integer?` matches the Tier-1 gate's predicate."
+  [tree]
+  (let [v (:rf.ui/tree-version tree)]
+    (when-not (and (integer? v) (contains? supported-tree-versions v))
+      (error/throw-error!
+        :rf.error/ssr-ui-tree-version-unsupported
+        'rf.ssr/emit-ui-tree
+        (str "re-frame.ssr/emit-ui-tree requires a root :rf.ui/tree-version in "
+             (pr-str supported-tree-versions) " — got " (pr-str v)
+             ". The serialiser validates the version FIRST, before any emission, so "
+             "a future-version or corrupt tree never emits plausible markup. This is "
+             "an OPERATIONAL deploy-skew condition (the server is too old for the tree "
+             "it was handed), distinct from the code-bug :rf.error/ui-tree-malformed. "
+             "Align the deployed producer/consumer versions (roll the server forward / "
+             "fix deploy skew) or fall back to client render — nothing is wrong with "
+             "the view code.")
+        {:recovery :no-recovery
+         :extra    {:got v :supported supported-tree-versions}}))))
+
+;; ---------------------------------------------------------------------------
+;; Conversion table — carried copies (provenance: re-frame.ui.rules /
+;; re-frame.ui.semantic; pinned byte-for-byte by the sibling test).
+;; ---------------------------------------------------------------------------
+
+(def standard-names
+  "react-dom 19.2.0 `possibleStandardNames`, reduced to non-identity
+  entries and keyed by both the kebab and the hyphen-collapsed lowercase
+  form. Verbatim copy of `re-frame.ui.rules/standard-names` (pinned by the
+  sibling test). Lookup rule (`react-prop-name`): data-*/aria-* verbatim;
+  exact key hit; collapsed-key hit; else verbatim (React's
+  unrecognized-name pass-through)."
+  {"accent-height" "accentHeight"
+   "accentheight" "accentHeight"
+   "accept-charset" "acceptCharset"
+   "acceptcharset" "acceptCharset"
+   "accesskey" "accessKey"
+   "alignment-baseline" "alignmentBaseline"
+   "alignmentbaseline" "alignmentBaseline"
+   "allowfullscreen" "allowFullScreen"
+   "allowreorder" "allowReorder"
+   "arabic-form" "arabicForm"
+   "arabicform" "arabicForm"
+   "attributename" "attributeName"
+   "attributetype" "attributeType"
+   "autocapitalize" "autoCapitalize"
+   "autocomplete" "autoComplete"
+   "autocorrect" "autoCorrect"
+   "autofocus" "autoFocus"
+   "autoplay" "autoPlay"
+   "autoreverse" "autoReverse"
+   "autosave" "autoSave"
+   "basefrequency" "baseFrequency"
+   "baseline-shift" "baselineShift"
+   "baselineshift" "baselineShift"
+   "baseprofile" "baseProfile"
+   "calcmode" "calcMode"
+   "cap-height" "capHeight"
+   "capheight" "capHeight"
+   "cellpadding" "cellPadding"
+   "cellspacing" "cellSpacing"
+   "charset" "charSet"
+   "class" "className"
+   "classid" "classID"
+   "clip-path" "clipPath"
+   "clip-rule" "clipRule"
+   "clippath" "clipPath"
+   "clippathunits" "clipPathUnits"
+   "cliprule" "clipRule"
+   "color-interpolation" "colorInterpolation"
+   "color-interpolation-filters" "colorInterpolationFilters"
+   "color-profile" "colorProfile"
+   "color-rendering" "colorRendering"
+   "colorinterpolation" "colorInterpolation"
+   "colorinterpolationfilters" "colorInterpolationFilters"
+   "colorprofile" "colorProfile"
+   "colorrendering" "colorRendering"
+   "colspan" "colSpan"
+   "contenteditable" "contentEditable"
+   "contentscripttype" "contentScriptType"
+   "contentstyletype" "contentStyleType"
+   "contextmenu" "contextMenu"
+   "controlslist" "controlsList"
+   "crossorigin" "crossOrigin"
+   "datetime" "dateTime"
+   "defaultchecked" "defaultChecked"
+   "defaultvalue" "defaultValue"
+   "diffuseconstant" "diffuseConstant"
+   "disablepictureinpicture" "disablePictureInPicture"
+   "disableremoteplayback" "disableRemotePlayback"
+   "dominant-baseline" "dominantBaseline"
+   "dominantbaseline" "dominantBaseline"
+   "edgemode" "edgeMode"
+   "enable-background" "enableBackground"
+   "enablebackground" "enableBackground"
+   "enctype" "encType"
+   "enterkeyhint" "enterKeyHint"
+   "externalresourcesrequired" "externalResourcesRequired"
+   "fetchpriority" "fetchPriority"
+   "fill-opacity" "fillOpacity"
+   "fill-rule" "fillRule"
+   "fillopacity" "fillOpacity"
+   "fillrule" "fillRule"
+   "filterres" "filterRes"
+   "filterunits" "filterUnits"
+   "flood-color" "floodColor"
+   "flood-opacity" "floodOpacity"
+   "floodcolor" "floodColor"
+   "floodopacity" "floodOpacity"
+   "font-family" "fontFamily"
+   "font-size" "fontSize"
+   "font-size-adjust" "fontSizeAdjust"
+   "font-stretch" "fontStretch"
+   "font-style" "fontStyle"
+   "font-variant" "fontVariant"
+   "font-weight" "fontWeight"
+   "fontfamily" "fontFamily"
+   "fontsize" "fontSize"
+   "fontsizeadjust" "fontSizeAdjust"
+   "fontstretch" "fontStretch"
+   "fontstyle" "fontStyle"
+   "fontvariant" "fontVariant"
+   "fontweight" "fontWeight"
+   "for" "htmlFor"
+   "formaction" "formAction"
+   "formenctype" "formEncType"
+   "formmethod" "formMethod"
+   "formnovalidate" "formNoValidate"
+   "formtarget" "formTarget"
+   "frameborder" "frameBorder"
+   "glyph-name" "glyphName"
+   "glyph-orientation-horizontal" "glyphOrientationHorizontal"
+   "glyph-orientation-vertical" "glyphOrientationVertical"
+   "glyphname" "glyphName"
+   "glyphorientationhorizontal" "glyphOrientationHorizontal"
+   "glyphorientationvertical" "glyphOrientationVertical"
+   "glyphref" "glyphRef"
+   "gradienttransform" "gradientTransform"
+   "gradientunits" "gradientUnits"
+   "horiz-adv-x" "horizAdvX"
+   "horiz-origin-x" "horizOriginX"
+   "horizadvx" "horizAdvX"
+   "horizoriginx" "horizOriginX"
+   "hreflang" "hrefLang"
+   "http-equiv" "httpEquiv"
+   "httpequiv" "httpEquiv"
+   "image-rendering" "imageRendering"
+   "imagerendering" "imageRendering"
+   "imagesizes" "imageSizes"
+   "imagesrcset" "imageSrcSet"
+   "inputmode" "inputMode"
+   "itemid" "itemID"
+   "itemprop" "itemProp"
+   "itemref" "itemRef"
+   "itemscope" "itemScope"
+   "itemtype" "itemType"
+   "kernelmatrix" "kernelMatrix"
+   "kernelunitlength" "kernelUnitLength"
+   "keyparams" "keyParams"
+   "keypoints" "keyPoints"
+   "keysplines" "keySplines"
+   "keytimes" "keyTimes"
+   "keytype" "keyType"
+   "lengthadjust" "lengthAdjust"
+   "letter-spacing" "letterSpacing"
+   "letterspacing" "letterSpacing"
+   "lighting-color" "lightingColor"
+   "lightingcolor" "lightingColor"
+   "limitingconeangle" "limitingConeAngle"
+   "marginheight" "marginHeight"
+   "marginwidth" "marginWidth"
+   "marker-end" "markerEnd"
+   "marker-mid" "markerMid"
+   "marker-start" "markerStart"
+   "markerend" "markerEnd"
+   "markerheight" "markerHeight"
+   "markermid" "markerMid"
+   "markerstart" "markerStart"
+   "markerunits" "markerUnits"
+   "markerwidth" "markerWidth"
+   "maskcontentunits" "maskContentUnits"
+   "maskunits" "maskUnits"
+   "maxlength" "maxLength"
+   "mediagroup" "mediaGroup"
+   "minlength" "minLength"
+   "nomodule" "noModule"
+   "novalidate" "noValidate"
+   "numoctaves" "numOctaves"
+   "overline-position" "overlinePosition"
+   "overline-thickness" "overlineThickness"
+   "overlineposition" "overlinePosition"
+   "overlinethickness" "overlineThickness"
+   "paint-order" "paintOrder"
+   "paintorder" "paintOrder"
+   "panose-1" "panose1"
+   "pathlength" "pathLength"
+   "patterncontentunits" "patternContentUnits"
+   "patterntransform" "patternTransform"
+   "patternunits" "patternUnits"
+   "playsinline" "playsInline"
+   "pointer-events" "pointerEvents"
+   "pointerevents" "pointerEvents"
+   "pointsatx" "pointsAtX"
+   "pointsaty" "pointsAtY"
+   "pointsatz" "pointsAtZ"
+   "popovertarget" "popoverTarget"
+   "popovertargetaction" "popoverTargetAction"
+   "preservealpha" "preserveAlpha"
+   "preserveaspectratio" "preserveAspectRatio"
+   "primitiveunits" "primitiveUnits"
+   "radiogroup" "radioGroup"
+   "readonly" "readOnly"
+   "referrerpolicy" "referrerPolicy"
+   "refx" "refX"
+   "refy" "refY"
+   "rendering-intent" "renderingIntent"
+   "renderingintent" "renderingIntent"
+   "repeatcount" "repeatCount"
+   "repeatdur" "repeatDur"
+   "requiredextensions" "requiredExtensions"
+   "requiredfeatures" "requiredFeatures"
+   "rowspan" "rowSpan"
+   "shape-rendering" "shapeRendering"
+   "shaperendering" "shapeRendering"
+   "specularconstant" "specularConstant"
+   "specularexponent" "specularExponent"
+   "spellcheck" "spellCheck"
+   "spreadmethod" "spreadMethod"
+   "srcdoc" "srcDoc"
+   "srclang" "srcLang"
+   "srcset" "srcSet"
+   "startoffset" "startOffset"
+   "stddeviation" "stdDeviation"
+   "stitchtiles" "stitchTiles"
+   "stop-color" "stopColor"
+   "stop-opacity" "stopOpacity"
+   "stopcolor" "stopColor"
+   "stopopacity" "stopOpacity"
+   "strikethrough-position" "strikethroughPosition"
+   "strikethrough-thickness" "strikethroughThickness"
+   "strikethroughposition" "strikethroughPosition"
+   "strikethroughthickness" "strikethroughThickness"
+   "stroke-dasharray" "strokeDasharray"
+   "stroke-dashoffset" "strokeDashoffset"
+   "stroke-linecap" "strokeLinecap"
+   "stroke-linejoin" "strokeLinejoin"
+   "stroke-miterlimit" "strokeMiterlimit"
+   "stroke-opacity" "strokeOpacity"
+   "stroke-width" "strokeWidth"
+   "strokedasharray" "strokeDasharray"
+   "strokedashoffset" "strokeDashoffset"
+   "strokelinecap" "strokeLinecap"
+   "strokelinejoin" "strokeLinejoin"
+   "strokemiterlimit" "strokeMiterlimit"
+   "strokeopacity" "strokeOpacity"
+   "strokewidth" "strokeWidth"
+   "suppresscontenteditablewarning" "suppressContentEditableWarning"
+   "suppresshydrationwarning" "suppressHydrationWarning"
+   "surfacescale" "surfaceScale"
+   "systemlanguage" "systemLanguage"
+   "tabindex" "tabIndex"
+   "tablevalues" "tableValues"
+   "targetx" "targetX"
+   "targety" "targetY"
+   "text-anchor" "textAnchor"
+   "text-decoration" "textDecoration"
+   "text-rendering" "textRendering"
+   "textanchor" "textAnchor"
+   "textdecoration" "textDecoration"
+   "textlength" "textLength"
+   "textrendering" "textRendering"
+   "transform-origin" "transformOrigin"
+   "transformorigin" "transformOrigin"
+   "underline-position" "underlinePosition"
+   "underline-thickness" "underlineThickness"
+   "underlineposition" "underlinePosition"
+   "underlinethickness" "underlineThickness"
+   "unicode-bidi" "unicodeBidi"
+   "unicode-range" "unicodeRange"
+   "unicodebidi" "unicodeBidi"
+   "unicoderange" "unicodeRange"
+   "units-per-em" "unitsPerEm"
+   "unitsperem" "unitsPerEm"
+   "usemap" "useMap"
+   "v-alphabetic" "vAlphabetic"
+   "v-hanging" "vHanging"
+   "v-ideographic" "vIdeographic"
+   "v-mathematical" "vMathematical"
+   "valphabetic" "vAlphabetic"
+   "vector-effect" "vectorEffect"
+   "vectoreffect" "vectorEffect"
+   "vert-adv-y" "vertAdvY"
+   "vert-origin-x" "vertOriginX"
+   "vert-origin-y" "vertOriginY"
+   "vertadvy" "vertAdvY"
+   "vertoriginx" "vertOriginX"
+   "vertoriginy" "vertOriginY"
+   "vhanging" "vHanging"
+   "videographic" "vIdeographic"
+   "viewbox" "viewBox"
+   "viewtarget" "viewTarget"
+   "vmathematical" "vMathematical"
+   "word-spacing" "wordSpacing"
+   "wordspacing" "wordSpacing"
+   "writing-mode" "writingMode"
+   "writingmode" "writingMode"
+   "x-height" "xHeight"
+   "xchannelselector" "xChannelSelector"
+   "xheight" "xHeight"
+   "xlinkactuate" "xlinkActuate"
+   "xlinkarcrole" "xlinkArcrole"
+   "xlinkhref" "xlinkHref"
+   "xlinkrole" "xlinkRole"
+   "xlinkshow" "xlinkShow"
+   "xlinktitle" "xlinkTitle"
+   "xlinktype" "xlinkType"
+   "xmlbase" "xmlBase"
+   "xmllang" "xmlLang"
+   "xmlnsxlink" "xmlnsXlink"
+   "xmlspace" "xmlSpace"
+   "ychannelselector" "yChannelSelector"
+   "zoomandpan" "zoomAndPan"})
+
+(def dom-attr-aliases
+  "React prop name -> the DOM attribute name react-dom/server writes when
+  the two differ — the serialiser half of the conversion table. Verbatim
+  copy of `re-frame.ui.rules/dom-attr-aliases` (pinned by the sibling
+  test). Everything NOT in this map serialises as the prop name verbatim
+  (react-dom 19.2.0 emits e.g. `readOnly` verbatim — HTML attribute names
+  are ASCII case-insensitive)."
+  (merge (into {}
+               (keep (fn [[k v]] (when (str/includes? k "-") [v k])))
+               standard-names)
+         {"className"    "class"
+          "htmlFor"      "for"
+          "tabIndex"     "tabindex"
+          "xlinkActuate" "xlink:actuate"
+          "xlinkArcrole" "xlink:arcrole"
+          "xlinkHref"    "xlink:href"
+          "xlinkRole"    "xlink:role"
+          "xlinkShow"    "xlink:show"
+          "xlinkTitle"   "xlink:title"
+          "xlinkType"    "xlink:type"
+          "xmlBase"      "xml:base"
+          "xmlLang"      "xml:lang"
+          "xmlSpace"     "xml:space"
+          "xmlnsXlink"   "xmlns:xlink"}))
+
+(defn- collapsed [n] (str/replace n "-" ""))
+
+(defn- react-prop-name
+  "Author kebab prop NAME (string, no namespace) -> React prop name.
+  data-*/aria-* verbatim; recognized names via the react-dom vocabulary
+  (kebab or hyphen-collapsed hit); unrecognized names verbatim (React 16+
+  pass-through). Mirrors `re-frame.ui.rules/react-prop-name`."
+  [n]
+  (if (or (str/starts-with? n "data-") (str/starts-with? n "aria-"))
+    n
+    (or (get standard-names n)
+        (get standard-names (collapsed n))
+        n)))
+
+(defn- dom-attr-name
+  "Author kebab attr NAME (string, no namespace) -> the serialised DOM
+  attribute name. data-*/aria-* verbatim; otherwise the React prop name
+  mapped through `dom-attr-aliases`, falling back to the prop name
+  verbatim. Mirrors `re-frame.ui.rules/dom-attr-name`."
+  [n]
+  (if (or (str/starts-with? n "data-") (str/starts-with? n "aria-"))
+    n
+    (let [p (react-prop-name n)]
+      (get dom-attr-aliases p p))))
+
+(def void-tags
+  "Tags that self-close and carry no children. Verbatim copy of
+  `re-frame.ui.rules/void-tags` (pinned by the sibling test); react-dom/
+  server 19.2.0 throws for children on all of these INCLUDING param and
+  keygen (menuitem also rejects children but is not self-closing, so it is
+  not here)."
+  #{:area :base :br :col :embed :hr :img :input :link :meta :param
+    :keygen :source :track :wbr})
+
+(def boolean-attrs
+  "HTML boolean attributes: true -> presence (attr=\"\"), false/absent ->
+  omitted. Verbatim copy of `re-frame.ui.rules/boolean-attrs` (pinned by
+  the sibling test); keyed by the hyphen-collapsed lowercase author name."
+  #{"allowfullscreen" "async" "autofocus" "autoplay" "checked" "controls"
+    "default" "defer" "disabled" "formnovalidate" "hidden" "inert" "ismap"
+    "itemscope" "loop" "multiple" "muted" "nomodule" "novalidate" "open"
+    "playsinline" "readonly" "required" "reversed" "selected"})
+
+(def booleanish-attrs
+  "true/false -> \"true\"/\"false\", never omitted. Verbatim copy of
+  `re-frame.ui.rules/booleanish-attrs` (pinned by the sibling test)."
+  #{"contenteditable" "draggable" "spellcheck"})
+
+(def overloaded-boolean-attrs
+  "true -> bare presence, false -> omitted, other values stringify.
+  Verbatim copy of `re-frame.ui.rules/overloaded-boolean-attrs` (pinned by
+  the sibling test)."
+  #{"download" "capture"})
+
+(def property-only-attrs
+  "Names React never serialises to markup on NON-custom elements. Verbatim
+  copy of `re-frame.ui.rules/property-only-attrs` (pinned by the sibling
+  test); kept EMPTY as the named home for any future member the parity
+  corpus finds."
+  #{})
+
+(defn escape-html
+  "Full 5-char escaping (& < > \" ') for text and attribute values —
+  trusted-HTML (`:html`) nodes are the single bypass. Verbatim copy of
+  `re-frame.ui.rules/escape-html` (matches React's escapeTextForBrowser —
+  `'` -> `&#x27;`, NOT the `&#39;` `re-frame.ssr.html-helpers` uses for the
+  hiccup tier)."
+  [s]
+  (-> (str s)
+      (str/replace "&" "&amp;")
+      (str/replace "<" "&lt;")
+      (str/replace ">" "&gt;")
+      (str/replace "\"" "&quot;")
+      (str/replace "'" "&#x27;")))
+
+;; ---------------------------------------------------------------------------
+;; Attribute value serialisation (the value half of the table).
+;; ---------------------------------------------------------------------------
+
+(defn- coerce-val
+  "Tree attr/text values are canonical strings already (numbers went
+  through JS ToString, `:style` px was applied, at tree build). Coerce
+  defensively: string verbatim; number via the cross-runtime canonical
+  form (`hash/canonical-number` — the same JS-ToString parity the hiccup
+  emitter uses); keyword/symbol via `name` (namespace dropped, matching the
+  shipped dynamic path); everything else `str`-ed."
+  [v]
+  (cond
+    (string? v)                    v
+    (number? v)                    (hash/canonical-number v)
+    (or (keyword? v) (symbol? v))  (name v)
+    :else                          (str v)))
+
+(defn- truthy-attr?
+  "React's boolean-attribute presence test over TREE-SPACE values: `true`
+  -> present; `false` -> absent; a non-empty string is present (`hidden
+  \"until-found\"` renders bare presence on react-dom/server 19.2.0)."
+  [v]
+  (cond
+    (boolean? v) v
+    (string? v)  (not (str/blank? v))
+    :else        (some? v)))
+
+(defn- serialise-attr
+  "One author-space `[k v]` -> `[final-name serialised-value]` or nil
+  (attribute absent from markup). Mirrors
+  `re-frame.ui.semantic/serialise-attr`. `:class` / `:style` are handled by
+  the caller before this."
+  [k v]
+  (let [n         (name k)
+        collapsed (str/lower-case (str/replace n "-" ""))]
+    (cond
+      (str/starts-with? n "aria-")
+      ;; aria-* values ALWAYS stringify — :aria-hidden false ->
+      ;; aria-hidden="false", never omitted.
+      [n (if (boolean? v) (str v) (coerce-val v))]
+
+      (str/starts-with? n "data-")
+      ;; data-* verbatim names; boolean values stringify.
+      [n (if (boolean? v) (str v) (coerce-val v))]
+
+      (contains? booleanish-attrs collapsed)
+      ;; true/false -> "true"/"false", never omitted.
+      [(dom-attr-name n) (if (boolean? v) (str v) (coerce-val v))]
+
+      (contains? overloaded-boolean-attrs collapsed)
+      ;; true -> bare presence, false -> omitted, other values stringify.
+      (cond
+        (true? v)  [(dom-attr-name n) ""]
+        (false? v) nil
+        :else      [(dom-attr-name n) (coerce-val v)])
+
+      (contains? boolean-attrs collapsed)
+      ;; presence/absence; presence serialises as attr="".
+      (when (truthy-attr? v)
+        [(dom-attr-name n) ""])
+
+      (boolean? v)
+      ;; a boolean on a non-boolean-class attribute never reaches markup.
+      nil
+
+      :else
+      [(dom-attr-name n) (coerce-val v)])))
+
+(defn- style-map->css
+  "A tree `:style` map (kebab keyword -> canonical CSS value string, px
+  already applied at tree build) -> the CSS declaration string. Emitted in
+  a PINNED TOTAL ORDER (sorted by property name) rather than map iteration
+  order (004B §Emission is pure — map iteration order is trusted here
+  exactly as little as in the `:class` flag-map row). nil-valued entries
+  dropped."
+  [m]
+  (->> m
+       (keep (fn [[k v]]
+               (when (some? v)
+                 (str (name k) ":" (coerce-val v)))))
+       sort
+       (str/join ";")))
+
+(defn- custom-element-tag? [tag]
+  (str/includes? (name tag) "-"))
+
+(defn- element-attr-pairs
+  "The author-space `:attrs` map of an element -> a seq of
+  `[final-name value-string]` pairs, sorted by final name (pinned total
+  order). `:class` -> `class` (already canonical); `:style` -> the CSS
+  declaration string; custom-element property-classified props (named by
+  `:rf.ui/property-props`) are OMITTED (applied at hydration, never markup)."
+  [attrs property-props]
+  (->> attrs
+       (keep (fn [[k v]]
+               (cond
+                 (contains? property-props k) nil
+                 (= k :class)                 (when (some? v) ["class" (coerce-val v)])
+                 (= k :style)                 (let [css (style-map->css v)]
+                                                (when (seq css) ["style" css]))
+                 :else                        (serialise-attr k v))))
+       (sort-by first)))
+
+(defn- attrs->string
+  "Render an element's `:attrs` as ` name=\"value\"` fragments (leading
+  space when non-empty; empty string otherwise). Presence attributes emit
+  `name=\"\"`. Values are `escape-html`-escaped."
+  [attrs property-props]
+  (let [rendered (map (fn [[nm v]]
+                        (str " " nm "=\"" (escape-html v) "\""))
+                      (element-attr-pairs attrs property-props))]
+    (str/join rendered)))
+
+;; ---------------------------------------------------------------------------
+;; Node discrimination + the walk.
+;; ---------------------------------------------------------------------------
+
+(def ^:private node-discriminators
+  "The three PRIMARY structural discriminators of a map tree node (004B
+  §The node schema — the closed five-variant set). A canonical map node
+  carries EXACTLY ONE of these — `:tag` / `:view-id` / `:html` — OR none,
+  in which case it is a FRAGMENT (discriminated by its `:children`)."
+  [:tag :view-id :html])
+
+(defn- malformed-node!
+  "Fail loud with the SHARED node-malformation id (NOT the version-gate id).
+  A malformed node PAST the version gate is a code bug — the closed variant
+  set was violated — and reuses `:rf.error/ui-tree-malformed`, the id every
+  tree consumer throws (004B §The node schema). `path` is the root-relative
+  `get-in` position that LOCATES the offending node."
+  [reason path extra]
+  (error/throw-error!
+    :rf.error/ui-tree-malformed
+    'rf.ssr/emit-ui-tree
+    (str reason " (at tree path " (pr-str path) ")")
+    {:extra (assoc extra :path path)}))
+
+(declare emit-node mark-selected)
+
+(defn- emit-children
+  "Emit a children vector, threading each child's root-relative path so a
+  nested malformation locates the node."
+  [children parent-path]
+  (str/join
+    (map-indexed
+      (fn [i c] (emit-node c (conj parent-path :children i)))
+      children)))
+
+(defn- emit-element
+  "Emit an element node. Applies the form-control special forms
+  (`:default-value`/`:default-checked` -> `value`/`checked`; `:value` on
+  `:textarea` -> the text child; `:value` on `:select` -> `selected` on the
+  matching option), then the attribute conversion, then children. `:events`
+  and `:key` have no HTML presence and are never read here."
+  [el path]
+  (let [tag       (:tag el)
+        tag-name  (name tag)
+        norm-tag  (str/lower-case tag-name)
+        void?     (contains? void-tags (keyword norm-tag))
+        pp        (if (custom-element-tag? tag)
+                    (set (or (:rf.ui/property-props el) #{}))
+                    #{})
+        ;; form-control pre-pass (004B §Property-only and form-control
+        ;; special forms): default-value/default-checked serialise as
+        ;; value/checked.
+        attrs     (reduce (fn [m [from to]]
+                            (if (contains? m from)
+                              (-> m (dissoc from) (assoc to (get m from)))
+                              m))
+                          (or (:attrs el) {})
+                          [[:default-value :value] [:default-checked :checked]])
+        textarea? (= tag :textarea)
+        select?   (= tag :select)
+        ta-val    (when textarea? (get attrs :value))
+        sel-val   (when select? (get attrs :value))
+        ;; textarea/select :value never serialises as a `value` attribute.
+        attrs     (cond-> attrs (or textarea? select?) (dissoc :value))
+        open      (str "<" tag-name (attrs->string attrs pp))]
+    (cond
+      void?          (str open ">")
+      (some? ta-val) (str open ">" (escape-html (coerce-val ta-val)) "</" tag-name ">")
+      :else
+      (let [children (if (some? sel-val)
+                       (mark-selected (:children el) (coerce-val sel-val))
+                       (:children el))]
+        (str open ">" (emit-children children path) "</" tag-name ">")))))
+
+(defn- node-text
+  "Concatenated text content of a RAW element/fragment node — its text
+  descendants in document order (option-label matching for the select
+  `:value` row)."
+  [node]
+  (apply str (map #(if (string? %) % (node-text %)) (:children node))))
+
+(defn- mark-selected
+  "The `:value`-on-`:select` row: inject `:selected true` into the option
+  child(ren) whose value (their `:value` attr, else their text content)
+  matches `sel-val`. Recurses into non-option element children (e.g.
+  `:optgroup`). Mirrors `re-frame.ui.semantic/mark-selected-options`, at the
+  raw-tree (author-space) level."
+  [children sel-val]
+  (mapv (fn [c]
+          (cond
+            (and (map? c) (= :option (:tag c)))
+            (let [ov (coerce-val (or (get-in c [:attrs :value]) (node-text c)))]
+              (if (= ov sel-val)
+                (assoc-in c [:attrs :selected] true)
+                c))
+
+            (and (map? c) (:tag c) (:children c))
+            (assoc c :children (mark-selected (:children c) sel-val))
+
+            :else c))
+        children))
+
+(defn- emit-node
+  "-> the HTML string this node contributes. Discrimination is CLOSED and
+  UNAMBIGUOUS (004B §The node schema): a string is text (escaped); a map
+  carries EXACTLY ONE of `:tag` / `:view-id` / `:html`, or none plus
+  `:children` (a fragment). Two-plus discriminators, or none with no
+  `:children`, is malformed and fails loud with the SHARED id. View
+  boundaries are ERASED (children splice into the stream — HTML has no view
+  boundaries); trusted-HTML writes verbatim."
+  [node path]
+  (cond
+    (string? node)
+    (escape-html node)
+
+    (map? node)
+    (let [ds (filterv #(contains? node %) node-discriminators)]
+      (cond
+        (> (count ds) 1)
+        (malformed-node!
+          (str "a tree node carries multiple node discriminators " (pr-str ds)
+               " — every map node is EXACTLY ONE of :tag (element), :view-id "
+               "(view boundary), :html (trusted markup), or a fragment (none of "
+               "these, splicing its :children); an ambiguous map must not be "
+               "interpreted by branch order: " (pr-str node))
+          path {:value node :got ds})
+
+        (= 1 (count ds))
+        (case (first ds)
+          :tag     (emit-element node path)
+          ;; trusted markup writes verbatim; a non-string :html is malformed.
+          :html    (let [h (:html node)]
+                     (if (string? h)
+                       h
+                       (malformed-node!
+                         (str "a trusted-HTML node's :html is not a string: "
+                              (pr-str node))
+                         path {:value node})))
+          ;; view boundary erases — its children splice into the stream.
+          :view-id (emit-children (:children node) path))
+
+        ;; no primary discriminator: a fragment (splices its children).
+        (contains? node :children)
+        (emit-children (:children node) path)
+
+        ;; no discriminator AND no :children — not a renderable node.
+        :else
+        (malformed-node!
+          (str "a tree node carries no node discriminator — every map node is "
+               "an element (:tag), a view boundary (:view-id), trusted markup "
+               "(:html), or a fragment (:children); a map with none is not a "
+               "renderable tree node: " (pr-str node))
+          path {:value node :got []})))
+
+    :else
+    (malformed-node!
+      (str "malformed tree node in re-frame.ssr/emit-ui-tree: " (pr-str node))
+      path {:value node})))
+
+;; ---------------------------------------------------------------------------
+;; Public entry.
+;; ---------------------------------------------------------------------------
+
+(defn emit-ui-tree
+  "Serialise an ALREADY-RENDERED version-1 structural `tree` to an HTML
+  string (Spec 004B §The SSR consumption boundary). Validates the root
+  `:rf.ui/tree-version` FIRST — a missing / non-integer / unsupported
+  version throws `:rf.error/ssr-ui-tree-version-unsupported` with `{:got …
+  :supported #{1}}` BEFORE any emission; a malformed node past the gate
+  throws the shared `:rf.error/ui-tree-malformed`.
+
+  Calls NOTHING — no view, no subscription, no frame. Pure, deterministic
+  to the byte, JVM-runnable. `opts` mirrors the emitter family: `:doctype?`
+  prefixes `<!DOCTYPE html>`."
+  ([tree] (emit-ui-tree tree nil))
+  ([tree opts]
+   (validate-tree-version! tree)
+   (let [body (emit-node tree [])]
+     (if (:doctype? opts)
+       (str "<!DOCTYPE html>" body)
+       body))))
