@@ -5496,6 +5496,139 @@
           (is (= [:machines :http] @fired)
               "every quiesce hook fired, in chain order"))))))
 
+(defn- with-quiesce-warning-capture
+  "Register a global `:trace` listener collecting every
+  `:rf.warning/restore-quiesce-hook-exception` row, run `(f warnings-atom)`,
+  unregister. The warning fans through the PUBLIC trace listener stream, which
+  is precisely the surface a stale A-tail must not reach once B owns the id."
+  [f]
+  (let [k        ::vy2hj-quiesce-warnings
+        warnings (atom [])]
+    (rf/register-listener! :trace k
+      (fn [ev]
+        (when (= :rf.warning/restore-quiesce-hook-exception (:operation ev))
+          (swap! warnings conj ev))))
+    (try (f warnings)
+         (finally (rf/unregister-listener! :trace k)))))
+
+(deftest restore-quiesce-hook-exception-fenced-after-ownership-lost
+  (testing "rf2-vy2hj — a quiesce hook is itself the callback boundary the
+            per-hook token fence exists to police, so the THROWING path needs
+            the same fence as the loop's `:while`. Hook 1 destroys incarnation
+            A, seats a same-id successor B, and only THEN throws. The catch runs
+            with ownership already lost and emits by BARE frame id, so an
+            unfenced emit delivers A's cleanup warning into B's trace stream —
+            the loop's next `:while` stops hook 2 only AFTER that emission. The
+            settled (catch) path must revalidate the SAME `still-owned?`
+            boundary before announcing anything."
+    (rf/make-frame {:id :test/vy2hj-quiesce})
+    (rf/reg-event :set-vq (fn [_ [_ o n]] {:db {:owner o :n n}}))
+    (rf/dispatch-sync [:set-vq :A 1] {:frame :test/vy2hj-quiesce})
+    (rf/dispatch-sync [:set-vq :A 2] {:frame :test/vy2hj-quiesce})
+    (let [target-id (some (fn [r] (when (= {:owner :A :n 1} (:db-after r)) (:epoch-id r)))
+                          (rf/epoch-history :test/vy2hj-quiesce))
+          {:keys [outcome epoch incarnation-token]}
+          (tool-pair/check-restore-preconditions! :test/vy2hj-quiesce target-id)
+          machines-saw (atom [])
+          http-saw     (atom [])]
+      (is (= :ok outcome) "preconditions passed against live incarnation A")
+      (with-quiesce-warning-capture
+        (fn [warnings]
+          (with-quiesce-hook-stubs
+            (fn [fid]
+              (swap! machines-saw conj fid)
+              ;; the cancellation churns A to a same-id successor B ...
+              (rf/destroy-frame! fid)
+              (rf/make-frame {:id fid})
+              (rf/dispatch-sync [:set-vq :B 99] {:frame fid})
+              ;; ... and only THEN fails. The catch is now a stale A tail.
+              (throw (ex-info "quiesce hook failed after seating B" {})))
+            (fn [fid] (swap! http-saw conj fid))
+            (fn []
+              (let [result (tool-pair/perform-restore! :test/vy2hj-quiesce incarnation-token epoch)]
+                (is (true? result)
+                    "the already-committed exact-incarnation install keeps its
+                     documented TRUE return — the throwing tail is best-effort")
+                (is (= [:test/vy2hj-quiesce] @machines-saw)
+                    "the FIRST quiesce hook ran under the live incarnation A")
+                ;; NOTE: the unfenced defect does NOT throw — it silently
+                ;; RESURRECTS A's diagnostic as B's, so absence of the row is
+                ;; the only sound assertion. Never assert an exception here.
+                (is (empty? @warnings)
+                    "ACCEPTANCE — A's quiesce-hook-exception warning is NOT
+                     delivered once the incarnation it describes is lost")
+                (is (empty? @http-saw)
+                    "no later quiesce hook runs after ownership is lost")
+                (is (= {:owner :B :n 99} (rf/app-db-value :test/vy2hj-quiesce))
+                    "successor B's state is untouched by A's throwing tail")))))))))
+
+(deftest restore-quiesce-hook-exception-still-emits-while-incarnation-live
+  (testing "rf2-vy2hj control — the fence rejects only a LOST incarnation. A
+            hook that throws while the captured incarnation is STILL LIVE emits
+            exactly one existing warning under the existing category, and the
+            best-effort chain continues to the next hook."
+    (rf/make-frame {:id :test/vy2hj-quiesce-live})
+    (rf/reg-event :set-vq2 (fn [_ [_ n]] {:db {:n n}}))
+    (rf/dispatch-sync [:set-vq2 1] {:frame :test/vy2hj-quiesce-live})
+    (rf/dispatch-sync [:set-vq2 2] {:frame :test/vy2hj-quiesce-live})
+    (let [target-id (some (fn [r] (when (= {:n 1} (:db-after r)) (:epoch-id r)))
+                          (rf/epoch-history :test/vy2hj-quiesce-live))
+          fired     (atom [])]
+      (with-quiesce-warning-capture
+        (fn [warnings]
+          (with-quiesce-hook-stubs
+            (fn [_fid]
+              (swap! fired conj :machines)
+              (throw (ex-info "machines quiesce failed, incarnation still live" {})))
+            (fn [_fid] (swap! fired conj :http))
+            (fn []
+              (is (true? (rf/restore-epoch! :test/vy2hj-quiesce-live target-id))
+                  "an ordinary within-incarnation restore still succeeds")
+              (is (= [:machines :http] @fired)
+                  "the best-effort chain continued past the throwing hook")
+              (is (= 1 (count @warnings))
+                  "exactly one warning for the one live-incarnation failure")
+              (is (= :rf.warning/restore-quiesce-hook-exception
+                     (:operation (first @warnings)))
+                  "the EXISTING category is reused — no new diagnostic id")
+              (is (= :machines/on-frame-restored!
+                     (:hook (:tags (first @warnings))))
+                  "the warning names the hook that actually threw"))))))))
+
+(deftest quiesce-warning-fence-admits-and-refuses-repeatedly
+  (testing "rf2-vy2hj sequence — the settled-path fence LATCHES NOTHING. Driving
+            ADMIT (throw while live) -> REFUSE (throw after churn) -> ADMIT ->
+            REFUSE inside ONE process proves the guard re-reads the live slot on
+            every announcement rather than tripping once and staying tripped (or
+            arming once and staying open). A single-transition test would pass
+            against a one-shot flag."
+    (let [fid :test/vy2hj-seq
+          ;; One round: seat a fresh incarnation, capture ITS exact token, fire
+          ;; the chain with a hook that throws — optionally churning the
+          ;; incarnation first. Returns the warnings emitted by this round.
+          round (fn [warnings churn?]
+                  (let [before (count @warnings)]
+                    (rf/make-frame {:id fid})
+                    (let [token (frame/frame-incarnation-token fid)]
+                      (with-quiesce-hook-stubs
+                        (fn [f]
+                          (when churn?
+                            (rf/destroy-frame! f)
+                            (rf/make-frame {:id f}))
+                          (throw (ex-info "hook failed" {})))
+                        (fn [_f] nil)
+                        (fn []
+                          (tool-pair/quiesce-orphaned-async-host-work! fid token))))
+                    (- (count @warnings) before)))]
+      (with-quiesce-warning-capture
+        (fn [warnings]
+          (is (= 1 (round warnings false)) "1st ADMIT — incarnation live, warning emitted")
+          (is (= 0 (round warnings true))  "1st REFUSE — ownership lost, warning withheld")
+          (is (= 1 (round warnings false)) "2nd ADMIT — the fence re-opened, not latched shut")
+          (is (= 0 (round warnings true))  "2nd REFUSE — the fence re-closed, not latched open")
+          (is (= 2 (count @warnings))
+              "exactly the two live-incarnation failures announced, in one process"))))))
+
 (deftest restore-trace-commit-carries-owner-token
   (testing "rf2-sdeae — the deferred resource-trace commit is a per-intent
             callback fan-out, so perform-restore! carries the captured exact
