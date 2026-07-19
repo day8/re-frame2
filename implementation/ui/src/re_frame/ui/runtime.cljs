@@ -14,6 +14,7 @@
             [re-frame.error :as error]
             [re-frame.interop :as interop]
             [re-frame.registrar :as registrar]
+            [re-frame.trace :as trace :include-macros true]
             [re-frame.ui.eq :as eq]
             [re-frame.ui.events :as events]
             [re-frame.ui.reactive :as reactive]
@@ -613,3 +614,114 @@
   (jsx2 ErrorBoundary
         #js {:fallback fallback :resetKey reset-key
              :onError on-error :children child}))
+
+;; ---------------------------------------------------------------------------
+;; ui/client-only — the S5 phase flip (rf2-3omxp; Spec 011 §Phase flip)
+;;
+;; S3 shipped the `ui/client-only` macro: a site with a mandatory,
+;; capability-free `:fallback` (the JVM/SSR + first-hydration render) and a
+;; client subtree. What S3 left unbuilt is HOW the fallback becomes the client
+;; subtree after a server-rendered root hydrates. This is that mechanism.
+;;
+;; A root renders in one of two PHASES, `:server` or `:client` (the same
+;; vocabulary as the Root Manifest `:phase` key). The phase is ONE root-scoped
+;; value, carried by `phase-context`. A compiled `ui/client-only` site is
+;; phase-conditional: it reads the phase and renders its fallback in `:server`
+;; phase, its client subtree in `:client` phase.
+;;
+;; The context DEFAULT is `:client`, so every tree with no phase Provider above
+;; it — every non-hydrating mount (`mount` / `render!` / `ui.test/render`) and
+;; `render-static` — reads `:client` and renders the client subtree on the
+;; first and only render, byte-identical to S3 (there is no fallback pass to
+;; flip away from). Only a hydrating root installs a Provider (see
+;; `PhaseFlipper` / `with-phase-flip`), boots `:server`, and flips once.
+;; ---------------------------------------------------------------------------
+
+(defonce ^:private phase-context
+  (react/createContext :client))
+
+(defn ^:private ClientOnly
+  ;; The phase-conditional runtime for one compiled `ui/client-only` site: a
+  ;; React function component that SUBSCRIBES to the root-scoped phase context
+  ;; (`useContext`). Because context propagation ignores `React.memo`
+  ;; boundaries, React re-renders THIS boundary directly when a hydrating root
+  ;; flips `:server` -> `:client` — the enclosing memoised ViewCell needs no
+  ;; involvement. Returns `fallback` in `:server` phase, `children` (the client
+  ;; subtree) in `:client` phase. A function component adds no DOM of its own,
+  ;; so the `:server`-phase render is structurally the fallback — exactly the
+  ;; server-emitted markup, so hydration is a clean adoption.
+  [^js props]
+  (if (= :server (react/useContext phase-context))
+    (.-fallback props)
+    (.-children props)))
+
+(when ^boolean js/goog.DEBUG
+  (set! (.-displayName ClientOnly) "rf.ui/client-only"))
+
+(defn client-only
+  "Build a phase-conditional `(ui/client-only {:fallback fb} child)` element —
+  the CLJS emitter's lowering target (S5 phase flip, rf2-3omxp). `fallback` is
+  the capability-free `:server`/first-hydration subtree; `child` is the client
+  subtree. See `ClientOnly`."
+  [fallback child]
+  (jsx2 ClientOnly #js {:fallback fallback :children child}))
+
+(defn ^:private emit-phase-flip!
+  ;; The ONE `:rf.ssr/phase-flip` diagnostic trace, at the flip commit. Rides
+  ;; the diagnostic channel via `re-frame.trace/emit!`; the `interop/debug-
+  ;; enabled?` gate DCEs the whole call under `:advanced` + `goog.DEBUG=false`
+  ;; (Spec 009 §Production builds). It is NOT an event and mints no epoch —
+  ;; called from a React passive effect, outside any dispatch/handler scope, so
+  ;; it never correlates to an epoch (`emit!` reads a nil `*handler-scope*`).
+  [root-id]
+  (when interop/debug-enabled?
+    (trace/emit! :info :rf.ssr/phase-flip {:root-id root-id})))
+
+(defn ^:private PhaseFlipper
+  ;; Drives the phase flip for ONE hydrating root. It boots `:server` (so the
+  ;; first = hydration render produces fallbacks, matching the server markup and
+  ;; keeping the hydration-mismatch snapshot honest — the snapshot is taken over
+  ;; the `:server`-phase tree by `ssr/hydrate!` BEFORE this even mounts), then
+  ;; flips to `:client` as the root's NEXT ORDINARY UPDATE after the hydration
+  ;; commit. A passive effect (`useEffect`) does the flip: passive effects run
+  ;; after the commit AND after paint, so the flip never beats the snapshot, and
+  ;; a painted fallback frame before the swap is by design (there is no
+  ;; `flushSync` — the capability-free fallback is presentable UI, nothing to
+  ;; race). The single phase-context write swaps EVERY client-only site in the
+  ;; root in the one update it produces. A root that fails to boot never commits
+  ;; this component, so its passive effect never runs and it never flips — its
+  ;; server fallback markup stays inert (`:rf.error/root-boot-failed` already
+  ;; fired; no additional error). Per-root and independent: each flipper is keyed
+  ;; to its own root's commit, so a slow/failed sibling never delays this flip.
+  [^js props]
+  (let [root-id   (.-rfRootId props)
+        pair      (react/useState :server)
+        phase     (aget pair 0)
+        set-phase (aget pair 1)]
+    (react/useEffect
+     (fn phase-flip []
+       ;; The effect fires once per phase value. On the `:server` (mount /
+       ;; hydration) commit it schedules the flip; on the `:client` commit — the
+       ;; flip commit — it emits the trace. `phase` is monotonic (`:server` ->
+       ;; `:client`, once), so the trace fires exactly once per hydrating root.
+       (if (= :server phase)
+         (set-phase :client)
+         (emit-phase-flip! root-id))
+       js/undefined)
+     #js [phase])
+    (react/createElement (.-Provider phase-context)
+                         #js {:value phase}
+                         (.-children props))))
+
+(when ^boolean js/goog.DEBUG
+  (set! (.-displayName PhaseFlipper) "rf.ui/phase-flipper"))
+
+(defn with-phase-flip
+  "Wrap a hydrating root's compiled `element` in the phase flipper (S5 phase
+  flip, rf2-3omxp). ONLY `ui/hydrate-root` calls this. A non-hydrating mount
+  installs no flipper, so its tree has no phase Provider and every
+  `ui/client-only` site reads the `:client` default and renders its client
+  subtree on the first render — byte-identical to S3. `render-static` likewise
+  installs none and stays pure `:server`."
+  [root-id element]
+  (react/createElement PhaseFlipper #js {:rfRootId root-id} element))

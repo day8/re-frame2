@@ -68,6 +68,7 @@
             [re-frame.substrate.adapter :as substrate-adapter]
             [re-frame.ui.frames :as frames]
             [re-frame.ui.reactive :as reactive]
+            [re-frame.ui.runtime :as runtime]
             [re-frame.ui.viewcell :as viewcell]))
 
 ;; ---------------------------------------------------------------------------
@@ -1433,8 +1434,18 @@
           (check-root-claim! 're-frame.ui/hydrate-root info container)
           (let [react-root (rdc/hydrateRoot
                             container
+                            ;; rf2-3omxp — a HYDRATING root is the one root kind
+                            ;; that flips: wrap the compiled element in the phase
+                            ;; flipper, which boots `:server` (first render =
+                            ;; fallbacks, matching the server markup) and flips to
+                            ;; `:client` as its next ordinary update after the
+                            ;; hydration commit. `(element-thunk)` still evaluates
+                            ;; first, so a synchronous throw from it propagates to
+                            ;; the rollback catch unchanged. Non-hydrating mounts
+                            ;; (mount* / render!*) wrap nothing and never flip.
                             (render-attempt-element
-                             receipt root-id incarnation (element-thunk))
+                             receipt root-id incarnation
+                             (runtime/with-phase-flip root-id (element-thunk)))
                             (react-opts-with-attempt-abort
                              (react-opts-with-identifier-prefix react-opts prefix)
                              root-id incarnation))

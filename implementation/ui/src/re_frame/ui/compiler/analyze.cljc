@@ -2425,9 +2425,14 @@
 (defn- analyze-client-only
   "(ui/client-only {:fallback tpl} client-tpl) — a browser-only subtree with a
   mandatory, capability-free fallback (compiler-checked). The JVM/SSR renders
-  the fallback (a deterministic `:rf.ui/boundary :client-only` node); the client
-  renders the client subtree (the S3 activation; the single-update SSR
-  phase-flip completes S5, per [011])."
+  the fallback (a deterministic `:rf.ui/boundary :client-only` node); the CLJS
+  emitter lowers the site to a PHASE-CONDITIONAL runtime boundary
+  (`re-frame.ui.runtime/client-only`) that renders the fallback in `:server`
+  phase and the client subtree in `:client` phase — the S5 phase flip a
+  hydrating root drives `:server` -> `:client` after its hydration commit (Spec
+  011 §Phase flip, rf2-3omxp). A non-hydrating mount reads the `:client` phase
+  default and renders the client subtree on the first render (the S3
+  activation)."
   [e form]
   (let [opts  (nth form 1 nil)
         rest* (drop 2 form)]
