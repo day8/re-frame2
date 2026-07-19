@@ -343,7 +343,11 @@ posture recorded in their spec homes.
 
 - **Sibling EPs (authored with this one; each a narrow decision surface):**
   [EP-0031](EP-0031-re-frame-ui-programming-model.md) — programming model
-  (`defview`, templates, the handler law, presence, interop);
+  (`defview`, templates, the handler law, interop); **presence is not
+  EP-0031's** — its normative contract is
+  [`spec/004-Views.md` §Presence](../../spec/004-Views.md#presence--declarative-enterexit),
+  and the companion ruling (`ui/presence` wrapper, no reserved nodes, mandatory
+  timeout safety bound) is recorded above in this EP;
   [EP-0032](EP-0032-re-frame-ui-reactivity-and-ownership.md) — reactivity and
   ownership (observation targets, ViewCell, commit protocol, frames/preflight
   ENSURE, HMR); [EP-0033](EP-0033-re-frame-ui-view-evidence.md) — view evidence
