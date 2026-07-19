@@ -72,7 +72,7 @@ The migration (a four-line swap) is in [Use UIx, Helix, or reagent-slim](../core
 
   Behaviour:
   - On mount, dispatches `:rf.resource/ensure` with a per-instance `[:lease token]` owner; on unmount, dispatches `:rf.resource/release-owner` for that owner into the same frame.
-  - Frame resolution tries, in order: the explicit `:frame` opt, the surrounding React context installed by a `frame-provider` (SCOPE) or a `frame-root` (ENSURE), then the dynamic frame binding. If none is in scope, it raises `:rf.error/no-frame-context`.
+  - Frame resolution happens at render time and tries, in order: the explicit `:frame` opt, the dynamic `with-frame` binding, then the surrounding React context installed by a `frame-provider` (SCOPE) or a `frame-root` (ENSURE). If none is in scope, it raises `:rf.error/no-frame-context`. This matches the UIx / Helix `use-resource-lease` chain — a `with-frame` binding nested inside a provider or root wins over that boundary.
   - The lease token is minted once per mounted instance, so a hot-reload re-mount settles to exactly one held lease.
   - Under `render-to-string` (SSR) lifecycle methods do not run, so the acquire/release is a no-op.
 - **Example**:
