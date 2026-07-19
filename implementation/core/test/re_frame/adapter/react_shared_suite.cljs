@@ -3042,6 +3042,124 @@
             (when-let [u @unmount]
               (try (act-fn (fn [] (u))) (catch :default _ nil))))))))))
 
+;; ---- native-root hydration-mismatch adoption reporter (rf2-qfz65) --------
+;;
+;; A native UIx/Helix root is a React-ELEMENT root: neither the hiccup
+;; :render-tree-fn hash channel nor the compiled-tier ui/hydrate-root adoption
+;; reporter covers it, so before rf2-qfz65 the spine's make-render hydrate branch
+;; called hydrateRoot with NO options and a hydration MISMATCH was SILENT (React
+;; warn-and-replace recovered the DOM but the framework emitted nothing). The
+;; spine now installs a composed onRecoverableError on the hydrate path that
+;; surfaces the SAME :rf.ssr/hydration-mismatch diagnostic, composed OVER any
+;; host :on-recoverable-error. Proven here on real DOM (mounted, act OFF so the
+;; genuine adoption mismatch reaches onRecoverableError on React's own schedule —
+;; the compiled tier's proven treatment).
+
+(defn- poll-until
+  "Poll `pred` every 5ms up to ~2s, then call `k`. Bounded so an outcome that
+  never arrives lets the assertions in `k` fail honestly rather than hang."
+  [pred k]
+  (let [tries (atom 0)]
+    (letfn [(step []
+              (if (or (pred) (>= @tries 400))
+                (k)
+                (do (swap! tries inc) (js/setTimeout step 5))))]
+      (step))))
+
+(defn assert-native-hydration-mismatch-surfaces-diagnostic
+  "rf2-qfz65: a hydrating native UIx/Helix root that adopts DIVERGENT server
+  markup surfaces the framework :rf.ssr/hydration-mismatch diagnostic (via the
+  spine's composed onRecoverableError), AND a host-supplied :on-recoverable-error
+  still fires (compose, never clobber); a CLEAN native adoption stays silent.
+
+  RED-BEFORE: without the make-render hydrate-path reporter, a native root NEVER
+  surfaces :rf.ssr/hydration-mismatch — the divergent assertion is the lever.
+  Every assertion reads an OBSERVABLE outcome (a captured trace, a host-callback
+  atom), never that an exception was thrown.
+
+  Browser-only + async: hydration adoption is a real-DOM operation whose
+  onRecoverableError fires on React's own schedule (act off). Under :node-test
+  the (browser?) gate makes this an honest skip.
+
+  cfg keys:
+    :probe-element  a thunk returning a fresh substrate probe ELEMENT (renders
+                    `<div>probe</div>` — the same element the after-render twin
+                    and the hydrate-branch assertion use)."
+  [{:keys [name probe-element]}]
+  (if-not (browser?)
+    (is true ":node-test: no DOM — the browser-test runner exercises the assertion")
+    (async done
+      (let [act-prev   (.-IS_REACT_ACT_ENVIRONMENT js/globalThis)
+            ;; act OFF — a genuine adoption mismatch reaches onRecoverableError on
+            ;; React's own schedule (the compiled tier's proven treatment).
+            _          (set! (.-IS_REACT_ACT_ENVIRONMENT js/globalThis) false)
+            mismatches (atom [])
+            clean-host (atom [])
+            div-host   (atom [])
+            lk         (keyword (gensym "rf.qfz65-mm-"))
+            ;; Both nodes attached so React schedules their hydration work.
+            clean-node (.createElement js/document "div")
+            div-node   (.createElement js/document "div")
+            unmounts   (atom [])]
+        (trace-tooling/register-listener!
+          lk (fn [ev] (when (= :rf.ssr/hydration-mismatch (:operation ev))
+                        (swap! mismatches conj ev))))
+        ;; CLEAN: server markup = exactly what the client renders ⇒ React adopts
+        ;; cleanly ⇒ no onRecoverableError ⇒ the clean host callback never fires.
+        (set! (.-innerHTML clean-node)
+              (.renderToString react-dom-server (probe-element)))
+        ;; DIVERGENT: a structurally different root tag (server <section> vs the
+        ;; client's <div>) ⇒ React fires onRecoverableError during adoption and
+        ;; recovers by client-rendering (warn-and-replace).
+        (set! (.-innerHTML div-node)
+              "<section class=\"srv\">DIVERGENT-SERVER</section>")
+        (.appendChild (.-body js/document) clean-node)
+        (.appendChild (.-body js/document) div-node)
+        (swap! unmounts conj
+               (substrate-adapter/render
+                 (probe-element) clean-node
+                 {:hydrate? true
+                  :on-recoverable-error (fn [e _] (swap! clean-host conj e))}))
+        (swap! unmounts conj
+               (substrate-adapter/render
+                 (probe-element) div-node
+                 {:hydrate? true
+                  :on-recoverable-error (fn [e _] (swap! div-host conj e))}))
+        (poll-until
+          #(seq @mismatches)
+          (fn []
+            (try
+              (testing (str name " — divergent native root surfaces :rf.ssr/hydration-mismatch")
+                (is (seq @mismatches)
+                    (str "a divergent native root's adoption fires onRecoverableError, "
+                         "which make-render surfaces as :rf.ssr/hydration-mismatch "
+                         "(RED-BEFORE: silent without the reporter). Saw: "
+                         (pr-str @mismatches)))
+                (when-let [mm (first @mismatches)]
+                  ;; Merge tag-level + top-level so the read is robust to whichever
+                  ;; slots the envelope hoists.
+                  (let [tags (merge (:tags mm) mm)]
+                    (is (= :rf.ssr/hydration-mismatch (:operation mm)))
+                    (is (= 're-frame.substrate.spine/make-render (:where tags))
+                        "tier-discriminated by :where — the native spine hydrate site")
+                    (is (not (contains? (or (:tags mm) {}) :server-hash))
+                        "NO fabricated :server-hash — the native tier has no hash")
+                    (is (not (contains? (or (:tags mm) {}) :client-hash))
+                        "NO fabricated :client-hash"))))
+              (testing (str name " — host :on-recoverable-error composed (not clobbered)")
+                (is (seq @div-host)
+                    "the framework composed OVER the host callback — both fired"))
+              (testing (str name " — clean native adoption stays silent")
+                (is (empty? @clean-host)
+                    "an identical native root hydrates with NO recoverable error"))
+              (finally
+                (trace-tooling/unregister-listener! lk)
+                (doseq [u @unmounts] (try (u) (catch :default _ nil)))
+                (doseq [n [clean-node div-node]]
+                  (when-let [p (.-parentNode n)] (.removeChild p n)))
+                (set! (.-IS_REACT_ACT_ENVIRONMENT js/globalThis) act-prev)
+                (done)))))))))
+
 ;; ---- use-subscribe (rf2-518sp / rf2-7g959 / rf2-mwft2 / rf2-rcgsc) --------
 ;;
 ;; The probe components read the sub via `use-subscribe` and push the
